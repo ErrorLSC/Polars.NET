@@ -2,89 +2,142 @@ namespace Polars.FSharp
 
 open System.Reflection
 open Microsoft.FSharp.Reflection
+open System.Linq.Expressions
+open System.Collections.Generic
 open System
 open System.Runtime.CompilerServices
 
 /// <summary>
-/// Unified high-performance row mapper for hydrating F# Records and DTOs from DataFrame rows.
+/// Fast typed field extractor that enforces null checking on non-Option fields.
+/// Marked public inside assembly to guarantee reflection accessibility.
 /// </summary>
+type FSharpRowExtractor =
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    static member ExtractField<'Field>(col: Series, rowIdx: int64, acceptsNull: bool, fieldName: string) : 'Field =
+        if not acceptsNull && col.IsNullAt(rowIdx, uncheck = true) then
+            invalidOp $"Record field '{fieldName}' does not accept Option, but column '{col.Name}' contains null at row {rowIdx}."
+        col.GetValue<'Field>(rowIdx, true)
+
 type internal FSharpRowMapper<'T>() =
-    static let mapper : (DataFrame * int64 -> 'T) =
+
+    // Safely resolve the open generic ExtractField method definition once
+    static let extractFieldMethodDef : MethodInfo =
+        let methods = typeof<FSharpRowExtractor>.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
+        methods
+        |> Array.find (fun m -> m.Name = "ExtractField" && m.IsGenericMethodDefinition)
+
+    static let columnNames : string[] =
         let targetType = typeof<'T>
-        let getValueMethodDef =
-            typeof<Series>.GetMethod("GetValue", [| typeof<int64>; typeof<bool> |])
+        if FSharpType.IsRecord(targetType, true) then
+            FSharpType.GetRecordFields(targetType, true)
+            |> Array.map (fun f -> f.Name)
+        else
+            targetType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+            |> Array.filter (fun p -> p.CanWrite)
+            |> Array.map (fun p -> p.Name)
+
+    // Compiled factory signature: (Series[] columns, int64 rowIdx) -> 'T
+    static let compiledHydrator : (Series[] * int64 -> 'T) =
+        let targetType = typeof<'T>
+        let colsParam = Expression.Parameter(typeof<Series[]>, "cols")
+        let rowIdxParam = Expression.Parameter(typeof<int64>, "rowIdx")
 
         if FSharpType.IsRecord(targetType, true) then
             let fields = FSharpType.GetRecordFields(targetType, true)
-            let ctor = FSharpValue.PreComputeRecordConstructor(targetType, true)
             let fieldCount = fields.Length
 
-            let fieldExtractors =
+            // F# records always have a single canonical constructor taking all fields in order
+            let ctors = targetType.GetConstructors(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
+            let recordCtor =
+                ctors
+                |> Array.tryFind (fun c -> c.GetParameters().Length = fieldCount)
+                |> Option.defaultWith (fun () -> ctors.[0])
+
+            let ctorArgs =
                 fields
-                |> Array.map (fun f ->
-                    let colName = f.Name
+                |> Array.mapi (fun i f ->
                     let fieldType = f.PropertyType
 
                     let isOption =
                         fieldType.IsGenericType &&
                         (fieldType.GetGenericTypeDefinition() = typedefof<option<_>> ||
                          fieldType.GetGenericTypeDefinition() = typedefof<voption<_>>)
-
                     let isList =
                         fieldType.IsGenericType && fieldType.GetGenericTypeDefinition() = typedefof<list<_>>
-
                     let isArray = fieldType.IsArray
-                    let acceptsNull = isOption || isList || isArray
+                    let isNullable = Nullable.GetUnderlyingType(fieldType) <> null
+                    let acceptsNull = isOption || isList || isArray || isNullable
 
-                    let getValueGeneric = getValueMethodDef.MakeGenericMethod([| fieldType |])
+                    let closedExtractMethod = extractFieldMethodDef.MakeGenericMethod([| fieldType |])
 
-                    fun (df: DataFrame, rowIdx: int64) ->
-                        let col = df.[colName]
+                    // cols[i]
+                    let colAccess = Expression.ArrayIndex(colsParam, Expression.Constant(i))
+                    let acceptsNullConst = Expression.Constant(acceptsNull, typeof<bool>)
+                    let fieldNameConst = Expression.Constant(f.Name, typeof<string>)
 
-                        if not acceptsNull && col.IsNullAt(rowIdx, uncheck = true) then
-                            invalidOp $"Record field '{f.Name}' does not accept Option, but column '{colName}' contains null at row {rowIdx}."
-
-                        getValueGeneric.Invoke(col, [| box rowIdx; box true |])
+                    // FSharpRowExtractor.ExtractField<FieldType>(cols[i], rowIdx, acceptsNull, fieldName)
+                    Expression.Call(closedExtractMethod, colAccess, rowIdxParam, acceptsNullConst, fieldNameConst) :> Expression
                 )
 
-            fun (df: DataFrame, rowIdx: int64) ->
-                let args = Array.zeroCreate<obj> fieldCount
-                for i = 0 to fieldCount - 1 do
-                    args.[i] <- fieldExtractors.[i](df, rowIdx)
-                ctor args :?> 'T
+            let newRecordExpr = Expression.New(recordCtor, ctorArgs)
+            let lambda = Expression.Lambda<Func<Series[], int64, 'T>>(newRecordExpr, colsParam, rowIdxParam)
+            let fn = lambda.Compile()
+
+            fun (cols: Series[], rowIdx: int64) -> fn.Invoke(cols, rowIdx)
 
         else
-            // Fallback for classes with parameterless constructors
-            let defaultCtor = targetType.GetConstructor Type.EmptyTypes
+            // Fallback for classes/structs with parameterless constructors
+            let defaultCtor = targetType.GetConstructor(BindingFlags.Public ||| BindingFlags.Instance, null, Type.EmptyTypes, null)
             if isNull defaultCtor && not targetType.IsValueType then
-                raise (ArgumentException $"Type '{targetType.FullName}' is neither an F# Record nor does it have a parameterless constructor.")
+                raise (ArgumentException $"Type '{targetType.FullName}' is neither an F# Record nor does it have a public parameterless constructor.")
 
-            let props = targetType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-            let propExtractors =
-                props
-                |> Array.choose (fun p ->
-                    if not p.CanWrite then None
-                    else
-                        let propName = p.Name
-                        let propType = p.PropertyType
-                        let getValueGeneric = getValueMethodDef.MakeGenericMethod [| propType |]
-                        Some (fun (instance: obj, df: DataFrame, rowIdx: int64) ->
-                            if df.ColumnNames |> Array.contains propName then
-                                let col = df.[propName]
-                                if not (col.IsNullAt(rowIdx, uncheck = true)) then
-                                    let v = getValueGeneric.Invoke(col, [| box rowIdx; box true |])
-                                    p.SetValue(instance, v)
-                        )
-                )
+            let props =
+                targetType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                |> Array.filter (fun p -> p.CanWrite)
 
-            fun (df: DataFrame, rowIdx: int64) ->
-                let instance = Activator.CreateInstance<'T>()
-                for extract in propExtractors do
-                    extract(instance, df, rowIdx)
-                instance
+            let propCount = props.Length
+            let instanceVar = Expression.Variable(targetType, "inst")
+            let newExpr =
+                if not (isNull defaultCtor) then
+                    Expression.New(defaultCtor)
+                else
+                    Expression.New(targetType) // ValueType struct fallback
 
-    static member Hydrate(df: DataFrame, rowIdx: int64) : 'T =
-        mapper (df, rowIdx)
+            let assignInst = Expression.Assign(instanceVar, newExpr)
+            let blockExprs = List<Expression>()
+            blockExprs.Add(assignInst)
+
+            for i = 0 to propCount - 1 do
+                let prop = props.[i]
+                let propType = prop.PropertyType
+                let closedExtractMethod = extractFieldMethodDef.MakeGenericMethod([| propType |])
+
+                let colAccess = Expression.ArrayIndex(colsParam, Expression.Constant(i))
+                let valExpr =
+                    Expression.Call(
+                        closedExtractMethod,
+                        colAccess,
+                        rowIdxParam,
+                        Expression.Constant(true, typeof<bool>),
+                        Expression.Constant(prop.Name, typeof<string>)
+                    )
+
+                let assignProp = Expression.Assign(Expression.Property(instanceVar, prop), valExpr)
+                blockExprs.Add(assignProp)
+
+            blockExprs.Add(instanceVar)
+
+            let body = Expression.Block([| instanceVar |], blockExprs)
+            let lambda = Expression.Lambda<Func<Series[], int64, 'T>>(body, colsParam, rowIdxParam)
+            let fn = lambda.Compile()
+
+            fun (cols: Series[], rowIdx: int64) -> fn.Invoke(cols, rowIdx)
+
+    static member ColumnNames = columnNames
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    static member Hydrate(cols: Series[], rowIdx: int64) : 'T =
+        compiledHydrator (cols, rowIdx)
 
 /// <summary>
 /// Stack-only, zero-allocation struct enumerator for F# DataFrame row iteration.
@@ -92,41 +145,45 @@ type internal FSharpRowMapper<'T>() =
 /// </summary>
 [<Struct>]
 type DataFrameRowEnumerator<'T> =
-    val private df: DataFrame
-    val private height: int64
-    val mutable private index: int64
-    val mutable private current: 'T
+    val private _df: DataFrame
+    val private _cols: Series[]
+    val private _height: int64
+    val mutable private _index: int64
+    val mutable private _current: 'T
 
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     internal new(df: DataFrame) =
+        let colNames = FSharpRowMapper<'T>.ColumnNames
+        let cols = colNames |> Array.map (fun name -> df.[name])
         {
-            df = df
-            height = df.Height
-            index = -1L
-            current = Unchecked.defaultof<'T>
+            _df = df
+            _cols = cols
+            _height = df.Height
+            _index = -1L
+            _current = Unchecked.defaultof<'T>
         }
-
     /// <summary>
     /// Moves the enumerator to the next element.
     /// </summary>
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member this.MoveNext() : bool =
-        let nextIndex = this.index + 1L
-        if nextIndex < this.height then
-            this.index <- nextIndex
-            this.current <- FSharpRowMapper<'T>.Hydrate(this.df, this.index)
+        let nextIndex = this._index + 1L
+        if nextIndex < this._height then
+            this._index <- nextIndex
+            // Pure straight-line hydration: array index access + compiled expression tree
+            this._current <- FSharpRowMapper<'T>.Hydrate(this._cols, this._index)
             true
         else
-            this.current <- Unchecked.defaultof<'T>
+            this._current <- Unchecked.defaultof<'T>
             false
     /// <summary>
     /// Gets the total number of rows.
     /// </summary>
-    member this.Length: int64 = this.height
+    member this.Length: int64 = this._height
     /// <summary>
     /// Gets the current element.
     /// </summary>
-    member this.Current: 'T = this.current
+    member this.Current: 'T = this._current
     /// <summary>
     /// Returns the enumerator itself.
     /// </summary>
@@ -136,34 +193,34 @@ type DataFrameRowEnumerator<'T> =
     /// Returns the first mapped row, or raises InvalidOperationException if empty.
     /// </summary>
     member this.First() : 'T =
-        if this.MoveNext() then this.current
+        if this.MoveNext() then this._current
         else invalidOp "The DataFrame sequence contains no elements."
     /// <summary>
     /// Returns the first mapped row, or None if empty.
     /// </summary>
     member this.TryFirst() : 'T option =
-        if this.MoveNext() then Some this.current
+        if this.MoveNext() then Some this._current
         else None
     /// <summary>
     /// Returns the first mapped row, or ValueNone if empty.
     /// </summary>
     member this.TryFirstValue() : 'T voption =
-        if this.MoveNext() then ValueSome this.current
+        if this.MoveNext() then ValueSome this._current
         else ValueNone
     /// <summary>
     /// Fetches a specific row directly by 64-bit index without sequential stepping.
     /// </summary>
     member this.Item(index: int64) : 'T =
-        if index < 0L || index >= this.height then
-            raise (IndexOutOfRangeException($"Index {index} is out of bounds for DataFrame height {this.height}."))
-        FSharpRowMapper<'T>.Hydrate(this.df, index)
+        if index < 0L || index >= this._height then
+            raise (IndexOutOfRangeException($"Index {index} is out of bounds for DataFrame height {this._height}."))
+        FSharpRowMapper<'T>.Hydrate(this._cols, index)
 
     /// <summary>
     /// Fills the destination Span{'T} directly.
     /// </summary>
     member this.CopyTo(destination: Span<'T>) : int =
-        if int64 destination.Length < this.height then
-            invalidArg (nameof destination) $"Destination span length ({destination.Length}) is smaller than row count ({this.height})."
+        if int64 destination.Length < this._height then
+            invalidArg (nameof destination) $"Destination span length ({destination.Length}) is smaller than row count ({this._height})."
 
         let mutable written = 0
         while this.MoveNext() do
@@ -174,11 +231,11 @@ type DataFrameRowEnumerator<'T> =
     /// Materializes all mapped rows into an array with exact pre-allocation.
     /// </summary>
     member this.ToArray() : 'T array =
-        if this.height = 0L then [||]
-        elif this.height > int64 Int32.MaxValue then
-            raise (OverflowException($"DataFrame height ({this.height}) exceeds Int32.MaxValue."))
+        if this._height = 0L then [||]
+        elif this._height > int64 Int32.MaxValue then
+            raise (OverflowException($"DataFrame height ({this._height}) exceeds Int32.MaxValue."))
         else
-            let len = int this.height
+            let len = int this._height
             let arr = Array.zeroCreate<'T> len
             let mutable i = 0
             while this.MoveNext() do
@@ -225,17 +282,17 @@ module DataFrameConversions =
         /// </summary>
         /// <typeparam name="'T">Target F# Record type.</typeparam>
         member this.ToRecords<'T>() : seq<'T> =
-            let targetType = typeof<'T>
-            if not (FSharpType.IsRecord(targetType, true)) then
-                raise (ArgumentException($"Type '{targetType.FullName}' is not an F# Record type.", "T"))
-
+            if not (FSharpType.IsRecord(typeof<'T>, true)) then
+                raise (ArgumentException $"Type '{typeof<'T>.FullName}' is not an F# Record type.")
+            let colNames = FSharpRowMapper<'T>.ColumnNames
+            // Hoist Series instances once: 0 hash lookup during row iteration
+            let cols = colNames |> Array.map (fun name -> this.[name])
             let height = this.Height
-            if height = 0L then Seq.empty
-            else
-                seq {
-                    for r = 0L to height - 1L do
-                        yield FSharpRowMapper<'T>.Hydrate(this, r)
-                }
+
+            seq {
+                for r = 0L to height - 1L do
+                    yield FSharpRowMapper<'T>.Hydrate(cols, r)
+            }
 
         /// <summary>
         /// Materializes all DataFrame rows into an F# list of records.

@@ -1,6 +1,6 @@
 using Apache.Arrow;
 using Polars.NET.Core;
-using Pl = Polars.CSharp.Polars; 
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
 
@@ -25,7 +25,7 @@ public static class UdfLogic
             }
             return builder.Build();
         }
-        
+
         if (arr is Int32Array i32Arr)
         {
             var builder = new StringViewArray.Builder();
@@ -58,11 +58,11 @@ public static class UdfLogic
             var builder = new DoubleArray.Builder();
             for (int i = 0; i < i64Arr.Length; i++)
             {
-                if (i64Arr.IsNull(i)) 
+                if (i64Arr.IsNull(i))
                 {
                     builder.AppendNull();
                 }
-                else 
+                else
                 {
                     double val = i64Arr.GetValue(i).Value;
                     builder.Append(val / 2.0);
@@ -122,7 +122,7 @@ public class UdfTests
         using var csv = new DisposableFile("num\n15\n25\n" +
                                           "35\n45\n55\n",".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
-        Assert.Equal(5, df.Height); 
+        Assert.Equal(5, df.Height);
 
         // UDF (Int64 -> Int64)
         var udf = Pl.Col("num").Map<long, long>(x => x * 2).Alias("res");
@@ -131,8 +131,8 @@ public class UdfTests
             Pl.Col("num"),
             udf
         );
-        Assert.Equal(5, res.Height); 
-        
+        Assert.Equal(5, res.Height);
+
         Assert.Equal(30, res.Column("res").GetValue<long>(0));
         Assert.Equal(50, res.Column("res").GetValue<long>(1));
         Assert.Equal(70, res.Column("res").GetValue<long>(2));
@@ -147,13 +147,13 @@ public class UdfTests
 
         using var df = lf.Select(
             Pl.Col("num")
-            .MapArrow(udf, DataType.String) 
+            .MapArrow(udf, DataType.String)
             .Alias("desc")
         ).Collect();
         df.Show();
-        
+
         Assert.NotNull(df.Column("desc"));
-        Assert.Equal("Value: 100", df.Column("desc").GetValue<string>(0)); 
+        Assert.Equal("Value: 100", df.Column("desc").GetValue<string>(0));
         Assert.Equal("Value: 200", df.Column("desc").GetValue<string>(1));
     }
 
@@ -165,7 +165,7 @@ public class UdfTests
 
         Func<IArrowArray, IArrowArray> udf = UdfLogic.AlwaysFail;
 
-        var ex = Assert.Throws<PolarsException>(() => 
+        var ex = Assert.Throws<PolarsException>(() =>
         {
             lf.Select(
                 Pl.Col("num").MapArrow(udf, Pl.SameAsInput)
@@ -185,7 +185,7 @@ public class UdfTests
             .Alias("doubled");
 
         using var res = df.Select(Pl.Col("num"), doubleExpr);
-        
+
         Assert.Equal(20, res.Column("doubled").GetValue<long>(0)); // 10 * 2
         Assert.Equal(60, res.Column("doubled").GetValue<long>(2)); // 30 * 2
     }
@@ -202,7 +202,7 @@ public class UdfTests
             .Alias("greeting");
 
         using var res = df.Select(Pl.Col("name"), greetExpr);
-        
+
         Assert.Equal("Hello, Alice!", res.Column("greeting").GetValue<string>(0));
         Assert.Equal("Hello, Bob!", res.Column("greeting").GetValue<string>(1));
     }
@@ -211,7 +211,7 @@ public class UdfTests
     public void Test_UDF_HighLevel_Type_Conversion()
     {
         // UDF Int64 -> String
-        
+
         using var csv = new DisposableFile("id\n1001\n1002\n",".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
@@ -220,7 +220,7 @@ public class UdfTests
             .Alias("order_id");
 
         using var res = df.Select(Pl.Col("id"), formatExpr);
-        
+
         Assert.Equal("Order-1001", res.Column("order_id").GetValue<string>(0));
         Assert.Equal("Order-1002", res.Column("order_id").GetValue<string>(1));
     }
@@ -236,7 +236,7 @@ public class UdfTests
             .Alias("cleaned");
 
         using var res = df.Select(Pl.Col("num"), cleanExpr);
-        
+
         Assert.Equal(10, res.Column("cleaned").GetValue<long>(0));
         Assert.Null(res.Column("cleaned").GetValue<long?>(1)); // 0 -> Null
         Assert.Equal(20, res.Column("cleaned").GetValue<long>(2));
@@ -254,16 +254,16 @@ public class UdfTests
             .Alias("status");
 
         using var res = df.Select(Pl.Col("num"), checkNullExpr);
-        
+
         Assert.Equal("Value:10", res.Column("status").GetValue<string>(0));
-        Assert.Equal("FoundNull", res.Column("status").GetValue<string>(1)); 
+        Assert.Equal("FoundNull", res.Column("status").GetValue<string>(1));
     }
     [Fact]
     public void Test_GroupBy_Agg_With_HighLevel_Lambda()
     {
         using var df = DataFrame.FromSeries(
             new Series("key", ["A", "A", "B", "B"]),
-            new Series("val", [1L, 2L, 3L, 4L]) 
+            new Series("val", [1L, 2L, 3L, 4L])
         );
 
         static long myGroupLogic(long[] nums)
@@ -276,15 +276,15 @@ public class UdfTests
         var res = df.GroupBy("key")
                     .Agg(
                         Pl.Col("val")
-                        .Implode() 
-                        .Map((Func<long[], long>)myGroupLogic) 
+                        .Implode()
+                        .Map((Func<long[], long>)myGroupLogic)
                         .Alias("custom_agg")
                     )
                     .Sort("key");
 
         // A: [1, 2] -> Max 2 -> +10 = 12
         Assert.Equal(12, res["custom_agg"].GetValue<long>(0));
-        
+
         // B: [3, 4] -> Max 4 -> +10 = 14
         Assert.Equal(14, res["custom_agg"].GetValue<long>(1));
     }
@@ -301,7 +301,8 @@ public class UdfTests
         // Act
         using var result = df.Select(
             Pl.Col("a").Map(
-                function: arrays => {
+                function: arrays =>
+                {
                     // arrays[0] = col a, arrays[1] = col b
                     var a = (Int32Array)arrays[0];
                     var b = (Int32Array)arrays[1];
@@ -324,5 +325,69 @@ public class UdfTests
         var summed = result[0].ToArray<int>();
         var expected = new int[] { 11, 22, 33, 44, 55 };
         Assert.Equal(expected, summed);
+    }
+    private sealed class EmployeeInput
+    {
+        public string Name { get; set; } = string.Empty;
+        public int Age { get; set; }
+        public double BaseSalary { get; set; }
+        public double Bonus { get; set; }
+    }
+
+    private sealed class EmployeeOutput
+    {
+        public string Name { get; set; } = string.Empty;
+        public double TotalCompensation { get; set; }
+        public bool IsSenior { get; set; }
+    }
+
+    [Fact]
+    [Trait("UDF", "MapRows")]
+    public void Test_MapRows_PrimitiveProjection()
+    {
+        var df = DataFrame.FromRows(
+        [
+            new EmployeeInput { Name = "Alice", Age = 32, BaseSalary = 100_000, Bonus = 15_000 },
+            new EmployeeInput { Name = "Bob",   Age = 25, BaseSalary = 70_000,  Bonus = 5_000 },
+            new EmployeeInput { Name = "Charlie", Age = 45, BaseSalary = 130_000, Bonus = 30_000 }
+        ]);
+
+        var res = df.MapRows<EmployeeInput, EmployeeOutput>(emp => new EmployeeOutput
+        {
+            Name = emp.Name.ToUpperInvariant(),
+            TotalCompensation = emp.BaseSalary + emp.Bonus,
+            IsSenior = emp.Age >= 30
+        });
+
+        Assert.Equal(3, res.Height);
+        Assert.Equal(3, res.Width);
+        Assert.Equal(["Name", "TotalCompensation", "IsSenior"], res.Columns);
+
+        // Verify values
+        Assert.Equal("ALICE", res.GetValue<string>(0, "Name"));
+        Assert.Equal(115_000.0, res.GetValue<double>(0, "TotalCompensation"));
+        Assert.True(res.GetValue<bool>(0, "IsSenior"));
+
+        Assert.Equal("BOB", res.GetValue<string>(1, "Name"));
+        Assert.Equal(75_000.0, res.GetValue<double>(1, "TotalCompensation"));
+        Assert.False(res.GetValue<bool>(1, "IsSenior"));
+    }
+
+    [Fact]
+    [Trait("UDF", "MapRows")]
+    public void Test_MapRows_EmptyDataFrame()
+    {
+        var emptyDf = DataFrame.FromRows(System.Array.Empty<EmployeeInput>());
+
+        var res = emptyDf.MapRows<EmployeeInput, EmployeeOutput>(emp => new EmployeeOutput
+        {
+            Name = emp.Name,
+            TotalCompensation = emp.BaseSalary + emp.Bonus,
+            IsSenior = emp.Age >= 30
+        });
+
+        Assert.Equal(0, res.Height);
+        Assert.Equal(3, res.Width);
+        Assert.Equal(["Name", "TotalCompensation", "IsSenior"], res.Columns);
     }
 }

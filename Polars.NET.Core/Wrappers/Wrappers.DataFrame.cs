@@ -11,36 +11,36 @@ public readonly partial struct PolarsWrapper
     public static long DataFrameHeight(DataFrameHandle df)
     {
         bool success = NativeBindings.pl_dataframe_height(df,out uint height);
-        
-        ErrorHelper.CheckBool(success); 
-        
+
+        ErrorHelper.CheckBool(success);
+
         return height;
     }
     public static long DataFrameWidth(DataFrameHandle df)
     {
         bool success = NativeBindings.pl_dataframe_width(df,out uint width);
-        
-        ErrorHelper.CheckBool(success); 
-        
+
+        ErrorHelper.CheckBool(success);
+
         return width;
     }
     public static long DataFrameEstimatedSize(DataFrameHandle df)
     {
         bool success = NativeBindings.pl_dataframe_estimated_size(df,out nuint size);
-        
-        ErrorHelper.CheckBool(success); 
-        
+
+        ErrorHelper.CheckBool(success);
+
         return (long)size;
     }
     public static string[] GetColumnNames(DataFrameHandle df)
     {
         long width = DataFrameWidth(df);
         var names = new string[width];
-        
+
         for (long i = 0; i < width; i++)
         {
             IntPtr ptr = NativeBindings.pl_dataframe_get_column_name(df, (UIntPtr)i);
-            
+
             names[i] = ErrorHelper.CheckString(ptr);
         }
         return names;
@@ -69,8 +69,8 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle DropInPlace(DataFrameHandle df, string name)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_drop_in_place(df, name));
     public static DataFrameHandle DataFrameUnique(
-        DataFrameHandle dfHandle, 
-        string[]? subset, 
+        DataFrameHandle dfHandle,
+        string[]? subset,
         PlUniqueKeepStrategy keep,
         bool maintainOrder,
         (long offset, ulong len)? slice)
@@ -93,7 +93,7 @@ public readonly partial struct PolarsWrapper
             dfHandle,
             subset,
             subLen,
-            keep, 
+            keep,
             maintainOrder,
             offset,
             (UIntPtr)len,
@@ -114,10 +114,10 @@ public readonly partial struct PolarsWrapper
     }
 
     public static unsafe DataFrameHandle SampleN(
-        DataFrameHandle df, 
-        SeriesHandle n, 
-        bool replacement, 
-        bool? shuffle, 
+        DataFrameHandle df,
+        SeriesHandle n,
+        bool replacement,
+        bool? shuffle,
         ulong? seed)
     {
         bool shuffleVal = shuffle ?? false;
@@ -127,10 +127,10 @@ public readonly partial struct PolarsWrapper
         ulong* seedPtr = seed.HasValue ? &seedVal : null;
 
         return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_n(
-            df, 
-            n, 
-            replacement, 
-            shufflePtr, 
+            df,
+            n,
+            replacement,
+            shufflePtr,
             seedPtr
         ));
     }
@@ -224,14 +224,14 @@ public readonly partial struct PolarsWrapper
 
         return isSorted;
     }
-        
+
     // Pivot (Eager)
     public static DataFrameHandle Pivot(
-        DataFrameHandle df, 
-        SelectorHandle index, 
+        DataFrameHandle df,
+        SelectorHandle index,
         SelectorHandle columns,
         SelectorHandle values,
-        ExprHandle? aggExpr, 
+        ExprHandle? aggExpr,
         PlPivotAgg aggFn,
         bool sortColumns,
         bool maintainOrder,
@@ -242,9 +242,9 @@ public readonly partial struct PolarsWrapper
 
         var handle = NativeBindings.pl_dataframe_pivot(
             df,
-            columns,       
-            index,         
-            values,        
+            columns,
+            index,
+            values,
             aggExprHandle,
             aggFn,
             maintainOrder,
@@ -260,14 +260,14 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(handle);
     }
     public static DataFrameHandle Concat(
-        DataFrameHandle[] handles, 
-        PlConcatType how, 
+        DataFrameHandle[] handles,
+        PlConcatType how,
         bool checkDuplicates,
         bool strict,
         bool unitLengthAsScalar)
     {
         var ptrs = HandlesToPtrs(handles);
-        
+
         var h = NativeBindings.pl_dataframe_concat(ptrs, (UIntPtr)ptrs.Length, how,checkDuplicates,strict,unitLengthAsScalar);
 
         foreach (var handle in handles)
@@ -292,10 +292,10 @@ public readonly partial struct PolarsWrapper
         }
 
         using var locker = new SafeHandleLock<SeriesHandle>(columns);
-        
+
         return ErrorHelper.Check(NativeBindings.pl_hstack(
-            df, 
-            locker.Pointers, 
+            df,
+            locker.Pointers,
             (UIntPtr)columns.Length
         ));
     }
@@ -335,12 +335,22 @@ public readonly partial struct PolarsWrapper
             return ErrorHelper.Check(NativeBindings.pl_dataframe_new([], nuint.Zero));
         }
 
-        Span<nint> pointers = series.Length <= 512 
-            ? stackalloc nint[series.Length] 
+        for (int i = 0; i < series.Length; i++)
+        {
+            var h = series[i] ?? throw new ArgumentNullException(nameof(series), $"SeriesHandle at index {i} is null.");
+
+            if (h.IsInvalid || h.IsClosed)
+            {
+                throw new ArgumentException($"SeriesHandle at index {i} is invalid or has already been closed.", nameof(series));
+            }
+        }
+
+        Span<nint> pointers = series.Length <= 512
+            ? stackalloc nint[series.Length]
             : new nint[series.Length];
 
-        Span<bool> locks = series.Length <= 512 
-            ? stackalloc bool[series.Length] 
+        Span<bool> locks = series.Length <= 512
+            ? stackalloc bool[series.Length]
             : new bool[series.Length];
 
         using var locker = new SafeHandleSpanLock<SeriesHandle>(series, pointers, locks);
@@ -357,40 +367,40 @@ public readonly partial struct PolarsWrapper
         var handle = NativeBindings.pl_dataframe_from_schema(schema,length);
         return ErrorHelper.Check(handle);
     }
-    public static LazyFrameHandle DataFrameToLazy(DataFrameHandle df) 
+    public static LazyFrameHandle DataFrameToLazy(DataFrameHandle df)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_lazy(df));
     public static string DataFrameToString(DataFrameHandle handle)
     {
         var ptr = NativeBindings.pl_dataframe_to_string(handle);
         return ErrorHelper.CheckString(ptr);
     }
-    public static DataFrameHandle DataFrameRechunk(DataFrameHandle df) 
+    public static DataFrameHandle DataFrameRechunk(DataFrameHandle df)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_rechunk(df));
-    public static void DataFrameShrinkToFit(DataFrameHandle df) 
+    public static void DataFrameShrinkToFit(DataFrameHandle df)
     {
         NativeBindings.pl_dataframe_shrink_to_fit(df);
         ErrorHelper.CheckVoid();
     }
-    public static DataFrameHandle DataFrameAlignChunks(DataFrameHandle df) 
+    public static DataFrameHandle DataFrameAlignChunks(DataFrameHandle df)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_align_chunks(df));
     public static DataFrameHandle[] PartitionBy(
-        DataFrameHandle df, 
-        string[] byCols, 
-        bool maintainOrder, 
+        DataFrameHandle df,
+        string[] byCols,
+        bool maintainOrder,
         bool includeKey)
     {
         unsafe
         {
             IntPtr arrayPtr = NativeBindings.pl_dataframe_partition_by(
-                df, 
-                byCols, 
-                (nuint)byCols.Length, 
-                maintainOrder, 
-                includeKey, 
+                df,
+                byCols,
+                (nuint)byCols.Length,
+                maintainOrder,
+                includeKey,
                 out nuint outLen
             );
 
-            ErrorHelper.Check(arrayPtr); 
+            ErrorHelper.Check(arrayPtr);
 
             int len = (int)outLen;
             var handles = new DataFrameHandle[len];
@@ -410,9 +420,9 @@ public readonly partial struct PolarsWrapper
     public static bool DataFrameEquals(DataFrameHandle df, DataFrameHandle other, bool nullEqual)
     {
         int status = NativeBindings.pl_dataframe_equals(df, other, nullEqual, out bool result);
-        
+
         ErrorHelper.CheckStatus(status);
-        
+
         return result;
     }
     public static void ReplaceColumnAt(DataFrameHandle df, int index, SeriesHandle series)
@@ -437,13 +447,13 @@ public readonly partial struct PolarsWrapper
         nuint customNamesLen = (nuint)(customNames?.Length ?? 0);
 
         var h = NativeBindings.pl_dataframe_transpose(
-            df, 
-            keepNamesAs, 
-            columnName, 
-            customNames, 
+            df,
+            keepNamesAs,
+            columnName,
+            customNames,
             customNamesLen
         );
-        
+
         return ErrorHelper.Check(h);
     }
     public static DataFrameHandle DataFrameUpsample(DataFrameHandle df, string timeColumn, string? every,string[]? groupBy, bool maintainOrder)
@@ -451,14 +461,14 @@ public readonly partial struct PolarsWrapper
         nuint groupByLen = (nuint)(groupBy?.Length ?? 0);
 
         var h = NativeBindings.pl_dataframe_upsample(
-            df, 
-            timeColumn, 
-            every, 
-            groupBy, 
+            df,
+            timeColumn,
+            every,
+            groupBy,
             groupByLen,
             maintainOrder
         );
-        
+
         return ErrorHelper.Check(h);
     }
     public static DataFrameHandle DataFrameToDummies(DataFrameHandle df, string[]? columns, string? separator, bool dropFirst,bool dropNulls)
@@ -466,17 +476,17 @@ public readonly partial struct PolarsWrapper
         nuint columnsLen = (nuint)(columns?.Length ?? 0);
 
         var h = NativeBindings.pl_dataframe_to_dummies(
-            df, 
-            columns, 
-            columnsLen, 
-            separator, 
+            df,
+            columns,
+            columnsLen,
+            separator,
             dropFirst,
             dropNulls
         );
-        
+
         return ErrorHelper.Check(h);
     }
     public static DataFrameHandle DataFrameTake(DataFrameHandle df, SeriesHandle indices)
-        => ErrorHelper.Check(NativeBindings.pl_dataframe_take(df,indices)); 
+        => ErrorHelper.Check(NativeBindings.pl_dataframe_take(df,indices));
 
 }

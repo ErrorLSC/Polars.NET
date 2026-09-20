@@ -1,9 +1,14 @@
 namespace Polars.FSharp
 
+open System
+open Microsoft.FSharp.Reflection
+open Apache.Arrow
+open System.Reflection
+
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module DataFrame =
-    open Apache.Arrow
+
     /// <summary> Filter rows based on a boolean expression. </summary>
     let filter (expr: Expr) (df: DataFrame) : DataFrame =
         df.Filter expr
@@ -218,3 +223,21 @@ module DataFrame =
     /// </summary>
     let foldState (folder: 'State -> Series -> 'State) (state: 'State) (df: DataFrame) : 'State =
         df.Fold(state, folder)
+
+    /// <summary>
+    /// Transforms each column in the DataFrame using a column-wise mapping function (Series -> Series).
+    /// </summary>
+    /// <param name="mapping">The function applied to each column Series.</param>
+    /// <returns>A new DataFrame composed of the transformed Series.</returns>
+    let inline map(mapping: Series -> Series) (df:DataFrame) : DataFrame =
+        df.Map mapping
+
+    /// <summary>
+    /// Transforms DataFrame rows into a new DataFrame using a strongly-typed F# Record mapping function ('TIn -> 'TOut).
+    /// </summary>
+    /// <typeparam name="'TIn">Input F# Record type representing the source row.</typeparam>
+    /// <typeparam name="'TOut">Output F# Record type representing the transformed row.</typeparam>
+    /// <param name="mapping">The pure transformation function applied to each row.</param>
+    /// <returns>A new DataFrame materialized from the mapped output records.</returns>
+    let inline mapRows<'TIn, 'TOut>(mapping: 'TIn -> 'TOut)(df:DataFrame) : DataFrame =
+        df.MapRows<'TIn, 'TOut> mapping

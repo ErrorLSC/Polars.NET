@@ -22,6 +22,32 @@ type StrictStudent = {
     Grade: int
 }
 
+type TemperatureReading = {
+    City: string
+    Celsius: float
+    RecordedAt: DateTime
+}
+
+type TemperatureSummary = {
+    City: string
+    Fahrenheit: float
+    IsFreezing: bool
+    RecordedAt: DateTime
+}
+
+type SimpleInput = {
+    Id: int
+    Value: double
+}
+
+type SimpleOutput = {
+    Id: int
+    Doubled: double
+}
+
+type NonRecordClass(id: int) =
+    member val Id = id with get, set
+
 // C#-style mutable DTO with parameterless constructor
 type MutablePersonDto() =
     member val Id = 0 with get, set
@@ -530,11 +556,11 @@ type DataFrameEnumeratorTests() =
     [<Trait("DataFrame", "ReplaceColumn")>]
     member _.``ReplaceColumn by name replaces in-place with correct keepName behavior`` () =
         // Arrange: Create a DataFrame with columns "X" and "Y"
-        let sX = Series.create("X", [| 1.0; 2.0 |])
-        let sY = Series.create("Y", [| 3.0; 4.0 |])
-        let df = DataFrame.create([| sX; sY |])
+        let sX = pl.series "X" [| 1.0; 2.0 |]
+        let sY = pl.series "Y" [| 3.0; 4.0 |]
+        let df = pl.dataframe [| sX; sY |]
 
-        let sNew = Series.create("Replacement", [| 5.0; 6.0 |])
+        let sNew = pl.series "Replacement" [| 5.0; 6.0 |]
 
         // Act 1: Replace column "Y", keepName = true (defaultArg fallback)
         let result1 = df.ReplaceColumn("Y", sNew)
@@ -544,7 +570,7 @@ type DataFrameEnumeratorTests() =
         Assert.Equal("Y", result1.Columns.[1])
 
         // Act 2: Replace column "X", keepName = false
-        let sAnother = Series.create("NoKeep", [| 7.0; 8.0 |])
+        let sAnother = pl.series "NoKeep" [| 7.0; 8.0 |]
         let result2 = df.ReplaceColumn("X", sAnother, keepName = false)
 
         // Assert 2: Name should change to the series name "NoKeep"
@@ -573,3 +599,166 @@ type DataFrameEnumeratorTests() =
         // Act 3: Test empty columns sequence exception branch
         let action = fun () -> df.ToDummies(columns = []) |> ignore
         Assert.Throws<ArgumentException>(action) |> ignore
+    [<Fact>]
+    [<Trait("DataFrame", "Map")>]
+    member _.``DataFrame map transforms each column and preserves names by default`` () =
+        // Arrange: Create a DataFrame with two columns
+        let sA = pl.series "A" [| 1.0; 2.0; 3.0 |]
+        let sB = pl.series "B" [| 10.0; 20.0; 30.0 |]
+        use df = pl.dataframe [| sA; sB |]
+
+        // Act: Double each numeric column without renaming
+        use result =
+            df
+            |> DataFrame.map (fun s -> s * 2.0)
+
+        // Assert: Column names and dimensions should be preserved, values doubled
+        Assert.Equal(2L, result.Width)
+        Assert.Equal(3L, result.Height)
+        Assert.Equal("A", result.Columns.[0])
+        Assert.Equal("B", result.Columns.[1])
+        Assert.Equal(2.0, result.["A"].GetValue<double>(0L))
+        Assert.Equal(20.0, result.["B"].GetValue<double>(0L))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Map")>]
+    member _.``DataFrame map respects explicit renamed series from mapping function`` () =
+        // Arrange: Create a DataFrame
+        let sX = pl.series "X" [| 100L; 200L |]
+        use df = pl.dataframe [| sX |]
+
+        // Act: Map column and explicitly rename it
+        use result =
+            df
+            |> DataFrame.map (fun s -> (s + 1L).Rename "RenamedX")
+
+        // Assert: Name should reflect the explicitly updated alias
+        Assert.Equal("RenamedX", result.Columns.[0])
+        Assert.Equal(101L, result.["RenamedX"].GetValue<int64>(0L))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Map")>]
+    member _.``DataFrame map on empty dataframe returns empty dataframe`` () =
+        // Arrange: Empty DataFrame
+        use emptyDf = pl.dataframe []
+
+        // Act: Apply mapping
+        use result =
+            emptyDf
+            |> DataFrame.map (fun s -> s)
+
+        // Assert: Remains empty
+        Assert.Equal(0L, result.Width)
+        Assert.Equal(0L, result.Height)
+
+    [<Fact>]
+    [<Trait("DataFrame", "Map")>]
+    member _.``DataFrame map throws ArgumentNullException when mapping is null`` () =
+        // Arrange: Create a DataFrame
+        let s = pl.series "Col" [| 1 |]
+        use df = pl.dataframe [| s |]
+
+        // Act & Assert
+        let action = fun () -> df.Map (Unchecked.defaultof<Series -> Series>) |> ignore
+        Assert.Throws<ArgumentNullException>(action) |> ignore
+    [<Fact>]
+    [<Trait("DataFrame", "MapRows")>]
+    member _.``DataFrame mapRows transforms typed records with mixed types correctly`` () =
+        // Arrange: Create source DataFrame from typed records
+        let now = DateTime(2026, 9, 20, 12, 0, 0, DateTimeKind.Utc)
+        let data = [
+            { City = "Tokyo";    Celsius = 25.0;  RecordedAt = now }
+            { City = "Harbin";   Celsius = -5.0;  RecordedAt = now.AddHours(1.0) }
+            { City = "Helsinki"; Celsius = 0.0;   RecordedAt = now.AddHours(2.0) }
+        ]
+        use df = DataFrame.ofRecords data
+
+        // Act: Apply mapRows transforming Celsius to Fahrenheit and computing freezing flag
+        use result =
+            df
+            |> DataFrame.mapRows (fun (r: TemperatureReading) ->
+                {
+                    City = r.City.ToUpperInvariant()
+                    Fahrenheit = r.Celsius * 1.8 + 32.0
+                    IsFreezing = r.Celsius <= 0.0
+                    RecordedAt = r.RecordedAt
+                }
+            )
+
+        // Assert: Verify dimensions and schema
+        Assert.Equal(3L, result.Height)
+        Assert.Equal(4L, result.Width)
+        Assert.Equal<string>([| "City"; "Fahrenheit"; "IsFreezing"; "RecordedAt" |], result.Columns)
+
+        // Assert: Row 0 (Tokyo)
+        Assert.Equal("TOKYO", result.["City"].GetValue<string>(0L))
+        Assert.Equal(77.0, result.["Fahrenheit"].GetValue<double>(0L))
+        Assert.False(result.["IsFreezing"].GetValue<bool>(0L))
+        Assert.Equal(now, result.["RecordedAt"].GetValue<DateTime>(0L))
+
+        // Assert: Row 1 (Harbin)
+        Assert.Equal("HARBIN", result.["City"].GetValue<string>(1L))
+        Assert.Equal(23.0, result.["Fahrenheit"].GetValue<double>(1L))
+        Assert.True(result.["IsFreezing"].GetValue<bool>(1L))
+
+        // Assert: Row 2 (Helsinki)
+        Assert.Equal("HELSINKI", result.["City"].GetValue<string>(2L))
+        Assert.Equal(32.0, result.["Fahrenheit"].GetValue<double>(2L))
+        Assert.True(result.["IsFreezing"].GetValue<bool>(2L))
+
+    [<Fact>]
+    [<Trait("DataFrame", "MapRows")>]
+    member _.``DataFrame mapRows handles empty dataframe while preserving output schema`` () =
+        // Arrange: Empty source DataFrame
+        use emptyDf = DataFrame.ofRecords<SimpleInput> []
+
+        // Act: Apply mapping on empty DataFrame
+        use result =
+            emptyDf
+            |> DataFrame.mapRows (fun (r: SimpleInput) ->
+                { Id = r.Id; Doubled = r.Value * 2.0 }
+            )
+
+        // Assert: Should produce an empty DataFrame with output Record column schema
+        Assert.Equal(0L, result.Height)
+        Assert.Equal(2L, result.Width)
+        Assert.Equal("Id", result.Columns.[0])
+        Assert.Equal("Doubled", result.Columns.[1])
+
+    [<Fact>]
+    [<Trait("DataFrame", "MapRows")>]
+    member _.``DataFrame mapRows rejects non-Record input type with ArgumentException`` () =
+        // Arrange: DataFrame created from maps/columns
+        use df = pl.dataframe [| pl.series "Id" [| 1; 2 |] |]
+
+        // Act & Assert: Attempting to map rows to/from non-Record types should be rejected
+        let action = fun () ->
+            df.MapRows (fun (t: Tuple<int>) -> { Id = t.Item1; Doubled = 0.0 }) |> ignore
+
+        let ex = Assert.Throws<ArgumentException>(action)
+        Assert.Contains("is not an F# Record type", ex.Message)
+
+    [<Fact>]
+    [<Trait("DataFrame", "MapRows")>]
+    member _.``DataFrame mapRows rejects non-Record output type with ArgumentException`` () =
+        // Arrange: Valid Record DataFrame
+        use df = DataFrame.ofRecords [ { Id = 1; Value = 10.0 } ]
+
+        // Act & Assert: Returning a non-Record class or tuple
+        let action = fun () ->
+            df.MapRows (fun (r: SimpleInput) -> NonRecordClass(r.Id)) |> ignore
+
+        let ex = Assert.Throws<ArgumentException>(action)
+        Assert.Contains("is not an F# Record type", ex.Message)
+
+    [<Fact>]
+    [<Trait("DataFrame", "MapRows")>]
+    member _.``DataFrame mapRows throws ArgumentNullException when mapping is null`` () =
+        // Arrange: Valid Record DataFrame
+        use df = DataFrame.ofRecords [ { Id = 1; Value = 10.0 } ]
+
+        // Act & Assert: Passing null delegate
+        let action = fun () ->
+            df.MapRows (Unchecked.defaultof<SimpleInput -> SimpleOutput>) |> ignore
+
+        Assert.Throws<ArgumentNullException>(action) |> ignore

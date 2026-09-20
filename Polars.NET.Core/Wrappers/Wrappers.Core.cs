@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 
 namespace Polars.NET.Core;
 
@@ -8,7 +9,7 @@ public readonly partial struct PolarsWrapper
     internal static nint[] HandlesToPtrs(PolarsHandle[] handles)
     {
         if (handles == null || handles.Length == 0) return [];
-        
+
         var ptrs = new nint[handles.Length];
         for (int i = 0; i < handles.Length; i++)
         {
@@ -28,7 +29,7 @@ public readonly partial struct PolarsWrapper
     {
         private readonly T[] _handles;
         private readonly bool[] _locks;
-        
+
         public readonly IntPtr[] Pointers;
 
         public SafeHandleLock(T[]? handles)
@@ -53,7 +54,7 @@ public readonly partial struct PolarsWrapper
                 {
                     // 1. Add ref for handles
                     handles[i].DangerousAddRef(ref _locks[i]);
-                    
+
                     // 2. Only if locked successfully then get its raw pointer
                     if (_locks[i])
                     {
@@ -81,7 +82,7 @@ public readonly partial struct PolarsWrapper
                 if (_locks[i])
                 {
                     _handles[i].DangerousRelease();
-                    _locks[i] = false; 
+                    _locks[i] = false;
                 }
             }
         }
@@ -93,24 +94,37 @@ internal readonly ref struct SafeHandleSpanLock<T> where T : SafeHandle
     private readonly ReadOnlySpan<T> _handles;
     private readonly Span<bool> _locks;
 
-    public SafeHandleSpanLock(ReadOnlySpan<T> handles, Span<IntPtr> pointers, Span<bool> locks)
+    public SafeHandleSpanLock(ReadOnlySpan<T> handles, Span<nint> pointers, Span<bool> locks)
     {
+        if (handles.Length != pointers.Length || handles.Length != locks.Length)
+        {
+            throw new ArgumentException("Span lengths must match between handles, pointers, and locks.");
+        }
+
         _handles = handles;
         _locks = locks;
-        locks.Clear(); 
+        locks.Clear();
 
         bool success = false;
         try
         {
             for (int i = 0; i < handles.Length; i++)
             {
-                handles[i].DangerousAddRef(ref locks[i]);
-                
+                var handle = handles[i] ?? throw new ArgumentNullException(nameof(handles), $"Handle at index {i} is null.");
+
+                if (handle.IsInvalid || handle.IsClosed)
+                {
+                    throw new ObjectDisposedException(nameof(handles), $"Handle at index {i} is invalid or has already been closed.");
+                }
+
+                handle.DangerousAddRef(ref locks[i]);
+
                 if (locks[i])
                 {
-                    pointers[i] = handles[i].DangerousGetHandle();
+                    pointers[i] = handle.DangerousGetHandle();
                 }
             }
+
             success = true;
         }
         finally
@@ -122,6 +136,10 @@ internal readonly ref struct SafeHandleSpanLock<T> where T : SafeHandle
         }
     }
 
+    /// <summary>
+    /// Releases dangerous references for all previously acquired safe handles.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Dispose()
     {
         for (int i = 0; i < _handles.Length; i++)

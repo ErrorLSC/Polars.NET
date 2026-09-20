@@ -9,6 +9,7 @@ using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Linq.Expressions;
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
@@ -41,7 +42,7 @@ internal sealed class ColumnBuffer<T> : IColumnBuffer
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Append(T? value)
     {
-        if (_count == _buffer.Length)
+        if ((uint)_count >= (uint)_buffer.Length)
         {
             Resize();
         }
@@ -68,11 +69,12 @@ internal sealed class ColumnBuffer<T> : IColumnBuffer
 
     public Series ToSeries(string name)
     {
-        // Trim or borrow span directly to avoid extra heap allocations
+        // Zero-copy borrow of exact populated slice
         ReadOnlySpan<T?> span = _buffer.AsSpan(0, _count);
         return Series.FromSpan(name, span);
     }
 
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private void Resize()
     {
         int newCap = _buffer.Length == 0 ? 16 : _buffer.Length * 2;
@@ -81,7 +83,7 @@ internal sealed class ColumnBuffer<T> : IColumnBuffer
 }
 
 /// <summary>
-/// Fallback buffer for complex nested types (DTOs, anonymous classes, Structs)
+/// Fallback buffer for complex nested types (DTOs, anonymous classes, Structs).
 /// Converts nested objects into a Polars Struct Series using the Arrow engine.
 /// </summary>
 internal sealed class StructColumnBuffer<T>(int capacity) : IColumnBuffer
@@ -97,10 +99,12 @@ internal sealed class StructColumnBuffer<T>(int capacity) : IColumnBuffer
     {
         if (_items.Count == 0)
         {
-            return Series.From(name, System.Array.Empty<T>());
+            return Series.From(name, Array.Empty<T>());
         }
 
-        return Series.From(name, _items.ToArray());
+        // Complex types cannot be converted via contiguous primitive span.
+        // Delegate to ArrowConverter/ArrowFfiBridge via Series.From<T>(name, IEnumerable<T>)
+        return Series.From(name, _items);
     }
 }
 
@@ -181,7 +185,6 @@ internal static class PocoColumnWriter<T>
         var buffersParam = Expression.Parameter(typeof(IColumnBuffer[]), "buffers");
 
         var blockExpressions = new List<Expression>();
-
         var addObjMethod = typeof(IColumnBuffer).GetMethod(nameof(IColumnBuffer.AddObject))!;
 
         for (int i = 0; i < props.Length; i++)
@@ -215,7 +218,7 @@ internal static class PocoColumnWriter<T>
             }
             else
             {
-                // Complex Struct / Anonymous Type -> Fallback to AddObject
+                // Complex Struct / Anonymous Type -> Direct call to AddObject
                 var addCall = Expression.Call(
                     bufferElement,
                     addObjMethod,
@@ -236,7 +239,6 @@ internal static class DictBufferAppenderFactory
 {
     private static readonly ConcurrentDictionary<Type, Action<IColumnBuffer, object?, bool>> Cache = new();
 
-    // Cache open generic MethodInfo: AppendVal<T>(IColumnBuffer, object?, bool)
     private static readonly MethodInfo AppendValGenericMethodDef = typeof(DictBufferAppenderFactory)
         .GetMethod(nameof(AppendVal), BindingFlags.NonPublic | BindingFlags.Static)!;
 
@@ -252,7 +254,7 @@ internal static class DictBufferAppenderFactory
         // 1. String fast-path (Reference Type)
         if (underlying == typeof(string))
         {
-            return (buf, val, strict) =>
+            return (buf, val, _) =>
             {
                 if (buf is ColumnBuffer<string> strBuf)
                 {
@@ -293,7 +295,7 @@ internal static class DictBufferAppenderFactory
     {
         if (buffer is ColumnBuffer<T?> typedBuf)
         {
-            if (val == null)
+            if (val is null)
             {
                 typedBuf.Append(null);
                 return;
@@ -370,13 +372,14 @@ internal static class SoAColumnExtractor<T>
             }
             else
             {
-                // Fallback directly to Series.From<object?>
+                // Fallback: Safe non-generic Enumerable wrapper for untyped collections
+                var castMethod = typeof(Enumerable).GetMethod(nameof(Enumerable.Cast), BindingFlags.Public | BindingFlags.Static)!
+                    .MakeGenericMethod(typeof(object));
+
                 var specializedFrom = seriesFromMethod.MakeGenericMethod(typeof(object));
-                createSeriesExpr = Expression.Call(
-                    specializedFrom,
-                    nameParam,
-                    Expression.Convert(propAccess, typeof(IEnumerable<object>))
-                );
+                var castCall = Expression.Call(castMethod, Expression.Convert(propAccess, typeof(System.Collections.IEnumerable)));
+
+                createSeriesExpr = Expression.Call(specializedFrom, nameParam, castCall);
             }
 
             var lambda = Expression.Lambda<Func<T, string, Series>>(createSeriesExpr, containerParam, nameParam);

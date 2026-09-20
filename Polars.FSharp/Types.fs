@@ -335,6 +335,8 @@ type Series(handle: SeriesHandle) =
     /// <summary> Modulo (scalar). </summary>
     member this.Mod(other: int) =
         this.ApplyExpr(Expr.Col(this.Name).Mod(new Expr(PolarsWrapper.Lit other)))
+    member this.Mod(other: int64) =
+        this.ApplyExpr(Expr.Col(this.Name).Mod(new Expr(PolarsWrapper.Lit other)))
 
     // Alias for Mod
     member this.Rem(other: Series) = this.Mod other
@@ -365,31 +367,45 @@ type Series(handle: SeriesHandle) =
     // --- Broadcasting Helpers (Scalar Ops) ---
     static member (+) (lhs: Series, rhs: int) = lhs + Series.create("lit", [rhs])
     static member (+) (lhs: Series, rhs: double) = lhs + Series.create("lit", [rhs])
+    static member (+) (lhs: Series, rhs: int64) = lhs + Series.create("lit", [rhs])
+    static member (+) (lhs: Series, rhs: single) = lhs + Series.create("lit", [rhs])
     static member (-) (lhs: Series, rhs: int) = lhs - Series.create("lit", [rhs])
     static member (-) (lhs: Series, rhs: double) = lhs - Series.create("lit", [rhs])
+    static member (-) (lhs: Series, rhs: int64) = lhs - Series.create("lit", [rhs])
+    static member (-) (lhs: Series, rhs: single) = lhs - Series.create("lit", [rhs])
 
     static member (*) (lhs: Series, rhs: int) = lhs * Series.create("lit", [rhs])
     static member (*) (lhs: Series, rhs: int64) = lhs * Series.create("lit", [rhs])
     static member (*) (lhs: Series, rhs: double) = lhs * Series.create("lit", [rhs])
+    static member (*) (lhs: Series, rhs: single) = lhs * Series.create("lit", [rhs])
 
     static member (/) (lhs: Series, rhs: int) = lhs / Series.create("lit", [rhs])
+    static member (/) (lhs: Series, rhs: int64) = lhs / Series.create("lit", [rhs])
     static member (/) (lhs: Series, rhs: double) = lhs / Series.create("lit", [rhs])
+    static member (/) (lhs: Series, rhs: single) = lhs / Series.create("lit", [rhs])
     static member (%) (lhs: Series, rhs: int) = lhs.Mod rhs
+    static member (%) (lhs: Series, rhs: int64) = lhs.Mod rhs
+
     static member (<<<) (lhs: Series, rhs: int) = lhs.BitLeftShift rhs
     static member (>>>) (lhs: Series, rhs: int) = lhs.BitRightShift rhs
 
     // Comparison with Scalar
     static member (.>) (lhs: Series, rhs: int) = lhs .> Series.create("lit", [rhs])
+    static member (.>) (lhs: Series, rhs: int64) = lhs .> Series.create("lit", [rhs])
     static member (.>) (lhs: Series, rhs: double) = lhs .> Series.create("lit", [rhs])
     static member (.<) (lhs: Series, rhs: int) = lhs .< Series.create("lit", [rhs])
+    static member (.<) (lhs: Series, rhs: int64) = lhs .< Series.create("lit", [rhs])
     static member (.<) (lhs: Series, rhs: double) = lhs .< Series.create("lit", [rhs])
     static member (.>=) (lhs: Series, rhs: int) = lhs .>= Series.create("lit", [rhs])
+    static member (.<=) (lhs: Series, rhs: int64) = lhs .<= Series.create("lit", [rhs])
     static member (.<=) (lhs: Series, rhs: double) = lhs .<= Series.create("lit", [rhs])
 
     static member (.=) (lhs: Series, rhs: int) = lhs .= Series.create("lit", [rhs])
+    static member (.=) (lhs: Series, rhs: int64) = lhs .= Series.create("lit", [rhs])
     static member (.=) (lhs: Series, rhs: double) = lhs .= Series.create("lit", [rhs])
     static member (.=) (lhs: Series, rhs: string) = lhs .= Series.create("lit", [rhs])
     static member (.!=) (lhs: Series, rhs: int) = lhs != Series.create("lit", [rhs])
+    static member (.!=) (lhs: Series, rhs: int64) = lhs != Series.create("lit", [rhs])
     static member (.!=) (lhs: Series, rhs: string) = lhs != Series.create("lit", [rhs])
     static member ( .@ ) (s1: Series, s2: Series) : Series = s1.Append s2
     /// <summary>

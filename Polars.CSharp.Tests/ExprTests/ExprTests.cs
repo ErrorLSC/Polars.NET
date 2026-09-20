@@ -628,7 +628,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Struct")]
     public void Test_Struct_JsonEncode()
     {
-        var df = DataFrame.From(
+        var df = DataFrame.FromRows(
         [
             new { Id = 1, Info = new { Name = "Alice", Age = 18 } },
             new { Id = 2, Info = new { Name = "Bob", Age = 20 } }

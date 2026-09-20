@@ -95,6 +95,7 @@
     <Compile Include="Extensions.fs" />
     <Compile Include="DataFrame/DataFrame.Unstack.fs" />
     <Compile Include="DataFrame/DataFrame.JsonNormalize.fs" />
+    <Compile Include="DataFrame/DataFrame.Mapping.fs" />
     <Compile Include="DataFrame/DataFrame.Modules.fs" />
     <Compile Include="LazyFrame/LazyFrame.Modules.fs" />
     <Compile Include="Series/Series.Modules.fs" />

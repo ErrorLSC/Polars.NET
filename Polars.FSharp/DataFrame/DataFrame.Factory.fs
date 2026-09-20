@@ -143,19 +143,43 @@ module DataFrameFactory =
         /// </para>
         /// </summary>
         static member ofRecords<'T>(data: seq<'T>) : DataFrame =
-            if isNull data then DataFrame.create()
+            let recordType = typeof<'T>
+            let props = recordType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+
+            if props.Length = 0 then
+                DataFrame.create()
             else
                 let records =
-                    match data with
-                    | :? ('T[]) as arr -> arr
-                    | _ -> Seq.toArray data
+                    if isNull data then Array.empty<'T>
+                    else
+                        match data with
+                        | :? ('T[]) as arr -> arr
+                        | _ -> Seq.toArray data
 
-                if records.Length = 0 then DataFrame.create()
+                // Handle Empty Record Sequence: Create empty typed Series for each property
+                if records.Length = 0 then
+                    let seriesFromMethod =
+                        typeof<Series>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
+                        |> Array.find (fun m ->
+                            m.Name = "From" &&
+                            m.IsGenericMethodDefinition &&
+                            m.GetParameters().Length = 2 &&
+                            m.GetParameters().[0].ParameterType = typeof<string> &&
+                            m.GetParameters().[1].ParameterType.IsGenericType &&
+                            m.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<seq<_>>
+                        )
+
+                    let emptySeriesList =
+                        props
+                        |> Array.map (fun prop ->
+                            let emptyArr = Array.CreateInstance(prop.PropertyType, 0)
+                            let specializedFrom = seriesFromMethod.MakeGenericMethod([| prop.PropertyType |])
+                            specializedFrom.Invoke(null, [| box prop.Name; box emptyArr |]) :?> Series
+                        )
+
+                    DataFrame.create emptySeriesList
                 else
-                    let recordType = typeof<'T>
-                    let props = recordType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-
-                    // 1. Leverage unified PolarsTypeHelper across the board
+                    // Check eligibility for fast zero-copy path
                     let useFastPath =
                         props |> Array.forall (fun p -> PolarsTypeHelper.IsSupportedSimpleType(p.PropertyType))
 
