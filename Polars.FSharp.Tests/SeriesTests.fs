@@ -1156,3 +1156,77 @@ type ``Series Tests`` () =
         // Assert
         Assert.Equal(3L, s1.Length)
         Assert.Equal(30, s1.GetValue<int>(2L))
+    [<Fact>]
+    [<Trait("Series", "Enumerator")>]
+    member _.``Series.As iterates over primitive integers correctly`` () =
+        let expected = [| 10; 20; 30; 40; 50 |]
+        use s = pl.series "integers" expected
+
+        let actual = ResizeArray<int>()
+        for v in s.As<int>() do
+            actual.Add(v)
+
+        Assert.Equal<int seq>(expected, actual)
+
+    [<Fact>]
+    [<Trait("Series", "Enumerator")>]
+    member _.``Series.As handles nullable types with FSharpOption`` () =
+        let data = [| Some 100L; None; Some 200L; None; Some 300L |]
+        use s = pl.series "nullable_int64" data
+
+        let actual = ResizeArray<int64 option>()
+        for v in s.As<int64 option>() do
+            actual.Add(v)
+
+        Assert.Equal<int64 option seq>(data, actual)
+
+    [<Fact>]
+    [<Trait("Series", "Enumerator")>]
+    member _.``Series.As handles nullable types with ValueOption`` () =
+        let data = [| ValueSome 1.5; ValueNone; ValueSome 3.5 |]
+        use s = pl.series "voption_float" data
+
+        let actual = ResizeArray<double voption>()
+        for v in s.As<double voption>() do
+            actual.Add(v)
+
+        Assert.Equal<double voption seq>(data, actual)
+
+    [<Fact>]
+    [<Trait("Series", "Enumerator")>]
+    member _.``Series.As supports 16-byte Guid with zero-allocation`` () =
+        let g1 = Guid.NewGuid()
+        let g2 = Guid.NewGuid()
+        let g3 = Guid.Empty
+        let expected = [| g1; g2; g3 |]
+        use s = pl.series "guids" expected
+
+        let actual = ResizeArray<Guid>()
+        for g in s.As<Guid>() do
+            actual.Add(g)
+
+        Assert.Equal<Guid seq>(expected, actual)
+
+    [<Fact>]
+    [<Trait("Series", "Enumerator")>]
+    member _.``Series.As supports strings and Categorical/Enum mapping`` () =
+        let expected = [| "alpha"; "beta"; "gamma" |]
+        use s = pl.series "strings" expected
+
+        let actual = ResizeArray<string>()
+        for str in s.As<string>() do
+            actual.Add(str)
+
+        Assert.Equal<string seq>(expected, actual)
+
+    [<Fact>]
+    [<Trait("Series", "Enumerator")>]
+    member _.``Series.As iterates empty series without failure`` () =
+        let expected: int array = [||]
+        use s = pl.series "empty" expected
+
+        let actual = ResizeArray<int>()
+        for v in s.As<int>() do
+            actual.Add(v)
+
+        Assert.Empty(actual)

@@ -1,0 +1,13 @@
+{
+  "lsp": {
+    "fsautocomplete": {
+      "initialization_options": {
+        "FSharp": {
+          "workspaceMode": "projects",
+          "enableMSBuildProjectDiagnostics": false,
+          "enableReferenceCodeLens": false
+        }
+      }
+    }
+  }
+}

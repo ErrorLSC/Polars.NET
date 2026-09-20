@@ -6,7 +6,7 @@ using System.Runtime.CompilerServices;
 
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable,IPolarsSeries
+public partial class Series : IDisposable, IPolarsSeries
 {
     /// <summary>
     /// Get an item at the specified index.
@@ -19,7 +19,7 @@ public partial class Series : IDisposable,IPolarsSeries
                 throw new IndexOutOfRangeException($"Index {index} is out of bounds for Series length {Length}.");
         }
 
-        if (this.IsNullAt(index,uncheck:true))
+        if (this.IsNullAt(index, uncheck: true))
             return default;
 
         var type = typeof(T);
@@ -96,7 +96,7 @@ public partial class Series : IDisposable,IPolarsSeries
 
         if (RowCursor.IsSupportedNumericType(underlying) && DataType.IsNumeric)
         {
-            return RowCursor.CoerceNumericValue<T>(Handle,index, (PlDataType)DataType.Kind, underlying);
+            return RowCursor.CoerceNumericValue<T>(Handle, index, (PlDataType)DataType.Kind, underlying);
         }
         // ==============================================================
         // 2. Boolean
@@ -314,7 +314,7 @@ public partial class Series : IDisposable,IPolarsSeries
     {
         get
         {
-           return Take(Pl.Lit(indices));
+            return Take(Pl.Lit(indices));
         }
         set
         {

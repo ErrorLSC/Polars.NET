@@ -1,5 +1,6 @@
 #nowarn "64"
 #nowarn "44"
+#nowarn "1189"
 namespace Polars.FSharp
 
 open System
@@ -14,6 +15,10 @@ open Apache.Arrow.Adbc
 open Apache.Arrow.Ipc
 open System.ComponentModel
 open System.Runtime.CompilerServices
+
+module private TypePatterns =
+    let inline (|Is|_|)<'T>(t: Type) =
+        if t = typeof<'T> then Some() else None
 
 /// --- Series ---
 /// <summary>
@@ -404,12 +409,11 @@ type Series(handle: SeriesHandle) =
     // ==========================================
     // Unified Accessor (Fast Path + Universal Path)
     // ==========================================
-
     /// <summary>
     /// Internal scalar reader routing to exact fast paths, numeric coercion paths, or the universal Arrow reader.
     /// </summary>
-    [<EditorBrowsable(EditorBrowsableState.Never)>]
-    member this.ReadScalarInternal<'T>(index: int64) : 'T =
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member private this.ReadScalarInternal<'T>(index: int64) : 'T =
         match typeof<'T>, this.DataType.Kind with
         | t, DataTypeKind.Int32 when t = typeof<int32> ->
             let mutable v = PolarsWrapper.SeriesGetInt32Fast(this.Handle, index)
@@ -521,16 +525,177 @@ type Series(handle: SeriesHandle) =
             use sliced = PolarsWrapper.SeriesSlice(this.Handle, index, 1UL)
             use column = PolarsWrapper.SeriesToArrow sliced
             ArrowReader.ReadItem<'T>(column, 0)
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member private this.ReadAsValueOption<'T>(index: int64, innerType: Type) : 'T =
+        match innerType with
+        | t when t = typeof<int32> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<int32> index)
+            Unsafe.As<int32 voption, 'T>(&v)
+        | t when t = typeof<int64> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<int64> index)
+            Unsafe.As<int64 voption, 'T>(&v)
+        | t when t = typeof<double> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<double> index)
+            Unsafe.As<double voption, 'T>(&v)
+        | t when t = typeof<float32> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<float32> index)
+            Unsafe.As<float32 voption, 'T>(&v)
+        | t when t = typeof<bool> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<bool> index)
+            Unsafe.As<bool voption, 'T>(&v)
+        | t when t = typeof<string> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<string> index)
+            Unsafe.As<string voption, 'T>(&v)
+        | t when t = typeof<decimal> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<decimal> index)
+            Unsafe.As<decimal voption, 'T>(&v)
+        | t when t = typeof<Guid> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<Guid> index)
+            Unsafe.As<Guid voption, 'T>(&v)
+        | t when t = typeof<uint32> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<uint32> index)
+            Unsafe.As<uint32 voption, 'T>(&v)
+        | t when t = typeof<uint64> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<uint64> index)
+            Unsafe.As<uint64 voption, 'T>(&v)
+        | t when t = typeof<int16> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<int16> index)
+            Unsafe.As<int16 voption, 'T>(&v)
+        | t when t = typeof<uint16> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<uint16> index)
+            Unsafe.As<uint16 voption, 'T>(&v)
+        | t when t = typeof<sbyte> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<sbyte> index)
+            Unsafe.As<sbyte voption, 'T>(&v)
+        | t when t = typeof<byte> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<byte> index)
+            Unsafe.As<byte voption, 'T>(&v)
+        | t when t = typeof<DateOnly> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<DateOnly> index)
+            Unsafe.As<DateOnly voption, 'T>(&v)
+        | t when t = typeof<TimeOnly> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<TimeOnly> index)
+            Unsafe.As<TimeOnly voption, 'T>(&v)
+        | t when t = typeof<TimeSpan> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<TimeSpan> index)
+            Unsafe.As<TimeSpan voption, 'T>(&v)
+        | t when t = typeof<DateTime> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<DateTime> index)
+            Unsafe.As<DateTime voption, 'T>(&v)
+        | t when t = typeof<Half> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<Half> index)
+            Unsafe.As<Half voption, 'T>(&v)
+        | t when t = typeof<Int128> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<Int128> index)
+            Unsafe.As<Int128 voption, 'T>(&v)
+        | t when t = typeof<UInt128> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<UInt128> index)
+            Unsafe.As<UInt128 voption, 'T>(&v)
+        | t when t = typeof<Guid> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<Guid> index)
+            Unsafe.As<Guid voption, 'T>(&v)
+        | _ ->
+            // Complex types fallback directly to Arrow
+            use sliced = PolarsWrapper.SeriesSlice(this.Handle, index, 1UL)
+            use column = PolarsWrapper.SeriesToArrow sliced
+            ArrowReader.ReadItem<'T>(column, 0)
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member private this.ReadAsOption<'T>(index: int64, innerType: Type) : 'T =
+        match innerType with
+        | t when t = typeof<int32> ->
+            let mutable v = Some (this.ReadScalarInternal<int32> index)
+            Unsafe.As<int32 option, 'T>(&v)
+        | t when t = typeof<int64> ->
+            let mutable v = Some (this.ReadScalarInternal<int64> index)
+            Unsafe.As<int64 option, 'T>(&v)
+        | t when t = typeof<double> ->
+            let mutable v = Some (this.ReadScalarInternal<double> index)
+            Unsafe.As<double option, 'T>(&v)
+        | t when t = typeof<float32> ->
+            let mutable v = Some (this.ReadScalarInternal<float32> index)
+            Unsafe.As<float32 option, 'T>(&v)
+        | t when t = typeof<bool> ->
+            let mutable v = Some (this.ReadScalarInternal<bool> index)
+            Unsafe.As<bool option, 'T>(&v)
+        | t when t = typeof<string> ->
+            let mutable v = Some (this.ReadScalarInternal<string> index)
+            Unsafe.As<string option, 'T>(&v)
+        | t when t = typeof<decimal> ->
+            let mutable v = Some (this.ReadScalarInternal<decimal> index)
+            Unsafe.As<decimal option, 'T>(&v)
+        | t when t = typeof<Guid> ->
+            let mutable v = Some (this.ReadScalarInternal<Guid> index)
+            Unsafe.As<Guid option, 'T>(&v)
+        | t when t = typeof<uint32> ->
+            let mutable v = Some (this.ReadScalarInternal<uint32> index)
+            Unsafe.As<uint32 option, 'T>(&v)
+        | t when t = typeof<uint64> ->
+            let mutable v = Some (this.ReadScalarInternal<uint64> index)
+            Unsafe.As<uint64 option, 'T>(&v)
+        | t when t = typeof<int16> ->
+            let mutable v = Some (this.ReadScalarInternal<int16> index)
+            Unsafe.As<int16 option, 'T>(&v)
+        | t when t = typeof<uint16> ->
+            let mutable v = Some (this.ReadScalarInternal<uint16> index)
+            Unsafe.As<uint16 option, 'T>(&v)
+        | t when t = typeof<sbyte> ->
+            let mutable v = Some (this.ReadScalarInternal<sbyte> index)
+            Unsafe.As<sbyte option, 'T>(&v)
+        | t when t = typeof<byte> ->
+            let mutable v = Some (this.ReadScalarInternal<byte> index)
+            Unsafe.As<byte option, 'T>(&v)
+        | t when t = typeof<DateOnly> ->
+            let mutable v = Some (this.ReadScalarInternal<DateOnly> index)
+            Unsafe.As<DateOnly option, 'T>(&v)
+        | t when t = typeof<TimeOnly> ->
+            let mutable v = Some (this.ReadScalarInternal<TimeOnly> index)
+            Unsafe.As<TimeOnly option, 'T>(&v)
+        | t when t = typeof<TimeSpan> ->
+            let mutable v = Some (this.ReadScalarInternal<TimeSpan> index)
+            Unsafe.As<TimeSpan option, 'T>(&v)
+        | t when t = typeof<DateTime> ->
+            let mutable v = Some (this.ReadScalarInternal<DateTime> index)
+            Unsafe.As<DateTime option, 'T>(&v)
+        | t when t = typeof<Half> ->
+            let mutable v = Some (this.ReadScalarInternal<Half> index)
+            Unsafe.As<Half option, 'T>(&v)
+        | t when t = typeof<Int128> ->
+            let mutable v = Some (this.ReadScalarInternal<Int128> index)
+            Unsafe.As<Int128 option, 'T>(&v)
+        | t when t = typeof<UInt128> ->
+            let mutable v = Some (this.ReadScalarInternal<UInt128> index)
+            Unsafe.As<UInt128 option, 'T>(&v)
+        | t when t = typeof<Guid> ->
+            let mutable v = Some (this.ReadScalarInternal<Guid> index)
+            Unsafe.As<Guid option, 'T>(&v)
+        | _ ->
+            use sliced = PolarsWrapper.SeriesSlice(this.Handle, index, 1UL)
+            use column = PolarsWrapper.SeriesToArrow sliced
+            ArrowReader.ReadItem<'T>(column, 0)
     /// <summary>
     /// Gets a single scalar value by 64-bit index.
     /// </summary>
     /// <param name="index">The 64-bit row index.</param>
     /// <param name="uncheck">If true, bypasses boundary checking and null bitmap validation (internal fast-path).</param>
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member this.GetValue<'T>(index: int64, uncheck: bool) : 'T =
-        if this.IsNullAt(index,uncheck) then
+        // 1. Unified null short-circuit:
+        // Returns ValueNone for voption, None (null) for option, and default for raw types.
+        if this.IsNullAt(index, uncheck) then
             Unchecked.defaultof<'T>
         else
-            this.ReadScalarInternal<'T> index
+            // 2. Guaranteed non-null dispatch:
+            let t = typeof<'T>
+
+            if t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<voption<_>> then
+                this.ReadAsValueOption<'T>(index, t.GetGenericArguments().[0])
+
+            elif t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<option<_>> then
+                this.ReadAsOption<'T>(index, t.GetGenericArguments().[0])
+
+            else
+                this.ReadScalarInternal<'T> index
 
     /// <summary>
     /// Get scalar value with full bounds and null checks.
@@ -553,21 +718,15 @@ type Series(handle: SeriesHandle) =
     /// Ideal for safe handling of nulls in Polars series.
     /// </summary>
     member this.GetValueOption<'T>(index: int64) : 'T option =
-        if this.IsNullAt index then
-            None
-        else
-            Some (this.ReadScalarInternal<'T> index)
+        this.GetValue<'T option>(index, uncheck = false)
     /// <summary>
     /// Gets the value at the specified index as a ValueOption ('T voption).
     /// </summary>
     /// <typeparam name="T">The .NET data type expected (e.g., int32, float, DateOnly).</typeparam>
     /// <param name="index">The 64-bit row index location.</param>
     /// <returns>ValueSome value if valid, or ValueNone if null.</returns>
-    member inline this.TryGetValue<'T>(index: int64) : 'T voption =
-        if this.IsNullAt(index, uncheck = false) then
-            ValueNone
-        else
-            ValueSome (this.ReadScalarInternal<'T> index)
+    member this.TryGetValue<'T>(index: int64) : 'T voption =
+        this.GetValue<'T voption>(index, uncheck = false)
     /// <summary>
     /// [Indexer] Access value at specific index.
     /// Syntax: series.[index]

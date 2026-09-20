@@ -43,6 +43,7 @@
     <Compile Include="Types.fs" />
     <Compile Include="Lit.fs" />
     <Compile Include="Operations/Cast.fs" />
+    <Compile Include="Series/Series.Enumerator.fs" />
     <Compile Include="Series/Series.Operations.fs" />
     <Compile Include="Series/Series.Aggregation.fs" />
     <Compile Include="Series/Series.Descriptive.fs" />

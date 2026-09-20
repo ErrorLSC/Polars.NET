@@ -40,12 +40,12 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <returns>A scalar expression representing the dot product result.</returns>
     /// <example>
     /// <code>
-    /// var df = DataFrame.FromColumns(new 
+    /// var df = DataFrame.FromColumns(new
     /// {
     ///     a = new[] { 1, 2, 3 },
     ///     b = new[] { 4, 5, 6 }
     /// });
-    /// 
+    ///
     /// // (1*4) + (2*5) + (3*6) = 4 + 10 + 18 = 32
     /// df.Select(Pl.Col("a").Dot(Col("b"))).Show();
     /// </code>
@@ -76,7 +76,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="baseVal">Given base, defaults to e</param>
     public Expr Log(Expr baseVal) => new(PolarsWrapper.Log(CloneHandle(), baseVal.CloneHandle()));
-    /// <inheritdoc cref="Expr.Log(Expr)"/> 
+    /// <inheritdoc cref="Expr.Log(Expr)"/>
     public Expr Log() => Ln();
     /// <summary>
     /// Compute the base 10 logarithm of the input array, element-wise.
@@ -205,15 +205,15 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Compute exponentially-weighted moving average.
     /// </summary>
     /// <param name="alpha">
-    /// Specify smoothing factor alpha directly. 
+    /// Specify smoothing factor alpha directly.
     /// <para>Constraint: <c>0 &lt; alpha &lt;= 1</c></para>
     /// </param>
     /// <param name="adjust">
-    /// If <c>true</c>, divide by decaying adjustment factor in beginning periods to account for imbalance in relative weightings (viewing data as finite history). 
+    /// If <c>true</c>, divide by decaying adjustment factor in beginning periods to account for imbalance in relative weightings (viewing data as finite history).
     /// If <c>false</c>, assume infinite history.
     /// </param>
     /// <param name="bias">
-    /// If <c>true</c>, use a biased estimator (Standard deviation uses <c>N</c> in denominator). 
+    /// If <c>true</c>, use a biased estimator (Standard deviation uses <c>N</c> in denominator).
     /// If <c>false</c>, use an unbiased estimator (Standard deviation uses <c>N-1</c>).
     /// <para>Note: This is primarily relevant for Variance/StdDev. For Mean, it typically defaults to true.</para>
     /// </param>
@@ -259,8 +259,8 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     ///     <item><term>Compound</term><description>Example: <c>"3d12h4m25s"</c>.</description></item>
     /// </list>
     /// <para>
-    /// <b>Warning:</b> <paramref name="halfLife"/> is treated as a constant duration. 
-    /// Calendar durations such as months (<c>mo</c>) or years (<c>y</c>) are <b>NOT</b> supported because they vary in length. 
+    /// <b>Warning:</b> <paramref name="halfLife"/> is treated as a constant duration.
+    /// Calendar durations such as months (<c>mo</c>) or years (<c>y</c>) are <b>NOT</b> supported because they vary in length.
     /// Please express such durations in hours (e.g. use <c>'730h'</c> instead of <c>'1mo'</c>).
     /// </para>
     /// </param>
@@ -291,7 +291,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     {
         if (!maintainOrder)
             return new(PolarsWrapper.ExprUnique(CloneHandle()));
-        else 
+        else
             return new(PolarsWrapper.ExprUniqueStable(CloneHandle()));
     }
     /// <summary>
@@ -307,7 +307,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="name">Give the resulting count column a specific name; if normalize is True this defaults to “proportion”, otherwise defaults to “count”.</param>
     /// <param name="normalize">If True, the count is returned as the relative frequency of unique values normalized to 1.0.</param>
     /// <returns>Expression of type Struct, mapping unique values to their count (or proportion).</returns>
-    public Expr ValueCounts(bool sort=false,bool parallel=false,string? name=null,bool normalize=false) 
+    public Expr ValueCounts(bool sort=false,bool parallel=false,string? name=null,bool normalize=false)
         => new(PolarsWrapper.ValueCounts(CloneHandle(),sort,parallel,name,normalize));
     /// <summary>
     /// Bin values into buckets and count their occurrences.
