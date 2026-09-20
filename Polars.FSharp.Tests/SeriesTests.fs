@@ -1230,3 +1230,337 @@ type ``Series Tests`` () =
             actual.Add(v)
 
         Assert.Empty(actual)
+    [<Fact>]
+    [<Trait("Series", "FilterWith")>]
+    member _.``Series filterWith filters primitive integers using managed predicate`` () =
+        // Arrange: Create a Series with sequential numbers
+        use s = pl.series "numbers" [| 1; 2; 3; 4; 5; 6; 7; 8; 9; 10 |]
+
+        // Act: Filter even numbers greater than 4 via pipeline
+        use result =
+            s
+            |> Series.filterWith (fun (x: int) -> x > 4 && x % 2 = 0)
+
+        // Assert: Verify length and filtered elements
+        Assert.Equal(3L, result.Length)
+        Assert.Equal("numbers", result.Name)
+        Assert.Equal(6, result.GetValue<int>(0L))
+        Assert.Equal(8, result.GetValue<int>(1L))
+        Assert.Equal(10, result.GetValue<int>(2L))
+
+    [<Fact>]
+    [<Trait("Series", "FilterWith")>]
+    member _.``Series filterWith handles string transformations and complex predicates`` () =
+        // Arrange: Create a string Series
+        use s = pl.series "fruits" [| "apple"; "banana"; "apricot"; "cherry"; "avocado" |]
+
+        // Act: Filter strings starting with 'a' and longer than 5 chars
+        use result =
+            s.FilterWith<string>(fun name ->
+                name.StartsWith("a", StringComparison.OrdinalIgnoreCase) && name.Length > 5
+            )
+
+        // Assert: "apricot" (7) and "avocado" (7) match; "apple" (5) is excluded
+        Assert.Equal(2L, result.Length)
+        Assert.Equal("apricot", result.GetValue<string>(0L))
+        Assert.Equal("avocado", result.GetValue<string>(1L))
+
+    [<Fact>]
+    [<Trait("Series", "FilterWith")>]
+    member _.``Series filterWith returning all false yields empty Series with schema intact`` () =
+        // Arrange: Numeric Series
+        use s = pl.series "vals" [| 10.0; 20.0; 30.0 |]
+
+        // Act: Filter out all elements
+        use result =
+            s
+            |> Series.filterWith (fun (x: float) -> x < 0.0)
+
+        // Assert: Length is 0, name and data type preserved
+        Assert.Equal(0L, result.Length)
+        Assert.Equal("vals", result.Name)
+        Assert.Equal(s.DataType.Kind, result.DataType.Kind)
+
+    [<Fact>]
+    [<Trait("Series", "FilterWith")>]
+    member _.``Series filterWith on empty series returns empty series safely`` () =
+        // Arrange: Empty Series
+        use s = pl.series "empty" Array.empty<int>
+
+        // Act: Filter with dummy predicate
+        use result =
+            s
+            |> Series.filterWith (fun (x: int) -> x > 0)
+
+        // Assert: Remains empty with correct schema
+        Assert.Equal(0L, result.Length)
+        Assert.Equal("empty", result.Name)
+
+    [<Fact>]
+    [<Trait("Series", "FilterWith")>]
+    member _.``Series filterWith throws ArgumentNullException when predicate is null`` () =
+        // Arrange: Series instance
+        use s = pl.series "data" [| 1; 2; 3 |]
+
+        // Act & Assert: Passing null predicate delegate
+        let action = fun () ->
+            s.FilterWith<int>(Unchecked.defaultof<int -> bool>) |> ignore
+
+        Assert.Throws<ArgumentNullException>(action) |> ignore
+    [<Fact>]
+    [<Trait("Series", "FilterWith")>]
+    member _.``Series filterWith ignores null values safely`` () =
+        // Arrange: Create a numeric Series containing nulls using nullable or Option
+        use s = pl.series "nullable_nums" [| Some 10; None; Some 25; None; Some 5 |]
+
+        // Act: Filter values greater than 8 (nulls should be safely skipped and evaluated to false)
+        use result =
+            s.FilterWith<int>(fun x -> x > 8)
+
+        // Assert: Only 10 and 25 should pass
+        Assert.Equal(2L, result.Length)
+        Assert.Equal(10, result.GetValue<int>(0L))
+        Assert.Equal(25, result.GetValue<int>(1L))
+    [<Fact>]
+    [<Trait("Series", "Iter2")>]
+    member _.``Series iter2 executes action pairwise and ignores nulls`` () =
+        // Arrange: Two series with one containing null
+        use s1 = pl.series "x" [| 10; 20; 30 |]
+        use s2 = pl.series "y" [| Some 1.5; None; Some 3.5 |]
+        let observed = ResizeArray<int * float>()
+
+        // Act: Zip iterate
+        Series.iter2 (fun (x: int) (y: float) ->
+            observed.Add((x, y))
+        ) s1 s2
+
+        // Assert: Index 1 had None in s2, so only 2 pairs executed
+        Assert.Equal(2, observed.Count)
+        Assert.Equal((10, 1.5), observed.[0])
+        Assert.Equal((30, 3.5), observed.[1])
+
+    [<Fact>]
+    [<Trait("Series", "Iter2")>]
+    member _.``Series iter2 throws ArgumentException on mismatched lengths`` () =
+        // Arrange: Length 2 vs Length 3
+        use s1 = pl.series "x" [| 1; 2 |]
+        use s2 = pl.series "y" [| 1; 2; 3 |]
+
+        // Act & Assert
+        let action = fun () -> s1.Iter2<int, int>(s2, fun _ _ -> ())
+        Assert.Throws<ArgumentException>(action) |> ignore
+    [<Fact>]
+    [<Trait("Series", "IterOpt")>]
+    member _.``Series iterOpt explicitly captures and handles None without skipping`` () =
+        // Arrange: Series with nulls
+        use s = pl.series "values" [| Some 42; None; Some 100 |]
+        let logOutput = ResizeArray<string>()
+
+        // Act: Observe both Some and None explicitly
+        s
+        |> Series.iterOpt<int> (function
+            | ValueSome v -> logOutput.Add $"Val: {v}"
+            | ValueNone   -> logOutput.Add "Missing!"
+        )
+
+        // Assert: 3 elements observed, None was NOT skipped
+        Assert.Equal(3, logOutput.Count)
+        Assert.Equal("Val: 42", logOutput.[0])
+        Assert.Equal("Missing!", logOutput.[1])
+        Assert.Equal("Val: 100", logOutput.[2])
+
+    [<Fact>]
+    [<Trait("Series", "Iter2Opt")>]
+    member _.``Series iter2Opt captures pair alignments with nulls present`` () =
+        // Arrange: s1 and s2 with interspersed nulls
+        use s1 = pl.series "x" [| Some 10; None; Some 30 |]
+        use s2 = pl.series "y" [| Some "A"; Some "B"; None |]
+        let pairs = ResizeArray<string>()
+
+        // Act: Pairwise observation
+        Series.iter2Opt (fun (xOpt: int voption) (yOpt: string voption) ->
+            match xOpt, yOpt with
+            | ValueSome x, ValueSome y -> pairs.Add $"{x}-{y}"
+            | ValueNone,   ValueSome y -> pairs.Add $"NA-{y}"
+            | ValueSome x, ValueNone   -> pairs.Add $"{x}-NA"
+            | ValueNone,   ValueNone   -> pairs.Add "NA-NA"
+        ) s1 s2
+
+        // Assert: All rows synchronized and null states retained
+        Assert.Equal(3, pairs.Count)
+        Assert.Equal("10-A", pairs.[0])
+        Assert.Equal("NA-B", pairs.[1])
+        Assert.Equal("30-NA", pairs.[2])
+    [<Fact>]
+    [<Trait("Series", "Iter")>]
+    member _.``Series iter traverses all non-null scalar elements sequentially`` () =
+        // Arrange: Numeric series with primitive values
+        use s = pl.series "numbers" [| 10; 20; 30; 40 |]
+        let observed = ResizeArray<int>()
+
+        // Act: Sequentially consume elements via iter
+        s
+        |> Series.iter<int> (fun x -> observed.Add x)
+
+        // Assert: Elements observed in exact physical order
+        Assert.Equal(4, observed.Count)
+        Assert.Equal<int>([ 10; 20; 30; 40 ], observed)
+
+    [<Fact>]
+    [<Trait("Series", "Iter")>]
+    member _.``Series iter automatically skips null values in sparse series`` () =
+        // Arrange: Sparse series containing interspersed nulls
+        use s = pl.series "sparse" [| Some 100; None; Some 200; None; Some 300 |]
+        let observed = ResizeArray<int>()
+
+        // Act: Dense iter should automatically ignore missing values
+        s
+        |> Series.iter<int> (fun v -> observed.Add v)
+
+        // Assert: Only the 3 present values should be emitted
+        Assert.Equal(3, observed.Count)
+        Assert.Equal<int>([ 100; 200; 300 ], observed)
+
+    [<Fact>]
+    [<Trait("Series", "Iter")>]
+    member _.``Series iteri accurately pairs element with its row index`` () =
+        // Arrange: String series with null element
+        use s = pl.series "tags" [| Some "alpha"; None; Some "gamma" |]
+        let indexedResults = ResizeArray<int64 * string>()
+
+        // Act: Track index and valid scalar value
+        s
+        |> Series.iteri<string> (fun idx item ->
+            indexedResults.Add((idx, item))
+        )
+
+        // Assert: Preserves original 64-bit row index even when row 1 is skipped
+        Assert.Equal(2, indexedResults.Count)
+        Assert.Equal((0L, "alpha"), indexedResults.[0])
+        Assert.Equal((2L, "gamma"), indexedResults.[1])
+
+    // =========================================================================
+    // 2. Series.iterOpt & Series.iteriOpt (Option-Aware Iteration Tests)
+    // =========================================================================
+
+    [<Fact>]
+    [<Trait("Series", "IterOpt")>]
+    member _.``Series iterOpt captures both ValueSome and ValueNone explicitly without skipping`` () =
+        // Arrange: Series with known null positions
+        use s = pl.series "measurements" [| Some 1.5; None; Some 3.5 |]
+        let logs = ResizeArray<string>()
+
+        // Act: Explicitly handle presence and absence via ValueOption pattern matching
+        s
+        |> Series.iterOpt<float> (function
+            | ValueSome v -> logs.Add $"Val:{v:F1}"
+            | ValueNone   -> logs.Add "Missing"
+        )
+
+        // Assert: 3 total rows observed, None is preserved and handled
+        Assert.Equal(3, logs.Count)
+        Assert.Equal("Val:1.5", logs.[0])
+        Assert.Equal("Missing", logs.[1])
+        Assert.Equal("Val:3.5", logs.[2])
+
+    [<Fact>]
+    [<Trait("Series", "IterOpt")>]
+    member _.``Series iteriOpt yields strictly contiguous row indices for all rows`` () =
+        // Arrange: Sparse series
+        use s = pl.series "flags" [| Some true; None; Some false |]
+        let captured = ResizeArray<int64 * bool voption>()
+
+        // Act: Iterate through every row with its index
+        s
+        |> Series.iteriOpt<bool> (fun idx opt ->
+            captured.Add((idx, opt))
+        )
+
+        // Assert: Indices 0L, 1L, 2L must all be present
+        Assert.Equal(3, captured.Count)
+        Assert.Equal((0L, ValueSome true), captured.[0])
+        Assert.Equal((1L, ValueNone), captured.[1])
+        Assert.Equal((2L, ValueSome false), captured.[2])
+
+    // =========================================================================
+    // 3. Series.iter2 & Series.iter2Opt (Dual Series Zip Iteration Tests)
+    // =========================================================================
+
+    [<Fact>]
+    [<Trait("Series", "Iter2")>]
+    member _.``Series iter2 executes dense pairwise action only when both sides are valid`` () =
+        // Arrange: Two series of equal length
+        use s1 = pl.series "x" [| Some 1; Some 2; None;   Some 4 |]
+        use s2 = pl.series "y" [| Some 10; None;   Some 30; Some 40 |]
+        let pairs = ResizeArray<int * int>()
+
+        // Act: Only invoke action when both elements exist
+        Series.iter2 (fun (x: int) (y: int) ->
+            pairs.Add((x, y))
+        ) s1 s2
+
+        // Assert: Rows 1 and 2 have at least one null, so only rows 0 and 3 are executed
+        Assert.Equal(2, pairs.Count)
+        Assert.Equal((1, 10), pairs.[0])
+        Assert.Equal((4, 40), pairs.[1])
+
+    [<Fact>]
+    [<Trait("Series", "Iter2")>]
+    member _.``Series iter2Opt enables full matrix alignment of dual series with nulls`` () =
+        // Arrange: Dual series
+        use s1 = pl.series "id" [| Some 101; None |]
+        use s2 = pl.series "label" [| Some "A"; Some "B" |]
+        let diffs = ResizeArray<string>()
+
+        // Act: Inspect pairwise options
+        Series.iter2Opt (fun (idOpt: int voption) (labelOpt: string voption) ->
+            match idOpt, labelOpt with
+            | ValueSome id, ValueSome lbl -> diffs.Add $"{id}:{lbl}"
+            | ValueNone,    ValueSome lbl -> diffs.Add $"NA:{lbl}"
+            | ValueSome id, ValueNone     -> diffs.Add $"{id}:NA"
+            | ValueNone,    ValueNone     -> diffs.Add "NA:NA"
+        ) s1 s2
+
+        // Assert: Complete observation of both aligned positions
+        Assert.Equal(2, diffs.Count)
+        Assert.Equal("101:A", diffs.[0])
+        Assert.Equal("NA:B", diffs.[1])
+
+    [<Fact>]
+    [<Trait("Series", "Iter2")>]
+    member _.``Series iter2 throws ArgumentException when series lengths mismatch`` () =
+        // Arrange: Length 2 vs Length 3
+        use s1 = pl.series "a" [| 1; 2 |]
+        use s2 = pl.series "b" [| 1; 2; 3 |]
+
+        // Act & Assert
+        let action = fun () -> s1.Iter2<int, int>(s2, fun _ _ -> ())
+        let ex = Assert.Throws<ArgumentException>(action)
+        Assert.Contains("lengths do not match", ex.Message)
+
+    // =========================================================================
+    // 4. Boundary & Defensive Tests (Empty & Null Guards)
+    // =========================================================================
+
+    [<Fact>]
+    [<Trait("Series", "Iter")>]
+    member _.``Series iter on empty series executes without side-effects`` () =
+        // Arrange: Empty series
+        use empty = pl.series "empty" Array.empty<int>
+        let mutable invoked = false
+
+        // Act: Iterate over empty
+        empty |> Series.iter<int> (fun _ -> invoked <- true)
+
+        // Assert: Action never executed
+        Assert.False(invoked)
+
+    [<Fact>]
+    [<Trait("Series", "Iter")>]
+    member _.``Series iter throws ArgumentNullException when action is null`` () =
+        // Arrange: Valid series
+        use s = pl.series "data" [| 1; 2; 3 |]
+
+        // Act & Assert
+        let action = fun () -> s.Iter<int>(Unchecked.defaultof<int -> unit>)
+        Assert.Throws<ArgumentNullException>(action) |> ignore

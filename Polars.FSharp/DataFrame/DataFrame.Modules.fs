@@ -209,12 +209,34 @@ module DataFrame =
         for step = 1 to steps do
             current <- stepFn step current
         current
+    /// <summary>
+    /// Pipeline combinator for DataFrame.IterRows: ('T -> unit) -> DataFrame -> unit.
+    /// </summary>
+    let inline iterRows<'T> (action: 'T -> unit) (df: DataFrame) : unit =
+        df.IterRows<'T> action
+
+    /// <summary>
+    /// Pipeline combinator for DataFrame.IteriRows: (int64 -> 'T -> unit) -> DataFrame -> unit.
+    /// </summary>
+    let inline iteriRows<'T> (action: int64 -> 'T -> unit) (df: DataFrame) : unit =
+        df.IteriRows<'T> action
+    /// <summary>
+    /// Pipeline combinator for DataFrame.iter2: ('T1 -> 'T2 -> unit) -> DataFrame -> DataFrame -> unit.
+    /// </summary>
+    let inline iter2<'T1, 'T2> (action: 'T1 -> 'T2 -> unit) (df1: DataFrame) (df2: DataFrame) : unit =
+        df1.Iter2<'T1, 'T2>(df2, action)
+
+    /// <summary>
+    /// Pipeline combinator for DataFrame.iteri2: (int64 -> 'T1 -> 'T2 -> unit) -> DataFrame -> DataFrame -> unit.
+    /// </summary>
+    let inline iteri2<'T1, 'T2> (action: int64 -> 'T1 -> 'T2 -> unit) (df1: DataFrame) (df2: DataFrame) : unit =
+        df1.Iteri2<'T1, 'T2>(df2, action)
 
     /// <summary>
     /// Applies a folding function across all columns of the DataFrame from left to right,
     /// using the first column as the seed.
     /// </summary>
-    let fold (folder: Series -> Series -> Series) (df: DataFrame) : Series =
+    let inline fold (folder: Series -> Series -> Series) (df: DataFrame) : Series =
         df.Fold folder
 
     /// <summary>

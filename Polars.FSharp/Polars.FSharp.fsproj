@@ -61,6 +61,7 @@
     <Compile Include="Series/Series.ArrayOps.fs" />
     <Compile Include="Series/Series.StructOps.fs" />
     <Compile Include="Series/Series.DtOps.fs" />
+    <Compile Include="Series/Series.Iteration.fs" />
     <Compile Include="Series/Series.Namespaces.fs" />
     <Compile Include="IO/CSV/Read.fs" />
     <Compile Include="IO/CSV/Write.fs" />

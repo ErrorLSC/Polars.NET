@@ -279,7 +279,11 @@ module Series =
     /// <param name="series">The target Series.</param>
     let inline filter(predicate:Expr)(series:Series) =
         series.Filter predicate
-
+    /// <summary>
+    /// Filters a Series using a strongly-typed F# predicate function ('T -> bool).
+    /// </summary>
+    let inline filterWith<'T> (predicate: 'T -> bool) (series: Series) : Series =
+        series.FilterWith<'T> predicate
     /// <summary>
     /// Cast a series to a specific Polars DataType.
     /// </summary>
@@ -361,7 +365,7 @@ module Series =
     /// <summary>
     /// Convert the Series to Expr.
     /// </summary>
-    let inline toExpr(series:Series) :Expr = 
+    let inline toExpr(series:Series) :Expr =
         pl.litSeries series
     /// <summary>
     /// Prints the Series to the console.
@@ -603,6 +607,41 @@ module Series =
             | _ ->
                 i <- i + 1L
         result
+    /// <summary>
+    /// Pipeline alias for Series.IterOpt: ('T voption -> unit) -> Series -> unit.
+    /// </summary>
+    let inline iterOpt<'T> (action: 'T voption -> unit) (series: Series) : unit =
+        series.IterOpt<'T> action
+
+    /// <summary>
+    /// Pipeline alias for Series.IteriOpt: (int64 -> 'T voption -> unit) -> Series -> unit.
+    /// </summary>
+    let inline iteriOpt<'T> (action: int64 -> 'T voption -> unit) (series: Series) : unit =
+        series.IteriOpt<'T> action
+
+    /// <summary>
+    /// Pipeline alias for Series.Iter: ('T -> unit) -> Series -> unit.
+    /// </summary>
+    let inline iter<'T> (action: 'T -> unit) (series: Series) : unit =
+        series.Iter<'T> action
+
+    /// <summary>
+    /// Pipeline alias for Series.Iteri: (int64 -> 'T -> unit) -> Series -> unit.
+    /// </summary>
+    let inline iteri<'T> (action: int64 -> 'T -> unit) (series: Series) : unit =
+        series.Iteri<'T> action
+
+    /// <summary>
+    /// Pipeline alias for Series.Iter2Opt: ('T1 voption -> 'T2 voption -> unit) -> Series -> Series -> unit.
+    /// </summary>
+    let inline iter2Opt<'T1, 'T2> (action: 'T1 voption -> 'T2 voption -> unit) (s1: Series) (s2: Series) : unit =
+        s1.Iter2Opt<'T1, 'T2>(s2, action)
+
+    /// <summary>
+    /// Pipeline alias for Series.Iter2: ('T1 -> 'T2 -> unit) -> Series -> Series -> unit.
+    /// </summary>
+    let inline iter2<'T1, 'T2> (action: 'T1 -> 'T2 -> unit) (s1: Series) (s2: Series) : unit =
+        s1.Iter2<'T1, 'T2>(s2, action)
 
     /// <summary>
     /// Creates a new Series of length n filled with the zero value of type 'T.
@@ -610,7 +649,7 @@ module Series =
     /// <param name="n">The length of the resulting Series.</param>
     /// <returns>A new Series filled with typed zeros.</returns>
     let inline zeroCreate<'T> (n: int) : Series =
-        pl.zerosAsSeries<'T> n 
+        pl.zerosAsSeries<'T> n
 
     /// <summary>
     /// Creates a new Series of length n filled with the one value of type 'T.
@@ -618,7 +657,7 @@ module Series =
     /// <param name="n">The length of the resulting Series.</param>
     /// <returns>A new Series filled with typed ones.</returns>
     let inline oneCreate<'T> (n: int) : Series =
-        pl.onesAsSeries<'T> n 
+        pl.onesAsSeries<'T> n
 
     /// <summary>
     /// Creates a new Series of length n filled with a specified scalar constant.
@@ -626,7 +665,7 @@ module Series =
     /// <param name="n">The length of the resulting Series.</param>
     /// <param name="value">The constant scalar value.</param>
     /// <returns>A new Series repeating the scalar value.</returns>
-    let inline replicate<^T when (^T or LitMechanism) : (static member ($) : LitMechanism * ^T -> Expr)> 
+    let inline replicate<^T when (^T or LitMechanism) : (static member ($) : LitMechanism * ^T -> Expr)>
             (n: int) (value: ^T) : Series =
         let targetType = DataType.FromNetType typeof< ^T >
         pl.repeatAsSeries (pl.lit value) n (Some targetType)

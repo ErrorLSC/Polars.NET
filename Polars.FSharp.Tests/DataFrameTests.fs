@@ -53,6 +53,21 @@ type MutablePersonDto() =
     member val Id = 0 with get, set
     member val Name = "" with get, set
 
+type LogEntry = {
+    Timestamp: int64
+    Service: string
+    LatencyMs: float
+}
+
+type SourceRecord = {
+    Id: int
+    Label: string
+}
+
+type MetricRecord = {
+    Score: float
+}
+
 type DataFrameEnumeratorTests() =
 
     [<Fact>]
@@ -762,3 +777,107 @@ type DataFrameEnumeratorTests() =
             df.MapRows (Unchecked.defaultof<SimpleInput -> SimpleOutput>) |> ignore
 
         Assert.Throws<ArgumentNullException>(action) |> ignore
+    [<Fact>]
+    [<Trait("DataFrame", "IterRows")>]
+    member _.``DataFrame iterRows traverses all rows and triggers side effects`` () =
+        // Arrange: Prepare test logs in a DataFrame
+        let logs = [
+            { Timestamp = 1001L; Service = "Auth"; LatencyMs = 12.5 }
+            { Timestamp = 1002L; Service = "Gateway"; LatencyMs = 45.0 }
+            { Timestamp = 1003L; Service = "Payment"; LatencyMs = 120.8 }
+        ]
+        use df = DataFrame.ofRecords logs
+
+        let consumedServices = ResizeArray<string>()
+        let mutable totalLatency = 0.0
+
+        // Act: Consume rows using iterRows
+        df
+        |> DataFrame.iterRows (fun (entry: LogEntry) ->
+            consumedServices.Add entry.Service
+            totalLatency <- totalLatency + entry.LatencyMs
+        )
+
+        // Assert: Verify all rows were observed in sequential order
+        Assert.Equal(3, consumedServices.Count)
+        Assert.Equal<string>([ "Auth"; "Gateway"; "Payment" ], consumedServices)
+        Assert.Equal(178.3, totalLatency, 2)
+
+    [<Fact>]
+    [<Trait("DataFrame", "IterRows")>]
+    member _.``DataFrame iteriRows provides correct row index during iteration`` () =
+        // Arrange: Sample DataFrame
+        let logs = [
+            { Timestamp = 1L; Service = "A"; LatencyMs = 1.0 }
+            { Timestamp = 2L; Service = "B"; LatencyMs = 2.0 }
+        ]
+        use df = DataFrame.ofRecords logs
+        let observed = ResizeArray<int64 * string * float>()
+
+        // Act: Track iteration indices along with row record fields
+        df
+        |> DataFrame.iteriRows (fun idx (entry: LogEntry) ->
+            observed.Add((idx, entry.Service, entry.LatencyMs))
+        )
+
+        // Assert: Verify both row indices and hydrated row contents are strictly aligned
+        Assert.Equal(2, observed.Count)
+        Assert.Equal((0L, "A", 1.0), observed.[0])
+        Assert.Equal((1L, "B", 2.0), observed.[1])
+
+    [<Fact>]
+    [<Trait("DataFrame", "IterRows")>]
+    member _.``DataFrame iterRows handles empty DataFrame without invoking action`` () =
+        // Arrange: Empty DataFrame
+        use emptyDf = DataFrame.ofRecords<LogEntry> []
+        let mutable invoked = false
+
+        // Act: Iterate over empty DataFrame
+        emptyDf
+        |> DataFrame.iterRows (fun _ -> invoked <- true)
+
+        // Assert: Action should not be invoked
+        Assert.False(invoked)
+
+    [<Fact>]
+    [<Trait("DataFrame", "IterRows")>]
+    member _.``DataFrame iterRows throws ArgumentNullException when action is null`` () =
+        // Arrange: Sample DataFrame
+        use df = DataFrame.ofRecords [ { Timestamp = 1L; Service = "A"; LatencyMs = 1.0 } ]
+
+        // Act & Assert
+        let action = fun () -> df.IterRows<LogEntry>(Unchecked.defaultof<LogEntry -> unit>)
+        Assert.Throws<ArgumentNullException>(action) |> ignore
+    [<Fact>]
+    [<Trait("DataFrame", "Iter2")>]
+    member _.``DataFrame iter2 synchronizes rows from two DataFrames with zero allocation`` () =
+        // Arrange: Source DF and Score DF with identical heights
+        use dfSource = DataFrame.ofRecords [
+            { Id = 101; Label = "Alpha" }
+            { Id = 102; Label = "Beta" }
+        ]
+        use dfMetrics = DataFrame.ofRecords [
+            { Score = 0.95 }
+            { Score = 0.88 }
+        ]
+
+        let zipped = ResizeArray<int * string * float>()
+
+        // Act: Synchronously consume both DataFrames
+        DataFrame.iter2 (fun (src: SourceRecord) (met: MetricRecord) ->
+            zipped.Add((src.Id, src.Label, met.Score))
+        ) dfSource dfMetrics
+
+        // Assert
+        Assert.Equal(2, zipped.Count)
+        Assert.Equal((101, "Alpha", 0.95), zipped.[0])
+        Assert.Equal((102, "Beta", 0.88), zipped.[1])
+
+    [<Fact>]
+    [<Trait("DataFrame", "Iter2")>]
+    member _.``DataFrame iter2 throws ArgumentException when heights mismatch`` () =
+        use df1 = DataFrame.ofRecords [ { Id = 1; Label = "A" } ]
+        use df2 = DataFrame.ofRecords [ { Score = 1.0 }; { Score = 2.0 } ]
+
+        let action = fun () -> df1.Iter2<SourceRecord, MetricRecord>(df2, fun _ _ -> ())
+        Assert.Throws<ArgumentException>(action) |> ignore

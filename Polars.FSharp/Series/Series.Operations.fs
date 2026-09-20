@@ -1,5 +1,7 @@
 namespace Polars.FSharp
 
+open System
+
 [<AutoOpen>]
 module SeriesOperationExtensions =
     open Polars.NET.Core
@@ -351,6 +353,30 @@ module SeriesOperationExtensions =
         /// <returns>A new series with filtered values.</returns>
         member this.Filter(predicate:Series) =
             this.Filter(new Expr(PolarsWrapper.Lit predicate.Handle))
+        member this.FilterWith<'T>(predicate: 'T -> bool) : Series =
+                ArgumentNullException.ThrowIfNull(predicate, nameof predicate)
+
+                let len = this.Length
+                if len = 0L then
+                    this
+                else
+                    if len > int64 Int32.MaxValue then
+                        raise (OverflowException $"Series length ({len}) exceeds Int32.MaxValue for managed predicate filtering.")
+
+                    let count = int len
+                    let mask = Array.zeroCreate<bool> count
+
+                    // Iterate using zero-allocation TryGetValue returning ValueOption<'T>
+                    for i = 0 to count - 1 do
+                        match this.TryGetValue<'T>(int64 i) with
+                        | ValueSome valT -> mask.[i] <- predicate valT
+                        | ValueNone -> mask.[i] <- false
+
+                    // Build boolean Series mask
+                    use boolSeries = Series.create ("", mask)
+
+                    // Leverage engine-native slice/filter via boolean mask
+                    this.Filter boolSeries
         /// <summary>
         /// Run length encoding of the series.
         /// </summary>
