@@ -8,13 +8,13 @@ open System.Reflection
 
 type IColumnBuffer =
     abstract member Add: obj -> unit
-    abstract member ToSeries: string -> Series 
+    abstract member ToSeries: string -> Series
 
 type private ColumnBuffer<'TCol>(capacity: int) =
     let _data = ResizeArray<'TCol>(capacity)
-    
+
     let _colType = typeof<'TCol>
-    let _underlyingType = 
+    let _underlyingType =
         let t = Nullable.GetUnderlyingType(_colType)
         if isNull t then _colType else t
 
@@ -24,7 +24,7 @@ type private ColumnBuffer<'TCol>(capacity: int) =
                 _data.Add(Unchecked.defaultof<'TCol>)
             else
                 match valObj with
-                | :? 'TCol as exactVal -> 
+                | :? 'TCol as exactVal ->
                     _data.Add(exactVal)
                 | _ ->
                     let converted = Convert.ChangeType(valObj, _underlyingType)
@@ -36,21 +36,21 @@ type private ColumnBuffer<'TCol>(capacity: int) =
 module ColumnBufferFactory =
 
     let create (propType: Type) (capacity: int) : IColumnBuffer =
-        let targetType = 
+        let targetType =
             if propType.IsValueType && isNull (Nullable.GetUnderlyingType propType) then
                 typedefof<Nullable<_>>.MakeGenericType [| propType |]
             else
                 propType
 
         let bufferType = typedefof<ColumnBuffer<_>>.MakeGenericType [| targetType |]
-        
+
         Activator.CreateInstance(bufferType, [| box capacity |]) :?> IColumnBuffer
 
 module TypeInference =
-    
+
     let private isNumeric (t: Type) =
-        t = typeof<int> || t = typeof<float> || t = typeof<double> || 
-        t = typeof<decimal> || t = typeof<int64> || t = typeof<int16> || 
+        t = typeof<int> || t = typeof<float> || t = typeof<double> ||
+        t = typeof<decimal> || t = typeof<int64> || t = typeof<int16> ||
         t = typeof<byte>
 
     let rec promoteType (typeA: Type) (typeB: Type) : Type =
@@ -65,7 +65,7 @@ module TypeInference =
                 elif baseA = typeof<float> || baseB = typeof<float> then typeof<double>
                 elif baseA = typeof<decimal> || baseB = typeof<decimal> then typeof<decimal>
                 elif baseA = typeof<int64> || baseB = typeof<int64> then typeof<int64>
-                else typeof<int64> 
+                else typeof<int64>
             else
                 typeof<string>
 
@@ -74,14 +74,14 @@ type internal RecordColumnTransposer =
         // Create Fast Getter (Delegate)
         let getterMethod = prop.GetGetMethod()
         let getter = Delegate.CreateDelegate(typeof<Func<'Rec, 'Field>>, getterMethod) :?> Func<'Rec, 'Field>
-        
+
         // Transpose: Row-Oriented -> Column-Oriented
         let len = data.Length
         let colData = Array.zeroCreate<'Field> len
-        
+
         for i = 0 to len - 1 do
             colData.[i] <- getter.Invoke(data.[i])
-            
+
         // Delegate to C# SeriesFactory
         Series.create(name, colData)
 
@@ -92,11 +92,11 @@ module DataFrameFactory =
     type DataFrame with
         /// <summary> Create a DataFrame from a list of Series. </summary>
         static member create(series: seq<Series>) : DataFrame =
-            let handles = 
-                series 
-                |> Seq.map (fun s -> s.Handle) 
+            let handles =
+                series
+                |> Seq.map (fun s -> s.Handle)
                 |> Seq.toArray
-                
+
             let h = PolarsWrapper.DataFrameNew handles
             new DataFrame(h)
         /// <summary> Create a DataFrame from an array of Series. </summary>
@@ -115,12 +115,12 @@ module DataFrameFactory =
         /// <param name="providedSchema">Optional Arrow Schema. Inferred via reflection if not provided.</param>
         static member ReadSeq<'T>(data: seq<'T>, ?batchSize: int, ?providedSchema: Schema) : DataFrame =
 
-            if isNull data then 
+            if isNull data then
                 invalidArg "data" "Data sequence cannot be null."
 
             let actualBatchSize = defaultArg batchSize 100_000
 
-            let schema = 
+            let schema =
                 match providedSchema with
                 | Some s -> s
                 | None -> ArrowConverter.GetSchemaFromType<'T>()
@@ -135,7 +135,7 @@ module DataFrameFactory =
             let size = defaultArg batchSize 100_000
 
             let schema = ArrowConverter.GetSchemaFromType<'T>()
-            let batchStream = 
+            let batchStream =
                 data
                 |> Seq.chunkBySize size
                 |> Seq.map ArrowFfiBridge.BuildRecordBatch
@@ -158,13 +158,13 @@ module DataFrameFactory =
         /// </summary>
         static member private IsSupportedFastType (t: Type) =
             // 1. Unwrap Option/VOption/Nullable
-            let coreType = 
+            let coreType =
                 if t.IsGenericType && (t.GetGenericTypeDefinition() = typedefof<option<_>> || t.GetGenericTypeDefinition() = typedefof<voption<_>> || t.GetGenericTypeDefinition() = typedefof<Nullable<_>>) then
                     t.GetGenericArguments().[0]
                 else
                     t
 
-            if t.IsArray then false 
+            if t.IsArray then false
             else
                 if coreType.IsPrimitive then true
                 else if coreType = typeof<string> then true
@@ -191,8 +191,8 @@ module DataFrameFactory =
 
             // 1. Check Eligibility for Fast Path
             // We only use Fast Path if ALL columns are supported.
-            let useFastPath = 
-                props 
+            let useFastPath =
+                props
                 |> Array.forall (fun p -> DataFrame.IsSupportedFastType p.PropertyType)
 
             if useFastPath then
@@ -200,17 +200,17 @@ module DataFrameFactory =
                 // PATH A: High-Performance Columnar Transposition
                 // ==================================================
                 let records = Seq.toArray data
-                
+
                 // Helper Cache
-                let helperMethodDef = 
+                let helperMethodDef =
                     typeof<RecordColumnTransposer>.GetMethod("CreateSeriesFromColumn", BindingFlags.NonPublic ||| BindingFlags.Static)
 
-                let seriesList = 
+                let seriesList =
                     props
                     |> Array.map (fun prop ->
                         let fieldType = prop.PropertyType
                         let specificHelper = helperMethodDef.MakeGenericMethod(recordType, fieldType)
-                        try 
+                        try
                             specificHelper.Invoke(null, [| records; prop.Name; prop |]) :?> Series
                         with ex ->
                             failwithf "Failed to create series for column '%s': %s" prop.Name ex.InnerException.Message
@@ -230,55 +230,55 @@ module DataFrameFactory =
         /// </summary>
         static member ofMaps
             (
-                data: seq<Map<string, obj>>, 
-                ?strict: bool, 
+                data: seq<Map<string, obj>>,
+                ?strict: bool,
                 ?inferSchemaLength: uint
             ) : DataFrame =
 
             let strictMode = defaultArg strict true
             let inferLen = defaultArg inferSchemaLength 100u |> int
-            
+
             let records = Seq.toArray data
-            
-            if records.Length = 0 then 
-                DataFrame.create() 
+
+            if records.Length = 0 then
+                DataFrame.create()
             else
                 let columnTypes = Dictionary<string, Type>()
 
                 // ==========================================
-                // Phase 1: Schema Inference 
+                // Phase 1: Schema Inference
                 // ==========================================
                 let rowsToInfer = min inferLen records.Length
-                
+
                 for i = 0 to rowsToInfer - 1 do
                     let row = records.[i]
                     for kvp in row do
                         let colName = kvp.Key
                         let valObj = kvp.Value
-                        
+
                         if not (isNull valObj) then
                             let newType = valObj.GetType()
-                            
+
                             match columnTypes.TryGetValue(colName) with
                             | true, existingType when existingType <> newType ->
                                 columnTypes.[colName] <- TypeInference.promoteType existingType newType
                             | false, _ ->
                                 columnTypes.[colName] <- newType
-                            | _ -> () 
+                            | _ -> ()
 
                 let finalSchema =
                     columnTypes
-                    |> Seq.map (fun kvp -> 
+                    |> Seq.map (fun kvp ->
                         let t = if isNull kvp.Value then typeof<string> else kvp.Value
                         kvp.Key, t)
                     |> dict
 
                 // ==========================================
-                // Phase 2: Buffer Loading 
+                // Phase 2: Buffer Loading
                 // ==========================================
                 let buffers = Dictionary<string, IColumnBuffer>()
                 for kvp in finalSchema do
-                    buffers.[kvp.Key] <- ColumnBufferFactory.create kvp.Value records.Length 
+                    buffers.[kvp.Key] <- ColumnBufferFactory.create kvp.Value records.Length
 
                 for row in records do
                     for colName in finalSchema.Keys do
@@ -288,17 +288,17 @@ module DataFrameFactory =
                                 buffers.[colName].Add(valObj)
                             with
                             | :? InvalidCastException as ex ->
-                                if strictMode then 
+                                if strictMode then
                                     failwithf "Strict mode error on column '%s': %s" colName ex.Message
-                                else 
+                                else
                                     buffers.[colName].Add(null)
-                        | _ -> 
+                        | _ ->
                             buffers.[colName].Add(null)
 
                 // ==========================================
                 // Phase 3: Assembly
                 // ==========================================
-                let seriesList = 
+                let seriesList =
                     finalSchema.Keys
                     |> Seq.map (fun key -> buffers.[key].ToSeries(key))
                     |> Seq.toArray

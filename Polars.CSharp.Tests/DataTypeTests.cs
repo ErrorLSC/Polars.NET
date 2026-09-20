@@ -15,6 +15,7 @@ public class DataTypeTests
     }
 
     [Fact]
+    [Trait("DataType","POCO")]
     public void Test_DataFrame_RoundTrip_POCO()
     {
         var trades = new List<TradeRecord>
@@ -103,7 +104,7 @@ public class DataTypeTests
         {
             new() {
                 Id = 1,
-                Info = new NestedItem { Key = "A", Values = new List<double> { 1.1, 2.2 } }
+                Info = new NestedItem { Key = "A", Values = [ 1.1, 2.2 ] }
             },
             new() {
                 Id = 2,
@@ -111,7 +112,7 @@ public class DataTypeTests
             },
             new() {
                 Id = 3,
-                Info = new NestedItem { Key = "B", Values = new List<double> { 3.3 } }
+                Info = new NestedItem { Key = "B", Values = [ 3.3 ] }
             }
         };
 

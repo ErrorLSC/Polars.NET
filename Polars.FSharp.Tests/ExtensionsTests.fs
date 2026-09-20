@@ -5,17 +5,17 @@ open Xunit
 open Polars.FSharp
 open Apache.Arrow
 type Product = {
-    Name: string 
+    Name: string
     Price: decimal
     InStock: bool option
 }
 [<CLIMutable>]
     type ComplexData = {
         Id: int
-        Name: string option       
-        Score: float option      
-        Tags: string list         
-        Metadata: InnerMeta option 
+        Name: string option
+        Score: float option
+        Tags: string list
+        Metadata: InnerMeta option
         CreatedAt: DateTime
     }
     and [<CLIMutable>] InnerMeta = {
@@ -29,13 +29,13 @@ type ``Extensions Tests`` () =
         // 1. Generic Create (ofOptionSeq)
         let data = [Some 10; None; Some 30]
         use s = Series.ofOptionSeq("nums", data)
-        
+
         Assert.Equal("nums", s.Name)
         Assert.Equal(3L, s.Length)
 
         // 2. Generic Retrieve (AsSeq)
         let res = s.AsSeq<int>() |> Seq.toList
-        
+
         Assert.Equal(Some 10, res.[0])
         Assert.Equal(None, res.[1])
         Assert.Equal(Some 30, res.[2])
@@ -62,47 +62,47 @@ type ``Extensions Tests`` () =
         Assert.Equal(5.0, res.[0].Value)
         Assert.Equal(10.0, res.[1].Value)
         Assert.Equal(15.0, res.[2].Value)
-        Assert.Equal("val", sRes.Name) 
+        Assert.Equal("val", sRes.Name)
 
 
     [<Fact>]
     [<Trait("Extension","ComplexType")>]
     member _.``Interop: Full Complex Type Roundtrip`` () =
         let data = [
-            { 
+            {
                 Id = 1
                 Name = Some "Alice"
                 Score = Some 99.5
                 Tags = ["dev"; "fsharp"]
                 Metadata = Some { Code = "A1"; Level = 10 }
-                CreatedAt = DateTime(2023, 1, 1) 
+                CreatedAt = DateTime(2023, 1, 1)
             }
-            { 
+            {
                 Id = 2
                 Name = None
                 Score = None
                 Tags = []
                 Metadata = None
-                CreatedAt = DateTime(2023, 1, 2) 
+                CreatedAt = DateTime(2023, 1, 2)
             }
         ]
 
         // Seq -> Series -> DataFrame
         use df = DataFrame.create [
-            Series.ofSeq("data", data) 
+            Series.ofSeq("data", data)
         ]
-        
-        df.PrintSchema() 
+
+        df.PrintSchema()
         df.GlimpseFrame() |> DataFrame.show |> ignore
 
         let readBack = df.UnnestColumn("data").ToRecords<ComplexData>() |> Seq.toList
         Assert.Equal(2, readBack.Length)
-        
+
         let row1 = readBack.[0]
         Assert.Equal(Some "Alice", row1.Name)
         Assert.Equal(Some 99.5, row1.Score)
         Assert.Equal(10, row1.Metadata.Value.Level)
-        
+
         let row2 = readBack.[1]
         Assert.True row2.Name.IsNone
         Assert.True row2.Metadata.IsNone

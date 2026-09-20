@@ -1,32 +1,33 @@
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Runtime.CompilerServices;
+using System.Collections.Concurrent;
 using Polars.NET.Core;
+using System.Runtime.CompilerServices;
 
 namespace Polars.CSharp;
 
 internal static class RowMapper<T> where T : new()
 {
+    // PolarsSchema implements IEquatable<PolarsSchema>
+    private static readonly ConcurrentDictionary<PolarsSchema, Func<DataFrame, long, T>> Cache = new();
 
-    private static readonly ConditionalWeakTable<PolarsSchema, Func<Series[], long, T>> Cache = [];
-
-    public static Func<Series[], long, T> GetOrCreate(DataFrame df)
+    public static Func<DataFrame, long, T> GetOrCreate(DataFrame df)
     {
-        var schema = df.Schema;
-        if (Cache.TryGetValue(schema, out var mapper))
+        using var schema = df.Schema;
+        if (Cache.TryGetValue(schema, out var cachedMapper))
         {
-            return mapper;
+            return cachedMapper;
         }
 
-        mapper = BuildMapper(df);
-        Cache.AddOrUpdate(schema, mapper);
+        var mapper = BuildMapper(df, schema);
+        Cache.TryAdd(schema, mapper);
         return mapper;
     }
 
-    private static Func<Series[], long, T> BuildMapper(DataFrame df)
+    private static Func<DataFrame, long, T> BuildMapper(DataFrame df, PolarsSchema schema)
     {
         var targetType = typeof(T);
-        var colsParam = Expression.Parameter(typeof(Series[]), "columns");
+        var dfParam = Expression.Parameter(typeof(DataFrame), "df");
         var idxParam = Expression.Parameter(typeof(long), "rowIndex");
 
         var instanceVar = Expression.Variable(targetType, "instance");
@@ -37,27 +38,25 @@ internal static class RowMapper<T> where T : new()
         };
 
         var props = targetType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-        var dfCols = df.GetColumns();
+        var getValueMethodDef = typeof(Series).GetMethod(nameof(Series.GetValue), [typeof(long), typeof(bool)])!;
+        var columnIndexerMethod = typeof(DataFrame).GetMethod("get_Item", [typeof(int)])!; // df[int index]
 
-        for (int i = 0; i < dfCols.Length; i++)
+        // Iterate through columns using DataFrame's width and schema
+        long width = df.Width;
+        for (int i = 0; i < width; i++)
         {
-            var col = dfCols[i];
-            var colName = col.Name;
-
+            string colName = df.ColumnNames[i];
             var prop = Array.Find(props, p => p.CanWrite && string.Equals(p.Name, colName, StringComparison.OrdinalIgnoreCase));
             if (prop == null) continue;
 
-            // columns[i]
-            var colAccess = Expression.ArrayIndex(colsParam, Expression.Constant(i));
+            // df[i]
+            var colExpr = Expression.Call(dfParam, columnIndexerMethod, Expression.Constant(i));
 
-            // columns[i].GetValue<PropertyType>(rowIndex, uncheck: true)
-            var getValueMethod = typeof(Series)
-                .GetMethod(nameof(Series.GetValue), [typeof(long), typeof(bool)])!
-                .MakeGenericMethod(prop.PropertyType);
+            // df[i].GetValue<PropertyType>(rowIndex, uncheck: true)
+            var getValueMethod = getValueMethodDef.MakeGenericMethod(prop.PropertyType);
+            var readExpr = Expression.Call(colExpr, getValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
 
-            var readExpr = Expression.Call(colAccess, getValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
-
-            // instance.Prop = columns[i].GetValue<PropertyType>(rowIndex, true);
+            // instance.Prop = readExpr;
             var assignExpr = Expression.Assign(Expression.Property(instanceVar, prop), readExpr);
             blockExpressions.Add(assignExpr);
         }
@@ -66,10 +65,158 @@ internal static class RowMapper<T> where T : new()
         blockExpressions.Add(instanceVar);
 
         var body = Expression.Block([instanceVar], blockExpressions);
-        return Expression.Lambda<Func<Series[], long, T>>(body, colsParam, idxParam).Compile();
+        return Expression.Lambda<Func<DataFrame, long, T>>(body, dfParam, idxParam).Compile();
+    }
+
+}
+
+/// <summary>
+/// Stack-only, zero-allocation enumerator for DataFrame row hydration.
+/// Eliminates state-machine allocations and maximizes hot-path throughput.
+/// </summary>
+public ref struct DataFrameRowEnumerator<T> where T : new()
+{
+    private readonly DataFrame _df;
+    private readonly Func<DataFrame, long, T> _mapper;
+    private readonly long _height;
+    private long _index;
+    private T? _current;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal DataFrameRowEnumerator(DataFrame df, Func<DataFrame, long, T> mapper)
+    {
+        _df = df;
+        _mapper = mapper;
+        _height = df.Height;
+        _index = -1L;
+        _current = default;
+    }
+
+    /// <summary>
+    /// Advances the enumerator to the next row and returns whether a row was successfully read.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool MoveNext()
+    {
+        long next = _index + 1L;
+        if (next < _height)
+        {
+            _index = next;
+            _current = _mapper(_df, _index);
+            return true;
+        }
+
+        _current = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Gets the current row as a strongly-typed object.
+    /// </summary>
+    public readonly T Current
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _current!;
+    }
+    /// <summary>
+    /// Returns the enumerator itself, for use in foreach loops.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public readonly DataFrameRowEnumerator<T> GetEnumerator() => this;
+    /// <summary>
+    /// Gets total number of rows.
+    /// </summary>
+    public readonly long Count => _height;
+    /// <summary>
+    /// Reads a mapped row at the specified physical index directly without looping through previous rows.
+    /// </summary>
+    public T ElementAt(long index)
+    {
+        if (index < 0 || index >= _height)
+            throw new ArgumentOutOfRangeException(nameof(index), $"Index {index} is out of bounds for DataFrame height {_height}.");
+        return _mapper(_df, index);
+    }
+
+    /// <summary>
+    /// Copies all mapped rows into the destination span without any heap allocations.
+    /// Returns the number of rows copied.
+    /// </summary>
+    public int CopyTo(Span<T> destination)
+    {
+        if (_height > destination.Length)
+            throw new ArgumentException($"Destination span length ({destination.Length}) is smaller than row count ({_height}).", nameof(destination));
+
+        int count = 0;
+        while (MoveNext())
+        {
+            destination[count++] = Current;
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// Returns the first mapped row of the DataFrame.
+    /// Throws InvalidOperationException if the DataFrame contains no rows.
+    /// </summary>
+    public T First()
+    {
+        if (MoveNext())
+        {
+            return Current;
+        }
+
+        throw new InvalidOperationException("Sequence contains no elements.");
+    }
+
+    /// <summary>
+    /// Returns the first mapped row of the DataFrame, or default if empty.
+    /// </summary>
+    public T? FirstOrDefault()
+    {
+        if (MoveNext())
+        {
+            return Current;
+        }
+
+        return default;
+    }
+    /// <summary>
+    /// Materializes all mapped rows into an array with exact pre-allocation.
+    /// </summary>
+    public T[] ToArray()
+    {
+        if (_height == 0) return [];
+        if (_height > int.MaxValue)
+            throw new OverflowException($"DataFrame row count ({_height}) exceeds Int32.MaxValue.");
+
+        var array = new T[(int)_height];
+        int idx = 0;
+        while (MoveNext())
+        {
+            array[idx++] = Current;
+        }
+        return array;
+    }
+
+    /// <summary>
+    /// Materializes all mapped rows into a List with exact pre-allocation.
+    /// </summary>
+    public List<T> ToList()
+    {
+        if (_height == 0) return [];
+        if (_height > int.MaxValue)
+            throw new OverflowException($"DataFrame row count ({_height}) exceeds Int32.MaxValue.");
+
+        var list = new List<T>((int)_height);
+        while (MoveNext())
+        {
+            list.Add(Current);
+        }
+        return list;
     }
 }
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     // ==========================================
     // Object Mapping (To Records)
@@ -77,23 +224,14 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
     /// <summary>
     /// Enumerates DataFrame rows as strongly-typed objects using pre-compiled Fast Path mappings.
-    /// Eliminates Arrow C-Data export and unboxes primitives directly into properties.
     /// </summary>
     /// <typeparam name="T">The target DTO type with a parameterless constructor.</typeparam>
     /// <returns>An IEnumerable of hydrated objects.</returns>
-    public IEnumerable<T> Rows<T>() where T : new()
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public DataFrameRowEnumerator<T> Rows<T>() where T : new()
     {
-        long height = Height;
-        if (height == 0) yield break;
-
         var mapper = RowMapper<T>.GetOrCreate(this);
-
-        var columns = GetColumns();
-
-        for (long i = 0; i < height; i++)
-        {
-            yield return mapper(columns, i);
-        }
+        return new DataFrameRowEnumerator<T>(this, mapper);
     }
 
     /// <summary>
@@ -104,16 +242,31 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         if (index < 0 || index >= Height)
             throw new IndexOutOfRangeException($"Row index {index} is out of bounds. Height: {Height}");
 
-        long width = this.Width;
+        int width = checked((int)Width);
         var rowData = new object?[width];
 
-        var columns = GetColumns();
-
-        for (long i = 0; i < width; i++)
-        {
-            rowData[i] = columns[i].GetValue<object?>(index, uncheck: true);
-        }
-
+        GetRow(index, rowData.AsSpan());
         return rowData;
+    }
+    /// <summary>
+    /// Fills the destination span with all values of a single row.
+    /// </summary>
+    /// <param name="index">The 64-bit row index.</param>
+    /// <param name="destination">The destination span whose length must be at least the DataFrame width.</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void GetRow(long index, Span<object?> destination)
+    {
+        if (index < 0 || index >= Height)
+            throw new IndexOutOfRangeException($"Row index {index} is out of bounds. Height: {Height}");
+
+        int width = checked((int)Width);
+        if (destination.Length < width)
+            throw new ArgumentException($"Destination span length ({destination.Length}) is smaller than DataFrame width ({width}).", nameof(destination));
+
+        for (int i = 0; i < width; i++)
+        {
+            using var col = Column(i);
+            destination[i] = col.GetValue<object?>(index, uncheck: true);
+        }
     }
 }

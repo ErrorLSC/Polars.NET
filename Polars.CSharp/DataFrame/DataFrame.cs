@@ -1,9 +1,8 @@
 using Polars.NET.Core;
-using Polars.NET.Core.Arrow;
 using System.Data;
 using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
-#pragma warning disable CS1591 
+#pragma warning disable CS1591
 
 namespace Polars.CSharp;
 
@@ -22,7 +21,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     {
         var oldHandle = Handle;
         Handle = newHandle;
-        oldHandle?.Dispose(); 
+        oldHandle?.Dispose();
     }
     // ==========================================
     // Metadata
@@ -37,7 +36,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         get
         {
             var handle = PolarsWrapper.GetDataFrameSchema(Handle);
-            return new PolarsSchema(handle);
+            return new(handle);
         }
     }
     /// <summary>
@@ -52,21 +51,21 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     public void PrintSchema()
     {
         using var schema = Schema;
-        var fields = schema.ToList(); 
+        var fields = schema.ToList();
 
         int maxNameLen = fields.Count > 0 ? fields.Max(f => f.Name.Length) : 15;
-        maxNameLen = Math.Max(maxNameLen, 10); 
+        maxNameLen = Math.Max(maxNameLen, 10);
 
         Console.WriteLine("--- DataFrame Schema ---");
-        
+
         foreach (var field in fields)
         {
             Console.WriteLine($"{field.Name.PadRight(maxNameLen)} | {field.Type}");
         }
-        
+
         Console.WriteLine(new string('-', maxNameLen + 26));
     }
- 
+
     // ==========================================
     // Properties
     // ==========================================
@@ -77,14 +76,14 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// <summary>
     /// Return DataFrame Height
     /// </summary>
-    public long Len => PolarsWrapper.DataFrameHeight(Handle); 
+    public long Len => PolarsWrapper.DataFrameHeight(Handle);
     /// <summary>
     /// Return DataFrame Width
     /// </summary>
-    public long Width => PolarsWrapper.DataFrameWidth(Handle);  
+    public long Width => PolarsWrapper.DataFrameWidth(Handle);
     /// <summary>
     /// Return DataFrame Shape(Len,Width)
-    /// </summary>  
+    /// </summary>
     public (long Len, long Width) Shape => (Len,Width);
     /// <summary>
     /// Return DataFrame Columns' Name
@@ -137,7 +136,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     public long NChunks()
     {
         if (Width == 0) return 0;
-        return Column(0).NChunks; 
+        return Column(0).NChunks;
     }
     /// <summary>
     /// Get an array containing the number of chunks for all columns in this DataFrame.
@@ -163,7 +162,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// Shrink DataFrame memory usage.
     /// </summary>
     /// <returns>A new DataFrame</returns>
-    public DataFrame ShrinkToFit() 
+    public DataFrame ShrinkToFit()
     {
         var newDf = Clone();
         PolarsWrapper.DataFrameShrinkToFit(newDf.Handle);
@@ -233,7 +232,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     public DataFrame Slice(long offset, ulong? length=null)
     {
         long absoluteOffset;
-        
+
         if (offset < 0)
         {
             absoluteOffset = Height + offset;
@@ -258,23 +257,23 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     public DataFrame Slice(Range range)
     {
         long height = Height;
-        
-        long start = range.Start.IsFromEnd 
-            ? height - range.Start.Value 
+
+        long start = range.Start.IsFromEnd
+            ? height - range.Start.Value
             : range.Start.Value;
-            
-        long end = range.End.IsFromEnd 
-            ? height - range.End.Value 
+
+        long end = range.End.IsFromEnd
+            ? height - range.End.Value
             : range.End.Value;
 
         start = Math.Max(0, Math.Min(start, height));
         end = Math.Max(0, Math.Min(end, height));
-        
+
         long length = end - start;
-        
+
         if (length <= 0)
         {
-            return Slice(0, 0); 
+            return Slice(0, 0);
         }
 
         return Slice(start, (ulong)length);
@@ -297,7 +296,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         {
             // Calculate the exact length for the current slice to prevent out-of-bounds on the last chunk
             ulong currentLength = (ulong)Math.Min(nRows, totalRows - offset);
-            
+
             yield return Slice(offset, currentLength);
         }
     }
@@ -337,7 +336,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// <returns>A new DataFrame.</returns>
     public DataFrame Clear(long n = 0)
     {
-        using var schema = this.Schema; 
+        using var schema = this.Schema;
 
         return schema.ToDataFrame(n);
     }
@@ -357,12 +356,12 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         {
             index = (int)(Width + index);
             if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), 
+                throw new ArgumentOutOfRangeException(nameof(index),
                     $"Column index {originalIndex} is out of range (frame has {Width} columns)");
         }
         else if (index > Width)
         {
-            throw new ArgumentOutOfRangeException(nameof(index), 
+            throw new ArgumentOutOfRangeException(nameof(index),
                 $"Column index {originalIndex} is out of range (frame has {Width} columns)");
         }
 
@@ -386,8 +385,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     {
         ArgumentNullException.ThrowIfNull(newColumn);
 
-        long width = Width; 
-        
+        long width = Width;
+
         if (index < 0)
         {
             index = (int)width + index;
@@ -407,7 +406,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         {
             PolarsWrapper.ReplaceColumnAt(Handle, index, newColumn.Handle);
         }
-        
+
         return this;
     }
 
@@ -451,8 +450,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     {
         var colsArray = columns as Series[] ?? [.. columns];
         var handles = colsArray.Select(s => s.Handle).ToArray();
-        
-        return new DataFrame(PolarsWrapper.HStack(Handle, handles));
+
+        return new(PolarsWrapper.HStack(Handle, handles));
     }
 
     /// <summary>
@@ -487,9 +486,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// <param name="maintainOrder">If true, maintains the original order of the groups.</param>
     /// <returns>A new DataFrame with missing time steps filled with nulls.</returns>
     public DataFrame Upsample(
-        IntoSelector timeColumn, 
-        IntoDuration every, 
-        IntoSelector? groupBy = null, 
+        IntoSelector timeColumn,
+        IntoDuration every,
+        IntoSelector? groupBy = null,
         bool maintainOrder = false)
     {
         using var timeSelector = timeColumn.Consume();
@@ -509,22 +508,22 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         {
             using var groupSelector = groupBy.Value.Consume();
             groupByCols = Cs.ExpandSelector(this, groupSelector);
-            
+
             if (groupByCols.Length == 0)
             {
-                groupByCols = null; 
+                groupByCols = null;
             }
         }
 
         var newHandle = PolarsWrapper.DataFrameUpsample(
-            Handle, 
-            resolvedTimeColumn, 
-            every.Value, 
-            groupByCols, 
+            Handle,
+            resolvedTimeColumn,
+            every.Value,
+            groupByCols,
             maintainOrder
         );
 
-        return new DataFrame(newHandle);
+        return new(newHandle);
     }
     /// <summary>
     /// Convert categorical/string variables into dummy/indicator variables (One-Hot Encoding).
@@ -535,9 +534,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// <param name="dropNulls">Whether to ignore null values when creating dummies.</param>
     /// <returns>A new DataFrame with one-hot encoded columns.</returns>
     public DataFrame ToDummies(
-        IntoSelector? columns = null, 
-        string separator = "_", 
-        bool dropFirst = false, 
+        IntoSelector? columns = null,
+        string separator = "_",
+        bool dropFirst = false,
         bool dropNulls = false)
     {
         IntoSelector actualSelector = columns ?? (Cs.String() | Cs.ByDtype(DataType.Categorical()) | Cs.Enum());
@@ -558,14 +557,14 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         }
 
         var newHandle = PolarsWrapper.DataFrameToDummies(
-            Handle, 
-            columnsArray, 
-            separator, 
-            dropFirst, 
+            Handle,
+            columnsArray,
+            separator,
+            dropFirst,
             dropNulls
         );
 
-        return new DataFrame(newHandle);
+        return new(newHandle);
     }
     /// <summary>
     /// Apply a horizontal reduction on a DataFrame.
@@ -576,11 +575,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     {
         if (IsEmpty)
             throw new InvalidOperationException("Cannot fold an empty DataFrame.");
-        var columns = GetColumns();
-        Series acc = columns[0];
-        for (int i = 1; i < columns.Length; i++)
+        Series acc = this[0];
+        for (int i = 1; i < this.Width; i++)
         {
-            acc = operation(acc, columns[i]);
+            acc = operation(acc, this[i]);
         }
         return acc;
     }
@@ -590,9 +588,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     public Series Fold(Series initial, Func<Series, Series, Series> operation)
     {
         Series acc = initial;
-        foreach (var col in GetColumns())   
+        for (int i = 0; i < this.Width; i++)
         {
-            acc = operation(acc, col);
+            acc = operation(acc, this[i]);
         }
         return acc;
     }
@@ -602,9 +600,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// <summary>
     /// Clone the DataFrame
     /// </summary>
-    /// <returns></returns>
-    public DataFrame Clone()
-        => new(PolarsWrapper.CloneDataFrame(Handle));
+    public DataFrame Clone() => new(PolarsWrapper.CloneDataFrame(Handle));
     /// <summary>
     /// Dispose the DataFrame and release resources.
     /// </summary>
@@ -626,7 +622,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
             res.Dispose();
         }
         _backingResources.Clear();
-        GC.SuppressFinalize(this); 
+        GC.SuppressFinalize(this);
     }
 
     // ==========================================
@@ -637,10 +633,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// Check if this DataFrame is strictly equal to another DataFrame.
     /// By default, missing (null) values are considered equal to other missing values.
     /// </summary>
-    public bool Equals(DataFrame? other)
-    {
-        return Equals(other, nullEqual: true);
-    }
+    public bool Equals(DataFrame? other) => Equals(other, nullEqual: true);
 
     /// <summary>
     /// Check if this DataFrame is strictly equal to another DataFrame.
@@ -660,10 +653,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// <summary>
     /// Object.Equals override.
     /// </summary>
-    public override bool Equals(object? obj)
-    {
-        return Equals(obj as DataFrame);
-    }
+    public override bool Equals(object? obj) => Equals(obj as DataFrame);
 
     /// <summary>
     /// GetHashCode override.

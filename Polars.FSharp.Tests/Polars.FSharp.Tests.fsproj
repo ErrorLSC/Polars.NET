@@ -27,6 +27,7 @@
     <Compile Include="DeltaTests.fs" />
     <Compile Include="QueryTests.fs" />
     <Compile Include="ConfigTests.fs" />
+    <Compile Include="DataFrameTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -57,7 +58,7 @@
 
   <ItemGroup>
     <Content Include="$(RustLibPath)">
-      <Link>$(RustLibName)</Link> 
+      <Link>$(RustLibName)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Visible>false</Visible>
     </Content>
