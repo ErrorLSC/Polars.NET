@@ -36,8 +36,8 @@ type internal FSharpRowMapper<'T>() =
             |> Array.filter (fun p -> p.CanWrite)
             |> Array.map (fun p -> p.Name)
 
-    // Compiled factory signature: (Series[] columns, int64 rowIdx) -> 'T
-    static let compiledHydrator : (Series[] * int64 -> 'T) =
+    // Compiled factory signature: Func<Series[], int64, 'T>
+    static let compiledHydrator : Func<Series[], int64, 'T> =
         let targetType = typeof<'T>
         let colsParam = Expression.Parameter(typeof<Series[]>, "cols")
         let rowIdxParam = Expression.Parameter(typeof<int64>, "rowIdx")
@@ -81,9 +81,7 @@ type internal FSharpRowMapper<'T>() =
 
             let newRecordExpr = Expression.New(recordCtor, ctorArgs)
             let lambda = Expression.Lambda<Func<Series[], int64, 'T>>(newRecordExpr, colsParam, rowIdxParam)
-            let fn = lambda.Compile()
-
-            fun (cols: Series[], rowIdx: int64) -> fn.Invoke(cols, rowIdx)
+            lambda.Compile()
 
         else
             // Fallback for classes/structs with parameterless constructors
@@ -129,15 +127,14 @@ type internal FSharpRowMapper<'T>() =
 
             let body = Expression.Block([| instanceVar |], blockExprs)
             let lambda = Expression.Lambda<Func<Series[], int64, 'T>>(body, colsParam, rowIdxParam)
-            let fn = lambda.Compile()
+            lambda.Compile()
 
-            fun (cols: Series[], rowIdx: int64) -> fn.Invoke(cols, rowIdx)
 
     static member ColumnNames = columnNames
 
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     static member Hydrate(cols: Series[], rowIdx: int64) : 'T =
-        compiledHydrator (cols, rowIdx)
+        compiledHydrator.Invoke(cols, rowIdx)
 
 /// <summary>
 /// Stack-only, zero-allocation struct enumerator for F# DataFrame row iteration.
