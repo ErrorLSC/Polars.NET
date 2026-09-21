@@ -221,13 +221,13 @@ module DataFrame =
     let inline iteriRows<'T> (action: int64 -> 'T -> unit) (df: DataFrame) : unit =
         df.IteriRows<'T> action
     /// <summary>
-    /// Pipeline combinator for DataFrame.iter2: ('T1 -> 'T2 -> unit) -> DataFrame -> DataFrame -> unit.
+    /// Pipeline combinator for DataFrame.Iter2: ('T1 -> 'T2 -> unit) -> DataFrame -> DataFrame -> unit.
     /// </summary>
     let inline iter2<'T1, 'T2> (action: 'T1 -> 'T2 -> unit) (df1: DataFrame) (df2: DataFrame) : unit =
         df1.Iter2<'T1, 'T2>(df2, action)
 
     /// <summary>
-    /// Pipeline combinator for DataFrame.iteri2: (int64 -> 'T1 -> 'T2 -> unit) -> DataFrame -> DataFrame -> unit.
+    /// Pipeline combinator for DataFrame.Iteri2: (int64 -> 'T1 -> 'T2 -> unit) -> DataFrame -> DataFrame -> unit.
     /// </summary>
     let inline iteri2<'T1, 'T2> (action: int64 -> 'T1 -> 'T2 -> unit) (df1: DataFrame) (df2: DataFrame) : unit =
         df1.Iteri2<'T1, 'T2>(df2, action)
@@ -243,7 +243,7 @@ module DataFrame =
     /// Applies a folding function across all columns of the DataFrame from left to right,
     /// threading an accumulator state.
     /// </summary>
-    let foldState (folder: 'State -> Series -> 'State) (state: 'State) (df: DataFrame) : 'State =
+    let inline foldState (folder: 'State -> Series -> 'State) (state: 'State) (df: DataFrame) : 'State =
         df.Fold(state, folder)
 
     /// <summary>
@@ -263,3 +263,12 @@ module DataFrame =
     /// <returns>A new DataFrame materialized from the mapped output records.</returns>
     let inline mapRows<'TIn, 'TOut>(mapping: 'TIn -> 'TOut)(df:DataFrame) : DataFrame =
         df.MapRows<'TIn, 'TOut> mapping
+
+    /// <summary>
+    /// Returns a row enumerator for the DataFrame, allowing iteration over rows of type 'T.
+    /// </summary>
+    /// <typeparam name="'T">The type of the row to enumerate.</typeparam>
+    /// <param name="df">The DataFrame to enumerate.</param>
+    /// <returns>A row enumerator for the DataFrame.</returns>
+    let inline rows<'T>(df:DataFrame): RowEnumerator<'T> =
+        df.Rows<'T>()

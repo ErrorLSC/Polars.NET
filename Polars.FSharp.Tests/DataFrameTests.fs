@@ -68,7 +68,212 @@ type MetricRecord = {
     Score: float
 }
 
+type ProductItem = {
+    Sku: string
+    Category: string
+    Price: float
+}
+
+type FinalProductItem = {
+    Sku: string
+    FinalPrice: float
+}
+
 type DataFrameEnumeratorTests() =
+    [<Fact>]
+    [<Trait("DataFrame", "Iter")>]
+    member _.``RowEnumerator iter traverses all rows sequentially and triggers side-effects`` () =
+        let rows =
+            [
+                { Sku = "SKU-001"; Category = "Book"; Price = 19.99 }
+                { Sku = "SKU-002"; Category = "Electronics"; Price = 299.99 }
+                { Sku = "SKU-003"; Category = "Book"; Price = 9.99 }
+            ]
+            |> DataFrame.ofRecords
+            |> DataFrame.rows<ProductItem>
+
+        let observedSkus = rows |> RowEnumerator.mapToArray (fun x -> x.Sku)
+        let totalPrice   = rows |> RowEnumerator.sumBy (fun x -> x.Price)
+
+        // Assert: Verify all rows were observed in exact order and values aggregated correctly
+        Assert.Equal(3, observedSkus.Length)
+        Assert.Equal<string>([ "SKU-001"; "SKU-002"; "SKU-003" ], observedSkus)
+        Assert.Equal(329.97, totalPrice, 2)
+
+    [<Fact>]
+    [<Trait("DataFrame", "Iter")>]
+    member _.``RowEnumerator iter handles empty DataFrame safely without invoking action`` () =
+        // Arrange: Empty DataFrame
+        use emptyDf = DataFrame.ofRecords<ProductItem> []
+        let mutable invoked = false
+
+        // Act: Attempt to iterate empty enumerator
+        emptyDf.Rows<ProductItem>()
+        |> RowEnumerator.iter (fun _ -> invoked <- true)
+
+        // Assert: Action should never be executed
+        Assert.False(invoked)
+
+    [<Fact>]
+    [<Trait("DataFrame", "Iteri")>]
+    member _.``RowEnumerator iteri pairs each row with its zero-based 64-bit row index`` () =
+        let observed = ResizeArray<int64 * string * float>()
+        // Arrange: Create sample DataFrame
+        [
+            { Sku = "P-1"; Category = "Grocery"; Price = 3.50 }
+            { Sku = "P-2"; Category = "Hardware"; Price = 12.00 }
+        ]
+        |> DataFrame.ofRecords
+        |> DataFrame.rows<ProductItem>
+        |> RowEnumerator.iteri (fun idx item ->
+            observed.Add((idx, item.Sku, item.Price))
+        )
+
+        // Assert: Verify strict contiguous row indices and aligned row contents
+        Assert.Equal(2, observed.Count)
+        Assert.Equal((0L, "P-1", 3.50), observed.[0])
+        Assert.Equal((1L, "P-2", 12.00), observed.[1])
+
+    [<Fact>]
+    [<Trait("DataFrame", "Iteri")>]
+    member _.``RowEnumerator iteri handles empty DataFrame safely without invoking action`` () =
+        // Arrange: Empty DataFrame
+        use emptyDf = DataFrame.ofRecords<ProductItem> []
+        let mutable count = 0
+
+        // Act: Run iteri over empty enumerator
+        emptyDf.Rows<ProductItem>()
+        |> RowEnumerator.iteri (fun _ _ -> count <- count + 1)
+
+        // Assert: Counter must remain 0
+        Assert.Equal(0, count)
+
+    [<Fact>]
+    [<Trait("DataFrame", "MapToArray")>]
+    member _.``RowEnumerator mapToArray projects rows into a strongly-typed array`` () =
+        let dtos =
+            [
+                { Sku = "SKU-A"; Category = "Clothing"; Price = 100.0 }
+                { Sku = "SKU-B"; Category = "Clothing"; Price = 50.0 }
+            ]
+            |> DataFrame.ofRecords<ProductItem>
+            |> DataFrame.rows<ProductItem>
+            |> RowEnumerator.mapToArray (fun item ->
+                { Sku = item.Sku; FinalPrice = item.Price * 1.10 }
+            )
+
+        // Assert: Check length, types, and values
+        Assert.Equal(2, dtos.Length)
+        Assert.Equal("SKU-A", dtos.[0].Sku)
+        Assert.Equal(110.0, dtos.[0].FinalPrice, 2)
+        Assert.Equal("SKU-B", dtos.[1].Sku)
+        Assert.Equal(55.0, dtos.[1].FinalPrice, 2)
+
+    [<Fact>]
+    [<Trait("DataFrame", "MapToArray")>]
+    member _.``RowEnumerator mapToArray returns empty array when DataFrame is empty`` () =
+        // Arrange: Empty DataFrame
+        use emptyDf = DataFrame.ofRecords<ProductItem> []
+
+        // Act: Project empty enumerator
+        let results: string array =
+            emptyDf.Rows<ProductItem>()
+            |> RowEnumerator.mapToArray (fun item -> item.Sku)
+
+        // Assert: Result is an empty array with zero allocation
+        Assert.Empty(results)
+        Assert.IsType<string array>(results)
+
+    [<Fact>]
+    [<Trait("DataFrame", "Enumerator")>]
+    member _.``RowEnumerator foldi and mapi preserve strict row indices`` () =
+        // Arrange
+        let items = [
+            { Sku = "SKU-1"; Category = "Book"; Price = 15.0 }
+            { Sku = "SKU-2"; Category = "Toy"; Price = 25.0 }
+            { Sku = "SKU-3"; Category = "Book"; Price = 30.0 }
+        ]
+        use df = DataFrame.ofRecords items
+
+        // Act 1: foldi (weighted sum: idx * Price)
+
+        let weightedSum =
+            df.Rows<ProductItem>()
+            |> RowEnumerator.foldi (fun idx acc r -> acc + (float idx * r.Price)) 0.0
+
+        // Act 2: mapi
+        let labeled =
+            df.Rows<ProductItem>()
+            |> RowEnumerator.mapi (fun idx r -> $"{idx}:{r.Sku}")
+            |> Seq.toArray
+
+        // Assert
+        // 0*15.0 + 1*25.0 + 2*30.0 = 85.0
+        Assert.Equal(85.0, weightedSum, 1)
+        Assert.Equal(3, labeled.Length)
+        Assert.Equal("0:SKU-1", labeled.[0])
+        Assert.Equal("1:SKU-2", labeled.[1])
+        Assert.Equal("2:SKU-3", labeled.[2])
+
+    [<Fact>]
+    [<Trait("DataFrame", "ShortCircuit")>]
+    member _.``RowEnumerator tryPick, contains and reduce work as expected`` () =
+        // Arrange
+        let items = [
+            { Sku = "A"; Category = "Food"; Price = 10.0 }
+            { Sku = "B"; Category = "Food"; Price = 20.0 }
+            { Sku = "C"; Category = "Tech"; Price = 50.0 }
+        ]
+        use df = DataFrame.ofRecords items
+
+        // Act 1: tryPick
+        let foundPrice =
+            df.Rows<ProductItem>()
+            |> RowEnumerator.tryPick (fun r -> if r.Sku = "B" then Some r.Price else None)
+
+        // Act 2: contains
+        let hasItem =
+            df.Rows<ProductItem>()
+            |> RowEnumerator.contains { Sku = "A"; Category = "Food"; Price = 10.0 }
+
+        // Act 3: reduce
+        let maxPriced =
+            df.Rows<ProductItem>()
+            |> RowEnumerator.reduce (fun acc r -> if r.Price > acc.Price then r else acc)
+
+        // Assert
+        Assert.Equal(Some 20.0, foundPrice)
+        Assert.True(hasItem)
+        Assert.Equal("C", maxPriced.Sku)
+
+    [<Fact>]
+    [<Trait("DataFrame", "CountByAndScan")>]
+    member _.``RowEnumerator countBy and scan produce correct frequency and state prefix`` () =
+        // Arrange
+        let items = [
+            { Sku = "A"; Category = "Book"; Price = 10.0 }
+            { Sku = "B"; Category = "Food"; Price = 20.0 }
+            { Sku = "C"; Category = "Book"; Price = 30.0 }
+        ]
+        use df = DataFrame.ofRecords items
+
+        // Act 1: countBy Category
+        let counts =
+            df.Rows<ProductItem>()
+            |> RowEnumerator.countBy (fun r -> r.Category)
+
+        // Act 2: scan running total
+        let runningTotals =
+            df.Rows<ProductItem>()
+            |> RowEnumerator.scan (fun acc r -> acc + r.Price) 0.0
+            |> Seq.toArray
+
+        // Assert: Category frequency
+        Assert.Equal(2L, counts.["Book"])
+        Assert.Equal(1L, counts.["Food"])
+
+        // Assert: scan outputs [initial; +10; +20; +30]
+        Assert.Equal<float>([| 0.0; 10.0; 30.0; 60.0 |], runningTotals)
 
     [<Fact>]
     [<Trait("DataFrame", "Enumerator")>]
@@ -205,10 +410,11 @@ type DataFrameEnumeratorTests() =
         let ids = pl.series "Id" [ 101; 102 ]
         let names = pl.series "Name" [ "Mutable1"; "Mutable2" ]
 
-        use df = pl.dataframe [ ids; names ]
-
         // Act
-        let dtoArray = df.Rows<MutablePersonDto>().ToArray()
+        let dtoArray =
+            pl.dataframe [ ids; names ]
+            |> DataFrame.rows<MutablePersonDto>
+            |> RowEnumerator.toArray
 
         // Assert
         Assert.Equal(2, dtoArray.Length)

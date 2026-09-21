@@ -814,17 +814,6 @@ type Series(handle: SeriesHandle) =
     member this.GetValue<'T>(index: int64) : 'T =
         this.GetValue<'T>(index, false)
     /// <summary>
-    /// Get a value as an F# List ('T list).
-    /// Automatically handles conversion from .NET List (ResizeArray).
-    /// </summary>
-    member this.GetList<'Elem>(index: int64) : 'Elem list =
-        let netList = this.GetValue<ResizeArray<'Elem>> index
-
-        if isNull netList then
-            []
-        else
-            netList |> List.ofSeq
-    /// <summary>
     /// Get an item as an F# Option.
     /// Ideal for safe handling of nulls in Polars series.
     /// </summary>
@@ -838,6 +827,17 @@ type Series(handle: SeriesHandle) =
     /// <returns>ValueSome value if valid, or ValueNone if null.</returns>
     member this.TryGetValue<'T>(index: int64) : 'T voption =
         this.GetValue<'T voption>(index, uncheck = false)
+    /// <summary>
+    /// Get a value as an F# List ('T list).
+    /// Automatically handles conversion from .NET List (ResizeArray).
+    /// </summary>
+    member this.GetList<'Elem>(index: int64) : 'Elem list =
+        let netList = this.GetValue<ResizeArray<'Elem>> index
+
+        if isNull netList then
+            []
+        else
+            netList |> List.ofSeq
     /// <summary>
     /// [Indexer] Access value at specific index.
     /// Syntax: series.[index]

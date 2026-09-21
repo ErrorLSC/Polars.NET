@@ -2,10 +2,51 @@ namespace Polars.FSharp
 
 open Apache.Arrow
 open System
+open System.Collections.Generic
 
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Series =
+    /// <summary>
+    /// Get the head value of the Series.
+    /// </summary>
+    let inline head (series: Series) : 'T =
+        series.Slice(0, 1UL).GetValue<'T> 0
+    /// <summary>
+    /// Try to get the head value of the Series.
+    /// </summary>
+    let inline tryHead (series: Series) : option<'T> =
+        series.Slice(0, 1UL).GetValueOption<'T> 0
+    /// <summary>
+    /// Try to get the head value of the Series with a default value.
+    /// </summary>
+    let inline tryHeadOrDefault (defaultValue: 'T) (series: Series) : 'T =
+        series.Slice(0, 1UL).GetValueOption<'T> 0 |> Option.defaultValue defaultValue
+    /// <summary>
+    /// Try to get the head value of the Series as a value option.
+    /// </summary>
+    let inline tryHeadV (series: Series) : voption<'T> =
+        series.Slice(0, 1UL).TryGetValue<'T> 0
+    /// <summary>
+    /// Get the tail value of the Series.
+    /// </summary>
+    let inline tail (series: Series) : 'T =
+        series.Slice(-1, 1UL).GetValue<'T> 0
+    /// <summary>
+    /// Try to get the tail value of the Series.
+    /// </summary>
+    let inline tryTail (series: Series) : option<'T> =
+        series.Slice(-1, 1UL).GetValueOption<'T> 0
+    /// <summary>
+    /// Try to get the tail value of the Series with a default value.
+    /// </summary>
+    let inline tryTailOrDefault (defaultValue: 'T) (series: Series): 'T =
+        series.Slice(-1, 1UL).GetValueOption<'T> 0 |> Option.defaultValue defaultValue
+    /// <summary>
+    /// Try to get the tail value of the Series as a value option.
+    /// </summary>
+    let inline tryTailV (series: Series) : voption<'T> =
+        series.Slice(-1, 1UL).TryGetValue<'T> 0
     /// <summary>
     /// Rechunk the Series to ensure it is contiguous.
     /// </summary>
@@ -21,7 +62,7 @@ module Series =
     /// </summary>
     /// <param name="mapping">The mapping function applied to each element.</param>
     /// <param name="series">The target Series.</param>
-    let inline map (mapping: 'T -> 'U) (series: Series) : Series =
+    let inline map ([<InlineIfLambda>]mapping: 'T -> 'U) (series: Series) : Series =
         series.Map<'T, 'U> mapping
 
     /// <summary>
@@ -30,7 +71,7 @@ module Series =
     /// </summary>
     /// <param name="mapping">The mapping function taking and returning F# Option.</param>
     /// <param name="series">The target Series.</param>
-    let inline mapOption (mapping: 'T option -> 'U option) (series: Series) : Series =
+    let inline mapOption ([<InlineIfLambda>]mapping: 'T option -> 'U option) (series: Series) : Series =
         series.MapOption<'T, 'U> mapping
 
     /// <summary>
@@ -39,7 +80,7 @@ module Series =
     /// </summary>
     /// <param name="mapping">The mapping function taking and returning F# ValueOption.</param>
     /// <param name="series">The target Series.</param>
-    let inline mapValueOption (mapping: 'T voption -> 'U voption) (series: Series) : Series =
+    let inline mapValueOption ([<InlineIfLambda>]mapping: 'T voption -> 'U voption) (series: Series) : Series =
         series.MapValueOption<'T, 'U> mapping
 
     /// Builds a new Series whose elements are the results of applying the given function
@@ -152,7 +193,7 @@ module Series =
 
         pl.series (series1.Name + "_mapped2") result
     let inline private foldPrimitive< 'T, 'State when 'T : struct and 'T: (new: unit -> 'T) and 'T :> IEquatable<'T> and 'T :> ValueType >
-        (f: 'State -> 'T -> 'State) (acc: 'State) (arrow: PrimitiveArray<'T>) =
+        ([<InlineIfLambda>]f: 'State -> 'T -> 'State) (acc: 'State) (arrow: PrimitiveArray<'T>) =
             let span = arrow.Values
             let mutable current = acc
             if arrow.NullCount = 0 then
@@ -171,7 +212,7 @@ module Series =
     /// <param name="state">The initial state.</param>
     /// <param name="series">The target Series.</param>
     /// <returns>The accumulated state.</returns>
-    let inline fold (folder: 'State -> 'T -> 'State) (state: 'State) (series: Series) : 'State =
+    let inline fold ([<InlineIfLambda>]folder: 'State -> 'T -> 'State) (state: 'State) (series: Series) : 'State =
         let len = series.Length
         if len = 0L then
             state
@@ -208,7 +249,7 @@ module Series =
     let inline foldSpan< 'T, 'State
         when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)
         and 'State : unmanaged and 'State : struct and 'State :> ValueType and 'State : (new: unit -> 'State)>
-        (folder: 'State -> 'T -> 'State) (state: 'State) (series: Series) : 'State =
+        ([<InlineIfLambda>]folder: 'State -> 'T -> 'State) (state: 'State) (series: Series) : 'State =
 
         if series.HasNulls() || not series.IsContiguous then
             invalidOp "foldSpan requires non-nullable and contiguous series, call fill or dropNulls or rechunk first."
@@ -225,7 +266,7 @@ module Series =
     /// <param name="reduction">The reduction function.</param>
     /// <param name="series">The target Series.</param>
     /// <returns>The reduced value.</returns>
-    let inline reduce (reduction: 'T -> 'T -> 'T) (series: Series) : 'T =
+    let inline reduce ([<InlineIfLambda>]reduction: 'T -> 'T -> 'T) (series: Series) : 'T =
         let len = series.Length
         if len = 0L then
             invalidOp "Cannot reduce an empty Series."
@@ -256,7 +297,7 @@ module Series =
     /// <param name="state">The initial state value.</param>
     /// <param name="series">The target Series.</param>
     /// <returns>A new Series containing intermediate accumulated results.</returns>
-    let inline scan (folder: 'State -> 'T -> 'State) (state: 'State) (series: Series) : Series =
+    let inline scan ([<InlineIfLambda>]folder: 'State -> 'T -> 'State) (state: 'State) (series: Series) : Series =
         let len = int series.Length
         let result = Array.zeroCreate<'State voption> len
         let mutable acc = state
@@ -279,7 +320,7 @@ module Series =
     let inline scanSpan< 'T, 'State
         when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)
         and 'State : unmanaged and 'State : struct and 'State :> ValueType and 'State : (new: unit -> 'State)>
-        (folder: 'State -> 'T -> 'State) (state: 'State) (series: Series) : Series =
+        ([<InlineIfLambda>]folder: 'State -> 'T -> 'State) (state: 'State) (series: Series) : Series =
 
         if series.HasNulls() || not series.IsContiguous then
             invalidOp "scanSpan requires non-nullable and contiguous series, call fill or dropNulls or rechunk first."
@@ -296,7 +337,7 @@ module Series =
     /// Generates a new Series from a state-transition function, up to a maximum length.
     /// Emits None to terminate sequence generation early.
     /// </summary>
-    let inline unfold (generator: 'State -> ('T * 'State) voption) (initialState: 'State) (maxLen: int) (name: string) : Series =
+    let inline unfold ([<InlineIfLambda>]generator: 'State -> ('T * 'State) voption) (initialState: 'State) (maxLen: int) (name: string) : Series =
         let buffer = Array.zeroCreate<'T> maxLen
         let mutable state = initialState
         let mutable count = 0
@@ -324,7 +365,7 @@ module Series =
     /// <summary>
     /// Filters a Series using a strongly-typed F# predicate function ('T -> bool).
     /// </summary>
-    let inline filterWith<'T> (predicate: 'T -> bool) (series: Series) : Series =
+    let inline filterWith<'T> ([<InlineIfLambda>]predicate: 'T -> bool) (series: Series) : Series =
         series.FilterWith<'T> predicate
     /// <summary>
     /// Cast a series to a specific Polars DataType.
@@ -534,7 +575,7 @@ module Series =
     /// comprised of the results for each element where the function returns Some.
     /// The return DataType is inferred automatically from 'U.
     /// </summary>
-    let inline choose (chooser: 'T -> 'U voption) (series: Series) : Series =
+    let inline choose ([<InlineIfLambda>]chooser: 'T -> 'U voption) (series: Series) : Series =
         let len = int series.Length
         let buffer = Array.zeroCreate<'U> len
         let mutable count = 0
@@ -559,7 +600,7 @@ module Series =
     /// <returns>A new Series containing only the elements for which the function returns Some.</returns>
     let inline chooseSpan<'T, 'U when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)
     and 'U : unmanaged and 'U : struct and 'U :> ValueType and 'U : (new: unit -> 'U)>
-        (chooser: 'T -> 'U voption) (series: Series) : Series =
+        ([<InlineIfLambda>] chooser: 'T -> 'U voption) (series: Series) : Series =
 
         if series.HasNulls() || not series.IsContiguous then
             invalidOp "chooseSpan requires non-nullable and contiguous series, call fill or dropNulls or rechunk first."
@@ -599,6 +640,26 @@ module Series =
     /// </summary>
     let inline existsSeries (predicate: Series) (series: Series) : bool =
         series.Filter(predicate).Any() |> Option.defaultValue false
+    /// <summary>
+    /// Returns true if the Series contains the given value.
+    /// </summary>
+    let inline contains(value: 'T) (series: Series) : bool =
+        let len = series.Length
+        if len = 0L then
+            false
+        else
+            let comparer = EqualityComparer<'T>.Default
+            let mutable found = false
+            let mutable i = 0L
+
+            // Short-circuit: stop scanning the moment a match is found
+            while not found && i < len do
+                match series.TryGetValue<'T>(i) with
+                | ValueSome v when comparer.Equals(v, value) -> found <- true
+                | _ -> ()
+                i <- i + 1L
+
+            found
 
     /// <summary>
     /// Tests if all elements of the Series satisfy the given predicate, short-circuiting on the first failure.
@@ -688,37 +749,37 @@ module Series =
     /// <summary>
     /// Pipeline alias for Series.IterOpt: ('T voption -> unit) -> Series -> unit.
     /// </summary>
-    let inline iterOpt<'T> (action: 'T voption -> unit) (series: Series) : unit =
+    let inline iterOpt<'T> ([<InlineIfLambda>]action: 'T voption -> unit) (series: Series) : unit =
         series.IterOpt<'T> action
 
     /// <summary>
     /// Pipeline alias for Series.IteriOpt: (int64 -> 'T voption -> unit) -> Series -> unit.
     /// </summary>
-    let inline iteriOpt<'T> (action: int64 -> 'T voption -> unit) (series: Series) : unit =
+    let inline iteriOpt<'T> ([<InlineIfLambda>]action: int64 -> 'T voption -> unit) (series: Series) : unit =
         series.IteriOpt<'T> action
 
     /// <summary>
     /// Pipeline alias for Series.Iter: ('T -> unit) -> Series -> unit.
     /// </summary>
-    let inline iter<'T> (action: 'T -> unit) (series: Series) : unit =
+    let inline iter<'T> ([<InlineIfLambda>]action: 'T -> unit) (series: Series) : unit =
         series.Iter<'T> action
 
     /// <summary>
     /// Pipeline alias for Series.Iteri: (int64 -> 'T -> unit) -> Series -> unit.
     /// </summary>
-    let inline iteri<'T> (action: int64 -> 'T -> unit) (series: Series) : unit =
+    let inline iteri<'T> ([<InlineIfLambda>]action: int64 -> 'T -> unit) (series: Series) : unit =
         series.Iteri<'T> action
 
     /// <summary>
     /// Pipeline alias for Series.Iter2Opt: ('T1 voption -> 'T2 voption -> unit) -> Series -> Series -> unit.
     /// </summary>
-    let inline iter2Opt<'T1, 'T2> (action: 'T1 voption -> 'T2 voption -> unit) (s1: Series) (s2: Series) : unit =
+    let inline iter2Opt<'T1, 'T2> ([<InlineIfLambda>]action: 'T1 voption -> 'T2 voption -> unit) (s1: Series) (s2: Series) : unit =
         s1.Iter2Opt<'T1, 'T2>(s2, action)
 
     /// <summary>
     /// Pipeline alias for Series.Iter2: ('T1 -> 'T2 -> unit) -> Series -> Series -> unit.
     /// </summary>
-    let inline iter2<'T1, 'T2> (action: 'T1 -> 'T2 -> unit) (s1: Series) (s2: Series) : unit =
+    let inline iter2<'T1, 'T2> ([<InlineIfLambda>]action: 'T1 -> 'T2 -> unit) (s1: Series) (s2: Series) : unit =
         s1.Iter2<'T1, 'T2>(s2, action)
 
     /// <summary>
@@ -755,13 +816,13 @@ module Series =
     /// <param name="n">The number of elements to create.</param>
     /// <param name="initializer">A function that computes the element at each index (0 to n - 1).</param>
     /// <returns>A new Series populated with the computed elements.</returns>
-    let inline init (name: string) (n: int) (initializer: int -> 'T) : Series =
+    let inline init (name: string) (n: int) ([<InlineIfLambda>]initializer: int -> 'T) : Series =
         let data = Array.init n initializer
         Series.create (name, data)
     /// <summary>
     /// Overload that creates an unnamed or default-named Series of length n.
     /// </summary>
-    let inline initUnnamed (n: int) (initializer: int -> 'T) : Series =
+    let inline initUnnamed (n: int) ([<InlineIfLambda>]initializer: int -> 'T) : Series =
         init "" n initializer
     /// <summary>
     /// Generate a range of integers as a series.

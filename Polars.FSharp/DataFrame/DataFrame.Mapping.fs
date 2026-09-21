@@ -36,37 +36,22 @@ module DataFrameMappingExtensions =
         /// <param name="mapping">The pure transformation function applied to each row.</param>
         /// <returns>A new DataFrame materialized from the mapped output records.</returns>
         member this.MapRows<'TIn, 'TOut>(mapping: 'TIn -> 'TOut) : DataFrame =
-            if isNull (box mapping) then
-                nullArg (nameof mapping)
+            ArgumentNullException.ThrowIfNull(mapping, nameof mapping)
 
-            // Validate that both 'TIn and 'TOut are F# Records
             if not (FSharpType.IsRecord(typeof<'TIn>, BindingFlags.Public ||| BindingFlags.NonPublic)) then
-                invalidArg (nameof mapping) (sprintf "Input type '%s' is not an F# Record type." typeof<'TIn>.FullName)
+                invalidArg (nameof mapping) $"Input type '{typeof<'TIn>.FullName}' is not an F# Record type."
 
             if not (FSharpType.IsRecord(typeof<'TOut>, BindingFlags.Public ||| BindingFlags.NonPublic)) then
-                invalidArg (nameof mapping) (sprintf "Output type '%s' is not an F# Record type." typeof<'TOut>.FullName)
+                invalidArg (nameof mapping) $"Output type '{typeof<'TOut>.FullName}' is not an F# Record type."
 
             let height = this.Height
             if height = 0L then
-                // Materialize an empty DataFrame preserving output Record schema
                 DataFrame.ofRecords<'TOut> Array.empty
             else
-                if height > int64 Int32.MaxValue then
-                    raise (OverflowException(sprintf "DataFrame height (%d) exceeds Int32.MaxValue." height))
-
-                let count = int height
-                let results = Array.zeroCreate<'TOut> count
-
-                // 1. Stream rows using compiled zero-allocation F# RowMapper
-                let enumerator = this.ToRecords<'TIn>().GetEnumerator()
-                let mutable idx = 0
-
-                while enumerator.MoveNext() do
-                    results.[idx] <- mapping enumerator.Current
-                    idx <- idx + 1
-
-                // 2. Transpose mapped array back to DataFrame via native columnar Series
-                DataFrame.ofRecords<'TOut> results
+                // Streamline using zero-allocation stack enumerator + RowEnumerator.mapToArray
+                let mutable enumerator = this.Rows<'TIn>()
+                let mappedRecords = RowEnumerator.mapToArray mapping enumerator
+                DataFrame.ofRecords<'TOut> mappedRecords
         /// <summary>
         /// Applies the given action to each row in the DataFrame materialized as a strongly-typed F# Record or DTO.
         /// Utilizes pre-compiled expression tree hydration and hoisted Series handles for extreme throughput.
@@ -97,26 +82,14 @@ module DataFrameMappingExtensions =
                     idx <- idx + 1L
         /// <summary>
         /// Applies an action pairwise to strongly-typed rows from two equal-height DataFrames.
-        /// Throws ArgumentException if DataFrame heights do not match.
-        /// Uses dual compiled stack enumerators for zero heap allocation and hoisted Series lookups.
         /// </summary>
-        /// <typeparam name="'T1">Row type for the first DataFrame.</typeparam>
-        /// <typeparam name="'T2">Row type for the second DataFrame.</typeparam>
-        /// <param name="other">The second DataFrame to pair with.</param>
-        /// <param name="action">The function applied to each pair of hydrated rows ('T1 -> 'T2 -> unit).</param>
         member this.Iter2<'T1, 'T2>(other: DataFrame, action: 'T1 -> 'T2 -> unit) : unit =
             ArgumentNullException.ThrowIfNull(other, nameof other)
             ArgumentNullException.ThrowIfNull(action, nameof action)
 
-            if this.Height <> other.Height then
-                invalidArg (nameof other) $"DataFrame heights do not match: {this.Height} vs {other.Height}."
-
-            if this.Height > 0L then
-                let mutable enum1 = this.Rows<'T1>()
-                let mutable enum2 = other.Rows<'T2>()
-
-                while enum1.MoveNext() && enum2.MoveNext() do
-                    action enum1.Current enum2.Current
+            let mutable enum1 = this.Rows<'T1>()
+            let mutable enum2 = other.Rows<'T2>()
+            RowEnumerator.iter2 action enum1 enum2
 
         /// <summary>
         /// Applies an action pairwise to strongly-typed rows from two DataFrames along with their 64-bit row index.
@@ -125,14 +98,6 @@ module DataFrameMappingExtensions =
             ArgumentNullException.ThrowIfNull(other, nameof other)
             ArgumentNullException.ThrowIfNull(action, nameof action)
 
-            if this.Height <> other.Height then
-                invalidArg (nameof other) $"DataFrame heights do not match: {this.Height} vs {other.Height}."
-
-            if this.Height > 0L then
-                let mutable enum1 = this.Rows<'T1>()
-                let mutable enum2 = other.Rows<'T2>()
-                let mutable idx = 0L
-
-                while enum1.MoveNext() && enum2.MoveNext() do
-                    action idx enum1.Current enum2.Current
-                    idx <- idx + 1L
+            let mutable enum1 = this.Rows<'T1>()
+            let mutable enum2 = other.Rows<'T2>()
+            RowEnumerator.iteri2 action enum1 enum2

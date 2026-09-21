@@ -1636,3 +1636,40 @@ type ``Series Tests`` () =
         use result = s1 .** s2
         // Assert
         Assert.Equal([ 1.0; 8.0; 81.0 ], result.ToArray<double>())
+    [<Fact>]
+    [<Trait("Series", "Contains")>]
+    member _.``Series contains returns true when target exists in integer series`` () =
+        // Arrange
+        use s = pl.series "ids" [| 101; 204; 308; 412 |]
+
+        // Act & Assert
+        Assert.True(s |> Series.contains 308)
+        Assert.False(s |> Series.contains 999)
+
+    [<Fact>]
+    [<Trait("Series", "Contains")>]
+    member _.``Series contains works with string series and preserves semantics`` () =
+        // Arrange
+        use s = pl.series "names" [| "Alice"; "Bob"; "Charlie" |]
+
+        // Act & Assert
+        Assert.True(s |> Series.contains "Bob")
+        Assert.False(s |> Series.contains "David")
+
+    [<Fact>]
+    [<Trait("Series", "Contains")>]
+    member _.``Series contains handles nulls safely without false positive`` () =
+        // Arrange
+        use s = pl.series "nullable" [| Some 10; None; Some 30 |]
+
+        // Act & Assert
+        Assert.True(s |> Series.contains 10)
+        Assert.False(s |> Series.contains 20)
+    [<Fact>]
+    [<Trait("Series", "Contains")>]
+    member _.``Series contains on empty series returns false`` () =
+        // Arrange
+        use s = pl.series "empty" Array.empty<int>
+
+        // Act & Assert
+        Assert.False(s |> Series.contains 42)

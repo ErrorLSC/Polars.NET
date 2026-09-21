@@ -389,10 +389,267 @@ module RowEnumerator =
         enumerator.TryLast()
 
     /// <summary>
+    /// Returns the last mapped row as a ValueOption.
+    /// </summary>
+    let inline tryLastValue (enumerator: RowEnumerator<'T>) : 'T voption =
+        enumerator.TryLastValue()
+
+    /// <summary>
     /// Returns the total row count as a 64-bit integer.
     /// </summary>
     let inline length (enumerator: RowEnumerator<'T>) : int64 =
         enumerator.Length
+    /// <summary>
+    /// Iterates over the rows of the enumerator, applying the action to each row.
+    /// </summary>
+    let inline iter ([<InlineIfLambda>] action: 'T -> unit) (enumerator: RowEnumerator<'T>) =
+        let mutable it = enumerator
+        while it.MoveNext() do
+            action it.Current
+    /// <summary>
+    /// Iterates over the rows of the enumerator, applying the action with zero-based 64-bit row index.
+    /// </summary>
+    let inline iteri ([<InlineIfLambda>] action: int64 -> 'T -> unit) (enumerator: RowEnumerator<'T> ) : unit =
+        let mutable it = enumerator
+        let mutable idx = 0L
+        while it.MoveNext() do
+            action idx it.Current
+            idx <- idx + 1L
+    /// <summary>
+    /// Projects all rows of the enumerator into a strongly-typed array using an inlined mapping function.
+    /// Eliminates intermediate IEnumerator heap boxing and lambda allocations.
+    /// </summary>
+    let inline mapToArray ([<InlineIfLambda>] mapping: 'TIn -> 'TOut) (enumerator: RowEnumerator<'TIn>) : 'TOut array =
+        let mutable it = enumerator
+        let len = it.Length
+        if len = 0L then
+            Array.empty<'TOut>
+        elif len > int64 Int32.MaxValue then
+            raise (OverflowException $"Row count ({len}) exceeds Int32.MaxValue.")
+        else
+            let count = int len
+            let results = Array.zeroCreate<'TOut> count
+            let mutable idx = 0
+            while it.MoveNext() do
+                results.[idx] <- mapping it.Current
+                idx <- idx + 1
+            results
+
+    /// <summary>
+    /// Iterates simultaneously over two equal-length RowEnumerators, applying the action pairwise.
+    /// </summary>
+    let inline iter2 ([<InlineIfLambda>] action: 'T1 -> 'T2 -> unit) (enum1: RowEnumerator<'T1>) (enum2: RowEnumerator<'T2>) : unit =
+        let mutable it1 = enum1
+        let mutable it2 = enum2
+        if it1.Length <> it2.Length then
+            invalidArg (nameof enum2) $"Enumerator lengths do not match: {it1.Length} vs {it2.Length}."
+
+        while it1.MoveNext() && it2.MoveNext() do
+            action it1.Current it2.Current
+
+    /// <summary>
+    /// Iterates simultaneously over two equal-length RowEnumerators with zero-based 64-bit row index.
+    /// </summary>
+    let inline iteri2 ([<InlineIfLambda>] action: int64 -> 'T1 -> 'T2 -> unit) (enum1: RowEnumerator<'T1> ) (enum2: RowEnumerator<'T2> ) : unit =
+        let mutable it1 = enum1
+        let mutable it2 = enum2
+        if it1.Length <> it2.Length then
+            invalidArg (nameof enum2) $"Enumerator lengths do not match: {enum1.Length} vs {enum2.Length}."
+
+        let mutable idx = 0L
+        while it1.MoveNext() && it2.MoveNext() do
+            action idx it1.Current it2.Current
+            idx <- idx + 1L
+    /// <summary>
+    /// Folds over the rows of the enumerator, applying the folder function to each row.
+    /// </summary>
+    let inline fold ([<InlineIfLambda>] folder: 'State -> 'T -> 'State) (initial: 'State) (enumerator: RowEnumerator<'T>) : 'State =
+        let mutable it = enumerator
+        let mutable state = initial
+        while it.MoveNext() do
+            state <- folder state it.Current
+        state
+    /// <summary>
+    /// Folds over the rows of the enumerator with index.
+    /// </summary>
+    let inline foldi ([<InlineIfLambda>] folder: int64 -> 'State -> 'T -> 'State) (initial: 'State) (enumerator: RowEnumerator<'T>) : 'State =
+        let mutable it = enumerator
+        let mutable state = initial
+        let mutable idx = 0L
+        while it.MoveNext() do
+            state <- folder idx state it.Current
+            idx <- idx + 1L
+        state
+    /// <summary>
+    /// Applies a function to each row, threading an accumulator argument through the computation.
+    /// Raises InvalidOperationException if the enumerator has no elements.
+    /// </summary>
+    let inline reduce ([<InlineIfLambda>] reduction: 'T -> 'T -> 'T) (enumerator: RowEnumerator<'T>) : 'T =
+        let mutable it = enumerator
+        if not (it.MoveNext()) then
+            invalidOp "The RowEnumerator sequence contains no elements to reduce."
+        let mutable state = it.Current
+        while it.MoveNext() do
+            state <- reduction state it.Current
+        state
+
+    /// <summary>
+    /// Like fold, but returns a lazy sequence of intermediate and final results.
+    /// </summary>
+    let inline scan ([<InlineIfLambda>] folder: 'State -> 'T -> 'State) (initial: 'State) (enumerator: RowEnumerator<'T>) : seq<'State> =
+        seq {
+            let mutable state = initial
+            yield state
+            let mutable it = enumerator
+            while it.MoveNext() do
+                state <- folder state it.Current
+                yield state
+        }
+    /// <summary>
+    /// Tries to find a row that satisfies the predicate.
+    /// </summary>
+    let inline tryFind ([<InlineIfLambda>] predicate: 'T -> bool) (enumerator: RowEnumerator<'T>) : 'T option =
+        let mutable it = enumerator
+        let mutable found = None
+        while found.IsNone && it.MoveNext() do
+            let cur = it.Current
+            if predicate cur then
+                found <- Some cur
+        found
+    /// <summary>
+    /// Tries to find the first row that satisfies the predicate, returning a ValueOption to eliminate heap boxing.
+    /// </summary>
+    let inline tryFindValue ([<InlineIfLambda>] predicate: 'T -> bool) (enumerator: RowEnumerator<'T>) : 'T voption =
+        let mutable it = enumerator
+        let mutable found = ValueNone
+        while found.IsNone && it.MoveNext() do
+            let cur = it.Current
+            if predicate cur then
+                found <- ValueSome cur
+        found
+    /// <summary>
+    /// Maps each row of the enumerator to a new value using the mapping function.
+    /// </summary>
+    let inline map (mapping: 'T -> 'U) (enumerator: RowEnumerator<'T>) : seq<'U> =
+        seq {
+            let mutable it = enumerator
+            while it.MoveNext() do
+                yield mapping it.Current
+        }
+    /// <summary>
+    /// Maps each row with its zero-based 64-bit row index to a lazy F# sequence.
+    /// </summary>
+    let inline mapi ([<InlineIfLambda>] mapping: int64 -> 'T -> 'U) (enumerator: RowEnumerator<'T>) : seq<'U> =
+        seq {
+            let mutable it = enumerator
+            let mutable idx = 0L
+            while it.MoveNext() do
+                yield mapping idx it.Current
+                idx <- idx + 1L
+        }
+    /// <summary>
+    /// Returns whether any row satisfies the predicate.
+    /// </summary>
+    let inline exists ([<InlineIfLambda>] predicate: 'T -> bool) (enumerator: RowEnumerator<'T>) : bool =
+        let mutable it = enumerator
+        let mutable found = false
+        while not found && it.MoveNext() do
+            if predicate it.Current then
+                found <- true
+        found
+
+    /// <summary>
+    /// Returns whether all rows satisfy the predicate.
+    /// </summary>
+    let inline forall ([<InlineIfLambda>] predicate: 'T -> bool) (enumerator: RowEnumerator<'T>) : bool =
+        let mutable it = enumerator
+        let mutable ok = true
+        while ok && it.MoveNext() do
+            if not (predicate it.Current) then
+                ok <- false
+        ok
+    /// <summary>
+    /// Applies the given function to successive elements, returning the first result where the function returns Some.
+    /// Short-circuits immediately.
+    /// </summary>
+    let inline tryPick ([<InlineIfLambda>] chooser: 'T -> 'U option) (enumerator: RowEnumerator<'T>) : 'U option =
+        let mutable it = enumerator
+        let mutable res = None
+        while res.IsNone && it.MoveNext() do
+            match chooser it.Current with
+            | Some _ as hit -> res <- hit
+            | None -> ()
+        res
+
+    /// <summary>
+    /// Applies the given function to successive elements, returning the first result where the function returns ValueSome.
+    /// Short-circuits with zero heap allocation.
+    /// </summary>
+    let inline tryPickValue ([<InlineIfLambda>] chooser: 'T -> 'U voption) (enumerator: RowEnumerator<'T>) : 'U voption =
+        let mutable it = enumerator
+        let mutable res = ValueNone
+        while res.IsNone && it.MoveNext() do
+            match chooser it.Current with
+            | ValueSome _ as hit -> res <- hit
+            | ValueNone -> ()
+        res
+    /// <summary>
+    /// Filters the rows of the enumerator that satisfy the predicate.
+    /// </summary>
+    let inline filter ([<InlineIfLambda>] predicate: 'T -> bool) (enumerator: RowEnumerator<'T>) : ResizeArray<'T> =
+        let mutable it = enumerator
+        let results = ResizeArray()
+        while it.MoveNext() do
+            let cur = it.Current
+            if predicate cur then
+                results.Add(cur)
+        results
+
+    /// <summary>
+    /// Chooses values from the rows of the enumerator that satisfy the predicate.
+    /// </summary>
+    let inline choose ([<InlineIfLambda>] chooser: 'T -> 'U option) (enumerator: RowEnumerator<'T>) : ResizeArray<'U> =
+        let mutable it = enumerator
+        let results = ResizeArray<'U>()
+        while it.MoveNext() do
+            match chooser it.Current with
+            | Some value -> results.Add(value)
+            | None -> ()
+        results
+    /// <summary>
+    /// Tests if the enumerator contains the specified element using default structural equality.
+    /// Short-circuits upon discovery.
+    /// </summary>
+    let inline contains (element: 'T) (enumerator: RowEnumerator<'T>) : bool =
+        let mutable it = enumerator
+        let comparer = EqualityComparer<'T>.Default
+        let mutable found = false
+        while not found && it.MoveNext() do
+            if comparer.Equals(it.Current, element) then
+                found <- true
+        found
+    /// <summary>
+    /// Sums the values of the rows of the enumerator using the projection function.
+    /// </summary>
+    let inline sumBy ([<InlineIfLambda>] projection: 'T -> ^Num) (enumerator: RowEnumerator<'T>) : ^Num
+        when ^Num: (static member (+) : ^Num * ^Num -> ^Num) and ^Num: (static member Zero : ^Num) =
+        let mutable it = enumerator
+        let mutable acc = LanguagePrimitives.GenericZero<^Num>
+        while it.MoveNext() do
+            acc <- acc + projection it.Current
+        acc
+    /// <summary>
+    /// Applies a key-generating function to each row and returns a dictionary with the frequency of each key.
+    /// </summary>
+    let inline countBy ([<InlineIfLambda>] projection: 'T -> 'Key) (enumerator: RowEnumerator<'T>) : Dictionary<'Key, int64> =
+        let mutable it = enumerator
+        let dict = Dictionary<'Key, int64>()
+        while it.MoveNext() do
+            let key = projection it.Current
+            match dict.TryGetValue(key) with
+            | true, count -> dict.[key] <- count + 1L
+            | false, _    -> dict.[key] <- 1L
+        dict
 
 [<AutoOpen>]
 module DataFrameConversions =
