@@ -9,13 +9,17 @@ module SeriesComputationOps =
         member this.Abs() = this.ApplyExpr(Expr.Col(this.Name).Abs())
         /// <summary> Square root. </summary>
         member this.Sqrt() = this.ApplyExpr(Expr.Col(this.Name).Sqrt())
-
         /// <summary> Cube root. </summary>
         member this.Cbrt() = this.ApplyExpr(Expr.Col(this.Name).Cbrt())
-        /// <summary> Power with scalar exponent. </summary>
+        /// <summary> Power with double exponent. </summary>
         member this.Pow(exponent: double) =
             this.ApplyExpr(Expr.Col(this.Name).Pow exponent)
-
+        /// <summary> Power with single exponent. </summary>
+        member this.Pow(exponent: single) =
+            this.ApplyExpr(Expr.Col(this.Name).Pow exponent)
+        /// <summary> Power with int64 exponent. </summary>
+        member this.Pow(exponent: int64) =
+            this.ApplyExpr(Expr.Col(this.Name).Pow exponent)
         /// <summary> Power with integer exponent. </summary>
         member this.Pow(exponent: int) =
             this.ApplyExpr(Expr.Col(this.Name).Pow exponent)

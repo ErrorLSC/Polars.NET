@@ -1573,3 +1573,50 @@ type ``Series Tests`` () =
         // Act & Assert
         let action = fun () -> s.Iter<int>(Unchecked.defaultof<int -> unit>)
         Assert.Throws<ArgumentNullException>(action) |> ignore
+
+    [<Fact>]
+    [<Trait("Series", "Pow")>]
+    member _.``Series pow with int`` () =
+        // Arrange
+        use s = pl.series "data" [| 1; 2; 3 |]
+        // Act
+        use result = s .** 2
+        // Assert
+        Assert.Equal([ 1; 4; 9 ], result.ToArray<int>())
+    [<Fact>]
+    [<Trait("Series", "Pow")>]
+    member _.``Series pow with double`` () =
+        // Arrange
+        use s = pl.series "data" [| 1; 2; 3 |]
+        // Act
+        use result = s .** 2.0
+        // Assert
+        Assert.Equal([ 1.0; 4.0; 9.0 ], result.ToArray<double>())
+    [<Fact>]
+    [<Trait("Series", "Pow")>]
+    member _.``Series pow with single`` () =
+        // Arrange
+        use s = pl.series "data" [| 1; 2; 3 |]
+        // Act
+        use result = s .** 2.0f
+        // Assert
+        Assert.Equal([ 1.0f; 4.0f; 9.0f ], result.ToArray<single>())
+    [<Fact>]
+    [<Trait("Series", "Pow")>]
+    member _.``Series pow with int64`` () =
+        // Arrange
+        use s = pl.series "data" [| 1; 2; 3 |]
+        // Act
+        use result = s .** 2L
+        // Assert
+        Assert.Equal([ 1L; 4L; 9L ], result.ToArray<int64>())
+    [<Fact>]
+    [<Trait("Series", "Pow")>]
+    member _.``Series pow with series`` () =
+        // Arrange
+        use s1 = pl.series "data" [| 1; 2; 3 |]
+        use s2 = pl.series "data" [| 2.0; 3.0; 4.0 |]
+        // Act
+        use result = s1 .** s2
+        // Assert
+        Assert.Equal([ 1.0; 8.0; 81.0 ], result.ToArray<double>())

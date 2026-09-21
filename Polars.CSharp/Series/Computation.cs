@@ -1,4 +1,4 @@
-#pragma warning disable CS1591 
+#pragma warning disable CS1591
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
@@ -22,21 +22,25 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Calculate exponent value.
     /// </summary>
     public Series Pow(double exponent) => ApplyExpr(Pl.Col(Name).Pow(exponent));
+    public Series Pow(int exponent) => ApplyExpr(Pl.Col(Name).Pow(exponent));
+    public Series Pow(long exponent) => ApplyExpr(Pl.Col(Name).Pow(exponent));
+    public Series Pow(float exponent) => ApplyExpr(Pl.Col(Name).Pow(exponent));
+    public Series Pow(Series exponent) => ApplyBinaryExpr(exponent, (left, right) => left.Pow(right));
     /// <summary>
     /// Calculate the power of the Euler's number.
     /// </summary>
     public Series Exp() =>  ApplyExpr(Pl.Col(Name).Exp());
-    /// <inheritdoc cref="Expr.Log(Expr)"/> 
+    /// <inheritdoc cref="Expr.Log(Expr)"/>
     public Series Log(Expr baseVal) => ApplyExpr(Pl.Col(Name).Log(baseVal));
     public Series Ln() => Log(Math.E);
     public Series Log() => Ln();
-    /// <inheritdoc cref="Expr.Log10"/> 
+    /// <inheritdoc cref="Expr.Log10"/>
     public Series Log10() => Log(10.0);
-    /// <inheritdoc cref="Expr.Log1p"/> 
+    /// <inheritdoc cref="Expr.Log1p"/>
     public Series Log1p() => ApplyExpr(Pl.Col(Name).Log1p());
-    /// <inheritdoc cref="Expr.Entropy"/> 
+    /// <inheritdoc cref="Expr.Entropy"/>
     public double? Entropy(double baseVal=Math.E,bool normalize=true) => ExtractScalar<double>(Pl.Col(Name).Entropy(baseVal,normalize));
-    /// <inheritdoc cref="Expr.Hash"/> 
+    /// <inheritdoc cref="Expr.Hash"/>
     public Series Hash(ulong seed=0, ulong? seed1=null,ulong? seed2=null,ulong? seed3=null)
         => ApplyExpr(Pl.Col(Name).Hash(seed,seed1,seed2,seed3));
     // ==========================================
@@ -60,11 +64,11 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <param name="other">The other Series.</param>
     /// <returns>The dot product value.</returns>
     public T? Dot<T>(Series other) => Dot(other).GetValue<T>(0);
-    /// <inheritdoc cref="Expr.Round"/> 
+    /// <inheritdoc cref="Expr.Round"/>
     public Series Round(uint decimals=0,RoundMode mode = RoundMode.HalfToEven) => ApplyExpr(Pl.Col(Name).Round(decimals,mode));
-    /// <inheritdoc cref="Expr.RoundSigFigs"/> 
+    /// <inheritdoc cref="Expr.RoundSigFigs"/>
     public Series RoundSigFigs(int digits) => ApplyExpr(Pl.Col(Name).RoundSigFigs(digits));
-    /// <inheritdoc cref="Expr.Truncate"/> 
+    /// <inheritdoc cref="Expr.Truncate"/>
     public Series Truncate(uint decimals=0) => ApplyExpr(Pl.Col(Name).Truncate(decimals));
     /// <summary>Compute the element-wise sign (-1, 0, 1).</summary>
     public Series Sign() => ApplyExpr(Pl.Col(Name).Sign());
@@ -135,27 +139,27 @@ public partial class Series : IDisposable,IPolarsSeries
     // ==========================================
     /// <inheritdoc cref="Expr.CumSum(bool)"/>
     /// <returns>A new <see cref="Series"/> with the cumulative sum.</returns>
-    public Series CumSum(bool reverse = false) 
+    public Series CumSum(bool reverse = false)
         => ApplyExpr(Pl.Col(Name).CumSum(reverse));
 
     /// <inheritdoc cref="Expr.CumMax(bool)"/>
     /// <returns>A new <see cref="Series"/> with the cumulative maximum.</returns>
-    public Series CumMax(bool reverse = false) 
+    public Series CumMax(bool reverse = false)
         => ApplyExpr(Pl.Col(Name).CumMax(reverse));
 
     /// <inheritdoc cref="Expr.CumMin(bool)"/>
     /// <returns>A new <see cref="Series"/> with the cumulative minimum.</returns>
-    public Series CumMin(bool reverse = false) 
+    public Series CumMin(bool reverse = false)
         => ApplyExpr(Pl.Col(Name).CumMin(reverse));
 
     /// <inheritdoc cref="Expr.CumProd(bool)"/>
     /// <returns>A new <see cref="Series"/> with the cumulative product.</returns>
-    public Series CumProd(bool reverse = false) 
+    public Series CumProd(bool reverse = false)
         => ApplyExpr(Pl.Col(Name).CumProd(reverse));
 
     /// <inheritdoc cref="Expr.CumCount(bool)"/>
     /// <returns>A new <see cref="Series"/> with the cumulative count.</returns>
-    public Series CumCount(bool reverse = false) 
+    public Series CumCount(bool reverse = false)
         => ApplyExpr(Pl.Col(Name).CumCount(reverse));
     /// <inheritdoc cref="Expr.CumulativeEval"/>
     public Series CumulativeEval(Expr expr,int minSamples=1)
@@ -181,7 +185,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns>A new <see cref="Series"/> with the EWM sum.</returns>
     public Series EwmSum(double alpha, bool adjust = true, bool bias = true, int minPeriods = 1, bool ignoreNulls = false)
         => ApplyExpr(Pl.Col(Name).EwmSum(alpha, adjust, bias, minPeriods, ignoreNulls));
-    
+
     // -------------------------------------------------------------------------
     // EWM By (Time/Index based)
     // -------------------------------------------------------------------------
@@ -218,10 +222,10 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </summary>
     /// <param name="maintainOrder">Maintain order of data. This requires more work.</param>
     public Series Unique(bool maintainOrder=false)
-    {   
+    {
         if(!maintainOrder)
             return new(PolarsWrapper.SeriesUnique(Handle));
-        else 
+        else
             return new(PolarsWrapper.SeriesUniqueStable(Handle));
     }
     /// <inheritdoc cref="Expr.Hist"/>
@@ -249,16 +253,16 @@ public partial class Series : IDisposable,IPolarsSeries
     public int SearchSortedIndex(object? scalar, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
     {
         Expr eleExpr = scalar is null ? Pl.LitNull(): Expr.MakeLit(scalar) ;
-        
+
         using var series = ApplyExpr(Pl.Col(Name).SearchSorted(eleExpr, side, descending));
-        
-        return (int)series.Cast<int>()[0]!; 
+
+        return (int)series.Cast<int>()[0]!;
     }
     /// <inheritdoc cref="Expr.Skew(bool)"/>
     public double? Skew(bool bias = true) => ExtractScalar<double>(Pl.Col(Name).Skew(bias));
 
     /// <inheritdoc cref="Expr.Kurtosis(bool, bool)"/>
-    public double? Kurtosis(bool fisher = true, bool bias = true) 
+    public double? Kurtosis(bool fisher = true, bool bias = true)
         => ExtractScalar<double>(Pl.Col(Name).Kurtosis(fisher, bias));
     /// <summary>
     /// Get index values where Boolean Series evaluate True.

@@ -34,6 +34,11 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </summary>
     public static Series operator %(Series left, Series right)
         => new(PolarsWrapper.SeriesRem(left.Handle, right.Handle));
+    /// <summary>
+    /// Exponentiation Series
+    /// </summary>
+    public static Series operator ^ (Series left, Series right)
+        => left.Pow(right);
     // ==========================================
     // Bitwise Operators (<<, >>)
     // ==========================================

@@ -186,8 +186,41 @@ public class SeriesOperatorTests
         using Series s2 = Pl.CreateSeries("s2", ["bob", "ath", null]);
         using Series result1 = s1.NeqMissing(s2);
         using Series result2 = s1 != s2;
-        Assert.Equal([true, true,false ], result1.ToArray<bool>());
-        Assert.Equal([true, false, false ], result2.ToArray<bool>());
+        Assert.Equal([true, true, false], result1.ToArray<bool>());
+        Assert.Equal([true, false, false], result2.ToArray<bool>());
     }
+    [Fact]
+    [Trait("Series", "Pow")]
+    public void Test_Series_Pow()
+    {
+        using Series s1 = Pl.CreateSeries("s1", [2, 3, 4]);
+        using Series result1 = s1.Pow(2);
+        Assert.Equal([4, 9, 16], result1.ToArray<int>());
 
+        using Series s2 = Pl.CreateSeries("s2", [2, 3, 4]);
+        using Series result2 = s2.Pow(2.0);
+        Assert.Equal([4.0, 9.0, 16.0], result2.ToArray<double>());
+
+        using Series s3 = Pl.CreateSeries("s3", [2.0f, 3.0f, 4.0f]);
+        using Series result3 = s3.Pow(2.0f);
+        Assert.Equal([4.0f, 9.0f, 16.0f], result3.ToArray<float>());
+    }
+    [Fact]
+    [Trait("Series", "Pow")]
+    public void Test_Series_Pow_Series()
+    {
+        using Series s1 = Pl.CreateSeries("s1", [2, 3, 4]);
+        using Series s2 = Pl.CreateSeries("s2", [1, 2, 3]);
+        using Series result1 = s1.Pow(s2);
+        Assert.Equal([2, 9, 64], result1.ToArray<int>());
+    }
+    [Fact]
+    [Trait("Series", "Pow")]
+    public void Test_Series_Pow_Series_TypePromotion()
+    {
+        using Series s1 = Pl.CreateSeries("s1", [2, 3, 4]);
+        using Series s2 = Pl.CreateSeries("s2", [1.0, 2.0, 3.0]);
+        using Series result1 = s1.Pow(s2);
+        Assert.Equal([2.0, 9.0, 64.0], result1.ToArray<double>());
+    }
 }

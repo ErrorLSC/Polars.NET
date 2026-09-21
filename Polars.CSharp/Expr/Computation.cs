@@ -31,6 +31,14 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     public Expr Pow(double exponent) => new(PolarsWrapper.Pow(CloneHandle(), PolarsWrapper.Lit(exponent)));
     /// <summary>
+    /// Calculate the power of the expression with a given numeric exponent.
+    /// </summary>
+    public Expr Pow(long exponent) => new(PolarsWrapper.Pow(CloneHandle(), PolarsWrapper.Lit(exponent)));
+    /// <summary>
+    /// Calculate the power of the expression with a given numeric exponent.
+    /// </summary>
+    public Expr Pow(int exponent) => new(PolarsWrapper.Pow(CloneHandle(), PolarsWrapper.Lit(exponent)));
+    /// <summary>
     /// Compute the dot/inner product between two expressions.
     /// <para>
     /// The dot product is the sum of the products of the corresponding entries of the two sequences of numbers.

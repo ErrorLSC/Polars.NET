@@ -411,6 +411,22 @@ type Series(handle: SeriesHandle) =
     static member (%) (lhs: Series, rhs: int) = lhs.Mod rhs
     static member (%) (lhs: Series, rhs: int64) = lhs.Mod rhs
 
+    /// <summary> Power with double exponent. </summary>
+    static member (.**) (lhs: Series, rhs: Series) =
+        lhs.ApplyBinaryExpr(rhs, fun l r -> l.Pow r)
+    /// <summary> Power with single exponent. </summary>
+    static member (.**) (lhs: Series, rhs: single) =
+        lhs.ApplyExpr(Expr.Col(lhs.Name).Pow rhs)
+    /// <summary> Power with single exponent. </summary>
+    static member (.**) (lhs: Series, rhs: double) =
+        lhs.ApplyExpr(Expr.Col(lhs.Name).Pow rhs)
+    /// <summary> Power with int64 exponent. </summary>
+    static member (.**) (lhs: Series, rhs: int64) =
+        lhs.ApplyExpr(Expr.Col(lhs.Name).Pow rhs)
+    /// <summary> Power with integer exponent. </summary>
+    static member (.**) (lhs: Series, rhs: int) =
+        lhs.ApplyExpr(Expr.Col(lhs.Name).Pow rhs)
+
     static member (<<<) (lhs: Series, rhs: int) = lhs.BitLeftShift rhs
     static member (>>>) (lhs: Series, rhs: int) = lhs.BitRightShift rhs
 

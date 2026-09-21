@@ -32,9 +32,9 @@ and Expr(handle: ExprHandle) =
         member this.ToSelector (): Selector = this.ToSelector()
     interface IEquatable<Expr> with
         member this.Equals(other: Expr) =
-            if box other = null then 
+            if box other = null then
                 false
-            elif Object.ReferenceEquals(this, other) then 
+            elif Object.ReferenceEquals(this, other) then
                 true
             else
                 PolarsWrapper.ExprEquals(this.Handle, other.Handle)
@@ -51,19 +51,19 @@ and Expr(handle: ExprHandle) =
     /// Get hashcode based on the dependencies (root column names) of the expression.
     /// </summary>
     override this.GetHashCode() =
-        if this.Handle.IsInvalid then 
+        if this.Handle.IsInvalid then
             0
         else
             // Inline of Meta.RootNames() logic to break compilation order dependencies
             let rootsArray = PolarsWrapper.RootNames(this.Handle)
-            
+
             if box rootsArray = null || rootsArray.Length = 0 then
                 0
             else
                 let rootsStr = String.concat "," rootsArray
                 rootsStr.GetHashCode()
-    override this.ToString (): string = 
-        if (this.Handle.IsInvalid) then 
+    override this.ToString (): string =
+        if (this.Handle.IsInvalid) then
             "Expr (Disposed)"
         else PolarsWrapper.ExprToString(this.Handle)
 
@@ -89,14 +89,14 @@ and Expr(handle: ExprHandle) =
     /// <summary>
     /// Create an expression representing all columns. Same as Col("*").
     /// </summary>
-    static member internal All() = 
+    static member internal All() =
         Expr.Col "*"
     static member internal LitNull() = new Expr(PolarsWrapper.LitNull())
     member this.Exclude(names:seq<string>):Expr =
         let sel: Selector = this.ToSelector()
         let ns: Selector = sel.Exclude(names)
         ns.ToExpr()
-    member this.Exclude(dtypes: seq<DataType>):Expr = 
+    member this.Exclude(dtypes: seq<DataType>):Expr =
         let sel: Selector = this.ToSelector()
         let ns: Selector = sel.Exclude(dtypes)
         ns.ToExpr()
@@ -108,7 +108,7 @@ and Expr(handle: ExprHandle) =
     /// <param name="multithreaded">If true, sort in multiple threads. Default is true.</param>
     /// <param name="maintainOrder">If true, maintain the order of equal elements. Default is false.</param>
     /// <param name="limit">Limit the sort output (for optimization purposes).</param>
-    member this.Sort(?descending,?nullsLast,?multithreaded,?maintainOrder,?limit:uint32) = 
+    member this.Sort(?descending,?nullsLast,?multithreaded,?maintainOrder,?limit:uint32) =
         let des = defaultArg descending false
         let nul = defaultArg nullsLast false
         let mul = defaultArg multithreaded true
@@ -124,15 +124,15 @@ and Expr(handle: ExprHandle) =
     /// <param name="multithreaded">Sort using multiple threads.</param>
     /// <param name="maintainOrder">Whether the order should be maintained if elements are equal.</param>
     member this.SortBy(by:seq<Expr>,?descending:seq<bool>,?nullsLast:seq<bool>,?multithreaded,?maintainOrder) =
-        let byHandles = by |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray 
-        let des = 
+        let byHandles = by |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+        let des =
             match descending with
             | Some d -> d |> Seq.toArray
-            | None -> null 
-        let nul = 
+            | None -> null
+        let nul =
             match nullsLast with
             | Some n -> n |> Seq.toArray
-            | None -> null 
+            | None -> null
         let mul = defaultArg multithreaded true
         let mai = defaultArg maintainOrder false
         new Expr(PolarsWrapper.SortBy(this.CloneHandle(),byHandles,des,nul,mul,mai))
@@ -184,7 +184,7 @@ and Expr(handle: ExprHandle) =
     /// Shuffle the contents of this expression.Note this is shuffled independently of any other column or Expression. If you want each row to stay the same use df.sample(shuffle=True)
     /// </summary>
     /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated each time the shuffle is called.</param>
-    member this.Shuffle(?seed:uint64) = 
+    member this.Shuffle(?seed:uint64) =
         let se = seed |> Option.toNullable
         new Expr(PolarsWrapper.ExprShuffle(this.CloneHandle(),se))
     /// <summary>
@@ -195,7 +195,7 @@ and Expr(handle: ExprHandle) =
     /// <param name="shuffle">Shuffle the order of sampled data points.</param>
     /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated for each sample operation.</param>
     member _.SampleN(?n:Expr,?withReplacement:bool,?shuffle:bool,?seed:uint64) =
-        let num = 
+        let num =
             match n with
             | Some n -> n.CloneHandle()
             | None -> PolarsWrapper.Lit 1
@@ -223,9 +223,9 @@ and Expr(handle: ExprHandle) =
     /// </summary>
     /// <param name="decimals">Number of decimals to round by.</param>
     /// <param name="mode">The rounding strategy used. A “rounded value” is a value with at most decimals decimal places (e.g. integers when decimals=0, multiples of 0.1 when decimals=1, 0.01 when decimals=2, and so on).
-    /// Strategies that start with half_ round all values to the nearest rounded value, only using the strategy to break ties when a value falls exactly between two rounded values (e.g. 0.5 when decimals=0, 0.05 when decimals=1). 
+    /// Strategies that start with half_ round all values to the nearest rounded value, only using the strategy to break ties when a value falls exactly between two rounded values (e.g. 0.5 when decimals=0, 0.05 when decimals=1).
     /// Other rounding strategies specify explicitly which rounded value is chosen and always apply (not just for tiebreaks).</param>
-    member this.Round(?decimals: uint32,?mode:RoundMode) = 
+    member this.Round(?decimals: uint32,?mode:RoundMode) =
         let de = defaultArg decimals 0u
         let mo = defaultArg mode RoundMode.HalfToEven
         new Expr(PolarsWrapper.Round(this.CloneHandle(), uint de,mo.ToNative()))
@@ -238,7 +238,7 @@ and Expr(handle: ExprHandle) =
     /// Truncate numeric data toward zero to decimals number of decimal places.
     /// </summary>
     /// <param name="decimals">Number of decimal places to truncate to.</param>
-    member this.Truncate(?decimals) = 
+    member this.Truncate(?decimals) =
         let de = defaultArg decimals 0u
         new Expr(PolarsWrapper.Truncate(this.CloneHandle(),de))
     /// <summary> Compute the element-wise sign (-1, 0, 1). </summary>
@@ -260,13 +260,13 @@ and Expr(handle: ExprHandle) =
     /// <summary>
     /// Bitwise left shift (<<).
     /// </summary>
-    member this.BitLeftShift(n: int) = 
+    member this.BitLeftShift(n: int) =
         new Expr(PolarsWrapper.BitLeftShift(this.CloneHandle(), n))
 
     /// <summary>
     /// Bitwise right shift (>>).
     /// </summary>
-    member this.BitRightShift(n: int) = 
+    member this.BitRightShift(n: int) =
         new Expr(PolarsWrapper.BitRightShift(this.CloneHandle(), n))
 
     // --- Operators ---
@@ -301,7 +301,7 @@ and Expr(handle: ExprHandle) =
     static member (<<<) (lhs: Expr, rhs: int) = lhs.BitLeftShift rhs
 
     /// <summary> Bitwise right shift operator (expr >>> n). </summary>
-    static member (>>>) (lhs: Expr, rhs: int) = lhs.BitRightShift rhs   
+    static member (>>>) (lhs: Expr, rhs: int) = lhs.BitRightShift rhs
     /// <summary>
     /// Check if this expression is NOT equal to another, treating nulls as valid values.
     /// (e.g., Null != Null is False, 5 != Null is True)
@@ -326,27 +326,31 @@ and Expr(handle: ExprHandle) =
     static member SqlExpr(sql: string) =
         if String.IsNullOrWhiteSpace sql then
             invalidArg "sql" "SQL expression can not be null or whitespace."
-            
+
         new Expr(PolarsWrapper.SqlExpr sql)
     /// <summary> Create an array of Polars Exprs from a collection of SQL strings. </summary>
     /// <param name="sqls">The collection of SQL expression strings.</param>
     /// <returns>An array of Polars Expr objects.</returns>
     static member SqlExprs(sqls: seq<string>) =
-        sqls 
-        |> Seq.map Expr.SqlExpr 
+        sqls
+        |> Seq.map Expr.SqlExpr
         |> Seq.toArray
     // Aggregations
 
-    member this.Item(?allowEmpty:bool) = 
+    member this.Item(?allowEmpty:bool) =
         let allow = defaultArg allowEmpty true
         new Expr(PolarsWrapper.Item(this.CloneHandle(),allow))
 
     // Math
-    member this.Pow(exponent: Expr) = 
+    member this.Pow(exponent: Expr) =
         new Expr(PolarsWrapper.Pow(this.CloneHandle(), exponent.CloneHandle()))
-    member this.Pow(exponent: double) = 
+    member this.Pow(exponent: double) =
         this.Pow(PolarsWrapper.Lit exponent |> fun h -> new Expr(h))
-    member this.Pow(exponent: int) = 
+    member this.Pow(exponent: int) =
+        this.Pow(PolarsWrapper.Lit exponent |> fun h -> new Expr(h))
+    member this.Pow(exponent: single) =
+        this.Pow(PolarsWrapper.Lit exponent |> fun h -> new Expr(h))
+    member this.Pow(exponent: int64) =
         this.Pow(PolarsWrapper.Lit exponent |> fun h -> new Expr(h))
 
     /// <summary>
@@ -367,9 +371,9 @@ and Expr(handle: ExprHandle) =
     /// </summary>
     member this.Mod(other: Expr) =
         new Expr(PolarsWrapper.Rem(this.CloneHandle(), other.CloneHandle()))
-    member this.Rem(other: Expr) = 
+    member this.Rem(other: Expr) =
         this.Mod other
-        
+
 
     // ==========================================
     // Indexing & Searching (Get / Gather / Arg / Index)
@@ -402,7 +406,7 @@ and Expr(handle: ExprHandle) =
     /// <summary>
     /// LINQ-like alias for Gather.
     /// </summary>
-    member this.Take(indices: Expr) = 
+    member this.Take(indices: Expr) =
         this.Gather indices
 
     /// <summary>
@@ -438,7 +442,7 @@ and Expr(handle: ExprHandle) =
     /// Computes the change from the previous row by default.
     /// </summary>
     /// <param name="n">periods to shift for forming percent change.</param>
-    member this.PctChange(?n: int) = 
+    member this.PctChange(?n: int) =
         let nd = defaultArg n 1
         new Expr(PolarsWrapper.PctChange(this.CloneHandle(), nd))
     /// <summary>
@@ -449,7 +453,7 @@ and Expr(handle: ExprHandle) =
     /// Default is <see cref="RankMethod.Average"/>.</param>
     /// <param name="descending">Rank in descending order.</param>
     /// <param name="seed">If method="random", use this as seed.</param>
-    member this.Rank(?method: RankMethod, ?descending: bool,?seed: uint64) = 
+    member this.Rank(?method: RankMethod, ?descending: bool,?seed: uint64) =
         let rm = defaultArg method RankMethod.Average
         let des = defaultArg descending false
         let sd = seed |> Option.toNullable
@@ -472,7 +476,7 @@ and Expr(handle: ExprHandle) =
     /// Compress the column data using run-length encoding.
     /// Run-length encoding (RLE) encodes data by storing each run of identical values as a single value and its length.
     /// </summary>
-    /// <returns>Expression/Series of data type Struct with fields len of data type UInt32 and value of the original data type.</returns>  
+    /// <returns>Expression/Series of data type Struct with fields len of data type UInt32 and value of the original data type.</returns>
     member this.Rle() = new Expr(PolarsWrapper.Rle(this.CloneHandle()))
     /// <summary>
     /// Get a distinct integer ID for each run of identical values.
@@ -503,7 +507,7 @@ and Expr(handle: ExprHandle) =
             let breaksArray = Seq.toArray breaks
             let breaksSpan = ReadOnlySpan<double>(breaksArray)
 
-            let labelsArray = 
+            let labelsArray =
                 match labels with
                 | Some lbls -> Seq.toArray lbls
                 | None -> null
@@ -519,7 +523,7 @@ and Expr(handle: ExprHandle) =
     /// <param name="allowDuplicates">If set to True, duplicates in the resulting quantiles are dropped, rather than raising a DuplicateError. This can happen even with unique probabilities, depending on the data.</param>
     /// <param name="includeBreaks">Include a column with the right endpoint of the bin each observation falls in. This will change the data type of the output from a Categorical to a Struct.</param>
     /// <returns>Expression/Series of data type Categorical if include_breaks is set to False (default), otherwise an expression of data type Struct.</returns>
-    member this.QCut(quantiles: seq<double>, ?labels: seq<string>, ?leftClosed: bool,?allowDuplicates:bool, ?includeBreaks: bool) = 
+    member this.QCut(quantiles: seq<double>, ?labels: seq<string>, ?leftClosed: bool,?allowDuplicates:bool, ?includeBreaks: bool) =
             let isLeftClosed = defaultArg leftClosed false
             let isIncludeBreaks = defaultArg includeBreaks false
             let al = defaultArg allowDuplicates false
@@ -527,7 +531,7 @@ and Expr(handle: ExprHandle) =
             let quanArray = quantiles |> Seq.toArray
             let quanSpan = ReadOnlySpan<double> quanArray
 
-            let labelsArray = 
+            let labelsArray =
                 match labels with
                 | Some lbls -> Seq.toArray lbls
                 | None -> null
@@ -539,7 +543,7 @@ and Expr(handle: ExprHandle) =
         let isAllowDuplicates = defaultArg allowDuplicates false
         let isIncludeBreaks = defaultArg includeBreaks false
 
-        let labelsArray = 
+        let labelsArray =
             match labels with
             | Some lbls -> Seq.toArray lbls
             | None -> null
@@ -551,7 +555,7 @@ and Expr(handle: ExprHandle) =
     /// </summary>
     /// <param name="old">Value or sequence of values to replace. Accepts expression input. </param>
     /// <param name="newExpr">Value or sequence of values to replace by. Accepts expression input.</param>
-    member this.Replace(old:Expr,newExpr:Expr) = 
+    member this.Replace(old:Expr,newExpr:Expr) =
         new Expr(PolarsWrapper.ExprReplace(this.CloneHandle(),old.CloneHandle(),newExpr.CloneHandle()))
     /// <summary>
     /// Replace all values by different values.
@@ -560,12 +564,12 @@ and Expr(handle: ExprHandle) =
     /// <param name="newExpr">Value or sequence of values to replace by. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals. Length must match the length of old or have length 1.</param>
     /// <param name="defaultExpr">Set values that were not replaced to this value. If no default is specified, (default), an error is raised if any values were not replaced. Accepts expression input. Non-expression inputs are parsed as literals.</param>
     /// <param name="returnDataType">The data type of the resulting expression. If set to null (default), the data type is determined automatically based on the other inputs.</param>
-    member this.ReplaceStrict(old:Expr,newExpr:Expr,?defaultExpr:Expr,?returnDataType:DataTypeExpr) = 
-        let def = 
+    member this.ReplaceStrict(old:Expr,newExpr:Expr,?defaultExpr:Expr,?returnDataType:DataTypeExpr) =
+        let def =
             match defaultExpr with
             | Some d -> d.CloneHandle()
             | None -> null
-        let rdt = 
+        let rdt =
             match returnDataType with
             | Some r -> r.CloneHandle()
             | None -> null
@@ -576,7 +580,7 @@ and Expr(handle: ExprHandle) =
     /// </summary>
     /// <param name="other">Expression to append.</param>
     /// <param name="execUpcast">Cast both Series to the same supertype.</param>
-    member this.Append(other:Expr,?execUpcast:bool) = 
+    member this.Append(other:Expr,?execUpcast:bool) =
         let exe = defaultArg execUpcast true
         new Expr(PolarsWrapper.Append(this.CloneHandle(),other.CloneHandle(),exe))
     /// <summary>
@@ -639,7 +643,7 @@ and Expr(handle: ExprHandle) =
 
                 let newHandle = PolarsWrapper.Coalesce(handles)
                 new Expr(newHandle)
-    static member internal Ternary(predicate:Expr,truthy:Expr,falsy:Expr) = 
+    static member internal Ternary(predicate:Expr,truthy:Expr,falsy:Expr) =
         new Expr(PolarsWrapper.IfElse(predicate.CloneHandle(),truthy.CloneHandle(),falsy.CloneHandle()))
     /// <summary>
     /// Indicate that the expression is sorted.
@@ -648,7 +652,7 @@ and Expr(handle: ExprHandle) =
     /// <param name="descending">Whether the column is sorted in descending order.</param>
     /// <param name="nullsLast">Whether null values appear last. (Placeholder for Polars 0.54+)</param>
     /// <returns>A new expression with the sorted flag set.</returns>
-    member this.SetSorted(?descending,?nullsLast) = 
+    member this.SetSorted(?descending,?nullsLast) =
         let des = defaultArg descending false
         let nul = defaultArg nullsLast false
         new Expr(PolarsWrapper.ExprSetSorted(this.CloneHandle(),des,nul))
@@ -661,7 +665,7 @@ and Expr(handle: ExprHandle) =
         let dimSpan = ReadOnlySpan<int64> dim
         new Expr(PolarsWrapper.ExprReshape(this.CloneHandle(),dimSpan))
     member this.Slice(offset:int64,?length:uint64) =
-        let len = 
+        let len =
             match length with
             | Some l -> PolarsWrapper.Lit l
             | None -> PolarsWrapper.Lit UInt64.MaxValue
@@ -705,12 +709,12 @@ and Expr(handle: ExprHandle) =
     /// </param>
     /// <returns>The result of applying <paramref name="func"/> to this expression.</returns>
     member this.Pipe(func: Expr -> 'T) = func this
-    /// <summary>   
+    /// <summary>
     /// Interpolate intermediate values. The interpolation method can be configured.
     /// <para>Nulls at the beginning and end of the series remain null.</para>
     /// </summary>
     /// <param name="method">Interpolation method (Linear or Nearest).</param>
-    member this.Interpolate(?method:InterpolationMethod) = 
+    member this.Interpolate(?method:InterpolationMethod) =
         let met = defaultArg method InterpolationMethod.Linear
         new Expr(PolarsWrapper.Interpolate(this.CloneHandle(), met.ToNative()))
     /// <summary>
@@ -721,7 +725,7 @@ and Expr(handle: ExprHandle) =
     /// </summary>
     /// <param name="by">The column to use for interpolation (e.g. a timestamp column).</param>
     /// <returns>A new expression with interpolated values.</returns>
-    member this.InterpolateBy(by:Expr) = 
+    member this.InterpolateBy(by:Expr) =
         new Expr(PolarsWrapper.InterpolateBy(this.CloneHandle(), by.CloneHandle()))
     member this.FillNan(fillValue:Expr) =
         new Expr(PolarsWrapper.FillNan(this.CloneHandle(), fillValue.CloneHandle()));
@@ -771,7 +775,7 @@ and Expr(handle: ExprHandle) =
         this.MapArrow(udf, returnType)
     /// Advanced
     /// <summary> Explode a list column into multiple rows. </summary>
-    member this.Explode(?emptyAsNull: bool, ?keepNulls: bool) = 
+    member this.Explode(?emptyAsNull: bool, ?keepNulls: bool) =
         let emp = defaultArg emptyAsNull true
         let kn = defaultArg keepNulls true
         new Expr(PolarsWrapper.Explode(this.CloneHandle(),emp,kn))
@@ -784,14 +788,14 @@ and Expr(handle: ExprHandle) =
     /// Get the k largest elements.
     /// Result is sorted descending.
     /// </summary>
-    member this.TopK(k: int) = 
+    member this.TopK(k: int) =
         new Expr(PolarsWrapper.TopK(this.CloneHandle(), uint k))
 
     /// <summary>
     /// Get the k smallest elements.
     /// Result is sorted ascending.
     /// </summary>
-    member this.BottomK(k: int) = 
+    member this.BottomK(k: int) =
         new Expr(PolarsWrapper.BottomK(this.CloneHandle(), uint k))
 
     // ==========================================
@@ -805,16 +809,16 @@ and Expr(handle: ExprHandle) =
     /// <param name="by">Columns to sort by.</param>
     /// <param name="reverse">Reverse the sort order for each by column. Default false.</param>
     member this.TopKBy(k: int, by: seq<#IColumnExpr>, ?reverse: seq<bool>) =
-        let byHandles = 
-            by 
-            |> Seq.collect (fun x -> x.ToExprs()) 
-            |> Seq.map (fun e -> e.CloneHandle()) 
+        let byHandles =
+            by
+            |> Seq.collect (fun x -> x.ToExprs())
+            |> Seq.map (fun e -> e.CloneHandle())
             |> Seq.toArray
-        
-        let revArr = 
+
+        let revArr =
             match reverse with
             | Some r -> r |> Seq.toArray
-            | None -> [| false |] 
+            | None -> [| false |]
 
         new Expr(PolarsWrapper.TopKBy(this.CloneHandle(), uint k, byHandles, revArr))
 
@@ -822,13 +826,13 @@ and Expr(handle: ExprHandle) =
     /// Get the bottom k elements determined by the values in the 'by' columns.
     /// </summary>
     member this.BottomKBy(k: int, by: seq<#IColumnExpr>, ?reverse: seq<bool>) =
-        let byHandles = 
-            by 
-            |> Seq.collect (fun x -> x.ToExprs()) 
-            |> Seq.map (fun e -> e.CloneHandle()) 
+        let byHandles =
+            by
+            |> Seq.collect (fun x -> x.ToExprs())
+            |> Seq.map (fun e -> e.CloneHandle())
             |> Seq.toArray
-        
-        let revArr = 
+
+        let revArr =
             match reverse with
             | Some r -> r |> Seq.toArray
             | None -> [| false |]
@@ -839,7 +843,7 @@ and Expr(handle: ExprHandle) =
 
     member this.TopKBy(k: int, by: #IColumnExpr, reverse: bool) =
         this.TopKBy(k, [by], [| reverse |])
-    
+
     member this.TopKBy(k: int, by: #IColumnExpr) =
         this.TopKBy(k, [by], [| false |])
 
@@ -848,8 +852,8 @@ and Expr(handle: ExprHandle) =
 
     member this.BottomKBy(k: int, by: #IColumnExpr) =
         this.BottomKBy(k, [by], [| false |])
-    /// <summary> 
-    /// Apply a window function over specific partition columns. 
+    /// <summary>
+    /// Apply a window function over specific partition columns.
     /// </summary>
     /// <example>
     /// <code>
@@ -882,7 +886,7 @@ and Expr(handle: ExprHandle) =
         else
             let partHandles = partArr |> Array.map (fun e -> e.CloneHandle())
             let orderHandles = orderArr |> Array.map (fun e -> e.CloneHandle())
-            let mainHandle = this.CloneHandle()  
+            let mainHandle = this.CloneHandle()
 
             new Expr(PolarsWrapper.Over(
                 mainHandle,
@@ -905,68 +909,68 @@ and Expr(handle: ExprHandle) =
     // Default shift 1
     member this.Shift() = this.Shift 1L
 
-    member this.FillNull(value:Expr) = new Expr(PolarsWrapper.FillNull(this.CloneHandle(),value.CloneHandle())) 
+    member this.FillNull(value:Expr) = new Expr(PolarsWrapper.FillNull(this.CloneHandle(),value.CloneHandle()))
     member this.FillNull(strategy: FillNullStrategy, ?limit: int) =
         let l = defaultArg limit 0
         let nullableLimit = System.Nullable<uint32>(uint32 l)
-        let exprHandle = this.CloneHandle() 
+        let exprHandle = this.CloneHandle()
         new Expr(PolarsWrapper.FillNullWithStrategy(exprHandle, strategy.ToNative(), nullableLimit))
     /// <summary>
     /// Fill null values with a specific strategy (Forward).
     /// </summary>
     /// <param name="limit">Max number of consecutive nulls to fill. (Default null = infinite)</param>
-    member this.ForwardFill(?limit: int) = 
+    member this.ForwardFill(?limit: int) =
         let l = defaultArg limit 0
         this.FillNull(FillNullStrategy.Forward, l)
     /// <summary>
     /// Fill null values with a specific strategy (Backward).
     /// </summary>
-    member this.BackwardFill(?limit: int) = 
+    member this.BackwardFill(?limit: int) =
         let l = defaultArg limit 0
         this.FillNull(FillNullStrategy.Backward,l)
     // ==========================================
     // Uniqueness & Duplication
     // ==========================================
-   
+
     /// <summary>
     /// Concat multiple string expressions into a single string expression.
     /// </summary>
     static member ConcatString(exprs: seq<Expr>,?separator: string, ?ignoreNulls: bool) =
         let sep = defaultArg separator ","
         let ignNulls = defaultArg ignoreNulls false
-        
-        let handles = 
-            exprs 
+
+        let handles =
+            exprs
             |> Seq.map (fun e -> PolarsWrapper.CloneExpr e.Handle)
             |> Seq.toArray
-            
+
         new Expr(PolarsWrapper.ConcatString(handles, sep, ignNulls))
 
     /// <summary>
     /// Format multiple string expressions into a single formated string expression.
     /// </summary>
     static member FormatString(format: string, exprs: seq<Expr>) =
-        let handles = 
-            exprs 
+        let handles =
+            exprs
             |> Seq.map (fun e -> PolarsWrapper.CloneExpr(e.Handle))
             |> Seq.toArray
-            
+
         new Expr(PolarsWrapper.FormatString(format, handles))
 
     // ==========================================
     // Concat Exprs
     // ==========================================
-    
+
     /// <summary>
     /// Concat multiple expressions into a single expression.
     /// </summary>
     static member ConcatExpr(exprs: seq<Expr>,?rechunk: bool) =
         let rchk = defaultArg rechunk false
-        let handles = 
-            exprs 
+        let handles =
+            exprs
             |> Seq.map (fun e -> PolarsWrapper.CloneExpr e.Handle)
             |> Seq.toArray
-            
+
         new Expr(PolarsWrapper.ConcatExprs(handles, rchk))
 
     member this.ToSelector() =
@@ -977,16 +981,16 @@ and Expr(handle: ExprHandle) =
 /// </summary>
 and Selector(handle: SelectorHandle) =
     member _.Handle = handle
-    
-    member internal this.CloneHandle() = 
+
+    member internal this.CloneHandle() =
         PolarsWrapper.CloneSelector handle
     member this.Clone() = new Selector(this.CloneHandle())
 
     override this.ToString() =
-        if (this.Handle.IsInvalid) then 
+        if (this.Handle.IsInvalid) then
             "Selector (Disposed)"
         else PolarsWrapper.SelectorToString(this.Handle);
-    
+
 
     // ==========================================
     // Methods
@@ -994,10 +998,10 @@ and Selector(handle: SelectorHandle) =
 
     static member internal ByName([<ParamArray>]columns: string array) =
         new Selector(PolarsWrapper.SelectorCols columns)
-    static member internal ByDtype(dtype:DataType) = 
+    static member internal ByDtype(dtype:DataType) =
         new Selector(PolarsWrapper.SelectorByDtype(dtype.ToPlDataType()))
     static member internal ByIndex(indices:ReadOnlySpan<int64>,strict:bool)=
-        new Selector(PolarsWrapper.SelectorByIndex(indices, strict))   
+        new Selector(PolarsWrapper.SelectorByIndex(indices, strict))
     /// <summary> Exclude columns from a wildcard selection (col("*")). </summary>
     member this.Exclude(names: seq<string>) =
         let arr = Seq.toArray names
@@ -1038,17 +1042,17 @@ and Selector(handle: SelectorHandle) =
 
     /// <summary> NOT operator: ~selector </summary>
     /// <example> ~~~pl.cs.numeric() </example>
-    static member (~~~) (s: Selector) = 
+    static member (~~~) (s: Selector) =
         new Selector(PolarsWrapper.SelectorNot(s.CloneHandle()))
 
     /// <summary> AND operator: s1 &&& s2 (Intersection) </summary>
     /// <example> pl.cs.numeric() &&& pl.cs.matches("Val") </example>
-    static member (&&&) (l: Selector, r: Selector) = 
+    static member (&&&) (l: Selector, r: Selector) =
         new Selector(PolarsWrapper.SelectorAnd(l.CloneHandle(), r.CloneHandle()))
 
     /// <summary> OR operator: s1 ||| s2 (Union) </summary>
     /// <example> pl.cs.startsWith("A") ||| pl.cs.endsWith("Z") </example>
-    static member (|||) (l: Selector, r: Selector) = 
+    static member (|||) (l: Selector, r: Selector) =
         new Selector(PolarsWrapper.SelectorOr(l.CloneHandle(), r.CloneHandle()))
 
     /// <summary> subtraction operator: s1 - s2 (Difference) </summary>
@@ -1068,11 +1072,11 @@ and DataTypeExpr =
                 this.Handle.Dispose()
             GC.SuppressFinalize(this)
 
-    member internal this.CloneHandle() = 
+    member internal this.CloneHandle() =
         PolarsWrapper.DataTypeExprClone(this.Handle)
 
     /// <summary>Clone this DataTypeExpr.</summary>
-    member this.Clone() = 
+    member this.Clone() =
         new DataTypeExpr(this.CloneHandle())
 
     /// <summary>
@@ -1157,7 +1161,7 @@ and DataTypeExpr =
     member this.List = ListNameSpace(this)
     member this.Array = ArrayNameSpace(this)
     member this.Struct = StructNameSpace(this)
-    
+
 /// <summary>Namespace for list-related operations on a DataTypeExpr.</summary>
 and [<Struct>] ListNameSpace (parent: DataTypeExpr) =
     /// <summary>Get the inner DataType of a list.</summary>
