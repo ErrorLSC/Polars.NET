@@ -80,7 +80,7 @@ type DataFrameEnumeratorTests() =
 
         use df = DataFrame.create [ ids; names; scores ]
 
-        // Act - Duck-typing for loop directly on DataFrameRowEnumerator<'T>
+        // Act - Duck-typing for loop directly on RowEnumerator<'T>
         let mutable count = 0
         let mutable sumScore = 0.0
 
@@ -205,7 +205,7 @@ type DataFrameEnumeratorTests() =
         let ids = pl.series "Id" [ 101; 102 ]
         let names = pl.series "Name" [ "Mutable1"; "Mutable2" ]
 
-        use df = DataFrame.create [ ids; names ]
+        use df = pl.dataframe [ ids; names ]
 
         // Act
         let dtoArray = df.Rows<MutablePersonDto>().ToArray()

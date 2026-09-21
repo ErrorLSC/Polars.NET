@@ -14,9 +14,6 @@ module ValueAccessorOps =
             for i = 0 to w - 1 do
                 cols.[i] <- this.Column i
             cols
-
-        member this.GetSeries() : Series list =
-            [ for i in 0 .. int this.Width - 1 -> this.Column i ]
         /// <summary>
         /// Check if the value at the specified column and row is null.
         /// </summary>

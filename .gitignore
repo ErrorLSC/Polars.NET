@@ -34,3 +34,6 @@ docs/obj/
 docs/api/csharp/
 docs/api/fsharp/
 docs/api/fsharp_generated/
+
+# --- Zed Config ---
+.zed/

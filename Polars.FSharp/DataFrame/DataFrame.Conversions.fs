@@ -144,7 +144,7 @@ type internal FSharpRowMapper<'T>() =
 /// Eliminates state-machine allocations and maximizes hot-path throughput.
 /// </summary>
 [<Struct>]
-type DataFrameRowEnumerator<'T> =
+type RowEnumerator<'T> =
     val private _df: DataFrame
     val private _cols: Series[]
     val private _height: int64
@@ -208,7 +208,7 @@ type DataFrameRowEnumerator<'T> =
     /// Returns the enumerator itself.
     /// </summary>
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    member this.GetEnumerator() : DataFrameRowEnumerator<'T> = this
+    member this.GetEnumerator() : RowEnumerator<'T> = this
     /// <summary>
     /// Returns the first mapped row without mutating the enumerator cursor.
     /// Raises InvalidOperationException if the DataFrame contains no rows.
@@ -338,60 +338,60 @@ type DataFrameRowEnumerator<'T> =
         ResizeArray<'T>(this.ToArray())
 
 [<RequireQualifiedAccess>]
-module DataFrameRowEnumerator =
+module RowEnumerator =
 
     /// <summary>
     /// Materializes all or remaining mapped rows into an array.
     /// </summary>
-    let inline toArray (enumerator: DataFrameRowEnumerator<'T>) : 'T array =
+    let inline toArray (enumerator: RowEnumerator<'T>) : 'T array =
         enumerator.ToArray()
 
     /// <summary>
     /// Materializes all or remaining mapped rows into an F# immutable list.
     /// </summary>
-    let inline toList (enumerator: DataFrameRowEnumerator<'T>) : 'T list =
+    let inline toList (enumerator: RowEnumerator<'T>) : 'T list =
         enumerator.ToList()
 
     /// <summary>
     /// Materializes all or remaining mapped rows into a ResizeArray.
     /// </summary>
-    let inline toResizeArray (enumerator: DataFrameRowEnumerator<'T>) : ResizeArray<'T> =
+    let inline toResizeArray (enumerator: RowEnumerator<'T>) : ResizeArray<'T> =
         enumerator.ToResizeArray()
 
     /// <summary>
     /// Returns the first mapped row or raises InvalidOperationException if empty.
     /// </summary>
-    let inline head (enumerator: DataFrameRowEnumerator<'T>) : 'T =
+    let inline head (enumerator: RowEnumerator<'T>) : 'T =
         enumerator.First()
 
     /// <summary>
     /// Returns the first mapped row as an option.
     /// </summary>
-    let inline tryHead (enumerator: DataFrameRowEnumerator<'T>) : 'T option =
+    let inline tryHead (enumerator: RowEnumerator<'T>) : 'T option =
         enumerator.TryFirst()
 
     /// <summary>
     /// Returns the first mapped row as a ValueOption.
     /// </summary>
-    let inline tryHeadValue (enumerator: DataFrameRowEnumerator<'T>) : 'T voption =
+    let inline tryHeadValue (enumerator: RowEnumerator<'T>) : 'T voption =
         enumerator.TryFirstValue()
 
     /// <summary>
     /// Returns the last mapped row or raises InvalidOperationException if empty.
     /// </summary>
-    let inline last (enumerator: DataFrameRowEnumerator<'T>) : 'T =
+    let inline last (enumerator: RowEnumerator<'T>) : 'T =
         enumerator.Last()
 
     /// <summary>
     /// Returns the last mapped row as an option.
     /// </summary>
-    let inline tryLast (enumerator: DataFrameRowEnumerator<'T>) : 'T option =
+    let inline tryLast (enumerator: RowEnumerator<'T>) : 'T option =
         enumerator.TryLast()
 
     /// <summary>
     /// Returns the total row count as a 64-bit integer.
     /// </summary>
-    let inline length (enumerator: DataFrameRowEnumerator<'T>) : int64 =
+    let inline length (enumerator: RowEnumerator<'T>) : int64 =
         enumerator.Length
 
 [<AutoOpen>]
@@ -404,8 +404,8 @@ module DataFrameConversions =
         /// Usage: for row in df.Rows{MyRecord}() do ...
         /// </summary>
         [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-        member this.Rows<'T>() : DataFrameRowEnumerator<'T> =
-            DataFrameRowEnumerator<'T>(this)
+        member this.Rows<'T>() : RowEnumerator<'T> =
+            RowEnumerator<'T>(this)
         /// <summary>
         /// Convert the DataFrame to a dictionary of column name to Series.
         /// </summary>

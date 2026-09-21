@@ -34,6 +34,7 @@ type LitMechanism = LitMechanism with
     static member ($) (LitMechanism, v: uint list)      = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: uint64 list)      = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: int list)      = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
+    static member ($) (LitMechanism, v: decimal list)    = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: int64 list)    = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: Half list)     = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: float list)    = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
