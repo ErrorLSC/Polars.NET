@@ -7,15 +7,15 @@ unsafe internal partial class NativeBindings
 {
     [LibraryImport(LibName)]
     public static partial int pl_expr_meta_eq(ExprHandle expr, ExprHandle other, [MarshalAs(UnmanagedType.U1)] out bool outVal);
-    [LibraryImport(LibName)] public static partial void pl_expr_free(IntPtr ptr);
+    [LibraryImport(LibName)] public static partial void pl_expr_free(nint ptr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rechunk(ExprHandle expr);
     [LibraryImport(LibName)]
-    public static partial ExprHandle pl_concat_expr(IntPtr[] exprs,UIntPtr exprLen, [MarshalAs(UnmanagedType.U1)] bool rechunk);
+    public static partial ExprHandle pl_concat_expr(nint[] exprs,UIntPtr exprLen, [MarshalAs(UnmanagedType.U1)] bool rechunk);
     // String Free
-    [LibraryImport(LibName)] public static partial void pl_free_string(IntPtr ptr);
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] 
+    [LibraryImport(LibName)] public static partial void pl_free_string(nint ptr);
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_sql(string query);
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_col(string name);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_i8(sbyte val);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_u8(byte val);
@@ -30,8 +30,8 @@ unsafe internal partial class NativeBindings
     // [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_u128(ulong low,ulong high);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_lit_decimal(
-        ulong low, 
-        long high, 
+        ulong low,
+        long high,
         uint scale
     );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_f16(Half val);
@@ -59,20 +59,20 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_bottom_k(ExprHandle expr, uint k);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_top_k_by(
-        ExprHandle expr, 
-        uint k, 
-        IntPtr[] by_ptrs,   
+        ExprHandle expr,
+        uint k,
+        IntPtr[] by_ptrs,
         UIntPtr by_len,
-        bool* descending,  
+        bool* descending,
         UIntPtr desc_len
     );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_bottom_k_by(
-        ExprHandle expr, 
-        uint k, 
+        ExprHandle expr,
+        uint k,
         IntPtr[] by_ptrs,
         UIntPtr by_len,
-        bool* descending, 
+        bool* descending,
         UIntPtr desc_len
     );
     [LibraryImport(LibName)]
@@ -212,13 +212,13 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool bias,
         UIntPtr min_periods,
         [MarshalAs(UnmanagedType.U1)] bool ignore_nulls);
-    [LibraryImport(LibName,StringMarshalling=StringMarshalling.Utf8)] 
+    [LibraryImport(LibName,StringMarshalling=StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_ewm_mean_by(
         ExprHandle expr,
         ExprHandle by,
         string half_life
     );
-    [LibraryImport(LibName,StringMarshalling=StringMarshalling.Utf8)] 
+    [LibraryImport(LibName,StringMarshalling=StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_ewm_sum_by(
         ExprHandle expr,
         ExprHandle by,
@@ -284,7 +284,7 @@ unsafe internal partial class NativeBindings
         uint digits);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_sample_n(
-        ExprHandle e, 
+        ExprHandle e,
         ExprHandle n,
         [MarshalAs(UnmanagedType.U1)] bool withReplacement,
         bool* shuffle,
@@ -309,12 +309,12 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_cos(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_tan(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_cot(ExprHandle expr);
-    
+
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_arcsin(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_arccos(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_arctan(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_arctan2(ExprHandle expr,ExprHandle x);
-    
+
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_sinh(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_cosh(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_tanh(ExprHandle expr);
@@ -331,9 +331,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_is_between(ExprHandle expr, ExprHandle lower, ExprHandle upper, PlClosedInterval closedInterval);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_filter(ExprHandle expr, ExprHandle predicate);
-    [LibraryImport(LibName)] 
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_is_in(ExprHandle expr, ExprHandle other, [MarshalAs(UnmanagedType.U1)] bool nulls_equal);
-    [LibraryImport(LibName)] 
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_is_sorted(ExprHandle expr,bool* descending, bool* nulls_last);
 
     [LibraryImport(LibName)]
@@ -341,24 +341,24 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_reshape(
         ExprHandle expr,
-        ReadOnlySpan<long> dims_ptr, 
-        nuint dims_len              
+        ReadOnlySpan<long> dims_ptr,
+        nuint dims_len
     );
-   
-  
+
+
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_clone(ExprHandle expr);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_cast(
-        ExprHandle expr_ptr, 
-        DataTypeExprHandle dexpr_ptr, 
-        [MarshalAs(UnmanagedType.U1)] bool strict, 
+        ExprHandle expr_ptr,
+        DataTypeExprHandle dexpr_ptr,
+        [MarshalAs(UnmanagedType.U1)] bool strict,
         [MarshalAs(UnmanagedType.U1)] bool wrap_numerical
     );
 
     // List Ops
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_get(ExprHandle expr, ExprHandle index,[MarshalAs(UnmanagedType.U1)]bool nullsOnOob);
-    [LibraryImport(LibName)] 
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_explode(
         ExprHandle expr,
         [MarshalAs(UnmanagedType.U1)] bool emptyAsNull,
@@ -367,7 +367,7 @@ unsafe internal partial class NativeBindings
         ExprHandle expr,
         [MarshalAs(UnmanagedType.U1)] bool maintain_order);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_join(
-        ExprHandle expr, 
+        ExprHandle expr,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string sep,
         [MarshalAs(UnmanagedType.U1)]bool ignoreNulls);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_len(ExprHandle expr);
@@ -389,56 +389,56 @@ unsafe internal partial class NativeBindings
         ExprHandle expr,
         ExprHandle n,
         ExprHandle offset
-    );    
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_slice(
         ExprHandle expr,
         ExprHandle offset,
         ExprHandle length
-    );    
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_head(
         ExprHandle expr,
         ExprHandle n
-    );        
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_tail(
         ExprHandle expr,
         ExprHandle n
-    );     
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_count_matches(
         ExprHandle expr,
         ExprHandle item
-    );       
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_agg(
         ExprHandle expr,
         ExprHandle agg
-    );   
+    );
     [LibraryImport(LibName)]
-    public static partial ExprHandle pl_expr_list_eval(ExprHandle expr, ExprHandle other);   
+    public static partial ExprHandle pl_expr_list_eval(ExprHandle expr, ExprHandle other);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_shift(
         ExprHandle expr,
         ExprHandle shift
-    );   
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_std(
         ExprHandle expr,
         byte ddof
-    );  
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_var(
         ExprHandle expr,
         byte ddof
-    );    
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_to_array(
         ExprHandle expr,
         nuint width
-    );   
+    );
     [LibraryImport(LibName,StringMarshalling =StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_list_to_struct(
         ExprHandle expr,
         string[]? names,
         nuint len
-    );   
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_diff(
         ExprHandle expr,
         long n,
         PlNullBehavior nullBehavior
-    );   
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_sample(
         ExprHandle expr,
         ExprHandle nFrac,
@@ -447,12 +447,12 @@ unsafe internal partial class NativeBindings
         bool* shuffle,
         [MarshalAs(UnmanagedType.U1)] bool hasSeed,
         ulong seed
-    );   
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_set_operation(
         ExprHandle expr,
         ExprHandle other,
         PlSetOperation setOperation
-    );   
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_sort(
         ExprHandle expr,
         [MarshalAs(UnmanagedType.U1)] bool descending,
@@ -472,14 +472,14 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_array_min(ExprHandle expr);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_array_sum(ExprHandle expr);
-    [LibraryImport(LibName)] 
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_array_join(
-        ExprHandle expr, 
+        ExprHandle expr,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string sep,
         [MarshalAs(UnmanagedType.U1)] bool ignoreNulls);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_array_contains(
-        ExprHandle expr, 
+        ExprHandle expr,
         ExprHandle item,
         [MarshalAs(UnmanagedType.U1)] bool nullsEqual
     );
@@ -510,8 +510,8 @@ unsafe internal partial class NativeBindings
     // [New] Sort & Args
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_array_sort(
-        ExprHandle expr, 
-        [MarshalAs(UnmanagedType.U1)] bool descending, 
+        ExprHandle expr,
+        [MarshalAs(UnmanagedType.U1)] bool descending,
         [MarshalAs(UnmanagedType.U1)] bool nullsLast,
         [MarshalAs(UnmanagedType.U1)] bool maintainOrder
     );
@@ -523,8 +523,8 @@ unsafe internal partial class NativeBindings
     // [New] Structure
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_array_get(
-        ExprHandle expr, 
-        ExprHandle index, 
+        ExprHandle expr,
+        ExprHandle index,
         [MarshalAs(UnmanagedType.U1)] bool nullOnOob
     );
     [LibraryImport(LibName)]
@@ -540,7 +540,7 @@ unsafe internal partial class NativeBindings
     // Naming
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_prefix(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string prefix);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_suffix(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string suffix);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_name_prefix_fields(ExprHandle expr,[MarshalAs(UnmanagedType.LPUTF8Str)] string prefix); 
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_name_prefix_fields(ExprHandle expr,[MarshalAs(UnmanagedType.LPUTF8Str)] string prefix);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_name_suffix_fields(ExprHandle expr,[MarshalAs(UnmanagedType.LPUTF8Str)] string suffix);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_name_to_uppercase(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_name_to_lowercase(ExprHandle expr);
@@ -570,9 +570,9 @@ unsafe internal partial class NativeBindings
         ExprHandle expr, MapStringCallback callback, FreeStringCallback freeStringCb, IntPtr gcHandlePtr, FreeHandleCallback freeHandleCb);
 
     // Expr Len
-    [LibraryImport(LibName)] 
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_len(ExprHandle e);
-    [LibraryImport(LibName)] 
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_len();
     [LibraryImport(LibName)] public static partial IntPtr pl_get_last_error();
     [LibraryImport(LibName)] public static partial void pl_free_error_msg(IntPtr ptr);
@@ -581,8 +581,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_as_struct(IntPtr[] exprs, UIntPtr len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_struct_field_by_names(
-        ExprHandle expr, 
-        string[] names, 
+        ExprHandle expr,
+        string[] names,
         nuint namesLen
     );
     [LibraryImport(LibName)]
@@ -590,16 +590,16 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_struct_rename_fields(
-        ExprHandle e, 
-        [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPStr, SizeParamIndex = 2)] 
-        string[] names, 
+        ExprHandle e,
+        [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPStr, SizeParamIndex = 2)]
+        string[] names,
         UIntPtr len
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_struct_drop(
-        ExprHandle e, 
-        [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPStr, SizeParamIndex = 2)] 
-        string[] names, 
+        ExprHandle e,
+        [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPStr, SizeParamIndex = 2)]
+        string[] names,
         nuint len,
         [MarshalAs(UnmanagedType.U1)] bool strict
     );
@@ -607,7 +607,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_struct_with_fields(
         ExprHandle expr,
-        nint[] fields, 
+        nint[] fields,
         nuint fieldsLen);
     // Window
     [LibraryImport(LibName)]
@@ -621,7 +621,7 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool nullsLast,
         [MarshalAs(UnmanagedType.U1)] bool multithreaded,
         [MarshalAs(UnmanagedType.U1)] bool maintainOrder,
-        PlWindowMapping mappingCode 
+        PlWindowMapping mappingCode
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_rolling(
@@ -651,14 +651,14 @@ unsafe internal partial class NativeBindings
         UIntPtr weights_len,
         [MarshalAs(UnmanagedType.U1)]bool center);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rolling_min(
-        ExprHandle expr, 
+        ExprHandle expr,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string windowSize,
         UIntPtr minPeriods,
         [MarshalAs(UnmanagedType.LPArray)] double[]? weights,
         UIntPtr weights_len,
         [MarshalAs(UnmanagedType.U1)]bool center);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rolling_max(
-        ExprHandle expr, 
+        ExprHandle expr,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string windowSize,
         UIntPtr minPeriods,
         [MarshalAs(UnmanagedType.LPArray)] double[]? weights,
@@ -669,7 +669,7 @@ unsafe internal partial class NativeBindings
         UIntPtr minPeriods,[MarshalAs(UnmanagedType.LPArray)] double[]? weights,
         UIntPtr weights_len,
         [MarshalAs(UnmanagedType.U1)]bool center);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rolling_var(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string windowSize,UIntPtr minPeriods,        
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rolling_var(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string windowSize,UIntPtr minPeriods,
         [MarshalAs(UnmanagedType.LPArray)] double[]? weights,
         UIntPtr weights_len,
         [MarshalAs(UnmanagedType.U1)]bool center,byte ddof);
@@ -677,12 +677,12 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.LPArray)] double[]? weights,
         UIntPtr weights_len,
         [MarshalAs(UnmanagedType.U1)]bool center);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rolling_skew(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string windowSize,UIntPtr minPeriods,        
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rolling_skew(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string windowSize,UIntPtr minPeriods,
         [MarshalAs(UnmanagedType.LPArray)] double[]? weights,
         UIntPtr weights_len,
         [MarshalAs(UnmanagedType.U1)]bool center,
         [MarshalAs(UnmanagedType.U1)]bool bias);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rolling_kurtosis(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string windowSize,UIntPtr minPeriods, 
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rolling_kurtosis(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string windowSize,UIntPtr minPeriods,
         [MarshalAs(UnmanagedType.LPArray)] double[]? weights,
         UIntPtr weights_len,
         [MarshalAs(UnmanagedType.U1)]bool center,
@@ -699,7 +699,7 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)]bool center
         );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rolling_quantile(
-        ExprHandle expr, 
+        ExprHandle expr,
         double quantile,
         PlQuantileMethod interpolation,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string windowSize,
@@ -747,8 +747,8 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_gather_every(ExprHandle expr, nuint n, nuint offset);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_get(
-        ExprHandle expr, 
-        ExprHandle idx, 
+        ExprHandle expr,
+        ExprHandle idx,
         [MarshalAs(UnmanagedType.U1)] bool nullOnOob
     );
     [LibraryImport(LibName)]
@@ -780,16 +780,16 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_arg_max(ExprHandle expr);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_arg_sort(
-        ExprHandle expr, 
+        ExprHandle expr,
         [MarshalAs(UnmanagedType.U1)] bool descending,
         [MarshalAs(UnmanagedType.U1)] bool nullsLast
     );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_arg_sort_by(
-        nint[] exprs, 
+        nint[] exprs,
         nuint len,
-        ReadOnlySpan<byte> descending, 
-        ReadOnlySpan<byte> nullsLast,  
+        ReadOnlySpan<byte> descending,
+        ReadOnlySpan<byte> nullsLast,
         [MarshalAs(UnmanagedType.U1)] bool multithreaded,
         [MarshalAs(UnmanagedType.U1)] bool maintainOrder
     );
@@ -798,12 +798,12 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_index_of(
-        ExprHandle expr, 
+        ExprHandle expr,
         ExprHandle element
     );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_search_sorted(
-        ExprHandle expr, 
+        ExprHandle expr,
         ExprHandle element,
         PlSearchSortedSide side,
         [MarshalAs(UnmanagedType.U1)] bool descending
@@ -811,15 +811,15 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial SelectorHandle pl_expr_try_into_selector(ExprHandle expr);
     [LibraryImport(LibName)]
     public static partial int pl_expr_get_output_name(
-        ExprHandle expr, 
+        ExprHandle expr,
         out IntPtr outStr
     );
     [LibraryImport(LibName)]
     public static partial IntPtr pl_expr_to_string(ExprHandle expr);
     [LibraryImport(LibName)]
     public static partial int pl_expr_meta_into_tree_formatter(
-        ExprHandle expr, 
-        [MarshalAs(UnmanagedType.U1)] bool displayAsDot, 
+        ExprHandle expr,
+        [MarshalAs(UnmanagedType.U1)] bool displayAsDot,
         IntPtr schemaPtr,
         out IntPtr outStr);
     [LibraryImport(LibName)]
@@ -880,7 +880,7 @@ unsafe internal partial class NativeBindings
         PlClosedInterval closedWindow,
         PlTimeUnit unit,
         string? timeZone
-    );  
+    );
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_datetime_ranges(
         IntPtr start,
@@ -890,7 +890,7 @@ unsafe internal partial class NativeBindings
         PlClosedInterval closedWindow,
         PlTimeUnit unit,
         string? timeZone
-    ); 
+    );
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_time_range(
         ExprHandle start,
@@ -1008,6 +1008,6 @@ unsafe internal partial class NativeBindings
         byte ddof
     );
 
-    
-    
+
+
 }

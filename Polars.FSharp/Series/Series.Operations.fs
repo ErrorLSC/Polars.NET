@@ -158,6 +158,9 @@ module SeriesOperationExtensions =
         /// Create a new Series filled with values from the given index.
         /// </summary>
         member this.NewFromIndex(index,length) = new Series(PolarsWrapper.SeriesNewFromIndex(this.Handle,index,length))
+        /// <summary>
+        /// Create a new Series from epoch time.
+        /// </summary>
         member this.FromEpoch(?timeUnit: EpochTimeUnit) : Series =
             let unit = defaultArg timeUnit EpochTimeUnit.Second
 

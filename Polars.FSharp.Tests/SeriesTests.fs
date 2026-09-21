@@ -859,8 +859,8 @@ type ``Series Tests`` () =
         let s = pl.series "ints" [| 1; 2; 3; 4; 5 |]
 
         // Act: sum and product using fold
-        let sum = s |> Series.fold (+) 0
-        let product = s |> Series.fold (*) 1
+        let sum = s |> Series.foldSpan (+) 0
+        let product = s |> Series.foldSpan (*) 1
 
         // Assert
         Assert.Equal(15, sum)
@@ -910,7 +910,7 @@ type ``Series Tests`` () =
         let s = pl.series "deltas" [| 10; 20; 30; 40 |]
 
         // Act: prefix sum scan
-        let cumulative = s |> Series.scan (+) 0
+        let cumulative = s |> Series.scanSpan (+) 0
 
         // Assert
         Assert.Equal("deltas_scanned", cumulative.Name)
@@ -940,7 +940,7 @@ type ``Series Tests`` () =
     member _.``Series.unfold generates Fibonacci sequence capped by maxLen`` () =
         // Generator state: (prev, curr)
         let fibGenerator (a, b) =
-            Some (a, (b, a + b))
+            ValueSome (a, (b, a + b))
 
         // Act: Generate first 7 Fibonacci numbers
         let s = Series.unfold fibGenerator (0, 1) 7 "fib"
@@ -956,8 +956,8 @@ type ``Series Tests`` () =
     member _.``Series.unfold terminates early when generator returns None`` () =
         // Countdown from 5 to 1, terminates when reaching 0
         let countdownGen n =
-            if n > 0 then Some (sprintf "T-%d" n, n - 1)
-            else None
+            if n > 0 then ValueSome (sprintf "T-%d" n, n - 1)
+            else ValueNone
 
         // Act: maxLen is 10, but generator should stop at 5 items
         let s = Series.unfold countdownGen 5 10 "countdown"
@@ -970,7 +970,7 @@ type ``Series Tests`` () =
     [<Fact>]
     [<Trait("Series", "Unfold")>]
     member _.``Series.unfold handles zero maxLen properly`` () =
-        let s = Series.unfold (fun n -> Some (n, n + 1)) 1 0 "empty"
+        let s = Series.unfold (fun n -> ValueSome (n, n + 1)) 1 0 "empty"
 
         Assert.Equal(0L, s.Length)
         Assert.Equal("empty", s.Name)
@@ -1005,9 +1005,9 @@ type ``Series Tests`` () =
 
         // Assert
         Assert.Equal(3, pairs.Length)
-        Assert.Equal((Some "Alice", Some 85), pairs.[0])
-        Assert.Equal((Some "Bob", Some 92), pairs.[1])
-        Assert.Equal((Some "Charlie", Some 78), pairs.[2])
+        Assert.Equal((ValueSome "Alice", ValueSome 85), pairs.[0])
+        Assert.Equal((ValueSome "Bob", ValueSome 92), pairs.[1])
+        Assert.Equal((ValueSome "Charlie", ValueSome 78), pairs.[2])
 
     [<Fact>]
     [<Trait("Series", "Zip")>]
@@ -1021,9 +1021,9 @@ type ``Series Tests`` () =
 
         // Assert
         Assert.Equal(3, pairs.Length)
-        Assert.Equal((Some "Alice", Some 85), pairs.[0])
-        Assert.Equal((None, Some 92), pairs.[1])
-        Assert.Equal((Some "Charlie", None), pairs.[2])
+        Assert.Equal((ValueSome "Alice", ValueSome 85), pairs.[0])
+        Assert.Equal((ValueNone, ValueSome 92), pairs.[1])
+        Assert.Equal((ValueSome "Charlie", ValueNone), pairs.[2])
     [<Fact>]
     [<Trait("Series", "Choose")>]
     member _.``Series.choose filters and maps elements simultaneously`` () =
@@ -1032,14 +1032,30 @@ type ``Series Tests`` () =
         // Keep even numbers and convert them to formatted labels
         let evens =
             s |> Series.choose (fun x ->
-                if x % 2 = 0 then Some (sprintf "Even_%d" x)
-                else None)
+                if x % 2 = 0 then ValueSome (sprintf "Even_%d" x)
+                else ValueNone)
 
         Assert.Equal(3L, evens.Length)
         Assert.Equal<string>("Even_2", evens.GetValue<string>(0))
         Assert.Equal<string>("Even_4", evens.GetValue<string>(1))
         Assert.Equal<string>("Even_6", evens.GetValue<string>(2))
+    [<Fact>]
+    [<Trait("Series", "Choose")>]
+    member _.``Series.chooseSpan filters and maps unmanaged types elements simultaneously`` () =
+        let s = pl.series "nums" [| 1.0; 2.0; 3.0; 4.0; 5.0; 6.0 |]
 
+        // Keep even numbers and convert them to log2 values
+        let evensLog =
+            s
+            |> Series.chooseSpan (fun x ->
+                if x % 2.0 = 0.0 then ValueSome (x |> Math.Log2)
+                else ValueNone)
+            |> Series.toArray<double>
+
+        Assert.Equal(3L, evensLog.Length)
+        Assert.Equal(1.0, evensLog.[0])
+        Assert.Equal(2.0, evensLog.[1])
+        Assert.True(evensLog.[2] > 2.5)
     [<Fact>]
     [<Trait("Series", "Exists")>]
     member _.``Series.exists and Series.existsExpr verify predicate matching`` () =

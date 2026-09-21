@@ -264,9 +264,10 @@ module SeriesComputationOps =
         /// </summary>
         member this.Diff(n: int64) =
             this.ApplyExpr(Expr.Col(this.Name).Diff n)
-
+        /// <summary>
+        /// Calculate the difference with a given period.
+        /// </summary>
         member this.Diff(n: int) = this.Diff(int64 n)
-
         /// <summary> Diff by 1. </summary>
         member this.Diff() = this.Diff(1L)
         /// <summary>
