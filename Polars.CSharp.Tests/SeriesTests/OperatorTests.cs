@@ -167,4 +167,27 @@ public class SeriesOperatorTests
         Assert.Equal([false, true, false], result.ToArray<bool>());
         Assert.Equal(result, result2);
     }
+    [Fact]
+    [Trait("Series", "EqMissing")]
+    public void Test_Series_EqMissing()
+    {
+        using Series s1 = Pl.CreateSeries("s1", ["a", null, null]);
+        using Series s2 = Pl.CreateSeries("s2", ["bob", "ath", null]);
+        using Series result1 = s1.EqMissing(s2);
+        using Series result2 = s1 == s2;
+        Assert.Equal([false, false, true], result1.ToArray<bool>());
+        Assert.Equal([false, false, false], result2.ToArray<bool>());
+    }
+    [Fact]
+    [Trait("Series", "NeqMissing")]
+    public void Test_Series_NeqMissing()
+    {
+        using Series s1 = Pl.CreateSeries("s1", ["a", null, null]);
+        using Series s2 = Pl.CreateSeries("s2", ["bob", "ath", null]);
+        using Series result1 = s1.NeqMissing(s2);
+        using Series result2 = s1 != s2;
+        Assert.Equal([true, true,false ], result1.ToArray<bool>());
+        Assert.Equal([true, false, false ], result2.ToArray<bool>());
+    }
+
 }
