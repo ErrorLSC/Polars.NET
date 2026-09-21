@@ -1050,8 +1050,8 @@ type ``Series Tests`` () =
         Assert.False(s |> Series.exists (fun x -> x > 100))
 
         // Native Polars Expr test
-        Assert.True(s |> Series.existsExpr (pl.col "data" .> pl.lit 40))
-        Assert.False(s |> Series.existsExpr (pl.col "data" .> pl.lit 100))
+        Assert.True(s |> Series.existsSeries (s .> 40))
+        Assert.False(s |> Series.existsSeries (s .> 100))
 
     [<Fact>]
     [<Trait("Series", "Forall")>]
@@ -1062,9 +1062,9 @@ type ``Series Tests`` () =
         Assert.True(s |> Series.forall (fun x -> x % 2 = 0))
         Assert.False(s |> Series.forall (fun x -> x > 5))
 
-        // Native Polars Expr test
-        Assert.True(s |> Series.forallExpr (pl.col "positives" .> pl.lit 0))
-        Assert.False(s |> Series.forallExpr (pl.col "positives" .> pl.lit 5))
+        // Native Series test
+        Assert.True(s |> Series.forallSeries (s .> 0))
+        Assert.False(s |> Series.forallSeries (s .> 5))
 
     [<Fact>]
     [<Trait("Series", "PairwiseMap")>]
@@ -1156,6 +1156,15 @@ type ``Series Tests`` () =
         // Assert
         Assert.Equal(3L, s1.Length)
         Assert.Equal(30, s1.GetValue<int>(2L))
+    [<Fact>]
+    [<Trait("Series", "Filter")>]
+    member _.``Series.Filter with predicate Series`` () =
+        let s = pl.series "ints" [| 1; 2; 3; 4; 5 |]
+        let predicate = pl.series "predicate" [| true; false; true; false; true |]
+        use filtered = s |> Series.filter predicate
+        Assert.Equal(3L, filtered.Length)
+        Assert.Equal(1, filtered.GetValue<int>(0L))
+        Assert.Equal(5, filtered.GetValue<int>(2L))
     [<Fact>]
     [<Trait("Series", "Enumerator")>]
     member _.``Series.As iterates over primitive integers correctly`` () =

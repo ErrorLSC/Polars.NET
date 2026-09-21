@@ -348,11 +348,17 @@ type Series(handle: SeriesHandle) =
     /// <summary> Bitwise right shift. </summary>
     member this.BitRightShift(n: int) =
         this.ApplyExpr(Expr.Col(this.Name).BitRightShift n)
+
     static member (+) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesAdd(lhs.Handle, rhs.Handle))
     static member (-) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesSub(lhs.Handle, rhs.Handle))
     static member (*) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesMul(lhs.Handle, rhs.Handle))
     static member (/) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesDiv(lhs.Handle, rhs.Handle))
     static member (%) (lhs: Series, rhs: Series) = lhs.Mod rhs
+
+    member this.Add(other: Series) = this + other
+    member this.Sub(other: Series) = this - other
+    member this.Mul(other: Series) = this * other
+    member this.Div(other: Series) = this / other
 
     // --- Operators (Comparison) ---
 
@@ -364,25 +370,44 @@ type Series(handle: SeriesHandle) =
     static member (.>=) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesGtEq(lhs.Handle, rhs.Handle))
     static member (.<=) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesLtEq(lhs.Handle, rhs.Handle))
 
+    member this.Eq(other: Series):Series = this .= other
+    member this.Neq(other: Series) = this != other
+    member this.Gt(other: Series) = this .> other
+    member this.Lt(other: Series) = this .< other
+    member this.GtEq(other: Series) = this .>= other
+    member this.LtEq(other: Series) = this .<= other
+    member this.EqMissing(other: Series) = new Series(PolarsWrapper.SeriesEqMissing(this.Handle, other.Handle))
+    member this.NeqMissing(other: Series) = new Series(PolarsWrapper.SeriesNeqMissing(this.Handle, other.Handle))
+
     // --- Broadcasting Helpers (Scalar Ops) ---
     static member (+) (lhs: Series, rhs: int) = lhs + Series.create("lit", [rhs])
     static member (+) (lhs: Series, rhs: double) = lhs + Series.create("lit", [rhs])
     static member (+) (lhs: Series, rhs: int64) = lhs + Series.create("lit", [rhs])
     static member (+) (lhs: Series, rhs: single) = lhs + Series.create("lit", [rhs])
+    static member (+) (lhs: Series, rhs: string) = lhs + Series.create("lit", [rhs])
+    static member (+) (lhs: Series, rhs: TimeSpan) = lhs + Series.create("lit", [rhs])
+    static member (+) (lhs: Series, rhs: decimal) = lhs + Series.create("lit", [rhs])
+    static member (+) (lhs: Series, rhs: bool) = lhs + Series.create("lit", [rhs])
+
     static member (-) (lhs: Series, rhs: int) = lhs - Series.create("lit", [rhs])
     static member (-) (lhs: Series, rhs: double) = lhs - Series.create("lit", [rhs])
     static member (-) (lhs: Series, rhs: int64) = lhs - Series.create("lit", [rhs])
     static member (-) (lhs: Series, rhs: single) = lhs - Series.create("lit", [rhs])
+    static member (-) (lhs: Series, rhs: TimeSpan) = lhs - Series.create("lit", [rhs])
+    static member (-) (lhs: Series, rhs: decimal) = lhs - Series.create("lit", [rhs])
 
     static member (*) (lhs: Series, rhs: int) = lhs * Series.create("lit", [rhs])
     static member (*) (lhs: Series, rhs: int64) = lhs * Series.create("lit", [rhs])
     static member (*) (lhs: Series, rhs: double) = lhs * Series.create("lit", [rhs])
     static member (*) (lhs: Series, rhs: single) = lhs * Series.create("lit", [rhs])
+    static member (*) (lhs: Series, rhs: decimal) = lhs * Series.create("lit", [rhs])
 
     static member (/) (lhs: Series, rhs: int) = lhs / Series.create("lit", [rhs])
     static member (/) (lhs: Series, rhs: int64) = lhs / Series.create("lit", [rhs])
     static member (/) (lhs: Series, rhs: double) = lhs / Series.create("lit", [rhs])
     static member (/) (lhs: Series, rhs: single) = lhs / Series.create("lit", [rhs])
+    static member (/) (lhs: Series, rhs: decimal) = lhs / Series.create("lit", [rhs])
+
     static member (%) (lhs: Series, rhs: int) = lhs.Mod rhs
     static member (%) (lhs: Series, rhs: int64) = lhs.Mod rhs
 
@@ -393,21 +418,75 @@ type Series(handle: SeriesHandle) =
     static member (.>) (lhs: Series, rhs: int) = lhs .> Series.create("lit", [rhs])
     static member (.>) (lhs: Series, rhs: int64) = lhs .> Series.create("lit", [rhs])
     static member (.>) (lhs: Series, rhs: double) = lhs .> Series.create("lit", [rhs])
+    static member (.>) (lhs: Series, rhs: single) = lhs .> Series.create("lit", [rhs])
+    static member (.>) (lhs: Series, rhs: DateTime) = lhs .> Series.create("lit", [rhs])
+    static member (.>) (lhs: Series, rhs: TimeOnly) = lhs .> Series.create("lit", [rhs])
+    static member (.>) (lhs: Series, rhs: DateOnly) = lhs .> Series.create("lit", [rhs])
+    static member (.>) (lhs: Series, rhs: TimeSpan) = lhs .> Series.create("lit", [rhs])
+    static member (.>) (lhs: Series, rhs: decimal) = lhs .> Series.create("lit", [rhs])
+    static member (.>) (lhs: Series, rhs: string) = lhs .> Series.create("lit", [rhs])
+
     static member (.<) (lhs: Series, rhs: int) = lhs .< Series.create("lit", [rhs])
     static member (.<) (lhs: Series, rhs: int64) = lhs .< Series.create("lit", [rhs])
     static member (.<) (lhs: Series, rhs: double) = lhs .< Series.create("lit", [rhs])
+    static member (.<) (lhs: Series, rhs: single) = lhs .< Series.create("lit", [rhs])
+    static member (.<) (lhs: Series, rhs: DateTime) = lhs .< Series.create("lit", [rhs])
+    static member (.<) (lhs: Series, rhs: TimeOnly) = lhs .< Series.create("lit", [rhs])
+    static member (.<) (lhs: Series, rhs: DateOnly) = lhs .< Series.create("lit", [rhs])
+    static member (.<) (lhs: Series, rhs: TimeSpan) = lhs .< Series.create("lit", [rhs])
+    static member (.<) (lhs: Series, rhs: decimal) = lhs .< Series.create("lit", [rhs])
+    static member (.<) (lhs: Series, rhs: string) = lhs .< Series.create("lit", [rhs])
+
     static member (.>=) (lhs: Series, rhs: int) = lhs .>= Series.create("lit", [rhs])
+    static member (.>=) (lhs: Series, rhs: int64) = lhs .>= Series.create("lit", [rhs])
+    static member (.>=) (lhs: Series, rhs: double)= lhs .>= Series.create("lit", [rhs])
+    static member (.>=) (lhs: Series, rhs: single) = lhs .>= Series.create("lit", [rhs])
+    static member (.>=) (lhs: Series, rhs: DateTime) = lhs .>= Series.create("lit", [rhs])
+    static member (.>=) (lhs: Series, rhs: TimeOnly) = lhs .>= Series.create("lit", [rhs])
+    static member (.>=) (lhs: Series, rhs: DateOnly) = lhs .>= Series.create("lit", [rhs])
+    static member (.>=) (lhs: Series, rhs: TimeSpan) = lhs .>= Series.create("lit", [rhs])
+    static member (.>=) (lhs: Series, rhs: decimal) = lhs .>= Series.create("lit", [rhs])
+    static member (.>=) (lhs: Series, rhs: string) = lhs .>= Series.create("lit", [rhs])
+
+    static member (.<=) (lhs: Series, rhs: int) = lhs .<= Series.create("lit", [rhs])
     static member (.<=) (lhs: Series, rhs: int64) = lhs .<= Series.create("lit", [rhs])
-    static member (.<=) (lhs: Series, rhs: double) = lhs .<= Series.create("lit", [rhs])
+    static member (.<=) (lhs: Series, rhs: double)= lhs .<= Series.create("lit", [rhs])
+    static member (.<=) (lhs: Series, rhs: single) = lhs .<= Series.create("lit", [rhs])
+    static member (.<=) (lhs: Series, rhs: DateTime) = lhs .<= Series.create("lit", [rhs])
+    static member (.<=) (lhs: Series, rhs: TimeOnly) = lhs .<= Series.create("lit", [rhs])
+    static member (.<=) (lhs: Series, rhs: DateOnly) = lhs .<= Series.create("lit", [rhs])
+    static member (.<=) (lhs: Series, rhs: TimeSpan) = lhs .<= Series.create("lit", [rhs])
+    static member (.<=) (lhs: Series, rhs: decimal) = lhs .<= Series.create("lit", [rhs])
+    static member (.<=) (lhs: Series, rhs: string) = lhs .<= Series.create("lit", [rhs])
 
     static member (.=) (lhs: Series, rhs: int) = lhs .= Series.create("lit", [rhs])
     static member (.=) (lhs: Series, rhs: int64) = lhs .= Series.create("lit", [rhs])
     static member (.=) (lhs: Series, rhs: double) = lhs .= Series.create("lit", [rhs])
     static member (.=) (lhs: Series, rhs: string) = lhs .= Series.create("lit", [rhs])
+    static member (.=) (lhs: Series, rhs: single) = lhs .= Series.create("lit", [rhs])
+    static member (.=) (lhs: Series, rhs: DateTime) = lhs .= Series.create("lit", [rhs])
+    static member (.=) (lhs: Series, rhs: TimeOnly) = lhs .= Series.create("lit", [rhs])
+    static member (.=) (lhs: Series, rhs: DateOnly) = lhs .= Series.create("lit", [rhs])
+    static member (.=) (lhs: Series, rhs: TimeSpan) = lhs .= Series.create("lit", [rhs])
+    static member (.=) (lhs: Series, rhs: decimal) = lhs .= Series.create("lit", [rhs])
+    static member (.=) (lhs: Series, rhs: bool) = lhs .= Series.create("lit", [rhs])
+
     static member (.!=) (lhs: Series, rhs: int) = lhs != Series.create("lit", [rhs])
     static member (.!=) (lhs: Series, rhs: int64) = lhs != Series.create("lit", [rhs])
     static member (.!=) (lhs: Series, rhs: string) = lhs != Series.create("lit", [rhs])
+    static member (.!=) (lhs: Series, rhs: double) = lhs != Series.create("lit", [rhs])
+    static member (.!=) (lhs: Series, rhs: single) = lhs != Series.create("lit", [rhs])
+    static member (.!=) (lhs: Series, rhs: DateTime) = lhs != Series.create("lit", [rhs])
+    static member (.!=) (lhs: Series, rhs: TimeOnly) = lhs != Series.create("lit", [rhs])
+    static member (.!=) (lhs: Series, rhs: DateOnly) = lhs != Series.create("lit", [rhs])
+    static member (.!=) (lhs: Series, rhs: TimeSpan) = lhs != Series.create("lit", [rhs])
+    static member (.!=) (lhs: Series, rhs: decimal) = lhs != Series.create("lit", [rhs])
+    static member (.!=) (lhs: Series, rhs: bool) = lhs != Series.create("lit", [rhs])
+
     static member ( .@ ) (s1: Series, s2: Series) : Series = s1.Append s2
+    static member (!) (s: Series) : Series = new Series(PolarsWrapper.SeriesNot s.Handle)
+    static member (~~~) (s: Series) : Series = new Series(PolarsWrapper.SeriesNot s.Handle)
+    member this.Not() = new Series(PolarsWrapper.SeriesNot this.Handle)
     /// <summary>
     /// Check whether indexed value is null。
     /// </summary>

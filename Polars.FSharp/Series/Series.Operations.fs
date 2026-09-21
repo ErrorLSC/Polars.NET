@@ -339,44 +339,43 @@ module SeriesOperationExtensions =
         member this.IsBetween(lower:Expr, upper:Expr,?closedInterval:ClosedInterval) =
             this.ApplyExpr(Expr.Col(this.Name).IsBetween(lower,upper,?closedInterval=closedInterval))
         /// <summary>
-        /// Filter a series.
-        /// Mostly useful in <c>group_by</c> context or when you want to filter an expression based on another expression within a <c>Select</c> context.
-        /// </summary>
-        /// <param name="predicate">Boolean expression used to filter the current expression.</param>
-        /// <returns>A new series with filtered values.</returns>
-        member this.Filter(predicate:Expr) =
-            this.ApplyExpr(Expr.Col(this.Name).Filter predicate)
-        /// <summary>
         /// Filter a series using a boolean series.
         /// </summary>
         /// <param name="predicate">Boolean series used to filter the current series.</param>
         /// <returns>A new series with filtered values.</returns>
         member this.Filter(predicate:Series) =
-            this.Filter(new Expr(PolarsWrapper.Lit predicate.Handle))
+            new Series(PolarsWrapper.SeriesFilter(this.Handle, predicate.Handle))
+        /// <summary>
+        /// Filter a series using a boolean sequence.
+        /// </summary>
+        /// <param name="predicate">Boolean sequence used to filter the current series.</param>
+        /// <returns>A new series with filtered values.</returns>
+        member this.Filter(predicate:bool seq) =
+            this.Filter(Series.create("", predicate))
         member this.FilterWith<'T>(predicate: 'T -> bool) : Series =
-                ArgumentNullException.ThrowIfNull(predicate, nameof predicate)
+            ArgumentNullException.ThrowIfNull(predicate, nameof predicate)
 
-                let len = this.Length
-                if len = 0L then
-                    this
-                else
-                    if len > int64 Int32.MaxValue then
-                        raise (OverflowException $"Series length ({len}) exceeds Int32.MaxValue for managed predicate filtering.")
+            let len = this.Length
+            if len = 0L then
+                this
+            else
+                if len > int64 Int32.MaxValue then
+                    raise (OverflowException $"Series length ({len}) exceeds Int32.MaxValue for managed predicate filtering.")
 
-                    let count = int len
-                    let mask = Array.zeroCreate<bool> count
+                let count = int len
+                let mask = Array.zeroCreate<bool> count
 
-                    // Iterate using zero-allocation TryGetValue returning ValueOption<'T>
-                    for i = 0 to count - 1 do
-                        match this.TryGetValue<'T>(int64 i) with
-                        | ValueSome valT -> mask.[i] <- predicate valT
-                        | ValueNone -> mask.[i] <- false
+                // Iterate using zero-allocation TryGetValue returning ValueOption<'T>
+                for i = 0 to count - 1 do
+                    match this.TryGetValue<'T>(int64 i) with
+                    | ValueSome valT -> mask.[i] <- predicate valT
+                    | ValueNone -> mask.[i] <- false
 
-                    // Build boolean Series mask
-                    use boolSeries = Series.create ("", mask)
+                // Build boolean Series mask
+                use boolSeries = Series.create ("", mask)
 
-                    // Leverage engine-native slice/filter via boolean mask
-                    this.Filter boolSeries
+                // Leverage engine-native slice/filter via boolean mask
+                this.Filter boolSeries
         /// <summary>
         /// Run length encoding of the series.
         /// </summary>

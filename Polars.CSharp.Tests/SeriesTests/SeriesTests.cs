@@ -14,7 +14,7 @@ public class SeriesTests
     public void Test_Series_Creation_And_Arrow()
     {
         using var s = Series.From("my_series", [1, 2, 3]);
-        
+
         Assert.Equal(3, s.Length);
         Assert.Equal("my_series", s.Name);
 
@@ -41,7 +41,7 @@ public class SeriesTests
         offsetsBuilder.Append(2); // End of row 1 (2->2, len=0, is_null)
         offsetsBuilder.Append(3); // End of row 2 (2->3, len=1)
         using var offsetsArray = offsetsBuilder.Build();
-        
+
         // Build Validity Bitmap: 1, 0, 1 (Row 1 is null)
         var validityBuilder = new BooleanArray.Builder();
         validityBuilder.Append(true);
@@ -61,7 +61,7 @@ public class SeriesTests
         );
 
         var checkOffsets = listArray.ValueOffsets;
-        Assert.Equal(0, checkOffsets[0]); 
+        Assert.Equal(0, checkOffsets[0]);
         Assert.Equal(2, checkOffsets[1]);
         Assert.Equal(2, checkOffsets[2]);
         Assert.Equal(3, checkOffsets[3]);
@@ -76,7 +76,7 @@ public class SeriesTests
         // [3]    -> 1 row
         // Total 4 rows
         Assert.Equal(4, exploded.Height);
-        
+
         Assert.Equal(1, exploded.GetValue<long>(0, "arrow_list_manual"));
         Assert.Equal(2, exploded.GetValue<long>(1, "arrow_list_manual"));
         Assert.Equal(3, exploded.GetValue<long>(3, "arrow_list_manual"));
@@ -95,14 +95,14 @@ public class SeriesTests
         using var s = Series.From("my_list", data);
 
         using var df = DataFrame.FromSeries(s);
-        
+
         // Schema check
         Assert.Equal(DataTypeKind.List, s.DataType.Kind);
-        
+
         // Explode
         using var exploded = df.Explode("my_list");
 
-        Assert.Equal(6, exploded.Height); 
+        Assert.Equal(6, exploded.Height);
     }
     [Fact]
     public void Test_Series_FromArrow_Struct_With_List()
@@ -126,24 +126,24 @@ public class SeriesTests
         // Row 0: [10, 20]
         // Row 1: null ([])
         // Row 2: [30]
-        
+
         // Values
         var valBuilder = new Int64Array.Builder();
         valBuilder.Append(10); valBuilder.Append(20); valBuilder.Append(30);
         using var valArray = valBuilder.Build();
-        
+
         // Offsets: [0, 2, 2, 3] (Row 1 null)
         var offBuilder = new Int32Array.Builder();
         offBuilder.Append(0); offBuilder.Append(2); offBuilder.Append(2); offBuilder.Append(3);
         using var offArray = offBuilder.Build();
-        
+
         // Validity for List
         var listValidBuilder = new BooleanArray.Builder();
         listValidBuilder.Append(true); listValidBuilder.Append(false); listValidBuilder.Append(true);
         using var listValid = listValidBuilder.Build();
 
         using var scoresArray = new ListArray(
-            new ListType(new Int64Type()), 
+            new ListType(new Int64Type()),
             length, offArray.ValueBuffer, valArray, listValid.ValueBuffer, 1
         );
 
@@ -176,12 +176,12 @@ public class SeriesTests
         using var df = DataFrame.FromSeries(s);
 
         Assert.Equal(DataTypeKind.Struct, s.DataType.Kind);
-        
+
         using var res = df.Select(
             Pl.Col("my_struct").Struct.Field("Name"),
             Pl.Col("my_struct").Struct.Field("Scores")
         );
-        
+
         Assert.Equal("Alice", res.GetValue<string>(0, "Name"));
     }
     private class Student
@@ -201,11 +201,11 @@ public class SeriesTests
         };
 
         using var s = Series.From("students", students);
-        
+
         using var df = DataFrame.FromSeries(s);
-        
+
         Assert.Equal(DataTypeKind.Struct, s.DataType.Kind);
-        
+
         using var unnested = df.Unnest("students");
         Assert.Equal("Alice", unnested.GetValue<string>(0, "Name"));
         Assert.Equal(22, unnested.GetValue<int>(2, "Age"));
@@ -213,7 +213,7 @@ public class SeriesTests
     [Fact]
     public void Test_Series_Recursive_List_Of_List()
     {
-        // List<List<int>> 
+        // List<List<int>>
         // Row 0: [1, 2]
         // Row 1: null
         // Row 2: [3, 4, 5]
@@ -249,10 +249,10 @@ public class SeriesTests
             new() { "a", "b" },
             new() { "c" }
         };
-        
+
         using var s = Series.From("strs", data);
         Assert.Equal(DataTypeKind.List, s.DataType.Kind);
-        
+
         using var df = DataFrame.FromSeries(s);
         using var exp = df.Explode("strs");
         Assert.Equal("a", exp.GetValue<string>(0, "strs"));
@@ -261,7 +261,7 @@ public class SeriesTests
     [Trait("Series","String")]
     public void Test_Series_String_And_Nulls()
     {
-        using var s = Series.From("strings", 
+        using var s = Series.From("strings",
             ["a", null, "原神启动","錕斤拷燙燙燙1231659846156516あいうえおへへへへっへへへへへっへへｈ","🍉",""]
         );
         Assert.Equal(6, s.Length);
@@ -277,7 +277,7 @@ public class SeriesTests
     [Trait("Series","CastDecimal")]
     public void Test_Series_Cast_Decimal()
     {
-        // Create Double Series 
+        // Create Double Series
         using var s = Series.From("prices", new double?[] {10.5, 20.0, double.NaN, null,double.MaxValue});
 
         // Cast to Decimal(10, 2)
@@ -301,10 +301,10 @@ public class SeriesTests
 
         var v0 = s1.GetValue<DateTimeOffset>(0);
         Assert.Equal(now.UtcTicks / 10 * 10, v0.UtcTicks);
-        
+
         var dataNull = new DateTimeOffset?[] { now, null };
         using var s2 = Series.From("dto_null", dataNull);
-        
+
         Assert.Equal(2, s2.Length);
         Assert.Null(s2.GetValue<DateTimeOffset?>(1));
         Assert.NotNull(s2.GetValue<DateTimeOffset?>(0));
@@ -313,17 +313,17 @@ public class SeriesTests
     public void Test_NullCount()
     {
         using var sInt = new Series("nums", (int?[])[1, null, 3, null, 5]);
-        
+
         Assert.Equal(2, sInt.NullCount);
         Assert.Equal(5, sInt.Length);
 
         using var sStr = Series.From("str", ["a", null, "b"]);
-        
+
         Assert.Equal(1, sStr.NullCount);
-        
+
         using var sAllNull = new Series("nulls", new string?[] { null, null });
         Assert.Equal(2, sAllNull.NullCount);
-        
+
         using var sClean = new Series("clean", [1, 2, 3]);
         Assert.Equal(0, sClean.NullCount);
     }
@@ -372,12 +372,12 @@ public class SeriesTests
         using var sumSeries = s.Sum();
         Assert.Equal(1, sumSeries.Length);
         Assert.Equal(15, sumSeries.GetValue<int>(0));
-        
+
         Assert.Equal(15, s.Sum<int>());
 
         // Mean: 3
         Assert.Equal(3, s.Mean<double>());
-        
+
         // Min/Max
         Assert.Equal(1, s.Min<int>());
         Assert.Equal(5, s.Max<int>());
@@ -404,12 +404,12 @@ public class SeriesTests
         using var s = Series.From("nums", [1, 2, 2, 3]);
 
         // NUnique
-        Assert.Equal(3L, s.NUnique()); 
+        Assert.Equal(3L, s.NUnique());
 
         // IsDuplicated
         using var dupMask = s.IsDuplicated();
         Assert.Equal(DataTypeKind.Boolean, dupMask.DataType.Kind);
-        
+
         Assert.False((bool)dupMask[0]!); // 1
         Assert.True((bool)dupMask[1]!);  // 2
         Assert.True((bool)dupMask[2]!);  // 2
@@ -429,17 +429,17 @@ public class SeriesTests
         //  Ascending
         // [null, 1, 2, 3, 3]
         using var sAsc = s.Sort(descending: false, nullsLast: false);
-        
-        Assert.Null(sAsc[0]); 
+
+        Assert.Null(sAsc[0]);
         Assert.Equal(1, sAsc[1]);
         Assert.Equal(3, sAsc[4]);
 
         // Descending
-        // [3, 3, 2, 1, null] 
+        // [3, 3, 2, 1, null]
         // Ascending: null, ..., max
         // Descending: max, ..., null
         using var sDesc = s.Sort(descending: true, nullsLast: true);
-        
+
         Assert.Equal(3, sDesc[0]);
         Assert.Equal(3, sDesc[1]);
         Assert.Equal(1, sDesc[3]);
@@ -448,7 +448,7 @@ public class SeriesTests
         // Nulls Last (Ascending)
         // [1, 2, 3, 3, null]
         using var sNullsLast = s.Sort(descending: false, nullsLast: true);
-        
+
         Assert.Equal(1, sNullsLast[0]);
         Assert.Null(sNullsLast[4]);
 
@@ -460,14 +460,14 @@ public class SeriesTests
     public void Test_Series_Sort_Strings()
     {
         using var s = Series.From("chars", ["c", "a", "b"]);
-        
+
         using var sorted = s.Sort();
         Assert.Equal("a", sorted[0]);
         Assert.Equal("b", sorted[1]);
         Assert.Equal("c", sorted[2]);
     }
- 
- 
+
+
     [Fact]
     [Trait("Series", "BitShift")]
     public void Test_Series_Bitwise_Shift()
@@ -475,13 +475,13 @@ public class SeriesTests
         // Signed Int32
         // -8 (111...1000) >> 2 = -2 (111...1110)
         using var sInt = Series.From("signed", [1, -8]);
-        
+
         using var sIntShl = sInt << 2; // 1<<2=4, -8<<2=-32
         using var sIntShr = sInt >> 2; // 1>>2=0, -8>>2=-2
 
         Assert.Equal(4, sIntShl[0]);
         Assert.Equal(-32, sIntShl[1]);
-        
+
         Assert.Equal(0, sIntShr[0]);
         Assert.Equal(-2, sIntShr[1]);
 
@@ -492,7 +492,7 @@ public class SeriesTests
         using var sUint = Series.From("unsigned", unsignedArray);
         sUint.Show();
         using var sUintShr = sUint >> 4;
-        
+
     }
     [Fact]
     [Trait("Series","Show")]
@@ -505,9 +505,9 @@ public class SeriesTests
         Assert.NotEmpty(str);
         Assert.True(str.Contains("my_series"), "Output should contain series name");
         Assert.True(str.Contains("shape: (5,)"), "Output should contain series shape info");
-        
+
         s.Show();
-        
+
         var sNull = Series.From("nulls", new int?[] { 1, null, 3 });
         var strNull = sNull.ToString();
         Assert.True(strNull.Contains("null"), "Output should represent null values");
@@ -516,26 +516,26 @@ public class SeriesTests
     [Fact]
     public void TestValueCounts()
     {
-        var s = Series.From("fruit", [ 
-            "apple", "apple", "orange", "banana", "apple", "orange" 
+        var s = Series.From("fruit", [
+            "apple", "apple", "orange", "banana", "apple", "orange"
         ]);
 
         var dfCounts = s.ValueCounts();
         dfCounts.Show();
-        
+
         Assert.Equal(3, dfCounts.Height);
-        
+
         Assert.Equal("apple", dfCounts[0][0]); // Column 0 (fruit) Row 0
         Assert.Equal(3u, dfCounts[1][0]);         // Column 1 (count) Row 0
 
         // --- Normalize ---
         // normalize=true, name="prob"
         var dfNorm = s.ValueCounts(sort: true, parallel: true, name: "prob", normalize: true);
-        
+
         Assert.Equal("prob", dfNorm.Columns[1]);
-        
+
         var probApple = dfNorm["prob"][0];
-        Assert.Equal(0.5, probApple); 
+        Assert.Equal(0.5, probApple);
     }
     [Fact]
     public void Test_Series_TopKBy_BottomKBy_With_StringLength()
@@ -545,13 +545,13 @@ public class SeriesTests
         var byLength = Pl.Col("words").Str.LenBytes();
 
         var top2 = s.TopKBy(2, byLength);
-        
+
         Assert.Equal(2, top2.Length);
         Assert.Equal("ccc", top2[0]);
         Assert.Equal("bb", top2[1]);
 
         var bot2 = s.BottomKBy(2, byLength);
-        
+
         Assert.Equal(2, bot2.Length);
         Assert.Equal("a", bot2[0]);
         Assert.Equal("bb", bot2[1]);
@@ -586,9 +586,9 @@ public class SeriesTests
         // 20 -> 10: -50% (-0.5)
         // ---------------------------------------------------
         var s2 = new Series("s2", [10, 20, 10]);
-        var pct = s2.PctChange(); 
+        var pct = s2.PctChange();
 
-        Assert.Null(pct[0]); 
+        Assert.Null(pct[0]);
         Assert.Equal(1.0, (double)pct[1]!, precision: 2);
         Assert.Equal(-0.5, (double)pct[2]!, precision: 2);
 
@@ -618,7 +618,7 @@ public class SeriesTests
         // ---------------------------------------------------
         var cumSum = s.CumSum();
         var arrSum = cumSum.ToArray<int>();
-        
+
         Assert.Equal([1, 4, 6, 10], arrSum);
 
         // ---------------------------------------------------
@@ -648,7 +648,7 @@ public class SeriesTests
         // ---------------------------------------------------
         // Reverse
         // Data: [1, 3, 2]
-        // CumSum Reverse: 
+        // CumSum Reverse:
         // index 2 (val 2) -> 2
         // index 1 (val 3) -> 3 + 2 = 5
         // index 0 (val 1) -> 1 + 5 = 6
@@ -669,15 +669,15 @@ public class SeriesTests
         // Data: [10, 20, 40]
         // Alpha = 0.5 (Com = 1)
         // Adjust = false (Infinite history approximation for simple math)
-        // 
+        //
         // t0: 10
         // t1: (1-0.5)*10 + 0.5*20 = 5 + 10 = 15
         // t2: (1-0.5)*15 + 0.5*40 = 7.5 + 20 = 27.5
         // ---------------------------------------------------
         var s = new Series("val", [10.0, 20.0, 40.0]);
-        
+
         var ewm = s.EwmMean(alpha: 0.5, adjust: false);
-        
+
         Assert.Equal(10.0, ewm[0]);
         Assert.Equal(15.0, ewm[1]);
         Assert.Equal(27.5, ewm[2]);
@@ -694,9 +694,9 @@ public class SeriesTests
     public void Test_Series_Ewm_Sum()
     {
         var s = new Series("val", [10.0, 20.0, 40.0]);
-        
+
         var ewm = s.EwmSum(alpha: 0.5, adjust: false);
-        
+
         Assert.Equal(10.0, ewm[0]);
         Assert.Equal(25.0, ewm[1]);
         Assert.Equal(52.5, ewm[2]);
@@ -706,9 +706,9 @@ public class SeriesTests
     [Trait("Series","EWM")]
     public void Test_Series_EwmMeanBy_Time()
     {
-        var times = new[] 
-        { 
-            new DateTime(2023, 1, 1), 
+        var times = new[]
+        {
+            new DateTime(2023, 1, 1),
             new DateTime(2023, 1, 11)
         };
         var values = new[] { 10.0, 20.0 };
@@ -723,11 +723,11 @@ public class SeriesTests
         var resDecay = df.Select(
             Pl.Col("val").EwmMeanBy(Pl.Col("tm"), halfLife: "1d").Alias("ewm")
         );
-        
-        var arrDecay = resDecay["ewm"].ToArray<double>();
-        Assert.Equal(20.0, arrDecay[1], precision: 1); 
 
-        // Case 2: HalfLife = "100d" 
+        var arrDecay = resDecay["ewm"].ToArray<double>();
+        Assert.Equal(20.0, arrDecay[1], precision: 1);
+
+        // Case 2: HalfLife = "100d"
         var resStable = df.Select(
             Pl.Col("val").EwmMeanBy(Pl.Col("tm"), halfLife: "100d").Alias("ewm")
         );
@@ -739,9 +739,9 @@ public class SeriesTests
     [Trait("Series","EWM")]
     public void Test_Series_EwmSumBy_Time()
     {
-        var times = new[] 
-        { 
-            new DateTime(2023, 1, 1), 
+        var times = new[]
+        {
+            new DateTime(2023, 1, 1),
             new DateTime(2023, 1, 11)
         };
         var values = new[] { 10.0, 20.0 };
@@ -756,10 +756,10 @@ public class SeriesTests
         var resDecay = df.Select(
             Pl.Col("val").EwmSumBy(Pl.Col("tm"), halfLife: "1d").Alias("ewm")
         );
-        
+
         var arrDecay = resDecay["ewm"].ToArray<double>();
-        Assert.Equal(20.0, arrDecay[1], precision: 1); 
-        // Case 2: HalfLife = "100d" 
+        Assert.Equal(20.0, arrDecay[1], precision: 1);
+        // Case 2: HalfLife = "100d"
         var resStable = df.Select(
             Pl.Col("val").EwmSumBy(Pl.Col("tm"), halfLife: "100d").Alias("ewm")
         );
@@ -771,9 +771,9 @@ public class SeriesTests
     public void Test_RollingMeanBy_TimeWindow_And_ClosedBoundary()
     {
         var start = new DateTime(2023, 1, 1, 9, 0, 0);
-        var times = new[] 
-        { 
-            start, 
+        var times = new[]
+        {
+            start,
             start.AddHours(1), // 10:00
             start.AddHours(2)  // 11:00
         };
@@ -785,23 +785,23 @@ public class SeriesTests
         // Case 1: Window = 2h, Closed = Left [t-w, t)
         // ---------------------------------------------------
         // At 11:00 (t): Window is [09:00, 11:00)
-        // Contain: 09:00 (10), 10:00 (20) -> Not contain 11:00 
+        // Contain: 09:00 (10), 10:00 (20) -> Not contain 11:00
         // Mean = (10 + 20) / 2 = 15.0
         // ---------------------------------------------------
         var resLeft = df.Select(
             Pl.Col("val").RollingMeanBy(
-                windowSize: TimeSpan.FromHours(2), 
-                by: Pl.Col("tm"), 
-                closed: ClosedInterval.Left          
+                windowSize: TimeSpan.FromHours(2),
+                by: Pl.Col("tm"),
+                closed: ClosedInterval.Left
             ).Alias("mean_left")
         );
 
         var leftArr = resLeft["mean_left"].ToArray<double>();
-        // Polars Left closed definition: [t - period, t). 
+        // Polars Left closed definition: [t - period, t).
         // Window [09:00, 11:00). Contains 09:00, 10:00.
         // Result should be 15.0.
-        
-        Assert.Equal(15.0, leftArr[2]); 
+
+        Assert.Equal(15.0, leftArr[2]);
         // ---------------------------------------------------
         // Case 2: Window = 2h, Closed = Both [t-w, t]
         // ---------------------------------------------------
@@ -811,8 +811,8 @@ public class SeriesTests
         // ---------------------------------------------------
         var resBoth = df.Select(
             Pl.Col("val").RollingMeanBy(
-                windowSize: TimeSpan.FromHours(2), 
-                by: Pl.Col("tm"), 
+                windowSize: TimeSpan.FromHours(2),
+                by: Pl.Col("tm"),
                 closed: ClosedInterval.Both
             ).Alias("mean_both")
         );
@@ -832,7 +832,7 @@ public class SeriesTests
         // Window="3s", Closed="Both"
         // At t=4 (00:00:04, val=5): Window [00:00:01, 00:00:04] -> {2, 3, 4, 5}
         // Median of {2,3,4,5} -> (3+4)/2 = 3.5 (Linear interpolation)
-        
+
         var res = df.Select(
             Pl.Col("val").RollingQuantileBy(
                 quantile: 0.5,
@@ -844,9 +844,9 @@ public class SeriesTests
         );
 
         var arr = res["q50"].ToArray<double>();
-        
+
         // Check last element
-        Assert.Equal(3.5, arr[4]); 
+        Assert.Equal(3.5, arr[4]);
     }
     [Fact]
     [Trait("Series","Aggregations")]
@@ -859,13 +859,13 @@ public class SeriesTests
         Assert.Equal(1, s.First<int>());
         Assert.Equal(3, s.Last<int>());
 
-        var sBool = new Series("bools", [true, false, null]); 
-        // Any (ignoreNulls=false): true | false | null -> true 
+        var sBool = new Series("bools", [true, false, null]);
+        // Any (ignoreNulls=false): true | false | null -> true
         Assert.Equal(true, sBool.Any(ignoreNulls: false));
-        
+
         // All (ignoreNulls=true): true & false -> false
         Assert.Equal(false, sBool.All(ignoreNulls: true));
-        
+
         var sAllTrue = new Series("all_true", [true, true]);
         Assert.Equal(true, sAllTrue.All());
     }
@@ -885,12 +885,12 @@ public class SeriesTests
     {
         bool[] dataSmall = [true, false, true, true, false, true, false, false]; // Len 8
         using var sSmall = new Series("small", dataSmall);
-        
+
         Assert.Equal(dataSmall, sSmall.ToArray<bool>());
-        
+
         bool[] dataExact = new bool[64];
         for(int i=0; i<64; i++) dataExact[i] = i % 2 == 0; // T, F, T, F...
-        
+
         using var sExact = new Series("exact", dataExact);
         Assert.Equal(dataExact, sExact.ToArray<bool>());
 
@@ -917,15 +917,15 @@ public class SeriesTests
 
         int lenHuge = 10_000_000;
         var dataHuge = new bool[lenHuge];
-        Parallel.For(0, lenHuge, i => 
+        Parallel.For(0, lenHuge, i =>
         {
-            dataHuge[i] = i % 2 == 0; 
+            dataHuge[i] = i % 2 == 0;
         });
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        
+
         using var sHuge = new Series("huge", dataHuge);
-        
+
         sw.Stop();
         Console.WriteLine($"Case 4 (10M Rows): Time = {sw.ElapsedMilliseconds} ms");
 
@@ -935,12 +935,12 @@ public class SeriesTests
         Assert.Equal(dataHuge[lenHuge / 2], resHuge[lenHuge / 2]);
     }
     // =================================================================================
-    // [Stride 2] Int8 / SByte 
+    // [Stride 2] Int8 / SByte
     // =================================================================================
     [Fact]
     public void Test_Int8_Simd_Boundaries()
     {
-        int count = 35; 
+        int count = 35;
         sbyte?[] data = new sbyte?[count];
         for (int i = 0; i < count; i++)
         {
@@ -949,13 +949,13 @@ public class SeriesTests
         }
 
         using var s = new Series("s8", data);
-        
+
         var result = s.ToArray<sbyte?>();
         Assert.Equal(data, result);
     }
 
     // =================================================================================
-    // [Stride 4] Int16 / Short 
+    // [Stride 4] Int16 / Short
     // =================================================================================
     [Fact]
     public void Test_Int16_Simd_Boundaries()
@@ -969,7 +969,7 @@ public class SeriesTests
         }
 
         using var s = new Series("s16", data);
-        
+
         var result = s.ToArray<short?>();
         Assert.Equal(data, result);
     }
@@ -989,7 +989,7 @@ public class SeriesTests
         }
 
         using var s = new Series("s32", data);
-        
+
         var result = s.ToArray<int?>();
         Assert.Equal(data, result);
     }
@@ -1011,13 +1011,13 @@ public class SeriesTests
         }
 
         using var s = new Series("s64", data);
-        
+
         var result = s.ToArray<long?>();
         Assert.Equal(data, result);
     }
 
     // =================================================================================
-    // [Stride 32] Int128 
+    // [Stride 32] Int128
     // =================================================================================
     [Fact]
     public void Test_Int128_Simd_Layout()
@@ -1027,13 +1027,13 @@ public class SeriesTests
         Int128?[] data =
         [
             Int128.MaxValue,
-            Int128.One, 
-            null,           
-            Int128.Zero 
+            Int128.One,
+            null,
+            Int128.Zero
         ];
 
         using var s = new Series("s128", data);
-        
+
         Assert.Equal(data[0], s[0]); // MaxValue Check
         Assert.Equal(data[1], s[1]);
         Assert.Null(s[2]);
@@ -1047,11 +1047,11 @@ public class SeriesTests
     public void Test_UInt32_Unboxing_Fix()
     {
         Console.WriteLine("Testing UInt32 Unboxing...");
-        
+
         uint?[] data = [uint.MaxValue, 0, null, 123];
-        
+
         using var s = new Series("u32", data);
-        
+
         var result = s.ToArray<uint?>();
         Assert.Equal(data, result);
     }
@@ -1064,19 +1064,19 @@ public class SeriesTests
     {
         int len = 10_000_000;
         var data = new int?[len];
-        Parallel.For(0, len, i => 
+        Parallel.For(0, len, i =>
         {
             if (i % 31 == 0) data[i] = null;
             else data[i] = i;
         });
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        
+
         using var s = new Series("perf", data);
-        
+
         sw.Stop();
         Console.WriteLine($"Nullable Int32 (10M) Pack Time: {sw.ElapsedMilliseconds} ms");
-        
+
         Assert.Null(s.GetValue<int?>(0));
         Assert.Equal(1, s.GetValue<int?>(1));
     }
@@ -1092,7 +1092,7 @@ public class SeriesTests
 
         var resScalar = s1.Dot<long>(s2);
         Assert.Equal(32L, resScalar);
-        
+
         using var s3 = Series.From("a", [10, 20, 30]);
         var resSameName = s1.Dot<long>(s3);
         // 1*10 + 2*20 + 3*30 = 10 + 40 + 90 = 140
@@ -1104,15 +1104,15 @@ public class SeriesTests
         // T1: 10:00 (Val=10)
         // T2: 10:15 (Val=null)
         // T3: 11:00 (Val=70)
-        
+
         // Val = 10 + (70-10) * 0.25 = 10 + 15 = 25.
 
         var baseTime = new DateTime(2024, 1, 1, 10, 0, 0);
-        
+
         using var times = Series.From("time",
         [
             baseTime,
-            baseTime.AddMinutes(15), 
+            baseTime.AddMinutes(15),
             baseTime.AddHours(1)
         ]);
 
@@ -1132,7 +1132,7 @@ public class SeriesTests
 
         int[] expectedData = [10, 20, 30, 40, 50];
 
-        var series = Series.From("test_int", expectedData); 
+        var series = Series.From("test_int", expectedData);
 
         ReadOnlySpan<int> span = series.AsReadOnlySpan<int>();
 
@@ -1160,7 +1160,7 @@ public class SeriesTests
         int?[] dataWithNulls = [1, 2, null, 4];
         var series = Series.From("test_nulls", dataWithNulls);
         Assert.True(series.HasNulls());
-        var exception = Assert.Throws<InvalidOperationException>(() => 
+        var exception = Assert.Throws<InvalidOperationException>(() =>
         {
             series.AsReadOnlySpan<int>();
         });
@@ -1175,9 +1175,9 @@ public class SeriesTests
         string[] stringData = ["apple", "banana", "cherry"];
         var series = Series.From("test_strings", stringData);
 
-        var exception = Assert.Throws<InvalidOperationException>(() => 
+        var exception = Assert.Throws<InvalidOperationException>(() =>
         {
-            series.AsReadOnlySpan<byte>(); 
+            series.AsReadOnlySpan<byte>();
         });
         Assert.Contains("numeric inputs", exception.Message);
         Assert.Contains("encode your strings into numbers", exception.Message);
@@ -1186,31 +1186,31 @@ public class SeriesTests
     [Trait("Series", "AsTensorSpan")]
     public void As2DTensorSpan_Valid2DArray_ReturnsCorrectShapeAndData()
     {
-        float[,] matrixData = new float[,] 
+        float[,] matrixData = new float[,]
         {
             { 1.1f, 1.2f },
             { 2.1f, 2.2f },
             { 3.1f, 3.2f }
         };
-        
+
         using var series = Series.From("embedding", matrixData);
 
         var tensor = series.AsTensorSpan<float>();
 
-        Assert.Equal(2, tensor.Rank); 
-        
+        Assert.Equal(2, tensor.Rank);
+
         // tensor.Lengths is ReadOnlySpan<nint>
         Assert.Equal(3, tensor.Lengths[0]); // Rows
         Assert.Equal(2, tensor.Lengths[1]); // Cols
-        
+
         // Check FlattenedLength
-        Assert.Equal(6, tensor.FlattenedLength); 
-        
+        Assert.Equal(6, tensor.FlattenedLength);
+
         float[] expectedFlat = [1.1f, 1.2f, 2.1f, 2.2f, 3.1f, 3.2f];
 
         Span<float> dataSpan = new float[6];
         tensor.FlattenTo(dataSpan);
-        
+
         Assert.True(dataSpan.SequenceEqual(expectedFlat));
     }
     [Fact]
@@ -1219,14 +1219,14 @@ public class SeriesTests
     {
         int[][] jaggedData =
         [
-            [1, 2],       
-            [3, 4, 5]     
+            [1, 2],
+            [3, 4, 5]
         ];
-        
+
         using var series = Series.From("jagged", jaggedData);
 
         // Act & Assert
-        var exception = Assert.Throws<InvalidOperationException>(() => 
+        var exception = Assert.Throws<InvalidOperationException>(() =>
         {
             var tensor = series.AsTensorSpan<int>();
         });
@@ -1244,7 +1244,7 @@ public class SeriesTests
         Assert.Equal(2, tensor.Rank);
         Assert.Equal(3, tensor.Lengths[0]); // Rows
         Assert.Equal(1, tensor.Lengths[1]); // Cols
-        
+
         Assert.Equal(1, tensor[0, 0]);
         Assert.Equal(2, tensor[1, 0]);
         Assert.Equal(3, tensor[2, 0]);
@@ -1266,7 +1266,7 @@ public class SeriesTests
         Assert.Equal(3, tensor.Lengths[1]); // Channels (3 : R, G, B)
         Assert.Equal(2, tensor.Lengths[2]); // Height (2)
         Assert.Equal(2, tensor.Lengths[3]); // Width (2)
-        Assert.Equal(24, tensor.FlattenedLength); 
+        Assert.Equal(24, tensor.FlattenedLength);
 
         Assert.Equal(1.0f, tensor[0, 0, 0, 0]);
 
@@ -1281,35 +1281,35 @@ public class SeriesTests
         // [ 1.1, 1.2 ]
         // [ 2.1, 2.2 ]
         // [ 3.1, 3.2 ]
-        float[,] matrixData = new float[,] 
+        float[,] matrixData = new float[,]
         {
             { 1.1f, 1.2f },
             { 2.1f, 2.2f },
             { 3.1f, 3.2f }
         };
-        
+
         using var series = Series.From("embedding", matrixData);
 
         var transposedTensor = series.AsTransposedTensorSpan<float>();
 
         Assert.Equal(2, transposedTensor.Rank);
-        Assert.Equal(2, transposedTensor.Lengths[0]); 
-        Assert.Equal(3, transposedTensor.Lengths[1]); 
+        Assert.Equal(2, transposedTensor.Lengths[0]);
+        Assert.Equal(3, transposedTensor.Lengths[1]);
         Assert.Equal(6, transposedTensor.FlattenedLength);
 
         // [ 1.1, 2.1, 3.1 ]
         // [ 1.2, 2.2, 3.2 ]
-        
+
         Assert.Equal(1.1f, transposedTensor[0, 0]);
-        Assert.Equal(2.1f, transposedTensor[0, 1]); 
-        Assert.Equal(3.1f, transposedTensor[0, 2]); 
-        
-        Assert.Equal(1.2f, transposedTensor[1, 0]); 
+        Assert.Equal(2.1f, transposedTensor[0, 1]);
+        Assert.Equal(3.1f, transposedTensor[0, 2]);
+
+        Assert.Equal(1.2f, transposedTensor[1, 0]);
         Assert.Equal(2.2f, transposedTensor[1, 1]);
         Assert.Equal(3.2f, transposedTensor[1, 2]);
 
         float[] expectedSequentialRead = [1.1f, 2.1f, 3.1f, 1.2f, 2.2f, 3.2f];
-        
+
         int i = 0;
         foreach (float val in transposedTensor)
         {
@@ -1327,8 +1327,8 @@ public class SeriesTests
         // Tensor -> Polars
         using var series = Series.FromTensor("scores", tensor);
 
-        Assert.Equal(4, series.Length); 
-        
+        Assert.Equal(4, series.Length);
+
         // Polars -> Tensor
         var readBackSpan = series.AsReadOnlySpan<float>();
         Assert.True(readBackSpan.SequenceEqual(expectedData));
@@ -1351,23 +1351,23 @@ public class SeriesTests
         using var series = Series.FromTensor("embeddings", tensor);
 
         // Assert
-        Assert.Equal(3, series.Length); 
+        Assert.Equal(3, series.Length);
 
         // Polars -> Tensor
         var readBackTensor = series.AsTensorSpan<float>();
-        
+
         Assert.Equal(2, readBackTensor.Rank);
         Assert.Equal(3, readBackTensor.Lengths[0]);
         Assert.Equal(2, readBackTensor.Lengths[1]);
-        
-        Assert.Equal(3.2f, readBackTensor[2, 1]); 
+
+        Assert.Equal(3.2f, readBackTensor[2, 1]);
     }
 
     [Fact]
     [Trait("Series", "FromTensor3D")]
     public void FromTensor_3D_CreatesNestedFixedSizeList()
     {
-        // [Batch=2, Height=2, Width=2] 
+        // [Batch=2, Height=2, Width=2]
         float[] flatData = [.. Enumerable.Range(1, 8).Select(i => (float)i)];
         ReadOnlySpan<nint> shape3D = [2, 2, 2];
         var tensor = new ReadOnlyTensorSpan<float>(flatData, shape3D);
@@ -1394,11 +1394,11 @@ public class SeriesTests
 
         var heapTensor = series.AsTensor<int>();
 
-        series.Dispose(); 
+        series.Dispose();
 
-        Assert.Equal(2, heapTensor.Rank); 
-        Assert.Equal(4, heapTensor.Lengths[0]); 
-        Assert.Equal(1, heapTensor.Lengths[1]); 
+        Assert.Equal(2, heapTensor.Rank);
+        Assert.Equal(4, heapTensor.Lengths[0]);
+        Assert.Equal(1, heapTensor.Lengths[1]);
 
         Assert.Equal(10, heapTensor[0, 0]);
         Assert.Equal(40, heapTensor[3, 0]);
@@ -1412,48 +1412,48 @@ public class SeriesTests
             { 1.1f, 1.2f, 1.3f },
             { 2.1f, 2.2f, 2.3f }
         };
-        
+
         using var series = Series.From("ffi_matrix", matrix);
 
         var (ptr, shape) = series.AsDangerousUnmanagedTensor<float>();
 
         Assert.Equal(2, shape.Length);
-        Assert.Equal(2L, shape[0]); 
-        Assert.Equal(3L, shape[1]); 
+        Assert.Equal(2L, shape[0]);
+        Assert.Equal(3L, shape[1]);
 
-        int totalElements = (int)(shape[0] * shape[1]); 
-        
+        int totalElements = (int)(shape[0] * shape[1]);
+
         float* rawFloatPtr = (float*)ptr.ToPointer();
-        
+
         var nativeSpan = new ReadOnlySpan<float>(rawFloatPtr, totalElements);
 
         Assert.Equal(1.1f, nativeSpan[0]);
-        Assert.Equal(1.3f, nativeSpan[2]); 
-        Assert.Equal(2.1f, nativeSpan[3]); 
-        Assert.Equal(2.3f, nativeSpan[5]); 
+        Assert.Equal(1.3f, nativeSpan[2]);
+        Assert.Equal(2.1f, nativeSpan[3]);
+        Assert.Equal(2.3f, nativeSpan[5]);
     }
     [Fact]
     [Trait("Series", "AsDangerousUnmanagedTensor")]
     public unsafe void AsDangerousUnmanagedTensor_WithValidShape_ReturnsPointerAndReshapedMetadata()
     {
         using var s = Series.From("data", [1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f]);
-        
+
         // 2 * 3 = 6
-        nint[] newShape = [2, 3]; 
+        nint[] newShape = [2, 3];
 
         // Act
         var (ptr, shape) = s.AsDangerousUnmanagedTensor<float>(newShape);
 
         // Assert
         Assert.NotEqual(IntPtr.Zero, ptr);
-        
+
         Assert.Equal(2, shape.Length);
         Assert.Equal(2, shape[0]);
         Assert.Equal(3, shape[1]);
 
         float* floatPtr = (float*)ptr.ToPointer();
-        Assert.Equal(1.0f, floatPtr[0]); 
-        Assert.Equal(6.0f, floatPtr[5]); 
+        Assert.Equal(1.0f, floatPtr[0]);
+        Assert.Equal(6.0f, floatPtr[5]);
     }
 
     [Fact]
@@ -1461,8 +1461,8 @@ public class SeriesTests
     public void AsDangerousUnmanagedTensor_WithInvalidShape_ThrowsArgumentException()
     {
         using var s = Series.From("data", [1, 2, 3, 4, 5, 6]);
-        
-        nint[] badShape = [2, 4]; 
+
+        nint[] badShape = [2, 4];
 
         // Act & Assert
         var ex = Assert.Throws<ArgumentException>(() =>
@@ -1479,12 +1479,12 @@ public class SeriesTests
     [Trait("Series", "AsDangerousUnmanagedTensor")]
     public void AsDangerousUnmanagedTensor_NotContiguous_ThrowsInvalidOperationException()
     {
-       
+
         using var s1 = Series.From("data", [1, 2]);
         using var s2 = Series.From("data", [3, 4]);
-        
-       
-        s1.Append(s2); 
+
+
+        s1.Append(s2);
 
         nint[] targetShape = [2, 2];
 
@@ -1500,11 +1500,11 @@ public class SeriesTests
     [Trait("Series", "AsDangerousUnmanagedTensor")]
     public void AsDangerousUnmanagedTensor_Contiguous()
     {
-       
+
         using var s1 = Series.From("data", [1, 2]);
         using var s2 = Series.From("data", [3, 4]);
-       
-        s1.Extend(s2); 
+
+        s1.Extend(s2);
 
         nint[] targetShape = [2, 2];
 
@@ -1518,12 +1518,12 @@ public class SeriesTests
     {
         float[] flatData = [1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f];
         ReadOnlySpan<nint> shape3D = [2, 2, 2];
-        
+
         var series = Series.From("3d_test", flatData);
 
         var heapTensor = series.AsTensor<float>(shape3D);
 
-        series.Dispose(); 
+        series.Dispose();
 
         Assert.Equal(3, heapTensor.Rank);
         Assert.Equal(2, heapTensor.Lengths[0]);
@@ -1537,14 +1537,14 @@ public class SeriesTests
     public void Test_Series_Sorted_Flags_And_Verification()
     {
         using var s = new Series("vals", [1, 2, 3, 4, 5]);
-        
+
         Assert.Equal(SortStateFlags.NotSorted, s.SortedFlags);
 
         Assert.True(s.IsSorted(descending: false));
         Assert.False(s.IsSorted(descending: true));
 
         using var sAsc = s.SetSorted(descending: false);
-        
+
         Assert.True(sAsc.SortedFlags.HasFlag(SortStateFlags.IsSorted));
         Assert.False(sAsc.SortedFlags.HasFlag(SortStateFlags.Descending));
 
@@ -1556,27 +1556,27 @@ public class SeriesTests
 
         Assert.Equal(SortStateFlags.NotSorted, s.SortedFlags);
 
-        Assert.True(sDesc.IsSorted(descending: false)); 
+        Assert.True(sDesc.IsSorted(descending: false));
     }
- 
+
     [Fact]
     [Trait("Series","ChunkLengths")]
     public void Test_Series_ChunkLengths_ReturnsCorrectLengths()
     {
         int[] data = [10, 20, 30, 40, 50];
-        
+
         var series = Pl.CreateSeries("test_chunk_lengths", data);
 
         long[] chunkLengths = series.ChunkLengths();
 
         Assert.NotNull(chunkLengths);
-        
-        Assert.Single(chunkLengths); 
-        
-        Assert.Equal(5L, chunkLengths[0]); 
+
+        Assert.Single(chunkLengths);
+
+        Assert.Equal(5L, chunkLengths[0]);
 
         Assert.True(series.EstimatedSize(SizeUnit.Bytes)>0);
-        
+
         long totalLength = chunkLengths.Sum();
         Assert.Equal(series.Len(), totalLength);
     }
@@ -1585,7 +1585,7 @@ public class SeriesTests
     public void Test_Series_IsFirstDistinct()
     {
         int[] data = [114514,1919,810,114514];
-        
+
         var series = Pl.CreateSeries("Yajyusenpai", data);
         var firstDistinct = series.IsFirstDistinct();
         var lastDistinct = series.IsLastDistinct();
@@ -1606,8 +1606,8 @@ public class SeriesTests
         // Assert
         Assert.Equal(3, result.Len());
 
-        var boolResult = result.ToArray<bool>(); 
-        
+        var boolResult = result.ToArray<bool>();
+
         Assert.Equal([true, true, false], boolResult);
     }
 
@@ -1623,7 +1623,7 @@ public class SeriesTests
         using var result = s1.IsIn(collection);
 
         // Assert
-        var boolResult = result.ToArray<bool>(); 
+        var boolResult = result.ToArray<bool>();
         Assert.Equal([true, true, false], boolResult);
     }
 
@@ -1702,7 +1702,7 @@ public class SeriesTests
     public void Test_Series_MaxBy_And_MinBy_With_Series()
     {
         var target = Pl.CreateSeries("values", [10, 20, 30, 40]);
-        
+
         var bySeries = Pl.CreateSeries("weights", [2.5, 9.9, 3.2, 0.5]);
 
         int? maxByResult = target.MaxBy<int>(bySeries);
@@ -1755,7 +1755,7 @@ public class SeriesTests
         Assert.Equal(2, modeSeries.Len());
 
         var resultVals = modeSeries.ToArray<int>();
-        
+
         Assert.Contains(10, resultVals);
         Assert.Contains(20, resultVals);
         Assert.DoesNotContain(30, resultVals);
@@ -1767,14 +1767,14 @@ public class SeriesTests
         // Arrange
         var latencies = Pl.CreateSeries("latency",
         [
-            TimeSpan.FromMilliseconds(100), 
-            TimeSpan.FromMilliseconds(120), 
-            TimeSpan.FromMilliseconds(140) 
+            TimeSpan.FromMilliseconds(100),
+            TimeSpan.FromMilliseconds(120),
+            TimeSpan.FromMilliseconds(140)
         ]);
 
-        // Act 
+        // Act
         TimeSpan? meanVal = latencies.Mean<TimeSpan>();
-        
+
         TimeSpan? medianVal = latencies.Median<TimeSpan>();
 
         // Std
@@ -1868,9 +1868,9 @@ public class SeriesTests
         var nanMin = floatSeries.NanMin<double>();
 
         // Assert
-        Assert.Equal(42.0, normalMax);                 
-        Assert.Equal(double.NaN, nanMax);        
-        Assert.Equal(double.NaN, nanMin);              
+        Assert.Equal(42.0, normalMax);
+        Assert.Equal(double.NaN, nanMax);
+        Assert.Equal(double.NaN, nanMin);
     }
     [Fact]
     [Trait("Series","Bitwise")]
@@ -1881,14 +1881,14 @@ public class SeriesTests
         // 11 = 1011
         // 13 = 1101
         var series = Pl.CreateSeries("flags", [15, 11, 13]);
-        
+
         // Act
         var andAgg = series.BitwiseAnd<int>();
         var orAgg  = series.BitwiseOr<int>();
         var xorAgg = series.BitwiseXor<int>();
 
         // AND : 1111 & 1011 & 1101 = 1001 (9)
-        Assert.Equal(9, andAgg); 
+        Assert.Equal(9, andAgg);
 
         // OR : 1111 | 1011 | 1101 = 1111 (15)
         Assert.Equal(15, orAgg);
@@ -1902,9 +1902,9 @@ public class SeriesTests
     public void Test_Bitwise_ElementWise_Transformations()
     {
         // Arrange
-        // 0: 00000000 
-        // 5: 00000101 
-        // 7: 00000111 
+        // 0: 00000000
+        // 5: 00000101
+        // 7: 00000111
         var series = Pl.CreateSeries("nums", [0, 5, 7]);
 
         // Act
@@ -1914,7 +1914,7 @@ public class SeriesTests
         // Assert
         Assert.Equal(3, countOnes.Len());
 
-        var onesResult = countOnes.ToArray<uint>(); 
+        var onesResult = countOnes.ToArray<uint>();
         Assert.Equal(new uint[] { 0, 2, 3 }, onesResult);
     }
     [Fact]
@@ -1924,7 +1924,7 @@ public class SeriesTests
         using Series s = Pl.CreateSeries("a", [1, 2, 3, 4, 5, 6]);
 
         using Series reshaped = s.Reshape([2, 3]);
-        
+
         Assert.Equal(2, reshaped.Len());
 
         Assert.Equal(DataType.Array(typeof(int), 3), reshaped.DataType);
@@ -1933,7 +1933,7 @@ public class SeriesTests
         using Series c1 = structSeries.Struct.Field("c1");
         using Series c2 = structSeries.Struct.Field("c2");
         using Series c3 = structSeries.Struct.Field("c3");
-        
+
         Assert.Equal([1, 4], c1.ToArray<int>());
         Assert.Equal([2, 5], c2.ToArray<int>());
         Assert.Equal([3, 6], c3.ToArray<int>());
@@ -1969,14 +1969,14 @@ public class SeriesTests
         using Series s = Pl.CreateSeries("a", [1, 2, 3, 4, 5, 6]);
 
         using Series reshaped = s.Reshape([-1, 2]);
-        
+
         Assert.Equal(3, reshaped.Len());
         Assert.Equal(DataType.Array(typeof(int), 2), reshaped.DataType);
 
         using Series structSeries = reshaped.Array.ToStruct(["c1", "c2"]);
         using Series c1 = structSeries.Struct.Field("c1");
         using Series c2 = structSeries.Struct.Field("c2");
-        
+
         Assert.Equal([1, 3, 5], c1.ToArray<int>());
         Assert.Equal([2, 4, 6], c2.ToArray<int>());
     }
@@ -1987,10 +1987,10 @@ public class SeriesTests
     {
         using Series s = Pl.CreateSeries("a", [1, 2, 3, 4, 5, 6]);
 
-        
-        var ex = Assert.Throws<PolarsException>(() => 
+
+        var ex = Assert.Throws<PolarsException>(() =>
         {
-            using Series badReshape = s.Reshape([5, 5]); 
+            using Series badReshape = s.Reshape([5, 5]);
         });
 
         Assert.Contains("cannot reshape", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -2015,7 +2015,7 @@ public class SeriesTests
         // s2:   [10,   20,    30,   40,    50]
         // Except: [1,   20,    3,    40,    5]
         Assert.Equal([1, 20, 3, 40, 5], result.ToArray<int>());
-        
+
         Assert.Equal("s1", result.Name);
     }
     [Fact]
@@ -2092,7 +2092,7 @@ public class SeriesTests
 
         using Series s4 = s.ReplaceStrict(2, 2000, defaultExpr: 0);
         Assert.Equal([0, 2000, 0, 2000, 0], s4.ToArray<int>());
-        
+
         Assert.Equal("test_replace", s1.Name);
     }
     [Fact]
@@ -2118,7 +2118,7 @@ public class SeriesTests
         // Breaks: 3.0, 7.0 -> (-inf, 3.0], (3.0, 7.0], (7.0, inf]
         ReadOnlySpan<double> breaks = [3.0, 7.0];
         string[] cutLabels = ["Low", "Medium", "High"];
-        
+
         using Series sCut = s.Cut(breaks, labels: cutLabels);
         sCut.Show();
         Assert.Equal(10, sCut.Length);
@@ -2127,18 +2127,18 @@ public class SeriesTests
         // quantiles: 0.5  -> (-inf, 50%], (50%, inf]
         ReadOnlySpan<double> probs = [0.5];
         string[] qcutLabels = ["Bottom_Half", "Top_Half"];
-        
+
         using Series sQCutProbs = s.QCut(probs, labels: qcutLabels);
-        
+
         Assert.Equal(10, sQCutProbs.Length);
         Assert.Equal(DataTypeKind.Categorical,sQCutProbs.DataType.Kind);
 
         string[] uniformLabels = ["Q1", "Q2", "Q3", "Q4"];
         using Series sQCutUniform = s.QCut(4, labels: uniformLabels);
-        
+
         Assert.Equal(10, sQCutUniform.Length);
         Assert.Equal(DataTypeKind.Categorical,sQCutUniform.DataType.Kind);
-        
+
         using Series sCutWithBreaks = s.Cut(breaks, includeBreaks: true);
         Assert.Equal(DataTypeKind.Struct, sCutWithBreaks.DataType.Kind);
     }
@@ -2198,7 +2198,7 @@ public class SeriesTests
         using var s = Series.From("values", [10, 20, 20, 30, 40]);
 
         int? index = s.IndexOf(20);
-        Assert.Equal(1, index); 
+        Assert.Equal(1, index);
 
         int idxAny = s.SearchSortedIndex(25);
         Assert.Equal(3, idxAny);
@@ -2214,13 +2214,13 @@ public class SeriesTests
 
         int[] searchArray = [5, 20, 35, 50];
         using var resSeriesFromArr = s.SearchSorted(searchArray, SearchSortedSide.Left);
-        
-        var resArr = resSeriesFromArr.ToArray<uint>(); 
+
+        var resArr = resSeriesFromArr.ToArray<uint>();
         Assert.Equal(new uint[] { 0, 1, 4, 5 }, resArr);
 
         using var querySeries = Series.From("query", [25, 45]);
         using var resSeriesFromExpr = s.SearchSorted(querySeries);
-        
+
         var resArrExpr = resSeriesFromExpr.ToArray<uint>();
         Assert.Equal(new uint[] { 3, 5 }, resArrExpr);
     }
@@ -2241,13 +2241,13 @@ public class SeriesTests
     public void Test_Series_Skew_And_Kurtosis()
     {
         using var sSymmetric = Series.From("symmetric", new double[] { 1, 2, 3, 4, 5 });
-        
+
         double? skewSymmetric = sSymmetric.Skew();
         Assert.NotNull(skewSymmetric);
         Assert.Equal(0.0, skewSymmetric.Value, precision: 5);
 
         using var sRightSkewed = Series.From("right_skew", new double[] { 1, 1, 1, 2, 2, 3, 20, 50 });
-        
+
         double? skewRight = sRightSkewed.Skew(bias: true);
         Assert.NotNull(skewRight);
         Assert.True(skewRight.Value > 1.0, "Right-skewed data should have a positive skewness");
@@ -2255,7 +2255,7 @@ public class SeriesTests
         double? skewRightUnbiased = sRightSkewed.Skew(bias: false);
         Assert.NotNull(skewRightUnbiased);
         Assert.True(skewRightUnbiased.Value > 1.0);
-        
+
         double? kurtFisherBiased = sSymmetric.Kurtosis(fisher: true, bias: true);
         Assert.NotNull(kurtFisherBiased);
         Assert.Equal(-1.3, kurtFisherBiased.Value, precision: 5);
@@ -2281,7 +2281,7 @@ public class SeriesTests
 
         using var sAllNulls = Series.From("all_nulls", new double?[] { null, null, null });
         double? skewAllNulls = sAllNulls.Skew();
-        
+
         if (skewAllNulls.HasValue)
         {
             Assert.True(double.IsNaN(skewAllNulls.Value));
@@ -2358,10 +2358,10 @@ public class SeriesTests
     public void Test_Clip_With_Nulls()
     {
         using var s = Pl.CreateSeries("with_nulls", new int?[] { 1, null, 10 });
-        
+
         using var res = s.Clip(2, 5);
         var arr = res.ToArray<int?>();
-        
+
         Assert.Equal(2, arr[0]);
         Assert.Null(arr[1]);
         Assert.Equal(5, arr[2]);
@@ -2449,14 +2449,14 @@ public class SeriesTests
         using var s = Pl.CreateSeries("values", new double?[] { 1.5, 2.5, 3.5, 4.5, null });
 
         // decimals = 0, mode = RoundMode.HalfToEven
-        using var res = s.Round(); 
+        using var res = s.Round();
         var arr = res.ToArray<double?>();
 
         Assert.Equal(2.0, arr[0]);
         Assert.Equal(2.0, arr[1]);
         Assert.Equal(4.0, arr[2]);
         Assert.Equal(4.0, arr[3]);
-        Assert.Null(arr[4]); 
+        Assert.Null(arr[4]);
     }
 
     [Fact]
@@ -2530,7 +2530,7 @@ public class SeriesTests
     {
         // 19358 days since Unix Epoch -> 2023-01-01
         var s = Series.From("epoch", [0, 1, 19358]);
-        
+
         var result = s.FromEpoch(EpochTimeUnit.Day);
 
         Assert.Equal(DataType.Date, result.DataType);
@@ -2546,7 +2546,7 @@ public class SeriesTests
     {
         // 1672531200 seconds -> 2023-01-01 00:00:00
         var s = Series.From("epoch_sec", [0, 1672531200]);
-        
+
         var result = s.FromEpoch(EpochTimeUnit.Second);
 
         Assert.Equal(DataType.Datetime(TimeUnit.Microseconds), result.DataType);
@@ -2573,7 +2573,7 @@ public class SeriesTests
 
         Assert.Equal(DataType.Datetime(TimeUnit.Microseconds), res_ms.DataType);
         Assert.Equal(DataType.Datetime(TimeUnit.Microseconds), res_us.DataType);
-        Assert.Equal(DataType.Datetime(TimeUnit.Nanoseconds), res_ns.DataType); 
+        Assert.Equal(DataType.Datetime(TimeUnit.Nanoseconds), res_ns.DataType);
     }
 
     [Fact]
@@ -2581,7 +2581,7 @@ public class SeriesTests
     public void Test_Repeat_As_Series()
     {
 
-        var s1 = Pl.RepeatAsSeries(100, 5,typeof(long));
+        var s1 = Pl.RepeatAsSeries(100, 5, typeof(long));
         Assert.Equal(5u, s1.Length);
         Assert.Equal(100L, s1[0]);
         Assert.Equal(100L, s1[4]);
@@ -2589,7 +2589,7 @@ public class SeriesTests
         var s2 = Pl.RepeatAsSeries(3.14, 2, DataType.Float32);
         Assert.Equal(2u, s2.Length);
         Assert.Equal(DataType.Float32, s2.DataType);
-        Assert.Equal(3.14f, (float)s2[0]!, precision: 5); 
+        Assert.Equal(3.14f, (float)s2[0]!, precision: 5);
 
         var s3 = Pl.RepeatAsSeries(true, 3);
         Assert.Equal(3u, s3.Length);

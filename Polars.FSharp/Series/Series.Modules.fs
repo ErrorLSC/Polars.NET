@@ -277,7 +277,7 @@ module Series =
     /// </summary>
     /// <param name="predicate">Boolean expression used to filter the current expression.</param>
     /// <param name="series">The target Series.</param>
-    let inline filter(predicate:Expr)(series:Series) =
+    let inline filter(predicate:Series)(series:Series) =
         series.Filter predicate
     /// <summary>
     /// Filters a Series using a strongly-typed F# predicate function ('T -> bool).
@@ -516,9 +516,9 @@ module Series =
         found
 
     /// <summary>
-    /// Tests if any element satisfies the Polars boolean expression using native Rust engine execution.
+    /// Tests if any element satisfies the boolean predicate using native Rust engine execution.
     /// </summary>
-    let inline existsExpr (predicate: Expr) (series: Series) : bool =
+    let inline existsSeries (predicate: Series) (series: Series) : bool =
         series.Filter(predicate).Any() |> Option.defaultValue false
 
     /// <summary>
@@ -536,13 +536,12 @@ module Series =
                 i <- i + 1L
         satisfied
     /// <summary>
-    /// Tests if all elements satisfy the Polars boolean expression using native Rust engine execution.
+    /// Tests if all elements satisfy the boolean Series using native Rust engine execution.
     /// </summary>
-    let inline forallExpr (predicate: Expr) (series: Series) : bool =
+    let inline forallSeries (predicate: Series) (series: Series) : bool =
         // (predicate.Not().Any() == false) or length matching
         let filtered = series.Filter(predicate)
         filtered.Length = series.Length
-
     /// <summary>
     /// Applies a function to each pair of adjacent elements (x_i, x_{i+1}), yielding a Series of length (N - 1).
     /// </summary>

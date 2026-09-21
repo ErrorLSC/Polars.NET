@@ -124,16 +124,35 @@ public ref struct DataFrameRowEnumerator<T> where T : new()
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public readonly DataFrameRowEnumerator<T> GetEnumerator() => this;
     /// <summary>
-    /// Gets total number of rows.
+    /// Gets a value indicating whether the DataFrame is empty.
     /// </summary>
-    public readonly long Count => _height;
+    public readonly bool IsEmpty => _height == 0;
+    /// <summary>
+    /// Gets the total number of rows as an integer.
+    /// Throws <see cref="OverflowException"/> if row count exceeds <see cref="int.MaxValue"/>.
+    /// </summary>
+    public readonly int Count => checked((int)_height);
+    /// <summary>
+    /// Gets the total number of rows as a long.
+    /// </summary>
+    public readonly long Length => _height;
     /// <summary>
     /// Reads a mapped row at the specified physical index directly without looping through previous rows.
     /// </summary>
-    public T ElementAt(long index)
+    public readonly T ElementAt(long index)
     {
         if (index < 0 || index >= _height)
             throw new ArgumentOutOfRangeException(nameof(index), $"Index {index} is out of bounds for DataFrame height {_height}.");
+        return _mapper(_df, index);
+    }
+    /// <summary>
+    /// Reads a mapped row at the specified physical index, or returns the default value if out of bounds.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public readonly T? ElementAtOrDefault(long index, T? defaultValue = default)
+    {
+        if (index < 0 || index >= _height)
+            return defaultValue;
         return _mapper(_df, index);
     }
 
@@ -141,44 +160,91 @@ public ref struct DataFrameRowEnumerator<T> where T : new()
     /// Copies all mapped rows into the destination span without any heap allocations.
     /// Returns the number of rows copied.
     /// </summary>
-    public int CopyTo(Span<T> destination)
+    public readonly int CopyTo(Span<T> destination)
     {
         if (_height > destination.Length)
             throw new ArgumentException($"Destination span length ({destination.Length}) is smaller than row count ({_height}).", nameof(destination));
 
-        int count = 0;
-        while (MoveNext())
+        int total = (int)_height;
+        for (int i = 0; i < total; i++)
         {
-            destination[count++] = Current;
+            destination[i] = _mapper(_df, i);
         }
-        return count;
+        return total;
+    }
+    /// <summary>
+    /// Attempts to copy all mapped rows into the destination span without heap allocation.
+    /// </summary>
+    public readonly bool TryCopyTo(Span<T> destination, out int written)
+    {
+        if (_height > destination.Length)
+        {
+            written = 0;
+            return false;
+        }
+
+        int total = (int)_height;
+        for (int i = 0; i < total; i++)
+        {
+            destination[i] = _mapper(_df, i);
+        }
+        written = total;
+        return true;
     }
 
     /// <summary>
     /// Returns the first mapped row of the DataFrame.
-    /// Throws InvalidOperationException if the DataFrame contains no rows.
+    /// Throws <see cref="InvalidOperationException"/> if the DataFrame contains no rows.
     /// </summary>
-    public T First()
+    public readonly T First()
     {
-        if (MoveNext())
+        if (_height == 0)
         {
-            return Current;
+            throw new InvalidOperationException("DataFrame contains no rows.");
         }
 
-        throw new InvalidOperationException("Sequence contains no elements.");
+        return ElementAt(0);
     }
 
     /// <summary>
     /// Returns the first mapped row of the DataFrame, or default if empty.
     /// </summary>
-    public T? FirstOrDefault()
+    public readonly T? FirstOrDefault(T? defaultValue = default)
     {
-        if (MoveNext())
+        if (_height == 0)
         {
-            return Current;
+            return defaultValue;
         }
 
-        return default;
+        return ElementAt(0);
+    }
+
+    /// <summary>
+    /// Returns the last mapped row of the DataFrame.
+    /// Throws <see cref="InvalidOperationException"/> if the DataFrame contains no rows.
+    /// </summary>
+    public readonly T Last()
+    {
+        if (_height == 0)
+        {
+            throw new InvalidOperationException("DataFrame contains no rows.");
+        }
+
+        // O(1) direct access instead of exhausting MoveNext()
+        return ElementAt(_height - 1);
+    }
+
+    /// <summary>
+    /// Returns the last mapped row of the DataFrame, or default if empty.
+    /// </summary>
+    public readonly T? LastOrDefault(T? defaultValue = default)
+    {
+        if (_height == 0)
+        {
+            return defaultValue;
+        }
+
+        return ElementAt(_height - 1);
     }
     /// <summary>
     /// Materializes all mapped rows into an array with exact pre-allocation.

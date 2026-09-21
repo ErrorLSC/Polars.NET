@@ -930,6 +930,29 @@ pub extern "C" fn pl_series_extend(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_series_filter(
+    s_ptr: *mut SeriesContext,
+    predicate_ptr: *mut SeriesContext,
+) -> *mut SeriesContext {
+    ffi_try!({
+        if s_ptr.is_null() {
+            polars_bail!(ComputeError: "Target Series pointer is null");
+        }
+        let s_ctx = unsafe { &mut *s_ptr };
+        let predicate_ctx = unsafe { &*predicate_ptr };
+
+        let predicate = predicate_ctx
+            .series
+            .try_bool()
+            .ok_or_else(|| polars_err!(ComputeError: "Series cannot be downcasted to target type"));
+
+        let s_filtered = s_ctx.series.filter(predicate?)?;
+        let ctx = Box::new(SeriesContext { series: s_filtered });
+        Ok(Box::into_raw(ctx))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_series_get_sorted_flags(
     series_ptr: *mut SeriesContext,
     out_flags: *mut u8,

@@ -1,4 +1,4 @@
-#pragma warning disable CS1591 
+#pragma warning disable CS1591
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -11,42 +11,27 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Add Series
     /// </summary>
-    /// <param name="left"></param>
-    /// <param name="right"></param>
-    /// <returns></returns>
     public static Series operator +(Series left, Series right)
         => new(PolarsWrapper.SeriesAdd(left.Handle, right.Handle));
-    
+
     /// <summary>
     /// Minus Series
     /// </summary>
-    /// <param name="left"></param>
-    /// <param name="right"></param>
-    /// <returns></returns>
     public static Series operator -(Series left, Series right)
         => new(PolarsWrapper.SeriesSub(left.Handle, right.Handle));
     /// <summary>
     /// Multiple Series
     /// </summary>
-    /// <param name="left"></param>
-    /// <param name="right"></param>
-    /// <returns></returns>
     public static Series operator *(Series left, Series right)
         => new(PolarsWrapper.SeriesMul(left.Handle, right.Handle));
     /// <summary>
     /// Divide Series
     /// </summary>
-    /// <param name="left"></param>
-    /// <param name="right"></param>
-    /// <returns></returns>
     public static Series operator /(Series left, Series right)
         => new(PolarsWrapper.SeriesDiv(left.Handle, right.Handle));
     /// <summary>
     /// Mod Series
     /// </summary>
-    /// <param name="left"></param>
-    /// <param name="right"></param>
-    /// <returns></returns>  
     public static Series operator %(Series left, Series right)
         => new(PolarsWrapper.SeriesRem(left.Handle, right.Handle));
     // ==========================================
@@ -74,62 +59,46 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Compare whether two Series is equal
     /// </summary>
-    /// <param name="other"></param>
-    /// <returns></returns>
     public Series Eq(Series other) => new(PolarsWrapper.SeriesEq(Handle, other.Handle));
     /// <summary>
     /// Compare whether two Series is equal,This differs from the standard eq where null values are propagated.
     /// </summary>
-    /// <param name="other"></param>
-    /// <returns></returns>
     public Series EqMissing(Series other) => new(PolarsWrapper.SeriesEqMissing(Handle, other.Handle));
     /// <summary>
     /// Compare whether two Series is not equal
     /// </summary>
-    /// <param name="other"></param>
-    /// <returns></returns>
     public Series Neq(Series other) => new(PolarsWrapper.SeriesNeq(Handle, other.Handle));
     /// <summary>
-    /// Compare whether two Series is not equal,,This differs from the standard neq where null values are propagated.
+    /// Compare whether two Series is not equal,This differs from the standard neq where null values are propagated.
     /// </summary>
-    /// <param name="other"></param>
-    /// <returns></returns>
-    public Series NeqMissing(Series other) => new(PolarsWrapper.SeriesNeq(Handle, other.Handle));
+    public Series NeqMissing(Series other) => new(PolarsWrapper.SeriesNeqMissing(Handle, other.Handle));
     public static Series operator == (Series left, Series right) => left.Eq(right);
     public static Series operator != (Series left, Series right) => left.Neq(right);
     /// <summary>
     /// Compare whether left series is greater than right series
     /// </summary>
-    /// <param name="left"></param>
-    /// <param name="right"></param>
-    /// <returns></returns>
-    public static Series operator >(Series left, Series right) 
+    public static Series operator >(Series left, Series right)
         => new(PolarsWrapper.SeriesGt(left.Handle, right.Handle));
     /// <summary>
     /// Compare whether left series is less than right series
     /// </summary>
-    /// <param name="left"></param>
-    /// <param name="right"></param>
-    /// <returns></returns>
-    public static Series operator <(Series left, Series right) 
+    public static Series operator <(Series left, Series right)
         => new(PolarsWrapper.SeriesLt(left.Handle, right.Handle));
     /// <summary>
     /// Compare whether left series is greater than or equal to right series
     /// </summary>
-    /// <param name="left"></param>
-    /// <param name="right"></param>
-    /// <returns></returns>
-    public static Series operator >=(Series left, Series right) 
+    public static Series operator >=(Series left, Series right)
         => new(PolarsWrapper.SeriesGtEq(left.Handle, right.Handle));
     /// <summary>
     /// Compare whether left series is less than or equal to right series
     /// </summary>
-    /// <param name="left"></param>
-    /// <param name="right"></param>
-    /// <returns></returns>
-    public static Series operator <=(Series left, Series right) 
+    public static Series operator <=(Series left, Series right)
         => new(PolarsWrapper.SeriesLtEq(left.Handle, right.Handle));
 
+    /// <summary>
+    /// Bitwise NOT operator
+    /// </summary>
+    public Series Not() => new(PolarsWrapper.SeriesNot(Handle));
     public static Series operator ~ (Series booleanSeries)
         => new(PolarsWrapper.SeriesNot(booleanSeries.Handle));
     public static Series operator ! (Series booleanSeries)
@@ -138,26 +107,18 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Compare whether left series is greater than right series
     /// </summary>
-    /// <param name="other"></param>
-    /// <returns></returns>
     public Series Gt(Series other) => this > other;
     /// <summary>
     /// Compare whether left series is less than right series
     /// </summary>
-    /// <param name="other"></param>
-    /// <returns></returns>
     public Series Lt(Series other) => this < other;
     /// <summary>
     /// Compare whether left series is greater than or equal to right series
     /// </summary>
-    /// <param name="other"></param>
-    /// <returns></returns>
     public Series GtEq(Series other) => this >= other;
     /// <summary>
     /// Compare whether left series is less than or equal to right series
     /// </summary>
-    /// <param name="other"></param>
-    /// <returns></returns>
     public Series LtEq(Series other) => this <= other;
     // ==========================================
     // Scalar
@@ -197,12 +158,12 @@ public partial class Series : IDisposable,IPolarsSeries
         using var rightSeries = Series.FromExpr(right.Consume());
         return left <= rightSeries;
     }
-    public static Series operator >(IntoExpr left, Series right) => right < left; 
+    public static Series operator >(IntoExpr left, Series right) => right < left;
 
     public static Series operator <(IntoExpr left, Series right) => right > left;
 
     public static Series operator ==(IntoExpr left, Series right) => right == left;
-    
+
     public static Series operator !=(IntoExpr left, Series right) => right != left;
 
     public static Series operator >=(IntoExpr left, Series right) => right <= left;
@@ -231,11 +192,11 @@ public partial class Series : IDisposable,IPolarsSeries
         using var rightSeries = Series.FromExpr(right.Consume());
         return left / rightSeries;
     }
-    public static Series operator +(IntoExpr left, Series right) => right + left; 
+    public static Series operator +(IntoExpr left, Series right) => right + left;
 
     public static Series operator -(IntoExpr left, Series right) => right - left;
 
     public static Series operator *(IntoExpr left, Series right) => right * left;
-    
+
     public static Series operator /(IntoExpr left, Series right) => right / left;
 }

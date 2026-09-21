@@ -1329,6 +1329,16 @@ public readonly partial struct PolarsWrapper
             maintainOrder
         ));
     }
+    public static SeriesHandle SeriesFilter(
+        SeriesHandle series,
+        SeriesHandle predicate
+    )
+    {
+        return ErrorHelper.Check(NativeBindings.pl_series_filter(
+            series,
+            predicate
+        ));
+    }
     public static DataFrameHandle SeriesStructUnnest(SeriesHandle series)
         => ErrorHelper.Check(NativeBindings.pl_series_struct_unnest(series));
     public static DataFrameHandle SeriesValueCounts(

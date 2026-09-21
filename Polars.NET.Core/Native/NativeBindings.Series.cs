@@ -487,11 +487,17 @@ unsafe internal partial class NativeBindings
         CArrowArray* cArray,
         CArrowSchema* cSchema
     );
-    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_sort(SeriesHandle series,
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_sort(SeriesHandle series,
     [MarshalAs(UnmanagedType.U1)] bool descending,
     [MarshalAs(UnmanagedType.U1)] bool nulls_last,
     [MarshalAs(UnmanagedType.U1)] bool multithreaded,
     [MarshalAs(UnmanagedType.U1)] bool maintain_order);
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_filter(
+        SeriesHandle series,
+        SeriesHandle predicate
+    );
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_series_struct_unnest(SeriesHandle series);
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]

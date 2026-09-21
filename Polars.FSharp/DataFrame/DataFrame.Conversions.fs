@@ -181,6 +181,26 @@ type DataFrameRowEnumerator<'T> =
     /// </summary>
     member this.Length: int64 = this._height
     /// <summary>
+    /// Gets the total number of rows as an integer.
+    /// Throws <see cref="OverflowException"/> if row count exceeds <see cref="Int32.MaxValue"/>.
+    /// </summary>
+    member this.Count: int = int this._height
+    /// <summary>
+    /// Returns true if the underlying DataFrame contains no rows.
+    /// </summary>
+    member this.IsEmpty: bool = this._df.IsEmpty
+    /// <summary>
+    /// Determines whether the DataFrame contains any rows.
+    /// </summary>
+    member this.Any() : bool = not this.IsEmpty
+    /// <summary>
+    /// Resets the enumerator to its initial position before the first row.
+    /// </summary>
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member this.Reset() : unit =
+        this._index <- -1L
+        this._current <- Unchecked.defaultof<'T>
+    /// <summary>
     /// Gets the current element.
     /// </summary>
     member this.Current: 'T = this._current
@@ -190,23 +210,47 @@ type DataFrameRowEnumerator<'T> =
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member this.GetEnumerator() : DataFrameRowEnumerator<'T> = this
     /// <summary>
-    /// Returns the first mapped row, or raises InvalidOperationException if empty.
+    /// Returns the first mapped row without mutating the enumerator cursor.
+    /// Raises InvalidOperationException if the DataFrame contains no rows.
     /// </summary>
     member this.First() : 'T =
-        if this.MoveNext() then this._current
-        else invalidOp "The DataFrame sequence contains no elements."
+        if this._height = 0L then invalidOp "The DataFrame sequence contains no elements."
+        FSharpRowMapper<'T>.Hydrate(this._cols, 0L)
+
     /// <summary>
-    /// Returns the first mapped row, or None if empty.
+    /// Returns the first mapped row as an option without mutating the enumerator cursor.
     /// </summary>
     member this.TryFirst() : 'T option =
-        if this.MoveNext() then Some this._current
-        else None
+        if this._height = 0L then None
+        else Some (FSharpRowMapper<'T>.Hydrate(this._cols, 0L))
+
     /// <summary>
-    /// Returns the first mapped row, or ValueNone if empty.
+    /// Returns the first mapped row as a ValueOption without mutating the enumerator cursor.
     /// </summary>
     member this.TryFirstValue() : 'T voption =
-        if this.MoveNext() then ValueSome this._current
-        else ValueNone
+        if this._height = 0L then ValueNone
+        else ValueSome (FSharpRowMapper<'T>.Hydrate(this._cols, 0L))
+    /// <summary>
+    /// Returns the last mapped row without mutating the enumerator cursor.
+    /// Raises InvalidOperationException if the DataFrame contains no rows.
+    /// </summary>
+    member this.Last() : 'T =
+        if this._height = 0L then invalidOp "The DataFrame sequence contains no elements."
+        FSharpRowMapper<'T>.Hydrate(this._cols, this._height - 1L)
+
+    /// <summary>
+    /// Returns the last mapped row as an option without mutating the enumerator cursor.
+    /// </summary>
+    member this.TryLast() : 'T option =
+        if this._height = 0L then None
+        else Some (FSharpRowMapper<'T>.Hydrate(this._cols, this._height - 1L))
+
+    /// <summary>
+    /// Returns the last mapped row as a ValueOption without mutating the enumerator cursor.
+    /// </summary>
+    member this.TryLastValue() : 'T voption =
+        if this._height = 0L then ValueNone
+        else ValueSome (FSharpRowMapper<'T>.Hydrate(this._cols, this._height - 1L))
     /// <summary>
     /// Fetches a specific row directly by 64-bit index without sequential stepping.
     /// </summary>
@@ -214,39 +258,141 @@ type DataFrameRowEnumerator<'T> =
         if index < 0L || index >= this._height then
             raise (IndexOutOfRangeException($"Index {index} is out of bounds for DataFrame height {this._height}."))
         FSharpRowMapper<'T>.Hydrate(this._cols, index)
-
     /// <summary>
-    /// Fills the destination Span{'T} directly.
+    /// Fetches a specific row directly by index, or None if out of bounds.
+    /// </summary>
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member this.TryItem(index: int64) : 'T option =
+        if index < 0L || index >= this._height then None
+        else Some (FSharpRowMapper<'T>.Hydrate(this._cols, index))
+    /// <summary>
+    /// Fetches a specific row directly by index, or ValueNone if out of bounds.
+    /// </summary>
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member this.TryGetValueItem(index: int64) : 'T voption =
+        if index < 0L || index >= this._height then ValueNone
+        else ValueSome (FSharpRowMapper<'T>.Hydrate(this._cols, index))
+    /// <summary>
+    /// Copies all mapped rows directly into the destination span without modifying enumerator state.
+    /// Returns the number of rows written.
     /// </summary>
     member this.CopyTo(destination: Span<'T>) : int =
         if int64 destination.Length < this._height then
             invalidArg (nameof destination) $"Destination span length ({destination.Length}) is smaller than row count ({this._height})."
 
-        let mutable written = 0
-        while this.MoveNext() do
-            destination.[written] <- this.Current
-            written <- written + 1
-        written
+        let total = int this._height
+        for i = 0 to total - 1 do
+            destination.[i] <- FSharpRowMapper<'T>.Hydrate(this._cols, int64 i)
+        total
+
     /// <summary>
-    /// Materializes all mapped rows into an array with exact pre-allocation.
+    /// Attempts to copy all mapped rows into the destination span without heap allocation.
+    /// </summary>
+    member this.TryCopyTo(destination: Span<'T>, [<System.Runtime.InteropServices.Out>] written: byref<int>) : bool =
+        if int64 destination.Length < this._height then
+            written <- 0
+            false
+        else
+            let total = int this._height
+            for i = 0 to total - 1 do
+                destination.[i] <- FSharpRowMapper<'T>.Hydrate(this._cols, int64 i)
+            written <- total
+            true
+    /// <summary>
+    /// Materializes all or remaining mapped rows into a strongly typed array.
     /// </summary>
     member this.ToArray() : 'T array =
         if this._height = 0L then [||]
         elif this._height > int64 Int32.MaxValue then
             raise (OverflowException($"DataFrame height ({this._height}) exceeds Int32.MaxValue."))
         else
-            let len = int this._height
-            let arr = Array.zeroCreate<'T> len
-            let mutable i = 0
-            while this.MoveNext() do
-                arr.[i] <- this.Current
-                i <- i + 1
-            arr
+            // Materialize all rows cleanly if untracked
+            if this._index = -1L then
+                let total = int this._height
+                let arr = Array.zeroCreate<'T> total
+                for i = 0 to total - 1 do
+                    arr.[i] <- FSharpRowMapper<'T>.Hydrate(this._cols, int64 i)
+                arr
+            else
+                // Materialize only remaining elements if enumeration already began
+                let remaining = int (this._height - (this._index + 1L))
+                if remaining <= 0 then [||]
+                else
+                    let arr = Array.zeroCreate<'T> remaining
+                    let mutable i = 0
+                    while this.MoveNext() do
+                        arr.[i] <- this.Current
+                        i <- i + 1
+                    arr
+
     /// <summary>
-    /// Materializes all mapped rows into an F# list.
+    /// Materializes all or remaining mapped rows into an F# immutable list.
     /// </summary>
     member this.ToList() : 'T list =
         this.ToArray() |> Array.toList
+
+    /// <summary>
+    /// Materializes all or remaining mapped rows into a ResizeArray (List{'T}).
+    /// </summary>
+    member this.ToResizeArray() : ResizeArray<'T> =
+        ResizeArray<'T>(this.ToArray())
+
+[<RequireQualifiedAccess>]
+module DataFrameRowEnumerator =
+
+    /// <summary>
+    /// Materializes all or remaining mapped rows into an array.
+    /// </summary>
+    let inline toArray (enumerator: DataFrameRowEnumerator<'T>) : 'T array =
+        enumerator.ToArray()
+
+    /// <summary>
+    /// Materializes all or remaining mapped rows into an F# immutable list.
+    /// </summary>
+    let inline toList (enumerator: DataFrameRowEnumerator<'T>) : 'T list =
+        enumerator.ToList()
+
+    /// <summary>
+    /// Materializes all or remaining mapped rows into a ResizeArray.
+    /// </summary>
+    let inline toResizeArray (enumerator: DataFrameRowEnumerator<'T>) : ResizeArray<'T> =
+        enumerator.ToResizeArray()
+
+    /// <summary>
+    /// Returns the first mapped row or raises InvalidOperationException if empty.
+    /// </summary>
+    let inline head (enumerator: DataFrameRowEnumerator<'T>) : 'T =
+        enumerator.First()
+
+    /// <summary>
+    /// Returns the first mapped row as an option.
+    /// </summary>
+    let inline tryHead (enumerator: DataFrameRowEnumerator<'T>) : 'T option =
+        enumerator.TryFirst()
+
+    /// <summary>
+    /// Returns the first mapped row as a ValueOption.
+    /// </summary>
+    let inline tryHeadValue (enumerator: DataFrameRowEnumerator<'T>) : 'T voption =
+        enumerator.TryFirstValue()
+
+    /// <summary>
+    /// Returns the last mapped row or raises InvalidOperationException if empty.
+    /// </summary>
+    let inline last (enumerator: DataFrameRowEnumerator<'T>) : 'T =
+        enumerator.Last()
+
+    /// <summary>
+    /// Returns the last mapped row as an option.
+    /// </summary>
+    let inline tryLast (enumerator: DataFrameRowEnumerator<'T>) : 'T option =
+        enumerator.TryLast()
+
+    /// <summary>
+    /// Returns the total row count as a 64-bit integer.
+    /// </summary>
+    let inline length (enumerator: DataFrameRowEnumerator<'T>) : int64 =
+        enumerator.Length
 
 [<AutoOpen>]
 module DataFrameConversions =

@@ -607,20 +607,20 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <summary>
     /// Check if values are between lower and upper bounds.
     /// </summary>
-    public Series IsBetween(Expr lower, Expr upper, ClosedInterval closedInterval=ClosedInterval.Both)
-        => ApplyExpr(Pl.Col(Name).IsBetween(lower, upper,closedInterval));
+    public Series IsBetween(Expr lower, Expr upper, ClosedInterval closedInterval = ClosedInterval.Both)
+        => ApplyExpr(Pl.Col(Name).IsBetween(lower, upper, closedInterval));
     /// <summary>
-    /// Filter a series.
-    /// <br/>
-    /// Mostly useful in <c>group_by</c> context or when you want to filter an expression based on another expression within a <c>Select</c> context.
+    /// Filter a series using a boolean series.
     /// </summary>
-    /// <param name="predicate">Boolean expression/Series used to filter the current expression.</param>
-    /// <returns>A new series with filtered values.</returns>
-    public Series Filter(Expr predicate)
-        => ApplyExpr(Pl.Col(Name).Filter(predicate));
-    /// <inheritdoc cref="Filter(Expr)"/>
     public Series Filter(Series predicate)
-        => ApplyExpr(Pl.Col(Name).Filter(Pl.Lit(predicate)));
+        => new(PolarsWrapper.SeriesFilter(Handle, predicate.Handle));
+    /// <inheritdoc cref="Filter(Series)"/>
+    public Series Filter(IEnumerable<bool> predicate)
+    {
+        ArgumentNullException.ThrowIfNull(nameof(predicate));
+        using var mask =  Pl.CreateSeries("", predicate);
+        return new(PolarsWrapper.SeriesFilter(Handle, mask.Handle));
+    }
     /// <inheritdoc cref="Expr.Rle"/>
     public Series Rle() => ApplyExpr(Pl.Col(Name).Rle());
     /// <inheritdoc cref="Expr.RleId"/>
