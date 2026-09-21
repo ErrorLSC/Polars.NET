@@ -52,14 +52,14 @@ module Series =
     /// <returns>A new Series containing the transformed elements with nulls preserved.</returns>
     let mapi (mapping: int -> 'T -> 'U) (series: Series) : Series =
         let len = int series.Length
-        let result = Array.zeroCreate<'U option> len
+        let result = Array.zeroCreate<'U voption> len
 
         for i = 0 to len - 1 do
             match series.TryGetValue<'T>(int64 i) with
             | ValueSome item ->
-                result.[i] <- Some (mapping i item)
+                result.[i] <- ValueSome (mapping i item)
             | ValueNone ->
-                result.[i] <- None
+                result.[i] <- ValueNone
 
         pl.series (series.Name + "_mapi") result
 
