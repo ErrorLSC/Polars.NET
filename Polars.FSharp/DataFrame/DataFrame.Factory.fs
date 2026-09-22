@@ -367,7 +367,7 @@ module DataFrameFactory =
                     let seriesFromMethod =
                         typeof<Series>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
                         |> Array.find (fun m ->
-                            m.Name = "From" &&
+                            m.Name = "create" &&
                             m.IsGenericMethodDefinition &&
                             m.GetParameters().Length = 2 &&
                             m.GetParameters().[0].ParameterType = typeof<string> &&

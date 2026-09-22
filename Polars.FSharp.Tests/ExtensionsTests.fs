@@ -28,13 +28,16 @@ type ``Extensions Tests`` () =
     member _.``Extensions: Series <-> Seq`` () =
         // 1. Generic Create (ofOptionSeq)
         let data = [Some 10; None; Some 30]
-        use s = Series.ofOptionSeq("nums", data)
+        use s = Series.ofSeqNamed "nums" data
 
         Assert.Equal("nums", s.Name)
         Assert.Equal(3L, s.Length)
 
         // 2. Generic Retrieve (AsSeq)
-        let res = s.AsSeq<int>() |> Seq.toList
+        let res =
+            s
+            |> Series.toSeqOption<int>
+            |> Seq.toList
 
         Assert.Equal(Some 10, res.[0])
         Assert.Equal(None, res.[1])
@@ -58,10 +61,12 @@ type ``Extensions Tests`` () =
         use sRes = s.Map logic
 
         // 4. Verify
-        let res = sRes.AsSeq<double>() |> Seq.toList
-        Assert.Equal(5.0, res.[0].Value)
-        Assert.Equal(10.0, res.[1].Value)
-        Assert.Equal(15.0, res.[2].Value)
+        let res =
+            sRes
+            |> Series.toArray<double>
+        Assert.Equal(5.0, res.[0])
+        Assert.Equal(10.0, res.[1])
+        Assert.Equal(15.0, res.[2])
         Assert.Equal("val", sRes.Name)
 
 
@@ -89,7 +94,7 @@ type ``Extensions Tests`` () =
 
         // Seq -> Series -> DataFrame
         use df = DataFrame.create [
-            Series.ofSeq("data", data)
+            Series.ofSeqNamed "data" data
         ]
 
         df.PrintSchema()

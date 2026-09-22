@@ -1203,7 +1203,38 @@ public readonly partial struct PolarsWrapper
 
         return dt;
     }
+    public static DateTimeOffset SeriesGetDatetimeOffsetFast(
+        SeriesHandle s,
+        long idx,
+        PlTimeUnit timeUnit,
+        TimeZoneInfo? timeZoneInfo)
+    {
+        int status = NativeBindings.pl_series_get_datetime_fast(
+            s,
+            (nuint)idx,
+            out long val
+        );
 
+        ErrorHelper.CheckStatus(status);
+
+        long ticks = timeUnit switch
+        {
+            PlTimeUnit.Nanoseconds => val / 100,           // 100ns per tick
+            PlTimeUnit.Microseconds => val * 10,
+            PlTimeUnit.Milliseconds => val * 10000,
+            _ => throw new PolarsException("Unknown TimeUnit returned from Polars.")
+        };
+
+        DateTimeOffset dtoUtc = DateTimeOffset.UnixEpoch.AddTicks(ticks);
+
+        if (timeZoneInfo is null)
+        {
+            return dtoUtc;
+        }
+
+        TimeSpan offset = timeZoneInfo.GetUtcOffset(dtoUtc);
+        return dtoUtc.ToOffset(offset);
+    }
 
     // Duration
     public static TimeSpan SeriesGetDurationFast(SeriesHandle s, long idx,PlTimeUnit timeUnit)

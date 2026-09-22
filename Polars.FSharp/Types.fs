@@ -235,79 +235,6 @@ type Series(handle: SeriesHandle) =
             let handle = SeriesFactory.CreateGenericType(name, data)
             new Series(handle)
 
-    /// <summary>
-    /// Alias for create matching C# naming convention.
-    /// </summary>
-    static member From(name: string, data: seq<'T>) =
-        Series.create(name, data)
-
-    // -------------------------------------------------------------------------
-    // Fixed Size List / Array (Matrix)
-    // -------------------------------------------------------------------------
-
-    /// <summary>
-    /// Create a FixedSizeList Series from a 2D Array (Matrix).
-    /// Shape: [Rows, Width] -> Array[Width]
-    /// Supported Types: Primitives, Decimal, Int128
-    /// </summary>
-    static member ofArray2D<'T
-        when 'T : struct
-        and 'T : unmanaged
-        and 'T :> ValueType
-        and 'T : (new : unit -> 'T)>
-        (name: string, data: 'T[,]) =
-            new Series(PolarsWrapper.SeriesNewFixedArray(name, data))
-    // ========================================================================
-    // Unified Entry Points (Delegating to SeriesFactory)
-    // ========================================================================
-    /// <summary>
-    /// High-performance creation from any sequence.
-    /// Supports nested lists, structs, and F# Options.
-    /// </summary>
-    static member ofSeq<'T>(name: string, data: seq<'T>) : Series =
-        let arrowArray = ArrowConverter.Build data
-
-        let handle = ArrowFfiBridge.ImportSeries(name, arrowArray)
-
-        new Series(handle)
-
-    /// <summary>
-    /// Convert Series to a typed sequence of Options.
-    /// Uses high-performance Arrow reader (Zero-Copy).
-    /// Supports: Primitives, String, DateTime, DateOnly, TimeOnly, List, Struct.
-    /// </summary>
-    member this.AsSeq<'T>() : seq<'T option> =
-        use cArray = PolarsWrapper.SeriesToArrow this.Handle
-
-        let accessor = ArrowReader.GetSeriesAccessor<'T> cArray
-        let len = int cArray.Length
-
-        let result =
-            Array.init len (fun i ->
-                let valObj = accessor.Invoke i
-                if isNull valObj then None
-                else Some(unbox<'T> valObj)
-            )
-
-        result :> seq<'T option>
-    /// <summary>
-    /// Get values as a list (forces evaluation).
-    /// </summary>
-    member this.ToList<'T>() = this.AsSeq<'T>() |> Seq.toList
-    /// <summary>
-    /// Create a Series from a sequence of Options (F# style nullables).
-    /// Automatically handles all supported types (int, float, string, datetime, etc.)
-    /// </summary>
-    static member ofOptionSeq<'T>(name: string, data: seq<'T option>) : Series =
-        Series.create(name, data)
-
-    /// <summary>
-    /// Create a Series from a sequence of ValueOptions (Struct nullables).
-    /// Automatically handles all supported types.
-    /// </summary>
-    static member ofVOptionSeq<'T>(name: string, data: seq<'T voption>) : Series =
-        Series.create(name, data)
-
     // ==========================================
     // Operators (Arithmetic)
     // ==========================================
@@ -628,6 +555,17 @@ type Series(handle: SeriesHandle) =
             let mutable v = struct(dt, tz)
             Unsafe.As<struct(DateTime * string), 'T>(&v)
 
+        | t, DataTypeKind.Datetime (_, _) when t = typeof<DateTimeOffset> ->
+            match this.DataType.TimeZoneInfo with
+            | Some tzi ->
+                let tu = this.DataType.TimeUnit.ToNative()
+                let mutable v = PolarsWrapper.SeriesGetDatetimeOffsetFast(this.Handle, index, tu, tzi)
+                Unsafe.As<DateTimeOffset, 'T>(&v)
+            | None ->
+                let tu = this.DataType.TimeUnit.ToNative()
+                let mutable v = PolarsWrapper.SeriesGetDatetimeOffsetFast(this.Handle, index, tu, null)
+                Unsafe.As<DateTimeOffset, 'T>(&v)
+
         | t, _ when t = typeof<Guid> ->
             let mutable v = PolarsWrapper.SeriesGetGuidFast(this.Handle, index)
             Unsafe.As<Guid, 'T>(&v)
@@ -705,6 +643,9 @@ type Series(handle: SeriesHandle) =
         | t when t = typeof<Guid> ->
             let mutable v = ValueSome (this.ReadScalarInternal<Guid> index)
             Unsafe.As<Guid voption, 'T>(&v)
+        | t when t = typeof<DateTimeOffset> ->
+            let mutable v = ValueSome (this.ReadScalarInternal<DateTimeOffset> index)
+            Unsafe.As<DateTimeOffset voption, 'T>(&v)
         | _ ->
             // Complex types fallback directly to Arrow
             use sliced = PolarsWrapper.SeriesSlice(this.Handle, index, 1UL)
@@ -780,6 +721,9 @@ type Series(handle: SeriesHandle) =
         | t when t = typeof<Guid> ->
             let mutable v = Some (this.ReadScalarInternal<Guid> index)
             Unsafe.As<Guid option, 'T>(&v)
+        | t when t = typeof<DateTimeOffset> ->
+            let mutable v = Some (this.ReadScalarInternal<DateTimeOffset> index)
+            Unsafe.As<DateTimeOffset option, 'T>(&v)
         | _ ->
             use sliced = PolarsWrapper.SeriesSlice(this.Handle, index, 1UL)
             use column = PolarsWrapper.SeriesToArrow sliced
@@ -870,7 +814,41 @@ type Series(handle: SeriesHandle) =
     member this.ToArray<'T>() =
         let col = this.ToArrow()
         ArrowReader.ReadColumn<'T> col
+    /// <summary>
+    /// Converts the Series to a managed array with optional null values.
+    /// </summary>
+    member this.ToArrayOption<'T>() =
+        let len = int this.Length
 
+        let result =
+            Array.init len (fun i ->
+                match this.TryGetValue<'T> i with
+                | ValueSome value -> Some value
+                | ValueNone -> None
+            )
+
+        result
+
+    /// <summary>
+    /// Convert Series to a typed sequence of Options.
+    /// Uses high-performance Arrow reader (Zero-Copy).
+    /// Supports: Primitives, String, DateTime, DateOnly, TimeOnly, List, Struct.
+    /// </summary>
+    member this.ToSeqOption<'T>() : seq<'T option> =
+        let len = int this.Length
+
+        let result =
+            Seq.init len (fun i ->
+                match this.TryGetValue<'T> i with
+                | ValueSome value -> Some value
+                | ValueNone -> None
+            )
+
+        result
+    /// <summary>
+    /// Get values as a list (forces evaluation).
+    /// </summary>
+    member this.ToListOption<'T>() = this.ToSeqOption<'T>() |> Seq.toList
     /// <summary>
     /// Returns the string representation of the Series (ASCII table).
     /// </summary>

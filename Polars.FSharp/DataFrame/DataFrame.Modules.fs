@@ -270,5 +270,5 @@ module DataFrame =
     /// <typeparam name="'T">The type of the row to enumerate.</typeparam>
     /// <param name="df">The DataFrame to enumerate.</param>
     /// <returns>A row enumerator for the DataFrame.</returns>
-    let inline rows<'T>(df:DataFrame): RowEnumerator<'T> =
+    let inline toRows<'T>(df:DataFrame): RowEnumerator<'T> =
         df.Rows<'T>()

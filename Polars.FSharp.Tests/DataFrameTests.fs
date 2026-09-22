@@ -90,10 +90,10 @@ type DataFrameEnumeratorTests() =
                 { Sku = "SKU-003"; Category = "Book"; Price = 9.99 }
             ]
             |> DataFrame.ofRecords
-            |> DataFrame.rows<ProductItem>
+            |> DataFrame.toRows<ProductItem>
 
-        let observedSkus = rows |> RowEnumerator.mapToArray (fun x -> x.Sku)
-        let totalPrice   = rows |> RowEnumerator.sumBy (fun x -> x.Price)
+        let observedSkus = rows |> Rows.mapToArray (fun x -> x.Sku)
+        let totalPrice   = rows |> Rows.sumBy (fun x -> x.Price)
 
         // Assert: Verify all rows were observed in exact order and values aggregated correctly
         Assert.Equal(3, observedSkus.Length)
@@ -109,7 +109,7 @@ type DataFrameEnumeratorTests() =
 
         // Act: Attempt to iterate empty enumerator
         emptyDf.Rows<ProductItem>()
-        |> RowEnumerator.iter (fun _ -> invoked <- true)
+        |> Rows.iter (fun _ -> invoked <- true)
 
         // Assert: Action should never be executed
         Assert.False(invoked)
@@ -124,8 +124,8 @@ type DataFrameEnumeratorTests() =
             { Sku = "P-2"; Category = "Hardware"; Price = 12.00 }
         ]
         |> DataFrame.ofRecords
-        |> DataFrame.rows<ProductItem>
-        |> RowEnumerator.iteri (fun idx item ->
+        |> DataFrame.toRows<ProductItem>
+        |> Rows.iteri (fun idx item ->
             observed.Add((idx, item.Sku, item.Price))
         )
 
@@ -143,7 +143,7 @@ type DataFrameEnumeratorTests() =
 
         // Act: Run iteri over empty enumerator
         emptyDf.Rows<ProductItem>()
-        |> RowEnumerator.iteri (fun _ _ -> count <- count + 1)
+        |> Rows.iteri (fun _ _ -> count <- count + 1)
 
         // Assert: Counter must remain 0
         Assert.Equal(0, count)
@@ -157,8 +157,8 @@ type DataFrameEnumeratorTests() =
                 { Sku = "SKU-B"; Category = "Clothing"; Price = 50.0 }
             ]
             |> DataFrame.ofRecords<ProductItem>
-            |> DataFrame.rows<ProductItem>
-            |> RowEnumerator.mapToArray (fun item ->
+            |> DataFrame.toRows<ProductItem>
+            |> Rows.mapToArray (fun item ->
                 { Sku = item.Sku; FinalPrice = item.Price * 1.10 }
             )
 
@@ -178,7 +178,7 @@ type DataFrameEnumeratorTests() =
         // Act: Project empty enumerator
         let results: string array =
             emptyDf.Rows<ProductItem>()
-            |> RowEnumerator.mapToArray (fun item -> item.Sku)
+            |> Rows.mapToArray (fun item -> item.Sku)
 
         // Assert: Result is an empty array with zero allocation
         Assert.Empty(results)
@@ -199,12 +199,12 @@ type DataFrameEnumeratorTests() =
 
         let weightedSum =
             df.Rows<ProductItem>()
-            |> RowEnumerator.foldi (fun idx acc r -> acc + (float idx * r.Price)) 0.0
+            |> Rows.foldi (fun idx acc r -> acc + (float idx * r.Price)) 0.0
 
         // Act 2: mapi
         let labeled =
             df.Rows<ProductItem>()
-            |> RowEnumerator.mapi (fun idx r -> $"{idx}:{r.Sku}")
+            |> Rows.mapi (fun idx r -> $"{idx}:{r.Sku}")
             |> Seq.toArray
 
         // Assert
@@ -228,18 +228,21 @@ type DataFrameEnumeratorTests() =
 
         // Act 1: tryPick
         let foundPrice =
-            df.Rows<ProductItem>()
-            |> RowEnumerator.tryPick (fun r -> if r.Sku = "B" then Some r.Price else None)
+            df
+            |> DataFrame.toRows<ProductItem>
+            |> Rows.tryPick (fun r -> if r.Sku = "B" then Some r.Price else None)
 
         // Act 2: contains
         let hasItem =
-            df.Rows<ProductItem>()
-            |> RowEnumerator.contains { Sku = "A"; Category = "Food"; Price = 10.0 }
+            df
+            |> DataFrame.toRows<ProductItem>
+            |> Rows.contains { Sku = "A"; Category = "Food"; Price = 10.0 }
 
         // Act 3: reduce
         let maxPriced =
-            df.Rows<ProductItem>()
-            |> RowEnumerator.reduce (fun acc r -> if r.Price > acc.Price then r else acc)
+            df
+            |> DataFrame.toRows<ProductItem>
+            |> Rows.reduce (fun acc r -> if r.Price > acc.Price then r else acc)
 
         // Assert
         Assert.Equal(Some 20.0, foundPrice)
@@ -259,13 +262,15 @@ type DataFrameEnumeratorTests() =
 
         // Act 1: countBy Category
         let counts =
-            df.Rows<ProductItem>()
-            |> RowEnumerator.countBy (fun r -> r.Category)
+            df
+            |> DataFrame.toRows<ProductItem>
+            |> Rows.countBy (fun r -> r.Category)
 
         // Act 2: scan running total
         let runningTotals =
-            df.Rows<ProductItem>()
-            |> RowEnumerator.scan (fun acc r -> acc + r.Price) 0.0
+            df
+            |> DataFrame.toRows<ProductItem>
+            |> Rows.scan (fun acc r -> acc + r.Price) 0.0
             |> Seq.toArray
 
         // Assert: Category frequency
@@ -413,8 +418,8 @@ type DataFrameEnumeratorTests() =
         // Act
         let dtoArray =
             pl.dataframe [ ids; names ]
-            |> DataFrame.rows<MutablePersonDto>
-            |> RowEnumerator.toArray
+            |> DataFrame.toRows<MutablePersonDto>
+            |> Rows.toArray
 
         // Assert
         Assert.Equal(2, dtoArray.Length)
@@ -509,9 +514,9 @@ type DataFrameEnumeratorTests() =
     [<Trait("DataFrame","AsTensor")>]
     member _.``DataFrame: AsTensor extracts all columns to Row-Major 2D Tensor`` () =
 
-        let s1 = Series.From("feature1", [| 1.1f; 2.1f; 3.1f |])
-        let s2 = Series.From("feature2", [| 1.2f; 2.2f; 3.2f |])
-        use df = DataFrame.FromColumns [| s1; s2 |]
+        let s1 = Series.ofSeqNamed "feature1" [| 1.1f; 2.1f; 3.1f |]
+        let s2 = Series.ofSeqNamed "feature2" [| 1.2f; 2.2f; 3.2f |]
+        use df = DataFrame.create [| s1; s2 |]
 
         // Act
         let tensor = df.AsTensor<float32>()
@@ -535,10 +540,10 @@ type DataFrameEnumeratorTests() =
     [<Fact>]
     [<Trait("DataFrame","AsTensor")>]
     member _.``DataFrame: AsTensor extracts specifically selected columns`` () =
-        let s1 = Series.From("id", [| 1; 2 |])
-        let s2 = Series.From("feature1", [| 0.1f; 0.2f |])
-        let s3 = Series.From("feature2", [| 0.9f; 0.8f |])
-        use df = DataFrame.FromColumns [| s1; s2; s3 |]
+        let s1 = Series.create("id", [| 1; 2 |])
+        let s2 = Series.create("feature1", [| 0.1f; 0.2f |])
+        let s3 = Series.create("feature2", [| 0.9f; 0.8f |])
+        use df = DataFrame.create [| s1; s2; s3 |]
 
         let tensor = df.AsTensor<float32>("feature1", "feature2")
 
@@ -569,9 +574,9 @@ type DataFrameEnumeratorTests() =
     [<Trait("DataFrame","AsTensorException")>]
     member _.``DataFrame: AsTensor throw Exception on type mismatch`` () =
         // Arrange
-        let s1 = Series.From("age", [| 25; 30 |])
-        let s2 = Series.From("salary", [| 5000.5f; 6000.5f |])
-        use df = DataFrame.FromColumns [| s1; s2 |]
+        let s1 = Series.create("age", [| 25; 30 |])
+        let s2 = Series.create("salary", [| 5000.5f; 6000.5f |])
+        use df = DataFrame.create [| s1; s2 |]
 
         let ex = Assert.Throws<InvalidOperationException>(fun () ->
             df.AsTensor<float32>() |> ignore

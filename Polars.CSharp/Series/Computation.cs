@@ -22,9 +22,13 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Calculate exponent value.
     /// </summary>
     public Series Pow(double exponent) => ApplyExpr(Pl.Col(Name).Pow(exponent));
+    /// <inheritdoc cref="Expr.Pow(double)"/>
     public Series Pow(int exponent) => ApplyExpr(Pl.Col(Name).Pow(exponent));
+    /// <inheritdoc cref="Expr.Pow(double)"/>
     public Series Pow(long exponent) => ApplyExpr(Pl.Col(Name).Pow(exponent));
+    /// <inheritdoc cref="Expr.Pow(double)"/>
     public Series Pow(float exponent) => ApplyExpr(Pl.Col(Name).Pow(exponent));
+    /// <inheritdoc cref="Expr.Pow(Expr)"/>
     public Series Pow(Series exponent) => ApplyBinaryExpr(exponent, (left, right) => left.Pow(right));
     /// <summary>
     /// Calculate the power of the Euler's number.

@@ -528,13 +528,12 @@ type ``Series Tests`` () =
         Assert.Equal(7, sRoll.GetValue<int> 3)
     [<Fact>]
     member _.``Series.ofOptionSeq: Int32 (Fast Path)`` () =
-        // 准备数据: [Some 0, Some 1, Some 2, Some 3, None, Some 5 ...]
         let data =
             Array.init count (fun i ->
                 if i % 5 = 4 then None else Some i
             )
 
-        let s = Series.ofOptionSeq("Ints", data)
+        let s = Series.ofSeqNamed "Ints" data
 
         Assert.Equal("Ints", s.Name)
         Assert.Equal(int64 count, s.Length)
@@ -551,7 +550,7 @@ type ``Series Tests`` () =
                 if i % 5 = 4 then None else Some $"Str_{i}"
             )
 
-        let s = Series.ofOptionSeq("Strs", data)
+        let s = Series.ofSeqNamed "Strs" data
 
         Assert.Equal(int64 count, s.Length)
         Assert.Equal(20000L, s.NullCount)
@@ -566,7 +565,7 @@ type ``Series Tests`` () =
                 if i % 5 = 4 then None else Some (start.AddDays(float i))
             )
 
-        let s = Series.ofOptionSeq("Dates", data)
+        let s = Series.ofSeqNamed "Dates" data
 
         Assert.Equal(int64 count, s.Length)
         Assert.Equal(20000L, s.NullCount)
@@ -582,7 +581,7 @@ type ``Series Tests`` () =
                 else Some (decimal i + 0.5m)
             )
 
-        let s = Series.ofOptionSeq("Decimals", data)
+        let s = Series.ofSeqNamed "Decimals" data
 
         Assert.Equal(int64 count, s.Length)
         Assert.Equal(0.5m, s.GetValue<decimal> 0)
@@ -594,7 +593,7 @@ type ``Series Tests`` () =
                 if i % 5 = 4 then ValueNone else ValueSome (int64 i * 1000L)
             )
 
-        let s = Series.ofVOptionSeq("BigInts", data)
+        let s = Series.ofSeqNamed "BigInts" data
 
         Assert.Equal(int64 count, s.Length)
         Assert.Equal(20000L, s.NullCount)
@@ -610,7 +609,7 @@ type ``Series Tests`` () =
                 else ValueSome (i % 2 = 0)
             )
 
-        let s = Series.ofVOptionSeq("Bools", data)
+        let s = Series.ofSeqNamed "Bools" data
 
         Assert.Equal(int64 count, s.Length)
         Assert.True(s.GetValue<bool> 0)  // 0 is even -> true
@@ -626,7 +625,7 @@ type ``Series Tests`` () =
                 else ValueSome (start.AddMinutes(float i))
             )
 
-        let s = Series.ofVOptionSeq("Times", data)
+        let s = Series.ofSeqNamed "Times" data
 
         Assert.Equal(int64 count, s.Length)
         Assert.Equal(start, s.GetValue<TimeOnly> 0)
@@ -638,7 +637,7 @@ type ``Series Tests`` () =
             [ 100M;  0.01M; -1.5M  ]   // Row 1
         ]
 
-        using (Series.ofArray2D("decimal_matrix", data)) (fun s ->
+        using (Series.ofArray2DNamed "decimal_matrix" data) (fun s ->
 
             Assert.Equal(2L, s.Length)
 
@@ -660,7 +659,7 @@ type ``Series Tests`` () =
             [ 5.0; 6.0 ]
         ]
 
-        using (Series.ofArray2D("double_matrix", data)) (fun s ->
+        using (Series.ofArray2DNamed "double_matrix" data) (fun s ->
             Assert.Equal(3L, s.Length)
             let result = s.ToArray<double[]>()
             Assert.Equal(6.0, result.[2].[1])
@@ -672,7 +671,7 @@ type ``Series Tests`` () =
         let val2 = Int128.One
         let data = array2D [ [ val1; val2 ] ]
 
-        let s = Series.ofArray2D("i128_matrix", data)
+        let s = Series.ofArray2DNamed "i128_matrix" data
         s.Show()
         Assert.Throws<NotSupportedException>(fun () -> s.ToArray() |> ignore)
 
@@ -684,7 +683,7 @@ type ``Series Tests`` () =
         let data = array2D [ [ huge ]; [ tiny ] ]
 
         Assert.Throws<OverflowException>(fun () ->
-            Series.ofArray2D("overflow_test", data) |> ignore
+            Series.ofArray2DNamed "overflow_test" data |> ignore
         )
 
     [<Fact>]
@@ -731,7 +730,7 @@ type ``Series Tests`` () =
     member _.``AsTensorSpan - 1D Series - Promotes To Column Vector`` () =
 
         let data = [| 10; 20; 30 |]
-        use series = Series.create("1d_features", data)
+        use series = Series.ofSeq data
 
         let tensor = series.AsTensorSpan<int>()
 
@@ -753,7 +752,7 @@ type ``Series Tests`` () =
             [ 2.1f; 2.2f ]
             [ 3.1f; 3.2f ]
         ]
-        use series = Series.ofArray2D("embeddings", matrix)
+        use series = Series.ofArray2D matrix
 
         let transposed = series.AsTransposedTensorSpan<float32>()
 
@@ -834,7 +833,7 @@ type ``Series Tests`` () =
             [ 2.1f; 2.2f; 2.3f ]
         ]
 
-        use series = Series.ofArray2D("ffi_matrix", matrix)
+        use series = Series.ofArray2D matrix
 
         let struct (ptr, shape) = series.AsDangerousUnmanagedTensor<float32>()
 

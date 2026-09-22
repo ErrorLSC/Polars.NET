@@ -30,13 +30,11 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Calculate the power of the expression with a given numeric exponent.
     /// </summary>
     public Expr Pow(double exponent) => new(PolarsWrapper.Pow(CloneHandle(), PolarsWrapper.Lit(exponent)));
-    /// <summary>
-    /// Calculate the power of the expression with a given numeric exponent.
-    /// </summary>
+    /// <inheritdoc cref="Pow(double)"/>
+    public Expr Pow(float exponent) => new(PolarsWrapper.Pow(CloneHandle(), PolarsWrapper.Lit(exponent)));
+    /// <inheritdoc cref="Pow(double)"/>
     public Expr Pow(long exponent) => new(PolarsWrapper.Pow(CloneHandle(), PolarsWrapper.Lit(exponent)));
-    /// <summary>
-    /// Calculate the power of the expression with a given numeric exponent.
-    /// </summary>
+    /// <inheritdoc cref="Pow(double)"/>
     public Expr Pow(int exponent) => new(PolarsWrapper.Pow(CloneHandle(), PolarsWrapper.Lit(exponent)));
     /// <summary>
     /// Compute the dot/inner product between two expressions.

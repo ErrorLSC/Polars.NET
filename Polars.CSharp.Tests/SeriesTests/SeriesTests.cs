@@ -2157,7 +2157,7 @@ public class SeriesTests
     {
         using Series s = Pl.CreateSeries("nihao",[1,2,3,4,5]);
         using Series sE = s.CumulativeEval(Pl.Element().First() - Pl.Element().Last().Pow(2));
-        Assert.Equal(-24.0,sE[4]);
+        Assert.Equal(-24,sE[4]);
     }
     [Fact]
     [Trait("Series", "Log")]

@@ -42,7 +42,11 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         lazy
             let tz = PolarsWrapper.GetTimeZone handle
             if String.IsNullOrEmpty tz then None else Some tz
-
+    let lazyTimeZoneInfo =
+        lazy
+            match lazyTimeZone.Value with
+            | Some tz -> Some (TimeZoneInfo.FindSystemTimeZoneById(tz))
+            | None -> None
 
     // 2. Cached Array Metadata (avoids repeated array copies and pattern checks)
     let lazyArrayShape =
@@ -118,7 +122,10 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         match this.Kind with
         | DataTypeKind.Datetime _ -> lazyTimeZone.Value
         | _ -> invalidOp $"TimeZone is only applicable to Datetime, but current type is {this.Kind}."
-
+    member this.TimeZoneInfo : TimeZoneInfo option =
+        match this.Kind with
+        | DataTypeKind.Datetime(_, tz) -> lazyTimeZoneInfo.Value
+        | _ -> None
     /// Gets the decimal precision.
     /// Throws InvalidOperationException if the data type is not Decimal.
     member this.Precision: int =

@@ -25,6 +25,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     private string? _timeZone;
     private Categories? _categories;
     private FrozenCategories? _frozenCategories;
+    private readonly Lazy<TimeZoneInfo?> _lazyTimeZoneInfo;
     /// <summary>
     /// Gets the decimal precision.
     /// </summary>
@@ -69,6 +70,18 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
             ? _timeZone
             : throw new InvalidOperationException($"TimeZone is only applicable to Datetime, but current type is {Kind}.");
 
+    /// <summary>
+    /// Gets the timezone info for Datetime type.
+    /// Returns null if the datetime has no timezone (naive datetime).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the data type is not <see cref="DataTypeKind.Datetime"/>.
+    /// </exception>
+    public TimeZoneInfo? TimeZoneInfo =>
+        Kind == DataTypeKind.Datetime
+            ? _lazyTimeZoneInfo.Value
+            : throw new InvalidOperationException($"TimeZoneInfo is only applicable to Datetime, but current type is {Kind}.");
+
     private IReadOnlyList<Field>? _structFields;
 
     /// <summary>
@@ -82,7 +95,26 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     public uint[] ArrayShape => Kind == DataTypeKind.Array
         ? PolarsWrapper.GetArrayShape(Handle)
         : [];
+    private static TimeZoneInfo? ResolveTimeZoneSafe(string tz)
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(tz);
+        }
+        catch (TimeZoneNotFoundException) { }
+        catch (InvalidTimeZoneException) { }
 
+        string cleanTz = tz.StartsWith("UTC", StringComparison.OrdinalIgnoreCase)
+            ? tz.Substring(3).Trim()
+            : tz.Trim();
+
+        if (TimeSpan.TryParse(cleanTz, out TimeSpan offset))
+        {
+            return TimeZoneInfo.CreateCustomTimeZone(tz, offset, tz, tz);
+        }
+
+        return null;
+    }
     internal DataType(DataTypeHandle handle, DataTypeKind kind = DataTypeKind.Unknown)
     {
         Handle = handle;
@@ -113,6 +145,15 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
                 _scale = s;
                 break;
         }
+        _lazyTimeZoneInfo = new Lazy<TimeZoneInfo?>(() =>
+        {
+            if (Kind != DataTypeKind.Datetime || string.IsNullOrEmpty(_timeZone))
+            {
+                return null;
+            }
+
+            return ResolveTimeZoneSafe(_timeZone);
+        });
     }
     internal static DataType CreateFromHandle(DataTypeHandle handle)
     {

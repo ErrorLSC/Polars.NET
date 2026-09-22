@@ -335,7 +335,7 @@ type RowEnumerator<'T> =
         ResizeArray<'T>(this.ToArray())
 
 [<RequireQualifiedAccess>]
-module RowEnumerator =
+module Rows =
 
     /// <summary>
     /// Materializes all or remaining mapped rows into an array.

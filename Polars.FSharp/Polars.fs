@@ -59,7 +59,7 @@ and ThenBranch internal (conditions: Expr list, statements: Expr list) =
     /// <returns>Compiled ternary expression.</returns>
     member this.Otherwise(fallback: Expr) : Expr =
         if box fallback = null then raise (ArgumentNullException(nameof fallback))
-        
+
         // Branches were accumulated in reverse order (head-first), so folding rightward
         // naturally folds from innermost fallback to the outermost condition.
         (fallback, List.zip this.Conditions this.Statements)
@@ -590,14 +590,12 @@ module pl =
     let linearSpacesAsSeries(name:string)(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedInterval)(asArray:bool) =
         let expr = linearSpaces start endRange numSamples closed asArray
         Series.ofExpr(expr).Rename(name)
-    // // --- Expr Helpers ---
-    // /// <summary> Cast an expression to a different data type. </summary>
-    // let cast (dtype: DataType) (e: Expr) = e.Cast dtype
-    // /// <summary> Cast an expression to a .NET data type. </summary>
-    // let castWithNetType<'T> (e: Expr) = e.Cast<'T>()
     /// <summary> Create a Series from a sequence of values. </summary>
     let series<'T>(name:string)(data:seq<'T>) =
         Series.create(name,data)
+    // /// <summary> Create an anonymous Series from a sequence of values. </summary>
+    // let SeriesAnonymous<'T>(data:seq<'T>) =
+        // Series.create("",data)
     /// <summary> Create a DataFrame from a sequence of Series. </summary>
     let dataframe(series:seq<Series>) = DataFrame.create(series)
     /// <summary> Boolean data type. </summary>
@@ -1060,7 +1058,7 @@ module pl =
         use enumerator = series.GetEnumerator()
         if not (enumerator.MoveNext()) then
             invalidArg (nameof series) "Cannot concatenate an empty sequence of Series."
-        
+
         // Clone the first Series to act as our private accumulator
         let acc = enumerator.Current.Clone()
         while enumerator.MoveNext() do

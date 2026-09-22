@@ -173,11 +173,11 @@ type ``Basic Functionality Tests`` () =
             None
             Some(DateTime(2024, 1, 1))
         ]
-        use s = Series.ofSeq("dt", data)
 
-        let seqData = s.AsSeq<DateTime>()
-
-        let listData = seqData |> Seq.toList
+        let listData =
+            Series.ofSeqNamed "dt" data
+            |> Series.toSeqOption<DateTime>
+            |> Seq.toList
 
         Assert.Equal(3, listData.Length)
         Assert.Equal(Some(DateTime(2023, 1, 1)), listData.[0])
@@ -292,16 +292,16 @@ type ``Basic Functionality Tests`` () =
             ])
 
         // Shanghai (+08:00)
-        let shRow = res.Column("shanghai").AsSeq<DateTimeOffset>() |> Seq.head |> Option.get
+        let shRow = res.Column("shanghai").ToSeqOption<DateTimeOffset>() |> Seq.head |> Option.get
         Assert.Equal(TimeSpan.FromHours 8, shRow.Offset)
         Assert.Equal(20, shRow.Hour) // 12:00 UTC -> 20:00 Shanghai
 
         // London (Naive 12:00 -> London 12:00 +00:00 in Jan)
-        let ldRow = res.Column("london_explicit").AsSeq<DateTimeOffset>() |> Seq.head |> Option.get
+        let ldRow = res.Column("london_explicit").ToSeqOption<DateTimeOffset>() |> Seq.head |> Option.get
         Assert.Equal(0, ldRow.Offset.Hours)
 
         // Naive (Unset)
-        let naiveRow = res.Column("naive").AsSeq<DateTime>() |> Seq.head |> Option.get
+        let naiveRow = res.Column("naive").ToSeqOption<DateTime>() |> Seq.head |> Option.get
         Assert.Equal(DateTimeKind.Unspecified, naiveRow.Kind)
     [<Fact>]
     member _.``Conversion: DataFrame -> Lazy -> DataFrame`` () =
@@ -469,7 +469,7 @@ type ``Basic Functionality Tests`` () =
         use df = DataFrame.ofSeq(data, batchSize = 10_000)
 
         Assert.Equal(int64 count, df.Height)
-        Assert.Equal("Val_99999", df.Column("Value").AsSeq<string>() |> Seq.last |> Option.get)
+        Assert.Equal("Val_99999", df.Column("Value").ToSeqOption<string>() |> Seq.last |> Option.get)
         let expectedType = DataType.Datetime(TimeUnit.Microseconds, "")
 
         Assert.Equal(expectedType, df.Schema.["Timestamp"])

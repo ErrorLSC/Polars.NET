@@ -50,7 +50,7 @@ module DataFrameMappingExtensions =
             else
                 // Streamline using zero-allocation stack enumerator + RowEnumerator.mapToArray
                 let mutable enumerator = this.Rows<'TIn>()
-                let mappedRecords = RowEnumerator.mapToArray mapping enumerator
+                let mappedRecords = Rows.mapToArray mapping enumerator
                 DataFrame.ofRecords<'TOut> mappedRecords
         /// <summary>
         /// Applies the given action to each row in the DataFrame materialized as a strongly-typed F# Record or DTO.
@@ -89,7 +89,7 @@ module DataFrameMappingExtensions =
 
             let mutable enum1 = this.Rows<'T1>()
             let mutable enum2 = other.Rows<'T2>()
-            RowEnumerator.iter2 action enum1 enum2
+            Rows.iter2 action enum1 enum2
 
         /// <summary>
         /// Applies an action pairwise to strongly-typed rows from two DataFrames along with their 64-bit row index.
@@ -100,4 +100,4 @@ module DataFrameMappingExtensions =
 
             let mutable enum1 = this.Rows<'T1>()
             let mutable enum2 = other.Rows<'T2>()
-            RowEnumerator.iteri2 action enum1 enum2
+            Rows.iteri2 action enum1 enum2

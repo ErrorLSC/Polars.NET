@@ -174,6 +174,15 @@ public partial class Series : IDisposable, IPolarsSeries
             var tuple = (dt, timeZone);
             return isNullable ? (T)(object)((DateTime, string)?)tuple : Unsafe.As<(DateTime, string), T>(ref tuple);
         }
+        if (underlying == typeof(DateTimeOffset))
+        {
+            TimeUnit timeUnit = DataType.TimeUnit;
+            TimeZoneInfo? timeZoneInfo = DataType.TimeZoneInfo;
+            DateTimeOffset val = PolarsWrapper.SeriesGetDatetimeOffsetFast(Handle, index, timeUnit.ToNative(), timeZoneInfo);
+            return isNullable
+                ? (T)(object)(DateTimeOffset?)val
+                : Unsafe.As<DateTimeOffset, T>(ref val);
+        }
 
         if (underlying == typeof(Guid))
         {

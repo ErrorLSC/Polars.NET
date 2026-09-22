@@ -3,10 +3,80 @@ namespace Polars.FSharp
 open Apache.Arrow
 open System
 open System.Collections.Generic
+open Polars.NET.Core
 
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Series =
+    /// <summary>
+    /// Create a Series from a sequence of values.
+    /// </summary>
+    let inline ofSeq<'T> (data: seq<'T>) : Series =
+        Series.create("", data)
+    /// <summary>
+    /// Create a named Series from a sequence of values.
+    /// </summary>
+    let inline ofSeqNamed<'T> (name: string) (data: seq<'T>) : Series =
+        Series.create(name, data)
+    /// <summary>
+    /// Create a FixedSizeList Series from a 2D Array (Matrix).
+    /// Shape: [Rows, Width] -> Array[Width]
+    /// Supported Types: Primitives, Decimal, Int128
+    /// </summary>
+    let inline ofArray2D<'T
+        when 'T : struct
+        and 'T : unmanaged
+        and 'T :> ValueType
+        and 'T : (new : unit -> 'T)>
+        (data: 'T[,]) =
+            new Series(PolarsWrapper.SeriesNewFixedArray("", data))
+    /// <summary>
+    /// Create a named FixedSizeList Series from a 2D Array (Matrix).
+    /// </summary>
+    let inline ofArray2DNamed<'T
+        when 'T : struct
+        and 'T : unmanaged
+        and 'T :> ValueType
+        and 'T : (new : unit -> 'T)>
+        (name: string) (data: 'T[,]) =
+            new Series(PolarsWrapper.SeriesNewFixedArray(name, data))
+    /// <summary>
+    /// Convert a Series to an array.
+    /// </summary>
+    let inline toArray<'T> (series: Series) : 'T[] =
+        series.ToArray<'T>()
+    /// <summary>
+    /// Convert a Series to an array with optional null values.
+    /// </summary>
+    let inline toArrayOption<'T> (series: Series) : 'T option[] =
+        series.ToArrayOption<'T>()
+    /// <summary>
+    /// Convert a Series to a sequence with optional null values.
+    /// </summary>
+    let inline toSeq<'T> (series: Series) : seq<'T> =
+        series.ToArray<'T>() |> Seq.ofArray
+    /// <summary>
+    /// Convert a Series to a sequence.
+    /// </summary>
+    let inline toSeqOption<'T> (series: Series) : seq<option<'T>> =
+        series.ToSeqOption<'T>()
+    /// <summary>
+    /// Converts the Series to a DataFrame with a single column.
+    /// </summary>
+    /// <param name="series">The target Series.</param>
+    let inline toFrame (series: Series) : DataFrame =
+        series.ToFrame()
+    /// <summary>
+    /// Converts the Series to an Arrow array.
+    /// </summary>
+    /// <param name="series">The target Series.</param>
+    let inline toArrow (series: Series) : IArrowArray =
+        series.ToArrow()
+    /// <summary>
+    /// Convert the Series to Expr.
+    /// </summary>
+    let inline toExpr(series:Series) :Expr =
+        pl.litSeries series
     /// <summary>
     /// Get the head value of the Series.
     /// </summary>
@@ -424,32 +494,6 @@ module Series =
             result.[i] <- (v1, v2)
 
         result
-
-    /// <summary>
-    /// Converts the Series to a DataFrame with a single column.
-    /// </summary>
-    /// <param name="series">The target Series.</param>
-    let inline toFrame (series: Series) : DataFrame =
-        series.ToFrame()
-
-    /// <summary>
-    /// Converts the Series to an Arrow array.
-    /// </summary>
-    /// <param name="series">The target Series.</param>
-    let inline toArrow (series: Series) : IArrowArray =
-        series.ToArrow()
-
-    /// <summary>
-    /// Convert the Series to a strongly-typed managed array.
-    /// Type 'T is inferred automatically from the call-site context.
-    /// </summary>
-    let inline toArray<'T> (series: Series) : 'T[] =
-        series.ToArray<'T>()
-    /// <summary>
-    /// Convert the Series to Expr.
-    /// </summary>
-    let inline toExpr(series:Series) :Expr =
-        pl.litSeries series
     /// <summary>
     /// Prints the Series to the console.
     /// </summary>
