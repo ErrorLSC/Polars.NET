@@ -162,18 +162,11 @@ public partial class Series : IDisposable, IPolarsSeries
         if (underlying == typeof(DateTime))
         {
             TimeUnit timeUnit = DataType.TimeUnit;
-            DateTime dt = PolarsWrapper.SeriesGetDatetimeFast(Handle, index, timeUnit.ToNative(), null);
+            string? timeZone = DataType.TimeZone;
+            DateTime dt = PolarsWrapper.SeriesGetDatetimeFast(Handle, index, timeUnit.ToNative(), timeZone);
             return isNullable ? (T)(object)(DateTime?)dt : Unsafe.As<DateTime, T>(ref dt);
         }
 
-        if (underlying == typeof(ValueTuple<DateTime, string>))
-        {
-            TimeUnit timeUnit = DataType.TimeUnit;
-            string timeZone = DataType.TimeZone!;
-            DateTime dt = PolarsWrapper.SeriesGetDatetimeFast(Handle, index, timeUnit.ToNative(), timeZone);
-            var tuple = (dt, timeZone);
-            return isNullable ? (T)(object)((DateTime, string)?)tuple : Unsafe.As<(DateTime, string), T>(ref tuple);
-        }
         if (underlying == typeof(DateTimeOffset))
         {
             TimeUnit timeUnit = DataType.TimeUnit;
@@ -194,7 +187,7 @@ public partial class Series : IDisposable, IPolarsSeries
 
         // ==============================================================
         // Universal Path - using Arrow Infrastructure
-        // For Struct, List, F# Option, DateTimeOffset .etc
+        // For Struct, List .etc
         // ==============================================================
 
         using var slice = Slice(index, 1);

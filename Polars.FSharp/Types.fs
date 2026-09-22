@@ -545,26 +545,15 @@ type Series(handle: SeriesHandle) =
 
         | t, DataTypeKind.Datetime (_, _) when t = typeof<DateTime> ->
             let tu = this.DataType.TimeUnit.ToNative()
-            let mutable v = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, null)
+            let tz = this.DataType.TimeZone |> Option.defaultValue null
+            let mutable v = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, tz)
             Unsafe.As<DateTime, 'T>(&v)
 
-        | t, DataTypeKind.Datetime (_, _) when t = typeof<struct(DateTime * string)> ->
-            let tu = this.DataType.TimeUnit.ToNative()
-            let tz = this.DataType.TimeZone.Value
-            let dt = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, tz)
-            let mutable v = struct(dt, tz)
-            Unsafe.As<struct(DateTime * string), 'T>(&v)
-
         | t, DataTypeKind.Datetime (_, _) when t = typeof<DateTimeOffset> ->
-            match this.DataType.TimeZoneInfo with
-            | Some tzi ->
-                let tu = this.DataType.TimeUnit.ToNative()
-                let mutable v = PolarsWrapper.SeriesGetDatetimeOffsetFast(this.Handle, index, tu, tzi)
-                Unsafe.As<DateTimeOffset, 'T>(&v)
-            | None ->
-                let tu = this.DataType.TimeUnit.ToNative()
-                let mutable v = PolarsWrapper.SeriesGetDatetimeOffsetFast(this.Handle, index, tu, null)
-                Unsafe.As<DateTimeOffset, 'T>(&v)
+            let tu = this.DataType.TimeUnit.ToNative()
+            let ti = this.DataType.TimeZoneInfo |> Option.defaultValue null
+            let mutable v = PolarsWrapper.SeriesGetDatetimeOffsetFast(this.Handle, index, tu, ti)
+            Unsafe.As<DateTimeOffset, 'T>(&v)
 
         | t, _ when t = typeof<Guid> ->
             let mutable v = PolarsWrapper.SeriesGetGuidFast(this.Handle, index)
