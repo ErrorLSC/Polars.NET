@@ -577,8 +577,13 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// </summary>
     public DataTypeExpr ToDataTypeExpr()
         => new(PolarsWrapper.DataTypeExprFromDataType(this.Handle));
-
+    /// <summary>
+    /// Get the .NET type corresponding to this DataType
+    /// </summary>
     public Type GetNetType() => ArrowTypeResolver.GetNetTypeFromArrowType(GetArrowType());
+    /// <summary>
+    /// Create a DataType from a .NET Type
+    /// </summary>
     public static DataType FromNetType<T>() => FromArrowType(ArrowTypeResolver.GetArrowTypeFromNetType(typeof(T)));
     /// <summary>
     /// Implicitly convert System.Type to Polars DataType.

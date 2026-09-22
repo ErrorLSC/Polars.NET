@@ -1,7 +1,6 @@
 namespace Polars.NET.Core.Helpers;
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 
 /// <summary>

@@ -1,7 +1,7 @@
 namespace Polars.FSharp
 
 type SeriesBinaryNameSpace(parent: Series) =
-    
+
     let apply (op: Expr -> Expr) =
         let expr = Expr.Col parent.Name |> op
         parent.ApplyExpr expr

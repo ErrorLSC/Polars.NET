@@ -43,11 +43,21 @@ public interface IPolarsSqlContext : IDisposable
 {
     void Register(string tableName, IPolarsDataFrame df);
     void Register(string tableName, IPolarsLazyFrame lf);
-    
+
     IPolarsLazyFrame Execute(string sql);
 }
 
-public interface IPolarsSchema : IDisposable,IReadOnlyDictionary<string, IPolarsDataType>
+public interface IPolarsSchema : IDisposable, IReadOnlyDictionary<string, IPolarsDataType>
 {
 
+}
+
+public interface IDataFrameMaterializer
+{
+    IEnumerable<T> Materialize<T>(DataFrameHandle handle);
+}
+
+public static class DataFrameMaterializerRegistry
+{
+    internal static IDataFrameMaterializer? Default { get; set; }
 }

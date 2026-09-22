@@ -1,4 +1,4 @@
-#pragma warning disable CS1591 
+#pragma warning disable CS1591
 using System.Collections;
 using Pl = Polars.CSharp.Polars;
 
@@ -23,7 +23,7 @@ public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
     public GroupByBuilder Having(Expr predicate)
     {
         _lazyGrouped.Having(predicate);
-        return this; 
+        return this;
     }
 
     /// <summary>
@@ -33,27 +33,27 @@ public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
         => Agg(Pl.All().Count());
 
     /// <summary>
-    /// Aggregate all columns into lists. 
+    /// Aggregate all columns into lists.
     /// </summary>
     public DataFrame All()
-        => Agg(Pl.All()); 
-    
+        => Agg(Pl.All());
+
     /// <summary>
     /// Aggregate the first values in the group.
     /// </summary>
-    /// <param name="ignoreNulls">Ignore null values (default False). If set to True, the first non-null value for each aggregation is returned, 
+    /// <param name="ignoreNulls">Ignore null values (default False). If set to True, the first non-null value for each aggregation is returned,
     /// otherwise None is returned if no non-null value exists.</param>
     /// <returns></returns>
     public DataFrame First(bool ignoreNulls=false)
-        => Agg(Pl.All().First(ignoreNulls)); 
+        => Agg(Pl.All().First(ignoreNulls));
     /// <summary>
     /// Aggregate the last values in the group.
     /// </summary>
-    /// <param name="ignoreNulls">Ignore null values (default False). If set to True, the last non-null value for each aggregation is returned, 
+    /// <param name="ignoreNulls">Ignore null values (default False). If set to True, the last non-null value for each aggregation is returned,
     /// otherwise None is returned if no non-null value exists.</param>
     /// <returns></returns>
     public DataFrame Last(bool ignoreNulls=false)
-        => Agg(Pl.All().Last(ignoreNulls)); 
+        => Agg(Pl.All().Last(ignoreNulls));
     public DataFrame Head(int n = 10) => _lazyGrouped.Head(n).Collect();
     public DataFrame Tail(int n = 10) => _lazyGrouped.Tail(n).Collect();
     /// <summary>
@@ -80,33 +80,33 @@ public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
     /// </summary>
     /// <returns></returns>
     public DataFrame Median()
-        => Agg(Pl.All().Median()); 
+        => Agg(Pl.All().Median());
     /// <summary>
     /// Reduce the groups to the mean value.
     /// </summary>
     /// <returns></returns>
     public DataFrame Mean()
-        => Agg(Pl.All().Mean()); 
+        => Agg(Pl.All().Mean());
     /// <summary>
     /// Count the unique values per group.
     /// </summary>
-    /// <returns></returns>   
+    /// <returns></returns>
     public DataFrame NUnique()
         => Agg(Pl.All().NUnique());
     /// <summary>
     /// Reduce the groups to the sum.
     /// </summary>
-    /// <returns></returns>  
+    /// <returns></returns>
     public DataFrame Sum()
-        => Agg(Pl.All().Sum());  
+        => Agg(Pl.All().Sum());
     /// <summary>
     /// Compute the quantile per group.
     /// </summary>
     /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
     /// <param name="interpolation">Interpolation method.</param>
-    /// <returns></returns>          
+    /// <returns></returns>
     public DataFrame Quantile(double quantile,QuantileMethod interpolation = QuantileMethod.Linear)
-        => Agg(Pl.All().Quantile(quantile,interpolation));   
+        => Agg(Pl.All().Quantile(quantile,interpolation));
 
     /// <summary>
     /// Aggregate with specified expressions.
@@ -158,10 +158,10 @@ public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
     /// <summary>
     /// Allows iteration over the groups of the group by operation.(Strong Typed)
     /// </summary>
-    public IEnumerable<(TKey Key, DataFrame Group)> GetGroups<TKey>() where TKey : new()
+    public IEnumerable<(TKey Key, DataFrame Group)> GetGroups<TKey>()
     {
         var (groupsDf, tempCol) = BuildGroupsDataFrame();
-        
+
         using (groupsDf)
         using (var indicesCol = groupsDf[tempCol])
         using (var keysDf = groupsDf.Drop(tempCol))
@@ -171,9 +171,9 @@ public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
             for (int i = 0; i < typedKeys.Length; i++)
             {
                 using var slicedList = indicesCol.Slice(i, 1);
-                using var indices = slicedList.Explode(); 
-                
-                var groupDf = _df[indices]; 
+                using var indices = slicedList.Explode();
+
+                var groupDf = _df[indices];
 
                 yield return (typedKeys[i], groupDf);
             }
@@ -194,10 +194,10 @@ public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
             for (int i = 0; i < keysDf.Height; i++)
             {
                 object[] keyObjects = keysDf.Row(i)!;
-                
+
                 using var slicedList = indicesCol.Slice(i, 1);
-                using var indices = slicedList.Explode(); 
-                
+                using var indices = slicedList.Explode();
+
                 var groupDf = _df[indices];
 
                 yield return (keyObjects, groupDf);

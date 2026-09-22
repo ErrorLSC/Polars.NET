@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="ExpressionPatterns.fs" />
+    <Compile Include="ExprTranslator.fs" />
+    <Compile Include="PolarsQueryable.fs" />
+  </ItemGroup>
+
+<ItemGroup>
+    <ProjectReference Include="..\Polars.NET.Core\Polars.NET.Core.csproj" />
+</ItemGroup>
+
+</Project>

@@ -1,9 +1,6 @@
 namespace Polars.FSharp
 
-open System
-open Microsoft.FSharp.Reflection
 open Apache.Arrow
-open System.Reflection
 
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]

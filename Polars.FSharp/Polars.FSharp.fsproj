@@ -115,6 +115,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Polars.NET.ML" />
     <InternalsVisibleTo Include="Polars.NET.Linq" />
+    <InternalsVisibleTo Include="Polars.NET.Linq.Provider" />
   </ItemGroup>
 
   <ItemGroup>

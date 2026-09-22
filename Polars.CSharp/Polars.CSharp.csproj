@@ -4,10 +4,10 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile> 
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <LangVersion>latest</LangVersion>
 
-    <PackageId>Polars.NET</PackageId> 
+    <PackageId>Polars.NET</PackageId>
     <Title>Polars.NET - Blazing Fast DataFrames</Title>
     <Authors>ErrorLSC</Authors>
     <Description>A blazing fast DataFrame library for .NET, powered by the Rust Polars engine and Apache Arrow. Features multi-threaded query execution, lazy evaluation, and data extraction into modern .NET Tensors (ReadOnlyTensorSpan) for hardware-accelerated SIMD math and AI inference.</Description>
@@ -20,11 +20,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Polars.NET.Core\Polars.NET.Core.csproj" />
+    <ProjectReference Include="..\Polars.NET.Linq.Provider\Polars.NET.Linq.Provider.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Polars.NET.ML" />
     <InternalsVisibleTo Include="Polars.NET.Linq" />
+    <InternalsVisibleTo Include="Polars.NET.Linq.Provider" />
   </ItemGroup>
 
   <ItemGroup>

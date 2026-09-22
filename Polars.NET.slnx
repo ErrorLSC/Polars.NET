@@ -1,0 +1,10 @@
+<Solution>
+  <Project Path="Polars.CSharp.Tests/Polars.CSharp.Tests.csproj" />
+  <Project Path="Polars.CSharp/Polars.CSharp.csproj" />
+  <Project Path="Polars.FSharp.Tests/Polars.FSharp.Tests.fsproj" />
+  <Project Path="Polars.FSharp/Polars.FSharp.fsproj" />
+  <Project Path="Polars.NET.Core/Polars.NET.Core.csproj" />
+  <Project Path="Polars.NET.Linq.Provider/Polars.NET.Linq.Provider.fsproj" />
+  <Project Path="Polars.NET.Linq/Polars.NET.Linq.csproj" />
+  <Project Path="Polars.NET.ML/Polars.NET.ML.csproj" />
+</Solution>

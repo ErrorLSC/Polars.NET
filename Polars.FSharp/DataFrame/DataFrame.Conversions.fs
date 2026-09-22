@@ -4,6 +4,7 @@ open System.Reflection
 open Microsoft.FSharp.Reflection
 open System.Linq.Expressions
 open System.Collections.Generic
+open Polars.NET.Core
 open System
 open System.Runtime.CompilerServices
 
@@ -703,3 +704,13 @@ module DataFrameConversions =
                 raise (ArgumentException($"Type '{targetType.FullName}' is not an F# Record type.", "T"))
 
             this.Rows<'T>().ToList()
+
+type FSharpRowCursorMaterializer() =
+    interface IDataFrameMaterializer with
+        member _.Materialize<'T>(handle: DataFrameHandle) : IEnumerable<'T when 'T: (new: unit -> 'T)> =
+            let df = new DataFrame(handle)
+            let cursor = df.Rows<'T>()
+            seq {
+                for item in cursor do
+                    yield item
+            }

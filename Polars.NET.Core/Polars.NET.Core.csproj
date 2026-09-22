@@ -25,14 +25,14 @@
   <PropertyGroup>
     <RustBuildProfile Condition="'$(Configuration)' == 'Debug'"></RustBuildProfile>
     <RustBuildProfile Condition="'$(Configuration)' == 'Release'">--release</RustBuildProfile>
-    
+
     <RustTargetDir Condition="'$(Configuration)' == 'Debug'">debug</RustTargetDir>
     <RustTargetDir Condition="'$(Configuration)' == 'Release'">release</RustTargetDir>
   </PropertyGroup>
 
   <Target Name="BuildRustShim" BeforeTargets="BeforeBuild" Condition="'$(BuildRustNative)' == 'true' And '$(SkipRust)' != 'true'">
     <Message Text="[Dev] Building Rust Native Shim (Profile: $(Configuration))..." Importance="high" />
-    
+
     <Exec Command="cargo build $(RustBuildProfile)" WorkingDirectory="$(RustProjectDir)" EnvironmentVariables="RUSTFLAGS=-C target-cpu=x86-64-v3" />
   </Target>
 
@@ -57,6 +57,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Polars.CSharp" />
     <InternalsVisibleTo Include="Polars.FSharp" />
+    <InternalsVisibleTo Include="Polars.NET.Linq.Provider" />
   </ItemGroup>
 
   <ItemGroup>
