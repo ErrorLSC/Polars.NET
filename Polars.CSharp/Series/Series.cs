@@ -617,8 +617,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <inheritdoc cref="Filter(Series)"/>
     public Series Filter(IEnumerable<bool> predicate)
     {
-        ArgumentNullException.ThrowIfNull(nameof(predicate));
-        using var mask =  Pl.CreateSeries("", predicate);
+        using var mask = Pl.CreateSeries("", predicate);
         return new(PolarsWrapper.SeriesFilter(Handle, mask.Handle));
     }
     /// <inheritdoc cref="Expr.Rle"/>

@@ -1,7 +1,6 @@
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Collections.Concurrent;
-using Polars.NET.Core;
 using System.Runtime.CompilerServices;
 
 namespace Polars.CSharp;
@@ -9,63 +8,107 @@ namespace Polars.CSharp;
 internal static class RowMapper<T> where T : new()
 {
     // PolarsSchema implements IEquatable<PolarsSchema>
-    private static readonly ConcurrentDictionary<PolarsSchema, Func<DataFrame, long, T>> Cache = new();
+    private static readonly ConcurrentDictionary<string, Func<DataFrame, long, T>> Cache = new();
+
+    private static string ComputeSchemaSignature(DataFrame df)
+    {
+        // "Name:String|Age:Int32|Salary:Int32"
+        return string.Join("|", df.ColumnNames.Select(c => $"{c}:{df[c].DataTypeName}"));
+    }
 
     public static Func<DataFrame, long, T> GetOrCreate(DataFrame df)
     {
-        using var schema = df.Schema;
-        if (Cache.TryGetValue(schema, out var cachedMapper))
+        string signature = ComputeSchemaSignature(df);
+        if (Cache.TryGetValue(signature, out var cachedMapper))
         {
             return cachedMapper;
         }
 
-        var mapper = BuildMapper(df, schema);
-        Cache.TryAdd(schema, mapper);
+        var mapper = BuildMapper(df);
+        Cache.TryAdd(signature, mapper);
         return mapper;
     }
 
-    private static Func<DataFrame, long, T> BuildMapper(DataFrame df, PolarsSchema schema)
+    private static Func<DataFrame, long, T> BuildMapper(DataFrame df)
     {
         var targetType = typeof(T);
         var dfParam = Expression.Parameter(typeof(DataFrame), "df");
         var idxParam = Expression.Parameter(typeof(long), "rowIndex");
 
-        var instanceVar = Expression.Variable(targetType, "instance");
-        var blockExpressions = new List<Expression>
-        {
-            // var instance = new T();
-            Expression.Assign(instanceVar, Expression.New(targetType))
-        };
-
-        var props = targetType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
         var getValueMethodDef = typeof(Series).GetMethod(nameof(Series.GetValue), [typeof(long), typeof(bool)])!;
-        var columnIndexerMethod = typeof(DataFrame).GetMethod("get_Item", [typeof(int)])!; // df[int index]
+        var columnIndexerMethod = typeof(DataFrame).GetMethod("get_Item", [typeof(int)])!;
 
-        // Iterate through columns using DataFrame's width and schema
-        long width = df.Width;
-        for (int i = 0; i < width; i++)
+        var defaultCtor = targetType.GetConstructor(
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            null,
+            Type.EmptyTypes,
+            null);
+
+        bool canDefaultConstruct = targetType.IsValueType || defaultCtor != null;
+
+        var colMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < (int)df.Width; i++)
         {
-            string colName = df.ColumnNames[i];
-            var prop = Array.Find(props, p => p.CanWrite && string.Equals(p.Name, colName, StringComparison.OrdinalIgnoreCase));
-            if (prop == null) continue;
-
-            // df[i]
-            var colExpr = Expression.Call(dfParam, columnIndexerMethod, Expression.Constant(i));
-
-            // df[i].GetValue<PropertyType>(rowIndex, uncheck: true)
-            var getValueMethod = getValueMethodDef.MakeGenericMethod(prop.PropertyType);
-            var readExpr = Expression.Call(colExpr, getValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
-
-            // instance.Prop = readExpr;
-            var assignExpr = Expression.Assign(Expression.Property(instanceVar, prop), readExpr);
-            blockExpressions.Add(assignExpr);
+            colMap[df.ColumnNames[i]] = i;
         }
 
-        // return instance;
-        blockExpressions.Add(instanceVar);
+        Expression CreateReadExpr(int colIdx, Type returnType)
+        {
+            var colExpr = Expression.Call(dfParam, columnIndexerMethod, Expression.Constant(colIdx));
+            var getValueMethod = getValueMethodDef.MakeGenericMethod(returnType);
+            return Expression.Call(colExpr, getValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
+        }
 
-        var body = Expression.Block([instanceVar], blockExpressions);
-        return Expression.Lambda<Func<DataFrame, long, T>>(body, dfParam, idxParam).Compile();
+        // Branch 1: Struct or class with parameterless constructor (mutable properties mode)
+        if (canDefaultConstruct)
+        {
+            var instanceVar = Expression.Variable(targetType, "instance");
+            Expression createInstanceExpr = defaultCtor != null
+                ? Expression.New(defaultCtor)
+                : Expression.New(targetType);
+
+            var blockExpressions = new List<Expression>
+            {
+                Expression.Assign(instanceVar, createInstanceExpr)
+            };
+
+            var props = targetType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            foreach (var prop in props)
+            {
+                if (!prop.CanWrite) continue;
+                if (colMap.TryGetValue(prop.Name, out int colIdx))
+                {
+                    var readExpr = CreateReadExpr(colIdx, prop.PropertyType);
+                    blockExpressions.Add(Expression.Assign(Expression.Property(instanceVar, prop), readExpr));
+                }
+            }
+
+            blockExpressions.Add(instanceVar);
+            var body = Expression.Block([instanceVar], blockExpressions);
+            return Expression.Lambda<Func<DataFrame, long, T>>(body, dfParam, idxParam).Compile();
+        }
+
+        // Branch 2: Primary constructor (Positional Record / Immutable DTO)
+        var ctors = targetType.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        var primaryCtor = ctors.OrderByDescending(c => c.GetParameters().Length).FirstOrDefault() ?? throw new NotSupportedException($"Type '{targetType.FullName}' has no accessible constructors.");
+        var ctorParams = primaryCtor.GetParameters();
+        var ctorArgs = new Expression[ctorParams.Length];
+
+        for (int i = 0; i < ctorParams.Length; i++)
+        {
+            var param = ctorParams[i];
+            if (colMap.TryGetValue(param.Name!, out int colIdx))
+            {
+                ctorArgs[i] = CreateReadExpr(colIdx, param.ParameterType);
+            }
+            else
+            {
+                ctorArgs[i] = Expression.Default(param.ParameterType);
+            }
+        }
+
+        var newExpr = Expression.New(primaryCtor, ctorArgs);
+        return Expression.Lambda<Func<DataFrame, long, T>>(newExpr, dfParam, idxParam).Compile();
     }
 
 }
@@ -282,7 +325,7 @@ public ref struct DataFrameRowEnumerator<T> where T : new()
     }
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     // ==========================================
     // Object Mapping (To Records)
