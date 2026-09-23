@@ -79,8 +79,58 @@ type FinalProductItem = {
     FinalPrice: float
 }
 
-type DataFrameEnumeratorTests() =
+type DataFrameTests() =
     [<Fact>]
+    [<Trait("DataFrame", "ofColumns")>]
+    member _.``DataFrame: ofColumns with anonymous record works seamlessly`` () =
+        use df = DataFrame.ofColumns {|
+            Name = [| "Alice"; "Bob" |]
+            Score = [| Some 95.5; None |]
+            Age = [| ValueSome 20; ValueNone |]
+        |}
+
+        Assert.Equal(2L, df.Height)
+        Assert.Equal(3L, df.Width)
+    [<Fact>]
+    [<Trait("DataFrame", "ofColumns")>]
+    member _.``DataFrame: ofColumns with seq of tuples creates correct schema and values`` () =
+        let columns: (string * Array) list = [
+            "Id", [| 1; 2; 3 |]
+            "Name", [| "Alice"; "Bob"; "Charlie" |]
+            "Score", [| 85.5; 92.0; 78.4 |]
+            "Active", [| true; false; true |]
+            "Timestamp", [| DateTime(2026, 1, 1); DateTime(2026, 1, 2); DateTime(2026, 1, 3) |]
+        ]
+
+        use df = DataFrame.ofColumns columns
+
+        // Verify dimensions
+        Assert.Equal(3L, df.Height)
+        Assert.Equal(5L, df.Width)
+
+        // Verify column names and order
+        let expectedCols = [| "Id"; "Name"; "Score"; "Active"; "Timestamp" |]
+        Assert.Equal<string[]>(expectedCols, df.Columns)
+
+        // Verify specific values via column Series
+        let idCol = df.["Id"]
+        Assert.Equal(3L, idCol.Length)
+        Assert.Equal(1, idCol.[0])
+        Assert.Equal(3, idCol.[2])
+
+        let nameCol = df.["Name"]
+        Assert.Equal("Bob", nameCol.[1])
+
+        let scoreCol = df.["Score"]
+        Assert.Equal(92.0, scoreCol.[1])
+
+    [<Fact>]
+    [<Trait("DataFrame", "ofColumns")>]
+    member _.``DataFrame: ofColumns handles empty collection gracefully`` () =
+        let emptyCols: (string * Array) list = []
+        use df = DataFrame.ofColumns emptyCols
+
+        Assert.True df.IsEmpty
     [<Trait("DataFrame", "Iter")>]
     member _.``RowEnumerator iter traverses all rows sequentially and triggers side-effects`` () =
         let rows =

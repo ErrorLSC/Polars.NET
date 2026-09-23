@@ -126,6 +126,11 @@ public static class PolarsTypeHelper
 
     public static Type EnsureNullable(Type type)
     {
+        if (AcceptsNull(type))
+        {
+            return type;
+        }
+
         return (type.IsValueType && Nullable.GetUnderlyingType(type) == null)
             ? typeof(Nullable<>).MakeGenericType(type)
             : type;

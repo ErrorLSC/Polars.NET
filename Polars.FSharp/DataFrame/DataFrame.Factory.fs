@@ -42,39 +42,41 @@ module DataFrameFactory =
                 new DataFrame(safeHandle)
             else
                 new DataFrame(handle)
-        // ==========================================
-        // High-Performance Record Converter
-        // ==========================================
-
         /// <summary>
         /// Creates a DataFrame from an array or sequence of F# records.
         /// Uses Zero-Copy fast-path if all columns are supported primitives, dates, or options.
         /// Falls back to Arrow serialization for complex nested structs and lists.
         /// </summary>
         static member ofRecords<'T>(data: seq<'T>) : DataFrame =
-            let props = ObjectSchemaTransposer<'T>.ModelProperties
-            if props.Length = 0 then
-                DataFrame.create []
-            else
-                if isNull data then
-                    let emptyHandles = ObjectSchemaTransposer<'T>.CreateEmptySeriesHandles()
-                    emptyHandles |> Array.map (fun h -> new Series(h)) |> DataFrame.create
+            if isNull data then DataFrame.create []
                 else
-                    let records =
-                        match data with
-                        | :? ('T[]) as arr -> arr
-                        | _ -> Seq.toArray data
-
-                    if records.Length = 0 then
-                        let emptyHandles = ObjectSchemaTransposer<'T>.CreateEmptySeriesHandles()
-                        emptyHandles |> Array.map (fun h -> new Series(h)) |> DataFrame.create
-                    else
-                        // Dual-track compiled ingestion in Core
-                        let handles = ObjectSchemaTransposer<'T>.Transpose records
-                        let seriesList = handles |> Array.map (fun h -> new Series(h))
-                        DataFrame.create seriesList
+                    let handle = DataFrameBuilder.FromRows(data)
+                    new DataFrame(handle)
         /// <summary>
-        /// Build DataFrame from maps
+        /// Creates a DataFrame from an F# anonymous record (or any SoA container) where fields are collections.
+        /// Example: DataFrame.ofColumns {| Time = [| dt1; dt2 |]; Val = [| 1.0; 2.0 |] |}
+        /// </summary>
+        static member ofColumns<'T when 'T : not struct>(columns: 'T) : DataFrame =
+            if obj.ReferenceEquals(columns, null) then DataFrame.create []
+            else
+                let handle = DataFrameBuilder.FromColumns<'T> columns
+                new DataFrame(handle)
+
+        /// <summary>
+        /// Creates a DataFrame from a sequence of column pairs (Name * Array).
+        /// Example: DataFrame.ofColumns [ "A", box [| 1; 2 |]; "B", box [| "x"; "y" |] ]
+        /// </summary>
+        static member ofColumns(columns: seq<string * Array>) : DataFrame =
+            if isNull columns then DataFrame.create []
+            else
+                let mapped =
+                    columns
+                    |> Seq.map (fun (name, arr) -> ValueTuple<string, Array>(name, arr))
+
+                let handle = DataFrameBuilder.FromColumns(mapped)
+                new DataFrame(handle)
+        /// <summary>
+        /// Build a DataFrame from a sequence of Maps or dictionaries.
         /// </summary>
         static member ofMaps
             (
@@ -89,34 +91,17 @@ module DataFrameFactory =
                 let strictMode = defaultArg strict true
                 let inferLen = defaultArg inferSchemaLength 100u |> int
 
-                // Materialize to IReadOnlyList<IDictionary<string, obj>>
-                let records: IReadOnlyList<IDictionary<string, obj>> =
-                    match box data with
-                    | :? IReadOnlyList<IDictionary<string, obj>> as list -> list
-                    | _ ->
-                        data
-                        |> Seq.map (fun m -> m :> IDictionary<string, obj>)
-                        |> Seq.toArray :> IReadOnlyList<IDictionary<string, obj>>
-
-                if records.Count = 0 then
-                    DataFrame.create []
-                else
-                    // Delegate schema inference and ingestion to Core DictSchemaTransposer
-                    let colResults = DictSchemaTransposer.Transpose(
-                        records,
-                        null, // infer target keys automatically
-                        strictMode,
-                        Nullable inferLen
-                    )
-
-                    if colResults.Length = 0 then
-                        DataFrame.create []
-                    else
-                        let seriesList =
-                            colResults
-                            |> Array.map (fun struct (_, handle) -> new Series(handle))
-
-                        DataFrame.create seriesList
+                // Upcast to standard sequence of IDictionary<string, obj?>
+                let dictSeq = data |> Seq.map (fun m -> m :> IDictionary<string, obj>)
+                
+                let handle = DataFrameBuilder.FromDicts(
+                    dictSeq,
+                    null,
+                    strictMode,
+                    Nullable inferLen
+                )
+                new DataFrame(handle)
+            
     type Series with
         /// <summary>
         /// Create Series From single column expression.
