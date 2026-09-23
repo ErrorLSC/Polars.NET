@@ -43,7 +43,6 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
             failwith "Scalar execution is not supported yet"
 
 and PolarsQuery<'T>(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer, expression: Expression) =
-    // Always clone the lazyframe handle to protect against consumption
     let lfCloned = PolarsWrapper.LazyClone lazyFrameHandle
     let provider = PolarsQueryProvider(lfCloned, materializer)
 
@@ -53,55 +52,95 @@ and PolarsQuery<'T>(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMa
     static member private ResolveMaterializer(mat: IDataFrameMaterializer) =
         if not (isNull mat) then mat
         elif not (isNull DataFrameMaterializerRegistry.Default) then DataFrameMaterializerRegistry.Default
-        else failwith "No DataFrameMaterializer registered. Ensure Polars.CSharp or Polars.FSharp has configured a materializer."
+        else failwith "No DataFrameMaterializer registered. Ensure upper API layers configured a materializer."
 
-    /// Compiles the LINQ AST into a Polars Native LazyFrameHandle without materializing
-    member this.CompileToLazyFrameHandle() : LazyFrameHandle =
-        let rec collectOps (expr: Expression) (acc: QueryOp list) : QueryOp list =
+    /// Applies a list of QueryOp to a target LazyFrameHandle in forward order.
+    /// Single Source of Truth for translating QueryOp to Polars Native LazyFrame transformations.
+    static member private ApplyNativeOps (sourceLf: LazyFrameHandle) (ops: QueryOp list) : LazyFrameHandle =
+        ops
+        |> List.fold (fun currentLf op ->
+            match op with
+            | QueryOp.Filter exprHandle -> PolarsWrapper.LazyFilter(currentLf, exprHandle)
+            | QueryOp.Limit count       -> PolarsWrapper.LazySlice(currentLf,0, count)
+            | QueryOp.SelectPassthrough -> currentLf
+        ) (PolarsWrapper.LazyClone sourceLf)
+
+    /// Parses the LINQ expression tree into native ops and any trailing client predicates
+    member private this.CompilePipeline() : QueryOp list * (Func<'T, bool> list) =
+        let rec analyze (expr: Expression) (opsAcc: QueryOp list) (clientAcc: Func<'T, bool> list) =
             match expr with
             | MethodCall(methodInfo, null, [ sourceExpr; StripQuotes (Lambda([ param ], body)) ]) ->
                 match methodInfo.Name with
                 | "Where" ->
-                    let filterExprHandle = ExprTranslator.translate param.Name body
-                    collectOps sourceExpr (QueryOp.Filter filterExprHandle :: acc)
+                    match ExprTranslator.tryTranslate param.Name body with
+                    | Some exprHandle when clientAcc.IsEmpty ->
+                        analyze sourceExpr (QueryOp.Filter exprHandle :: opsAcc) clientAcc
+                    | _ ->
+                        let compiled = Expression.Lambda<Func<'T, bool>>(body, param).Compile()
+                        analyze sourceExpr opsAcc (compiled :: clientAcc)
+
                 | "Select" ->
-                    collectOps sourceExpr (QueryOp.SelectPassthrough :: acc)
+                    analyze sourceExpr (QueryOp.SelectPassthrough :: opsAcc) clientAcc
+
                 | unsupported ->
                     failwithf "LINQ operator '%s' is not implemented yet" unsupported
 
-            | MethodCall(methodInfo, null, [ sourceExpr; countExpr ]) when methodInfo.Name = "Take" ->
+            | MethodCall(methodInfo, null, [ sourceExpr; countExpr ]) when methodInfo.Name = "Take" && clientAcc.IsEmpty ->
                 match tryEvaluate countExpr with
                 | Some value ->
                     let count = Convert.ToUInt32(value)
-                    collectOps sourceExpr (QueryOp.Limit count :: acc)
+                    analyze sourceExpr (QueryOp.Limit count :: opsAcc) clientAcc
                 | None ->
                     failwithf "Could not evaluate argument for Take: %A" countExpr
 
-            | _ -> acc
+            | _ ->
+                (opsAcc, clientAcc)
 
-        let pipelineOps = collectOps expression []
+        analyze expression [] []
 
-        pipelineOps
-        |> List.fold (fun currentLf op ->
-            match op with
-            | QueryOp.Filter exprHandle ->
-                PolarsWrapper.LazyFilter(currentLf, exprHandle)
-            | QueryOp.Limit count ->
-                PolarsWrapper.LazySlice(currentLf,0, count)
-            | QueryOp.SelectPassthrough ->
-                currentLf
-        ) (PolarsWrapper.LazyClone lfCloned)
-
-    /// Compiles and materializes into a native DataFrameHandle
-    member this.CompileToDataFrameHandle() : DataFrameHandle =
-        let finalLf = this.CompileToLazyFrameHandle()
-        PolarsWrapper.LazyCollect(finalLf,PlEngine.Auto,true)
-
+    /// Evaluates the complete pipeline, executing native plan first, then client predicates in memory
     member private this.ExecuteQuery() : IEnumerable<'T> =
+        let ops, clientPredicates = this.CompilePipeline()
         let mat = PolarsQuery<'T>.ResolveMaterializer(materializer)
-        let dfHandle = this.CompileToDataFrameHandle()
-        mat.Materialize<'T>(dfHandle)
 
+        // 1. Single point of native plan execution
+        let nativeLf = PolarsQuery<'T>.ApplyNativeOps lfCloned ops
+        let dfHandle = PolarsWrapper.LazyCollect(nativeLf,PlEngine.Auto,true)
+        let rows = mat.Materialize<'T>(dfHandle)
+
+        // 2. Client-side tail evaluation (if any)
+        if clientPredicates.IsEmpty then
+            rows
+        else
+            clientPredicates
+            |> List.fold (fun (acc: IEnumerable<'T>) pred -> acc.Where(pred.Invoke)) rows
+
+    /// Compiles pipeline to LazyFrameHandle. If client predicates exist, materializes and transposes back.
+    member this.CompileToLazyFrameHandle() : LazyFrameHandle =
+        let ops, clientPredicates = this.CompilePipeline()
+
+        if clientPredicates.IsEmpty then
+            // Pure native fast-path
+            PolarsQuery<'T>.ApplyNativeOps lfCloned ops
+        else
+            // Fallback path: execute query with client filters, then transpose back to LazyFrameHandle
+            let filteredRows = this.ExecuteQuery()
+            let newDfHandle = DataFrameBuilder.FromRows<'T>(filteredRows)
+            PolarsWrapper.DataFrameToLazy(newDfHandle)
+
+    /// Compiles the query and materializes directly into a native DataFrameHandle
+    member this.CompileToDataFrameHandle() : DataFrameHandle =
+        let ops, clientPredicates = this.CompilePipeline()
+
+        if clientPredicates.IsEmpty then
+            // Pure native fast-path: collect straight from native plan
+            let nativeLf = PolarsQuery<'T>.ApplyNativeOps lfCloned ops
+            PolarsWrapper.LazyCollect(nativeLf,PlEngine.Auto,true)
+        else
+            // Fallback path: execute query with client filters, then transpose directly to DataFrameHandle
+            let filteredRows = this.ExecuteQuery()
+            DataFrameBuilder.FromRows<'T>(filteredRows)
+        
     interface IQueryable<'T> with
         member this.GetEnumerator() = this.ExecuteQuery().GetEnumerator()
         member this.GetEnumerator() = (this :> IEnumerable<'T>).GetEnumerator() :> IEnumerator
