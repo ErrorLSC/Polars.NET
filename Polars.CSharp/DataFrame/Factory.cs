@@ -61,31 +61,8 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     public static DataFrame From<T>(IEnumerable<T> data)
     {
         if (data == null) return [];
-
-        Type type = typeof(T);
-
-        // 1. Primitive / Single Scalar column fast path
-        if (PolarsTypeHelper.IsSupportedSimpleType(type))
-        {
-            var s = Series.From("value", data);
-            return [s];
-        }
-
-        // 2. Transpose row objects into SeriesHandles via the unified Core transposer
-        SeriesHandle[] handles = ObjectSchemaTransposer<T>.Transpose(data);
-        if (handles.Length == 0)
-        {
-            return [];
-        }
-
-        // Wrap raw SeriesHandles into C# Series objects
-        Series[] series = new Series[handles.Length];
-        for (int i = 0; i < handles.Length; i++)
-        {
-            series[i] = new Series(handles[i]);
-        }
-
-        return [.. series];
+        var handle = DataFrameBuilder.FromRows(data);
+        return new(handle);
     }
     /// <inheritdoc cref="From"/>
     public static DataFrame FromRows<T>(IEnumerable<T> data)
@@ -104,19 +81,8 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     public static DataFrame FromColumns<T>(T columns) where T : class
     {
         ArgumentNullException.ThrowIfNull(columns);
-
-        var factories = SoAColumnExtractor<T>.GetFactories();
-        if (factories.Length == 0) return [];
-
-        var seriesList = new Series[factories.Length];
-        for (int i = 0; i < factories.Length; i++)
-        {
-            var (name, createSeriesHandle) = factories[i];
-            SeriesHandle handle = createSeriesHandle(columns, name);
-            seriesList[i] = new Series(handle);
-        }
-
-        return [.. seriesList];
+        var handle = DataFrameBuilder.FromColumns(columns);
+        return new(handle);
     }
 
     /// <summary>
@@ -126,28 +92,8 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     public static DataFrame FromColumns(object columns)
     {
         ArgumentNullException.ThrowIfNull(columns);
-
-        var properties = columns.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
-        var seriesList = new List<Series>(properties.Length);
-
-        foreach (var p in properties)
-        {
-            if (!p.CanRead || p.GetIndexParameters().Length > 0) continue;
-
-            var val = p.GetValue(columns) 
-                ?? throw new ArgumentNullException(nameof(columns), $"Property '{p.Name}' cannot be null.");
-
-            var elemType = PolarsTypeHelper.TryGetEnumerableElementType(val.GetType()) ?? typeof(object);
-            var method = typeof(SeriesFactory).GetMethod(
-                nameof(SeriesFactory.CreateGenericType),
-                BindingFlags.Public | BindingFlags.Static
-            )!.MakeGenericMethod(elemType);
-
-            var handle = (SeriesHandle)method.Invoke(null, [p.Name, val])!;
-            seriesList.Add(new Series(handle));
-        }
-
-        return [.. seriesList];
+        var handle = DataFrameBuilder.FromColumns(columns);
+        return new(handle);
     }
     /// <summary>
     /// Create DataFrame from explicitly named columns.
@@ -336,9 +282,6 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     {
         if (data == null) return [];
 
-        var records = data as IReadOnlyList<IDictionary<string, object?>> ?? data.ToList();
-        if (records.Count == 0) return [];
-
         try
         {
             var actualSchema = schema?.Consume();
@@ -346,26 +289,18 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
 
             IReadOnlyList<string>? targetKeys = actualSchema?.Keys.ToList();
 
-            // 1. Delegate schema inference and buffer transpose to Core
-            var columnResults = DictSchemaTransposer.Transpose(
-                records,
+            // 1. Single-call ingestion into native DataFrameHandle via Core
+            var handle = DataFrameBuilder.FromDicts(
+                data,
                 targetKeys,
                 strict,
                 (int?)inferSchemaLength
             );
 
-            if (columnResults.Length == 0) return [];
+            var df = new DataFrame(handle);
+            if (df.Width == 0) return [];
 
-            // 2. Wrap into C# Series array
-            var seriesList = new Series[columnResults.Length];
-            for (int i = 0; i < columnResults.Length; i++)
-            {
-                seriesList[i] = new Series(columnResults[i].Handle);
-            }
-
-            var df = new DataFrame(seriesList);
-
-            // 3. Schema Overrides / Strict Casting
+            // 2. Apply Schema Overrides / Explicit Casts if specified
             if (actualSchema != null || overrides != null)
             {
                 var castExprs = new List<Expr>((int)df.Width);

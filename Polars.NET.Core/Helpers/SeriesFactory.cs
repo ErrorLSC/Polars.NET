@@ -2,6 +2,7 @@ using Polars.NET.Core.Arrow;
 using Microsoft.FSharp.Core;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
+using System.Reflection;
 
 namespace Polars.NET.Core.Helpers;
 
@@ -16,11 +17,44 @@ public static class SeriesFactory
     /// </summary>
     public static SeriesHandle CreateGenericType<T>(string name, IEnumerable<T> data)
     {
-        if (data is Array array)
+        // 1. Array fast path 
+        if (data is T[] array)
         {
-            return Create(name, array);
+            var spanHandle = CreateSpan<T>(name, array.AsSpan());
+            if (spanHandle != null && !spanHandle.IsInvalid)
+            {
+                return spanHandle;
+            }
+        }
+        else if (data is List<T> list)
+        {
+            var spanHandle = CreateSpan<T>(name, CollectionsMarshal.AsSpan(list));
+            if (spanHandle != null && !spanHandle.IsInvalid)
+            {
+                return spanHandle;
+            }
+        }
+        else if (data is Array arr && arr.Rank > 1)
+        {
+            var fixedHandle = Create(name, arr);
+            if (fixedHandle != null && !fixedHandle.IsInvalid)
+            {
+                return fixedHandle;
+            }
         }
 
+        // 2. CreateSpan
+        if (PolarsTypeHelper.IsSupportedSimpleType(typeof(T)))
+        {
+            var materialized = data as T[] ?? [.. data];
+            var spanHandle = CreateSpan<T>(name, materialized.AsSpan());
+            if (spanHandle != null && !spanHandle.IsInvalid)
+            {
+                return spanHandle;
+            }
+        }
+
+        // 3. Arrow
         using var arrowArray = ArrowConverter.Build(data);
         return ArrowFfiBridge.ImportSeries(name, arrowArray);
     }
@@ -575,6 +609,12 @@ public static class SeriesFactory
         {
             return handle;
         }
+
+        Type elemType = array.GetType().GetElementType() ?? typeof(object);
+        var method = typeof(SeriesFactory).GetMethod(
+            nameof(CreateGenericType),
+            BindingFlags.Public | BindingFlags.Static
+        )!.MakeGenericMethod(elemType);
 
         // Fallback to Arrow reflection for nested/complex types
         return CreateFromArrowViaReflection(name, array);

@@ -321,7 +321,7 @@ public readonly partial struct PolarsWrapper
     // Get by Index
     public static SeriesHandle DataFrameGetColumnAt(DataFrameHandle h, int index)
     {
-        var sh = NativeBindings.pl_dataframe_get_column_at(h, (UIntPtr)index);
+        var sh = NativeBindings.pl_dataframe_get_column_at(h, (nuint)index);
         if (sh.IsInvalid)
         {
             throw new IndexOutOfRangeException($"Column index {index} is out of bounds.");
