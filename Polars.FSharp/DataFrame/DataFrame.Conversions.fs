@@ -707,7 +707,7 @@ module DataFrameConversions =
 
 type FSharpRowCursorMaterializer() =
     interface IDataFrameMaterializer with
-        member _.Materialize<'T>(handle: DataFrameHandle) : IEnumerable<'T when 'T: (new: unit -> 'T)> =
+        member _.Materialize<'T>(handle: DataFrameHandle) : IEnumerable<'T> =
             let df = new DataFrame(handle)
             let cursor = df.Rows<'T>()
             seq {
