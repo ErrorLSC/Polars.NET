@@ -441,6 +441,7 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle FloorDiv(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_floor_div, l, r);
     public static ExprHandle Rem(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_rem, l, r);
     public static ExprHandle Mul(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_mul, l, r);
+    public static ExprHandle Neg(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_neg, e);
     public static ExprHandle BitLeftShift(ExprHandle expr, int n)
     {
         var h = NativeBindings.pl_expr_bit_shl(expr, n);

@@ -300,6 +300,17 @@ public partial class Expr : IDisposable
 
     public Expr FloorDiv(object other)
         => new(PolarsWrapper.FloorDiv(this.CloneHandle(), MakeLit(other).Handle));
+    /// <summary>
+    /// Negates the expression numerically.
+    /// Equivalent to Polars <c>-expr</c>.
+    /// </summary>
+    /// <param name="expr">The expression to negate.</param>
+    /// <returns>A new negated <see cref="Expr"/>.</returns>
+    public static Expr operator -(Expr expr)
+        => new(PolarsWrapper.Neg(expr.CloneHandle()));
+    public static Expr Neg(Expr expr)
+        => -expr;
+    
     // ==========================================
     // Bitwise Operators (<<, >>)
     // ==========================================

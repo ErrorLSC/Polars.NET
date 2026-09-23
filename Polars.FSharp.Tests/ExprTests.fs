@@ -6,29 +6,29 @@ open Polars.FSharp
 
 type ``Expression Logic Tests`` () =
     [<Fact>]
-        member _.``Select inline style (Pythonic)`` () =
-            use csv = new TempCsv "name,birthdate,weight,height\nQinglei,2025-11-25,70,1.80"
-            let df = DataFrame.ReadCsv (path=csv.Path,tryParseDates=true)
+    member _.``Select inline style (Pythonic)`` () =
+        use csv = new TempCsv "name,birthdate,weight,height\nQinglei,2025-11-25,70,1.80"
+        let df = DataFrame.ReadCsv (path=csv.Path,tryParseDates=true)
 
-            let res =
-                df
-                |> DataFrame.select [
-                    col "name"
+        let res =
+            df
+            |> DataFrame.select [
+                col "name"
 
-                    col "birthdate" |> alias "b_date"
+                col "birthdate" |> alias "b_date"
 
-                    (col "birthdate").Dt.Year().Alias "year"
+                (col "birthdate").Dt.Year().Alias "year"
 
-                    col "weight" / (col "height" * col "height")
-                    |> alias "bmi"
-                ]
+                col "weight" / (col "height" * col "height")
+                |> alias "bmi"
+            ]
 
-            Assert.Equal(4L, res.Width) // name, b_date, year, bmi
+        Assert.Equal(4L, res.Width) // name, b_date, year, bmi
 
-            // Qinglei
-            Assert.Equal("Qinglei", res.["name"].GetValue<string>(0))
-            // BMI ≈ 21.6
-            Assert.True(res.["bmi"].GetValue<float>(0) > 21.6)
+        // Qinglei
+        Assert.Equal("Qinglei", res.["name"].GetValue<string>(0))
+        // BMI ≈ 21.6
+        Assert.True(res.["bmi"].GetValue<float>(0) > 21.6)
     [<Fact>]
     member _.``Filter by numeric value (> operator)`` () =
         use csv = new TempCsv "val\n10\n20\n30"
@@ -844,7 +844,6 @@ type ``String Logic Tests`` () =
         Assert.Equal("A-B-C", col.GetValue<string> 0)
         Assert.Equal("X-Y-Z", col.GetValue<string> 1)
 
-
     [<Fact>]
     [<Trait("Expr", "Reduce")>]
     member _.``Reduce should throw ArgumentException when sequence is empty`` () =
@@ -857,3 +856,15 @@ type ``String Logic Tests`` () =
         )
 
         Assert.Contains("empty", ex.Message.ToLower())
+
+    [<Fact>]
+    [<Trait("Expr", "Neg")>]
+    member _.``Neg Operator works properly`` () =
+        let df = 
+            [
+                Series.ofSeqNamed "nihao" [-114514;1919810]
+            ]
+            |> pl.dataframe
+            |> DataFrame.select [ -pl.col("nihao").Alias("buhao") ]
+
+        Assert.Equal([114514;-1919810],df.["buhao"].ToArray<int>())

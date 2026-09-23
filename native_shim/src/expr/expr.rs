@@ -2,7 +2,7 @@ use polars::{chunked_array::cast::CastOptions, prelude::*, series::ops::NullBeha
 use polars_plan::plans::AExprSorted;
 use std::{ffi::{CStr, CString}, os::raw::c_char, slice::from_raw_parts};
 use crate::{types::{DataTypeContext, DataTypeExprContext, ExprContext, SeriesContext}, utils::{parse_closed_interval, parse_closed_window, ptr_to_opt_pl_str_vec}};
-use std::ops::{Add, Sub, Mul, Div, Rem};
+use std::ops::{Add, Sub, Mul, Div, Rem, Neg};
 use crate::utils::{consume_exprs_array, ptr_to_str};
 use polars_arrow::array::PrimitiveArray;
 
@@ -312,6 +312,7 @@ pub extern "C" fn pl_expr_col(name: *const c_char) -> *mut ExprContext {
 gen_str_ctor!(pl_expr_lit_str, lit);
 
 // --- Group 3: Unarp Ops ---
+gen_unary_op!(pl_expr_neg, neg);
 gen_unary_op!(pl_expr_rechunk, rechunk);
 gen_unary_op!(pl_expr_approx_n_unique, approx_n_unique);
 gen_unary_op!(pl_expr_sum, sum);

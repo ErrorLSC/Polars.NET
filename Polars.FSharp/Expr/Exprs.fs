@@ -288,6 +288,10 @@ and Expr(handle: ExprHandle) =
     static member ( * ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Mul(lhs.CloneHandle(), rhs.CloneHandle()))
     static member ( / ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Div(lhs.CloneHandle(), rhs.CloneHandle()))
     static member ( % ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Rem(lhs.CloneHandle(), rhs.CloneHandle()))
+    /// <summary>
+    /// Negates the expression numerically.
+    /// </summary>
+    static member (~-)(e: Expr) : Expr = new Expr(PolarsWrapper.Neg(e.CloneHandle()))
     /// <summary> Power / Exponentiation. </summary>
     static member (.**) (baseExpr: Expr, exponent: Expr) = baseExpr.Pow exponent
     /// <summary> Logical AND. </summary>
@@ -295,7 +299,7 @@ and Expr(handle: ExprHandle) =
     /// <summary> Logical OR. </summary>
     static member (.||) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Or(lhs.CloneHandle(), rhs.CloneHandle()))
     /// <summary> Logical NOT. </summary>
-    static member (!!) (e: Expr) = new Expr(PolarsWrapper.Not (e.CloneHandle()))
+    static member (!) (e: Expr) = new Expr(PolarsWrapper.Not (e.CloneHandle()))
     static member (.^) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Xor(lhs.CloneHandle(), rhs.CloneHandle()))
     /// <summary> Bitwise left shift operator (expr <<< n). </summary>
     static member (<<<) (lhs: Expr, rhs: int) = lhs.BitLeftShift rhs

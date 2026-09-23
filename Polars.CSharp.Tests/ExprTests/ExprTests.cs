@@ -3733,4 +3733,21 @@ TooShort,1990-05-20,1.60";
         Assert.False(resNulls["null_first_as_null_last"].GetValue<bool>(0));
         Assert.True(resNulls["null_last_is_sorted"].GetValue<bool>(0));
     }
+    [Fact]
+    [Trait("Expr", "Neg")]
+    public void Test_Expr_Neg_Operator()
+    {
+        using DataFrame df = [
+            Pl.CreateSeries("nihao",[-1,1,-3]),
+            Pl.CreateSeries("zaijian",[0.1,-2.5,0.0])
+        ];
+
+        using DataFrame result = df.WithColumns(
+            -Pl.Col("nihao").Alias("buhao"),
+            -Pl.Col("zaijian").Alias("huilai")
+        );
+
+        Assert.Equal([1,-1,3],result["buhao"].ToArray<int>());
+        Assert.Equal([-0.1,2.5,0],result["huilai"].ToArray<double>());
+    }
 }
