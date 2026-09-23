@@ -1,6 +1,6 @@
-namespace Polars.CSharp;
+using Polars.NET.Core.Helpers;
 
-using System;
+namespace Polars.CSharp;
 
 public partial class DataFrame
 {
@@ -27,32 +27,28 @@ public partial class DataFrame
             throw new OverflowException($"DataFrame height ({height}) exceeds Int32.MaxValue.");
 
         int count = (int)height;
-        var outProps = PocoColumnWriter<TOut>.Properties;
+        var outProps = ObjectSchemaTransposer<TOut>.ModelProperties;
 
         if (outProps.Length == 0)
             return [];
 
-        // 1. Handle empty DataFrame edge-case
+        // 1. Handle empty DataFrame edge-case (preserves column schema)
         if (count == 0)
         {
-            var emptySeries = new Series[outProps.Length];
-            for (int i = 0; i < outProps.Length; i++)
+            var emptyHandles = ObjectSchemaTransposer<TOut>.CreateEmptySeriesHandles();
+            var emptySeries = new Series[emptyHandles.Length];
+            for (int i = 0; i < emptyHandles.Length; i++)
             {
-                var emptyBuffer = ColumnBufferFactory.Create(outProps[i].PropertyType, 0);
-                emptySeries[i] = emptyBuffer.ToSeries(outProps[i].Name);
+                emptySeries[i] = new Series(emptyHandles[i]);
             }
-            return [..emptySeries];
+            return [.. emptySeries];
         }
 
         // 2. Pre-allocate exact capacity buffers for each output column
-        var buffers = new IColumnBuffer[outProps.Length];
-        for (int i = 0; i < outProps.Length; i++)
-        {
-            buffers[i] = ColumnBufferFactory.Create(outProps[i].PropertyType, count);
-        }
+        var buffers = ObjectSchemaTransposer<TOut>.CreateBuffers(count);
 
         // 3. Obtain pre-compiled non-boxing row writer for TOut
-        var writer = PocoColumnWriter<TOut>.Writer;
+        var writer = ObjectSchemaTransposer<TOut>.RowWriter;
 
         // 4. Stream rows using zero-heap ref struct enumerator
         var enumerator = Rows<TIn>();
@@ -66,9 +62,10 @@ public partial class DataFrame
         var seriesList = new Series[outProps.Length];
         for (int i = 0; i < outProps.Length; i++)
         {
-            seriesList[i] = buffers[i].ToSeries(outProps[i].Name);
+            var handle = buffers[i].ToSeriesHandle(outProps[i].Name);
+            seriesList[i] = new Series(handle);
         }
 
-        return [..seriesList];
+        return [.. seriesList];
     }
 }

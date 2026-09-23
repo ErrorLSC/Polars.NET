@@ -2,10 +2,22 @@ namespace Polars.NET.Core.Helpers;
 
 using System;
 using System.Collections.Generic;
+using System.Linq.Expressions;
+using System.Reflection;
+using Microsoft.FSharp.Core;
+using Microsoft.FSharp.Reflection;
+
+public enum OptionalKind
+{
+    None = 0,
+    Nullable = 1,
+    FSharpOption = 2,
+    FSharpValueOption = 3
+}
 
 /// <summary>
 /// Unified runtime type metadata and unwrapping helper for Polars.NET.
-/// Bridges .NET primitives, structs, and F# types (Option, ValueOption, List) into Polars columnar formats.
+/// Directly integrates FSharp.Core to recognize records, unions, and optional wrappers without string-based reflection.
 /// </summary>
 public static class PolarsTypeHelper
 {
@@ -19,6 +31,8 @@ public static class PolarsTypeHelper
         typeof(Guid), typeof(Half), typeof(Int128), typeof(UInt128)
     ];
 
+    private static readonly ConcurrentDictionary<Type, (Type CoreType, OptionalKind Kind)> UnwrapCache = new();
+
     /// <summary>
     /// Checks whether the specified type can be transposed via zero-copy / contiguous columnar buffers.
     /// Unwraps Nullable&lt;T&gt;, FSharpOption&lt;T&gt;, and FSharpValueOption&lt;T&gt;.
@@ -30,30 +44,71 @@ public static class PolarsTypeHelper
     }
 
     /// <summary>
-    /// Unwraps Nullable&lt;T&gt;, FSharpOption&lt;T&gt;, or FSharpValueOption&lt;T&gt; to its inner payload type.
+    /// Unwraps Nullable&lt;T&gt;, FSharpOption&lt;T&gt;, or FSharpValueOption&lt;T&gt; to its underlying payload type.
     /// </summary>
-    public static Type UnwrapCoreType(Type type)
+    public static Type UnwrapCoreType(Type type) => GetOptionalInfo(type).CoreType;
+
+    /// <summary>
+    /// Identifies the wrapping category and inner payload type of an optional container.
+    /// </summary>
+    public static (Type CoreType, OptionalKind Kind) GetOptionalInfo(Type type)
     {
-        if (type == null) return typeof(object);
-
-        var underlyingNullable = Nullable.GetUnderlyingType(type);
-        if (underlyingNullable != null)
-            return underlyingNullable;
-
-        if (type.IsGenericType)
+        ArgumentNullException.ThrowIfNull(type);
+        return UnwrapCache.GetOrAdd(type, static t =>
         {
-            var def = type.GetGenericTypeDefinition();
-            var name = def.FullName;
+            var nullableUnderlying = Nullable.GetUnderlyingType(t);
+            if (nullableUnderlying != null)
+                return (nullableUnderlying, OptionalKind.Nullable);
 
-            // FSharpOption<'T> or FSharpValueOption<'T>
-            if (name == "Microsoft.FSharp.Core.FSharpOption`1" ||
-                name == "Microsoft.FSharp.Core.FSharpValueOption`1")
+            if (t.IsGenericType)
             {
-                return type.GetGenericArguments()[0];
+                var genericDef = t.GetGenericTypeDefinition();
+
+                if (genericDef == typeof(FSharpOption<>))
+                    return (t.GetGenericArguments()[0], OptionalKind.FSharpOption);
+
+                if (genericDef == typeof(FSharpValueOption<>))
+                    return (t.GetGenericArguments()[0], OptionalKind.FSharpValueOption);
+            }
+
+            return (t, OptionalKind.None);
+        });
+    }
+
+    /// <summary>
+    /// Checks if a type is an F# record type.
+    /// </summary>
+    public static bool IsFSharpRecord(Type type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return FSharpType.IsRecord(type, null);
+    }
+
+    /// <summary>
+    /// Retrieves column property schema for a type, leveraging FSharp.Reflection for F# records
+    /// to guarantee field declaration order and handle internal representations cleanly.
+    /// </summary>
+    public static PropertyInfo[] GetModelProperties(Type type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+
+        if (IsFSharpRecord(type))
+        {
+            return FSharpType.GetRecordFields(type,null);
+        }
+
+        var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        var validProps = new List<PropertyInfo>(props.Length);
+
+        foreach (var p in props)
+        {
+            if (p.CanRead && p.GetIndexParameters().Length == 0)
+            {
+                validProps.Add(p);
             }
         }
 
-        return type;
+        return [.. validProps];
     }
 
     /// <summary>
@@ -62,19 +117,8 @@ public static class PolarsTypeHelper
     public static bool AcceptsNull(Type type)
     {
         if (!type.IsValueType) return true;
-        if (Nullable.GetUnderlyingType(type) != null) return true;
-
-        if (type.IsGenericType)
-        {
-            var name = type.GetGenericTypeDefinition().FullName;
-            if (name == "Microsoft.FSharp.Core.FSharpValueOption`1" ||
-                name == "Microsoft.FSharp.Core.FSharpOption`1")
-            {
-                return true;
-            }
-        }
-
-        return false;
+        var (_, kind) = GetOptionalInfo(type);
+        return kind != OptionalKind.None;
     }
 
     public static Type GetUnderlyingOrSelf(Type type) => Nullable.GetUnderlyingType(type) ?? type;
@@ -85,6 +129,7 @@ public static class PolarsTypeHelper
             ? typeof(Nullable<>).MakeGenericType(type)
             : type;
     }
+
     public static Type? TryGetEnumerableElementType(Type type)
     {
         if (type.IsArray) return type.GetElementType();
@@ -100,6 +145,55 @@ public static class PolarsTypeHelper
 
         return null;
     }
+
+    /// <summary>
+    /// Builds an Expression that extracts the unwrapped value or returns default/null.
+    /// Unwraps Nullable.Value, FSharpOption.Value, or FSharpValueOption.Value if present.
+    /// </summary>
+    public static Expression BuildUnwrapExpression(Expression propertyAccess, Type propertyType, Type targetType)
+    {
+        var (coreType, kind) = GetOptionalInfo(propertyType);
+
+        switch (kind)
+        {
+            case OptionalKind.None:
+                return propertyType != targetType ? Expression.Convert(propertyAccess, targetType) : propertyAccess;
+
+            case OptionalKind.Nullable:
+                // prop.HasValue ? (Target)prop.Value : default(Target)
+                return Expression.Condition(
+                    Expression.Property(propertyAccess, nameof(Nullable<int>.HasValue)),
+                    Expression.Convert(Expression.Property(propertyAccess, nameof(Nullable<int>.Value)), targetType),
+                    Expression.Default(targetType)
+                );
+
+            case OptionalKind.FSharpOption:
+                // FSharpOption<T>.get_IsSome(prop) ? (Target)prop.Value : default(Target)
+                var isSomeMethod = propertyType.GetProperty("IsSome", BindingFlags.Public | BindingFlags.Instance)!;
+                var valueProp = propertyType.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance)!;
+
+                return Expression.Condition(
+                    Expression.Property(propertyAccess, isSomeMethod),
+                    Expression.Convert(Expression.Property(propertyAccess, valueProp), targetType),
+                    Expression.Default(targetType)
+                );
+
+            case OptionalKind.FSharpValueOption:
+                // prop.IsSome ? (Target)prop.Value : default(Target)
+                var vOptionIsSome = propertyType.GetProperty("IsSome", BindingFlags.Public | BindingFlags.Instance)!;
+                var vOptionValue = propertyType.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance)!;
+
+                return Expression.Condition(
+                    Expression.Property(propertyAccess, vOptionIsSome),
+                    Expression.Convert(Expression.Property(propertyAccess, vOptionValue), targetType),
+                    Expression.Default(targetType)
+                );
+
+            default:
+                return Expression.Convert(propertyAccess, targetType);
+        }
+    }
+
     /// <summary>
     /// Promotes two scalar types to their common denominator for DataFrame schema inference.
     /// </summary>
