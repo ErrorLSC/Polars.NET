@@ -1,29 +1,35 @@
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Collections.Concurrent;
-using Polars.NET.Core;
 using System.Runtime.CompilerServices;
 
 namespace Polars.CSharp;
 
 internal static class RowMapper<T>
 {
-    private static readonly ConcurrentDictionary<PolarsSchema, Func<DataFrame, long, T>> Cache = new();
+    // PolarsSchema implements IEquatable<PolarsSchema>
+    private static readonly ConcurrentDictionary<string, Func<DataFrame, long, T>> Cache = new();
+
+    private static string ComputeSchemaSignature(DataFrame df)
+    {
+        // "Name:String|Age:Int32|Salary:Int32"
+        return string.Join("|", df.ColumnNames.Select(c => $"{c}:{df[c].DataTypeName}"));
+    }
 
     public static Func<DataFrame, long, T> GetOrCreate(DataFrame df)
     {
-        using var schema = df.Schema;
-        if (Cache.TryGetValue(schema, out var cachedMapper))
+        string signature = ComputeSchemaSignature(df);
+        if (Cache.TryGetValue(signature, out var cachedMapper))
         {
             return cachedMapper;
         }
 
-        var mapper = BuildMapper(df, schema);
-        Cache.TryAdd(schema, mapper);
+        var mapper = BuildMapper(df);
+        Cache.TryAdd(signature, mapper);
         return mapper;
     }
 
-    private static Func<DataFrame, long, T> BuildMapper(DataFrame df, PolarsSchema schema)
+    private static Func<DataFrame, long, T> BuildMapper(DataFrame df)
     {
         var targetType = typeof(T);
         var dfParam = Expression.Parameter(typeof(DataFrame), "df");
@@ -32,7 +38,10 @@ internal static class RowMapper<T>
         var getValueMethodDef = typeof(Series).GetMethod(nameof(Series.GetValue), [typeof(long), typeof(bool)])!;
         var columnIndexerMethod = typeof(DataFrame).GetMethod("get_Item", [typeof(int)])!;
 
+<<<<<<< HEAD
         // 1. Check for parameterless constructor or ValueType (structs always have a default init)
+=======
+>>>>>>> main
         var defaultCtor = targetType.GetConstructor(
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
             null,
@@ -41,7 +50,10 @@ internal static class RowMapper<T>
 
         bool canDefaultConstruct = targetType.IsValueType || defaultCtor != null;
 
+<<<<<<< HEAD
         // Map column names to column indices for fast O(1) lookup
+=======
+>>>>>>> main
         var colMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < (int)df.Width; i++)
         {
@@ -59,8 +71,11 @@ internal static class RowMapper<T>
         if (canDefaultConstruct)
         {
             var instanceVar = Expression.Variable(targetType, "instance");
+<<<<<<< HEAD
 
             // For structs, Expression.New(targetType) or Expression.Default(targetType) initializes all bits to zero (initobj)
+=======
+>>>>>>> main
             Expression createInstanceExpr = defaultCtor != null
                 ? Expression.New(defaultCtor)
                 : Expression.New(targetType);
@@ -86,6 +101,7 @@ internal static class RowMapper<T>
             return Expression.Lambda<Func<DataFrame, long, T>>(body, dfParam, idxParam).Compile();
         }
 
+<<<<<<< HEAD
         // Branch 2: Class/Record without parameterless constructor (primary constructor mode)
         var ctors = targetType.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
         var primaryCtor = ctors.OrderByDescending(c => c.GetParameters().Length).FirstOrDefault();
@@ -95,6 +111,11 @@ internal static class RowMapper<T>
             throw new NotSupportedException($"Type '{targetType.FullName}' has no accessible constructors.");
         }
 
+=======
+        // Branch 2: Primary constructor (Positional Record / Immutable DTO)
+        var ctors = targetType.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        var primaryCtor = ctors.OrderByDescending(c => c.GetParameters().Length).FirstOrDefault() ?? throw new NotSupportedException($"Type '{targetType.FullName}' has no accessible constructors.");
+>>>>>>> main
         var ctorParams = primaryCtor.GetParameters();
         var ctorArgs = new Expression[ctorParams.Length];
 
@@ -328,7 +349,7 @@ public ref struct DataFrameRowEnumerator<T>
     }
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     // ==========================================
     // Object Mapping (To Records)
