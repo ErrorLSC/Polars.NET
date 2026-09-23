@@ -67,34 +67,53 @@ module ExprTranslator =
         | other ->
             failwithf "Binary operator '%A' is not currently supported in Polars LINQ" other
 
+    /// Translates unary operators to native Expr unary expressions
+    let private translateUnary (nodeType: ExpressionType) (operand: ExprHandle) : ExprHandle =
+        match nodeType with
+        | ExpressionType.Not ->
+            PolarsWrapper.Not(operand)
+        | ExpressionType.Negate
+        | ExpressionType.NegateChecked ->
+            // Arithmetic negation: -x is equivalent to 0 - x in Polars Expr
+            PolarsWrapper.Sub(PolarsWrapper.Lit(0), operand)
+        | ExpressionType.UnaryPlus
+        | ExpressionType.Convert
+        | ExpressionType.ConvertChecked ->
+            // Passthrough for basic type promotions
+            operand
+        | other ->
+            failwithf "Unary operator '%A' is not currently supported in Polars LINQ" other
+
     /// Attempts to translate an Expression AST node to a native Polars ExprHandle.
     /// Returns None if the node contains unsupported logic (e.g. custom C#/F# methods).
     let rec tryTranslate (paramName: string) (expr: Expression) : ExprHandle option =
         try
             match expr with
+            // 1. Parameter column access: x.Column
             | MemberAccess(paramExpr, memberInfo) when paramExpr <> null && paramExpr.NodeType = ExpressionType.Parameter ->
                 Some(PolarsWrapper.Col(memberInfo.Name))
 
+            // 2. Evaluatable member access: local props, static fields, captured variables
             | MemberAccess _ as memberExpr ->
                 match tryEvaluate memberExpr with
                 | Some value -> Some(toLiteralHandle value memberExpr.Type)
                 | None -> None
 
+            // 3. Constant literal
             | Constant(value, t) ->
                 Some(toLiteralHandle value t)
 
+            // 4. Binary operations (arithmetic, comparisons, logic)
             | Binary(op, left, right) ->
                 match tryTranslate paramName left, tryTranslate paramName right with
                 | Some l, Some r -> Some(translateBinary op l r)
                 | _ -> None
 
-            | Unary(ExpressionType.Not, operand) ->
+            // 5. Unary operations
+            | Unary(op, operand) ->
                 match tryTranslate paramName operand with
-                | Some op -> Some(PolarsWrapper.Not(op))
-                | _ -> None
-
-            | Unary(ExpressionType.Convert, operand) ->
-                tryTranslate paramName operand
+                | Some inner -> Some(translateUnary op inner)
+                | None -> None
 
             | _ -> None
         with _ ->

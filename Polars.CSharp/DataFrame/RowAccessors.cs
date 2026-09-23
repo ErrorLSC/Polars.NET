@@ -38,10 +38,6 @@ internal static class RowMapper<T>
         var getValueMethodDef = typeof(Series).GetMethod(nameof(Series.GetValue), [typeof(long), typeof(bool)])!;
         var columnIndexerMethod = typeof(DataFrame).GetMethod("get_Item", [typeof(int)])!;
 
-<<<<<<< HEAD
-        // 1. Check for parameterless constructor or ValueType (structs always have a default init)
-=======
->>>>>>> main
         var defaultCtor = targetType.GetConstructor(
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
             null,
@@ -50,10 +46,6 @@ internal static class RowMapper<T>
 
         bool canDefaultConstruct = targetType.IsValueType || defaultCtor != null;
 
-<<<<<<< HEAD
-        // Map column names to column indices for fast O(1) lookup
-=======
->>>>>>> main
         var colMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < (int)df.Width; i++)
         {
@@ -71,11 +63,6 @@ internal static class RowMapper<T>
         if (canDefaultConstruct)
         {
             var instanceVar = Expression.Variable(targetType, "instance");
-<<<<<<< HEAD
-
-            // For structs, Expression.New(targetType) or Expression.Default(targetType) initializes all bits to zero (initobj)
-=======
->>>>>>> main
             Expression createInstanceExpr = defaultCtor != null
                 ? Expression.New(defaultCtor)
                 : Expression.New(targetType);
@@ -101,21 +88,9 @@ internal static class RowMapper<T>
             return Expression.Lambda<Func<DataFrame, long, T>>(body, dfParam, idxParam).Compile();
         }
 
-<<<<<<< HEAD
-        // Branch 2: Class/Record without parameterless constructor (primary constructor mode)
-        var ctors = targetType.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-        var primaryCtor = ctors.OrderByDescending(c => c.GetParameters().Length).FirstOrDefault();
-
-        if (primaryCtor == null)
-        {
-            throw new NotSupportedException($"Type '{targetType.FullName}' has no accessible constructors.");
-        }
-
-=======
         // Branch 2: Primary constructor (Positional Record / Immutable DTO)
         var ctors = targetType.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
         var primaryCtor = ctors.OrderByDescending(c => c.GetParameters().Length).FirstOrDefault() ?? throw new NotSupportedException($"Type '{targetType.FullName}' has no accessible constructors.");
->>>>>>> main
         var ctorParams = primaryCtor.GetParameters();
         var ctorArgs = new Expression[ctorParams.Length];
 
