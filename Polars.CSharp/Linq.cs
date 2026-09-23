@@ -42,4 +42,31 @@ public static class LinqExtensions
     {
         return dataFrame.Lazy().AsQueryable<T>();
     }
+    /// <summary>
+    /// Compiles the LINQ query pipeline and converts it back to a Polars LazyFrame.
+    /// </summary>
+    public static LazyFrame ToLazyFrame<T>(this IQueryable<T> query)
+    {
+        if (query is PolarsQuery<T> polarsQuery)
+        {
+            var lfHandle = polarsQuery.CompileToLazyFrameHandle();
+            return new LazyFrame(lfHandle);
+        }
+
+        throw new NotSupportedException("ToLazyFrame can only be invoked on queries originating from Polars.NET.");
+    }
+
+    /// <summary>
+    /// Compiles the LINQ query pipeline, executes Collect, and returns the resulting eager DataFrame.
+    /// </summary>
+    public static DataFrame ToDataFrame<T>(this IQueryable<T> query)
+    {
+        if (query is PolarsQuery<T> polarsQuery)
+        {
+            var dfHandle = polarsQuery.CompileToDataFrameHandle();
+            return new(dfHandle);
+        }
+
+        throw new NotSupportedException("ToDataFrame can only be invoked on queries originating from Polars.NET.");
+    }
 }

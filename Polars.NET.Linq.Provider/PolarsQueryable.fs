@@ -55,12 +55,10 @@ and PolarsQuery<'T>(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMa
         elif not (isNull DataFrameMaterializerRegistry.Default) then DataFrameMaterializerRegistry.Default
         else failwith "No DataFrameMaterializer registered. Ensure Polars.CSharp or Polars.FSharp has configured a materializer."
 
-    member private this.ExecuteQuery() : IEnumerable<'T> =
-        let mat = PolarsQuery<'T>.ResolveMaterializer(materializer)
-
+    /// Compiles the LINQ AST into a Polars Native LazyFrameHandle without materializing
+    member this.CompileToLazyFrameHandle() : LazyFrameHandle =
         let rec collectOps (expr: Expression) (acc: QueryOp list) : QueryOp list =
             match expr with
-            // Matches Queryable.Where / Queryable.Select extension methods (Object is null)
             | MethodCall(methodInfo, null, [ sourceExpr; StripQuotes (Lambda([ param ], body)) ]) ->
                 match methodInfo.Name with
                 | "Where" ->
@@ -71,7 +69,6 @@ and PolarsQuery<'T>(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMa
                 | unsupported ->
                     failwithf "LINQ operator '%s' is not implemented yet" unsupported
 
-            // Matches Queryable.Take(source, count)
             | MethodCall(methodInfo, null, [ sourceExpr; countExpr ]) when methodInfo.Name = "Take" ->
                 match tryEvaluate countExpr with
                 | Some value ->
@@ -84,22 +81,25 @@ and PolarsQuery<'T>(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMa
 
         let pipelineOps = collectOps expression []
 
-        let finalLfHandle =
-            pipelineOps
-            |> List.fold (fun currentLf op ->
-                match op with
-                | QueryOp.Filter exprHandle ->
-                    PolarsWrapper.LazyFilter(currentLf, exprHandle)
-                | QueryOp.Limit count ->
-                    PolarsWrapper.LazySlice(currentLf, 0, count)
-                | QueryOp.SelectPassthrough ->
-                    currentLf
-            ) lfCloned
+        pipelineOps
+        |> List.fold (fun currentLf op ->
+            match op with
+            | QueryOp.Filter exprHandle ->
+                PolarsWrapper.LazyFilter(currentLf, exprHandle)
+            | QueryOp.Limit count ->
+                PolarsWrapper.LazySlice(currentLf,0, count)
+            | QueryOp.SelectPassthrough ->
+                currentLf
+        ) (PolarsWrapper.LazyClone lfCloned)
 
-        // Materialize native DataFrameHandle
-        let dfHandle: DataFrameHandle = PolarsWrapper.LazyCollect(finalLfHandle,PlEngine.Auto,true)
+    /// Compiles and materializes into a native DataFrameHandle
+    member this.CompileToDataFrameHandle() : DataFrameHandle =
+        let finalLf = this.CompileToLazyFrameHandle()
+        PolarsWrapper.LazyCollect(finalLf,PlEngine.Auto,true)
 
-        // Delegate materialization to the registered materializer strategy
+    member private this.ExecuteQuery() : IEnumerable<'T> =
+        let mat = PolarsQuery<'T>.ResolveMaterializer(materializer)
+        let dfHandle = this.CompileToDataFrameHandle()
         mat.Materialize<'T>(dfHandle)
 
     interface IQueryable<'T> with

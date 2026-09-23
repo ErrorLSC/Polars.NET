@@ -60,4 +60,5 @@ public interface IDataFrameMaterializer
 public static class DataFrameMaterializerRegistry
 {
     internal static IDataFrameMaterializer? Default { get; set; }
+
 }
