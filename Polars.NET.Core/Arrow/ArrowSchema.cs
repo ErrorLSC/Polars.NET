@@ -4,6 +4,7 @@ using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Microsoft.FSharp.Core; 
+using Polars.NET.Core.Helpers;
 
 namespace Polars.NET.Core.Arrow;
 
@@ -69,14 +70,10 @@ public static class ArrowTypeResolver
         if (coreType == typeof(decimal)) return new Decimal128Type(38, 18); 
 
         // 2. String & Binary
-        if (coreType == typeof(string)) return StringViewType.Default;
-        if (coreType == typeof(char))   return StringViewType.Default;
-        if (coreType == typeof(Guid)) return BinaryViewType.Default;
-
-        if (coreType == typeof(byte[])) return BinaryViewType.Default;
+        if (coreType == typeof(string) || coreType == typeof(char)) return StringViewType.Default;
+        if (coreType == typeof(Guid) || coreType == typeof(byte[])) return BinaryViewType.Default;
 
         // 3. Date & Time
-        // TimeOnly -> Time64 (Nanosecond) [Polars Native]
         if (coreType == typeof(TimeOnly)) return new Time64Type(TimeUnit.Nanosecond);
         if (coreType == typeof(TimeSpan)) return DurationType.Microsecond; 
         
@@ -100,9 +97,9 @@ public static class ArrowTypeResolver
             return new MapType(keyArrowType, valueArrowType, nullable: true, keySorted: false);
         }
         // List / Array
-        if (typeof(System.Collections.IEnumerable).IsAssignableFrom(coreType) && coreType != typeof(string))
+        if (coreType != typeof(string))
         {
-            Type? elementType = GetEnumerableElementType(coreType);
+            Type? elementType = PolarsTypeHelper.TryGetEnumerableElementType(coreType);
             if (elementType != null)
             {
                 var innerField = ResolveField("item", elementType);
@@ -116,7 +113,6 @@ public static class ArrowTypeResolver
             var members = GetReadableMembers(coreType);
             if (members.Length > 0)
             {
-                // Recursively resolve members
                 var fields = members.Select(m => ResolveField(m.Name, GetMemberType(m))).ToList();
                 return new StructType(fields);
             }
@@ -134,11 +130,7 @@ public static class ArrowTypeResolver
     [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
     Type type)
     {
-        bool isFSharpOption = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(FSharpOption<>);
-        bool isFSharpVOption = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(FSharpValueOption<>); 
-        
-        bool isNullable = !type.IsValueType || Nullable.GetUnderlyingType(type) != null || isFSharpOption || isFSharpVOption;
-
+        bool isNullable = PolarsTypeHelper.AcceptsNull(type);
         IArrowType arrowType = GetArrowTypeFromNetType(type); 
 
         return new Field(name, arrowType, isNullable);
@@ -148,16 +140,12 @@ public static class ArrowTypeResolver
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
         Type type)
     {
-        var flags = BindingFlags.Public | BindingFlags.Instance;
-        
-        var properties = type.GetProperties(flags)
-            .Where(p => p.GetIndexParameters().Length == 0)
-            .Where(p => !p.PropertyType.IsInterface && !p.PropertyType.IsAbstract)
-            .Cast<MemberInfo>();
+        var properties = PolarsTypeHelper.GetModelProperties(type)
+            .Where(p => !p.PropertyType.IsInterface && !p.PropertyType.IsAbstract);
 
+        var flags = BindingFlags.Public | BindingFlags.Instance;
         var fields = type.GetFields(flags)
-            .Where(f => !f.FieldType.IsInterface && !f.FieldType.IsAbstract)
-            .Cast<MemberInfo>();
+            .Where(f => !f.FieldType.IsInterface && !f.FieldType.IsAbstract);
 
         return [.. properties, .. fields];
     }
@@ -172,16 +160,6 @@ public static class ArrowTypeResolver
             FieldInfo f => f.FieldType,
             _ => throw new NotSupportedException($"Member {member.Name} is not a Property or Field.")
         };
-    }
-
-    public static Type? GetEnumerableElementType(
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
-        Type type)
-    {
-        if (type.IsArray) return type.GetElementType();
-        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>)) return type.GetGenericArguments()[0];
-        var ienum = type.GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>));
-        return ienum?.GetGenericArguments()[0];
     }
 
     // =================================================================================

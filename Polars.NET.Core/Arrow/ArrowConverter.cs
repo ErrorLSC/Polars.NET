@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Microsoft.FSharp.Core;
+using Polars.NET.Core.Helpers;
 
 namespace Polars.NET.Core.Arrow;
 
@@ -48,7 +49,7 @@ public static class ArrowConverter
         if (colValue == null) return null;
 
         // Get Element type
-        Type? elemType = ArrowTypeResolver.GetEnumerableElementType(colValue.GetType());
+        Type? elemType = PolarsTypeHelper.TryGetEnumerableElementType(colValue.GetType());
         
         if (elemType == null) 
             return null; 
@@ -143,7 +144,7 @@ public static class ArrowConverter
         if (checkType == typeof(Guid)) return BuildGuid(data.Cast<Guid?>());
         if (checkType == typeof(byte[])) return BuildBinary(data.Cast<byte[]?>());
         if (checkType == typeof(Half)) return BuildFloat16(data.Cast<Half?>());
-        var elementType = ArrowTypeResolver.GetEnumerableElementType(type);
+        var elementType = PolarsTypeHelper.TryGetEnumerableElementType(type);
         if (elementType != null)
         {
             var method = typeof(ArrowConverter)
