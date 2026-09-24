@@ -8,11 +8,17 @@ open System.Linq.Expressions
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
 
+type internal SortSpec = {
+    Expr: ExprHandle
+    Descending: bool
+    NullsLast: bool
+}
 /// Internal representation of supported operations in the LINQ query pipeline
 [<RequireQualifiedAccess>]
 type internal QueryOp =
     | Filter of ExprHandle
     | Limit of uint32
+    | Sort of SortSpec list
     | SelectPassthrough
 
 /// Strongly-typed IQueryProvider backed by Polars.NET.Core
@@ -62,11 +68,25 @@ and PolarsQuery<'T>(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMa
             match op with
             | QueryOp.Filter exprHandle -> PolarsWrapper.LazyFilter(currentLf, exprHandle)
             | QueryOp.Limit count       -> PolarsWrapper.LazySlice(currentLf,0, count)
+            | QueryOp.Sort specs ->
+                let exprs = specs |> List.map (fun s -> s.Expr) |> List.toArray
+                let descending = specs |> List.map (fun s -> s.Descending) |> List.toArray
+                let nullsLast = specs |> List.map (fun s -> s.NullsLast) |> List.toArray
+
+                // Native call directly consuming arrays
+                PolarsWrapper.LazyFrameSort(currentLf, exprs, descending, nullsLast, maintainOrder = false)
             | QueryOp.SelectPassthrough -> currentLf
         ) (PolarsWrapper.LazyClone sourceLf)
 
     /// Parses the LINQ expression tree into native ops and any trailing client predicates
     member private this.CompilePipeline() : QueryOp list * (Func<'T, bool> list) =
+        
+        // Merges contiguous Sort operations by peeking at the accumulator's head
+        let addSort (spec: SortSpec) (ops: QueryOp list) =
+            match ops with
+            | QueryOp.Sort specs :: tail -> QueryOp.Sort (spec :: specs) :: tail
+            | _ -> QueryOp.Sort [spec] :: ops
+
         let rec analyze (expr: Expression) (opsAcc: QueryOp list) (clientAcc: Func<'T, bool> list) =
             match expr with
             | MethodCall(methodInfo, null, [ sourceExpr; StripQuotes (Lambda([ param ], body)) ]) ->
@@ -78,6 +98,24 @@ and PolarsQuery<'T>(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMa
                     | _ ->
                         let compiled = Expression.Lambda<Func<'T, bool>>(body, param).Compile()
                         analyze sourceExpr opsAcc (compiled :: clientAcc)
+
+                // OrderBy and ThenBy map directly to descending = false
+                | "OrderBy" | "ThenBy" ->
+                    match ExprTranslator.tryTranslate param.Name body with
+                    | Some exprHandle when clientAcc.IsEmpty ->
+                        let spec = { Expr = exprHandle; Descending = false; NullsLast = false }
+                        analyze sourceExpr (addSort spec opsAcc) clientAcc
+                    | _ ->
+                        analyze sourceExpr opsAcc clientAcc
+
+                // OrderByDescending and ThenByDescending map directly to descending = true
+                | "OrderByDescending" | "ThenByDescending" ->
+                    match ExprTranslator.tryTranslate param.Name body with
+                    | Some exprHandle when clientAcc.IsEmpty ->
+                        let spec = { Expr = exprHandle; Descending = true; NullsLast = false }
+                        analyze sourceExpr (addSort spec opsAcc) clientAcc
+                    | _ ->
+                        analyze sourceExpr opsAcc clientAcc
 
                 | "Select" ->
                     analyze sourceExpr (QueryOp.SelectPassthrough :: opsAcc) clientAcc
@@ -147,3 +185,5 @@ and PolarsQuery<'T>(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMa
         member _.ElementType = typeof<'T>
         member _.Expression = expression
         member _.Provider = provider :> IQueryProvider
+
+    interface IOrderedQueryable<'T>

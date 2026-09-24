@@ -3,7 +3,8 @@ using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
 
-public record Employee(string Name, int Age, int Salary);
+public record struct Employee(string Name, int Age, int Salary);
+public readonly record struct EmployeeDept(string Name, string Department, int Age, int Salary);
 
 public class LinqTests
 {
@@ -98,5 +99,46 @@ public class LinqTests
 
         using DataFrame dfCollected = lfResumed.Collect();
         Assert.Equal(2, dfCollected.Height);
+    }
+    [Fact]
+    public void Test_Linq_MultiColumn_OrderBy_ThenByDescending()
+    {
+        using var df = DataFrame.FromColumns(
+            [
+                Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve", "Frank"]),
+                Series.From("Department", ["IT", "HR", "IT", "Finance", "HR", "IT"]),
+                Series.From("Age", [25, 17, 30, 15, 28, 22]),
+                Series.From("Salary", [5000, 3000, 7000, 2000, 6200, 5000])
+            ]);
+
+        // Filter adults with salary > 3500, then sort by Department ascending, and Salary descending
+        var query = df.AsQueryable<EmployeeDept>()
+                      .Where(e => -e.Age <= -18 && e.Salary / 1000.0f > 3.5f)
+                      .OrderBy(e => e.Department)
+                      .ThenByDescending(e => e.Salary)
+                      .ToList();
+
+        // Qualified:
+        // Eve: HR, 28, 6200
+        // Charlie: IT, 30, 7000
+        // Alice: IT, 25, 5000
+        // Frank: IT, 22, 5000
+        Assert.Equal(4, query.Count);
+
+        // Department "HR" comes first
+        Assert.Equal("Eve", query[0].Name);
+        Assert.Equal("HR", query[0].Department);
+        Assert.Equal(6200, query[0].Salary);
+
+        // Department "IT": Charlie (7000) has higher salary than Alice (5000) and Frank (5000)
+        Assert.Equal("Charlie", query[1].Name);
+        Assert.Equal("IT", query[1].Department);
+        Assert.Equal(7000, query[1].Salary);
+
+        Assert.Equal("IT", query[2].Department);
+        Assert.Equal(5000, query[2].Salary);
+
+        Assert.Equal("IT", query[3].Department);
+        Assert.Equal(5000, query[3].Salary);
     }
 }
