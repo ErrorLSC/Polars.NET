@@ -31,7 +31,13 @@ public interface IWorker
 }
 
 public record struct WorkerRecord(string Name, int Age, int Salary) : IWorker;
-
+public readonly record struct DeptMetricSummary(
+    int DeptId,
+    string DeptName,
+    long MemberCount,
+    int TotalSalary,
+    int MaxSalary
+);
 
 public class LinqTests
 {
@@ -2480,5 +2486,115 @@ public class LinqTests
         Assert.Equal(new PersonDeptJoined(1, "Alice", 10, "HR"), projectedResults[0]);
         Assert.Equal(new PersonDeptJoined(2, "Bob", 20, "IT"), projectedResults[1]);
         Assert.Equal(new PersonDeptJoined(3, "Charlie", 30, "Finance"), projectedResults[2]);
+    }
+    [Fact]
+    [Trait("LINQ", "ComplexEndToEnd")]
+    public void Test_Linq_Complex_EndToEnd_Aggregation_Pipeline()
+    {
+        // -------------------------------------------------------------
+        // 1. Arrange: Prepare mock relational tables using existing records
+        // -------------------------------------------------------------
+
+        // Left Table: Persons (Id, Name, DeptId)
+        using var personDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [101, 102, 201, 202, 203, 301, 302, 999]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve", "Frank", "Grace", "Heidi"]),
+            Series.From("DeptId", [10, 10, 20, 20, 20, 30, 30, 99]) // Dept 99 has no dept match
+        ]);
+
+        // Right Table: Departments (Id, DeptName)
+        using var deptDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [10, 20, 30, 40]),
+            Series.From("DeptName", ["Engineering", "Finance", "HR", "Marketing"])
+        ]);
+
+        // Archive Table: Historical Summary for Union testing (DeptPersonSummary)
+        using var archiveDf = DataFrame.FromColumns(
+        [
+            Series.From("DeptId", [40]),
+            Series.From("MemberCount", [1L]),
+            Series.From("MinId", [401]),
+            Series.From("MaxId", [401])
+        ]);
+
+        // -------------------------------------------------------------
+        // 2. Act: Construct and execute complex composite query plan
+        // -------------------------------------------------------------
+
+        // Pipeline A: Join -> Filter -> GroupBy(key, elem, res) -> Having
+        var activeDeptSummary = personDf.AsQueryable<Person>()
+            // 2.1 Inner Join Persons with Departments on DeptId == Id
+            .Join(
+                deptDf.AsQueryable<Department>(),
+                p => p.DeptId,
+                d => d.Id,
+                (p, d) => new EmployeeDeptRecord(p.Id, p.Name, d.DeptName)
+            )
+            // 2.2 Native Filter: Only consider valid positive employee IDs > 101
+            .Where(x => x.Id > 101)
+            // 2.3 GroupBy with element & result selectors: Group by DeptId (mapped from Id / Dept range)
+            // Here we group by (x.Id / 10 * 10) to map to DeptId, selecting x.Id for aggregations
+            .GroupBy(
+                x => x.Id / 10,
+                x => x.Id,
+                (deptId, ids) => new DeptPersonSummary(
+                    deptId,
+                    ids.LongCount(),
+                    ids.Min(),
+                    ids.Max()
+                )
+            )
+            // 2.4 Native Having pushdown: Only departments with MemberCount >= 2
+            .Where(summary => summary.MemberCount >= 2L);
+
+        // Pipeline B: Union with archive -> OrderBy -> Slicing -> .NET 9 Index()
+        var finalRankedResults = activeDeptSummary
+            // 2.5 Vertical Concat + Deduplication via Union
+            .Union(archiveDf.AsQueryable<DeptPersonSummary>())
+            // 2.6 Multi-column ordering: Sort by MemberCount descending, then DeptId ascending
+            .OrderByDescending(s => s.MemberCount)
+            .ThenBy(s => s.DeptId)
+            // 2.7 Slice: Skip 0, Take top 2
+            .Skip(0)
+            .Take(2)
+            // 2.8 Attach 0-based native rank using .NET 9 Index()
+            .Index()
+            .ToList();
+        // -------------------------------------------------------------
+        // 3. Assert: Verify end-to-end data integrity
+        // -------------------------------------------------------------
+
+        // Filter: Id > 101 filters out Alice(101)
+        // Group breakdown:
+        // - Dept 20 (Finance): Charlie(201), David(202), Eve(203) -> MemberCount: 3, MinId: 201, MaxId: 203
+        // - Dept 30 (HR): Frank(301), Grace(302)                 -> MemberCount: 2, MinId: 301, MaxId: 302
+        // - Dept 10 (Engineering): Bob(102)                      -> MemberCount: 1 (Filtered out by Having >= 2L!)
+        // Archive Group:
+        // - Dept 40 (Marketing): MemberCount: 1, Min: 401, Max: 401
+        
+        // Sorted By MemberCount Descending:
+        // Rank 0: Dept 20 (Finance) - MemberCount: 3
+        // Rank 1: Dept 30 (HR)      - MemberCount: 2
+        // Rank 2: Dept 40 (Archive) - MemberCount: 1 (Sliced out by Take(2))
+
+        Assert.Equal(2, finalRankedResults.Count);
+
+        // Rank 0 Check
+        var rank0 = finalRankedResults[0];
+        Assert.Equal(0, rank0.Index);
+        Assert.Equal(20, rank0.Item.DeptId);
+        Assert.Equal(3L, rank0.Item.MemberCount);
+        Assert.Equal(201, rank0.Item.MinId);
+        Assert.Equal(203, rank0.Item.MaxId);
+
+        // Rank 1 Check
+        var rank1 = finalRankedResults[1];
+        Assert.Equal(1, rank1.Index);
+        Assert.Equal(30, rank1.Item.DeptId);
+        Assert.Equal(2L, rank1.Item.MemberCount);
+        Assert.Equal(301, rank1.Item.MinId);
+        Assert.Equal(302, rank1.Item.MaxId);
     }
 }

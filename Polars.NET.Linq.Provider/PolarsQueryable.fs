@@ -619,6 +619,17 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             PolarsWrapper.GetSchemaFieldAt(schema, uint64 i, &name, &dtHandle)
             name
         )
+    /// Helper to extract all column names and their corresponding DataTypeHandle from a LazyFrame schema
+    static member internal GetLazySchemaFields(lf: LazyFrameHandle) : (string * DataTypeHandle) array =
+        let clonedLf = PolarsWrapper.LazyClone lf
+        let schema = PolarsWrapper.GetLazySchema clonedLf
+        let count = PolarsWrapper.GetSchemaLen schema
+        Array.init (int count) (fun i ->
+            let mutable name = null
+            let mutable dtHandle = new DataTypeHandle()
+            PolarsWrapper.GetSchemaFieldAt(schema, uint64 i, &name, &dtHandle)
+            name, dtHandle
+        )
     /// Materializes and batches a sequence into fixed-size arrays without intermediate collection copying
     static member private ChunkSequence<'Elem>(source: IEnumerable<'Elem>, size: int) : IEnumerable<'Elem array> =
         seq {
@@ -813,7 +824,11 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                                     | "Min" -> PolarsWrapper.Min clonedInner
                                     | "Max" -> PolarsWrapper.Max clonedInner
                                     | "Average" -> PolarsWrapper.Mean clonedInner
-                                    | "Count" | "LongCount" -> PolarsWrapper.Len()
+                                    | "Count" -> PolarsWrapper.Len()
+                                    | "LongCount" -> 
+                                        let len = PolarsWrapper.Len()
+                                        let int64Dtype = PolarsWrapper.DataTypeExprFromDataType(PolarsWrapper.NewPrimitiveType(int PlDataType.Int64))
+                                        PolarsWrapper.ExprCast(len, int64Dtype, strict = false, wrapNumerical = false)
                                     | _ -> failwithf "Unsupported aggregation operator: %s" methodName
                                 PolarsWrapper.Alias(aggCore, colName)
 
@@ -954,19 +969,37 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 PolarsWrapper.LazyUnique(currentLf, selector, spec.Keep, spec.MaintainOrder)
 
             | QueryOp.Concat spec ->
-                // Ensure column orders match identically before vertical concat
-                let alignColumns (baseLf: LazyFrameHandle) (targetLf: LazyFrameHandle) : LazyFrameHandle =
-                    let baseCols = PolarsQuery<'T>.GetLazyColumnNames baseLf
-                    let targetCols = PolarsQuery<'T>.GetLazyColumnNames targetLf
-                    
-                    // If column sequence differs but contains the exact same names, project base order
-                    if baseCols <> targetCols && Set.ofArray baseCols = Set.ofArray targetCols then
-                        let reorderExprs = baseCols |> Array.map PolarsWrapper.Col
-                        PolarsWrapper.LazySelect(targetLf, reorderExprs)
+                // Ensure column orders and data types match identically before vertical concat
+                let alignSchema (baseLf: LazyFrameHandle) (targetLf: LazyFrameHandle) : LazyFrameHandle =
+                    let baseFields = PolarsQuery<'T>.GetLazySchemaFields baseLf
+                    let targetFields = PolarsQuery<'T>.GetLazySchemaFields targetLf
+
+                    let baseNames = baseFields |> Array.map fst
+                    let targetNames = targetFields |> Array.map fst
+
+                    // Check if column name sets match identically
+                    if Set.ofArray baseNames = Set.ofArray targetNames then
+                        let targetFieldMap = targetFields |> Map.ofArray
+
+                        let reorderedAndCastedExprs =
+                            baseFields
+                            |> Array.map (fun (colName, baseDt) ->
+                                let targetDt = targetFieldMap.[colName]
+                                let colExpr = PolarsWrapper.Col colName
+                                
+                                // Semantic type check
+                                let isSameType = PolarsWrapper.DataTypeEq(baseDt, targetDt)
+                                if not isSameType then
+                                    let dtExpr = PolarsWrapper.DataTypeExprFromDataType baseDt
+                                    PolarsWrapper.ExprCast(colExpr, dtExpr, strict = false, wrapNumerical = false)
+                                else
+                                    colExpr
+                            )
+                        PolarsWrapper.LazySelect(targetLf, reorderedAndCastedExprs)
                     else
                         targetLf
 
-                let alignedOtherLf = alignColumns currentLf spec.OtherLf
+                let alignedOtherLf = alignSchema currentLf spec.OtherLf
 
                 let handles =
                     if spec.Prepend then
@@ -1242,29 +1275,30 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 | Some spec -> fuse tail (QueryOp.GroupBy spec :: opsAcc) clientPreds
                 | None -> failwith "Failed to compile GroupBy with result selector pushdown."
 
-            // Rule: GroupBy followed by Where in LINQ (Filter appears BEFORE GroupBy in the unreversed AST stream!)
-            | LinqStage.Filter havingPred :: LinqStage.GroupByWithElementAndResult(keyLambda, elemLambda, resLambda) :: tail when clientPreds.IsEmpty ->
+            // Rule 1: GroupBy followed by Where (Post-Aggregation Having Filter)
+            // Pattern matches: GroupBy followed immediately by Filter in forward stream
+            | LinqStage.GroupByWithElementAndResult(keyLambda, elemLambda, resLambda) :: LinqStage.Filter havingPred :: tail when clientPreds.IsEmpty ->
                 match PolarsQuery<'T>.CompileGroupByWithElementAndResult keyLambda elemLambda resLambda with
                 | Some spec ->
+                    let groupByOp = QueryOp.GroupBy { spec with Having = None }
                     let havingParam = havingPred.Parameters.[0]
                     match ExprTranslator.tryTranslate havingParam.Name havingPred.Body with
                     | Some havingExpr ->
-                        // Polars Native Having pushdown directly inside LazyGroupByAgg!
-                        let specWithHaving = { spec with Having = Some havingExpr }
-                        fuse tail (QueryOp.GroupBy specWithHaving :: opsAcc) clientPreds
+                        let filterOp = QueryOp.Filter havingExpr
+                        // In forward execution: GroupBy runs first, then Having Filter runs on aggregated columns
+                        fuse tail (filterOp :: groupByOp :: opsAcc) clientPreds
                     | None ->
-                        // If having predicate translation fails, execute GroupBy first, then downstream Filter
                         let compiled = havingPred.Compile() :?> Func<'T, bool>
-                        fuse tail (QueryOp.GroupBy spec :: opsAcc) (compiled :: clientPreds)
+                        fuse tail (groupByOp :: opsAcc) (compiled :: clientPreds)
                 | None ->
                     failwith "Failed to compile GroupBy(key, elem, res) with Having pushdown."
 
-            // Rule: GroupBy without Where
+            // Rule 2: Standalone GroupBy without immediate Having
             | LinqStage.GroupByWithElementAndResult(keyLambda, elemLambda, resLambda) :: tail when clientPreds.IsEmpty ->
                 match PolarsQuery<'T>.CompileGroupByWithElementAndResult keyLambda elemLambda resLambda with
-                | Some spec -> 
+                | Some spec ->
                     fuse tail (QueryOp.GroupBy spec :: opsAcc) clientPreds
-                | None -> 
+                | None ->
                     failwith "Failed to compile GroupBy(key, elem, res) pushdown."
 
             | LinqStage.Filter l :: tail ->
