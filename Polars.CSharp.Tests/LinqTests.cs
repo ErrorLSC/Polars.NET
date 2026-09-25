@@ -1485,5 +1485,43 @@ public class LinqTests
         Assert.Equal(120000, results[2].Second.Salary);
         Assert.Equal("Finance", results[2].Third.DeptName);
     }
+    [Fact]
+    [Trait("LINQ", "Chunk")]
+    public void Test_Linq_Chunk_Batching()
+    {
+        // 1. Prepare 7 records
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3, 4, 5, 6, 7]),
+            Series.From("Name", ["A", "B", "C", "D", "E", "F", "G"]),
+            Series.From("DeptId", [10, 10, 20, 20, 30, 30, 40]),
+            Series.From("Age", [21, 22, 23, 24, 25, 26, 27]),
+            Series.From("Salary", [3000, 3500, 4000, 4500, 5000, 5500, 6000])
+        ]);
 
+        // 2. Chunk by batch size of 3
+        var chunks = df.AsQueryable<MemberRecord>()
+            .OrderBy(m => m.Id)
+            .Chunk(3)
+            .ToList();
+
+        // 7 items divided by 3 -> 3 chunks: [3, 3, 1]
+        Assert.Equal(3, chunks.Count);
+
+        // Chunk 0: [1, 2, 3]
+        Assert.Equal(3, chunks[0].Length);
+        Assert.Equal(1, chunks[0][0].Id);
+        Assert.Equal(2, chunks[0][1].Id);
+        Assert.Equal(3, chunks[0][2].Id);
+
+        // Chunk 1: [4, 5, 6]
+        Assert.Equal(3, chunks[1].Length);
+        Assert.Equal(4, chunks[1][0].Id);
+        Assert.Equal(5, chunks[1][1].Id);
+        Assert.Equal(6, chunks[1][2].Id);
+
+        // Chunk 2: [7] (Remainder chunk)
+        Assert.Single(chunks[2]);
+        Assert.Equal(7, chunks[2][0].Id);
+    }
 }

@@ -123,6 +123,21 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             name
         )
 
+    /// Materializes and batches a sequence into fixed-size arrays without intermediate collection copying
+    static member private ChunkSequence<'Elem>(source: IEnumerable<'Elem>, size: int) : IEnumerable<'Elem array> =
+        seq {
+            use e = source.GetEnumerator()
+            let mutable hasMore = e.MoveNext()
+            while hasMore do
+                let chunk = ResizeArray<'Elem>(size)
+                let mutable count = 0
+                while count < size && hasMore do
+                    chunk.Add(e.Current)
+                    count <- count + 1
+                    hasMore <- e.MoveNext()
+                yield chunk.ToArray()
+        }
+
     /// Extracts member names and capitalizes them to PascalCase
     static member private ExtractPascalCaseMemberNames(newExpr: NewExpression) : string list =
         if not (isNull newExpr.Members) then 
@@ -477,6 +492,17 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             | MethodCall(m, null, [ first; second; third ]) when m.Name = "Zip" ->
                 flatten first (LinqStage.Zip3(second, third) :: acc)
 
+            // Chunk(size)
+            | MethodCall(m, null, [ source; sizeExpr ]) when m.Name = "Chunk" ->
+                match tryEvaluate sizeExpr with
+                | Some s ->
+                    let size = Convert.ToInt32 s
+                    if size <= 0 then
+                        raise (ArgumentOutOfRangeException("size", "Chunk size must be positive."))
+                    flatten source (LinqStage.Chunk size :: acc)
+                | None ->
+                    failwithf "Could not evaluate Chunk size argument: %A" sizeExpr
+
             | _ -> acc
 
         let stages = flatten expression []
@@ -747,6 +773,19 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
         let targetType = typeof<'T>
         let isGrouping = targetType.IsGenericType && targetType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
 
+        let rec findChunkSize (e: Expression) : int option =
+            match e with
+            | null -> None
+            | MethodCall(m, null, [ _; sizeExpr ]) when m.Name = "Chunk" ->
+                match tryEvaluate sizeExpr with
+                | Some s -> Some (Convert.ToInt32 s)
+                | None -> None
+            | MethodCall(_, null, args) -> args |> List.tryPick findChunkSize
+            | _ -> None
+
+        let chunkSizeOpt = if targetType.IsArray then findChunkSize expression else None
+
+        // Case 1: GroupBy materialization (produces IEnumerable<IGrouping<TKey, TElement>>)
         if isGrouping then
             let genericArgs = targetType.GetGenericArguments()
             let keyType, elemType = genericArgs.[0], genericArgs.[1]
@@ -794,6 +833,25 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             | None ->
                 failwith "Could not locate keySelector for GroupBy pipeline."
 
+        // Case 2: Chunk materialization (produces IEnumerable<TElem[]>)
+        elif chunkSizeOpt.IsSome then
+            let chunkSize = chunkSizeOpt.Value
+            let elemType = targetType.GetElementType()
+
+            let nativeLf, _ = this.GetCompiledPlan()
+            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+
+            let mat = PolarsQuery<'T>.ResolveMaterializer materializer
+            let materializeMethod = mat.GetType().GetMethod("Materialize").MakeGenericMethod(elemType)
+            let rawRows = materializeMethod.Invoke(mat, [| box dfHandle |])
+
+            let chunkMethod = 
+                typeof<PolarsQuery<'T>>
+                    .GetMethod("ChunkSequence", BindingFlags.NonPublic ||| BindingFlags.Static)
+                    .MakeGenericMethod(elemType)
+            chunkMethod.Invoke(null, [| rawRows; box chunkSize |]) :?> IEnumerable<'T>
+
+        // Case 3: Flat row materialization (standard entities, DTOs, value tuples)
         else
             let nativeLf, clientPredicates = this.GetCompiledPlan()
             let mat = PolarsQuery<'T>.ResolveMaterializer materializer

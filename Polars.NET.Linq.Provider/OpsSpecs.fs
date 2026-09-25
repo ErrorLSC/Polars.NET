@@ -83,6 +83,7 @@ type internal LinqStage =
     | Sort of LambdaExpression * isDescending: bool
     | Take of uint32
     | Skip of uint32
+    | Chunk of size: int
     | Distinct
     | DistinctBy of LambdaExpression
     | Concat of Expression
