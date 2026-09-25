@@ -1332,4 +1332,54 @@ public class LinqTests
         Assert.Equal(3, results.Count);
         Assert.Equal([10, 2, 1], [.. results.Select(r => r.Id)]);
     }
+
+    public readonly record struct DeptEmpCount(int DeptId, string DeptName, int EmployeeCount);
+
+    [Fact]
+    [Trait("LINQ", "GroupJoin")]
+    public void Test_Linq_GroupJoin_LeftOuterJoin_Pushdown()
+    {
+        // 1. Prepare Departments: HR (10), IT (20), Sales (30 - has no employees)
+        using var deptsDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [10, 20, 30]),
+            Series.From("DeptName", ["HR", "IT", "Sales"])
+        ]);
+
+        // 2. Prepare Employees: 3 in HR, 1 in IT
+        using var empsDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3, 4]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David"]),
+            Series.From("DeptId", [10, 10, 10, 20])
+        ]);
+
+        // 3. GroupJoin: Departments with their Employees
+        var results = deptsDf.AsQueryable<Department>()
+            .GroupJoin(
+                empsDf.AsQueryable<Person>(),
+                d => d.Id,
+                e => e.DeptId,
+                (dept, empGroup) => new DeptEmpCount(dept.Id, dept.DeptName, empGroup.Count())
+            )
+            .OrderBy(r => r.DeptId)
+            .ToList();
+
+        Assert.Equal(3, results.Count);
+
+        // HR -> 3 employees
+        Assert.Equal(10, results[0].DeptId);
+        Assert.Equal("HR", results[0].DeptName);
+        Assert.Equal(3, results[0].EmployeeCount);
+
+        // IT -> 1 employee
+        Assert.Equal(20, results[1].DeptId);
+        Assert.Equal("IT", results[1].DeptName);
+        Assert.Equal(1, results[1].EmployeeCount);
+
+        // Sales -> 0 employees (Left Outer Join behavior preserved)
+        Assert.Equal(30, results[2].DeptId);
+        Assert.Equal("Sales", results[2].DeptName);
+        Assert.Equal(0, results[2].EmployeeCount);
+    }
 }

@@ -70,6 +70,7 @@ type internal QueryOp =
     | Explode of ExplodeSpec
     | Rename of RenameSpec
     | Select of ExprHandle array
+    | WithColumns of ExprHandle array
     | SelectPassthrough
 
 /// Linear representation of query expressions before optimization/fusion
@@ -91,4 +92,5 @@ type internal LinqStage =
     | SetOp of MethodInfo * Expression * LambdaExpression option * LambdaExpression option
     | GroupByKey of LambdaExpression
     | GroupByWithResult of LambdaExpression * LambdaExpression
+    | GroupJoin of MethodInfo * Expression * LambdaExpression * LambdaExpression * LambdaExpression
     | Project of LambdaExpression
