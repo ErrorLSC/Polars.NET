@@ -1293,5 +1293,43 @@ public class LinqTests
         Assert.Equal(2, detailedResults[2].PersonId);
         Assert.Equal("Polars", detailedResults[2].TagName);
     }
-    
+    [Fact]
+    [Trait("LINQ", "TakeWhile")]
+    public void Test_Linq_TakeWhile_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3, 10, 4, 5]),
+            Series.From("Name", ["A", "B", "C", "D", "E", "F"])
+        ]);
+
+        // Take elements while Id < 10.
+        // Even though 4 and 5 are < 10, they appear after 10, so they MUST NOT be included.
+        var results = df.AsQueryable<Person>()
+            .TakeWhile(p => p.Id < 10)
+            .ToList();
+
+        Assert.Equal(3, results.Count);
+        Assert.Equal([1, 2, 3], [.. results.Select(r => r.Id)]);
+    }
+
+    [Fact]
+    [Trait("LINQ", "SkipWhile")]
+    public void Test_Linq_SkipWhile_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3, 10, 2, 1]),
+            Series.From("Name", ["A", "B", "C", "D", "E", "F"])
+        ]);
+
+        // Skip while Id < 10.
+        // Starts keeping from 10 onwards, preserving subsequent elements even if < 10.
+        var results = df.AsQueryable<Person>()
+            .SkipWhile(p => p.Id < 10)
+            .ToList();
+
+        Assert.Equal(3, results.Count);
+        Assert.Equal([10, 2, 1], [.. results.Select(r => r.Id)]);
+    }
 }

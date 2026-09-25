@@ -437,6 +437,14 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                 else
                     flatten source (LinqStage.CrossJoin(colSel.Body, resSelOpt) :: acc)
 
+            // TakeWhile
+            | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as l) ]) when m.Name = "TakeWhile" ->
+                flatten source (LinqStage.TakeWhile l :: acc)
+
+            // SkipWhile
+            | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as l) ]) when m.Name = "SkipWhile" ->
+                flatten source (LinqStage.SkipWhile l :: acc)
+
             | _ -> acc
 
         let stages = flatten expression []
@@ -573,6 +581,30 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                     fuse tail (renameOps @ (joinOp :: opsAcc)) clientPreds
                 | None ->
                     failwithf "Could not resolve inner source for CrossJoin SelectMany: %A" innerExpr
+
+            // Rule: TakeWhile -> Native Vectorized CumMin Filter pushdown
+            | LinqStage.TakeWhile l :: tail ->
+                let param = l.Parameters.[0]
+                match ExprTranslator.tryTranslate param.Name l.Body with
+                | Some boolExpr when clientPreds.IsEmpty ->
+                    let cumMinExpr = PolarsWrapper.CumMin(boolExpr, false)
+                    fuse tail (QueryOp.Filter cumMinExpr :: opsAcc) clientPreds
+                | _ ->
+                    // Fallback to client-side evaluation if un-translatable or previous client operations exist
+                    let compiled = l.Compile() :?> Func<'T, bool>
+                    fuse tail opsAcc (compiled :: clientPreds)
+
+            // Rule: SkipWhile -> Native Vectorized CumMax(~p) Filter pushdown
+            | LinqStage.SkipWhile l :: tail ->
+                let param = l.Parameters.[0]
+                match ExprTranslator.tryTranslate param.Name l.Body with
+                | Some boolExpr when clientPreds.IsEmpty ->
+                    let notExpr = PolarsWrapper.Not boolExpr
+                    let cumMaxExpr = PolarsWrapper.CumMax(notExpr, false)
+                    fuse tail (QueryOp.Filter cumMaxExpr :: opsAcc) clientPreds
+                | _ ->
+                    let compiled = l.Compile() :?> Func<'T, bool>
+                    fuse tail opsAcc (compiled :: clientPreds)
 
             | LinqStage.GroupByKey _ :: tail ->
                 fuse tail opsAcc clientPreds

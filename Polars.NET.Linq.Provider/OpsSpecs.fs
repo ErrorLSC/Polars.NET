@@ -76,6 +76,8 @@ type internal QueryOp =
 [<RequireQualifiedAccess>]
 type internal LinqStage =
     | Filter of LambdaExpression
+    | TakeWhile of LambdaExpression
+    | SkipWhile of LambdaExpression
     | Sort of LambdaExpression * isDescending: bool
     | Take of uint32
     | Skip of uint32
