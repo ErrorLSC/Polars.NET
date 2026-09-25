@@ -72,6 +72,19 @@ gen_lazy_single_expr_op!(pl_lazy_filter, filter);
 // Rename
 // ==========================================
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_lazyframe_reverse(
+    lf_ptr: *mut LazyFrameContext
+) -> *mut LazyFrameContext {
+    ffi_try!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+
+        let df = lf_ctx.inner.reverse();
+
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: df })))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_lazyframe_rename(
     lf_ptr: *mut LazyFrameContext,
     existing_ptr: *const *const c_char,

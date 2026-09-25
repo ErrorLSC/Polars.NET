@@ -11,6 +11,13 @@ public readonly partial struct PolarsWrapper
     public static SchemaHandle GetLazySchema(LazyFrameHandle lf)
         => ErrorHelper.Check(NativeBindings.pl_lazyframe_get_schema(lf));
 
+    public static LazyFrameHandle LazyFrameReverse(LazyFrameHandle lf)
+    {
+        var h = ErrorHelper.Check(NativeBindings.pl_lazyframe_reverse(lf));
+        lf.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
     public static string Explain(LazyFrameHandle lf, bool optimized)
     {
         IntPtr ptr = NativeBindings.pl_lazy_explain(lf, optimized);
