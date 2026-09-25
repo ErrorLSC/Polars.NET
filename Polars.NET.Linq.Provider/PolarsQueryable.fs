@@ -336,7 +336,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 let seq = rawRows.Cast<obj>()
                 box (Enumerable.Contains(seq, itemVal)) :?> 'TResult
 
-            // 12. SequenceEqual(second) -> Fully-vectorized Native DataFrame comparison
+        // 12. SequenceEqual(second) -> Fully-vectorized Native DataFrame comparison
         | MethodCall(m, null, [ source; secondExpr ]) when m.Name = "SequenceEqual" ->
             let elemType = getSequenceElementType source.Type
             let nativeLf, hasClientPreds = resolveQueryPlan source
@@ -1416,25 +1416,6 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     fuse tail (zip3Op :: opsAcc) clientPreds
                 | _ ->
                     failwith "Failed to resolve second or third source for Zip3 pushdown."
-
-            // // Rule: Zip3WithResult -> Native Horizontal Concat + Column Rename
-            // | LinqStage.Zip3WithResult(secondExpr, thirdExpr, resLambda) :: tail when clientPreds.IsEmpty ->
-            //     match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr,
-            //           PolarsQuery<'T>.ResolveToLazyFrameHandle thirdExpr with
-            //     | Some secondLf, Some thirdLf ->
-            //         let clonedSecond = PolarsWrapper.LazyClone secondLf
-            //         let clonedThird = PolarsWrapper.LazyClone thirdLf
-            //         let zip3Op = QueryOp.HorizontalConcat [| clonedSecond; clonedThird |]
-                    
-            //         let renames = PolarsQuery<'T>.ExtractBinaryResultRenames resLambda None
-            //         let renameOps =
-            //             if not renames.IsEmpty then
-            //                 [ QueryOp.Rename { ExistingNames = renames |> List.map fst |> List.toArray; NewNames = renames |> List.map snd |> List.toArray } ]
-            //             else []
-
-            //         fuse tail (renameOps @ (zip3Op :: opsAcc)) clientPreds
-            //     | _ ->
-            //         failwith "Failed to resolve second or third source for Zip3WithResult pushdown."
 
             | LinqStage.Union(secondExpr, keyLambdaOpt) :: tail when clientPreds.IsEmpty ->
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with
