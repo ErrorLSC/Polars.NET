@@ -461,6 +461,90 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 let areEqual = seqEqMethod.Invoke(null, [| box rawRows1; box rawRows2 |]) :?> bool
                 box areEqual :?> 'TResult
 
+        // 13. MinBy(keySelector) / MaxBy(keySelector)
+        | MethodCall(m, null, source :: keyExpr :: _) when m.Name = "MinBy" || m.Name = "MaxBy" ->
+            let isDescending = m.Name = "MaxBy"
+            let nativeLf, hasClientPreds = resolveQueryPlan source
+
+            let rec extractLambda (e: Expression) =
+                match e with
+                | :? LambdaExpression as l -> Some l
+                | Unary(ExpressionType.Quote, inner) -> extractLambda inner
+                | _ -> None
+
+            let keyLambdaOpt = extractLambda keyExpr
+
+            match keyLambdaOpt with
+            | Some keyLambda when not hasClientPreds ->
+                let keyParam = keyLambda.Parameters.[0]
+                match ExprTranslator.tryTranslate keyParam.Name keyLambda.Body with
+                | Some keyColExpr ->
+                    // Step 1: Sort by target key expression natively (Ascending for MinBy, Descending for MaxBy)
+                    let sortSpec = {
+                        Expr = keyColExpr
+                        Descending = isDescending
+                        NullsLast = true
+                    }
+                    let sortedLf = 
+                        PolarsWrapper.LazyFrameSort(
+                            nativeLf, 
+                            [| sortSpec.Expr |], 
+                            [| sortSpec.Descending |], 
+                            [| sortSpec.NullsLast |], 
+                            maintainOrder = false
+                        )
+
+                    // Step 2: Slice top 1 row
+                    let slicedLf = PolarsWrapper.LazySlice(sortedLf, 0L, 1u)
+                    let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                    let height = PolarsWrapper.DataFrameHeight dfHandle
+
+                    if height = 0L then
+                        Unchecked.defaultof<'TResult>
+                    else
+                        let rows = mat.Materialize<'TResult>(dfHandle)
+                        Enumerable.First rows
+                | None ->
+                    // In-memory fallback if key expression cannot be pushed down
+                    let rawRows = (this :> IQueryProvider).CreateQuery(source)
+                    let elemType = getSequenceElementType source.Type
+                    let keyType = keyLambda.ReturnType
+                    let compiledKey = keyLambda.Compile()
+
+                    let linqMethod =
+                        typeof<Enumerable>.GetMethods()
+                        |> Array.find (fun methodInfo ->
+                            methodInfo.Name = m.Name &&
+                            methodInfo.GetParameters().Length = 2 &&
+                            methodInfo.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<Func<_, _>>)
+                        |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType, keyType)
+
+                    linqMethod.Invoke(null, [| box rawRows; box compiledKey |]) :?> 'TResult
+
+            | _ ->
+                // In-memory fallback for client-side predicates or missing expression trees
+                let rawRows = (this :> IQueryProvider).CreateQuery(source)
+                let elemType = getSequenceElementType source.Type
+                let compiledKey = 
+                    match keyLambdaOpt with
+                    | Some kl -> kl.Compile()
+                    | None -> failwithf "Failed to compile keySelector for %s" m.Name
+
+                let keyType = 
+                    match keyLambdaOpt with
+                    | Some kl -> kl.ReturnType
+                    | None -> typeof<obj>
+
+                let linqMethod =
+                    typeof<Enumerable>.GetMethods()
+                    |> Array.find (fun methodInfo ->
+                        methodInfo.Name = m.Name &&
+                        methodInfo.GetParameters().Length = 2 &&
+                        methodInfo.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<Func<_, _>>)
+                    |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType, keyType)
+
+                linqMethod.Invoke(null, [| box rawRows; box compiledKey |]) :?> 'TResult
+
         | _ ->
             failwithf "Scalar execution for expression is not supported: %A" expression
 
@@ -1028,6 +1112,20 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | MethodCall(m, null, [ source; defaultExpr ]) when m.Name = "DefaultIfEmpty" ->
                 flatten source (LinqStage.DefaultIfEmpty (Some defaultExpr) :: acc)
 
+            // CountBy(keySelector, [keyComparer])
+            | MethodCall(m, null, source :: keyExpr :: _) when m.Name = "CountBy" ->
+                let rec extractLambda (e: Expression) =
+                    match e with
+                    | :? LambdaExpression as l -> Some l
+                    | Unary(ExpressionType.Quote, inner) -> extractLambda inner
+                    | _ -> None
+
+                match extractLambda keyExpr with
+                | Some keyLambda ->
+                    flatten source (LinqStage.CountBy keyLambda :: acc)
+                | None ->
+                    failwithf "Could not extract LambdaExpression from CountBy key argument: %A" keyExpr
+
             | _ -> acc
 
         let stages = flatten expression []
@@ -1344,9 +1442,30 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     fuse tail (filterOp :: opsAcc) clientPreds
                 else
                     // Potential subtype relationship -> client-side evaluation fallback
-                    let pred = fun (elem: obj) -> not (isNull elem) && targetType.IsInstanceOfType(elem)
+                    let _ = fun (elem: obj) -> not (isNull elem) && targetType.IsInstanceOfType(elem)
                     // Boxed predicate adapter
                     fuse tail opsAcc clientPreds
+
+            // Rule: CountBy(keySelector) -> Native GroupBy + Len agg pushdown
+            | LinqStage.CountBy keyLambda :: tail when clientPreds.IsEmpty ->
+                let keyParam = keyLambda.Parameters.[0]
+                match ExprTranslator.tryTranslate keyParam.Name keyLambda.Body with
+                | Some keyExpr ->
+                    // 1. Rename key column to "Key"
+                    let keyAliased = PolarsWrapper.Alias(keyExpr, "Key")
+                    // 2. Aggregate len() and alias to "Value" for KeyValuePair<TKey, int> schema alignment
+                    let lenExpr = PolarsWrapper.Len()
+                    let valueAliased = PolarsWrapper.Alias(lenExpr, "Value")
+
+                    let spec = {
+                        Keys = [| keyAliased |]
+                        Aggs = [| valueAliased |]
+                        Having = None
+                        MaintainOrder = false
+                    }
+                    fuse tail (QueryOp.GroupBy spec :: opsAcc) clientPreds
+                | None ->
+                    failwithf "Could not translate CountBy key selector: %A" keyLambda
 
             | [] ->
                 List.rev opsAcc, List.rev clientPreds
@@ -1498,6 +1617,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
                 if clientPredicates.IsEmpty then rows
                 else clientPredicates |> List.fold (fun acc pred -> acc.Where pred.Invoke) rows
+        
 
     /// Compiles pipeline to LazyFrameHandle. If client predicates exist, materializes and transposes back.
     member this.CompileToLazyFrameHandle() : LazyFrameHandle =

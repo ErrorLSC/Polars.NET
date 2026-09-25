@@ -90,6 +90,7 @@ type internal LinqStage =
     | TakeLast of uint32
     | SkipLast of uint32
     | Chunk of size: int
+    | CountBy of keySelector: LambdaExpression
     | Distinct
     | DistinctBy of LambdaExpression
     | Concat of Expression

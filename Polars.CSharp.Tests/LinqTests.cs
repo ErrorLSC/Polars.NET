@@ -2042,4 +2042,54 @@ public class LinqTests
 
         Assert.True(query.All(e => e.Age > 100));
     }
+    public record struct DepartmentRecord(string Department,int Salary);
+    [Fact]
+    [Trait("LINQ", "CountBy")]
+    public void Test_Linq_CountBy_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Department", ["IT", "HR", "IT", "Finance", "IT", "HR"]),
+            Series.From("Salary", [50000, 60000, 70000, 80000, 90000, 65000])
+        ]);
+
+        var query = df.AsQueryable<DepartmentRecord>();
+
+        // Native CountBy pushdown: groups by Department, counts occurrences
+        var counts = query.CountBy(d => d.Department).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+        Assert.Equal(3, counts["IT"]);
+        Assert.Equal(2, counts["HR"]);
+        Assert.Equal(1, counts["Finance"]);
+    }
+    [Fact]
+    [Trait("LINQ", "Scalar_MinBy_MaxBy")]
+    public void Test_Linq_MinBy_And_MaxBy_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David"]),
+            Series.From("Age", [28, 35, 22, 40]),
+            Series.From("Salary", [75000, 90000, 50000, 110000])
+        ]);
+
+        var query = df.AsQueryable<Employee>();
+
+        // 1. MinBy: Employee with youngest Age (Charlie, 22)
+        var youngest = query.MinBy(e => e.Age);
+        Assert.Equal("Charlie", youngest.Name);
+        Assert.Equal(22, youngest.Age);
+
+        // 2. MaxBy: Employee with highest Salary (David, 110000)
+        var highestEarner = query.MaxBy(e => e.Salary);
+        Assert.Equal("David", highestEarner.Name);
+        Assert.Equal(110000, highestEarner.Salary);
+
+        // 3. Filtered to empty: returns default(Employee)
+        var missingMin = query.Where(e => e.Age > 100).MinBy(e => e.Salary);
+        Assert.Equal(default, missingMin);
+
+        var missingMax = query.Where(e => e.Salary < 1000).MaxBy(e => e.Age);
+        Assert.Equal(default, missingMax);
+    }
 }
