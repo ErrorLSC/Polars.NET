@@ -455,6 +455,73 @@ public class LinqTests
         Assert.Equal(4, summaries[2].FirstMemberId);
         Assert.Equal(4, summaries[2].MaxMemberId);
     }
+    public readonly record struct DeptMinMaxBySummary(
+        int DeptId,
+        int YoungestMemberId,
+        int HighestPaidMemberId
+    );
+
+    public readonly record struct MemberRecord(
+        int Id,
+        string Name,
+        int DeptId,
+        int Age,
+        int Salary
+    );
+
+    [Fact]
+    [Trait("LINQ", "GroupBy")]
+    public void Test_Linq_GroupBy_MinBy_MaxBy_Aggregations()
+    {
+        // 1. Prepare dataset with Department, Age and Salary
+        using var membersDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3, 4, 5, 6]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve", "Frank"]),
+            Series.From("DeptId", [10, 20, 10, 30, 20, 10]),
+            Series.From("Age", [25, 45, 35, 29, 22, 40]),
+            Series.From("Salary", [5000, 9000, 7500, 6000, 8000, 12000])
+        ]);
+
+        // 2. Pushdown MinBy & MaxBy within GroupBy using standard LINQ syntax:
+        // group.MinBy(x => x.Age).Id
+        var summaries = membersDf.AsQueryable<MemberRecord>()
+            .GroupBy(
+                m => m.DeptId,
+                (deptId, group) => new DeptMinMaxBySummary(
+                    deptId,
+                    group.MinBy(x => x.Age).Id,      // Member Id with min Age
+                    group.MaxBy(x => x.Salary).Id   // Member Id with max Salary
+                )
+            )
+            .OrderBy(s => s.DeptId)
+            .ToList();
+
+        Assert.Equal(3, summaries.Count);
+
+        // Dept 10:
+        // Alice: Id=1, Age=25, Salary=5000
+        // Charlie: Id=3, Age=35, Salary=7500
+        // Frank: Id=6, Age=40, Salary=12000
+        // Youngest is Alice (Id 1), Highest paid is Frank (Id 6)
+        Assert.Equal(10, summaries[0].DeptId);
+        Assert.Equal(1, summaries[0].YoungestMemberId);
+        Assert.Equal(6, summaries[0].HighestPaidMemberId);
+
+        // Dept 20:
+        // Bob: Id=2, Age=45, Salary=9000
+        // Eve: Id=5, Age=22, Salary=8000
+        // Youngest is Eve (Id 5), Highest paid is Bob (Id 2)
+        Assert.Equal(20, summaries[1].DeptId);
+        Assert.Equal(5, summaries[1].YoungestMemberId);
+        Assert.Equal(2, summaries[1].HighestPaidMemberId);
+
+        // Dept 30:
+        // David: Id=4, Age=29, Salary=6000
+        Assert.Equal(30, summaries[2].DeptId);
+        Assert.Equal(4, summaries[2].YoungestMemberId);
+        Assert.Equal(4, summaries[2].HighestPaidMemberId);
+    }
     [Fact]
     [Trait("LINQ","GroupBy")]
     public void Test_Linq_GroupBy_Without_Agg_Returns_Grouping_Sequence()

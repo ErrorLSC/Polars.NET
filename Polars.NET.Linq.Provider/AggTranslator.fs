@@ -35,8 +35,7 @@ module AggTranslator =
             | :? ParameterExpression as p when p.Name = groupParamName ->
                 let lenExpr = PolarsWrapper.Len()
                 Some (PolarsWrapper.Alias(lenExpr, aliasName))
-            | other ->
-                None
+            | _ -> None
 
         // 2. group.Count(x => predicate) or group.LongCount(x => predicate)
         // Vectorized pushdown: (predicate_expr).Cast(Int64).Sum()
@@ -53,7 +52,22 @@ module AggTranslator =
                 | None -> None
             | _ -> None
 
-        // 3. group.Select(x => x.Col).First() / group.Select(x => x.Col).Last()
+        // 3. group.MinBy(x => x.ByCol).TargetCol / group.MaxBy(x => x.ByCol).TargetCol
+        | MemberAccess(MethodCall(methodInfo, null, [ targetSeq; StripQuotes (Lambda([ p ], byBody)) ]), memberInfo)
+            when (methodInfo.Name = "MinBy" || methodInfo.Name = "MaxBy") && isGroupParam groupParamName targetSeq ->
+            match ExprTranslator.tryTranslate p.Name byBody with
+            | Some byExpr ->
+                let targetExpr = PolarsWrapper.Col memberInfo.Name
+                let aggExpr =
+                    match methodInfo.Name with
+                    | "MinBy" -> Some (PolarsWrapper.MinBy(targetExpr, byExpr))
+                    | "MaxBy" -> Some (PolarsWrapper.MaxBy(targetExpr, byExpr))
+                    | _       -> None
+
+                aggExpr |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
+            | None -> None
+
+        // 4. group.Select(x => x.Col).First() / group.Select(x => x.Col).Last()
         | MethodCall(outerMethod, null, [ MethodCall(selectMethod, null, [ targetSeq; StripQuotes (Lambda([ p ], body)) ]) ])
             when (outerMethod.Name = "First" || outerMethod.Name = "Last") && selectMethod.Name = "Select" ->
             match unwrap targetSeq with
@@ -67,10 +81,10 @@ module AggTranslator =
                         | _       -> None
 
                     aggExpr |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
-                | None ->None
+                | None -> None
             | _ -> None
 
-        // 4. group.Sum(x => x.Field), group.Min(x => x.Field), group.Max(x => x.Field), group.Average(x => x.Field)
+        // 5. group.Sum(x => x.Field), group.Min(x => x.Field), group.Max(x => x.Field), group.Average(x => x.Field)
         | MethodCall(methodInfo, null, [ targetSeq; StripQuotes (Lambda([ p ], body)) ]) 
             when isGroupParam groupParamName targetSeq ->
             match ExprTranslator.tryTranslate p.Name body with
