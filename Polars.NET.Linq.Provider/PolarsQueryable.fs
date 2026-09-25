@@ -40,6 +40,11 @@ type internal UniqueSpec = {
     MaintainOrder: bool
 }
 
+/// Specification for vertical concatenation pushdown
+type internal ConcatSpec = {
+    OtherLf: LazyFrameHandle
+}
+
 /// Uniform contract to expose internal LazyFrameHandle without leaking generic parameters
 type internal IPolarsPlanSource =
     abstract member GetRawLazyFrameHandle: unit -> LazyFrameHandle
@@ -53,6 +58,7 @@ type internal QueryOp =
     | Join of JoinSpec
     | GroupBy of GroupBySpec
     | Unique of UniqueSpec
+    | Concat of ConcatSpec
     | SelectPassthrough
 
 /// Linear representation of query expressions before optimization/fusion
@@ -64,6 +70,8 @@ type internal LinqStage =
     | Skip of uint32
     | Distinct
     | DistinctBy of LambdaExpression
+    | Concat of Expression
+    | Union of Expression * keyLambdaOpt: LambdaExpression option
     | Join of MethodInfo * Expression * LambdaExpression * LambdaExpression * LambdaExpression
     | SetOp of MethodInfo * Expression * LambdaExpression option * LambdaExpression option
     | GroupByKey of LambdaExpression
@@ -248,6 +256,10 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
 
                 PolarsWrapper.LazyUnique(currentLf, selector, spec.Keep, spec.MaintainOrder)
 
+            | QueryOp.Concat spec ->
+                let handles = [| currentLf; spec.OtherLf |]
+                PolarsWrapper.LazyConcat(handles, PlConcatType.Vertical, false, true)
+
             | QueryOp.SelectPassthrough -> 
                 currentLf
         ) (PolarsWrapper.LazyClone sourceLf)
@@ -424,6 +436,18 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             | MethodCall(m, null, [ first; second; StripQuotes (:? LambdaExpression as k1); StripQuotes (:? LambdaExpression as k2) ]) 
                 when m.Name = "IntersectBy" || m.Name = "ExceptBy" ->
                 flatten first (LinqStage.SetOp(m, second, Some k1, Some k2) :: acc)
+            
+            // Concat
+            | MethodCall(m, null, [ first; second ]) when m.Name = "Concat" ->
+                flatten first (LinqStage.Concat second :: acc)
+
+            // Union (Full row distinct)
+            | MethodCall(m, null, [ first; second ]) when m.Name = "Union" ->
+                flatten first (LinqStage.Union(second, None) :: acc)
+
+            // UnionBy (Distinct by key)
+            | MethodCall(m, null, [ first; second; StripQuotes (:? LambdaExpression as keySel) ]) when m.Name = "UnionBy" ->
+                flatten first (LinqStage.Union(second, Some keySel) :: acc)
 
             | _ -> acc
 
@@ -497,6 +521,32 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                     fuse tail (QueryOp.Unique spec :: opsAcc) clientPreds
                 | None ->
                     failwithf "Could not translate DistinctBy key selector: %A" keyLambda
+
+            // Rule: Concat
+            | LinqStage.Concat secondExpr :: tail when clientPreds.IsEmpty ->
+                match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with
+                | Some otherLf ->
+                    let spec = { OtherLf = otherLf }
+                    fuse tail (QueryOp.Concat spec :: opsAcc) clientPreds
+                | None -> failwith "Failed to resolve second expression for Concat."
+
+            // Rule: Union / UnionBy (Concat -> Unique fusion)
+            | LinqStage.Union(secondExpr, keyLambdaOpt) :: tail when clientPreds.IsEmpty ->
+                match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with
+                | Some otherLf ->
+                    let concatOp = QueryOp.Concat { OtherLf = otherLf }
+                    let uniqueSpec =
+                        match keyLambdaOpt with
+                        | Some keyLambda ->
+                            match PolarsQuery<'T>.ExtractDistinctColumns keyLambda with
+                            | Some cols -> { SubsetCols = Some cols; Keep = PlUniqueKeepStrategy.First; MaintainOrder = false }
+                            | None -> failwithf "Could not translate UnionBy key selector: %A" keyLambda
+                        | None ->
+                            { SubsetCols = None; Keep = PlUniqueKeepStrategy.First; MaintainOrder = false }
+
+                    let uniqueOp = QueryOp.Unique uniqueSpec
+                    fuse tail (uniqueOp :: concatOp :: opsAcc) clientPreds
+                | None -> failwith "Failed to resolve second expression for Union."
 
             | LinqStage.GroupByKey _ :: tail ->
                 fuse tail opsAcc clientPreds

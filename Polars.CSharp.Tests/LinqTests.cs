@@ -947,4 +947,89 @@ public class LinqTests
         Assert.Equal(20, result[1].DeptId);
         Assert.Equal("Charlie", result[1].Name);
     }
+    [Fact]
+    [Trait("LINQ", "Concat")]
+    public void Test_Linq_Concat_Two_LazyFrames()
+    {
+        using var leftDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2]),
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("DeptId", [10, 20])
+        ]);
+
+        using var rightDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [3, 4]),
+            Series.From("Name", ["Charlie", "David"]),
+            Series.From("DeptId", [30, 40])
+        ]);
+
+        var result = leftDf.AsQueryable<Person>()
+            .Concat(rightDf.AsQueryable<Person>())
+            .OrderBy(p => p.Id)
+            .ToList();
+
+        Assert.Equal(4, result.Count);
+        Assert.Equal([1, 2, 3, 4], [.. result.Select(r => r.Id)]);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Union")]
+    public void Test_Linq_Union_FullRow_Pushdown()
+    {
+        using var leftDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2]),
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("DeptId", [10, 20])
+        ]);
+
+        using var rightDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [2, 3]),
+            Series.From("Name", ["Bob", "Charlie"]),
+            Series.From("DeptId", [20, 30])
+        ]);
+
+        // Row (2, "Bob", 20) is duplicated across tables and should appear once
+        var result = leftDf.AsQueryable<Person>()
+            .Union(rightDf.AsQueryable<Person>())
+            .OrderBy(p => p.Id)
+            .ToList();
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal([1, 2, 3], [.. result.Select(r => r.Id)]);
+    }
+
+    [Fact]
+    [Trait("LINQ", "UnionBy")]
+    public void Test_Linq_UnionBy_KeySelector_Pushdown()
+    {
+        using var leftDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2]),
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("DeptId", [10, 20])
+        ]);
+
+        using var rightDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [3, 4]),
+            Series.From("Name", ["Robert", "Charlie"]),
+            Series.From("DeptId", [20, 30]) // DeptId 20 duplicates leftDf's DeptId 20
+        ]);
+
+        // Distinct on DeptId: only the first record with DeptId 20 ("Bob") is preserved
+        var result = leftDf.AsQueryable<Person>()
+            .UnionBy(rightDf.AsQueryable<Person>(), p => p.DeptId)
+            .OrderBy(p => p.DeptId)
+            .ToList();
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal(10, result[0].DeptId);
+        Assert.Equal(20, result[1].DeptId);
+        Assert.Equal("Bob", result[1].Name);
+        Assert.Equal(30, result[2].DeptId);
+    }
 }
