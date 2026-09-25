@@ -37,12 +37,6 @@ internal static class RowMapper<T>
         var getValueMethodDef = typeof(Series).GetMethod(nameof(Series.GetValue), [typeof(long), typeof(bool)])!;
         var columnIndexerMethod = typeof(DataFrame).GetMethod("get_Item", [typeof(int)])!;
 
-        var colMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int i = 0; i < (int)df.Width; i++)
-        {
-            colMap[df.ColumnNames[i]] = i;
-        }
-
         Expression CreateReadExpr(int colIdx, Type returnType)
         {
             var colExpr = Expression.Call(dfParam, columnIndexerMethod, Expression.Constant(colIdx));
@@ -50,8 +44,48 @@ internal static class RowMapper<T>
             return Expression.Call(colExpr, getValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
         }
 
+        // Branch 0: Target is a primitive / scalar (e.g. IQueryable<int>, IQueryable<string>)
+        if (PolarsTypeHelper.IsScalarType(targetType))
+        {
+            var scalarReadExpr = CreateReadExpr(0, targetType);
+            return Expression.Lambda<Func<DataFrame, long, T>>(scalarReadExpr, dfParam, idxParam).Compile();
+        }
+
+        var colMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < (int)df.Width; i++)
+        {
+            colMap[df.ColumnNames[i]] = i;
+        }
+
+        // Resolves column index by considering scope suffixes (_second, _right, _third) for zipped entities
+        bool TryFindCol(string propName, int tupleIndex, out int resolvedColIdx)
+        {
+            var candidates = new List<string>();
+            if (tupleIndex == 1)
+            {
+                candidates.Add($"{propName}_second");
+                candidates.Add($"{propName}_right");
+            }
+            else if (tupleIndex == 2)
+            {
+                candidates.Add($"{propName}_third");
+            }
+            candidates.Add(propName);
+
+            foreach (var candidate in candidates)
+            {
+                if (colMap.TryGetValue(candidate, out resolvedColIdx))
+                {
+                    return true;
+                }
+            }
+
+            resolvedColIdx = -1;
+            return false;
+        }
+
         // Helper to construct a single non-tuple object or record instance from DataFrame columns
-        Expression BuildSingleObjectExpr(Type type)
+        Expression BuildSingleObjectExpr(Type type, int tupleIndex)
         {
             var ctors = type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             var primaryCtor = ctors.OrderByDescending(c => c.GetParameters().Length).FirstOrDefault();
@@ -63,7 +97,7 @@ internal static class RowMapper<T>
                 for (int i = 0; i < ctorParams.Length; i++)
                 {
                     var param = ctorParams[i];
-                    if (colMap.TryGetValue(param.Name!, out int colIdx))
+                    if (TryFindCol(param.Name!, tupleIndex, out int colIdx))
                     {
                         ctorArgs[i] = CreateReadExpr(colIdx, param.ParameterType);
                     }
@@ -92,7 +126,7 @@ internal static class RowMapper<T>
             foreach (var prop in props)
             {
                 if (!prop.CanWrite) continue;
-                if (colMap.TryGetValue(prop.Name, out int colIdx))
+                if (TryFindCol(prop.Name, tupleIndex, out int colIdx))
                 {
                     var readExpr = CreateReadExpr(colIdx, prop.PropertyType);
                     blockExpressions.Add(Expression.Assign(Expression.Property(instanceVar, prop), readExpr));
@@ -102,7 +136,7 @@ internal static class RowMapper<T>
             return Expression.Block([instanceVar], blockExpressions);
         }
 
-        // Branch 1: ValueTuple composite mapping (e.g. ValueTuple<MemberRecord, Employee, Department>)
+        // Branch 1: ValueTuple composite mapping (e.g. ValueTuple<int, Employee>, ValueTuple<Person, Department>)
         if (targetType.IsValueType && targetType.FullName != null && targetType.FullName.StartsWith("System.ValueTuple`"))
         {
             var genericArgs = targetType.GetGenericArguments();
@@ -113,15 +147,42 @@ internal static class RowMapper<T>
             for (int i = 0; i < genericArgs.Length; i++)
             {
                 var subType = genericArgs[i];
-                // If it's a direct primitive or scalar in the tuple
-                if (colMap.TryGetValue($"Item{i + 1}", out int colIdx))
+
+                if (PolarsTypeHelper.IsScalarType(subType))
                 {
-                    tupleArgs[i] = CreateReadExpr(colIdx, subType);
+                    var candidateNames = new List<string> { $"Item{i + 1}" };
+                    if (i == 0) { candidateNames.Add("Index"); candidateNames.Add("First"); }
+                    else if (i == 1) { candidateNames.Add("Item"); candidateNames.Add("Second"); }
+                    else if (i == 2) { candidateNames.Add("Third"); }
+
+                    int colIdx = -1;
+                    foreach (var name in candidateNames)
+                    {
+                        if (colMap.TryGetValue(name, out int idx))
+                        {
+                            colIdx = idx;
+                            break;
+                        }
+                    }
+
+                    if (colIdx == -1 && i < df.Width)
+                    {
+                        colIdx = i;
+                    }
+
+                    if (colIdx != -1)
+                    {
+                        tupleArgs[i] = CreateReadExpr(colIdx, subType);
+                    }
+                    else
+                    {
+                        tupleArgs[i] = Expression.Default(subType);
+                    }
                 }
                 else
                 {
-                    // Construct composite sub-entity
-                    tupleArgs[i] = BuildSingleObjectExpr(subType);
+                    // Correctly forward the tuple element index 'i' so nested records resolve scope suffixes
+                    tupleArgs[i] = BuildSingleObjectExpr(subType, i);
                 }
             }
 
@@ -130,7 +191,7 @@ internal static class RowMapper<T>
         }
 
         // Branch 2: Standard single object or record
-        var singleObjExpr = BuildSingleObjectExpr(targetType);
+        var singleObjExpr = BuildSingleObjectExpr(targetType, 0);
         return Expression.Lambda<Func<DataFrame, long, T>>(singleObjExpr, dfParam, idxParam).Compile();
     }
 }
