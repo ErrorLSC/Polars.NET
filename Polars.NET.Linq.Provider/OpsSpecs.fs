@@ -74,6 +74,7 @@ type internal QueryOp =
     | Rename of RenameSpec
     | Select of ExprHandle array
     | WithColumns of ExprHandle array
+    | Reverse
     | SelectPassthrough
 
 /// Linear representation of query expressions before optimization/fusion
@@ -103,4 +104,5 @@ type internal LinqStage =
     | GroupJoin of MethodInfo * Expression * LambdaExpression * LambdaExpression * LambdaExpression
     | Zip of secondExpr: Expression * resultLambdaOpt: LambdaExpression option
     | Zip3 of secondExpr: Expression * thirdExpr: Expression
+    | Reverse
     | Project of LambdaExpression

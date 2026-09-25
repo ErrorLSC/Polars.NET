@@ -1621,5 +1621,39 @@ public class LinqTests
         Assert.Equal("Bob", results[1].Name);
         Assert.Equal("Charlie", results[2].Name);
     }
+    [Fact]
+    [Trait("LINQ", "Reverse")]
+    public void Test_Linq_Reverse_Pushdown()
+    {
+        // 1. Prepare 3 employee records
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 30, 35]),
+            Series.From("Salary", [50000, 60000, 70000])
+        ]);
+
+        // 2. Reverse row order natively via LINQ
+        var results = df.AsQueryable<Employee>()
+            .Reverse()
+            .ToList();
+
+        Assert.Equal(3, results.Count);
+
+        // Row 0: Charlie
+        Assert.Equal("Charlie", results[0].Name);
+        Assert.Equal(35, results[0].Age);
+        Assert.Equal(70000, results[0].Salary);
+
+        // Row 1: Bob
+        Assert.Equal("Bob", results[1].Name);
+        Assert.Equal(30, results[1].Age);
+        Assert.Equal(60000, results[1].Salary);
+
+        // Row 2: Alice
+        Assert.Equal("Alice", results[2].Name);
+        Assert.Equal(25, results[2].Age);
+        Assert.Equal(50000, results[2].Salary);
+    }
 
 }

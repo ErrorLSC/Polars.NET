@@ -407,6 +407,9 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                 let dropSelector = PolarsWrapper.SelectorCols [| "__row_idx" |]
                 PolarsWrapper.LazyFrameDrop(filteredLf, dropSelector)
 
+            | QueryOp.Reverse ->
+                PolarsWrapper.LazyFrameReverse currentLf
+
             | QueryOp.SelectPassthrough -> 
                 currentLf
         ) (PolarsWrapper.LazyClone sourceLf)
@@ -545,6 +548,10 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             // Prepend(element)
             | MethodCall(m, null, [ source; elemExpr ]) when m.Name = "Prepend" ->
                 flatten source (LinqStage.Prepend elemExpr :: acc)
+
+            // Reverse()
+            | MethodCall(m, null, [ source ]) when m.Name = "Reverse" ->
+                flatten source (LinqStage.Reverse :: acc)
 
             | _ -> acc
 
@@ -833,6 +840,10 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                     let concatOp = QueryOp.Concat { OtherLf = otherLf; Prepend = true }
                     fuse tail (concatOp :: opsAcc) clientPreds
                 | _ -> failwith "Failed to evaluate Prepend element."
+
+            // Rule: Reverse() -> Native LazyFrameReverse pushdown
+            | LinqStage.Reverse :: tail when clientPreds.IsEmpty ->
+                fuse tail (QueryOp.Reverse :: opsAcc) clientPreds
 
             | LinqStage.Project _ :: tail ->
                 fuse tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds
