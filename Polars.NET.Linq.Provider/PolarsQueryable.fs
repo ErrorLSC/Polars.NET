@@ -9,75 +9,6 @@ open System.Reflection
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
 
-/// Specification for multi-column sorting pushdown
-type internal SortSpec = {
-    Expr: ExprHandle
-    Descending: bool
-    NullsLast: bool
-}
-
-/// Specification for native join pushdown
-type internal JoinSpec = {
-    RightLf: LazyFrameHandle
-    LeftOn: ExprHandle array
-    RightOn: ExprHandle array
-    How: PlJoinType
-    Suffix: string option
-    InvertSides: bool
-}
-
-/// Specification for native GroupBy aggregation pushdown
-type internal GroupBySpec = {
-    Keys: ExprHandle array
-    Aggs: ExprHandle array
-    Having: ExprHandle option
-    MaintainOrder: bool
-}
-
-type internal UniqueSpec = {
-    SubsetCols: string array option
-    Keep: PlUniqueKeepStrategy
-    MaintainOrder: bool
-}
-
-/// Specification for vertical concatenation pushdown
-type internal ConcatSpec = {
-    OtherLf: LazyFrameHandle
-}
-
-/// Uniform contract to expose internal LazyFrameHandle without leaking generic parameters
-type internal IPolarsPlanSource =
-    abstract member GetRawLazyFrameHandle: unit -> LazyFrameHandle
-
-/// Abstract representation of pushdown operations in the LINQ execution pipeline
-[<RequireQualifiedAccess>]
-type internal QueryOp =
-    | Filter of ExprHandle
-    | Slice of offset: int64 * length: uint32
-    | Sort of SortSpec list
-    | Join of JoinSpec
-    | GroupBy of GroupBySpec
-    | Unique of UniqueSpec
-    | Concat of ConcatSpec
-    | SelectPassthrough
-
-/// Linear representation of query expressions before optimization/fusion
-[<RequireQualifiedAccess>]
-type internal LinqStage =
-    | Filter of LambdaExpression
-    | Sort of LambdaExpression * isDescending: bool
-    | Take of uint32
-    | Skip of uint32
-    | Distinct
-    | DistinctBy of LambdaExpression
-    | Concat of Expression
-    | Union of Expression * keyLambdaOpt: LambdaExpression option
-    | Join of MethodInfo * Expression * LambdaExpression * LambdaExpression * LambdaExpression
-    | SetOp of MethodInfo * Expression * LambdaExpression option * LambdaExpression option
-    | GroupByKey of LambdaExpression
-    | GroupByWithResult of LambdaExpression * LambdaExpression
-    | Project of LambdaExpression
-
 /// Strongly-typed IQueryProvider backed by Polars.NET.Core
 type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer) =
     let clonedLf = PolarsWrapper.LazyClone initialLazyFrame
@@ -88,11 +19,11 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
     interface IQueryProvider with
         member _.CreateQuery(expression: Expression) : IQueryable =
             let elemType =
-                match PolarsTypeHelper.TryGetEnumerableElementType(expression.Type) with
+                match PolarsTypeHelper.TryGetEnumerableElementType expression.Type with
                 | null -> typedefof<obj>
                 | t -> t
 
-            let queryType = typedefof<PolarsQuery<_>>.MakeGenericType(elemType)
+            let queryType = typedefof<PolarsQuery<_>>.MakeGenericType elemType
             Activator.CreateInstance(queryType, [| box clonedLf; box materializer; box expression |]) :?> IQueryable
 
         member this.CreateQuery<'TElement>(expression: Expression) : IQueryable<'TElement> =
@@ -148,11 +79,9 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                     with _ -> None
 
         match evalOpt with
-        // Case 1: PolarsQuery instance (raw plan)
         | Some (:? IPolarsPlanSource as plan) ->
             Some (plan.GetRawLazyFrameHandle())
 
-        // Case 2: Queryable backed by Polars
         | Some value when not (isNull value) && typeof<IQueryable>.IsAssignableFrom(value.GetType()) ->
             let qType = value.GetType()
             let compileMethod = qType.GetMethod("CompileToLazyFrameHandle", BindingFlags.Public ||| BindingFlags.Instance)
@@ -161,23 +90,21 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             else
                 let handleProp = qType.GetProperty("Handle", BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
                 if not (isNull handleProp) then
-                    match handleProp.GetValue(value) with
+                    match handleProp.GetValue value with
                     | :? LazyFrameHandle as lf -> Some (PolarsWrapper.LazyClone lf)
                     | :? DataFrameHandle as df -> Some (PolarsWrapper.DataFrameToLazy df)
                     | _ -> None
                 else None
 
-        // Case 3: C# DataFrame or LazyFrame instance
         | Some value when not (isNull value) ->
             let valueType = value.GetType()
             let handleProp = valueType.GetProperty("Handle", BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
             if not (isNull handleProp) then
-                match handleProp.GetValue(value) with
+                match handleProp.GetValue value with
                 | :? DataFrameHandle as dfHandle -> Some (PolarsWrapper.DataFrameToLazy dfHandle)
                 | :? LazyFrameHandle as lfHandle -> Some (PolarsWrapper.LazyClone lfHandle)
                 | _ -> None
             else
-                // Case 4: In-memory sequence (List<T>, Array, etc.) -> Transpose via DataFrameBuilder.FromRows<T>
                 match PolarsTypeHelper.TryGetEnumerableElementType valueType with
                 | null -> None
                 | elemType ->
@@ -199,70 +126,69 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
         )
 
     /// Extracts column names from a DistinctBy keySelector lambda
-    static member private ExtractDistinctColumns (keyLambda: LambdaExpression) : string array option =
-        let paramName = keyLambda.Parameters.[0].Name
+    static member private ExtractDistinctColumns(keyLambda: LambdaExpression) : string array option =
         match keyLambda.Body with
-        | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter ->
-            Some [| m.Name |]
+        | ExtractColumnName colName -> Some [| colName |]
         | :? NewExpression as newExpr ->
-            let names = PolarsQuery<'T>.ExtractPascalCaseMemberNames newExpr
-            Some (List.toArray names)
-        | _ ->
-            // Try extracting column name via translator if possible
-            match ExprTranslator.tryTranslate paramName keyLambda.Body with
-            | Some exprHandle ->
-                // If it evaluates to a named column expression, extract its root
-                None
-            | None -> None
+            Some (PolarsQuery<'T>.ExtractPascalCaseMemberNames newExpr |> List.toArray)
+        | :? MemberInitExpression as initExpr ->
+            Some (initExpr.Bindings |> Seq.map (fun b -> b.Member.Name) |> Seq.toArray)
+        | _ -> None
 
-    /// Applies a list of QueryOp to a target LazyFrameHandle in forward order.
-    static member private ApplyNativeOps (sourceLf: LazyFrameHandle) (ops: QueryOp list) : LazyFrameHandle =
-        ops
-        |> List.fold (fun currentLf op ->
-            match op with
-            | QueryOp.Filter exprHandle -> 
-                PolarsWrapper.LazyFilter(currentLf, exprHandle)
+    /// Extracts target column name for SelectMany/Explode
+    static member private ExtractExplodeColumn(colLambda: LambdaExpression) : string option =
+        match colLambda.Body with
+        | ExtractColumnName colName -> Some colName
+        | _ -> None
 
-            | QueryOp.Slice(offset, len) -> 
-                PolarsWrapper.LazySlice(currentLf, offset, len)
+    /// Extracts column renaming specs from an Explode dual-parameter result selector: (outer, item) => new T(...)
+    static member private ExtractExplodeRenames (outerParam: ParameterExpression) (itemParam: ParameterExpression) (explodedColName: string) (resLambda: LambdaExpression) : (string * string) list =
+        match resLambda.Body with
+        | :? NewExpression as newExpr ->
+            let args = newExpr.Arguments |> Seq.toList
+            let memberNames = PolarsQuery<'T>.ExtractPascalCaseMemberNames newExpr
+            List.zip memberNames args
+            |> List.choose (fun (memName, arg) ->
+                match arg with
+                // 1. The exploded collection element itself: (p, t) => ... TagName = t
+                | :? ParameterExpression as p when p.Name = itemParam.Name && memName <> explodedColName ->
+                    Some (explodedColName, memName)
 
-            | QueryOp.Sort specs ->
-                let exprs = specs |> List.map (fun s -> s.Expr) |> List.toArray
-                let descending = specs |> List.map (fun s -> s.Descending) |> List.toArray
-                let nullsLast = specs |> List.map (fun s -> s.NullsLast) |> List.toArray
-                PolarsWrapper.LazyFrameSort(currentLf, exprs, descending, nullsLast, maintainOrder = false)
+                // 2. A property from the outer record: (p, t) => ... PersonId = p.Id
+                | ExtractColumnName srcCol when PolarsQuery<'T>.ContainsParameter outerParam.Name arg && srcCol <> memName ->
+                    Some (srcCol, memName)
 
-            | QueryOp.Join spec ->
-                let leftLf, rightLf, leftOn, rightOn, suffix =
-                    if spec.InvertSides then
-                        spec.RightLf, currentLf, spec.RightOn, spec.LeftOn, Option.toObj (spec.Suffix |> Option.orElse (Some "_left"))
-                    else
-                        currentLf, spec.RightLf, spec.LeftOn, spec.RightOn, Option.toObj spec.Suffix
+                | _ -> None
+            )
+        | _ -> []
 
-                PolarsWrapper.Join(
-                    leftLf, rightLf, leftOn, rightOn, spec.How, suffix,
-                    PlJoinValidation.ManyToMany, PlJoinCoalesce.JoinSpecific,
-                    PlJoinMaintainOrder.None, PlJoinSide.None, false, Nullable(), 0UL
-                )
+    /// Checks recursively whether an expression contains references to a specific parameter
+    static member private ContainsParameter (paramName: string) (expr: Expression) : bool =
+        let rec check (e: Expression) =
+            match e with
+            | null -> false
+            | :? ParameterExpression as p -> p.Name = paramName
+            | MethodCall(_, target, args) -> (target <> null && check target) || (args |> List.exists check)
+            | MemberAccess(target, _) -> target <> null && check target
+            | Unary(_, inner) -> check inner
+            | Binary(_, left, right) -> check left || check right
+            | Lambda(_, body) -> check body
+            | _ -> false
+        check expr
 
-            | QueryOp.GroupBy spec ->
-                PolarsWrapper.LazyGroupByAgg(currentLf, spec.Keys, spec.Aggs, Option.toObj spec.Having, spec.MaintainOrder)
-
-            | QueryOp.Unique spec ->
-                let selector =
-                    match spec.SubsetCols with
-                    | Some cols when cols.Length > 0 -> PolarsWrapper.SelectorCols cols
-                    | _ -> null
-
-                PolarsWrapper.LazyUnique(currentLf, selector, spec.Keep, spec.MaintainOrder)
-
-            | QueryOp.Concat spec ->
-                let handles = [| currentLf; spec.OtherLf |]
-                PolarsWrapper.LazyConcat(handles, PlConcatType.Vertical, false, true)
-
-            | QueryOp.SelectPassthrough -> 
-                currentLf
-        ) (PolarsWrapper.LazyClone sourceLf)
+    /// Extracts column renaming specs from a CrossJoin dual-parameter result selector: (left, right) => new T(...)
+    static member private ExtractCrossJoinRenames (resLambda: LambdaExpression) : (string * string) list =
+        match resLambda.Body with
+        | :? NewExpression as newExpr ->
+            let args = newExpr.Arguments |> Seq.toList
+            let memberNames = PolarsQuery<'T>.ExtractPascalCaseMemberNames newExpr
+            List.zip memberNames args
+            |> List.choose (fun (memName, arg) ->
+                match arg with
+                | ExtractColumnName srcCol when srcCol <> memName -> Some (srcCol, memName)
+                | _ -> None
+            )
+        | _ -> []
 
     /// Extracts member names and capitalizes them to PascalCase
     static member private ExtractPascalCaseMemberNames(newExpr: NewExpression) : string list =
@@ -375,6 +301,63 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
 
             | _ -> None
 
+    /// Applies a list of QueryOp to a target LazyFrameHandle in forward order.
+    static member private ApplyNativeOps (sourceLf: LazyFrameHandle) (ops: QueryOp list) : LazyFrameHandle =
+        ops
+        |> List.fold (fun currentLf op ->
+            match op with
+            | QueryOp.Filter exprHandle -> 
+                PolarsWrapper.LazyFilter(currentLf, exprHandle)
+
+            | QueryOp.Select exprs ->
+                PolarsWrapper.LazySelect(currentLf, exprs)
+
+            | QueryOp.Slice(offset, len) -> 
+                PolarsWrapper.LazySlice(currentLf, offset, len)
+
+            | QueryOp.Sort specs ->
+                let exprs = specs |> List.map (fun s -> s.Expr) |> List.toArray
+                let descending = specs |> List.map (fun s -> s.Descending) |> List.toArray
+                let nullsLast = specs |> List.map (fun s -> s.NullsLast) |> List.toArray
+                PolarsWrapper.LazyFrameSort(currentLf, exprs, descending, nullsLast, maintainOrder = false)
+
+            | QueryOp.Join spec ->
+                let leftLf, rightLf, leftOn, rightOn, suffix =
+                    if spec.InvertSides then
+                        spec.RightLf, currentLf, spec.RightOn, spec.LeftOn, Option.toObj (spec.Suffix |> Option.orElse (Some "_left"))
+                    else
+                        currentLf, spec.RightLf, spec.LeftOn, spec.RightOn, Option.toObj spec.Suffix
+
+                PolarsWrapper.Join(
+                    leftLf, rightLf, leftOn, rightOn, spec.How, suffix,
+                    PlJoinValidation.ManyToMany, PlJoinCoalesce.JoinSpecific,
+                    PlJoinMaintainOrder.None, PlJoinSide.None, false, Nullable(), 0UL
+                )
+
+            | QueryOp.GroupBy spec ->
+                PolarsWrapper.LazyGroupByAgg(currentLf, spec.Keys, spec.Aggs, Option.toObj spec.Having, spec.MaintainOrder)
+
+            | QueryOp.Unique spec ->
+                let selector =
+                    match spec.SubsetCols with
+                    | Some cols when cols.Length > 0 -> PolarsWrapper.SelectorCols cols
+                    | _ -> null
+                PolarsWrapper.LazyUnique(currentLf, selector, spec.Keep, spec.MaintainOrder)
+
+            | QueryOp.Concat spec ->
+                PolarsWrapper.LazyConcat([| currentLf; spec.OtherLf |], PlConcatType.Vertical, false, true)
+
+            | QueryOp.Explode spec ->
+                let selector = PolarsWrapper.SelectorCols spec.ColumnNames
+                PolarsWrapper.LazyExplode(currentLf, selector, spec.EmptyAsNull, spec.KeepNulls)
+
+            | QueryOp.Rename spec ->
+                PolarsWrapper.LazyRename(currentLf, spec.ExistingNames, spec.NewNames, strict = false)
+
+            | QueryOp.SelectPassthrough -> 
+                currentLf
+        ) (PolarsWrapper.LazyClone sourceLf)
+
     /// Parses the LINQ expression tree into native ops and any trailing client predicates
     member private this.CompilePipeline() : QueryOp list * (Func<'T, bool> list) =
         let rec flatten (e: Expression) (acc: LinqStage list) : LinqStage list =
@@ -390,7 +373,6 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as l) ]) when m.Name = "OrderByDescending" || m.Name = "ThenByDescending" ->
                 flatten source (LinqStage.Sort(l, isDescending = true) :: acc)
 
-            // 3. Take / Skip
             | MethodCall(m, null, [ source; countExpr ]) when m.Name = "Take" ->
                 match tryEvaluate countExpr with
                 | Some c -> flatten source (LinqStage.Take(Convert.ToUInt32 c) :: acc)
@@ -401,11 +383,9 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                 | Some c -> flatten source (LinqStage.Skip(Convert.ToUInt32 c) :: acc)
                 | None -> failwithf "Could not evaluate Skip count argument: %A" countExpr
             
-            // Distinct
             | MethodCall(m, null, [ source ]) when m.Name = "Distinct" ->
                 flatten source (LinqStage.Distinct :: acc)
 
-            // DistinctBy
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as keySel) ]) when m.Name = "DistinctBy" ->
                 flatten source (LinqStage.DistinctBy keySel :: acc)
 
@@ -425,8 +405,7 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                 when m.Name = "Join" || m.Name = "LeftJoin" || m.Name = "RightJoin" ->
                 flatten outer (LinqStage.Join(m, inner, outerKey, innerKey, resSel) :: acc)
 
-            | MethodCall(m, null, [ first; second ]) 
-                when m.Name = "Intersect" || m.Name = "Except" ->
+            | MethodCall(m, null, [ first; second ]) when m.Name = "Intersect" || m.Name = "Except" ->
                 flatten first (LinqStage.SetOp(m, second, None, None) :: acc)
 
             | MethodCall(m, null, [ first; second; StripQuotes (:? LambdaExpression as keySel) ]) 
@@ -437,17 +416,26 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                 when m.Name = "IntersectBy" || m.Name = "ExceptBy" ->
                 flatten first (LinqStage.SetOp(m, second, Some k1, Some k2) :: acc)
             
-            // Concat
             | MethodCall(m, null, [ first; second ]) when m.Name = "Concat" ->
                 flatten first (LinqStage.Concat second :: acc)
 
-            // Union (Full row distinct)
             | MethodCall(m, null, [ first; second ]) when m.Name = "Union" ->
                 flatten first (LinqStage.Union(second, None) :: acc)
 
-            // UnionBy (Distinct by key)
             | MethodCall(m, null, [ first; second; StripQuotes (:? LambdaExpression as keySel) ]) when m.Name = "UnionBy" ->
                 flatten first (LinqStage.Union(second, Some keySel) :: acc)
+
+            | MethodCall(m, null, source :: StripQuotes (:? LambdaExpression as colSel) :: rest) when m.Name = "SelectMany" ->
+                let resSelOpt =
+                    match rest with
+                    | [ StripQuotes (:? LambdaExpression as r) ] -> Some r
+                    | _ -> None
+
+                let paramName = colSel.Parameters.[0].Name
+                if PolarsQuery<'T>.ContainsParameter paramName colSel.Body then
+                    flatten source (LinqStage.Explode(colSel, resSelOpt) :: acc)
+                else
+                    flatten source (LinqStage.CrossJoin(colSel.Body, resSelOpt) :: acc)
 
             | _ -> acc
 
@@ -500,7 +488,6 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                 | Some spec -> fuse tail (QueryOp.Join spec :: opsAcc) clientPreds
                 | None -> failwithf "Failed to push down SetOp %s." m.Name
 
-            // Continuous Skip followed by Take fusion: Skip(s).Take(t) -> Slice(s, t)
             | LinqStage.Skip s :: LinqStage.Take t :: tail when clientPreds.IsEmpty ->
                 fuse tail (QueryOp.Slice(int64 s, t) :: opsAcc) clientPreds
 
@@ -522,7 +509,6 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                 | None ->
                     failwithf "Could not translate DistinctBy key selector: %A" keyLambda
 
-            // Rule: Concat
             | LinqStage.Concat secondExpr :: tail when clientPreds.IsEmpty ->
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with
                 | Some otherLf ->
@@ -530,7 +516,6 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                     fuse tail (QueryOp.Concat spec :: opsAcc) clientPreds
                 | None -> failwith "Failed to resolve second expression for Concat."
 
-            // Rule: Union / UnionBy (Concat -> Unique fusion)
             | LinqStage.Union(secondExpr, keyLambdaOpt) :: tail when clientPreds.IsEmpty ->
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with
                 | Some otherLf ->
@@ -541,12 +526,53 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                             match PolarsQuery<'T>.ExtractDistinctColumns keyLambda with
                             | Some cols -> { SubsetCols = Some cols; Keep = PlUniqueKeepStrategy.First; MaintainOrder = false }
                             | None -> failwithf "Could not translate UnionBy key selector: %A" keyLambda
-                        | None ->
-                            { SubsetCols = None; Keep = PlUniqueKeepStrategy.First; MaintainOrder = false }
+                        | None -> { SubsetCols = None; Keep = PlUniqueKeepStrategy.First; MaintainOrder = false }
 
-                    let uniqueOp = QueryOp.Unique uniqueSpec
-                    fuse tail (uniqueOp :: concatOp :: opsAcc) clientPreds
+                    fuse tail (QueryOp.Unique uniqueSpec :: concatOp :: opsAcc) clientPreds
                 | None -> failwith "Failed to resolve second expression for Union."
+
+            | LinqStage.Explode(colLambda, resLambdaOpt) :: tail when clientPreds.IsEmpty ->
+                match PolarsQuery<'T>.ExtractExplodeColumn colLambda with
+                | Some colName ->
+                    let explodeOp = QueryOp.Explode { ColumnNames = [| colName |]; EmptyAsNull = true; KeepNulls = true }
+
+                    let renameOps =
+                        match resLambdaOpt with
+                        | Some resLambda when resLambda.Parameters.Count >= 2 ->
+                            let renames = PolarsQuery<'T>.ExtractExplodeRenames resLambda.Parameters.[0] resLambda.Parameters.[1] colName resLambda
+                            if not renames.IsEmpty then
+                                [ QueryOp.Rename { ExistingNames = renames |> List.map fst |> List.toArray; NewNames = renames |> List.map snd |> List.toArray } ]
+                            else []
+                        | _ -> []
+
+                    fuse tail (renameOps @ (explodeOp :: opsAcc)) clientPreds
+                | None ->
+                    failwithf "Could not extract column name for SelectMany: %A" colLambda
+
+            | LinqStage.CrossJoin(innerExpr, resLambdaOpt) :: tail when clientPreds.IsEmpty ->
+                match PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr with
+                | Some rightLf ->
+                    let joinSpec = {
+                        RightLf = rightLf
+                        LeftOn = [||]
+                        RightOn = [||]
+                        How = PlJoinType.Cross
+                        Suffix = Some "_right"
+                        InvertSides = false
+                    }
+                    let joinOp = QueryOp.Join joinSpec
+                    let renameOps =
+                        match resLambdaOpt with
+                        | Some resLambda ->
+                            let renames = PolarsQuery<'T>.ExtractCrossJoinRenames resLambda
+                            if not renames.IsEmpty then
+                                [ QueryOp.Rename { ExistingNames = renames |> List.map fst |> List.toArray; NewNames = renames |> List.map snd |> List.toArray } ]
+                            else []
+                        | None -> []
+
+                    fuse tail (renameOps @ (joinOp :: opsAcc)) clientPreds
+                | None ->
+                    failwithf "Could not resolve inner source for CrossJoin SelectMany: %A" innerExpr
 
             | LinqStage.GroupByKey _ :: tail ->
                 fuse tail opsAcc clientPreds
@@ -562,18 +588,22 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
 
         fuse stages [] []
 
-    /// Evaluates the complete pipeline, executing native plan first, then materializing
+    /// Compiles pipeline and builds the target native LazyFrameHandle alongside client predicates
+    member private this.GetCompiledPlan() : LazyFrameHandle * (Func<'T, bool> list) =
+        let ops, clientPredicates = this.CompilePipeline()
+        let nativeLf = PolarsQuery<'T>.ApplyNativeOps lfCloned ops
+        nativeLf, clientPredicates
+
+  /// Evaluates the complete pipeline, executing native plan first, then materializing
     member private this.ExecuteQuery() : IEnumerable<'T> =
         let targetType = typeof<'T>
         let isGrouping = targetType.IsGenericType && targetType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
 
         if isGrouping then
             let genericArgs = targetType.GetGenericArguments()
-            let keyType = genericArgs.[0]
-            let elemType = genericArgs.[1]
+            let keyType, elemType = genericArgs.[0], genericArgs.[1]
 
-            let ops, _ = this.CompilePipeline()
-            let nativeLf = PolarsQuery<'T>.ApplyNativeOps lfCloned ops
+            let nativeLf, _ = this.GetCompiledPlan()
             let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
 
             let mat = PolarsQuery<'T>.ResolveMaterializer materializer
@@ -607,19 +637,18 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
 
                 match findSortDirection expression with
                 | Some false ->
-                    let keyProp = targetType.GetProperty("Key")
-                    grouped |> Seq.sortBy (fun g -> keyProp.GetValue(g) :?> IComparable)
+                    let keyProp = targetType.GetProperty "Key"
+                    grouped |> Seq.sortBy (fun g -> keyProp.GetValue g :?> IComparable)
                 | Some true ->
-                    let keyProp = targetType.GetProperty("Key")
-                    grouped |> Seq.sortByDescending (fun g -> keyProp.GetValue(g) :?> IComparable)
+                    let keyProp = targetType.GetProperty "Key"
+                    grouped |> Seq.sortByDescending (fun g -> keyProp.GetValue g :?> IComparable)
                 | None -> grouped
             | None ->
                 failwith "Could not locate keySelector for GroupBy pipeline."
 
         else
-            let ops, clientPredicates = this.CompilePipeline()
+            let nativeLf, clientPredicates = this.GetCompiledPlan()
             let mat = PolarsQuery<'T>.ResolveMaterializer materializer
-            let nativeLf = PolarsQuery<'T>.ApplyNativeOps lfCloned ops
             let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
             let rows = mat.Materialize<'T>(dfHandle)
 
@@ -628,9 +657,9 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
 
     /// Compiles pipeline to LazyFrameHandle. If client predicates exist, materializes and transposes back.
     member this.CompileToLazyFrameHandle() : LazyFrameHandle =
-        let ops, clientPredicates = this.CompilePipeline()
+        let nativeLf, clientPredicates = this.GetCompiledPlan()
         if clientPredicates.IsEmpty then
-            PolarsQuery<'T>.ApplyNativeOps lfCloned ops
+            nativeLf
         else
             let filteredRows = this.ExecuteQuery()
             let newDfHandle = DataFrameBuilder.FromRows<'T>(filteredRows)
@@ -638,9 +667,8 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
 
     /// Compiles the query and materializes directly into a native DataFrameHandle
     member this.CompileToDataFrameHandle() : DataFrameHandle =
-        let ops, clientPredicates = this.CompilePipeline()
+        let nativeLf, clientPredicates = this.GetCompiledPlan()
         if clientPredicates.IsEmpty then
-            let nativeLf = PolarsQuery<'T>.ApplyNativeOps lfCloned ops
             PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
         else
             let filteredRows = this.ExecuteQuery()

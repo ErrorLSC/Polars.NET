@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="OpsSpecs.fs" />
     <Compile Include="ExpressionPatterns.fs" />
     <Compile Include="ExprTranslator.fs" />
     <Compile Include="AggTranslator.fs" />

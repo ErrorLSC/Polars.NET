@@ -49,6 +49,18 @@ module ExpressionPatterns =
         | Unary(ExpressionType.Quote, operand) -> (|StripQuotes|) operand
         | _ -> expr
 
+    /// Active pattern to strip unary convert/quote wrappers recursively and extract the root parameter member access
+    let rec (|ExtractColumnName|_|) (expr: Expression) : string option =
+        match expr with
+        | null -> None
+        | Unary(ExpressionType.Convert, inner)
+        | Unary(ExpressionType.ConvertChecked, inner)
+        | Unary(ExpressionType.Quote, inner) ->
+            (|ExtractColumnName|_|) inner
+        | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter ->
+            Some m.Name
+        | _ -> None
+
     /// Evaluates expressions that resolve to values (e.g., closures, captured variables, local props)
     let rec tryEvaluate (expr: Expression) : obj option =
         match expr with

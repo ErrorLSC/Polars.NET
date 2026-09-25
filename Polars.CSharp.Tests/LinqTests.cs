@@ -1099,4 +1099,199 @@ public class LinqTests
         Assert.Equal("Bob", result[1].Name);
         Assert.Equal(30, result[2].DeptId);
     }
+    public readonly record struct PersonWithTags(int Id, string Name, string[] Tags);
+    public readonly record struct PersonTagPair(int Id, string Name, string Tag);
+    public readonly record struct PersonTagDetailed(int PersonId, string TagName);
+
+    [Fact]
+    [Trait("LINQ", "SelectMany")]
+    public void Test_Linq_SelectMany_Explode_Pushdown()
+    {
+        // 1. Prepare DataFrame with List/Array column
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2]),
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("Tags", new string[][] 
+            {
+                ["Rust", "DotNet"],
+                ["Polars"]
+            })
+        ]);
+
+        // 2. Execute SelectMany with ResultSelector
+        var results = df.AsQueryable<PersonWithTags>()
+            .SelectMany(p => p.Tags, (p, tag) => new PersonTagPair(p.Id, p.Name, tag))
+            .OrderBy(r => r.Id)
+            .ToList();
+
+        // 3. Expected:
+        // Alice -> Rust
+        // Alice -> DotNet
+        // Bob -> Polars
+        Assert.Equal(3, results.Count);
+
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal("Alice", results[0].Name);
+        Assert.Equal("Rust", results[0].Tag);
+
+        Assert.Equal(1, results[1].Id);
+        Assert.Equal("Alice", results[1].Name);
+        Assert.Equal("DotNet", results[1].Tag);
+
+        Assert.Equal(2, results[2].Id);
+        Assert.Equal("Bob", results[2].Name);
+        Assert.Equal("Polars", results[2].Tag);
+    }
+
+    [Fact]
+    [Trait("LINQ", "SelectMany")]
+    public void Test_Linq_SelectMany_CrossJoin_ExistingRecords()
+    {
+        // 1. Prepare Left DataFrame: 2 Employees
+        using var empDf = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("Age", [28, 35]),
+            Series.From("Salary", [7000, 9500])
+        ]);
+
+        // 2. Prepare Right DataFrame: 2 Departments
+        using var deptsDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [10, 20]),
+            Series.From("DeptName", ["Engineering", "Finance"])
+        ]);
+
+        // 3. Cartesian Product (2 x 2 = 4 records)
+        // Projects to existing readonly record struct EmployeeDept
+        var results = empDf.AsQueryable<Employee>()
+            .SelectMany(
+                _ => deptsDf.AsQueryable<Department>(),
+                (e, d) => new EmployeeDept(e.Name, d.DeptName, e.Age, e.Salary)
+            )
+            .OrderBy(r => r.Name)
+            .ThenBy(r => r.Department)
+            .ToList();
+
+        Assert.Equal(4, results.Count);
+
+        // Alice x Engineering
+        Assert.Equal("Alice", results[0].Name);
+        Assert.Equal("Engineering", results[0].Department);
+        Assert.Equal(28, results[0].Age);
+        Assert.Equal(7000, results[0].Salary);
+
+        // Alice x Finance
+        Assert.Equal("Alice", results[1].Name);
+        Assert.Equal("Finance", results[1].Department);
+        Assert.Equal(28, results[1].Age);
+        Assert.Equal(7000, results[1].Salary);
+
+        // Bob x Engineering
+        Assert.Equal("Bob", results[2].Name);
+        Assert.Equal("Engineering", results[2].Department);
+        Assert.Equal(35, results[2].Age);
+        Assert.Equal(9500, results[2].Salary);
+
+        // Bob x Finance
+        Assert.Equal("Bob", results[3].Name);
+        Assert.Equal("Finance", results[3].Department);
+        Assert.Equal(35, results[3].Age);
+        Assert.Equal(9500, results[3].Salary);
+    }
+    [Fact]
+    [Trait("LINQ", "DistinctBy")]
+    public void Test_Linq_DistinctBy_With_Convert_And_Complex_Expressions()
+    {
+        // 1. Prepare data with duplicate values
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3, 4, 5]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
+            Series.From("DeptId", [10, 10, 20, 20, 30])
+        ]);
+
+        // Case A: Explicit cast to (long) inside keySelector: p => (long)p.DeptId
+        // Verifies ExpressionPatterns.(|ExtractColumnName|_|) stripping Convert nodes recursively
+        var distinctLongKey = df.AsQueryable<Person>()
+            .DistinctBy(p => (long)p.DeptId)
+            .OrderBy(p => p.DeptId)
+            .ToList();
+
+        Assert.Equal(3, distinctLongKey.Count);
+        Assert.Equal(10, distinctLongKey[0].DeptId);
+        Assert.Equal(20, distinctLongKey[1].DeptId);
+        Assert.Equal(30, distinctLongKey[2].DeptId);
+
+        // Case B: Boxed cast to (object): p => (object)p.DeptId
+        var distinctBoxed = df.AsQueryable<Person>()
+            .DistinctBy(p => (object)p.DeptId)
+            .OrderBy(p => p.DeptId)
+            .ToList();
+
+        Assert.Equal(3, distinctBoxed.Count);
+        Assert.Equal("Alice", distinctBoxed[0].Name);
+        Assert.Equal("Charlie", distinctBoxed[1].Name);
+        Assert.Equal("Eve", distinctBoxed[2].Name);
+
+        // Case C: Multi-column anonymous object projection: p => new { p.DeptId, p.Name }
+        var distinctCompound = df.AsQueryable<Person>()
+            .DistinctBy(p => new { p.DeptId, p.Name })
+            .OrderBy(p => p.Id)
+            .ToList();
+
+        Assert.Equal(5, distinctCompound.Count);
+    }
+
+    [Fact]
+    [Trait("LINQ", "SelectMany")]
+    public void Test_Linq_SelectMany_Explode_Pushdown_With_Renaming()
+    {
+        // 1. Prepare DataFrame with List/Array column
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2]),
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("Tags", new string[][] 
+            {
+                ["Rust", "DotNet"],
+                ["Polars"]
+            })
+        ]);
+
+        // Case A: Map Tags -> Tag (Single letter truncation rename)
+        var results = df.AsQueryable<PersonWithTags>()
+            .SelectMany(p => p.Tags, (p, tag) => new PersonTagPair(p.Id, p.Name, tag))
+            .OrderBy(r => r.Id)
+            .ThenBy(r => r.Tag)
+            .ToList();
+
+        Assert.Equal(3, results.Count);
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal("Alice", results[0].Name);
+        Assert.Equal("DotNet", results[0].Tag);
+
+        Assert.Equal(1, results[1].Id);
+        Assert.Equal("Alice", results[1].Name);
+        Assert.Equal("Rust", results[1].Tag);
+
+        Assert.Equal(2, results[2].Id);
+        Assert.Equal("Bob", results[2].Name);
+        Assert.Equal("Polars", results[2].Tag);
+
+        // Case B: Map Id -> PersonId and Tags -> TagName (Dual property rename test)
+        var detailedResults = df.AsQueryable<PersonWithTags>()
+            .SelectMany(p => p.Tags, (p, t) => new PersonTagDetailed(p.Id, t))
+            .OrderBy(r => r.PersonId)
+            .ThenBy(r => r.TagName)
+            .ToList();
+
+        Assert.Equal(3, detailedResults.Count);
+        Assert.Equal(1, detailedResults[0].PersonId);
+        Assert.Equal("DotNet", detailedResults[0].TagName);
+        Assert.Equal(2, detailedResults[2].PersonId);
+        Assert.Equal("Polars", detailedResults[2].TagName);
+    }
+    
 }
