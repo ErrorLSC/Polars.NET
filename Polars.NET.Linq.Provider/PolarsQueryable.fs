@@ -34,6 +34,12 @@ type internal GroupBySpec = {
     MaintainOrder: bool
 }
 
+type internal UniqueSpec = {
+    SubsetCols: string array option
+    Keep: PlUniqueKeepStrategy
+    MaintainOrder: bool
+}
+
 /// Uniform contract to expose internal LazyFrameHandle without leaking generic parameters
 type internal IPolarsPlanSource =
     abstract member GetRawLazyFrameHandle: unit -> LazyFrameHandle
@@ -46,6 +52,7 @@ type internal QueryOp =
     | Sort of SortSpec list
     | Join of JoinSpec
     | GroupBy of GroupBySpec
+    | Unique of UniqueSpec
     | SelectPassthrough
 
 /// Linear representation of query expressions before optimization/fusion
@@ -55,6 +62,8 @@ type internal LinqStage =
     | Sort of LambdaExpression * isDescending: bool
     | Take of uint32
     | Skip of uint32
+    | Distinct
+    | DistinctBy of LambdaExpression
     | Join of MethodInfo * Expression * LambdaExpression * LambdaExpression * LambdaExpression
     | SetOp of MethodInfo * Expression * LambdaExpression option * LambdaExpression option
     | GroupByKey of LambdaExpression
@@ -181,6 +190,23 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             name
         )
 
+    /// Extracts column names from a DistinctBy keySelector lambda
+    static member private ExtractDistinctColumns (keyLambda: LambdaExpression) : string array option =
+        let paramName = keyLambda.Parameters.[0].Name
+        match keyLambda.Body with
+        | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter ->
+            Some [| m.Name |]
+        | :? NewExpression as newExpr ->
+            let names = PolarsQuery<'T>.ExtractPascalCaseMemberNames newExpr
+            Some (List.toArray names)
+        | _ ->
+            // Try extracting column name via translator if possible
+            match ExprTranslator.tryTranslate paramName keyLambda.Body with
+            | Some exprHandle ->
+                // If it evaluates to a named column expression, extract its root
+                None
+            | None -> None
+
     /// Applies a list of QueryOp to a target LazyFrameHandle in forward order.
     static member private ApplyNativeOps (sourceLf: LazyFrameHandle) (ops: QueryOp list) : LazyFrameHandle =
         ops
@@ -213,6 +239,14 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
 
             | QueryOp.GroupBy spec ->
                 PolarsWrapper.LazyGroupByAgg(currentLf, spec.Keys, spec.Aggs, Option.toObj spec.Having, spec.MaintainOrder)
+
+            | QueryOp.Unique spec ->
+                let selector =
+                    match spec.SubsetCols with
+                    | Some cols when cols.Length > 0 -> PolarsWrapper.SelectorCols cols
+                    | _ -> null
+
+                PolarsWrapper.LazyUnique(currentLf, selector, spec.Keep, spec.MaintainOrder)
 
             | QueryOp.SelectPassthrough -> 
                 currentLf
@@ -354,6 +388,14 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                 match tryEvaluate countExpr with
                 | Some c -> flatten source (LinqStage.Skip(Convert.ToUInt32 c) :: acc)
                 | None -> failwithf "Could not evaluate Skip count argument: %A" countExpr
+            
+            // Distinct
+            | MethodCall(m, null, [ source ]) when m.Name = "Distinct" ->
+                flatten source (LinqStage.Distinct :: acc)
+
+            // DistinctBy
+            | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as keySel) ]) when m.Name = "DistinctBy" ->
+                flatten source (LinqStage.DistinctBy keySel :: acc)
 
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as k); StripQuotes (:? LambdaExpression as r) ]) when m.Name = "GroupBy" ->
                 flatten source (LinqStage.GroupByWithResult(k, r) :: acc)
@@ -443,6 +485,18 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
 
             | LinqStage.Skip count :: tail when clientPreds.IsEmpty ->
                 fuse tail (QueryOp.Slice(int64 count, UInt32.MaxValue) :: opsAcc) clientPreds
+
+            | LinqStage.Distinct :: tail when clientPreds.IsEmpty ->
+                let spec = { SubsetCols = None; Keep = PlUniqueKeepStrategy.First; MaintainOrder = false }
+                fuse tail (QueryOp.Unique spec :: opsAcc) clientPreds
+
+            | LinqStage.DistinctBy keyLambda :: tail when clientPreds.IsEmpty ->
+                match PolarsQuery<'T>.ExtractDistinctColumns keyLambda with
+                | Some cols ->
+                    let spec = { SubsetCols = Some cols; Keep = PlUniqueKeepStrategy.First; MaintainOrder = false }
+                    fuse tail (QueryOp.Unique spec :: opsAcc) clientPreds
+                | None ->
+                    failwithf "Could not translate DistinctBy key selector: %A" keyLambda
 
             | LinqStage.GroupByKey _ :: tail ->
                 fuse tail opsAcc clientPreds

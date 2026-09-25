@@ -903,4 +903,48 @@ public class LinqTests
         Assert.Equal("Bob", result[0].Name);
         Assert.Equal(20, result[0].DeptId);
     }
+    [Fact]
+    [Trait("LINQ", "Distinct")]
+    public void Test_Linq_Distinct_FullRow_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 1, 3, 2]),
+            Series.From("Name", ["Alice", "Bob", "Alice", "Charlie", "Bob"]),
+            Series.From("DeptId", [10, 20, 10, 30, 20])
+        ]);
+
+        var result = df.AsQueryable<Person>()
+            .Distinct()
+            .OrderBy(p => p.Id)
+            .ToList();
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal([1, 2, 3], result.Select(r => r.Id).ToArray());
+    }
+
+    [Fact]
+    [Trait("LINQ", "DistinctBy")]
+    public void Test_Linq_DistinctBy_KeySelector_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3, 4]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David"]),
+            Series.From("DeptId", [10, 10, 20, 20])
+        ]);
+
+        // DistinctBy DeptId: should preserve only the first record for each DeptId
+        var result = df.AsQueryable<Person>()
+            .DistinctBy(p => p.DeptId)
+            .OrderBy(p => p.DeptId)
+            .ToList();
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(10, result[0].DeptId);
+        Assert.Equal("Alice", result[0].Name);
+
+        Assert.Equal(20, result[1].DeptId);
+        Assert.Equal("Charlie", result[1].Name);
+    }
 }
