@@ -7,6 +7,32 @@ namespace Polars.CSharp.Tests;
 public record struct Employee(string Name, int Age, int Salary);
 public readonly record struct EmployeeDept(string Name, string Department, int Age, int Salary);
 
+public record struct DepartmentRecord(string Department,int Salary);
+public readonly record struct Person(int Id, string Name, int DeptId);
+public readonly record struct Department(int Id, string DeptName);
+public readonly record struct PersonDeptJoined(int Id, string Name, int DeptId, string DeptName);
+public record struct EmployeeDeptRecord(int Id, string Name, string DeptName);
+public readonly record struct DeptPersonSummary(int DeptId, long MemberCount, int MinId, int MaxId);
+public readonly record struct PersonWithTags(int Id, string Name, string[] Tags);
+public readonly record struct PersonTagPair(int Id, string Name, string Tag);
+public readonly record struct PersonTagDetailed(int PersonId, string TagName);
+public readonly record struct AdvancedDeptSummary(
+    int DeptId,
+    long TotalMembers,
+    long HighIdMembers,
+    int FirstMemberId,
+    int MaxMemberId
+);
+
+public interface IWorker
+{
+    string Name { get; }
+    int Salary { get; }
+}
+
+public record struct WorkerRecord(string Name, int Age, int Salary) : IWorker;
+
+
 public class LinqTests
 {
     [Fact]
@@ -175,10 +201,7 @@ public class LinqTests
         Assert.Equal("IT", query[3].Department);
         Assert.Equal(5000, query[3].Salary);
     }
-    public readonly record struct Person(int Id, string Name, int DeptId);
-    public readonly record struct Department(int Id, string DeptName);
-    public readonly record struct PersonDeptJoined(int Id, string Name, int DeptId, string DeptName);
-    public record struct EmployeeDeptRecord(int Id, string Name, string DeptName);
+
     [Fact]
     [Trait("LINQ", "Join")]
     public void Test_Linq_Join_Two_LazyFrames()
@@ -344,8 +367,6 @@ public class LinqTests
         Assert.Equal("Engineering", deptNameCol.GetValue<string>(0));
         Assert.Null(deptNameCol.GetValue<string>(1));
     }
-    // Specialized summary record struct for GroupBy test verification
-    public readonly record struct DeptPersonSummary(int DeptId, long MemberCount, int MinId, int MaxId);
 
     [Fact]
     [Trait("LINQ", "GroupBy")]
@@ -400,13 +421,6 @@ public class LinqTests
         Assert.Equal(4, summaries[2].MinId);
         Assert.Equal(4, summaries[2].MaxId);
     }
-    public readonly record struct AdvancedDeptSummary(
-        int DeptId,
-        long TotalMembers,
-        long HighIdMembers,
-        int FirstMemberId,
-        int MaxMemberId
-    );
 
     [Fact]
     [Trait("LINQ", "GroupBy")]
@@ -1132,9 +1146,6 @@ public class LinqTests
         Assert.Equal("Bob", result[1].Name);
         Assert.Equal(30, result[2].DeptId);
     }
-    public readonly record struct PersonWithTags(int Id, string Name, string[] Tags);
-    public readonly record struct PersonTagPair(int Id, string Name, string Tag);
-    public readonly record struct PersonTagDetailed(int PersonId, string TagName);
 
     [Fact]
     [Trait("LINQ", "SelectMany")]
@@ -1751,13 +1762,6 @@ public class LinqTests
         Assert.Equal(180000, query.Sum(e => e.Salary));
         Assert.Equal(30.0, query.Average(e => e.Age), 2);
     }
-    public interface IWorker
-    {
-        string Name { get; }
-        int Salary { get; }
-    }
-
-    public record struct WorkerRecord(string Name, int Age, int Salary) : IWorker;
 
     [Fact]
     [Trait("LINQ", "Cast_OfType")]
@@ -2075,7 +2079,7 @@ public class LinqTests
 
         Assert.True(query.All(e => e.Age > 100));
     }
-    public record struct DepartmentRecord(string Department,int Salary);
+
     [Fact]
     [Trait("LINQ", "CountBy")]
     public void Test_Linq_CountBy_Pushdown()
@@ -2246,5 +2250,180 @@ public class LinqTests
         Assert.Equal(210100, seedFactoryResults["IT"]);       // 100 + 210000
         Assert.Equal(125200, seedFactoryResults["HR"]);       // 200 + 125000
         Assert.Equal(80300, seedFactoryResults["Finance"]);   // 300 + 80000
+    }
+    [Fact]
+    [Trait("LINQ", "Index")]
+    public void Test_Linq_Index_WithRowIndexPushdown()
+    {
+        // 1. Arrange: Sample Employees
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 30, 35]),
+            Series.From("Salary", [60000, 80000, 95000])
+        ]);
+
+        // 2. Act: Call .NET 9 Index()
+        // Index() yields tuples of (Index, Item)
+        var results = df.AsQueryable<Employee>()
+            .Index()
+            .ToList();
+            
+        // Assert: Verify 0-based index and element mapping
+        Assert.Equal(3, results.Count);
+
+        Assert.Equal(0, results[0].Index);
+        Assert.Equal("Alice", results[0].Item.Name);
+        Assert.Equal(25, results[0].Item.Age);
+
+        Assert.Equal(1, results[1].Index);
+        Assert.Equal("Bob", results[1].Item.Name);
+        Assert.Equal(30, results[1].Item.Age);
+
+        Assert.Equal(2, results[2].Index);
+        Assert.Equal("Charlie", results[2].Item.Name);
+        Assert.Equal(35, results[2].Item.Age);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Order")]
+    public void Test_Linq_Order_And_OrderDescending()
+    {
+        // 1. Arrange: Single column scalar sequence of IDs
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", [40, 10, 30, 20])
+        ]);
+
+        // 2. Act: Test .NET 7 Order() (Ascending)
+        var ascResults = df.AsQueryable<int>()
+            .Order()
+            .ToList();
+
+        // 3. Act: Test .NET 7 OrderDescending()
+        var descResults = df.AsQueryable<int>()
+            .OrderDescending()
+            .ToList();
+
+        // 4. Assert
+        Assert.Equal([10, 20, 30, 40], ascResults);
+        Assert.Equal([40, 30, 20, 10], descResults);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Zip3")]
+    public void Test_Linq_Zip3_And_Project()
+    {
+        // 1. First DataFrame: Identifiers & Department references
+        using var df1 = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3]),
+            Series.From("DeptId", [10, 20, 30])
+        ]);
+
+        // 2. Second DataFrame: Employee details
+        using var df2 = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [28, 35, 42]),
+            Series.From("Salary", [75000, 90000, 120000])
+        ]);
+
+        // 3. Third DataFrame: Departments
+        using var df3 = DataFrame.FromColumns(
+        [
+            Series.From("Id", [10, 20, 30]),
+            Series.From("DeptName", ["HR", "IT", "Finance"])
+        ]);
+
+        // 4. BCL Standard: Zip 3 sequences to tuple, then project to EmployeeDeptRecord
+        var results = df1.AsQueryable<Person>()
+            .Zip(
+                df2.AsQueryable<Employee>(),
+                df3.AsQueryable<Department>()
+            )
+            .Select(t => new EmployeeDeptRecord(t.First.Id, t.Second.Name, t.Third.DeptName))
+            .OrderBy(record => record.Id)
+            .ToList();
+
+        // 5. Assert: Verify merged and projected columns
+        Assert.Equal(3, results.Count);
+
+        // Row 1: Alice (Id: 1, Dept: HR)
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal("Alice", results[0].Name);
+        Assert.Equal("HR", results[0].DeptName);
+
+        // Row 2: Bob (Id: 2, Dept: IT)
+        Assert.Equal(2, results[1].Id);
+        Assert.Equal("Bob", results[1].Name);
+        Assert.Equal("IT", results[1].DeptName);
+
+        // Row 3: Charlie (Id: 3, Dept: Finance)
+        Assert.Equal(3, results[2].Id);
+        Assert.Equal("Charlie", results[2].Name);
+        Assert.Equal("Finance", results[2].DeptName);
+    }
+    [Fact]
+    [Trait("LINQ", "ZipDuplicateColumns")]
+    public void Test_Linq_Zip_WithDuplicateColumns_DisambiguatesAndProjects()
+    {
+        // 1. Arrange: Both DataFrames contain colliding column names: "Id" and "DeptId"
+        // First DataFrame: Person records with Id, Name, DeptId
+        using var df1 = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("DeptId", [10, 20, 30])
+        ]);
+
+        // Second DataFrame: Department records with Id, DeptName
+        using var df2 = DataFrame.FromColumns(
+        [
+            Series.From("Id", [10, 20, 30]),
+            Series.From("DeptName", ["HR", "IT", "Finance"])
+        ]);
+
+        // 2. Act (Case A): 2-way Zip into ValueTuple (Person First, Department Second)
+        var tupleResults = df1.AsQueryable<Person>()
+            .Zip(df2.AsQueryable<Department>())
+            .ToList();
+            
+        // 3. Assert (Case A): Tuple elements must resolve their respective 'Id' correctly
+        Assert.Equal(3, tupleResults.Count);
+
+        // Row 1
+        Assert.Equal(1, tupleResults[0].First.Id);
+        Assert.Equal("Alice", tupleResults[0].First.Name);
+        Assert.Equal(10, tupleResults[0].Second.Id);
+        Assert.Equal("HR", tupleResults[0].Second.DeptName);
+
+        // Row 2
+        Assert.Equal(2, tupleResults[1].First.Id);
+        Assert.Equal("Bob", tupleResults[1].First.Name);
+        Assert.Equal(20, tupleResults[1].Second.Id);
+        Assert.Equal("IT", tupleResults[1].Second.DeptName);
+
+        // Row 3
+        Assert.Equal(3, tupleResults[2].First.Id);
+        Assert.Equal("Charlie", tupleResults[2].First.Name);
+        Assert.Equal(30, tupleResults[2].Second.Id);
+        Assert.Equal("Finance", tupleResults[2].Second.DeptName);
+
+        // 4. Act (Case B): 2-way Zip with custom resultSelector projecting to PersonDeptJoined
+        var projectedResults = df1.AsQueryable<Person>()
+            .Zip(
+                df2.AsQueryable<Department>(),
+                (p, d) => new PersonDeptJoined(p.Id, p.Name, p.DeptId, d.DeptName)
+            )
+            .OrderBy(p => p.Id)
+            .ToList();
+
+        // 5. Assert (Case B): Projected DTO correctly maps fields without column collision exception
+        Assert.Equal(3, projectedResults.Count);
+
+        Assert.Equal(new PersonDeptJoined(1, "Alice", 10, "HR"), projectedResults[0]);
+        Assert.Equal(new PersonDeptJoined(2, "Bob", 20, "IT"), projectedResults[1]);
+        Assert.Equal(new PersonDeptJoined(3, "Charlie", 30, "Finance"), projectedResults[2]);
     }
 }

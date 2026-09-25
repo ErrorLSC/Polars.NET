@@ -75,6 +75,7 @@ type internal QueryOp =
     | Rename of RenameSpec
     | Select of ExprHandle array
     | WithColumns of ExprHandle array
+    | WithRowIndex of name: string * offset: uint32 option
     | Reverse
     | SelectPassthrough
 
@@ -83,6 +84,8 @@ type internal QueryOp =
 type internal LinqStage =
     | Filter of LambdaExpression
     | Sort of LambdaExpression * isDescending: bool
+    | SortDefault of isDescending: bool // For .NET 7 Order() / OrderDescending()
+    | Index // For .NET 9 Index()
     | TakeWhile of LambdaExpression
     | SkipWhile of LambdaExpression
     | Take of uint32
@@ -114,4 +117,3 @@ type internal LinqStage =
     | OfType of sourceType: Type * targetType: Type
     | DefaultIfEmpty of defaultValExprOpt: Expression option
     | Project of LambdaExpression
-

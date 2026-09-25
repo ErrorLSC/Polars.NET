@@ -7,6 +7,7 @@ open System.Collections.Generic
 open Polars.NET.Core
 open System
 open System.Runtime.CompilerServices
+open Polars.NET.Core.Helpers
 
 /// <summary>
 /// Fast typed field extractor that enforces null checking on non-Option fields.
@@ -69,8 +70,25 @@ type internal FSharpRowMapper<'T>() =
 
             Expression.Call(closedExtractMethod, colAccess, rowIdxParam, acceptsNullConst, fieldNameConst) :> Expression
 
+        // Helper to resolve column index supporting scope suffixes (_second, _right, _third)
+        let tryFindCol (propName: string) (tupleIdx: int) (actualCols: string[]) : int option =
+            let candidates = [
+                if tupleIdx = 1 then
+                    propName + "_second"
+                    propName + "_right"
+                elif tupleIdx = 2 then
+                    propName + "_third"
+                propName
+            ]
+            candidates
+            |> List.tryPick (fun candidate ->
+                Array.tryFindIndex (fun c -> String.Equals(c, candidate, StringComparison.OrdinalIgnoreCase)) actualCols
+            )
+
         // Helper to construct a single non-tuple instance (Record or Class/Struct)
-        let rec buildSingleObjectExpr (t: Type) (nameLookup: string -> int option) : Expression =
+        let rec buildSingleObjectExpr (t: Type) (tupleIdx: int) : Expression =
+            let findFieldCol name = tryFindCol name tupleIdx columnNames
+
             if FSharpType.IsRecord(t, true) then
                 let fields = FSharpType.GetRecordFields(t, true)
                 let ctors = t.GetConstructors(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
@@ -82,7 +100,7 @@ type internal FSharpRowMapper<'T>() =
                 let ctorArgs =
                     fields
                     |> Array.map (fun f ->
-                        match nameLookup f.Name with
+                        match findFieldCol f.Name with
                         | Some colIdx -> createExtractExpr colIdx f.PropertyType f.Name
                         | None -> Expression.Default(f.PropertyType) :> Expression
                     )
@@ -103,7 +121,7 @@ type internal FSharpRowMapper<'T>() =
                     let ctorArgs =
                         ctorParams
                         |> Array.map (fun p ->
-                            match nameLookup p.Name with
+                            match findFieldCol p.Name with
                             | Some colIdx -> createExtractExpr colIdx p.ParameterType p.Name
                             | None -> Expression.Default(p.ParameterType) :> Expression
                         )
@@ -126,7 +144,7 @@ type internal FSharpRowMapper<'T>() =
                         |> Array.filter (fun p -> p.CanWrite)
 
                     for prop in props do
-                        match nameLookup prop.Name with
+                        match findFieldCol prop.Name with
                         | Some colIdx ->
                             let valExpr = createExtractExpr colIdx prop.PropertyType prop.Name
                             let assignProp = Expression.Assign(Expression.Property(instanceVar, prop), valExpr)
@@ -136,18 +154,46 @@ type internal FSharpRowMapper<'T>() =
                     blockExprs.Add(instanceVar)
                     Expression.Block([| instanceVar |], blockExprs) :> Expression
 
-        // Dynamic column lookup helper (resolved by matching series name at runtime or by schema position)
-        let nameLookup (propName: string) =
-            let idx = Array.tryFindIndex (fun (c: string) -> String.Equals(c, propName, StringComparison.OrdinalIgnoreCase)) columnNames
-            idx
+        // Builds an argument for tuple elements (supports scalar aliases like "Index", "Item1", etc. and positional fallback)
+        let buildTupleElementExpr (subType: Type) (tupleIdx: int) : Expression =
+            let isScalar = PolarsTypeHelper.IsScalarType subType
+
+            if isScalar then
+                let candidateNames = [
+                    $"Item{tupleIdx + 1}"
+                    if tupleIdx = 0 then "Index"; "First"
+                    elif tupleIdx = 1 then "Item"; "Second"
+                    elif tupleIdx = 2 then "Third"
+                ]
+
+                let resolvedColIdx =
+                    candidateNames
+                    |> List.tryPick (fun name -> tryFindCol name tupleIdx columnNames)
+                    |> Option.orElseWith (fun () ->
+                        if tupleIdx < columnNames.Length then Some tupleIdx
+                        else None
+                    )
+
+                match resolvedColIdx with
+                | Some colIdx ->
+                    createExtractExpr colIdx subType candidateNames.Head
+                | None ->
+                    Expression.Default(subType) :> Expression
+            else
+                // Forward tupleIdx so child records prioritize their disambiguation suffixes (_second, _third)
+                buildSingleObjectExpr subType tupleIdx
 
         // Top-level build branch
         let rootExpr : Expression =
+            // 0. Primitive / Scalar (e.g. int, double, string) -> Read directly from column 0
+            if PolarsTypeHelper.IsScalarType targetType then
+                createExtractExpr 0 targetType (if columnNames.Length > 0 then columnNames.[0] else "")
+
             // 1. Reference Tuple (F# Standard Tuple)
-            if FSharpType.IsTuple(targetType) then
+            elif FSharpType.IsTuple(targetType) then
                 let elemTypes = FSharpType.GetTupleElements(targetType)
                 let tupleCtor = targetType.GetConstructor(elemTypes)
-                let subArgs = elemTypes |> Array.map (fun subT -> buildSingleObjectExpr subT nameLookup)
+                let subArgs = elemTypes |> Array.mapi (fun i subT -> buildTupleElementExpr subT i)
                 Expression.New(tupleCtor, subArgs) :> Expression
 
             // 2. Struct Tuple (System.ValueTuple<...>)
@@ -159,12 +205,12 @@ type internal FSharpRowMapper<'T>() =
                     |> Option.defaultWith (fun () ->
                         targetType.GetConstructors(BindingFlags.Public ||| BindingFlags.Instance).[0]
                     )
-                let subArgs = elemTypes |> Array.map (fun subT -> buildSingleObjectExpr subT nameLookup)
+                let subArgs = elemTypes |> Array.mapi (fun i subT -> buildTupleElementExpr subT i)
                 Expression.New(tupleCtor, subArgs) :> Expression
 
             // 3. Single record or object
             else
-                buildSingleObjectExpr targetType nameLookup
+                buildSingleObjectExpr targetType 0
 
         let lambda = Expression.Lambda<Func<Series[], int64, 'T>>(rootExpr, colsParam, rowIdxParam)
         lambda.Compile()

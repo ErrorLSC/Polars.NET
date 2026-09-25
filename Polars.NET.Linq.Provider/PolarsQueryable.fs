@@ -54,8 +54,26 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
             let hasClientPreds = predsObj.GetEnumerator().MoveNext()
             nativeLf, hasClientPreds
 
+        // Helper to rewrite scalar operations with a predicate to Where(pred).TargetScalarMethod()
+        let rewritePredicateScalar (m: MethodInfo) (src: Expression) (pred: LambdaExpression) =
+            let elemType = getSequenceElementType src.Type
+            let whereMethod = LinqReflectionCache.GetQueryableWhere elemType
+            let filteredSource = Expression.Call(null, whereMethod, src, Expression.Quote pred)
+            let scalarMethod = LinqReflectionCache.GetQueryableScalar(m.Name, elemType)
+            Expression.Call(null, scalarMethod, filteredSource)
+
         match expression with
-        // 1. Count() / LongCount()
+        // 1. Unified Rewrite: Scalar operations taking a predicate (Count, Any, Single, First, Last, etc.)
+        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as pred) ])
+            when m.Name = "Count" || m.Name = "LongCount" || m.Name = "Any" || 
+                 m.Name = "Single" || m.Name = "SingleOrDefault" ||
+                 m.Name = "First" || m.Name = "FirstOrDefault" ||
+                 m.Name = "Last" || m.Name = "LastOrDefault" ->
+
+            let rewrittenCall = rewritePredicateScalar m source pred
+            this.ExecuteScalarInternal<'TResult>(rewrittenCall)
+
+        // 2. Count() / LongCount() without predicate
         | MethodCall(m, null, [ source ]) when m.Name = "Count" || m.Name = "LongCount" ->
             let nativeLf, hasClientPreds = resolveQueryPlan source
             if not hasClientPreds then
@@ -69,27 +87,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 let count = Enumerable.Count(rawRows.Cast<obj>())
                 Convert.ChangeType(count, targetType) :?> 'TResult
 
-        // 2. Count(predicate) -> Rewrite to Where(pred).Count()
-        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as pred) ]) when m.Name = "Count" || m.Name = "LongCount" ->
-            let elemType = getSequenceElementType source.Type
-            let whereMethod = 
-                typeof<Queryable>.GetMethods()
-                |> Array.find (fun methodInfo -> 
-                    methodInfo.Name = "Where" && 
-                    methodInfo.GetParameters().Length = 2 && 
-                    methodInfo.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<Expression<Func<_, _>>>)
-                |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType)
-
-            let filteredSource = Expression.Call(null, whereMethod, source, Expression.Quote pred)
-            let countMethod = 
-                typeof<Queryable>.GetMethods()
-                |> Array.find (fun methodInfo -> methodInfo.Name = m.Name && methodInfo.GetParameters().Length = 1)
-                |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType)
-
-            let countCall = Expression.Call(null, countMethod, filteredSource)
-            this.ExecuteScalarInternal<'TResult>(countCall)
-
-        // 3. Any()
+        // 3. Any() without predicate
         | MethodCall(m, null, [ source ]) when m.Name = "Any" ->
             let nativeLf, hasClientPreds = resolveQueryPlan source
             if not hasClientPreds then
@@ -102,56 +100,27 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 let rawRows = (this :> IQueryProvider).CreateQuery(source)
                 box (Enumerable.Any(rawRows.Cast<obj>())) :?> 'TResult
 
-        // 4. Any(predicate) -> Rewrite to Where(pred).Any()
-        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as pred) ]) when m.Name = "Any" ->
-            let elemType = getSequenceElementType source.Type
-            let whereMethod = 
-                typeof<Queryable>.GetMethods()
-                |> Array.find (fun methodInfo -> 
-                    methodInfo.Name = "Where" && 
-                    methodInfo.GetParameters().Length = 2 && 
-                    methodInfo.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<Expression<Func<_, _>>>)
-                |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType)
-
-            let filteredSource = Expression.Call(null, whereMethod, source, Expression.Quote pred)
-            let anyMethod = 
-                typeof<Queryable>.GetMethods()
-                |> Array.find (fun methodInfo -> methodInfo.Name = "Any" && methodInfo.GetParameters().Length = 1)
-                |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType)
-
-            let anyCall = Expression.Call(null, anyMethod, filteredSource)
-            this.ExecuteScalarInternal<'TResult>(anyCall)
-
-        // 12. All(predicate) -> Short-circuit pushdown: filter(not(pred)).slice(0, 1)
+        // 4. All(predicate) -> Short-circuit pushdown: filter(not(pred)).slice(0, 1)
         | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as pred) ]) when m.Name = "All" ->
             let nativeLf, hasClientPreds = resolveQueryPlan source
             let translatedExprOpt = ExprTranslator.tryTranslate pred.Parameters.[0].Name pred.Body
 
             match translatedExprOpt with
             | Some colExpr when not hasClientPreds ->
-                // Native pushdown: LazyFilter(Not(pred)) -> LazySlice(0, 1)
                 let notExpr = PolarsWrapper.Not colExpr
                 let filteredLf = PolarsWrapper.LazyFilter(nativeLf, notExpr)
                 let slicedLf = PolarsWrapper.LazySlice(filteredLf, 0L, 1u)
                 let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
                 let height = PolarsWrapper.DataFrameHeight dfHandle
-                // If no row violates the predicate, then All holds true
                 box (height = 0L) :?> 'TResult
             | _ ->
-                // Fallback to in-memory LINQ evaluation
                 let rawRows = (this :> IQueryProvider).CreateQuery(source)
                 let elemType = getSequenceElementType source.Type
                 let compiledPred = pred.Compile()
-                let allMethod =
-                    typeof<Enumerable>.GetMethods()
-                    |> Array.find (fun methodInfo ->
-                        methodInfo.Name = "All" &&
-                        methodInfo.GetParameters().Length = 2 &&
-                        methodInfo.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<Func<_, _>>)
-                let closedMethod = allMethod.MakeGenericMethod(elemType)
+                let closedMethod = LinqReflectionCache.GetEnumerableMethod("All", 2, [| elemType |])
                 closedMethod.Invoke(null, [| box rawRows; box compiledPred |]) :?> 'TResult
 
-        // 5. First() / FirstOrDefault()
+        // 5. First() / FirstOrDefault() without predicate
         | MethodCall(m, null, [ source ]) when m.Name = "First" || m.Name = "FirstOrDefault" ->
             let isOrDefault = m.Name = "FirstOrDefault"
             let nativeLf, hasClientPreds = resolveQueryPlan source
@@ -170,7 +139,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 if isOrDefault then Enumerable.FirstOrDefault(rawRows.Cast<'TResult>())
                 else Enumerable.First(rawRows.Cast<'TResult>())
 
-        // 6. Last() / LastOrDefault()
+        // 6. Last() / LastOrDefault() without predicate
         | MethodCall(m, null, [ source ]) when m.Name = "Last" || m.Name = "LastOrDefault" ->
             let isOrDefault = m.Name = "LastOrDefault"
             let nativeLf, hasClientPreds = resolveQueryPlan source
@@ -209,21 +178,41 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 let aggLf = PolarsWrapper.LazySelect(nativeLf, [| aggExpr |])
                 let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto, true)
                 mat.MaterializeScalar<'TResult>(dfHandle)
-
             | _ ->
                 let rawRows = (this :> IQueryProvider).CreateQuery(source)
                 let compiledSel = selector.Compile()
                 let genericArg = source.Type.GetGenericArguments().[0]
-                let linqMethod = 
-                    typeof<Enumerable>.GetMethods()
-                    |> Array.find (fun methodInfo -> 
-                        methodInfo.Name = m.Name && 
-                        methodInfo.GetParameters().Length = 2 && 
-                        methodInfo.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<Func<_, _>>)
-                let closedMethod = linqMethod.MakeGenericMethod(genericArg)
+                let closedMethod = LinqReflectionCache.GetEnumerableMethod(m.Name, 2, [| genericArg |])
                 closedMethod.Invoke(null, [| box rawRows; box compiledSel |]) :?> 'TResult
 
-        // 7. Single() / SingleOrDefault()
+        // 8. Max, Min, Sum, Average without selector (e.g., IQueryable<int>.Sum())
+        | MethodCall(m, null, [ source ])
+            when m.Name = "Max" || m.Name = "Min" || m.Name = "Sum" || m.Name = "Average" ->
+
+            let nativeLf, hasClientPreds = resolveQueryPlan source
+            if not hasClientPreds then
+                let colNames = PolarsQuery<obj>.GetLazyColumnNames nativeLf
+                let targetCol = if colNames.Length > 0 then colNames.[0] else ""
+                let colExpr = PolarsWrapper.Col targetCol
+                let aggExpr =
+                    match m.Name with
+                    | "Max" -> PolarsWrapper.Max colExpr
+                    | "Min" -> PolarsWrapper.Min colExpr
+                    | "Sum" -> PolarsWrapper.Sum colExpr
+                    | "Average" -> PolarsWrapper.Mean colExpr
+                    | _ -> failwith "Unsupported scalar aggregate"
+
+                let aggLf = PolarsWrapper.LazySelect(nativeLf, [| aggExpr |])
+                let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto, true)
+                mat.MaterializeScalar<'TResult>(dfHandle)
+            else
+                let rawRows = (this :> IQueryProvider).CreateQuery(source)
+                let elemType = getSequenceElementType source.Type
+                let genericArg = if source.Type.IsGenericType then source.Type.GetGenericArguments().[0] else elemType
+                let closedMethod = LinqReflectionCache.GetEnumerableMethod(m.Name, 1, [| genericArg |])
+                closedMethod.Invoke(null, [| box rawRows |]) :?> 'TResult
+
+        // 9. Single() / SingleOrDefault() without predicate
         | MethodCall(m, null, [ source ]) when m.Name = "Single" || m.Name = "SingleOrDefault" ->
             let isOrDefault = m.Name = "SingleOrDefault"
             let nativeLf, hasClientPreds = resolveQueryPlan source
@@ -248,27 +237,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 if isOrDefault then Enumerable.SingleOrDefault(rawRows.Cast<'TResult>())
                 else Enumerable.Single(rawRows.Cast<'TResult>())
 
-        // 8. Single(predicate) / SingleOrDefault(predicate) -> Rewrite to Where(pred).Single(...)
-        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as pred) ]) when m.Name = "Single" || m.Name = "SingleOrDefault" ->
-            let elemType = getSequenceElementType source.Type
-            let whereMethod = 
-                typeof<Queryable>.GetMethods()
-                |> Array.find (fun methodInfo -> 
-                    methodInfo.Name = "Where" && 
-                    methodInfo.GetParameters().Length = 2 && 
-                    methodInfo.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<Expression<Func<_, _>>>)
-                |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType)
-
-            let filteredSource = Expression.Call(null, whereMethod, source, Expression.Quote pred)
-            let singleMethod = 
-                typeof<Queryable>.GetMethods()
-                |> Array.find (fun methodInfo -> methodInfo.Name = m.Name && methodInfo.GetParameters().Length = 1)
-                |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType)
-
-            let singleCall = Expression.Call(null, singleMethod, filteredSource)
-            this.ExecuteScalarInternal<'TResult>(singleCall)
-
-        // 9. ElementAt(index) / ElementAtOrDefault(index)
+        // 10. ElementAt(index) / ElementAtOrDefault(index)
         | MethodCall(m, null, [ source; indexExpr ]) when m.Name = "ElementAt" || m.Name = "ElementAtOrDefault" ->
             let isOrDefault = m.Name = "ElementAtOrDefault"
             let index = 
@@ -282,7 +251,6 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
             else
                 let nativeLf, hasClientPreds = resolveQueryPlan source
                 if not hasClientPreds then
-                    // Vectorized pushdown: slice single row at exact offset
                     let slicedLf = PolarsWrapper.LazySlice(nativeLf, index, 1u)
                     let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
                     let height = PolarsWrapper.DataFrameHeight dfHandle
@@ -294,7 +262,6 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                         let rows = mat.Materialize<'TResult>(dfHandle)
                         Enumerable.First rows
                 else
-                    // Fallback to in-memory evaluation using F# core Seq module to avoid BCL Index vs int overload ambiguity
                     let rawRows = (this :> IQueryProvider).CreateQuery(source)
                     let typedSeq : seq<'TResult> = rawRows.Cast<'TResult>()
                     let intIdx = int index
@@ -304,7 +271,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                         if isOrDefault then Unchecked.defaultof<'TResult>
                         else raise (ArgumentOutOfRangeException("index", "Index was out of range."))
 
-        // 10. Contains(item)
+        // 11. Contains(item)
         | MethodCall(m, null, [ source; itemExpr ]) when m.Name = "Contains" ->
             let itemVal = 
                 match tryEvaluate itemExpr with
@@ -361,22 +328,19 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                         let height = PolarsWrapper.DataFrameHeight dfHandle
                         box (height > 0L) :?> 'TResult
                     else
-                        // Fallback
                         let rawRows = (this :> IQueryProvider).CreateQuery(source)
                         let seq = rawRows.Cast<obj>()
                         box (Enumerable.Contains(seq, itemVal)) :?> 'TResult
             else
-                // In-memory fallback
                 let rawRows = (this :> IQueryProvider).CreateQuery(source)
                 let seq = rawRows.Cast<obj>()
                 box (Enumerable.Contains(seq, itemVal)) :?> 'TResult
 
-        // 11. SequenceEqual(second)
+            // 12. SequenceEqual(second) -> Fully-vectorized Native DataFrame comparison
         | MethodCall(m, null, [ source; secondExpr ]) when m.Name = "SequenceEqual" ->
             let elemType = getSequenceElementType source.Type
             let nativeLf, hasClientPreds = resolveQueryPlan source
 
-            // Resolve the second plan cleanly without causing provider recursion
             let rec tryGetSecondQueryPlan (e: Expression) : (LazyFrameHandle * bool) option =
                 match e with
                 | :? MethodCallExpression as mc when typeof<IQueryable>.IsAssignableFrom(mc.Type) ->
@@ -398,66 +362,44 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
 
             match tryGetSecondQueryPlan secondExpr with
             | Some (secondLf, secondHasClientPreds) when not hasClientPreds && not secondHasClientPreds ->
-                // Step 1: Early pruning via row count comparison
-                let lenExpr1 = PolarsWrapper.Len()
-                let lenExpr2 = PolarsWrapper.Len()
+                // Step 1: Schema fast-path check (column count mismatch fails early)
+                let colNames1 = nativeLf |> PolarsQuery<obj>.GetLazyColumnNames
+                let colNames2 = secondLf |> PolarsQuery<obj>.GetLazyColumnNames
 
-                let h1Lf = PolarsWrapper.LazySelect(PolarsWrapper.LazyClone nativeLf, [| lenExpr1 |])
-                let h2Lf = PolarsWrapper.LazySelect(PolarsWrapper.LazyClone secondLf, [| lenExpr2 |])
-
-                let df1 = PolarsWrapper.LazyCollect(h1Lf, PlEngine.Auto, true)
-                let df2 = PolarsWrapper.LazyCollect(h2Lf, PlEngine.Auto, true)
-
-                let h1 = mat.MaterializeScalar<int64>(df1)
-                let h2 = mat.MaterializeScalar<int64>(df2)
-
-                if h1 <> h2 then
+                if colNames1.Length <> colNames2.Length then
                     box false :?> 'TResult
-                elif h1 = 0L then
-                    box true :?> 'TResult
                 else
-                    // Step 2: Compare schema column counts
-                    let colNames1 = nativeLf |> PolarsQuery<obj>.GetLazyColumnNames
-                    let colNames2 = secondLf |> PolarsQuery<obj>.GetLazyColumnNames
+                    // Step 2: Single-pass execution of both LazyFrames
+                    let fullDf1 = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                    let fullDf2 = PolarsWrapper.LazyCollect(secondLf, PlEngine.Auto, true)
 
-                    if colNames1.Length <> colNames2.Length then
+                    // Step 3: Fast height check (O(1) in-memory)
+                    let h1 = PolarsWrapper.DataFrameHeight fullDf1
+                    let h2 = PolarsWrapper.DataFrameHeight fullDf2
+
+                    if h1 <> h2 then
                         box false :?> 'TResult
+                    elif h1 = 0L then
+                        box true :?> 'TResult
                     else
-                        // Step 3: Materialize both frames using elemType
-                        let fullDf1 = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
-                        let fullDf2 = PolarsWrapper.LazyCollect(secondLf, PlEngine.Auto, true)
-
-                        let materializeMethod = 
-                            mat.GetType().GetMethod("Materialize").MakeGenericMethod(elemType)
-                        let rows1 = materializeMethod.Invoke(mat, [| box fullDf1 |]) :?> IEnumerable
-                        let rows2 = materializeMethod.Invoke(mat, [| box fullDf2 |]) :?> IEnumerable
-
-                        let seqEqMethod = 
-                            typeof<Enumerable>.GetMethods()
-                            |> Array.find (fun m -> m.Name = "SequenceEqual" && m.GetParameters().Length = 2)
-                            |> fun m -> m.MakeGenericMethod(elemType)
-
-                        let areEqual = seqEqMethod.Invoke(null, [| box rows1; box rows2 |]) :?> bool
+                        // Step 4: Native vectorized comparison via pl_dataframe_equals
+                        let areEqual = PolarsWrapper.DataFrameEquals(fullDf1, fullDf2, nullEqual = true)
                         box areEqual :?> 'TResult
 
             | _ ->
-                // Fallback to in-memory SequenceEqual with non-recursive eager list materialization
+                // Fallback: in-memory evaluation when client-side predicates exist
                 let rawRows1 = (this :> IQueryProvider).CreateQuery(source) : IEnumerable
                 let rawRows2 =
                     match tryEvaluate secondExpr with
                     | Some (:? IEnumerable as e) -> e
                     | _ ->
                         let q = (this :> IQueryProvider).CreateQuery(secondExpr)
-                        let castMethod = typeof<Enumerable>.GetMethod("Cast").MakeGenericMethod(elemType)
-                        let toListMethod = typeof<Enumerable>.GetMethod("ToList").MakeGenericMethod(elemType)
+                        let castMethod = LinqReflectionCache.GetEnumerableMethod("Cast", 1, [| elemType |])
+                        let toListMethod = LinqReflectionCache.GetEnumerableMethod("ToList", 1, [| elemType |])
                         let casted = castMethod.Invoke(null, [| box q |])
                         toListMethod.Invoke(null, [| casted |]) :?> IEnumerable
 
-                let seqEqMethod = 
-                    typeof<Enumerable>.GetMethods()
-                    |> Array.find (fun m -> m.Name = "SequenceEqual" && m.GetParameters().Length = 2)
-                    |> fun m -> m.MakeGenericMethod(elemType)
-
+                let seqEqMethod = LinqReflectionCache.GetEnumerableMethod("SequenceEqual", 2, [| elemType |])
                 let areEqual = seqEqMethod.Invoke(null, [| box rawRows1; box rawRows2 |]) :?> bool
                 box areEqual :?> 'TResult
 
@@ -479,7 +421,6 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 let keyParam = keyLambda.Parameters.[0]
                 match ExprTranslator.tryTranslate keyParam.Name keyLambda.Body with
                 | Some keyColExpr ->
-                    // Step 1: Sort by target key expression natively (Ascending for MinBy, Descending for MaxBy)
                     let sortSpec = {
                         Expr = keyColExpr
                         Descending = isDescending
@@ -494,7 +435,6 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                             maintainOrder = false
                         )
 
-                    // Step 2: Slice top 1 row
                     let slicedLf = PolarsWrapper.LazySlice(sortedLf, 0L, 1u)
                     let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
                     let height = PolarsWrapper.DataFrameHeight dfHandle
@@ -505,24 +445,14 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                         let rows = mat.Materialize<'TResult>(dfHandle)
                         Enumerable.First rows
                 | None ->
-                    // In-memory fallback if key expression cannot be pushed down
                     let rawRows = (this :> IQueryProvider).CreateQuery(source)
                     let elemType = getSequenceElementType source.Type
                     let keyType = keyLambda.ReturnType
                     let compiledKey = keyLambda.Compile()
-
-                    let linqMethod =
-                        typeof<Enumerable>.GetMethods()
-                        |> Array.find (fun methodInfo ->
-                            methodInfo.Name = m.Name &&
-                            methodInfo.GetParameters().Length = 2 &&
-                            methodInfo.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<Func<_, _>>)
-                        |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType, keyType)
-
+                    let linqMethod = LinqReflectionCache.GetEnumerableMethod(m.Name, 2, [| elemType; keyType |])
                     linqMethod.Invoke(null, [| box rawRows; box compiledKey |]) :?> 'TResult
 
             | _ ->
-                // In-memory fallback for client-side predicates or missing expression trees
                 let rawRows = (this :> IQueryProvider).CreateQuery(source)
                 let elemType = getSequenceElementType source.Type
                 let compiledKey = 
@@ -535,14 +465,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                     | Some kl -> kl.ReturnType
                     | None -> typeof<obj>
 
-                let linqMethod =
-                    typeof<Enumerable>.GetMethods()
-                    |> Array.find (fun methodInfo ->
-                        methodInfo.Name = m.Name &&
-                        methodInfo.GetParameters().Length = 2 &&
-                        methodInfo.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<Func<_, _>>)
-                    |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType, keyType)
-
+                let linqMethod = LinqReflectionCache.GetEnumerableMethod(m.Name, 2, [| elemType; keyType |])
                 linqMethod.Invoke(null, [| box rawRows; box compiledKey |]) :?> 'TResult
 
         // 14. Aggregate (Full coverage of all BCL Queryable.Aggregate overloads)
@@ -554,14 +477,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
             // Overload 1: Aggregate(source, func)
             | [ StripQuotes (:? LambdaExpression as func) ] ->
                 let compiledFunc = func.Compile()
-                let aggMethod = 
-                    typeof<Enumerable>.GetMethods()
-                    |> Array.find (fun methodInfo -> 
-                        methodInfo.Name = "Aggregate" && 
-                        methodInfo.GetParameters().Length = 2 && 
-                        methodInfo.GetGenericArguments().Length = 1)
-                    |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType)
-
+                let aggMethod = LinqReflectionCache.GetEnumerableMethod("Aggregate", 2, [| elemType |])
                 aggMethod.Invoke(null, [| box rawRows; box compiledFunc |]) :?> 'TResult
 
             // Overload 2: Aggregate(source, seed, func)
@@ -573,14 +489,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
 
                 let compiledFunc = func.Compile()
                 let accumType = typeof<'TResult>
-                let aggMethod = 
-                    typeof<Enumerable>.GetMethods()
-                    |> Array.find (fun methodInfo -> 
-                        methodInfo.Name = "Aggregate" && 
-                        methodInfo.GetParameters().Length = 3 && 
-                        methodInfo.GetGenericArguments().Length = 2)
-                    |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType, accumType)
-
+                let aggMethod = LinqReflectionCache.GetEnumerableMethod("Aggregate", 3, [| elemType; accumType |])
                 aggMethod.Invoke(null, [| box rawRows; box seedVal; box compiledFunc |]) :?> 'TResult
 
             // Overload 3: Aggregate(source, seed, func, resultSelector)
@@ -593,14 +502,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 let compiledFunc = func.Compile()
                 let compiledResSel = resSel.Compile()
                 let accumType = func.ReturnType
-                let aggMethod = 
-                    typeof<Enumerable>.GetMethods()
-                    |> Array.find (fun methodInfo -> 
-                        methodInfo.Name = "Aggregate" && 
-                        methodInfo.GetParameters().Length = 4 && 
-                        methodInfo.GetGenericArguments().Length = 3)
-                    |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType, accumType, typeof<'TResult>)
-
+                let aggMethod = LinqReflectionCache.GetEnumerableMethod("Aggregate", 4, [| elemType; accumType; typeof<'TResult> |])
                 aggMethod.Invoke(null, [| box rawRows; box seedVal; box compiledFunc; box compiledResSel |]) :?> 'TResult
 
             | _ ->
@@ -936,7 +838,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     MaintainOrder = false
                 }
             | _ -> None
-            
+
         | _ -> None
     /// Compiles a Join stage into a native JoinSpec
     static member private CompileJoin (methodInfo: MethodInfo) (innerExpr: Expression) (outerKey: LambdaExpression) (innerKey: LambdaExpression) : JoinSpec option =
@@ -1005,6 +907,13 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             match op with
             | QueryOp.WithColumns exprs ->
                 PolarsWrapper.LazyWithColumns(currentLf, exprs)
+
+            | QueryOp.WithRowIndex (name, offsetOpt) ->
+                let offsetNullable = 
+                    match offsetOpt with
+                    | Some o -> Nullable(int o)
+                    | None -> Nullable 0
+                PolarsWrapper.LazyFrameWithRowIndex(currentLf, name, offsetNullable)
 
             | QueryOp.Filter exprHandle -> 
                 PolarsWrapper.LazyFilter(currentLf, exprHandle)
@@ -1116,6 +1025,17 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | MethodCall(m, null, [ source ]) when m.Name = "Distinct" ->
                 flatten source (LinqStage.Distinct :: acc)
 
+            // .NET 9 Index()
+            | MethodCall(m, null, [ source ]) when m.Name = "Index" ->
+                flatten source (LinqStage.Index :: acc)
+
+            // .NET 7 Order() / OrderDescending()
+            | MethodCall(m, null, [ source ]) when m.Name = "Order" ->
+                flatten source (LinqStage.SortDefault(isDescending = false) :: acc)
+
+            | MethodCall(m, null, [ source ]) when m.Name = "OrderDescending" ->
+                flatten source (LinqStage.SortDefault(isDescending = true) :: acc)
+
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as keySel) ]) when m.Name = "DistinctBy" ->
                 flatten source (LinqStage.DistinctBy keySel :: acc)
 
@@ -1140,8 +1060,6 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as k) ]) when m.Name = "GroupBy" ->
                 flatten source (LinqStage.GroupByKey k :: acc)
-
-
 
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as l) ]) when m.Name = "Select" ->
                 flatten source (LinqStage.Project l :: acc)
@@ -1210,6 +1128,9 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | MethodCall(m, null, [ first; second; third ]) when m.Name = "Zip" ->
                 flatten first (LinqStage.Zip3(second, third) :: acc)
 
+            // // Zip (Three sequences with resultSelector: first, second, third, resultSelector)
+            // | MethodCall(m, null, [ first; second; third; StripQuotes (:? LambdaExpression as resSel) ]) when m.Name = "Zip" ->
+            //     flatten first (LinqStage.Zip3WithResult(second, third, resSel) :: acc)
             // Chunk(size)
             | MethodCall(m, null, [ source; sizeExpr ]) when m.Name = "Chunk" ->
                 match tryEvaluate sizeExpr with
@@ -1339,6 +1260,28 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     let compiled = l.Compile() :?> Func<'T, bool>
                     fuse tail opsAcc (compiled :: clientPreds)
 
+            // Rule: .NET 9 Index() -> Native LazyFrameWithRowIndex pushdown + Cast to Int32
+            | LinqStage.Index :: tail when clientPreds.IsEmpty ->
+                // 1. Attach "Index" column (natively u32)
+                let indexOp = QueryOp.WithRowIndex("Index", Some 0u)
+                let int32Dtype = PolarsWrapper.DataTypeExprFromDataType(PolarsWrapper.NewPrimitiveType(int PlDataType.Int32))
+                // 2. Cast "Index" column to Int32 to match BCL (int Index, T Item)
+                let castIndexExpr = 
+                    PolarsWrapper.Col "Index"
+                    |> fun c -> PolarsWrapper.ExprCast(c, int32Dtype, strict = false, wrapNumerical=false)
+                    
+                let withCastOp = QueryOp.WithColumns [| castIndexExpr |]
+
+                fuse tail (withCastOp :: indexOp :: opsAcc) clientPreds
+
+            // Rule: .NET 7 Order() / OrderDescending() -> Sort by the primary/single column
+            | LinqStage.SortDefault isDesc :: tail when clientPreds.IsEmpty ->
+                let colNames = PolarsQuery<'T>.GetLazyColumnNames lfCloned
+                let targetCol = if colNames.Length > 0 then colNames.[0] else ""
+                let colExpr = PolarsWrapper.Col targetCol
+                let spec = { Expr = colExpr; Descending = isDesc; NullsLast = false }
+                fuse tail (addSort spec opsAcc) clientPreds
+            
             | LinqStage.Sort(l, isDesc) :: tail ->
                 let param = l.Parameters.[0]
                 let isGrouping = param.Type.IsGenericType && param.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
@@ -1389,19 +1332,43 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     fuse tail (QueryOp.Concat spec :: opsAcc) clientPreds
                 | None -> failwith "Failed to resolve second expression for Concat."
 
-            // Rule: Zip -> Native Horizontal Concat Pushdown (2 sources)
+            // Rule: Zip -> Native Horizontal Concat Pushdown (2 sources) with duplicate column disambiguation
             | LinqStage.Zip(secondExpr, resLambdaOpt) :: tail when clientPreds.IsEmpty ->
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with
                 | Some otherLf ->
-                    let clonedOther = PolarsWrapper.LazyClone otherLf
+                    // 1. Inspect existing columns to detect any collisions
+                    let baseCols = PolarsQuery<'T>.GetLazyColumnNames lfCloned |> Set.ofArray
+                    let secondCols = PolarsQuery<'T>.GetLazyColumnNames otherLf
+                    let duplicateCols = secondCols |> Array.filter baseCols.Contains
+
+                    // 2. Disambiguate colliding columns on the second LazyFrame by appending "_second" suffix
+                    let safeSecondLf, suffixMap =
+                        if duplicateCols.Length > 0 then
+                            let newNames = duplicateCols |> Array.map (fun c -> c + "_second")
+                            let renamedLf = PolarsWrapper.LazyRename(otherLf, duplicateCols, newNames, strict = false)
+                            let mapping = Array.zip duplicateCols newNames |> Map.ofArray
+                            renamedLf, mapping
+                        else
+                            otherLf, Map.empty
+
+                    let clonedOther = PolarsWrapper.LazyClone safeSecondLf
                     let zipOp = QueryOp.HorizontalConcat [| clonedOther |]
 
+                    // 3. Handle explicit resultSelector renames if present, accounting for disambiguated suffixes
                     let renameOps =
                         match resLambdaOpt with
                         | Some resLambda ->
                             let renames = PolarsQuery<'T>.ExtractBinaryResultRenames resLambda None
                             if not renames.IsEmpty then
-                                [ QueryOp.Rename { ExistingNames = renames |> List.map fst |> List.toArray; NewNames = renames |> List.map snd |> List.toArray } ]
+                                let mappedRenames =
+                                    renames
+                                    |> List.map (fun (srcCol, destCol) ->
+                                        match suffixMap.TryFind srcCol with
+                                        | Some actualColName -> (actualColName, destCol)
+                                        | None -> (srcCol, destCol)
+                                    )
+                                [ QueryOp.Rename { ExistingNames = mappedRenames |> List.map fst |> List.toArray
+                                                   NewNames = mappedRenames |> List.map snd |> List.toArray } ]
                             else []
                         | None -> []
 
@@ -1410,17 +1377,49 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 | None ->
                     failwith "Failed to resolve second source for Zip pushdown."
 
-            // Rule: Zip3 -> Native Horizontal Concat Pushdown (3 sources)
+            // Rule: Zip3 -> Native Horizontal Concat Pushdown with unique column disambiguation
             | LinqStage.Zip3(secondExpr, thirdExpr) :: tail when clientPreds.IsEmpty ->
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr,
                       PolarsQuery<'T>.ResolveToLazyFrameHandle thirdExpr with
                 | Some secondLf, Some thirdLf ->
-                    let clonedSecond = PolarsWrapper.LazyClone secondLf
-                    let clonedThird = PolarsWrapper.LazyClone thirdLf
-                    let zip3Op = QueryOp.HorizontalConcat [| clonedSecond; clonedThird |]
+                    // Helper to suffix columns to prevent duplicate column collisions
+                    let suffixDuplicateColumns (existingCols: Set<string>) (lf: LazyFrameHandle) (suffix: string) =
+                        let cols = PolarsQuery<'T>.GetLazyColumnNames lf
+                        let duplicates = cols |> Array.filter existingCols.Contains
+                        if duplicates.Length > 0 then
+                            let newNames = duplicates |> Array.map (fun c -> c + suffix)
+                            let renamedLf = PolarsWrapper.LazyRename(lf, duplicates, newNames, strict = false)
+                            renamedLf, existingCols |> Set.union (Set.ofArray cols)
+                        else
+                            lf, existingCols |> Set.union (Set.ofArray cols)
+
+                    let baseCols = PolarsQuery<'T>.GetLazyColumnNames lfCloned |> Set.ofArray
+                    let safeSecondLf, colsAfter2 = suffixDuplicateColumns baseCols secondLf "_second"
+                    let safeThirdLf, _ = suffixDuplicateColumns colsAfter2 thirdLf "_third"
+
+                    let zip3Op = QueryOp.HorizontalConcat [| PolarsWrapper.LazyClone safeSecondLf; PolarsWrapper.LazyClone safeThirdLf |]
                     fuse tail (zip3Op :: opsAcc) clientPreds
                 | _ ->
                     failwith "Failed to resolve second or third source for Zip3 pushdown."
+
+            // // Rule: Zip3WithResult -> Native Horizontal Concat + Column Rename
+            // | LinqStage.Zip3WithResult(secondExpr, thirdExpr, resLambda) :: tail when clientPreds.IsEmpty ->
+            //     match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr,
+            //           PolarsQuery<'T>.ResolveToLazyFrameHandle thirdExpr with
+            //     | Some secondLf, Some thirdLf ->
+            //         let clonedSecond = PolarsWrapper.LazyClone secondLf
+            //         let clonedThird = PolarsWrapper.LazyClone thirdLf
+            //         let zip3Op = QueryOp.HorizontalConcat [| clonedSecond; clonedThird |]
+                    
+            //         let renames = PolarsQuery<'T>.ExtractBinaryResultRenames resLambda None
+            //         let renameOps =
+            //             if not renames.IsEmpty then
+            //                 [ QueryOp.Rename { ExistingNames = renames |> List.map fst |> List.toArray; NewNames = renames |> List.map snd |> List.toArray } ]
+            //             else []
+
+            //         fuse tail (renameOps @ (zip3Op :: opsAcc)) clientPreds
+            //     | _ ->
+            //         failwith "Failed to resolve second or third source for Zip3WithResult pushdown."
 
             | LinqStage.Union(secondExpr, keyLambdaOpt) :: tail when clientPreds.IsEmpty ->
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with

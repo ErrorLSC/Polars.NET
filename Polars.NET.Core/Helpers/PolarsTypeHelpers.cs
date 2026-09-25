@@ -235,4 +235,25 @@ public static class PolarsTypeHelper
                type == typeof(double) || type == typeof(decimal) ||
                type == typeof(Int128) || type == typeof(UInt128);
     }
+    /// <summary>
+    /// Checks whether the specified type represents a supported primitive or scalar value
+    /// (e.g. primitives, string, decimal, DateOnly, DateTime, TimeSpan, etc., including Nullable<T> equivalents).
+    /// </summary>
+    public static bool IsScalarType(Type type)
+    {
+        if (type == null) return false;
+
+        Type underlying = GetUnderlyingOrSelf(type);
+
+        return underlying.IsPrimitive
+            || underlying.IsEnum
+            || underlying == typeof(string)
+            || underlying == typeof(decimal)
+            || underlying == typeof(DateTime)
+            || underlying == typeof(DateTimeOffset)
+            || underlying == typeof(TimeSpan)
+            || underlying == typeof(DateOnly)
+            || underlying == typeof(TimeOnly)
+            || underlying == typeof(Guid);
+    }
 }
