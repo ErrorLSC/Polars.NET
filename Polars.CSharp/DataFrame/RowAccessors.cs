@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using Polars.NET.Core.Helpers;
 
 namespace Polars.CSharp;
 
