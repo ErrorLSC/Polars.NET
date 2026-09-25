@@ -2597,4 +2597,40 @@ public class LinqTests
         Assert.Equal(301, rank1.Item.MinId);
         Assert.Equal(302, rank1.Item.MaxId);
     }
+    [Fact]
+    [Trait("LINQ", "Expr_TernaryConditional")]
+    public void Test_Linq_TernaryConditional_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Department", ["IT", "HR", "IT", "Finance"]),
+            Series.From("Salary", [50000, 60000, 70000, 80000])
+        ]);
+
+        var query = df.AsQueryable<DepartmentRecord>();
+
+        // 1. Conditional in Where filter:
+        // If IT, check Salary > 60000; otherwise check Salary >= 80000
+        var filtered = query
+            .Where(d => d.Department == "IT" ? d.Salary > 60000 : d.Salary >= 80000)
+            .ToList();
+
+        Assert.Equal(2, filtered.Count);
+        Assert.Contains(filtered, d => d.Department == "IT" && d.Salary == 70000);
+        Assert.Contains(filtered, d => d.Department == "Finance" && d.Salary == 80000);
+
+        // 2. Chained nested conditional with ToDataFrame()
+        // Bonus calculation: IT gets 10000, HR gets 5000, others get 2000
+        var projected = query
+            .Select(d => new
+            {
+                d.Department,
+                Bonus = d.Department == "IT" ? 10000 : (d.Department == "HR" ? 5000 : 2000)
+            })
+            .ToDataFrame();
+
+        // Verifies the Bonus column is generated entirely within Native Polars
+        var bonusCol = projected["Bonus"].ToArray<int>();
+        Assert.Equal([10000, 5000, 10000, 2000], bonusCol);
+    }
 }

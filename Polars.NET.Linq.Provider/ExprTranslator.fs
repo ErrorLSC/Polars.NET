@@ -176,6 +176,16 @@ module ExprTranslator =
                 | Some inner -> translateUnary op inner
                 | None -> None
 
+            // 3. Ternary Conditional Operator: (test ? ifTrue : ifFalse) -> Polars when/then/otherwise (IfElse)
+            | :? ConditionalExpression as condExpr ->
+                match tryTranslate paramName condExpr.Test,
+                      tryTranslate paramName condExpr.IfTrue,
+                      tryTranslate paramName condExpr.IfFalse with
+                | Some testHandle, Some trueHandle, Some falseHandle ->
+                    Some (PolarsWrapper.IfElse(testHandle, trueHandle, falseHandle))
+                | _ ->
+                    None
+
             | _ -> None
         with _ ->
             None

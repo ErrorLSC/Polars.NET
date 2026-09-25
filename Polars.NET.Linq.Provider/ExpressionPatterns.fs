@@ -1,6 +1,5 @@
 ﻿namespace Polars.NET.Linq.Provider
 
-open System
 open System.Linq.Expressions
 open System.Reflection
 

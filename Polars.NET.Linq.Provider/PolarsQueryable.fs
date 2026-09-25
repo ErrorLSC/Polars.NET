@@ -753,7 +753,51 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     MaintainOrder = false
                 }
             | _ -> None
+    /// Compiles a Select projection lambda into native Polars Select expressions
+    static member private CompileSelectProjection (projLambda: LambdaExpression) : ExprHandle array option =
+        let param = projLambda.Parameters.[0]
+        match projLambda.Body with
+        | :? NewExpression as newExpr ->
+            let args = newExpr.Arguments |> Seq.toList
+            let memberNames = PolarsQuery<'T>.ExtractPascalCaseMemberNames newExpr
+            
+            let exprOpts =
+                List.zip memberNames args
+                |> List.map (fun (name, argExpr) ->
+                    match ExprTranslator.tryTranslate param.Name argExpr with
+                    | Some h -> Some (PolarsWrapper.Alias(h, name))
+                    | None -> None
+                )
+            
+            // If all projected members can be pushed down to native Expr, construct native Select
+            if exprOpts |> List.forall Option.isSome then
+                Some (exprOpts |> List.choose id |> List.toArray)
+            else
+                None
 
+        | :? MemberInitExpression as initExpr ->
+            let bindings = initExpr.Bindings |> Seq.toList
+            let exprOpts =
+                bindings
+                |> List.choose (fun b ->
+                    match b with
+                    | :? MemberAssignment as assign ->
+                        match ExprTranslator.tryTranslate param.Name assign.Expression with
+                        | Some h -> Some (PolarsWrapper.Alias(h, assign.Member.Name))
+                        | None -> None
+                    | _ -> None
+                )
+            if exprOpts.Length = bindings.Length then
+                Some (exprOpts |> List.toArray)
+            else
+                None
+
+        // Direct single column projection: e.g. e => e.Department
+        | ExtractColumnName colName ->
+            Some [| PolarsWrapper.Col colName |]
+
+        | _ ->
+            None
     static member private CompileGroupByWithResult (keyLambda: LambdaExpression) (resLambda: LambdaExpression) : GroupBySpec option =
         let resKeyParam = resLambda.Parameters.[0]
         let isKeyAccess (e: Expression) =
@@ -1635,8 +1679,14 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | LinqStage.DefaultIfEmpty _ :: tail when clientPreds.IsEmpty ->
                 fuse tail opsAcc clientPreds
 
-            | LinqStage.Project _ :: tail ->
-                fuse tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds
+            // Rule: Select(x => new { ... }) -> Native LazySelect Pushdown
+            | LinqStage.Project projLambda :: tail when clientPreds.IsEmpty ->
+                match PolarsQuery<'T>.CompileSelectProjection projLambda with
+                | Some exprs ->
+                    fuse tail (QueryOp.Select exprs :: opsAcc) clientPreds
+                | None ->
+                    // Fallback to passthrough if translation fails (e.g. custom C# methods in projection)
+                    fuse tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds
 
             // Rule: Cast<TTarget>() -> Schema / RowMapper Type Retargeting
             | LinqStage.Cast targetType :: tail when clientPreds.IsEmpty ->
