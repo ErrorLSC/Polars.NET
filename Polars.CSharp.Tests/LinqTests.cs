@@ -1753,4 +1753,252 @@ public class LinqTests
         Assert.Equal(2, castedWorkers.Count);
         Assert.Equal("Bob", castedWorkers[1].Name);
     }
+    [Fact]
+    [Trait("LINQ", "Scalar_FirstLastOrDefault")]
+    public void Test_Linq_FirstOrDefault_And_LastOrDefault_Pushdown()
+    {
+        // 1. Prepare populated dataset
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 30, 35]),
+            Series.From("Salary", [50000, 60000, 70000])
+        ]);
+
+        var query = df.AsQueryable<Employee>();
+
+        // 2. Normal matches
+        var first = query.OrderBy(e => e.Age).FirstOrDefault();
+        Assert.Equal("Alice", first.Name);
+        Assert.Equal(25, first.Age);
+
+        var last = query.OrderBy(e => e.Age).LastOrDefault();
+        Assert.Equal("Charlie", last.Name);
+        Assert.Equal(35, last.Age);
+
+        // 3. Filtered matches that yield no rows (should return default Employee)
+        var missingFirst = query.Where(e => e.Age > 100).FirstOrDefault();
+        Assert.Equal(default, missingFirst);
+
+        var missingLast = query.Where(e => e.Salary < 1000).LastOrDefault();
+        Assert.Equal(default, missingLast);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Scalar_FirstLastOrDefault")]
+    public void Test_Linq_FirstLastOrDefault_OnEmptyTable_ReturnsDefault()
+    {
+        // Empty table scenario
+        using var emptyDf = DataFrame.FromColumns(
+        [
+            Series.From("Name", Array.Empty<string>()),
+            Series.From("Age", Array.Empty<int>()),
+            Series.From("Salary", Array.Empty<int>())
+        ]);
+
+        var query = emptyDf.AsQueryable<Employee>();
+
+        var first = query.FirstOrDefault();
+        Assert.Equal(default, first);
+
+        var last = query.LastOrDefault();
+        Assert.Equal(default, last);
+    }
+    [Fact]
+    [Trait("LINQ", "Scalar_Single")]
+    public void Test_Linq_Single_And_SingleOrDefault_Pushdown()
+    {
+        // 1. Prepare 3 employee records
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 30, 35]),
+            Series.From("Salary", [50000, 60000, 70000])
+        ]);
+
+        var query = df.AsQueryable<Employee>();
+
+        // 2. Exactly one match
+        var singleAlice = query.Single(e => e.Name == "Alice");
+        Assert.Equal("Alice", singleAlice.Name);
+        Assert.Equal(25, singleAlice.Age);
+
+        var singleOrDefaultBob = query.SingleOrDefault(e => e.Age == 30);
+        Assert.Equal("Bob", singleOrDefaultBob.Name);
+
+        // 3. Zero match
+        var missingDefault = query.SingleOrDefault(e => e.Salary > 200000);
+        Assert.Equal(default, missingDefault);
+
+        Assert.Throws<InvalidOperationException>(() =>
+        {
+            query.Single(e => e.Salary > 200000);
+        });
+
+        // 4. More than one match -> Both Single and SingleOrDefault MUST throw
+        Assert.Throws<InvalidOperationException>(() =>
+        {
+            query.Single(e => e.Age >= 25);
+        });
+
+        Assert.Throws<InvalidOperationException>(() =>
+        {
+            query.SingleOrDefault(e => e.Age >= 25);
+        });
+    }
+    [Fact]
+    [Trait("LINQ", "Scalar_ElementAt")]
+    public void Test_Linq_ElementAt_And_ElementAtOrDefault_Pushdown()
+    {
+        // 1. Prepare 3 employee records
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 30, 35]),
+            Series.From("Salary", [50000, 60000, 70000])
+        ]);
+
+        var query = df.AsQueryable<Employee>();
+
+        // 2. Valid indexes within bounds
+        var row0 = query.ElementAt(0);
+        Assert.Equal("Alice", row0.Name);
+
+        var row1 = query.ElementAtOrDefault(1);
+        Assert.Equal("Bob", row1.Name);
+
+        var row2 = query.ElementAt(2);
+        Assert.Equal("Charlie", row2.Name);
+
+        // 3. Out-of-bounds (index >= count)
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+        {
+            query.ElementAt(3);
+        });
+
+        var outOfBoundsDefault = query.ElementAtOrDefault(5);
+        Assert.Equal(default, outOfBoundsDefault);
+
+        // 4. Negative index (< 0)
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+        {
+            query.ElementAt(-1);
+        });
+
+        var negativeDefault = query.ElementAtOrDefault(-1);
+        Assert.Equal(default, negativeDefault);
+    }
+    [Fact]
+    [Trait("LINQ", "DefaultIfEmpty")]
+    public void Test_Linq_DefaultIfEmpty()
+    {
+        // 1. Non-empty DataFrame -> returns original elements
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("Age", [25, 30]),
+            Series.From("Salary", [50000, 60000])
+        ]);
+
+        var nonEmptyResults = df.AsQueryable<Employee>()
+            .DefaultIfEmpty()
+            .ToList();
+
+        Assert.Equal(2, nonEmptyResults.Count);
+        Assert.Equal("Alice", nonEmptyResults[0].Name);
+
+        // 2. Filtered to empty -> returns single default(Employee)
+        var emptyResults = df.AsQueryable<Employee>()
+            .Where(e => e.Age > 100)
+            .DefaultIfEmpty()
+            .ToList();
+
+        Assert.Single(emptyResults);
+        Assert.Equal(default, emptyResults[0]);
+
+        // 3. Custom defaultValue provided
+        var customDefault = new Employee("Unknown", 0, 0);
+        var customResults = df.AsQueryable<Employee>()
+            .Where(e => e.Age > 100)
+            .DefaultIfEmpty(customDefault)
+            .ToList();
+
+        Assert.Single(customResults);
+        Assert.Equal("Unknown", customResults[0].Name);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Contains")]
+    public void Test_Linq_Contains_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("Age", [25, 30]),
+            Series.From("Salary", [50000, 60000])
+        ]);
+
+        var query = df.AsQueryable<Employee>();
+
+        var existingAlice = new Employee("Alice", 25, 50000);
+        var missingCharlie = new Employee("Charlie", 35, 70000);
+
+        Assert.True(query.Contains(existingAlice));
+        Assert.False(query.Contains(missingCharlie));
+    }
+    [Fact]
+    [Trait("LINQ", "Scalar_SequenceEqual")]
+    public void Test_Linq_SequenceEqual_Pushdown()
+    {
+        using var df1 = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 30, 35]),
+            Series.From("Salary", [50000, 60000, 70000])
+        ]);
+
+        using var df2Identical = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 30, 35]),
+            Series.From("Salary", [50000, 60000, 70000])
+        ]);
+
+        using var df3DifferentOrder = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Bob", "Alice", "Charlie"]),
+            Series.From("Age", [30, 25, 35]),
+            Series.From("Salary", [60000, 50000, 70000])
+        ]);
+
+        using var df4DifferentLength = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("Age", [25, 30]),
+            Series.From("Salary", [50000, 60000])
+        ]);
+
+        var q1 = df1.AsQueryable<Employee>();
+        var q2 = df2Identical.AsQueryable<Employee>();
+        var q3 = df3DifferentOrder.AsQueryable<Employee>();
+        var q4 = df4DifferentLength.AsQueryable<Employee>();
+
+        // 1. Identical sequences in same order -> true
+        Assert.True(q1.SequenceEqual(q2));
+
+        // 2. Different row order -> false
+        Assert.False(q1.SequenceEqual(q3));
+
+        // 3. Different row counts -> false
+        Assert.False(q1.SequenceEqual(q4));
+
+        // 4. SequenceEqual against in-memory sequence fallback
+        var inMemoryList = new List<Employee>
+        {
+            new("Alice", 25, 50000),
+            new("Bob", 30, 60000),
+            new("Charlie", 35, 70000)
+        };
+        Assert.True(q1.SequenceEqual(inMemoryList));
+    }
 }

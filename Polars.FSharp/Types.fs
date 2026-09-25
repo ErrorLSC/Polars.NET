@@ -932,7 +932,7 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Column(name: string) : Series =
         let h = PolarsWrapper.DataFrameGetColumn(this.Handle, name)
         new Series(h)
-    member this.Column(index: int) : Series =
+    member this.Column(index: int64) : Series =
         let h = PolarsWrapper.DataFrameGetColumnAt(this.Handle, index)
         new Series(h)
     /// <summary>

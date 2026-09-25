@@ -752,3 +752,10 @@ type FSharpRowCursorMaterializer() =
                 for item in cursor do
                     yield item
             }
+        member _.MaterializeScalar<'T>(handle: DataFrameHandle) : 'T =
+            let df = new DataFrame(handle)
+            if df.Height = 0L || df.Width = 0 then
+                Unchecked.defaultof<'T>
+            else
+                let firstCol = df.[0]
+                firstCol.GetValue<'T>(0L)

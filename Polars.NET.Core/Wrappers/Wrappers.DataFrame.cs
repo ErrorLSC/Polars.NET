@@ -319,7 +319,7 @@ public readonly partial struct PolarsWrapper
     }
 
     // Get by Index
-    public static SeriesHandle DataFrameGetColumnAt(DataFrameHandle h, int index)
+    public static SeriesHandle DataFrameGetColumnAt(DataFrameHandle h, long index)
     {
         var sh = NativeBindings.pl_dataframe_get_column_at(h, (nuint)index);
         if (sh.IsInvalid)

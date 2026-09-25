@@ -109,4 +109,6 @@ type internal LinqStage =
     | Shuffle
     | Cast of targetType: Type
     | OfType of sourceType: Type * targetType: Type
+    | DefaultIfEmpty of defaultValExprOpt: Expression option
     | Project of LambdaExpression
+
