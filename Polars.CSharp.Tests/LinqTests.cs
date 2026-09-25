@@ -1382,4 +1382,108 @@ public class LinqTests
         Assert.Equal("Sales", results[2].DeptName);
         Assert.Equal(0, results[2].EmployeeCount);
     }
+    [Fact]
+    [Trait("LINQ", "Zip")]
+    public void Test_Linq_Zip_HorizontalConcat_ExistingRecords()
+    {
+        // 1. Left DataFrame: Employees with Name, Age, Salary
+        using var empDf = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [28, 35, 42]),
+            Series.From("Salary", [75000, 92000, 110000])
+        ]);
+
+        // 2. Right DataFrame: Departments
+        using var deptDf = DataFrame.FromColumns(
+        [
+            Series.From("DeptName", ["Engineering", "Product", "Executive"])
+        ]);
+
+        // 3. Zip side-by-side into existing EmployeeDept record struct:
+        // public readonly record struct EmployeeDept(string Name, string Department, int Age, int Salary);
+        var results = empDf.AsQueryable<Employee>()
+            .Zip(
+                deptDf.AsQueryable<Department>(),
+                (e, d) => new EmployeeDept(e.Name, d.DeptName, e.Age, e.Salary)
+            )
+            .OrderBy(ed => ed.Age)
+            .ToList();
+
+        Assert.Equal(3, results.Count);
+
+        // Alice (Engineering, Age 28)
+        Assert.Equal("Alice", results[0].Name);
+        Assert.Equal("Engineering", results[0].Department);
+        Assert.Equal(28, results[0].Age);
+        Assert.Equal(75000, results[0].Salary);
+
+        // Bob (Product, Age 35)
+        Assert.Equal("Bob", results[1].Name);
+        Assert.Equal("Product", results[1].Department);
+        Assert.Equal(35, results[1].Age);
+        Assert.Equal(92000, results[1].Salary);
+
+        // Charlie (Executive, Age 42)
+        Assert.Equal("Charlie", results[2].Name);
+        Assert.Equal("Executive", results[2].Department);
+        Assert.Equal(42, results[2].Age);
+        Assert.Equal(110000, results[2].Salary);
+    }
+    [Fact]
+    [Trait("LINQ", "Zip3")]
+    public void Test_Linq_Zip3_HorizontalConcat()
+    {
+        // 1. First DataFrame: Member IDs & basic identifiers
+        using var df1 = DataFrame.FromColumns(
+        [
+            Series.From("Id", [101, 102, 103]),
+            Series.From("DeptId", [10, 20, 30])
+        ]);
+
+        // 2. Second DataFrame: Employees (Name, Age, Salary)
+        using var df2 = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [28, 35, 42]),
+            Series.From("Salary", [75000, 90000, 120000])
+        ]);
+
+        // 3. Third DataFrame: Departments (DeptName)
+        using var df3 = DataFrame.FromColumns(
+        [
+            Series.From("DeptName", ["HR", "IT", "Finance"])
+        ]);
+
+        // 4. Three-way positional Zip: (TFirst, TSecond, TThird)
+        var results = df1.AsQueryable<MemberRecord>()
+            .Zip(
+                df2.AsQueryable<Employee>(),
+                df3.AsQueryable<Department>()
+            )
+            .OrderBy(tuple => tuple.Second.Age)
+            .ToList();
+
+        Assert.Equal(3, results.Count);
+
+        // First row: Alice (Id 101, Age 28, HR)
+        Assert.Equal(101, results[0].First.Id);
+        Assert.Equal("Alice", results[0].Second.Name);
+        Assert.Equal(28, results[0].Second.Age);
+        Assert.Equal("HR", results[0].Third.DeptName);
+
+        // Second row: Bob (Id 102, Age 35, IT)
+        Assert.Equal(102, results[1].First.Id);
+        Assert.Equal("Bob", results[1].Second.Name);
+        Assert.Equal(35, results[1].Second.Age);
+        Assert.Equal("IT", results[1].Third.DeptName);
+
+        // Third row: Charlie (Id 103, Age 42, Finance)
+        Assert.Equal(103, results[2].First.Id);
+        Assert.Equal("Charlie", results[2].Second.Name);
+        Assert.Equal(42, results[2].Second.Age);
+        Assert.Equal(120000, results[2].Second.Salary);
+        Assert.Equal("Finance", results[2].Third.DeptName);
+    }
+
 }

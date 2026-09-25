@@ -358,6 +358,10 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             | QueryOp.Concat spec ->
                 PolarsWrapper.LazyConcat([| currentLf; spec.OtherLf |], PlConcatType.Vertical, false, true)
 
+            | QueryOp.HorizontalConcat otherLfs ->
+                let allHandles = Array.append [| currentLf |] otherLfs
+                PolarsWrapper.LazyConcat(allHandles, PlConcatType.Horizontal, false, true)
+
             | QueryOp.Explode spec ->
                 let selector = PolarsWrapper.SelectorCols spec.ColumnNames
                 PolarsWrapper.LazyExplode(currentLf, selector, spec.EmptyAsNull, spec.KeepNulls)
@@ -461,6 +465,18 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                 when m.Name = "GroupJoin" ->
                 flatten outer (LinqStage.GroupJoin(m, inner, outerKey, innerKey, resSel) :: acc)
 
+            // Zip (Two arguments: source, second)
+            | MethodCall(m, null, [ source; second ]) when m.Name = "Zip" ->
+                flatten source (LinqStage.Zip(second, None) :: acc)
+
+            // Zip (Three arguments: source, second, resultSelector)
+            | MethodCall(m, null, [ source; second; StripQuotes (:? LambdaExpression as resSel) ]) when m.Name = "Zip" ->
+                flatten source (LinqStage.Zip(second, Some resSel) :: acc)
+
+            // Zip (Three sequences: first, second, third -> Tuples)
+            | MethodCall(m, null, [ first; second; third ]) when m.Name = "Zip" ->
+                flatten first (LinqStage.Zip3(second, third) :: acc)
+
             | _ -> acc
 
         let stages = flatten expression []
@@ -539,6 +555,39 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                     let spec = { OtherLf = otherLf }
                     fuse tail (QueryOp.Concat spec :: opsAcc) clientPreds
                 | None -> failwith "Failed to resolve second expression for Concat."
+
+            // Rule: Zip -> Native Horizontal Concat Pushdown (2 sources)
+            | LinqStage.Zip(secondExpr, resLambdaOpt) :: tail when clientPreds.IsEmpty ->
+                match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with
+                | Some otherLf ->
+                    let clonedOther = PolarsWrapper.LazyClone otherLf
+                    let zipOp = QueryOp.HorizontalConcat [| clonedOther |]
+
+                    let renameOps =
+                        match resLambdaOpt with
+                        | Some resLambda ->
+                            let renames = PolarsQuery<'T>.ExtractBinaryResultRenames resLambda None
+                            if not renames.IsEmpty then
+                                [ QueryOp.Rename { ExistingNames = renames |> List.map fst |> List.toArray; NewNames = renames |> List.map snd |> List.toArray } ]
+                            else []
+                        | None -> []
+
+                    let nextOps = renameOps @ (zipOp :: opsAcc)
+                    fuse tail nextOps clientPreds
+                | None ->
+                    failwith "Failed to resolve second source for Zip pushdown."
+
+            // Rule: Zip3 -> Native Horizontal Concat Pushdown (3 sources)
+            | LinqStage.Zip3(secondExpr, thirdExpr) :: tail when clientPreds.IsEmpty ->
+                match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr,
+                      PolarsQuery<'T>.ResolveToLazyFrameHandle thirdExpr with
+                | Some secondLf, Some thirdLf ->
+                    let clonedSecond = PolarsWrapper.LazyClone secondLf
+                    let clonedThird = PolarsWrapper.LazyClone thirdLf
+                    let zip3Op = QueryOp.HorizontalConcat [| clonedSecond; clonedThird |]
+                    fuse tail (zip3Op :: opsAcc) clientPreds
+                | _ ->
+                    failwith "Failed to resolve second or third source for Zip3 pushdown."
 
             | LinqStage.Union(secondExpr, keyLambdaOpt) :: tail when clientPreds.IsEmpty ->
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with

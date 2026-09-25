@@ -67,6 +67,7 @@ type internal QueryOp =
     | GroupBy of GroupBySpec
     | Unique of UniqueSpec
     | Concat of ConcatSpec
+    | HorizontalConcat of otherLfs: LazyFrameHandle array
     | Explode of ExplodeSpec
     | Rename of RenameSpec
     | Select of ExprHandle array
@@ -93,4 +94,6 @@ type internal LinqStage =
     | GroupByKey of LambdaExpression
     | GroupByWithResult of LambdaExpression * LambdaExpression
     | GroupJoin of MethodInfo * Expression * LambdaExpression * LambdaExpression * LambdaExpression
+    | Zip of secondExpr: Expression * resultLambdaOpt: LambdaExpression option
+    | Zip3 of secondExpr: Expression * thirdExpr: Expression
     | Project of LambdaExpression
