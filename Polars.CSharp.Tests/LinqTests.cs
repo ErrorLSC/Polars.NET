@@ -47,6 +47,38 @@ public class LinqTests
     }
 
     [Fact]
+    [Trait("LINQ", "Skip")]
+    public void Test_Linq_Skip_And_Skip_Take_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3, 4, 5, 6]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve", "Frank"])
+        ]);
+
+        // 1. Single Skip
+        var skipResult = df.AsQueryable<Person>()
+            .OrderBy(p => p.Id)
+            .Skip(3)
+            .ToList();
+
+        Assert.Equal(3, skipResult.Count);
+        Assert.Equal(4, skipResult[0].Id);
+        Assert.Equal(6, skipResult[2].Id);
+
+        // 2. Skip + Take Fusion (Paging scenario)
+        var pagedResult = df.AsQueryable<Person>()
+            .OrderBy(p => p.Id)
+            .Skip(2)
+            .Take(2)
+            .ToList();
+
+        Assert.Equal(2, pagedResult.Count);
+        Assert.Equal(3, pagedResult[0].Id);
+        Assert.Equal(4, pagedResult[1].Id);
+    }
+
+    [Fact]
     [Trait("LINQ", "Fallback")]
     public void Test_Linq_Fallback_WithUnsupportedCSharpMethod()
     {
@@ -715,5 +747,160 @@ public class LinqTests
         Assert.Equal(1, summaries[2].MemberCount);
         Assert.Equal(4, summaries[2].MinId);
         Assert.Equal(4, summaries[2].MaxId);
+    }
+    [Fact]
+    [Trait("LINQ", "RightJoin")]
+    public void Test_Linq_RightJoin_Materialize_Rows()
+    {
+        using var personsDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2]),
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("DeptId", [10, 20])
+        ]);
+
+        using var deptsDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [10, 30]),
+            Series.From("DeptName", ["Engineering", "Marketing"])
+        ]);
+
+        var result = personsDf.AsQueryable<Person>()
+            .RightJoin(
+                deptsDf.AsQueryable<Department>(),
+                p => p.DeptId,
+                d => d.Id,
+                (p, d) => new EmployeeDeptRecord(d.Id, p.Name, d.DeptName)
+            )
+            .OrderBy(r => r.DeptName)
+            .ToList();
+
+        Assert.Equal(2, result.Count);
+        // Marketing has no matching person in left table
+        Assert.Equal("Engineering", result[0].DeptName);
+        Assert.Equal("Marketing", result[1].DeptName);
+        Assert.Null(result[1].Name);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Intersect")]
+    public void Test_Linq_Intersect_FullRow_Pushdown()
+    {
+        // Intersect maps to Semi Join matching all schema columns
+        using var leftDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3, 4]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David"]),
+            Series.From("DeptId", [10, 20, 30, 40])
+        ]);
+
+        using var rightDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [2, 4, 5]),
+            Series.From("Name", ["Bob", "David", "Eve"]),
+            Series.From("DeptId", [20, 40, 50])
+        ]);
+
+        var result = leftDf.AsQueryable<Person>()
+            .Intersect(rightDf.AsQueryable<Person>())
+            .OrderBy(p => p.Id)
+            .ToList();
+
+        // Bob (2) and David (4) exist in both datasets
+        Assert.Equal(2, result.Count);
+        Assert.Equal(2, result[0].Id);
+        Assert.Equal("Bob", result[0].Name);
+
+        Assert.Equal(4, result[1].Id);
+        Assert.Equal("David", result[1].Name);
+    }
+
+    [Fact]
+    [Trait("LINQ", "IntersectBy")]
+    public void Test_Linq_IntersectBy_KeySelector_Pushdown()
+    {
+        // IntersectBy matches rows based only on DeptId key
+        using var personsDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("DeptId", [10, 20, 99])
+        ]);
+
+        using var validDeptsDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [10, 30]),
+            Series.From("DeptName", ["Engineering", "Legal"])
+        ]);
+
+        var result = personsDf.AsQueryable<Person>()
+            .IntersectBy(validDeptsDf.AsQueryable<Department>().Select(d => d.Id), p => p.DeptId)
+            .ToList();
+
+        // Only Alice matches DeptId = 10
+        Assert.Single(result);
+        Assert.Equal("Alice", result[0].Name);
+        Assert.Equal(10, result[0].DeptId);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Except")]
+    public void Test_Linq_Except_FullRow_Pushdown()
+    {
+        // Except maps to Anti Join matching all schema columns
+        using var leftDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("DeptId", [10, 20, 30])
+        ]);
+
+        using var rightDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [2]),
+            Series.From("Name", ["Bob"]),
+            Series.From("DeptId", [20])
+        ]);
+
+        var result = leftDf.AsQueryable<Person>()
+            .Except(rightDf.AsQueryable<Person>())
+            .OrderBy(p => p.Id)
+            .ToList();
+
+        // Bob (2) should be excluded
+        Assert.Equal(2, result.Count);
+        Assert.Equal(1, result[0].Id);
+        Assert.Equal("Alice", result[0].Name);
+
+        Assert.Equal(3, result[1].Id);
+        Assert.Equal("Charlie", result[1].Name);
+    }
+
+    [Fact]
+    [Trait("LINQ", "ExceptBy")]
+    public void Test_Linq_ExceptBy_KeySelector_Pushdown()
+    {
+        // ExceptBy matches and excludes rows based on DeptId
+        using var personsDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("DeptId", [10, 20, 30])
+        ]);
+
+        using var excludedDeptsDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [10, 30]),
+            Series.From("DeptName", ["Engineering", "Research"])
+        ]);
+
+        var result = personsDf.AsQueryable<Person>()
+            .ExceptBy(excludedDeptsDf.AsQueryable<Department>().Select(d => d.Id), p => p.DeptId)
+            .ToList();
+
+        // Only Bob (DeptId = 20) should remain
+        Assert.Single(result);
+        Assert.Equal("Bob", result[0].Name);
+        Assert.Equal(20, result[0].DeptId);
     }
 }
