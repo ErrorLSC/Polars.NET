@@ -2001,4 +2001,45 @@ public class LinqTests
         };
         Assert.True(q1.SequenceEqual(inMemoryList));
     }
+    [Fact]
+    [Trait("LINQ", "Scalar_All")]
+    public void Test_Linq_All_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 30, 35]),
+            Series.From("Salary", [50000, 60000, 70000])
+        ]);
+
+        var query = df.AsQueryable<Employee>();
+
+        // 1. All match -> true
+        Assert.True(query.All(e => e.Age >= 20));
+        Assert.True(query.All(e => e.Salary > 40000));
+
+        // 2. Some match, but not all -> false
+        Assert.False(query.All(e => e.Age > 25));
+        Assert.False(query.All(e => e.Salary >= 60000));
+
+        // 3. None match -> false
+        Assert.False(query.All(e => e.Age < 20));
+    }
+
+    [Fact]
+    [Trait("LINQ", "Scalar_All")]
+    public void Test_Linq_All_OnEmptyTable_ReturnsTrue()
+    {
+        // Vacuum truth: All elements of an empty set satisfy any condition
+        using var emptyDf = DataFrame.FromColumns(
+        [
+            Series.From("Name", Array.Empty<string>()),
+            Series.From("Age", Array.Empty<int>()),
+            Series.From("Salary", Array.Empty<int>())
+        ]);
+
+        var query = emptyDf.AsQueryable<Employee>();
+
+        Assert.True(query.All(e => e.Age > 100));
+    }
 }

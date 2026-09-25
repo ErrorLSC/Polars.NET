@@ -122,6 +122,35 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
             let anyCall = Expression.Call(null, anyMethod, filteredSource)
             this.ExecuteScalarInternal<'TResult>(anyCall)
 
+        // 12. All(predicate) -> Short-circuit pushdown: filter(not(pred)).slice(0, 1)
+        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as pred) ]) when m.Name = "All" ->
+            let nativeLf, hasClientPreds = resolveQueryPlan source
+            let translatedExprOpt = ExprTranslator.tryTranslate pred.Parameters.[0].Name pred.Body
+
+            match translatedExprOpt with
+            | Some colExpr when not hasClientPreds ->
+                // Native pushdown: LazyFilter(Not(pred)) -> LazySlice(0, 1)
+                let notExpr = PolarsWrapper.Not colExpr
+                let filteredLf = PolarsWrapper.LazyFilter(nativeLf, notExpr)
+                let slicedLf = PolarsWrapper.LazySlice(filteredLf, 0L, 1u)
+                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                let height = PolarsWrapper.DataFrameHeight dfHandle
+                // If no row violates the predicate, then All holds true
+                box (height = 0L) :?> 'TResult
+            | _ ->
+                // Fallback to in-memory LINQ evaluation
+                let rawRows = (this :> IQueryProvider).CreateQuery(source)
+                let elemType = getSequenceElementType source.Type
+                let compiledPred = pred.Compile()
+                let allMethod =
+                    typeof<Enumerable>.GetMethods()
+                    |> Array.find (fun methodInfo ->
+                        methodInfo.Name = "All" &&
+                        methodInfo.GetParameters().Length = 2 &&
+                        methodInfo.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<Func<_, _>>)
+                let closedMethod = allMethod.MakeGenericMethod(elemType)
+                closedMethod.Invoke(null, [| box rawRows; box compiledPred |]) :?> 'TResult
+
         // 5. First() / FirstOrDefault()
         | MethodCall(m, null, [ source ]) when m.Name = "First" || m.Name = "FirstOrDefault" ->
             let isOrDefault = m.Name = "FirstOrDefault"
