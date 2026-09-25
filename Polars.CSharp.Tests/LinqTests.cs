@@ -1655,5 +1655,34 @@ public class LinqTests
         Assert.Equal(25, results[2].Age);
         Assert.Equal(50000, results[2].Salary);
     }
+    [Fact]
+    [Trait("LINQ", "Shuffle")]
+    public void Test_Linq_Shuffle_PreservesCountAndElements()
+    {
+        // 1. Prepare 10 records
+        var ids = Enumerable.Range(1, 10).ToArray();
+        var ages = ids.Select(i => 20 + i).ToArray();
+        var salaries = ids.Select(i => 5000 + i * 100).ToArray();
+        var names = ids.Select(i => $"User_{i}").ToArray();
+
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", ids),
+            Series.From("Name", names),
+            Series.From("DeptId", ids.Select(_ => 1).ToArray()),
+            Series.From("Age", ages),
+            Series.From("Salary", salaries)
+        ]);
+
+        // 2. Shuffle rows natively
+        var results = df.AsQueryable<MemberRecord>()
+            .Shuffle()
+            .ToList();
+
+        // 3. Row count and distinct elements must remain identical
+        Assert.Equal(10, results.Count);
+        Assert.Equal(10, results.Select(r => r.Id).Distinct().Count());
+        Assert.All(results, r => Assert.Contains(r.Id, ids));
+    }
 
 }

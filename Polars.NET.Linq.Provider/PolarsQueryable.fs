@@ -553,6 +553,10 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             | MethodCall(m, null, [ source ]) when m.Name = "Reverse" ->
                 flatten source (LinqStage.Reverse :: acc)
 
+            // Shuffle()
+            | MethodCall(m, null, [ source ]) when m.Name = "Shuffle" ->
+                flatten source (LinqStage.Shuffle :: acc)
+
             | _ -> acc
 
         let stages = flatten expression []
@@ -867,6 +871,25 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
         let targetType = typeof<'T>
         let isGrouping = targetType.IsGenericType && targetType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
 
+        // Check if expression chain includes Shuffle
+        let rec hasShuffle (e: Expression) : bool =
+            match e with
+            | null -> false
+            | MethodCall(m, null, _) when m.Name = "Shuffle" -> true
+            | MethodCall(_, null, args) -> args |> List.exists hasShuffle
+            | _ -> false
+
+        let shouldShuffle = hasShuffle expression
+
+        // Helper to optionally apply eager shuffle using SampleFrac
+        let applyShuffleIfNeeded (df: DataFrameHandle) : DataFrameHandle =
+            if shouldShuffle then
+                // Create scalar float64 series for fraction = 1.0 (100% sample with shuffle)
+                let fracHandle = PolarsWrapper.SeriesNew("", [| 1.0 |])
+                PolarsWrapper.SampleFrac(df, fracHandle, false, Nullable true, Nullable())
+            else
+                df
+
         let rec findChunkSize (e: Expression) : int option =
             match e with
             | null -> None
@@ -885,7 +908,8 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             let keyType, elemType = genericArgs.[0], genericArgs.[1]
 
             let nativeLf, _ = this.GetCompiledPlan()
-            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+            let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+            let dfHandle = applyShuffleIfNeeded collectedDf
 
             let mat = PolarsQuery<'T>.ResolveMaterializer materializer
             let materializeMethod = mat.GetType().GetMethod("Materialize").MakeGenericMethod(elemType)
@@ -933,7 +957,8 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             let elemType = targetType.GetElementType()
 
             let nativeLf, _ = this.GetCompiledPlan()
-            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+            let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+            let dfHandle = applyShuffleIfNeeded collectedDf
 
             let mat = PolarsQuery<'T>.ResolveMaterializer materializer
             let materializeMethod = mat.GetType().GetMethod("Materialize").MakeGenericMethod(elemType)
@@ -948,8 +973,10 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
         // Case 3: Flat row materialization (standard entities, DTOs, value tuples)
         else
             let nativeLf, clientPredicates = this.GetCompiledPlan()
+            let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+            let dfHandle = applyShuffleIfNeeded collectedDf
+
             let mat = PolarsQuery<'T>.ResolveMaterializer materializer
-            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
             let rows = mat.Materialize<'T>(dfHandle)
 
             if clientPredicates.IsEmpty then rows

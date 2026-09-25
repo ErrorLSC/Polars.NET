@@ -105,4 +105,5 @@ type internal LinqStage =
     | Zip of secondExpr: Expression * resultLambdaOpt: LambdaExpression option
     | Zip3 of secondExpr: Expression * thirdExpr: Expression
     | Reverse
+    | Shuffle
     | Project of LambdaExpression
