@@ -1,3 +1,4 @@
+using System.Text;
 using Polars.CSharp.Linq;
 using Pl = Polars.CSharp.Polars;
 
@@ -643,6 +644,38 @@ public class LinqTests
 
         // 3. Native engine must return an empty sequence gracefully without null-pointer exceptions
         Assert.Empty(results);
+    }
+    public record DeptSummary(string Department, int TotalSalary);
+
+    [Fact]
+    [Trait("LINQ", "GroupBy_4Args_Having")]
+    public void Test_Linq_GroupBy_With_ElementSelector_And_Having()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Department", ["IT", "HR", "IT", "Finance", "IT", "HR"]),
+            Series.From("Salary", [50000, 60000, 70000, 80000, 90000, 65000])
+        ]);
+
+        var query = df.AsQueryable<DepartmentRecord>();
+
+        // GroupBy with 4 arguments:
+        // 1. keySelector: d => d.Department
+        // 2. elementSelector: d => d.Salary
+        // 3. resultSelector: (dept, salaries) => new DeptSummary(dept, salaries.Sum())
+        // Followed by Where (HAVING): TotalSalary > 100000
+        var results = query
+            .GroupBy(
+                d => d.Department,
+                d => d.Salary,
+                (dept, salaries) => new DeptSummary(dept, salaries.Sum()))
+            .Where(s => s.TotalSalary > 100000)
+            .ToList();
+
+        // IT total = 210000, HR total = 125000, Finance = 80000 (filtered out)
+        Assert.Equal(2, results.Count);
+        Assert.Contains(results, r => r.Department == "IT" && r.TotalSalary == 210000);
+        Assert.Contains(results, r => r.Department == "HR" && r.TotalSalary == 125000);
     }
     [Fact]
     [Trait("LINQ","Complex")]
@@ -2091,5 +2124,127 @@ public class LinqTests
 
         var missingMax = query.Where(e => e.Salary < 1000).MaxBy(e => e.Age);
         Assert.Equal(default, missingMax);
+    }
+    [Fact]
+    [Trait("LINQ", "Aggregate")]
+    public void Test_Linq_Aggregate()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 30, 35]),
+            Series.From("Salary", [50000, 60000, 70000])
+        ]);
+
+        var query = df.AsQueryable<Employee>();
+
+        // 1. Simple Accumulation: Sum of salaries using seed
+        var totalSalary = query.Aggregate(0, (acc, e) => acc + e.Salary);
+        Assert.Equal(180000, totalSalary);
+
+        // 2. String Concatenation with Result Selector
+        var summary = query.Aggregate(
+            new StringBuilder(),
+            (sb, e) => sb.Append(e.Name[0]),
+            sb => sb.ToString());
+
+        Assert.Equal("ABC", summary);
+    }
+
+    [Fact]
+    [Trait("LINQ", "AggregateBy")]
+    public void Test_Linq_AggregateBy()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Department", ["IT", "HR", "IT", "Finance", "IT", "HR"]),
+            Series.From("Salary", [50000, 60000, 70000, 80000, 90000, 65000])
+        ]);
+
+        var query = df.AsQueryable<DepartmentRecord>();
+
+        // Aggregate total salary by department: KeyValuePair<string, int>
+        var deptSalaries = query
+            .AggregateBy(
+                d => d.Department,
+                seed: 0,
+                (acc, d) => acc + d.Salary)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+        Assert.Equal(210000, deptSalaries["IT"]);       // 50000 + 70000 + 90000
+        Assert.Equal(125000, deptSalaries["HR"]);       // 60000 + 65000
+        Assert.Equal(80000, deptSalaries["Finance"]);   // 80000
+    }
+    [Fact]
+    [Trait("LINQ", "Aggregate_Overloads")]
+    public void Test_Linq_Aggregate_All_Overloads()
+    {
+        // 1. Prepare test dataset
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [20, 30, 40]),
+            Series.From("Salary", [50000, 60000, 70000])
+        ]);
+
+        var query = df.AsQueryable<Employee>();
+
+        // Overload 1: Aggregate(source, func) -> Fold without seed
+        // Picks the person with the longest Name
+        var longestNameEmployee = query.Aggregate((longest, current) =>
+            current.Name.Length > longest.Name.Length ? current : longest);
+        Assert.Equal("Charlie", longestNameEmployee.Name);
+
+        // Overload 2: Aggregate(source, seed, func) -> Seeded fold
+        // Sum total salaries
+        var totalSalary = query.Aggregate(10000, (acc, e) => acc + e.Salary);
+        Assert.Equal(190000, totalSalary); // 10000 + (50000 + 60000 + 70000)
+
+        // Overload 3: Aggregate(source, seed, func, resultSelector) -> Fold with projection
+        // Accumulate average age description
+        var ageReport = query.Aggregate(
+            0,
+            (acc, e) => acc + e.Age,
+            totalAge => $"Average Age: {totalAge / 3.0:F1}");
+        Assert.Equal("Average Age: 30.0", ageReport);
+    }
+
+    [Fact]
+    [Trait("LINQ", "AggregateBy_Overloads")]
+    public void Test_Linq_AggregateBy_All_Overloads()
+    {
+        // 1. Prepare test dataset with departments
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Department", ["IT", "HR", "IT", "Finance", "IT", "HR"]),
+            Series.From("Salary", [50000, 60000, 70000, 80000, 90000, 65000])
+        ]);
+
+        var query = df.AsQueryable<DepartmentRecord>();
+
+        // Overload 1: AggregateBy(keySelector, seed, func) -> Static seed
+        var staticSeedResults = query
+            .AggregateBy(
+                d => d.Department,
+                seed: 1000,
+                (acc, d) => acc + d.Salary)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+        Assert.Equal(211000, staticSeedResults["IT"]);       // 1000 + (50000 + 70000 + 90000)
+        Assert.Equal(126000, staticSeedResults["HR"]);       // 1000 + (60000 + 65000)
+        Assert.Equal(81000, staticSeedResults["Finance"]);   // 1000 + 80000
+
+        // Overload 2: AggregateBy(keySelector, seedSelector, func) -> Seed factory delegate
+        // Seed starts with 100 for "IT", 200 for "HR", and 300 for others
+        var seedFactoryResults = query
+            .AggregateBy(
+                d => d.Department,
+                seedSelector: dept => dept == "IT" ? 100 : (dept == "HR" ? 200 : 300),
+                (acc, d) => acc + d.Salary)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+        Assert.Equal(210100, seedFactoryResults["IT"]);       // 100 + 210000
+        Assert.Equal(125200, seedFactoryResults["HR"]);       // 200 + 125000
+        Assert.Equal(80300, seedFactoryResults["Finance"]);   // 300 + 80000
     }
 }

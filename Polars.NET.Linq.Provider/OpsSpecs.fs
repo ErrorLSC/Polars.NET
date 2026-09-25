@@ -91,6 +91,7 @@ type internal LinqStage =
     | SkipLast of uint32
     | Chunk of size: int
     | CountBy of keySelector: LambdaExpression
+    | AggregateBy of keySelector: LambdaExpression * seedExpr: Expression * seedFactoryOpt: LambdaExpression option * func: LambdaExpression
     | Distinct
     | DistinctBy of LambdaExpression
     | Concat of Expression
@@ -103,6 +104,7 @@ type internal LinqStage =
     | SetOp of MethodInfo * Expression * LambdaExpression option * LambdaExpression option
     | GroupByKey of LambdaExpression
     | GroupByWithResult of LambdaExpression * LambdaExpression
+    | GroupByWithElementAndResult of keySelector: LambdaExpression * elemSelector: LambdaExpression * resSelector: LambdaExpression
     | GroupJoin of MethodInfo * Expression * LambdaExpression * LambdaExpression * LambdaExpression
     | Zip of secondExpr: Expression * resultLambdaOpt: LambdaExpression option
     | Zip3 of secondExpr: Expression * thirdExpr: Expression

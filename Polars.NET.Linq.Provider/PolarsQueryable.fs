@@ -545,6 +545,66 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
 
                 linqMethod.Invoke(null, [| box rawRows; box compiledKey |]) :?> 'TResult
 
+        // 14. Aggregate (Full coverage of all BCL Queryable.Aggregate overloads)
+        | MethodCall(m, null, source :: rest) when m.Name = "Aggregate" ->
+            let rawRows = (this :> IQueryProvider).CreateQuery(source)
+            let elemType = getSequenceElementType source.Type
+
+            match rest with
+            // Overload 1: Aggregate(source, func)
+            | [ StripQuotes (:? LambdaExpression as func) ] ->
+                let compiledFunc = func.Compile()
+                let aggMethod = 
+                    typeof<Enumerable>.GetMethods()
+                    |> Array.find (fun methodInfo -> 
+                        methodInfo.Name = "Aggregate" && 
+                        methodInfo.GetParameters().Length = 2 && 
+                        methodInfo.GetGenericArguments().Length = 1)
+                    |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType)
+
+                aggMethod.Invoke(null, [| box rawRows; box compiledFunc |]) :?> 'TResult
+
+            // Overload 2: Aggregate(source, seed, func)
+            | [ seedExpr; StripQuotes (:? LambdaExpression as func) ] ->
+                let seedVal = 
+                    match tryEvaluate seedExpr with
+                    | Some s -> s
+                    | None -> failwith "Failed to evaluate seed parameter for Aggregate."
+
+                let compiledFunc = func.Compile()
+                let accumType = typeof<'TResult>
+                let aggMethod = 
+                    typeof<Enumerable>.GetMethods()
+                    |> Array.find (fun methodInfo -> 
+                        methodInfo.Name = "Aggregate" && 
+                        methodInfo.GetParameters().Length = 3 && 
+                        methodInfo.GetGenericArguments().Length = 2)
+                    |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType, accumType)
+
+                aggMethod.Invoke(null, [| box rawRows; box seedVal; box compiledFunc |]) :?> 'TResult
+
+            // Overload 3: Aggregate(source, seed, func, resultSelector)
+            | [ seedExpr; StripQuotes (:? LambdaExpression as func); StripQuotes (:? LambdaExpression as resSel) ] ->
+                let seedVal = 
+                    match tryEvaluate seedExpr with
+                    | Some s -> s
+                    | None -> failwith "Failed to evaluate seed parameter for Aggregate."
+
+                let compiledFunc = func.Compile()
+                let compiledResSel = resSel.Compile()
+                let accumType = func.ReturnType
+                let aggMethod = 
+                    typeof<Enumerable>.GetMethods()
+                    |> Array.find (fun methodInfo -> 
+                        methodInfo.Name = "Aggregate" && 
+                        methodInfo.GetParameters().Length = 4 && 
+                        methodInfo.GetGenericArguments().Length = 3)
+                    |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType, accumType, typeof<'TResult>)
+
+                aggMethod.Invoke(null, [| box rawRows; box seedVal; box compiledFunc; box compiledResSel |]) :?> 'TResult
+
+            | _ ->
+                failwithf "Unsupported Aggregate overload: %A" expression
         | _ ->
             failwithf "Scalar execution for expression is not supported: %A" expression
 
@@ -797,6 +857,87 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | _ -> false
         PolarsQuery<'T>.BuildGroupBySpec keyLambda projLambda.Body isKeyAccess projLambda.Parameters.[0].Name
 
+    /// Compiles 4-argument GroupBy: keySelector, elementSelector, resultSelector
+    static member private CompileGroupByWithElementAndResult 
+        (keyLambda: LambdaExpression) 
+        (elemLambda: LambdaExpression) 
+        (resLambda: LambdaExpression) : GroupBySpec option =
+
+        let keyParam = keyLambda.Parameters.[0]
+        let elemParam = elemLambda.Parameters.[0]
+        let resKeyParam = resLambda.Parameters.[0]
+        let resElementsParam = resLambda.Parameters.[1]
+
+        let keyExprOpt = ExprTranslator.tryTranslate keyParam.Name keyLambda.Body
+        let elemExprOpt = ExprTranslator.tryTranslate elemParam.Name elemLambda.Body
+
+        match keyExprOpt, elemExprOpt with
+        | Some rawKeyExpr, Some elemExpr ->
+            match resLambda.Body with
+            | :? NewExpression as newExpr ->
+                let args = newExpr.Arguments |> Seq.toList
+                let memberNames = PolarsQuery<'T>.ExtractPascalCaseMemberNames newExpr
+
+                let isKeyArg (e: Expression) =
+                    match e with
+                    | :? ParameterExpression as p when p.Name = resKeyParam.Name -> true
+                    | MemberAccess(p, _) when not (isNull p) && p.NodeType = ExpressionType.Parameter && (match p with :? ParameterExpression as pe -> pe.Name = resKeyParam.Name | _ -> false) -> true
+                    | _ -> false
+
+                let isElementsParam (e: Expression) =
+                    match e with
+                    | :? ParameterExpression as p -> p.Name = resElementsParam.Name
+                    | _ -> false
+
+                // The key column name in the output record (e.g., "Department")
+                let keyColName = 
+                    List.zip memberNames args
+                    |> List.tryPick (fun (name, arg) -> if isKeyArg arg then Some name else None)
+                    |> Option.defaultValue "Key"
+
+                let keyAliased = PolarsWrapper.Alias(rawKeyExpr, keyColName)
+
+                // Build aggregation expressions for each non-key field
+                let aggs =
+                    List.zip memberNames args
+                    |> List.choose (fun (colName, argExpr) ->
+                        if isKeyArg argExpr then None
+                        else
+                            let buildAgg (methodName: string) =
+                                let clonedInner = PolarsWrapper.CloneExpr elemExpr
+                                let aggCore =
+                                    match methodName with
+                                    | "Sum" -> PolarsWrapper.Sum clonedInner
+                                    | "Min" -> PolarsWrapper.Min clonedInner
+                                    | "Max" -> PolarsWrapper.Max clonedInner
+                                    | "Average" -> PolarsWrapper.Mean clonedInner
+                                    | "Count" | "LongCount" -> PolarsWrapper.Len()
+                                    | _ -> failwithf "Unsupported aggregation operator: %s" methodName
+                                PolarsWrapper.Alias(aggCore, colName)
+
+                            match argExpr with
+                            // salaries.Sum() as extension method: Enumerable.Sum(salaries)
+                            | MethodCall(m, null, [ firstArg ]) when isElementsParam firstArg ->
+                                Some (buildAgg m.Name)
+
+                            // salaries.Sum() as instance method
+                            | MethodCall(m, target, []) when not (isNull target) && isElementsParam target ->
+                                Some (buildAgg m.Name)
+
+                            // Fallback to general AggTranslator
+                            | _ ->
+                                AggTranslator.tryTranslateAgg resElementsParam.Name argExpr colName
+                    )
+
+                Some {
+                    Keys = [| keyAliased |]
+                    Aggs = aggs |> List.toArray
+                    Having = None
+                    MaintainOrder = false
+                }
+            | _ -> None
+            
+        | _ -> None
     /// Compiles a Join stage into a native JoinSpec
     static member private CompileJoin (methodInfo: MethodInfo) (innerExpr: Expression) (outerKey: LambdaExpression) (innerKey: LambdaExpression) : JoinSpec option =
         let isRightJoin = methodInfo.Name = "RightJoin"
@@ -978,11 +1119,29 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as keySel) ]) when m.Name = "DistinctBy" ->
                 flatten source (LinqStage.DistinctBy keySel :: acc)
 
+            // GroupBy(keySelector, elementSelector, resultSelector) - 4 arguments
+            | MethodCall(m, null, [ source; kExpr; eExpr; rExpr ]) when m.Name = "GroupBy" ->
+                let rec extractLambda (e: Expression) : LambdaExpression option =
+                    match e with
+                    | null -> None
+                    | :? LambdaExpression as l -> Some l
+                    | Unary(ExpressionType.Quote, inner) -> extractLambda inner
+                    | _ -> None
+
+                match extractLambda kExpr, extractLambda eExpr, extractLambda rExpr with
+                | Some k, Some e, Some r ->
+                    flatten source (LinqStage.GroupByWithElementAndResult(k, e, r) :: acc)
+                | _ ->
+                    printfn "[LINQ DEBUG] GroupBy 4-arg lambda extraction failed! kExpr=%A, eExpr=%A, rExpr=%A" kExpr eExpr rExpr
+                    acc
+
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as k); StripQuotes (:? LambdaExpression as r) ]) when m.Name = "GroupBy" ->
                 flatten source (LinqStage.GroupByWithResult(k, r) :: acc)
 
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as k) ]) when m.Name = "GroupBy" ->
                 flatten source (LinqStage.GroupByKey k :: acc)
+
+
 
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as l) ]) when m.Name = "Select" ->
                 flatten source (LinqStage.Project l :: acc)
@@ -1146,6 +1305,31 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 match PolarsQuery<'T>.CompileGroupByWithResult keyLambda resLambda with
                 | Some spec -> fuse tail (QueryOp.GroupBy spec :: opsAcc) clientPreds
                 | None -> failwith "Failed to compile GroupBy with result selector pushdown."
+
+            // Rule: GroupBy followed by Where in LINQ (Filter appears BEFORE GroupBy in the unreversed AST stream!)
+            | LinqStage.Filter havingPred :: LinqStage.GroupByWithElementAndResult(keyLambda, elemLambda, resLambda) :: tail when clientPreds.IsEmpty ->
+                match PolarsQuery<'T>.CompileGroupByWithElementAndResult keyLambda elemLambda resLambda with
+                | Some spec ->
+                    let havingParam = havingPred.Parameters.[0]
+                    match ExprTranslator.tryTranslate havingParam.Name havingPred.Body with
+                    | Some havingExpr ->
+                        // Polars Native Having pushdown directly inside LazyGroupByAgg!
+                        let specWithHaving = { spec with Having = Some havingExpr }
+                        fuse tail (QueryOp.GroupBy specWithHaving :: opsAcc) clientPreds
+                    | None ->
+                        // If having predicate translation fails, execute GroupBy first, then downstream Filter
+                        let compiled = havingPred.Compile() :?> Func<'T, bool>
+                        fuse tail (QueryOp.GroupBy spec :: opsAcc) (compiled :: clientPreds)
+                | None ->
+                    failwith "Failed to compile GroupBy(key, elem, res) with Having pushdown."
+
+            // Rule: GroupBy without Where
+            | LinqStage.GroupByWithElementAndResult(keyLambda, elemLambda, resLambda) :: tail when clientPreds.IsEmpty ->
+                match PolarsQuery<'T>.CompileGroupByWithElementAndResult keyLambda elemLambda resLambda with
+                | Some spec -> 
+                    fuse tail (QueryOp.GroupBy spec :: opsAcc) clientPreds
+                | None -> 
+                    failwith "Failed to compile GroupBy(key, elem, res) pushdown."
 
             | LinqStage.Filter l :: tail ->
                 match ExprTranslator.tryTranslate l.Parameters.[0].Name l.Body with
@@ -1467,6 +1651,10 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 | None ->
                     failwithf "Could not translate CountBy key selector: %A" keyLambda
 
+            // Rule: AggregateBy -> Passthrough to downstream evaluation
+            | LinqStage.AggregateBy _ :: tail when clientPreds.IsEmpty ->
+                fuse tail opsAcc clientPreds
+
             | [] ->
                 List.rev opsAcc, List.rev clientPreds
 
@@ -1516,6 +1704,31 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | _ -> None
 
         let chunkSizeOpt = if targetType.IsArray then findChunkSize expression else None
+
+        // Robust helper to extract LambdaExpression
+        let rec extractLambda (expr: Expression) : LambdaExpression option =
+            match expr with
+            | null -> None
+            | :? LambdaExpression as l -> Some l
+            | Unary(ExpressionType.Quote, inner) -> extractLambda inner
+            | _ -> None
+
+        // Inspects expression pipeline for AggregateBy
+        let rec findAggregateBy (e: Expression) =
+            match e with
+            | null -> None
+            // Matches: AggregateBy(source, keySelector, seedOrSeedSelector, func, [keyComparer])
+            | MethodCall(m, null, source :: keyExpr :: seedExpr :: funcExpr :: rest) when m.Name = "AggregateBy" ->
+                match extractLambda keyExpr, extractLambda funcExpr with
+                | Some k, Some f ->
+                    let seedLambdaOpt = extractLambda seedExpr
+                    let comparerExprOpt = rest |> List.tryHead
+                    Some (source, k, seedExpr, seedLambdaOpt, f, comparerExprOpt)
+                | _ -> None
+            | MethodCall(_, null, args) -> args |> List.tryPick findAggregateBy
+            | _ -> None
+
+        let aggByInfoOpt = findAggregateBy expression
 
         // Case 1: GroupBy materialization (produces IEnumerable<IGrouping<TKey, TElement>>)
         if isGrouping then
@@ -1585,6 +1798,55 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     .MakeGenericMethod(elemType)
             chunkMethod.Invoke(null, [| rawRows; box chunkSize |]) :?> IEnumerable<'T>
 
+        // Case: AggregateBy (produces IEnumerable<KeyValuePair<TKey, TAccum>>)
+        elif aggByInfoOpt.IsSome then
+            let sourceExpr, keyLambda, seedExpr, seedLambdaOpt, funcLambda, comparerExprOpt = aggByInfoOpt.Value
+            let genericArgs = targetType.GetGenericArguments()
+            let keyType, accumType = genericArgs.[0], genericArgs.[1]
+
+            // Execute preceding pipeline natively
+            let rawRows = (provider :> IQueryProvider).CreateQuery(sourceExpr)
+            let sourceElemType = keyLambda.Parameters.[0].Type
+
+            let compiledKey = keyLambda.Compile()
+            let compiledFunc = funcLambda.Compile()
+
+            let comparerObj = 
+                match comparerExprOpt with
+                | Some ce -> tryEvaluate ce |> Option.toObj
+                | None -> null
+
+            match seedLambdaOpt with
+            // Overload A: seedSelector: Func<TKey, TAccumulate>
+            | Some seedLambda ->
+                let compiledSeed = seedLambda.Compile()
+                let aggByMethod = 
+                    typeof<Enumerable>.GetMethods()
+                    |> Array.find (fun m -> 
+                        m.Name = "AggregateBy" && 
+                        m.GetParameters().Length = 5 && 
+                        m.GetParameters().[2].ParameterType.IsGenericType && 
+                        m.GetParameters().[2].ParameterType.GetGenericTypeDefinition() = typedefof<Func<_, _>>)
+                    |> fun m -> m.MakeGenericMethod(sourceElemType, keyType, accumType)
+
+                aggByMethod.Invoke(null, [| box rawRows; box compiledKey; box compiledSeed; box compiledFunc; comparerObj |]) :?> IEnumerable<'T>
+
+            // Overload B: static seed: TAccumulate
+            | None ->
+                let seedVal = 
+                    match tryEvaluate seedExpr with
+                    | Some s -> s
+                    | None -> failwith "Failed to evaluate static seed for AggregateBy."
+
+                let aggByMethod = 
+                    typeof<Enumerable>.GetMethods()
+                    |> Array.find (fun m -> 
+                        m.Name = "AggregateBy" && 
+                        m.GetParameters().Length = 5 && 
+                        m.GetParameters().[2].ParameterType.IsGenericParameter)
+                    |> fun m -> m.MakeGenericMethod(sourceElemType, keyType, accumType)
+
+                aggByMethod.Invoke(null, [| box rawRows; box compiledKey; box seedVal; box compiledFunc; comparerObj |]) :?> IEnumerable<'T>
         // Case 3: Flat row materialization (standard entities, DTOs, value tuples)
         else
             let nativeLf, clientPredicates = this.GetCompiledPlan()
