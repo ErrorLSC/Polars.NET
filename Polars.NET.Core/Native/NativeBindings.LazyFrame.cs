@@ -43,6 +43,7 @@ unsafe internal partial class NativeBindings
         nint havingExpr
     );
     [LibraryImport(LibName)] public static partial SchemaHandle pl_lazyframe_get_schema(LazyFrameHandle lf);
+    [LibraryImport(LibName)] public static partial LazyFrameHandle pl_lazyframe_reverse(LazyFrameHandle lf);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_lazyframe_with_row_index(
         LazyFrameHandle lf, 

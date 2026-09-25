@@ -80,7 +80,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         => new(PolarsWrapper.LazyClone(Handle));
     internal LazyFrameHandle CloneHandle()
         => PolarsWrapper.LazyClone(Handle);
-    
+   
     /// <summary>
     /// Renames columns in the <see cref="LazyFrame"/>.
     /// </summary>

@@ -7,7 +7,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <summary>
     /// Reverse the LazyFrame.
     /// </summary>
-    public LazyFrame Reverse() => Select(Pl.All().Reverse());
+    public LazyFrame Reverse()
+        => new(PolarsWrapper.LazyFrameReverse(CloneHandle()));
 }
 
 public partial class DataFrame
@@ -15,5 +16,5 @@ public partial class DataFrame
     /// <summary>
     /// Reverse the DataFrame.
     /// </summary>
-    public DataFrame Reverse() => Select(Pl.All().Reverse());
+    public DataFrame Reverse() => Lazy().Reverse().Collect();
 }

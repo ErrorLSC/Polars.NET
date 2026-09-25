@@ -3067,4 +3067,20 @@ public class DataFrameTests
         Assert.True(dfMixed.IsSorted(["a", "b"], descending: [false, true]));
         Assert.False(dfMixed.IsSorted(["a", "b"], descending: [false, false]));
     }
+
+    [Fact]
+    [Trait("DataFrame", "Reverse")]
+    public void Test_DataFrame_Reverse()
+    {
+        using DataFrame df = [
+            Series.From("a", [1, 1, 2, 2]),
+            Series.From("b", [10, 5, 20, 10]),
+        ];
+
+        using DataFrame reversed = df.Reverse();
+
+        Assert.Equal([2,2,1,1],reversed["a"].ToArray<int>());
+        Assert.Equal([10,20,5,10],reversed["b"].ToArray<int>());
+
+    }
 }

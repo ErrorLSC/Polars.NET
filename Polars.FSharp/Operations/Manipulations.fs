@@ -707,6 +707,29 @@ module ManipulateOps =
 
         member this.BottomK(k: int, by: seq<#IColumnExpr>, reverse: bool) =
             this.BottomK(k, by, [| reverse |])
+    type DataFrame with
+        /// <summary>
+        /// Get the top k rows based on the given columns.
+        /// This is often faster than a full sort followed by a head.
+        /// </summary>
+        /// <param name="k">Number of rows to return.</param>
+        /// <param name="by">Columns to sort by.</param>
+        /// <param name="reverse">Sort direction per column. Default is false (no reverse).</param>
+        member this.TopK(k: int, by: seq<#IColumnExpr>, ?reverse: seq<bool>):DataFrame =
+            this.Lazy().TopK(k,by,?reverse=reverse).Collect()
+
+        /// <summary>
+        /// Get the bottom k rows based on the given columns.
+        /// </summary>
+        member this.BottomK(k: int, by: seq<#IColumnExpr>, ?reverse: seq<bool>):DataFrame =
+            this.Lazy().BottomK(k,by,?reverse=reverse).Collect()
+
+        // [Overload] Sugar for single boolean reversing
+        member this.TopK(k: int, by: seq<#IColumnExpr>, reverse: bool) =
+            this.TopK(k, by, [| reverse |])
+        // [Overload] Sugar for single boolean reversing
+        member this.BottomK(k: int, by: seq<#IColumnExpr>, reverse: bool) =
+            this.BottomK(k, by, [| reverse |])
     /// ========================
     /// Reverse
     /// ========================
@@ -714,12 +737,12 @@ module ManipulateOps =
         /// <summary>
         /// Reverse the LazyFrame.
         /// </summary>
-        member this.Reverse() = this.Select(Expr.All().Reverse())
+        member this.Reverse(): LazyFrame = new LazyFrame(PolarsWrapper.LazyFrameReverse(this.CloneHandle()))
     type DataFrame with
         /// <summary>
         /// Reverse the DataFrame.
         /// </summary>
-        member this.Reverse() = this.Select(Expr.All().Reverse())
+        member this.Reverse() : DataFrame = this.Lazy().Reverse().Collect()
     /// ========================
     /// SetSorted
     /// ========================
