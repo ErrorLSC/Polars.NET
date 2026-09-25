@@ -55,10 +55,11 @@ public interface IPolarsSchema : IDisposable, IReadOnlyDictionary<string, IPolar
 public interface IDataFrameMaterializer
 {
     IEnumerable<T> Materialize<T>(DataFrameHandle handle);
+    T MaterializeScalar<T>(DataFrameHandle handle);
 }
 
 public static class DataFrameMaterializerRegistry
 {
     internal static IDataFrameMaterializer? Default { get; set; }
-
+   
 }

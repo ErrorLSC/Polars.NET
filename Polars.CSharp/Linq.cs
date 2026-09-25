@@ -21,6 +21,17 @@ public sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         // Consume duck-typed DataFrameRowEnumerator<T>
         return df.Rows<T>().ToList();
     }
+    public T MaterializeScalar<T>(DataFrameHandle handle)
+    {
+        var df = new DataFrame(handle);
+        if (df.Height == 0 || df.Width == 0)
+        {
+            return default!;
+        }
+
+        // Retrieve scalar from row 0, column 0 without creating Arrow buffers
+        return df.GetValue<T>(0L, df.ColumnNames[0])!;
+    }
 }
 
 /// <summary>

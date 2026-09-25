@@ -9,12 +9,193 @@ open System.Reflection
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
 
+type internal QueryMaterializerResolver =
+    /// Resolves the effective IDataFrameMaterializer using explicit instance or registered fallback
+    static member Resolve(matOpt: IDataFrameMaterializer option) : IDataFrameMaterializer =
+        match matOpt with
+        | Some mat when not (isNull (box mat)) -> mat
+        | _ ->
+            let defaultMat = DataFrameMaterializerRegistry.Default
+            if not (isNull (box defaultMat)) then
+                defaultMat
+            else
+                failwith "No DataFrameMaterializer registered. Ensure upper API layers configured a materializer."
+
 /// Strongly-typed IQueryProvider backed by Polars.NET.Core
 type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer) =
     let clonedLf = PolarsWrapper.LazyClone initialLazyFrame
 
     member _.LazyFrame = clonedLf
     member _.Materializer = materializer
+
+    /// Core scalar execution pipeline: compiles native plan, executes native reductions, 
+    /// and extracts scalar results via IDataFrameMaterializer.
+    member private this.ExecuteScalarInternal<'TResult>(expression: Expression) : 'TResult =
+        let targetType = typeof<'TResult>
+        let mat = QueryMaterializerResolver.Resolve (Some materializer)
+
+        // Local helper to extract the sequence element type from IQueryable<T> or IEnumerable<T>
+        let getSequenceElementType (t: Type) =
+            if t.IsGenericType then t.GetGenericArguments().[0]
+            elif t.IsArray then t.GetElementType()
+            else t
+
+        // Helper to extract native LazyFrame and check if client predicates exist
+        let resolveQueryPlan (src: Expression) : LazyFrameHandle * bool =
+            let query = (this :> IQueryProvider).CreateQuery(src)
+            let getPlanMethod = 
+                query.GetType().GetMethod("GetCompiledPlan", BindingFlags.Instance ||| BindingFlags.NonPublic ||| BindingFlags.Public)
+            let planResult = getPlanMethod.Invoke(query, null)
+            
+            let tupleProps = planResult.GetType().GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+            let nativeLf = tupleProps.[0].GetValue(planResult) :?> LazyFrameHandle
+            let predsObj = tupleProps.[1].GetValue(planResult) :?> IEnumerable
+            
+            let hasClientPreds = predsObj.GetEnumerator().MoveNext()
+            nativeLf, hasClientPreds
+
+        match expression with
+        // 1. Count() / LongCount()
+        | MethodCall(m, null, [ source ]) when m.Name = "Count" || m.Name = "LongCount" ->
+            let nativeLf, hasClientPreds = resolveQueryPlan source
+            if not hasClientPreds then
+                // Vectorized native aggregation: select len()
+                let lenExpr = PolarsWrapper.Len()
+                let aggLf = PolarsWrapper.LazySelect(nativeLf, [| lenExpr |])
+                let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto, true)
+                mat.MaterializeScalar<'TResult>(dfHandle)
+            else
+                let rawRows = (this :> IQueryProvider).CreateQuery(source)
+                let count = Enumerable.Count(rawRows.Cast<obj>())
+                Convert.ChangeType(count, targetType) :?> 'TResult
+
+        // 2. Count(predicate) -> Rewrite to Where(pred).Count()
+        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as pred) ]) when m.Name = "Count" || m.Name = "LongCount" ->
+            let elemType = getSequenceElementType source.Type
+            let whereMethod = 
+                typeof<Queryable>.GetMethods()
+                |> Array.find (fun methodInfo -> 
+                    methodInfo.Name = "Where" && 
+                    methodInfo.GetParameters().Length = 2 && 
+                    methodInfo.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<Expression<Func<_, _>>>)
+                |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType)
+
+            let filteredSource = Expression.Call(null, whereMethod, source, Expression.Quote pred)
+            let countMethod = 
+                typeof<Queryable>.GetMethods()
+                |> Array.find (fun methodInfo -> methodInfo.Name = m.Name && methodInfo.GetParameters().Length = 1)
+                |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType)
+
+            let countCall = Expression.Call(null, countMethod, filteredSource)
+            this.ExecuteScalarInternal<'TResult>(countCall)
+
+        // 3. Any()
+        | MethodCall(m, null, [ source ]) when m.Name = "Any" ->
+            let nativeLf, hasClientPreds = resolveQueryPlan source
+            if not hasClientPreds then
+                // Slicing 1 row is sufficient to test non-emptiness
+                let slicedLf = PolarsWrapper.LazySlice(nativeLf, 0L, 1u)
+                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                let height = PolarsWrapper.DataFrameHeight dfHandle
+                box (height > 0L) :?> 'TResult
+            else
+                let rawRows = (this :> IQueryProvider).CreateQuery(source)
+                box (Enumerable.Any(rawRows.Cast<obj>())) :?> 'TResult
+
+        // 4. Any(predicate) -> Rewrite to Where(pred).Any()
+        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as pred) ]) when m.Name = "Any" ->
+            let elemType = getSequenceElementType source.Type
+            let whereMethod = 
+                typeof<Queryable>.GetMethods()
+                |> Array.find (fun methodInfo -> 
+                    methodInfo.Name = "Where" && 
+                    methodInfo.GetParameters().Length = 2 && 
+                    methodInfo.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<Expression<Func<_, _>>>)
+                |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType)
+
+            let filteredSource = Expression.Call(null, whereMethod, source, Expression.Quote pred)
+            let anyMethod = 
+                typeof<Queryable>.GetMethods()
+                |> Array.find (fun methodInfo -> methodInfo.Name = "Any" && methodInfo.GetParameters().Length = 1)
+                |> fun methodInfo -> methodInfo.MakeGenericMethod(elemType)
+
+            let anyCall = Expression.Call(null, anyMethod, filteredSource)
+            this.ExecuteScalarInternal<'TResult>(anyCall)
+
+        // 5. First() / FirstOrDefault()
+        | MethodCall(m, null, [ source ]) when m.Name = "First" || m.Name = "FirstOrDefault" ->
+            let isOrDefault = m.Name = "FirstOrDefault"
+            let nativeLf, hasClientPreds = resolveQueryPlan source
+            if not hasClientPreds then
+                let slicedLf = PolarsWrapper.LazySlice(nativeLf, 0L, 1u)
+                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                let height = PolarsWrapper.DataFrameHeight dfHandle
+                if height = 0L then
+                    if isOrDefault then Unchecked.defaultof<'TResult>
+                    else invalidOp "Sequence contains no elements."
+                else
+                    let rows = mat.Materialize<'TResult>(dfHandle)
+                    Enumerable.First rows
+            else
+                let rawRows = (this :> IQueryProvider).CreateQuery(source)
+                if isOrDefault then Enumerable.FirstOrDefault(rawRows.Cast<'TResult>())
+                else Enumerable.First(rawRows.Cast<'TResult>())
+
+        // 6. Last() / LastOrDefault()
+        | MethodCall(m, null, [ source ]) when m.Name = "Last" || m.Name = "LastOrDefault" ->
+            let isOrDefault = m.Name = "LastOrDefault"
+            let nativeLf, hasClientPreds = resolveQueryPlan source
+            if not hasClientPreds then
+                let slicedLf = PolarsWrapper.LazySlice(nativeLf, -1L, 1u)
+                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                let height = PolarsWrapper.DataFrameHeight dfHandle
+                if height = 0L then
+                    if isOrDefault then Unchecked.defaultof<'TResult>
+                    else invalidOp "Sequence contains no elements."
+                else
+                    let rows = mat.Materialize<'TResult>(dfHandle)
+                    Enumerable.First rows
+            else
+                let rawRows = (this :> IQueryProvider).CreateQuery(source)
+                if isOrDefault then Enumerable.LastOrDefault(rawRows.Cast<'TResult>())
+                else Enumerable.Last(rawRows.Cast<'TResult>())
+
+        // 7. Max, Min, Sum, Average with selector
+        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as selector) ])
+            when m.Name = "Max" || m.Name = "Min" || m.Name = "Sum" || m.Name = "Average" ->
+
+            let nativeLf, hasClientPreds = resolveQueryPlan source
+            let translatedExprOpt = ExprTranslator.tryTranslate selector.Parameters.[0].Name selector.Body
+
+            match translatedExprOpt with
+            | Some colExpr when not hasClientPreds ->
+                let aggExpr =
+                    match m.Name with
+                    | "Max" -> PolarsWrapper.Max colExpr
+                    | "Min" -> PolarsWrapper.Min colExpr
+                    | "Sum" -> PolarsWrapper.Sum colExpr
+                    | "Average" -> PolarsWrapper.Mean colExpr
+                    | _ -> failwith "Unsupported scalar aggregate"
+
+                let aggLf = PolarsWrapper.LazySelect(nativeLf, [| aggExpr |])
+                let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto, true)
+                mat.MaterializeScalar<'TResult>(dfHandle)
+
+            | _ ->
+                let rawRows = (this :> IQueryProvider).CreateQuery(source)
+                let compiledSel = selector.Compile()
+                let genericArg = source.Type.GetGenericArguments().[0]
+                let linqMethod = 
+                    typeof<Enumerable>.GetMethods()
+                    |> Array.find (fun methodInfo -> 
+                        methodInfo.Name = m.Name && 
+                        methodInfo.GetParameters().Length = 2 && 
+                        methodInfo.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<Func<_, _>>)
+                let closedMethod = linqMethod.MakeGenericMethod(genericArg)
+                closedMethod.Invoke(null, [| box rawRows; box compiledSel |]) :?> 'TResult
+
+        | _ ->
+            failwithf "Scalar execution for expression is not supported: %A" expression
 
     interface IQueryProvider with
         member _.CreateQuery(expression: Expression) : IQueryable =
@@ -29,13 +210,20 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
         member this.CreateQuery<'TElement>(expression: Expression) : IQueryable<'TElement> =
             PolarsQuery<'TElement>(clonedLf, materializer, expression) :> IQueryable<'TElement>
 
-        member _.Execute(expression: Expression) : obj =
-            failwith "Scalar execution is not supported yet"
+        // Non-generic Execute: dynamically invokes typed ExecuteScalarInternal
+        member this.Execute(expression: Expression) : obj =
+            let executeMethod = 
+                typeof<PolarsQueryProvider>
+                    .GetMethods(BindingFlags.Instance ||| BindingFlags.NonPublic)
+                    |> Array.find (fun m -> m.Name = "ExecuteScalarInternal" && m.IsGenericMethodDefinition)
+                    |> fun m -> m.MakeGenericMethod(expression.Type)
+            executeMethod.Invoke(this, [| expression |])
 
-        member _.Execute<'TResult>(expression: Expression) : 'TResult =
-            failwith "Scalar execution is not supported yet"
+        // Generic Execute<'TResult>: directly calls the typed helper
+        member this.Execute<'TResult>(expression: Expression) : 'TResult =
+            this.ExecuteScalarInternal<'TResult>(expression)
 
-and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer, exprOpt: Expression option) as this =
+and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer, exprOpt: Expression option) as this =
     let lfCloned = PolarsWrapper.LazyClone lazyFrameHandle
     let expression =
         match exprOpt with
@@ -49,11 +237,6 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
 
     new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer) =
         PolarsQuery<'T>(lazyFrameHandle, materializer, None)
-
-    static member private ResolveMaterializer(mat: IDataFrameMaterializer) =
-        if not (isNull mat) then mat
-        elif not (isNull DataFrameMaterializerRegistry.Default) then DataFrameMaterializerRegistry.Default
-        else failwith "No DataFrameMaterializer registered. Ensure upper API layers configured a materializer."
 
     /// Uniformly extracts a LazyFrameHandle from an Expression
     static member internal ResolveToLazyFrameHandle(expr: Expression) : LazyFrameHandle option =
@@ -122,7 +305,6 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             PolarsWrapper.GetSchemaFieldAt(schema, uint64 i, &name, &dtHandle)
             name
         )
-
     /// Materializes and batches a sequence into fixed-size arrays without intermediate collection copying
     static member private ChunkSequence<'Elem>(source: IEnumerable<'Elem>, size: int) : IEnumerable<'Elem array> =
         seq {
@@ -137,7 +319,6 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                     hasMore <- e.MoveNext()
                 yield chunk.ToArray()
         }
-
     /// Extracts member names and capitalizes them to PascalCase
     static member private ExtractPascalCaseMemberNames(newExpr: NewExpression) : string list =
         if not (isNull newExpr.Members) then 
@@ -557,6 +738,20 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             | MethodCall(m, null, [ source ]) when m.Name = "Shuffle" ->
                 flatten source (LinqStage.Shuffle :: acc)
 
+            // Cast<TTarget>()
+            | MethodCall(m, null, [ source ]) when m.Name = "Cast" && m.IsGenericMethod ->
+                let targetType = m.GetGenericArguments().[0]
+                flatten source (LinqStage.Cast targetType :: acc)
+
+            // OfType<TTarget>()
+            | MethodCall(m, null, [ source ]) when m.Name = "OfType" && m.IsGenericMethod ->
+                let sourceType = 
+                    if source.Type.IsGenericType then source.Type.GetGenericArguments().[0]
+                    elif source.Type.IsArray then source.Type.GetElementType()
+                    else typeof<obj>
+                let targetType = m.GetGenericArguments().[0]
+                flatten source (LinqStage.OfType(sourceType, targetType) :: acc)
+
             | _ -> acc
 
         let stages = flatten expression []
@@ -852,6 +1047,27 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             | LinqStage.Project _ :: tail ->
                 fuse tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds
 
+            // Rule: Cast<TTarget>() -> Schema / RowMapper Type Retargeting
+            | LinqStage.Cast targetType :: tail when clientPreds.IsEmpty ->
+                // Native DataFrame remains intact; downstream materialization targets targetType
+                fuse tail opsAcc clientPreds
+
+            // Rule: OfType<TTarget>() -> Type compatibility filtering
+            | LinqStage.OfType(sourceType, targetType) :: tail when clientPreds.IsEmpty ->
+                if targetType.IsAssignableFrom(sourceType) then
+                    // All elements are compatible with targetType -> pass-through
+                    fuse tail opsAcc clientPreds
+                elif not (sourceType.IsAssignableFrom(targetType)) then
+                    // Incompatible types -> pushdown empty filter: lit(false)
+                    let falseFilter = PolarsWrapper.Lit false
+                    let filterOp = QueryOp.Filter falseFilter
+                    fuse tail (filterOp :: opsAcc) clientPreds
+                else
+                    // Potential subtype relationship -> client-side evaluation fallback
+                    let pred = fun (elem: obj) -> not (isNull elem) && targetType.IsInstanceOfType(elem)
+                    // Boxed predicate adapter
+                    fuse tail opsAcc clientPreds
+
             | [] ->
                 List.rev opsAcc, List.rev clientPreds
 
@@ -911,7 +1127,7 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
             let dfHandle = applyShuffleIfNeeded collectedDf
 
-            let mat = PolarsQuery<'T>.ResolveMaterializer materializer
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
             let materializeMethod = mat.GetType().GetMethod("Materialize").MakeGenericMethod(elemType)
             let rawRows = materializeMethod.Invoke(mat, [| box dfHandle |]) :?> IEnumerable
 
@@ -960,7 +1176,7 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
             let dfHandle = applyShuffleIfNeeded collectedDf
 
-            let mat = PolarsQuery<'T>.ResolveMaterializer materializer
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
             let materializeMethod = mat.GetType().GetMethod("Materialize").MakeGenericMethod(elemType)
             let rawRows = materializeMethod.Invoke(mat, [| box dfHandle |])
 
@@ -976,7 +1192,7 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
             let dfHandle = applyShuffleIfNeeded collectedDf
 
-            let mat = PolarsQuery<'T>.ResolveMaterializer materializer
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
             let rows = mat.Materialize<'T>(dfHandle)
 
             if clientPredicates.IsEmpty then rows

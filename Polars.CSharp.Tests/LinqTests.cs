@@ -1684,5 +1684,73 @@ public class LinqTests
         Assert.Equal(10, results.Select(r => r.Id).Distinct().Count());
         Assert.All(results, r => Assert.Contains(r.Id, ids));
     }
+    [Fact]
+    [Trait("LINQ", "Scalar")]
+    public void Test_Linq_Scalar_Aggregations_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 30, 35]),
+            Series.From("Salary", [50000, 60000, 70000])
+        ]);
 
+        var query = df.AsQueryable<Employee>();
+
+        // 1. Count
+        Assert.Equal(3, query.Count());
+        Assert.Equal(2, query.Count(e => e.Age >= 30));
+
+        // 2. Any
+        Assert.True(query.Any(e => e.Salary > 65000));
+        Assert.False(query.Any(e => e.Salary > 100000));
+
+        // 3. First & Last
+        var first = query.OrderBy(e => e.Age).First();
+        Assert.Equal("Alice", first.Name);
+
+        var last = query.OrderBy(e => e.Age).Last();
+        Assert.Equal("Charlie", last.Name);
+
+        // 4. Max, Min, Sum, Average
+        Assert.Equal(70000, query.Max(e => e.Salary));
+        Assert.Equal(50000, query.Min(e => e.Salary));
+        Assert.Equal(180000, query.Sum(e => e.Salary));
+        Assert.Equal(30.0, query.Average(e => e.Age), 2);
+    }
+    public interface IWorker
+    {
+        string Name { get; }
+        int Salary { get; }
+    }
+
+    public record struct WorkerRecord(string Name, int Age, int Salary) : IWorker;
+
+    [Fact]
+    [Trait("LINQ", "Cast_OfType")]
+    public void Test_Linq_Cast_And_OfType_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("Age", [28, 35]),
+            Series.From("Salary", [75000, 90000])
+        ]);
+
+        var query = df.AsQueryable<WorkerRecord>();
+
+        // 1. OfType with compatible interface type -> Retains all records
+        var workers = query.OfType<WorkerRecord>().ToList();
+        Assert.Equal(2, workers.Count);
+        Assert.Equal("Alice", workers[0].Name);
+
+        // 2. OfType with completely incompatible type -> Filtered to empty
+        var emptyDepartments = query.OfType<Department>().ToList();
+        Assert.Empty(emptyDepartments);
+
+        // 3. Cast preserves element mappings
+        var castedWorkers = query.Cast<WorkerRecord>().ToList();
+        Assert.Equal(2, castedWorkers.Count);
+        Assert.Equal("Bob", castedWorkers[1].Name);
+    }
 }

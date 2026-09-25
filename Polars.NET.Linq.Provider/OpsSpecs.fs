@@ -3,6 +3,7 @@ namespace Polars.NET.Linq.Provider
 open Polars.NET.Core
 open System.Linq.Expressions
 open System.Reflection
+open System
 
 /// Specification for multi-column sorting pushdown
 type internal SortSpec = {
@@ -106,4 +107,6 @@ type internal LinqStage =
     | Zip3 of secondExpr: Expression * thirdExpr: Expression
     | Reverse
     | Shuffle
+    | Cast of targetType: Type
+    | OfType of sourceType: Type * targetType: Type
     | Project of LambdaExpression
