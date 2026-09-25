@@ -371,7 +371,12 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                 PolarsWrapper.LazyUnique(currentLf, selector, spec.Keep, spec.MaintainOrder)
 
             | QueryOp.Concat spec ->
-                PolarsWrapper.LazyConcat([| currentLf; spec.OtherLf |], PlConcatType.Vertical, false, true)
+                let handles =
+                    if spec.Prepend then
+                        [| spec.OtherLf; currentLf |]
+                    else
+                        [| currentLf; spec.OtherLf |]
+                PolarsWrapper.LazyConcat(handles, PlConcatType.Vertical, false, true)
 
             | QueryOp.HorizontalConcat otherLfs ->
                 let allHandles = Array.append [| currentLf |] otherLfs
@@ -383,6 +388,24 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
 
             | QueryOp.Rename spec ->
                 PolarsWrapper.LazyRename(currentLf, spec.ExistingNames, spec.NewNames, strict = false)
+
+            | QueryOp.SkipLast count ->
+                // 1. Attach __row_idx column starting from 0
+                let withIndexLf = PolarsWrapper.LazyFrameWithRowIndex(currentLf, "__row_idx", Nullable 0)
+
+                // 2. Build filter expression: (col("__row_idx") + lit(count)) < len()
+                // Moving subtraction to addition strictly avoids unsigned integer underflow when count > total_rows
+                let rowIdxCol = PolarsWrapper.Col "__row_idx"
+                let countLit = PolarsWrapper.Lit (uint32 count)
+                let lhsExpr = PolarsWrapper.Add(rowIdxCol, countLit)
+                let totalLen = PolarsWrapper.Len()
+                let filterExpr = PolarsWrapper.Lt(lhsExpr, totalLen)
+
+                let filteredLf = PolarsWrapper.LazyFilter(withIndexLf, filterExpr)
+
+                // 3. Drop temporary helper column __row_idx
+                let dropSelector = PolarsWrapper.SelectorCols [| "__row_idx" |]
+                PolarsWrapper.LazyFrameDrop(filteredLf, dropSelector)
 
             | QueryOp.SelectPassthrough -> 
                 currentLf
@@ -503,6 +526,26 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                 | None ->
                     failwithf "Could not evaluate Chunk size argument: %A" sizeExpr
 
+            // TakeLast(count)
+            | MethodCall(m, null, [ source; countExpr ]) when m.Name = "TakeLast" ->
+                match tryEvaluate countExpr with
+                | Some c -> flatten source (LinqStage.TakeLast(Convert.ToUInt32 c) :: acc)
+                | None -> failwithf "Could not evaluate TakeLast count: %A" countExpr
+
+            // SkipLast(count)
+            | MethodCall(m, null, [ source; countExpr ]) when m.Name = "SkipLast" ->
+                match tryEvaluate countExpr with
+                | Some c -> flatten source (LinqStage.SkipLast(Convert.ToUInt32 c) :: acc)
+                | None -> failwithf "Could not evaluate SkipLast count: %A" countExpr
+
+            // Append(element)
+            | MethodCall(m, null, [ source; elemExpr ]) when m.Name = "Append" ->
+                flatten source (LinqStage.Append elemExpr :: acc)
+
+            // Prepend(element)
+            | MethodCall(m, null, [ source; elemExpr ]) when m.Name = "Prepend" ->
+                flatten source (LinqStage.Prepend elemExpr :: acc)
+
             | _ -> acc
 
         let stages = flatten expression []
@@ -578,7 +621,7 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             | LinqStage.Concat secondExpr :: tail when clientPreds.IsEmpty ->
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with
                 | Some otherLf ->
-                    let spec = { OtherLf = otherLf }
+                    let spec = { OtherLf = otherLf; Prepend = false }
                     fuse tail (QueryOp.Concat spec :: opsAcc) clientPreds
                 | None -> failwith "Failed to resolve second expression for Concat."
 
@@ -618,7 +661,7 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
             | LinqStage.Union(secondExpr, keyLambdaOpt) :: tail when clientPreds.IsEmpty ->
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with
                 | Some otherLf ->
-                    let concatOp = QueryOp.Concat { OtherLf = otherLf }
+                    let concatOp = QueryOp.Concat { OtherLf = otherLf; Prepend = false }
                     let uniqueSpec =
                         match keyLambdaOpt with
                         | Some keyLambda ->
@@ -750,6 +793,46 @@ and PolarsQuery<'T> private (lazyFrameHandle: LazyFrameHandle, materializer: IDa
                     fuse tail nextOps clientPreds
                 | _ ->
                     failwith "Failed to compile vectorized GroupJoin pushdown."
+            
+            // Rule: TakeLast(count) -> Native tail slice pushdown
+            | LinqStage.TakeLast count :: tail when clientPreds.IsEmpty ->
+                // Negative offset in Polars slice indicates slicing from tail
+                let sliceOp = QueryOp.Slice(-int64 count, count)
+                fuse tail (sliceOp :: opsAcc) clientPreds
+
+            // Rule: SkipLast(count) -> Native row index filtering pushdown
+            | LinqStage.SkipLast count :: tail when clientPreds.IsEmpty ->
+                fuse tail (QueryOp.SkipLast count :: opsAcc) clientPreds
+
+            // Rule: Append(element) -> Single-row DataFrame vertical concat (current @ elem)
+            | LinqStage.Append elemExpr :: tail when clientPreds.IsEmpty ->
+                match tryEvaluate elemExpr with
+                | Some elem when not (isNull elem) ->
+                    let elemType = elem.GetType()
+                    let fromRows = typeof<DataFrameBuilder>.GetMethod("FromRows", BindingFlags.Public ||| BindingFlags.Static).MakeGenericMethod(elemType)
+                    let typedArray = Array.CreateInstance(elemType, 1)
+                    typedArray.SetValue(elem, 0)
+
+                    let singleDf = fromRows.Invoke(null, [| box typedArray |]) :?> DataFrameHandle
+                    let otherLf = PolarsWrapper.DataFrameToLazy singleDf
+                    let concatOp = QueryOp.Concat { OtherLf = otherLf; Prepend = false }
+                    fuse tail (concatOp :: opsAcc) clientPreds
+                | _ -> failwith "Failed to evaluate Append element."
+
+            // Rule: Prepend(element) -> Single-row DataFrame inverted vertical concat (elem @ current)
+            | LinqStage.Prepend elemExpr :: tail when clientPreds.IsEmpty ->
+                match tryEvaluate elemExpr with
+                | Some elem when not (isNull elem) ->
+                    let elemType = elem.GetType()
+                    let fromRows = typeof<DataFrameBuilder>.GetMethod("FromRows", BindingFlags.Public ||| BindingFlags.Static).MakeGenericMethod(elemType)
+                    let typedArray = Array.CreateInstance(elemType, 1)
+                    typedArray.SetValue(elem, 0)
+
+                    let singleDf = fromRows.Invoke(null, [| box typedArray |]) :?> DataFrameHandle
+                    let otherLf = PolarsWrapper.DataFrameToLazy singleDf
+                    let concatOp = QueryOp.Concat { OtherLf = otherLf; Prepend = true }
+                    fuse tail (concatOp :: opsAcc) clientPreds
+                | _ -> failwith "Failed to evaluate Prepend element."
 
             | LinqStage.Project _ :: tail ->
                 fuse tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds

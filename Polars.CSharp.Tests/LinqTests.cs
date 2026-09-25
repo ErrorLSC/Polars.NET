@@ -1524,4 +1524,102 @@ public class LinqTests
         Assert.Single(chunks[2]);
         Assert.Equal(7, chunks[2][0].Id);
     }
+    [Fact]
+    [Trait("LINQ", "TakeLast")]
+    public void Test_Linq_TakeLast_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
+            Series.From("Age", [20, 25, 30, 35, 40]),
+            Series.From("Salary", [5000, 6000, 7000, 8000, 9000])
+        ]);
+
+        var results = df.AsQueryable<Employee>()
+            .TakeLast(2)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal("David", results[0].Name);
+        Assert.Equal("Eve", results[1].Name);
+    }
+    [Fact]
+    [Trait("LINQ", "SkipLast")]
+    public void Test_Linq_SkipLast_Pushdown()
+    {
+        // 1. Prepare 5 employee records
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
+            Series.From("Age", [25, 30, 35, 40, 45]),
+            Series.From("Salary", [50000, 60000, 70000, 80000, 90000])
+        ]);
+
+        // 2. Skip the last 2 records natively via LINQ (should retain Alice, Bob, Charlie)
+        var results = df.AsQueryable<Employee>()
+            .SkipLast(2)
+            .ToList();
+
+        // 3. Assert count and elements
+        Assert.Equal(3, results.Count);
+
+        // Row 0: Alice
+        Assert.Equal("Alice", results[0].Name);
+        Assert.Equal(25, results[0].Age);
+        Assert.Equal(50000, results[0].Salary);
+
+        // Row 1: Bob
+        Assert.Equal("Bob", results[1].Name);
+        Assert.Equal(30, results[1].Age);
+        Assert.Equal(60000, results[1].Salary);
+
+        // Row 2: Charlie
+        Assert.Equal("Charlie", results[2].Name);
+        Assert.Equal(35, results[2].Age);
+        Assert.Equal(70000, results[2].Salary);
+    }
+
+    [Fact]
+    [Trait("LINQ", "SkipLast")]
+    public void Test_Linq_SkipLast_ExceedingCount_ReturnsEmpty()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("Age", [25, 30]),
+            Series.From("Salary", [50000, 60000])
+        ]);
+
+        // Skipping count >= total rows returns an empty sequence
+        var results = df.AsQueryable<Employee>()
+            .SkipLast(5)
+            .ToList();
+
+        Assert.Empty(results);
+    }
+    [Fact]
+    [Trait("LINQ", "AppendPrepend")]
+    public void Test_Linq_Append_And_Prepend_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Bob"]),
+            Series.From("Age", [30]),
+            Series.From("Salary", [6000])
+        ]);
+
+        var first = new Employee("Alice", 25, 5000);
+        var last = new Employee("Charlie", 35, 7000);
+
+        var results = df.AsQueryable<Employee>()
+            .Prepend(first)
+            .Append(last)
+            .ToList();
+
+        Assert.Equal(3, results.Count);
+        Assert.Equal("Alice", results[0].Name);
+        Assert.Equal("Bob", results[1].Name);
+        Assert.Equal("Charlie", results[2].Name);
+    }
+
 }

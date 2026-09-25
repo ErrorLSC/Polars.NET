@@ -51,6 +51,7 @@ type internal UniqueSpec = {
 /// Specification for vertical concatenation pushdown
 type internal ConcatSpec = {
     OtherLf: LazyFrameHandle
+    Prepend: bool // false: current @ other (Append), true: other @ current (Prepend)
 }
 
 /// Uniform contract to expose internal LazyFrameHandle without leaking generic parameters
@@ -62,6 +63,7 @@ type internal IPolarsPlanSource =
 type internal QueryOp =
     | Filter of ExprHandle
     | Slice of offset: int64 * length: uint32
+    | SkipLast of count: uint32
     | Sort of SortSpec list
     | Join of JoinSpec
     | GroupBy of GroupBySpec
@@ -78,15 +80,19 @@ type internal QueryOp =
 [<RequireQualifiedAccess>]
 type internal LinqStage =
     | Filter of LambdaExpression
+    | Sort of LambdaExpression * isDescending: bool
     | TakeWhile of LambdaExpression
     | SkipWhile of LambdaExpression
-    | Sort of LambdaExpression * isDescending: bool
     | Take of uint32
     | Skip of uint32
+    | TakeLast of uint32
+    | SkipLast of uint32
     | Chunk of size: int
     | Distinct
     | DistinctBy of LambdaExpression
     | Concat of Expression
+    | Append of Expression
+    | Prepend of Expression
     | Union of Expression * keyLambdaOpt: LambdaExpression option
     | Join of MethodInfo * Expression * LambdaExpression * LambdaExpression * LambdaExpression
     | Explode of collectionLambda: LambdaExpression * resultLambdaOpt: LambdaExpression option
