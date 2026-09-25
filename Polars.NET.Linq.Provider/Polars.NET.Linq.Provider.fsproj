@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="ExpressionPatterns.fs" />
     <Compile Include="ExprTranslator.fs" />
+    <Compile Include="AggTranslator.fs" />
     <Compile Include="PolarsQueryable.fs" />
   </ItemGroup>
 
