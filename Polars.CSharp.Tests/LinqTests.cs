@@ -1115,6 +1115,61 @@ public class LinqTests
         Assert.Equal(3, result.Count);
         Assert.Equal([1, 2, 3], [.. result.Select(r => r.Id)]);
     }
+    [Fact]
+    [Trait("LINQ", "Union")]
+    public void Test_Linq_Union_And_UnionBy_Pushdown()
+    {
+        // 1. Arrange: Two DataFrames with overlapping Person records
+        using var df1 = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("DeptId", [10, 20, 30])
+        ]);
+
+        using var df2 = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Charlie", "David", "Eve"]),
+            Series.From("Id", [3, 4, 5]),
+            Series.From("DeptId", [30, 40, 50])
+        ]);
+
+        // 2. Act (Case A): Full-row Union (Id 3 is identical in both -> deduplicated)
+        var unionResults = df1.AsQueryable<Person>()
+            .Union(df2.AsQueryable<Person>())
+            .OrderBy(p => p.Id)
+            .ToList();
+
+        // 3. Assert (Case A): Total 5 unique elements (1, 2, 3, 4, 5)
+        Assert.Equal(5, unionResults.Count);
+        Assert.Equal(1, unionResults[0].Id);
+        Assert.Equal(2, unionResults[1].Id);
+        Assert.Equal(3, unionResults[2].Id);
+        Assert.Equal(4, unionResults[3].Id);
+        Assert.Equal(5, unionResults[4].Id);
+
+        // 4. Act (Case B): UnionBy specific key (e.g. DeptId)
+        using var df3 = DataFrame.FromColumns(
+        [
+            Series.From("Id", [101, 102]),
+            Series.From("Name", ["BobClone", "Frank"]),
+            Series.From("DeptId", [20, 60]) // DeptId 20 duplicates df1's Bob
+        ]);
+
+        var unionByResults = df1.AsQueryable<Person>()
+            .UnionBy(df3.AsQueryable<Person>(), p => p.DeptId)
+            .OrderBy(p => p.DeptId)
+            .ToList();
+
+        // 5. Assert (Case B): DeptId 20 should keep df1's Bob, Frank with DeptId 60 is added
+        Assert.Equal(4, unionByResults.Count);
+        Assert.Equal(10, unionByResults[0].DeptId);
+        Assert.Equal(20, unionByResults[1].DeptId);
+        Assert.Equal("Bob", unionByResults[1].Name); // First keep strategy retains original
+        Assert.Equal(30, unionByResults[2].DeptId);
+        Assert.Equal(60, unionByResults[3].DeptId);
+        Assert.Equal("Frank", unionByResults[3].Name);
+    }
 
     [Fact]
     [Trait("LINQ", "UnionBy")]
@@ -2388,7 +2443,7 @@ public class LinqTests
         var tupleResults = df1.AsQueryable<Person>()
             .Zip(df2.AsQueryable<Department>())
             .ToList();
-            
+
         // 3. Assert (Case A): Tuple elements must resolve their respective 'Id' correctly
         Assert.Equal(3, tupleResults.Count);
 

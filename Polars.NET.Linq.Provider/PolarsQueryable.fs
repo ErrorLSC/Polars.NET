@@ -954,11 +954,26 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 PolarsWrapper.LazyUnique(currentLf, selector, spec.Keep, spec.MaintainOrder)
 
             | QueryOp.Concat spec ->
+                // Ensure column orders match identically before vertical concat
+                let alignColumns (baseLf: LazyFrameHandle) (targetLf: LazyFrameHandle) : LazyFrameHandle =
+                    let baseCols = PolarsQuery<'T>.GetLazyColumnNames baseLf
+                    let targetCols = PolarsQuery<'T>.GetLazyColumnNames targetLf
+                    
+                    // If column sequence differs but contains the exact same names, project base order
+                    if baseCols <> targetCols && Set.ofArray baseCols = Set.ofArray targetCols then
+                        let reorderExprs = baseCols |> Array.map PolarsWrapper.Col
+                        PolarsWrapper.LazySelect(targetLf, reorderExprs)
+                    else
+                        targetLf
+
+                let alignedOtherLf = alignColumns currentLf spec.OtherLf
+
                 let handles =
                     if spec.Prepend then
-                        [| spec.OtherLf; currentLf |]
+                        [| alignedOtherLf; currentLf |]
                     else
-                        [| currentLf; spec.OtherLf |]
+                        [| currentLf; alignedOtherLf |]
+
                 PolarsWrapper.LazyConcat(handles, PlConcatType.Vertical, false, true)
 
             | QueryOp.HorizontalConcat otherLfs ->
