@@ -5,14 +5,13 @@ using System.Runtime.CompilerServices;
 
 namespace Polars.CSharp;
 
-internal static class RowMapper<T> where T : new()
+internal static class RowMapper<T>
 {
-    // PolarsSchema implements IEquatable<PolarsSchema>
+    // Cache compiled mapper per schema signature
     private static readonly ConcurrentDictionary<string, Func<DataFrame, long, T>> Cache = new();
 
     private static string ComputeSchemaSignature(DataFrame df)
     {
-        // "Name:String|Age:Int32|Salary:Int32"
         return string.Join("|", df.ColumnNames.Select(c => $"{c}:{df[c].DataTypeName}"));
     }
 
@@ -38,14 +37,6 @@ internal static class RowMapper<T> where T : new()
         var getValueMethodDef = typeof(Series).GetMethod(nameof(Series.GetValue), [typeof(long), typeof(bool)])!;
         var columnIndexerMethod = typeof(DataFrame).GetMethod("get_Item", [typeof(int)])!;
 
-        var defaultCtor = targetType.GetConstructor(
-            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-            null,
-            Type.EmptyTypes,
-            null);
-
-        bool canDefaultConstruct = targetType.IsValueType || defaultCtor != null;
-
         var colMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < (int)df.Width; i++)
         {
@@ -59,20 +50,45 @@ internal static class RowMapper<T> where T : new()
             return Expression.Call(colExpr, getValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
         }
 
-        // Branch 1: Struct or class with parameterless constructor (mutable properties mode)
-        if (canDefaultConstruct)
+        // Helper to construct a single non-tuple object or record instance from DataFrame columns
+        Expression BuildSingleObjectExpr(Type type)
         {
-            var instanceVar = Expression.Variable(targetType, "instance");
+            var ctors = type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            var primaryCtor = ctors.OrderByDescending(c => c.GetParameters().Length).FirstOrDefault();
+
+            if (primaryCtor != null && primaryCtor.GetParameters().Length > 0)
+            {
+                var ctorParams = primaryCtor.GetParameters();
+                var ctorArgs = new Expression[ctorParams.Length];
+                for (int i = 0; i < ctorParams.Length; i++)
+                {
+                    var param = ctorParams[i];
+                    if (colMap.TryGetValue(param.Name!, out int colIdx))
+                    {
+                        ctorArgs[i] = CreateReadExpr(colIdx, param.ParameterType);
+                    }
+                    else
+                    {
+                        ctorArgs[i] = Expression.Default(param.ParameterType);
+                    }
+                }
+                return Expression.New(primaryCtor, ctorArgs);
+            }
+
+            // Fallback: Default constructor + property bindings
+            var defaultCtor = type.GetConstructor(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                null,
+                Type.EmptyTypes,
+                null);
+
+            var instanceVar = Expression.Variable(type, "subInstance");
             Expression createInstanceExpr = defaultCtor != null
                 ? Expression.New(defaultCtor)
-                : Expression.New(targetType);
+                : Expression.New(type);
 
-            var blockExpressions = new List<Expression>
-            {
-                Expression.Assign(instanceVar, createInstanceExpr)
-            };
-
-            var props = targetType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            var blockExpressions = new List<Expression> { Expression.Assign(instanceVar, createInstanceExpr) };
+            var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
             foreach (var prop in props)
             {
                 if (!prop.CanWrite) continue;
@@ -82,35 +98,41 @@ internal static class RowMapper<T> where T : new()
                     blockExpressions.Add(Expression.Assign(Expression.Property(instanceVar, prop), readExpr));
                 }
             }
-
             blockExpressions.Add(instanceVar);
-            var body = Expression.Block([instanceVar], blockExpressions);
-            return Expression.Lambda<Func<DataFrame, long, T>>(body, dfParam, idxParam).Compile();
+            return Expression.Block([instanceVar], blockExpressions);
         }
 
-        // Branch 2: Primary constructor (Positional Record / Immutable DTO)
-        var ctors = targetType.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-        var primaryCtor = ctors.OrderByDescending(c => c.GetParameters().Length).FirstOrDefault() ?? throw new NotSupportedException($"Type '{targetType.FullName}' has no accessible constructors.");
-        var ctorParams = primaryCtor.GetParameters();
-        var ctorArgs = new Expression[ctorParams.Length];
-
-        for (int i = 0; i < ctorParams.Length; i++)
+        // Branch 1: ValueTuple composite mapping (e.g. ValueTuple<MemberRecord, Employee, Department>)
+        if (targetType.IsValueType && targetType.FullName != null && targetType.FullName.StartsWith("System.ValueTuple`"))
         {
-            var param = ctorParams[i];
-            if (colMap.TryGetValue(param.Name!, out int colIdx))
+            var genericArgs = targetType.GetGenericArguments();
+            var tupleCtor = targetType.GetConstructor(genericArgs)
+                ?? throw new NotSupportedException($"ValueTuple constructor matching arguments could not be resolved for '{targetType.FullName}'.");
+
+            var tupleArgs = new Expression[genericArgs.Length];
+            for (int i = 0; i < genericArgs.Length; i++)
             {
-                ctorArgs[i] = CreateReadExpr(colIdx, param.ParameterType);
+                var subType = genericArgs[i];
+                // If it's a direct primitive or scalar in the tuple
+                if (colMap.TryGetValue($"Item{i + 1}", out int colIdx))
+                {
+                    tupleArgs[i] = CreateReadExpr(colIdx, subType);
+                }
+                else
+                {
+                    // Construct composite sub-entity
+                    tupleArgs[i] = BuildSingleObjectExpr(subType);
+                }
             }
-            else
-            {
-                ctorArgs[i] = Expression.Default(param.ParameterType);
-            }
+
+            var tupleNewExpr = Expression.New(tupleCtor, tupleArgs);
+            return Expression.Lambda<Func<DataFrame, long, T>>(tupleNewExpr, dfParam, idxParam).Compile();
         }
 
-        var newExpr = Expression.New(primaryCtor, ctorArgs);
-        return Expression.Lambda<Func<DataFrame, long, T>>(newExpr, dfParam, idxParam).Compile();
+        // Branch 2: Standard single object or record
+        var singleObjExpr = BuildSingleObjectExpr(targetType);
+        return Expression.Lambda<Func<DataFrame, long, T>>(singleObjExpr, dfParam, idxParam).Compile();
     }
-
 }
 
 /// <summary>

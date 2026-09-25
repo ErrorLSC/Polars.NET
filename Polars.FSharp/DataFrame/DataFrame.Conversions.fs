@@ -20,21 +20,28 @@ type FSharpRowExtractor =
 
 type internal FSharpRowMapper<'T>() =
 
-    // Safely resolve the open generic ExtractField method definition once
     static let extractFieldMethodDef : MethodInfo =
         let methods = typeof<FSharpRowExtractor>.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
         methods
         |> Array.find (fun m -> m.Name = "ExtractField" && m.IsGenericMethodDefinition)
 
-    static let columnNames : string[] =
-        let targetType = typeof<'T>
-        if FSharpType.IsRecord(targetType, true) then
-            FSharpType.GetRecordFields(targetType, true)
+    /// Collects all flattened field/property names required by target type 'T
+    static let rec collectRequiredNames (t: Type) : string[] =
+        if FSharpType.IsTuple(t) then
+            FSharpType.GetTupleElements(t)
+            |> Array.collect collectRequiredNames
+        elif t.IsValueType && not (isNull t.FullName) && t.FullName.StartsWith("System.ValueTuple`") then
+            t.GetGenericArguments()
+            |> Array.collect collectRequiredNames
+        elif FSharpType.IsRecord(t, true) then
+            FSharpType.GetRecordFields(t, true)
             |> Array.map (fun f -> f.Name)
         else
-            targetType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+            t.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
             |> Array.filter (fun p -> p.CanWrite)
             |> Array.map (fun p -> p.Name)
+
+    static let columnNames : string[] = collectRequiredNames typeof<'T>
 
     // Compiled factory signature: Func<Series[], int64, 'T>
     static let compiledHydrator : Func<Series[], int64, 'T> =
@@ -42,93 +49,124 @@ type internal FSharpRowMapper<'T>() =
         let colsParam = Expression.Parameter(typeof<Series[]>, "cols")
         let rowIdxParam = Expression.Parameter(typeof<int64>, "rowIdx")
 
-        if FSharpType.IsRecord(targetType, true) then
-            let fields = FSharpType.GetRecordFields(targetType, true)
-            let fieldCount = fields.Length
+        // Helper to extract a single primitive/scalar column value
+        let createExtractExpr (colIdx: int) (propType: Type) (fieldName: string) =
+            let isOption =
+                propType.IsGenericType &&
+                (propType.GetGenericTypeDefinition() = typedefof<option<_>> ||
+                 propType.GetGenericTypeDefinition() = typedefof<voption<_>>)
+            let isList =
+                propType.IsGenericType && propType.GetGenericTypeDefinition() = typedefof<list<_>>
+            let isArray = propType.IsArray
+            let isNullable = Nullable.GetUnderlyingType(propType) <> null
+            let acceptsNull = isOption || isList || isArray || isNullable
 
-            // F# records always have a single canonical constructor taking all fields in order
-            let ctors = targetType.GetConstructors(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
-            let recordCtor =
-                ctors
-                |> Array.tryFind (fun c -> c.GetParameters().Length = fieldCount)
-                |> Option.defaultWith (fun () -> ctors.[0])
+            let closedExtractMethod = extractFieldMethodDef.MakeGenericMethod([| propType |])
+            let colAccess = Expression.ArrayIndex(colsParam, Expression.Constant(colIdx))
+            let acceptsNullConst = Expression.Constant(acceptsNull, typeof<bool>)
+            let fieldNameConst = Expression.Constant(fieldName, typeof<string>)
 
-            let ctorArgs =
-                fields
-                |> Array.mapi (fun i f ->
-                    let fieldType = f.PropertyType
+            Expression.Call(closedExtractMethod, colAccess, rowIdxParam, acceptsNullConst, fieldNameConst) :> Expression
 
-                    let isOption =
-                        fieldType.IsGenericType &&
-                        (fieldType.GetGenericTypeDefinition() = typedefof<option<_>> ||
-                         fieldType.GetGenericTypeDefinition() = typedefof<voption<_>>)
-                    let isList =
-                        fieldType.IsGenericType && fieldType.GetGenericTypeDefinition() = typedefof<list<_>>
-                    let isArray = fieldType.IsArray
-                    let isNullable = Nullable.GetUnderlyingType(fieldType) <> null
-                    let acceptsNull = isOption || isList || isArray || isNullable
+        // Helper to construct a single non-tuple instance (Record or Class/Struct)
+        let rec buildSingleObjectExpr (t: Type) (nameLookup: string -> int option) : Expression =
+            if FSharpType.IsRecord(t, true) then
+                let fields = FSharpType.GetRecordFields(t, true)
+                let ctors = t.GetConstructors(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
+                let recordCtor =
+                    ctors
+                    |> Array.tryFind (fun c -> c.GetParameters().Length = fields.Length)
+                    |> Option.defaultWith (fun () -> ctors.[0])
 
-                    let closedExtractMethod = extractFieldMethodDef.MakeGenericMethod([| fieldType |])
-
-                    // cols[i]
-                    let colAccess = Expression.ArrayIndex(colsParam, Expression.Constant(i))
-                    let acceptsNullConst = Expression.Constant(acceptsNull, typeof<bool>)
-                    let fieldNameConst = Expression.Constant(f.Name, typeof<string>)
-
-                    // FSharpRowExtractor.ExtractField<FieldType>(cols[i], rowIdx, acceptsNull, fieldName)
-                    Expression.Call(closedExtractMethod, colAccess, rowIdxParam, acceptsNullConst, fieldNameConst) :> Expression
-                )
-
-            let newRecordExpr = Expression.New(recordCtor, ctorArgs)
-            let lambda = Expression.Lambda<Func<Series[], int64, 'T>>(newRecordExpr, colsParam, rowIdxParam)
-            lambda.Compile()
-
-        else
-            // Fallback for classes/structs with parameterless constructors
-            let defaultCtor = targetType.GetConstructor(BindingFlags.Public ||| BindingFlags.Instance, null, Type.EmptyTypes, null)
-            if isNull defaultCtor && not targetType.IsValueType then
-                raise (ArgumentException $"Type '{targetType.FullName}' is neither an F# Record nor does it have a public parameterless constructor.")
-
-            let props =
-                targetType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-                |> Array.filter (fun p -> p.CanWrite)
-
-            let propCount = props.Length
-            let instanceVar = Expression.Variable(targetType, "inst")
-            let newExpr =
-                if not (isNull defaultCtor) then
-                    Expression.New(defaultCtor)
-                else
-                    Expression.New(targetType) // ValueType struct fallback
-
-            let assignInst = Expression.Assign(instanceVar, newExpr)
-            let blockExprs = List<Expression>()
-            blockExprs.Add(assignInst)
-
-            for i = 0 to propCount - 1 do
-                let prop = props.[i]
-                let propType = prop.PropertyType
-                let closedExtractMethod = extractFieldMethodDef.MakeGenericMethod([| propType |])
-
-                let colAccess = Expression.ArrayIndex(colsParam, Expression.Constant(i))
-                let valExpr =
-                    Expression.Call(
-                        closedExtractMethod,
-                        colAccess,
-                        rowIdxParam,
-                        Expression.Constant(true, typeof<bool>),
-                        Expression.Constant(prop.Name, typeof<string>)
+                let ctorArgs =
+                    fields
+                    |> Array.map (fun f ->
+                        match nameLookup f.Name with
+                        | Some colIdx -> createExtractExpr colIdx f.PropertyType f.Name
+                        | None -> Expression.Default(f.PropertyType) :> Expression
                     )
+                Expression.New(recordCtor, ctorArgs) :> Expression
 
-                let assignProp = Expression.Assign(Expression.Property(instanceVar, prop), valExpr)
-                blockExprs.Add(assignProp)
+            else
+                // Positional constructor (C# Record / Immutable DTO fallback)
+                let ctors = t.GetConstructors(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
+                let primaryCtorOpt =
+                    ctors
+                    |> Array.filter (fun c -> c.GetParameters().Length > 0)
+                    |> Array.sortByDescending (fun c -> c.GetParameters().Length)
+                    |> Array.tryHead
 
-            blockExprs.Add(instanceVar)
+                match primaryCtorOpt with
+                | Some primaryCtor ->
+                    let ctorParams = primaryCtor.GetParameters()
+                    let ctorArgs =
+                        ctorParams
+                        |> Array.map (fun p ->
+                            match nameLookup p.Name with
+                            | Some colIdx -> createExtractExpr colIdx p.ParameterType p.Name
+                            | None -> Expression.Default(p.ParameterType) :> Expression
+                        )
+                    Expression.New(primaryCtor, ctorArgs) :> Expression
 
-            let body = Expression.Block([| instanceVar |], blockExprs)
-            let lambda = Expression.Lambda<Func<Series[], int64, 'T>>(body, colsParam, rowIdxParam)
-            lambda.Compile()
+                | None ->
+                    // Parameterless constructor + mutable properties fallback
+                    let defaultCtor = t.GetConstructor(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance, null, Type.EmptyTypes, null)
+                    let instanceVar = Expression.Variable(t, "inst")
+                    let newExpr =
+                        if not (isNull defaultCtor) then Expression.New(defaultCtor)
+                        else Expression.New(t)
 
+                    let assignInst = Expression.Assign(instanceVar, newExpr)
+                    let blockExprs = List<Expression>()
+                    blockExprs.Add(assignInst)
+
+                    let props =
+                        t.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                        |> Array.filter (fun p -> p.CanWrite)
+
+                    for prop in props do
+                        match nameLookup prop.Name with
+                        | Some colIdx ->
+                            let valExpr = createExtractExpr colIdx prop.PropertyType prop.Name
+                            let assignProp = Expression.Assign(Expression.Property(instanceVar, prop), valExpr)
+                            blockExprs.Add(assignProp)
+                        | None -> ()
+
+                    blockExprs.Add(instanceVar)
+                    Expression.Block([| instanceVar |], blockExprs) :> Expression
+
+        // Dynamic column lookup helper (resolved by matching series name at runtime or by schema position)
+        let nameLookup (propName: string) =
+            let idx = Array.tryFindIndex (fun (c: string) -> String.Equals(c, propName, StringComparison.OrdinalIgnoreCase)) columnNames
+            idx
+
+        // Top-level build branch
+        let rootExpr : Expression =
+            // 1. Reference Tuple (F# Standard Tuple)
+            if FSharpType.IsTuple(targetType) then
+                let elemTypes = FSharpType.GetTupleElements(targetType)
+                let tupleCtor = targetType.GetConstructor(elemTypes)
+                let subArgs = elemTypes |> Array.map (fun subT -> buildSingleObjectExpr subT nameLookup)
+                Expression.New(tupleCtor, subArgs) :> Expression
+
+            // 2. Struct Tuple (System.ValueTuple<...>)
+            elif targetType.IsValueType && not (isNull targetType.FullName) && targetType.FullName.StartsWith("System.ValueTuple`") then
+                let elemTypes = targetType.GetGenericArguments()
+                let tupleCtor =
+                    targetType.GetConstructor(elemTypes)
+                    |> Option.ofObj
+                    |> Option.defaultWith (fun () ->
+                        targetType.GetConstructors(BindingFlags.Public ||| BindingFlags.Instance).[0]
+                    )
+                let subArgs = elemTypes |> Array.map (fun subT -> buildSingleObjectExpr subT nameLookup)
+                Expression.New(tupleCtor, subArgs) :> Expression
+
+            // 3. Single record or object
+            else
+                buildSingleObjectExpr targetType nameLookup
+
+        let lambda = Expression.Lambda<Func<Series[], int64, 'T>>(rootExpr, colsParam, rowIdxParam)
+        lambda.Compile()
 
     static member ColumnNames = columnNames
 
