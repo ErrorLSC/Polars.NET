@@ -596,7 +596,6 @@ module QueryTests =
         use dfOrders = DataFrame.ofRecords orders
         let orderQuery = dfOrders.AsQueryable<OrderDto>()
 
-        
         // SQL: GROUP BY EXTRACT(YEAR FROM o."OrderDate"), o."Region"
         let multiGroupQuery = 
             query {
@@ -622,17 +621,17 @@ module QueryTests =
         Assert.Equal("South", multiGroupResult.[1].Region)
         Assert.Equal(450.0, multiGroupResult.[1].TotalRevenue)
 
-        // let febOrders = 
-        //     query {
-        //         for o in orderQuery do
-        //         where (o.OrderDate.Year = 2023 && o.OrderDate.Month = 2)
-        //         select o
-        //     }
-        //     |> Seq.toList 
+        let febOrders = 
+            query {
+                for o in orderQuery do
+                where (o.OrderDate.Year = 2023 && o.OrderDate.Month = 2)
+                select o
+            }
+            |> Seq.toList 
 
-        // Assert.Equal(2, febOrders.Length) // OrderId 3 and 5
-        // Assert.True(febOrders |> Seq.exists (fun o -> o.OrderId = 3))
-        // Assert.True(febOrders |> Seq.exists (fun o -> o.OrderId = 5))
+        Assert.Equal(2, febOrders.Length) // OrderId 3 and 5
+        Assert.True(febOrders |> Seq.exists (fun o -> o.OrderId = 3))
+        Assert.True(febOrders |> Seq.exists (fun o -> o.OrderId = 5))
     [<Fact>]
     [<Trait("Linq", "AdvancedFilters")>]
     let ``Test Polars Linq In And String Like`` () =
@@ -812,37 +811,38 @@ module QueryTests =
         let deptQuery = dfDepts.AsQueryable<DeptDto>()
         let empQuery = dfEmps.AsQueryable<NullableEmpDto>()
 
-        // // SQL: d."DeptId" IN (SELECT e."DeptId" FROM employees e WHERE e."Salary" > 5000)
+        // SQL: d."DeptId" IN (SELECT e."DeptId" FROM employees e WHERE e."Salary" > 5000)
         
-        // let highPaidDeptIds = 
-        //     query {
-        //         for e in empQuery do
-        //         where (e.Salary > 5000.0)
-        //         select e.DeptId
-        //     }
+        let highPaidDeptIds = 
+            query {
+                for e in empQuery do
+                where (e.Salary > 5000.0)
+                select e.DeptId
+            }
 
-        // let richDepts = 
-        //     query {
-        //         for d in deptQuery do
-        //         where (highPaidDeptIds.Contains d.DeptId)
-        //         select d
-        //     } |> Seq.toList
+        let richDepts = 
+            query {
+                for d in deptQuery do
+                where (highPaidDeptIds.Contains d.DeptId)
+                select d
+            } 
+            |> Seq.toList
 
-        // Assert.Equal(2, richDepts.Length) // Engineering (Alice) HR (David)
-        // Assert.True(richDepts |> Seq.exists (fun d -> d.DeptName = "Engineering"))
-        // Assert.True(richDepts |> Seq.exists (fun d -> d.DeptName = "HR"))
+        Assert.Equal(2, richDepts.Length) // Engineering (Alice) HR (David)
+        Assert.True(richDepts |> Seq.exists (fun d -> d.DeptName = "Engineering"))
+        Assert.True(richDepts |> Seq.exists (fun d -> d.DeptName = "HR"))
 
-        // // SQL: CASE WHEN e."Name" IS NULL THEN 'Unknown' ELSE e."Name" END
-        // let coalesceQuery = 
-        //     query {
-        //         for e in empQuery do
-        //         select {|
-        //             SafeName = if e.Name = null then "Unknown" else e.Name
-        //         |}
-        //     } 
-        // let coalesceResult = coalesceQuery |> Seq.toList
-        // Assert.Equal(4, coalesceResult.Length)
-        // Assert.True(coalesceResult |> Seq.exists (fun e -> e.SafeName = "Unknown")) 
+        // SQL: CASE WHEN e."Name" IS NULL THEN 'Unknown' ELSE e."Name" END
+        let coalesceQuery = 
+            query {
+                for e in empQuery do
+                select {|
+                    SafeName = if e.Name = null then "Unknown" else e.Name
+                |}
+            } 
+        let coalesceResult = coalesceQuery |> Seq.toList
+        Assert.Equal(4, coalesceResult.Length)
+        Assert.True(coalesceResult |> Seq.exists (fun e -> e.SafeName = "Unknown")) 
 
         // SQL: SUBSTRING(e."Name", 1, 3)
         let stringQuery = 
@@ -854,15 +854,15 @@ module QueryTests =
                     ShortName = e.Name.Substring(0, 3)
                 |}
             } 
-            // |> Seq.toList
-        stringQuery.ToDataFrame().Show()
-        // Assert.Equal(3, stringQuery.Length)
-        
-        // let getShortName name = 
-        //     (stringQuery |> Seq.find (fun e -> e.Name = name)).ShortName
+            |> Seq.toList
 
-        // Assert.Equal("Ali", getShortName "Alice")
-        // Assert.Equal("Cha", getShortName "Charlie")
+        Assert.Equal(3, stringQuery.Length)
+        
+        let getShortName name = 
+            (stringQuery |> Seq.find (fun e -> e.Name = name)).ShortName
+
+        Assert.Equal("Ali", getShortName "Alice")
+        Assert.Equal("Cha", getShortName "Charlie")
     [<Fact>]
     [<Trait("Linq", "MathStringAndConditionalAgg")>]
     let ``Test Polars Linq Math String And ConditionalAgg`` () =
@@ -876,19 +876,19 @@ module QueryTests =
         use dfSales = DataFrame.ofRecords sales
         let salesQuery = dfSales.AsQueryable<SalesData>()
 
-        // // CONCAT / Math.Round -> ROUND / Math.Abs -> ABS
-        // let scalarQuery = 
-        //     query {
-        //         for s in salesQuery do
-        //         select {|
-        //             FullName = s.Category + " - " + s.ProductName
-        //             NetRevenue = Math.Round(Math.Abs s.Revenue - s.Discount, 2)
-        //         |}
-        //     } |> Seq.toList
+        // CONCAT / Math.Round -> ROUND / Math.Abs -> ABS
+        let scalarQuery = 
+            query {
+                for s in salesQuery do
+                select {|
+                    FullName = s.Category + " - " + s.ProductName
+                    NetRevenue = Math.Round(Math.Abs s.Revenue - s.Discount, 2)
+                |}
+            } |> Seq.toList
 
-        // Assert.Equal(4, scalarQuery.Length)
-        // Assert.True(scalarQuery |> Seq.exists (fun s -> s.FullName = "Tech - Laptop" && s.NetRevenue = 950.5))
-        // Assert.True(scalarQuery |> Seq.exists (fun s -> s.FullName = "Tech - Mouse" && s.NetRevenue = 20.0))
+        Assert.Equal(4, scalarQuery.Length)
+        Assert.True(scalarQuery |> Seq.exists (fun s -> s.FullName = "Tech - Laptop" && s.NetRevenue = 950.5))
+        Assert.True(scalarQuery |> Seq.exists (fun s -> s.FullName = "Tech - Mouse" && s.NetRevenue = 20.0))
 
         // SQL: SUM(CASE WHEN s."Category" = 'Tech' THEN ABS(s."Revenue") ELSE 0 END)
         

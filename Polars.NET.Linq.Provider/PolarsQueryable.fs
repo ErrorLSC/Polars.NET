@@ -309,16 +309,14 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
 
             if not hasClientPreds && not (isNull itemVal) then
                 let itemType = itemVal.GetType()
-                if itemType.IsPrimitive || itemType = typeof<string> || itemType = typeof<decimal> then
-                    let colExpr = PolarsWrapper.Col ""
-                    let litExpr = 
-                        match itemVal with
-                        | :? string as s -> PolarsWrapper.Lit s
-                        | :? int as i -> PolarsWrapper.Lit i
-                        | :? int64 as l -> PolarsWrapper.Lit l
-                        | :? double as d -> PolarsWrapper.Lit d
-                        | :? bool as b -> PolarsWrapper.Lit b
-                        | _ -> failwithf "Unsupported primitive type for Contains: %s" itemType.Name
+                // 判断是否为基础字面量标量类型（包含数字、字符串、日期、枚举等）
+                if PolarsTypeHelper.IsScalarType itemType || itemType = typeof<string> || itemType.IsEnum then
+                    let colNames = PolarsQuery<obj>.GetLazyColumnNames nativeLf
+                    let targetCol = if colNames.Length > 0 then colNames.[0] else ""
+                    let colExpr = PolarsWrapper.Col targetCol
+
+                    // 统一复用 ExprTranslator.toLiteralHandle！
+                    let litExpr = ExprTranslator.toLiteralHandle itemVal itemType
 
                     let filterExpr = PolarsWrapper.Eq(colExpr, litExpr)
                     let filteredLf = PolarsWrapper.LazyFilter(nativeLf, filterExpr)
@@ -327,6 +325,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                     let height = PolarsWrapper.DataFrameHeight dfHandle
                     box (height > 0L) :?> 'TResult
                 else
+                    // 复合实体对象 (DTO/Record) 的多列匹配逻辑
                     let props = itemType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
                     let conditions = 
                         props
@@ -335,15 +334,11 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                             if isNull v then None
                             else
                                 let colExpr = PolarsWrapper.Col p.Name
-                                let litExprOpt =
-                                    match v with
-                                    | :? string as s -> Some (PolarsWrapper.Lit s)
-                                    | :? int as i -> Some (PolarsWrapper.Lit i)
-                                    | :? int64 as l -> Some (PolarsWrapper.Lit l)
-                                    | :? double as d -> Some (PolarsWrapper.Lit d)
-                                    | :? bool as b -> Some (PolarsWrapper.Lit b)
-                                    | _ -> None
-                                litExprOpt |> Option.map (fun lit -> PolarsWrapper.Eq(colExpr, lit)))
+                                try
+                                    // 实体字段的常量子表达式同样可以直接复用！
+                                    let lit = ExprTranslator.toLiteralHandle v p.PropertyType
+                                    Some (PolarsWrapper.Eq(colExpr, lit))
+                                with _ -> None)
 
                     if conditions.Length > 0 then
                         let combinedFilter = conditions |> Array.reduce (fun acc c -> PolarsWrapper.And(acc, c))
@@ -1072,33 +1067,17 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
     /// Helper to translate individual projection arguments, supporting nested tuples and null-coalescing/IIF
     static member private TryTranslateSelectArg (paramName: string) (argExpr: Expression) : ExprHandle option =
-        let rec extractLeafColumn (e: Expression) : string option =
-            match e with
-            | null -> None
-            | MemberAccess(:? ParameterExpression as p, mem) when p.Name = paramName ->
-                Some mem.Name
-            | MemberAccess(inner, mem) ->
-                match extractLeafColumn inner with
-                | Some _ -> Some mem.Name
-                | None -> Some mem.Name
-            | _ -> None
-
         match ExprTranslator.tryTranslate paramName argExpr with
         | Some h -> Some h
         | None ->
             match argExpr with
             // Pattern: IIF((Box(tupledArg.Item3) == null), "NO_EMPLOYEE", tupledArg.Item3.Name) -> FillNull(Col "Name", Lit "NO_EMPLOYEE")
             | :? ConditionalExpression as cond ->
-                let colNameOpt = extractLeafColumn cond.IfFalse
+                let colNameOpt = ExprTranslator.tryResolveColumnName paramName cond.IfFalse
                 let fallbackLitOpt =
                     match cond.IfTrue with
                     | :? ConstantExpression as ce when not (isNull ce.Value) ->
-                        match ce.Value with
-                        | :? string as s -> Some (PolarsWrapper.Lit s)
-                        | :? int as i -> Some (PolarsWrapper.Lit i)
-                        | :? int64 as l -> Some (PolarsWrapper.Lit l)
-                        | :? double as d -> Some (PolarsWrapper.Lit d)
-                        | _ -> None
+                        Some (ExprTranslator.toLiteralHandle ce.Value cond.IfTrue.Type)
                     | _ -> None
 
                 match colNameOpt, fallbackLitOpt with
@@ -1109,7 +1088,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
             // Multi-level tuple member access (e.g. tupledArg.Item1.Name -> Col "Name")
             | MemberAccess _ as ma ->
-                extractLeafColumn ma
+                ExprTranslator.tryResolveColumnName paramName ma
                 |> Option.map PolarsWrapper.Col
 
             | _ -> None
@@ -1664,29 +1643,45 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 | Some exprHandle when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                     fuse tail (QueryOp.Filter exprHandle :: opsAcc) clientPreds clientProjOpt
                 | _ ->
-                    // Try translating member access on tuples: tupledArg.Item1.Name != "Bob"
                     let rec tryTranslateTupleFilter (e: Expression) =
+                        let isNullConstant (expr: Expression) =
+                            match expr with
+                            | :? ConstantExpression as c -> isNull c.Value
+                            | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert || u.NodeType = ExpressionType.Quote ->
+                                match u.Operand with
+                                | :? ConstantExpression as c -> isNull c.Value
+                                | _ -> false
+                            | _ -> false
+
                         match e with
+                        // 1. Null-safe checks to avoid Polars three-valued logic issues
+                        | Binary(op, left, right) when op = ExpressionType.NotEqual && isNullConstant right ->
+                            tryTranslateTupleFilter left |> Option.map PolarsWrapper.IsNotNull
+                        | Binary(op, left, right) when op = ExpressionType.NotEqual && isNullConstant left ->
+                            tryTranslateTupleFilter right |> Option.map PolarsWrapper.IsNotNull
+                        | Binary(op, left, right) when op = ExpressionType.Equal && isNullConstant right ->
+                            tryTranslateTupleFilter left |> Option.map PolarsWrapper.IsNull
+                        | Binary(op, left, right) when op = ExpressionType.Equal && isNullConstant left ->
+                            tryTranslateTupleFilter right |> Option.map PolarsWrapper.IsNull
+
+                        // 2. Direct reuse of ExprTranslator.translateBinary
                         | Binary(op, left, right) ->
                             match tryTranslateTupleFilter left, tryTranslateTupleFilter right with
                             | Some l, Some r ->
-                                match op with
-                                | ExpressionType.NotEqual -> Some (PolarsWrapper.Neq(l, r))
-                                | ExpressionType.Equal -> Some (PolarsWrapper.Eq(l, r))
-                                | ExpressionType.GreaterThan -> Some (PolarsWrapper.Gt(l, r))
-                                | ExpressionType.GreaterThanOrEqual -> Some (PolarsWrapper.GtEq(l, r))
-                                | ExpressionType.LessThan -> Some (PolarsWrapper.Lt(l, r))
-                                | ExpressionType.LessThanOrEqual -> Some (PolarsWrapper.LtEq(l, r))
-                                | ExpressionType.AndAlso -> Some (PolarsWrapper.And(l, r))
-                                | ExpressionType.OrElse -> Some (PolarsWrapper.Or(l, r))
-                                | _ -> None
+                                try
+                                    Some (ExprTranslator.translateBinary op l r)
+                                with _ -> None
                             | _ -> None
+
+                        // 3. Precise tuple member column resolution
                         | MemberAccess _ as ma ->
-                            match PolarsQuery<'T>.TryTranslateSelectArg l.Parameters.[0].Name ma with
-                            | Some colExpr -> Some colExpr
+                            match ExprTranslator.tryResolveColumnName l.Parameters.[0].Name ma with
+                            | Some colName -> Some (PolarsWrapper.Col colName)
                             | None -> None
+
                         | Constant _ ->
                             ExprTranslator.tryTranslate "" e
+
                         | _ -> None
 
                     match tryTranslateTupleFilter l.Body with
@@ -1697,7 +1692,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                         let safePred = 
                             Func<'T, bool>(fun (item: 'T) ->
                                 try compiled.DynamicInvoke([| box item |]) :?> bool
-                                with _ -> true
+                                with _ -> false
                             )
                         fuse tail opsAcc (safePred :: clientPreds) clientProjOpt
 

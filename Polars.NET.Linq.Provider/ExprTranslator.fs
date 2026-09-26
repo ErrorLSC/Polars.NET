@@ -65,7 +65,7 @@ module ExprTranslator =
             None
 
     /// Translates constant values to native literal ExprHandle
-    let rec private toLiteralHandle (value: obj) (t: Type) : ExprHandle =
+    let rec internal toLiteralHandle (value: obj) (t: Type) : ExprHandle =
         match value with
         | null -> PolarsWrapper.LitNull()
         | _ ->
@@ -100,7 +100,7 @@ module ExprTranslator =
                     failwithf "Type '%s' is not supported as a constant literal in Polars LINQ" (other.GetType().FullName)
 
     /// Translates binary operators to native Expr binary expressions
-    let private translateBinary (nodeType: ExpressionType) (left: ExprHandle) (right: ExprHandle) : ExprHandle =
+    let internal translateBinary (nodeType: ExpressionType) (left: ExprHandle) (right: ExprHandle) : ExprHandle =
         match nodeType with
         | ExpressionType.Equal -> PolarsWrapper.Eq(left, right)
         | ExpressionType.NotEqual -> PolarsWrapper.Neq(left, right)
@@ -142,21 +142,19 @@ module ExprTranslator =
                 Some (PolarsWrapper.ExprCast(operand, dtypeExpr, strict = false, wrapNumerical = false))
             | None -> None
 
-    /// 判断是否为 F# 闭包/元组的中间包装成员 (Item1, Item2 等)
     let private isFSharpAnonymousMember (m: MemberInfo) =
         m.Name.StartsWith("Item") || 
         m.DeclaringType.Name.StartsWith("AnonymousObject") || 
         m.DeclaringType.Name.StartsWith("Tuple") ||
         m.DeclaringType.Name.Contains("TransparentIdentifier")
 
-    /// 精准解析列名：忽略中间的 Item1/Item2 嵌套壳，直接抓取底层的真实列名 (如 DeptName, Name, Latency)
-    let rec private tryResolveColumnName (paramName: string) (expr: Expression) : string option =
+    let rec internal tryResolveColumnName (paramName: string) (expr: Expression) : string option =
         match expr with
-        // Case 1: 访问的是元组壳自身 (例如 _arg1.Item1) ➔ 不是独立的物理列，返回 None
+        // Case 1: Accessing the tuple wrapper itself (e.g., _arg1.Item1) -> not a column
         | MemberAccess(_, m) when isFSharpAnonymousMember m ->
             None
 
-        // Case 2: 访问真实的实体属性 (例如 e.Name、_arg1.Item1.DeptName、tupledArg.Item3.Name)
+        // Case 2: Accessing real entity properties (e.g., e.Name, tupledArg.Item1.DeptName)
         | MemberAccess(inner, m) ->
             let rec isRootedInParamOrClosure (e: Expression) =
                 match e with
