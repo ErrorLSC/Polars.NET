@@ -1,6 +1,7 @@
 namespace Polars.FSharp
 
 open Polars.NET.Core
+open Polars.NET.Core.Helpers
 open System.Text
 
 type [<Struct>] StringOps(handle: ExprHandle) =
@@ -330,9 +331,9 @@ type [<Struct>] StringOps(handle: ExprHandle) =
     /// <param name="form">Unicode form to use.</param>
     member _.Normalize(form:NormalizationForm) = new Expr(PolarsWrapper.StrNormalize(handle,form))
     /// <summary>
-    /// Parse string to Date using a format string (e.g., "%Y-%m-%d").
+    /// Parse string to Date using a format string (e.g., "%Y-%m-%d", 'yyyy-MM-dd').
     /// </summary>
-    /// <param name="format">The parsing format (e.g., "%Y-%m-%d"). Null for auto-inference.</param>
+    /// <param name="format">The parsing format (e.g., "%Y-%m-%d", 'yyyy-MM-dd'). Null for auto-inference.</param>
     /// <param name="strict">If true, raises an error on parsing failure. If false, returns nulls.</param>
     /// <param name="exact">If true, requires an exact match. If false, allows matching substrings.</param>
     /// <param name="cache">Use a cache of unique converted dates to speed up parsing.</param>
@@ -341,11 +342,11 @@ type [<Struct>] StringOps(handle: ExprHandle) =
         let strt = defaultArg strict true
         let ext = defaultArg exact true
         let cac = defaultArg cache true
-        new Expr(PolarsWrapper.StrToDate(handle,fmt, strt,ext,cac))
+        new Expr(PolarsWrapper.StrToDate(handle,DateTimeFormatHelper.ToChronoFormat fmt, strt,ext,cac))
     /// <summary>
     /// Convert a String column into a Time column.
     /// </summary>
-    /// <param name="format">The parsing format (e.g., "%H:%M:%S"). Null for auto-inference. </param>
+    /// <param name="format">The parsing format (e.g., "%H:%M:%S","HH-mm-ss"). Null for auto-inference. </param>
     /// <param name="strict">Raise an error if any conversion fails.</param>
     /// <param name="exact">If true, requires an exact match. If false, allows matching substrings.</param>
     /// <param name="cache">Use a cache of unique, converted times to apply the conversion.</param>
@@ -354,11 +355,11 @@ type [<Struct>] StringOps(handle: ExprHandle) =
         let strt = defaultArg strict true
         let ext = defaultArg exact true
         let cac = defaultArg cache true
-        new Expr(PolarsWrapper.StrToTime(handle,fmt, strt,ext,cac))
+        new Expr(PolarsWrapper.StrToTime(handle,DateTimeFormatHelper.ToChronoFormat fmt, strt,ext,cac))
     /// <summary>
     /// Convert string to Datetime. If format is null, Polars will attempt to infer it.
     /// </summary>
-    /// <param name="format">The parsing format (e.g., "%Y-%m-%d"). Null for auto-inference.</param>
+    /// <param name="format">The parsing format (e.g., "%Y-%m-%d","yyyy-MM-dd"). Null for auto-inference.</param>
     /// <param name="timeUnit">Target time unit. Null to use default (usually Microseconds).</param>
     /// <param name="timeZone">Target time zone (e.g., "UTC", "Asia/Shanghai").</param>
     /// <param name="strict">If true, raises an error on parsing failure. If false, returns nulls.</param>
@@ -393,7 +394,7 @@ type [<Struct>] StringOps(handle: ExprHandle) =
             handle, 
             tu, 
             tz, 
-            fmt, 
+            DateTimeFormatHelper.ToChronoFormat fmt, 
             st, 
             ex, 
             ca,
@@ -405,7 +406,7 @@ type [<Struct>] StringOps(handle: ExprHandle) =
     /// Convert a String column into a Date/Datetime/Time column.
     /// </summary>
     /// <param name="dtype">The data type to convert into. Can be either Date, Datetime, or Time.</param>
-    /// <param name="format">The parsing format (e.g., "%Y-%m-%d"). Null for auto-inference.</param>
+    /// <param name="format">The parsing format (e.g., "%Y-%m-%d","yyyy-MM-dd"). Null for auto-inference.</param>
     /// <param name="strict">Raise an error if any conversion fails.</param>
     /// <param name="exact">Require an exact format match. If False, allow the format to match anywhere in the target string. Conversion to the Time type is always exact.</param>
     /// <param name="cache">Use a cache of unique, converted dates to apply the datetime conversion.</param>
@@ -435,7 +436,7 @@ type [<Struct>] StringOps(handle: ExprHandle) =
         let h = PolarsWrapper.Strptime(
             handle, 
             dtype.ToDataTypeExpr().Handle, 
-            fmt, 
+            DateTimeFormatHelper.ToChronoFormat fmt, 
             st, 
             ex, 
             ca,

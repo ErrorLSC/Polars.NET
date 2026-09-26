@@ -1,5 +1,6 @@
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
+using Polars.NET.Core.Helpers;
 namespace Polars.CSharp;
 
 // ==========================================
@@ -214,14 +215,18 @@ public readonly struct DtOps
     /// <summary>
     /// Convert a Date/Time/Datetime column into a String column with the given format.
     /// </summary>
-    /// <param name="format">Format codes follow the Rust `chrono` crate syntax (similar to strftime).
+    /// <param name="format">Format codes. Both .NET or Rust chrono syntax are accepted.
     ///  <para>If no format is provided, the appropriate ISO format for the underlying data type is used. This can be made explicit by passing "iso" or "iso:strict" as the format string.</para>
     /// </param>
-    public Expr ToString(string format="iso") => new(PolarsWrapper.DtToString(_expr.CloneHandle(), format));
+    public Expr ToString(string format="iso") 
+    {   
+        string choronoFormat = DateTimeFormatHelper.ToChronoFormat(format)!;
+        return new(PolarsWrapper.DtToString(_expr.CloneHandle(), choronoFormat));
+    }
     /// <summary>
     /// Alias for <see cref="ToString(string)"/>.
     /// </summary>
-    public Expr Strftime(string format) => ToString(format);
+    public Expr Strftime(string format="iso") => ToString(format);
 
     // ==========================================
     // Truncate & Round

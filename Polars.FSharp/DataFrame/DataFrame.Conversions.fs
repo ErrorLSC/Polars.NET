@@ -7,7 +7,7 @@ open System.Collections.Generic
 open Polars.NET.Core
 open System
 open System.Runtime.CompilerServices
-open Polars.NET.Core.Helpers
+open Polars.NET.Core.Helpers;
 
 /// <summary>
 /// Fast typed field extractor that enforces null checking on non-Option fields.

@@ -2,6 +2,7 @@ namespace Polars.FSharp
 
 open System
 open Polars.NET.Core
+open Polars.NET.Core.Helpers
 
 [<RequireQualifiedAccess>]
 type Dur =
@@ -167,14 +168,13 @@ type [<Struct>] DtOps(handle: ExprHandle) =
         let frac = defaultArg fractional false
         new Expr(PolarsWrapper.DtTotalNanoseconds(handle,frac))
     /// <summary> Format datetime to string using the given format string (strftime). </summary>
-    member _.ToString(format: string) = 
-        new Expr(PolarsWrapper.DtToString(handle, format))
-    member this.ToString() = 
-        this.ToString "%Y-%m-%dT%H:%M:%S%.f"
+    member _.ToString(?format: string) = 
+        let fmt = defaultArg format "iso"
+        new Expr(PolarsWrapper.DtToString(handle, DateTimeFormatHelper.ToChronoFormat fmt))
     /// <summary>
     /// Alias for <see cref="ToString(string)"/>.
     /// </summary>
-    member this.Strftime(format:string) = this.ToString format
+    member this.Strftime(?format:string) = this.ToString (?format=format)
     // --- Manipulation ---
 
     /// <summary>

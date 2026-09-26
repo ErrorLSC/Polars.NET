@@ -40,13 +40,13 @@ type SeriesDtNameSpace(parent: Series) =
     member _.Time() = apply (fun e -> e.Dt.Time())
 
     /// <summary> Format datetime to string using the given format string (strftime). </summary>
-    member _.ToString(format: string) = 
-        apply (fun e -> e.Dt.ToString format)
+    member _.ToString(?format: string) = 
+        apply (fun e -> e.Dt.ToString(?format=format))
 
     /// <summary> Default ISO format. </summary>
     member this.ToString() = 
         this.ToString "%Y-%m-%dT%H:%M:%S%.f"
-    member this.Strftime(format:string) = apply (fun e -> e.Dt.Strftime format)
+    member this.Strftime(?format:string) = apply (fun e -> e.Dt.Strftime(?format=format))
 
     // --- Manipulation ---
 
