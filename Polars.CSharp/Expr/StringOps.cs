@@ -2,6 +2,7 @@
 using System.Text;
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
+using Polars.NET.Core.Helpers;
 namespace Polars.CSharp;
 
 // ==========================================
@@ -500,7 +501,7 @@ public readonly struct StringOps
     /// */
     /// </code>
     /// </example>
-    /// <param name="format">The parsing format (e.g., "%Y-%m-%d"). Null for auto-inference.</param>
+    /// <param name="format">The parsing format (e.g., "%Y-%m-%d","yyyy/MM/dd"). Null for auto-inference.</param>
     /// <param name="strict">If true, raises an error on parsing failure. If false, returns nulls.</param>
     /// <param name="exact">If true, requires an exact match. If false, allows matching substrings.</param>
     /// <param name="cache">Use a cache of unique converted dates to speed up parsing.</param>
@@ -509,10 +510,10 @@ public readonly struct StringOps
         bool strict = true,
         bool exact = true,
         bool cache = true)
-    {
+    {       
         var h = PolarsWrapper.StrToDate(
             _expr.CloneHandle(), 
-            format, 
+            DateTimeFormatHelper.ToChronoFormat(format), 
             strict, 
             exact, 
             cache
@@ -523,7 +524,7 @@ public readonly struct StringOps
     /// <summary>
     /// Convert a String column into a Time column.
     /// </summary>
-    /// <param name="format">The parsing format (e.g., "%H:%M:%S"). Null for auto-inference. </param>
+    /// <param name="format">The parsing format (e.g., "%H:%M:%S", "HH-mm-ss"). Null for auto-inference. </param>
     /// <param name="strict">Raise an error if any conversion fails.</param>
     /// <param name="exact">If true, requires an exact match. If false, allows matching substrings.</param>
     /// <param name="cache">Use a cache of unique, converted times to apply the conversion.</param>
@@ -535,7 +536,7 @@ public readonly struct StringOps
     {
         var h = PolarsWrapper.StrToTime(
             _expr.CloneHandle(), 
-            format, 
+            DateTimeFormatHelper.ToChronoFormat(format), 
             strict, 
             exact, 
             cache
@@ -547,7 +548,7 @@ public readonly struct StringOps
     /// <summary>
     /// Convert string to Datetime. If format is null, Polars will attempt to infer it.
     /// </summary>
-    /// <param name="format">The parsing format (e.g., "%Y-%m-%d"). Null for auto-inference.</param>
+    /// <param name="format">The parsing format (e.g., "%Y-%m-%d", "yyyy-MM-dd"). Null for auto-inference.</param>
     /// <param name="timeUnit">Target time unit. Null to use default (usually Microseconds).</param>
     /// <param name="timeZone">Target time zone (e.g., "UTC", "Asia/Shanghai").</param>
     /// <param name="strict">If true, raises an error on parsing failure. If false, returns nulls.</param>
@@ -575,7 +576,7 @@ public readonly struct StringOps
             _expr.CloneHandle(), 
             tu, 
             timeZone, 
-            format, 
+            DateTimeFormatHelper.ToChronoFormat(format), 
             strict, 
             exact, 
             cache,
@@ -588,7 +589,7 @@ public readonly struct StringOps
     /// Convert a String column into a Date/Datetime/Time column.
     /// </summary>
     /// <param name="dtype">The data type to convert into. Can be either Date, Datetime, or Time.</param>
-    /// <param name="format">The parsing format (e.g., "%Y-%m-%d"). Null for auto-inference.</param>
+    /// <param name="format">The parsing format (e.g., "yyyy-MM-dd"). Null for auto-inference.</param>
     /// <param name="strict">Raise an error if any conversion fails.</param>
     /// <param name="exact">Require an exact format match. If False, allow the format to match anywhere in the target string. Conversion to the Time type is always exact.</param>
     /// <param name="cache">Use a cache of unique, converted dates to apply the datetime conversion.</param>
@@ -610,7 +611,7 @@ public readonly struct StringOps
         var h = PolarsWrapper.Strptime(
             _expr.CloneHandle(),  
             dtype.Consume().Handle,
-            format, 
+            DateTimeFormatHelper.ToChronoFormat(format), 
             strict, 
             exact, 
             cache,

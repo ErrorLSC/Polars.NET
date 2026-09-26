@@ -289,7 +289,7 @@ public class SeriesDtOpsTests
 
         using Series s = Pl.CreateSeries("datetimes", data);
 
-        string customFormat = "%Y-%m-%d %H:%M:%S";
+        string customFormat = "yyyy-MM-dd HH:mm:ss";
         
         using Series customToString = s.Dt.ToString(customFormat);
         using Series customStrftime = s.Dt.Strftime(customFormat);

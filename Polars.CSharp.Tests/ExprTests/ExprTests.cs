@@ -293,10 +293,11 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr","DtOps")]
     public void Temporal_Ops_Components_Format_Cast()
     {
-        var csvContent = "ts\n2023-12-25 15:30:00\n2024-01-01 00:00:00";
-        using var csv = new DisposableFile(csvContent,".csv");
+        // var csvContent = "ts\n2023-12-25 15:30:00\n2024-01-01 00:00:00";
 
-        using var df = DataFrame.ReadCsv(csv.Path, tryParseDates: true);
+        using DataFrame df = [
+            Pl.CreateSeries("ts",[new DateTime(2023,12,25,15,30,00),new DateTime(2024,01,01,00,00,00)])
+        ];
 
         using var res = df.Select(
             Pl.Col("ts"),
@@ -306,7 +307,7 @@ TooShort,1990-05-20,1.60";
             Pl.Col("ts").Dt.Hour().Alias("h"),
             Pl.Col("ts").Dt.Weekday().Alias("w_day"),
 
-            Pl.Col("ts").Dt.ToString("%Y/%m/%d").Alias("fmt_custom"),
+            Pl.Col("ts").Dt.ToString("YYYY/MM/DD").Alias("fmt_custom"),
 
             Pl.Col("ts").Dt.Date().Alias("date_only")
         );
@@ -317,7 +318,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(12, res.GetValue<int>(0, "m"));
         Assert.Equal(25, res.GetValue<int>(0, "d"));
         Assert.Equal(15, res.GetValue<int>(0, "h"));
-        Assert.Equal(1, res.GetValue<int>(0, "w_day")); // 周一
+        Assert.Equal(1, res.GetValue<int>(0, "w_day")); // Monday
 
         Assert.Equal("2023/12/25", res.GetValue<string>(0, "fmt_custom"));
 
@@ -341,7 +342,7 @@ TooShort,1990-05-20,1.60";
         using var df = DataFrame.FromSeries(s);
 
         using var dfDt = df.Select(
-            Pl.Col("ts").Str.ToDatetime("%Y-%m-%d %H:%M:%S").Alias("ts")
+            Pl.Col("ts").Str.ToDatetime("yyyy-MM-dd HH:mm:ss").Alias("ts")
         );
 
         using var res = dfDt.Select(
@@ -358,7 +359,7 @@ TooShort,1990-05-20,1.60";
             // 3. OffsetBy "1d" -> +1 day
             Pl.Col("ts").Dt.OffsetBy(TimeSpan.FromDays(1)).Alias("offset_1d"),
 
-            // 4. Timestamp (转 Int64)
+            // 4. Timestamp (Convert to Int64)
             Pl.Col("ts").Dt.Timestamp(TimeUnit.Milliseconds).Alias("ts_ms")
         );
 
