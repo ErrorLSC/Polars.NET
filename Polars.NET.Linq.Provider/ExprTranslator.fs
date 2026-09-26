@@ -10,6 +10,16 @@ open Apache.Arrow.Types
 
 module ExprTranslator =
 
+    let rec private isNullConstantExpr (e: Expression) =
+        match e with
+        | null -> true
+        | :? ConstantExpression as c -> isNull c.Value
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert || 
+                                       u.NodeType = ExpressionType.ConvertChecked || 
+                                       u.NodeType = ExpressionType.Quote ->
+            isNullConstantExpr u.Operand
+        | _ -> false
+
     let timeUnitMap (unit: Apache.Arrow.Types.TimeUnit) : byte =
         match unit with
         | TimeUnit.Second -> PlTimeUnit.Second |> byte
@@ -186,11 +196,21 @@ module ExprTranslator =
             | Constant(value, t) ->
                 Some (toLiteralHandle value t)
 
-            // 4. Binary Expressions (Arithmetic, Logical, Equality)
+            // 4. Binary Expressions (Arithmetic, Logical, Equality, Null checks)
             | Binary(op, left, right) ->
-                match tryTranslate paramName left, tryTranslate paramName right with
-                | Some l, Some r -> Some (translateBinary op l r)
-                | _ -> None
+                // Check if this is an equality/inequality comparison with null
+                if op = ExpressionType.NotEqual && isNullConstantExpr right then
+                    tryTranslate paramName left |> Option.map PolarsWrapper.IsNotNull
+                elif op = ExpressionType.NotEqual && isNullConstantExpr left then
+                    tryTranslate paramName right |> Option.map PolarsWrapper.IsNotNull
+                elif op = ExpressionType.Equal && isNullConstantExpr right then
+                    tryTranslate paramName left |> Option.map PolarsWrapper.IsNull
+                elif op = ExpressionType.Equal && isNullConstantExpr left then
+                    tryTranslate paramName right |> Option.map PolarsWrapper.IsNull
+                else
+                    match tryTranslate paramName left, tryTranslate paramName right with
+                    | Some l, Some r -> Some (translateBinary op l r)
+                    | _ -> None
 
             // 5. Type Casting & Conversions
             | Unary(ExpressionType.Convert, operandExpr)
@@ -215,14 +235,9 @@ module ExprTranslator =
 
                 match condExpr.Test with
                 | :? BinaryExpression as b when b.NodeType = ExpressionType.Equal ->
-                    let isNullConstant (e: Expression) =
-                        match e with
-                        | :? ConstantExpression as c -> isNull c.Value
-                        | _ -> false
-
                     let isNullCheck =
-                        isNullConstant b.Right && (unwrapConvert b.Left) <> null ||
-                        isNullConstant b.Left && (unwrapConvert b.Right) <> null
+                        isNullConstantExpr b.Right && (unwrapConvert b.Left) <> null ||
+                        isNullConstantExpr b.Left && (unwrapConvert b.Right) <> null
 
                     if isNullCheck then
                         match tryTranslate paramName condExpr.IfFalse, tryTranslate paramName condExpr.IfTrue with

@@ -918,144 +918,155 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     )
                     |> List.toArray
 
-                let aggs =
+                // 1. Isolate non-key projection arguments
+                let nonKeyArgs =
                     List.zip memberNames args
-                    |> List.choose (fun (colName, argExpr) ->
-                        if isKeyExpression argExpr then None
-                        else
-                            match elemExprOpt with
-                            | Some elemExpr ->
-                                let buildAgg (methodName: string) =
-                                    let clonedInner = PolarsWrapper.CloneExpr elemExpr
-                                    let aggCore =
-                                        match methodName with
-                                        | "Sum" -> PolarsWrapper.Sum clonedInner
-                                        | "Min" -> PolarsWrapper.Min clonedInner
-                                        | "Max" -> PolarsWrapper.Max clonedInner
-                                        | "Average" -> PolarsWrapper.Mean clonedInner
-                                        | "Count" -> PolarsWrapper.Len()
-                                        | "LongCount" ->
-                                            let len = PolarsWrapper.Len()
-                                            let int64Dtype = PolarsWrapper.DataTypeExprFromDataType(PolarsWrapper.NewPrimitiveType(int PlDataType.Int64))
-                                            PolarsWrapper.ExprCast(len, int64Dtype, strict = false, wrapNumerical = false)
-                                        | _ -> failwithf "Unsupported aggregation operator: %s" methodName
-                                    PolarsWrapper.Alias(aggCore, colName)
+                    |> List.filter (fun (_, argExpr) -> not (isKeyExpression argExpr))
 
-                                match argExpr with
-                                | MethodCall(m, null, [ firstArg ]) when (match firstArg with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false) ->
-                                    Some (buildAgg m.Name)
-                                | MethodCall(m, target, []) when not (isNull target) && (match target with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false) ->
-                                    Some (buildAgg m.Name)
-                                | _ ->
-                                    AggTranslator.tryTranslateAgg groupParamName argExpr colName
-                            | None ->
-                                AggTranslator.tryTranslateAgg groupParamName argExpr colName
-                    )
+                // 2. Translate individual aggregate expressions
+                let tryTranslateSingleAgg (colName: string) (argExpr: Expression) : ExprHandle option =
+                    match elemExprOpt with
+                    | Some elemExpr ->
+                        let buildAgg (methodName: string) =
+                            let clonedInner = PolarsWrapper.CloneExpr elemExpr
+                            let aggCore =
+                                match methodName with
+                                | "Sum" -> PolarsWrapper.Sum clonedInner
+                                | "Min" -> PolarsWrapper.Min clonedInner
+                                | "Max" -> PolarsWrapper.Max clonedInner
+                                | "Average" -> PolarsWrapper.Mean clonedInner
+                                | "Count" -> PolarsWrapper.Len()
+                                | "LongCount" ->
+                                    let len = PolarsWrapper.Len()
+                                    let int64Dtype = PolarsWrapper.DataTypeExprFromDataType(PolarsWrapper.NewPrimitiveType(int PlDataType.Int64))
+                                    PolarsWrapper.ExprCast(len, int64Dtype, strict = false, wrapNumerical = false)
+                                | _ -> failwithf "Unsupported aggregation operator: %s" methodName
+                            PolarsWrapper.Alias(aggCore, colName)
 
-                let groupBySpec = {
-                    Keys = keyAliasedExprs
-                    Aggs = aggs |> List.toArray
-                    Having = None
-                    MaintainOrder = false
-                }
-                let groupByOp = QueryOp.GroupBy groupBySpec
+                        match argExpr with
+                        | MethodCall(m, null, [ firstArg ]) when (match firstArg with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false) ->
+                            Some (buildAgg m.Name)
+                        | MethodCall(m, target, []) when not (isNull target) && (match target with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false) ->
+                            Some (buildAgg m.Name)
+                        | _ ->
+                            AggTranslator.tryTranslateAgg groupParamName argExpr colName
+                    | None ->
+                        AggTranslator.tryTranslateAgg groupParamName argExpr colName
 
-                // 4. Compile Having filters mapped to the aggregated column names
-                let havingFilterOps =
-                    ctx.HavingPreds
-                    |> List.choose (fun havingPred ->
-                        let rec translateHaving (expr: Expression) : ExprHandle option =
-                            match expr with
-                            | Binary(op, left, right) ->
-                                match translateHaving left, translateHaving right with
-                                | Some l, Some r ->
-                                    let nodeType =
-                                        match expr with
-                                        | :? BinaryExpression as b -> b.NodeType
-                                        | _ -> ExpressionType.Equal
-                                    let translated =
-                                        match nodeType with
-                                        | ExpressionType.GreaterThan -> PolarsWrapper.Gt(l, r)
-                                        | ExpressionType.GreaterThanOrEqual -> PolarsWrapper.GtEq(l, r)
-                                        | ExpressionType.LessThan -> PolarsWrapper.Lt(l, r)
-                                        | ExpressionType.LessThanOrEqual -> PolarsWrapper.LtEq(l, r)
-                                        | ExpressionType.Equal -> PolarsWrapper.Eq(l, r)
-                                        | ExpressionType.NotEqual -> PolarsWrapper.Neq(l, r)
-                                        | ExpressionType.AndAlso -> PolarsWrapper.And(l, r)
-                                        | ExpressionType.OrElse -> PolarsWrapper.Or(l, r)
-                                        | _ -> PolarsWrapper.Gt(l, r)
-                                    Some translated
+                let translatedAggOpts =
+                    nonKeyArgs
+                    |> List.map (fun (colName, argExpr) -> tryTranslateSingleAgg colName argExpr)
+
+                // 3. Strict Pushdown Guard: if any non-key aggregate fails translation, abort native pushdown
+                if not (translatedAggOpts |> List.forall Option.isSome) then
+                    None
+                else
+                    let aggs = translatedAggOpts |> List.choose id
+
+                    let groupBySpec = {
+                        Keys = keyAliasedExprs
+                        Aggs = aggs |> List.toArray
+                        Having = None
+                        MaintainOrder = false
+                    }
+                    let groupByOp = QueryOp.GroupBy groupBySpec
+
+                    // 4. Compile Having filters mapped to the aggregated column names
+                    let havingFilterOps =
+                        ctx.HavingPreds
+                        |> List.choose (fun havingPred ->
+                            let rec translateHaving (expr: Expression) : ExprHandle option =
+                                match expr with
+                                | Binary(op, left, right) ->
+                                    match translateHaving left, translateHaving right with
+                                    | Some l, Some r ->
+                                        let nodeType =
+                                            match expr with
+                                            | :? BinaryExpression as b -> b.NodeType
+                                            | _ -> ExpressionType.Equal
+                                        let translated =
+                                            match nodeType with
+                                            | ExpressionType.GreaterThan -> PolarsWrapper.Gt(l, r)
+                                            | ExpressionType.GreaterThanOrEqual -> PolarsWrapper.GtEq(l, r)
+                                            | ExpressionType.LessThan -> PolarsWrapper.Lt(l, r)
+                                            | ExpressionType.LessThanOrEqual -> PolarsWrapper.LtEq(l, r)
+                                            | ExpressionType.Equal -> PolarsWrapper.Eq(l, r)
+                                            | ExpressionType.NotEqual -> PolarsWrapper.Neq(l, r)
+                                            | ExpressionType.AndAlso -> PolarsWrapper.And(l, r)
+                                            | ExpressionType.OrElse -> PolarsWrapper.Or(l, r)
+                                            | _ -> PolarsWrapper.Gt(l, r)
+                                        Some translated
+                                    | _ -> None
+
+                                | Constant _ ->
+                                    ExprTranslator.tryTranslate "" expr
+
+                                // Composite key member access in Having (e.g. g.Key.Year -> alias)
+                                | MemberAccess(MemberAccess(paramExpr, k), m) 
+                                    when not (isNull paramExpr) && paramExpr.NodeType = ExpressionType.Parameter && k.Name = "Key" ->
+                                    let actualColName = keyNameToOutputAliasMap.TryFind m.Name |> Option.defaultValue m.Name
+                                    Some (PolarsWrapper.Col actualColName)
+
+                                // Direct property access in Having (e.g. s.TotalRevenue)
+                                | MemberAccess(paramExpr, m) when not (isNull paramExpr) && paramExpr.NodeType = ExpressionType.Parameter ->
+                                    Some (PolarsWrapper.Col m.Name)
+
+                                | MethodCall _ as aggCall ->
+                                    let matchingColOpt =
+                                        List.zip memberNames args
+                                        |> List.tryPick (fun (colName, argExpr) ->
+                                            if argExpr.ToString() = aggCall.ToString() then Some colName
+                                            else None
+                                        )
+                                    match matchingColOpt with
+                                    | Some colName -> Some (PolarsWrapper.Col colName)
+                                    | None ->
+                                        AggTranslator.tryTranslateAgg havingPred.Parameters.[0].Name aggCall ""
+
                                 | _ -> None
 
-                            | Constant _ ->
-                                ExprTranslator.tryTranslate "" expr
+                            translateHaving havingPred.Body
+                            |> Option.map QueryOp.Filter
+                        )
 
-                            // Composite key member access in Having (e.g. g.Key.Year -> alias)
-                            | MemberAccess(MemberAccess(paramExpr, k), m) 
-                                when not (isNull paramExpr) && paramExpr.NodeType = ExpressionType.Parameter && k.Name = "Key" ->
-                                let actualColName = keyNameToOutputAliasMap.TryFind m.Name |> Option.defaultValue m.Name
-                                Some (PolarsWrapper.Col actualColName)
-
-                            // Direct property access in Having (e.g. s.TotalRevenue)
-                            | MemberAccess(paramExpr, m) when not (isNull paramExpr) && paramExpr.NodeType = ExpressionType.Parameter ->
-                                Some (PolarsWrapper.Col m.Name)
-
-                            | MethodCall _ as aggCall ->
-                                let matchingColOpt =
+                    // 5. Compile Sort operations targeting GroupBy Keys or Aggregated columns
+                    let sortSpecs =
+                        ctx.SortStages
+                        |> List.choose (fun (sortLambda, isDesc) ->
+                            let rec resolveSortCol (e: Expression) : string option =
+                                match e with
+                                // Single key: g.Key -> mapped alias
+                                | MemberAccess(p, m) when m.Name = "Key" && keyDefs.Length = 1 ->
+                                    Some (keyNameToOutputAliasMap.[fst keyDefs.[0]])
+                                // Composite key member: g.Key.Year, g.Key.Region -> mapped alias
+                                | MemberAccess(MemberAccess(p, k), m) when k.Name = "Key" ->
+                                    Some (keyNameToOutputAliasMap.TryFind m.Name |> Option.defaultValue m.Name)
+                                // Key parameter member (C# (k, g) => k.Year)
+                                | MemberAccess(:? ParameterExpression as p, m) when isKeyArg (p :> Expression) ->
+                                    Some (keyNameToOutputAliasMap.TryFind m.Name |> Option.defaultValue m.Name)
+                                // Direct property on result object: s.TotalRevenue
+                                | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter ->
+                                    Some m.Name
+                                // Aggregated column call: g.Sum(...)
+                                | MethodCall _ as aggCall ->
                                     List.zip memberNames args
                                     |> List.tryPick (fun (colName, argExpr) ->
                                         if argExpr.ToString() = aggCall.ToString() then Some colName
                                         else None
                                     )
-                                match matchingColOpt with
-                                | Some colName -> Some (PolarsWrapper.Col colName)
-                                | None ->
-                                    AggTranslator.tryTranslateAgg havingPred.Parameters.[0].Name aggCall ""
+                                | _ -> None
 
-                            | _ -> None
-
-                        translateHaving havingPred.Body
-                        |> Option.map QueryOp.Filter
-                    )
-
-                // 5. Compile Sort operations targeting GroupBy Keys or Aggregated columns
-                let sortSpecs =
-                    ctx.SortStages
-                    |> List.choose (fun (sortLambda, isDesc) ->
-                        let rec resolveSortCol (e: Expression) : string option =
-                            match e with
-                            // Single key: g.Key -> mapped alias
-                            | MemberAccess(p, m) when m.Name = "Key" && keyDefs.Length = 1 ->
-                                Some (keyNameToOutputAliasMap.[fst keyDefs.[0]])
-                            // Composite key member: g.Key.Year, g.Key.Region -> mapped alias
-                            | MemberAccess(MemberAccess(p, k), m) when k.Name = "Key" ->
-                                Some (keyNameToOutputAliasMap.TryFind m.Name |> Option.defaultValue m.Name)
-                            // Key parameter member (C# (k, g) => k.Year)
-                            | MemberAccess(:? ParameterExpression as p, m) when isKeyArg (p :> Expression) ->
-                                Some (keyNameToOutputAliasMap.TryFind m.Name |> Option.defaultValue m.Name)
-                            // Direct property on result object: s.TotalRevenue
-                            | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter ->
-                                Some m.Name
-                            // Aggregated column call: g.Sum(...)
-                            | MethodCall _ as aggCall ->
-                                List.zip memberNames args
-                                |> List.tryPick (fun (colName, argExpr) ->
-                                    if argExpr.ToString() = aggCall.ToString() then Some colName
-                                    else None
-                                )
-                            | _ -> None
-
-                        resolveSortCol sortLambda.Body
-                        |> Option.map (fun colName ->
-                            { Expr = PolarsWrapper.Col colName; Descending = isDesc; NullsLast = false }
+                            resolveSortCol sortLambda.Body
+                            |> Option.map (fun colName ->
+                                { Expr = PolarsWrapper.Col colName; Descending = isDesc; NullsLast = false }
+                            )
                         )
-                    )
 
-                let sortOps =
-                    if sortSpecs.IsEmpty then []
-                    else [ QueryOp.Sort sortSpecs ]
+                    let sortOps =
+                        if sortSpecs.IsEmpty then []
+                        else [ QueryOp.Sort sortSpecs ]
 
-                Some (sortOps @ havingFilterOps @ [ groupByOp ])
+                    Some (sortOps @ havingFilterOps @ [ groupByOp ])
 
             | _ -> None
 
@@ -1436,17 +1447,6 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | MethodCall(m, null, [ first; second; StripQuotes (:? LambdaExpression as keySel) ]) when m.Name = "UnionBy" ->
                 flatten first (LinqStage.Union(second, Some keySel) :: acc)
 
-            // | MethodCall(m, null, source :: StripQuotes (:? LambdaExpression as colSel) :: rest) when m.Name = "SelectMany" ->
-            //     let resSelOpt =
-            //         match rest with
-            //         | [ StripQuotes (:? LambdaExpression as r) ] -> Some r
-            //         | _ -> None
-
-            //     let paramName = colSel.Parameters.[0].Name
-            //     if PolarsQuery<'T>.ContainsParameter paramName colSel.Body then
-            //         flatten source (LinqStage.Explode(colSel, resSelOpt) :: acc)
-            //     else
-            //         flatten source (LinqStage.CrossJoin(colSel.Body, resSelOpt) :: acc)
             | MethodCall(m, null, source :: StripQuotes (:? LambdaExpression as colSel) :: rest) when m.Name = "SelectMany" ->
                 let resSelOpt =
                     match rest with
@@ -1458,14 +1458,25 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     | :? UnaryExpression as u when u.NodeType = ExpressionType.Quote || u.NodeType = ExpressionType.Convert -> unwrapQuote u.Operand
                     | _ -> e
 
-                match unwrapQuote colSel.Body with
-                | :? MethodCallExpression as innerMc ->
-                    // 关键解包：若 SelectMany 内部嵌套了 GroupJoin/SelectMany 管道，递归扁平化拆包！
-                    let innerStages = flatten innerMc []
+                let paramName = colSel.Parameters.[0].Name
+                let containsParam = PolarsQuery<'T>.ContainsParameter paramName colSel.Body
+
+                // Unpack inner pipeline ONLY if it references the current parameter AND yields non-empty stages (e.g. F# transparent join chains)
+                let nestedStagesOpt =
+                    if containsParam then
+                        match unwrapQuote colSel.Body with
+                        | :? MethodCallExpression as innerMc ->
+                            let innerStages = flatten innerMc []
+                            if not innerStages.IsEmpty then Some innerStages else None
+                        | _ -> None
+                    else
+                        None
+
+                match nestedStagesOpt with
+                | Some innerStages ->
                     flatten source (innerStages @ acc)
-                | _ ->
-                    let paramName = colSel.Parameters.[0].Name
-                    if PolarsQuery<'T>.ContainsParameter paramName colSel.Body then
+                | None ->
+                    if containsParam then
                         flatten source (LinqStage.Explode(colSel, resSelOpt) :: acc)
                     else
                         flatten source (LinqStage.CrossJoin(colSel.Body, resSelOpt) :: acc)

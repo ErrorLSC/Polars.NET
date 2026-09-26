@@ -1278,7 +1278,7 @@ public class LinqTests
     }
 
     [Fact]
-    [Trait("LINQ", "SelectMany")]
+    [Trait("LINQ", "SelectManyCrossJoin")]
     public void Test_Linq_SelectMany_CrossJoin_ExistingRecords()
     {
         // 1. Prepare Left DataFrame: 2 Employees
