@@ -92,6 +92,7 @@
     <Compile Include="DataFrame/DataFrame.Transpose.fs" />
     <Compile Include="Display.fs" />
     <Compile Include="Polars.fs" />
+    <Compile Include="Query.fs" />
     <Compile Include="Expr/Manipulation.fs" />
     <Compile Include="Extensions.fs" />
     <Compile Include="DataFrame/DataFrame.Unstack.fs" />
@@ -110,6 +111,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Polars.NET.Core/Polars.NET.Core.csproj" />
+    <ProjectReference Include="..\Polars.NET.Linq.Provider\Polars.NET.Linq.Provider.fsproj" />
   </ItemGroup>
 
   <ItemGroup>

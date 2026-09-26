@@ -1,16 +1,18 @@
 using System.Text;
 using Polars.CSharp.Linq;
+using System.Linq;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
 
 public record struct Employee(string Name, int Age, int Salary);
 public readonly record struct EmployeeDept(string Name, string Department, int Age, int Salary);
-
+public readonly record struct DeptEmpCount(int DeptId, string DeptName, int EmployeeCount);
 public record struct DepartmentRecord(string Department,int Salary);
 public readonly record struct Person(int Id, string Name, int DeptId);
 public readonly record struct Department(int Id, string DeptName);
 public readonly record struct PersonDeptJoined(int Id, string Name, int DeptId, string DeptName);
+public record DeptSummary(string Department, int TotalSalary);
 public record struct EmployeeDeptRecord(int Id, string Name, string DeptName);
 public readonly record struct DeptPersonSummary(int DeptId, long MemberCount, int MinId, int MaxId);
 public readonly record struct PersonWithTags(int Id, string Name, string[] Tags);
@@ -39,8 +41,49 @@ public readonly record struct DeptMetricSummary(
     int MaxSalary
 );
 
+public readonly record struct DeptMinMaxBySummary(
+    int DeptId,
+    int YoungestMemberId,
+    int HighestPaidMemberId
+);
+
+public readonly record struct MemberRecord(
+    int Id,
+    string Name,
+    int DeptId,
+    int Age,
+    int Salary
+);
+public readonly record struct DeptAggResult(int DeptId, long TotalCount, int MaxId);
+
 public class LinqTests
 {
+    [Fact]
+    [Trait("LINQ", "SingleColumn")]
+    public void Test_CSharp_Linq_Scalar_Projection_ToUpper()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000)
+        };
+
+        using var dfEmps = DataFrame.FromRows(emps);
+        var empQuery = dfEmps.AsQueryable(emps);
+
+        IQueryable<string> upperQuery = empQuery.Select(e => e.Name.ToUpper());
+
+        // 3. 观察执行路径
+        // Case A: 标量终结执行
+        var firstName = upperQuery.First();
+        Console.WriteLine($"[C# First() Result]: {firstName}");
+        // Assert.Equal("Alice", firstName);
+
+        var dfResult = upperQuery.ToDataFrame();
+        dfResult.Show();
+
+        Assert.Equal(1UL, (ulong)dfResult.Width);
+    }
     [Fact]
     [Trait("LINQ", "WhereAndTake")]
     public void Test_Linq_Where_Take()
@@ -476,19 +519,6 @@ public class LinqTests
         Assert.Equal(4, summaries[2].FirstMemberId);
         Assert.Equal(4, summaries[2].MaxMemberId);
     }
-    public readonly record struct DeptMinMaxBySummary(
-        int DeptId,
-        int YoungestMemberId,
-        int HighestPaidMemberId
-    );
-
-    public readonly record struct MemberRecord(
-        int Id,
-        string Name,
-        int DeptId,
-        int Age,
-        int Salary
-    );
 
     [Fact]
     [Trait("LINQ", "GroupBy")]
@@ -589,8 +619,6 @@ public class LinqTests
         Assert.Single(dept30Persons);
         Assert.Equal("David", dept30Persons[0].Name);
     }
-    // Supporting projection record struct for two-stage GroupBy->Select testing
-    public readonly record struct DeptAggResult(int DeptId, long TotalCount, int MaxId);
 
     [Fact]
     [Trait("LINQ","GroupBy")]
@@ -665,7 +693,6 @@ public class LinqTests
         // 3. Native engine must return an empty sequence gracefully without null-pointer exceptions
         Assert.Empty(results);
     }
-    public record DeptSummary(string Department, int TotalSalary);
 
     [Fact]
     [Trait("LINQ", "GroupBy_4Args_Having")]
@@ -692,6 +719,7 @@ public class LinqTests
             .Where(s => s.TotalSalary > 100000)
             .ToList();
 
+        // results.ToDataFrame().Show();
         // IT total = 210000, HR total = 125000, Finance = 80000 (filtered out)
         Assert.Equal(2, results.Count);
         Assert.Contains(results, r => r.Department == "IT" && r.TotalSalary == 210000);
@@ -1437,8 +1465,6 @@ public class LinqTests
         Assert.Equal(3, results.Count);
         Assert.Equal([10, 2, 1], [.. results.Select(r => r.Id)]);
     }
-
-    public readonly record struct DeptEmpCount(int DeptId, string DeptName, int EmployeeCount);
 
     [Fact]
     [Trait("LINQ", "GroupJoin")]
@@ -2632,5 +2658,74 @@ public class LinqTests
         // Verifies the Bonus column is generated entirely within Native Polars
         var bonusCol = projected["Bonus"].ToArray<int>();
         Assert.Equal([10000, 5000, 10000, 2000], bonusCol);
+    }
+    [Fact]
+    [Trait("LINQ", "AnonymousType")]
+    public void Test_Linq_AnonymousType_Sequence_Inference()
+    {
+        var employees = new[]
+        {
+            new { Id = 1, Name = "Alice",   Age = 25, Salary = 5000 },
+            new { Id = 2, Name = "Bob",     Age = 17, Salary = 3000 },
+            new { Id = 3, Name = "Charlie", Age = 30, Salary = 7000 },
+            new { Id = 4, Name = "David",   Age = 15, Salary = 2000 }
+        };
+
+        using var df = DataFrame.FromRows(employees);
+
+        var query = df.AsQueryable(employees);
+
+        var threshold = 18;
+        var results = query.Where(e => e.Age >= threshold && e.Salary > 4000)
+                           .OrderBy(e => e.Age)
+                           .Take(10)
+                           .ToList();
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal("Alice", results[0].Name);
+        Assert.Equal(25, results[0].Age);
+        Assert.Equal(5000, results[0].Salary);
+
+        Assert.Equal("Charlie", results[1].Name);
+        Assert.Equal(30, results[1].Age);
+        Assert.Equal(7000, results[1].Salary);
+    }
+
+    [Fact]
+    [Trait("LINQ", "AnonymousType")]
+    public void Test_Linq_AnonymousType_FromDataArray_Aggregation()
+    {
+        var data = new[]
+        {
+            new { Dept = "IT",      Salary = 60000, Bonus = 5000 },
+            new { Dept = "HR",      Salary = 45000, Bonus = 3000 },
+            new { Dept = "IT",      Salary = 80000, Bonus = 7000 },
+            new { Dept = "Finance", Salary = 55000, Bonus = 4000 }
+        };
+
+        // DataFrame created from array of anonymous types
+        using var df = DataFrame.FromRows(data);
+
+        // Directly infer type T from the source array
+        var query = df.AsQueryable(data);
+
+        // 1. Where + Count
+        var itCount = query.Where(x => x.Dept == "IT").Count();
+        Assert.Equal(2, itCount);
+
+        // 2. MaxBy equivalent (OrderByDescending + First)
+        var highestEarner = query.OrderByDescending(x => x.Salary).First();
+        Assert.Equal("IT", highestEarner.Dept);
+        Assert.Equal(80000, highestEarner.Salary);
+
+        // 3. Projection to a new anonymous shape
+        var summaries = query.Where(x => x.Bonus >= 4000)
+                             .Select(x => new { DepartmentName = x.Dept, TotalCompensation = x.Salary + x.Bonus })
+                             .OrderByDescending(x => x.TotalCompensation)
+                             .ToList();
+
+        Assert.Equal(3, summaries.Count);
+        Assert.Equal("IT", summaries[0].DepartmentName);
+        Assert.Equal(87000, summaries[0].TotalCompensation);
     }
 }

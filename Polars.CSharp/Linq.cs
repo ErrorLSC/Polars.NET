@@ -1,5 +1,6 @@
 #pragma warning disable CS1591
 using Polars.NET.Core;
+using System.Linq;
 using Polars.NET.Linq.Provider;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -43,18 +44,33 @@ public static class LinqExtensions
     /// Converts a LazyFrame into an IQueryable LINQ query provider.
     /// Operations will be translated to Polars Expressions and compiled into execution plans.
     /// </summary>
-    public static IQueryable<T> AsQueryable<T>(this LazyFrame lazyFrame)
-    {
-        return new PolarsQuery<T>(lazyFrame.Handle, CSharpRowCursorMaterializer.Instance);
-    }
-
+    public static IQueryable<T> AsQueryable<T>(this LazyFrame lf)
+        => new PolarsQuery<T>(lf.Handle, CSharpRowCursorMaterializer.Instance);
+    
     /// <summary>
     /// Converts an eager DataFrame into an IQueryable LINQ query provider backed by LazyFrame.
     /// </summary>
-    public static IQueryable<T> AsQueryable<T>(this DataFrame dataFrame)
-    {
-        return dataFrame.Lazy().AsQueryable<T>();
-    }
+    public static IQueryable<T> AsQueryable<T>(this DataFrame df)
+        => df.Lazy().AsQueryable<T>();
+        
+    /// <summary>
+    /// Converts a DataFrame into an IQueryable LINQ query provider,
+    /// inferring the anonymous type or entity type directly from a sample sequence (e.g. source array).
+    /// </summary>
+    /// <typeparam name="T">The inferred row element type.</typeparam>
+    /// <param name="df">The source DataFrame.</param>
+    /// <param name="source">The source collection used solely for static type inference.</param>
+    /// <returns>A strongly-typed PolarsQuery provider.</returns>
+    public static IQueryable<T> AsQueryable<T>(this DataFrame df, IEnumerable<T> source)
+        => df.Lazy().AsQueryable<T>();
+
+    /// <summary>
+    /// Converts a LazyFrame into an IQueryable LINQ query provider,
+    /// inferring the anonymous type or entity type directly from a sample sequence.
+    /// </summary>
+    public static IQueryable<T> AsQueryable<T>(this LazyFrame lf, IEnumerable<T> source)
+        => lf.AsQueryable<T>();
+    
     /// <summary>
     /// Compiles the LINQ query pipeline and converts it back to a Polars LazyFrame.
     /// </summary>

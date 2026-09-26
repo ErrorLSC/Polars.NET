@@ -57,7 +57,10 @@ type internal ConcatSpec = {
 
 /// Uniform contract to expose internal LazyFrameHandle without leaking generic parameters
 type internal IPolarsPlanSource =
+    /// Gets the raw, un-queried LazyFrameHandle underlying the source
     abstract member GetRawLazyFrameHandle: unit -> LazyFrameHandle
+    /// Compiles the queryable pipeline stages and returns the final optimized LazyFrameHandle
+    abstract member GetCompiledLazyFrameHandle: unit -> LazyFrameHandle
 
 /// Abstract representation of pushdown operations in the LINQ execution pipeline
 [<RequireQualifiedAccess>]

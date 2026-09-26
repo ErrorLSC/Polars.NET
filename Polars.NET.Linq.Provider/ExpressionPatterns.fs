@@ -48,7 +48,20 @@ module ExpressionPatterns =
         | Unary(ExpressionType.Quote, operand) -> (|StripQuotes|) operand
         | _ -> expr
 
-    /// Active pattern to strip unary convert/quote wrappers recursively and extract the root parameter member access
+
+    /// Checks if a member belongs to F#'s internal AnonymousObject tuple wrapper
+    let internal isFSharpAnonymousMember (m: MemberInfo) =
+        if isNull m || isNull m.DeclaringType then false
+        else
+            let dt = m.DeclaringType
+            let name = dt.FullName
+            if isNull name then false
+            else
+                name.StartsWith "Microsoft.FSharp.Linq.RuntimeHelpers.AnonymousObject" ||
+                dt.IsGenericType && dt.Name.StartsWith "AnonymousObject`"
+    
+    /// Active pattern to strip convert/quote wrappers and resolve root column names,
+    /// seamlessly unwrapping F# AnonymousObject tuple chains
     let rec (|ExtractColumnName|_|) (expr: Expression) : string option =
         match expr with
         | null -> None
@@ -56,7 +69,11 @@ module ExpressionPatterns =
         | Unary(ExpressionType.ConvertChecked, inner)
         | Unary(ExpressionType.Quote, inner) ->
             (|ExtractColumnName|_|) inner
+        // Direct member: e.Name
         | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter ->
+            Some m.Name
+        // F# AnonymousObject nesting: tuple.Item1.Name
+        | MemberAccess(MemberAccess(p, innerM), m) when not (isNull p) && isFSharpAnonymousMember innerM ->
             Some m.Name
         | _ -> None
 
@@ -67,7 +84,7 @@ module ExpressionPatterns =
         | MemberAccess(instanceExpr, memberInfo) ->
             let targetObj =
                 match instanceExpr with
-                | null -> None // Static member
+                | null -> None
                 | exp -> tryEvaluate exp
 
             match memberInfo with

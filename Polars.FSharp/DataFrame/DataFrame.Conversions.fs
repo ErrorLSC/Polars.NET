@@ -27,9 +27,20 @@ type internal FSharpRowMapper<'T>() =
         methods
         |> Array.find (fun m -> m.Name = "ExtractField" && m.IsGenericMethodDefinition)
 
+    static let isFSharpAnonymousObject (t: Type) =
+        not (isNull t) && not (isNull t.FullName) &&
+        (t.FullName.StartsWith "Microsoft.FSharp.Linq.RuntimeHelpers.AnonymousObject" ||
+         t.IsGenericType && t.Name.StartsWith("AnonymousObject`"))
+
+    /// Helper to identify all scalar/primitive types including string, DateTime, Guid, etc.
+    static let isScalarOrString (t: Type) =
+        PolarsTypeHelper.IsScalarType t || t = typeof<string>
+
     /// Collects all flattened field/property names required by target type 'T
     static let rec collectRequiredNames (t: Type) : string[] =
-        if FSharpType.IsTuple(t) then
+        if isScalarOrString t then
+            [||]
+        elif FSharpType.IsTuple(t) then
             FSharpType.GetTupleElements(t)
             |> Array.collect collectRequiredNames
         elif t.IsValueType && not (isNull t.FullName) && t.FullName.StartsWith("System.ValueTuple`") then
@@ -38,10 +49,18 @@ type internal FSharpRowMapper<'T>() =
         elif FSharpType.IsRecord(t, true) then
             FSharpType.GetRecordFields(t, true)
             |> Array.map (fun f -> f.Name)
-        else
+        elif isFSharpAnonymousObject t then
             t.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-            |> Array.filter (fun p -> p.CanWrite)
             |> Array.map (fun p -> p.Name)
+        else
+            let writeable =
+                t.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                |> Array.filter (fun p -> p.CanWrite)
+                |> Array.map (fun p -> p.Name)
+            if writeable.Length > 0 then writeable
+            else
+                t.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                |> Array.map (fun p -> p.Name)
 
     static let columnNames : string[] = collectRequiredNames typeof<'T>
 
@@ -51,7 +70,7 @@ type internal FSharpRowMapper<'T>() =
         let colsParam = Expression.Parameter(typeof<Series[]>, "cols")
         let rowIdxParam = Expression.Parameter(typeof<int64>, "rowIdx")
 
-        // Helper to extract a single primitive/scalar column value
+        // Helper to extract a single primitive/scalar column value by column index
         let createExtractExpr (colIdx: int) (propType: Type) (fieldName: string) =
             let isOption =
                 propType.IsGenericType &&
@@ -99,15 +118,22 @@ type internal FSharpRowMapper<'T>() =
 
                 let ctorArgs =
                     fields
-                    |> Array.map (fun f ->
-                        match findFieldCol f.Name with
+                    |> Array.mapi (fun i f ->
+                        let resolvedIdx =
+                            match findFieldCol f.Name with
+                            | Some colIdx -> Some colIdx
+                            | None ->
+                                // Positional fallback if names don't match directly
+                                if i < columnNames.Length then Some i else None
+
+                        match resolvedIdx with
                         | Some colIdx -> createExtractExpr colIdx f.PropertyType f.Name
                         | None -> Expression.Default(f.PropertyType) :> Expression
                     )
                 Expression.New(recordCtor, ctorArgs) :> Expression
 
             else
-                // Positional constructor (C# Record / Immutable DTO fallback)
+                // Positional constructor (C# Record / AnonymousObject / Immutable DTO fallback)
                 let ctors = t.GetConstructors(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
                 let primaryCtorOpt =
                     ctors
@@ -120,8 +146,15 @@ type internal FSharpRowMapper<'T>() =
                     let ctorParams = primaryCtor.GetParameters()
                     let ctorArgs =
                         ctorParams
-                        |> Array.map (fun p ->
-                            match findFieldCol p.Name with
+                        |> Array.mapi (fun i p ->
+                            let resolvedIdx =
+                                match findFieldCol p.Name with
+                                | Some colIdx -> Some colIdx
+                                | None ->
+                                    // Positional fallback
+                                    if i < columnNames.Length then Some i else None
+
+                            match resolvedIdx with
                             | Some colIdx -> createExtractExpr colIdx p.ParameterType p.Name
                             | None -> Expression.Default(p.ParameterType) :> Expression
                         )
@@ -208,7 +241,20 @@ type internal FSharpRowMapper<'T>() =
                 let subArgs = elemTypes |> Array.mapi (fun i subT -> buildTupleElementExpr subT i)
                 Expression.New(tupleCtor, subArgs) :> Expression
 
-            // 3. Single record or object
+            // 3. F# AnonymousObject: treat positional arguments just like a Tuple
+            elif isFSharpAnonymousObject targetType then
+                let ctors = targetType.GetConstructors(BindingFlags.Public ||| BindingFlags.Instance)
+                let primaryCtor = ctors.[0]
+                let ctorParams = primaryCtor.GetParameters()
+                let subArgs =
+                    ctorParams
+                    |> Array.mapi (fun i p ->
+                        let colIdx = if i < columnNames.Length then i else 0
+                        createExtractExpr colIdx p.ParameterType p.Name
+                    )
+                Expression.New(primaryCtor, subArgs) :> Expression
+
+            // 4. Single record or object
             else
                 buildSingleObjectExpr targetType 0
 
@@ -792,10 +838,29 @@ module DataFrameConversions =
 type FSharpRowCursorMaterializer() =
     interface IDataFrameMaterializer with
         member _.Materialize<'T>(handle: DataFrameHandle) : IEnumerable<'T> =
-            let df = new DataFrame(handle)
-            let cursor = df.Rows<'T>()
+            let height = PolarsWrapper.DataFrameHeight handle
+            let width = PolarsWrapper.DataFrameWidth handle
+            printfn "\x1b[1;36m[MATERIALIZER DEBUG] Materializing '%s', Height=%d, Width=%d\x1b[0m" typeof<'T>.Name height width
+
+            // 提取每一列并打印列名
+            let colNames =
+                Array.init (int width) (fun i ->
+                    let col = PolarsWrapper.DataFrameGetColumnAt(handle, int64 i)
+                    let name = PolarsWrapper.SeriesName col
+                    name
+                )
+            printfn "\x1b[1;36m[MATERIALIZER DEBUG] DataFrame Columns: [%s]\x1b[0m" (String.Join(", ", colNames))
+
+            // 具体的迭代生成
             seq {
-                for item in cursor do
+                let cols = 
+                    Array.init (int width) (fun i -> 
+                        let colHandle = PolarsWrapper.DataFrameGetColumnAt(handle, int64 i)
+                        new Series(colHandle)
+                    )
+                for rowIdx in 0L .. (height - 1L) do
+                    let item = FSharpRowMapper<'T>.Hydrate(cols, rowIdx)
+                    printfn "\x1b[32m[HYDRATE DEBUG] Row=%d, Value=%A\x1b[0m" rowIdx item
                     yield item
             }
         member _.MaterializeScalar<'T>(handle: DataFrameHandle) : 'T =

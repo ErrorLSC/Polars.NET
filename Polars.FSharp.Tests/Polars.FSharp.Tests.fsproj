@@ -43,7 +43,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Polars.FSharp\Polars.FSharp.fsproj" />
-    <ProjectReference Include="..\Polars.NET.Linq\Polars.NET.Linq.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
