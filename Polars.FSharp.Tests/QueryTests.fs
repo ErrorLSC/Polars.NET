@@ -40,7 +40,7 @@ module QueryTests =
     open System.IO
     open System.Threading.Tasks
     [<Fact>]
-    [<Trait("Linq", "MultiJoinStressTest")>]
+    [<Trait("LINQ", "MultiJoinStressTest")>]
     let ``Test Ultimate Multi-Level Left and Inner Join Stress Scenario`` () =
         // -----------------------------------------------------------------
         // 1. Arrange: 4 dataframes
@@ -166,6 +166,7 @@ module QueryTests =
         Assert.Equal(45.0, results.[4].Latency)
         Assert.Equal("NO_PRODUCT", results.[4].ProductName)
         Assert.Equal(2000, results.[4].ComputedDeptCode)
+
     [<Fact>]
     [<Trait("LINQ", "Join")>]
     let ``Test MultiKey and chained Join via LINQ and QueryBuilder``() =
@@ -218,7 +219,7 @@ module QueryTests =
         Assert.Equal(15000.0, results.[2].Salary)
         
     [<Fact>]
-    [<Trait("Linq", "FSharpOptions")>]
+    [<Trait("LINQ", "FSharpOptions")>]
     let ``Test Polars FSharp Option And ValueOption Accessor`` () =
         
         let data = [|
@@ -260,7 +261,7 @@ module QueryTests =
         Assert.True(results.[3].LastLogin.IsValueNone)
 
     [<Fact>]
-    [<Trait("Linq", "Where")>]
+    [<Trait("LINQ", "Where")>]
     let ``Test Polars FSharp Linq Where And OrderBy`` () =
         let data = [|
             { Name = "Alice";   Age = 25; Sales = 100.0 }
@@ -300,7 +301,7 @@ module QueryTests =
         Assert.Equal(200.0, results.[1].Sales)
 
     [<Fact>]
-    [<Trait("Linq", "Join")>]
+    [<Trait("LINQ", "Join")>]
     let ``Test Polars Linq Inner Join`` () =
         let depts = [|
             { DeptId = 1; DeptName = "Engineering" }
@@ -335,7 +336,7 @@ module QueryTests =
         Assert.Equal("Engineering", results.[0].DepartmentName)
 
     [<Fact>]
-    [<Trait("Linq", "GroupByHaving")>]
+    [<Trait("LINQ", "GroupByHaving")>]
     let ``Test Polars Linq GroupBy Aggregation With Having`` () =
         let emps = [|
             { Name = "Alice";   DeptId = 1; Salary = 5000.0 }
@@ -379,8 +380,9 @@ module QueryTests =
         
         let hasDept3 = results |> Seq.exists (fun r -> r.DeptId = 3)
         Assert.False hasDept3
+
     [<Fact>]
-    [<Trait("Linq", "ScalarAndFirst")>]
+    [<Trait("LINQ", "ScalarAndFirst")>]
     let ``Test Polars Linq Scalar And First`` () =
         // Anonymous Records
         let data = [|
@@ -421,7 +423,7 @@ module QueryTests =
         Assert.Equal(90, topStudent.Score)
 
     [<Fact>]
-    [<Trait("Linq", "LeftJoin")>]
+    [<Trait("LINQ", "LeftJoin")>]
     let ``Test Polars Linq Left Join`` () =
         let depts = [|
             { DeptId = 1; DeptName = "Engineering" }
@@ -472,8 +474,9 @@ module QueryTests =
 
         Assert.Equal("HR", results.[3].DeptName)
         Assert.Equal("NO_EMPLOYEE", results.[3].EmployeeName)
+
     [<Fact>]
-    [<Trait("Linq", "UnionAndCrossJoin")>]
+    [<Trait("LINQ", "UnionAndCrossJoin")>]
     let ``Test Polars Linq Union And Cross Join`` () =
         let depts = [|
             {| DeptId = 1; DeptName = "Engineering" |}
@@ -526,8 +529,9 @@ module QueryTests =
         
         Assert.Contains("ALICE", upperResult)
         Assert.Contains("BOB", upperResult)
+
     [<Fact>]
-    [<Trait("Linq", "AdvancedSetsAndLet")>]
+    [<Trait("LINQ", "AdvancedSetsAndLet")>]
     let ``Test Polars Linq Except Intersect And Let`` () =
         // Arrange
         let emps = [|
@@ -575,8 +579,9 @@ module QueryTests =
         Assert.True(letResult |> Seq.exists (fun x -> x.Name = "Alice" && x.Bonus = 9000.0))
         Assert.True(letResult |> Seq.exists (fun x -> x.Name = "David" && x.Bonus = 12000.0))
         Assert.True(letResult |> Seq.exists (fun x -> x.Name = "Eve" && x.Bonus = 8250.0))
+
     // [<Fact>]
-    // [<Trait("Linq", "WindowFunctions")>]
+    // [<Trait("LINQ", "WindowFunctions")>]
     // let ``Test Polars Linq Window Functions`` () =
     //     let emps = [|
     //         {| Name = "Alice";   DeptId = 1; Salary = 6000.0 |}
@@ -632,8 +637,9 @@ module QueryTests =
     //     let david = find "David"
     //     Assert.Equal(1L, int64 david.DeptRank)
     //     Assert.Equal(8000.0, david.DeptTotalSalary)
+
     [<Fact>]
-    [<Trait("Linq", "TimeSeriesAndMultiGroup")>]
+    [<Trait("LINQ", "TimeSeriesAndMultiGroup")>]
     let ``Test Polars Linq Time Series And MultiGroup`` () =
         let orders = [|
             { OrderId = 1; OrderDate = DateTime(2023, 1, 15); Region = "North"; Revenue = 100.0 }
@@ -682,8 +688,9 @@ module QueryTests =
         Assert.Equal(2, febOrders.Length) // OrderId 3 and 5
         Assert.True(febOrders |> Seq.exists (fun o -> o.OrderId = 3))
         Assert.True(febOrders |> Seq.exists (fun o -> o.OrderId = 5))
+
     [<Fact>]
-    [<Trait("Linq", "AdvancedFilters")>]
+    [<Trait("LINQ", "AdvancedFilters")>]
     let ``Test Polars Linq In And String Like`` () =
         let data = [|
             { Id = 1; Name = "Apple";   Category = "Fruit";     Price = 1.2 }
@@ -735,8 +742,9 @@ module QueryTests =
         Assert.Equal(2, complexResult.Length) 
         Assert.True(complexResult |> Seq.exists (fun p -> p.Name = "Apple"))
         Assert.True(complexResult |> Seq.exists (fun p -> p.Name = "Beef"))
+
     [<Fact>]
-    [<Trait("Linq", "PaginationAndDistinct")>]
+    [<Trait("LINQ", "PaginationAndDistinct")>]
     let ``Test Polars Linq Skip Take And Distinct`` () =
         // Arrange
         let data = [|
@@ -784,8 +792,9 @@ module QueryTests =
         
         Assert.Equal(3, pagedResult.[0].Id) 
         Assert.Equal(4, pagedResult.[1].Id)
+        
     [<Fact>]
-    [<Trait("Linq", "CaseWhenAndCte")>]
+    [<Trait("LINQ", "CaseWhenAndCte")>]
     let ``Test Polars Linq CaseWhen And Cte`` () =
         // Arrange
         let emps = [|
@@ -840,7 +849,7 @@ module QueryTests =
         // Assert.True(cteResult |> Seq.exists (fun e -> e.Name = "Alice"))
         // Assert.True(cteResult |> Seq.exists (fun e -> e.Name = "David"))
     [<Fact>]
-    [<Trait("Linq", "SubqueryInAndFunctions")>]
+    [<Trait("LINQ", "SubqueryInAndFunctions")>]
     let ``Test Polars Linq SubqueryIn And Functions`` () =
         let depts = [|
             { DeptId = 1; DeptName = "Engineering" }
@@ -913,8 +922,9 @@ module QueryTests =
 
         Assert.Equal("Ali", getShortName "Alice")
         Assert.Equal("Cha", getShortName "Charlie")
+
     [<Fact>]
-    [<Trait("Linq", "MathStringAndConditionalAgg")>]
+    [<Trait("LINQ", "MathStringAndConditionalAgg")>]
     let ``Test Polars Linq Math String And ConditionalAgg`` () =
         let sales = [|
             { Category = "Tech";   ProductName = "Laptop"; Revenue = 1000.5; Discount = 50.0 }
@@ -957,8 +967,9 @@ module QueryTests =
         Assert.Equal(1671.5, aggQuery.[0].Total) // 1000.5 + 20 + 500.2 + 150.8
         Assert.Equal(1020.5, aggQuery.[0].TechTotal)
         Assert.Equal(651.0,  aggQuery.[0].OfficeTotal)
+
     [<Fact>]
-    [<Trait("Linq", "BitwiseAndRegex")>]
+    [<Trait("LINQ", "BitwiseAndRegex")>]
     let ``Test Polars Linq Bitwise and Regex`` () =
         let logs = [|
             { Id = 1; Message = "User admin logged in";  Flags = 3 }  // 3 (0011)
@@ -994,8 +1005,9 @@ module QueryTests =
     //     Assert.True(regexResult |> Seq.exists(fun l -> l.Id = 2))
     //     Assert.True(regexResult |> Seq.exists(fun l -> l.Id = 3))
     //     Assert.True(regexResult |> Seq.exists(fun l -> l.Id = 5))
+
     // [<Fact>]
-    // [<Trait("Linq", "LeadLag")>]
+    // [<Trait("LINQ", "LeadLag")>]
     // let ``Test Polars Linq LeadLag And NestedList`` () =
     //     // Arrange
     //     let stocks = [|
@@ -1036,8 +1048,9 @@ module QueryTests =
     //     let aaplDay2 = lagQuery |> Seq.find (fun s -> s.Ticker = "AAPL" && s.Date.Day = 2)
     //     Assert.Equal(155.0, aaplDay2.Price)
     //     Assert.Equal(150.0, aaplDay2.PrevPrice)
+
     // [<Fact>]
-    // [<Trait("Linq", "NestedList")>]
+    // [<Trait("LINQ", "NestedList")>]
     // let ``Test Polars Linq Nested List Aggregation`` () =
     //     let depts = [| { DeptId = 1; DeptName = "Tech" }; { DeptId = 2; DeptName = "Sales" } |]
     //     let emps = [| 
@@ -1069,11 +1082,10 @@ module QueryTests =
         
     //     Assert.Contains("Alice", techDepts.EmpNames)
     //     Assert.Contains("Bob", techDepts.EmpNames)
-    [<Fact>]
-    [<Trait("Linq", "Sandwich")>]
-    let ``Test Polars Double Hybrid Sandwich`` () =
-        use sqlCtx = new SqlContext()
 
+    [<Fact>]
+    [<Trait("LINQ", "Sandwich")>]
+    let ``Test Polars Double Hybrid Sandwich`` () =
         use schema = PolarsSchema.FromRecord<StaffRecord>()
         
         let path = "/home/qinglei/Projects/Polars.NET/Polars.Integration.Tests/TestData/staffrecord.csv"
@@ -1107,11 +1119,12 @@ module QueryTests =
         // Collect
         // ==========================================
         
-        let df = finalLf |> pl.collect
-        df.Show() |> ignore
+        let df = finalLf |> LazyFrame.collect
+
         Assert.True(df.Height > 0L)
+
     [<Fact>]
-    [<Trait("Linq", "SeriesScalar")>]
+    [<Trait("LINQ", "SeriesScalar")>]
     let ``Test Polars Linq Series`` () =
         let numbers = [| 1 .. 100 |]
         use series = Series.create("my_numbers", numbers)
@@ -1130,8 +1143,9 @@ module QueryTests =
         // let result = seriesquery.ToSeries()
         
         Assert.Equal(10, seriesquery.Count())
+
     // [<Fact>]
-    // [<Trait("Linq", "SyntaxSugar")>]
+    // [<Trait("LINQ", "SyntaxSugar")>]
     // let ``Test Ultimate StrongTyped Select Sugar in FSharp`` () =
         
     //     let records = [
@@ -1169,8 +1183,9 @@ module QueryTests =
     //     Assert.Equal(900.0, sqArr.[2])
     //     Assert.Equal(60.0, dblArr.[2])
     //     Assert.True(isHighArr.[2])
+
     [<Fact>]
-    [<Trait("Linq", "HybridLazy")>]
+    [<Trait("LINQ", "HybridLazy")>]
     let ``Test Polars Linq Hybrid Native And Linq Pushdown`` () =
         
         let csvContent = 
@@ -1211,8 +1226,9 @@ module QueryTests =
 
         finally
             if File.Exists fileName then File.Delete fileName
+
     // [<Fact>]
-    // [<Trait("Linq", "UnifiedCRUD")>]
+    // [<Trait("LINQ", "UnifiedCRUD")>]
     // let ``Test Polars Linq Unified CRUD UX in FSharp`` () =
         
     //     let emps = [
@@ -1248,8 +1264,9 @@ module QueryTests =
     //     use deletedDf = table.ToDataFrame()
     //     deletedDf.Show() 
     //     Assert.True(deleted >= 0)
+    
     // [<Fact>]
-    // [<Trait("Linq", "Async_Stress_ToDataFrame")>]
+    // [<Trait("LINQ", "Async_Stress_ToDataFrame")>]
     // let ``Test Polars Linq High Concurrency ToDataFrameAsync Stress`` () = task {
         
     //     let recordCount = 100_000

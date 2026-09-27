@@ -9,10 +9,10 @@ open System.Reflection
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
 
-type internal ExecutionPlan = {
+type internal ExecutionPlan<'T> = {
     NativePlan: LazyFrameHandle
     ClientPredicates: Func<obj, bool> list
-    ClientProjection: (Type * Delegate) option
+    ClientProjection: (Type * Func<obj, obj>) option
 }
 
 /// Internal interface allowing direct zero-reflection plan querying between Provider and Query instances
@@ -70,13 +70,13 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                         query.GetType().GetMethod("GetCompiledPlan", BindingFlags.Instance ||| BindingFlags.NonPublic ||| BindingFlags.Public)
                     if not (isNull getPlanMethod) then
                         let planResult = getPlanMethod.Invoke(query, null)
-                        let fields = Microsoft.FSharp.Reflection.FSharpValue.GetTupleFields(planResult)
+                        let fields = Reflection.FSharpValue.GetTupleFields(planResult)
                         let nativeLf = fields.[0] :?> LazyFrameHandle
                         let predsObj = fields.[1] :?> IEnumerable
                         let hasClientPreds = predsObj.GetEnumerator().MoveNext()
                         let hasClientProj = fields.Length > 2 && not (isNull fields.[2])
                         let hasFallback = fields.Length > 3 && (fields.[3] :?> bool)
-                        nativeLf, (hasClientPreds || hasClientProj || hasFallback)
+                        nativeLf, hasClientPreds || hasClientProj || hasFallback
                     else
                         failwithf "Unable to extract LazyFrame from query source: %A" src
 
@@ -762,7 +762,21 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             )
         | _ -> []
 
-/// Unified GroupBy compiler powering both single-key and multi-key GroupBy pipelines (C# LINQ & F# QueryBuilder)
+    /// Disambiguates duplicate column names against an existing set of columns by appending a given suffix,
+    /// returning the safely renamed LazyFrame, updated column set, and a renaming map.
+    static member private DisambiguateColumns (existingCols: Set<string>) (lf: LazyFrameHandle) (suffix: string) : LazyFrameHandle * Set<string> * Map<string, string> =
+        let cols = PolarsQuery<'T>.GetLazyColumnNames lf
+        let duplicates = cols |> Array.filter existingCols.Contains
+
+        if duplicates.Length > 0 then
+            let newNames = duplicates |> Array.map (fun c -> c + suffix)
+            let renamedLf = PolarsWrapper.LazyRename(lf, duplicates, newNames, strict = false)
+            let suffixMap = Array.zip duplicates newNames |> Map.ofArray
+            renamedLf, existingCols |> Set.union (Set.ofArray cols), suffixMap
+        else
+            lf, existingCols |> Set.union (Set.ofArray cols), Map.empty
+
+    /// Unified GroupBy compiler powering both single-key and multi-key GroupBy pipelines (C# LINQ & F# QueryBuilder)
     static member private CompileUnifiedGroupBy
         (ctx: GroupFoldContext)
         (projBody: Expression)
@@ -1210,7 +1224,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
         ) (PolarsWrapper.LazyClone sourceLf)
 
     /// Parses the LINQ expression tree into native ops, client predicates, optional projection, and fallback signal
-    member private this.CompilePipeline() : QueryOp list * (Func<'T, bool> list) * ((Type * Delegate) option) * bool =    
+    member private this.CompilePipeline() : QueryOp list * (Func<'T, bool> list) * ((Type * Func<obj,obj>) option) * bool =    
         let rec flatten (e: Expression) (acc: LinqStage list) : LinqStage list =
             match e with
             | null -> acc
@@ -1435,7 +1449,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | QueryOp.Sort specs :: tail -> QueryOp.Sort (specs @ [spec]) :: tail
             | _ -> QueryOp.Sort [spec] :: ops
 
-        let rec fuse (remaining: LinqStage list) (opsAcc: QueryOp list) (clientPreds: Func<'T, bool> list) (clientProjOpt: (Type * Delegate) option) : QueryOp list * (Func<'T, bool> list) * ((Type * Delegate) option) * bool =
+        let rec fuse (remaining: LinqStage list) (opsAcc: QueryOp list) (clientPreds: Func<'T, bool> list) (clientProjOpt: (Type * Func<obj,obj>) option) : QueryOp list * (Func<'T, bool> list) * ((Type * Func<obj,obj>) option) * bool =
             // Unified GroupBy compilation and execution dispatcher
             let tryDispatchGroupBy (ctx: GroupFoldContext) (projBody: Expression) (groupParamName: string) (isKeyArg: Expression -> bool) (nextTail: LinqStage list) =
                 if not clientPreds.IsEmpty then
@@ -1542,13 +1556,20 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     | Some exprHandle when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                         fuse tail (QueryOp.Filter exprHandle :: opsAcc) clientPreds clientProjOpt
                     | _ ->
-                        let compiled = l.Compile()
-                        let safePred = 
-                            Func<'T, bool>(fun (item: 'T) ->
-                                try compiled.DynamicInvoke([| box item |]) :?> bool
-                                with _ -> false
-                            )
-                        fuse tail opsAcc (safePred :: clientPreds) clientProjOpt
+                        let paramType = l.Parameters.[0].Type
+                        // If transparent identifier from F# 'let' or chained after client projection, fallback to in-memory LINQ safely
+                        if paramType.Name.StartsWith "AnonymousObject" || paramType.Name.Contains "TransparentIdentifier" || clientProjOpt.IsSome then
+                            [], [], None, true
+                        else
+                            // Strongly-typed Func<obj, bool> compilation without DynamicInvoke
+                            let rawParam = Expression.Parameter(typeof<obj>, "rawItem")
+                            let castParam = 
+                                if paramType = typeof<obj> then rawParam :> Expression
+                                else Expression.Convert(rawParam, paramType) :> Expression
+                            let invoked = Expression.Invoke(l, castParam)
+                            let safePred = Expression.Lambda<Func<obj, bool>>(invoked, rawParam).Compile()
+                            let typedPred = Func<'T, bool>(fun (item: 'T) -> safePred.Invoke(box item))
+                            fuse tail opsAcc (typedPred :: clientPreds) clientProjOpt
 
             | LinqStage.Index :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 let indexOp = QueryOp.WithRowIndex("Index", Some 0u)
@@ -1589,7 +1610,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 | None -> [], [], None, true
 
             | LinqStage.GroupJoin(m, inner, outerKey, innerKey, _) :: LinqStage.Explode(collSelector, _) :: tail 
-                when collSelector.ToString().Contains("DefaultIfEmpty") && clientPreds.IsEmpty && clientProjOpt.IsNone ->
+                when collSelector.ToString().Contains "DefaultIfEmpty" && clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle inner,
                       ExprTranslator.tryTranslate outerKey.Parameters.[0].Name outerKey.Body,
@@ -1642,20 +1663,9 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with
                 | Some otherLf ->
                     let baseCols = PolarsQuery<'T>.GetLazyColumnNames lfCloned |> Set.ofArray
-                    let secondCols = PolarsQuery<'T>.GetLazyColumnNames otherLf
-                    let duplicateCols = secondCols |> Array.filter baseCols.Contains
+                    let safeSecondLf, _, suffixMap = PolarsQuery<'T>.DisambiguateColumns baseCols otherLf "_second"
 
-                    let safeSecondLf, suffixMap =
-                        if duplicateCols.Length > 0 then
-                            let newNames = duplicateCols |> Array.map (fun c -> c + "_second")
-                            let renamedLf = PolarsWrapper.LazyRename(otherLf, duplicateCols, newNames, strict = false)
-                            let mapping = Array.zip duplicateCols newNames |> Map.ofArray
-                            renamedLf, mapping
-                        else
-                            otherLf, Map.empty
-
-                    let clonedOther = PolarsWrapper.LazyClone safeSecondLf
-                    let zipOp = QueryOp.HorizontalConcat [| clonedOther |]
+                    let zipOp = QueryOp.HorizontalConcat [| PolarsWrapper.LazyClone safeSecondLf |]
 
                     let renameOps =
                         match resLambdaOpt with
@@ -1666,35 +1676,24 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                                     renames
                                     |> List.map (fun (srcCol, destCol) ->
                                         match suffixMap.TryFind srcCol with
-                                        | Some actualColName -> (actualColName, destCol)
-                                        | None -> (srcCol, destCol)
+                                        | Some actualColName -> actualColName, destCol
+                                        | None -> srcCol, destCol
                                     )
                                 [ QueryOp.Rename { ExistingNames = mappedRenames |> List.map fst |> List.toArray
                                                    NewNames = mappedRenames |> List.map snd |> List.toArray } ]
                             else []
                         | None -> []
 
-                    let nextOps = renameOps @ (zipOp :: opsAcc)
-                    fuse tail nextOps clientPreds clientProjOpt
+                    fuse tail (renameOps @ zipOp :: opsAcc) clientPreds clientProjOpt
                 | None -> [], [], None, true
 
             | LinqStage.Zip3(secondExpr, thirdExpr) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr,
                       PolarsQuery<'T>.ResolveToLazyFrameHandle thirdExpr with
                 | Some secondLf, Some thirdLf ->
-                    let suffixDuplicateColumns (existingCols: Set<string>) (lf: LazyFrameHandle) (suffix: string) =
-                        let cols = PolarsQuery<'T>.GetLazyColumnNames lf
-                        let duplicates = cols |> Array.filter existingCols.Contains
-                        if duplicates.Length > 0 then
-                            let newNames = duplicates |> Array.map (fun c -> c + suffix)
-                            let renamedLf = PolarsWrapper.LazyRename(lf, duplicates, newNames, strict = false)
-                            renamedLf, existingCols |> Set.union (Set.ofArray cols)
-                        else
-                            lf, existingCols |> Set.union (Set.ofArray cols)
-
                     let baseCols = PolarsQuery<'T>.GetLazyColumnNames lfCloned |> Set.ofArray
-                    let safeSecondLf, colsAfter2 = suffixDuplicateColumns baseCols secondLf "_second"
-                    let safeThirdLf, _ = suffixDuplicateColumns colsAfter2 thirdLf "_third"
+                    let safeSecondLf, colsAfter2, _ = PolarsQuery<'T>.DisambiguateColumns baseCols secondLf "_second"
+                    let safeThirdLf, _, _ = PolarsQuery<'T>.DisambiguateColumns colsAfter2 thirdLf "_third"
 
                     let zip3Op = QueryOp.HorizontalConcat [| PolarsWrapper.LazyClone safeSecondLf; PolarsWrapper.LazyClone safeThirdLf |]
                     fuse tail (zip3Op :: opsAcc) clientPreds clientProjOpt
@@ -1869,31 +1868,42 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | LinqStage.DefaultIfEmpty _ :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 fuse tail opsAcc clientPreds clientProjOpt
 
-            // Universal Select Projection Pushdown vs. UDF Client Fallback
+            // Universal Select Projection Pushdown vs. Client Func Fallback
             | LinqStage.Project projLambda :: tail ->
                 match PolarsQuery<'T>.CompileSelectProjection projLambda with
                 | Some exprs when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                     fuse tail (QueryOp.Select exprs :: opsAcc) clientPreds None
                 | _ ->
                     let sourceType = projLambda.Parameters.[0].Type
-                    if sourceType.Name.StartsWith "AnonymousObject" || sourceType.Name.Contains("TransparentIdentifier") then
-                        [], [], None, true
-                    else
-                        let compiledDel = projLambda.Compile()
-                        let nextProj =
-                            match clientProjOpt with
-                            | None -> Some (sourceType, compiledDel)
-                            | Some (prevSrcType, prevDel) ->
-                                let composed =
-                                    Func<obj, obj>(fun (x: obj) ->
-                                        let mid = prevDel.DynamicInvoke([| x |])
-                                        compiledDel.DynamicInvoke([| mid |])
-                                    )
-                                Some (prevSrcType, composed :> Delegate)
 
-                        fuse tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds nextProj
+                    // Compile a lambda into a typed Func<obj, obj> without DynamicInvoke reflection overhead
+                    let compileToBoxedFunc (lambda: LambdaExpression) =
+                        let rawParam = Expression.Parameter(typeof<obj>, "rawItem")
+                        let castParam = 
+                            if lambda.Parameters.[0].Type = typeof<obj> then rawParam :> Expression
+                            else Expression.Convert(rawParam, lambda.Parameters.[0].Type) :> Expression
+                        let invoked = Expression.Invoke(lambda, castParam)
+                        let boxedResult = Expression.Convert(invoked, typeof<obj>)
+                        Expression.Lambda<Func<obj, obj>>(boxedResult, rawParam).Compile()
 
-            | LinqStage.Cast targetType :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+                    let currentFunc = compileToBoxedFunc projLambda
+
+                    let nextProj =
+                        match clientProjOpt with
+                        | None ->
+                            // First projection stage: sourceType -> current intermediate
+                            Some (sourceType, currentFunc)
+                        | Some (prevSrcType, prevFunc) ->
+                            // Composed projection chain: prevSrcType -> prevResult -> currentResult
+                            let composed = Func<obj, obj>(fun rawItem ->
+                                let mid = prevFunc.Invoke(rawItem)
+                                currentFunc.Invoke(mid)
+                            )
+                            Some (prevSrcType, composed)
+
+                    fuse tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds nextProj
+
+            | LinqStage.Cast _ :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 fuse tail opsAcc clientPreds clientProjOpt
 
             | LinqStage.OfType(sourceType, targetType) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
@@ -1935,7 +1945,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
         fuse stages [] [] None
 
     /// Compiles pipeline and builds the target native LazyFrameHandle alongside client predicates, projection, and fallback signal
-    member private this.GetCompiledPlan() : LazyFrameHandle * (Func<'T,bool> list) * ((Type * Delegate) option) * bool =
+    member private this.GetCompiledPlan() : LazyFrameHandle * (Func<'T,bool> list) * ((Type * Func<obj,obj>) option) * bool =
         let ops, clientPredicates, clientProjOpt, requiresClientFallback = this.CompilePipeline()
         let nativeLf = PolarsQuery<'T>.ApplyNativeOps lfCloned ops
         nativeLf, clientPredicates, clientProjOpt, requiresClientFallback
@@ -2039,19 +2049,26 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
             // Branch 0: Client-side UDF Projection Fallback
             match clientProjOpt with
-            | Some (sourceType, del) ->
+            | Some (sourceType, func) ->
+                printfn "\x1b[1;32m[CLIENT PROJECTION HIT] Materializing source rows as '%s' and applying projection to '%s'\x1b[0m" sourceType.Name targetType.Name
                 let mat = QueryMaterializerResolver.Resolve (Some materializer)
                 let materializeMethod = getMaterializeMethod sourceType
                 let rawSourceRows = materializeMethod.Invoke(mat, [| box dfHandle |]) :?> IEnumerable
 
-                let transformedRows =
-                    seq {
-                        for item in rawSourceRows do
-                            yield del.DynamicInvoke [| item |] :?> 'T
-                    }
+                // Apply client-side predicates to materialized rows, then apply composed projection
+                let filteredSource =
+                    if clientPredicates.IsEmpty then rawSourceRows
+                    else
+                        seq {
+                            for item in rawSourceRows do
+                                if clientPredicates |> List.forall (fun p -> p.Invoke(item :?> 'T)) then
+                                    yield item
+                        }
 
-                if clientPredicates.IsEmpty then transformedRows
-                else clientPredicates |> List.fold (fun acc pred -> acc.Where pred.Invoke) transformedRows
+                seq {
+                    for item in filteredSource do
+                        yield func.Invoke item :?> 'T
+                }
 
             | None ->
                 let rec findChunkSize (e: Expression) : int option =
@@ -2251,7 +2268,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
     interface IInternalPlanSource with
         member this.GetPlanInfo() =
             let nativeLf, clientPreds, clientProjOpt, requiresClientFallback = this.GetCompiledPlan()
-            nativeLf, (requiresClientFallback || not clientPreds.IsEmpty || clientProjOpt.IsSome)
+            nativeLf, requiresClientFallback || not clientPreds.IsEmpty || clientProjOpt.IsSome
 
     interface IEnumerable<'T> with
         member this.GetEnumerator() : IEnumerator<'T> =

@@ -73,17 +73,15 @@ public class LinqTests
 
         IQueryable<string> upperQuery = empQuery.Select(e => e.Name.ToUpper());
 
-        // 3. 观察执行路径
-        // Case A: 标量终结执行
         var firstName = upperQuery.First();
-        Console.WriteLine($"[C# First() Result]: {firstName}");
-        // Assert.Equal("Alice", firstName);
+
+        Assert.Equal("ALICE", firstName);
 
         var dfResult = upperQuery.ToDataFrame();
-        dfResult.Show();
 
-        Assert.Equal(1UL, (ulong)dfResult.Width);
+        Assert.Equal(1L, dfResult.Width);
     }
+
     [Fact]
     [Trait("LINQ", "WhereAndTake")]
     public void Test_Linq_Where_Take()
@@ -2148,6 +2146,60 @@ public class LinqTests
 
         Assert.True(query.Contains(existingAlice));
         Assert.False(query.Contains(missingCharlie));
+    }
+    [Fact]
+    [Trait("LINQ", "Contains")]
+    public void Test_Linq_Contains_FullRecord_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3, 4]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David"]),
+            Series.From("DeptId", [10, 20, 10, 30])
+        ]);
+
+        var query = df.AsQueryable<Person>();
+
+        // 1. Existing person: Bob (2, "Bob", 20) -> should be true
+        var existingPerson = new Person(2, "Bob", 20);
+        var containsExisting = query.Contains(existingPerson);
+        Assert.True(containsExisting);
+
+        // 2. Non-existing person (wrong DeptId): Bob with DeptId 99 -> should be false
+        var mismatchPerson = new Person(2, "Bob", 99);
+        var containsMismatch = query.Contains(mismatchPerson);
+        Assert.False(containsMismatch);
+
+        // 3. Completely non-existing person
+        var stranger = new Person(99, "Eve", 50);
+        var containsStranger = query.Contains(stranger);
+        Assert.False(containsStranger);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Contains")]
+    public void Test_Linq_Contains_SingleColumn_Scalar_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3, 4]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David"]),
+            Series.From("DeptId", [10, 20, 10, 30])
+        ]);
+
+        // Scalar projection + Contains pushdown
+        var nameQuery = df.AsQueryable<Person>().Select(p => p.Name);
+
+        Assert.True(nameQuery.Contains("Alice"));
+        Assert.True(nameQuery.Contains("David"));
+        Assert.False(nameQuery.Contains("Frank"));
+
+        // Scalar int projection + Contains pushdown
+        var idQuery = df.AsQueryable<Person>().Select(p => p.Id);
+
+        Assert.True(idQuery.Contains(1));
+        Assert.True(idQuery.Contains(4));
+        Assert.False(idQuery.Contains(42));
     }
     [Fact]
     [Trait("LINQ", "Scalar_SequenceEqual")]

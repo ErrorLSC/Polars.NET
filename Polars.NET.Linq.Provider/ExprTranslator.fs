@@ -71,31 +71,31 @@ module ExprTranslator =
         | _ ->
             let coreType = PolarsTypeHelper.UnwrapCoreType(t)
             if coreType.IsEnum then
-                let underlyingType = Enum.GetUnderlyingType(coreType)
+                let underlyingType = Enum.GetUnderlyingType coreType
                 let underlyingVal = Convert.ChangeType(value, underlyingType)
                 toLiteralHandle underlyingVal underlyingType
             else
                 match value with
-                | :? bool as b -> PolarsWrapper.Lit(b)
-                | :? sbyte as sb -> PolarsWrapper.Lit(sb)
-                | :? byte as b -> PolarsWrapper.Lit(b)
-                | :? int16 as s -> PolarsWrapper.Lit(s)
-                | :? uint16 as us -> PolarsWrapper.Lit(us)
-                | :? int as i -> PolarsWrapper.Lit(i)
-                | :? uint32 as ui -> PolarsWrapper.Lit(ui)
-                | :? int64 as l -> PolarsWrapper.Lit(l)
-                | :? uint64 as ul -> PolarsWrapper.Lit(ul)
-                | :? Int128 as i128 -> PolarsWrapper.Lit(i128)
-                | :? decimal as d -> PolarsWrapper.Lit(d)
-                | :? Half as h -> PolarsWrapper.Lit(h)
-                | :? float32 as f -> PolarsWrapper.Lit(f)
-                | :? double as d -> PolarsWrapper.Lit(d)
-                | :? string as s -> PolarsWrapper.Lit(s)
-                | :? DateTime as dt -> PolarsWrapper.Lit(dt)
-                | :? DateTimeOffset as doff -> PolarsWrapper.Lit(doff)
-                | :? TimeSpan as ts -> PolarsWrapper.Lit(ts)
-                | :? DateOnly as dof -> PolarsWrapper.Lit(dof)
-                | :? TimeOnly as tof -> PolarsWrapper.Lit(tof)
+                | :? bool as b -> PolarsWrapper.Lit b
+                | :? sbyte as sb -> PolarsWrapper.Lit sb
+                | :? byte as b -> PolarsWrapper.Lit b
+                | :? int16 as s -> PolarsWrapper.Lit s
+                | :? uint16 as us -> PolarsWrapper.Lit us
+                | :? int as i -> PolarsWrapper.Lit i
+                | :? uint32 as ui -> PolarsWrapper.Lit ui
+                | :? int64 as l -> PolarsWrapper.Lit l
+                | :? uint64 as ul -> PolarsWrapper.Lit ul
+                | :? Int128 as i128 -> PolarsWrapper.Lit i128
+                | :? decimal as d -> PolarsWrapper.Lit d
+                | :? Half as h -> PolarsWrapper.Lit h
+                | :? float32 as f -> PolarsWrapper.Lit f
+                | :? double as d -> PolarsWrapper.Lit d
+                | :? string as s -> PolarsWrapper.Lit s
+                | :? DateTime as dt -> PolarsWrapper.Lit dt
+                | :? DateTimeOffset as doff -> PolarsWrapper.Lit doff
+                | :? TimeSpan as ts -> PolarsWrapper.Lit ts
+                | :? DateOnly as dof -> PolarsWrapper.Lit dof
+                | :? TimeOnly as tof -> PolarsWrapper.Lit tof
                 | other ->
                     failwithf "Type '%s' is not supported as a constant literal in Polars LINQ" (other.GetType().FullName)
 
@@ -143,10 +143,10 @@ module ExprTranslator =
             | None -> None
 
     let private isFSharpAnonymousMember (m: MemberInfo) =
-        m.Name.StartsWith("Item") || 
-        m.DeclaringType.Name.StartsWith("AnonymousObject") || 
-        m.DeclaringType.Name.StartsWith("Tuple") ||
-        m.DeclaringType.Name.Contains("TransparentIdentifier")
+        m.Name.StartsWith "Item" || 
+        m.DeclaringType.Name.StartsWith "AnonymousObject" || 
+        m.DeclaringType.Name.StartsWith "Tuple" ||
+        m.DeclaringType.Name.Contains "TransparentIdentifier"
 
     let rec internal tryResolveColumnName (paramName: string) (expr: Expression) : string option =
         match expr with
@@ -160,10 +160,10 @@ module ExprTranslator =
                 match e with
                 | :? ParameterExpression as p ->
                     p.Name = paramName || 
-                    p.Name.StartsWith("_arg") || 
-                    p.Name.StartsWith("tupled") ||
-                    p.Type.Name.StartsWith("AnonymousObject") ||
-                    p.Type.Name.StartsWith("Tuple")
+                    p.Name.StartsWith "_arg" || 
+                    p.Name.StartsWith "tupled" ||
+                    p.Type.Name.StartsWith "AnonymousObject" ||
+                    p.Type.Name.StartsWith "Tuple"
                 | MemberAccess(nextInner, nextM) when isFSharpAnonymousMember nextM ->
                     isRootedInParamOrClosure nextInner
                 | _ -> false
@@ -179,7 +179,7 @@ module ExprTranslator =
     let rec tryTranslate (paramName: string) (expr: Expression) : ExprHandle option =
         try
             match expr with
-            // 1. Column Reference: 自动解析直接访问 (e.Name) 和 F# 闭包/嵌套元组 (tupledArg.Item1.DeptName / _arg1.Item1.DeptId)
+            // 1. Column Reference: (tupledArg.Item1.DeptName / _arg1.Item1.DeptId)
             | MemberAccess _ as memberExpr when (tryResolveColumnName paramName memberExpr).IsSome ->
                 let actualCol = (tryResolveColumnName paramName memberExpr).Value
                 Some (PolarsWrapper.Col(actualCol))
@@ -234,8 +234,8 @@ module ExprTranslator =
                 match condExpr.Test with
                 | :? BinaryExpression as b when b.NodeType = ExpressionType.Equal ->
                     let isNullCheck =
-                        isNullConstantExpr b.Right && (unwrapConvert b.Left) <> null ||
-                        isNullConstantExpr b.Left && (unwrapConvert b.Right) <> null
+                        isNullConstantExpr b.Right && unwrapConvert b.Left <> null ||
+                        isNullConstantExpr b.Left && unwrapConvert b.Right <> null
 
                     if isNullCheck then
                         match tryTranslate paramName condExpr.IfFalse, tryTranslate paramName condExpr.IfTrue with

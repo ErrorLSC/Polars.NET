@@ -3,11 +3,9 @@ namespace Polars.NET.Linq.Provider
 open System
 open System.Collections.Generic
 open System.Linq.Expressions
-open System.Reflection
 
 module FSharpAst =
 
-    /// 基于 AST 表达式结构 String 签名的替换器
     type private StructuralExpressionReplacer(paramMap: Dictionary<string, Expression>) =
         inherit ExpressionVisitor()
         override this.Visit(node: Expression) =
@@ -36,11 +34,11 @@ module FSharpAst =
 
     let private isTupleOrAnon (t: Type) =
         not (isNull t) &&
-        (t.Name.StartsWith("AnonymousObject") ||
-         t.Name.StartsWith("Tuple") ||
-         t.Name.Contains("TransparentIdentifier"))
+        (t.Name.StartsWith "AnonymousObject" ||
+         t.Name.StartsWith "Tuple" ||
+         t.Name.Contains "TransparentIdentifier")
 
-    /// 1. 标准 Beta-reduction: 规约 F# 闭包 .Invoke(...)
+    /// 1. Beta-reduction: reduce curried F# closure .Invoke(...)
     let rec betaReduce (expr: Expression) : Expression =
         match expr with
         | null -> null
@@ -106,7 +104,7 @@ module FSharpAst =
 
         | other -> other
 
-    /// 2. 流式绑定收集器：使用 ParamName 和 TypeName 双重索引，彻底解决 Null FullName 问题
+    /// 2. StreamBindingCollector：Use ParamName and TypeName as index
     type private StreamBindingCollector(bindings: Dictionary<string, NewExpression>) =
         inherit ExpressionVisitor()
 
@@ -154,7 +152,7 @@ module FSharpAst =
 
             mc :> Expression
 
-    /// 3. LetInliner：将 tupledArg.Item8.Item1 展平为 (tupledArg.Item1.DeptId * 100)，作用域 100% 封闭
+    /// 3. LetInliner: Flatten tupledArg.Item8.Item1 into (tupledArg.Item1.DeptId * 100)
     type private LetInliner(bindings: Dictionary<string, NewExpression>) =
         inherit ExpressionVisitor()
 
@@ -174,7 +172,7 @@ module FSharpAst =
             | :? NewExpression as ne when isTupleOrAnon ne.Type ->
                 let memberMap = extractMemberMap ne
                 match memberMap.TryFind node.Member.Name with
-                | Some childExpr -> this.Visit(childExpr)
+                | Some childExpr -> this.Visit childExpr
                 | None -> Expression.MakeMemberAccess(visitedExpr, node.Member) :> Expression
 
             | :? ParameterExpression as p when (tryGetBinding p).IsSome ->
