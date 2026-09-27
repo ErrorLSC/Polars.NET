@@ -4,6 +4,7 @@ using System.Linq;
 using Polars.NET.Linq.Provider;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.InteropServices;
 
 namespace Polars.CSharp.Linq;
 
@@ -47,6 +48,82 @@ public sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
             acc = folder(acc, enumerator.Current);
         }
         return acc;
+    }
+    public IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<TSource, TKey, TAccum>(
+        DataFrameHandle handle,
+        Func<TSource, TKey> keySelector,
+        TAccum seed,
+        Func<TAccum, TSource, TAccum> folder,
+        IEqualityComparer<TKey>? comparer = null)
+        where TKey :notnull
+    {
+        var df = new DataFrame(handle);
+        var dict = new Dictionary<TKey, TAccum>(comparer);
+
+        var enumerator = df.Rows<TSource>();
+        while (enumerator.MoveNext())
+        {
+            TSource current = enumerator.Current;
+            TKey key = keySelector(current);
+
+            ref TAccum? valRef = ref CollectionsMarshal.GetValueRefOrAddDefault(dict, key, out bool exists);
+            if (!exists)
+            {
+                valRef = folder(seed, current);
+            }
+            else
+            {
+                valRef = folder(valRef!, current);
+            }
+        }
+
+        return dict;
+    }
+    /// <summary>
+    /// Aggregates rows grouped by key using a zero-allocation stack row enumerator and a per-key seed factory.
+    /// </summary>
+    public IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<TSource, TKey, TAccum>(
+        DataFrameHandle handle,
+        Func<TSource, TKey> keySelector,
+        Func<TKey, TAccum> seedSelector,
+        Func<TAccum, TSource, TAccum> folder,
+        IEqualityComparer<TKey>? comparer = null)
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(keySelector);
+        ArgumentNullException.ThrowIfNull(seedSelector);
+        ArgumentNullException.ThrowIfNull(folder);
+
+        var df = new DataFrame(handle);
+        var dict = new Dictionary<TKey, TAccum>(comparer);
+
+        if (df.Height == 0)
+        {
+            return dict;
+        }
+
+        // Stream rows using zero-heap ref struct enumerator
+        var enumerator = df.Rows<TSource>();
+        while (enumerator.MoveNext())
+        {
+            TSource current = enumerator.Current;
+            TKey key = keySelector(current);
+
+            ref TAccum? valRef = ref CollectionsMarshal.GetValueRefOrAddDefault(dict, key, out bool exists);
+            if (!exists)
+            {
+                // Key first seen: generate initial seed via factory, then fold the first row
+                TAccum initialSeed = seedSelector(key);
+                valRef = folder(initialSeed, current);
+            }
+            else
+            {
+                // Key already exists: fold with the existing accumulated value
+                valRef = folder(valRef!, current);
+            }
+        }
+
+        return dict;
     }
 }
 

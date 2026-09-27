@@ -63,6 +63,22 @@ public interface IDataFrameMaterializer
         DataFrameHandle handle,
         TAccum seed,
         Func<TAccum, TSource, TAccum> folder);
+    IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<TSource, TKey, TAccum>(
+        DataFrameHandle handle,
+        Func<TSource, TKey> keySelector,
+        TAccum seed,
+        Func<TAccum, TSource, TAccum> folder,
+        IEqualityComparer<TKey>? comparer = null)
+        where TKey : notnull;
+        
+
+    IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<TSource, TKey, TAccum>(
+        DataFrameHandle handle,
+        Func<TSource, TKey> keySelector,
+        Func<TKey, TAccum> seedSelector,
+        Func<TAccum, TSource, TAccum> folder,
+        IEqualityComparer<TKey>? comparer = null)
+        where TKey : notnull;
 }
 
 public static class DataFrameMaterializerRegistry

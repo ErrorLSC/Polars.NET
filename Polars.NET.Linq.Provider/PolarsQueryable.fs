@@ -2023,8 +2023,8 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             this.ExecuteInMemory()
         else
             let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
-            let dfHeight = PolarsWrapper.DataFrameHeight collectedDf
-            printfn "\x1b[1;32m[EXECUTE QUERY COLLECTED] Height=%d\x1b[0m" dfHeight
+            // let dfHeight = PolarsWrapper.DataFrameHeight collectedDf
+            // printfn "\x1b[1;32m[EXECUTE QUERY COLLECTED] Height=%d\x1b[0m" dfHeight
             
             let targetType = typeof<'T>
             let isGrouping = targetType.IsGenericType && targetType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
@@ -2050,7 +2050,6 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             // Branch 0: Client-side UDF Projection Fallback
             match clientProjOpt with
             | Some (sourceType, func) ->
-                printfn "\x1b[1;32m[CLIENT PROJECTION HIT] Materializing source rows as '%s' and applying projection to '%s'\x1b[0m" sourceType.Name targetType.Name
                 let mat = QueryMaterializerResolver.Resolve (Some materializer)
                 let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
                 let rawSourceRows = invoker.Invoke(mat, dfHandle)
@@ -2157,31 +2156,33 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     let sourceExpr, keyLambda, seedExpr, seedLambdaOpt, funcLambda, comparerExprOpt = aggByInfoOpt.Value
                     let genericArgs = targetType.GetGenericArguments()
                     let keyType, accumType = genericArgs.[0], genericArgs.[1]
-
-                    let rawRows = (provider :> IQueryProvider).CreateQuery(sourceExpr)
                     let sourceElemType = keyLambda.Parameters.[0].Type
 
                     let compiledKey = keyLambda.Compile()
                     let compiledFunc = funcLambda.Compile()
-
                     let comparerObj = 
                         match comparerExprOpt with
                         | Some ce -> tryEvaluate ce |> Option.toObj
                         | None -> null
 
+                    let mat = QueryMaterializerResolver.Resolve (Some materializer)
+
+                    // 1. Resolve source query plan so that upstream filters/projections are properly compiled
+                    let sourceQuery = (provider :> IQueryProvider).CreateQuery(sourceExpr)
+                    let sourceLf =
+                        match box sourceQuery with
+                        | :? IPolarsPlanSource as ps -> ps.GetCompiledLazyFrameHandle()
+                        | _ -> nativeLf
+
+                    // 2. Collect filtered source LazyFrame into DataFrameHandle
+                    let sourceDfHandle = PolarsWrapper.LazyCollect(sourceLf, PlEngine.Auto, true)
+
                     match seedLambdaOpt with
                     | Some seedLambda ->
                         let compiledSeed = seedLambda.Compile()
-                        let aggByMethod = 
-                            typeof<Enumerable>.GetMethods()
-                            |> Array.find (fun m -> 
-                                m.Name = "AggregateBy" && 
-                                m.GetParameters().Length = 5 && 
-                                m.GetParameters().[2].ParameterType.IsGenericType && 
-                                m.GetParameters().[2].ParameterType.GetGenericTypeDefinition() = typedefof<Func<_, _>>)
-                            |> fun m -> m.MakeGenericMethod(sourceElemType, keyType, accumType)
-
-                        aggByMethod.Invoke(null, [| box rawRows; box compiledKey; box compiledSeed; box compiledFunc; comparerObj |]) :?> IEnumerable<'T>
+                        let invoker = LinqReflectionCache.GetMaterializerAggByFactoryInvoker(sourceElemType, keyType, accumType)
+                        let res = invoker.Invoke(mat, sourceDfHandle, compiledKey, compiledSeed, compiledFunc, comparerObj)
+                        res.Cast<'T>()
 
                     | None ->
                         let seedVal = 
@@ -2189,15 +2190,9 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                             | Some s -> s
                             | None -> failwith "Failed to evaluate static seed for AggregateBy."
 
-                        let aggByMethod = 
-                            typeof<Enumerable>.GetMethods()
-                            |> Array.find (fun m -> 
-                                m.Name = "AggregateBy" && 
-                                m.GetParameters().Length = 5 && 
-                                m.GetParameters().[2].ParameterType.IsGenericParameter)
-                            |> fun m -> m.MakeGenericMethod(sourceElemType, keyType, accumType)
-
-                        aggByMethod.Invoke(null, [| box rawRows; box compiledKey; box seedVal; box compiledFunc; comparerObj |]) :?> IEnumerable<'T>
+                        let invoker = LinqReflectionCache.GetMaterializerAggBySeedInvoker(sourceElemType, keyType, accumType)
+                        let res = invoker.Invoke(mat, sourceDfHandle, compiledKey, seedVal, compiledFunc, comparerObj)
+                        res.Cast<'T>()
 
                 // Case 4: Flat row materialization (standard records, anonymous types, DTOs)
                 else

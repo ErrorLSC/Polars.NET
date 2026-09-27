@@ -880,3 +880,63 @@ type FSharpRowCursorMaterializer() =
                 
             acc
 
+        /// Overload 1: Static seed value for all groups
+        member _.AggregateBy<'TSource, 'TKey, 'TAccum>(
+            handle: DataFrameHandle,
+            keySelector: Func<'TSource, 'TKey>,
+            seed: 'TAccum,
+            folder: Func<'TAccum, 'TSource, 'TAccum>,
+            comparer: IEqualityComparer<'TKey>) : IEnumerable<KeyValuePair<'TKey, 'TAccum>> =
+
+            ArgumentNullException.ThrowIfNull(keySelector, nameof keySelector)
+            ArgumentNullException.ThrowIfNull(folder, nameof folder)
+
+            let df = new DataFrame(handle)
+            let dict = Dictionary<'TKey, 'TAccum>(comparer)
+
+            if df.Height > 0L then
+                let mutable enumerator = df.Rows<'TSource>()
+                while enumerator.MoveNext() do
+                    let current = enumerator.Current
+                    let key = keySelector.Invoke current
+
+                    match dict.TryGetValue key with
+                    | true, existingVal ->
+                        dict.[key] <- folder.Invoke(existingVal, current)
+                    | false, _ ->
+                        dict.[key] <- folder.Invoke(seed, current)
+
+            dict :> IEnumerable<KeyValuePair<'TKey, 'TAccum>>
+
+        /// Overload 2: Dynamic per-key seed factory
+        member _.AggregateBy<'TSource, 'TKey, 'TAccum>(
+            handle: DataFrameHandle,
+            keySelector: Func<'TSource, 'TKey>,
+            seedSelector: Func<'TKey, 'TAccum>,
+            folder: Func<'TAccum, 'TSource, 'TAccum>,
+            comparer: IEqualityComparer<'TKey>) : IEnumerable<KeyValuePair<'TKey, 'TAccum>> =
+
+            ArgumentNullException.ThrowIfNull(keySelector, nameof keySelector)
+            ArgumentNullException.ThrowIfNull(seedSelector, nameof seedSelector)
+            ArgumentNullException.ThrowIfNull(folder, nameof folder)
+
+            let df = new DataFrame(handle)
+            let dict = Dictionary<'TKey, 'TAccum>(comparer)
+
+            if df.Height > 0L then
+                let mutable enumerator = df.Rows<'TSource>()
+                while enumerator.MoveNext() do
+                    let current = enumerator.Current
+                    let key = keySelector.Invoke current
+
+                    match dict.TryGetValue key with
+                    | true, existingVal ->
+                        dict.[key] <- folder.Invoke(existingVal, current)
+                    | false, _ ->
+                        let initialSeed = seedSelector.Invoke key
+                        dict.[key] <- folder.Invoke(initialSeed, current)
+
+            dict :> IEnumerable<KeyValuePair<'TKey, 'TAccum>>
+        
+        
+

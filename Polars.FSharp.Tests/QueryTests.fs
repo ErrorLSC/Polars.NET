@@ -1024,7 +1024,7 @@ module QueryTests =
         let totalSalesWithBonus =
             query.Aggregate(
                 500.0,
-                fun (acc: float) (p: Person) -> acc + p.Sales
+                fun acc p -> acc + p.Sales
             )
 
         Assert.Equal(8500.0, totalSalesWithBonus)
@@ -1034,7 +1034,7 @@ module QueryTests =
         let salesSummary =
             query.Aggregate(
                 (0.0, 0),
-                (fun (total, count) (p: Person) -> (total + p.Sales, count + 1)),
+                (fun (total, count) p -> total + p.Sales, count + 1),
                 (fun (total, count) -> sprintf "Count=%d, Avg=%.1f" count (total / float count))
             )
 
@@ -1056,10 +1056,104 @@ module QueryTests =
                 .Where(fun e -> e.Salary > 6000.0)
                 .Aggregate(
                     0.0,
-                    fun (acc: float) (e: EmployeeSalary) -> acc + e.Salary
+                    fun acc e -> acc + e.Salary
                 )
 
         Assert.Equal(21000.0, highSalaryTotal)
+
+    [<Fact>]
+    [<Trait("LINQ", "AggregateBy")>]
+    let ``Test Polars Linq AggregateBy with Static Seed using EmployeeSalary`` () =
+        // Prepare test data using existing EmployeeSalary record
+        let employees = [
+            { Name = "Alice"; DeptId = 1; Salary = 5000.0 }
+            { Name = "Bob"; DeptId = 2; Salary = 7000.0 }
+            { Name = "Charlie"; DeptId = 1; Salary = 6000.0 }
+            { Name = "David"; DeptId = 2; Salary = 8000.0 }
+            { Name = "Eva"; DeptId = 1; Salary = 9000.0 }
+        ]
+
+        use df = DataFrame.ofRecords employees
+        let query = df.AsQueryable<EmployeeSalary>()
+
+        // Overload 1: AggregateBy(keySelector, seed, folder)
+        // Group by DeptId and fold: (totalSalary, headCount)
+        let results =
+            query.AggregateBy(
+                (fun (e: EmployeeSalary) -> e.DeptId),
+                (0.0, 0),
+                (fun (total, count) (e: EmployeeSalary) -> (total + e.Salary, count + 1))
+            )
+            |> Seq.map (fun kv -> kv.Key, kv.Value)
+            |> Map.ofSeq
+
+        // Assert Dept 1: Alice(5000) + Charlie(6000) + Eva(9000) = 20000.0, Count = 3
+        Assert.True(results.ContainsKey 1)
+        Assert.Equal((20000.0, 3), results.[1])
+
+        // Assert Dept 2: Bob(7000) + David(8000) = 15000.0, Count = 2
+        Assert.True(results.ContainsKey 2)
+        Assert.Equal((15000.0, 2), results.[2])
+
+    [<Fact>]
+    [<Trait("LINQ", "AggregateBy")>]
+    let ``Test Polars Linq AggregateBy with Dynamic SeedFactory using Person`` () =
+        // Prepare test data using existing Person record
+        let people = [
+            { Name = "Alice"; Age = 25; Sales = 1000.0 }
+            { Name = "Bob"; Age = 35; Sales = 1500.0 }
+            { Name = "Charlie"; Age = 25; Sales = 2000.0 }
+            { Name = "David"; Age = 45; Sales = 3000.0 }
+        ]
+
+        use df = DataFrame.ofRecords people
+        let query = df.AsQueryable<Person>()
+
+        // Overload 2: AggregateBy(keySelector, seedSelector, folder)
+        // Group by Age: Dynamic baseline starting balance based on age (e.g. baseline = age * 10.0)
+        let results =
+            query.AggregateBy(
+                (fun (p: Person) -> p.Age),
+                (fun (age: int) -> float age * 10.0), // Dynamic seed: 25 -> 250.0, 35 -> 350.0, 45 -> 450.0
+                (fun (accBalance: float) (p: Person) -> accBalance + p.Sales)
+            )
+            |> Seq.map (fun kv -> kv.Key, kv.Value)
+            |> Map.ofSeq
+
+        // Age 25: Baseline(250.0) + Alice(1000.0) + Charlie(2000.0) = 3250.0
+        Assert.Equal(3250.0, results.[25])
+        // Age 35: Baseline(350.0) + Bob(1500.0) = 1850.0
+        Assert.Equal(1850.0, results.[35])
+        // Age 45: Baseline(450.0) + David(3000.0) = 3450.0
+        Assert.Equal(3450.0, results.[45])
+
+    [<Fact>]
+    [<Trait("LINQ", "AggregateBy")>]
+    let ``Test Polars Linq AggregateBy with Native Filter Pushdown`` () =
+        let employees = [
+            { Name = "Alice"; DeptId = 10; Salary = 3000.0 }
+            { Name = "Bob"; DeptId = 10; Salary = 8000.0 }
+            { Name = "Charlie"; DeptId = 20; Salary = 4000.0 }
+            { Name = "David"; DeptId = 20; Salary = 9000.0 }
+        ]
+
+        use df = DataFrame.ofRecords employees
+        let query = df.AsQueryable<EmployeeSalary>()
+
+        // Pipeline: Native Where Pushdown -> Fast Cursor AggregateBy
+        let highSalaryByDept =
+            query
+                .Where(fun e -> e.Salary > 5000.0) // Bob and David will pass
+                .AggregateBy(
+                    (fun e -> e.DeptId),
+                    0.0,
+                    (fun totalSalary e -> totalSalary + e.Salary)
+                )
+                |> Seq.map (fun kv -> kv.Key, kv.Value)
+                |> Map.ofSeq
+
+        Assert.Equal(8000.0, highSalaryByDept.[10])
+        Assert.Equal(9000.0, highSalaryByDept.[20])
 
     // [<Fact>]
     // [<Trait("LINQ", "LeadLag")>]

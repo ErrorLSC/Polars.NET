@@ -2,6 +2,7 @@ namespace Polars.NET.Linq.Provider
 
 open System
 open System.Collections
+open System.Collections.Generic
 open System.Collections.Concurrent
 open System.Linq
 open System.Linq.Expressions
@@ -49,6 +50,14 @@ type internal LinqReflectionCache private () =
     // Cache: (elemType, accumType, resultType) -> Func<IEnumerable, obj, Delegate, Delegate, obj> for Aggregate(source, seed, func, resultSelector)
     static let aggOverload3Cache = 
         ConcurrentDictionary<Type * Type * Type, Func<IEnumerable, obj, Delegate, Delegate, obj>>()
+
+    // Cache: (srcType, keyType, accumType) -> Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, Delegate, obj, IEnumerable>
+    static let matAggBySeedCache =
+        ConcurrentDictionary<Type * Type * Type, Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, Delegate, obj, IEnumerable>>()
+
+    // Cache: (srcType, keyType, accumType) -> Func<IDataFrameMaterializer, DataFrameHandle, Delegate, Delegate, Delegate, obj, IEnumerable>
+    static let matAggByFactoryCache =
+        ConcurrentDictionary<Type * Type * Type, Func<IDataFrameMaterializer, DataFrameHandle, Delegate, Delegate, Delegate, obj, IEnumerable>>()
 
     static member QueryableWhereDef = whereMethodDef
     
@@ -171,4 +180,67 @@ type internal LinqReflectionCache private () =
             let boxResult = Expression.Convert(callExpr, typeof<obj>)
 
             Expression.Lambda<Func<IEnumerable, obj, Delegate, Delegate, obj>>(boxResult, srcParam, seedParam, funcParam, resSelParam).Compile()
+        )
+
+    /// Resolves compiled invoker for IDataFrameMaterializer.AggregateBy with static seed
+    static member GetMaterializerAggBySeedInvoker(srcType: Type, keyType: Type, accumType: Type) =
+        matAggBySeedCache.GetOrAdd((srcType, keyType, accumType), fun (tSrc, tKey, tAcc) ->
+            let methodInfo =
+                typeof<IDataFrameMaterializer>.GetMethods()
+                |> Array.find (fun m ->
+                    m.Name = "AggregateBy" &&
+                    m.GetGenericArguments().Length = 3 &&
+                    m.GetParameters().[2].ParameterType = m.GetGenericArguments().[2])
+                |> fun m -> m.MakeGenericMethod(tSrc, tKey, tAcc)
+
+            let matParam = Expression.Parameter(typeof<IDataFrameMaterializer>, "mat")
+            let handleParam = Expression.Parameter(typeof<DataFrameHandle>, "handle")
+            let keySelParam = Expression.Parameter(typeof<Delegate>, "keySel")
+            let seedParam = Expression.Parameter(typeof<obj>, "seed")
+            let funcParam = Expression.Parameter(typeof<Delegate>, "func")
+            let compParam = Expression.Parameter(typeof<obj>, "comp")
+
+            let castKeySel = Expression.Convert(keySelParam, typedefof<Func<_, _>>.MakeGenericType(tSrc, tKey))
+            let castSeed = Expression.Convert(seedParam, tAcc)
+            let castFunc = Expression.Convert(funcParam, typedefof<Func<_, _, _>>.MakeGenericType(tAcc, tSrc, tAcc))
+            let castComp = Expression.Convert(compParam, typedefof<IEqualityComparer<_>>.MakeGenericType(tKey))
+
+            let callExpr = Expression.Call(matParam, methodInfo, handleParam, castKeySel, castSeed, castFunc, castComp)
+            let castResult = Expression.Convert(callExpr, typeof<IEnumerable>)
+
+            Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, Delegate, obj, IEnumerable>>(
+                castResult, matParam, handleParam, keySelParam, seedParam, funcParam, compParam
+            ).Compile()
+        )
+
+        /// Resolves compiled invoker for IDataFrameMaterializer.AggregateBy with seedFactory
+    static member GetMaterializerAggByFactoryInvoker(srcType: Type, keyType: Type, accumType: Type) =
+        matAggByFactoryCache.GetOrAdd((srcType, keyType, accumType), fun (tSrc, tKey, tAcc) ->
+            let methodInfo =
+                typeof<IDataFrameMaterializer>.GetMethods()
+                |> Array.find (fun m ->
+                    m.Name = "AggregateBy" &&
+                    m.GetGenericArguments().Length = 3 &&
+                    m.GetParameters().[2].ParameterType.IsGenericType &&
+                    m.GetParameters().[2].ParameterType.GetGenericTypeDefinition() = typedefof<Func<_, _>>)
+                |> fun m -> m.MakeGenericMethod(tSrc, tKey, tAcc)
+
+            let matParam = Expression.Parameter(typeof<IDataFrameMaterializer>, "mat")
+            let handleParam = Expression.Parameter(typeof<DataFrameHandle>, "handle")
+            let keySelParam = Expression.Parameter(typeof<Delegate>, "keySel")
+            let seedFactoryParam = Expression.Parameter(typeof<Delegate>, "seedFactory")
+            let funcParam = Expression.Parameter(typeof<Delegate>, "func")
+            let compParam = Expression.Parameter(typeof<obj>, "comp")
+
+            let castKeySel = Expression.Convert(keySelParam, typedefof<Func<_, _>>.MakeGenericType(tSrc, tKey))
+            let castSeedFactory = Expression.Convert(seedFactoryParam, typedefof<Func<_, _>>.MakeGenericType(tKey, tAcc))
+            let castFunc = Expression.Convert(funcParam, typedefof<Func<_, _, _>>.MakeGenericType(tAcc, tSrc, tAcc))
+            let castComp = Expression.Convert(compParam, typedefof<IEqualityComparer<_>>.MakeGenericType(tKey))
+
+            let callExpr = Expression.Call(matParam, methodInfo, handleParam, castKeySel, castSeedFactory, castFunc, castComp)
+            let castResult = Expression.Convert(callExpr, typeof<IEnumerable>)
+
+            Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, Delegate, Delegate, Delegate, obj, IEnumerable>>(
+                castResult, matParam, handleParam, keySelParam, seedFactoryParam, funcParam, compParam
+            ).Compile()
         )
