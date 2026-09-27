@@ -250,7 +250,85 @@ public class LinqTests
         Assert.Equal("IT", query[3].Department);
         Assert.Equal(5000, query[3].Salary);
     }
+    [Fact]
+    [Trait("LINQ", "Join")]
+    public void Test_Linq_MultiKey_Chained_Join_Pushdown()
+    {
+        // 1. Left Table: Persons (Id, Name, DeptId)
+        using var leftDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3, 4]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David"]),
+            Series.From("DeptId", [10, 20, 10, 30])
+        ]);
 
+        // 2. Middle Table: Departments (Id, DeptName)
+        // Primary key matches (p.DeptId == d.Id)
+        using var middleDf = DataFrame.FromColumns(
+        [
+            Series.From("Id", [10, 20, 30]),
+            Series.From("DeptName", ["IT", "HR", "Finance"])
+        ]);
+
+        // 3. Right Table: DeptEmpCounts (DeptId, DeptName, EmployeeCount)
+        // Multi-column composite key: matches (j.DeptId == c.DeptId && j.DeptName == c.DeptName)
+        using var rightDf = DataFrame.FromColumns(
+        [
+            Series.From("DeptId", [10, 20, 40]),
+            Series.From("DeptName", ["IT", "HR", "Legal"]),
+            Series.From("EmployeeCount", [2, 1, 5])
+        ]);
+
+        // First Join: Single key (p.DeptId == d.Id) -> PersonDeptJoined
+        // Second Join: Composite Multi-Key (new { j.DeptId, j.DeptName } == new { c.DeptId, c.DeptName })
+        var query = leftDf.AsQueryable<Person>()
+            .Join(
+                middleDf.AsQueryable<Department>(),
+                p => p.DeptId,
+                d => d.Id,
+                (p, d) => new PersonDeptJoined(p.Id, p.Name, p.DeptId, d.DeptName)
+            )
+            .Join(
+                rightDf.AsQueryable<DeptEmpCount>(),
+                j => new { j.DeptId, j.DeptName },
+                c => new { c.DeptId, c.DeptName },
+                (j, c) => new
+                {
+                    j.Id,
+                    j.Name,
+                    j.DeptId,
+                    j.DeptName,
+                    c.EmployeeCount
+                }
+            )
+            .OrderBy(r => r.Id)
+            .ToList();
+
+        // Verification:
+        // Alice (1) -> DeptId 10, IT, Count 2
+        // Bob (2)   -> DeptId 20, HR, Count 1
+        // Charlie (3) -> DeptId 10, IT, Count 2
+        // David (4) is DeptId 30 (Finance), which doesn't exist in rightDf -> inner join excludes David
+        Assert.Equal(3, query.Count);
+
+        Assert.Equal(1, query[0].Id);
+        Assert.Equal("Alice", query[0].Name);
+        Assert.Equal(10, query[0].DeptId);
+        Assert.Equal("IT", query[0].DeptName);
+        Assert.Equal(2, query[0].EmployeeCount);
+
+        Assert.Equal(2, query[1].Id);
+        Assert.Equal("Bob", query[1].Name);
+        Assert.Equal(20, query[1].DeptId);
+        Assert.Equal("HR", query[1].DeptName);
+        Assert.Equal(1, query[1].EmployeeCount);
+
+        Assert.Equal(3, query[2].Id);
+        Assert.Equal("Charlie", query[2].Name);
+        Assert.Equal(10, query[2].DeptId);
+        Assert.Equal("IT", query[2].DeptName);
+        Assert.Equal(2, query[2].EmployeeCount);
+    }
     [Fact]
     [Trait("LINQ", "Join")]
     public void Test_Linq_Join_Two_LazyFrames()
@@ -896,6 +974,7 @@ public class LinqTests
         Assert.Equal(4, summaries[2].MinId);
         Assert.Equal(4, summaries[2].MaxId);
     }
+    
     [Fact]
     [Trait("LINQ", "RightJoin")]
     public void Test_Linq_RightJoin_Materialize_Rows()

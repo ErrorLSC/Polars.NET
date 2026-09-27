@@ -1028,19 +1028,31 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | _ ->
                 None
 
-    /// Compiles a Join stage into a native JoinSpec
+    /// Compiles a Join stage into a native JoinSpec (supporting both single-column and multi-column keys)
     static member private CompileJoin (methodInfo: MethodInfo) (innerExpr: Expression) (outerKey: LambdaExpression) (innerKey: LambdaExpression) : JoinSpec option =
         let isRightJoin = methodInfo.Name = "RightJoin"
         let how = if isRightJoin || methodInfo.Name = "LeftJoin" then PlJoinType.Left else PlJoinType.Inner
 
+        let extractKeyExprs (keyLambda: LambdaExpression) : ExprHandle array option =
+            let paramName = keyLambda.Parameters.[0].Name
+            match PolarsQuery<'T>.TryExtractMemberBindings keyLambda.Body with
+            // new { o.Col1, o.Col2 }
+            | Some bindings ->
+                let exprs = bindings |> List.choose (fun (_, e) -> ExprTranslator.tryTranslate paramName e)
+                if exprs.Length = bindings.Length then Some (List.toArray exprs) else None
+            // o => o.Col1
+            | None ->
+                ExprTranslator.tryTranslate paramName keyLambda.Body
+                |> Option.map (fun h -> [| h |])
+
         match PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr,
-              ExprTranslator.tryTranslate outerKey.Parameters.[0].Name outerKey.Body,
-              ExprTranslator.tryTranslate innerKey.Parameters.[0].Name innerKey.Body with
-        | Some rightLf, Some leftKey, Some rightKey ->
+              extractKeyExprs outerKey,
+              extractKeyExprs innerKey with
+        | Some rightLf, Some leftKeys, Some rightKeys when leftKeys.Length = rightKeys.Length ->
             Some {
                 RightLf = rightLf
-                LeftOn = [| leftKey |]
-                RightOn = [| rightKey |]
+                LeftOn = leftKeys
+                RightOn = rightKeys
                 How = how
                 Suffix = if isRightJoin then Some "_left" else Some "_right"
                 InvertSides = isRightJoin

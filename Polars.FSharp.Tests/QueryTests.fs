@@ -43,31 +43,31 @@ module QueryTests =
     [<Trait("Linq", "MultiJoinStressTest")>]
     let ``Test Ultimate Multi-Level Left and Inner Join Stress Scenario`` () =
         // -----------------------------------------------------------------
-        // 1. Arrange: 构造 4 个关联的数据源
+        // 1. Arrange: 4 dataframes
         // -----------------------------------------------------------------
         
-        // 部门表 (Depts)
+        // Depts
         let depts = [|
             { DeptId = 10; DeptName = "Engineering" }
             { DeptId = 20; DeptName = "Sales" }
-            { DeptId = 30; DeptName = "HR" }          // 没有员工，没有 Sales，没有 Traffic
-            { DeptId = 40; DeptName = "Marketing" }   // 有 Sales，没有 Employee，没有 Traffic
+            { DeptId = 30; DeptName = "HR" }          // No Employee,no Sales，no Traffic
+            { DeptId = 40; DeptName = "Marketing" }   // Has Sales，no Employee, no Traffic
         |]
 
-        // 员工表 (Emps)
+        // Emps
         let emps = [|
             { Name = "Alice"; DeptId = 10 }
             { Name = "Bob";   DeptId = 20 }
             { Name = "Charlie"; DeptId = 10 }
         |]
 
-        // 销售数据表 (Sales) - 按 Category 匹配部门名测试
+        // Sales
         let sales = [|
             { Category = "Engineering"; ProductName = "Polars.NET"; Revenue = 5000.0; Discount = 500.0 }
             { Category = "Marketing"; ProductName = "Ad Campaign"; Revenue = 3000.0; Discount = 200.0 }
         |]
 
-        // 区域流量/延迟表 (Traffic)
+        // Traffic
         let traffic = [|
             { Id = 10; Region = "US-East"; Latency = 12.5 }
             { Id = 20; Region = "EU-West"; Latency = 45.0 }
@@ -84,7 +84,7 @@ module QueryTests =
         let trafficQuery = dfTraffic.AsQueryable<TrafficRecord>()
 
         // -----------------------------------------------------------------
-        // 2. Act: 四重 Left Join + Let 算子 + 多级排序 + 匿名记录投影
+        // 2. Act: 4x Left Join + Let + Sort + Anno Record Projection
         // -----------------------------------------------------------------
         let queryable = 
             query {
@@ -98,18 +98,18 @@ module QueryTests =
                 leftOuterJoin t in trafficQuery on (d.DeptId = t.Id) into trafficGroup
                 for t in trafficGroup.DefaultIfEmpty() do
 
-                // 3rd Join: Left Outer Join Sales Data (把 salesQuery 正式挂上！)
+                // 3rd Join: Left Outer Join Sales Data
                 leftOuterJoin s in salesQuery on (d.DeptName = s.Category) into salesGroup
                 for s in salesGroup.DefaultIfEmpty() do
 
-                // 引入 let 算子对左侧属性做动态计算表达式 (生成中间 AnonymousObject)
+                // let
                 let baseDeptCode = d.DeptId * 100
                 
-                // 多级排序：先按部门名称升序，再按员工姓名降序
+                // Sort
                 sortBy d.DeptName
                 thenByDescending (if box e = null then "" else e.Name)
 
-                // 投影结果：打平所有层级嵌套的属性
+                // Project
                 select {|
                     Department = d.DeptName
                     EmpName = if box e = null then "NO_EMPLOYEE" else e.Name
@@ -123,18 +123,17 @@ module QueryTests =
         let results = queryable.ToList()
 
         // -----------------------------------------------------------------
-        // 3. Assert: 验证平铺展开后的结果逻辑
+        // 3. Assert
         // -----------------------------------------------------------------
         
-        // 预期笛卡尔积/匹配展开分析:
-        // - Dept 10 (Engineering): 2 emps (Alice, Charlie) x 1 traffic (US-East) x 1 sales (Polars.NET) = 2 条
-        // - Dept 20 (Sales): 1 emp (Bob) x 1 traffic (EU-West) x 0 sales = 1 条
-        // - Dept 30 (HR): 0 emps x 0 traffic x 0 sales = 1 条
-        // - Dept 40 (Marketing): 0 emps x 0 traffic x 1 sales (Ad Campaign) = 1 条
-        // 总计 5 条数据
+        // - Dept 10 (Engineering): 2 emps (Alice, Charlie) x 1 traffic (US-East) x 1 sales (Polars.NET) = 2 
+        // - Dept 20 (Sales): 1 emp (Bob) x 1 traffic (EU-West) x 0 sales = 1 
+        // - Dept 30 (HR): 0 emps x 0 traffic x 0 sales = 1 
+        // - Dept 40 (Marketing): 0 emps x 0 traffic x 1 sales (Ad Campaign) = 1 
+
         Assert.Equal(5, results.Count)
 
-        // 1. Engineering (Charlie) -> Name 降序 Charlie 在前
+        // 1. Engineering (Charlie)
         Assert.Equal("Engineering", results.[0].Department)
         Assert.Equal("Charlie", results.[0].EmpName)
         Assert.Equal("US-East", results.[0].Region)
@@ -147,7 +146,7 @@ module QueryTests =
         Assert.Equal("Alice", results.[1].EmpName)
         Assert.Equal("Polars.NET", results.[1].ProductName)
 
-        // 3. HR (空员工，空流量，空产品)
+        // 3. HR
         Assert.Equal("HR", results.[2].Department)
         Assert.Equal("NO_EMPLOYEE", results.[2].EmpName)
         Assert.Equal("UNKNOWN_REGION", results.[2].Region)
@@ -155,7 +154,7 @@ module QueryTests =
         Assert.Equal("NO_PRODUCT", results.[2].ProductName)
         Assert.Equal(3000, results.[2].ComputedDeptCode)
 
-        // 4. Marketing (空员工，空流量，有产品)
+        // 4. Marketing
         Assert.Equal("Marketing", results.[3].Department)
         Assert.Equal("NO_EMPLOYEE", results.[3].EmpName)
         Assert.Equal("Ad Campaign", results.[3].ProductName)
@@ -167,6 +166,57 @@ module QueryTests =
         Assert.Equal(45.0, results.[4].Latency)
         Assert.Equal("NO_PRODUCT", results.[4].ProductName)
         Assert.Equal(2000, results.[4].ComputedDeptCode)
+    [<Fact>]
+    [<Trait("LINQ", "Join")>]
+    let ``Test MultiKey and chained Join via LINQ and QueryBuilder``() =
+        use empDf = 
+            DataFrame.create [
+                Series.create("Name", [ "Alice"; "Bob"; "Charlie"; "David" ])
+                Series.create("DeptId", [ 10; 20; 10; 30 ])
+            ]
+
+        use salDf = 
+            DataFrame.create [
+                Series.create("Name", [ "Alice"; "Bob"; "Charlie"; "David" ])
+                Series.create("DeptId", [ 10; 99; 10; 30 ])
+                Series.create("Salary", [ 9500.0; 8000.0; 12000.0; 15000.0 ])
+            ]
+
+        use deptDf = 
+            DataFrame.create [
+                Series.create("DeptId", [ 10; 30 ])
+                Series.create("DeptName", [ "Engineering"; "Finance" ])
+            ]
+
+        let qEmp = empDf.AsQueryable<Employee>()
+        let qSal = salDf.AsQueryable<EmployeeSalary>()
+        let qDept = deptDf.AsQueryable<Department>()
+
+        // Chained Multi-Key Join
+        let results =
+            qEmp.Join(
+                qSal,
+                (fun (e: Employee) -> e.Name, e.DeptId),
+                (fun (s: EmployeeSalary) -> s.Name, s.DeptId),
+                (fun e s -> e.Name, e.DeptId, s.Salary)
+            ).Join(
+                qDept,
+                (fun (name, deptId, salary) -> deptId),
+                (fun (d: Department) -> d.DeptId),
+                (fun (name, deptId, salary) d -> {| Name = name; Dept = d.DeptName; Salary = salary |})
+            )
+            |> Seq.sortBy (fun x -> x.Salary)
+            |> Seq.toList
+
+        Assert.Equal(3, results.Length)
+        Assert.Equal("Alice", results.[0].Name)
+        Assert.Equal("Engineering", results.[0].Dept)
+        Assert.Equal(9500.0, results.[0].Salary)
+
+        Assert.Equal("David", results.[2].Name)
+        Assert.Equal("Finance", results.[2].Dept)
+        Assert.Equal(15000.0, results.[2].Salary)
+        
     [<Fact>]
     [<Trait("Linq", "FSharpOptions")>]
     let ``Test Polars FSharp Option And ValueOption Accessor`` () =
