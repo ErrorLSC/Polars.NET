@@ -1,15 +1,20 @@
 namespace Polars.NET.Linq.Provider
 
 open System
+open System.Collections
 open System.Collections.Concurrent
 open System.Linq
 open System.Linq.Expressions
 open System.Reflection
+open Polars.NET.Core
 
 /// Global reflection cache for LINQ methods to eliminate runtime method lookup overhead
 type internal LinqReflectionCache private () =
     static let queryableMethods = typeof<Queryable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
     static let enumerableMethods = typeof<Enumerable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
+
+    /// Thread-safe cache holding compiled delegate invokers for IDataFrameMaterializer.Materialize<T>
+    static let materializerDelegateCache = ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, IEnumerable>>()
 
     // Pre-resolved Queryable definitions
     static let whereMethodDef =
@@ -69,4 +74,20 @@ type internal LinqReflectionCache private () =
                     m.GetParameters().Length = paramCount &&
                     m.GetGenericArguments().Length = typeArgs.Length)
             methodDef.MakeGenericMethod(typeArgs)
+        )
+
+    /// Resolves a strongly-typed, zero-reflection materializer invoker for the specified element type
+    static member GetMaterializerInvoker (elemType: Type) : Func<IDataFrameMaterializer, DataFrameHandle, IEnumerable> =
+        materializerDelegateCache.GetOrAdd(elemType, fun t ->
+            let methodInfo =
+                typeof<IDataFrameMaterializer>.GetMethods()
+                |> Array.find (fun m -> m.Name = "Materialize" && m.IsGenericMethodDefinition && m.GetParameters().Length = 1)
+                |> fun m -> m.MakeGenericMethod(t)
+
+            let matParam = Expression.Parameter(typeof<IDataFrameMaterializer>, "mat")
+            let handleParam = Expression.Parameter(typeof<DataFrameHandle>, "handle")
+            let callExpr = Expression.Call(matParam, methodInfo, handleParam)
+            let castResult = Expression.Convert(callExpr, typeof<IEnumerable>)
+
+            Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, IEnumerable>>(castResult, matParam, handleParam).Compile()
         )

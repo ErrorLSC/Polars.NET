@@ -646,20 +646,25 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             name, dtHandle
         )
 
-    /// Materializes and batches a sequence into fixed-size arrays without intermediate collection copying
-    static member private ChunkSequence<'Elem>(source: IEnumerable<'Elem>, size: int) : IEnumerable<'Elem array> =
+    /// Materializes and batches a sequence into runtime-typed arrays without reflection method invocation
+    static member private ChunkSequenceDynamic(source: IEnumerable, elemType: Type, size: int) : IEnumerable =
         seq {
-            use e = source.GetEnumerator()
-            let mutable hasMore = e.MoveNext()
-            while hasMore do
-                let chunk = ResizeArray<'Elem>(size)
-                let mutable count = 0
-                while count < size && hasMore do
-                    chunk.Add(e.Current)
-                    count <- count + 1
-                    hasMore <- e.MoveNext()
-                yield chunk.ToArray()
-        }
+            let buffer = ResizeArray<obj>(size)
+            for item in source do
+                buffer.Add item
+                if buffer.Count = size then
+                    let array = Array.CreateInstance(elemType, size)
+                    for i = 0 to size - 1 do
+                        array.SetValue(buffer.[i], i)
+                    buffer.Clear()
+                    yield box array
+
+            if buffer.Count > 0 then
+                let array = Array.CreateInstance(elemType, buffer.Count)
+                for i = 0 to buffer.Count - 1 do
+                    array.SetValue(buffer.[i], i)
+                yield box array
+        } :> IEnumerable
 
     /// Extracts member names and capitalizes them to PascalCase
     static member private ExtractPascalCaseMemberNames(newExpr: NewExpression) : string list =
@@ -1753,7 +1758,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                             else []
                         | None -> []
 
-                    fuse tail (renameOps @ (joinOp :: opsAcc)) clientPreds clientProjOpt
+                    fuse tail (renameOps @ joinOp :: opsAcc) clientPreds clientProjOpt
                 | None -> [], [], None, true
 
             | LinqStage.TakeWhile l :: tail ->
@@ -1823,7 +1828,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                             [ QueryOp.WithColumns [| aliased |] ]
                         | None -> []
 
-                    let nextOps = renameOps @ fillOps @ (joinOp :: opsAcc)
+                    let nextOps = renameOps @ fillOps @ joinOp :: opsAcc
                     fuse tail nextOps clientPreds clientProjOpt
                 | _ -> [], [], None, true
             
@@ -2042,18 +2047,13 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
             let dfHandle = applyShuffleIfNeeded collectedDf
 
-            let getMaterializeMethod (elemType: Type) =
-                typeof<IDataFrameMaterializer>.GetMethods()
-                |> Array.find (fun m -> m.Name = "Materialize" && m.IsGenericMethodDefinition)
-                |> fun m -> m.MakeGenericMethod(elemType)
-
             // Branch 0: Client-side UDF Projection Fallback
             match clientProjOpt with
             | Some (sourceType, func) ->
                 printfn "\x1b[1;32m[CLIENT PROJECTION HIT] Materializing source rows as '%s' and applying projection to '%s'\x1b[0m" sourceType.Name targetType.Name
                 let mat = QueryMaterializerResolver.Resolve (Some materializer)
-                let materializeMethod = getMaterializeMethod sourceType
-                let rawSourceRows = materializeMethod.Invoke(mat, [| box dfHandle |]) :?> IEnumerable
+                let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
+                let rawSourceRows = invoker.Invoke(mat, dfHandle)
 
                 // Apply client-side predicates to materialized rows, then apply composed projection
                 let filteredSource =
@@ -2101,8 +2101,8 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     let keyType, elemType = genericArgs.[0], genericArgs.[1]
 
                     let mat = QueryMaterializerResolver.Resolve (Some materializer)
-                    let materializeMethod = getMaterializeMethod elemType
-                    let rawRows = materializeMethod.Invoke(mat, [| box dfHandle |]) :?> IEnumerable
+                    let invoker = LinqReflectionCache.GetMaterializerInvoker elemType
+                    let rawRows = invoker.Invoke(mat, dfHandle)
 
                     let rec findKeySelector (e: Expression) : LambdaExpression option =
                         match e with
@@ -2146,14 +2146,11 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     let elemType = targetType.GetElementType()
 
                     let mat = QueryMaterializerResolver.Resolve (Some materializer)
-                    let materializeMethod = getMaterializeMethod elemType
-                    let rawRows = materializeMethod.Invoke(mat, [| box dfHandle |])
+                    let invoker = LinqReflectionCache.GetMaterializerInvoker elemType
+                    let rawRows = invoker.Invoke(mat, dfHandle)
 
-                    let chunkMethod = 
-                        typeof<PolarsQuery<'T>>
-                            .GetMethod("ChunkSequence", BindingFlags.NonPublic ||| BindingFlags.Static)
-                            .MakeGenericMethod(elemType)
-                    chunkMethod.Invoke(null, [| rawRows; box chunkSize |]) :?> IEnumerable<'T>
+                    let chunked = PolarsQuery<'T>.ChunkSequenceDynamic(rawRows, elemType, chunkSize)
+                    chunked.Cast<'T>()
 
                 // Case 3: AggregateBy (produces IEnumerable<KeyValuePair<TKey, TAccum>>)
                 elif aggByInfoOpt.IsSome then

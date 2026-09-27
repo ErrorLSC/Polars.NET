@@ -56,6 +56,7 @@ public interface IDataFrameMaterializer
 {
     IEnumerable<T> Materialize<T>(DataFrameHandle handle);
     T MaterializeScalar<T>(DataFrameHandle handle);
+    
 }
 
 public static class DataFrameMaterializerRegistry
