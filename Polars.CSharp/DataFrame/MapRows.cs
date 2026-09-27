@@ -18,7 +18,6 @@ public partial class DataFrame
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="mapFunc"/> is null.</exception>
     /// <exception cref="OverflowException">Thrown when DataFrame height exceeds <see cref="int.MaxValue"/>.</exception>
     public DataFrame MapRows<TIn, TOut>(Func<TIn, TOut> mapFunc)
-        where TIn : new()
     {
         ArgumentNullException.ThrowIfNull(mapFunc);
 
