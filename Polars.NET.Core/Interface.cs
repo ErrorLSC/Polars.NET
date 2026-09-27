@@ -56,7 +56,13 @@ public interface IDataFrameMaterializer
 {
     IEnumerable<T> Materialize<T>(DataFrameHandle handle);
     T MaterializeScalar<T>(DataFrameHandle handle);
-    
+    /// <summary>
+    /// Folds the entire DataFrame into a single scalar value using the zero-allocation row enumerator.
+    /// </summary>
+    TAccum Aggregate<TSource, TAccum>(
+        DataFrameHandle handle,
+        TAccum seed,
+        Func<TAccum, TSource, TAccum> folder);
 }
 
 public static class DataFrameMaterializerRegistry

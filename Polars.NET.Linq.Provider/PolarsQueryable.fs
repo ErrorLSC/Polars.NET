@@ -392,17 +392,17 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 let keyType = keyLambda.ReturnType
                 let linqMethod = LinqReflectionCache.GetEnumerableMethod(m.Name, 2, [| elemType; keyType |])
                 linqMethod.Invoke(null, [| box rawRows; box compiledKey |]) :?> 'TResult
-
-        // 14. Aggregate
+      
+        // 14. Aggregate (Fold/Reduce) via cached typed delegate invoker
         | MethodCall(m, null, source :: rest) when m.Name = "Aggregate" ->
-            let rawRows = (this :> IQueryProvider).CreateQuery(source)
+            let rawRows = (this :> IQueryProvider).CreateQuery(source) :> IEnumerable
             let elemType = getSequenceElementType source.Type
 
             match rest with
             | [ StripQuotes (:? LambdaExpression as func) ] ->
                 let compiledFunc = func.Compile()
-                let aggMethod = LinqReflectionCache.GetEnumerableMethod("Aggregate", 2, [| elemType |])
-                aggMethod.Invoke(null, [| box rawRows; box compiledFunc |]) :?> 'TResult
+                let invoker = LinqReflectionCache.GetAggregateInvoker(elemType)
+                invoker.Invoke(rawRows, compiledFunc) :?> 'TResult
 
             | [ seedExpr; StripQuotes (:? LambdaExpression as func) ] ->
                 let seedVal = 
@@ -412,8 +412,8 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
 
                 let compiledFunc = func.Compile()
                 let accumType = typeof<'TResult>
-                let aggMethod = LinqReflectionCache.GetEnumerableMethod("Aggregate", 3, [| elemType; accumType |])
-                aggMethod.Invoke(null, [| box rawRows; box seedVal; box compiledFunc |]) :?> 'TResult
+                let invoker = LinqReflectionCache.GetAggregateWithSeedInvoker(elemType, accumType)
+                invoker.Invoke(rawRows, seedVal, compiledFunc) :?> 'TResult
 
             | [ seedExpr; StripQuotes (:? LambdaExpression as func); StripQuotes (:? LambdaExpression as resSel) ] ->
                 let seedVal = 
@@ -424,8 +424,8 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 let compiledFunc = func.Compile()
                 let compiledResSel = resSel.Compile()
                 let accumType = func.ReturnType
-                let aggMethod = LinqReflectionCache.GetEnumerableMethod("Aggregate", 4, [| elemType; accumType; typeof<'TResult> |])
-                aggMethod.Invoke(null, [| box rawRows; box seedVal; box compiledFunc; box compiledResSel |]) :?> 'TResult
+                let invoker = LinqReflectionCache.GetAggregateWithResultSelectorInvoker(elemType, accumType, typeof<'TResult>)
+                invoker.Invoke(rawRows, seedVal, compiledFunc, compiledResSel) :?> 'TResult
 
             | _ ->
                 failwithf "Unsupported Aggregate overload: %A" expression

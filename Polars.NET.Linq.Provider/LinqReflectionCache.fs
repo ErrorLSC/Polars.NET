@@ -38,6 +38,18 @@ type internal LinqReflectionCache private () =
     static let queryableGenericCache = ConcurrentDictionary<string * Type, MethodInfo>()
     static let enumerableGenericCache = ConcurrentDictionary<string * int * string, MethodInfo>()
 
+    // Cache: elemType -> Func<IEnumerable, Delegate, obj> for Aggregate(source, func)
+    static let aggOverload1Cache = 
+        ConcurrentDictionary<Type, Func<IEnumerable, Delegate, obj>>()
+
+    // Cache: (elemType, accumType) -> Func<IEnumerable, obj, Delegate, obj> for Aggregate(source, seed, func)
+    static let aggOverload2Cache = 
+        ConcurrentDictionary<Type * Type, Func<IEnumerable, obj, Delegate, obj>>()
+
+    // Cache: (elemType, accumType, resultType) -> Func<IEnumerable, obj, Delegate, Delegate, obj> for Aggregate(source, seed, func, resultSelector)
+    static let aggOverload3Cache = 
+        ConcurrentDictionary<Type * Type * Type, Func<IEnumerable, obj, Delegate, Delegate, obj>>()
+
     static member QueryableWhereDef = whereMethodDef
     
     static member GetQueryableWhere(elemType: Type) =
@@ -90,4 +102,73 @@ type internal LinqReflectionCache private () =
             let castResult = Expression.Convert(callExpr, typeof<IEnumerable>)
 
             Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, IEnumerable>>(castResult, matParam, handleParam).Compile()
+        )
+    /// Resolves a compiled invoker for Enumerable.Aggregate(source, func)
+    static member GetAggregateInvoker(elemType: Type) : Func<IEnumerable, Delegate, obj> =
+        aggOverload1Cache.GetOrAdd(elemType, fun t ->
+            let methodInfo =
+                typeof<Enumerable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
+                |> Array.find (fun m -> m.Name = "Aggregate" && m.GetParameters().Length = 2)
+                |> fun m -> m.MakeGenericMethod(t)
+
+            let srcParam = Expression.Parameter(typeof<IEnumerable>, "src")
+            let delParam = Expression.Parameter(typeof<Delegate>, "del")
+
+            let castSrc = Expression.Convert(srcParam, typedefof<seq<_>>.MakeGenericType(t))
+            let funcType = typedefof<Func<_, _, _>>.MakeGenericType(t, t, t)
+            let castDel = Expression.Convert(delParam, funcType)
+
+            let callExpr = Expression.Call(null, methodInfo, castSrc, castDel)
+            let boxResult = Expression.Convert(callExpr, typeof<obj>)
+
+            Expression.Lambda<Func<IEnumerable, Delegate, obj>>(boxResult, srcParam, delParam).Compile()
+        )
+
+    /// Resolves a compiled invoker for Enumerable.Aggregate(source, seed, func)
+    static member GetAggregateWithSeedInvoker(elemType: Type, accumType: Type) : Func<IEnumerable, obj, Delegate, obj> =
+        aggOverload2Cache.GetOrAdd((elemType, accumType), fun (tElem, tAcc) ->
+            let methodInfo =
+                typeof<Enumerable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
+                |> Array.find (fun m -> m.Name = "Aggregate" && m.GetParameters().Length = 3)
+                |> fun m -> m.MakeGenericMethod(tElem, tAcc)
+
+            let srcParam = Expression.Parameter(typeof<IEnumerable>, "src")
+            let seedParam = Expression.Parameter(typeof<obj>, "seed")
+            let delParam = Expression.Parameter(typeof<Delegate>, "del")
+
+            let castSrc = Expression.Convert(srcParam, typedefof<seq<_>>.MakeGenericType(tElem))
+            let castSeed = Expression.Convert(seedParam, tAcc)
+            let funcType = typedefof<Func<_, _, _>>.MakeGenericType(tAcc, tElem, tAcc)
+            let castDel = Expression.Convert(delParam, funcType)
+
+            let callExpr = Expression.Call(null, methodInfo, castSrc, castSeed, castDel)
+            let boxResult = Expression.Convert(callExpr, typeof<obj>)
+
+            Expression.Lambda<Func<IEnumerable, obj, Delegate, obj>>(boxResult, srcParam, seedParam, delParam).Compile()
+        )
+
+    /// Resolves a compiled invoker for Enumerable.Aggregate(source, seed, func, resultSelector)
+    static member GetAggregateWithResultSelectorInvoker(elemType: Type, accumType: Type, resultType: Type) : Func<IEnumerable, obj, Delegate, Delegate, obj> =
+        aggOverload3Cache.GetOrAdd((elemType, accumType, resultType), fun (tElem, tAcc, tRes) ->
+            let methodInfo =
+                typeof<Enumerable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
+                |> Array.find (fun m -> m.Name = "Aggregate" && m.GetParameters().Length = 4)
+                |> fun m -> m.MakeGenericMethod(tElem, tAcc, tRes)
+
+            let srcParam = Expression.Parameter(typeof<IEnumerable>, "src")
+            let seedParam = Expression.Parameter(typeof<obj>, "seed")
+            let funcParam = Expression.Parameter(typeof<Delegate>, "func")
+            let resSelParam = Expression.Parameter(typeof<Delegate>, "resSel")
+
+            let castSrc = Expression.Convert(srcParam, typedefof<seq<_>>.MakeGenericType(tElem))
+            let castSeed = Expression.Convert(seedParam, tAcc)
+            let funcType = typedefof<Func<_, _, _>>.MakeGenericType(tAcc, tElem, tAcc)
+            let castFunc = Expression.Convert(funcParam, funcType)
+            let resSelType = typedefof<Func<_, _>>.MakeGenericType(tAcc, tRes)
+            let castResSel = Expression.Convert(resSelParam, resSelType)
+
+            let callExpr = Expression.Call(null, methodInfo, castSrc, castSeed, castFunc, castResSel)
+            let boxResult = Expression.Convert(callExpr, typeof<obj>)
+
+            Expression.Lambda<Func<IEnumerable, obj, Delegate, Delegate, obj>>(boxResult, srcParam, seedParam, funcParam, resSelParam).Compile()
         )

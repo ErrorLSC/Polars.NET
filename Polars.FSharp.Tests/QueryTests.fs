@@ -1006,6 +1006,61 @@ module QueryTests =
     //     Assert.True(regexResult |> Seq.exists(fun l -> l.Id = 3))
     //     Assert.True(regexResult |> Seq.exists(fun l -> l.Id = 5))
 
+    [<Fact>]
+    [<Trait("LINQ", "Aggregate")>]
+    let ``Test Polars Linq Aggregate Overloads with Person and EmployeeSalary`` () =
+        // 1. Prepare base test data using existing Person record
+        let people = [
+            { Name = "Alice"; Age = 25; Sales = 1000.0 }
+            { Name = "Bob"; Age = 30; Sales = 2500.0 }
+            { Name = "Charlie"; Age = 35; Sales = 4500.0 }
+        ]
+
+        use df = DataFrame.ofRecords people
+        let query = df.AsQueryable<Person>()
+
+        // Overload 2: Aggregate(seed, folder) -> TAccum * TSource -> TAccum
+        // Calculate total sales accumulated onto an initial seed of 500.0
+        let totalSalesWithBonus =
+            query.Aggregate(
+                500.0,
+                fun (acc: float) (p: Person) -> acc + p.Sales
+            )
+
+        Assert.Equal(8500.0, totalSalesWithBonus)
+
+        // Overload 3: Aggregate(seed, folder, resultSelector) -> TAccum * TSource -> TAccum, TAccum -> TResult
+        // Calculate average sales via tuple accumulation, then project to formatted string
+        let salesSummary =
+            query.Aggregate(
+                (0.0, 0),
+                (fun (total, count) (p: Person) -> (total + p.Sales, count + 1)),
+                (fun (total, count) -> sprintf "Count=%d, Avg=%.1f" count (total / float count))
+            )
+
+        Assert.Equal("Count=3, Avg=2666.7", salesSummary)
+
+        // 2. Prepare test data with EmployeeSalary and chained Native Filter
+        let employees = [
+            { Name = "David"; DeptId = 1; Salary = 5000.0 }
+            { Name = "Eva"; DeptId = 1; Salary = 9000.0 }
+            { Name = "Frank"; DeptId = 2; Salary = 12000.0 }
+        ]
+
+        use empDf = DataFrame.ofRecords employees
+        let empQuery = empDf.AsQueryable<EmployeeSalary>()
+
+        // Combine Native Where pushdown + Aggregate folding
+        let highSalaryTotal =
+            empQuery
+                .Where(fun e -> e.Salary > 6000.0)
+                .Aggregate(
+                    0.0,
+                    fun (acc: float) (e: EmployeeSalary) -> acc + e.Salary
+                )
+
+        Assert.Equal(21000.0, highSalaryTotal)
+
     // [<Fact>]
     // [<Trait("LINQ", "LeadLag")>]
     // let ``Test Polars Linq LeadLag And NestedList`` () =

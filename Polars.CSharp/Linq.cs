@@ -33,6 +33,21 @@ public sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         // Retrieve scalar from row 0, column 0 without creating Arrow buffers
         return df.GetValue<T>(0L, df.ColumnNames[0])!;
     }
+    public TAccum Aggregate<TSource, TAccum>(
+        DataFrameHandle handle, 
+        TAccum seed, 
+        Func<TAccum, TSource, TAccum> folder)
+    {
+        var df = new DataFrame(handle);
+        var enumerator = df.Rows<TSource>(); 
+        
+        TAccum acc = seed;
+        while (enumerator.MoveNext())
+        {
+            acc = folder(acc, enumerator.Current);
+        }
+        return acc;
+    }
 }
 
 /// <summary>

@@ -840,18 +840,16 @@ type FSharpRowCursorMaterializer() =
         member _.Materialize<'T>(handle: DataFrameHandle) : IEnumerable<'T> =
             let height = PolarsWrapper.DataFrameHeight handle
             let width = PolarsWrapper.DataFrameWidth handle
-            printfn "\x1b[1;36m[MATERIALIZER DEBUG] Materializing '%s', Height=%d, Width=%d\x1b[0m" typeof<'T>.Name height width
+            // printfn "\x1b[1;36m[MATERIALIZER DEBUG] Materializing '%s', Height=%d, Width=%d\x1b[0m" typeof<'T>.Name height width
 
-            // 提取每一列并打印列名
-            let colNames =
-                Array.init (int width) (fun i ->
-                    let col = PolarsWrapper.DataFrameGetColumnAt(handle, int64 i)
-                    let name = PolarsWrapper.SeriesName col
-                    name
-                )
-            printfn "\x1b[1;36m[MATERIALIZER DEBUG] DataFrame Columns: [%s]\x1b[0m" (String.Join(", ", colNames))
+            // let colNames =
+            //     Array.init (int width) (fun i ->
+            //         let col = PolarsWrapper.DataFrameGetColumnAt(handle, int64 i)
+            //         let name = PolarsWrapper.SeriesName col
+            //         name
+            //     )
+            // printfn "\x1b[1;36m[MATERIALIZER DEBUG] DataFrame Columns: [%s]\x1b[0m" (String.Join(", ", colNames))
 
-            // 具体的迭代生成
             seq {
                 let cols = 
                     Array.init (int width) (fun i -> 
@@ -860,7 +858,7 @@ type FSharpRowCursorMaterializer() =
                     )
                 for rowIdx in 0L .. (height - 1L) do
                     let item = FSharpRowMapper<'T>.Hydrate(cols, rowIdx)
-                    printfn "\x1b[32m[HYDRATE DEBUG] Row=%d, Value=%A\x1b[0m" rowIdx item
+                    // printfn "\x1b[32m[HYDRATE DEBUG] Row=%d, Value=%A\x1b[0m" rowIdx item
                     yield item
             }
         member _.MaterializeScalar<'T>(handle: DataFrameHandle) : 'T =
@@ -870,3 +868,15 @@ type FSharpRowCursorMaterializer() =
             else
                 let firstCol = df.[0]
                 firstCol.GetValue<'T>(0L)
+
+        member _.Aggregate<'TSource, 'TAccum>(handle:DataFrameHandle,seed:'TAccum,folder: Func<'TAccum, 'TSource, 'TAccum> ):'TAccum =
+            let df = new DataFrame(handle)
+            let mutable enumerator = df.Rows<'TSource>() 
+                
+            let mutable acc = seed
+            while enumerator.MoveNext() do
+                
+                acc <- folder.Invoke(acc, enumerator.Current)
+                
+            acc
+
