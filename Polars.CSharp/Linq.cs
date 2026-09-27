@@ -125,7 +125,49 @@ public sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         return dict;
     }
+    /// <summary>
+    /// Slices the DataFrame into chunks of the specified size using a zero-allocation stack row enumerator.
+    /// </summary>
+    public IEnumerable<T[]> Chunk<T>(DataFrameHandle handle, int chunkSize)
+    {
+        if (chunkSize <= 0)
+            throw new ArgumentOutOfRangeException(nameof(chunkSize), "Chunk size must be greater than zero.");
+
+        var df = new DataFrame(handle);
+        long totalRows = df.Height;
+
+        if (totalRows == 0)
+            yield break;
+
+        // Iterate chunk by chunk to avoid CS4007 (ref struct across yield boundary)
+        for (long offset = 0; offset < totalRows; offset += chunkSize)
+        {
+            int currentBatchSize = (int)Math.Min(chunkSize, totalRows - offset);
+            yield return ReadChunkBatch<T>(df, offset, currentBatchSize);
+        }
+    }
+
+    /// <summary>
+    /// Reads a single chunk batch directly into an array in a dedicated stack frame without crossing yield boundaries.
+    /// </summary>
+    private static T[] ReadChunkBatch<T>(DataFrame df, long offset, int count)
+    {
+        var chunkArray = new T[count];
+
+        // Slice the DataFrame for the current batch or initialize enumerator for this range
+        using var batchDf = df.Slice(offset, (ulong)count);
+        var enumerator = batchDf.Rows<T>();
+
+        int idx = 0;
+        while (enumerator.MoveNext() && idx < count)
+        {
+            chunkArray[idx++] = enumerator.Current;
+        }
+
+        return chunkArray;
+    }
 }
+
 
 /// <summary>
 /// Provides LINQ IQueryable extensions for C# Polars DataFrame and LazyFrame.

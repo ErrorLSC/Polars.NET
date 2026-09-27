@@ -646,26 +646,6 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             name, dtHandle
         )
 
-    /// Materializes and batches a sequence into runtime-typed arrays without reflection method invocation
-    static member private ChunkSequenceDynamic(source: IEnumerable, elemType: Type, size: int) : IEnumerable =
-        seq {
-            let buffer = ResizeArray<obj>(size)
-            for item in source do
-                buffer.Add item
-                if buffer.Count = size then
-                    let array = Array.CreateInstance(elemType, size)
-                    for i = 0 to size - 1 do
-                        array.SetValue(buffer.[i], i)
-                    buffer.Clear()
-                    yield box array
-
-            if buffer.Count > 0 then
-                let array = Array.CreateInstance(elemType, buffer.Count)
-                for i = 0 to buffer.Count - 1 do
-                    array.SetValue(buffer.[i], i)
-                yield box array
-        } :> IEnumerable
-
     /// Extracts member names and capitalizes them to PascalCase
     static member private ExtractPascalCaseMemberNames(newExpr: NewExpression) : string list =
         if not (isNull newExpr.Members) then 
@@ -2139,17 +2119,15 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     | None ->
                         failwith "Could not locate keySelector for GroupBy pipeline."
 
-                // Case 2: Chunk materialization (produces IEnumerable<TElem[]>)
+                // Case 2: Chunk slicing via stack-based cursor
                 elif chunkSizeOpt.IsSome then
                     let chunkSize = chunkSizeOpt.Value
                     let elemType = targetType.GetElementType()
 
                     let mat = QueryMaterializerResolver.Resolve (Some materializer)
-                    let invoker = LinqReflectionCache.GetMaterializerInvoker elemType
-                    let rawRows = invoker.Invoke(mat, dfHandle)
-
-                    let chunked = PolarsQuery<'T>.ChunkSequenceDynamic(rawRows, elemType, chunkSize)
-                    chunked.Cast<'T>()
+                    let invoker = LinqReflectionCache.GetMaterializerChunkInvoker elemType
+                    let chunkedSeq = invoker.Invoke(mat, dfHandle, chunkSize)
+                    chunkedSeq.Cast<'T>()
 
                 // Case 3: AggregateBy (produces IEnumerable<KeyValuePair<TKey, TAccum>>)
                 elif aggByInfoOpt.IsSome then

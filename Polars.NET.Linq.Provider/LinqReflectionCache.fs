@@ -59,6 +59,10 @@ type internal LinqReflectionCache private () =
     static let matAggByFactoryCache =
         ConcurrentDictionary<Type * Type * Type, Func<IDataFrameMaterializer, DataFrameHandle, Delegate, Delegate, Delegate, obj, IEnumerable>>()
 
+    // Cache: elemType -> Func<IDataFrameMaterializer, DataFrameHandle, int, IEnumerable>
+    static let chunkDelegateCache =
+        ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, int, IEnumerable>>()
+
     static member QueryableWhereDef = whereMethodDef
     
     static member GetQueryableWhere(elemType: Type) =
@@ -242,5 +246,25 @@ type internal LinqReflectionCache private () =
 
             Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, Delegate, Delegate, Delegate, obj, IEnumerable>>(
                 castResult, matParam, handleParam, keySelParam, seedFactoryParam, funcParam, compParam
+            ).Compile()
+        )
+
+    /// Resolves a compiled invoker for IDataFrameMaterializer.Chunk<T>
+    static member GetMaterializerChunkInvoker(elemType: Type) : Func<IDataFrameMaterializer, DataFrameHandle, int, IEnumerable> =
+        chunkDelegateCache.GetOrAdd(elemType, fun t ->
+            let methodInfo =
+                typeof<IDataFrameMaterializer>.GetMethods()
+                |> Array.find (fun m -> m.Name = "Chunk" && m.IsGenericMethodDefinition && m.GetParameters().Length = 2)
+                |> fun m -> m.MakeGenericMethod(t)
+
+            let matParam = Expression.Parameter(typeof<IDataFrameMaterializer>, "mat")
+            let handleParam = Expression.Parameter(typeof<DataFrameHandle>, "handle")
+            let sizeParam = Expression.Parameter(typeof<int>, "chunkSize")
+
+            let callExpr = Expression.Call(matParam, methodInfo, handleParam, sizeParam)
+            let castResult = Expression.Convert(callExpr, typeof<IEnumerable>)
+
+            Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, int, IEnumerable>>(
+                castResult, matParam, handleParam, sizeParam
             ).Compile()
         )

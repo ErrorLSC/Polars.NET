@@ -79,6 +79,15 @@ public interface IDataFrameMaterializer
         Func<TAccum, TSource, TAccum> folder,
         IEqualityComparer<TKey>? comparer = null)
         where TKey : notnull;
+
+    /// <summary>
+    /// Slices the DataFrame into chunks of the specified size using a zero-allocation stack row enumerator.
+    /// </summary>
+    /// <typeparam name="T">The row model type.</typeparam>
+    /// <param name="handle">The native DataFrame handle.</param>
+    /// <param name="chunkSize">The maximum number of rows in each chunk.</param>
+    /// <returns>A sequence of chunks represented as arrays of T.</returns>
+    IEnumerable<T[]> Chunk<T>(DataFrameHandle handle, int chunkSize);
 }
 
 public static class DataFrameMaterializerRegistry

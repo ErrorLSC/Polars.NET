@@ -937,6 +937,27 @@ type FSharpRowCursorMaterializer() =
                         dict.[key] <- folder.Invoke(initialSeed, current)
 
             dict :> IEnumerable<KeyValuePair<'TKey, 'TAccum>>
+
+        member _.Chunk<'T>(handle: DataFrameHandle, chunkSize: int) : IEnumerable<'T[]> =
+            if chunkSize <= 0 then
+                invalidArg (nameof chunkSize) "Chunk size must be greater than zero."
+
+            let df = new DataFrame(handle)
+
+            seq {
+                if df.Height > 0L then
+                    let mutable enumerator = df.Rows<'T>()
+                    let buffer = ResizeArray<'T> chunkSize
+
+                    while enumerator.MoveNext() do
+                        buffer.Add enumerator.Current
+                        if buffer.Count = chunkSize then
+                            yield buffer.ToArray()
+                            buffer.Clear()
+
+                    if buffer.Count > 0 then
+                        yield buffer.ToArray()
+            }
         
         
 
