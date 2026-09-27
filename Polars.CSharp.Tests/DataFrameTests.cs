@@ -3083,4 +3083,35 @@ public class DataFrameTests
         Assert.Equal([10,20,5,10],reversed["b"].ToArray<int>());
 
     }
+    public record struct Employee{
+        public string Name {get;set;} 
+        public int Age;
+        public long Salary;}
+    [Fact]
+    [Trait("DataFrame", "IterRows")]
+    public void Test_DataFrame_IterRows_ZeroAllocation_Iteration()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 30, 35]),
+            Series.From("Salary", [5000, 7000, 9000])
+        ]);
+
+        var collectedNames = new List<string>();
+        long totalSalary = 0;
+        int rowCount = 0;
+
+        // Iterate over rows using the stack-based enumerator
+        df.IterRows<Employee>(emp =>
+        {
+            rowCount++;
+            totalSalary += emp.Salary;
+            collectedNames.Add(emp.Name);
+        });
+
+        Assert.Equal(3, rowCount);
+        Assert.Equal(21000, totalSalary);
+        Assert.Equal(["Alice", "Bob", "Charlie"], collectedNames);
+    }
 }

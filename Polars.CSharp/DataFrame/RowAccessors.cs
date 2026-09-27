@@ -85,11 +85,21 @@ internal static class RowMapper<T>
             return false;
         }
 
-        // Helper to construct a single non-tuple object or record instance from DataFrame columns
         Expression BuildSingleObjectExpr(Type type, int tupleIndex)
         {
+
             var ctors = type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            var primaryCtor = ctors.OrderByDescending(c => c.GetParameters().Length).FirstOrDefault();
+            foreach (var c in ctors)
+            {
+                var pList = string.Join(", ", c.GetParameters().Select(p => $"{p.ParameterType.Name} {p.Name}"));
+                Console.WriteLine($"  -> Ctor: ({pList})");
+            }
+
+            // Exclude copy constructor: e.g. T(T original)
+            var primaryCtor = ctors
+                .Where(c => !(c.GetParameters().Length == 1 && c.GetParameters()[0].ParameterType == type))
+                .OrderByDescending(c => c.GetParameters().Length)
+                .FirstOrDefault();
 
             if (primaryCtor != null && primaryCtor.GetParameters().Length > 0)
             {
@@ -98,19 +108,32 @@ internal static class RowMapper<T>
                 for (int i = 0; i < ctorParams.Length; i++)
                 {
                     var param = ctorParams[i];
-                    if (TryFindCol(param.Name!, tupleIndex, out int colIdx))
+                    var cleanParamName = param.Name?.TrimStart('@') ?? string.Empty;
+
+                    if (TryFindCol(cleanParamName, tupleIndex, out int colIdx))
                     {
                         ctorArgs[i] = CreateReadExpr(colIdx, param.ParameterType);
                     }
                     else
                     {
-                        ctorArgs[i] = Expression.Default(param.ParameterType);
+                        // Fallback: match by property name
+                        var matchingProp = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                            .FirstOrDefault(p => string.Equals(p.Name, cleanParamName, StringComparison.OrdinalIgnoreCase));
+
+                        if (matchingProp != null && TryFindCol(matchingProp.Name, tupleIndex, out int propColIdx))
+                        {
+                            ctorArgs[i] = CreateReadExpr(propColIdx, param.ParameterType);
+                        }
+                        else
+                        {
+                            ctorArgs[i] = Expression.Default(param.ParameterType);
+                        }
                     }
                 }
                 return Expression.New(primaryCtor, ctorArgs);
             }
 
-            // Fallback: Default constructor + property bindings
+            // Fallback: Default constructor + property/field bindings
             var defaultCtor = type.GetConstructor(
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
                 null,
@@ -123,16 +146,43 @@ internal static class RowMapper<T>
                 : Expression.New(type);
 
             var blockExpressions = new List<Expression> { Expression.Assign(instanceVar, createInstanceExpr) };
-            var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+
+            // 1. Bind Properties (Standard and init-only)
+            var props = type.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             foreach (var prop in props)
             {
-                if (!prop.CanWrite) continue;
+                if (prop.Name == "EqualityContract") continue;
+
                 if (TryFindCol(prop.Name, tupleIndex, out int colIdx))
                 {
                     var readExpr = CreateReadExpr(colIdx, prop.PropertyType);
-                    blockExpressions.Add(Expression.Assign(Expression.Property(instanceVar, prop), readExpr));
+
+                    if (prop.SetMethod != null)
+                    {
+                        blockExpressions.Add(Expression.Call(instanceVar, prop.SetMethod, readExpr));
+                    }
+                    else
+                    {
+                        var backingField = type.GetField($"<{prop.Name}>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+                        if (backingField != null)
+                        {
+                            blockExpressions.Add(Expression.Assign(Expression.Field(instanceVar, backingField), readExpr));
+                        }
+                    }
                 }
             }
+
+            // 2. Bind Public Instance Fields (Supports public fields in records/classes/structs)
+            var fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance);
+            foreach (var field in fields)
+            {
+                if (TryFindCol(field.Name, tupleIndex, out int colIdx))
+                {
+                    var readExpr = CreateReadExpr(colIdx, field.FieldType);
+                    blockExpressions.Add(Expression.Assign(Expression.Field(instanceVar, field), readExpr));
+                }
+            }
+
             blockExpressions.Add(instanceVar);
             return Expression.Block([instanceVar], blockExpressions);
         }
@@ -201,7 +251,7 @@ internal static class RowMapper<T>
 /// Stack-only, zero-allocation enumerator for DataFrame row hydration.
 /// Eliminates state-machine allocations and maximizes hot-path throughput.
 /// </summary>
-public ref struct DataFrameRowEnumerator<T> where T : new()
+public ref struct DataFrameRowEnumerator<T>
 {
     private readonly DataFrame _df;
     private readonly Func<DataFrame, long, T> _mapper;
@@ -421,7 +471,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// <typeparam name="T">The target DTO type with a parameterless constructor.</typeparam>
     /// <returns>An IEnumerable of hydrated objects.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public DataFrameRowEnumerator<T> Rows<T>() where T : new()
+    public DataFrameRowEnumerator<T> Rows<T>()
     {
         var mapper = RowMapper<T>.GetOrCreate(this);
         return new DataFrameRowEnumerator<T>(this, mapper);
