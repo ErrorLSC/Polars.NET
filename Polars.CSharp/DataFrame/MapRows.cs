@@ -67,4 +67,24 @@ public partial class DataFrame
 
         return [.. seriesList];
     }
+    /// <summary>
+    /// Iterates over all rows in the DataFrame as strongly-typed models using a zero-allocation stack enumerator,
+    /// executing the specified action for each row without allocating heap objects.
+    /// </summary>
+    /// <typeparam name="T">The target model or record type matching the DataFrame schema.</typeparam>
+    /// <param name="action">The action to execute for each row.</param>
+    public void IterRows<T>(Action<T> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+
+        if (Height == 0)
+            return;
+
+        // Stream rows using zero-heap ref struct enumerator
+        var enumerator = Rows<T>();
+        while (enumerator.MoveNext())
+        {
+            action(enumerator.Current);
+        }
+    }
 }
