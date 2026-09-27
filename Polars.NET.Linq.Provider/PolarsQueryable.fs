@@ -43,13 +43,9 @@ type internal QueryMaterializerResolver =
 type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer) =
     let clonedLf = PolarsWrapper.LazyClone initialLazyFrame
 
-    member _.LazyFrame = clonedLf
-    member _.Materializer = materializer
-
     /// Core scalar execution pipeline: compiles native plan, executes native reductions, 
     /// and extracts scalar results via IDataFrameMaterializer.
     member private this.ExecuteScalarInternal<'TResult>(expression: Expression) : 'TResult =
-        Console.Error.WriteLine(sprintf "\x1b[1;31m[EXECUTE SCALAR ENTER] TargetType='%s', Expr=%A\x1b[0m" typeof<'TResult>.Name expression)
         let targetType = typeof<'TResult>
         let mat = QueryMaterializerResolver.Resolve (Some materializer)
 
@@ -91,6 +87,27 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
             let filteredSource = Expression.Call(null, whereMethod, src, Expression.Quote pred)
             let scalarMethod = LinqReflectionCache.GetQueryableScalar(m.Name, elemType)
             Expression.Call(null, scalarMethod, filteredSource)
+
+        // Unified helper to slice a single row and materialize with default/throw semantics
+        let fetchRowWithFallback (nativeLf: LazyFrameHandle) (offset: int64) (len: uint32) (isOrDefault: bool) (emptyEx: unit -> exn) : 'TResult =
+            let slicedLf = PolarsWrapper.LazySlice(nativeLf, offset, len)
+            let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+            let height = PolarsWrapper.DataFrameHeight dfHandle
+            if height = 0L then
+                if isOrDefault then Unchecked.defaultof<'TResult>
+                else raise (emptyEx())
+            else
+                let rows = mat.Materialize<'TResult>(dfHandle)
+                Enumerable.First rows
+
+        // Helper to map standard reduction method names to Polars aggregate expressions
+        let resolveScalarAggExpr (methodName: string) (colExpr: ExprHandle) : ExprHandle =
+            match methodName with
+            | "Max"     -> PolarsWrapper.Max colExpr
+            | "Min"     -> PolarsWrapper.Min colExpr
+            | "Sum"     -> PolarsWrapper.Sum colExpr
+            | "Average" -> PolarsWrapper.Mean colExpr
+            | other     -> failwithf "Unsupported scalar aggregate operator: %s" other
 
         match expression with
         // 1. Unified Rewrite: Scalar operations taking a predicate (Count, Any, Single, First, Last, etc.)
@@ -153,38 +170,22 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
             let isOrDefault = m.Name = "FirstOrDefault"
             let nativeLf, hasClientPreds = resolveQueryPlan source
             if not hasClientPreds then
-                let slicedLf = PolarsWrapper.LazySlice(nativeLf, 0L, 1u)
-                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
-                let height = PolarsWrapper.DataFrameHeight dfHandle
-                if height = 0L then
-                    if isOrDefault then Unchecked.defaultof<'TResult>
-                    else invalidOp "Sequence contains no elements."
-                else
-                    let rows = mat.Materialize<'TResult>(dfHandle)
-                    Enumerable.First rows
+                fetchRowWithFallback nativeLf 0L 1u isOrDefault (fun () -> InvalidOperationException("Sequence contains no elements.") :> exn)
             else
-                let rawRows = (this :> IQueryProvider).CreateQuery(source)
-                if isOrDefault then Enumerable.FirstOrDefault(rawRows.Cast<'TResult>())
-                else Enumerable.First(rawRows.Cast<'TResult>())
+                let rawRows = (this :> IQueryProvider).CreateQuery(source).Cast<'TResult>()
+                if isOrDefault then Enumerable.FirstOrDefault rawRows
+                else Enumerable.First rawRows
 
         // 6. Last() / LastOrDefault() without predicate
         | MethodCall(m, null, [ source ]) when m.Name = "Last" || m.Name = "LastOrDefault" ->
             let isOrDefault = m.Name = "LastOrDefault"
             let nativeLf, hasClientPreds = resolveQueryPlan source
             if not hasClientPreds then
-                let slicedLf = PolarsWrapper.LazySlice(nativeLf, -1L, 1u)
-                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
-                let height = PolarsWrapper.DataFrameHeight dfHandle
-                if height = 0L then
-                    if isOrDefault then Unchecked.defaultof<'TResult>
-                    else invalidOp "Sequence contains no elements."
-                else
-                    let rows = mat.Materialize<'TResult>(dfHandle)
-                    Enumerable.First rows
+                fetchRowWithFallback nativeLf -1L 1u isOrDefault (fun () -> InvalidOperationException("Sequence contains no elements.") :> exn)
             else
-                let rawRows = (this :> IQueryProvider).CreateQuery(source)
-                if isOrDefault then Enumerable.LastOrDefault(rawRows.Cast<'TResult>())
-                else Enumerable.Last(rawRows.Cast<'TResult>())
+                let rawRows = (this :> IQueryProvider).CreateQuery(source).Cast<'TResult>()
+                if isOrDefault then Enumerable.LastOrDefault rawRows
+                else Enumerable.Last rawRows
 
         // 7. Max, Min, Sum, Average with selector
         | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as selector) ])
@@ -195,14 +196,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
 
             match translatedExprOpt with
             | Some colExpr when not hasClientPreds ->
-                let aggExpr =
-                    match m.Name with
-                    | "Max" -> PolarsWrapper.Max colExpr
-                    | "Min" -> PolarsWrapper.Min colExpr
-                    | "Sum" -> PolarsWrapper.Sum colExpr
-                    | "Average" -> PolarsWrapper.Mean colExpr
-                    | _ -> failwith "Unsupported scalar aggregate"
-
+                let aggExpr = resolveScalarAggExpr m.Name colExpr
                 let aggLf = PolarsWrapper.LazySelect(nativeLf, [| aggExpr |])
                 let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto, true)
                 mat.MaterializeScalar<'TResult>(dfHandle)
@@ -222,13 +216,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 let colNames = PolarsQuery<obj>.GetLazyColumnNames nativeLf
                 let targetCol = if colNames.Length > 0 then colNames.[0] else ""
                 let colExpr = PolarsWrapper.Col targetCol
-                let aggExpr =
-                    match m.Name with
-                    | "Max" -> PolarsWrapper.Max colExpr
-                    | "Min" -> PolarsWrapper.Min colExpr
-                    | "Sum" -> PolarsWrapper.Sum colExpr
-                    | "Average" -> PolarsWrapper.Mean colExpr
-                    | _ -> failwith "Unsupported scalar aggregate"
+                let aggExpr = resolveScalarAggExpr m.Name colExpr
 
                 let aggLf = PolarsWrapper.LazySelect(nativeLf, [| aggExpr |])
                 let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto, true)
@@ -248,9 +236,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
             if not hasClientPreds then
                 let slicedLf = PolarsWrapper.LazySlice(nativeLf, 0L, 2u)
                 let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
-                let height = PolarsWrapper.DataFrameHeight dfHandle
-
-                match height with
+                match PolarsWrapper.DataFrameHeight dfHandle with
                 | 0L ->
                     if isOrDefault then Unchecked.defaultof<'TResult>
                     else invalidOp "Sequence contains no elements."
@@ -260,9 +246,9 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 | _ ->
                     invalidOp "Sequence contains more than one element."
             else
-                let rawRows = (this :> IQueryProvider).CreateQuery(source)
-                if isOrDefault then Enumerable.SingleOrDefault(rawRows.Cast<'TResult>())
-                else Enumerable.Single(rawRows.Cast<'TResult>())
+                let rawRows = (this :> IQueryProvider).CreateQuery(source).Cast<'TResult>()
+                if isOrDefault then Enumerable.SingleOrDefault rawRows
+                else Enumerable.Single rawRows
 
         // 10. ElementAt(index) / ElementAtOrDefault(index)
         | MethodCall(m, null, [ source; indexExpr ]) when m.Name = "ElementAt" || m.Name = "ElementAtOrDefault" ->
@@ -278,21 +264,11 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
             else
                 let nativeLf, hasClientPreds = resolveQueryPlan source
                 if not hasClientPreds then
-                    let slicedLf = PolarsWrapper.LazySlice(nativeLf, index, 1u)
-                    let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
-                    let height = PolarsWrapper.DataFrameHeight dfHandle
-                    
-                    if height = 0L then
-                        if isOrDefault then Unchecked.defaultof<'TResult>
-                        else raise (ArgumentOutOfRangeException("index", "Index was out of range."))
-                    else
-                        let rows = mat.Materialize<'TResult>(dfHandle)
-                        Enumerable.First rows
+                    fetchRowWithFallback nativeLf index 1u isOrDefault (fun () -> ArgumentOutOfRangeException("index", "Index was out of range.") :> exn)
                 else
                     let rawRows = (this :> IQueryProvider).CreateQuery(source)
                     let typedSeq : seq<'TResult> = rawRows.Cast<'TResult>()
-                    let intIdx = int index
-                    match Seq.tryItem intIdx typedSeq with
+                    match Seq.tryItem (int index) typedSeq with
                     | Some item -> item
                     | None ->
                         if isOrDefault then Unchecked.defaultof<'TResult>
@@ -307,54 +283,20 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
 
             let nativeLf, hasClientPreds = resolveQueryPlan source
 
-            if not hasClientPreds && not (isNull itemVal) then
-                let itemType = itemVal.GetType()
-                // 判断是否为基础字面量标量类型（包含数字、字符串、日期、枚举等）
-                if PolarsTypeHelper.IsScalarType itemType || itemType = typeof<string> || itemType.IsEnum then
-                    let colNames = PolarsQuery<obj>.GetLazyColumnNames nativeLf
-                    let targetCol = if colNames.Length > 0 then colNames.[0] else ""
-                    let colExpr = PolarsWrapper.Col targetCol
+            let filterExprOpt =
+                if not hasClientPreds then
+                    PolarsQuery<obj>.BuildItemEqualityFilter itemVal nativeLf
+                else None
 
-                    // 统一复用 ExprTranslator.toLiteralHandle！
-                    let litExpr = ExprTranslator.toLiteralHandle itemVal itemType
-
-                    let filterExpr = PolarsWrapper.Eq(colExpr, litExpr)
-                    let filteredLf = PolarsWrapper.LazyFilter(nativeLf, filterExpr)
-                    let slicedLf = PolarsWrapper.LazySlice(filteredLf, 0L, 1u)
-                    let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
-                    let height = PolarsWrapper.DataFrameHeight dfHandle
-                    box (height > 0L) :?> 'TResult
-                else
-                    // 复合实体对象 (DTO/Record) 的多列匹配逻辑
-                    let props = itemType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-                    let conditions = 
-                        props
-                        |> Array.choose (fun p ->
-                            let v = p.GetValue(itemVal)
-                            if isNull v then None
-                            else
-                                let colExpr = PolarsWrapper.Col p.Name
-                                try
-                                    // 实体字段的常量子表达式同样可以直接复用！
-                                    let lit = ExprTranslator.toLiteralHandle v p.PropertyType
-                                    Some (PolarsWrapper.Eq(colExpr, lit))
-                                with _ -> None)
-
-                    if conditions.Length > 0 then
-                        let combinedFilter = conditions |> Array.reduce (fun acc c -> PolarsWrapper.And(acc, c))
-                        let filteredLf = PolarsWrapper.LazyFilter(nativeLf, combinedFilter)
-                        let slicedLf = PolarsWrapper.LazySlice(filteredLf, 0L, 1u)
-                        let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
-                        let height = PolarsWrapper.DataFrameHeight dfHandle
-                        box (height > 0L) :?> 'TResult
-                    else
-                        let rawRows = (this :> IQueryProvider).CreateQuery(source)
-                        let seq = rawRows.Cast<obj>()
-                        box (Enumerable.Contains(seq, itemVal)) :?> 'TResult
-            else
+            match filterExprOpt with
+            | Some combinedFilter ->
+                let filteredLf = PolarsWrapper.LazyFilter(nativeLf, combinedFilter)
+                let slicedLf = PolarsWrapper.LazySlice(filteredLf, 0L, 1u)
+                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                box (PolarsWrapper.DataFrameHeight dfHandle > 0L) :?> 'TResult
+            | None ->
                 let rawRows = (this :> IQueryProvider).CreateQuery(source)
-                let seq = rawRows.Cast<obj>()
-                box (Enumerable.Contains(seq, itemVal)) :?> 'TResult
+                box (Enumerable.Contains(rawRows.Cast<obj>(), itemVal)) :?> 'TResult
 
         // 12. SequenceEqual(second)
         | MethodCall(m, null, [ source; secondExpr ]) when m.Name = "SequenceEqual" ->
@@ -418,28 +360,15 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 box areEqual :?> 'TResult
 
         // 13. MinBy(keySelector) / MaxBy(keySelector)
-        | MethodCall(m, null, source :: keyExpr :: _) when m.Name = "MinBy" || m.Name = "MaxBy" ->
+        | MethodCall(m, null, source :: CleanLambda keyLambda :: _) when m.Name = "MinBy" || m.Name = "MaxBy" ->
             let isDescending = m.Name = "MaxBy"
             let nativeLf, hasClientPreds = resolveQueryPlan source
 
-            let rec extractLambda (e: Expression) =
-                match e with
-                | :? LambdaExpression as l -> Some l
-                | Unary(ExpressionType.Quote, inner) -> extractLambda inner
-                | _ -> None
-
-            let keyLambdaOpt = extractLambda keyExpr
-
-            match keyLambdaOpt with
-            | Some keyLambda when not hasClientPreds ->
+            if not hasClientPreds then
                 let keyParam = keyLambda.Parameters.[0]
                 match ExprTranslator.tryTranslate keyParam.Name keyLambda.Body with
                 | Some keyColExpr ->
-                    let sortSpec = {
-                        Expr = keyColExpr
-                        Descending = isDescending
-                        NullsLast = true
-                    }
+                    let sortSpec = { Expr = keyColExpr; Descending = isDescending; NullsLast = true }
                     let sortedLf = 
                         PolarsWrapper.LazyFrameSort(
                             nativeLf, 
@@ -448,16 +377,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                             [| sortSpec.NullsLast |], 
                             maintainOrder = false
                         )
-
-                    let slicedLf = PolarsWrapper.LazySlice(sortedLf, 0L, 1u)
-                    let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
-                    let height = PolarsWrapper.DataFrameHeight dfHandle
-
-                    if height = 0L then
-                        Unchecked.defaultof<'TResult>
-                    else
-                        let rows = mat.Materialize<'TResult>(dfHandle)
-                        Enumerable.First rows
+                    fetchRowWithFallback sortedLf 0L 1u true (fun () -> InvalidOperationException("Sequence contains no elements.") :> exn)
                 | None ->
                     let rawRows = (this :> IQueryProvider).CreateQuery(source)
                     let elemType = getSequenceElementType source.Type
@@ -465,20 +385,11 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                     let compiledKey = keyLambda.Compile()
                     let linqMethod = LinqReflectionCache.GetEnumerableMethod(m.Name, 2, [| elemType; keyType |])
                     linqMethod.Invoke(null, [| box rawRows; box compiledKey |]) :?> 'TResult
-
-            | _ ->
+            else
                 let rawRows = (this :> IQueryProvider).CreateQuery(source)
                 let elemType = getSequenceElementType source.Type
-                let compiledKey = 
-                    match keyLambdaOpt with
-                    | Some kl -> kl.Compile()
-                    | None -> failwithf "Failed to compile keySelector for %s" m.Name
-
-                let keyType = 
-                    match keyLambdaOpt with
-                    | Some kl -> kl.ReturnType
-                    | None -> typeof<obj>
-
+                let compiledKey = keyLambda.Compile()
+                let keyType = keyLambda.ReturnType
                 let linqMethod = LinqReflectionCache.GetEnumerableMethod(m.Name, 2, [| elemType; keyType |])
                 linqMethod.Invoke(null, [| box rawRows; box compiledKey |]) :?> 'TResult
 
@@ -528,18 +439,14 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 | null -> typedefof<obj>
                 | t -> t
 
-            Console.Error.WriteLine(sprintf "\x1b[1;36m[PROVIDER CREATE_QUERY (Non-Generic)] ElemType='%s', Expr=%A\x1b[0m" elemType.Name expression)
-
             let queryType = typedefof<PolarsQuery<_>>.MakeGenericType elemType
             Activator.CreateInstance(queryType, [| box clonedLf; box materializer; box expression |]) :?> IQueryable
 
         member this.CreateQuery<'TElement>(expression: Expression) : IQueryable<'TElement> =
-            Console.Error.WriteLine(sprintf "\x1b[1;36m[PROVIDER CREATE_QUERY<'TElement>] TElement='%s', Expr=%A\x1b[0m" typeof<'TElement>.Name expression)
             PolarsQuery<'TElement>(clonedLf, materializer, expression) :> IQueryable<'TElement>
 
         // Non-generic Execute: dynamically invokes typed Execute<'TResult>
         member this.Execute(expression: Expression) : obj =
-            Console.Error.WriteLine(sprintf "\x1b[1;35m[PROVIDER EXECUTE (Non-Generic)] ReturnType='%s', Expr=%A\x1b[0m" expression.Type.Name expression)
             let executeMethod = 
                 typeof<PolarsQueryProvider>
                     .GetInterface("IQueryProvider")
@@ -594,8 +501,6 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                         failwithf "Cannot convert query sequence to requested terminal type '%s'" targetType.FullName
 
 and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer, exprOpt: Expression option) as this =
-    do 
-        Console.Error.WriteLine(sprintf "\x1b[1;31m[CTOR CALLED] Type='PolarsQuery<%s>', Expr=%A\x1b[0m" typeof<'T>.Name exprOpt)
     let lfCloned = PolarsWrapper.LazyClone lazyFrameHandle
     let expression =
         match exprOpt with
@@ -609,7 +514,39 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
     new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer) =
         PolarsQuery<'T>(lazyFrameHandle, materializer, None)
+        
+    /// Builds a Polars equality filter expression matching an item (scalar primitive or composite entity/record)
+    /// against the columns of a target LazyFrame.
+    static member internal BuildItemEqualityFilter (itemVal: obj) (targetLf: LazyFrameHandle) : ExprHandle option =
+        if isNull itemVal then None
+        else
+            let itemType = itemVal.GetType()
+            // Branch 1: Single scalar literal matching against the first column
+            if PolarsTypeHelper.IsScalarType itemType || itemType = typeof<string> || itemType.IsEnum then
+                let colNames = PolarsQuery<obj>.GetLazyColumnNames targetLf
+                let targetCol = if colNames.Length > 0 then colNames.[0] else ""
+                let colExpr = PolarsWrapper.Col targetCol
+                let litExpr = ExprTranslator.toLiteralHandle itemVal itemType
+                Some (PolarsWrapper.Eq(colExpr, litExpr))
+            // Branch 2: Composite entity/DTO/record property-wise equality joined by AND
+            else
+                let props = itemType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                let conditions =
+                    props
+                    |> Array.choose (fun p ->
+                        let v = p.GetValue(itemVal)
+                        if isNull v then None
+                        else
+                            try
+                                let colExpr = PolarsWrapper.Col p.Name
+                                let lit = ExprTranslator.toLiteralHandle v p.PropertyType
+                                Some (PolarsWrapper.Eq(colExpr, lit))
+                            with _ -> None)
 
+                if conditions.Length > 0 then
+                    Some (conditions |> Array.reduce (fun acc c -> PolarsWrapper.And(acc, c)))
+                else
+                    None
     /// Compiles any sub-expression into an isolated LazyFrameHandle
     static member internal CompileSubtreeToLazyFrame (expr: Expression) (currentMat: IDataFrameMaterializer) : LazyFrameHandle option =
         match expr with
@@ -765,6 +702,22 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | _ -> false
         check expr
 
+    /// Uniformly extracts member name and expression pairs from NewExpression or MemberInitExpression
+    static member private TryExtractMemberBindings(expr: Expression) : (string * Expression) list option =
+        match expr with
+        | :? NewExpression as newExpr ->
+            let names = PolarsQuery<'T>.ExtractPascalCaseMemberNames newExpr
+            Some (List.zip names (newExpr.Arguments |> Seq.toList))
+        | :? MemberInitExpression as initExpr ->
+            let bindings =
+                initExpr.Bindings
+                |> Seq.choose (function
+                    | :? MemberAssignment as a -> Some (a.Member.Name, a.Expression)
+                    | _ -> None)
+                |> Seq.toList
+            if bindings.Length = initExpr.Bindings.Count then Some bindings else None
+        | _ -> None
+
     /// Inspects GroupJoin result selector to detect group-level aggregations (e.g., g.Count())
     static member private TryExtractGroupAgg (groupParamName: string) (resLambda: LambdaExpression) : (string * ExprHandle) option =
         match resLambda.Body with
@@ -809,7 +762,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             )
         | _ -> []
 
-    /// Unified GroupBy compiler powering both single-key and multi-key GroupBy pipelines (C# LINQ & F# QueryBuilder)
+/// Unified GroupBy compiler powering both single-key and multi-key GroupBy pipelines (C# LINQ & F# QueryBuilder)
     static member private CompileUnifiedGroupBy
         (ctx: GroupFoldContext)
         (projBody: Expression)
@@ -830,45 +783,26 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     Some (PolarsWrapper.Col mem.Name)
                 | _ -> None
 
+        // Unified member extraction for NewExpression, MemberInitExpression, and scalar keys
+        let keyPairsOpt : (string * Expression) list option =
+            match PolarsQuery<'T>.TryExtractMemberBindings ctx.KeyLambda.Body with
+            | Some pairs -> Some pairs
+            | None ->
+                let name =
+                    match ctx.KeyLambda.Body with
+                    | ExtractColumnName col -> col
+                    | _ -> "Key"
+                Some [ (name, ctx.KeyLambda.Body) ]
+
         let keyDefinitionsOpt : (string * ExprHandle) list option =
-            match ctx.KeyLambda.Body with
-            | :? NewExpression as newExpr ->
-                let args = newExpr.Arguments |> Seq.toList
-                let memberNames = PolarsQuery<'T>.ExtractPascalCaseMemberNames newExpr
+            keyPairsOpt
+            |> Option.bind (fun pairs ->
                 let translated =
-                    List.zip memberNames args
-                    |> List.map (fun (name, arg) ->
-                        translateKeyPart arg
-                        |> Option.map (fun h -> (name, h))
-                    )
-                if translated |> List.forall Option.isSome then
-                    Some (translated |> List.choose id)
-                else None
-
-            | :? MemberInitExpression as initExpr ->
-                let bindings = initExpr.Bindings |> Seq.toList
-                let translated =
-                    bindings
-                    |> List.choose (fun b ->
-                        match b with
-                        | :? MemberAssignment as assign ->
-                            translateKeyPart assign.Expression
-                            |> Option.map (fun h -> (assign.Member.Name, h))
-                        | _ -> None
-                    )
-                if translated.Length = bindings.Length then
-                    Some translated
-                else None
-
-            | singleExpr ->
-                match translateKeyPart singleExpr with
-                | Some h ->
-                    let name =
-                        match singleExpr with
-                        | ExtractColumnName col -> col
-                        | _ -> "Key"
-                    Some [ (name, h) ]
-                | None -> None
+                    pairs
+                    |> List.choose (fun (name, expr) ->
+                        translateKeyPart expr |> Option.map (fun h -> (name, h)))
+                if translated.Length = pairs.Length then Some translated else None
+            )
 
         match keyDefinitionsOpt with
         | None -> None
@@ -923,26 +857,24 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     match elemExprOpt with
                     | Some elemExpr ->
                         let buildAgg (methodName: string) =
-                            let clonedInner = PolarsWrapper.CloneExpr elemExpr
-                            let aggCore =
+                            let aggCoreOpt =
                                 match methodName with
-                                | "Sum" -> PolarsWrapper.Sum clonedInner
-                                | "Min" -> PolarsWrapper.Min clonedInner
-                                | "Max" -> PolarsWrapper.Max clonedInner
-                                | "Average" -> PolarsWrapper.Mean clonedInner
-                                | "Count" -> PolarsWrapper.Len()
+                                | "Count" -> Some (PolarsWrapper.Len())
                                 | "LongCount" ->
                                     let len = PolarsWrapper.Len()
                                     let int64Dtype = PolarsWrapper.DataTypeExprFromDataType(PolarsWrapper.NewPrimitiveType(int PlDataType.Int64))
-                                    PolarsWrapper.ExprCast(len, int64Dtype, strict = false, wrapNumerical = false)
-                                | _ -> failwithf "Unsupported aggregation operator: %s" methodName
-                            PolarsWrapper.Alias(aggCore, colName)
+                                    Some (PolarsWrapper.ExprCast(len, int64Dtype, strict = false, wrapNumerical = false))
+                                | other ->
+                                    let clonedInner = PolarsWrapper.CloneExpr elemExpr
+                                    AggTranslator.translateReductionOp other clonedInner
+
+                            aggCoreOpt |> Option.map (fun core -> PolarsWrapper.Alias(core, colName))
 
                         match argExpr with
                         | MethodCall(m, null, [ firstArg ]) when (match firstArg with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false) ->
-                            Some (buildAgg m.Name)
+                            buildAgg m.Name
                         | MethodCall(m, target, []) when not (isNull target) && (match target with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false) ->
-                            Some (buildAgg m.Name)
+                            buildAgg m.Name
                         | _ ->
                             AggTranslator.tryTranslateAgg groupParamName argExpr colName
                     | None ->
@@ -966,59 +898,57 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     }
                     let groupByOp = QueryOp.GroupBy groupBySpec
 
+                    // Unified column resolver for post-aggregation stages (Having & Sort)
+                    let resolveResultColName (e: Expression) : string option =
+                        match e with
+                        // Single key direct access: g.Key
+                        | MemberAccess(p, m) when m.Name = "Key" && keyDefs.Length = 1 ->
+                            Some keyNameToOutputAliasMap.[fst keyDefs.[0]]
+                        // Composite key member access: g.Key.Year, g.Key.Region
+                        | MemberAccess(MemberAccess(_, k), m) when k.Name = "Key" ->
+                            keyNameToOutputAliasMap.TryFind m.Name |> Option.orElse (Some m.Name)
+                        // Parameter member access where parameter represents key: k.Year
+                        | MemberAccess(p, m) when isKeyArg p ->
+                            keyNameToOutputAliasMap.TryFind m.Name |> Option.orElse (Some m.Name)
+                        // Direct member on projected result: s.TotalRevenue
+                        | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter ->
+                            Some m.Name
+                        // Aggregated expression invocation: g.Sum(...)
+                        | MethodCall _ as aggCall ->
+                            List.zip memberNames args
+                            |> List.tryPick (fun (colName, argExpr) ->
+                                if argExpr.ToString() = aggCall.ToString() then Some colName
+                                else None
+                            )
+                        | _ -> None
+
                     // 4. Compile Having filters mapped to the aggregated column names
                     let havingFilterOps =
                         ctx.HavingPreds
                         |> List.choose (fun havingPred ->
                             let rec translateHaving (expr: Expression) : ExprHandle option =
                                 match expr with
+                                // Binary Operations: Delegate directly to ExprTranslator.translateBinary
                                 | Binary(op, left, right) ->
                                     match translateHaving left, translateHaving right with
                                     | Some l, Some r ->
-                                        let nodeType =
-                                            match expr with
-                                            | :? BinaryExpression as b -> b.NodeType
-                                            | _ -> ExpressionType.Equal
-                                        let translated =
-                                            match nodeType with
-                                            | ExpressionType.GreaterThan -> PolarsWrapper.Gt(l, r)
-                                            | ExpressionType.GreaterThanOrEqual -> PolarsWrapper.GtEq(l, r)
-                                            | ExpressionType.LessThan -> PolarsWrapper.Lt(l, r)
-                                            | ExpressionType.LessThanOrEqual -> PolarsWrapper.LtEq(l, r)
-                                            | ExpressionType.Equal -> PolarsWrapper.Eq(l, r)
-                                            | ExpressionType.NotEqual -> PolarsWrapper.Neq(l, r)
-                                            | ExpressionType.AndAlso -> PolarsWrapper.And(l, r)
-                                            | ExpressionType.OrElse -> PolarsWrapper.Or(l, r)
-                                            | _ -> PolarsWrapper.Gt(l, r)
-                                        Some translated
+                                        try Some (ExprTranslator.translateBinary op l r)
+                                        with _ -> None
                                     | _ -> None
 
+                                // Literals / Constants
                                 | Constant _ ->
                                     ExprTranslator.tryTranslate "" expr
 
-                                // Composite key member access in Having (e.g. g.Key.Year -> alias)
-                                | MemberAccess(MemberAccess(paramExpr, k), m) 
-                                    when not (isNull paramExpr) && paramExpr.NodeType = ExpressionType.Parameter && k.Name = "Key" ->
-                                    let actualColName = keyNameToOutputAliasMap.TryFind m.Name |> Option.defaultValue m.Name
-                                    Some (PolarsWrapper.Col actualColName)
-
-                                // Direct property access in Having (e.g. s.TotalRevenue)
-                                | MemberAccess(paramExpr, m) when not (isNull paramExpr) && paramExpr.NodeType = ExpressionType.Parameter ->
-                                    Some (PolarsWrapper.Col m.Name)
-
-                                | MethodCall _ as aggCall ->
-                                    let matchingColOpt =
-                                        List.zip memberNames args
-                                        |> List.tryPick (fun (colName, argExpr) ->
-                                            if argExpr.ToString() = aggCall.ToString() then Some colName
-                                            else None
-                                        )
-                                    match matchingColOpt with
+                                // Output columns (Keys, Aggregations, Projected Properties)
+                                | other ->
+                                    match resolveResultColName other with
                                     | Some colName -> Some (PolarsWrapper.Col colName)
                                     | None ->
-                                        AggTranslator.tryTranslateAgg havingPred.Parameters.[0].Name aggCall ""
-
-                                | _ -> None
+                                        match other with
+                                        | MethodCall _ as aggCall ->
+                                            AggTranslator.tryTranslateAgg havingPred.Parameters.[0].Name aggCall ""
+                                        | _ -> None
 
                             translateHaving havingPred.Body
                             |> Option.map QueryOp.Filter
@@ -1028,30 +958,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     let sortSpecs =
                         ctx.SortStages
                         |> List.choose (fun (sortLambda, isDesc) ->
-                            let rec resolveSortCol (e: Expression) : string option =
-                                match e with
-                                // Single key: g.Key -> mapped alias
-                                | MemberAccess(p, m) when m.Name = "Key" && keyDefs.Length = 1 ->
-                                    Some (keyNameToOutputAliasMap.[fst keyDefs.[0]])
-                                // Composite key member: g.Key.Year, g.Key.Region -> mapped alias
-                                | MemberAccess(MemberAccess(p, k), m) when k.Name = "Key" ->
-                                    Some (keyNameToOutputAliasMap.TryFind m.Name |> Option.defaultValue m.Name)
-                                // Key parameter member (C# (k, g) => k.Year)
-                                | MemberAccess(:? ParameterExpression as p, m) when isKeyArg (p :> Expression) ->
-                                    Some (keyNameToOutputAliasMap.TryFind m.Name |> Option.defaultValue m.Name)
-                                // Direct property on result object: s.TotalRevenue
-                                | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter ->
-                                    Some m.Name
-                                // Aggregated column call: g.Sum(...)
-                                | MethodCall _ as aggCall ->
-                                    List.zip memberNames args
-                                    |> List.tryPick (fun (colName, argExpr) ->
-                                        if argExpr.ToString() = aggCall.ToString() then Some colName
-                                        else None
-                                    )
-                                | _ -> None
-
-                            resolveSortCol sortLambda.Body
+                            resolveResultColName sortLambda.Body
                             |> Option.map (fun colName ->
                                 { Expr = PolarsWrapper.Col colName; Descending = isDesc; NullsLast = false }
                             )
@@ -1096,46 +1003,30 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
     /// Compiles a Select projection lambda into native Polars Select expressions
     static member private CompileSelectProjection (projLambda: LambdaExpression) : ExprHandle array option =
         let param = projLambda.Parameters.[0]
-        match projLambda.Body with
-        | :? NewExpression as newExpr ->
-            let args = newExpr.Arguments |> Seq.toList
-            let memberNames = PolarsQuery<'T>.ExtractPascalCaseMemberNames newExpr
-            
-            let exprOpts =
-                List.zip memberNames args
-                |> List.map (fun (name, argExpr) ->
-                    match PolarsQuery<'T>.TryTranslateSelectArg param.Name argExpr with
-                    | Some h -> Some (PolarsWrapper.Alias(h, name))
-                    | None -> None
-                )
-            
-            if exprOpts |> List.forall Option.isSome then
-                Some (exprOpts |> List.choose id |> List.toArray)
-            else
-                None
 
-        | :? MemberInitExpression as initExpr ->
-            let bindings = initExpr.Bindings |> Seq.toList
+        // 1. Try unified composite projections (NewExpression & MemberInitExpression)
+        match PolarsQuery<'T>.TryExtractMemberBindings projLambda.Body with
+        | Some bindings ->
             let exprOpts =
                 bindings
-                |> List.choose (fun b ->
-                    match b with
-                    | :? MemberAssignment as assign ->
-                        match PolarsQuery<'T>.TryTranslateSelectArg param.Name assign.Expression with
-                        | Some h -> Some (PolarsWrapper.Alias(h, assign.Member.Name))
-                        | None -> None
-                    | _ -> None
+                |> List.choose (fun (name, argExpr) ->
+                    PolarsQuery<'T>.TryTranslateSelectArg param.Name argExpr
+                    |> Option.map (fun h -> PolarsWrapper.Alias(h, name))
                 )
+
+            // Push down to Polars native LazySelect only if ALL members can be translated natively
             if exprOpts.Length = bindings.Length then
-                Some (exprOpts |> List.toArray)
+                Some (List.toArray exprOpts)
             else
                 None
 
-        | ExtractColumnName colName ->
-            Some [| PolarsWrapper.Col colName |]
-
-        | _ ->
-            None
+        // 2. Direct single column projection (e.g. x => x.ColName)
+        | None ->
+            match projLambda.Body with
+            | ExtractColumnName colName ->
+                Some [| PolarsWrapper.Col colName |]
+            | _ ->
+                None
 
     /// Compiles a Join stage into a native JoinSpec
     static member private CompileJoin (methodInfo: MethodInfo) (innerExpr: Expression) (outerKey: LambdaExpression) (innerKey: LambdaExpression) : JoinSpec option =
@@ -1158,44 +1049,32 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
     /// Compiles Intersect/Except/IntersectBy/ExceptBy stages into a native JoinSpec (Semi/Anti Join)
     static member private CompileSetOp (methodInfo: MethodInfo) (secondExpr: Expression) (firstKeyOpt: LambdaExpression option) (secondKeyOpt: LambdaExpression option) (baseLf: LazyFrameHandle) : JoinSpec option =
-        let how =
-            match methodInfo.Name with
-            | "Intersect" | "IntersectBy" -> PlJoinType.Semi
-            | "Except" | "ExceptBy" -> PlJoinType.Anti
-            | _ -> failwithf "Unsupported set operation: %s" methodInfo.Name
+        let how = if methodInfo.Name.StartsWith "Intersect" then PlJoinType.Semi else PlJoinType.Anti
 
-        match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with
-        | None -> None
-        | Some rightLf ->
-            match firstKeyOpt, secondKeyOpt with
-            | Some k1, Some k2 ->
-                match ExprTranslator.tryTranslate k1.Parameters.[0].Name k1.Body,
-                      ExprTranslator.tryTranslate k2.Parameters.[0].Name k2.Body with
-                | Some lk, Some rk ->
-                    Some { RightLf = rightLf; LeftOn = [| lk |]; RightOn = [| rk |]; How = how; Suffix = None; InvertSides = false }
+        PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr
+        |> Option.bind (fun rightLf ->
+            let keysOpt =
+                match firstKeyOpt, secondKeyOpt with
+                | Some k1, Some k2 ->
+                    match ExprTranslator.tryTranslate k1.Parameters.[0].Name k1.Body,
+                          ExprTranslator.tryTranslate k2.Parameters.[0].Name k2.Body with
+                    | Some lk, Some rk -> Some ([| lk |], [| rk |])
+                    | _ -> None
+                | Some k1, None ->
+                    ExprTranslator.tryTranslate k1.Parameters.[0].Name k1.Body
+                    |> Option.bind (fun lk ->
+                        let rightCols = PolarsQuery<'T>.GetLazyColumnNames rightLf
+                        if rightCols.Length > 0 then Some ([| lk |], [| PolarsWrapper.Col rightCols.[0] |]) else None)
+                | None, None ->
+                    // Build distinct ExprHandle arrays for left and right to prevent pointer collision in Rust FFI
+                    let colNames = PolarsQuery<'T>.GetLazyColumnNames baseLf
+                    Some (colNames |> Array.map PolarsWrapper.Col, colNames |> Array.map PolarsWrapper.Col)
                 | _ -> None
 
-            | Some k1, None ->
-                match ExprTranslator.tryTranslate k1.Parameters.[0].Name k1.Body with
-                | Some lk ->
-                    let rightColNames = PolarsQuery<'T>.GetLazyColumnNames rightLf
-                    if rightColNames.Length > 0 then
-                        Some { RightLf = rightLf; LeftOn = [| lk |]; RightOn = [| PolarsWrapper.Col rightColNames.[0] |]; How = how; Suffix = None; InvertSides = false }
-                    else None
-                | None -> None
-
-            | None, None ->
-                let colNames = PolarsQuery<'T>.GetLazyColumnNames baseLf
-                Some {
-                    RightLf = rightLf
-                    LeftOn = colNames |> Array.map PolarsWrapper.Col
-                    RightOn = colNames |> Array.map PolarsWrapper.Col
-                    How = how
-                    Suffix = None
-                    InvertSides = false
-                }
-
-            | _ -> None
+            keysOpt |> Option.map (fun (leftOn, rightOn) ->
+                { RightLf = rightLf; LeftOn = leftOn; RightOn = rightOn; How = how; Suffix = None; InvertSides = false }
+            )
+        )
 
     /// Applies a list of QueryOp to a target LazyFrameHandle in forward order.
     static member private ApplyNativeOps (sourceLf: LazyFrameHandle) (ops: QueryOp list) : LazyFrameHandle =
@@ -1320,7 +1199,6 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
     /// Parses the LINQ expression tree into native ops, client predicates, optional projection, and fallback signal
     member private this.CompilePipeline() : QueryOp list * (Func<'T, bool> list) * ((Type * Delegate) option) * bool =    
-        Console.Error.WriteLine(sprintf "\x1b[1;31m[COMPILE PIPELINE ENTER] Type='PolarsQuery<%s>'\x1b[0m" typeof<'T>.Name)
         let rec flatten (e: Expression) (acc: LinqStage list) : LinqStage list =
             match e with
             | null -> acc
@@ -1381,20 +1259,9 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as keySel) ]) when m.Name = "DistinctBy" ->
                 flatten source (LinqStage.DistinctBy keySel :: acc)
 
-            | MethodCall(m, null, [ source; kExpr; eExpr; rExpr ]) when m.Name = "GroupBy" ->
-                let rec extractLambda (e: Expression) : LambdaExpression option =
-                    match e with
-                    | null -> None
-                    | :? LambdaExpression as l -> Some l
-                    | Unary(ExpressionType.Quote, inner) -> extractLambda inner
-                    | _ -> None
-
-                match extractLambda kExpr, extractLambda eExpr, extractLambda rExpr with
-                | Some k, Some e, Some r ->
-                    flatten source (LinqStage.GroupByWithElementAndResult(k, e, r) :: acc)
-                | _ ->
-                    printfn "[LINQ DEBUG] GroupBy 4-arg lambda extraction failed! kExpr=%A, eExpr=%A, rExpr=%A" kExpr eExpr rExpr
-                    acc
+            // 4-arg GroupBy: (source, keySelector, elementSelector, resultSelector)
+            | MethodCall(m, null, [ source; CleanLambda k; CleanLambda e; CleanLambda r ]) when m.Name = "GroupBy" ->
+                flatten source (LinqStage.GroupByWithElementAndResult(k, e, r) :: acc)
 
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as k); StripQuotes (:? LambdaExpression as r) ]) when m.Name = "GroupBy" ->
                 flatten source (LinqStage.GroupByWithResult(k, r) :: acc)
@@ -1532,18 +1399,9 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | MethodCall(m, null, [ source; defaultExpr ]) when m.Name = "DefaultIfEmpty" ->
                 flatten source (LinqStage.DefaultIfEmpty (Some defaultExpr) :: acc)
 
-            | MethodCall(m, null, source :: keyExpr :: _) when m.Name = "CountBy" ->
-                let rec extractLambda (e: Expression) =
-                    match e with
-                    | :? LambdaExpression as l -> Some l
-                    | Unary(ExpressionType.Quote, inner) -> extractLambda inner
-                    | _ -> None
-
-                match extractLambda keyExpr with
-                | Some keyLambda ->
-                    flatten source (LinqStage.CountBy keyLambda :: acc)
-                | None ->
-                    failwithf "Could not extract LambdaExpression from CountBy key argument: %A" keyExpr
+            // CountBy: matches source, keySelector (via CleanLambda), and optional comparer
+            | MethodCall(m, null, source :: CleanLambda keyLambda :: _) when m.Name = "CountBy" ->
+                flatten source (LinqStage.CountBy keyLambda :: acc)
 
             | _ -> acc
 
@@ -1566,9 +1424,36 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | _ -> QueryOp.Sort [spec] :: ops
 
         let rec fuse (remaining: LinqStage list) (opsAcc: QueryOp list) (clientPreds: Func<'T, bool> list) (clientProjOpt: (Type * Delegate) option) : QueryOp list * (Func<'T, bool> list) * ((Type * Delegate) option) * bool =
+            // Unified GroupBy compilation and execution dispatcher
+            let tryDispatchGroupBy (ctx: GroupFoldContext) (projBody: Expression) (groupParamName: string) (isKeyArg: Expression -> bool) (nextTail: LinqStage list) =
+                if not clientPreds.IsEmpty then
+                    [], [], None, true
+                else
+                    match PolarsQuery<'T>.CompileUnifiedGroupBy ctx projBody groupParamName isKeyArg with
+                    | Some compiledOps ->
+                        fuse nextTail (compiledOps @ opsAcc) clientPreds clientProjOpt
+                    | None ->
+                        [], [], None, true
+
+            // Helper to dispatch standard C# GroupBy overloads (3-arg and 4-arg)
+            let dispatchCSharpGroupBy (keyLambda: LambdaExpression) (elemLambdaOpt: LambdaExpression option) (resLambda: LambdaExpression) (tail: LinqStage list) =
+                let havingPreds, nextTail =
+                    match tail with
+                    | LinqStage.Filter havingPred :: rest -> [ havingPred ], rest
+                    | _ -> [], tail
+
+                let ctx = { KeyLambda = keyLambda; ElemLambdaOpt = elemLambdaOpt; HavingPreds = havingPreds; SortStages = [] }
+                let resKeyParam = resLambda.Parameters.[0]
+                let isKeyArg (e: Expression) =
+                    match e with
+                    | :? ParameterExpression as p when p.Name = resKeyParam.Name -> true
+                    | MemberAccess(:? ParameterExpression as p, _) when p.Name = resKeyParam.Name -> true
+                    | _ -> false
+
+                tryDispatchGroupBy ctx resLambda.Body resLambda.Parameters.[1].Name isKeyArg nextTail
             match remaining with
-            // 1. Universal Pipeline GroupBy
-            | LinqStage.GroupByKey keyLambda :: tail when clientPreds.IsEmpty ->
+            // 1. Universal Pipeline GroupBy (F# QueryBuilder / chained syntax)
+            | LinqStage.GroupByKey keyLambda :: tail ->
                 let rec slurp (stages: LinqStage list) (ctx: GroupFoldContext) =
                     match stages with
                     | LinqStage.Filter pred :: next ->
@@ -1581,62 +1466,19 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                             | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter && m.Name = "Key" -> true
                             | _ -> false
 
-                        match PolarsQuery<'T>.CompileUnifiedGroupBy ctx projLambda.Body projLambda.Parameters.[0].Name isKeyArg with
-                        | Some compiledOps ->
-                            fuse next (compiledOps @ opsAcc) clientPreds clientProjOpt
-                        | None ->
-                            Console.Error.WriteLine("\x1b[1;33m[GROUPBY PUSHDOWN] Native translation not possible. Switching to client in-memory execution.\x1b[0m")
-                            [], [], None, true
-                    | _ ->
-                        Console.Error.WriteLine("\x1b[1;33m[GROUPBY PUSHDOWN] No terminal projection. Switching to client in-memory execution.\x1b[0m")
-                        [], [], None, true
+                        tryDispatchGroupBy ctx projLambda.Body projLambda.Parameters.[0].Name isKeyArg next
+                    | _ -> [], [], None, true
 
                 let initCtx = { KeyLambda = keyLambda; ElemLambdaOpt = None; HavingPreds = []; SortStages = [] }
                 slurp tail initCtx
 
-            // 2. C# 3-arg GroupBy
-            | LinqStage.GroupByWithResult(keyLambda, resLambda) :: tail when clientPreds.IsEmpty ->
-                let havingPreds, nextTail =
-                    match tail with
-                    | LinqStage.Filter havingPred :: rest -> [ havingPred ], rest
-                    | _ -> [], tail
+            // 2. C# 3-arg GroupBy (keySelector, resultSelector)
+            | LinqStage.GroupByWithResult(keyLambda, resLambda) :: tail ->
+                dispatchCSharpGroupBy keyLambda None resLambda tail
 
-                let ctx = { KeyLambda = keyLambda; ElemLambdaOpt = None; HavingPreds = havingPreds; SortStages = [] }
-                let resKeyParam = resLambda.Parameters.[0]
-                let isKeyArg (e: Expression) =
-                    match e with
-                    | :? ParameterExpression as p when p.Name = resKeyParam.Name -> true
-                    | MemberAccess(p, _) when not (isNull p) && p.NodeType = ExpressionType.Parameter -> true
-                    | _ -> false
-
-                match PolarsQuery<'T>.CompileUnifiedGroupBy ctx resLambda.Body resLambda.Parameters.[1].Name isKeyArg with
-                | Some compiledOps ->
-                    fuse nextTail (compiledOps @ opsAcc) clientPreds clientProjOpt
-                | None ->
-                    Console.Error.WriteLine("\x1b[1;33m[GROUPBY PUSHDOWN] Native translation not possible. Switching to client in-memory execution.\x1b[0m")
-                    [], [], None, true
-
-            // 3. C# 4-arg GroupBy
-            | LinqStage.GroupByWithElementAndResult(keyLambda, elemLambda, resLambda) :: tail when clientPreds.IsEmpty ->
-                let havingPreds, nextTail =
-                    match tail with
-                    | LinqStage.Filter havingPred :: rest -> [ havingPred ], rest
-                    | _ -> [], tail
-
-                let ctx = { KeyLambda = keyLambda; ElemLambdaOpt = Some elemLambda; HavingPreds = havingPreds; SortStages = [] }
-                let resKeyParam = resLambda.Parameters.[0]
-                let isKeyArg (e: Expression) =
-                    match e with
-                    | :? ParameterExpression as p when p.Name = resKeyParam.Name -> true
-                    | MemberAccess(p, _) when not (isNull p) && p.NodeType = ExpressionType.Parameter && (match p with :? ParameterExpression as pe -> pe.Name = resKeyParam.Name | _ -> false) -> true
-                    | _ -> false
-
-                match PolarsQuery<'T>.CompileUnifiedGroupBy ctx resLambda.Body resLambda.Parameters.[1].Name isKeyArg with
-                | Some compiledOps ->
-                    fuse nextTail (compiledOps @ opsAcc) clientPreds clientProjOpt
-                | None ->
-                    Console.Error.WriteLine("\x1b[1;33m[GROUPBY PUSHDOWN] Native translation not possible. Switching to client in-memory execution.\x1b[0m")
-                    [], [], None, true
+            // 3. C# 4-arg GroupBy (keySelector, elementSelector, resultSelector)
+            | LinqStage.GroupByWithElementAndResult(keyLambda, elemLambda, resLambda) :: tail ->
+                dispatchCSharpGroupBy keyLambda (Some elemLambda) resLambda tail
 
             | LinqStage.Filter l :: tail ->
                 match ExprTranslator.tryTranslate l.Parameters.[0].Name l.Body with
@@ -1924,9 +1766,6 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     let compiled = l.Compile() :?> Func<'T, bool>
                     fuse tail opsAcc (compiled :: clientPreds) clientProjOpt
 
-            | LinqStage.GroupByKey _ :: tail ->
-                fuse tail opsAcc clientPreds clientProjOpt
-
             | LinqStage.GroupJoin(_, innerExpr, outerKey, innerKey, resSel) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 let resolvedRightLfOpt = PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr
                 let leftKeyOpt = ExprTranslator.tryTranslate outerKey.Parameters.[0].Name outerKey.Body
@@ -2025,8 +1864,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     fuse tail (QueryOp.Select exprs :: opsAcc) clientPreds None
                 | _ ->
                     let sourceType = projLambda.Parameters.[0].Type
-                    if sourceType.Name.StartsWith("AnonymousObject") || sourceType.Name.Contains("TransparentIdentifier") then
-                        Console.Error.WriteLine("\x1b[1;33m[PROJECT FALLBACK] Transparent identifier cannot be materialized from native DF. Switching to in-memory LINQ.\x1b[0m")
+                    if sourceType.Name.StartsWith "AnonymousObject" || sourceType.Name.Contains("TransparentIdentifier") then
                         [], [], None, true
                     else
                         let compiledDel = projLambda.Compile()
@@ -2092,8 +1930,6 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
     /// Executes the full LINQ expression pipeline in-memory via .NET EnumerableQuery LINQ-to-Objects engine
     member private this.ExecuteInMemory() : IEnumerable<'T> =
-        Console.Error.WriteLine(sprintf "\x1b[1;35m[CLIENT FALLBACK EXECUTE IN-MEMORY] TargetType='%s'\x1b[0m" typeof<'T>.Name)
-        
         // 1. Rewrite expression tree to eliminate F# transparent identifiers
         let effectiveExpr = FSharpAst.rewrite expression
 
@@ -2153,9 +1989,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
     /// Evaluates the complete pipeline, executing native plan first, then materializing
     member private this.ExecuteQuery() : IEnumerable<'T> =
-        printfn "\x1b[1;33m[EXECUTE QUERY ENTER] Generic Type 'T' = %s\x1b[0m" typeof<'T>.FullName
         let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback = this.GetCompiledPlan()
-        printfn "\x1b[1;33m[EXECUTE QUERY PLAN] Fallback=%b, Predicates=%d, HasProj=%b\x1b[0m" requiresClientFallback clientPredicates.Length clientProjOpt.IsSome
 
         // Branch -1: Universal In-Memory LINQ Fallback
         if requiresClientFallback then
@@ -2194,7 +2028,6 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             // Branch 0: Client-side UDF Projection Fallback
             match clientProjOpt with
             | Some (sourceType, del) ->
-                printfn "\x1b[1;32m[CLIENT PROJECTION HIT] Materializing source rows as '%s' and applying projection to '%s'\x1b[0m" sourceType.Name targetType.Name
                 let mat = QueryMaterializerResolver.Resolve (Some materializer)
                 let materializeMethod = getMaterializeMethod sourceType
                 let rawSourceRows = materializeMethod.Invoke(mat, [| box dfHandle |]) :?> IEnumerable
@@ -2202,7 +2035,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 let transformedRows =
                     seq {
                         for item in rawSourceRows do
-                            yield (del.DynamicInvoke([| item |]) :?> 'T)
+                            yield del.DynamicInvoke [| item |] :?> 'T
                     }
 
                 if clientPredicates.IsEmpty then transformedRows
@@ -2221,23 +2054,13 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
                 let chunkSizeOpt = if targetType.IsArray then findChunkSize expression else None
 
-                let rec extractLambda (expr: Expression) : LambdaExpression option =
-                    match expr with
-                    | null -> None
-                    | :? LambdaExpression as l -> Some l
-                    | Unary(ExpressionType.Quote, inner) -> extractLambda inner
-                    | _ -> None
-
                 let rec findAggregateBy (e: Expression) =
                     match e with
                     | null -> None
-                    | MethodCall(m, null, source :: keyExpr :: seedExpr :: funcExpr :: rest) when m.Name = "AggregateBy" ->
-                        match extractLambda keyExpr, extractLambda funcExpr with
-                        | Some k, Some f ->
-                            let seedLambdaOpt = extractLambda seedExpr
-                            let comparerExprOpt = rest |> List.tryHead
-                            Some (source, k, seedExpr, seedLambdaOpt, f, comparerExprOpt)
-                        | _ -> None
+                    | MethodCall(m, null, source :: CleanLambda k :: seedExpr :: CleanLambda f :: rest) when m.Name = "AggregateBy" ->
+                        let seedLambdaOpt = match seedExpr with CleanLambda s -> Some s | _ -> None
+                        let comparerExprOpt = rest |> List.tryHead
+                        Some (source, k, seedExpr, seedLambdaOpt, f, comparerExprOpt)
                     | MethodCall(_, null, args) -> args |> List.tryPick findAggregateBy
                     | _ -> None
 
@@ -2255,7 +2078,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     let rec findKeySelector (e: Expression) : LambdaExpression option =
                         match e with
                         | null -> None
-                        | MethodCall(m, null, [ _; StripQuotes (:? LambdaExpression as l) ]) when m.Name = "GroupBy" -> Some l
+                        | MethodCall(m, null, [ _; CleanLambda l ]) when m.Name = "GroupBy" -> Some l
                         | MethodCall(_, null, args) -> args |> List.tryPick findKeySelector
                         | _ -> None
 
@@ -2436,8 +2259,5 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
     interface IOrderedQueryable<'T>
 
     interface IPolarsPlanSource with
-        member this.GetRawLazyFrameHandle() = 
-            this.CompileToLazyFrameHandle()
-
         member this.GetCompiledLazyFrameHandle() =
             this.CompileToLazyFrameHandle()

@@ -47,7 +47,17 @@ module ExpressionPatterns =
         match expr with
         | Unary(ExpressionType.Quote, operand) -> (|StripQuotes|) operand
         | _ -> expr
-
+        
+    /// Active pattern to recursively unwrap Quotations, Converts, and other Unary wrappers 
+    /// to cleanly extract an underlying LambdaExpression
+    let rec (|CleanLambda|_|) (expr: Expression) : LambdaExpression option =
+        match expr with
+        | null -> None
+        | :? LambdaExpression as l -> Some l
+        | Unary(ExpressionType.Quote, inner)
+        | Unary(ExpressionType.Convert, inner)
+        | Unary(ExpressionType.ConvertChecked, inner) -> (|CleanLambda|_|) inner
+        | _ -> None
 
     /// Checks if a member belongs to F#'s internal AnonymousObject tuple wrapper
     let internal isFSharpAnonymousMember (m: MemberInfo) =

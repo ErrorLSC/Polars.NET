@@ -1,6 +1,5 @@
 namespace Polars.NET.Linq.Provider
 
-open System
 open System.Linq.Expressions
 open Polars.NET.Core
 
@@ -22,6 +21,18 @@ module AggTranslator =
         | :? ParameterExpression as p -> p.Name = groupParamName
         | _ -> false
 
+    /// Maps standard LINQ reduction method names to their corresponding native Polars aggregation expressions.
+    /// Exposes internal accessibility so query compiler stages (e.g. GroupBy with ElementSelector) can share the mapping.
+    let internal translateReductionOp (methodName: string) (targetColExpr: ExprHandle) : ExprHandle option =
+        match methodName with
+        | "Sum"     -> Some (PolarsWrapper.Sum targetColExpr)
+        | "Average" -> Some (PolarsWrapper.Mean targetColExpr)
+        | "Min"     -> Some (PolarsWrapper.Min targetColExpr)
+        | "Max"     -> Some (PolarsWrapper.Max targetColExpr)
+        | "First"   -> Some (PolarsWrapper.First(targetColExpr, ignoreNulls = false))
+        | "Last"    -> Some (PolarsWrapper.Last(targetColExpr, ignoreNulls = false))
+        | _         -> None
+
     /// Attempts to translate group collection operations into Polars ExprHandle
     let rec tryTranslateAgg (groupParamName: string) (expr: Expression) (aliasName: string) : ExprHandle option =
         let cleanExpr = unwrap expr
@@ -39,7 +50,7 @@ module AggTranslator =
 
         // 2. group.Count(x => predicate) or group.LongCount(x => predicate)
         // Vectorized pushdown: (predicate_expr).Cast(Int64).Sum()
-        | MethodCall(methodInfo, null, [ targetSeq; StripQuotes (Lambda([ p ], filterBody)) ]) 
+        | MethodCall(methodInfo, null, [ targetSeq; CleanLambda (Lambda([ p ], filterBody)) ]) 
             when methodInfo.Name = "Count" || methodInfo.Name = "LongCount" ->
             match unwrap targetSeq with
             | :? ParameterExpression as param when param.Name = groupParamName ->
@@ -53,7 +64,7 @@ module AggTranslator =
             | _ -> None
 
         // 3. group.MinBy(x => x.ByCol).TargetCol / group.MaxBy(x => x.ByCol).TargetCol
-        | MemberAccess(MethodCall(methodInfo, null, [ targetSeq; StripQuotes (Lambda([ p ], byBody)) ]), memberInfo)
+        | MemberAccess(MethodCall(methodInfo, null, [ targetSeq; CleanLambda (Lambda([ p ], byBody)) ]), memberInfo)
             when (methodInfo.Name = "MinBy" || methodInfo.Name = "MaxBy") && isGroupParam groupParamName targetSeq ->
             match ExprTranslator.tryTranslate p.Name byBody with
             | Some byExpr ->
@@ -68,36 +79,20 @@ module AggTranslator =
             | None -> None
 
         // 4. group.Select(x => x.Col).First() / group.Select(x => x.Col).Last()
-        | MethodCall(outerMethod, null, [ MethodCall(selectMethod, null, [ targetSeq; StripQuotes (Lambda([ p ], body)) ]) ])
+        | MethodCall(outerMethod, null, [ MethodCall(selectMethod, null, [ targetSeq; CleanLambda (Lambda([ p ], body)) ]) ])
             when (outerMethod.Name = "First" || outerMethod.Name = "Last") && selectMethod.Name = "Select" ->
             match unwrap targetSeq with
             | :? ParameterExpression as param when param.Name = groupParamName ->
-                match ExprTranslator.tryTranslate p.Name body with
-                | Some colExpr ->
-                    let aggExpr =
-                        match outerMethod.Name with
-                        | "First" -> Some (PolarsWrapper.First(colExpr, ignoreNulls = false))
-                        | "Last"  -> Some (PolarsWrapper.Last(colExpr, ignoreNulls = false))
-                        | _       -> None
-
-                    aggExpr |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
-                | None -> None
+                ExprTranslator.tryTranslate p.Name body
+                |> Option.bind (translateReductionOp outerMethod.Name)
+                |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
             | _ -> None
 
         // 5. group.Sum(x => x.Field), group.Min(x => x.Field), group.Max(x => x.Field), group.Average(x => x.Field)
-        | MethodCall(methodInfo, null, [ targetSeq; StripQuotes (Lambda([ p ], body)) ]) 
+        | MethodCall(methodInfo, null, [ targetSeq; CleanLambda (Lambda([ p ], body)) ]) 
             when isGroupParam groupParamName targetSeq ->
-            match ExprTranslator.tryTranslate p.Name body with
-            | Some colExpr ->
-                let aggExpr =
-                    match methodInfo.Name with
-                    | "Sum"     -> Some (PolarsWrapper.Sum(colExpr))
-                    | "Average" -> Some (PolarsWrapper.Mean(colExpr))
-                    | "Min"     -> Some (PolarsWrapper.Min(colExpr))
-                    | "Max"     -> Some (PolarsWrapper.Max(colExpr))
-                    | _         -> None
-
-                aggExpr |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
-            | None -> None
+            ExprTranslator.tryTranslate p.Name body
+            |> Option.bind (translateReductionOp methodInfo.Name)
+            |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
 
         | _ -> None
