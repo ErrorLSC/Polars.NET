@@ -9,15 +9,14 @@ open System.Linq.Expressions
 open System.Reflection
 open Polars.NET.Core
 
-/// Global reflection cache for LINQ methods to eliminate runtime method lookup overhead
+/// Global reflection cache for LINQ methods to eliminate runtime lookup overhead.
+[<AbstractClass; Sealed>]
 type internal LinqReflectionCache private () =
+    // Static method definition pools
     static let queryableMethods = typeof<Queryable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
     static let enumerableMethods = typeof<Enumerable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
 
-    /// Thread-safe cache holding compiled delegate invokers for IDataFrameMaterializer.Materialize<T>
-    static let materializerDelegateCache = ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, IEnumerable>>()
-
-    // Pre-resolved Queryable definitions
+    // Pre-resolved Queryable definitions as static fields
     static let whereMethodDef =
         queryableMethods
         |> Array.find (fun m -> 
@@ -35,36 +34,20 @@ type internal LinqReflectionCache private () =
     static let lastMethodDef = queryableMethods |> Array.find (fun m -> m.Name = "Last" && m.GetParameters().Length = 1)
     static let lastOrDefaultMethodDef = queryableMethods |> Array.find (fun m -> m.Name = "LastOrDefault" && m.GetParameters().Length = 1)
 
-    // Cache for constructed generic methods
+    // Static thread-safe caches for constructed generic methods and compiled expression delegates
+    static let materializerDelegateCache = ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, IEnumerable>>()
     static let queryableGenericCache = ConcurrentDictionary<string * Type, MethodInfo>()
     static let enumerableGenericCache = ConcurrentDictionary<string * int * string, MethodInfo>()
+    static let aggOverload1Cache = ConcurrentDictionary<Type, Func<IEnumerable, Delegate, obj>>()
+    static let aggOverload2Cache = ConcurrentDictionary<Type * Type, Func<IEnumerable, obj, Delegate, obj>>()
+    static let aggOverload3Cache = ConcurrentDictionary<Type * Type * Type, Func<IEnumerable, obj, Delegate, Delegate, obj>>()
+    static let matAggBySeedCache = ConcurrentDictionary<Type * Type * Type, Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, Delegate, obj, IEnumerable>>()
+    static let matAggByFactoryCache = ConcurrentDictionary<Type * Type * Type, Func<IDataFrameMaterializer, DataFrameHandle, Delegate, Delegate, Delegate, obj, IEnumerable>>()
+    static let chunkDelegateCache = ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, int, IEnumerable>>()
 
-    // Cache: elemType -> Func<IEnumerable, Delegate, obj> for Aggregate(source, func)
-    static let aggOverload1Cache = 
-        ConcurrentDictionary<Type, Func<IEnumerable, Delegate, obj>>()
+    /// Cached MethodInfo for Queryable.Where definition
+    static member val QueryableWhereDef = whereMethodDef with get
 
-    // Cache: (elemType, accumType) -> Func<IEnumerable, obj, Delegate, obj> for Aggregate(source, seed, func)
-    static let aggOverload2Cache = 
-        ConcurrentDictionary<Type * Type, Func<IEnumerable, obj, Delegate, obj>>()
-
-    // Cache: (elemType, accumType, resultType) -> Func<IEnumerable, obj, Delegate, Delegate, obj> for Aggregate(source, seed, func, resultSelector)
-    static let aggOverload3Cache = 
-        ConcurrentDictionary<Type * Type * Type, Func<IEnumerable, obj, Delegate, Delegate, obj>>()
-
-    // Cache: (srcType, keyType, accumType) -> Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, Delegate, obj, IEnumerable>
-    static let matAggBySeedCache =
-        ConcurrentDictionary<Type * Type * Type, Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, Delegate, obj, IEnumerable>>()
-
-    // Cache: (srcType, keyType, accumType) -> Func<IDataFrameMaterializer, DataFrameHandle, Delegate, Delegate, Delegate, obj, IEnumerable>
-    static let matAggByFactoryCache =
-        ConcurrentDictionary<Type * Type * Type, Func<IDataFrameMaterializer, DataFrameHandle, Delegate, Delegate, Delegate, obj, IEnumerable>>()
-
-    // Cache: elemType -> Func<IDataFrameMaterializer, DataFrameHandle, int, IEnumerable>
-    static let chunkDelegateCache =
-        ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, int, IEnumerable>>()
-
-    static member QueryableWhereDef = whereMethodDef
-    
     static member GetQueryableWhere(elemType: Type) =
         queryableGenericCache.GetOrAdd(("Where", elemType), fun _ -> whereMethodDef.MakeGenericMethod(elemType))
 
@@ -116,6 +99,7 @@ type internal LinqReflectionCache private () =
 
             Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, IEnumerable>>(castResult, matParam, handleParam).Compile()
         )
+
     /// Resolves a compiled invoker for Enumerable.Aggregate(source, func)
     static member GetAggregateInvoker(elemType: Type) : Func<IEnumerable, Delegate, obj> =
         aggOverload1Cache.GetOrAdd(elemType, fun t ->
@@ -217,7 +201,7 @@ type internal LinqReflectionCache private () =
             ).Compile()
         )
 
-        /// Resolves compiled invoker for IDataFrameMaterializer.AggregateBy with seedFactory
+    /// Resolves compiled invoker for IDataFrameMaterializer.AggregateBy with seedFactory
     static member GetMaterializerAggByFactoryInvoker(srcType: Type, keyType: Type, accumType: Type) =
         matAggByFactoryCache.GetOrAdd((srcType, keyType, accumType), fun (tSrc, tKey, tAcc) ->
             let methodInfo =
