@@ -40,6 +40,19 @@ module QueryTests =
     open System.IO
     open System.Threading.Tasks
     [<Fact>]
+    let ``Test FSharp Option Scalar Aggregations with Empty Sequence`` () =
+        let emptyRows : TrafficRecord option array = [||]
+        use df = DataFrame.ofSeq(emptyRows)
+        let query = df.AsQueryable(emptyRows)
+
+        // 1. Min / Max on empty option sequence returns None instead of throwing
+        let minResult = query.Min()
+        Assert.Equal(None, minResult)
+
+        let maxResult = query.Max()
+        Assert.Equal(None, maxResult)
+
+    [<Fact>]
     [<Trait("LINQ", "MultiJoinStressTest")>]
     let ``Test Ultimate Multi-Level Left and Inner Join Stress Scenario`` () =
         // -----------------------------------------------------------------

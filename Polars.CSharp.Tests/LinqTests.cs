@@ -3161,4 +3161,118 @@ public class LinqTests
         var emptyQuery = emptyDf.AsQueryable(emptyEmps);
         Assert.False(emptyQuery.Contains(alice));
     }
+    [Fact]
+    [Trait("LINQ", "Scalar_SequenceEqual")]
+    public void Test_CSharp_Linq_Scalar_SequenceEqual_Flow()
+    {
+        var emps1 = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000)
+        };
+
+        var emps2 = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000)
+        };
+
+        var empsMismatch = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 31, 60000)
+        };
+
+        using var df1 = DataFrame.FromRows(emps1);
+        using var df2 = DataFrame.FromRows(emps2);
+        using var dfMismatch = DataFrame.FromRows(empsMismatch);
+
+        var q1 = df1.AsQueryable(emps1);
+        var q2 = df2.AsQueryable(emps2);
+        var qMismatch = dfMismatch.AsQueryable(empsMismatch);
+
+        Assert.True(q1.SequenceEqual(q2));
+        Assert.False(q1.SequenceEqual(qMismatch));
+
+        Assert.True(q1.SequenceEqual(emps2));
+        Assert.False(q1.SequenceEqual(empsMismatch));
+
+        var empsExtra = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000),
+            new Employee("Charlie", 35, 70000)
+        };
+        Assert.False(q1.SequenceEqual(empsExtra));
+    }
+    [Fact]
+    [Trait("LINQ", "Scalar_MinBy_MaxBy")]
+    public void Test_CSharp_Linq_Scalar_MinBy_And_MaxBy_Flow()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 40, 90000),
+            new Employee("Charlie", 30, 75000)
+        };
+
+        using var df = DataFrame.FromRows(emps);
+        var query = df.AsQueryable(emps);
+
+        var youngest = query.MinBy(e => e.Age);
+        var oldest = query.MaxBy(e => e.Age);
+        Assert.Equal("Alice", youngest.Name);
+        Assert.Equal("Bob", oldest.Name);
+
+        var lowestCalculated = query.MinBy(e => e.Salary / (e.Age + 1));
+        Assert.Equal("Alice", lowestCalculated.Name);
+
+        var upperQuery = query.Select(e => e.Name.ToUpper());
+        var minName = upperQuery.MinBy(name => name.Length);
+        var maxName = upperQuery.MaxBy(name => name);
+        Assert.Equal("BOB", minName);
+        Assert.Equal("CHARLIE", maxName);
+
+        Employee[] emptyEmps = [];
+        using var emptyDf = DataFrame.FromRows(emptyEmps);
+        var emptyQuery = emptyDf.AsQueryable(emptyEmps);
+        Assert.Null(emptyQuery.MinBy(e => e.Age));
+        Assert.Null(emptyQuery.MaxBy(e => e.Age));
+    }
+    [Fact]
+    [Trait("LINQ", "Scalar_Numeric_Aggregations")]
+    public void Test_CSharp_Linq_Scalar_Numeric_Aggregations_Flow()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 20, 1000),
+            new Employee("Bob", 30, 2000),
+            new Employee("Charlie", 40, 3000)
+        };
+
+        using var df = DataFrame.FromRows(emps);
+        var query = df.AsQueryable(emps);
+
+        Assert.Equal(6000, query.Sum(e => e.Salary));
+        Assert.Equal(2000.0, query.Average(e => e.Salary));
+        Assert.Equal(1000, query.Min(e => e.Salary));
+        Assert.Equal(3000, query.Max(e => e.Salary));
+
+        var salaries = query.Select(e => e.Salary);
+        Assert.Equal(6000, salaries.Sum());
+        Assert.Equal(2000.0, salaries.Average());
+        Assert.Equal(1000, salaries.Min());
+        Assert.Equal(3000, salaries.Max());
+
+        Assert.Equal(6120, query.Sum(e => e.Salary + (e.Age > 25 ? 50 : 20)));
+
+        Employee[] emptyEmps = [];
+        using var emptyDf = DataFrame.FromRows(emptyEmps);
+        var emptyQuery = emptyDf.AsQueryable(emptyEmps);
+
+        Assert.Equal(0, emptyQuery.Sum(e => e.Salary));
+        Assert.Throws<InvalidOperationException>(() => emptyQuery.Average(e => e.Salary));
+        Assert.Throws<InvalidOperationException>(() => emptyQuery.Min(e => e.Salary));
+        Assert.Throws<InvalidOperationException>(() => emptyQuery.Max(e => e.Salary));
+    }
 }

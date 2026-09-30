@@ -8,8 +8,13 @@ open System.Linq
 open System.Linq.Expressions
 open System.Reflection
 open Polars.NET.Core
+open Polars.NET.Core.Helpers
 
+[<Struct>]
+type AvgState = { mutable Sum: double; mutable Count: int64 }
 
+[<Struct>]
+type ExtremumState<'T> = { mutable HasValue: bool; mutable Value: 'T }
 /// Global reflection cache for LINQ methods to eliminate runtime lookup overhead.
 [<AbstractClass; Sealed>]
 type internal LinqReflectionCache private () =
@@ -105,6 +110,23 @@ type internal LinqReflectionCache private () =
     // Signature: (mat, handle, itemObj, comparerObj) -> bool
     static let matContainsCache =
         ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, obj, obj, bool>>()
+    // Cache: elemType -> Func<IDataFrameMaterializer, DataFrameHandle, DataFrameHandle, obj, bool>
+    static let matSeqEqualDfCache =
+        ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, DataFrameHandle, obj, bool>>()
+
+    // Cache: elemType -> Func<IDataFrameMaterializer, DataFrameHandle, IEnumerable, obj, bool>
+    static let matSeqEqualSeqCache =
+        ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, IEnumerable, obj, bool>>()
+
+    // Cache: (sourceType, keyType) -> Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, obj>
+    static let matMinByCache =
+        ConcurrentDictionary<Type * Type, Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, obj>>()
+
+    static let matMaxByCache =
+        ConcurrentDictionary<Type * Type, Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, obj>>()
+    // Cache: (sourceType, accumType) -> Func<IDataFrameMaterializer, DataFrameHandle, obj, Delegate, obj>
+    static let matAggregateCache =
+        ConcurrentDictionary<Type * Type, Func<IDataFrameMaterializer, DataFrameHandle, obj, Delegate, obj>>()
 
     /// Cached MethodInfo for Queryable.Where definition
     static member val QueryableWhereDef = whereMethodDef with get
@@ -691,3 +713,253 @@ type internal LinqReflectionCache private () =
                 callExpr, matParam, handleParam, itemParam, compParam
             ).Compile()
         )
+
+    /// Invoker for SequenceEqual(dfHandle1, dfHandle2, comparer)
+    static member GetMaterializerSeqEqualDfInvoker(elemType: Type) : Func<IDataFrameMaterializer, DataFrameHandle, DataFrameHandle, obj, bool> =
+        matSeqEqualDfCache.GetOrAdd(elemType, fun t ->
+            let methodInfo =
+                typeof<IDataFrameMaterializer>.GetMethods()
+                |> Array.find (fun m -> 
+                    m.Name = "SequenceEqual" 
+                    && m.IsGenericMethodDefinition 
+                    && m.GetParameters().Length = 3 
+                    && m.GetParameters().[1].ParameterType = typeof<DataFrameHandle>)
+                |> fun m -> m.MakeGenericMethod(t)
+
+            let matParam = Expression.Parameter(typeof<IDataFrameMaterializer>, "mat")
+            let h1Param = Expression.Parameter(typeof<DataFrameHandle>, "h1")
+            let h2Param = Expression.Parameter(typeof<DataFrameHandle>, "h2")
+            let compParam = Expression.Parameter(typeof<obj>, "comp")
+
+            let compType = typedefof<IEqualityComparer<_>>.MakeGenericType(t)
+            let castComp = Expression.Condition(
+                Expression.Equal(compParam, Expression.Constant(null, typeof<obj>)),
+                Expression.Constant(null, compType),
+                Expression.Convert(compParam, compType)
+            )
+
+            let callExpr = Expression.Call(matParam, methodInfo, h1Param, h2Param, castComp)
+            Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, DataFrameHandle, obj, bool>>(
+                callExpr, matParam, h1Param, h2Param, compParam
+            ).Compile()
+        )
+
+    /// Invoker for SequenceEqual(dfHandle, enumerable, comparer)
+    static member GetMaterializerSeqEqualSeqInvoker(elemType: Type) : Func<IDataFrameMaterializer, DataFrameHandle, IEnumerable, obj, bool> =
+        matSeqEqualSeqCache.GetOrAdd(elemType, fun t ->
+            let methodInfo =
+                typeof<IDataFrameMaterializer>.GetMethods()
+                |> Array.find (fun m -> 
+                    if m.Name <> "SequenceEqual" || not m.IsGenericMethodDefinition then 
+                        false
+                    else
+                        let ps = m.GetParameters()
+                        if ps.Length <> 3 then 
+                            false
+                        else
+                            let p1 = ps.[1].ParameterType
+                            p1.IsGenericType && p1.GetGenericTypeDefinition() = typedefof<IEnumerable<_>>
+                )
+                |> fun m -> m.MakeGenericMethod(t)
+
+            let matParam = Expression.Parameter(typeof<IDataFrameMaterializer>, "mat")
+            let hParam = Expression.Parameter(typeof<DataFrameHandle>, "handle")
+            let seqParam = Expression.Parameter(typeof<IEnumerable>, "seq")
+            let compParam = Expression.Parameter(typeof<obj>, "comp")
+
+            let seqType = typedefof<IEnumerable<_>>.MakeGenericType(t)
+            let castSeq = Expression.Convert(seqParam, seqType)
+            let compType = typedefof<IEqualityComparer<_>>.MakeGenericType(t)
+            let castComp = Expression.Condition(
+                Expression.Equal(compParam, Expression.Constant(null, typeof<obj>)),
+                Expression.Constant(null, compType),
+                Expression.Convert(compParam, compType)
+            )
+
+            let callExpr = Expression.Call(matParam, methodInfo, hParam, castSeq, castComp)
+            Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, IEnumerable, obj, bool>>(
+                callExpr, matParam, hParam, seqParam, compParam
+            ).Compile()
+        )
+    /// Resolves compiled invoker for IDataFrameMaterializer.MinBy<TSource, TKey>(handle, keySelector, comparer)
+    static member GetMaterializerMinByInvoker(sourceType: Type, keyType: Type) : Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, obj> =
+        matMinByCache.GetOrAdd((sourceType, keyType), fun (tSrc, tKey) ->
+            let methodInfo =
+                typeof<IDataFrameMaterializer>.GetMethods()
+                |> Array.find (fun m -> 
+                    m.Name = "MinBy" 
+                    && m.IsGenericMethodDefinition 
+                    && m.GetGenericArguments().Length = 2
+                    && m.GetParameters().Length = 3)
+                |> fun m -> m.MakeGenericMethod(tSrc, tKey)
+
+            let matParam = Expression.Parameter(typeof<IDataFrameMaterializer>, "mat")
+            let hParam = Expression.Parameter(typeof<DataFrameHandle>, "handle")
+            let keySelParam = Expression.Parameter(typeof<Delegate>, "keySelector")
+            let compParam = Expression.Parameter(typeof<obj>, "comparer")
+
+            let funcType = typedefof<Func<_, _>>.MakeGenericType(tSrc, tKey)
+            let castKeySel = Expression.Convert(keySelParam, funcType)
+
+            let compType = typedefof<IComparer<_>>.MakeGenericType(tKey)
+            let castComp = Expression.Condition(
+                Expression.Equal(compParam, Expression.Constant(null, typeof<obj>)),
+                Expression.Constant(null, compType),
+                Expression.Convert(compParam, compType)
+            )
+
+            let callExpr = Expression.Call(matParam, methodInfo, hParam, castKeySel, castComp)
+            let boxResult = Expression.Convert(callExpr, typeof<obj>)
+
+            Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, obj>>(
+                boxResult, matParam, hParam, keySelParam, compParam
+            ).Compile()
+        )
+
+    /// Resolves compiled invoker for IDataFrameMaterializer.MaxBy<TSource, TKey>(handle, keySelector, comparer)
+    static member GetMaterializerMaxByInvoker(sourceType: Type, keyType: Type) : Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, obj> =
+        matMaxByCache.GetOrAdd((sourceType, keyType), fun (tSrc, tKey) ->
+            let methodInfo =
+                typeof<IDataFrameMaterializer>.GetMethods()
+                |> Array.find (fun m -> 
+                    m.Name = "MaxBy" 
+                    && m.IsGenericMethodDefinition 
+                    && m.GetGenericArguments().Length = 2
+                    && m.GetParameters().Length = 3)
+                |> fun m -> m.MakeGenericMethod(tSrc, tKey)
+
+            let matParam = Expression.Parameter(typeof<IDataFrameMaterializer>, "mat")
+            let hParam = Expression.Parameter(typeof<DataFrameHandle>, "handle")
+            let keySelParam = Expression.Parameter(typeof<Delegate>, "keySelector")
+            let compParam = Expression.Parameter(typeof<obj>, "comparer")
+
+            let funcType = typedefof<Func<_, _>>.MakeGenericType(tSrc, tKey)
+            let castKeySel = Expression.Convert(keySelParam, funcType)
+
+            let compType = typedefof<IComparer<_>>.MakeGenericType(tKey)
+            let castComp = Expression.Condition(
+                Expression.Equal(compParam, Expression.Constant(null, typeof<obj>)),
+                Expression.Constant(null, compType),
+                Expression.Convert(compParam, compType)
+            )
+
+            let callExpr = Expression.Call(matParam, methodInfo, hParam, castKeySel, castComp)
+            let boxResult = Expression.Convert(callExpr, typeof<obj>)
+
+            Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, obj>>(
+                boxResult, matParam, hParam, keySelParam, compParam
+            ).Compile()
+        )
+    /// Resolves compiled invoker for IDataFrameMaterializer.Aggregate<TSource, TAccum>(handle, seed, folder)
+    static member GetMaterializerAggregateInvoker(sourceType: Type, accumType: Type) : Func<IDataFrameMaterializer, DataFrameHandle, obj, Delegate, obj> =
+        matAggregateCache.GetOrAdd((sourceType, accumType), fun (tSrc, tAcc) ->
+            let methodInfo =
+                typeof<IDataFrameMaterializer>.GetMethods()
+                |> Array.find (fun m ->
+                    m.Name = "Aggregate"
+                    && m.IsGenericMethodDefinition
+                    && m.GetGenericArguments().Length = 2
+                    && m.GetParameters().Length = 3)
+                |> fun m -> m.MakeGenericMethod(tSrc, tAcc)
+
+            let matParam = Expression.Parameter(typeof<IDataFrameMaterializer>, "mat")
+            let handleParam = Expression.Parameter(typeof<DataFrameHandle>, "handle")
+            let seedParam = Expression.Parameter(typeof<obj>, "seed")
+            let folderParam = Expression.Parameter(typeof<Delegate>, "folder")
+
+            let castSeed = Expression.Convert(seedParam, tAcc)
+            let folderType = typedefof<Func<_, _, _>>.MakeGenericType(tAcc, tSrc, tAcc)
+            let castFolder = Expression.Convert(folderParam, folderType)
+
+            let callExpr = Expression.Call(matParam, methodInfo, handleParam, castSeed, castFolder)
+            let boxResult = Expression.Convert(callExpr, typeof<obj>)
+
+            Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, obj, Delegate, obj>>(
+                boxResult, matParam, handleParam, seedParam, folderParam
+            ).Compile()
+        )
+    /// Creates a strongly-typed Func<TAccum, TSource, TAccum> folder for numeric Sum/Min/Max/Average
+    static member CreateNumericFolder(sourceType: Type, accumType: Type, opName: string, selectorOpt: Delegate option) : obj * Delegate * (obj -> int64 -> obj) =
+        let accParam = Expression.Parameter(accumType, "acc")
+        let srcParam = Expression.Parameter(sourceType, "src")
+
+        // 提取数值项
+        let valExpr =
+            match selectorOpt with
+            | Some sel ->
+                let selType = typedefof<Func<_, _>>.MakeGenericType(sourceType, sel.GetType().GetGenericArguments().[1])
+                Expression.Convert(Expression.Invoke(Expression.Constant(sel, selType), srcParam), accumType)
+            | None ->
+                Expression.Convert(srcParam, accumType)
+
+        match opName with
+        | "Sum" ->
+            let body = Expression.Add(accParam, valExpr)
+            let lambdaType = typedefof<Func<_, _, _>>.MakeGenericType(accumType, sourceType, accumType)
+            let folder = Expression.Lambda(lambdaType, body, accParam, srcParam).Compile()
+            let seed = Activator.CreateInstance(accumType)
+            let finisher = fun (acc: obj) (_: int64) -> acc
+            (seed, folder, finisher)
+
+        | "Average" ->
+            // accumType 使用 double
+            let body = Expression.Add(accParam, Expression.Convert(valExpr, typeof<double>))
+            let lambdaType = typedefof<Func<_, _, _>>.MakeGenericType(typeof<double>, sourceType, typeof<double>)
+            let folder = Expression.Lambda(lambdaType, body, accParam, srcParam).Compile()
+            let seed = box 0.0
+            let finisher = fun (acc: obj) (count: int64) ->
+                if count = 0L then invalidOp "Sequence contains no elements."
+                box ((acc :?> double) / float count)
+            (seed, folder, finisher)
+
+        | "Min" ->
+            let cond = Expression.Condition(
+                Expression.LessThan(valExpr, accParam),
+                valExpr,
+                accParam
+            )
+            let lambdaType = typedefof<Func<_, _, _>>.MakeGenericType(accumType, sourceType, accumType)
+            let folder = Expression.Lambda(lambdaType, cond, accParam, srcParam).Compile()
+            let seedField = accumType.GetField("MaxValue")
+            let seed = if isNull seedField then Activator.CreateInstance(accumType) else seedField.GetValue(null)
+            let finisher = fun (acc: obj) (count: int64) ->
+                if count = 0L then
+                    let isNullable = not accumType.IsValueType || (Nullable.GetUnderlyingType(accumType) <> null)
+                    if isNullable then null else invalidOp "Sequence contains no elements."
+                else acc
+            (seed, folder, finisher)
+
+        | "Max" ->
+            let cond = Expression.Condition(
+                Expression.GreaterThan(valExpr, accParam),
+                valExpr,
+                accParam
+            )
+            let lambdaType = typedefof<Func<_, _, _>>.MakeGenericType(accumType, sourceType, accumType)
+            let folder = Expression.Lambda(lambdaType, cond, accParam, srcParam).Compile()
+            let seedField = accumType.GetField("MinValue")
+            let seed = if isNull seedField then Activator.CreateInstance(accumType) else seedField.GetValue(null)
+            let finisher = fun (acc: obj) (count: int64) ->
+                if count = 0L then
+                    let isNullable = not accumType.IsValueType || (Nullable.GetUnderlyingType(accumType) <> null)
+                    if isNullable then null else invalidOp "Sequence contains no elements."
+                else acc
+            (seed, folder, finisher)
+
+        | _ -> failwithf "Unsupported aggregation operator: %s" opName
+
+    /// Creates the standard "empty/null" representation for a type,
+    /// properly handling Reference Types, Nullable<T>, FSharpOption<'T>, and FSharpValueOption<'T>.
+    static member GetEmptyOptionalValue(t: Type) : obj =
+        if not (PolarsTypeHelper.AcceptsNull t) then
+            null
+        else
+            let struct (_, kind) = PolarsTypeHelper.GetOptionalInfo t
+            match kind with
+            | OptionalKind.FSharpOption ->
+                null
+            | OptionalKind.FSharpValueOption ->
+                Activator.CreateInstance(t)
+            | OptionalKind.Nullable
+            | _ -> null
+            

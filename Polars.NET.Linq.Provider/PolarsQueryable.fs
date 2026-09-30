@@ -721,32 +721,105 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 let invoker = LinqReflectionCache.GetMaterializerLastOrDefaultInvoker elemType
                 invoker.Invoke(mat, dfHandle, null, defaultVal) :?> 'TResult
 
+        // =========================================================================
         // 7. Max, Min, Sum, Average with selector
+        // =========================================================================
         | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as selector) ])
             when m.Name = "Max" || m.Name = "Min" || m.Name = "Sum" || m.Name = "Average" ->
 
-            let nativeLf, hasClientPreds, _ = resolveQueryPlan source
-            let translatedExprOpt = ExprTranslator.tryTranslate selector.Parameters.[0].Name selector.Body
+            let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
+            let elemType = getSequenceElementType source.Type
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
+            let targetType = typeof<'TResult>
+
+            let translatedExprOpt =
+                if not hasClientPreds && clientProjOpt.IsNone then
+                    ExprTranslator.tryTranslate selector.Parameters.[0].Name selector.Body
+                else None
 
             match translatedExprOpt with
-            | Some colExpr when not hasClientPreds ->
+            | Some colExpr ->
                 let aggExpr = resolveScalarAggExpr m.Name colExpr
                 let aggLf = PolarsWrapper.LazySelect(nativeLf, [| aggExpr |])
                 let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto, true)
-                mat.MaterializeScalar<'TResult>(dfHandle)
-            | _ ->
-                let rawRows = (this :> IQueryProvider).CreateQuery(source)
-                let compiledSel = selector.Compile()
-                let genericArg = source.Type.GetGenericArguments().[0]
-                let closedMethod = LinqReflectionCache.GetEnumerableMethod(m.Name, 2, [| genericArg |])
-                closedMethod.Invoke(null, [| box rawRows; box compiledSel |]) :?> 'TResult
+                
+                let rawScalar = mat.MaterializeScalar<obj>(dfHandle)
 
+                if isNull rawScalar || rawScalar :? double && Double.IsNaN(rawScalar :?> double) then
+                    match m.Name with
+                    | "Sum" -> 
+                        if PolarsTypeHelper.AcceptsNull targetType then
+                            LinqReflectionCache.GetEmptyOptionalValue targetType :?> 'TResult
+                        else
+                            Activator.CreateInstance(targetType) :?> 'TResult
+
+                    | "Average" -> 
+                        if PolarsTypeHelper.AcceptsNull targetType then
+                            LinqReflectionCache.GetEmptyOptionalValue targetType :?> 'TResult
+                        else
+                            raise (InvalidOperationException("Sequence contains no elements."))
+
+                    | "Min" | "Max" ->
+                        if PolarsTypeHelper.AcceptsNull targetType then
+                            LinqReflectionCache.GetEmptyOptionalValue targetType :?> 'TResult
+                        else 
+                            raise (InvalidOperationException("Sequence contains no elements."))
+
+                    | _ -> raise (InvalidOperationException("Sequence contains no elements."))
+                else
+                    let struct (_, kind) = PolarsTypeHelper.GetOptionalInfo targetType
+                    match kind with
+                    | OptionalKind.FSharpOption ->
+                        let someMethod = targetType.GetMethod("Some")
+                        let converted = Convert.ChangeType(rawScalar, PolarsTypeHelper.GetUnderlyingOrSelf targetType)
+                        someMethod.Invoke(null, [| converted |]) :?> 'TResult
+                    | OptionalKind.FSharpValueOption ->
+                        let vSomeMethod = targetType.GetMethod("NewValueSome")
+                        let converted = Convert.ChangeType(rawScalar, PolarsTypeHelper.GetUnderlyingOrSelf targetType)
+                        vSomeMethod.Invoke(null, [| converted |]) :?> 'TResult
+                    | _ ->
+                        Convert.ChangeType(rawScalar, targetType) :?> 'TResult
+
+            | None ->
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let h = PolarsWrapper.DataFrameHeight dfHandle
+                let compiledSel = selector.Compile()
+                let accumType = if m.Name = "Average" then typeof<double> else targetType
+
+                match clientProjOpt with
+                | Some (sourceType, projFunc) ->
+                    let composedSel =
+                        let p = Expression.Parameter(sourceType, "x")
+                        let castObj = Expression.Convert(p, typeof<obj>)
+                        let projCall = Expression.Invoke(Expression.Constant(projFunc), castObj)
+                        let castElem = Expression.Convert(projCall, elemType)
+                        let selCall = Expression.Invoke(Expression.Constant(compiledSel), castElem)
+                        let lType = typedefof<Func<_, _>>.MakeGenericType(sourceType, selector.ReturnType)
+                        Expression.Lambda(lType, selCall, p).Compile()
+
+                    let seed, folder, finisher = LinqReflectionCache.CreateNumericFolder(sourceType, accumType, m.Name, Some composedSel)
+                    let invoker = LinqReflectionCache.GetMaterializerAggregateInvoker(sourceType, accumType)
+                    let rawAcc = invoker.Invoke(mat, dfHandle, seed, folder)
+                    Convert.ChangeType(finisher rawAcc h, targetType) :?> 'TResult
+
+                | None ->
+                    let seed, folder, finisher = LinqReflectionCache.CreateNumericFolder(elemType, accumType, m.Name, Some compiledSel)
+                    let invoker = LinqReflectionCache.GetMaterializerAggregateInvoker(elemType, accumType)
+                    let rawAcc = invoker.Invoke(mat, dfHandle, seed, folder)
+                    Convert.ChangeType(finisher rawAcc h, targetType) :?> 'TResult
+
+        // =========================================================================
         // 8. Max, Min, Sum, Average without selector
+        // =========================================================================
         | MethodCall(m, null, [ source ])
             when m.Name = "Max" || m.Name = "Min" || m.Name = "Sum" || m.Name = "Average" ->
 
-            let nativeLf, hasClientPreds, _ = resolveQueryPlan source
-            if not hasClientPreds then
+            let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
+            let elemType = getSequenceElementType source.Type
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
+            let targetType = typeof<'TResult>
+
+            if not hasClientPreds && clientProjOpt.IsNone then
                 let colNames = PolarsQuery<obj>.GetLazyColumnNames nativeLf
                 let targetCol = if colNames.Length > 0 then colNames.[0] else ""
                 let colExpr = PolarsWrapper.Col targetCol
@@ -754,13 +827,59 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
 
                 let aggLf = PolarsWrapper.LazySelect(nativeLf, [| aggExpr |])
                 let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto, true)
-                mat.MaterializeScalar<'TResult>(dfHandle)
+                let rawScalar = mat.MaterializeScalar<obj>(dfHandle)
+
+                if isNull rawScalar || rawScalar :? double && Double.IsNaN(rawScalar :?> double) then
+                    match m.Name with
+                    | "Sum" -> 
+                        if PolarsTypeHelper.AcceptsNull targetType then
+                            LinqReflectionCache.GetEmptyOptionalValue targetType :?> 'TResult
+                        else
+                            Activator.CreateInstance(targetType) :?> 'TResult
+
+                    | "Average" -> 
+                        if PolarsTypeHelper.AcceptsNull targetType then
+                            LinqReflectionCache.GetEmptyOptionalValue targetType :?> 'TResult
+                        else
+                            raise (InvalidOperationException("Sequence contains no elements."))
+
+                    | "Min" | "Max" ->
+                        if PolarsTypeHelper.AcceptsNull targetType then
+                            LinqReflectionCache.GetEmptyOptionalValue targetType :?> 'TResult
+                        else 
+                            raise (InvalidOperationException("Sequence contains no elements."))
+
+                    | _ -> raise (InvalidOperationException("Sequence contains no elements."))
+                else
+                    let struct (_, kind) = PolarsTypeHelper.GetOptionalInfo targetType
+                    match kind with
+                    | OptionalKind.FSharpOption ->
+                        let someMethod = targetType.GetMethod("Some")
+                        let converted = Convert.ChangeType(rawScalar, PolarsTypeHelper.GetUnderlyingOrSelf targetType)
+                        someMethod.Invoke(null, [| converted |]) :?> 'TResult
+                    | OptionalKind.FSharpValueOption ->
+                        let vSomeMethod = targetType.GetMethod("NewValueSome")
+                        let converted = Convert.ChangeType(rawScalar, PolarsTypeHelper.GetUnderlyingOrSelf targetType)
+                        vSomeMethod.Invoke(null, [| converted |]) :?> 'TResult
+                    | _ ->
+                        Convert.ChangeType(rawScalar, targetType) :?> 'TResult
             else
-                let rawRows = (this :> IQueryProvider).CreateQuery(source)
-                let elemType = getSequenceElementType source.Type
-                let genericArg = if source.Type.IsGenericType then source.Type.GetGenericArguments().[0] else elemType
-                let closedMethod = LinqReflectionCache.GetEnumerableMethod(m.Name, 1, [| genericArg |])
-                closedMethod.Invoke(null, [| box rawRows |]) :?> 'TResult
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let h = PolarsWrapper.DataFrameHeight dfHandle
+                let accumType = if m.Name = "Average" then typeof<double> else targetType
+
+                match clientProjOpt with
+                | Some (sourceType, projFunc) ->
+                    let seed, folder, finisher = LinqReflectionCache.CreateNumericFolder(sourceType, accumType, m.Name, Some projFunc)
+                    let invoker = LinqReflectionCache.GetMaterializerAggregateInvoker(sourceType, accumType)
+                    let rawAcc = invoker.Invoke(mat, dfHandle, seed, folder)
+                    Convert.ChangeType(finisher rawAcc h, targetType) :?> 'TResult
+
+                | None ->
+                    let seed, folder, finisher = LinqReflectionCache.CreateNumericFolder(elemType, accumType, m.Name, None)
+                    let invoker = LinqReflectionCache.GetMaterializerAggregateInvoker(elemType, accumType)
+                    let rawAcc = invoker.Invoke(mat, dfHandle, seed, folder)
+                    Convert.ChangeType(finisher rawAcc h, targetType) :?> 'TResult
 
         // =========================================================================
         // Single / SingleOrDefault
@@ -1099,7 +1218,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                         | Some (_, projFunc) -> projFunc.Invoke(rawEntity) :?> 'TResult
                         | None -> rawEntity :?> 'TResult
 
-// =========================================================================
+        // =========================================================================
         // 11. Contains(item, comparer) - 3 arguments
         // =========================================================================
         | MethodCall(m, null, [ source; itemExpr; comparerExpr ]) when m.Name = "Contains" ->
@@ -1183,14 +1302,13 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
 
             match filterExprOpt with
             | Some combinedFilter ->
-                // Native 快速路径: SIMD 过滤 + Slice(0, 1)
+                // Native Slice(0, 1)
                 let filteredLf = PolarsWrapper.LazyFilter(nativeLf, combinedFilter)
                 let slicedLf = PolarsWrapper.LazySlice(filteredLf, 0L, 1u)
                 let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
                 box (PolarsWrapper.DataFrameHeight dfHandle > 0L) :?> 'TResult
 
             | None ->
-                // Client 短路扫描路径
                 let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
 
                 match clientProjOpt with
@@ -1215,102 +1333,201 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                     let invoker = LinqReflectionCache.GetMaterializerContainsInvoker elemType
                     box (invoker.Invoke(mat, dfHandle, itemVal, null)) :?> 'TResult
 
-        // 12. SequenceEqual(second)
-        | MethodCall(m, null, [ source; secondExpr ]) when m.Name = "SequenceEqual" ->
+        // =========================================================================
+        // 13. SequenceEqual(second, comparer) - 3 arguments
+        // =========================================================================
+        | MethodCall(m, null, [ source; secondExpr; comparerExpr ]) when m.Name = "SequenceEqual" ->
             let elemType = getSequenceElementType source.Type
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
+            let compObj =
+                match tryEvaluate comparerExpr with
+                | Some c -> c
+                | None -> null
+
             let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
 
-            let rec tryGetSecondQueryPlan (e: Expression) : (LazyFrameHandle * bool) option =
-                match e with
-                | :? MethodCallExpression as mc when typeof<IQueryable>.IsAssignableFrom(mc.Type) ->
-                    let q = (this :> IQueryProvider).CreateQuery(mc)
-                    match q with
-                    | :? IInternalPlanSource as ps ->
-                        let lf, hasClient, projOpt = ps.GetPlanInfo()
-                        Some (lf, hasClient || projOpt.IsSome)
-                    | :? IPolarsPlanSource as planSource ->
-                        Some (planSource.GetCompiledLazyFrameHandle(), false)
-                    | _ -> None
-                | _ ->
-                    match tryEvaluate e with
-                    | Some (:? IInternalPlanSource as ps) ->
-                        let lf, hasClient, projOpt = ps.GetPlanInfo()
-                        Some (lf, hasClient || projOpt.IsSome)
-                    | Some (:? IPolarsPlanSource as planSource) ->
-                        Some (planSource.GetCompiledLazyFrameHandle(), false)
-                    | _ -> None
+            let secondPlanOpt =
+                match tryEvaluate secondExpr with
+                | Some (:? IInternalPlanSource as ps) -> Some (ps.GetPlanInfo())
+                | _ -> None
 
-            match tryGetSecondQueryPlan secondExpr with
-            | Some (secondLf, secondHasClient) when not hasClientPreds && clientProjOpt.IsNone && not secondHasClient ->
-                let colNames1 = nativeLf |> PolarsQuery<obj>.GetLazyColumnNames
-                let colNames2 = secondLf |> PolarsQuery<obj>.GetLazyColumnNames
-
-                if colNames1.Length <> colNames2.Length then
+            match secondPlanOpt with
+            | Some (secondLf, secondHasClient, secondProjOpt) 
+                when not hasClientPreds && clientProjOpt.IsNone && not secondHasClient && secondProjOpt.IsNone && isNull compObj ->
+                let fullDf1 = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let fullDf2 = PolarsWrapper.LazyCollect(secondLf, PlEngine.Auto, true)
+                if PolarsWrapper.DataFrameHeight fullDf1 <> PolarsWrapper.DataFrameHeight fullDf2 then
                     box false :?> 'TResult
                 else
-                    let fullDf1 = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
-                    let fullDf2 = PolarsWrapper.LazyCollect(secondLf, PlEngine.Auto, true)
+                    let areEqual = PolarsWrapper.DataFrameEquals(fullDf1, fullDf2, nullEqual = true)
+                    box areEqual :?> 'TResult
 
-                    let h1 = PolarsWrapper.DataFrameHeight fullDf1
-                    let h2 = PolarsWrapper.DataFrameHeight fullDf2
+            | Some (secondLf, _, _) ->
+                let df1 = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let df2 = PolarsWrapper.LazyCollect(secondLf, PlEngine.Auto, true)
+                let invoker = LinqReflectionCache.GetMaterializerSeqEqualDfInvoker elemType
+                box (invoker.Invoke(mat, df1, df2, compObj)) :?> 'TResult
 
-                    if h1 <> h2 then
-                        box false :?> 'TResult
-                    elif h1 = 0L then
-                        box true :?> 'TResult
-                    else
-                        let areEqual = PolarsWrapper.DataFrameEquals(fullDf1, fullDf2, nullEqual = true)
-                        box areEqual :?> 'TResult
-
-            | _ ->
-                let rawRows1 = (this :> IQueryProvider).CreateQuery(source) : IEnumerable
-                let rawRows2 =
+            | None ->
+                let df = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let secondSeq =
                     match tryEvaluate secondExpr with
-                    | Some (:? IEnumerable as e) -> e
-                    | _ ->
-                        let q = (this :> IQueryProvider).CreateQuery(secondExpr)
-                        let castMethod = LinqReflectionCache.GetEnumerableMethod("Cast", 1, [| elemType |])
-                        let toListMethod = LinqReflectionCache.GetEnumerableMethod("ToList", 1, [| elemType |])
-                        let casted = castMethod.Invoke(null, [| box q |])
-                        toListMethod.Invoke(null, [| casted |]) :?> IEnumerable
+                    | Some (:? IEnumerable as seq) -> seq
+                    | _ -> (this :> IQueryProvider).CreateQuery(secondExpr) :> IEnumerable
 
-                let seqEqMethod = LinqReflectionCache.GetEnumerableMethod("SequenceEqual", 2, [| elemType |])
-                let areEqual = seqEqMethod.Invoke(null, [| box rawRows1; box rawRows2 |]) :?> bool
-                box areEqual :?> 'TResult
+                let invoker = LinqReflectionCache.GetMaterializerSeqEqualSeqInvoker elemType
+                box (invoker.Invoke(mat, df, secondSeq, compObj)) :?> 'TResult
 
-        // 13. MinBy(keySelector) / MaxBy(keySelector)
-        | MethodCall(m, null, source :: CleanLambda keyLambda :: _) when m.Name = "MinBy" || m.Name = "MaxBy" ->
-            let isDescending = m.Name = "MaxBy"
-            let nativeLf, hasClientPreds, _ = resolveQueryPlan source
+        // =========================================================================
+        // 14. SequenceEqual(second) - 2 arguments
+        // =========================================================================
+        | MethodCall(m, null, [ source; secondExpr ]) when m.Name = "SequenceEqual" ->
+            let elemType = getSequenceElementType source.Type
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
+            let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
 
-            if not hasClientPreds then
-                let keyParam = keyLambda.Parameters.[0]
-                match ExprTranslator.tryTranslate keyParam.Name keyLambda.Body with
-                | Some keyColExpr ->
-                    let sortSpec = { Expr = keyColExpr; Descending = isDescending; NullsLast = true }
-                    let sortedLf = 
-                        PolarsWrapper.LazyFrameSort(
-                            nativeLf, 
-                            [| sortSpec.Expr |], 
-                            [| sortSpec.Descending |], 
-                            [| sortSpec.NullsLast |], 
-                            maintainOrder = false
-                        )
-                    fetchRowWithFallback sortedLf 0L 1u true (fun () -> InvalidOperationException("Sequence contains no elements.") :> exn)
+            let secondPlanOpt =
+                match tryEvaluate secondExpr with
+                | Some (:? IInternalPlanSource as ps) -> Some (ps.GetPlanInfo())
+                | _ -> None
+
+            match secondPlanOpt with
+            | Some (secondLf, secondHasClient, secondProjOpt) 
+                when not hasClientPreds && clientProjOpt.IsNone && not secondHasClient && secondProjOpt.IsNone ->
+                let fullDf1 = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let fullDf2 = PolarsWrapper.LazyCollect(secondLf, PlEngine.Auto, true)
+                if PolarsWrapper.DataFrameHeight fullDf1 <> PolarsWrapper.DataFrameHeight fullDf2 then
+                    box false :?> 'TResult
+                else
+                    let areEqual = PolarsWrapper.DataFrameEquals(fullDf1, fullDf2, nullEqual = true)
+                    box areEqual :?> 'TResult
+
+            | Some (secondLf, _, _) ->
+                let df1 = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let df2 = PolarsWrapper.LazyCollect(secondLf, PlEngine.Auto, true)
+                let invoker = LinqReflectionCache.GetMaterializerSeqEqualDfInvoker elemType
+                box (invoker.Invoke(mat, df1, df2, null)) :?> 'TResult
+
+            | None ->
+                let df = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let secondSeq =
+                    match tryEvaluate secondExpr with
+                    | Some (:? IEnumerable as seq) -> seq
+                    | _ -> (this :> IQueryProvider).CreateQuery(secondExpr) :> IEnumerable
+
+                let invoker = LinqReflectionCache.GetMaterializerSeqEqualSeqInvoker elemType
+                box (invoker.Invoke(mat, df, secondSeq, null)) :?> 'TResult
+
+        // =========================================================================
+        // 15. MinBy / MaxBy (with comparer) - 3 arguments
+        // =========================================================================
+        | MethodCall(m, null, [ source; CleanLambda keyLambda; comparerExpr ]) when m.Name = "MinBy" || m.Name = "MaxBy" ->
+            let isMax = m.Name = "MaxBy"
+            let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
+            let elemType = getSequenceElementType source.Type
+            let keyType = keyLambda.ReturnType
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
+
+            let compObj =
+                match tryEvaluate comparerExpr with
+                | Some c -> c
+                | None -> null
+
+            let compiledKeySel = keyLambda.Compile()
+            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+
+            match clientProjOpt with
+            | Some (sourceType, projFunc) ->
+                let composedKeySelector =
+                    let p = Expression.Parameter(sourceType, "src")
+                    let boxed = Expression.Convert(p, typeof<obj>)
+                    let projInv = Expression.Invoke(Expression.Constant(projFunc), boxed)
+                    let castProj = Expression.Convert(projInv, elemType)
+                    let keyInv = Expression.Invoke(Expression.Constant(compiledKeySel), castProj)
+                    let lambdaType = typedefof<Func<_, _>>.MakeGenericType(sourceType, keyType)
+                    Expression.Lambda(lambdaType, keyInv, p).Compile()
+
+                let invoker =
+                    if isMax then LinqReflectionCache.GetMaterializerMaxByInvoker(sourceType, keyType)
+                    else LinqReflectionCache.GetMaterializerMinByInvoker(sourceType, keyType)
+
+                let rawWinner = invoker.Invoke(mat, dfHandle, composedKeySelector, compObj)
+                projFunc.Invoke(rawWinner) :?> 'TResult
+
+            | None ->
+                let invoker =
+                    if isMax then LinqReflectionCache.GetMaterializerMaxByInvoker(elemType, keyType)
+                    else LinqReflectionCache.GetMaterializerMinByInvoker(elemType, keyType)
+
+                let winner = invoker.Invoke(mat, dfHandle, compiledKeySel, compObj)
+                winner :?> 'TResult
+
+        // =========================================================================
+        // 16. MinBy / MaxBy - 2 arguments
+        // =========================================================================
+        | MethodCall(m, null, [ source; CleanLambda keyLambda ]) when m.Name = "MinBy" || m.Name = "MaxBy" ->
+            let isMax = m.Name = "MaxBy"
+            let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
+            let elemType = getSequenceElementType source.Type
+            let keyType = keyLambda.ReturnType
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
+
+            let keyParam = keyLambda.Parameters.[0]
+            let nativeSortColOpt =
+                if not hasClientPreds && clientProjOpt.IsNone then
+                    ExprTranslator.tryTranslate keyParam.Name keyLambda.Body
+                else None
+
+            match nativeSortColOpt with
+            | Some keyColExpr ->
+                let sortedLf = 
+                    PolarsWrapper.LazyFrameSort(
+                        nativeLf, 
+                        [| keyColExpr |], 
+                        [| isMax |], 
+                        [| true |], 
+                        maintainOrder = false
+                    )
+                let slicedLf = PolarsWrapper.LazySlice(sortedLf, 0L, 1u)
+                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                let h = PolarsWrapper.DataFrameHeight dfHandle
+                if h = 0L then
+                    if PolarsTypeHelper.AcceptsNull elemType then
+                        LinqReflectionCache.GetEmptyOptionalValue elemType :?> 'TResult
+                    else
+                        raise (InvalidOperationException("Sequence contains no elements."))
+                else
+                    let invoker = LinqReflectionCache.GetMaterializerFirstInvoker elemType
+                    invoker.Invoke(mat, dfHandle, null) :?> 'TResult
+
+            | None ->
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let compiledKeySel = keyLambda.Compile()
+
+                match clientProjOpt with
+                | Some (sourceType, projFunc) ->
+                    let p = Expression.Parameter(sourceType, "src")
+                    let boxed = Expression.Convert(p, typeof<obj>)
+                    let projInv = Expression.Invoke(Expression.Constant(projFunc), boxed)
+                    let castProj = Expression.Convert(projInv, elemType)
+                    let keyInv = Expression.Invoke(Expression.Constant(compiledKeySel), castProj)
+                    let lambdaType = typedefof<Func<_, _>>.MakeGenericType(sourceType, keyType)
+                    let composedKeySelector = Expression.Lambda(lambdaType, keyInv, p).Compile()
+
+                    let invoker =
+                        if isMax then LinqReflectionCache.GetMaterializerMaxByInvoker(sourceType, keyType)
+                        else LinqReflectionCache.GetMaterializerMinByInvoker(sourceType, keyType)
+
+                    let rawWinner = invoker.Invoke(mat, dfHandle, composedKeySelector, null)
+                    projFunc.Invoke(rawWinner) :?> 'TResult
+
                 | None ->
-                    let rawRows = (this :> IQueryProvider).CreateQuery(source)
-                    let elemType = getSequenceElementType source.Type
-                    let keyType = keyLambda.ReturnType
-                    let compiledKey = keyLambda.Compile()
-                    let linqMethod = LinqReflectionCache.GetEnumerableMethod(m.Name, 2, [| elemType; keyType |])
-                    linqMethod.Invoke(null, [| box rawRows; box compiledKey |]) :?> 'TResult
-            else
-                let rawRows = (this :> IQueryProvider).CreateQuery(source)
-                let elemType = getSequenceElementType source.Type
-                let compiledKey = keyLambda.Compile()
-                let keyType = keyLambda.ReturnType
-                let linqMethod = LinqReflectionCache.GetEnumerableMethod(m.Name, 2, [| elemType; keyType |])
-                linqMethod.Invoke(null, [| box rawRows; box compiledKey |]) :?> 'TResult
+                    let invoker =
+                        if isMax then LinqReflectionCache.GetMaterializerMaxByInvoker(elemType, keyType)
+                        else LinqReflectionCache.GetMaterializerMinByInvoker(elemType, keyType)
+
+                    let winner = invoker.Invoke(mat, dfHandle, compiledKeySel, null)
+                    winner :?> 'TResult
       
         // 14. Aggregate (Fold/Reduce) via cached typed delegate invoker
         | MethodCall(m, null, source :: rest) when m.Name = "Aggregate" ->
@@ -2335,18 +2552,18 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
             | _ -> acc
 
-        printfn "\n\x1b[1;32m================ [ORIGINAL EXPRESSION TREE] ================\x1b[0m"
-        printfn "%s" (expression.ToString())
+        // printfn "\n\x1b[1;32m================ [ORIGINAL EXPRESSION TREE] ================\x1b[0m"
+        // printfn "%s" (expression.ToString())
 
         let effectiveExpr = FSharpAst.rewrite expression
 
-        printfn "\n\x1b[1;32m================ [REWRITTEN EXPRESSION TREE] ================\x1b[0m"
-        printfn "%s" (effectiveExpr.ToString())
-        printfn "\x1b[1;32m============================================================\x1b[0m\n"
+        // printfn "\n\x1b[1;32m================ [REWRITTEN EXPRESSION TREE] ================\x1b[0m"
+        // printfn "%s" (effectiveExpr.ToString())
+        // printfn "\x1b[1;32m============================================================\x1b[0m\n"
 
         let stages = flatten effectiveExpr []
-        printfn "\x1b[33m[FLATTENED STAGES COUNT]\x1b[0m %d" stages.Length
-        stages |> List.iteri (fun idx s -> printfn "  Stage[%d] = %A" idx s)
+        // printfn "\x1b[33m[FLATTENED STAGES COUNT]\x1b[0m %d" stages.Length
+        // stages |> List.iteri (fun idx s -> printfn "  Stage[%d] = %A" idx s)
 
         let addSort (spec: SortSpec) (ops: QueryOp list) =
             match ops with

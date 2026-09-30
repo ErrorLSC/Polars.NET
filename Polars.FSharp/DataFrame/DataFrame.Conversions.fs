@@ -836,6 +836,13 @@ module DataFrameConversions =
             this.Rows<'T>().ToList()
 
 type FSharpRowCursorMaterializer() =
+    static member handleEmptySequence<'TSource>() : 'TSource =
+        let t = typeof<'TSource>
+        if PolarsTypeHelper.AcceptsNull t then
+            Unchecked.defaultof<'TSource>
+        else
+            invalidOp "Sequence contains no elements."
+    
     interface IDataFrameMaterializer with
         member _.Materialize<'T>(handle: DataFrameHandle) : IEnumerable<'T> =
             let height = PolarsWrapper.DataFrameHeight handle
@@ -1156,5 +1163,75 @@ type FSharpRowCursorMaterializer() =
                         found <- true
 
                 found
+
+        member _.SequenceEqual<'TSource>(handle1: DataFrameHandle, handle2: DataFrameHandle, comparer: IEqualityComparer<'TSource>) : bool =
+            let df1 = new DataFrame(handle1)
+            let df2 = new DataFrame(handle2)
+            if df1.Height <> df2.Height then false
+            elif df1.Height = 0L then true
+            else
+                let comp = if isNull (box comparer) then EqualityComparer<'TSource>.Default :> IEqualityComparer<'TSource> else comparer
+                let mutable enum1 = df1.Rows<'TSource>()
+                let mutable enum2 = df2.Rows<'TSource>()
+                let mutable equal = true
+                while equal && enum1.MoveNext() && enum2.MoveNext() do
+                    if not (comp.Equals(enum1.Current, enum2.Current)) then
+                        equal <- false
+                equal
+
+        member _.SequenceEqual<'TSource>(handle: DataFrameHandle, second: IEnumerable<'TSource>, comparer: IEqualityComparer<'TSource>) : bool =
+            if isNull (box second) then nullArg "second"
+            let df = new DataFrame(handle)
+            let comp = if isNull (box comparer) then EqualityComparer<'TSource>.Default :> IEqualityComparer<'TSource> else comparer
+
+            match second with
+            | :? ICollection<'TSource> as c when df.Height <> int64 c.Count -> false
+            | :? IReadOnlyCollection<'TSource> as rc when df.Height <> int64 rc.Count -> false
+            | _ ->
+                let mutable enum1 = df.Rows<'TSource>()
+                use enum2 = second.GetEnumerator()
+                let mutable equal = true
+                while equal && enum1.MoveNext() do
+                    if not (enum2.MoveNext()) || not (comp.Equals(enum1.Current, enum2.Current)) then
+                        equal <- false
+                equal && not (enum2.MoveNext())
+
+        member _.MinBy<'TSource, 'TKey>(handle: DataFrameHandle, keySelector: Func<'TSource, 'TKey>, comparer: IComparer<'TKey>) : 'TSource =
+            if isNull (box keySelector) then nullArg "keySelector"
+            let df = new DataFrame(handle)
+            if df.Height = 0L then FSharpRowCursorMaterializer.handleEmptySequence<'TSource>()
+            else
+                let comp = if isNull (box comparer) then Comparer<'TKey>.Default :> IComparer<'TKey> else comparer
+                let mutable enumerator = df.Rows<'TSource>()
+                if not (enumerator.MoveNext()) then FSharpRowCursorMaterializer.handleEmptySequence<'TSource>()
+                else
+                    let mutable minRow = enumerator.Current
+                    let mutable minKey = keySelector.Invoke minRow
+                    while enumerator.MoveNext() do
+                        let curRow = enumerator.Current
+                        let curKey = keySelector.Invoke curRow
+                        if comp.Compare(curKey, minKey) < 0 then
+                            minKey <- curKey
+                            minRow <- curRow
+                    minRow
+
+        member _.MaxBy<'TSource, 'TKey>(handle: DataFrameHandle, keySelector: Func<'TSource, 'TKey>, comparer: IComparer<'TKey>) : 'TSource =
+            if isNull (box keySelector) then nullArg "keySelector"
+            let df = new DataFrame(handle)
+            if df.Height = 0L then FSharpRowCursorMaterializer.handleEmptySequence<'TSource>()
+            else
+                let comp = if isNull (box comparer) then Comparer<'TKey>.Default :> IComparer<'TKey> else comparer
+                let mutable enumerator = df.Rows<'TSource>()
+                if not (enumerator.MoveNext()) then FSharpRowCursorMaterializer.handleEmptySequence<'TSource>()
+                else
+                    let mutable maxRow = enumerator.Current
+                    let mutable maxKey = keySelector.Invoke maxRow
+                    while enumerator.MoveNext() do
+                        let curRow = enumerator.Current
+                        let curKey = keySelector.Invoke curRow
+                        if comp.Compare(curKey, maxKey) > 0 then
+                            maxKey <- curKey
+                            maxRow <- curRow
+                    maxRow
 
 

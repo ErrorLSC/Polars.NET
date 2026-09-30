@@ -87,6 +87,10 @@ public interface IDataFrameMaterializer
     TSource ElementAt<TSource>(DataFrameHandle handle, long index);
     TSource? ElementAtOrDefault<TSource>(DataFrameHandle handle, long index);
     bool Contains<TSource>(DataFrameHandle handle, TSource item, IEqualityComparer<TSource>? comparer = null);
+    bool SequenceEqual<TSource>(DataFrameHandle handle1, DataFrameHandle handle2, IEqualityComparer<TSource>? comparer = null);
+    bool SequenceEqual<TSource>(DataFrameHandle handle, IEnumerable<TSource> second, IEqualityComparer<TSource>? comparer = null);
+    TSource MinBy<TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null);
+    TSource MaxBy<TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null);
 }
 
 public static class DataFrameMaterializerRegistry

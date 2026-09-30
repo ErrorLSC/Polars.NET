@@ -5,6 +5,7 @@ using Polars.NET.Linq.Provider;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Polars.NET.Core.Helpers;
 
 namespace Polars.CSharp.Linq;
 
@@ -434,6 +435,123 @@ public sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         }
 
         return false;
+    }
+    public bool SequenceEqual<TSource>(DataFrameHandle handle1, DataFrameHandle handle2, IEqualityComparer<TSource>? comparer = null)
+    {
+        var df1 = new DataFrame(handle1);
+        var df2 = new DataFrame(handle2);
+
+        if (df1.Height != df2.Height)
+            return false;
+
+        if (df1.Height == 0)
+            return true;
+
+        var comp = comparer ?? EqualityComparer<TSource>.Default;
+
+        var enum1 = df1.Rows<TSource>();
+        var enum2 = df2.Rows<TSource>();
+
+        while (enum1.MoveNext() && enum2.MoveNext())
+        {
+            if (!comp.Equals(enum1.Current, enum2.Current))
+                return false;
+        }
+
+        return true;
+    }
+
+    public bool SequenceEqual<TSource>(DataFrameHandle handle, IEnumerable<TSource> second, IEqualityComparer<TSource>? comparer = null)
+    {
+        ArgumentNullException.ThrowIfNull(second);
+
+        var df = new DataFrame(handle);
+        var comp = comparer ?? EqualityComparer<TSource>.Default;
+
+        if (second is ICollection<TSource> col && df.Height != col.Count)
+            return false;
+        if (second is IReadOnlyCollection<TSource> rCol && df.Height != rCol.Count)
+            return false;
+
+        var enum1 = df.Rows<TSource>();
+        using var enum2 = second.GetEnumerator();
+
+        while (enum1.MoveNext())
+        {
+            if (!enum2.MoveNext() || !comp.Equals(enum1.Current, enum2.Current))
+                return false;
+        }
+
+        return !enum2.MoveNext();
+    }
+    private static TSource HandleEmptySequence<TSource>()
+    {
+        if (PolarsTypeHelper.AcceptsNull(typeof(TSource)))
+            return default!;
+
+        throw new InvalidOperationException("Sequence contains no elements.");
+    }
+
+    public TSource MinBy<TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null)
+    {
+        ArgumentNullException.ThrowIfNull(keySelector);
+        var df = new DataFrame(handle);
+        if (df.Height == 0)
+            return HandleEmptySequence<TSource>();
+
+        var comp = comparer ?? Comparer<TKey>.Default;
+        var enumerator = df.Rows<TSource>();
+
+        if (!enumerator.MoveNext())
+            return HandleEmptySequence<TSource>();
+
+        var minRow = enumerator.Current;
+        var minKey = keySelector(minRow);
+
+        while (enumerator.MoveNext())
+        {
+            var curRow = enumerator.Current;
+            var curKey = keySelector(curRow);
+
+            if (comp.Compare(curKey, minKey) < 0)
+            {
+                minKey = curKey;
+                minRow = curRow;
+            }
+        }
+
+        return minRow;
+    }
+
+    public TSource MaxBy<TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null)
+    {
+        ArgumentNullException.ThrowIfNull(keySelector);
+        var df = new DataFrame(handle);
+        if (df.Height == 0)
+            return HandleEmptySequence<TSource>();
+
+        var comp = comparer ?? Comparer<TKey>.Default;
+        var enumerator = df.Rows<TSource>();
+
+        if (!enumerator.MoveNext())
+            return HandleEmptySequence<TSource>();
+
+        var maxRow = enumerator.Current;
+        var maxKey = keySelector(maxRow);
+
+        while (enumerator.MoveNext())
+        {
+            var curRow = enumerator.Current;
+            var curKey = keySelector(curRow);
+
+            if (comp.Compare(curKey, maxKey) > 0)
+            {
+                maxKey = curKey;
+                maxRow = curRow;
+            }
+        }
+
+        return maxRow;
     }
 }
 
