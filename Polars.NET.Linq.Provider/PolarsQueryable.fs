@@ -1337,7 +1337,14 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                         if sortSpecs.IsEmpty then []
                         else [ QueryOp.Sort sortSpecs ]
 
-                    Some (sortOps @ havingFilterOps @ [ groupByOp ])
+                    let finalSelectOp =
+                        let orderedColExprs =
+                            memberNames
+                            |> List.map (fun mName -> PolarsWrapper.Col mName)
+                            |> List.toArray
+                        QueryOp.Select orderedColExprs
+
+                    Some (finalSelectOp :: sortOps @ havingFilterOps @ [ groupByOp ])
 
             | _ -> None
 
@@ -1903,7 +1910,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                             | None -> None
 
                         | Constant _ ->
-                            ExprTranslator.tryTranslate "" e
+                            ExprTranslator.tryTranslate l.Parameters.[0].Name e
 
                         | _ -> None
 

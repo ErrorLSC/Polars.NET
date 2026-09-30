@@ -55,7 +55,12 @@ public readonly record struct MemberRecord(
     int Salary
 );
 public readonly record struct DeptAggResult(int DeptId, long TotalCount, int MaxId);
-
+public readonly record struct OrderRecord(
+    int Id,
+    string CustomerName,
+    DateTime OrderDate,
+    double Amount
+);
 public class LinqTests
 {
     [Fact]
@@ -125,7 +130,7 @@ public class LinqTests
 
         Assert.Throws<InvalidOperationException>(() => query.Last(e => e.Age > 100));
 
-        var upperLast = query.Select(e => e.Name.ToUpper()).Last(name => name.StartsWith("C") || name.StartsWith("D"));
+        var upperLast = query.Select(e => e.Name.ToUpper()).Last(name => name.StartsWith('C') || name.StartsWith('D'));
         Assert.Equal("DAVID", upperLast);
     }
 
@@ -3274,5 +3279,137 @@ public class LinqTests
         Assert.Throws<InvalidOperationException>(() => emptyQuery.Average(e => e.Salary));
         Assert.Throws<InvalidOperationException>(() => emptyQuery.Min(e => e.Salary));
         Assert.Throws<InvalidOperationException>(() => emptyQuery.Max(e => e.Salary));
+    }
+    private static DataFrame CreateSampleOrdersDf()
+    {
+        return DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3, 4]),
+            Series.From("CustomerName", ["  Alice Smith  ", "bob_jones", "CHARLIE", "david"]),
+            Series.From("OrderDate", [
+                new DateTime(2026, 1, 15, 10, 30, 0),
+                new DateTime(2025, 6, 20, 14, 45, 0),
+                new DateTime(2026, 8, 5, 9, 15, 0),
+                new DateTime(2024, 12, 1, 18, 0, 0)
+            ]),
+            Series.From("Amount", [120.55, -45.0, 999.4, 25.8])
+        ]);
+    }
+
+    [Fact]
+    [Trait("LINQ", "StringVectorized")]
+    public void Test_Linq_String_Vectorized_Ops()
+    {
+        using var df = CreateSampleOrdersDf();
+
+        // Tests: Trim(), ToLower(), Contains(), StartsWith(), Length
+        var query = df.AsQueryable<OrderRecord>()
+                      .Where(o => o.CustomerName.Trim().ToLower().Contains("li") || o.CustomerName.StartsWith("  A"))
+                      .Select(o => new {
+                          CleanName = o.CustomerName.Trim().ToLower(),
+                          Len = o.CustomerName.Length
+                      })
+                      .ToList();
+
+        Assert.Equal(2, query.Count);
+        Assert.Equal("alice smith", query[0].CleanName);
+        Assert.Equal("charlie", query[1].CleanName);
+    }
+
+    [Fact]
+    [Trait("LINQ", "DateTimeVectorized")]
+    public void Test_Linq_DateTime_Vectorized_Ops()
+    {
+        using var df = CreateSampleOrdersDf();
+
+        // Tests: .Year, .Month, .Day, ToString(chrono format), AddDays
+        var query = df.AsQueryable<OrderRecord>()
+                      .Where(o => o.OrderDate.Year == 2026 && o.OrderDate.Month >= 1)
+                      .Select(o => new {
+                          o.Id,
+                          Year = o.OrderDate.Year,
+                          Month = o.OrderDate.Month,
+                          Day = o.OrderDate.Day,
+                          Hour = o.OrderDate.Hour,
+                          Formatted = o.OrderDate.ToString("yyyy-MM-dd")
+                      })
+                      .ToList();
+
+        Assert.Equal(2, query.Count);
+        
+        Assert.Equal(1, query[0].Id);
+        Assert.Equal(2026, query[0].Year);
+        Assert.Equal(1, query[0].Month);
+        Assert.Equal(15, query[0].Day);
+        Assert.Equal(10, query[0].Hour);
+        Assert.Equal("2026-01-15", query[0].Formatted);
+
+        Assert.Equal(3, query[1].Id);
+        Assert.Equal(2026, query[1].Year);
+        Assert.Equal(8, query[1].Month);
+        Assert.Equal(5, query[1].Day);
+        Assert.Equal("2026-08-05", query[1].Formatted);
+    }
+
+    [Fact]
+    [Trait("LINQ", "MathVectorized")]
+    public void Test_Linq_Math_Vectorized_Ops()
+    {
+        using var df = CreateSampleOrdersDf();
+
+        // Tests: Math.Abs, Math.Round, Math.Sqrt, Math.Max
+        var query = df.AsQueryable<OrderRecord>()
+                      .Where(o => Math.Abs(o.Amount) > 50.0)
+                      .Select(o => new {
+                          o.Id,
+                          AbsAmount = Math.Abs(o.Amount),
+                          Rounded = Math.Round(o.Amount, 1),
+                          CeilVal = Math.Ceiling(o.Amount),
+                          MaxVal = Math.Max(o.Amount, 100.0)
+                      })
+                      .ToList();
+
+        Assert.Equal(2, query.Count);
+
+        // Record 1: 120.55
+        Assert.Equal(1, query[0].Id);
+        Assert.Equal(120.55, query[0].AbsAmount);
+        Assert.Equal(120.6, query[0].Rounded);
+        Assert.Equal(121.0, query[0].CeilVal);
+        Assert.Equal(120.55, query[0].MaxVal);
+
+        // Record 3: 999.4
+        Assert.Equal(3, query[1].Id);
+        Assert.Equal(999.4, query[1].AbsAmount);
+        Assert.Equal(999.4, query[1].Rounded);
+        Assert.Equal(1000.0, query[1].CeilVal);
+        Assert.Equal(999.4, query[1].MaxVal);
+    }
+
+    [Fact]
+    [Trait("LINQ", "CombinedVectorizedPushdown")]
+    public void Test_Linq_Combined_Complex_Pushdown()
+    {
+        using var df = CreateSampleOrdersDf();
+
+        // Complex combined filter + projection without hitting fallback
+        var result = df.AsQueryable<OrderRecord>()
+                       .Where(o => o.OrderDate.Year >= 2025 && 
+                                   Math.Abs(o.Amount) > 30.0 && 
+                                   !string.IsNullOrEmpty(o.CustomerName))
+                       .Select(o => new {
+                           UpperName = o.CustomerName.Trim().ToUpper(),
+                           SubName = o.CustomerName.Trim().Substring(0, 3),
+                           o.OrderDate.Year,
+                           SqrtAmount = Math.Sqrt(Math.Abs(o.Amount))
+                       })
+                       .ToList();
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal("ALICE SMITH", result[0].UpperName);
+        Assert.Equal("Ali", result[0].SubName);
+        Assert.Equal("BOB_JONES", result[1].UpperName);
+        Assert.Equal("bob", result[1].SubName);
+        Assert.Equal("CHARLIE", result[2].UpperName);
+        Assert.Equal("CHA", result[2].SubName);
     }
 }
