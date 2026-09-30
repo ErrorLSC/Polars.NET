@@ -133,18 +133,6 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 let count = Enumerable.Count(rawRows.Cast<obj>())
                 Convert.ChangeType(count, targetType) :?> 'TResult
 
-        // // 3. Any() without predicate
-        // | MethodCall(m, null, [ source ]) when m.Name = "Any" ->
-        //     let nativeLf, hasClientPreds = resolveQueryPlan source
-        //     if not hasClientPreds then
-        //         let slicedLf = PolarsWrapper.LazySlice(nativeLf, 0L, 1u)
-        //         let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
-        //         let height = PolarsWrapper.DataFrameHeight dfHandle
-        //         box (height > 0L) :?> 'TResult
-        //     else
-        //         let rawRows = (this :> IQueryProvider).CreateQuery(source)
-        //         box (Enumerable.Any(rawRows.Cast<obj>())) :?> 'TResult
-
         // 3. Any() without predicate
         | MethodCall(m, null, [ source ]) when m.Name = "Any" ->
             let nativeLf, hasClientPreds = resolveQueryPlan source
@@ -172,25 +160,16 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
             let invoker = LinqReflectionCache.GetMaterializerAnyInvoker elemType
             box (invoker.Invoke(mat, dfHandle, compiledPred)) :?> 'TResult
 
-        // 4. All(predicate) -> Short-circuit pushdown: filter(not(pred)).slice(0, 1)
-        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as pred) ]) when m.Name = "All" ->
-            let nativeLf, hasClientPreds = resolveQueryPlan source
-            let translatedExprOpt = ExprTranslator.tryTranslate pred.Parameters.[0].Name pred.Body
+        // 5. All(predicate) with client predicate via stack cursor short-circuit
+        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as predLambda) ]) when m.Name = "All" ->
+            let nativeLf, _ = resolveQueryPlan source
+            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+            let elemType = getSequenceElementType source.Type
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
 
-            match translatedExprOpt with
-            | Some colExpr when not hasClientPreds ->
-                let notExpr = PolarsWrapper.Not colExpr
-                let filteredLf = PolarsWrapper.LazyFilter(nativeLf, notExpr)
-                let slicedLf = PolarsWrapper.LazySlice(filteredLf, 0L, 1u)
-                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
-                let height = PolarsWrapper.DataFrameHeight dfHandle
-                box (height = 0L) :?> 'TResult
-            | _ ->
-                let rawRows = (this :> IQueryProvider).CreateQuery(source)
-                let elemType = getSequenceElementType source.Type
-                let compiledPred = pred.Compile()
-                let closedMethod = LinqReflectionCache.GetEnumerableMethod("All", 2, [| elemType |])
-                closedMethod.Invoke(null, [| box rawRows; box compiledPred |]) :?> 'TResult
+            let compiledPred = predLambda.Compile()
+            let invoker = LinqReflectionCache.GetMaterializerAllInvoker elemType
+            box (invoker.Invoke(mat, dfHandle, compiledPred)) :?> 'TResult
 
         // 5. First() / FirstOrDefault() without predicate
         | MethodCall(m, null, [ source ]) when m.Name = "First" || m.Name = "FirstOrDefault" ->
