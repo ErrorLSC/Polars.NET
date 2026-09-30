@@ -84,6 +84,8 @@ public interface IDataFrameMaterializer
     long Count<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
     TSource Single<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
     TSource? SingleOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
+    TSource ElementAt<TSource>(DataFrameHandle handle, long index);
+    TSource? ElementAtOrDefault<TSource>(DataFrameHandle handle, long index);
 }
 
 public static class DataFrameMaterializerRegistry

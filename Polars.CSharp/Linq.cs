@@ -397,6 +397,27 @@ public sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         return found ? match : defaultValue;
     }
+    public TSource ElementAt<TSource>(DataFrameHandle handle, long index)
+    {
+        if (index < 0)
+            throw new ArgumentOutOfRangeException(nameof(index), "Index was out of range.");
+
+        var df = new DataFrame(handle);
+
+        var enumerator = df.Rows<TSource>();
+        return enumerator.ElementAt(index);
+    }
+
+    public TSource? ElementAtOrDefault<TSource>(DataFrameHandle handle, long index)
+    {
+        if (index < 0)
+            return default;
+
+        var df = new DataFrame(handle);
+
+        var enumerator = df.Rows<TSource>();
+        return enumerator.ElementAtOrDefault(index);
+    }
 }
 
 

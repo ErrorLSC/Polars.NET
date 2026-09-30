@@ -5,7 +5,7 @@ using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
 
-public record struct Employee(string Name, int Age, int Salary);
+public record Employee(string Name, int Age, int Salary);
 public readonly record struct EmployeeDept(string Name, string Department, int Age, int Salary);
 public readonly record struct DeptEmpCount(int DeptId, string DeptName, int EmployeeCount);
 public record struct DepartmentRecord(string Department,int Salary);
@@ -3034,5 +3034,102 @@ public class LinqTests
 
         var uniqueBob = upperQuery.Single(name => name == "BOB");
         Assert.Equal("BOB", uniqueBob);
+    }
+    [Fact]
+    [Trait("LINQ", "Scalar_Empty_DefaultValue")]
+    public void Test_CSharp_Linq_Scalar_Empty_Collection_With_DefaultValues()
+    {
+        var fallbackEmployee = new Employee("Fallback", 99, 99999);
+        Employee[] emptyList = [];
+
+        using var df = DataFrame.FromRows(emptyList);
+        var query = df.AsQueryable(emptyList);
+
+        // ==========================================
+        // 1. First / FirstOrDefault
+        // ==========================================
+        // 1.1 Empty with First
+        Assert.Throws<InvalidOperationException>(() => query.First());
+        Assert.Throws<InvalidOperationException>(() => query.First(e => e.Age > 20));
+
+        // 1.2 FirstOrDefault return null
+        Assert.Null(query.FirstOrDefault());
+        Assert.Null(query.FirstOrDefault(e => e.Age > 20));
+
+        // 1.3 defaultValue
+        Assert.Equal(fallbackEmployee, query.FirstOrDefault(fallbackEmployee));
+        Assert.Equal(fallbackEmployee, query.FirstOrDefault(e => e.Age > 20, fallbackEmployee));
+
+        // ==========================================
+        // 2. Last / LastOrDefault
+        // ==========================================
+        // 2.1 Empty with Last
+        Assert.Throws<InvalidOperationException>(() => query.Last());
+        Assert.Throws<InvalidOperationException>(() => query.Last(e => e.Age > 20));
+
+        // 2.2 LastOrDefault return null
+        Assert.Null(query.LastOrDefault());
+        Assert.Null(query.LastOrDefault(e => e.Age > 20));
+
+        // 2.3 .defaultValue 
+        Assert.Equal(fallbackEmployee, query.LastOrDefault(fallbackEmployee));
+        Assert.Equal(fallbackEmployee, query.LastOrDefault(e => e.Age > 20, fallbackEmployee));
+
+        // ==========================================
+        // 3. Single / SingleOrDefault
+        // ==========================================
+        // 3.1 Empty with Single
+        Assert.Throws<InvalidOperationException>(() => query.Single());
+        Assert.Throws<InvalidOperationException>(() => query.Single(e => e.Age > 20));
+
+        // 3.2 SingleOrDefault return null
+        Assert.Null(query.SingleOrDefault());
+        Assert.Null(query.SingleOrDefault(e => e.Age > 20));
+
+        // 3.3 defaultValue
+        Assert.Equal(fallbackEmployee, query.SingleOrDefault(fallbackEmployee));
+        Assert.Equal(fallbackEmployee, query.SingleOrDefault(e => e.Age > 20, fallbackEmployee));
+
+        var upperQuery = query.Select(e => e.Name.ToUpper());
+        Assert.Equal("DEFAULT_NAME", upperQuery.FirstOrDefault("DEFAULT_NAME"));
+        Assert.Equal("DEFAULT_NAME", upperQuery.LastOrDefault("DEFAULT_NAME"));
+        Assert.Equal("DEFAULT_NAME", upperQuery.SingleOrDefault("DEFAULT_NAME"));
+        Assert.Equal("DEFAULT_NAME", upperQuery.SingleOrDefault(name => name.StartsWith('Z'), "DEFAULT_NAME"));
+    }
+    [Fact]
+    [Trait("LINQ", "Scalar_ElementAt_Index")]
+    public void Test_CSharp_Linq_Scalar_ElementAt_And_Index()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000),
+            new Employee("Charlie", 35, 70000)
+        };
+
+        using var df = DataFrame.FromRows(emps);
+        var query = df.AsQueryable(emps);
+
+        Assert.Equal("Alice", query.ElementAt(0).Name);
+        Assert.Equal("Bob", query.ElementAt(1).Name);
+        Assert.Equal("Charlie", query.ElementAt(2).Name);
+
+        Assert.Equal("Charlie", query.ElementAt(^1).Name);
+        Assert.Equal("Bob", query.ElementAt(^2).Name);
+        Assert.Equal("Alice", query.ElementAt(^3).Name);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => query.ElementAt(3));
+        Assert.Throws<ArgumentOutOfRangeException>(() => query.ElementAt(-1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => query.ElementAt(^4));
+
+        Assert.Null(query.ElementAtOrDefault(-1));
+        Assert.Null(query.ElementAtOrDefault(3));
+        Assert.Null(query.ElementAtOrDefault(^4));
+        Assert.Equal("Charlie", query.ElementAtOrDefault(^1)?.Name);
+
+        var upperQuery = query.Select(e => e.Name.ToUpper());
+        Assert.Equal("CHARLIE", upperQuery.ElementAt(^1));
+        Assert.Equal("BOB", upperQuery.ElementAt(^2));
+        Assert.Null(upperQuery.ElementAtOrDefault(^10));
     }
 }

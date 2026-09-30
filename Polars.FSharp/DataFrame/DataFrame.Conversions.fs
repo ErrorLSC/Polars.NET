@@ -1124,3 +1124,19 @@ type FSharpRowCursorMaterializer() =
                             matchVal <- enumerator.Current
                             found <- true
                     if found then matchVal else defaultValue
+
+        member _.ElementAt<'TSource>(handle: DataFrameHandle, index: int64) : 'TSource =
+            if index < 0L then
+                raise (ArgumentOutOfRangeException("index", "Index was out of range."))
+            let df = new DataFrame(handle)
+            
+            df.Rows<'TSource>().Item index
+        member _.ElementAtOrDefault<'TSource>(handle: DataFrameHandle, index: int64) : 'TSource =
+            if index < 0L then Unchecked.defaultof<'TSource>
+            else
+                let df = new DataFrame(handle)
+                match df.Rows<'TSource>().TryGetValueItem index with
+                | ValueSome row -> row
+                | ValueNone -> Unchecked.defaultof<'TSource>
+
+
