@@ -133,17 +133,44 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 let count = Enumerable.Count(rawRows.Cast<obj>())
                 Convert.ChangeType(count, targetType) :?> 'TResult
 
+        // // 3. Any() without predicate
+        // | MethodCall(m, null, [ source ]) when m.Name = "Any" ->
+        //     let nativeLf, hasClientPreds = resolveQueryPlan source
+        //     if not hasClientPreds then
+        //         let slicedLf = PolarsWrapper.LazySlice(nativeLf, 0L, 1u)
+        //         let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+        //         let height = PolarsWrapper.DataFrameHeight dfHandle
+        //         box (height > 0L) :?> 'TResult
+        //     else
+        //         let rawRows = (this :> IQueryProvider).CreateQuery(source)
+        //         box (Enumerable.Any(rawRows.Cast<obj>())) :?> 'TResult
+
         // 3. Any() without predicate
         | MethodCall(m, null, [ source ]) when m.Name = "Any" ->
             let nativeLf, hasClientPreds = resolveQueryPlan source
             if not hasClientPreds then
+                // Native pushdown: slice 1 row to test non-emptiness at Rust engine level
                 let slicedLf = PolarsWrapper.LazySlice(nativeLf, 0L, 1u)
                 let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
                 let height = PolarsWrapper.DataFrameHeight dfHandle
                 box (height > 0L) :?> 'TResult
             else
-                let rawRows = (this :> IQueryProvider).CreateQuery(source)
-                box (Enumerable.Any(rawRows.Cast<obj>())) :?> 'TResult
+                // Client fallback: collect filtered DataFrame and short-circuit via stack row enumerator
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let elemType = getSequenceElementType source.Type
+                let mat = QueryMaterializerResolver.Resolve (Some materializer)
+                let invoker = LinqReflectionCache.GetMaterializerAnyInvoker elemType
+                box (invoker.Invoke(mat, dfHandle, null)) :?> 'TResult
+
+        // 4. Any(predicate) with client predicate
+        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as pred) ]) when m.Name = "Any" ->
+            let nativeLf, _ = resolveQueryPlan source
+            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+            let elemType = getSequenceElementType source.Type
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
+            let compiledPred = pred.Compile()
+            let invoker = LinqReflectionCache.GetMaterializerAnyInvoker elemType
+            box (invoker.Invoke(mat, dfHandle, compiledPred)) :?> 'TResult
 
         // 4. All(predicate) -> Short-circuit pushdown: filter(not(pred)).slice(0, 1)
         | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as pred) ]) when m.Name = "All" ->

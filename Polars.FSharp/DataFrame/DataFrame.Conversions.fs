@@ -959,5 +959,31 @@ type FSharpRowCursorMaterializer() =
                         yield buffer.ToArray()
             }
         
-        
+        member _.Any<'TSource>(handle: DataFrameHandle, predicate: Func<'TSource, bool>) : bool =
+            let df = new DataFrame(handle)
+            if df.Height = 0L then
+                false
+            else
+                let mutable enumerator = df.Rows<'TSource>()
+                if isNull (box predicate) then
+                    enumerator.MoveNext()
+                else
+                    let mutable matched = false
+                    while not matched && enumerator.MoveNext() do
+                        if predicate.Invoke enumerator.Current then
+                            matched <- true
+                    matched
+        member _.All<'TSource>(handle: DataFrameHandle, predicate: Func<'TSource, bool>) : bool =
+            ArgumentNullException.ThrowIfNull(predicate, nameof predicate)
+
+            let df = new DataFrame(handle)
+            if df.Height = 0L then
+                true
+            else
+                let mutable enumerator = df.Rows<'TSource>()
+                let mutable allMatched = true
+                while allMatched && enumerator.MoveNext() do
+                    if not (predicate.Invoke enumerator.Current) then
+                        allMatched <- false
+                allMatched
 

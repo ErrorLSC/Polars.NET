@@ -92,7 +92,6 @@ internal static class RowMapper<T>
             foreach (var c in ctors)
             {
                 var pList = string.Join(", ", c.GetParameters().Select(p => $"{p.ParameterType.Name} {p.Name}"));
-                Console.WriteLine($"  -> Ctor: ({pList})");
             }
 
             // Exclude copy constructor: e.g. T(T original)

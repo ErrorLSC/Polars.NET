@@ -2299,6 +2299,47 @@ public class LinqTests
     }
 
     [Fact]
+    [Trait("LINQ", "Scalar_Any")]
+    public void Test_Linq_Any_Pushdown_And_ShortCircuit()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 30, 35]),
+            Series.From("Salary", [50000L, 60000L, 70000L])
+        ]);
+
+        var query = df.AsQueryable<Employee>();
+
+        // ==========================================
+        // 1. Any() without predicate (Existence check)
+        // ==========================================
+        // Non-empty DataFrame -> true
+        Assert.True(query.Any());
+
+        // Empty DataFrame via filtered query -> false
+        Assert.False(query.Where(e => e.Age > 100).Any());
+
+        // ==========================================
+        // 2. Any(predicate) with condition (Short-circuit scan)
+        // ==========================================
+        // Case A: Matches first row directly (Early exit on first element) -> true
+        Assert.True(query.Any(e => e.Age == 25));
+
+        // Case B: Matches intermediate or last row -> true
+        Assert.True(query.Any(e => e.Name == "Charlie"));
+        Assert.True(query.Any(e => e.Salary >= 60000L));
+
+        // Case C: Matches all rows -> true
+        Assert.True(query.Any(e => e.Age >= 20));
+
+        // Case D: Matches no rows -> false
+        Assert.False(query.Any(e => e.Age < 20));
+        Assert.False(query.Any(e => e.Salary > 100000L));
+        Assert.False(query.Any(e => e.Name == "NonExistent"));
+    }
+
+    [Fact]
     [Trait("LINQ", "CountBy")]
     public void Test_Linq_CountBy_Pushdown()
     {

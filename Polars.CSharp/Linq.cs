@@ -166,6 +166,45 @@ public sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         return chunkArray;
     }
+    public bool Any<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
+    {
+        var df = new DataFrame(handle);
+        if (df.Height == 0)
+            return false;
+
+        var enumerator = df.Rows<TSource>();
+
+        // Case 1: Any() without predicate - simply checks if there is at least one row
+        if (predicate == null)
+            return enumerator.MoveNext();
+
+        // Case 2: Any(predicate) - short-circuit scan on stack
+        while (enumerator.MoveNext())
+        {
+            if (predicate(enumerator.Current))
+                return true;
+        }
+
+        return false;
+    }
+    public bool All<TSource>(DataFrameHandle handle, Func<TSource, bool> predicate)
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+
+        var df = new DataFrame(handle);
+        if (df.Height == 0)
+            return true;
+
+        var enumerator = df.Rows<TSource>();
+        while (enumerator.MoveNext())
+        {
+            // Early exit if any row violates the predicate
+            if (!predicate(enumerator.Current))
+                return false;
+        }
+
+        return true;
+    }
 }
 
 

@@ -71,7 +71,6 @@ public interface IDataFrameMaterializer
         IEqualityComparer<TKey>? comparer = null)
         where TKey : notnull;
         
-
     IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<TSource, TKey, TAccum>(
         DataFrameHandle handle,
         Func<TSource, TKey> keySelector,
@@ -88,6 +87,9 @@ public interface IDataFrameMaterializer
     /// <param name="chunkSize">The maximum number of rows in each chunk.</param>
     /// <returns>A sequence of chunks represented as arrays of T.</returns>
     IEnumerable<T[]> Chunk<T>(DataFrameHandle handle, int chunkSize);
+
+    bool Any<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    bool All<TSource>(DataFrameHandle handle, Func<TSource, bool> predicate);
 }
 
 public static class DataFrameMaterializerRegistry
