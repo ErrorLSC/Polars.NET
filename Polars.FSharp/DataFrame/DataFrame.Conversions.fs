@@ -1063,4 +1063,64 @@ type FSharpRowCursorMaterializer() =
                         found <- true
 
                 if found then lastMatch else defaultValue
+        member _.Count<'TSource>(handle: DataFrameHandle, predicate: Func<'TSource, bool>) : int64 =
+            let df = new DataFrame(handle)
+            let height = df.Height
+            if isNull (box predicate) then
+                height
+            elif height = 0L then
+                0L
+            else
+                let mutable enumerator = df.Rows<'TSource>()
+                let mutable count = 0L
+                while enumerator.MoveNext() do
+                    if predicate.Invoke enumerator.Current then
+                        count <- count + 1L
+                count
+        member _.Single<'TSource>(handle: DataFrameHandle, predicate: Func<'TSource, bool>) : 'TSource =
+            let df = new DataFrame(handle)
+            let height = df.Height
 
+            if isNull (box predicate) then
+                if height = 0L then invalidOp "Sequence contains no elements."
+                elif height > 1L then invalidOp "Sequence contains more than one element."
+                else
+                    df.Rows<'TSource>().First()
+                    
+            else
+                if height = 0L then invalidOp "Sequence contains no matching element."
+                else
+                    let mutable enumerator = df.Rows<'TSource>()
+                    let mutable found = false
+                    let mutable matchVal = Unchecked.defaultof<'TSource>
+                    while enumerator.MoveNext() do
+                        if predicate.Invoke enumerator.Current then
+                            if found then invalidOp "Sequence contains more than one matching element."
+                            matchVal <- enumerator.Current
+                            found <- true
+                    if found then matchVal
+                    else invalidOp "Sequence contains no matching element."
+
+        member _.SingleOrDefault<'TSource>(handle: DataFrameHandle, predicate: Func<'TSource, bool>, defaultValue: 'TSource) : 'TSource =
+            let df = new DataFrame(handle)
+            let height = df.Height
+
+            if isNull (box predicate) then
+                if height = 0L then defaultValue
+                elif height > 1L then invalidOp "Sequence contains more than one element."
+                else
+                    match df.Rows<'TSource>().TryFirstValue() with
+                    | ValueSome row -> row
+                    | ValueNone -> defaultValue
+            else
+                if height = 0L then defaultValue
+                else
+                    let mutable enumerator = df.Rows<'TSource>()
+                    let mutable found = false
+                    let mutable matchVal = defaultValue
+                    while enumerator.MoveNext() do
+                        if predicate.Invoke enumerator.Current then
+                            if found then invalidOp "Sequence contains more than one matching element."
+                            matchVal <- enumerator.Current
+                            found <- true
+                    if found then matchVal else defaultValue

@@ -9,6 +9,7 @@ open System.Linq.Expressions
 open System.Reflection
 open Polars.NET.Core
 
+
 /// Global reflection cache for LINQ methods to eliminate runtime lookup overhead.
 [<AbstractClass; Sealed>]
 type internal LinqReflectionCache private () =
@@ -74,6 +75,23 @@ type internal LinqReflectionCache private () =
 
     // Cache: elemType -> Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, obj> for LastOrDefault(predicate, defaultValue)
     static let matLastOrDefaultCache =
+        ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, obj>>()
+
+    // Cache: sourceType -> Func<Func<obj, obj>, Delegate, Type, Delegate>
+    static let composedPredicateCache =
+        ConcurrentDictionary<Type, Func<Func<obj, obj>, Delegate, Type, Delegate>>()
+    
+    // Cache: elemType -> Func<IDataFrameMaterializer, DataFrameHandle, Delegate, int64> for Count(predicate)
+    static let matCountCache =
+        ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, Delegate, int64>>()
+
+
+    // Cache: elemType -> Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj> for Single(predicate)
+    static let matSingleCache =
+        ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj>>()
+
+    // Cache: elemType -> Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, obj> for SingleOrDefault(predicate, defaultValue)
+    static let matSingleOrDefaultCache =
         ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, obj>>()
 
     /// Cached MethodInfo for Queryable.Where definition
@@ -455,6 +473,122 @@ type internal LinqReflectionCache private () =
             let methodInfo =
                 typeof<IDataFrameMaterializer>.GetMethods()
                 |> Array.find (fun m -> m.Name = "LastOrDefault" && m.IsGenericMethodDefinition && m.GetParameters().Length = 3)
+                |> fun m -> m.MakeGenericMethod(t)
+
+            let matParam = Expression.Parameter(typeof<IDataFrameMaterializer>, "mat")
+            let handleParam = Expression.Parameter(typeof<DataFrameHandle>, "handle")
+            let predParam = Expression.Parameter(typeof<Delegate>, "pred")
+            let defValParam = Expression.Parameter(typeof<obj>, "defaultVal")
+
+            let funcType = typedefof<Func<_, _>>.MakeGenericType(t, typeof<bool>)
+            let castPred = Expression.Condition(
+                Expression.Equal(predParam, Expression.Constant(null, typeof<Delegate>)),
+                Expression.Constant(null, funcType),
+                Expression.Convert(predParam, funcType)
+            )
+            let castDefVal = Expression.Convert(defValParam, t)
+
+            let callExpr = Expression.Call(matParam, methodInfo, handleParam, castPred, castDefVal)
+            let boxResult = Expression.Convert(callExpr, typeof<obj>)
+
+            Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, obj>>(
+                boxResult, matParam, handleParam, predParam, defValParam
+            ).Compile()
+        )
+    
+    /// Composes a client projection (Func<obj, obj>) and a compiled predicate (Delegate) 
+    /// into a strongly-typed Func<TSource, bool> that can be passed directly to IDataFrameMaterializer.
+    static member CreateComposedPredicate(sourceType: Type, projFunc: Func<obj, obj>, predDelegate: Delegate, predArgType: Type) : Delegate =
+        let factory =
+            composedPredicateCache.GetOrAdd(
+                sourceType,
+                Func<Type, Func<Func<obj, obj>, Delegate, Type, Delegate>>(fun tSrc ->
+                    let projParam = Expression.Parameter(typeof<Func<obj, obj>>, "proj")
+                    let predParam = Expression.Parameter(typeof<Delegate>, "pred")
+                    let argTypeParam = Expression.Parameter(typeof<Type>, "predArgType")
+
+                    let srcParam = Expression.Parameter(tSrc, "src")
+                    let boxedSrc = Expression.Convert(srcParam, typeof<obj>)
+
+                    // proj.Invoke(box src)
+                    let projInvoke = Expression.Invoke(projParam, boxedSrc)
+
+                    let targetPredType = typedefof<Func<_, _>>.MakeGenericType(predArgType, typeof<bool>)
+                    let typedPred = Expression.Convert(predParam, targetPredType)
+                    let castProjected = Expression.Convert(projInvoke, predArgType)
+                    let predCall = Expression.Invoke(typedPred, castProjected)
+
+                    let innerLambdaType = typedefof<Func<_, _>>.MakeGenericType(tSrc, typeof<bool>)
+                    let innerLambda = Expression.Lambda(innerLambdaType, predCall, srcParam)
+
+                    Expression.Lambda<Func<Func<obj, obj>, Delegate, Type, Delegate>>(
+                        Expression.Convert(innerLambda, typeof<Delegate>),
+                        projParam, predParam, argTypeParam
+                    ).Compile()
+                )
+            )
+
+        factory.Invoke(projFunc, predDelegate, predArgType)
+
+    /// Resolves a compiled invoker for IDataFrameMaterializer.Count<TSource>(handle, predicate) -> int64
+    static member GetMaterializerCountInvoker(elemType: Type) : Func<IDataFrameMaterializer, DataFrameHandle, Delegate, int64> =
+        matCountCache.GetOrAdd(elemType, fun t ->
+            let methodInfo =
+                typeof<IDataFrameMaterializer>.GetMethods()
+                |> Array.find (fun m -> m.Name = "Count" && m.IsGenericMethodDefinition && m.GetParameters().Length = 2)
+                |> fun m -> m.MakeGenericMethod(t)
+
+            let matParam = Expression.Parameter(typeof<IDataFrameMaterializer>, "mat")
+            let handleParam = Expression.Parameter(typeof<DataFrameHandle>, "handle")
+            let predParam = Expression.Parameter(typeof<Delegate>, "pred")
+
+            let funcType = typedefof<Func<_, _>>.MakeGenericType(t, typeof<bool>)
+            let castPred = Expression.Condition(
+                Expression.Equal(predParam, Expression.Constant(null, typeof<Delegate>)),
+                Expression.Constant(null, funcType),
+                Expression.Convert(predParam, funcType)
+            )
+
+            let callExpr = Expression.Call(matParam, methodInfo, handleParam, castPred)
+
+            Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, Delegate, int64>>(
+                callExpr, matParam, handleParam, predParam
+            ).Compile()
+        )
+
+    /// Resolves a compiled invoker for IDataFrameMaterializer.Single<TSource>(handle, predicate)
+    static member GetMaterializerSingleInvoker(elemType: Type) : Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj> =
+        matSingleCache.GetOrAdd(elemType, fun t ->
+            let methodInfo =
+                typeof<IDataFrameMaterializer>.GetMethods()
+                |> Array.find (fun m -> m.Name = "Single" && m.IsGenericMethodDefinition && m.GetParameters().Length = 2)
+                |> fun m -> m.MakeGenericMethod(t)
+
+            let matParam = Expression.Parameter(typeof<IDataFrameMaterializer>, "mat")
+            let handleParam = Expression.Parameter(typeof<DataFrameHandle>, "handle")
+            let predParam = Expression.Parameter(typeof<Delegate>, "pred")
+
+            let funcType = typedefof<Func<_, _>>.MakeGenericType(t, typeof<bool>)
+            let castPred = Expression.Condition(
+                Expression.Equal(predParam, Expression.Constant(null, typeof<Delegate>)),
+                Expression.Constant(null, funcType),
+                Expression.Convert(predParam, funcType)
+            )
+
+            let callExpr = Expression.Call(matParam, methodInfo, handleParam, castPred)
+            let boxResult = Expression.Convert(callExpr, typeof<obj>)
+
+            Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj>>(
+                boxResult, matParam, handleParam, predParam
+            ).Compile()
+        )
+
+    /// Resolves a compiled invoker for IDataFrameMaterializer.SingleOrDefault<TSource>(handle, predicate, defaultValue)
+    static member GetMaterializerSingleOrDefaultInvoker(elemType: Type) : Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, obj> =
+        matSingleOrDefaultCache.GetOrAdd(elemType, fun t ->
+            let methodInfo =
+                typeof<IDataFrameMaterializer>.GetMethods()
+                |> Array.find (fun m -> m.Name = "SingleOrDefault" && m.IsGenericMethodDefinition && m.GetParameters().Length = 3)
                 |> fun m -> m.MakeGenericMethod(t)
 
             let matParam = Expression.Parameter(typeof<IDataFrameMaterializer>, "mat")

@@ -81,6 +81,9 @@ public interface IDataFrameMaterializer
     TSource? FirstOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
     TSource Last<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
     TSource? LastOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
+    long Count<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    TSource Single<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    TSource? SingleOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
 }
 
 public static class DataFrameMaterializerRegistry

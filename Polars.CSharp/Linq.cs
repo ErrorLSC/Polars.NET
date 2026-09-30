@@ -145,6 +145,29 @@ public sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
             int currentBatchSize = (int)Math.Min(chunkSize, totalRows - offset);
             yield return ReadChunkBatch<T>(df, offset, currentBatchSize);
         }
+        
+    }
+    public long Count<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
+    {
+        var df = new DataFrame(handle);
+        long height = df.Height;
+
+        if (predicate == null)
+            return height;
+
+        if (height == 0)
+            return 0L;
+
+        var enumerator = df.Rows<TSource>();
+        long count = 0L;
+
+        while (enumerator.MoveNext())
+        {
+            if (predicate(enumerator.Current))
+                count++;
+        }
+
+        return count;
     }
 
     /// <summary>
@@ -295,6 +318,84 @@ public sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         }
 
         return found ? lastMatch : defaultValue;
+    }
+    public TSource Single<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
+    {
+        var df = new DataFrame(handle);
+        long height = df.Height;
+
+        if (predicate == null)
+        {
+            if (height == 0)
+                throw new InvalidOperationException("Sequence contains no elements.");
+            if (height > 1)
+                throw new InvalidOperationException("Sequence contains more than one element.");
+
+            var enumerator = df.Rows<TSource>();
+            return enumerator.ElementAt(0);
+        }
+
+        if (height == 0)
+            throw new InvalidOperationException("Sequence contains no matching element.");
+
+        var scanEnumerator = df.Rows<TSource>();
+        bool found = false;
+        TSource match = default!;
+
+        while (scanEnumerator.MoveNext())
+        {
+            if (predicate(scanEnumerator.Current))
+            {
+                if (found)
+                    throw new InvalidOperationException("Sequence contains more than one matching element.");
+
+                match = scanEnumerator.Current;
+                found = true;
+            }
+        }
+
+        if (found)
+            return match;
+
+        throw new InvalidOperationException("Sequence contains no matching element.");
+    }
+
+    public TSource? SingleOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default)
+    {
+        var df = new DataFrame(handle);
+        long height = df.Height;
+
+        if (predicate == null)
+        {
+            if (height == 0)
+                return defaultValue;
+            if (height > 1)
+                throw new InvalidOperationException("Sequence contains more than one element.");
+
+            var enumerator = df.Rows<TSource>();
+            return enumerator.ElementAt(0);
+        }
+
+        if (height == 0)
+            return defaultValue;
+
+        var scanEnumerator = df.Rows<TSource>();
+        bool found = false;
+        TSource? match = defaultValue;
+
+        while (scanEnumerator.MoveNext())
+        {
+            if (predicate(scanEnumerator.Current))
+            {
+                if (found)
+                    throw new InvalidOperationException("Sequence contains more than one matching element.");
+
+                match = scanEnumerator.Current;
+                found = true;
+            }
+        }
+
+        return found ? match : defaultValue;
     }
 }
 

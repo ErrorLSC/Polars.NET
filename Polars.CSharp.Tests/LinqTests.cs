@@ -2969,4 +2969,70 @@ public class LinqTests
         Assert.Equal("IT", summaries[0].DepartmentName);
         Assert.Equal(87000, summaries[0].TotalCompensation);
     }
+    [Fact]
+    [Trait("LINQ", "Scalar_Count")]
+    public void Test_CSharp_Linq_Scalar_Count_And_LongCount()
+    {
+        var employees = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000),
+            new Employee("Charlie", 35, 70000),
+            new Employee("David", 30, 80000)
+        };
+
+        using var df = DataFrame.FromRows(employees);
+        var query = df.AsQueryable(employees);
+
+        int totalCount = query.Count();
+        long totalLongCount = query.LongCount();
+        Assert.Equal(4, totalCount);
+        Assert.Equal(4L, totalLongCount);
+
+        int countAge30 = query.Count(e => e.Age == 30);
+        long longCountAge30 = query.LongCount(e => e.Age == 30);
+        Assert.Equal(2, countAge30);
+        Assert.Equal(2L, longCountAge30);
+
+        int countNone = query.Count(e => e.Salary > 1000000L);
+        Assert.Equal(0, countNone);
+
+        var upperQuery = query.Select(e => e.Name.ToUpper());
+        int countStartsWithA = upperQuery.Count(name => name.StartsWith("A"));
+        long longCountLength5 = upperQuery.LongCount(name => name.Length == 5); // ALICE (5), DAVID (5)
+
+        Assert.Equal(1, countStartsWithA);
+        Assert.Equal(2L, longCountLength5);
+    }
+    [Fact]
+    [Trait("LINQ", "Scalar_Single")]
+    public void Test_CSharp_Linq_Scalar_Single_And_SingleOrDefault()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000),
+            new Employee("Charlie", 35, 70000)
+        };
+
+        using var df = DataFrame.FromRows(emps);
+        var query = df.AsQueryable(emps);
+
+        Assert.Throws<InvalidOperationException>(() => query.Single());
+        Assert.Throws<InvalidOperationException>(() => query.SingleOrDefault());
+
+        var alice = query.Single(e => e.Age == 25);
+        Assert.Equal("Alice", alice.Name);
+
+        var aliceOrDef = query.SingleOrDefault(e => e.Age == 25);
+        Assert.Equal("Alice", aliceOrDef.Name);
+
+        Assert.Throws<InvalidOperationException>(() => query.Single(e => e.Age == 99));
+
+        var upperQuery = query.Select(e => e.Name.ToUpper());
+        Assert.Throws<InvalidOperationException>(() => upperQuery.Single(name => name.StartsWith('B') || name.StartsWith('C')));
+
+        var uniqueBob = upperQuery.Single(name => name == "BOB");
+        Assert.Equal("BOB", uniqueBob);
+    }
 }
