@@ -17,7 +17,7 @@ type internal ExecutionPlan<'T> = {
 
 /// Internal interface allowing direct zero-reflection plan querying between Provider and Query instances
 type internal IInternalPlanSource =
-    abstract member GetPlanInfo: unit -> LazyFrameHandle * bool
+    abstract member GetPlanInfo: unit -> LazyFrameHandle * bool * (Type * Func<obj, obj>) option
 
 /// Internal normalized context capturing all GroupBy variants (C# 4-args, F# pipeline, Having, Sorts)
 type private GroupFoldContext = {
@@ -55,30 +55,32 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
             elif t.IsArray then t.GetElementType()
             else t
 
-        // Helper to extract native LazyFrame and check if client execution exists without reflection crashes
-        let resolveQueryPlan (src: Expression) : LazyFrameHandle * bool =
+        // Helper to extract native LazyFrame, check if client filter exists, and extract client projection (sourceType * (obj -> obj))
+        let resolveQueryPlan (src: Expression) : LazyFrameHandle * bool * (Type * Func<obj, obj>) option =
             let query = (this :> IQueryProvider).CreateQuery(src)
             match query with
             | :? IInternalPlanSource as ps ->
-                ps.GetPlanInfo()
+                ps.GetPlanInfo() 
+            | :? IPolarsPlanSource as ps ->
+                ps.GetCompiledLazyFrameHandle(), false, None
             | _ ->
-                match query with
-                | :? IPolarsPlanSource as ps ->
-                    ps.GetCompiledLazyFrameHandle(), false
-                | _ ->
-                    let getPlanMethod = 
-                        query.GetType().GetMethod("GetCompiledPlan", BindingFlags.Instance ||| BindingFlags.NonPublic ||| BindingFlags.Public)
-                    if not (isNull getPlanMethod) then
-                        let planResult = getPlanMethod.Invoke(query, null)
-                        let fields = Reflection.FSharpValue.GetTupleFields(planResult)
-                        let nativeLf = fields.[0] :?> LazyFrameHandle
-                        let predsObj = fields.[1] :?> IEnumerable
-                        let hasClientPreds = predsObj.GetEnumerator().MoveNext()
-                        let hasClientProj = fields.Length > 2 && not (isNull fields.[2])
-                        let hasFallback = fields.Length > 3 && (fields.[3] :?> bool)
-                        nativeLf, hasClientPreds || hasClientProj || hasFallback
-                    else
-                        failwithf "Unable to extract LazyFrame from query source: %A" src
+                let getPlanMethod = 
+                    query.GetType().GetMethod("GetCompiledPlan", BindingFlags.Instance ||| BindingFlags.NonPublic ||| BindingFlags.Public)
+                if not (isNull getPlanMethod) then
+                    let planResult = getPlanMethod.Invoke(query, null)
+                    let fields = Reflection.FSharpValue.GetTupleFields(planResult)
+                    let nativeLf = fields.[0] :?> LazyFrameHandle
+                    let predsObj = fields.[1] :?> IEnumerable
+                    let hasClientPreds = predsObj.GetEnumerator().MoveNext()
+                    let clientProjOpt = 
+                        if fields.Length > 2 && not (isNull fields.[2]) then
+                            fields.[2] :?> (Type * Func<obj, obj>) option
+                        else
+                            None
+                    let hasFallback = fields.Length > 3 && (fields.[3] :?> bool)
+                    nativeLf, (hasClientPreds || hasFallback), clientProjOpt
+                else
+                    failwithf "Unable to extract LazyFrame from query source: %A" src
 
         // Helper to rewrite scalar operations with a predicate to Where(pred).TargetScalarMethod()
         let rewritePredicateScalar (m: MethodInfo) (src: Expression) (pred: LambdaExpression) =
@@ -112,17 +114,15 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
         match expression with
         // 1. Unified Rewrite: Scalar operations taking a predicate (Count, Any, Single, First, Last, etc.)
         | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as pred) ])
-            when m.Name = "Count" || m.Name = "LongCount" || m.Name = "Any" || 
-                 m.Name = "Single" || m.Name = "SingleOrDefault" ||
-                 m.Name = "First" || m.Name = "FirstOrDefault" ||
-                 m.Name = "Last" || m.Name = "LastOrDefault" ->
+            when m.Name = "Count" || m.Name = "LongCount" ||
+                 m.Name = "Single" || m.Name = "SingleOrDefault" ->
 
             let rewrittenCall = rewritePredicateScalar m source pred
             this.ExecuteScalarInternal<'TResult>(rewrittenCall)
 
         // 2. Count() / LongCount() without predicate
         | MethodCall(m, null, [ source ]) when m.Name = "Count" || m.Name = "LongCount" ->
-            let nativeLf, hasClientPreds = resolveQueryPlan source
+            let nativeLf, hasClientPreds, _ = resolveQueryPlan source
             if not hasClientPreds then
                 let lenExpr = PolarsWrapper.Len()
                 let aggLf = PolarsWrapper.LazySelect(nativeLf, [| lenExpr |])
@@ -135,69 +135,285 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
 
         // 3. Any() without predicate
         | MethodCall(m, null, [ source ]) when m.Name = "Any" ->
-            let nativeLf, hasClientPreds = resolveQueryPlan source
+            let nativeLf, hasClientPreds, _ = resolveQueryPlan source
             if not hasClientPreds then
-                // Native pushdown: slice 1 row to test non-emptiness at Rust engine level
                 let slicedLf = PolarsWrapper.LazySlice(nativeLf, 0L, 1u)
                 let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
                 let height = PolarsWrapper.DataFrameHeight dfHandle
                 box (height > 0L) :?> 'TResult
             else
-                // Client fallback: collect filtered DataFrame and short-circuit via stack row enumerator
                 let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
                 let elemType = getSequenceElementType source.Type
-                let mat = QueryMaterializerResolver.Resolve (Some materializer)
                 let invoker = LinqReflectionCache.GetMaterializerAnyInvoker elemType
                 box (invoker.Invoke(mat, dfHandle, null)) :?> 'TResult
 
-        // 4. Any(predicate) with client predicate
-        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as pred) ]) when m.Name = "Any" ->
-            let nativeLf, _ = resolveQueryPlan source
-            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+        // 4. Any(predicate)
+        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as predLambda) ]) when m.Name = "Any" ->
+            let nativeLf, _, clientProjOpt = resolveQueryPlan source
             let elemType = getSequenceElementType source.Type
-            let mat = QueryMaterializerResolver.Resolve (Some materializer)
-            let compiledPred = pred.Compile()
-            let invoker = LinqReflectionCache.GetMaterializerAnyInvoker elemType
-            box (invoker.Invoke(mat, dfHandle, compiledPred)) :?> 'TResult
-
-        // 5. All(predicate) with client predicate via stack cursor short-circuit
-        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as predLambda) ]) when m.Name = "All" ->
-            let nativeLf, _ = resolveQueryPlan source
             let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
-            let elemType = getSequenceElementType source.Type
-            let mat = QueryMaterializerResolver.Resolve (Some materializer)
-
             let compiledPred = predLambda.Compile()
-            let invoker = LinqReflectionCache.GetMaterializerAllInvoker elemType
-            box (invoker.Invoke(mat, dfHandle, compiledPred)) :?> 'TResult
+            let predArgType = predLambda.Parameters.[0].Type 
 
-        // 5. First() / FirstOrDefault() without predicate
-        | MethodCall(m, null, [ source ]) when m.Name = "First" || m.Name = "FirstOrDefault" ->
-            let isOrDefault = m.Name = "FirstOrDefault"
-            let nativeLf, hasClientPreds = resolveQueryPlan source
-            if not hasClientPreds then
-                fetchRowWithFallback nativeLf 0L 1u isOrDefault (fun () -> InvalidOperationException("Sequence contains no elements.") :> exn)
-            else
-                let rawRows = (this :> IQueryProvider).CreateQuery(source).Cast<'TResult>()
-                if isOrDefault then Enumerable.FirstOrDefault rawRows
-                else Enumerable.First rawRows
+            match clientProjOpt with
+            | Some (sourceType, projFunc) ->
+                let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
+                let rows = invoker.Invoke(mat, dfHandle)
+                let enumerator = rows.GetEnumerator()
+                let mutable matched = false
+                while not matched && enumerator.MoveNext() do
+                    let projected = projFunc.Invoke(enumerator.Current)
+                    if LinqReflectionCache.InvokeClientPredicate(compiledPred, projected, predArgType) then
+                        matched <- true
+                box matched :?> 'TResult
 
-        // 6. Last() / LastOrDefault() without predicate
-        | MethodCall(m, null, [ source ]) when m.Name = "Last" || m.Name = "LastOrDefault" ->
-            let isOrDefault = m.Name = "LastOrDefault"
-            let nativeLf, hasClientPreds = resolveQueryPlan source
-            if not hasClientPreds then
-                fetchRowWithFallback nativeLf -1L 1u isOrDefault (fun () -> InvalidOperationException("Sequence contains no elements.") :> exn)
-            else
-                let rawRows = (this :> IQueryProvider).CreateQuery(source).Cast<'TResult>()
-                if isOrDefault then Enumerable.LastOrDefault rawRows
-                else Enumerable.Last rawRows
+            | None ->
+                let invoker = LinqReflectionCache.GetMaterializerAnyInvoker elemType
+                box (invoker.Invoke(mat, dfHandle, compiledPred)) :?> 'TResult
+
+        // 5. All(predicate)
+        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as predLambda) ]) when m.Name = "All" ->
+            let nativeLf, _, clientProjOpt = resolveQueryPlan source
+            let elemType = getSequenceElementType source.Type
+            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+            let compiledPred = predLambda.Compile()
+            let predArgType = predLambda.Parameters.[0].Type 
+
+            match clientProjOpt with
+            | Some (sourceType, projFunc) ->
+                let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
+                let rows = invoker.Invoke(mat, dfHandle)
+                let enumerator = rows.GetEnumerator()
+                let mutable allMatched = true
+                while allMatched && enumerator.MoveNext() do
+                    let projected = projFunc.Invoke(enumerator.Current)
+                    if not (LinqReflectionCache.InvokeClientPredicate(compiledPred, projected, predArgType)) then
+                        allMatched <- false
+                box allMatched :?> 'TResult
+
+            | None ->
+                let invoker = LinqReflectionCache.GetMaterializerAllInvoker elemType
+                box (invoker.Invoke(mat, dfHandle, compiledPred)) :?> 'TResult
+
+        // First() without predicate
+        | MethodCall(m, null, [ source ]) when m.Name = "First" ->
+            let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
+            let elemType = getSequenceElementType source.Type
+
+            match clientProjOpt with
+            | Some (sourceType, projFunc) ->
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let invoker = LinqReflectionCache.GetMaterializerFirstInvoker sourceType
+                let rawEntity = invoker.Invoke(mat, dfHandle, null)
+                projFunc.Invoke(rawEntity) :?> 'TResult
+
+            | None ->
+                let dfHandle =
+                    if not hasClientPreds then
+                        let slicedLf = PolarsWrapper.LazySlice(nativeLf, 0L, 1u)
+                        PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                    else
+                        PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+
+                let invoker = LinqReflectionCache.GetMaterializerFirstInvoker elemType
+                invoker.Invoke(mat, dfHandle, null) :?> 'TResult
+
+        // First(predicate)
+        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as predLambda) ]) when m.Name = "First" ->
+            let nativeLf, _, clientProjOpt = resolveQueryPlan source
+            let elemType = getSequenceElementType source.Type
+            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+
+            match clientProjOpt with
+            | Some (sourceType, projFunc) ->
+                let compiledPred = predLambda.Compile()
+                let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
+                let rows = invoker.Invoke(mat, dfHandle)
+                let mutable found = false
+                let mutable result = Unchecked.defaultof<'TResult>
+                let enumerator = rows.GetEnumerator()
+                while not found && enumerator.MoveNext() do
+                    let projected = projFunc.Invoke(enumerator.Current)
+                    if LinqReflectionCache.InvokeClientPredicate(compiledPred, projected, typeof<'TResult>) then
+                        result <- projected :?> 'TResult
+                        found <- true
+                if found then result
+                else invalidOp "Sequence contains no matching element."
+
+            | None ->
+                let compiledPred = predLambda.Compile()
+                let invoker = LinqReflectionCache.GetMaterializerFirstInvoker elemType
+                invoker.Invoke(mat, dfHandle, compiledPred) :?> 'TResult
+
+        // FirstOrDefault() without predicate
+        | MethodCall(m, null, [ source ]) when m.Name = "FirstOrDefault" ->
+            let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
+            let elemType = getSequenceElementType source.Type
+
+            match clientProjOpt with
+            | Some (sourceType, projFunc) ->
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let defaultVal = if sourceType.IsValueType then Activator.CreateInstance(sourceType) else null
+                let invoker = LinqReflectionCache.GetMaterializerFirstOrDefaultInvoker sourceType
+                let rawEntity = invoker.Invoke(mat, dfHandle, null, defaultVal)
+                if isNull rawEntity && not sourceType.IsValueType then
+                    Unchecked.defaultof<'TResult>
+                else
+                    projFunc.Invoke(rawEntity) :?> 'TResult
+
+            | None ->
+                let dfHandle =
+                    if not hasClientPreds then
+                        let slicedLf = PolarsWrapper.LazySlice(nativeLf, 0L, 1u)
+                        PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                    else
+                        PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+
+                let defaultVal = if elemType.IsValueType then Activator.CreateInstance(elemType) else null
+                let invoker = LinqReflectionCache.GetMaterializerFirstOrDefaultInvoker elemType
+                invoker.Invoke(mat, dfHandle, null, defaultVal) :?> 'TResult
+
+        // FirstOrDefault(predicate)
+        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as predLambda) ]) when m.Name = "FirstOrDefault" ->
+            let nativeLf, _, clientProjOpt = resolveQueryPlan source
+            let elemType = getSequenceElementType source.Type
+            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+
+            match clientProjOpt with
+            | Some (sourceType, projFunc) ->
+                let compiledPred = predLambda.Compile()
+                let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
+                let rows = invoker.Invoke(mat, dfHandle)
+                let mutable found = false
+                let mutable result = Unchecked.defaultof<'TResult>
+                let enumerator = rows.GetEnumerator()
+                while not found && enumerator.MoveNext() do
+                    let projected = projFunc.Invoke(enumerator.Current)
+                    if LinqReflectionCache.InvokeClientPredicate(compiledPred, projected, typeof<'TResult>) then
+                        result <- projected :?> 'TResult
+                        found <- true
+                result
+
+            | None ->
+                let compiledPred = predLambda.Compile()
+                let defaultVal = if elemType.IsValueType then Activator.CreateInstance(elemType) else null
+                let invoker = LinqReflectionCache.GetMaterializerFirstOrDefaultInvoker elemType
+                invoker.Invoke(mat, dfHandle, compiledPred, defaultVal) :?> 'TResult
+
+        // 6. Last() without predicate
+        | MethodCall(m, null, [ source ]) when m.Name = "Last" ->
+            let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
+            let elemType = getSequenceElementType source.Type
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
+
+            match clientProjOpt with
+            | Some (sourceType, projFunc) ->
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let invoker = LinqReflectionCache.GetMaterializerLastInvoker sourceType
+                let rawEntity = invoker.Invoke(mat, dfHandle, null)
+                projFunc.Invoke(rawEntity) :?> 'TResult
+
+            | None ->
+                let dfHandle =
+                    if not hasClientPreds then
+                        let slicedLf = PolarsWrapper.LazySlice(nativeLf, -1L, 1u)
+                        PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                    else
+                        PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+
+                let invoker = LinqReflectionCache.GetMaterializerLastInvoker elemType
+                invoker.Invoke(mat, dfHandle, null) :?> 'TResult
+
+        // Last(predicate)
+        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as predLambda) ]) when m.Name = "Last" ->
+            let nativeLf, _, clientProjOpt = resolveQueryPlan source
+            let elemType = getSequenceElementType source.Type
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
+            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+            let compiledPred = predLambda.Compile()
+            let predArgType = predLambda.Parameters.[0].Type
+
+            match clientProjOpt with
+            | Some (sourceType, projFunc) ->
+                let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
+                let rows = invoker.Invoke(mat, dfHandle)
+                let mutable found = false
+                let mutable lastMatch = Unchecked.defaultof<'TResult>
+                let enumerator = rows.GetEnumerator()
+                while enumerator.MoveNext() do
+                    let projected = projFunc.Invoke(enumerator.Current)
+                    if LinqReflectionCache.InvokeClientPredicate(compiledPred, projected, predArgType) then
+                        lastMatch <- projected :?> 'TResult
+                        found <- true
+                if found then lastMatch
+                else invalidOp "Sequence contains no matching element."
+
+            | None ->
+                let invoker = LinqReflectionCache.GetMaterializerLastInvoker elemType
+                invoker.Invoke(mat, dfHandle, compiledPred) :?> 'TResult
+
+        // LastOrDefault() without predicate
+        | MethodCall(m, null, [ source ]) when m.Name = "LastOrDefault" ->
+            let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
+            let elemType = getSequenceElementType source.Type
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
+
+            match clientProjOpt with
+            | Some (sourceType, projFunc) ->
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let defaultVal = if sourceType.IsValueType then Activator.CreateInstance(sourceType) else null
+                let invoker = LinqReflectionCache.GetMaterializerLastOrDefaultInvoker sourceType
+                let rawEntity = invoker.Invoke(mat, dfHandle, null, defaultVal)
+                if isNull rawEntity && not sourceType.IsValueType then
+                    Unchecked.defaultof<'TResult>
+                else
+                    projFunc.Invoke(rawEntity) :?> 'TResult
+
+            | None ->
+                let dfHandle =
+                    if not hasClientPreds then
+                        let slicedLf = PolarsWrapper.LazySlice(nativeLf, -1L, 1u)
+                        PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                    else
+                        PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+
+                let defaultVal = if elemType.IsValueType then Activator.CreateInstance(elemType) else null
+                let invoker = LinqReflectionCache.GetMaterializerLastOrDefaultInvoker elemType
+                invoker.Invoke(mat, dfHandle, null, defaultVal) :?> 'TResult
+
+        // LastOrDefault(predicate)
+        | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as predLambda) ]) when m.Name = "LastOrDefault" ->
+            let nativeLf, _, clientProjOpt = resolveQueryPlan source
+            let elemType = getSequenceElementType source.Type
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
+            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+            let compiledPred = predLambda.Compile()
+            let predArgType = predLambda.Parameters.[0].Type
+
+            match clientProjOpt with
+            | Some (sourceType, projFunc) ->
+                let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
+                let rows = invoker.Invoke(mat, dfHandle)
+                let mutable found = false
+                let mutable lastMatch = Unchecked.defaultof<'TResult>
+                let enumerator = rows.GetEnumerator()
+                while enumerator.MoveNext() do
+                    let projected = projFunc.Invoke(enumerator.Current)
+                    if LinqReflectionCache.InvokeClientPredicate(compiledPred, projected, predArgType) then
+                        lastMatch <- projected :?> 'TResult
+                        found <- true
+                if found then lastMatch else Unchecked.defaultof<'TResult>
+
+            | None ->
+                let defaultVal = if elemType.IsValueType then Activator.CreateInstance(elemType) else null
+                let invoker = LinqReflectionCache.GetMaterializerLastOrDefaultInvoker elemType
+                invoker.Invoke(mat, dfHandle, compiledPred, defaultVal) :?> 'TResult
 
         // 7. Max, Min, Sum, Average with selector
         | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as selector) ])
             when m.Name = "Max" || m.Name = "Min" || m.Name = "Sum" || m.Name = "Average" ->
 
-            let nativeLf, hasClientPreds = resolveQueryPlan source
+            let nativeLf, hasClientPreds, _ = resolveQueryPlan source
             let translatedExprOpt = ExprTranslator.tryTranslate selector.Parameters.[0].Name selector.Body
 
             match translatedExprOpt with
@@ -217,7 +433,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
         | MethodCall(m, null, [ source ])
             when m.Name = "Max" || m.Name = "Min" || m.Name = "Sum" || m.Name = "Average" ->
 
-            let nativeLf, hasClientPreds = resolveQueryPlan source
+            let nativeLf, hasClientPreds, _ = resolveQueryPlan source
             if not hasClientPreds then
                 let colNames = PolarsQuery<obj>.GetLazyColumnNames nativeLf
                 let targetCol = if colNames.Length > 0 then colNames.[0] else ""
@@ -237,7 +453,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
         // 9. Single() / SingleOrDefault() without predicate
         | MethodCall(m, null, [ source ]) when m.Name = "Single" || m.Name = "SingleOrDefault" ->
             let isOrDefault = m.Name = "SingleOrDefault"
-            let nativeLf, hasClientPreds = resolveQueryPlan source
+            let nativeLf, hasClientPreds, _ = resolveQueryPlan source
 
             if not hasClientPreds then
                 let slicedLf = PolarsWrapper.LazySlice(nativeLf, 0L, 2u)
@@ -268,7 +484,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 if isOrDefault then Unchecked.defaultof<'TResult>
                 else raise (ArgumentOutOfRangeException("index", "Index was out of range."))
             else
-                let nativeLf, hasClientPreds = resolveQueryPlan source
+                let nativeLf, hasClientPreds, _ = resolveQueryPlan source
                 if not hasClientPreds then
                     fetchRowWithFallback nativeLf index 1u isOrDefault (fun () -> ArgumentOutOfRangeException("index", "Index was out of range.") :> exn)
                 else
@@ -287,7 +503,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 | Some v -> v
                 | None -> failwith "Failed to evaluate item parameter for Contains."
 
-            let nativeLf, hasClientPreds = resolveQueryPlan source
+            let nativeLf, hasClientPreds, _ = resolveQueryPlan source
 
             let filterExprOpt =
                 if not hasClientPreds then
@@ -307,7 +523,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
         // 12. SequenceEqual(second)
         | MethodCall(m, null, [ source; secondExpr ]) when m.Name = "SequenceEqual" ->
             let elemType = getSequenceElementType source.Type
-            let nativeLf, hasClientPreds = resolveQueryPlan source
+            let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
 
             let rec tryGetSecondQueryPlan (e: Expression) : (LazyFrameHandle * bool) option =
                 match e with
@@ -315,20 +531,22 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                     let q = (this :> IQueryProvider).CreateQuery(mc)
                     match q with
                     | :? IInternalPlanSource as ps ->
-                        Some (ps.GetPlanInfo())
+                        let lf, hasClient, projOpt = ps.GetPlanInfo()
+                        Some (lf, hasClient || projOpt.IsSome)
                     | :? IPolarsPlanSource as planSource ->
                         Some (planSource.GetCompiledLazyFrameHandle(), false)
                     | _ -> None
                 | _ ->
                     match tryEvaluate e with
                     | Some (:? IInternalPlanSource as ps) ->
-                        Some (ps.GetPlanInfo())
+                        let lf, hasClient, projOpt = ps.GetPlanInfo()
+                        Some (lf, hasClient || projOpt.IsSome)
                     | Some (:? IPolarsPlanSource as planSource) ->
                         Some (planSource.GetCompiledLazyFrameHandle(), false)
                     | _ -> None
 
             match tryGetSecondQueryPlan secondExpr with
-            | Some (secondLf, secondHasClientPreds) when not hasClientPreds && not secondHasClientPreds ->
+            | Some (secondLf, secondHasClient) when not hasClientPreds && clientProjOpt.IsNone && not secondHasClient ->
                 let colNames1 = nativeLf |> PolarsQuery<obj>.GetLazyColumnNames
                 let colNames2 = secondLf |> PolarsQuery<obj>.GetLazyColumnNames
 
@@ -368,7 +586,7 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
         // 13. MinBy(keySelector) / MaxBy(keySelector)
         | MethodCall(m, null, source :: CleanLambda keyLambda :: _) when m.Name = "MinBy" || m.Name = "MaxBy" ->
             let isDescending = m.Name = "MaxBy"
-            let nativeLf, hasClientPreds = resolveQueryPlan source
+            let nativeLf, hasClientPreds, _ = resolveQueryPlan source
 
             if not hasClientPreds then
                 let keyParam = keyLambda.Parameters.[0]
@@ -2244,7 +2462,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
     interface IInternalPlanSource with
         member this.GetPlanInfo() =
             let nativeLf, clientPreds, clientProjOpt, requiresClientFallback = this.GetCompiledPlan()
-            nativeLf, requiresClientFallback || not clientPreds.IsEmpty || clientProjOpt.IsSome
+            nativeLf, (requiresClientFallback || not clientPreds.IsEmpty), clientProjOpt
 
     interface IEnumerable<'T> with
         member this.GetEnumerator() : IEnumerator<'T> =

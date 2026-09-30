@@ -987,3 +987,80 @@ type FSharpRowCursorMaterializer() =
                         allMatched <- false
                 allMatched
 
+        member _.First<'TSource>(handle: DataFrameHandle, predicate: Func<'TSource, bool>) : 'TSource =
+            let df = new DataFrame(handle)
+            let enumerator = df.Rows<'TSource>()
+
+            if isNull (box predicate) then
+                enumerator.First()
+            else
+                let mutable enumerator = df.Rows<'TSource>()
+                let mutable found = false
+                let mutable result = Unchecked.defaultof<'TSource>
+                while not found && enumerator.MoveNext() do
+                    if predicate.Invoke enumerator.Current then
+                        result <- enumerator.Current
+                        found <- true
+
+                if found then result
+                else invalidOp "Sequence contains no matching element."
+
+        member _.FirstOrDefault<'TSource>(handle: DataFrameHandle, predicate: Func<'TSource, bool>, defaultValue: 'TSource) : 'TSource =
+            let df = new DataFrame(handle)
+            let enumerator = df.Rows<'TSource>()
+
+            if isNull (box predicate) then
+                match enumerator.TryFirstValue() with
+                | ValueSome row -> row
+                | ValueNone -> defaultValue
+            else
+                let mutable enumerator = df.Rows<'TSource>()
+                let mutable found = false
+                let mutable result = defaultValue
+                while not found && enumerator.MoveNext() do
+                    if predicate.Invoke enumerator.Current then
+                        result <- enumerator.Current
+                        found <- true
+
+                result
+
+        member _.Last<'TSource>(handle: DataFrameHandle, predicate: Func<'TSource, bool>) : 'TSource =
+            let df = new DataFrame(handle)
+            let enumerator = df.Rows<'TSource>()
+
+            if isNull (box predicate) then
+                enumerator.Last()
+            else
+                let mutable enumerator = df.Rows<'TSource>()
+                let mutable found = false
+                let mutable lastMatch = Unchecked.defaultof<'TSource>
+
+                while enumerator.MoveNext() do
+                    if predicate.Invoke enumerator.Current then
+                        lastMatch <- enumerator.Current
+                        found <- true
+
+                if found then lastMatch
+                else invalidOp "Sequence contains no matching element."
+
+        member _.LastOrDefault<'TSource>(handle: DataFrameHandle, predicate: Func<'TSource, bool>, defaultValue: 'TSource) : 'TSource =
+            let df = new DataFrame(handle)
+
+            let enumerator = df.Rows<'TSource>()
+
+            if isNull (box predicate) then
+                match enumerator.TryLastValue() with
+                | ValueSome row -> row
+                | ValueNone -> defaultValue
+            else
+                let mutable enumerator = df.Rows<'TSource>()
+                let mutable found = false
+                let mutable lastMatch = defaultValue
+
+                while enumerator.MoveNext() do
+                    if predicate.Invoke enumerator.Current then
+                        lastMatch <- enumerator.Current
+                        found <- true
+
+                if found then lastMatch else defaultValue
+

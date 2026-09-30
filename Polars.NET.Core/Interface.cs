@@ -56,9 +56,6 @@ public interface IDataFrameMaterializer
 {
     IEnumerable<T> Materialize<T>(DataFrameHandle handle);
     T MaterializeScalar<T>(DataFrameHandle handle);
-    /// <summary>
-    /// Folds the entire DataFrame into a single scalar value using the zero-allocation row enumerator.
-    /// </summary>
     TAccum Aggregate<TSource, TAccum>(
         DataFrameHandle handle,
         TAccum seed,
@@ -70,7 +67,6 @@ public interface IDataFrameMaterializer
         Func<TAccum, TSource, TAccum> folder,
         IEqualityComparer<TKey>? comparer = null)
         where TKey : notnull;
-        
     IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<TSource, TKey, TAccum>(
         DataFrameHandle handle,
         Func<TSource, TKey> keySelector,
@@ -78,18 +74,13 @@ public interface IDataFrameMaterializer
         Func<TAccum, TSource, TAccum> folder,
         IEqualityComparer<TKey>? comparer = null)
         where TKey : notnull;
-
-    /// <summary>
-    /// Slices the DataFrame into chunks of the specified size using a zero-allocation stack row enumerator.
-    /// </summary>
-    /// <typeparam name="T">The row model type.</typeparam>
-    /// <param name="handle">The native DataFrame handle.</param>
-    /// <param name="chunkSize">The maximum number of rows in each chunk.</param>
-    /// <returns>A sequence of chunks represented as arrays of T.</returns>
     IEnumerable<T[]> Chunk<T>(DataFrameHandle handle, int chunkSize);
-
     bool Any<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
     bool All<TSource>(DataFrameHandle handle, Func<TSource, bool> predicate);
+    TSource First<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    TSource? FirstOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
+    TSource Last<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    TSource? LastOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
 }
 
 public static class DataFrameMaterializerRegistry

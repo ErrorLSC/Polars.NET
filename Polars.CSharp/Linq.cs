@@ -205,6 +205,97 @@ public sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         return true;
     }
+    public TSource First<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
+    {
+        var df = new DataFrame(handle);
+        var enumerator = df.Rows<TSource>();
+
+        if (predicate == null)
+        {
+            return enumerator.First();
+        }
+
+        while (enumerator.MoveNext())
+        {
+            if (predicate(enumerator.Current))
+                return enumerator.Current;
+        }
+
+        throw new InvalidOperationException("Sequence contains no matching element.");
+    }
+
+    public TSource? FirstOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default)
+    {
+        var df = new DataFrame(handle);
+        var enumerator = df.Rows<TSource>();
+
+        if (predicate == null)
+        {
+            return enumerator.FirstOrDefault(defaultValue);
+        }
+
+        while (enumerator.MoveNext())
+        {
+            if (predicate(enumerator.Current))
+                return enumerator.Current;
+        }
+
+        return defaultValue;
+    }
+    public TSource Last<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
+    {
+        var df = new DataFrame(handle);
+
+        var enumerator = df.Rows<TSource>();
+
+        if (predicate == null)
+        {
+            return enumerator.Last();
+        }
+
+        bool found = false;
+        TSource lastMatch = default!;
+
+        while (enumerator.MoveNext())
+        {
+            if (predicate(enumerator.Current))
+            {
+                lastMatch = enumerator.Current;
+                found = true;
+            }
+        }
+
+        if (found)
+            return lastMatch;
+
+        throw new InvalidOperationException("Sequence contains no matching element.");
+    }
+
+    public TSource? LastOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default)
+    {
+        var df = new DataFrame(handle);
+
+        var enumerator = df.Rows<TSource>();
+
+        if (predicate == null)
+        {
+            return enumerator.LastOrDefault(defaultValue);
+        }
+
+        bool found = false;
+        TSource? lastMatch = defaultValue;
+
+        while (enumerator.MoveNext())
+        {
+            if (predicate(enumerator.Current))
+            {
+                lastMatch = enumerator.Current;
+                found = true;
+            }
+        }
+
+        return found ? lastMatch : defaultValue;
+    }
 }
 
 

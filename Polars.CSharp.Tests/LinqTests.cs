@@ -75,11 +75,58 @@ public class LinqTests
 
         var firstName = upperQuery.First();
 
+        var dfResult = upperQuery.ToDataFrame();
+        dfResult.Show();
+        Assert.Equal(1L, dfResult.Width);
+
         Assert.Equal("ALICE", firstName);
 
-        var dfResult = upperQuery.ToDataFrame();
+    }
+    [Fact]
+    [Trait("LINQ", "Scalar_Projection")]
+    public void Test_CSharp_Linq_Scalar_Projection_Any_All()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000)
+        };
 
-        Assert.Equal(1L, dfResult.Width);
+        using var dfEmps = DataFrame.FromRows(emps);
+        var empQuery = dfEmps.AsQueryable(emps);
+
+        var upperQuery = empQuery.Select(e => e.Name.ToUpper());
+        upperQuery.ToDataFrame().Show();
+        Assert.True(upperQuery.Any(name => name == "ALICE"));
+        Assert.False(upperQuery.Any(name => name == "Alice")); 
+
+        Assert.True(upperQuery.All(name => name.Length == 3 || name.Length == 5));
+        Assert.False(upperQuery.All(name => name == "ALICE"));
+    }
+    [Fact]
+    [Trait("LINQ", "Scalar_Last")]
+    public void Test_Linq_Last_And_LastOrDefault_Flow()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David"]),
+            Series.From("Age", [25, 30, 35, 30]),
+            Series.From("Salary", [50000L, 60000L, 70000L, 80000L])
+        ]);
+
+        var query = df.AsQueryable<Employee>();
+
+        Assert.Equal("David", query.Last().Name);
+        Assert.Equal("David", query.LastOrDefault().Name);
+
+        var lastThirty = query.Last(e => e.Age == 30);
+        Assert.Equal("David", lastThirty.Name);
+        Assert.Equal(80000L, lastThirty.Salary);
+
+        Assert.Throws<InvalidOperationException>(() => query.Last(e => e.Age > 100));
+
+        var upperLast = query.Select(e => e.Name.ToUpper()).Last(name => name.StartsWith("C") || name.StartsWith("D"));
+        Assert.Equal("DAVID", upperLast);
     }
 
     [Fact]
@@ -1983,6 +2030,28 @@ public class LinqTests
 
         var missingLast = query.Where(e => e.Salary < 1000).LastOrDefault();
         Assert.Equal(default, missingLast);
+    }
+    [Fact]
+    [Trait("LINQ", "Scalar_First")]
+    public void Test_Linq_First_And_FirstOrDefault_ShortCircuit()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 30, 35]),
+            Series.From("Salary", [50000L, 60000L, 70000L])
+        ]);
+
+        var query = df.AsQueryable<Employee>();
+
+        Assert.Equal("Alice", query.First().Name);
+        Assert.Equal("Alice", query.FirstOrDefault().Name);
+
+        var bob = query.First(e => e.Age == 30);
+        Assert.Equal("Bob", bob.Name);
+        Assert.Equal(60000L, bob.Salary);
+
+        Assert.Throws<InvalidOperationException>(() => query.First(e => e.Age > 100));
     }
 
     [Fact]
