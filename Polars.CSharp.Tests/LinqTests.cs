@@ -3132,4 +3132,33 @@ public class LinqTests
         Assert.Equal("BOB", upperQuery.ElementAt(^2));
         Assert.Null(upperQuery.ElementAtOrDefault(^10));
     }
+    [Fact]
+    [Trait("LINQ", "Scalar_Contains")]
+    public void Test_CSharp_Linq_Scalar_Contains_Flow()
+    {
+        var alice = new Employee("Alice", 25, 50000);
+        var bob = new Employee("Bob", 30, 60000);
+        var charlie = new Employee("Charlie", 35, 70000);
+        var stranger = new Employee("Stranger", 99, 99999);
+
+        var emps = new[] { alice, bob, charlie };
+
+        using var df = DataFrame.FromRows(emps);
+        var query = df.AsQueryable(emps);
+
+        Assert.True(query.Contains(alice));
+        Assert.True(query.Contains(bob));
+        Assert.False(query.Contains(stranger));
+
+        var upperNames = query.Select(e => e.Name.ToUpper());
+        Assert.True(upperNames.Contains("ALICE"));
+        Assert.True(upperNames.Contains("BOB"));
+        Assert.False(upperNames.Contains("Alice")); 
+        Assert.False(upperNames.Contains("DAVID"));
+
+        Employee[] emptyEmps = [];
+        using var emptyDf = DataFrame.FromRows(emptyEmps);
+        var emptyQuery = emptyDf.AsQueryable(emptyEmps);
+        Assert.False(emptyQuery.Contains(alice));
+    }
 }

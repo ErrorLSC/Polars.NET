@@ -418,6 +418,23 @@ public sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         var enumerator = df.Rows<TSource>();
         return enumerator.ElementAtOrDefault(index);
     }
+    public bool Contains<TSource>(DataFrameHandle handle, TSource item, IEqualityComparer<TSource>? comparer = null)
+    {
+        var df = new DataFrame(handle);
+        if (df.Height == 0)
+            return false;
+
+        var comp = comparer ?? EqualityComparer<TSource>.Default;
+        var enumerator = df.Rows<TSource>();
+
+        while (enumerator.MoveNext())
+        {
+            if (comp.Equals(enumerator.Current, item))
+                return true;
+        }
+
+        return false;
+    }
 }
 
 

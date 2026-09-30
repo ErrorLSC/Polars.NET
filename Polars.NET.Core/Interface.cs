@@ -86,6 +86,7 @@ public interface IDataFrameMaterializer
     TSource? SingleOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
     TSource ElementAt<TSource>(DataFrameHandle handle, long index);
     TSource? ElementAtOrDefault<TSource>(DataFrameHandle handle, long index);
+    bool Contains<TSource>(DataFrameHandle handle, TSource item, IEqualityComparer<TSource>? comparer = null);
 }
 
 public static class DataFrameMaterializerRegistry

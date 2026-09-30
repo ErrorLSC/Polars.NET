@@ -101,6 +101,11 @@ type internal LinqReflectionCache private () =
     static let matElementAtOrDefaultCache =
         ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, int64, obj>>()
 
+    // Cache: elemType -> Func<IDataFrameMaterializer, DataFrameHandle, obj, obj, bool>
+    // Signature: (mat, handle, itemObj, comparerObj) -> bool
+    static let matContainsCache =
+        ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, obj, obj, bool>>()
+
     /// Cached MethodInfo for Queryable.Where definition
     static member val QueryableWhereDef = whereMethodDef with get
 
@@ -656,5 +661,33 @@ type internal LinqReflectionCache private () =
 
             Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, int64, obj>>(
                 boxResult, matParam, handleParam, indexParam
+            ).Compile()
+        )
+
+    /// Resolves a compiled invoker for IDataFrameMaterializer.Contains<TSource>(handle, item, comparer)
+    static member GetMaterializerContainsInvoker(elemType: Type) : Func<IDataFrameMaterializer, DataFrameHandle, obj, obj, bool> =
+        matContainsCache.GetOrAdd(elemType, fun t ->
+            let methodInfo =
+                typeof<IDataFrameMaterializer>.GetMethods()
+                |> Array.find (fun m -> m.Name = "Contains" && m.IsGenericMethodDefinition && m.GetParameters().Length = 3)
+                |> fun m -> m.MakeGenericMethod(t)
+
+            let matParam = Expression.Parameter(typeof<IDataFrameMaterializer>, "mat")
+            let handleParam = Expression.Parameter(typeof<DataFrameHandle>, "handle")
+            let itemParam = Expression.Parameter(typeof<obj>, "item")
+            let compParam = Expression.Parameter(typeof<obj>, "comparer")
+
+            let castItem = Expression.Convert(itemParam, t)
+            let compType = typedefof<IEqualityComparer<_>>.MakeGenericType(t)
+            let castComp = Expression.Condition(
+                Expression.Equal(compParam, Expression.Constant(null, typeof<obj>)),
+                Expression.Constant(null, compType),
+                Expression.Convert(compParam, compType)
+            )
+
+            let callExpr = Expression.Call(matParam, methodInfo, handleParam, castItem, castComp)
+
+            Expression.Lambda<Func<IDataFrameMaterializer, DataFrameHandle, obj, obj, bool>>(
+                callExpr, matParam, handleParam, itemParam, compParam
             ).Compile()
         )

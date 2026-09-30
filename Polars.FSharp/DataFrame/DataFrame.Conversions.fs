@@ -1139,4 +1139,22 @@ type FSharpRowCursorMaterializer() =
                 | ValueSome row -> row
                 | ValueNone -> Unchecked.defaultof<'TSource>
 
+        member _.Contains<'TSource>(handle: DataFrameHandle, item: 'TSource, comparer: IEqualityComparer<'TSource>) : bool =
+            let df = new DataFrame(handle)
+            if df.Height = 0L then false
+            else
+                let comp = 
+                    if isNull (box comparer) then 
+                        EqualityComparer<'TSource>.Default :> IEqualityComparer<'TSource>
+                    else 
+                        comparer
+                let mutable enumerator = df.Rows<'TSource>()
+                let mutable found = false
+
+                while not found && enumerator.MoveNext() do
+                    if comp.Equals(enumerator.Current, item) then
+                        found <- true
+
+                found
+
 

@@ -1026,7 +1026,6 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                     let invoker = LinqReflectionCache.GetMaterializerElementAtInvoker elemType
                     invoker.Invoke(mat, dfHandle, 0L) :?> 'TResult
             else
-                // 存在客户端过滤：收集一次，换算绝对物理索引并在栈上定位
                 let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
                 let targetIndex =
                     if isFromEnd then
@@ -1100,17 +1099,27 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                         | Some (_, projFunc) -> projFunc.Invoke(rawEntity) :?> 'TResult
                         | None -> rawEntity :?> 'TResult
 
-        // 11. Contains(item)
-        | MethodCall(m, null, [ source; itemExpr ]) when m.Name = "Contains" ->
-            let itemVal = 
+// =========================================================================
+        // 11. Contains(item, comparer) - 3 arguments
+        // =========================================================================
+        | MethodCall(m, null, [ source; itemExpr; comparerExpr ]) when m.Name = "Contains" ->
+            let elemType = getSequenceElementType source.Type
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
+
+            let itemVal =
                 match tryEvaluate itemExpr with
                 | Some v -> v
                 | None -> failwith "Failed to evaluate item parameter for Contains."
 
-            let nativeLf, hasClientPreds, _ = resolveQueryPlan source
+            let comparerObj =
+                match tryEvaluate comparerExpr with
+                | Some c -> c
+                | None -> null
+
+            let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
 
             let filterExprOpt =
-                if not hasClientPreds then
+                if not hasClientPreds && clientProjOpt.IsNone && isNull comparerObj then
                     PolarsQuery<obj>.BuildItemEqualityFilter itemVal nativeLf
                 else None
 
@@ -1120,9 +1129,91 @@ type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataF
                 let slicedLf = PolarsWrapper.LazySlice(filteredLf, 0L, 1u)
                 let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
                 box (PolarsWrapper.DataFrameHeight dfHandle > 0L) :?> 'TResult
+
             | None ->
-                let rawRows = (this :> IQueryProvider).CreateQuery(source)
-                box (Enumerable.Contains(rawRows.Cast<obj>(), itemVal)) :?> 'TResult
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+
+                match clientProjOpt with
+                | Some (sourceType, projFunc) ->
+                    let compiledPred = Func<obj, bool>(fun projectedObj ->
+                        if isNull comparerObj then
+                            if isNull itemVal then isNull projectedObj
+                            elif isNull projectedObj then false
+                            else Object.Equals(projectedObj, itemVal)
+                        else
+                            let compMethod = comparerObj.GetType().GetMethod("Equals", [| typeof<obj>; typeof<obj> |])
+                            if not (isNull compMethod) then
+                                compMethod.Invoke(comparerObj, [| projectedObj; itemVal |]) :?> bool
+                            else
+                                Object.Equals(projectedObj, itemVal)
+                    )
+
+                    let combinedPred = LinqReflectionCache.CreateComposedPredicate(
+                        sourceType,
+                        projFunc,
+                        compiledPred,
+                        elemType
+                    )
+
+                    let invoker = LinqReflectionCache.GetMaterializerAnyInvoker sourceType
+                    box (invoker.Invoke(mat, dfHandle, combinedPred)) :?> 'TResult
+
+                | None ->
+                    let invoker = LinqReflectionCache.GetMaterializerContainsInvoker elemType
+                    box (invoker.Invoke(mat, dfHandle, itemVal, comparerObj)) :?> 'TResult
+
+        // =========================================================================
+        // 12. Contains(item) - 2 arguments
+        // =========================================================================
+        | MethodCall(m, null, [ source; itemExpr ]) when m.Name = "Contains" ->
+            let elemType = getSequenceElementType source.Type
+            let mat = QueryMaterializerResolver.Resolve (Some materializer)
+
+            let itemVal =
+                match tryEvaluate itemExpr with
+                | Some v -> v
+                | None -> failwith "Failed to evaluate item parameter for Contains."
+
+            let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
+
+            let filterExprOpt =
+                if not hasClientPreds && clientProjOpt.IsNone then
+                    PolarsQuery<obj>.BuildItemEqualityFilter itemVal nativeLf
+                else None
+
+            match filterExprOpt with
+            | Some combinedFilter ->
+                // Native 快速路径: SIMD 过滤 + Slice(0, 1)
+                let filteredLf = PolarsWrapper.LazyFilter(nativeLf, combinedFilter)
+                let slicedLf = PolarsWrapper.LazySlice(filteredLf, 0L, 1u)
+                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                box (PolarsWrapper.DataFrameHeight dfHandle > 0L) :?> 'TResult
+
+            | None ->
+                // Client 短路扫描路径
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+
+                match clientProjOpt with
+                | Some (sourceType, projFunc) ->
+                    let compiledPred = Func<obj, bool>(fun projectedObj ->
+                        if isNull itemVal then isNull projectedObj
+                        elif isNull projectedObj then false
+                        else Object.Equals(projectedObj, itemVal)
+                    )
+
+                    let combinedPred = LinqReflectionCache.CreateComposedPredicate(
+                        sourceType,
+                        projFunc,
+                        compiledPred,
+                        elemType
+                    )
+
+                    let invoker = LinqReflectionCache.GetMaterializerAnyInvoker sourceType
+                    box (invoker.Invoke(mat, dfHandle, combinedPred)) :?> 'TResult
+
+                | None ->
+                    let invoker = LinqReflectionCache.GetMaterializerContainsInvoker elemType
+                    box (invoker.Invoke(mat, dfHandle, itemVal, null)) :?> 'TResult
 
         // 12. SequenceEqual(second)
         | MethodCall(m, null, [ source; secondExpr ]) when m.Name = "SequenceEqual" ->
