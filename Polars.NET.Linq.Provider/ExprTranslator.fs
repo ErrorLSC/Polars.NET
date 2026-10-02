@@ -143,12 +143,10 @@ module ExprTranslator =
             | None -> None
 
     let private isFSharpAnonymousMember (m: MemberInfo) =
-        m.Name.StartsWith "Item" || 
         m.DeclaringType.Name.StartsWith "AnonymousObject" || 
         m.DeclaringType.Name.StartsWith "Tuple" ||
         m.DeclaringType.Name.Contains "TransparentIdentifier"
 
-    /// ORIGINAL UNTOUCHED COLUMN RESOLVER (100% preserves F# chained Join / Let inlining)
     let rec internal tryResolveColumnName (paramName: string) (expr: Expression) : string option =
         match expr with
         // Case 1: Accessing the tuple wrapper itself (e.g., _arg1.Item1) -> not a column
@@ -275,6 +273,84 @@ module ExprTranslator =
                         Some (PolarsWrapper.Or(isNull, isEmpty))
                     | None -> None
 
+                | _ -> None
+
+            // =========================================================================
+            // 8.1 Static Regex Method Calls (Regex.IsMatch, Regex.Replace)
+            // =========================================================================
+            | MethodCall(m, null, [ target; patternExpr ]) 
+                when m.DeclaringType = typeof<System.Text.RegularExpressions.Regex> && m.Name = "IsMatch" ->
+
+                let translateTarget () = tryTranslate paramName target
+
+                match translateTarget(), tryEvaluate patternExpr with
+                | Some t, Some (:? string as pat) ->
+                    if PolarsWrapper.RegexIsValid(pat) then
+                        // 1. Rust Native Pushdown (Strictly linear-time, SIMD vectorized)
+                        Some (PolarsWrapper.StrContains(t, PolarsWrapper.Lit pat, literal = false, strict = false))
+                    else
+                        // 2. In-Graph Arrow Chunk UDF Pushdown (Handles Lookarounds / SG Regex via .NET)
+                        let rx = System.Text.RegularExpressions.Regex(pat)
+                        let predicate = Func<string, bool>(fun s -> rx.IsMatch(s))
+                        Some (PolarsWrapper.MapStringPredicate(t, predicate))
+                | _ -> None
+
+            | MethodCall(m, null, [ target; patternExpr; replaceExpr ]) 
+                when m.DeclaringType = typeof<System.Text.RegularExpressions.Regex> && m.Name = "Replace" ->
+
+                let translateTarget () = tryTranslate paramName target
+
+                match translateTarget(), tryEvaluate patternExpr, tryEvaluate replaceExpr with
+                | Some t, Some (:? string as pat), Some (:? string as rep) ->
+                    if PolarsWrapper.RegexIsValid(pat) then
+                        // 1. Rust Native Pushdown
+                        Some (PolarsWrapper.StrReplaceAll(t, PolarsWrapper.Lit pat, PolarsWrapper.Lit rep, literal = false))
+                    else
+                        // 2. In-Graph Arrow Chunk UDF Pushdown
+                        let rx = System.Text.RegularExpressions.Regex(pat)
+                        let transform = Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep))
+                        Some (PolarsWrapper.MapStringTransform(t, transform))
+                | _ -> None
+
+            // =========================================================================
+            // 8.2 Instance Regex & Source Generated Regex (rx.IsMatch(s), rx.Replace(s, "..."))
+            // =========================================================================
+            | MethodCall(m, regexInstanceExpr, [ target ]) 
+                when not (isNull regexInstanceExpr) && 
+                     typeof<System.Text.RegularExpressions.Regex>.IsAssignableFrom(regexInstanceExpr.Type) && 
+                     m.Name = "IsMatch" ->
+
+                let translateTarget () = tryTranslate paramName target
+
+                match translateTarget(), tryEvaluate regexInstanceExpr with
+                | Some t, Some (:? System.Text.RegularExpressions.Regex as rx) ->
+                    let pat = rx.ToString()
+                    if PolarsWrapper.RegexIsValid(pat) then
+                        // 1. Rust Native Pushdown
+                        Some (PolarsWrapper.StrContains(t, PolarsWrapper.Lit pat, literal = false, strict = false))
+                    else
+                        // 2. In-Graph Arrow Chunk UDF Pushdown (Preserves SG Regex performance)
+                        let predicate = Func<string, bool>(fun s -> rx.IsMatch(s))
+                        Some (PolarsWrapper.MapStringPredicate(t, predicate))
+                | _ -> None
+
+            | MethodCall(m, regexInstanceExpr, [ target; replaceExpr ]) 
+                when not (isNull regexInstanceExpr) && 
+                     typeof<System.Text.RegularExpressions.Regex>.IsAssignableFrom(regexInstanceExpr.Type) && 
+                     m.Name = "Replace" ->
+
+                let translateTarget () = tryTranslate paramName target
+
+                match translateTarget(), tryEvaluate regexInstanceExpr, tryEvaluate replaceExpr with
+                | Some t, Some (:? System.Text.RegularExpressions.Regex as rx), Some (:? string as rep) ->
+                    let pat = rx.ToString()
+                    if PolarsWrapper.RegexIsValid(pat) then
+                        // 1. Rust Native Pushdown
+                        Some (PolarsWrapper.StrReplaceAll(t, PolarsWrapper.Lit pat, PolarsWrapper.Lit rep, literal = false))
+                    else
+                        // 2. In-Graph Arrow Chunk UDF Pushdown
+                        let transform = Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep))
+                        Some (PolarsWrapper.MapStringTransform(t, transform))
                 | _ -> None
 
             // 9. Instance String Methods Pushdown

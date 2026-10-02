@@ -3751,4 +3751,38 @@ TooShort,1990-05-20,1.60";
         Assert.Equal([1,-1,3],result["buhao"].ToArray<int>());
         Assert.Equal([-0.1,2.5,0],result["huilai"].ToArray<double>());
     }
+    [Fact]
+    [Trait("Expr", "ValidRegex")]
+    public void Test_Regex_Is_Valid_Supported_Patterns()
+    {
+        // Standard syntax supported by Rust regex / regex-syntax
+        Assert.True(PolarsWrapper.RegexIsValid(@"\d+"));
+        Assert.True(PolarsWrapper.RegexIsValid(@"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"));
+        Assert.True(PolarsWrapper.RegexIsValid(@"(?i)foo.*bar"));
+        Assert.True(PolarsWrapper.RegexIsValid(@"\b\w{3,5}\b"));
+        Assert.True(PolarsWrapper.RegexIsValid(@"[0-9]{4}-[0-9]{2}-[0-9]{2}"));
+        Assert.True(PolarsWrapper.RegexIsValid(@"foo|bar|baz"));
+    }
+
+    [Fact]
+    [Trait("Expr", "ValidRegex")]
+    public void Test_Regex_Is_Valid_Unsupported_And_Malformed_Patterns()
+    {
+        // Lookaround assertions (not supported by Rust regex engine)
+        Assert.False(PolarsWrapper.RegexIsValid(@"(?=.*[A-Z])"));        // Positive lookahead
+        Assert.False(PolarsWrapper.RegexIsValid(@"(?!abc)"));            // Negative lookahead
+        Assert.False(PolarsWrapper.RegexIsValid(@"(?<=foo)bar"));        // Positive lookbehind
+        Assert.False(PolarsWrapper.RegexIsValid(@"(?<!foo)bar"));        // Negative lookbehind
+
+        // Backreferences (not supported by Rust regex engine)
+        Assert.False(PolarsWrapper.RegexIsValid(@"([a-z])\1"));
+
+        // Malformed regex patterns
+        Assert.False(PolarsWrapper.RegexIsValid(@"[a-z"));               // Unclosed character class
+        Assert.False(PolarsWrapper.RegexIsValid(@"(abc"));               // Unclosed group
+        Assert.False(PolarsWrapper.RegexIsValid(@"*abc"));               // Dangling quantifier
+
+        // Null boundary
+        Assert.False(PolarsWrapper.RegexIsValid(null!));
+    }
 }

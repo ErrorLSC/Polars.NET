@@ -37,6 +37,7 @@ urlencoding = "2.1.3"
 rand = "0.10.0"
 roaring = "0.11.3"
 z85 = "3.0.7"
+regex-syntax = "0.8.11"
 [lib]
 crate-type = ["cdylib"]
 

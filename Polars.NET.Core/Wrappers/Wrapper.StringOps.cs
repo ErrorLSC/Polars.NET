@@ -334,5 +334,24 @@ public readonly partial struct PolarsWrapper
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static bool RegexIsValid(string pattern)
+    {
+        if (pattern is null) return false;
 
+        ReadOnlySpan<char> charSpan = pattern.AsSpan();
+        int maxByteCount = Encoding.UTF8.GetByteCount(charSpan);
+
+        // Allocate UTF-8 bytes on stack for common pattern lengths to avoid heap allocation
+        Span<byte> utf8Buffer = maxByteCount <= 512
+            ? stackalloc byte[maxByteCount]
+            : new byte[maxByteCount];
+
+        int actualBytes = Encoding.UTF8.GetBytes(charSpan, utf8Buffer);
+        ref readonly byte bufferRef = ref MemoryMarshal.GetReference(utf8Buffer);
+
+        int status = NativeBindings.pl_regex_is_valid(in bufferRef, (nuint)actualBytes, out bool isValid);
+        ErrorHelper.CheckStatus(status);
+        return isValid;
+        
+    }
 }

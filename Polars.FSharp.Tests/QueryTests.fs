@@ -16,7 +16,7 @@ type OrderDto = { OrderId: int; OrderDate: DateTime; Region: string; Revenue: fl
 type ProductDto = { Id: int; Name: string; Category: string; Price: float }
 type DeptDto = { DeptId: int; DeptName: string }
 type NullableEmpDto = { Name: string; DeptId: int; Salary: float }
-type SalesData = { Category: string; ProductName: string; Revenue: float; Discount: float }
+type SalesData = { Category: string; Item: string; Revenue: float; Discount: float }
 type ServerLog = { Id: int; Message: string; Flags: int }
 type StockPrice = { Ticker: string; Date: DateTime; Price: float }
 type StaffRecord = { name: string; age: int; salary: float }
@@ -77,8 +77,8 @@ module QueryTests =
 
         // Sales
         let sales = [|
-            { Category = "Engineering"; ProductName = "Polars.NET"; Revenue = 5000.0; Discount = 500.0 }
-            { Category = "Marketing"; ProductName = "Ad Campaign"; Revenue = 3000.0; Discount = 200.0 }
+            { Category = "Engineering"; Item = "Polars.NET"; Revenue = 5000.0; Discount = 500.0 }
+            { Category = "Marketing"; Item = "Ad Campaign"; Revenue = 3000.0; Discount = 200.0 }
         |]
 
         // Traffic
@@ -129,7 +129,7 @@ module QueryTests =
                     EmpName = if box e = null then "NO_EMPLOYEE" else e.Name
                     Region = if box t = null then "UNKNOWN_REGION" else t.Region
                     Latency = if box t = null then -1.0 else t.Latency
-                    ProductName = if box s = null then "NO_PRODUCT" else s.ProductName
+                    ProductName = if box s = null then "NO_PRODUCT" else s.Item
                     ComputedDeptCode = baseDeptCode
                 |}
             }
@@ -941,10 +941,10 @@ module QueryTests =
     [<Trait("LINQ", "MathStringAndConditionalAgg")>]
     let ``Test Polars Linq Math String And ConditionalAgg`` () =
         let sales = [|
-            { Category = "Tech";   ProductName = "Laptop"; Revenue = 1000.5; Discount = 50.0 }
-            { Category = "Tech";   ProductName = "Mouse";  Revenue = -20.0;  Discount = 0.0 }
-            { Category = "Office"; ProductName = "Desk";   Revenue = 500.2;  Discount = 10.0 }
-            { Category = "Office"; ProductName = "Chair";  Revenue = 150.8;  Discount = 5.0 }
+            { Category = "Tech";   Item = "Laptop"; Revenue = 1000.5; Discount = 50.0 }
+            { Category = "Tech";   Item = "Mouse";  Revenue = -20.0;  Discount = 0.0 }
+            { Category = "Office"; Item = "Desk";   Revenue = 500.2;  Discount = 10.0 }
+            { Category = "Office"; Item = "Chair";  Revenue = 150.8;  Discount = 5.0 }
         |]
 
         use dfSales = DataFrame.ofRecords sales
@@ -955,7 +955,7 @@ module QueryTests =
             query {
                 for s in salesQuery do
                 select {|
-                    FullName = s.Category + " - " + s.ProductName
+                    FullName = s.Category + " - " + s.Item
                     NetRevenue = Math.Round(Math.Abs s.Revenue - s.Discount, 2)
                 |}
             } |> Seq.toList

@@ -132,4 +132,56 @@ public readonly partial struct PolarsWrapper
             }
         }
     }
+    public static ExprHandle MapStringPredicate(ExprHandle expr, Func<string?, bool> predicate)
+    {
+        var boolDtype = NewPrimitiveType((int)PlDataType.Boolean);
+        
+        return Map(expr, arrowArray =>
+        {
+            var strViewArray = (StringViewArray)arrowArray;
+            var builder = new BooleanArray.Builder();
+            
+            for (int i = 0; i < strViewArray.Length; i++)
+            {
+                if (strViewArray.IsNull(i))
+                {
+                    builder.AppendNull();
+                }
+                else
+                {
+                    string val = strViewArray.GetString(i);
+                    builder.Append(predicate(val));
+                }
+            }
+            
+            return builder.Build();
+        }, boolDtype);
+    }
+    public static ExprHandle MapStringTransform(ExprHandle expr, Func<string?, string?> transform)
+    {
+        var strDtype = NewPrimitiveType((int)PlDataType.String);
+        
+        return Map(expr, arrowArray =>
+        {
+            var strViewArray = (StringViewArray)arrowArray;
+            var builder = new StringViewArray.Builder();
+            
+            for (int i = 0; i < strViewArray.Length; i++)
+            {
+                if (strViewArray.IsNull(i))
+                {
+                    builder.AppendNull();
+                }
+                else
+                {
+                    string val = strViewArray.GetString(i);
+                    string? res = transform(val);
+                    if (res is null) builder.AppendNull();
+                    else builder.Append(res);
+                }
+            }
+            
+            return builder.Build();
+        }, strDtype);
+    }
 }

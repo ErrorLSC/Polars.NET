@@ -204,5 +204,10 @@ internal partial class NativeBindings
     public static partial ExprHandle pl_expr_str_base64_decode(ExprHandle e,[MarshalAs(UnmanagedType.U1)] bool strict);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_base64_encode(ExprHandle e);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_hex_encode(ExprHandle e);
+    [LibraryImport(LibName)]
+    public static partial int pl_regex_is_valid(
+        in byte patternPtr,
+        nuint patternLen,
+        [MarshalAs(UnmanagedType.U1)] out bool outIsValid);
 
 }

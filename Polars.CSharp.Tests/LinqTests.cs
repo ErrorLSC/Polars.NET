@@ -2,6 +2,7 @@ using System.Text;
 using Polars.CSharp.Linq;
 using System.Linq;
 using Pl = Polars.CSharp.Polars;
+using System.Text.RegularExpressions;
 
 namespace Polars.CSharp.Tests;
 
@@ -61,7 +62,8 @@ public readonly record struct OrderRecord(
     DateTime OrderDate,
     double Amount
 );
-public class LinqTests
+public readonly record struct UserInfo(int Id, string Email, string Password);
+public partial class LinqTests
 {
     [Fact]
     [Trait("LINQ", "SingleColumn")]
@@ -3411,5 +3413,47 @@ public class LinqTests
         Assert.Equal("bob", result[1].SubName);
         Assert.Equal("CHARLIE", result[2].UpperName);
         Assert.Equal("CHA", result[2].SubName);
+    }
+    // Complex lookahead regex: Rust engine does NOT support this -> routes to MapStringPredicate UDF
+    [GeneratedRegex(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$")]
+    private static partial Regex StrongPasswordRegex();
+
+    [Fact]
+    [Trait("LINQ", "Regex")]
+    public void Test_Linq_Regex_Native_And_UDF_Pushdown()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Email", ["alice@example.com", "bob_invalid", "charlie@polars.net"]),
+            Series.From("Password", ["P@ssw0rd1", "weakpass", "Admin2026"])
+        ]);
+
+        // Scenario 1: Standard regex -> Validated -> Natively pushed down to Rust StrContains
+        var validEmailPattern = @"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$";
+        var nativeQuery = df.AsQueryable<UserInfo>()
+                            .Where(u => Regex.IsMatch(u.Email, validEmailPattern))
+                            .ToList();
+
+        Assert.Equal(2, nativeQuery.Count);
+        Assert.Equal("alice@example.com", nativeQuery[0].Email);
+        Assert.Equal("charlie@polars.net", nativeQuery[1].Email);
+
+        // Scenario 2: SG Regex with Lookaround -> Rejected by Rust -> Pushed down to MapStringPredicate UDF
+        var udfQuery = df.AsQueryable<UserInfo>()
+                         .Where(u => StrongPasswordRegex().IsMatch(u.Password))
+                         .ToList();
+
+        Assert.Equal(2, udfQuery.Count);
+        Assert.Equal("P@ssw0rd1", udfQuery[0].Password);
+        Assert.Equal("Admin2026", udfQuery[1].Password);
+
+        // Scenario 3: Mixed Where conditions (Native + UDF combined)
+        var combinedQuery = df.AsQueryable<UserInfo>()
+                              .Where(u => Regex.IsMatch(u.Email, validEmailPattern) && StrongPasswordRegex().IsMatch(u.Password))
+                              .ToList();
+
+        Assert.Equal(2, combinedQuery.Count);
+        Assert.Equal("alice@example.com", combinedQuery[0].Email);
+        Assert.Equal("Admin2026", combinedQuery[1].Password);
     }
 }

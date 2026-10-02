@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Apache.Arrow;
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
@@ -85,7 +86,7 @@ public static class UdfLogic
     }
 }
 
-public class UdfTests
+public partial class UdfTests
 {
     [Fact]
     public void Map_UDF_Memory_Data_Test()
@@ -389,5 +390,50 @@ public class UdfTests
         Assert.Equal(0, res.Height);
         Assert.Equal(3, res.Width);
         Assert.Equal(["Name", "TotalCompensation", "IsSenior"], res.Columns);
+    }
+    // C# Source Generated Regex: matches passwords that satisfy complex requirements (contains uppercase, lowercase, digit via lookahead)
+    [GeneratedRegex(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$")]
+    private static partial Regex StrongPasswordRegex();
+
+    // C# Source Generated Regex: masks domain names or extracts specific patterns
+    [GeneratedRegex(@"@(?=[a-zA-Z0-9.-]+)")]
+    private static partial Regex EmailAtLookaheadRegex();
+
+    [Fact]
+    [Trait("UDF", "Regex")]
+    public void Test_UDF_Source_Generated_Regex_Mapping()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("User", ["Alice", "Bob", "Charlie", "David"]),
+            Series.From("Email", ["alice@example.com", "bob_at_home", "charlie@polars.net", "david@corp.org"]),
+            Series.From("Password", ["P@ssw0rd1", "weakpass", "Admin2026", "123456"])
+        ]);
+
+        // 1. Transform Mapping: using SG Regex to mask email with lookahead
+        var maskEmailExpr = Pl.Col("Email")
+            .Map<string, string>(email => EmailAtLookaheadRegex().Replace(email, "[at]"))
+            .Alias("MaskedEmail");
+
+        // 2. Boolean Mapping: using complex lookahead SG Regex to validate passwords
+        var isValidPwdExpr = Pl.Col("Password")
+            .Map<string, bool>(pwd => StrongPasswordRegex().IsMatch(pwd))
+            .Alias("IsValidPassword");
+
+        using var result = df.Select(
+            Pl.Col("User"),
+            maskEmailExpr,
+            isValidPwdExpr
+        );
+
+        // Verify Transform Mapping
+        Assert.Equal("alice[at]example.com", result.Column("MaskedEmail").GetValue<string>(0));
+        Assert.Equal("bob_at_home", result.Column("MaskedEmail").GetValue<string>(1));
+        Assert.Equal("charlie[at]polars.net", result.Column("MaskedEmail").GetValue<string>(2));
+
+        // Verify Boolean Validation Mapping
+        Assert.True(result.Column("IsValidPassword").GetValue<bool>(0));  // "P@ssw0rd1" -> Valid
+        Assert.False(result.Column("IsValidPassword").GetValue<bool>(1)); // "weakpass"  -> Invalid
+        Assert.True(result.Column("IsValidPassword").GetValue<bool>(2));  // "Admin2026"  -> Valid
+        Assert.False(result.Column("IsValidPassword").GetValue<bool>(3)); // "123456"     -> Invalid
     }
 }
