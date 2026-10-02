@@ -9,6 +9,7 @@ open Polars.NET.Core.Helpers
 open Apache.Arrow.Types
 
 module ExprTranslator =
+    open System.Text.RegularExpressions
 
     let rec private isNullConstantExpr (e: Expression) =
         match e with
@@ -276,82 +277,128 @@ module ExprTranslator =
                 | _ -> None
 
             // =========================================================================
-            // 8.1 Static Regex Method Calls (Regex.IsMatch, Regex.Replace)
+            // Regex Operations (Unified Dispatch for Static, Instance, and SG Regex)
             // =========================================================================
-            | MethodCall(m, null, [ target; patternExpr ]) 
-                when m.DeclaringType = typeof<System.Text.RegularExpressions.Regex> && m.Name = "IsMatch" ->
+            | RegexInvocation invocation ->
+                let getRegex rxOpt pat = 
+                    match rxOpt with
+                    | Some (rx: Regex) -> rx
+                    | None -> Regex(pat)
 
-                let translateTarget () = tryTranslate paramName target
+                match invocation with
+                // 1. IsMatch: Boolean predicate
+                | IsMatch(target, pat, rxOpt) ->
+                    tryTranslate paramName target
+                    |> Option.map (fun t ->
+                        if PolarsWrapper.RegexIsValid(pat) then
+                            PolarsWrapper.StrContains(t, PolarsWrapper.Lit pat, literal = false, strict = false)
+                        else
+                            let rx = getRegex rxOpt pat
+                            PolarsWrapper.MapStringPredicate(t, Func<string, bool>(rx.IsMatch))
+                    )
 
-                match translateTarget(), tryEvaluate patternExpr with
-                | Some t, Some (:? string as pat) ->
-                    if PolarsWrapper.RegexIsValid(pat) then
-                        // 1. Rust Native Pushdown (Strictly linear-time, SIMD vectorized)
-                        Some (PolarsWrapper.StrContains(t, PolarsWrapper.Lit pat, literal = false, strict = false))
-                    else
-                        // 2. In-Graph Arrow Chunk UDF Pushdown (Handles Lookarounds / SG Regex via .NET)
-                        let rx = System.Text.RegularExpressions.Regex(pat)
-                        let predicate = Func<string, bool>(fun s -> rx.IsMatch(s))
-                        Some (PolarsWrapper.MapStringPredicate(t, predicate))
-                | _ -> None
+                // 2. ReplaceLiteral: String replacement with string literal
+                | ReplaceLiteral(target, pat, rep, rxOpt) ->
+                    tryTranslate paramName target
+                    |> Option.map (fun t ->
+                        if PolarsWrapper.RegexIsValid(pat) then
+                            PolarsWrapper.StrReplaceAll(t, PolarsWrapper.Lit pat, PolarsWrapper.Lit rep, literal = false)
+                        else
+                            let rx = getRegex rxOpt pat
+                            PolarsWrapper.MapStringTransform(t, Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep)))
+                    )
 
-            | MethodCall(m, null, [ target; patternExpr; replaceExpr ]) 
-                when m.DeclaringType = typeof<System.Text.RegularExpressions.Regex> && m.Name = "Replace" ->
+                // 3. ReplaceEvaluator: Dynamic replacement via delegate MatchEvaluator
+                | ReplaceEvaluator(target, pat, eval, rxOpt) ->
+                    tryTranslate paramName target
+                    |> Option.map (fun t ->
+                        let rx = getRegex rxOpt pat
+                        PolarsWrapper.MapStringTransform(t, Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, eval)))
+                    )
 
-                let translateTarget () = tryTranslate paramName target
+                // 4. MatchValue: Extract match value or specific group (e.g. .Value or .Groups[n].Value)
+                | MatchValue(target, pat, groupIndex, rxOpt) ->
+                    tryTranslate paramName target
+                    |> Option.map (fun t ->
+                        if PolarsWrapper.RegexIsValid(pat) then
+                            // Rust native StrExtract (groupIndex: 0 is whole match, 1+ is capture group)
+                            PolarsWrapper.StrExtract(t, PolarsWrapper.Lit pat, groupIndex)
+                        else
+                            let rx = getRegex rxOpt pat
+                            PolarsWrapper.MapStringTransform(t, Func<string, string>(fun s ->
+                                if isNull s then null
+                                else
+                                    let m = rx.Match(s)
+                                    if m.Success && groupIndex < m.Groups.Count then m.Groups.[groupIndex].Value
+                                    else null
+                            ))
+                    )
+                // 5. MatchesAll: Extract list of all matches (List(String))
+                | MatchesAll(target, pat, rxOpt) ->
+                    tryTranslate paramName target
+                    |> Option.map (fun t ->
+                        if PolarsWrapper.RegexIsValid(pat) then
+                            // Rust native StrExtractAll returns List(String)
+                            PolarsWrapper.StrExtractAll(t, PolarsWrapper.Lit pat)
+                        else
+                            let rx = getRegex rxOpt pat
+                            PolarsWrapper.MapStringToList(t, Func<string, Collections.Generic.IEnumerable<string>>(fun s ->
+                                if isNull s then null
+                                else
+                                    let matches = rx.Matches(s)
+                                    let list = Collections.Generic.List<string>(matches.Count)
+                                    for m in matches do list.Add(m.Value)
+                                    list :> Collections.Generic.IEnumerable<string>
+                            ))
+                    )
 
-                match translateTarget(), tryEvaluate patternExpr, tryEvaluate replaceExpr with
-                | Some t, Some (:? string as pat), Some (:? string as rep) ->
-                    if PolarsWrapper.RegexIsValid(pat) then
-                        // 1. Rust Native Pushdown
-                        Some (PolarsWrapper.StrReplaceAll(t, PolarsWrapper.Lit pat, PolarsWrapper.Lit rep, literal = false))
-                    else
-                        // 2. In-Graph Arrow Chunk UDF Pushdown
-                        let rx = System.Text.RegularExpressions.Regex(pat)
-                        let transform = Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep))
-                        Some (PolarsWrapper.MapStringTransform(t, transform))
-                | _ -> None
+                // 6. MatchesCount: Count occurrences of pattern in string
+                | MatchesCount(target, pat, rxOpt) ->
+                    tryTranslate paramName target
+                    |> Option.map (fun t ->
+                        if PolarsWrapper.RegexIsValid(pat) then
+                            // Native: StrExtractAll -> ListLengths
+                            let listExpr = PolarsWrapper.StrExtractAll(t, PolarsWrapper.Lit pat)
+                            PolarsWrapper.ListLen listExpr
+                        else
+                            let rx = getRegex rxOpt pat
+                            // Int32 output for Count
+                            let intDtype = PolarsWrapper.NewPrimitiveType(int PlDataType.Int32)
+                            PolarsWrapper.Map(t, Func<Apache.Arrow.IArrowArray, Apache.Arrow.IArrowArray>(fun arr ->
+                                let strViewArr = arr :?> Apache.Arrow.StringViewArray
+                                let builder = Apache.Arrow.Int32Array.Builder()
+                                for i in 0 .. strViewArr.Length - 1 do
+                                    if strViewArr.IsNull(i) then builder.AppendNull() |> ignore
+                                    else
+                                        let s = strViewArr.GetString(i)
+                                        builder.Append(rx.Matches(s).Count) |> ignore
+                                builder.Build() :> Apache.Arrow.IArrowArray
+                            ), intDtype)
+                    )
 
-            // =========================================================================
-            // 8.2 Instance Regex & Source Generated Regex (rx.IsMatch(s), rx.Replace(s, "..."))
-            // =========================================================================
-            | MethodCall(m, regexInstanceExpr, [ target ]) 
-                when not (isNull regexInstanceExpr) && 
-                     typeof<System.Text.RegularExpressions.Regex>.IsAssignableFrom(regexInstanceExpr.Type) && 
-                     m.Name = "IsMatch" ->
-
-                let translateTarget () = tryTranslate paramName target
-
-                match translateTarget(), tryEvaluate regexInstanceExpr with
-                | Some t, Some (:? System.Text.RegularExpressions.Regex as rx) ->
-                    let pat = rx.ToString()
-                    if PolarsWrapper.RegexIsValid(pat) then
-                        // 1. Rust Native Pushdown
-                        Some (PolarsWrapper.StrContains(t, PolarsWrapper.Lit pat, literal = false, strict = false))
-                    else
-                        // 2. In-Graph Arrow Chunk UDF Pushdown (Preserves SG Regex performance)
-                        let predicate = Func<string, bool>(fun s -> rx.IsMatch(s))
-                        Some (PolarsWrapper.MapStringPredicate(t, predicate))
-                | _ -> None
-
-            | MethodCall(m, regexInstanceExpr, [ target; replaceExpr ]) 
-                when not (isNull regexInstanceExpr) && 
-                     typeof<System.Text.RegularExpressions.Regex>.IsAssignableFrom(regexInstanceExpr.Type) && 
-                     m.Name = "Replace" ->
-
-                let translateTarget () = tryTranslate paramName target
-
-                match translateTarget(), tryEvaluate regexInstanceExpr, tryEvaluate replaceExpr with
-                | Some t, Some (:? System.Text.RegularExpressions.Regex as rx), Some (:? string as rep) ->
-                    let pat = rx.ToString()
-                    if PolarsWrapper.RegexIsValid(pat) then
-                        // 1. Rust Native Pushdown
-                        Some (PolarsWrapper.StrReplaceAll(t, PolarsWrapper.Lit pat, PolarsWrapper.Lit rep, literal = false))
-                    else
-                        // 2. In-Graph Arrow Chunk UDF Pushdown
-                        let transform = Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep))
-                        Some (PolarsWrapper.MapStringTransform(t, transform))
-                | _ -> None
+                // 7. Split: Split string by regex pattern into LargeList(String)
+                | Split(target, pat, rxOpt) ->
+                    tryTranslate paramName target
+                    |> Option.map (fun t ->
+                        if PolarsWrapper.RegexIsValid(pat) then
+                            // Rust native StrSplit:
+                            // expr: t, by: Lit pat, inclusive: false, literal: false (use regex), strict: false
+                            PolarsWrapper.StrSplit(
+                                t,
+                                PolarsWrapper.Lit pat,
+                                inclusive = false,
+                                literal = false,
+                                strict = false
+                            )
+                        else
+                            // In-Graph Arrow Chunk UDF Fallback (Handles Lookarounds / SG Regex via LargeListArray)
+                            let rx = getRegex rxOpt pat
+                            PolarsWrapper.MapStringToList(t, Func<string, seq<string>>(fun s ->
+                                if isNull s then null
+                                else
+                                    rx.Split(s) :> seq<string>
+                            ))
+                    )
 
             // 9. Instance String Methods Pushdown
             | MethodCall(m, target, args) when not (isNull target) && target.Type = typeof<string> ->

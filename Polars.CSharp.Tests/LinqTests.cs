@@ -63,6 +63,7 @@ public readonly record struct OrderRecord(
     double Amount
 );
 public readonly record struct UserInfo(int Id, string Email, string Password);
+public readonly record struct LogEntry(int Id, string Message);
 public partial class LinqTests
 {
     [Fact]
@@ -3427,7 +3428,7 @@ public partial class LinqTests
             Series.From("Email", ["alice@example.com", "bob_invalid", "charlie@polars.net"]),
             Series.From("Password", ["P@ssw0rd1", "weakpass", "Admin2026"])
         ]);
-
+        
         // Scenario 1: Standard regex -> Validated -> Natively pushed down to Rust StrContains
         var validEmailPattern = @"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$";
         var nativeQuery = df.AsQueryable<UserInfo>()
@@ -3455,5 +3456,278 @@ public partial class LinqTests
         Assert.Equal(2, combinedQuery.Count);
         Assert.Equal("alice@example.com", combinedQuery[0].Email);
         Assert.Equal("Admin2026", combinedQuery[1].Password);
+    }
+    // Source Generated Regex targeting numbers in string
+    [GeneratedRegex(@"\d+")]
+    private static partial Regex NumberRegex();
+
+    // Source Generated Regex targeting bracketed tokens: [tag]
+    [GeneratedRegex(@"\[([a-zA-Z]+)\]")]
+    private static partial Regex TagRegex();
+
+    [Fact]
+    [Trait("LINQ", "RegexMatchEvaluator")]
+    public void Test_Linq_Regex_Replace_With_MatchEvaluator_Static()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Message", ["Item 10 costs 20", "Score 5 bonus 100", "Zero 0 none"])
+        ]);
+
+        // Static Regex.Replace with MatchEvaluator: double each numeric value
+        MatchEvaluator doubleNumbers = m => (int.Parse(m.Value) * 2).ToString();
+
+        var query = df.AsQueryable<LogEntry>()
+                      .Select(e => new {
+                          e.Id,
+                          DoubledMessage = NumberRegex().Replace(e.Message, doubleNumbers)
+                      })
+                      .ToList();
+
+        Assert.Equal(3, query.Count);
+        Assert.Equal("Item 20 costs 40", query[0].DoubledMessage);
+        Assert.Equal("Score 10 bonus 200", query[1].DoubledMessage);
+        Assert.Equal("Zero 0 none", query[2].DoubledMessage);
+    }
+
+    [Fact]
+    [Trait("LINQ", "RegexMatchEvaluator")]
+    public void Test_Linq_Regex_Replace_With_MatchEvaluator_Instance_And_SG()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2]),
+            Series.From("Message", ["Status: [info] at server", "Error: [critical] failure"])
+        ]);
+
+        // Instance / SG Regex.Replace with MatchEvaluator: uppercase inside brackets
+        MatchEvaluator uppercaseTag = m => $"[{m.Groups[1].Value.ToUpperInvariant()}]";
+
+        var query = df.AsQueryable<LogEntry>()
+                      .Select(e => new {
+                          e.Id,
+                          NormalizedMessage = TagRegex().Replace(e.Message, uppercaseTag)
+                      })
+                      .ToList();
+
+        Assert.Equal(2, query.Count);
+        Assert.Equal("Status: [INFO] at server", query[0].NormalizedMessage);
+        Assert.Equal("Error: [CRITICAL] failure", query[1].NormalizedMessage);
+    }
+    // SG Regex with capture groups for extracting severity and numeric code: e.g. "[ERROR:404]"
+    [GeneratedRegex(@"\[(INFO|WARN|ERROR):(\d+)\]")]
+    private static partial Regex LogHeaderRegex();
+
+    // Lookahead SG Regex to extract thread numbers preceding "ms" latency (Rust engine cannot do lookahead)
+    [GeneratedRegex(@"\d+(?=\s*ms)")]
+    private static partial Regex LatencyLookaheadRegex();
+
+    [Fact]
+    [Trait("LINQ", "RegexMatch")]
+    public void Test_Linq_Regex_Match_Value_And_Groups()
+    {
+        // Reusing existing record struct LogEntry(int Id, string Message)
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Message", [
+                "[INFO:200] Request processed in 45 ms",
+                "[ERROR:500] Database timeout after 1200 ms",
+                "Malformed message without brackets"
+            ])
+        ]);
+
+        var query = df.AsQueryable<LogEntry>()
+                      .Select(e => new {
+                          e.Id,
+                          // 1. Static Regex.Match(s, pat).Value -> Rust Native StrExtract (Group 0)
+                          FullTag = Regex.Match(e.Message,@"\[(INFO|WARN|ERROR):(\d+)\]").Value,
+                          // 2. SG Regex Match with Groups[1] -> Rust Native StrExtract (Group 1: Severity)
+                          Severity = LogHeaderRegex().Match(e.Message).Groups[1].Value,
+                          // 3. SG Regex Match with Groups[2] -> Rust Native StrExtract (Group 2: Code)
+                          StatusCode = LogHeaderRegex().Match(e.Message).Groups[2].Value,
+                          // 4. Lookahead SG Regex -> Fallback to MapStringTransform UDF in Arrow Chunk
+                          Latency = LatencyLookaheadRegex().Match(e.Message).Value
+                      })
+                      .ToList();
+
+        Assert.Equal(3, query.Count);
+
+        // Record 1: Normal processing
+        Assert.Equal(1, query[0].Id);
+        Assert.Equal("[INFO:200]", query[0].FullTag);
+        Assert.Equal("INFO", query[0].Severity);
+        Assert.Equal("200", query[0].StatusCode);
+        Assert.Equal("45", query[0].Latency);
+
+        // Record 2: Error log
+        Assert.Equal(2, query[1].Id);
+        Assert.Equal("[ERROR:500]", query[1].FullTag);
+        Assert.Equal("ERROR", query[1].Severity);
+        Assert.Equal("500", query[1].StatusCode);
+        Assert.Equal("1200", query[1].Latency);
+
+        // Record 3: No match
+        Assert.Equal(3, query[2].Id);
+        Assert.Equal(string.Empty, query[2].FullTag);
+        Assert.Equal(string.Empty, query[2].Severity);
+        Assert.Equal(string.Empty, query[2].StatusCode);
+        Assert.Equal(string.Empty,query[2].Latency);
+    }
+
+    // Lookahead SG Regex targeting numbers that precede "ms"
+    [GeneratedRegex(@"\d+(?=\s*ms)")]
+    private static partial Regex LookaheadMsRegex();
+
+    [Fact]
+    [Trait("LINQ", "RegexMatches")]
+    public void Test_Linq_Regex_Matches_Count_And_Extraction_Using_LogEntry()
+    {
+        // Reusing existing record struct LogEntry(int Id, string Message)
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Message", [
+                "CPU 20%, Memory 80%, Disk 45%",
+                "Step took 10 ms then 200 ms",
+                "No numbers here"
+            ])
+        ]);
+
+        var query = df.AsQueryable<LogEntry>()
+                      .Select(e => new {
+                          e.Id,
+                          // 1. Static Regex.Matches(s, pat).Count -> Rust StrExtractAll + ListLengths
+                          DigitCount = Regex.Matches(e.Message,@"\d+").Count,
+                          // 2. SG Regex rx.Matches(s).Count -> Native
+                          NumberGroupCount = NumberRegex().Count(e.Message),
+                          // 3. Lookahead SG Regex Matches(s).Count -> UDF Fallback (Int32 Array)
+                          LookaheadCount = LookaheadMsRegex().Count(e.Message)
+                      })
+                      .ToList();
+
+        Assert.Equal(3, query.Count);
+
+        // Record 1: "20", "80", "45" -> 3 numbers, 0 "ms"
+        Assert.Equal(1, query[0].Id);
+        Assert.Equal(3, query[0].DigitCount);
+        Assert.Equal(3, query[0].NumberGroupCount);
+        Assert.Equal(0, query[0].LookaheadCount);
+
+        // Record 2: "10 ms", "200 ms" -> 2 numbers, 2 "ms"
+        Assert.Equal(2, query[1].Id);
+        Assert.Equal(2, query[1].DigitCount);
+        Assert.Equal(2, query[1].NumberGroupCount);
+        Assert.Equal(2, query[1].LookaheadCount);
+
+        // Record 3: No matches
+        Assert.Equal(3, query[2].Id);
+        Assert.Equal(0, query[2].DigitCount);
+        Assert.Equal(0, query[2].NumberGroupCount);
+        Assert.Equal(0, query[2].LookaheadCount);
+    }
+    // SG Regex targeting individual word tokens: e.g. "CPU", "Memory", "Disk"
+    [GeneratedRegex(@"\b[A-Za-z]+\b")]
+    private static partial Regex WordTokensRegex();
+
+    // Lookahead SG Regex targeting numeric IDs preceding "ms" (Forces UDF Fallback -> MapStringToList)
+    [GeneratedRegex(@"\d+(?=\s*ms)")]
+    private static partial Regex LookaheadMsRegexExtractor();
+
+    [Fact]
+    [Trait("LINQ", "RegexMatchesToList")]
+    public void Test_Linq_Regex_Matches_Select_Value_ToList_Using_LogEntry()
+    {
+        // Reusing existing record struct LogEntry(int Id, string Message)
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Message", [
+                "Server alpha port 8080 latency 12 ms",
+                "Backup beta delay 250 ms and 300 ms",
+                "Idle"
+            ])
+        ]);
+
+        var query = df.AsQueryable<LogEntry>()
+                      .Select(e => new {
+                          e.Id,
+                          // 1. Static Regex.Matches + Select(m => m.Value).ToList() -> Native StrExtractAll
+                          StaticTokens = Regex.Matches(e.Message,@"\b[A-Za-z]+\b")
+                                              .Select(m => m.Value)
+                                              .ToList(),
+
+                          // 2. SG Regex rx.Matches + Select(m => m.Value).ToList() -> Native StrExtractAll
+                          SgTokens = WordTokensRegex().Matches(e.Message)
+                                                      .Select(m => m.Value)
+                                                      .ToList(),
+
+                          // 3. Lookahead SG Regex + Select(m => m.Value).ToList() -> Arrow LargeList UDF Fallback
+                          LookaheadLatencies = LookaheadMsRegexExtractor().Matches(e.Message)
+                                                                         .Select(m => m.Value)
+                                                                         .ToList()
+                      })
+                      .ToList();
+
+        Assert.Equal(3, query.Count);
+
+        // Record 1: "Server alpha port 8080 latency 12 ms"
+        Assert.Equal(1, query[0].Id);
+        Assert.Equal(["Server", "alpha", "port", "latency", "ms"], query[0].StaticTokens);
+        Assert.Equal(["Server", "alpha", "port", "latency", "ms"], query[0].SgTokens);
+        Assert.Equal(["12"], query[0].LookaheadLatencies);
+
+        // Record 2: "Backup beta delay 250 ms and 300 ms"
+        Assert.Equal(2, query[1].Id);
+        Assert.Equal(["Backup", "beta", "delay", "ms", "and", "ms"], query[1].StaticTokens);
+        Assert.Equal(["Backup", "beta", "delay", "ms", "and", "ms"], query[1].SgTokens);
+        Assert.Equal(["250", "300"], query[1].LookaheadLatencies);
+
+        // Record 3: "Idle"
+        Assert.Equal(3, query[2].Id);
+        Assert.Equal(["Idle"], query[2].StaticTokens);
+        Assert.Equal(["Idle"], query[2].SgTokens);
+        Assert.Empty(query[2].LookaheadLatencies);
+    }
+    // SG Regex: delimiter is one or more whitespace, comma, or semicolon
+    [GeneratedRegex(@"[\s,;]+")]
+    private static partial Regex DelimiterRegex();
+
+    // Lookahead SG Regex: split before uppercase letters (Rust engine rejects lookahead -> triggers UDF)
+    [GeneratedRegex(@"(?=[A-Z])")]
+    private static partial Regex CamelCaseSplitRegex();
+
+    [Fact]
+    [Trait("LINQ", "RegexSplit")]
+    public void Test_Linq_Regex_Split_Native_And_UDF_Using_LogEntry()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2]),
+            Series.From("Message", [
+                "apple,banana;orange grape",
+                "SplitCamelCaseText"
+            ])
+        ]);
+
+        var query = df.AsQueryable<LogEntry>()
+                      .Select(e => new {
+                          e.Id,
+                          // 1. Static Regex.Split -> Rust Native StrSplit (literal: false)
+                          StaticWords = Regex.Split(e.Message, @"[\s,;]+"),
+                          // 2. SG Regex rx.Split -> Rust Native StrSplit (literal: false)
+                          SgWords = DelimiterRegex().Split(e.Message),
+                          // 3. Lookahead SG Regex -> Arrow LargeList UDF Fallback
+                          Tokens = CamelCaseSplitRegex().Split(e.Message)
+                      })
+                      .ToList();
+
+        Assert.Equal(2, query.Count);
+
+        // Record 1: Delimiter split
+        Assert.Equal(1, query[0].Id);
+        Assert.Equal(["apple", "banana", "orange", "grape"], query[0].StaticWords);
+        Assert.Equal(["apple", "banana", "orange", "grape"], query[0].SgWords);
+
+        // Record 2: CamelCase split via UDF Fallback
+        Assert.Equal(2, query[1].Id);
+        // Note: Regex.Split("SplitCamelCaseText", @"(?=[A-Z])") may yield an empty leading string before the first capital letter
+        var cleanedTokens = query[1].Tokens.Where(s => !string.IsNullOrEmpty(s)).ToList();
+        Assert.Equal(["Split", "Camel", "Case", "Text"], cleanedTokens);
     }
 }

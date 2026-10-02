@@ -184,4 +184,55 @@ public readonly partial struct PolarsWrapper
             return builder.Build();
         }, strDtype);
     }
+    public static ExprHandle MapStringToList(ExprHandle expr, Func<string?, IEnumerable<string>?> func)
+    {
+        // Polars native list type representing List(String)
+        var stringDtype = NewPrimitiveType((int)PlDataType.String);
+        var listDtype = NewListType(stringDtype);
+
+        return Map(expr, arrowArray =>
+        {
+            var strViewArray = (StringViewArray)arrowArray;
+            int length = strViewArray.Length;
+
+            // Use LargeListArray.Builder with child DataType StringViewType
+            var listBuilder = new LargeListArray.Builder(Apache.Arrow.Types.StringViewType.Default);
+            var valueBuilder = (StringViewArray.Builder)listBuilder.ValueBuilder;
+
+            for (int i = 0; i < length; i++)
+            {
+                if (strViewArray.IsNull(i))
+                {
+                    listBuilder.AppendNull();
+                }
+                else
+                {
+                    string input = strViewArray.GetString(i);
+                    var matchedList = func(input);
+
+                    if (matchedList is null)
+                    {
+                        listBuilder.AppendNull();
+                    }
+                    else
+                    {
+                        listBuilder.Append();
+                        foreach (var item in matchedList)
+                        {
+                            if (item is null)
+                            {
+                                valueBuilder.AppendNull();
+                            }
+                            else
+                            {
+                                valueBuilder.Append(item);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return listBuilder.Build();
+        }, listDtype);
+    }
 }
