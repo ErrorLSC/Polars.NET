@@ -120,6 +120,7 @@ module ExprTranslator =
         | ExpressionType.Or
         | ExpressionType.OrElse -> PolarsWrapper.Or(left, right)
         | ExpressionType.ExclusiveOr -> PolarsWrapper.Xor(left, right)
+        | ExpressionType.Coalesce -> PolarsWrapper.Coalesce [| left; right |]
         | other ->
             failwithf "Binary operator '%A' is not currently supported in Polars LINQ" other
 
@@ -142,7 +143,7 @@ module ExprTranslator =
                 let dtypeExpr = PolarsWrapper.DataTypeExprFromDataType(dtypeHandle)
                 Some (PolarsWrapper.ExprCast(operand, dtypeExpr, strict = false, wrapNumerical = false))
             | None -> None
-
+            
     let private isFSharpAnonymousMember (m: MemberInfo) =
         m.DeclaringType.Name.StartsWith "AnonymousObject" || 
         m.DeclaringType.Name.StartsWith "Tuple" ||
@@ -183,6 +184,13 @@ module ExprTranslator =
             | MemberAccess _ as memberExpr when (tryResolveColumnName paramName memberExpr).IsSome ->
                 let actualCol = (tryResolveColumnName paramName memberExpr).Value
                 Some (PolarsWrapper.Col(actualCol))
+
+            | StructFieldAccess(parentExpr, fieldName) ->
+                // Recursively translate the parent struct expression
+                match tryTranslate paramName parentExpr with
+                | Some parentHandle ->
+                    Some (PolarsWrapper.StructFieldByName(parentHandle, [|fieldName|]))
+                | None -> None
 
             // 2. Math Constants (Math.PI, Math.E)
             | MemberAccess(null, m) when m.DeclaringType = typeof<Math> || m.DeclaringType = typeof<MathF> ->

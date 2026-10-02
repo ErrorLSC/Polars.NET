@@ -10,6 +10,7 @@ open System
 [<AutoOpen>]
 module internal ExpressionPatterns =
     open System.Linq
+    open Polars.NET.Core.Helpers
     /// Represents extracted components of a Regex method invocation (Static or Instance/SG)
     type internal RegexInvocation =
         | IsMatch of target: Expression * pattern: string * instanceOpt: Regex option
@@ -122,7 +123,35 @@ module internal ExpressionPatterns =
             else
                 name.StartsWith "Microsoft.FSharp.Linq.RuntimeHelpers.AnonymousObject" ||
                 dt.IsGenericType && dt.Name.StartsWith "AnonymousObject`"
-    
+
+    /// Helper: Checks if a property access belongs to a synthetic Zip/Join tuple wrapper or transparent scope
+    let internal isTransparentScopeMember (m: System.Reflection.MemberInfo) =
+        if isNull m then false
+        else
+            let name = m.Name
+            // Standard ValueTuple / Tuple properties: Item1, Item2, Item3...
+            name.StartsWith "Item" ||
+            // Zip / Join custom wrappers: First, Second, Third
+            name = "First" || name = "Second" || name = "Third" ||
+            // F# Anonymous / Transparent identifiers
+            isFSharpAnonymousMember m
+
+    let (|StructFieldAccess|_|) (expr: Expression) : (Expression * string) option =
+        match expr with
+        | MemberAccess(target, m) 
+            when not (isNull target) && 
+                 target.NodeType = ExpressionType.MemberAccess &&
+                 PolarsTypeHelper.IsStructType target.Type ->
+            
+            // Check the target member itself
+            match target with
+            | :? MemberExpression as parentMe when isTransparentScopeMember parentMe.Member ->
+                // This is a Zip / Join tuple projection (e.g. t.Item1, t.First, t.Second) -> NOT a Struct column!
+                None
+            | _ ->
+                Some (target, m.Name)
+
+        | _ -> None
     /// Active pattern to strip convert/quote wrappers and resolve root column names,
     /// seamlessly unwrapping F# AnonymousObject tuple chains
     let rec (|ExtractColumnName|_|) (expr: Expression) : string option =
@@ -542,5 +571,5 @@ module internal ExpressionPatterns =
         | MethodCall(m, null, [ target; :? LambdaExpression as lam ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Select" && isListContainer target.Type ->
             Some (ListSelect(target, lam))
-            
+
         | _ -> None

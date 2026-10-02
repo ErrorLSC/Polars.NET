@@ -66,6 +66,9 @@ public readonly record struct OrderRecord(
 public record struct DeveloperProfile(int Id, string[] Skills, string[] DesiredSkills);
 public readonly record struct UserInfo(int Id, string Email, string Password);
 public readonly record struct LogEntry(int Id, string Message);
+public record struct AddressInfo(string City, string ZipCode);
+public record struct CustomerProfile(int Id, string CustomerName, AddressInfo Address);
+public record struct UserProfile(int Id, string Nickname, string FallbackName);
 public partial class LinqTests
 {
     [Fact]
@@ -4079,5 +4082,88 @@ public partial class LinqTests
         Assert.Equal(2, query.Count);
         Assert.Equal(["ADMIN", "DEV"], query[0].UpperTags);
         Assert.Equal(["GUEST"], query[1].UpperTags);
+    }
+    [Fact]
+    [Trait("LINQ", "StructFieldPushdown")]
+    public void Test_Linq_Nested_Struct_Field_Pushdown_Using_CustomerProfile()
+    {
+        // 1. Arrange: Create a DataFrame with a nested Struct column "Address"
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("CustomerName", ["Alice", "Bob", "Charlie"]),
+            Series.From("Address", [
+                new AddressInfo("Tokyo", "100-0001"),
+                new AddressInfo("Yokohama", "220-0012"),
+                new AddressInfo("Osaka", "530-0001")
+            ])
+        ]);
+
+        // 2. Act & Assert: Where filter pushdown on nested struct field: c.Address.City == "Yokohama"
+        var yokohamaCustomers = df.AsQueryable<CustomerProfile>()
+                                  .Where(c => c.Address.City == "Yokohama")
+                                  .ToList();
+
+        Assert.Single(yokohamaCustomers);
+        Assert.Equal("Bob", yokohamaCustomers[0].CustomerName);
+        Assert.Equal("Yokohama", yokohamaCustomers[0].Address.City);
+        Assert.Equal("220-0012", yokohamaCustomers[0].Address.ZipCode);
+
+        // 3. Act & Assert: Select projection pushdown extracting nested struct fields
+        var projected = df.AsQueryable<CustomerProfile>()
+                          .Select(c => new {
+                              c.Id,
+                              CityName = c.Address.City,
+                              Postal = c.Address.ZipCode
+                          })
+                          .OrderBy(x => x.Id)
+                          .ToList();
+
+        Assert.Equal(3, projected.Count);
+        
+        Assert.Equal(1, projected[0].Id);
+        Assert.Equal("Tokyo", projected[0].CityName);
+        Assert.Equal("100-0001", projected[0].Postal);
+
+        Assert.Equal(2, projected[1].Id);
+        Assert.Equal("Yokohama", projected[1].CityName);
+        Assert.Equal("220-0012", projected[1].Postal);
+
+        Assert.Equal(3, projected[2].Id);
+        Assert.Equal("Osaka", projected[2].CityName);
+        Assert.Equal("530-0001", projected[2].Postal);
+    }
+    [Fact]
+    [Trait("LINQ", "NullCoalescing")]
+    public void Test_Linq_Null_Coalescing_Pushdown()
+    {
+        // Construct DataFrame with nullable strings
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Nickname", ["Neo", null, "Trinity"]),
+            Series.From("FallbackName", ["Thomas", "Guest", "Agent"])
+        ]);
+
+        // Act: Test ?? operator inside Select projection
+        var query = df.AsQueryable<UserProfile>()
+                      .Select(u => new {
+                          u.Id,
+                          DisplayName = u.Nickname ?? u.FallbackName
+                      })
+                      .OrderBy(u => u.Id)
+                      .ToList();
+
+        Assert.Equal(3, query.Count);
+
+        // Record 1: Nickname is not null -> "Neo"
+        Assert.Equal(1, query[0].Id);
+        Assert.Equal("Neo", query[0].DisplayName);
+
+        // Record 2: Nickname is null -> "Guest"
+        Assert.Equal(2, query[1].Id);
+        Assert.Equal("Guest", query[1].DisplayName);
+
+        // Record 3: Nickname is not null -> "Trinity"
+        Assert.Equal(3, query[2].Id);
+        Assert.Equal("Trinity", query[2].DisplayName);
     }
 }

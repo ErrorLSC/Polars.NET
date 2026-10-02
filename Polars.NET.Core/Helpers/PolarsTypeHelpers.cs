@@ -256,4 +256,34 @@ public static class PolarsTypeHelper
             || underlying == typeof(TimeOnly)
             || underlying == typeof(Guid);
     }
+    /// <summary>
+    /// Checks whether the specified type represents a composite Struct container
+    /// (e.g. C# POCO/record struct or F# record) rather than a scalar or an enumerable collection.
+    /// </summary>
+    public static bool IsStructType(Type type)
+    {
+        if (type == null) return false;
+
+        Type core = UnwrapCoreType(type);
+
+        // 1. Scalar, primitive, or supported simple types are not structs
+        if (IsScalarType(core) || IsSupportedSimpleType(core))
+            return false;
+
+        // 2. Collections and arrays are mapped to List columns
+        if (TryGetEnumerableElementType(core) != null || typeof(System.Collections.IEnumerable).IsAssignableFrom(core))
+            return false;
+
+        // 3. Exclude System root types
+        if (core == typeof(object) || core == typeof(ValueType))
+            return false;
+
+        // 4. Exclude System.Tuple and System.ValueTuple (used for Zip/Joins)
+        if (core.FullName != null && 
+           (core.FullName.StartsWith("System.Tuple") || core.FullName.StartsWith("System.ValueTuple")))
+            return false;
+
+        // 5. Must be an F# record, class, or custom struct
+        return IsFSharpRecord(core) || core.IsClass || (core.IsValueType && !core.IsPrimitive && !core.IsEnum);
+    }
 }
