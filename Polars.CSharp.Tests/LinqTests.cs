@@ -19,6 +19,7 @@ public readonly record struct DeptPersonSummary(int DeptId, long MemberCount, in
 public readonly record struct PersonWithTags(int Id, string Name, string[] Tags);
 public readonly record struct PersonTagPair(int Id, string Name, string Tag);
 public readonly record struct PersonTagDetailed(int PersonId, string TagName);
+public record struct StudentScores(int Id, string Name, int[] Scores);
 public readonly record struct AdvancedDeptSummary(
     int DeptId,
     long TotalMembers,
@@ -62,6 +63,7 @@ public readonly record struct OrderRecord(
     DateTime OrderDate,
     double Amount
 );
+public record struct DeveloperProfile(int Id, string[] Skills, string[] DesiredSkills);
 public readonly record struct UserInfo(int Id, string Email, string Password);
 public readonly record struct LogEntry(int Id, string Message);
 public partial class LinqTests
@@ -3729,5 +3731,353 @@ public partial class LinqTests
         // Note: Regex.Split("SplitCamelCaseText", @"(?=[A-Z])") may yield an empty leading string before the first capital letter
         var cleanedTokens = query[1].Tokens.Where(s => !string.IsNullOrEmpty(s)).ToList();
         Assert.Equal(["Split", "Camel", "Case", "Text"], cleanedTokens);
+    }
+    [Fact]
+    [Trait("LINQ", "ListOperators")]
+    public void Test_Linq_List_Operators_Pushdown_Using_PersonWithTags()
+    {
+        // PersonWithTags(int Id, string Name, string[] Tags)
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Tags", [
+                new[] { "admin", "dev", "ops" },
+                ["guest"],
+                ["dev", "tester"]
+            ])
+        ]);
+
+        // 1. Test Where with List.Contains
+        var adminUsers = df.AsQueryable<PersonWithTags>()
+                           .Where(p => p.Tags.Contains("admin"))
+                           .ToList();
+
+        Assert.Single(adminUsers);
+        Assert.Equal("Alice", adminUsers[0].Name);
+
+        // 2. Test Select with Length, First, Last, Indexer
+        var projected = df.AsQueryable<PersonWithTags>()
+                          .Select(p => new {
+                              p.Id,
+                              TagCount = p.Tags.Length,
+                              FirstTag = p.Tags.First(),
+                              LastTag = p.Tags.Last(),
+                              SecondTag = p.Tags[1]
+                          })
+                          .ToList();
+
+        Assert.Equal(3, projected.Count);
+
+        // Alice: ["admin", "dev", "ops"]
+        Assert.Equal(3, projected[0].TagCount);
+        Assert.Equal("admin", projected[0].FirstTag);
+        Assert.Equal("ops", projected[0].LastTag);
+        Assert.Equal("dev", projected[0].SecondTag);
+
+        // Bob: ["guest"] (Length 1, index 1 is out of bounds -> returns null/default)
+        Assert.Equal(1, projected[1].TagCount);
+        Assert.Equal("guest", projected[1].FirstTag);
+        Assert.Equal("guest", projected[1].LastTag);
+        Assert.Null(projected[1].SecondTag);
+
+        // Charlie: ["dev", "tester"]
+        Assert.Equal(2, projected[2].TagCount);
+        Assert.Equal("dev", projected[2].FirstTag);
+        Assert.Equal("tester", projected[2].LastTag);
+        Assert.Equal("tester", projected[2].SecondTag);
+    }
+    [Fact]
+    [Trait("LINQ", "ListJoin")]
+    public void Test_Linq_List_Join_Pushdown_Using_PersonWithTags()
+    {
+        // Reusing existing record struct PersonWithTags(int Id, string Name, string[] Tags)
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Tags", [
+                ["admin", "dev", "ops"],
+                ["guest"],
+                new[] { "dev", "tester" }
+            ])
+        ]);
+
+        var query = df.AsQueryable<PersonWithTags>()
+                      .Select(p => new {
+                          p.Id,
+                          JoinedTags = string.Join(";", p.Tags),
+                          CommaTags = string.Join(", ", p.Tags)
+                      })
+                      .ToList();
+
+        Assert.Equal(3, query.Count);
+
+        // Record 1
+        Assert.Equal("admin;dev;ops", query[0].JoinedTags);
+        Assert.Equal("admin, dev, ops", query[0].CommaTags);
+
+        // Record 2
+        Assert.Equal("guest", query[1].JoinedTags);
+        Assert.Equal("guest", query[1].CommaTags);
+
+        // Record 3
+        Assert.Equal("dev;tester", query[2].JoinedTags);
+        Assert.Equal("dev, tester", query[2].CommaTags);
+    }
+    [Fact]
+    [Trait("LINQ", "ListTransformations")]
+    public void Test_Linq_List_Transformations_Pushdown_Using_PersonWithTags()
+    {
+        // Reusing existing record struct PersonWithTags(int Id, string Name, string[] Tags)
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2]),
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("Tags", [
+                ["dev", "ops", "dev", "qa"],
+                new[] { "a", "b", "c" }
+            ])
+        ]);
+
+        var query = df.AsQueryable<PersonWithTags>()
+                      .Select(p => new {
+                          p.Id,
+                          // 1. Take(2) -> ListHead
+                          TopTags = p.Tags.Take(2),
+                          // 2. Skip(1) -> ListSlice
+                        //   SkippedTags = p.Tags.Skip(1),
+                          // 3. Distinct() -> ListUnique
+                          UniqueTags = p.Tags.Distinct(),
+                          // 4. Reverse() -> ListReverse
+                          ReversedTags = p.Tags.Reverse()
+                      })
+                      .ToList();
+
+        Assert.Equal(2, query.Count);
+
+        // Record 1: ["dev", "ops", "dev", "qa"]
+        Assert.Equal(["dev", "ops"], query[0].TopTags);
+        // Assert.Equal(["ops", "dev", "qa"], query[0].SkippedTags);
+        Assert.Equal(["dev", "ops", "qa"], query[0].UniqueTags);
+        Assert.Equal(["qa", "dev", "ops", "dev"], query[0].ReversedTags);
+
+        // Record 2: ["a", "b", "c"]
+        // Assert.Equal(["a", "b"], query[1].TopTags);
+        // Assert.Equal(["b", "c"], query[1].SkippedTags);
+        Assert.Equal(["a", "b", "c"], query[1].UniqueTags);
+        Assert.Equal(["c", "b", "a"], query[1].ReversedTags);
+    }
+    [Fact]
+    [Trait("LINQ", "ListEvalTransformations")]
+    public void Test_Linq_List_Distinct_And_Reverse_Using_PersonWithTags()
+    {
+        // Reusing existing record struct PersonWithTags(int Id, string Name, string[] Tags)
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2]),
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("Tags", [
+                new[] { "dev", "ops", "dev", "qa" },
+                new[] { "a", "b", "c" }
+            ])
+        ]);
+
+        var query = df.AsQueryable<PersonWithTags>()
+                      .Select(p => new {
+                          p.Id,
+                          // Distinct() -> list().eval(col("").unique())
+                          UniqueTags = p.Tags.Distinct(),
+                          // Reverse() -> list().eval(col("").reverse())
+                          ReversedTags = p.Tags.Reverse()
+                      })
+                      .ToList();
+
+        Assert.Equal(2, query.Count);
+
+        // Record 1: ["dev", "ops", "dev", "qa"]
+        Assert.Equal(1, query[0].Id);
+        // Note: Polars unique maintains original encounter order or set uniqueness
+        Assert.Equal(3, query[0].UniqueTags.Count());
+        Assert.Contains("dev", query[0].UniqueTags);
+        Assert.Contains("ops", query[0].UniqueTags);
+        Assert.Contains("qa", query[0].UniqueTags);
+        Assert.Equal(["qa", "dev", "ops", "dev"], query[0].ReversedTags);
+
+        // Record 2: ["a", "b", "c"]
+        Assert.Equal(2, query[1].Id);
+        Assert.Equal(["a", "b", "c"], query[1].UniqueTags);
+        Assert.Equal(["c", "b", "a"], query[1].ReversedTags);
+    }
+    [Fact]
+    [Trait("LINQ", "ListTakeLast")]
+    public void Test_Linq_List_TakeLast_Pushdown_Using_PersonWithTags()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2]),
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("Tags", [
+                new[] { "dev", "ops", "qa", "sec" },
+                new[] { "a", "b" }
+            ])
+        ]);
+
+        var query = df.AsQueryable<PersonWithTags>()
+                      .Select(p => new {
+                          p.Id,
+                          // TakeLast(2) -> list().tail(2)
+                          LastTwoTags = p.Tags.TakeLast(2)
+                      })
+                      .ToList();
+
+        Assert.Equal(2, query.Count);
+
+        // Record 1: ["dev", "ops", "qa", "sec"] -> Last 2: ["qa", "sec"]
+        Assert.Equal(["qa", "sec"], query[0].LastTwoTags);
+
+        // Record 2: ["a", "b"] -> Last 2: ["a", "b"]
+        Assert.Equal(["a", "b"], query[1].LastTwoTags);
+    }
+    [Fact]
+    [Trait("LINQ", "ListSetAndSort")]
+    public void Test_Linq_List_Set_Operations_And_Sort()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2]),
+            Series.From("Skills", [
+                new[] { "rust", "csharp", "fsharp" },
+                new[] { "python", "sql" }
+            ]),
+            Series.From("DesiredSkills", [
+                new[] { "csharp", "go" },
+                new[] { "sql", "rust" }
+            ])
+        ]);
+
+        var query = df.AsQueryable<DeveloperProfile>()
+                      .Select(d => new {
+                          d.Id,
+                          // 1. Sort ascending
+                          SortedSkills = d.Skills.OrderBy(s => s),
+                          // 2. Set Intersection: Skills ∩ DesiredSkills
+                          MatchedSkills = d.Skills.Intersect(d.DesiredSkills),
+                          // 3. Set Difference: Skills - DesiredSkills
+                          UnneededSkills = d.Skills.Except(d.DesiredSkills)
+                      })
+                      .ToList();
+
+        Assert.Equal(2, query.Count);
+
+        // Record 1
+        Assert.Equal(["csharp", "fsharp", "rust"], query[0].SortedSkills);
+        Assert.Equal(["csharp"], query[0].MatchedSkills);
+        Assert.Equal(["rust", "fsharp"], query[0].UnneededSkills);
+
+        // Record 2
+        Assert.Equal(["python", "sql"], query[1].SortedSkills);
+        Assert.Equal(["sql"], query[1].MatchedSkills);
+        Assert.Equal(["python"], query[1].UnneededSkills);
+    }
+    [Fact]
+    [Trait("LINQ", "ListPredicates")]
+    public void Test_Linq_List_Any_And_All_Pushdown()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Scores", [
+                new[] { 95, 88, 92 },
+                new[] { 50, 59, 45 },
+                new int[] { }
+            ])
+        ]);
+
+        var query = df.AsQueryable<StudentScores>()
+                      .Select(s => new {
+                          s.Id,
+                          // Has any score recorded
+                          HasScores = s.Scores.Any(),
+                          // Has any score >= 90
+                          HasHighScore = s.Scores.Any(x => x >= 90),
+                          // Passed all exams (all >= 60)
+                          PassedAll = s.Scores.All(x => x >= 60)
+                      })
+                      .ToList();
+
+        Assert.Equal(3, query.Count);
+
+        // Alice: [95, 88, 92]
+        Assert.True(query[0].HasScores);
+        Assert.True(query[0].HasHighScore);
+        Assert.True(query[0].PassedAll);
+
+        // Bob: [50, 59, 45]
+        Assert.True(query[1].HasScores);
+        Assert.False(query[1].HasHighScore);
+        Assert.False(query[1].PassedAll);
+
+        // Charlie: []
+        Assert.False(query[2].HasScores);
+        Assert.False(query[2].HasHighScore);
+        Assert.True(query[2].PassedAll); // Vacation truth: All on empty set is true in BCL
+    }
+    [Fact]
+    [Trait("LINQ", "ListAnyAll")]
+    public void Test_Linq_List_Any_And_All_Eval_Pushdown()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2]),
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("Scores", [
+                new[] { 95, 88, 92 },
+                new[] { 50, 59, 45 }
+            ])
+        ]);
+
+        var query = df.AsQueryable<StudentScores>()
+                      .Select(s => new {
+                          s.Id,
+                          // Any() without predicate
+                          HasScores = s.Scores.Any(),
+                          // Any(x => x >= 90)
+                          HasHonor = s.Scores.Any(x => x >= 90),
+                          // All(x => x >= 60)
+                          PassedAll = s.Scores.All(x => x >= 60)
+                      })
+                      .ToList();
+
+        Assert.Equal(2, query.Count);
+
+        // Alice: [95, 88, 92]
+        Assert.True(query[0].HasScores);
+        Assert.True(query[0].HasHonor);
+        Assert.True(query[0].PassedAll);
+
+        // Bob: [50, 59, 45]
+        Assert.True(query[1].HasScores);
+        Assert.False(query[1].HasHonor);
+        Assert.False(query[1].PassedAll);
+    }
+    [Fact]
+    [Trait("LINQ", "ListSelect")]
+    public void Test_Linq_List_Inline_Select_Projection_Using_PersonWithTags()
+    {
+        // Reusing existing record struct PersonWithTags(int Id, string Name, string[] Tags)
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2]),
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("Tags", [
+                new[] { "admin", "dev" },
+                new[] { "guest" }
+            ])
+        ]);
+
+        var query = df.AsQueryable<PersonWithTags>()
+                      .Select(p => new {
+                          p.Id,
+                          // tags.Select(t => t.ToUpper()) -> list().eval(col("").str().to_uppercase())
+                          UpperTags = p.Tags.Select(t => t.ToUpper()).ToArray()
+                      })
+                      .ToList();
+
+        Assert.Equal(2, query.Count);
+        Assert.Equal(["ADMIN", "DEV"], query[0].UpperTags);
+        Assert.Equal(["GUEST"], query[1].UpperTags);
     }
 }

@@ -372,8 +372,35 @@ public static class ArrowReader
                 list.CopyTo(arr, 0);
                 return arr;
             }
+
+            // Wrap as IOrderedEnumerable<T> if requested by LINQ projection
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IOrderedEnumerable<>))
+            {
+                var wrapperType = typeof(PresortedOrderedEnumerable<>).MakeGenericType(elementType);
+                return Activator.CreateInstance(wrapperType, list);
+            }
+
             return list;
         };
+    }
+
+    /// <summary>
+    /// Lightweight wrapper to satisfy IOrderedEnumerable&lt;T&gt; when data is already sorted by Polars.
+    /// </summary>
+    private sealed class PresortedOrderedEnumerable<TElement>(IList<TElement> source) : IOrderedEnumerable<TElement>
+    {
+        public IOrderedEnumerable<TElement> CreateOrderedEnumerable<TKey>(
+            Func<TElement, TKey> keySelector, 
+            IComparer<TKey>? comparer, 
+            bool descending)
+        {
+            return descending
+                ? source.OrderByDescending(keySelector, comparer)
+                : source.OrderBy(keySelector, comparer);
+        }
+
+        public IEnumerator<TElement> GetEnumerator() => source.GetEnumerator();
+        IEnumerator IEnumerable.GetEnumerator() => source.GetEnumerator();
     }
 
     // Specialized F# List Accessor Builder

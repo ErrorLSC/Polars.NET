@@ -3,11 +3,13 @@
 open System.Linq.Expressions
 open System.Reflection
 open System.Text.RegularExpressions
+open System.Collections
 open System
 
 
 [<AutoOpen>]
 module internal ExpressionPatterns =
+    open System.Linq
     /// Represents extracted components of a Regex method invocation (Static or Instance/SG)
     type internal RegexInvocation =
         | IsMatch of target: Expression * pattern: string * instanceOpt: Regex option
@@ -17,6 +19,45 @@ module internal ExpressionPatterns =
         | MatchesAll of target: Expression * pattern: string * instanceOpt: Regex option
         | MatchesCount of target: Expression * pattern: string * instanceOpt: Regex option
         | Split of target: Expression * pattern: string * instanceOpt: Regex option
+
+    /// Represents extracted components of list/array member access or method invocations
+    type internal ListInvocation =
+        // Length / Count: x.Tags.Length, x.Tags.Count, x.Tags.Count()
+        | ListLen of target: Expression
+        // Element containment: x.Tags.Contains("vip") or Enumerable.Contains(x.Tags, "vip")
+        | ListContains of target: Expression * itemExpr: Expression
+        // Index item access: x.Tags[0], x.Tags.ElementAt(n)
+        | ListGet of target: Expression * indexExpr: Expression
+        // Head / First: x.Tags.First()
+        | ListFirst of target: Expression
+        // Tail / Last: x.Tags.Last()
+        | ListLast of target: Expression
+
+        // Stage 2: Aggregations & Joins
+        | ListSum of target: Expression
+        | ListMean of target: Expression
+        | ListMin of target: Expression
+        | ListMax of target: Expression
+        | ListJoin of target: Expression * separatorExpr: Expression
+
+        // Stage 3: Slicing & Transformations
+        | ListHead of target: Expression * countExpr: Expression
+        | ListTail of target: Expression * countExpr: Expression
+        | ListSlice of target: Expression * offsetExpr: Expression * lengthExpr: Expression option
+        | ListUnique of target: Expression
+        | ListReverse of target: Expression
+
+        // Stage 4: In-Row Sort & Set Operations
+        | ListSort of target: Expression * descending: bool
+        | ListSetIntersection of target: Expression * otherExpr: Expression
+        | ListSetUnion of target: Expression * otherExpr: Expression
+        | ListSetDifference of target: Expression * otherExpr: Expression
+
+        // Stage 5: In-Row Predicates (Any / All)
+        | ListAny of target: Expression * predicateLambda: LambdaExpression option
+        | ListAll of target: Expression * predicateLambda: LambdaExpression
+
+        | ListSelect of target: Expression * mapperLambda: LambdaExpression
 
     /// Active pattern for MethodCallExpression
     let (|MethodCall|_|) (expr: Expression) =
@@ -286,4 +327,220 @@ module internal ExpressionPatterns =
             | Some (:? Regex as rx) -> Some (Split(target, rx.ToString(), Some rx))
             | _ -> None
 
+        | _ -> None
+    let private isListContainer (t: Type) =
+        t <> typeof<string> &&
+        (t.IsArray || typeof<IEnumerable>.IsAssignableFrom(t))
+    let (|ArrayIndexOp|_|) (expr: Expression) : (Expression * Expression) option =
+            match expr with
+            | :? BinaryExpression as bin when bin.NodeType = ExpressionType.ArrayIndex ->
+                Some (bin.Left, bin.Right)
+            | :? MethodCallExpression as m when not (isNull m.Object) && m.Object.Type.IsArray && (m.Method.Name = "Get" || m.Method.Name = "Address") && m.Arguments.Count = 1 ->
+                Some (m.Object, m.Arguments.[0])
+            | :? IndexExpression as idx when idx.Arguments.Count = 1 && isListContainer idx.Object.Type ->
+                Some (idx.Object, idx.Arguments.[0])
+            | _ -> None
+
+    let rec (|ListInvocation|_|) (expr: Expression) : ListInvocation option =
+        match expr with
+        // ---------------------------------------------------------------------
+        // 1. Length & Count
+        // ---------------------------------------------------------------------
+        // ArrayLength Unary Expression
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.ArrayLength ->
+            Some (ListLen u.Operand)
+
+        // array.Length
+        | MemberAccess(target, m) 
+            when not (isNull target) && target.Type.IsArray && m.Name = "Length" ->
+            Some (ListLen target)
+
+        // list.Count
+        | MemberAccess(target, m) 
+            when not (isNull target) && isListContainer target.Type && m.Name = "Count" ->
+            Some (ListLen target)
+
+        // Enumerable.Count(target)
+        | MethodCall(m, null, [ target ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Count" && isListContainer target.Type ->
+            Some (ListLen target)
+
+        // ---------------------------------------------------------------------
+        // 2. Contains
+        // ---------------------------------------------------------------------
+        // Enumerable.Contains(target, item)
+        | MethodCall(m, null, [ target; itemExpr ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Contains" && isListContainer target.Type ->
+            Some (ListContains(target, itemExpr))
+
+        // IList.Contains(item)
+        | MethodCall(m, target, [ itemExpr ])
+            when not (isNull target) && isListContainer target.Type && m.Name = "Contains" ->
+            Some (ListContains(target, itemExpr))
+
+        // ---------------------------------------------------------------------
+        // 3. Index Access & ElementAt
+        // ---------------------------------------------------------------------
+        // BinaryExpression: tags[i]
+        | :? BinaryExpression as bin when bin.NodeType = ExpressionType.ArrayIndex ->
+            Some (ListGet(bin.Left, bin.Right))
+
+        // MethodCall: tags[i] on Array (Address or Get)
+        | MethodCall(m, target, [ indexExpr ])
+            when not (isNull target) && target.Type.IsArray && (m.Name = "Get" || m.Name = "Address") ->
+            Some (ListGet(target, indexExpr))
+
+        // IndexExpression: tags[i] or list[i]
+        | :? IndexExpression as idx when idx.Arguments.Count = 1 && isListContainer idx.Object.Type ->
+            Some (ListGet(idx.Object, idx.Arguments.[0]))
+
+        // MethodCall: list[i] (get_Item)
+        | MethodCall(m, target, [ indexExpr ])
+            when not (isNull target) && isListContainer target.Type && m.Name = "get_Item" ->
+            Some (ListGet(target, indexExpr))
+
+        // Enumerable.ElementAt(target, i)
+        | MethodCall(m, null, [ target; indexExpr ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "ElementAt" && isListContainer target.Type ->
+            Some (ListGet(target, indexExpr))
+
+        // ---------------------------------------------------------------------
+        // 4. First & Last
+        // ---------------------------------------------------------------------
+        | MethodCall(m, null, [ target ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "First" && isListContainer target.Type ->
+            Some (ListFirst target)
+
+        | MethodCall(m, null, [ target ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Last" && isListContainer target.Type ->
+            Some (ListLast target)
+
+        // ---------------------------------------------------------------------
+        // 5. In-Row Numeric Aggregations: Sum, Average, Min, Max
+        // ---------------------------------------------------------------------
+        // Enumerable.Sum(x.Scores)
+        | MethodCall(m, null, [ target ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Sum" && isListContainer target.Type ->
+            Some (ListSum target)
+
+        // Enumerable.Average(x.Scores)
+        | MethodCall(m, null, [ target ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Average" && isListContainer target.Type ->
+            Some (ListMean target)
+
+        // Enumerable.Min(x.Scores)
+        | MethodCall(m, null, [ target ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Min" && isListContainer target.Type ->
+            Some (ListMin target)
+
+        // Enumerable.Max(x.Scores)
+        | MethodCall(m, null, [ target ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Max" && isListContainer target.Type ->
+            Some (ListMax target)
+
+        // ---------------------------------------------------------------------
+        // 6. In-Row String Join: string.Join(sep, x.Tags)
+        // ---------------------------------------------------------------------
+        // string.Join(separator, tags)
+        | MethodCall(m, null, [ sepExpr; target ])
+            when m.DeclaringType = typeof<string> && m.Name = "Join" && isListContainer target.Type ->
+            Some (ListJoin(target, sepExpr))
+
+        // ---------------------------------------------------------------------
+        // 7. In-Row Slicing: Take(n), Skip(n)
+        // ---------------------------------------------------------------------
+        // Enumerable.Take(tags, n)
+        | MethodCall(m, null, [ target; countExpr ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Take" && isListContainer target.Type ->
+            Some (ListHead(target, countExpr))
+
+        // Enumerable.TakeLast(tags, n) -> list().tail(n)
+        | MethodCall(m, null, [ target; countExpr ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "TakeLast" && isListContainer target.Type ->
+            Some (ListTail(target, countExpr))
+
+        // Enumerable.Skip(tags, n)
+        | MethodCall(m, null, [ target; countExpr ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Skip" && isListContainer target.Type ->
+            Some (ListSlice(target, countExpr, None))
+
+        // ---------------------------------------------------------------------
+        // 8. In-Row Transformations: Distinct(), Reverse()
+        // ---------------------------------------------------------------------
+        // Enumerable.Distinct(tags)
+        | MethodCall(m, null, [ target ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Distinct" && isListContainer target.Type ->
+            Some (ListUnique target)
+
+        // Enumerable.Reverse(tags)
+        | MethodCall(m, null, [ target ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Reverse" && isListContainer target.Type ->
+            Some (ListReverse target)
+        // ---------------------------------------------------------------------
+        // 9. In-Row Sorting: OrderBy, Order, OrderByDescending, OrderDescending
+        // ---------------------------------------------------------------------
+        // Enumerable.Order(scores) (.NET 7+)
+        | MethodCall(m, null, [ target ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Order" && isListContainer target.Type ->
+            Some (ListSort(target, false))
+
+        // Enumerable.OrderDescending(scores) (.NET 7+)
+        | MethodCall(m, null, [ target ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "OrderDescending" && isListContainer target.Type ->
+            Some (ListSort(target, true))
+
+        // Enumerable.OrderBy(scores, s => s) (Identity key selector)
+        | MethodCall(m, null, [ target; Lambda([ p ], body) ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "OrderBy" && isListContainer target.Type && body = (p :> Expression) ->
+            Some (ListSort(target, false))
+
+        // Enumerable.OrderByDescending(scores, s => s) (Identity key selector)
+        | MethodCall(m, null, [ target; Lambda([ p ], body) ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "OrderByDescending" && isListContainer target.Type && body = (p :> Expression) ->
+            Some (ListSort(target, true))
+
+        // ---------------------------------------------------------------------
+        // 10. In-Row Set Operations: Intersect, Union, Except
+        // ---------------------------------------------------------------------
+        // Enumerable.Intersect(tags, otherTags)
+        | MethodCall(m, null, [ target; otherExpr ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Intersect" && isListContainer target.Type ->
+            Some (ListSetIntersection(target, otherExpr))
+
+        // Enumerable.Union(tags, otherTags)
+        | MethodCall(m, null, [ target; otherExpr ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Union" && isListContainer target.Type ->
+            Some (ListSetUnion(target, otherExpr))
+
+        // Enumerable.Except(tags, otherTags)
+        | MethodCall(m, null, [ target; otherExpr ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Except" && isListContainer target.Type ->
+            Some (ListSetDifference(target, otherExpr))
+
+        // ---------------------------------------------------------------------
+        // 11. In-Row Predicates: Any(), Any(predicate), All(predicate)
+        // ---------------------------------------------------------------------
+        // Enumerable.Any(tags) -> check if list is non-empty (len > 0)
+        | MethodCall(m, null, [ target ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Any" && isListContainer target.Type ->
+            Some (ListAny(target, None))
+
+        // Enumerable.Any(tags, predicate)
+        | MethodCall(m, null, [ target; :? LambdaExpression as lam ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Any" && isListContainer target.Type ->
+            Some (ListAny(target, Some lam))
+
+        // Enumerable.All(tags, predicate)
+        | MethodCall(m, null, [ target; :? LambdaExpression as lam ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "All" && isListContainer target.Type ->
+            Some (ListAll(target, lam))
+
+        // ---------------------------------------------------------------------
+        // 12. In-Row Projection: Select(mapper)
+        // ---------------------------------------------------------------------
+        // Enumerable.Select(tags, t => ...)
+        | MethodCall(m, null, [ target; :? LambdaExpression as lam ])
+            when m.DeclaringType = typeof<Enumerable> && m.Name = "Select" && isListContainer target.Type ->
+            Some (ListSelect(target, lam))
+            
         | _ -> None

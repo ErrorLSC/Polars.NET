@@ -562,6 +562,18 @@ module ExprTranslator =
                     tryTranslate paramName x |> Option.map (fun h -> PolarsWrapper.Truncate(h, 0u))
                     | _ -> None
 
+            // -----------------------------------------------------------------
+            // Row-level List / Array operations
+            // -----------------------------------------------------------------
+            | ArrayIndexOp(target, indexExpr) ->
+                match tryTranslate paramName target, tryTranslate paramName indexExpr with
+                | Some t, Some idx ->
+                    Some (PolarsWrapper.ListGet(t, idx, nullOnOob = true))
+                | _ -> None
+
+            | ListInvocation listInv ->
+                translateListInvocation paramName listInv
+
             // 13. Binary Expressions (Arithmetic, Logical, Equality, Null checks)
             | Binary(op, left, right) ->
                 if op = ExpressionType.NotEqual && isNullConstantExpr right then
@@ -598,6 +610,215 @@ module ExprTranslator =
                     Some (PolarsWrapper.IfElse(testHandle, trueHandle, falseHandle))
                 | _ -> None
 
+            | :? ParameterExpression as p when p.Name = paramName ->
+            // If translating the inner lambda of list().eval, placeholder is col("")
+            Some (PolarsWrapper.Col(""))
+
             | _ -> None
         with _ ->
             None
+
+    // =========================================================================
+    // List / Array Row-Level Expression Dispatcher
+    // =========================================================================
+    and private translateListInvocation paramName (invocation: ListInvocation) : ExprHandle option =
+        match invocation with
+        // 1. Length & Count: x.Tags.Length, x.Tags.Count, x.Tags.Count()
+        | ListLen target ->
+            tryTranslate paramName target
+            |> Option.map PolarsWrapper.ListLen
+
+        // 2. Contains: x.Tags.Contains("vip") / Enumerable.Contains(x.Tags, "vip")
+        | ListContains(target, itemExpr) ->
+            match tryTranslate paramName target, tryTranslate paramName itemExpr with
+            | Some t, Some item ->
+                Some (PolarsWrapper.ListContains(t, item, nullsEqual = false))
+            | _ -> None
+
+        // 3. Index & ElementAt: x.Tags[i], x.Tags.ElementAt(i)
+        | ListGet(target, indexExpr) ->
+            match tryTranslate paramName target, tryTranslate paramName indexExpr with
+            | Some t, Some idx ->
+                Some (PolarsWrapper.ListGet(t, idx, nullOnOob = true))
+            | _ -> None
+
+        // 4. First element: x.Tags.First() -> list().get(0)
+        | ListFirst target ->
+            tryTranslate paramName target
+            |> Option.map (fun t ->
+                PolarsWrapper.ListGet(t, PolarsWrapper.Lit 0, nullOnOob = true)
+            )
+
+        // 5. Last element: x.Tags.Last() -> list().get(-1)
+        | ListLast target ->
+            tryTranslate paramName target
+            |> Option.map (fun t ->
+                PolarsWrapper.ListGet(t, PolarsWrapper.Lit -1, nullOnOob = true)
+            )
+
+        // 6. In-Row Sum: list().sum()
+        | ListSum target ->
+            tryTranslate paramName target
+            |> Option.map PolarsWrapper.ListSum
+
+        // 7. In-Row Mean / Average: list().mean()
+        | ListMean target ->
+            tryTranslate paramName target
+            |> Option.map PolarsWrapper.ListMean
+
+        // 8. In-Row Min: list().min()
+        | ListMin target ->
+            tryTranslate paramName target
+            |> Option.map PolarsWrapper.ListMin
+
+        // 9. In-Row Max: list().max()
+        | ListMax target ->
+            tryTranslate paramName target
+            |> Option.map PolarsWrapper.ListMax
+
+        // 10. In-Row String Join: list().join(separator)
+        | ListJoin(target, separatorExpr) ->
+            match tryTranslate paramName target, tryEvaluate separatorExpr with
+            | Some t, Some (:? string as sep) ->
+                Some (PolarsWrapper.ListJoin(t, sep, ignoreNulls = true))
+            | _ -> None
+
+        // 11. Head / Take(n): list().head(n)
+        | ListHead(target, countExpr) ->
+            match tryTranslate paramName target, tryTranslate paramName countExpr with
+            | Some t, Some cnt ->
+                Some (PolarsWrapper.ListHead(t, cnt))
+            | _ -> None
+
+        // 12. Tail / TakeLast(n): list().tail(n)
+        | ListTail(target, countExpr) ->
+            match tryTranslate paramName target, tryTranslate paramName countExpr with
+            | Some t, Some cnt ->
+                Some (PolarsWrapper.ListTail(t, cnt))
+            | _ -> None
+
+        // 13. Slice / Skip(n): list().slice(offset, length)
+        | ListSlice(target, offsetExpr, lengthOpt) ->
+            match tryTranslate paramName target, tryTranslate paramName offsetExpr with
+            | Some t, Some offset ->
+                match lengthOpt with
+                | Some lenExpr ->
+                    tryTranslate paramName lenExpr
+                    |> Option.map (fun len -> PolarsWrapper.ListSlice(t, offset, len))
+                | None ->
+                    // Skip(offset) slices until the end: length = ListLen(t) - offset
+                    let tCloned = PolarsWrapper.CloneExpr t
+                    let fullLen = PolarsWrapper.ListLen tCloned
+                    let remainingLen = PolarsWrapper.Sub(fullLen, offset)
+                    Some (PolarsWrapper.ListSlice(t, offset, remainingLen))
+            | _ -> None
+
+        // 14. Unique / Distinct(): list().eval(col("").unique())
+        | ListUnique target ->
+            tryTranslate paramName target
+            |> Option.map (fun t ->
+                // Represents the inner elements of the list row
+                let innerElementCol = PolarsWrapper.Col("")
+                let uniqueExpr = PolarsWrapper.ExprUnique innerElementCol
+                PolarsWrapper.ListEval(t, uniqueExpr)
+            )
+
+        // 15. Reverse(): list().eval(col("").reverse())
+        | ListReverse target ->
+            tryTranslate paramName target
+            |> Option.map (fun t ->
+                // Represents the inner elements of the list row
+                let innerElementCol = PolarsWrapper.Col("")
+                let reverseExpr = PolarsWrapper.Reverse innerElementCol
+                PolarsWrapper.ListEval(t, reverseExpr)
+            )
+
+        // 16. In-Row Sort: list().eval(col("").sort(descending))
+        | ListSort(target, descending) ->
+            tryTranslate paramName target
+            |> Option.map (fun t ->
+                PolarsWrapper.ListSort(
+                    t,
+                    descending = descending,
+                    nullsLast = false,
+                    maintainOrder = false
+                )
+            )
+
+        // 16. In-Row Set Intersection: list().set_intersection(other)
+        | ListSetIntersection(target, otherExpr) ->
+            match tryTranslate paramName target, tryTranslate paramName otherExpr with
+            | Some t, Some other ->
+                Some (PolarsWrapper.ListSetIntersection(t, other))
+            | _ -> None
+
+        // 18. In-Row Set Union: list().set_union(other)
+        | ListSetUnion(target, otherExpr) ->
+            match tryTranslate paramName target, tryTranslate paramName otherExpr with
+            | Some t, Some other ->
+                Some (PolarsWrapper.ListSetUnion(t, other))
+            | _ -> None
+
+        // 19. In-Row Set Difference: list().set_difference(other)
+        | ListSetDifference(target, otherExpr) ->
+            match tryTranslate paramName target, tryTranslate paramName otherExpr with
+            | Some t, Some other ->
+                Some (PolarsWrapper.ListSetDifference(t, other))
+            | _ -> None
+
+        // 20. In-Row Any: list().len() > 0 or list().eval(col("").any())
+        | ListAny(target, None) ->
+            // Enumerable.Any(tags) -> len(tags) > 0 (Already returns scalar Boolean)
+            tryTranslate paramName target
+            |> Option.map (fun t ->
+                let lenExpr = PolarsWrapper.ListLen t
+                PolarsWrapper.Gt(lenExpr, PolarsWrapper.Lit 0)
+            )
+
+        | ListAny(target, Some lam) ->
+            if lam.Parameters.Count = 1 then
+                match tryTranslate paramName target with
+                | Some t ->
+                    let innerParamName = lam.Parameters.[0].Name
+                    match tryTranslate innerParamName lam.Body with
+                    | Some innerCond ->
+                        // list().eval(innerCond.any()) returns List<Boolean> with 1 element
+                        let anyExpr = PolarsWrapper.Any(innerCond, ignoreNulls = false)
+                        let boolList = PolarsWrapper.ListEval(t, anyExpr)
+                        // Extract the scalar Boolean using list().get(0)
+                        Some (PolarsWrapper.ListGet(boolList, PolarsWrapper.Lit 0, nullOnOob = true))
+                    | None -> None
+                | None -> None
+            else
+                None
+
+        | ListAll(target, lam) ->
+            if lam.Parameters.Count = 1 then
+                match tryTranslate paramName target with
+                | Some t ->
+                    let innerParamName = lam.Parameters.[0].Name
+                    match tryTranslate innerParamName lam.Body with
+                    | Some innerCond ->
+                        // list().eval(innerCond.all()) returns List<Boolean> with 1 element
+                        let allExpr = PolarsWrapper.All(innerCond, ignoreNulls = false)
+                        let boolList = PolarsWrapper.ListEval(t, allExpr)
+                        // Extract the scalar Boolean using list().get(0)
+                        Some (PolarsWrapper.ListGet(boolList, PolarsWrapper.Lit 0, nullOnOob = true))
+                    | None -> None
+                | None -> None
+            else
+                None
+
+        // 21. In-Row Select: list().eval(mapperExpr)
+        | ListSelect(target, lam) ->
+            if lam.Parameters.Count = 1 then
+                match tryTranslate paramName target with
+                | Some t ->
+                    let innerParamName = lam.Parameters.[0].Name
+                    match tryTranslate innerParamName lam.Body with
+                    | Some mapperExpr ->
+                        Some (PolarsWrapper.ListEval(t, mapperExpr))
+                    | None -> None
+                | None -> None
+            else
+                None
