@@ -143,7 +143,7 @@ module ExprTranslator =
                 let dtypeExpr = PolarsWrapper.DataTypeExprFromDataType(dtypeHandle)
                 Some (PolarsWrapper.ExprCast(operand, dtypeExpr, strict = false, wrapNumerical = false))
             | None -> None
-            
+
     let private isFSharpAnonymousMember (m: MemberInfo) =
         m.DeclaringType.Name.StartsWith "AnonymousObject" || 
         m.DeclaringType.Name.StartsWith "Tuple" ||
@@ -714,11 +714,8 @@ module ExprTranslator =
                     tryTranslate paramName lenExpr
                     |> Option.map (fun len -> PolarsWrapper.ListSlice(t, offset, len))
                 | None ->
-                    // Skip(offset) slices until the end: length = ListLen(t) - offset
-                    let tCloned = PolarsWrapper.CloneExpr t
-                    let fullLen = PolarsWrapper.ListLen tCloned
-                    let remainingLen = PolarsWrapper.Sub(fullLen, offset)
-                    Some (PolarsWrapper.ListSlice(t, offset, remainingLen))
+                    let maxLen = PolarsWrapper.Lit Int64.MaxValue
+                    Some (PolarsWrapper.ListSlice(t, offset, maxLen))
             | _ -> None
 
         // 14. Unique / Distinct(): list().eval(col("").unique())

@@ -3846,7 +3846,7 @@ public partial class LinqTests
                           // 1. Take(2) -> ListHead
                           TopTags = p.Tags.Take(2),
                           // 2. Skip(1) -> ListSlice
-                        //   SkippedTags = p.Tags.Skip(1),
+                          SkippedTags = p.Tags.Skip(1),
                           // 3. Distinct() -> ListUnique
                           UniqueTags = p.Tags.Distinct(),
                           // 4. Reverse() -> ListReverse
@@ -3858,13 +3858,13 @@ public partial class LinqTests
 
         // Record 1: ["dev", "ops", "dev", "qa"]
         Assert.Equal(["dev", "ops"], query[0].TopTags);
-        // Assert.Equal(["ops", "dev", "qa"], query[0].SkippedTags);
+        Assert.Equal(["ops", "dev", "qa"], query[0].SkippedTags);
         Assert.Equal(["dev", "ops", "qa"], query[0].UniqueTags);
         Assert.Equal(["qa", "dev", "ops", "dev"], query[0].ReversedTags);
 
         // Record 2: ["a", "b", "c"]
-        // Assert.Equal(["a", "b"], query[1].TopTags);
-        // Assert.Equal(["b", "c"], query[1].SkippedTags);
+        Assert.Equal(["a", "b"], query[1].TopTags);
+        Assert.Equal(["b", "c"], query[1].SkippedTags);
         Assert.Equal(["a", "b", "c"], query[1].UniqueTags);
         Assert.Equal(["c", "b", "a"], query[1].ReversedTags);
     }
