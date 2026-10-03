@@ -619,4 +619,92 @@ public static class LinqExtensions
 
         throw new NotSupportedException("ToDataFrame can only be invoked on queries originating from Polars.NET.");
     }
+    // =========================================================================
+    // Shift
+    // =========================================================================
+    public static T Shift<T>(this T column, long offset) => column;
+    public static T Shift<T, TOffset>(this T column, TOffset offsetColumn) => column;
+
+    // =========================================================================
+    // Diff
+    // =========================================================================
+    public static T Diff<T>(this T column) => column;
+    public static T Diff<T>(this T column, long n) => column;
+    
+    public static T Diff<T>(this T column, long n, NullBehavior nullBehavior) =>
+        column.Diff(n, nullBehavior.ToNative());
+
+    private static T Diff<T>(this T column, long n, PlNullBehavior nullBehavior) => column;
+
+    // =========================================================================
+    // Over
+    // =========================================================================
+    public static T Over<T, TPartition>(this T expr, TPartition partitionBy) => expr;
+    public static T Over<T>(this T expr, params object[] partitionBy) => expr;
+    public static T Over<T, TPartition, TOrder>(
+        this T expr, 
+        TPartition partitionBy, 
+        TOrder orderBy, 
+        bool descending = false) => expr;
+
+    // =========================================================================
+    // Rolling
+    // =========================================================================
+    public static T Rolling<T, TIdx>(
+        this T expr,
+        TIdx indexColumn,
+        string period,
+        string offset = "0s",
+        ClosedInterval closed = ClosedInterval.Left) =>
+        expr.Rolling(indexColumn, period, offset, closed.ToNative());
+
+    private static T Rolling<T, TIdx>(
+        this T expr,
+        TIdx indexColumn,
+        string period,
+        string offset,
+        PlClosedInterval closed) => expr;
+    // =========================================================================
+    // Rank
+    // =========================================================================
+
+    /// <summary>
+    /// Computes the rank of values using the default Average method.
+    /// </summary>
+    public static double Rank<T>(this T column) => 0.0;
+
+    /// <summary>
+    /// Computes the rank of values with a specified sorting order.
+    /// </summary>
+    public static double Rank<T>(this T column, bool descending) => 0.0;
+
+    /// <summary>
+    /// Computes the rank of values using user-facing RankMethod.
+    /// </summary>
+    public static double Rank<T>(this T column, RankMethod method, bool descending = false) =>
+        column.Rank(method.ToNative(), descending);
+
+    /// <summary>
+    /// Computes the rank of values using user-facing RankMethod with seed.
+    /// </summary>
+    public static double Rank<T>(this T column, RankMethod method, bool descending, ulong? seed) =>
+        column.Rank(method.ToNative(), descending, seed);
+
+    private static double Rank<T>(this T column, PlRankMethod method, bool descending = false) => 0.0;
+    private static double Rank<T>(this T column, PlRankMethod method, bool descending, ulong? seed) => 0.0;
+
+    // =========================================================================
+    // PctChange
+    // =========================================================================
+
+    /// <summary>
+    /// Computes the percentage change between current and previous values.
+    /// </summary>
+    public static double? PctChange<T>(this T column, long n = 1) => null;
+    public static T Sum<T>(this T column) => column;
+    public static double Mean<T>(this T column) => 0.0;
+    public static double Average<T>(this T column) => 0.0;
+    public static long Count<T>(this T column) => 0L;
+    public static T Min<T>(this T column) => column;
+    public static T Max<T>(this T column) => column;
 }

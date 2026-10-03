@@ -4,6 +4,7 @@ open Polars.FSharp
 open System.Linq
 open System.Linq.Expressions
 open Polars.NET.Linq.Provider
+open System.Runtime.CompilerServices
 open System
 open System.Reflection
 open Polars.NET.Core

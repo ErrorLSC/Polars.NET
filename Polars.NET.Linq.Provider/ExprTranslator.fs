@@ -308,6 +308,9 @@ module rec ExprTranslator =
         | MidpointRounding.ToZero       -> Some PlRoundMode.ToZero
         | _                             -> None
 
+    let private isNumericDeclaringType (t: Type) =
+        t = typeof<Math> || t = typeof<MathF> || t = typeof<decimal>
+
     let private translateNumericMethod (paramName: string) (m: MethodInfo) (args: Expression list) : ExprHandle option =
         let t1 expr = tryTranslate paramName expr
         let t2 e1 e2 =
@@ -404,12 +407,191 @@ module rec ExprTranslator =
 
         | _ -> None
 
-    let private isNumericDeclaringType (t: Type) =
-        t = typeof<Math> || t = typeof<MathF> || t = typeof<decimal>
+    // =========================================================================
+    // 5. Window, Shift, Diff & Rolling Operations
+    // =========================================================================
+
+    let private translateShiftMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
+        let targetH () = tryTranslate paramName target
+        match args with
+        | [ nExpr ] ->
+            match targetH (), tryTranslate paramName nExpr with
+            | Some eH, Some nH -> Some (PolarsWrapper.Shift(eH, nH))
+            | _ -> None
+        | _ -> None
+
+    let private translateDiffMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
+        let targetH () = tryTranslate paramName target
+        match args with
+        | [] ->
+            targetH () |> Option.map (fun eH ->
+                PolarsWrapper.Diff(eH, PolarsWrapper.Lit 1L, PlNullBehavior.Ignore))
+        | [ nExpr ] ->
+            match targetH (), tryTranslate paramName nExpr with
+            | Some eH, Some nH -> Some (PolarsWrapper.Diff(eH, nH, PlNullBehavior.Ignore))
+            | _ -> None
+        | [ nExpr; nbExpr ] ->
+            match targetH (), tryTranslate paramName nExpr, tryEvaluate nbExpr with
+            | Some eH, Some nH, Some (:? PlNullBehavior as nb) ->
+                Some (PolarsWrapper.Diff(eH, nH, nb))
+            | _ -> None
+        | _ -> None
+    let private tryExtractRankMethod (value: obj) : PlRankMethod =
+            match value with
+            | :? PlRankMethod as pm -> pm
+            | null -> PlRankMethod.Average
+            | other ->
+                try
+                    let byteVal = Convert.ToByte other
+                    LanguagePrimitives.EnumOfValue<byte, PlRankMethod> byteVal
+                with _ ->
+                    PlRankMethod.Average
+    let private translateRankMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
+        let targetH () = tryTranslate paramName target
+        match args with
+        | [] ->
+            targetH () |> Option.map (fun eH ->
+                PolarsWrapper.Rank(eH, PlRankMethod.Average, false, Nullable()))
+
+        | [ descExpr ] when descExpr.Type = typeof<bool> ->
+            match targetH (), tryEvaluate descExpr with
+            | Some eH, Some (:? bool as desc) ->
+                Some (PolarsWrapper.Rank(eH, PlRankMethod.Average, desc, Nullable()))
+            | _ -> None
+
+        // RankMethod / PlRankMethod
+        | [ methodExpr ] ->
+            match targetH (), tryEvaluate methodExpr with
+            | Some eH, Some mObj ->
+                let m = tryExtractRankMethod mObj
+                Some (PolarsWrapper.Rank(eH, m, false, Nullable()))
+            | _ -> None
+
+        // RankMethod, descending
+        | [ methodExpr; descExpr ] ->
+            match targetH (), tryEvaluate methodExpr, tryEvaluate descExpr with
+            | Some eH, Some mObj, Some (:? bool as desc) ->
+                let m = tryExtractRankMethod mObj
+                Some (PolarsWrapper.Rank(eH, m, desc, Nullable()))
+            | _ -> None
+
+        // RankMethod, descending, seed
+        | [ methodExpr; descExpr; seedExpr ] ->
+            match targetH (), tryEvaluate methodExpr, tryEvaluate descExpr, tryEvaluate seedExpr with
+            | Some eH, Some mObj, Some (:? bool as desc), Some seedObj ->
+                let m = tryExtractRankMethod mObj
+                let seedNullable =
+                    match seedObj with
+                    | :? uint64 as s -> Nullable<uint64>(s)
+                    | _ -> Nullable<uint64>()
+                Some (PolarsWrapper.Rank(eH, m, desc, seedNullable))
+            | _ -> None
+
+        | _ -> None
+
+    let private translatePctChangeMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
+        let targetH () = tryTranslate paramName target
+        match args with
+        | [] -> targetH () |> Option.map (fun eH -> PolarsWrapper.PctChange(eH, 1L))
+        | [ nExpr ] ->
+            match targetH (), tryEvaluate nExpr with
+            | Some eH, Some nVal -> Some (PolarsWrapper.PctChange(eH, Convert.ToInt64 nVal))
+            | _ -> None
+        | _ -> None
+
+    let private translateWindowTarget (paramName: string) (expr: Expression) : ExprHandle option =
+        match expr with
+        | :? MethodCallExpression as mc when mc.Arguments.Count = 1 && isNull mc.Object ->
+            let colExpr = mc.Arguments.[0]
+            tryTranslate paramName colExpr
+            |> Option.bind (fun colH ->
+                match mc.Method.Name with
+                | "Sum"     -> Some (PolarsWrapper.Sum colH)
+                | "Mean"
+                | "Average" -> Some (PolarsWrapper.Mean colH)
+                | "Min"     -> Some (PolarsWrapper.Min colH)
+                | "Max"     -> Some (PolarsWrapper.Max colH)
+                | "Count"   -> Some (PolarsWrapper.Count colH)
+                | _         -> None)
+
+        | other ->
+            tryTranslate paramName other
+
+    let private translateOverMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
+        match translateWindowTarget paramName target with
+        | Some targetH ->
+            let partitionHandles =
+                args
+                |> List.choose (fun arg ->
+                    match arg with
+                    | :? LambdaExpression as lam -> tryTranslate lam.Parameters.[0].Name lam.Body
+                    | other -> tryTranslate paramName other
+                )
+            if partitionHandles.Length > 0 && partitionHandles.Length = args.Length then
+                Some (PolarsWrapper.Over(
+                    targetH,
+                    Array.ofList partitionHandles,
+                    [||],
+                    descending = false,
+                    nullsLast = false,
+                    multithreaded = true,
+                    maintainOrder = true,
+                    mappingCode = PlWindowMapping.GroupsToRows
+                ))
+            else
+                None
+        | None -> None
+
+    let private translateRollingMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
+        let targetH () = tryTranslate paramName target
+        match args with
+        | [ indexColExpr; periodExpr; offsetExpr; closedExpr ] ->
+            match targetH (),
+                  tryTranslate paramName indexColExpr,
+                  tryEvaluate periodExpr,
+                  tryEvaluate offsetExpr,
+                  tryEvaluate closedExpr with
+            | Some exprH, Some idxH, Some (:? string as period), Some (:? string as offset), Some (:? PlClosedInterval as closed) ->
+                Some (PolarsWrapper.ExprRolling(exprH, idxH, period, offset, closed))
+            | _ -> None
+
+        | [ indexColExpr; periodExpr ] ->
+            match targetH (),
+                  tryTranslate paramName indexColExpr,
+                  tryEvaluate periodExpr with
+            | Some exprH, Some idxH, Some (:? string as period) ->
+                Some (PolarsWrapper.ExprRolling(exprH, idxH, period, "0s", PlClosedInterval.Left))
+            | _ -> None
+        | _ -> None
 
     let private translateMethodCall (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
+        let effectiveTarget, effectiveArgs =
+            if isNull target && args.Length > 0 then
+                args.Head, args.Tail
+            else
+                target, args
+
+        // 1. Window & Series Transform Pushdown (Shift, Diff, Over, Rolling)
+        if not (isNull effectiveTarget) && m.Name = "Shift" then
+            translateShiftMethod paramName effectiveTarget effectiveArgs
+
+        elif not (isNull effectiveTarget) && m.Name = "Diff" then
+            translateDiffMethod paramName effectiveTarget effectiveArgs
+
+        elif not (isNull effectiveTarget) && m.Name = "Over" then
+            translateOverMethod paramName effectiveTarget effectiveArgs
+
+        elif not (isNull effectiveTarget) && (m.Name = "Rolling" || m.Name = "ExprRolling") then
+            translateRollingMethod paramName effectiveTarget effectiveArgs
+
+        elif not (isNull effectiveTarget) && m.Name = "Rank" then
+            translateRankMethod paramName effectiveTarget effectiveArgs
+
+        elif not (isNull effectiveTarget) && m.Name = "PctChange" then
+            translatePctChangeMethod paramName effectiveTarget effectiveArgs
+ 
         // 1. String methods (Static & Instance)
-        if m.DeclaringType = typeof<string> || not (isNull target) && target.Type = typeof<string> then
+        elif m.DeclaringType = typeof<string> || not (isNull target) && target.Type = typeof<string> then
             translateStringMethod paramName m target args
 
         // 2. Temporal methods (DateTime / DateOnly / TimeOnly)
@@ -443,7 +625,7 @@ module rec ExprTranslator =
             None
 
     // =========================================================================
-    // 5. Regex Dispatcher
+    // 6. Regex Dispatcher
     // =========================================================================
 
     let private translateRegexInvocation (paramName: string) (invocation: RegexInvocation) : ExprHandle option =
@@ -534,7 +716,7 @@ module rec ExprTranslator =
                         if isNull s then null else rx.Split(s) :> seq<string>)))
 
     // =========================================================================
-    // 6. List / Array Row-Level Expression Dispatcher
+    // 7. List / Array Row-Level Expression Dispatcher
     // =========================================================================
 
     let private translateListInvocation (paramName: string) (invocation: ListInvocation) : ExprHandle option =
@@ -618,7 +800,7 @@ module rec ExprTranslator =
         | ListSelect _ -> None
 
     // =========================================================================
-    // 7. Operators & Casts
+    // 8. Operators & Casts
     // =========================================================================
 
     let internal translateBinary (nodeType: ExpressionType) (left: ExprHandle) (right: ExprHandle) : ExprHandle =
@@ -677,7 +859,7 @@ module rec ExprTranslator =
             |> Option.bind (translateUnary op)
 
     // =========================================================================
-    // 8. Main Entrypoint Dispatcher
+    // 9. Main Entrypoint Dispatcher
     // =========================================================================
 
     /// Attempts to translate an Expression AST node to a native Polars ExprHandle.

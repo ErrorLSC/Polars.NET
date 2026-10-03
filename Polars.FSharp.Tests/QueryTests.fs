@@ -606,51 +606,48 @@ module QueryTests =
     //     |]
 
     //     use dfEmps = DataFrame.ofRecords emps
-    //     use sqlCtx = new SqlContext()
-    //     use db = new PolarsDataContext(sqlCtx)
-    //     let empQuery = db.RegisterTable(dfEmps, emps)
+    //     let empQuery = dfEmps.AsQueryable emps
 
     //     let queryable = 
-    //         query {
-    //             for e in empQuery do
-    //             select {|
+    //         empQuery
+    //             .Select(fun e -> {|
     //                 Name = e.Name
     //                 DeptId = e.DeptId
     //                 Salary = e.Salary
-                    
-    //                 // RANK() OVER (PARTITION BY DeptId ORDER BY Salary DESC)
-    //                 DeptRank = LinqToDB.Sql.Ext.Rank().Over().PartitionBy(e.DeptId).OrderByDesc(e.Salary).ToValue()
-                    
-    //                 // SUM(Salary) OVER (PARTITION BY DeptId)
-    //                 DeptTotalSalary = LinqToDB.Sql.Ext.Sum(e.Salary).Over().PartitionBy(e.DeptId).ToValue()
-    //             |}
-    //         }
-    //     let results = queryable.ToList()
 
-    //     // Assert
-    //     Assert.Equal(5, results.Count)
+    //                 // 直接点！和 C# 一模一样！
+    //                 // C# 的 PolarsLinqExtensions 会被 F# 编译器完美识别为扩展方法
+    //                 DeptRank = e.Salary.Rank(RankMethod.Min, descending = true).Over(e.DeptId)
+    //                 DeptTotalSalary = e.Salary.Sum().Over(e.DeptId)
+    //                 SalaryDiff = e.Salary.Diff(1L)
+    //                 PrevSalary = e.Salary.Shift(1L)
+    //             |})
+        // let results = queryable.ToList()
 
-    //     let find name = results |> Seq.find (fun r -> r.Name = name)
+        // // Assert
+        // Assert.Equal(5, results.Count)
 
-    //     let alice = find "Alice"
-    //     Assert.Equal(1L, int64 alice.DeptRank) 
-    //     Assert.Equal(10500.0, alice.DeptTotalSalary) 
+        // let find name = results |> Seq.find (fun r -> r.Name = name)
 
-    //     let charlie = find "Charlie"
-    //     Assert.Equal(2L, int64 charlie.DeptRank)
-    //     Assert.Equal(10500.0, charlie.DeptTotalSalary)
+        // let alice = find "Alice"
+        // Assert.Equal(1L, int64 alice.DeptRank) 
+        // Assert.Equal(10500.0, alice.DeptTotalSalary) 
 
-    //     let eve = find "Eve"
-    //     Assert.Equal(1L, int64 eve.DeptRank)
-    //     Assert.Equal(9500.0, eve.DeptTotalSalary)
+        // let charlie = find "Charlie"
+        // Assert.Equal(2L, int64 charlie.DeptRank)
+        // Assert.Equal(10500.0, charlie.DeptTotalSalary)
 
-    //     let bob = find "Bob"
-    //     Assert.Equal(2L, int64 bob.DeptRank)
-    //     Assert.Equal(9500.0, bob.DeptTotalSalary)
+        // let eve = find "Eve"
+        // Assert.Equal(1L, int64 eve.DeptRank)
+        // Assert.Equal(9500.0, eve.DeptTotalSalary)
 
-    //     let david = find "David"
-    //     Assert.Equal(1L, int64 david.DeptRank)
-    //     Assert.Equal(8000.0, david.DeptTotalSalary)
+        // let bob = find "Bob"
+        // Assert.Equal(2L, int64 bob.DeptRank)
+        // Assert.Equal(9500.0, bob.DeptTotalSalary)
+
+        // let david = find "David"
+        // Assert.Equal(1L, int64 david.DeptRank)
+        // Assert.Equal(8000.0, david.DeptTotalSalary)
 
     [<Fact>]
     [<Trait("LINQ", "TimeSeriesAndMultiGroup")>]

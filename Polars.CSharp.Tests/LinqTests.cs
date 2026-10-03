@@ -4311,4 +4311,134 @@ public partial class LinqTests
         Assert.Equal(6.0m, d.RoundToEven);
         Assert.Equal(10.0m, d.Clamped);            
     }
+    public class StockPrice
+    {
+        public string Symbol { get; set; } = string.Empty;
+        public DateTime TradeDate { get; set; }
+        public double? Price { get; set; }
+    }
+    [Fact]
+    [Trait("LINQ", "WindowFunctions")]
+    public void Test_Linq_Shift_Diff_Over_Pushdown()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Symbol", ["AAPL", "AAPL", "AAPL", "MSFT", "MSFT"]),
+            Series.From("TradeDate", [
+                new DateTime(2026, 1, 1),
+                new DateTime(2026, 1, 2),
+                new DateTime(2026, 1, 3),
+                new DateTime(2026, 1, 1),
+                new DateTime(2026, 1, 2)
+            ]),
+            Series.From("Price", [150.0, 155.0, 160.0, 300.0, 310.0])
+        ]);
+
+        var query = df.AsQueryable<StockPrice>()
+                    .Select(s => new {
+                        s.Symbol,
+                        s.TradeDate,
+                        s.Price,
+                        PrevPrice = s.Price.Shift(1),
+                        PriceDiff = s.Price.Diff(1),
+                        GroupedPrevPrice = s.Price.Shift(1).Over(s.Symbol)
+                    })
+                    .ToList();
+
+        Assert.Equal(5, query.Count);
+        
+        Assert.Equal(150.0, query[0].Price);
+        Assert.Null(query[0].PrevPrice);
+        Assert.Null(query[0].PriceDiff);
+        Assert.Null(query[0].GroupedPrevPrice);
+
+        Assert.Equal(155.0, query[1].Price);
+        Assert.Equal(150.0, query[1].PrevPrice);
+        Assert.Equal(5.0, query[1].PriceDiff);
+        Assert.Equal(150.0, query[1].GroupedPrevPrice);
+
+        Assert.Equal(160.0, query[2].Price);
+        Assert.Equal(155.0, query[2].PrevPrice);
+        Assert.Equal(5.0, query[2].PriceDiff);
+        Assert.Equal(155.0, query[2].GroupedPrevPrice);
+
+        Assert.Equal(300.0, query[3].Price);
+
+        Assert.Equal(160.0, query[3].PrevPrice);
+        Assert.Equal(140.0, query[3].PriceDiff); // 300.0 - 160.0
+
+        Assert.Null(query[3].GroupedPrevPrice);
+
+        Assert.Equal(310.0, query[4].Price);
+        Assert.Equal(300.0, query[4].PrevPrice);
+        Assert.Equal(10.0, query[4].PriceDiff);
+        Assert.Equal(300.0, query[4].GroupedPrevPrice);
+
+    }
+    [Fact]
+    [Trait("LINQ", "WindowFunctions")]
+    public void Test_Linq_Rank_And_Over_Pushdown_Native_Style()
+    {
+        // 复用已有的 MemberRecord: (int Id, string Name, int DeptId, int Age, int Salary)
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3, 4, 5]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eva"]),
+            Series.From("DeptId", [1, 1, 1, 2, 2]),
+            Series.From("Age", [25, 30, 35, 28, 40]),
+            Series.From("Salary", [5000, 8000, 8000, 4000, 6000])
+        ]);
+
+        var results = df.AsQueryable<MemberRecord>()
+            .Select(e => new
+            {
+                e.Name,
+                e.DeptId,
+                e.Salary,
+
+                // SQL: RANK() OVER (PARTITION BY DeptId ORDER BY Salary DESC)
+                // Dept 1: Bob(8000)=1, Charlie(8000)=1, Alice(5000)=3
+                DeptRank = e.Salary.Rank(RankMethod.Min, descending: true).Over(e.DeptId),
+
+                // SQL: SUM(Salary) OVER (PARTITION BY DeptId)
+                // Dept 1: 5000 + 8000 + 8000 = 21000
+                // Dept 2: 4000 + 6000 = 10000
+                DeptTotalSalary = e.Salary.Sum().Over(e.DeptId),
+
+                DeptSalaryPctChange = e.Salary.PctChange(1).Over(e.DeptId)
+            })
+            .ToList();
+
+        Assert.Equal(5, results.Count);
+
+        var dept1 = results.Where(r => r.DeptId == 1).ToList();
+        Assert.Equal(3, dept1.Count);
+
+        Assert.All(dept1, r => Assert.Equal(21000, r.DeptTotalSalary));
+
+        // Alice (Salary 5000)
+        var alice = dept1.Single(r => r.Name == "Alice");
+        Assert.Equal(3.0, alice.DeptRank);
+
+        // Bob (Salary 8000) 
+        var bob = dept1.Single(r => r.Name == "Bob");
+        Assert.Equal(1.0, bob.DeptRank);
+
+        // Charlie (Salary 8000) 
+        var charlie = dept1.Single(r => r.Name == "Charlie");
+        Assert.Equal(1.0, charlie.DeptRank);
+
+        var dept2 = results.Where(r => r.DeptId == 2).ToList();
+        Assert.Equal(2, dept2.Count);
+
+        // Dept 2 总薪资 4000 + 6000 = 10000
+        Assert.All(dept2, r => Assert.Equal(10000, r.DeptTotalSalary));
+
+        // Eva (Salary 6000) 
+        var eva = dept2.Single(r => r.Name == "Eva");
+        Assert.Equal(1.0, eva.DeptRank);
+
+        // David (Salary 4000) 
+        var david = dept2.Single(r => r.Name == "David");
+        Assert.Equal(2.0, david.DeptRank);
+        Assert.Null(david.DeptSalaryPctChange); 
+    }
 }

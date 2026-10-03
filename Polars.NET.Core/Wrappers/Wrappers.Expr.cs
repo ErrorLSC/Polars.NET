@@ -1299,7 +1299,8 @@ public readonly partial struct PolarsWrapper
         var h = NativeBindings.pl_expr_rolling_kurtosis(e, w, (UIntPtr)minPeriods,weights,len,center,fisher,bias);
         e.TransferOwnership();
         return ErrorHelper.Check(h);
-    }    public unsafe static ExprHandle RollingRank(ExprHandle e, string w, int minPeriods,PlRankMethod method,ulong? seed,double[]? weights, bool center)
+    }    
+    public unsafe static ExprHandle RollingRank(ExprHandle e, string w, int minPeriods,PlRankMethod method,ulong? seed,double[]? weights, bool center)
     {
         ulong seedValue = seed.GetValueOrDefault();
         ulong* pSeed = seed.HasValue ? &seedValue : null;
