@@ -297,7 +297,18 @@ module rec ExprTranslator =
             | _ -> None
         | _ -> None
 
-    let private translateMathMethod (paramName: string) (m: MethodInfo) (args: Expression list) : ExprHandle option =
+    // =========================================================================
+    // 4. Numeric & Math Methods (Math, MathF, System.Decimal)
+    // =========================================================================
+
+    let private tryMapRoundMode (midpoint: MidpointRounding) : PlRoundMode option =
+        match midpoint with
+        | MidpointRounding.ToEven       -> Some PlRoundMode.HalfToEven
+        | MidpointRounding.AwayFromZero -> Some PlRoundMode.HalfAwayFromZero
+        | MidpointRounding.ToZero       -> Some PlRoundMode.ToZero
+        | _                             -> None
+
+    let private translateNumericMethod (paramName: string) (m: MethodInfo) (args: Expression list) : ExprHandle option =
         let t1 expr = tryTranslate paramName expr
         let t2 e1 e2 =
             match tryTranslate paramName e1, tryTranslate paramName e2 with
@@ -305,16 +316,63 @@ module rec ExprTranslator =
             | _ -> None
 
         match m.Name, args with
-        | "Abs", [ x ]   -> t1 x |> Option.map PolarsWrapper.Abs
+        // --- 1. Math / Decimal Unary Operation ---
+        | "Abs", [ x ]      -> t1 x |> Option.map PolarsWrapper.Abs
+        | "Ceiling", [ x ]  -> t1 x |> Option.map PolarsWrapper.Ceil
+        | "Floor", [ x ]    -> t1 x |> Option.map PolarsWrapper.Floor
+        | "Truncate", [ x ] -> t1 x |> Option.map (fun h -> PolarsWrapper.Truncate(h, 0u))
+        | "Sign", [ x ]     -> t1 x |> Option.map PolarsWrapper.Sign
+
+        // --- 2. Math / Decimal Round ---
+        | "Round", [ x ] ->
+            t1 x |> Option.map (fun h -> PolarsWrapper.Round(h, 0u, PlRoundMode.HalfToEven))
+
+        | "Round", [ x; digitsExpr ] when digitsExpr.Type = typeof<int> ->
+            match t1 x, tryEvaluate digitsExpr with
+            | Some h, Some d ->
+                let decimals = uint32 (Convert.ToInt32 d)
+                Some (PolarsWrapper.Round(h, decimals, PlRoundMode.HalfToEven))
+            | _ -> None
+
+        | "Round", [ x; modeExpr ] when modeExpr.Type = typeof<MidpointRounding> ->
+            match t1 x, tryEvaluate modeExpr with
+            | Some h, Some (:? MidpointRounding as mode) ->
+                tryMapRoundMode mode
+                |> Option.map (fun plMode -> PolarsWrapper.Round(h, 0u, plMode))
+            | _ -> None
+
+        | "Round", [ x; digitsExpr; modeExpr ] ->
+            match t1 x, tryEvaluate digitsExpr, tryEvaluate modeExpr with
+            | Some h, Some d, Some (:? MidpointRounding as mode) ->
+                let decimals = uint32 (Convert.ToInt32 d)
+                tryMapRoundMode mode
+                |> Option.map (fun plMode -> PolarsWrapper.Round(h, decimals, plMode))
+            | _ -> None
+
+        // --- 3. Math / Decimal Binary Operation ---
+        | "Min", [ x; y ] ->
+            t2 x y |> Option.map (fun (l, r) ->
+                let cond = PolarsWrapper.LtEq(PolarsWrapper.CloneExpr l, PolarsWrapper.CloneExpr r)
+                PolarsWrapper.IfElse(cond, l, r))
+
+        | "Max", [ x; y ] ->
+            t2 x y |> Option.map (fun (l, r) ->
+                let cond = PolarsWrapper.GtEq(PolarsWrapper.CloneExpr l, PolarsWrapper.CloneExpr r)
+                PolarsWrapper.IfElse(cond, l, r))
+
+        | "Clamp", [ valExpr; minExpr; maxExpr ] ->
+            match t1 valExpr, t1 minExpr, t1 maxExpr with
+            | Some v, Some minH, Some maxH -> Some (PolarsWrapper.Clip(v, minH, maxH))
+            | _ -> None
+
+        // --- 4. Math ---
         | "Sqrt", [ x ]  -> t1 x |> Option.map PolarsWrapper.Sqrt
         | "Cbrt", [ x ]  -> t1 x |> Option.map PolarsWrapper.Cbrt
         | "Exp", [ x ]   -> t1 x |> Option.map PolarsWrapper.Exp
         | "Log", [ x ]   -> t1 x |> Option.map (fun h -> PolarsWrapper.Log(h, PolarsWrapper.Lit Math.E))
         | "Log10", [ x ] -> t1 x |> Option.map (fun h -> PolarsWrapper.Log(h, PolarsWrapper.Lit 10.0))
         | "Log2", [ x ]  -> t1 x |> Option.map (fun h -> PolarsWrapper.Log(h, PolarsWrapper.Lit 2.0))
-        | "Ceiling", [ x ] -> t1 x |> Option.map PolarsWrapper.Ceil
-        | "Floor", [ x ]   -> t1 x |> Option.map PolarsWrapper.Floor
-        | "Sign", [ x ]    -> t1 x |> Option.map PolarsWrapper.Sign
+        | "Log", [ x; newBase ] -> t2 x newBase |> Option.map PolarsWrapper.Log
 
         | "Sin", [ x ]   -> t1 x |> Option.map PolarsWrapper.Sin
         | "Cos", [ x ]   -> t1 x |> Option.map PolarsWrapper.Cos
@@ -331,40 +389,56 @@ module rec ExprTranslator =
 
         | "Pow", [ x; y ]   -> t2 x y |> Option.map PolarsWrapper.Pow
         | "Atan2", [ y; x ] -> t2 y x |> Option.map PolarsWrapper.ArcTan2
-        | "Log", [ x; newBase ] -> t2 x newBase |> Option.map PolarsWrapper.Log
 
-        | "Min", [ x; y ] ->
-            t2 x y |> Option.map (fun (l, r) ->
-                let cond = PolarsWrapper.LtEq(PolarsWrapper.CloneExpr l, PolarsWrapper.CloneExpr r)
-                PolarsWrapper.IfElse(cond, l, r))
-        | "Max", [ x; y ] ->
-            t2 x y |> Option.map (fun (l, r) ->
-                let cond = PolarsWrapper.GtEq(PolarsWrapper.CloneExpr l, PolarsWrapper.CloneExpr r)
-                PolarsWrapper.IfElse(cond, l, r))
-        | "Clamp", [ valExpr; minExpr; maxExpr ] ->
-            match t1 valExpr, t1 minExpr, t1 maxExpr with
-            | Some v, Some minH, Some maxH -> Some (PolarsWrapper.Clip(v, minH, maxH))
-            | _ -> None
+        // ---5. (decimal.ToInt32 / ToInt64 / ToDouble) ---
+        | "ToInt32", [ x ]   -> t1 x |> Option.bind (tryTranslateCast typeof<int>)
+        | "ToUInt32", [ x ]  -> t1 x |> Option.bind (tryTranslateCast typeof<uint32>)
+        | "ToInt64", [ x ]   -> t1 x |> Option.bind (tryTranslateCast typeof<int64>)
+        | "ToUInt64", [ x ]  -> t1 x |> Option.bind (tryTranslateCast typeof<uint64>)
+        | "ToSingle", [ x ]  -> t1 x |> Option.bind (tryTranslateCast typeof<float32>)
+        | "ToDouble", [ x ]  -> t1 x |> Option.bind (tryTranslateCast typeof<double>)
+        | "ToByte", [ x ]    -> t1 x |> Option.bind (tryTranslateCast typeof<byte>)
+        | "ToSByte", [ x ]   -> t1 x |> Option.bind (tryTranslateCast typeof<sbyte>)
+        | "ToInt16", [ x ]   -> t1 x |> Option.bind (tryTranslateCast typeof<int16>)
+        | "ToUInt16", [ x ]  -> t1 x |> Option.bind (tryTranslateCast typeof<uint16>)
 
-        | "Round", [ x ] ->
-            t1 x |> Option.map (fun h -> PolarsWrapper.Round(h, 0u, PlRoundMode.HalfToEven))
-        | "Round", [ x; digitsExpr ] ->
-            match t1 x, tryEvaluate digitsExpr with
-            | Some h, Some d ->
-                let decimals = uint32 (Convert.ToInt32 d)
-                Some (PolarsWrapper.Round(h, decimals, PlRoundMode.HalfToEven))
-            | _ -> None
-        | "Truncate", [ x ] ->
-            t1 x |> Option.map (fun h -> PolarsWrapper.Truncate(h, 0u))
         | _ -> None
 
+    let private isNumericDeclaringType (t: Type) =
+        t = typeof<Math> || t = typeof<MathF> || t = typeof<decimal>
+
     let private translateMethodCall (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
+        // 1. String methods (Static & Instance)
         if m.DeclaringType = typeof<string> || not (isNull target) && target.Type = typeof<string> then
             translateStringMethod paramName m target args
+
+        // 2. Temporal methods (DateTime / DateOnly / TimeOnly)
         elif m.DeclaringType = typeof<DateTime> || not (isNull target) && isTemporalType target.Type then
             translateTemporalMethod paramName m target args
-        elif (m.DeclaringType = typeof<Math> || m.DeclaringType = typeof<MathF>) && isNull target then
-            translateMathMethod paramName m args
+
+        // 3. Math / MathF / Decimal methods (All static)
+        elif isNumericDeclaringType m.DeclaringType && isNull target then
+            translateNumericMethod paramName m args
+
+        // 4. Decimal / Numeric Instance Methods (e.g. d.ToString())
+        elif not (isNull target) && target.Type = typeof<decimal> then
+            match m.Name, args with
+            | "ToString", [] ->
+                tryTranslate paramName target
+                |> Option.bind (tryTranslateCast typeof<string>)
+
+            | "ToString", [ formatExpr ] ->
+                match tryTranslate paramName target, tryEvaluate formatExpr with
+                | Some t, Some (:? string as fmt) ->
+                    if fmt.StartsWith("F", StringComparison.OrdinalIgnoreCase) then
+                        let precision = fmt.Substring(1)
+                        let rustFmt = sprintf "{:.%sf}" precision
+                        Some (PolarsWrapper.FormatString(rustFmt, [| t |]))
+                    else
+                        None
+                | _ -> None
+            | _ -> None
+
         else
             None
 

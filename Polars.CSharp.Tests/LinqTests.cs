@@ -69,6 +69,7 @@ public readonly record struct LogEntry(int Id, string Message);
 public record struct AddressInfo(string City, string ZipCode);
 public record struct CustomerProfile(int Id, string CustomerName, AddressInfo Address);
 public record struct UserProfile(int Id, string Nickname, string FallbackName);
+public record OrderItem(string ItemName,decimal Price,decimal DiscountRate);
 public partial class LinqTests
 {
     [Fact]
@@ -89,7 +90,7 @@ public partial class LinqTests
         var firstName = upperQuery.First();
 
         var dfResult = upperQuery.ToDataFrame();
-        dfResult.Show();
+
         Assert.Equal(1L, dfResult.Width);
 
         Assert.Equal("ALICE", firstName);
@@ -4165,5 +4166,149 @@ public partial class LinqTests
         // Record 3: Nickname is not null -> "Trinity"
         Assert.Equal(3, query[2].Id);
         Assert.Equal("Trinity", query[2].DisplayName);
+    }
+    [Fact]
+    [Trait("LINQ", "DecimalMethods")]
+    public void Test_Linq_Decimal_Methods_Pushdown()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("ItemName", ["Widget A", "Widget B", "Widget C", "Widget D"]),
+            Series.From("Price", [12.3456m, -15.75m, 100.00m, 5.49m]),
+            Series.From("DiscountRate", [0.15m, 0.20m, 0.05m, 0.50m])
+        ]);
+
+        var filtered = df.AsQueryable<OrderItem>()
+                         .Where(o => decimal.Abs(o.Price) > 10.0m && decimal.Floor(o.Price) >= 12.0m)
+                         .ToList();
+
+        Assert.Equal(2, filtered.Count);
+        Assert.Equal("Widget A", filtered[0].ItemName);
+        Assert.Equal("Widget C", filtered[1].ItemName);
+
+        var projected = df.AsQueryable<OrderItem>()
+                          .Select(o => new {
+                              o.ItemName,
+                              RoundedPrice = decimal.Round(o.Price, 2),
+                              CeilPrice = decimal.Ceiling(o.Price),
+                              FloorPrice = decimal.Floor(o.Price),
+                              AbsPrice = decimal.Abs(o.Price),
+                              ClampedPrice = decimal.Clamp(decimal.Abs(o.Price), 10.0m, 50.0m),
+                              MinPrice = decimal.Min(decimal.Abs(o.Price), 20.0m)
+                          })
+                          .ToList();
+
+        Assert.Equal(4, projected.Count);
+
+        // Widget A (Price: 12.3456m)
+        Assert.Equal(12.35m, projected[0].RoundedPrice);
+        Assert.Equal(13.0m, projected[0].CeilPrice);
+        Assert.Equal(12.0m, projected[0].FloorPrice);
+        Assert.Equal(12.3456m, projected[0].AbsPrice);
+        Assert.Equal(12.3456m, projected[0].ClampedPrice);
+        Assert.Equal(12.3456m, projected[0].MinPrice);
+
+        // Widget B (Price: -15.75m)
+        Assert.Equal(-15.75m, projected[1].RoundedPrice);
+        Assert.Equal(-15.0m, projected[1].CeilPrice);
+        Assert.Equal(-16.0m, projected[1].FloorPrice);
+        Assert.Equal(15.75m, projected[1].AbsPrice);
+        Assert.Equal(15.75m, projected[1].ClampedPrice);
+        Assert.Equal(15.75m, projected[1].MinPrice);
+
+        // Widget C (Price: 100.00m)
+        Assert.Equal(100.00m, projected[2].RoundedPrice);
+        Assert.Equal(50.0m, projected[2].ClampedPrice);
+        Assert.Equal(20.0m, projected[2].MinPrice);
+    }
+    [Fact]
+    [Trait("LINQ", "DecimalMethods")]
+    public void Test_Linq_Decimal_Methods_And_Conversions_Pushdown()
+    {
+        // decimal DataFrame
+        using var df = DataFrame.FromColumns([
+            Series.From("ItemName", ["Item A", "Item B", "Item C", "Item D"]),
+            Series.From("Price", [12.3456m, -15.75m, 100.50m, 5.50m]),
+            Series.From("DiscountRate", [0.15m, 0.20m, 0.05m, 0.50m])
+        ]);
+
+        // 1. Where (decimal.Abs, decimal.Floor, decimal.Truncate)
+        var filtered = df.AsQueryable<OrderItem>()
+                         .Where(o => decimal.Abs(o.Price) >= 10.0m && decimal.Floor(o.Price) > 5.0m)
+                         .ToList();
+
+        Assert.Equal(2, filtered.Count);
+        Assert.Equal("Item A", filtered[0].ItemName);
+        Assert.Equal("Item C", filtered[1].ItemName);
+
+        // 2. Select (MidpointRounding, Clamp, Min, Max, Truncate)
+        var projected = df.AsQueryable<OrderItem>()
+                          .Select(o => new {
+                              o.ItemName,
+                              // HalfToEven
+                              RoundDefault = decimal.Round(o.Price, 2),
+                              // HalfAwayFromZero: 5.50m to 6.0m
+                              RoundAwayFromZero = decimal.Round(o.Price, 0, MidpointRounding.AwayFromZero),
+                              // ToEven: 5.50m to 6.0m，100.50m to 100.0m
+                              RoundToEven = decimal.Round(o.Price, 0, MidpointRounding.ToEven),
+                              // ToZero
+                              RoundToZero = decimal.Round(o.Price, 1, MidpointRounding.ToZero),
+                              // Basic Operators
+                              Floor = decimal.Floor(o.Price),
+                              Ceil = decimal.Ceiling(o.Price),
+                              Trunc = decimal.Truncate(o.Price),
+                              Abs = decimal.Abs(o.Price),
+                              // Clamp and Binary
+                              Clamped = decimal.Clamp(decimal.Abs(o.Price), 10.0m, 50.0m),
+                              MinVal = decimal.Min(decimal.Abs(o.Price), 20.0m),
+                              MaxVal = decimal.Max(decimal.Abs(o.Price), 20.0m),
+                              // Cast:ToInt32, ToDouble
+                              PriceAsInt = decimal.ToInt32(decimal.Floor(decimal.Abs(o.Price))),
+                              PriceAsDouble = decimal.ToDouble(o.Price),
+                              // ToString with format string
+                              StrPrice = o.Price.ToString(),
+                              StrPriceF2 = o.Price.ToString("F2")
+                          })
+                          .ToList();
+
+        Assert.Equal(4, projected.Count);
+
+        // Item A: Price = 12.3456m
+        var a = projected[0];
+        Assert.Equal(12.35m, a.RoundDefault);
+        Assert.Equal(12.0m, a.Floor);
+        Assert.Equal(13.0m, a.Ceil);
+        Assert.Equal(12.0m, a.Trunc);
+        Assert.Equal(12.3456m, a.Abs);
+        Assert.Equal(12.3456m, a.Clamped);
+        Assert.Equal(12.3456m, a.MinVal);
+        Assert.Equal(20.0m, a.MaxVal);
+        Assert.Equal(12, a.PriceAsInt);
+        Assert.Equal(12.3456, a.PriceAsDouble, precision: 4);
+        Assert.Equal("12.35", a.StrPriceF2);
+
+        // Item B: Price = -15.75m 
+        var b = projected[1];
+        Assert.Equal(-15.75m, b.RoundDefault);
+        Assert.Equal(-16.0m, b.Floor);
+        Assert.Equal(-15.0m, b.Ceil);
+        Assert.Equal(-15.0m, b.Trunc);
+        Assert.Equal(15.75m, b.Abs);
+        Assert.Equal(-15.7m, b.RoundToZero); 
+        Assert.Equal(15, b.PriceAsInt);
+
+        // Item C: Price = 100.50m (ToEven / HalfToEven)
+        var c = projected[2];
+        Assert.Equal(101.0m, c.RoundAwayFromZero); // AwayFromZero -> 101
+        Assert.Equal(100.0m, c.RoundToEven);       // ToEven -> even 100
+        Assert.Equal(50.0m, c.Clamped);            // Clamp 
+        Assert.Equal(20.0m, c.MinVal);             // Min 
+        Assert.Equal(100.50m, c.MaxVal);           // Max 
+        Assert.Equal("100.50", c.StrPriceF2);
+
+        // Item D: Price = 5.50m
+        var d = projected[3];
+        Assert.Equal(6.0m, d.RoundAwayFromZero);
+        Assert.Equal(6.0m, d.RoundToEven);
+        Assert.Equal(10.0m, d.Clamped);            
     }
 }
