@@ -3986,8 +3986,8 @@ public partial class LinqTests
             Series.From("Name", ["Alice", "Bob", "Charlie"]),
             Series.From("Scores", [
                 new[] { 95, 88, 92 },
-                new[] { 50, 59, 45 },
-                new int[] { }
+                [50, 59, 45],
+                []
             ])
         ]);
 
