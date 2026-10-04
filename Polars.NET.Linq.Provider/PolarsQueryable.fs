@@ -1143,6 +1143,19 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             ctx.ElemLambdaOpt
             |> Option.bind (fun el -> ExprTranslator.tryTranslate el.Parameters.[0].Name el.Body)
 
+        let elemType = keyParam.Type
+
+        let wholeRowStructOpt : ExprHandle option =
+            try
+                let props = elemType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                if props.Length > 0 then
+                    let colExprs = props |> Array.map (fun p -> PolarsWrapper.Col p.Name)
+                    Some (PolarsWrapper.AsStruct colExprs)
+                else
+                    None
+            with _ ->
+                None
+
         let translateKeyPart (e: Expression) : ExprHandle option =
             match ExprTranslator.tryTranslate keyParam.Name e with
             | Some h -> Some h
@@ -1245,9 +1258,9 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                         | MethodCall(m, target, []) when not (isNull target) && (match target with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false) ->
                             buildAgg m.Name
                         | _ ->
-                            AggTranslator.tryTranslateAgg groupParamName argExpr colName
+                            AggTranslator.tryTranslateAgg groupParamName wholeRowStructOpt argExpr colName
                     | None ->
-                        AggTranslator.tryTranslateAgg groupParamName argExpr colName
+                        AggTranslator.tryTranslateAgg groupParamName wholeRowStructOpt argExpr colName
 
                 let translatedAggOpts =
                     nonKeyArgs
@@ -1316,7 +1329,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                                     | None ->
                                         match other with
                                         | MethodCall _ as aggCall ->
-                                            AggTranslator.tryTranslateAgg havingPred.Parameters.[0].Name aggCall ""
+                                            AggTranslator.tryTranslateAgg havingPred.Parameters.[0].Name wholeRowStructOpt aggCall ""
                                         | _ -> None
 
                             translateHaving havingPred.Body

@@ -4880,4 +4880,63 @@ public partial class LinqTests
         Assert.Equal(0.75, results[2].ReverseRunningProd, precision: 4);
         Assert.Equal(0.25, results[3].ReverseRunningProd, precision: 4);
     }
+    [Fact]
+    [Trait("LINQ", "NestedList")]
+    public void Test_Linq_GroupBy_ToList_Explicit_Column_Vs_Whole_Group()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 1, 2]),
+            Series.From("Email", ["alice@test.com", "bob@test.com", "charlie@test.com"]),
+            Series.From("Password", ["p1", "p2", "p3"])
+        ]);
+
+        // -------------------------------------------------------------------------
+        // Case A: g.Select(x => x.Email).ToList() / ToArray()
+        // -------------------------------------------------------------------------
+        var explicitListResults = df.AsQueryable<UserInfo>()
+            .GroupBy(u => u.Id)
+            .Select(g => new
+            {
+                Id = g.Key,
+                Emails = g.Select(x => x.Email).ToList(),
+                Passwords = g.Select(x => x.Password).ToArray()
+            })
+            .OrderBy(r => r.Id)
+            .ToList();
+
+        Assert.Equal(2, explicitListResults.Count);
+
+        // Id = 1
+        var group1 = explicitListResults[0];
+        Assert.Equal(1, group1.Id);
+        Assert.Equal(["alice@test.com", "bob@test.com"], group1.Emails);
+        Assert.Equal(["p1", "p2"], group1.Passwords);
+
+        // Id = 2
+        var group2 = explicitListResults[1];
+        Assert.Equal(2, group2.Id);
+        Assert.Equal(["charlie@test.com"], group2.Emails);
+        Assert.Equal(["p3"], group2.Passwords);
+
+        // -------------------------------------------------------------------------
+        // Case B: g.ToList()
+        // -------------------------------------------------------------------------
+        var wholeGroupResults = df.AsQueryable<UserInfo>()
+            .GroupBy(u => u.Id)
+            .Select(g => new
+            {
+                Id = g.Key,
+                Users = g.ToList()
+            })
+            .OrderBy(r => r.Id)
+            .ToList();
+
+        Assert.Equal(2, wholeGroupResults.Count);
+
+        var usersG1 = wholeGroupResults[0];
+        Assert.Equal(1, usersG1.Id);
+        Assert.Equal(2, usersG1.Users.Count);
+        Assert.Equal("alice@test.com", usersG1.Users[0].Email);
+        Assert.Equal("bob@test.com", usersG1.Users[1].Email);
+    }
 }

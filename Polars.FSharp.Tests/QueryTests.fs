@@ -789,21 +789,20 @@ module QueryTests =
         assertTier "Medium" "Charlie" // 4500
         assertTier "Low" "Bob"       // 4000
 
-        // let cte = 
-        //     empQuery
-        //         .Where(fun e -> e.Salary > 5000.0)
-        //         .AsCte "HighEarners"
+        let cte = 
+            empQuery
+                .Where(fun e -> e.Salary > 5000.0)
 
-        // let cteResult = 
-        //     query {
-        //         for c in cte do
-        //         where (c.DeptId = 1 || c.DeptId = 3)
-        //         select c
-        //     } |> Seq.toList
+        let cteResult = 
+            query {
+                for c in cte do
+                where (c.DeptId = 1 || c.DeptId = 3)
+                select c
+            } |> Seq.toList
 
-        // Assert.Equal(2, cteResult.Length)
-        // Assert.True(cteResult |> Seq.exists (fun e -> e.Name = "Alice"))
-        // Assert.True(cteResult |> Seq.exists (fun e -> e.Name = "David"))
+        Assert.Equal(2, cteResult.Length)
+        Assert.True(cteResult |> Seq.exists (fun e -> e.Name = "Alice"))
+        Assert.True(cteResult |> Seq.exists (fun e -> e.Name = "David"))
     [<Fact>]
     [<Trait("LINQ", "SubqueryInAndFunctions")>]
     let ``Test Polars Linq SubqueryIn And Functions`` () =
@@ -1111,39 +1110,40 @@ module QueryTests =
         Assert.Equal(8000.0, highSalaryByDept.[10])
         Assert.Equal(9000.0, highSalaryByDept.[20])
 
-    // [<Fact>]
-    // [<Trait("LINQ", "NestedList")>]
-    // let ``Test Polars Linq Nested List Aggregation`` () =
-    //     let depts = [| { DeptId = 1; DeptName = "Tech" }; { DeptId = 2; DeptName = "Sales" } |]
-    //     let emps = [| 
-    //         { Name = "Alice"; DeptId = 1 }
-    //         { Name = "Bob"; DeptId = 1 }
-    //         { Name = "Charlie"; DeptId = 2 } 
-    //     |]
+    [<Fact>]
+    [<Trait("LINQ", "NestedList")>]
+    let ``Test Polars Linq Nested List Aggregation`` () =
+        let emps = [| 
+            { Name = "Alice"; DeptId = 1 }
+            { Name = "Bob"; DeptId = 1 }
+            { Name = "Charlie"; DeptId = 2 } 
+        |]
 
-    //     use dfDepts = DataFrame.ofRecords depts
-    //     use dfEmps = DataFrame.ofRecords emps
+        use dfEmps = DataFrame.ofRecords emps
 
-    //     let deptQuery = dfDepts.AsQueryable<DeptDto>()
-    //     let empQuery = dfEmps.AsQueryable<EmpDto>()
+        let empQuery = dfEmps.AsQueryable<EmpDto>()
 
-    //     // SQL: SELECT e."DeptId", list(e."Name") FROM employees e GROUP BY e."DeptId"
-    //     let nestedListQuery = 
-    //         empQuery
-    //             .GroupBy(fun e -> e.DeptId)
-    //             .Select(fun g -> {|
-    //                 DeptId = g.Key
-                    
-    //                 EmpNames = PolarsSql.ListAgg(g, fun e -> e.Name)
-    //             |})
-    //             .OrderBy(fun r -> r.DeptId)
-    //             .ToList()
+        // g.Select(...).ToList()
+        let nestedListQuery = 
+            empQuery
+                .GroupBy(fun e -> e.DeptId)
+                .Select(fun g -> {|
+                    DeptId = g.Key
+                    EmpNames = g.Select(fun e -> e.Name).ToList()
+                |})
+                .OrderBy(fun r -> r.DeptId)
+                .ToList()
 
-    //     let techDepts = nestedListQuery.[0]
-    //     Assert.Equal(1, techDepts.DeptId)
+        Assert.Equal(2, nestedListQuery.Count)
         
-    //     Assert.Contains("Alice", techDepts.EmpNames)
-    //     Assert.Contains("Bob", techDepts.EmpNames)
+        let techDept = nestedListQuery.[0]
+        Assert.Equal(1, techDept.DeptId)
+        Assert.Contains("Alice", techDept.EmpNames)
+        Assert.Contains("Bob", techDept.EmpNames)
+        
+        let salesDept = nestedListQuery.[1]
+        Assert.Equal(2, salesDept.DeptId)
+        Assert.Contains("Charlie", salesDept.EmpNames)
 
     [<Fact>]
     [<Trait("LINQ", "Sandwich")>]

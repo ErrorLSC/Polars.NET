@@ -24,7 +24,7 @@ module AggTranslator =
         | _ -> false
 
     /// Attempts to translate group collection operations into Polars ExprHandle
-    let rec tryTranslateAgg (groupParamName: string) (expr: Expression) (aliasName: string) : ExprHandle option =
+    let rec tryTranslateAgg (groupParamName: string) (wholeRowStructOpt: ExprHandle option) (expr: Expression) (aliasName: string) : ExprHandle option =
         let cleanExpr = unwrap expr
 
         match cleanExpr with
@@ -101,5 +101,29 @@ module AggTranslator =
                 translateDispersionOp methodInfo.Name ddof targetH
                 |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
             | _ -> None
+
+        // 7. Nested List Aggregation:
+        // group.Select(x => x.Col).ToList() / group.Select(x => x.Col).ToArray()
+        | MethodCall(outerMethod, null, [ MethodCall(selectMethod, null, [ targetSeq; CleanLambda (Lambda([ p ], body)) ]) ])
+            when (outerMethod.Name = "ToList" || outerMethod.Name = "ToArray") 
+                && selectMethod.Name = "Select" 
+                && isGroupParam groupParamName targetSeq ->
+            ExprTranslator.tryTranslate p.Name body
+            |> Option.map (fun colH ->
+                let listExpr = PolarsWrapper.Implode(colH ,maintainOrder=true)
+                PolarsWrapper.Alias(listExpr, aliasName))
+
+        // 8. Whole entity collection: group.ToList() / group.ToArray()
+        // Directly turns into pl.struct([colA, colB, ...]).implode().alias(aliasName)
+        | MethodCall(methodInfo, null, [ targetSeq ])
+            when (methodInfo.Name = "ToList" || methodInfo.Name = "ToArray") 
+                && isGroupParam groupParamName targetSeq ->
+            match wholeRowStructOpt with
+            | Some rowStructExpr ->
+                // Clone the struct expression handle to prevent double-free in Rust FFI
+                let clonedStruct = PolarsWrapper.CloneExpr rowStructExpr
+                let listStructExpr = PolarsWrapper.Implode(clonedStruct,maintainOrder=true)
+                Some (PolarsWrapper.Alias(listStructExpr, aliasName))
+            | None -> None
 
         | _ -> None
