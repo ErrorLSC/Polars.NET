@@ -63,6 +63,12 @@ public readonly record struct OrderRecord(
     DateTime OrderDate,
     double Amount
 );
+public class StockPrice
+{
+    public string Symbol { get; set; } = string.Empty;
+    public DateTime TradeDate { get; set; }
+    public double? Price { get; set; }
+}
 public record struct DeveloperProfile(int Id, string[] Skills, string[] DesiredSkills);
 public readonly record struct UserInfo(int Id, string Email, string Password);
 public readonly record struct LogEntry(int Id, string Message);
@@ -4315,12 +4321,7 @@ public partial class LinqTests
         Assert.Equal(6.0m, d.RoundToEven);
         Assert.Equal(10.0m, d.Clamped);            
     }
-    public class StockPrice
-    {
-        public string Symbol { get; set; } = string.Empty;
-        public DateTime TradeDate { get; set; }
-        public double? Price { get; set; }
-    }
+
     [Fact]
     [Trait("LINQ", "WindowFunctions")]
     public void Test_Linq_Shift_Diff_Over_Pushdown()
@@ -4444,6 +4445,109 @@ public partial class LinqTests
         var david = dept2.Single(r => r.Name == "David");
         Assert.Equal(2.0, david.DeptRank);
         Assert.Null(david.DeptSalaryPctChange); 
+    }
+    [Fact]
+    [Trait("LINQ", "WindowFunctions")]
+    public void Test_Linq_LeadLag_Shift_And_Diff_Over_Partition_Pushdown_Nullable()
+    {
+        // AAPL: 150.0 -> 155.0 -> 152.0
+        // MSFT: 300.0 -> 305.0
+        using var df = DataFrame.FromColumns([
+            Series.From("Symbol", ["AAPL", "AAPL", "AAPL", "MSFT", "MSFT"]),
+            Series.From("TradeDate", [
+                new DateTime(2024, 1, 1),
+                new DateTime(2024, 1, 2),
+                new DateTime(2024, 1, 3),
+                new DateTime(2024, 1, 1),
+                new DateTime(2024, 1, 2)
+            ]),
+            Series.From("Price", [150.0, 155.0, 152.0, 300.0, 305.0])
+        ]);
+
+        // SQL:
+        // LAG(s.Price, 1):       s.Price.Shift(1).Over(s.Symbol)
+        // LEAD(s.Price, 1):      s.Price.Shift(-1).Over(s.Symbol)
+        // LAG_DIFF(s.Price, 1):  s.Price.Diff(1).Over(s.Symbol)  (Price[i] - Price[i - 1])
+        // LEAD_DIFF(s.Price, 1): s.Price.Diff(-1).Over(s.Symbol) (Price[i] - Price[i + 1])
+        var results = df.AsQueryable<StockPrice>()
+            .Select(s => new
+            {
+                s.Symbol,
+                s.TradeDate,
+                s.Price,
+
+                // Lag & Lead
+                PrevPrice = s.Price.Shift(1).Over(s.Symbol),
+                NextPrice = s.Price.Shift(-1).Over(s.Symbol),
+
+                // Forward Diff & Backward Diff
+                PriceDiffPrev = s.Price.Diff(1).Over(s.Symbol),
+                PriceDiffNext = s.Price.Diff(-1).Over(s.Symbol)
+            })
+            .ToList();
+
+        Assert.Equal(5, results.Count);
+
+        var aaplRows = results.Where(r => r.Symbol == "AAPL").OrderBy(r => r.TradeDate).ToList();
+        Assert.Equal(3, aaplRows.Count);
+
+        // Day 1: 150.0
+        // - Prev: null
+        // - Next: 155.0
+        // - DiffPrev (150 - null): null
+        // - DiffNext (150 - 155): -5.0
+        Assert.Equal(150.0, aaplRows[0].Price);
+        Assert.Null(aaplRows[0].PrevPrice);
+        Assert.Equal(155.0, aaplRows[0].NextPrice);
+        Assert.Null(aaplRows[0].PriceDiffPrev);
+        Assert.Equal(-5.0, aaplRows[0].PriceDiffNext);
+
+        // Day 2: 155.0
+        // - Prev: 150.0
+        // - Next: 152.0
+        // - DiffPrev (155 - 150): 5.0
+        // - DiffNext (155 - 152): 3.0
+        Assert.Equal(155.0, aaplRows[1].Price);
+        Assert.Equal(150.0, aaplRows[1].PrevPrice);
+        Assert.Equal(152.0, aaplRows[1].NextPrice);
+        Assert.Equal(5.0, aaplRows[1].PriceDiffPrev);
+        Assert.Equal(3.0, aaplRows[1].PriceDiffNext);
+
+        // Day 3: 152.0
+        // - Prev: 155.0
+        // - Next: null
+        // - DiffPrev (152 - 155): -3.0
+        // - DiffNext (152 - null): null
+        Assert.Equal(152.0, aaplRows[2].Price);
+        Assert.Equal(155.0, aaplRows[2].PrevPrice);
+        Assert.Null(aaplRows[2].NextPrice);
+        Assert.Equal(-3.0, aaplRows[2].PriceDiffPrev);
+        Assert.Null(aaplRows[2].PriceDiffNext);
+
+        var msftRows = results.Where(r => r.Symbol == "MSFT").OrderBy(r => r.TradeDate).ToList();
+        Assert.Equal(2, msftRows.Count);
+
+        // Day 1: 300.0
+        // - Prev: null
+        // - Next: 305.0
+        // - DiffPrev: null
+        // - DiffNext (300 - 305): -5.0
+        Assert.Equal(300.0, msftRows[0].Price);
+        Assert.Null(msftRows[0].PrevPrice);
+        Assert.Equal(305.0, msftRows[0].NextPrice);
+        Assert.Null(msftRows[0].PriceDiffPrev);
+        Assert.Equal(-5.0, msftRows[0].PriceDiffNext);
+
+        // Day 2: 305.0
+        // - Prev: 300.0
+        // - Next: null
+        // - DiffPrev (305 - 300): 5.0
+        // - DiffNext: null
+        Assert.Equal(305.0, msftRows[1].Price);
+        Assert.Equal(300.0, msftRows[1].PrevPrice);
+        Assert.Null(msftRows[1].NextPrice);
+        Assert.Equal(5.0, msftRows[1].PriceDiffPrev);
+        Assert.Null(msftRows[1].PriceDiffNext);
     }
     [Fact]
     [Trait("LINQ", "WindowFunctions")]

@@ -594,61 +594,6 @@ module QueryTests =
         Assert.True(letResult |> Seq.exists (fun x -> x.Name = "David" && x.Bonus = 12000.0))
         Assert.True(letResult |> Seq.exists (fun x -> x.Name = "Eve" && x.Bonus = 8250.0))
 
-    // [<Fact>]
-    // [<Trait("LINQ", "WindowFunctions")>]
-    // let ``Test Polars Linq Window Functions`` () =
-    //     let emps = [|
-    //         {| Name = "Alice";   DeptId = 1; Salary = 6000.0 |}
-    //         {| Name = "Bob";     DeptId = 2; Salary = 4000.0 |}
-    //         {| Name = "Charlie"; DeptId = 1; Salary = 4500.0 |}
-    //         {| Name = "David";   DeptId = 3; Salary = 8000.0 |}
-    //         {| Name = "Eve";     DeptId = 2; Salary = 5500.0 |}
-    //     |]
-
-    //     use dfEmps = DataFrame.ofRecords emps
-    //     let empQuery = dfEmps.AsQueryable emps
-
-    //     let queryable = 
-    //         empQuery
-    //             .Select(fun e -> {|
-    //                 Name = e.Name
-    //                 DeptId = e.DeptId
-    //                 Salary = e.Salary
-
-    //                 // 直接点！和 C# 一模一样！
-    //                 // C# 的 PolarsLinqExtensions 会被 F# 编译器完美识别为扩展方法
-    //                 DeptRank = e.Salary.Rank(RankMethod.Min, descending = true).Over(e.DeptId)
-    //                 DeptTotalSalary = e.Salary.Sum().Over(e.DeptId)
-    //                 SalaryDiff = e.Salary.Diff(1L)
-    //                 PrevSalary = e.Salary.Shift(1L)
-    //             |})
-        // let results = queryable.ToList()
-
-        // // Assert
-        // Assert.Equal(5, results.Count)
-
-        // let find name = results |> Seq.find (fun r -> r.Name = name)
-
-        // let alice = find "Alice"
-        // Assert.Equal(1L, int64 alice.DeptRank) 
-        // Assert.Equal(10500.0, alice.DeptTotalSalary) 
-
-        // let charlie = find "Charlie"
-        // Assert.Equal(2L, int64 charlie.DeptRank)
-        // Assert.Equal(10500.0, charlie.DeptTotalSalary)
-
-        // let eve = find "Eve"
-        // Assert.Equal(1L, int64 eve.DeptRank)
-        // Assert.Equal(9500.0, eve.DeptTotalSalary)
-
-        // let bob = find "Bob"
-        // Assert.Equal(2L, int64 bob.DeptRank)
-        // Assert.Equal(9500.0, bob.DeptTotalSalary)
-
-        // let david = find "David"
-        // Assert.Equal(1L, int64 david.DeptRank)
-        // Assert.Equal(8000.0, david.DeptTotalSalary)
-
     [<Fact>]
     [<Trait("LINQ", "TimeSeriesAndMultiGroup")>]
     let ``Test Polars Linq Time Series And MultiGroup`` () =
@@ -1165,49 +1110,6 @@ module QueryTests =
 
         Assert.Equal(8000.0, highSalaryByDept.[10])
         Assert.Equal(9000.0, highSalaryByDept.[20])
-
-    // [<Fact>]
-    // [<Trait("LINQ", "LeadLag")>]
-    // let ``Test Polars Linq LeadLag And NestedList`` () =
-    //     // Arrange
-    //     let stocks = [|
-    //         { Ticker = "AAPL"; Date = DateTime(2024, 1, 1); Price = 150.0 }
-    //         { Ticker = "AAPL"; Date = DateTime(2024, 1, 2); Price = 155.0 }
-    //         { Ticker = "AAPL"; Date = DateTime(2024, 1, 3); Price = 152.0 }
-    //         { Ticker = "MSFT"; Date = DateTime(2024, 1, 1); Price = 300.0 }
-    //         { Ticker = "MSFT"; Date = DateTime(2024, 1, 2); Price = 305.0 }
-    //     |]
-
-    //     let depts = [| { DeptId = 1; DeptName = "Tech" }; { DeptId = 2; DeptName = "Sales" } |]
-    //     let emps = [| { Name = "Alice"; DeptId = 1 }; { Name = "Bob"; DeptId = 1 }; { Name = "Charlie"; DeptId = 2 } |]
-
-    //     use dfStocks = DataFrame.ofRecords stocks
-    //     use dfDepts = DataFrame.ofRecords depts
-    //     use dfEmps = DataFrame.ofRecords emps
-
-    //     use sqlCtx = new SqlContext()
-    //     use db = new PolarsDataContext(sqlCtx)
-        
-    //     let stockQuery = db.RegisterTable<StockPrice> dfStocks
-
-    //     // SQL: LAG(s."Price") OVER(PARTITION BY s."Ticker" ORDER BY s."Date")
-    //     let lagQuery = 
-    //         query {
-    //             for s in stockQuery do
-    //             select {|
-    //                 Ticker = s.Ticker
-    //                 Date = s.Date
-    //                 Price = s.Price
-                    
-    //                 PrevPrice = Sql.Ext.Lag(s.Price).Over().PartitionBy(s.Ticker).OrderBy(s.Date).ToValue()
-    //             |}
-    //         } |> Seq.toList
-
-    //     Assert.Equal(5, lagQuery.Length)
-        
-    //     let aaplDay2 = lagQuery |> Seq.find (fun s -> s.Ticker = "AAPL" && s.Date.Day = 2)
-    //     Assert.Equal(155.0, aaplDay2.Price)
-    //     Assert.Equal(150.0, aaplDay2.PrevPrice)
 
     // [<Fact>]
     // [<Trait("LINQ", "NestedList")>]

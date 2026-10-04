@@ -439,23 +439,46 @@ module internal rec ExprTranslator =
         let targetH () = tryTranslate paramName target
         match args with
         | [ nExpr ] ->
-            match targetH (), tryTranslate paramName nExpr with
+            let offsetHandleOpt =
+                match tryEvaluate nExpr with
+                | Some nVal ->
+                    try
+                        let intVal = Convert.ToInt64 nVal
+                        Some (PolarsWrapper.Lit intVal)
+                    with _ ->
+                        tryTranslate paramName nExpr
+                | None ->
+                    tryTranslate paramName nExpr
+
+            match targetH (), offsetHandleOpt with
             | Some eH, Some nH -> Some (PolarsWrapper.Shift(eH, nH))
             | _ -> None
+
         | _ -> None
 
     let private translateDiffMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
         let targetH () = tryTranslate paramName target
+        let resolveN nExpr =
+            match tryEvaluate nExpr with
+            | Some nVal ->
+                try
+                    let intVal = Convert.ToInt64 nVal
+                    Some (PolarsWrapper.Lit intVal)
+                with _ ->
+                    tryTranslate paramName nExpr
+            | None ->
+                tryTranslate paramName nExpr
+
         match args with
         | [] ->
             targetH () |> Option.map (fun eH ->
                 PolarsWrapper.Diff(eH, PolarsWrapper.Lit 1L, PlNullBehavior.Ignore))
         | [ nExpr ] ->
-            match targetH (), tryTranslate paramName nExpr with
+            match targetH (), resolveN nExpr with
             | Some eH, Some nH -> Some (PolarsWrapper.Diff(eH, nH, PlNullBehavior.Ignore))
             | _ -> None
         | [ nExpr; nbExpr ] ->
-            match targetH (), tryTranslate paramName nExpr, tryEvaluate nbExpr with
+            match targetH (), resolveN nExpr, tryEvaluate nbExpr with
             | Some eH, Some nH, Some (:? PlNullBehavior as nb) ->
                 Some (PolarsWrapper.Diff(eH, nH, nb))
             | _ -> None
@@ -524,37 +547,35 @@ module internal rec ExprTranslator =
         | _ -> None
 
     let private translateWindowTarget (paramName: string) (expr: Expression) : ExprHandle option =
-        let tryTranslateStaticUnaryAgg (mc: MethodCallExpression) =
-            if mc.Arguments.Count = 1 && isNull mc.Object then
-                let colExpr = mc.Arguments.[0]
+        match expr with
+        // col.Sum(), col.Std(), col.Count()
+        | :? MethodCallExpression as mc when mc.Arguments.Count = 1 && isNull mc.Object ->
+            let colExpr = mc.Arguments.[0]
+            let aggOpt =
                 tryTranslate paramName colExpr
                 |> Option.bind (fun colH ->
                     match mc.Method.Name with
                     | "Count" -> Some (PolarsWrapper.Count colH)
                     | op      -> translateReductionOp op colH)
-            else
-                None
-
-        let tryTranslateStaticBinaryDispersion (mc: MethodCallExpression) =
-            if mc.Arguments.Count = 2 && isNull mc.Object then
-                let colExpr = mc.Arguments.[0]
-                let ddofExpr = mc.Arguments.[1]
-                match tryTranslate paramName colExpr, tryEvaluate ddofExpr with
-                | Some colH, Some ddofVal ->
-                    let ddof = Convert.ToByte ddofVal
-                    translateDispersionOp mc.Method.Name ddof colH
-                | _ -> None
-            else
-                None
-
-        match expr with
-        | :? MethodCallExpression as mc ->
-            match tryTranslateStaticUnaryAgg mc with
+            match aggOpt with
             | Some h -> Some h
-            | None ->
-                match tryTranslateStaticBinaryDispersion mc with
-                | Some h -> Some h
-                | None -> tryTranslate paramName expr
+            | None   -> tryTranslate paramName expr
+
+        // col.Std(0), col.Var(0)
+        | :? MethodCallExpression as mc when mc.Arguments.Count = 2 && isNull mc.Object ->
+            let colExpr = mc.Arguments.[0]
+            let secondArg = mc.Arguments.[1]
+            let aggOpt =
+                match tryTranslate paramName colExpr, tryEvaluate secondArg with
+                | Some colH, Some ddofVal ->
+                    try
+                        let ddof = Convert.ToByte ddofVal
+                        translateDispersionOp mc.Method.Name ddof colH
+                    with _ -> None
+                | _ -> None
+            match aggOpt with
+            | Some h -> Some h
+            | None   -> tryTranslate paramName expr
 
         | other ->
             tryTranslate paramName other
