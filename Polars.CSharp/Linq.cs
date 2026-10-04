@@ -622,48 +622,39 @@ public static class LinqExtensions
     // =========================================================================
     // Shift
     // =========================================================================
-    public static T Shift<T>(this T column, long offset) => column;
-    public static T Shift<T, TOffset>(this T column, TOffset offsetColumn) => column;
+    public static T Shift<T>(this T column, long offset) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    public static T Shift<T, TOffset>(this T column, TOffset offsetColumn) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
 
     // =========================================================================
     // Diff
     // =========================================================================
-    public static T Diff<T>(this T column) => column;
-    public static T Diff<T>(this T column, long n) => column;
+    public static T Diff<T>(this T column) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    public static T Diff<T>(this T column, long n) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
     
     public static T Diff<T>(this T column, long n, NullBehavior nullBehavior) =>
         column.Diff(n, nullBehavior.ToNative());
 
-    private static T Diff<T>(this T column, long n, PlNullBehavior nullBehavior) => column;
+    private static T Diff<T>(this T column, long n, PlNullBehavior nullBehavior) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
 
     // =========================================================================
     // Over
     // =========================================================================
-    public static T Over<T, TPartition>(this T expr, TPartition partitionBy) => expr;
-    public static T Over<T>(this T expr, params object[] partitionBy) => expr;
+    public static T Over<T, TPartition>(this T expr, TPartition partitionBy)
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    public static T Over<T>(this T expr, params object[] partitionBy)
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
     public static T Over<T, TPartition, TOrder>(
         this T expr, 
         TPartition partitionBy, 
         TOrder orderBy, 
-        bool descending = false) => expr;
+        bool descending = false)
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
 
-    // =========================================================================
-    // Rolling
-    // =========================================================================
-    public static T Rolling<T, TIdx>(
-        this T expr,
-        TIdx indexColumn,
-        string period,
-        string offset = "0s",
-        ClosedInterval closed = ClosedInterval.Left) =>
-        expr.Rolling(indexColumn, period, offset, closed.ToNative());
-
-    private static T Rolling<T, TIdx>(
-        this T expr,
-        TIdx indexColumn,
-        string period,
-        string offset,
-        PlClosedInterval closed) => expr;
     // =========================================================================
     // Rank
     // =========================================================================
@@ -671,12 +662,14 @@ public static class LinqExtensions
     /// <summary>
     /// Computes the rank of values using the default Average method.
     /// </summary>
-    public static double Rank<T>(this T column) => 0.0;
+    public static double Rank<T>(this T column) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
 
     /// <summary>
     /// Computes the rank of values with a specified sorting order.
     /// </summary>
-    public static double Rank<T>(this T column, bool descending) => 0.0;
+    public static double Rank<T>(this T column, bool descending) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
 
     /// <summary>
     /// Computes the rank of values using user-facing RankMethod.
@@ -690,8 +683,10 @@ public static class LinqExtensions
     public static double Rank<T>(this T column, RankMethod method, bool descending, ulong? seed) =>
         column.Rank(method.ToNative(), descending, seed);
 
-    private static double Rank<T>(this T column, PlRankMethod method, bool descending = false) => 0.0;
-    private static double Rank<T>(this T column, PlRankMethod method, bool descending, ulong? seed) => 0.0;
+    private static double Rank<T>(this T column, PlRankMethod method, bool descending = false) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    private static double Rank<T>(this T column, PlRankMethod method, bool descending, ulong? seed)
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
 
     // =========================================================================
     // PctChange
@@ -700,11 +695,68 @@ public static class LinqExtensions
     /// <summary>
     /// Computes the percentage change between current and previous values.
     /// </summary>
-    public static double? PctChange<T>(this T column, long n = 1) => null;
-    public static T Sum<T>(this T column) => column;
-    public static double Mean<T>(this T column) => 0.0;
-    public static double Average<T>(this T column) => 0.0;
-    public static long Count<T>(this T column) => 0L;
-    public static T Min<T>(this T column) => column;
-    public static T Max<T>(this T column) => column;
+    public static double? PctChange<T>(this T column, long n = 1) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    public static T Sum<T>(this T column) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    public static double Mean<T>(this T column) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    public static double Average<T>(this T column) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    public static long Count<T>(this T column)
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    public static T Min<T>(this T column) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    public static T Max<T>(this T column) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    /// <summary>
+    /// Computes the sample standard deviation (ddof = 1 by default).
+    /// Stubs for LINQ expression tree translation pushdown.
+    /// </summary>
+    public static double Std<T>(this T column, byte ddof = 1) 
+    => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+
+    /// <summary>
+    /// Computes the sample variance (ddof = 1 by default).
+    /// Stubs for LINQ expression tree translation pushdown.
+    /// </summary>
+    public static double Var<T>(this T column, byte ddof = 1) 
+    => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+}
+
+public static class GroupAggregationExtensions
+{
+    /// <summary>
+    /// Computes sample standard deviation of a group by selector with default ddof = 1.
+    /// </summary>
+    public static double Std<TSource, TResult>(
+        this IEnumerable<TSource> source, 
+        Expression<Func<TSource, TResult>> selector) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+
+    /// <summary>
+    /// Computes standard deviation of a group by selector with explicit degree of freedom (ddof).
+    /// </summary>
+    public static double Std<TSource, TResult>(
+        this IEnumerable<TSource> source, 
+        Expression<Func<TSource, TResult>> selector, 
+        byte ddof) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+
+    /// <summary>
+    /// Computes sample variance of a group by selector with default ddof = 1.
+    /// </summary>
+    public static double Var<TSource, TResult>(
+        this IEnumerable<TSource> source, 
+        Expression<Func<TSource, TResult>> selector) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+
+    /// <summary>
+    /// Computes variance of a group by selector with explicit degree of freedom (ddof).
+    /// </summary>
+    public static double Var<TSource, TResult>(
+        this IEnumerable<TSource> source, 
+        Expression<Func<TSource, TResult>> selector, 
+        byte ddof) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
 }

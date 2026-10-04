@@ -1235,7 +1235,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                                     Some (PolarsWrapper.ExprCast(len, int64Dtype, strict = false, wrapNumerical = false))
                                 | other ->
                                     let clonedInner = PolarsWrapper.CloneExpr elemExpr
-                                    AggTranslator.translateReductionOp other clonedInner
+                                    ExprTranslator.translateReductionOp other clonedInner
 
                             aggCoreOpt |> Option.map (fun core -> PolarsWrapper.Alias(core, colName))
 

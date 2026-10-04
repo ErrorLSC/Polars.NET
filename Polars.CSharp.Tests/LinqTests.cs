@@ -4378,7 +4378,7 @@ public partial class LinqTests
     [Trait("LINQ", "WindowFunctions")]
     public void Test_Linq_Rank_And_Over_Pushdown_Native_Style()
     {
-        // 复用已有的 MemberRecord: (int Id, string Name, int DeptId, int Age, int Salary)
+        // MemberRecord: (int Id, string Name, int DeptId, int Age, int Salary)
         using var df = DataFrame.FromColumns([
             Series.From("Id", [1, 2, 3, 4, 5]),
             Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eva"]),
@@ -4429,7 +4429,7 @@ public partial class LinqTests
         var dept2 = results.Where(r => r.DeptId == 2).ToList();
         Assert.Equal(2, dept2.Count);
 
-        // Dept 2 总薪资 4000 + 6000 = 10000
+        // Dept 2 4000 + 6000 = 10000
         Assert.All(dept2, r => Assert.Equal(10000, r.DeptTotalSalary));
 
         // Eva (Salary 6000) 
@@ -4502,5 +4502,118 @@ public partial class LinqTests
         Assert.Equal(6000, eva.AnonTotalSalary);
         Assert.Equal(1.0, eva.AnonRank);
     }
-    
+    [Fact]
+    [Trait("LINQ", "DispersionAggregations")]
+    public void Test_Linq_Std_And_Var_Direct_GroupBy_And_Over()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3, 4, 5]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eva"]),
+            Series.From("DeptId", [1, 1, 1, 2, 2]),
+            Series.From("Age", [25, 30, 30, 28, 40]),
+            Series.From("Salary", [5000, 8000, 11000, 4000, 6000])
+        ]);
+
+        // ---------------------------------------------------------------------
+        // 1. Direct / Scalar Aggregate on Single Column
+        // ---------------------------------------------------------------------
+        // Salaries: [5000, 8000, 11000, 4000, 6000]
+        // Mean = 6800
+        // Deviations = [-1800, 1200, 4200, -2800, -800]
+        // Sum of squares = 3,240,000 + 1,440,000 + 17,640,000 + 7,840,000 + 640,000 = 30,800,000
+        // Sample Var (ddof = 1): 30,800,000 / 4 = 7,700,000
+        // Sample Std (ddof = 1): sqrt(7,700,000) ≈ 2774.887385
+        // Pop Var (ddof = 0): 30,800,000 / 5 = 6,160,000
+        var sampleVar = df.AsQueryable<MemberRecord>()
+            .Select(x => new
+            {
+                SampleVar = x.Salary.Var(),
+                SampleStd = x.Salary.Std(),
+                PopVar = x.Salary.Var(0)
+            })
+            .ToList();
+
+        Assert.Single(sampleVar);
+        Assert.Equal(7700000.0, sampleVar[0].SampleVar, precision: 4);
+        Assert.Equal(Math.Sqrt(7700000.0), sampleVar[0].SampleStd, precision: 4);
+        Assert.Equal(6160000.0, sampleVar[0].PopVar, precision: 4);
+
+        // ---------------------------------------------------------------------
+        // 2. GroupBy Reductions (Std & Var)
+        // ---------------------------------------------------------------------
+        // DeptId 1 (Alice 5000, Bob 8000, Charlie 11000):
+        //   Mean = 8000, Dev = [-3000, 0, 3000], SumSq = 18,000,000
+        //   ddof = 1: Var = 9,000,000, Std = 3000.0
+        // DeptId 2 (David 4000, Eva 6000):
+        //   Mean = 5000, Dev = [-1000, 1000], SumSq = 2,000,000
+        //   ddof = 1: Var = 2,000,000, Std = sqrt(2,000,000) ≈ 1414.21356
+        var groupResults = df.AsQueryable<MemberRecord>()
+            .GroupBy(x => x.DeptId)
+            .Select(g => new
+            {
+                DeptId = g.Key,
+                DeptSalaryStd = g.Std(x => x.Salary),
+                DeptSalaryVar = g.Var(x => x.Salary),
+                DeptSalaryVarPop = g.Var(x => x.Salary, 0)
+            })
+            .ToList();
+
+        Assert.Equal(2, groupResults.Count);
+
+        var dept1 = groupResults.Single(g => g.DeptId == 1);
+        Assert.Equal(3000.0, dept1.DeptSalaryStd, precision: 4);
+        Assert.Equal(9000000.0, dept1.DeptSalaryVar, precision: 4);
+        Assert.Equal(6000000.0, dept1.DeptSalaryVarPop, precision: 4);
+
+        var dept2 = groupResults.Single(g => g.DeptId == 2);
+        Assert.Equal(Math.Sqrt(2000000.0), dept2.DeptSalaryStd, precision: 4);
+        Assert.Equal(2000000.0, dept2.DeptSalaryVar, precision: 4);
+        Assert.Equal(1000000.0, dept2.DeptSalaryVarPop, precision: 4);
+
+        // ---------------------------------------------------------------------
+        // 3. Window Function (Over) with Anon & Params Keys
+        // ---------------------------------------------------------------------
+        var windowResults = df.AsQueryable<MemberRecord>()
+            .Select(e => new
+            {
+                e.Name,
+                e.DeptId,
+                e.Age,
+                e.Salary,
+
+                // Over(e.DeptId) with default ddof = 1
+                DeptSalaryStd = e.Salary.Std().Over(e.DeptId),
+                DeptSalaryVar = e.Salary.Var().Over(e.DeptId),
+
+                // Over(e.DeptId) with explicit ddof = 0
+                DeptSalaryVarPop = e.Salary.Var(0).Over(e.DeptId),
+
+                // Multi-partition: Over(new { e.DeptId, e.Age })
+                // Dept 1, Age 30: Bob(8000), Charlie(11000) -> Mean = 9500, Diff = 1500, SumSq = 4,500,000, Var(1) = 4,500,000
+                AnonSubGroupVar = e.Salary.Var().Over(new { e.DeptId, e.Age }),
+                ParamsSubGroupVar = e.Salary.Var().Over(e.DeptId, e.Age)
+            })
+            .ToList();
+
+        Assert.Equal(5, windowResults.Count);
+
+        // Verification for DeptId = 1 window projections
+        var dept1Members = windowResults.Where(r => r.DeptId == 1).ToList();
+        Assert.Equal(3, dept1Members.Count);
+        Assert.All(dept1Members, r =>
+        {
+            Assert.Equal(3000.0, r.DeptSalaryStd, precision: 4);
+            Assert.Equal(9000000.0, r.DeptSalaryVar, precision: 4);
+            Assert.Equal(6000000.0, r.DeptSalaryVarPop, precision: 4);
+        });
+
+        // Verification for Multi-column partition Over: DeptId = 1, Age = 30 (Bob & Charlie)
+        var bobAndCharlie = windowResults.Where(r => r.DeptId == 1 && r.Age == 30).ToList();
+        Assert.Equal(2, bobAndCharlie.Count);
+        Assert.All(bobAndCharlie, r =>
+        {
+            Assert.Equal(r.AnonSubGroupVar, r.ParamsSubGroupVar);
+            Assert.Equal(4500000.0, r.AnonSubGroupVar, precision: 4);
+        });
+    }
 }

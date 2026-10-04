@@ -2,8 +2,10 @@ namespace Polars.NET.Linq.Provider
 
 open System.Linq.Expressions
 open Polars.NET.Core
+open System
 
 module AggTranslator =
+    open ExprTranslator
 
     /// Strips Unary wraps like Convert or Quote recursively
     let rec private unwrap (e: Expression) =
@@ -20,18 +22,6 @@ module AggTranslator =
         | null -> false
         | :? ParameterExpression as p -> p.Name = groupParamName
         | _ -> false
-
-    /// Maps standard LINQ reduction method names to their corresponding native Polars aggregation expressions.
-    /// Exposes internal accessibility so query compiler stages (e.g. GroupBy with ElementSelector) can share the mapping.
-    let internal translateReductionOp (methodName: string) (targetColExpr: ExprHandle) : ExprHandle option =
-        match methodName with
-        | "Sum"     -> Some (PolarsWrapper.Sum targetColExpr)
-        | "Average" -> Some (PolarsWrapper.Mean targetColExpr)
-        | "Min"     -> Some (PolarsWrapper.Min targetColExpr)
-        | "Max"     -> Some (PolarsWrapper.Max targetColExpr)
-        | "First"   -> Some (PolarsWrapper.First(targetColExpr, ignoreNulls = false))
-        | "Last"    -> Some (PolarsWrapper.Last(targetColExpr, ignoreNulls = false))
-        | _         -> None
 
     /// Attempts to translate group collection operations into Polars ExprHandle
     let rec tryTranslateAgg (groupParamName: string) (expr: Expression) (aliasName: string) : ExprHandle option =
@@ -54,11 +44,11 @@ module AggTranslator =
             when methodInfo.Name = "Count" || methodInfo.Name = "LongCount" ->
             match unwrap targetSeq with
             | :? ParameterExpression as param when param.Name = groupParamName ->
-                match ExprTranslator.tryTranslate p.Name filterBody with
+                match tryTranslate p.Name filterBody with
                 | Some boolExpr ->
                     let int64Dtype = PolarsWrapper.DataTypeExprFromDataType(PolarsWrapper.NewPrimitiveType(int PlDataType.Int64))
                     let castExpr = PolarsWrapper.ExprCast(boolExpr, int64Dtype, strict = false, wrapNumerical = false)
-                    let countExpr = PolarsWrapper.Sum(castExpr)
+                    let countExpr = PolarsWrapper.Sum castExpr
                     Some (PolarsWrapper.Alias(countExpr, aliasName))
                 | None -> None
             | _ -> None
@@ -66,7 +56,7 @@ module AggTranslator =
         // 3. group.MinBy(x => x.ByCol).TargetCol / group.MaxBy(x => x.ByCol).TargetCol
         | MemberAccess(MethodCall(methodInfo, null, [ targetSeq; CleanLambda (Lambda([ p ], byBody)) ]), memberInfo)
             when (methodInfo.Name = "MinBy" || methodInfo.Name = "MaxBy") && isGroupParam groupParamName targetSeq ->
-            match ExprTranslator.tryTranslate p.Name byBody with
+            match tryTranslate p.Name byBody with
             | Some byExpr ->
                 let targetExpr = PolarsWrapper.Col memberInfo.Name
                 let aggExpr =
@@ -83,7 +73,7 @@ module AggTranslator =
             when (outerMethod.Name = "First" || outerMethod.Name = "Last") && selectMethod.Name = "Select" ->
             match unwrap targetSeq with
             | :? ParameterExpression as param when param.Name = groupParamName ->
-                ExprTranslator.tryTranslate p.Name body
+                tryTranslate p.Name body
                 |> Option.bind (translateReductionOp outerMethod.Name)
                 |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
             | _ -> None
@@ -91,8 +81,25 @@ module AggTranslator =
         // 5. group.Sum(x => x.Field), group.Min(x => x.Field), group.Max(x => x.Field), group.Average(x => x.Field)
         | MethodCall(methodInfo, null, [ targetSeq; CleanLambda (Lambda([ p ], body)) ]) 
             when isGroupParam groupParamName targetSeq ->
-            ExprTranslator.tryTranslate p.Name body
+            tryTranslate p.Name body
             |> Option.bind (translateReductionOp methodInfo.Name)
             |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
+
+        // 6. group.Std(x => x.Salary) / group.Var(x => x.Salary)
+        | MethodCall(methodInfo, null, [ targetSeq; CleanLambda (Lambda([ p ], body)) ]) 
+            when isGroupParam groupParamName targetSeq ->
+            tryTranslate p.Name body
+            |> Option.bind (translateReductionOp methodInfo.Name)
+            |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
+
+        // 6.1 Std(x => x.Salary, ddof) / group.Var(x => x.Salary, ddof)
+        | MethodCall(methodInfo, null, [ targetSeq; CleanLambda (Lambda([ p ], body)); ddofExpr ]) 
+            when isGroupParam groupParamName targetSeq ->
+            match tryTranslate p.Name body, tryEvaluate ddofExpr with
+            | Some targetH, Some ddofVal ->
+                let ddof = Convert.ToByte ddofVal
+                translateDispersionOp methodInfo.Name ddof targetH
+                |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
+            | _ -> None
 
         | _ -> None

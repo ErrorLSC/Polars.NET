@@ -10,11 +10,35 @@ open Polars.NET.Core.Helpers
 open Apache.Arrow.Types
 
 /// Recursive module for translating LINQ Expression Trees to native Polars Expr handles.
-module rec ExprTranslator =
+module internal rec ExprTranslator =
 
     // =========================================================================
     // 1. Type & Literal Mapping Helpers
     // =========================================================================
+    /// Maps standard LINQ reduction method names to their corresponding native Polars aggregation expressions.
+    let internal translateReductionOp (methodName: string)(targetColExpr: ExprHandle) : ExprHandle option =
+        match methodName with
+        | "Sum"     -> Some (PolarsWrapper.Sum targetColExpr)
+        | "Mean"
+        | "Average" -> Some (PolarsWrapper.Mean targetColExpr)
+        | "Min"     -> Some (PolarsWrapper.Min targetColExpr)
+        | "Max"     -> Some (PolarsWrapper.Max targetColExpr)
+        | "First"   -> Some (PolarsWrapper.First(targetColExpr, ignoreNulls = false))
+        | "Last"    -> Some (PolarsWrapper.Last(targetColExpr, ignoreNulls = false))
+        | "Std"
+        | "StdDev"   -> Some (PolarsWrapper.Std(targetColExpr, 1uy))
+        | "Var"
+        | "Variance" -> Some (PolarsWrapper.Var(targetColExpr, 1uy))
+        | _          -> None
+
+    /// Maps statistical dispersion reduction operations with explicit degree of freedom (ddof).
+    let internal translateDispersionOp (methodName: string) (ddof: byte) (targetColExpr: ExprHandle) : ExprHandle option =
+        match methodName with
+        | "Std"
+        | "StdDev"  -> Some (PolarsWrapper.Std(targetColExpr, ddof))
+        | "Var"
+        | "Variance"-> Some (PolarsWrapper.Var(targetColExpr, ddof))
+        | _         -> None
 
     let rec private isNullConstantExpr (e: Expression) =
         match e with
@@ -26,7 +50,7 @@ module rec ExprTranslator =
             isNullConstantExpr u.Operand
         | _ -> false
 
-    let timeUnitMap (unit: TimeUnit) : byte =
+    let private timeUnitMap (unit: TimeUnit) : byte =
         match unit with
         | TimeUnit.Second -> PlTimeUnit.Second |> byte
         | TimeUnit.Millisecond -> PlTimeUnit.Milliseconds |> byte
@@ -500,19 +524,37 @@ module rec ExprTranslator =
         | _ -> None
 
     let private translateWindowTarget (paramName: string) (expr: Expression) : ExprHandle option =
+        let tryTranslateStaticUnaryAgg (mc: MethodCallExpression) =
+            if mc.Arguments.Count = 1 && isNull mc.Object then
+                let colExpr = mc.Arguments.[0]
+                tryTranslate paramName colExpr
+                |> Option.bind (fun colH ->
+                    match mc.Method.Name with
+                    | "Count" -> Some (PolarsWrapper.Count colH)
+                    | op      -> translateReductionOp op colH)
+            else
+                None
+
+        let tryTranslateStaticBinaryDispersion (mc: MethodCallExpression) =
+            if mc.Arguments.Count = 2 && isNull mc.Object then
+                let colExpr = mc.Arguments.[0]
+                let ddofExpr = mc.Arguments.[1]
+                match tryTranslate paramName colExpr, tryEvaluate ddofExpr with
+                | Some colH, Some ddofVal ->
+                    let ddof = Convert.ToByte ddofVal
+                    translateDispersionOp mc.Method.Name ddof colH
+                | _ -> None
+            else
+                None
+
         match expr with
-        | :? MethodCallExpression as mc when mc.Arguments.Count = 1 && isNull mc.Object ->
-            let colExpr = mc.Arguments.[0]
-            tryTranslate paramName colExpr
-            |> Option.bind (fun colH ->
-                match mc.Method.Name with
-                | "Sum"     -> Some (PolarsWrapper.Sum colH)
-                | "Mean"
-                | "Average" -> Some (PolarsWrapper.Mean colH)
-                | "Min"     -> Some (PolarsWrapper.Min colH)
-                | "Max"     -> Some (PolarsWrapper.Max colH)
-                | "Count"   -> Some (PolarsWrapper.Count colH)
-                | _         -> None)
+        | :? MethodCallExpression as mc ->
+            match tryTranslateStaticUnaryAgg mc with
+            | Some h -> Some h
+            | None ->
+                match tryTranslateStaticBinaryDispersion mc with
+                | Some h -> Some h
+                | None -> tryTranslate paramName expr
 
         | other ->
             tryTranslate paramName other
@@ -555,26 +597,40 @@ module rec ExprTranslator =
                 None
         | None -> None
 
-    let private translateRollingMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
-        let targetH () = tryTranslate paramName target
-        match args with
-        | [ indexColExpr; periodExpr; offsetExpr; closedExpr ] ->
-            match targetH (),
-                  tryTranslate paramName indexColExpr,
-                  tryEvaluate periodExpr,
-                  tryEvaluate offsetExpr,
-                  tryEvaluate closedExpr with
-            | Some exprH, Some idxH, Some (:? string as period), Some (:? string as offset), Some (:? PlClosedInterval as closed) ->
-                Some (PolarsWrapper.ExprRolling(exprH, idxH, period, offset, closed))
+    let private translateScalarReductionMethod (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
+        let effectiveTarget, effectiveArgs =
+            if isNull target && not args.IsEmpty then
+                args.Head, args.Tail
+            else
+                target, args
+
+        match m.Name, effectiveArgs with
+        // 1. Normal
+        | ("Sum" | "Mean" | "Average" | "Min" | "Max"), [] ->
+            tryTranslate paramName effectiveTarget
+            |> Option.bind (translateReductionOp m.Name)
+
+        | "Count", [] ->
+            tryTranslate paramName effectiveTarget
+            |> Option.map PolarsWrapper.Count
+
+        // 2. Std / Var：
+        | ("Std" | "StdDev"), [] ->
+            tryTranslate paramName effectiveTarget
+            |> Option.bind (translateDispersionOp m.Name 1uy)
+
+        | ("Var" | "Variance"), [] ->
+            tryTranslate paramName effectiveTarget
+            |> Option.bind (translateDispersionOp m.Name 1uy)
+
+        // 3. Std / Var：with ddof
+        | ("Std" | "StdDev" | "Var" | "Variance"), [ ddofExpr ] ->
+            match tryTranslate paramName effectiveTarget, tryEvaluate ddofExpr with
+            | Some colH, Some ddofVal ->
+                let ddof = Convert.ToByte ddofVal
+                translateDispersionOp m.Name ddof colH
             | _ -> None
 
-        | [ indexColExpr; periodExpr ] ->
-            match targetH (),
-                  tryTranslate paramName indexColExpr,
-                  tryEvaluate periodExpr with
-            | Some exprH, Some idxH, Some (:? string as period) ->
-                Some (PolarsWrapper.ExprRolling(exprH, idxH, period, "0s", PlClosedInterval.Left))
-            | _ -> None
         | _ -> None
 
     let private translateMethodCall (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
@@ -594,14 +650,16 @@ module rec ExprTranslator =
         elif not (isNull effectiveTarget) && m.Name = "Over" then
             translateOverMethod paramName effectiveTarget effectiveArgs
 
-        elif not (isNull effectiveTarget) && (m.Name = "Rolling" || m.Name = "ExprRolling") then
-            translateRollingMethod paramName effectiveTarget effectiveArgs
-
         elif not (isNull effectiveTarget) && m.Name = "Rank" then
             translateRankMethod paramName effectiveTarget effectiveArgs
 
         elif not (isNull effectiveTarget) && m.Name = "PctChange" then
             translatePctChangeMethod paramName effectiveTarget effectiveArgs
+
+        elif m.Name = "Sum" || m.Name = "Mean" || m.Name = "Average" || 
+            m.Name = "Min" || m.Name = "Max"  || m.Name = "Count"   ||
+            m.Name = "Std" || m.Name = "StdDev" || m.Name = "Var" || m.Name = "Variance" then
+            translateScalarReductionMethod paramName m target args
  
         // 1. String methods (Static & Instance)
         elif m.DeclaringType = typeof<string> || not (isNull target) && target.Type = typeof<string> then
