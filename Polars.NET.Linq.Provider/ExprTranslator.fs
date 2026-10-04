@@ -520,14 +520,27 @@ module rec ExprTranslator =
     let private translateOverMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
         match translateWindowTarget paramName target with
         | Some targetH ->
+            let extractPartitions (exprs: Expression list) : Expression list =
+                exprs
+                |> List.collect (fun arg ->
+                    match arg with
+                    | :? NewExpression as ne -> 
+                        ne.Arguments |> Seq.toList
+                    | :? NewArrayExpression as nae -> 
+                        nae.Expressions |> Seq.toList
+                    | other -> [ other ]
+                )
+
+            let flattenedArgs = extractPartitions args
             let partitionHandles =
-                args
+                flattenedArgs
                 |> List.choose (fun arg ->
                     match arg with
                     | :? LambdaExpression as lam -> tryTranslate lam.Parameters.[0].Name lam.Body
                     | other -> tryTranslate paramName other
                 )
-            if partitionHandles.Length > 0 && partitionHandles.Length = args.Length then
+
+            if partitionHandles.Length > 0 && partitionHandles.Length = flattenedArgs.Length then
                 Some (PolarsWrapper.Over(
                     targetH,
                     Array.ofList partitionHandles,
