@@ -4443,7 +4443,7 @@ public partial class LinqTests
     }
     [Fact]
     [Trait("LINQ", "WindowFunctions")]
-    public void Test_Linq_Multi_Column_Over_Pushdown_Native_Style()
+    public void Test_Linq_Multi_Column_Over_Anonymous_And_Params_Pushdown()
     {
         using var df = DataFrame.FromColumns([
             Series.From("Id", [1, 2, 3, 4, 5]),
@@ -4453,7 +4453,6 @@ public partial class LinqTests
             Series.From("Salary", [5000, 8000, 8000, 4000, 6000])
         ]);
 
-        // Over(e.DeptId, e.Age)
         var results = df.AsQueryable<MemberRecord>()
             .Select(e => new
             {
@@ -4462,41 +4461,46 @@ public partial class LinqTests
                 e.Age,
                 e.Salary,
 
-                // SQL: SUM(Salary) OVER (PARTITION BY DeptId, Age)
-                DeptAgeTotalSalary = e.Salary.Sum().Over(e.DeptId, e.Age),
+                // Over(new { e.DeptId, e.Age })
+                AnonTotalSalary = e.Salary.Sum().Over(new { e.DeptId, e.Age }),
+                AnonRank = e.Salary.Rank(RankMethod.Min, descending: true).Over(new { e.DeptId, e.Age }),
 
-                // SQL: RANK() OVER (PARTITION BY DeptId, Age ORDER BY Salary DESC)
-                DeptAgeRank = e.Salary.Rank(RankMethod.Min, descending: true).Over(e.DeptId, e.Age)
+                // Over(e.DeptId, e.Age)
+                ParamsTotalSalary = e.Salary.Sum().Over(e.DeptId, e.Age),
+                ParamsRank = e.Salary.Rank(RankMethod.Min, descending: true).Over(e.DeptId, e.Age)
             })
             .ToList();
 
         Assert.Equal(5, results.Count);
 
-        // DeptId = 1, Age = 30
+        Assert.All(results, r =>
+        {
+            Assert.Equal(r.AnonTotalSalary, r.ParamsTotalSalary);
+            Assert.Equal(r.AnonRank, r.ParamsRank);
+        });
+
+        // DeptId = 1, Age = 30: Bob & Charlie
         var group1_30 = results.Where(r => r.DeptId == 1 && r.Age == 30).ToList();
         Assert.Equal(2, group1_30.Count);
+        Assert.All(group1_30, r =>
+        {
+            Assert.Equal(16000, r.AnonTotalSalary);
+            Assert.Equal(1.0, r.AnonRank);
+        });
 
-        Assert.All(group1_30, r => Assert.Equal(16000, r.DeptAgeTotalSalary));
-
-        var bob = group1_30.Single(r => r.Name == "Bob");
-        var charlie = group1_30.Single(r => r.Name == "Charlie");
-        Assert.Equal(1.0, bob.DeptAgeRank);
-        Assert.Equal(1.0, charlie.DeptAgeRank);
-
-        // DeptId = 1, Age = 25
+        // DeptId = 1, Age = 25: Alice
         var alice = results.Single(r => r.Name == "Alice");
-        Assert.Equal(1, alice.DeptId);
-        Assert.Equal(25, alice.Age);
-        Assert.Equal(5000, alice.DeptAgeTotalSalary);
-        Assert.Equal(1.0, alice.DeptAgeRank);
+        Assert.Equal(5000, alice.AnonTotalSalary);
+        Assert.Equal(1.0, alice.AnonRank);
 
-        // DeptId = 2
+        // DeptId = 2: David (28), Eva (40)
         var david = results.Single(r => r.Name == "David");
-        Assert.Equal(4000, david.DeptAgeTotalSalary);
-        Assert.Equal(1.0, david.DeptAgeRank);
+        Assert.Equal(4000, david.AnonTotalSalary);
+        Assert.Equal(1.0, david.AnonRank);
 
         var eva = results.Single(r => r.Name == "Eva");
-        Assert.Equal(6000, eva.DeptAgeTotalSalary);
-        Assert.Equal(1.0, eva.DeptAgeRank);
+        Assert.Equal(6000, eva.AnonTotalSalary);
+        Assert.Equal(1.0, eva.AnonRank);
     }
+    
 }
