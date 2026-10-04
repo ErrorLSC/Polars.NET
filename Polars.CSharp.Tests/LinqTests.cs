@@ -70,6 +70,10 @@ public record struct AddressInfo(string City, string ZipCode);
 public record struct CustomerProfile(int Id, string CustomerName, AddressInfo Address);
 public record struct UserProfile(int Id, string Nickname, string FallbackName);
 public record OrderItem(string ItemName,decimal Price,decimal DiscountRate);
+public readonly record struct ProductMetric(
+    string Name,
+    double Factor
+);
 public partial class LinqTests
 {
     [Fact]
@@ -4615,5 +4619,161 @@ public partial class LinqTests
             Assert.Equal(r.AnonSubGroupVar, r.ParamsSubGroupVar);
             Assert.Equal(4500000.0, r.AnonSubGroupVar, precision: 4);
         });
+    }
+    [Fact]
+    [Trait("LINQ", "CumulativeOperations")]
+    public void Test_Linq_Cumulative_Operators_Direct_And_Over()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3, 4, 5]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eva"]),
+            Series.From("DeptId", [1, 1, 1, 2, 2]),
+            Series.From("Age", [25, 30, 30, 28, 40]),
+            Series.From("Salary", [5000, 8000, 11000, 4000, 6000])
+        ]);
+
+        // ---------------------------------------------------------------------
+        // 1. Direct Projection: Global Cumulative Operations (Forward & Reverse)
+        // ---------------------------------------------------------------------
+        // Salaries: [5000, 8000, 11000, 4000, 6000]
+        // CumSum forward:  [5000, 13000, 24000, 28000, 34000]
+        // CumSum reverse:  [34000, 29000, 21000, 10000, 6000]
+        // CumMax forward:  [5000, 8000, 11000, 11000, 11000]
+        // CumMin forward:  [5000, 5000, 5000, 4000, 4000]
+        // CumCount:        [1, 2, 3, 4, 5]
+        var directResults = df.AsQueryable<MemberRecord>()
+            .Select(e => new
+            {
+                e.Name,
+                e.Salary,
+                RunningSum = e.Salary.CumSum(),
+                ReverseRunningSum = e.Salary.CumSum(reverse: true),
+                RunningMax = e.Salary.CumMax(),
+                RunningMin = e.Salary.CumMin(),
+                RunningCount = e.Salary.CumCount()
+            })
+            .ToList();
+
+        Assert.Equal(5, directResults.Count);
+
+        // Verify forward CumSum
+        Assert.Equal([5000, 13000, 24000, 28000, 34000], directResults.Select(r => r.RunningSum));
+
+        // Verify reverse CumSum
+        Assert.Equal([34000, 29000, 21000, 10000, 6000], directResults.Select(r => r.ReverseRunningSum));
+
+        // Verify CumMax & CumMin
+        Assert.Equal([5000, 8000, 11000, 11000, 11000], directResults.Select(r => r.RunningMax));
+        Assert.Equal([5000, 5000, 5000, 4000, 4000], directResults.Select(r => r.RunningMin));
+
+        // Verify CumCount
+        Assert.Equal([1L, 2L, 3L, 4L, 5L], directResults.Select(r => r.RunningCount));
+
+        // ---------------------------------------------------------------------
+        // 2. Window Projection: Cumulative Operations with Over(e.DeptId)
+        // ---------------------------------------------------------------------
+        // DeptId 1 (Alice 5000, Bob 8000, Charlie 11000):
+        //   CumSum: [5000, 13000, 24000]
+        //   CumMax: [5000, 8000, 11000]
+        //   CumCount: [1, 2, 3]
+        // DeptId 2 (David 4000, Eva 6000):
+        //   CumSum: [4000, 10000]
+        //   CumMax: [4000, 6000]
+        //   CumCount: [1, 2]
+        var windowResults = df.AsQueryable<MemberRecord>()
+            .Select(e => new
+            {
+                e.Name,
+                e.DeptId,
+                e.Salary,
+                DeptRunningSum = e.Salary.CumSum().Over(e.DeptId),
+                DeptRunningSumRev = e.Salary.CumSum(reverse: true).Over(e.DeptId),
+                DeptRunningMax = e.Salary.CumMax().Over(e.DeptId),
+                DeptRunningCount = e.Salary.CumCount().Over(e.DeptId)
+            })
+            .ToList();
+
+        Assert.Equal(5, windowResults.Count);
+
+        // Verify DeptId = 1 window results
+        var dept1 = windowResults.Where(r => r.DeptId == 1).ToList();
+        Assert.Equal([5000, 13000, 24000], dept1.Select(r => r.DeptRunningSum));
+        Assert.Equal([24000, 19000, 11000], dept1.Select(r => r.DeptRunningSumRev));
+        Assert.Equal([5000, 8000, 11000], dept1.Select(r => r.DeptRunningMax));
+        Assert.Equal([1L, 2L, 3L], dept1.Select(r => r.DeptRunningCount));
+
+        // Verify DeptId = 2 window results
+        var dept2 = windowResults.Where(r => r.DeptId == 2).ToList();
+        Assert.Equal([4000, 10000], dept2.Select(r => r.DeptRunningSum));
+        Assert.Equal([10000, 6000], dept2.Select(r => r.DeptRunningSumRev));
+        Assert.Equal([4000, 6000], dept2.Select(r => r.DeptRunningMax));
+        Assert.Equal([1L, 2L], dept2.Select(r => r.DeptRunningCount));
+    }
+    [Fact]
+    [Trait("LINQ", "CumulativeOperations")]
+    public void Test_Linq_CumProd_Decimal_Throws_Unsupported_Exception()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("ItemName", ["Mouse", "Keyboard", "Monitor"]),
+            Series.From("Price", [100.0m, 200.0m, 1000.0m]),
+            Series.From("DiscountRate", [0.9m, 0.8m, 0.5m])
+        ]);
+
+        // Polars doesn't support decimal prod
+        var ex = Assert.Throws<NET.Core.PolarsException>(() =>
+        {
+            _ = df.AsQueryable<OrderItem>()
+                .Select(x => new
+                {
+                    x.ItemName,
+                    EffectiveFactor = x.DiscountRate.CumProd()
+                })
+                .ToList();
+        });
+
+        Assert.Contains("cum_prod", ex.Message);
+        Assert.Contains("not supported", ex.Message);
+    }
+    [Fact]
+    [Trait("LINQ", "CumulativeOperations")]
+    public void Test_Linq_CumProd_Double_Direct_And_Reverse_Pushdown()
+    {
+        // [0.5, 2.0, 3.0, 0.25]
+        // CumProd forward:
+        //   Row 0: 0.5
+        //   Row 1: 0.5 * 2.0 = 1.0
+        //   Row 2: 1.0 * 3.0 = 3.0
+        //   Row 3: 3.0 * 0.25 = 0.75
+        // CumProd reverse (reverse: true):
+        //   Row 0: 0.5 * 2.0 * 3.0 * 0.25 = 0.75
+        //   Row 1: 2.0 * 3.0 * 0.25 = 1.5
+        //   Row 2: 3.0 * 0.25 = 0.75
+        //   Row 3: 0.25
+        using var df = DataFrame.FromColumns([
+            Series.From("Name", ["A", "B", "C", "D"]),
+            Series.From("Factor", [0.5, 2.0, 3.0, 0.25])
+        ]);
+
+        var results = df.AsQueryable<ProductMetric>()
+            .Select(x => new
+            {
+                x.Name,
+                x.Factor,
+                RunningProd = x.Factor.CumProd(),
+                ReverseRunningProd = x.Factor.CumProd(reverse: true)
+            })
+            .ToList();
+
+        Assert.Equal(4, results.Count);
+
+        Assert.Equal(0.5, results[0].RunningProd, precision: 4);
+        Assert.Equal(1.0, results[1].RunningProd, precision: 4);
+        Assert.Equal(3.0, results[2].RunningProd, precision: 4);
+        Assert.Equal(0.75, results[3].RunningProd, precision: 4);
+
+        Assert.Equal(0.75, results[0].ReverseRunningProd, precision: 4);
+        Assert.Equal(1.5, results[1].ReverseRunningProd, precision: 4);
+        Assert.Equal(0.75, results[2].ReverseRunningProd, precision: 4);
+        Assert.Equal(0.25, results[3].ReverseRunningProd, precision: 4);
     }
 }

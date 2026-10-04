@@ -714,14 +714,24 @@ public static class LinqExtensions
     /// Stubs for LINQ expression tree translation pushdown.
     /// </summary>
     public static double Std<T>(this T column, byte ddof = 1) 
-    => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
 
     /// <summary>
     /// Computes the sample variance (ddof = 1 by default).
     /// Stubs for LINQ expression tree translation pushdown.
     /// </summary>
     public static double Var<T>(this T column, byte ddof = 1) 
-    => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    public static T CumSum<T>(this T column, bool reverse = false)
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    public static T CumMax<T>(this T column, bool reverse = false)
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    public static T CumMin<T>(this T column, bool reverse = false)
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    public static T CumProd<T>(this T column, bool reverse = false)
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    public static long CumCount<T>(this T column, bool reverse = false)
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
 }
 
 public static class GroupAggregationExtensions

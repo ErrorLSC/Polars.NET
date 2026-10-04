@@ -633,6 +633,29 @@ module internal rec ExprTranslator =
 
         | _ -> None
 
+    let private translateCumulativeMethod (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
+        let effectiveTarget, effectiveArgs =
+            if isNull target && not args.IsEmpty then args.Head, args.Tail
+            else target, args
+
+        let reverse =
+            match effectiveArgs with
+            | [ revExpr ] ->
+                match tryEvaluate revExpr with
+                | Some (:? bool as r) -> r
+                | _ -> false
+            | _ -> false
+
+        tryTranslate paramName effectiveTarget
+        |> Option.bind (fun colH ->
+            match m.Name with
+            | "CumSum"   -> Some (PolarsWrapper.CumSum(colH, reverse))
+            | "CumMax"   -> Some (PolarsWrapper.CumMax(colH, reverse))
+            | "CumMin"   -> Some (PolarsWrapper.CumMin(colH, reverse))
+            | "CumProd"  -> Some (PolarsWrapper.CumProd(colH, reverse))
+            | "CumCount" -> Some (PolarsWrapper.CumCount(colH, reverse))
+            | _          -> None)
+
     let private translateMethodCall (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
         let effectiveTarget, effectiveArgs =
             if isNull target && args.Length > 0 then
@@ -655,6 +678,10 @@ module internal rec ExprTranslator =
 
         elif not (isNull effectiveTarget) && m.Name = "PctChange" then
             translatePctChangeMethod paramName effectiveTarget effectiveArgs
+
+        elif not (isNull effectiveTarget) && 
+            (m.Name = "CumSum" || m.Name = "CumMax" || m.Name = "CumMin" || m.Name = "CumProd" || m.Name = "CumCount") then
+            translateCumulativeMethod paramName m effectiveTarget effectiveArgs
 
         elif m.Name = "Sum" || m.Name = "Mean" || m.Name = "Average" || 
             m.Name = "Min" || m.Name = "Max"  || m.Name = "Count"   ||
