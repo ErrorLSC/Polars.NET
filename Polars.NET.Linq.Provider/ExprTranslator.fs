@@ -548,7 +548,7 @@ module internal rec ExprTranslator =
 
     let private translateWindowTarget (paramName: string) (expr: Expression) : ExprHandle option =
         match expr with
-        // col.Sum(), col.Std(), col.Count()
+        // 1. Single-arg aggregations: col.Sum(), col.Std(), col.Count()
         | :? MethodCallExpression as mc when mc.Arguments.Count = 1 && isNull mc.Object ->
             let colExpr = mc.Arguments.[0]
             let aggOpt =
@@ -561,22 +561,24 @@ module internal rec ExprTranslator =
             | Some h -> Some h
             | None   -> tryTranslate paramName expr
 
-        // col.Std(0), col.Var(0)
-        | :? MethodCallExpression as mc when mc.Arguments.Count = 2 && isNull mc.Object ->
+        // 2. Explicit degree-of-freedom dispersion ops: col.Std(ddof), col.Var(ddof)
+        | :? MethodCallExpression as mc when (mc.Method.Name = "Std" || mc.Method.Name = "StdDev" || 
+                                            mc.Method.Name = "Var" || mc.Method.Name = "Variance") 
+                                            && mc.Arguments.Count = 2 && isNull mc.Object ->
             let colExpr = mc.Arguments.[0]
             let secondArg = mc.Arguments.[1]
-            let aggOpt =
-                match tryTranslate paramName colExpr, tryEvaluate secondArg with
-                | Some colH, Some ddofVal ->
-                    try
-                        let ddof = Convert.ToByte ddofVal
-                        translateDispersionOp mc.Method.Name ddof colH
-                    with _ -> None
-                | _ -> None
-            match aggOpt with
-            | Some h -> Some h
-            | None   -> tryTranslate paramName expr
+            match tryTranslate paramName colExpr, tryEvaluate secondArg with
+            | Some colH, Some ddofVal ->
+                try
+                    let ddof = Convert.ToByte ddofVal
+                    translateDispersionOp mc.Method.Name ddof colH
+                with _ ->
+                    tryTranslate paramName expr
+            | _ ->
+                tryTranslate paramName expr
 
+        // 3. All other conformal transform operations (Shift, Diff, Interpolate, InterpolateBy, etc.)
+        // fallback cleanly to standard expression translation pipeline.
         | other ->
             tryTranslate paramName other
 
@@ -676,6 +678,44 @@ module internal rec ExprTranslator =
             | "CumProd"  -> Some (PolarsWrapper.CumProd(colH, reverse))
             | "CumCount" -> Some (PolarsWrapper.CumCount(colH, reverse))
             | _          -> None)
+    let private tryExtractInterpolationMethod (value: obj) : PlInterpolationMethod =
+        match value with
+        | :? PlInterpolationMethod as pm -> pm
+        | null -> PlInterpolationMethod.Linear
+        | other ->
+            try
+
+                let byteVal = Convert.ToByte other
+                LanguagePrimitives.EnumOfValue<byte, PlInterpolationMethod> byteVal
+            with _ ->
+                PlInterpolationMethod.Linear
+                
+    let private translateInterpolateMethod (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
+        let effectiveTarget, effectiveArgs =
+            if isNull target && not args.IsEmpty then args.Head, args.Tail
+            else target, args
+
+        match m.Name, effectiveArgs with
+        | "Interpolate", [] ->
+            tryTranslate paramName effectiveTarget
+            |> Option.map (fun h -> PolarsWrapper.Interpolate(h, PlInterpolationMethod.Linear))
+
+        | "Interpolate", [ methodExpr ] ->
+            match tryTranslate paramName effectiveTarget, tryEvaluate methodExpr with
+            | Some targetH, Some methodVal ->
+                let method = tryExtractInterpolationMethod methodVal
+                Some (PolarsWrapper.Interpolate(targetH, method))
+            | Some targetH, None ->
+                Some (PolarsWrapper.Interpolate(targetH, PlInterpolationMethod.Linear))
+            | _ -> None
+
+        | "InterpolateBy", [ byExpr ] ->
+            match tryTranslate paramName effectiveTarget, tryTranslate paramName byExpr with
+            | Some targetH, Some byH ->
+                Some (PolarsWrapper.InterpolateBy(targetH, byH))
+            | _ -> None
+
+        | _ -> None
 
     let private translateMethodCall (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
         let effectiveTarget, effectiveArgs =
@@ -699,6 +739,9 @@ module internal rec ExprTranslator =
 
         elif not (isNull effectiveTarget) && m.Name = "PctChange" then
             translatePctChangeMethod paramName effectiveTarget effectiveArgs
+        
+        elif not (isNull effectiveTarget) && (m.Name = "Interpolate" || m.Name = "InterpolateBy") then
+            translateInterpolateMethod paramName m effectiveTarget effectiveArgs
 
         elif not (isNull effectiveTarget) && 
             (m.Name = "CumSum" || m.Name = "CumMax" || m.Name = "CumMin" || m.Name = "CumProd" || m.Name = "CumCount") then

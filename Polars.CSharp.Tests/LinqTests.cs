@@ -4550,6 +4550,73 @@ public partial class LinqTests
         Assert.Null(msftRows[1].PriceDiffNext);
     }
     [Fact]
+    [Trait("LINQ", "Interpolate")]
+    public void Test_Linq_Interpolate_And_InterpolateBy_Over_Partition_Pushdown()
+    {
+        // AAPL (4 days):
+        //   Day 1: 100.0
+        //   Day 2: null
+        //   Day 3: 130.0
+        //   Day 4: null
+        // MSFT (3 days):
+        //   Day 1: 200.0
+        //   Day 2: null
+        //   Day 3: 260.0
+        using var df = DataFrame.FromColumns([
+            Series.From("Symbol", ["AAPL", "AAPL", "AAPL", "AAPL", "MSFT", "MSFT", "MSFT"]),
+            Series.From("TradeDate", [
+                new DateTime(2024, 1, 1),
+                new DateTime(2024, 1, 2),
+                new DateTime(2024, 1, 3),
+                new DateTime(2024, 1, 4),
+                new DateTime(2024, 1, 1),
+                new DateTime(2024, 1, 2),
+                new DateTime(2024, 1, 3)
+            ]),
+            Series.From("Price", new double?[] {100.0, null, 130.0, null, 200.0, null, 260.0})
+        ]);
+
+        var results = df.AsQueryable<StockPrice>()
+            .Select(s => new
+            {
+                s.Symbol,
+                s.TradeDate,
+                s.Price,
+                LinearPrice = s.Price.Interpolate().Over(s.Symbol),
+                NearestPrice = s.Price.Interpolate(InterpolationMethod.Nearest).Over(s.Symbol),
+                DateInterpolatedPrice = s.Price.InterpolateBy(s.TradeDate).Over(s.Symbol)
+            })
+            .ToList();
+
+        Assert.Equal(7, results.Count);
+
+        var aapl = results.Where(r => r.Symbol == "AAPL").OrderBy(r => r.TradeDate).ToList();
+        Assert.Equal(4, aapl.Count);
+
+        Assert.Equal(100.0, aapl[0].LinearPrice);
+        Assert.Equal(100.0, aapl[0].NearestPrice);
+        Assert.Equal(100.0, aapl[0].DateInterpolatedPrice);
+
+        Assert.Equal(115.0, aapl[1].LinearPrice!.Value, precision: 4);
+        Assert.NotNull(aapl[1].NearestPrice);
+        Assert.Equal(115.0, aapl[1].DateInterpolatedPrice!.Value, precision: 4);
+
+        Assert.Equal(130.0, aapl[2].LinearPrice);
+        Assert.Equal(130.0, aapl[2].NearestPrice);
+        Assert.Equal(130.0, aapl[2].DateInterpolatedPrice);
+
+        Assert.Null(aapl[3].LinearPrice);
+
+        var msft = results.Where(r => r.Symbol == "MSFT").OrderBy(r => r.TradeDate).ToList();
+        Assert.Equal(3, msft.Count);
+
+        Assert.Equal(200.0, msft[0].LinearPrice);
+        Assert.Equal(230.0, msft[1].LinearPrice!.Value, precision: 4);
+        Assert.Equal(230.0, msft[1].DateInterpolatedPrice!.Value, precision: 4);
+
+        Assert.Equal(260.0, msft[2].LinearPrice);
+    }
+    [Fact]
     [Trait("LINQ", "WindowFunctions")]
     public void Test_Linq_Multi_Column_Over_Anonymous_And_Params_Pushdown()
     {

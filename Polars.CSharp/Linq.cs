@@ -634,11 +634,7 @@ public static class LinqExtensions
         => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
     public static T Diff<T>(this T column, long n) 
         => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
-    
-    public static T Diff<T>(this T column, long n, NullBehavior nullBehavior) =>
-        column.Diff(n, nullBehavior.ToNative());
-
-    private static T Diff<T>(this T column, long n, PlNullBehavior nullBehavior) 
+    public static T Diff<T>(this T column, long n, NullBehavior nullBehavior) 
         => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
 
     // =========================================================================
@@ -674,18 +670,13 @@ public static class LinqExtensions
     /// <summary>
     /// Computes the rank of values using user-facing RankMethod.
     /// </summary>
-    public static double Rank<T>(this T column, RankMethod method, bool descending = false) =>
-        column.Rank(method.ToNative(), descending);
+    public static double Rank<T>(this T column, RankMethod method, bool descending = false) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
 
     /// <summary>
     /// Computes the rank of values using user-facing RankMethod with seed.
     /// </summary>
-    public static double Rank<T>(this T column, RankMethod method, bool descending, ulong? seed) =>
-        column.Rank(method.ToNative(), descending, seed);
-
-    private static double Rank<T>(this T column, PlRankMethod method, bool descending = false) 
-        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
-    private static double Rank<T>(this T column, PlRankMethod method, bool descending, ulong? seed)
+    public static double Rank<T>(this T column, RankMethod method, bool descending, ulong? seed) 
         => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
 
     // =========================================================================
@@ -732,6 +723,18 @@ public static class LinqExtensions
         => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
     public static long CumCount<T>(this T column, bool reverse = false)
         => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    /// <summary>
+    /// Interpolates null values using the specified user-facing InterpolationMethod (defaults to Linear).
+    /// </summary>
+    public static T Interpolate<T>(this T column, InterpolationMethod method = InterpolationMethod.Linear) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+
+    /// <summary>
+    /// Interpolates null values based on the values of another column (e.g., timestamps or indices).
+    /// </summary>
+    public static T InterpolateBy<T, TBy>(this T column, TBy byColumn) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+        
 }
 
 public static class GroupAggregationExtensions
