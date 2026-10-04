@@ -5006,4 +5006,98 @@ public partial class LinqTests
         Assert.Equal("alice@test.com", usersG1.Users[0].Email);
         Assert.Equal("bob@test.com", usersG1.Users[1].Email);
     }
+    [Fact]
+    [Trait("LINQ", "WindowFunctions")]
+    public void Test_Linq_Median_And_Quantile_Over_Partition_Pushdown()
+    {
+        // AAPL: [10.0, 20.0, 30.0] -> Median = 20.0, Q90 (Nearest) = 30.0
+        // MSFT: [100.0, 200.0, 300.0] -> Median = 200.0, Q90 (Nearest) = 300.0
+        using var df = DataFrame.FromColumns([
+            Series.From("Symbol", ["AAPL", "AAPL", "AAPL", "MSFT", "MSFT", "MSFT"]),
+            Series.From("TradeDate", [
+                new DateTime(2024, 1, 1),
+                new DateTime(2024, 1, 2),
+                new DateTime(2024, 1, 3),
+                new DateTime(2024, 1, 1),
+                new DateTime(2024, 1, 2),
+                new DateTime(2024, 1, 3)
+            ]),
+            Series.From("Price", [10.0, 20.0, 30.0, 100.0, 200.0, 300.0])
+        ]);
+
+        var results = df.AsQueryable<StockPrice>()
+            .Select(s => new
+            {
+                s.Symbol,
+                s.TradeDate,
+                s.Price,
+                MedianBySymbol = s.Price.Median().Over(s.Symbol),
+                P90BySymbol = s.Price.Quantile(0.90, QuantileMethod.Nearest).Over(s.Symbol)
+            })
+            .ToList();
+
+        Assert.Equal(6, results.Count);
+
+        var aaplRows = results.Where(r => r.Symbol == "AAPL").ToList();
+        Assert.Equal(3, aaplRows.Count);
+        foreach (var row in aaplRows)
+        {
+            Assert.Equal(20.0, row.MedianBySymbol!.Value, precision: 4);
+            Assert.Equal(30.0, row.P90BySymbol!.Value, precision: 4);
+        }
+
+        var msftRows = results.Where(r => r.Symbol == "MSFT").ToList();
+        Assert.Equal(3, msftRows.Count);
+        foreach (var row in msftRows)
+        {
+            Assert.Equal(200.0, row.MedianBySymbol!.Value, precision: 4);
+            Assert.Equal(300.0, row.P90BySymbol!.Value, precision: 4);
+        }
+    }
+    [Fact]
+    [Trait("LINQ", "Aggregation")]
+    public void Test_Linq_GroupBy_Median_And_Quantile_Pushdown()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Symbol", ["AAPL", "AAPL", "AAPL", "AAPL", "AAPL", "MSFT", "MSFT", "MSFT", "MSFT"]),
+            Series.From("TradeDate", [
+                new DateTime(2024, 1, 1),
+                new DateTime(2024, 1, 2),
+                new DateTime(2024, 1, 3),
+                new DateTime(2024, 1, 4),
+                new DateTime(2024, 1, 5),
+                new DateTime(2024, 1, 1),
+                new DateTime(2024, 1, 2),
+                new DateTime(2024, 1, 3),
+                new DateTime(2024, 1, 4)
+            ]),
+            Series.From("Price", [100.0, 110.0, 120.0, 130.0, 140.0, 200.0, 210.0, 220.0, 230.0])
+        ]);
+
+        var results = df.AsQueryable<StockPrice>()
+            .GroupBy(s => s.Symbol)
+            .Select(g => new
+            {
+                Symbol = g.Key,
+                MedianPrice = g.Select(x => x.Price).Median(),
+                Q50Price = g.Select(x => x.Price).Quantile(0.5),
+                Q75Nearest = g.Select(x => x.Price).Quantile(0.75, QuantileMethod.Nearest),
+                Q25Linear = g.Select(x => x.Price).Quantile(0.25, QuantileMethod.Linear)
+            })
+            .OrderBy(r => r.Symbol)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+
+        var aapl = results[0];
+        Assert.Equal("AAPL", aapl.Symbol);
+        Assert.Equal(120.0, aapl.MedianPrice!.Value, precision: 4);
+        Assert.Equal(120.0, aapl.Q50Price!.Value, precision: 4);
+        Assert.Equal(130.0, aapl.Q75Nearest!.Value, precision: 4);
+
+        var msft = results[1];
+        Assert.Equal("MSFT", msft.Symbol);
+        Assert.Equal(215.0, msft.MedianPrice!.Value, precision: 4);
+        Assert.Equal(207.5, msft.Q25Linear!.Value, precision: 4);
+    }
 }

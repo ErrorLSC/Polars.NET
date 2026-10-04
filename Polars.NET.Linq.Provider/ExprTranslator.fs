@@ -23,6 +23,7 @@ module internal rec ExprTranslator =
         | "Average" -> Some (PolarsWrapper.Mean targetColExpr)
         | "Min"     -> Some (PolarsWrapper.Min targetColExpr)
         | "Max"     -> Some (PolarsWrapper.Max targetColExpr)
+        | "Median"  -> Some (PolarsWrapper.Median targetColExpr)
         | "First"   -> Some (PolarsWrapper.First(targetColExpr, ignoreNulls = false))
         | "Last"    -> Some (PolarsWrapper.Last(targetColExpr, ignoreNulls = false))
         | "Std"
@@ -689,7 +690,7 @@ module internal rec ExprTranslator =
                 LanguagePrimitives.EnumOfValue<byte, PlInterpolationMethod> byteVal
             with _ ->
                 PlInterpolationMethod.Linear
-                
+
     let private translateInterpolateMethod (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
         let effectiveTarget, effectiveArgs =
             if isNull target && not args.IsEmpty then args.Head, args.Tail
@@ -716,7 +717,42 @@ module internal rec ExprTranslator =
             | _ -> None
 
         | _ -> None
+    let internal tryExtractQuantileMethod (value: obj) : PlQuantileMethod =
+        match value with
+        | :? PlQuantileMethod as pm -> pm
+        | null -> PlQuantileMethod.Nearest
+        | other ->
+            try
+                let byteVal = Convert.ToByte other
+                LanguagePrimitives.EnumOfValue<byte, PlQuantileMethod> byteVal
+            with _ ->
+                PlQuantileMethod.Nearest
+    let internal translateQuantileMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
+        let effectiveTarget, effectiveArgs =
+            if isNull target && not args.IsEmpty then args.Head, args.Tail
+            else target, args
 
+        match effectiveArgs with
+        | [ qExpr ] ->
+            match tryTranslate paramName effectiveTarget, tryEvaluate qExpr with
+            | Some targetH, Some qVal ->
+                try
+                    let q = Convert.ToDouble qVal
+                    Some (PolarsWrapper.Quantile(targetH, q, PlQuantileMethod.Nearest))
+                with _ -> None
+            | _ -> None
+
+        | [ qExpr; methodExpr ] ->
+            match tryTranslate paramName effectiveTarget, tryEvaluate qExpr, tryEvaluate methodExpr with
+            | Some targetH, Some qVal, Some mVal ->
+                try
+                    let q = Convert.ToDouble qVal
+                    let method = tryExtractQuantileMethod mVal
+                    Some (PolarsWrapper.Quantile(targetH, q, method))
+                with _ -> None
+            | _ -> None
+
+        | _ -> None
     let private translateMethodCall (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
         let effectiveTarget, effectiveArgs =
             if isNull target && args.Length > 0 then
@@ -739,6 +775,9 @@ module internal rec ExprTranslator =
 
         elif not (isNull effectiveTarget) && m.Name = "PctChange" then
             translatePctChangeMethod paramName effectiveTarget effectiveArgs
+
+        elif not (isNull effectiveTarget) && m.Name = "Quantile" then
+            translateQuantileMethod paramName effectiveTarget effectiveArgs
         
         elif not (isNull effectiveTarget) && (m.Name = "Interpolate" || m.Name = "InterpolateBy") then
             translateInterpolateMethod paramName m effectiveTarget effectiveArgs

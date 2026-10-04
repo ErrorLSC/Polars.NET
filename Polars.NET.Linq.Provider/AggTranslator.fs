@@ -68,15 +68,12 @@ module AggTranslator =
                 aggExpr |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
             | None -> None
 
-        // 4. group.Select(x => x.Col).First() / group.Select(x => x.Col).Last()
+        // 4. group.Select(x => x.Col).Op()
         | MethodCall(outerMethod, null, [ MethodCall(selectMethod, null, [ targetSeq; CleanLambda (Lambda([ p ], body)) ]) ])
-            when (outerMethod.Name = "First" || outerMethod.Name = "Last") && selectMethod.Name = "Select" ->
-            match unwrap targetSeq with
-            | :? ParameterExpression as param when param.Name = groupParamName ->
-                tryTranslate p.Name body
-                |> Option.bind (translateReductionOp outerMethod.Name)
-                |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
-            | _ -> None
+            when selectMethod.Name = "Select" && isGroupParam groupParamName targetSeq ->
+            tryTranslate p.Name body
+            |> Option.bind (translateReductionOp outerMethod.Name)
+            |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
 
         // 5. group.Sum(x => x.Field), group.Min(x => x.Field), group.Max(x => x.Field), group.Average(x => x.Field)
         | MethodCall(methodInfo, null, [ targetSeq; CleanLambda (Lambda([ p ], body)) ]) 
@@ -85,14 +82,7 @@ module AggTranslator =
             |> Option.bind (translateReductionOp methodInfo.Name)
             |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
 
-        // 6. group.Std(x => x.Salary) / group.Var(x => x.Salary)
-        | MethodCall(methodInfo, null, [ targetSeq; CleanLambda (Lambda([ p ], body)) ]) 
-            when isGroupParam groupParamName targetSeq ->
-            tryTranslate p.Name body
-            |> Option.bind (translateReductionOp methodInfo.Name)
-            |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
-
-        // 6.1 Std(x => x.Salary, ddof) / group.Var(x => x.Salary, ddof)
+        // 6. Std(x => x.Salary, ddof) / group.Var(x => x.Salary, ddof)
         | MethodCall(methodInfo, null, [ targetSeq; CleanLambda (Lambda([ p ], body)); ddofExpr ]) 
             when isGroupParam groupParamName targetSeq ->
             match tryTranslate p.Name body, tryEvaluate ddofExpr with
@@ -125,5 +115,30 @@ module AggTranslator =
                 let listStructExpr = PolarsWrapper.Implode(clonedStruct,maintainOrder=true)
                 Some (PolarsWrapper.Alias(listStructExpr, aliasName))
             | None -> None
+
+        // group.Select(x => x.Col).Quantile(q)
+        | MethodCall(outerMethod, null, [ MethodCall(selectMethod, null, [ targetSeq; CleanLambda (Lambda([ p ], body)) ]); qExpr ])
+            when outerMethod.Name = "Quantile" && selectMethod.Name = "Select" && isGroupParam groupParamName targetSeq ->
+            match tryTranslate p.Name body, tryEvaluate qExpr with
+            | Some colH, Some qVal ->
+                try
+                    let q = Convert.ToDouble qVal
+                    let qExprHandle = PolarsWrapper.Quantile(colH, q, PlQuantileMethod.Nearest)
+                    Some (PolarsWrapper.Alias(qExprHandle, aliasName))
+                with _ -> None
+            | _ -> None
+
+        // group.Select(x => x.Col).Quantile(q, method)
+        | MethodCall(outerMethod, null, [ MethodCall(selectMethod, null, [ targetSeq; CleanLambda (Lambda([ p ], body)) ]); qExpr; methodExpr ])
+            when outerMethod.Name = "Quantile" && selectMethod.Name = "Select" && isGroupParam groupParamName targetSeq ->
+            match tryTranslate p.Name body, tryEvaluate qExpr, tryEvaluate methodExpr with
+            | Some colH, Some qVal, Some mVal ->
+                try
+                    let q = Convert.ToDouble qVal
+                    let method = tryExtractQuantileMethod mVal
+                    let qExprHandle = PolarsWrapper.Quantile(colH, q, method)
+                    Some (PolarsWrapper.Alias(qExprHandle, aliasName))
+                with _ -> None
+            | _ -> None
 
         | _ -> None

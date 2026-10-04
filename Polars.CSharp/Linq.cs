@@ -734,6 +734,20 @@ public static class LinqExtensions
     /// </summary>
     public static T InterpolateBy<T, TBy>(this T column, TBy byColumn) 
         => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions and cannot be evaluated directly on client-side collections.");
+    /// <summary>
+    /// Computes the median value of the column.
+    /// </summary>
+    public static double? Median<T>(this T column) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions.");
+
+    /// <summary>
+    /// Computes the quantile of the column with the specified probability and method.
+    /// </summary>
+    public static double? Quantile<T>(
+        this T column, 
+        double quantile, 
+        QuantileMethod method = QuantileMethod.Nearest) 
+        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions.");
         
 }
 
