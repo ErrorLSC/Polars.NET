@@ -1232,7 +1232,6 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
         match keyDefinitionsOpt with
         | None -> None
         | Some keyDefs ->
-            // 同时支持 NewExpression 和 MemberInitExpression
             match PolarsQuery<'T>.TryExtractMemberBindings projBody with
             | None -> None
             | Some memberBindings ->
