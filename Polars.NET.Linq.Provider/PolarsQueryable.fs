@@ -1151,7 +1151,16 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 None
         | None ->
             None
-
+    /// Compiles any lambda predicate into a type-safe boxed delegate Func<obj, bool>
+    /// to safely evaluate against raw materialized source entities without generic coupling.
+    static member private CompileClientPredicate (lambda: LambdaExpression) : Func<obj, bool> =
+        let paramType = lambda.Parameters.[0].Type
+        let rawParam = Expression.Parameter(typeof<obj>, "rawItem")
+        let castParam = 
+            if paramType = typeof<obj> then rawParam :> Expression
+            else Expression.Convert(rawParam, paramType) :> Expression
+        let invoked = Expression.Invoke(lambda, castParam)
+        Expression.Lambda<Func<obj, bool>>(invoked, rawParam).Compile()
     /// Disambiguates duplicate column names against an existing set of columns by appending a given suffix,
     /// returning the safely renamed LazyFrame, updated column set, and a renaming map.
     static member private DisambiguateColumns (existingCols: Set<string>) (lf: LazyFrameHandle) (suffix: string) : LazyFrameHandle * Set<string> * Map<string, string> =
@@ -1709,7 +1718,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
         ) (PolarsWrapper.LazyClone sourceLf)
 
     /// Parses the LINQ expression tree into native ops, client predicates, optional projection, and fallback signal
-    member private this.CompilePipeline() : QueryOp list * (Func<'T, bool> list) * ((Type * Func<obj,obj>) option) * bool =    
+    member private this.CompilePipeline() : QueryOp list * (Func<obj, bool> list) * ((Type * Func<obj,obj>) option) * bool =    
         let rec flatten (e: Expression) (acc: LinqStage list) : LinqStage list =
             match e with
             | null -> acc
@@ -1934,7 +1943,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | QueryOp.Sort specs :: tail -> QueryOp.Sort (specs @ [spec]) :: tail
             | _ -> QueryOp.Sort [spec] :: ops
 
-        let rec fuse (remaining: LinqStage list) (opsAcc: QueryOp list) (clientPreds: Func<'T, bool> list) (clientProjOpt: (Type * Func<obj,obj>) option) : QueryOp list * (Func<'T, bool> list) * ((Type * Func<obj,obj>) option) * bool =
+        let rec fuse (remaining: LinqStage list) (opsAcc: QueryOp list) (clientPreds: Func<obj, bool> list) (clientProjOpt: (Type * Func<obj,obj>) option) : QueryOp list * (Func<obj, bool> list) * ((Type * Func<obj,obj>) option) * bool =
             // Unified GroupBy compilation and execution dispatcher
             let tryDispatchGroupBy (ctx: GroupFoldContext) (projBody: Expression) (groupParamName: string) (isKeyArg: Expression -> bool) (nextTail: LinqStage list) =
                 if not clientPreds.IsEmpty then
@@ -2074,8 +2083,8 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                                 else Expression.Convert(rawParam, paramType) :> Expression
                             let invoked = Expression.Invoke(l, castParam)
                             let safePred = Expression.Lambda<Func<obj, bool>>(invoked, rawParam).Compile()
-                            let typedPred = Func<'T, bool>(fun (item: 'T) -> safePred.Invoke(box item))
-                            fuse tail opsAcc (typedPred :: clientPreds) clientProjOpt
+                            // let typedPred = Func<'T, bool>(fun (item: 'T) -> safePred.Invoke(box item))
+                            fuse tail opsAcc (safePred :: clientPreds) clientProjOpt
 
             | LinqStage.Index :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 let indexOp = QueryOp.WithRowIndex("Index", Some 0u)
@@ -2295,8 +2304,8 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     let cumMinExpr = PolarsWrapper.CumMin(boolExpr, false)
                     fuse tail (QueryOp.Filter cumMinExpr :: opsAcc) clientPreds clientProjOpt
                 | _ ->
-                    let compiled = l.Compile() :?> Func<'T, bool>
-                    fuse tail opsAcc (compiled :: clientPreds) clientProjOpt
+                    let safePred = PolarsQuery<'T>.CompileClientPredicate l
+                    fuse tail opsAcc (safePred :: clientPreds) clientProjOpt
 
             | LinqStage.SkipWhile l :: tail ->
                 let param = l.Parameters.[0]
@@ -2306,8 +2315,8 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     let cumMaxExpr = PolarsWrapper.CumMax(notExpr, false)
                     fuse tail (QueryOp.Filter cumMaxExpr :: opsAcc) clientPreds clientProjOpt
                 | _ -> 
-                    let compiled = l.Compile() :?> Func<'T, bool>
-                    fuse tail opsAcc (compiled :: clientPreds) clientProjOpt
+                    let safePred = PolarsQuery<'T>.CompileClientPredicate l
+                    fuse tail opsAcc (safePred :: clientPreds) clientProjOpt
 
             | LinqStage.GroupJoin(_, innerExpr, outerKey, innerKey, resSel) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 let resolvedRightLfOpt = PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr
@@ -2485,7 +2494,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
         fuse stages [] [] None
 
     /// Compiles pipeline and builds the target native LazyFrameHandle alongside client predicates, projection, and fallback signal
-    member private this.GetCompiledPlan() : LazyFrameHandle * (Func<'T,bool> list) * ((Type * Func<obj,obj>) option) * bool =
+    member private this.GetCompiledPlan() : LazyFrameHandle * (Func<obj,bool> list) * ((Type * Func<obj,obj>) option) * bool =
         let ops, clientPredicates, clientProjOpt, requiresClientFallback = this.CompilePipeline()
         let nativeLf = PolarsQuery<'T>.ApplyNativeOps lfCloned ops
         nativeLf, clientPredicates, clientProjOpt, requiresClientFallback
@@ -2595,7 +2604,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     else
                         seq {
                             for item in rawSourceRows do
-                                if clientPredicates |> List.forall (fun p -> p.Invoke(item :?> 'T)) then
+                                if clientPredicates |> List.forall (fun p -> p.Invoke item) then
                                     yield item
                         }
 
@@ -2751,8 +2760,10 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     | _ ->
                         let mat = QueryMaterializerResolver.Resolve (Some materializer)
                         let rows = mat.Materialize<'T>(dfHandle)
-                        if clientPredicates.IsEmpty then rows
-                        else clientPredicates |> List.fold (fun acc pred -> acc.Where pred.Invoke) rows
+                        if clientPredicates.IsEmpty 
+                            then rows
+                        else 
+                            rows |> Seq.filter (fun item -> clientPredicates |> List.forall (fun p -> p.Invoke (box item)))
 
     /// Compiles pipeline to LazyFrameHandle. If client fallback, predicates or projections exist, materializes and transposes back.
     member this.CompileToLazyFrameHandle() : LazyFrameHandle =

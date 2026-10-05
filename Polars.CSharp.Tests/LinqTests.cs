@@ -222,7 +222,27 @@ public partial class LinqTests
         Assert.Equal(3, pagedResult[0].Id);
         Assert.Equal(4, pagedResult[1].Id);
     }
+    private static bool CustomSalaryPredicate(Employee emp) => emp.Salary > 4000;
+    [Fact]
+    [Trait("LINQ", "Fallback")]
+    public void Test_Linq_ClientFallback_Where_FollowedBy_TypeChanging_Select()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
+            Series.From("Age", [25, 17, 30, 15, 28]),
+            Series.From("Salary", [5000, 3000, 7000, 2000, 6200])
+        ]);
 
+        var query = df.AsQueryable<Employee>()
+                      .Where(e => CustomSalaryPredicate(e))
+                      .Select(e => e.Name)
+                      .ToList();
+
+        Assert.Equal(3, query.Count);
+        Assert.Equal("Alice", query[0]);
+        Assert.Equal("Charlie", query[1]);
+        Assert.Equal("Eve", query[2]);
+    }
     [Fact]
     [Trait("LINQ", "Fallback")]
     public void Test_Linq_Fallback_WithUnsupportedCSharpMethod()

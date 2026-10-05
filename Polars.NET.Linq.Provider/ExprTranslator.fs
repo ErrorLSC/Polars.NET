@@ -413,7 +413,7 @@ module internal rec ExprTranslator =
         | _                             -> None
 
     let private isNumericDeclaringType (t: Type) =
-        t = typeof<Math> || t = typeof<MathF> || t = typeof<decimal>
+        t = typeof<Math> || t = typeof<MathF> || t = typeof<decimal> || t = typeof<System.Numerics.BitOperations>
 
     let private translateNumericMethod (paramName: string) (m: MethodInfo) (args: Expression list) : ExprHandle option =
         let t1 expr = tryTranslate paramName expr
@@ -508,6 +508,16 @@ module internal rec ExprTranslator =
         | "ToSByte", [ x ]   -> t1 x |> Option.bind (tryTranslateCast typeof<sbyte>)
         | "ToInt16", [ x ]   -> t1 x |> Option.bind (tryTranslateCast typeof<int16>)
         | "ToUInt16", [ x ]  -> t1 x |> Option.bind (tryTranslateCast typeof<uint16>)
+
+        // --- 6. System.Numerics.BitOperations ---
+        | "PopCount", [ x ] ->
+            t1 x |> Option.map PolarsWrapper.BitwiseCountOnes
+
+        | "LeadingZeroCount", [ x ] ->
+            t1 x |> Option.map PolarsWrapper.BitwiseLeadingZeros
+
+        | "TrailingZeroCount", [ x ] ->
+            t1 x |> Option.map PolarsWrapper.BitwiseTrailingZeros
 
         | _ -> None
 
@@ -1123,6 +1133,26 @@ module internal rec ExprTranslator =
             tryTranslate paramName left |> Option.map PolarsWrapper.IsNull
         elif op = ExpressionType.Equal && isNullConstantExpr left then
             tryTranslate paramName right |> Option.map PolarsWrapper.IsNull
+        // -------------------------------------------------------------
+        // Bitwise Shift: x.A << n and x.A >> n
+        // -------------------------------------------------------------
+        elif op = ExpressionType.LeftShift then
+            match tryTranslate paramName left, tryEvaluate right with
+            | Some leftH, Some nVal ->
+                try
+                    let n = Convert.ToInt32 nVal
+                    Some (PolarsWrapper.BitLeftShift(leftH, n))
+                with _ -> None
+            | _ -> None
+
+        elif op = ExpressionType.RightShift then
+            match tryTranslate paramName left, tryEvaluate right with
+            | Some leftH, Some nVal ->
+                try
+                    let n = Convert.ToInt32 nVal
+                    Some (PolarsWrapper.BitRightShift(leftH, n))
+                with _ -> None
+            | _ -> None
         else
             match tryTranslate paramName left, tryTranslate paramName right with
             | Some l, Some r -> Some (translateBinary op l r)

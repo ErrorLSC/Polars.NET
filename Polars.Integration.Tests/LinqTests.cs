@@ -1,6 +1,7 @@
 using Polars.CSharp;
 using Pl = Polars.CSharp.Polars;
 using Polars.CSharp.Linq;
+using System.Numerics;
 
 namespace Polars.Integration.Tests;
 
@@ -56,7 +57,7 @@ public class LinqProviderTests
         public string Name { get; set; } = "";
     }
     [Fact]
-    [Trait("Linq", "Where")]
+    [Trait("LINQ", "Where")]
     public void Test_Polars_Linq_Where_And_OrderBy()
     {
         var data = new[]
@@ -110,7 +111,7 @@ public class LinqProviderTests
     }
 
     [Fact]
-    [Trait("Linq", "Select")]
+    [Trait("LINQ", "Select")]
     public void Test_Polars_Linq_Select_Projection()
     {
         var data = new[]
@@ -155,7 +156,7 @@ public class LinqProviderTests
         Assert.Equal(200.0, results[0].Sales);
     }
     [Fact]
-    [Trait("Linq","Join")]
+    [Trait("LINQ","Join")]
     public void Test_Polars_Linq_Inner_Join()
     {
         var depts = new[]
@@ -217,7 +218,7 @@ public class LinqProviderTests
         Assert.Equal("Engineering", results[1].DepartmentName);
     }
     [Fact]
-    [Trait("Linq","GroupByHaving")]
+    [Trait("LINQ","GroupByHaving")]
     public void Test_Polars_Linq_GroupBy_Aggregation_With_Having()
     {
         var emps = new[]
@@ -280,7 +281,7 @@ public class LinqProviderTests
         Assert.DoesNotContain(results, r => r.DeptId == 3);
     }
     [Fact]
-    [Trait("Linq", "ScalarAndFirst")]
+    [Trait("LINQ", "ScalarAndFirst")]
     public void Test_Polars_Linq_Scalar_And_First()
     {     
         var data = new[]
@@ -311,7 +312,7 @@ public class LinqProviderTests
     }
     public record Product(int Id, string Name, string Category, double Price);
     [Fact]
-    [Trait("Linq", "AdvancedFilters")]
+    [Trait("LINQ", "AdvancedFilters")]
     public void Test_Polars_Linq_In_And_String_Like()
     {
         var data = new[]
@@ -351,7 +352,7 @@ public class LinqProviderTests
         Assert.Equal(2, complexResult.Count); 
     }
     [Fact]
-    [Trait("Linq", "PaginationAndDistinct")]
+    [Trait("LINQ", "PaginationAndDistinct")]
     public void Test_Polars_Linq_Skip_Take_And_Distinct()
     {
         var data = new[]
@@ -388,7 +389,7 @@ public class LinqProviderTests
         Assert.Equal(4, pagedResult[1].Id);
     }
     [Fact]
-    [Trait("Linq", "Subquery")]
+    [Trait("LINQ", "Subquery")]
     public void Test_Polars_Linq_Subquery_Any()
     {
         var depts = new[]
@@ -442,7 +443,7 @@ public class LinqProviderTests
         public string? EmployeeName { get; set; }
     }
     [Fact]
-    [Trait("Linq", "LeftJoin")]
+    [Trait("LINQ", "LeftJoin")]
     public void Test_Polars_Linq_Left_Join()
     {
         // Arrange
@@ -517,7 +518,7 @@ public class LinqProviderTests
         Assert.Equal("NO_EMPLOYEE", results[3].EmployeeName);
     }
     [Fact]
-    [Trait("Linq", "UnionAndCrossJoin")]
+    [Trait("LINQ", "UnionAndCrossJoin")]
     public void Test_Polars_Linq_Union_And_CrossJoin()
     {
         var depts = new[]
@@ -567,7 +568,7 @@ public class LinqProviderTests
     public record EmpSalaryDto(string Name, int DeptId, double Salary);
 
     [Fact]
-    [Trait("Linq", "AdvancedSetsAndLet")]
+    [Trait("LINQ", "AdvancedSetsAndLet")]
     public void Test_Polars_Linq_Except_Intersect_And_Let()
     {
         var emps = new[]
@@ -614,7 +615,7 @@ public class LinqProviderTests
         Assert.Contains(letResult, x => x.Name == "David" && x.Bonus == 12000.0);
     }
     [Fact]
-    [Trait("Linq", "WindowFunctions")]
+    [Trait("LINQ", "WindowFunctions")]
     public void Test_Polars_Linq_Window_Functions()
     {
         var emps = new[]
@@ -688,7 +689,7 @@ public class LinqProviderTests
         Assert.Equal(8000.0, david.DeptTotalSalary);
     }
     [Fact]
-    [Trait("Linq", "CaseWhenAndCte")]
+    [Trait("LINQ", "CaseWhenAndCte")]
     public void Test_Polars_Linq_CaseWhen_And_Cte()
     {
         var emps = new[]
@@ -790,7 +791,7 @@ public class LinqProviderTests
     public record OrderDto(int OrderId, DateTime OrderDate, string Region, double Revenue);
 
     [Fact]
-    [Trait("Linq", "TimeSeriesAndMultiGroup")]
+    [Trait("LINQ", "TimeSeriesAndMultiGroup")]
     public void Test_Polars_Linq_Time_Series_And_MultiGroup()
     {
         var orders = new[]
@@ -896,7 +897,7 @@ public class LinqProviderTests
     );
 
     [Fact]
-    [Trait("Linq", "SubqueryInAndFunctions")]
+    [Trait("LINQ", "SubqueryInAndFunctions")]
     public void Test_Polars_Linq_SubqueryIn_And_Functions()
     {
         var depts = new[]
@@ -1106,7 +1107,7 @@ public class LinqProviderTests
     public record SalesData(string Category, string ProductName, double Revenue, double Discount);
 
     [Fact]
-    [Trait("Linq", "MathStringAndConditionalAgg")]
+    [Trait("LINQ", "MathStringAndConditionalAgg")]
     public void Test_Polars_Linq_Math_String_And_ConditionalAgg()
     {
         var sales = new[]
@@ -1193,7 +1194,7 @@ public class LinqProviderTests
     public record StockPrice(string Ticker, DateTime Date, double Price);
 
     [Fact]
-    [Trait("Linq", "LeadLagAndNestedList")]
+    [Trait("LINQ", "LeadLagAndNestedList")]
     public void Test_Polars_Linq_LeadLag_And_NestedList()
     {
         var stocks = new[]
@@ -1299,7 +1300,7 @@ public class LinqProviderTests
         Assert.Equal("Charlie", salesDept.Employees);
     }
     // [Fact]
-    // [Trait("Linq", "UnifiedCRUD")]
+    // [Trait("LINQ", "UnifiedCRUD")]
     // public void Test_Polars_Linq_Unified_CRUD_UX()
     // {
         // var emps = new[]
@@ -1342,7 +1343,7 @@ public class LinqProviderTests
     // }
     public record StaffRecord(string name, int age, int salary);
     [Fact]
-    [Trait("Linq", "LazyIO")]
+    [Trait("LINQ", "LazyIO")]
     public void Test_Polars_Linq_Lazy_Csv_Scan_And_Pushdown()
     {
         var csvContent = @"name,age,salary
@@ -1389,7 +1390,7 @@ David,40,80000";
         double bonus);
 
     [Fact]
-    [Trait("Linq", "HybridLazy")]
+    [Trait("LINQ", "HybridLazy")]
     public void Test_Polars_Linq_Hybrid_Native_And_Linq_Pushdown_With_Sugar()
     {
         var csvContent = @"
@@ -1449,7 +1450,7 @@ David,40,80000";
         }
     }
     [Fact]
-    [Trait("Linq","Sandwich")]
+    [Trait("LINQ","Sandwich")]
     public void Test_Polars_Double_Hybrid_Sandwich()
     {
         using var schema = PolarsSchema.From<StaffRecord>();
@@ -1495,7 +1496,7 @@ David,40,80000";
         public DateTime SaleDate { get; set; }
     }
     [Fact]
-    [Trait("Linq", "MathDate")]
+    [Trait("LINQ", "MathDate")]
     public void Test_Polars_Linq_Math_Date_And_Aggregations()
     {
         var sales = new[]
@@ -1561,7 +1562,7 @@ David,40,80000";
     }
 
     [Fact]
-    [Trait("Linq", "WindowAndStats")]
+    [Trait("LINQ", "WindowAndStats")]
     public void Test_Polars_Linq_Window_And_Stats()
     {
         var data = new[]
@@ -1664,7 +1665,7 @@ David,40,80000";
     }
 
     [Fact]
-    [Trait("Linq", "DataScienceStats")]
+    [Trait("LINQ", "DataScienceStats")]
     public void Test_Polars_Linq_Quantiles_And_Variance()
     {
         var data = new[]
@@ -1737,7 +1738,7 @@ David,40,80000";
     }
 
     [Fact]
-    [Trait("Linq", "Bitwise")]
+    [Trait("LINQ", "Bitwise")]
     public void Test_Polars_Linq_Native_Bitwise_Operators()
     {
 
@@ -1751,7 +1752,7 @@ David,40,80000";
             new BitwiseRecord { Id = 2, A = 12, B = 10 }
         };
 
-        var firstQuery = DataFrame.From(data).AsQueryable<BitwiseRecord>()
+        var firstQuery = DataFrame.FromRows(data).AsQueryable<BitwiseRecord>()
             .OrderBy(x => x.Id)
             .Select(x => new
             {
@@ -1764,60 +1765,51 @@ David,40,80000";
                 XorResult  = x.A ^ x.B,
                 // Bitwise NOT
                 NotResult = ~x.A,       
-                // // Bitwise COUNT
-                // CountResult = PolarsSql.BitCount(x.A)
+                // Bitwise COUNT
+                CountResult = BitOperations.PopCount((uint)x.A),
+                // Bitwise SHL 
+                ShlResult = x.A << 1,
+                // Bitwise SHR 
+                ShrResult = x.A >> 1
             });
 
         var bitQuery = firstQuery.ToList();
-        // SELECT
-        //         x."Id" AS "Id",
-        //         x."A" & x."B" AS "AndResult",
-        //         x."A" | x."B" AS "OrResult",
-        //         BIT_XOR(x."A", x."B") AS "XorResult",
-        //         BIT_NOT(x."A") AS "NotResult",
-        //         BIT_COUNT(x."A") AS "CountResult"
-        // FROM
-        //         "BitwiseRecord" x
-        // ORDER BY
-        //         x."Id"
-        // shape: (2, 6)
-        // ┌─────┬───────────┬──────────┬───────────┬───────────┬─────────────┐
-        // │ Id  ┆ AndResult ┆ OrResult ┆ XorResult ┆ NotResult ┆ CountResult │
-        // │ --- ┆ ---       ┆ ---      ┆ ---       ┆ ---       ┆ ---         │
-        // │ i32 ┆ i32       ┆ i32      ┆ i32       ┆ i32       ┆ u32         │
-        // ╞═════╪═══════════╪══════════╪═══════════╪═══════════╪═════════════╡
-        // │ 1   ┆ 1         ┆ 7        ┆ 6         ┆ -6        ┆ 2           │
-        // │ 2   ┆ 8         ┆ 14       ┆ 6         ┆ -13       ┆ 2           │
-        // └─────┴───────────┴──────────┴───────────┴───────────┴─────────────┘
+
         Assert.Equal(2, bitQuery.Count);
 
-        // Verify 5 and 3
-
-        // 5 & 3 = 1 (0001)
-        // 5 | 3 = 7 (0111)
-        // 5 ^ 3 = 6 (0110)
-        // ~5    = -6
-        // Bitcount 5 = 2
+        // Verify row 1: A = 5, B = 3
+        // 5 & 3  = 1 (0001)
+        // 5 | 3  = 7 (0111)
+        // 5 ^ 3  = 6 (0110)
+        // ~5     = -6
+        // PopCount(5) = 2
+        // 5 << 1 = 10 (1010)
+        // 5 >> 1 = 2  (0010)
         var row1 = bitQuery[0];
         Assert.Equal(1, row1.AndResult);
         Assert.Equal(7, row1.OrResult);
         Assert.Equal(6, row1.XorResult);
         Assert.Equal(~5, row1.NotResult); 
-        // Assert.Equal(2,row1.CountResult);
+        Assert.Equal(2, row1.CountResult);
+        Assert.Equal(10, row1.ShlResult);
+        Assert.Equal(2, row1.ShrResult);
 
-        // Verify 12 and 10
-
-        // 12 & 10 = 8 (1000)
-        // 12 | 10 = 14 (1110)
-        // 12 ^ 10 = 6 (0110)
-        // ~12     = -13
-        // Bitcount 12 = 2
+        // Verify row 2: A = 12, B = 10
+        // 12 & 10  = 8 (1000)
+        // 12 | 10  = 14 (1110)
+        // 12 ^ 10  = 6 (0110)
+        // ~12      = -13
+        // PopCount(12) = 2
+        // 12 << 1  = 24
+        // 12 >> 1  = 6
         var row2 = bitQuery[1];
         Assert.Equal(8, row2.AndResult);
         Assert.Equal(14, row2.OrResult);
         Assert.Equal(6, row2.XorResult);
         Assert.Equal(~12, row2.NotResult);
-        // Assert.Equal(2,row2.CountResult);
+        Assert.Equal(2, row2.CountResult);
+        Assert.Equal(24, row2.ShlResult);
+        Assert.Equal(6, row2.ShrResult);
     }
     public class TemporalRecord
     {
@@ -1826,7 +1818,7 @@ David,40,80000";
     }
 
     [Fact]
-    [Trait("Linq", "Temporal")]
+    [Trait("LINQ", "Temporal")]
     public void Test_Polars_Linq_Native_Temporal_Functions()
     {
         var data = new[]
@@ -1889,7 +1881,7 @@ David,40,80000";
     }
 
     [Fact]
-    [Trait("Linq", "String")]
+    [Trait("LINQ", "String")]
     public void Test_Polars_Linq_Native_String_Functions()
     {
         var data = new[]
@@ -1959,7 +1951,7 @@ David,40,80000";
         Assert.Equal(new DateTime(2025, 12, 1, 9, 15, 45), row2.ParsedTime);
     }
     [Fact]
-    [Trait("Linq", "ControlFlow")]
+    [Trait("LINQ", "ControlFlow")]
     public void Test_Polars_Linq_Native_Control_Flow_Functions()
     {       
 
@@ -2028,7 +2020,7 @@ David,40,80000";
         Assert.Null(result[2].NullIfVal);        // 40 == 40 -> null        
     }
     [Fact]
-    [Trait("Linq", "MathTrig")]
+    [Trait("LINQ", "MathTrig")]
     public void Test_Polars_Linq_Native_Math_Trig_Functions()
     {
         var mockData = new[] 
@@ -2087,7 +2079,7 @@ David,40,80000";
 
     }
     [Fact]
-    [Trait("Linq", "MathGeneral")]
+    [Trait("LINQ", "MathGeneral")]
     public void Test_Polars_Linq_Native_Math_General_Functions()
     {
 
@@ -2167,7 +2159,7 @@ David,40,80000";
         public string? EmployeeName { get; set; } 
     }
     [Fact]
-    [Trait("Linq", "LeftJoinNew")]
+    [Trait("LINQ", "LeftJoinNew")]
     public void Test_Polars_Linq_LeftJoin_Net10()
     {
         // Arrange
@@ -2258,7 +2250,7 @@ David,40,80000";
     }
 
     [Fact]
-    [Trait("Linq", "RightJoin")]
+    [Trait("LINQ", "RightJoin")]
     public void Test_Polars_Linq_RightJoin_Net10()
     {
         var depts = new[]
@@ -2346,7 +2338,7 @@ David,40,80000";
     }
 
     [Fact]
-    [Trait("Linq", "CountByAggregateBy")]
+    [Trait("LINQ", "CountByAggregateBy")]
     public void Test_Polars_Linq_New_Aggregations_Net10()
     {
         // Arrange
