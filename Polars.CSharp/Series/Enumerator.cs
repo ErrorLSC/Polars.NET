@@ -217,12 +217,4 @@ public partial class Series : IDisposable, IPolarsSeries
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public SeriesEnumerator<T> As<T>() => new(this);
-
-    /// <summary>
-    /// Pattern-based GetEnumerator providing zero-allocation foreach on the Series itself.
-    /// Matched by the C# compiler ahead of any interface call.
-    /// Usage: foreach (var item in series) { ... }
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public SeriesEnumerator<object?> GetEnumerator() => new(this);
 }

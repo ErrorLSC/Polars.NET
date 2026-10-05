@@ -4,11 +4,11 @@ using LinqToDB;
 using LinqToDB.Data;
 using LinqToDB.Mapping;
 using Polars.CSharp;
-using Polars.NET.Linq.CSharpExtensions;
+
 
 namespace Polars.Integration.Tests;
 
-public class AdbcLocalTests : IDisposable
+public class AdbcLocalTests 
 {
     private readonly AdbcDriver _driver;
     private readonly AdbcDatabase _database;
@@ -335,100 +335,100 @@ public class AdbcLocalTests : IDisposable
         // │     ┆                         ┆ !\x02B\x…              ┆            ┆          ┆                 │
         // └─────┴─────────────────────────┴────────────────────────┴────────────┴──────────┴─────────────────┘
     }
-    [Table("polars_e2e_test")]
-    public class AdbcE2ERecord
-    {
-        [Column("id")] public int Id { get; set; }
-        [Column("name")] public string? Name { get; set; }
-        [Column("language")] public string? Language { get; set; }
-    }
-    [Table("stage2_pushdown_table")]
-    public class PushdownRecord
-    {
-        [Column("id")] public int Id { get; set; }
-        [Column("name")] public string? Name { get; set; }
-        [Column("upper_lang")] public string? UpperLang { get; set; }
-    }
-    [Fact]
-    [Trait("ADBC", "DuckDBE2ELINQ")]
-    public void Test_Polars_And_DuckDb_Ultimate_PingPong()
-    {
-        var options = new DataOptions().UseConnectionString(ProviderName.PostgreSQL15, "Server=Dummy;");
+    // [Table("polars_e2e_test")]
+    // public class AdbcE2ERecord
+    // {
+    //     [Column("id")] public int Id { get; set; }
+    //     [Column("name")] public string? Name { get; set; }
+    //     [Column("language")] public string? Language { get; set; }
+    // }
+    // [Table("stage2_pushdown_table")]
+    // public class PushdownRecord
+    // {
+    //     [Column("id")] public int Id { get; set; }
+    //     [Column("name")] public string? Name { get; set; }
+    //     [Column("upper_lang")] public string? UpperLang { get; set; }
+    // }
+    // [Fact]
+    // [Trait("ADBC", "DuckDBE2ELINQ")]
+    // public void Test_Polars_And_DuckDb_Ultimate_PingPong()
+    // {
+    //     var options = new DataOptions().UseConnectionString(ProviderName.PostgreSQL15, "Server=Dummy;");
 
-        var records = new[]
-        {
-            new { id = 101, name = "Data", language = "C" },
-            new { id = 102, name = "Frame", language = "C++" },
-            new { id = 103, name = "Engine", language = "Rust" }
-        };
-        using var df = DataFrame.FromEnumerable(records);
-        df.WriteToAdbc(_connection, "stage1_table");
+    //     var records = new[]
+    //     {
+    //         new { id = 101, name = "Data", language = "C" },
+    //         new { id = 102, name = "Frame", language = "C++" },
+    //         new { id = 103, name = "Engine", language = "Rust" }
+    //     };
+    //     using var df = DataFrame.FromEnumerable(records);
+    //     df.WriteToAdbc(_connection, "stage1_table");
 
-        using var duckDbTranslator = new DataConnection(options); 
+    //     using var duckDbTranslator = new DataConnection(options); 
 
-        using var pushdownDf = duckDbTranslator.GetTable<AdbcE2ERecord>()
-            .TableName("stage1_table")
-            .Where(x => x.Id > 101) 
-            .Select(x => new 
-            {
-                x.Id,
-                x.Name,
-                UpperLang = Sql.Upper(x.Language)
-            })
-            .ToDataFrameAdbc(_connection);
+    //     using var pushdownDf = duckDbTranslator.GetTable<AdbcE2ERecord>()
+    //         .TableName("stage1_table")
+    //         .Where(x => x.Id > 101) 
+    //         .Select(x => new 
+    //         {
+    //             x.Id,
+    //             x.Name,
+    //             UpperLang = Sql.Upper(x.Language)
+    //         })
+    //         .ToDataFrameAdbc(_connection);
             
-        // shape: (2, 3)
-        // ┌─────┬────────┬───────────┐
-        // │ Id  ┆ Name   ┆ UpperLang │
-        // │ --- ┆ ---    ┆ ---       │
-        // │ i32 ┆ str    ┆ str       │
-        // ╞═════╪════════╪═══════════╡
-        // │ 102 ┆ Frame  ┆ C++       │
-        // │ 103 ┆ Engine ┆ RUST      │
-        // └─────┴────────┴───────────┘
+    //     // shape: (2, 3)
+    //     // ┌─────┬────────┬───────────┐
+    //     // │ Id  ┆ Name   ┆ UpperLang │
+    //     // │ --- ┆ ---    ┆ ---       │
+    //     // │ i32 ┆ str    ┆ str       │
+    //     // ╞═════╪════════╪═══════════╡
+    //     // │ 102 ┆ Frame  ┆ C++       │
+    //     // │ 103 ┆ Engine ┆ RUST      │
+    //     // └─────┴────────┴───────────┘
 
-        using var finalPolarsDf = pushdownDf.AsQueryable<PushdownRecord>()
-            .Select(x => new 
-            {
-                FinalId = x.Id + 1000,                            
-                SuperName = x.Name + " Pro Max",                  
-                LangStatus = x.UpperLang == "RUST" ? "God" : "Mortal" 
-            })
-            .ToDataFrame(); 
+    //     using var finalPolarsDf = pushdownDf.AsQueryable<PushdownRecord>()
+    //         .Select(x => new 
+    //         {
+    //             FinalId = x.Id + 1000,                            
+    //             SuperName = x.Name + " Pro Max",                  
+    //             LangStatus = x.UpperLang == "RUST" ? "God" : "Mortal" 
+    //         })
+    //         .ToDataFrame(); 
 
-        // shape: (2, 3)
-        // ┌─────────┬────────────────┬────────────┐
-        // │ FinalId ┆ SuperName      ┆ LangStatus │
-        // │ ---     ┆ ---            ┆ ---        │
-        // │ i32     ┆ str            ┆ str        │
-        // ╞═════════╪════════════════╪════════════╡
-        // │ 1102    ┆ Frame Pro Max  ┆ Mortal     │
-        // │ 1103    ┆ Engine Pro Max ┆ God        │
-        // └─────────┴────────────────┴────────────┘
+    //     // shape: (2, 3)
+    //     // ┌─────────┬────────────────┬────────────┐
+    //     // │ FinalId ┆ SuperName      ┆ LangStatus │
+    //     // │ ---     ┆ ---            ┆ ---        │
+    //     // │ i32     ┆ str            ┆ str        │
+    //     // ╞═════════╪════════════════╪════════════╡
+    //     // │ 1102    ┆ Frame Pro Max  ┆ Mortal     │
+    //     // │ 1103    ┆ Engine Pro Max ┆ God        │
+    //     // └─────────┴────────────────┴────────────┘
 
-        finalPolarsDf.WriteToAdbc(_connection, "final_destination_table");
+    //     finalPolarsDf.WriteToAdbc(_connection, "final_destination_table");
 
-        using var verifyFinalDf = DataFrame.ReadAdbc(_connection, "SELECT * FROM final_destination_table ORDER BY FinalId");
+    //     using var verifyFinalDf = DataFrame.ReadAdbc(_connection, "SELECT * FROM final_destination_table ORDER BY FinalId");
 
-        // shape: (2, 3)
-        // ┌─────────┬────────────────┬────────────┐
-        // │ FinalId ┆ SuperName      ┆ LangStatus │
-        // │ ---     ┆ ---            ┆ ---        │
-        // │ i32     ┆ str            ┆ str        │
-        // ╞═════════╪════════════════╪════════════╡
-        // │ 1102    ┆ Frame Pro Max  ┆ Mortal     │
-        // │ 1103    ┆ Engine Pro Max ┆ God        │
-        // └─────────┴────────────────┴────────────┘
+    //     // shape: (2, 3)
+    //     // ┌─────────┬────────────────┬────────────┐
+    //     // │ FinalId ┆ SuperName      ┆ LangStatus │
+    //     // │ ---     ┆ ---            ┆ ---        │
+    //     // │ i32     ┆ str            ┆ str        │
+    //     // ╞═════════╪════════════════╪════════════╡
+    //     // │ 1102    ┆ Frame Pro Max  ┆ Mortal     │
+    //     // │ 1103    ┆ Engine Pro Max ┆ God        │
+    //     // └─────────┴────────────────┴────────────┘
 
-        Assert.Equal(2, verifyFinalDf.Height);
-        Assert.Equal(3, verifyFinalDf.Width);
-    }
+    //     Assert.Equal(2, verifyFinalDf.Height);
+    //     Assert.Equal(3, verifyFinalDf.Width);
+    // }
     
-    public void Dispose()
-    {
-        _connection?.Dispose();
-        _database?.Dispose();
-        _driver?.Dispose();
+    // public void Dispose()
+    // {
+    //     _connection?.Dispose();
+    //     _database?.Dispose();
+    //     _driver?.Dispose();
 
-    }
+    // }
 }

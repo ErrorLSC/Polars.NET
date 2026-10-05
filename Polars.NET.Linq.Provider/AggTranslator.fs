@@ -7,15 +7,6 @@ open System
 module AggTranslator =
     open ExprTranslator
 
-    /// Strips Unary wraps like Convert or Quote recursively
-    let rec private unwrap (e: Expression) =
-        match e with
-        | null -> null
-        | Unary(ExpressionType.Convert, inner)
-        | Unary(ExpressionType.ConvertChecked, inner)
-        | Unary(ExpressionType.Quote, inner) -> unwrap inner
-        | other -> other
-
     /// Checks if expression refers to the group parameter
     let rec private isGroupParam (groupParamName: string) (expr: Expression) =
         match unwrap expr with
@@ -28,6 +19,24 @@ module AggTranslator =
         let cleanExpr = unwrap expr
 
         match cleanExpr with
+        | MethodCall(m, null, [ sepExpr; MethodCall(mSel, _, [ gArg; CleanLambda selLambda ]) ])
+            when m.DeclaringType = typeof<string> && m.Name = "Join" && mSel.Name = "Select" &&
+                 (match unwrap gArg with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false) ->
+            
+            match tryEvaluate sepExpr with
+            | Some (:? string as sep) ->
+                let colExprOpt =
+                    match tryResolveColumnName selLambda.Parameters.[0].Name selLambda.Body with
+                    | Some cName -> Some (PolarsWrapper.Col cName)
+                    | None -> tryTranslate selLambda.Parameters.[0].Name selLambda.Body
+
+                colExprOpt
+                |> Option.map (fun cExpr ->
+                    let joined = PolarsWrapper.ListJoin(cExpr, sep, ignoreNulls = true)
+                    if String.IsNullOrEmpty aliasName then joined
+                    else PolarsWrapper.Alias(joined, aliasName)
+                )
+            | _ -> None
         // 1. group.Count() or group.LongCount() -> Len()
         | MethodCall(methodInfo, null, [ targetSeq ]) 
             when methodInfo.Name = "Count" || methodInfo.Name = "LongCount" ->

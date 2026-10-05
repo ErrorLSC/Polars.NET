@@ -6,7 +6,7 @@ using Minio;
 using Minio.DataModel.Args;
 using Polars.Integration.Tests.Utils;
 using Polars.NET.Core;
-using Polars.NET.Linq.CSharpExtensions;
+using Polars.CSharp.Linq;
 
 namespace Polars.Integration.Tests;
 

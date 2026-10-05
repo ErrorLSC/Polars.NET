@@ -168,10 +168,3 @@ module SeriesEnumerator =
         [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
         member this.As<'T>() : SeriesEnumerator<'T> =
             SeriesEnumerator<'T>(this)
-
-        /// <summary>
-        /// Default enumerator allowing direct 'for (x: obj) in series do ...' syntax.
-        /// </summary>
-        [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-        member this.GetEnumerator() : SeriesEnumerator<obj> =
-            SeriesEnumerator<obj>(this)

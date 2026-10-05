@@ -1117,6 +1117,41 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             )
         | _ -> []
 
+    /// Inspects whether a projection is an intermediate Roslyn Transparent Identifier (e.g. C# 'let' clause),
+    /// which packages existing context and introduces new calculated columns via WithColumns.
+    static member private TryCompileTransparentLet (projLambda: LambdaExpression) : QueryOp option =
+        let param = projLambda.Parameters.[0]
+        match PolarsQuery<'T>.TryExtractMemberBindings projLambda.Body with
+        | Some bindings ->
+            let isNavigationBinding (_name: string, expr: Expression) =
+                let cleanExpr = ExprTranslator.unwrap expr
+                match cleanExpr with
+                | :? ParameterExpression as p when p.Name = param.Name -> true
+                | MemberAccess(_, m) when ExprTranslator.isNavigationMember m -> true
+                | _ -> false
+
+            let navBindings, computedBindings =
+                bindings |> List.partition isNavigationBinding
+
+            // Must contain at least one navigation holder (preserving context)
+            // and at least one computed column (the let binding expression)
+            if not navBindings.IsEmpty && not computedBindings.IsEmpty then
+                let translatedCols =
+                    computedBindings
+                    |> List.choose (fun (name, expr) ->
+                        ExprTranslator.tryTranslate param.Name expr
+                        |> Option.map (fun h -> PolarsWrapper.Alias(h, name))
+                    )
+
+                if translatedCols.Length = computedBindings.Length then
+                    Some (QueryOp.WithColumns (List.toArray translatedCols))
+                else
+                    None
+            else
+                None
+        | None ->
+            None
+
     /// Disambiguates duplicate column names against an existing set of columns by appending a given suffix,
     /// returning the safely renamed LazyFrame, updated column set, and a renaming map.
     static member private DisambiguateColumns (existingCols: Set<string>) (lf: LazyFrameHandle) (suffix: string) : LazyFrameHandle * Set<string> * Map<string, string> =
@@ -1165,7 +1200,6 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     Some (PolarsWrapper.Col mem.Name)
                 | _ -> None
 
-        // Unified member extraction for NewExpression, MemberInitExpression, and scalar keys
         let keyPairsOpt : (string * Expression) list option =
             match PolarsQuery<'T>.TryExtractMemberBindings ctx.KeyLambda.Body with
             | Some pairs -> Some pairs
@@ -1189,27 +1223,30 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
         match keyDefinitionsOpt with
         | None -> None
         | Some keyDefs ->
-            match projBody with
-            | :? NewExpression as newExpr ->
-                let args = newExpr.Arguments |> Seq.toList
-                let memberNames = PolarsQuery<'T>.ExtractPascalCaseMemberNames newExpr
+            // 同时支持 NewExpression 和 MemberInitExpression
+            match PolarsQuery<'T>.TryExtractMemberBindings projBody with
+            | None -> None
+            | Some memberBindings ->
+                let memberNames = memberBindings |> List.map fst
+                let args = memberBindings |> List.map snd
 
                 let isKeyExpression (e: Expression) : bool =
-                    if isKeyArg e then true
+                    let cleanE = ExprTranslator.unwrap e
+                    if isKeyArg cleanE then true
                     else
-                        match e with
+                        match cleanE with
                         | MemberAccess(target, _) when isKeyArg target -> true
                         | MemberAccess(MemberAccess(p, keyProp), _) 
                             when not (isNull p) && p.NodeType = ExpressionType.Parameter && keyProp.Name = "Key" -> true
                         | _ -> false
 
-                // Mapping table from key component names to their effective output column names in the resulting DataFrame
                 let keyNameToOutputAliasMap =
                     keyDefs
                     |> List.map (fun (origKeyName, _) ->
                         let outputColName =
                             List.zip memberNames args
-                            |> List.tryPick (fun (memName, arg) ->
+                            |> List.tryPick (fun (memName, rawArg) ->
+                                let arg = ExprTranslator.unwrap rawArg
                                 match arg with
                                 | MemberAccess(MemberAccess(_, k), m) when k.Name = "Key" && m.Name = origKeyName -> Some memName
                                 | MemberAccess(p, m) when isKeyArg p && m.Name = origKeyName -> Some memName
@@ -1229,44 +1266,61 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     )
                     |> List.toArray
 
-                // 1. Isolate non-key projection arguments
                 let nonKeyArgs =
                     List.zip memberNames args
                     |> List.filter (fun (_, argExpr) -> not (isKeyExpression argExpr))
 
-                // 2. Translate individual aggregate expressions
-                let tryTranslateSingleAgg (colName: string) (argExpr: Expression) : ExprHandle option =
-                    match elemExprOpt with
-                    | Some elemExpr ->
-                        let buildAgg (methodName: string) =
-                            let aggCoreOpt =
-                                match methodName with
-                                | "Count" -> Some (PolarsWrapper.Len())
-                                | "LongCount" ->
-                                    let len = PolarsWrapper.Len()
-                                    let int64Dtype = PolarsWrapper.DataTypeExprFromDataType(PolarsWrapper.NewPrimitiveType(int PlDataType.Int64))
-                                    Some (PolarsWrapper.ExprCast(len, int64Dtype, strict = false, wrapNumerical = false))
-                                | other ->
-                                    let clonedInner = PolarsWrapper.CloneExpr elemExpr
-                                    ExprTranslator.translateReductionOp other clonedInner
+                let tryTranslateSingleAgg (colName: string) (rawArgExpr: Expression) : ExprHandle option =
+                    let argExpr = ExprTranslator.unwrap rawArgExpr
+                    
+                    let isGroupCountCall (m: MethodInfo) (targetObj: Expression) (callArgs: Expression list) =
+                        (m.Name = "Count" || m.Name = "LongCount") &&
+                        (
+                            isNull targetObj && callArgs.Length = 1 && (match ExprTranslator.unwrap callArgs.Head with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false) ||
+                            not (isNull targetObj) && callArgs.IsEmpty && match ExprTranslator.unwrap targetObj with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false
+                        )
 
-                            aggCoreOpt |> Option.map (fun core -> PolarsWrapper.Alias(core, colName))
+                    let tryMatchNestedListAgg (e: Expression) =
+                        match e with
+                        | MethodCall(mList, null, [ MethodCall(mSel, null, [ gArg; CleanLambda selLambda ]) ])
+                        | MethodCall(mList, MethodCall(mSel, null, [ gArg; CleanLambda selLambda ]), [])
+                        | MethodCall(mList, MethodCall(mSel, gArg, [ CleanLambda selLambda ]), [])
+                            when (mList.Name = "ToList" || mList.Name = "ToArray") && mSel.Name = "Select" &&
+                                (match ExprTranslator.unwrap gArg with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false) ->
+                            Some selLambda
+                        | _ -> None
 
-                        match argExpr with
-                        | MethodCall(m, null, [ firstArg ]) when (match firstArg with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false) ->
-                            buildAgg m.Name
-                        | MethodCall(m, target, []) when not (isNull target) && (match target with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false) ->
-                            buildAgg m.Name
-                        | _ ->
+                    match argExpr with
+                    | MethodCall(m, target, callArgs) when isGroupCountCall m target callArgs ->
+                        let core =
+                            if m.Name = "LongCount" then
+                                let len = PolarsWrapper.Len()
+                                let int64Dtype = PolarsWrapper.DataTypeExprFromDataType(PolarsWrapper.NewPrimitiveType(int PlDataType.Int64))
+                                PolarsWrapper.ExprCast(len, int64Dtype, strict = false, wrapNumerical = false)
+                            else
+                                PolarsWrapper.Len()
+                        Some (PolarsWrapper.Alias(core, colName))
+
+                    | _ when (tryMatchNestedListAgg argExpr).IsSome ->
+                        let selLambda = (tryMatchNestedListAgg argExpr).Value
+                        let colExprOpt =
+                            match ExprTranslator.tryResolveColumnName selLambda.Parameters.[0].Name selLambda.Body with
+                            | Some cName -> Some (PolarsWrapper.Col cName)
+                            | None -> ExprTranslator.tryTranslate selLambda.Parameters.[0].Name selLambda.Body
+
+                        colExprOpt |> Option.map (fun cExpr -> PolarsWrapper.Alias(cExpr, colName))
+
+                    | _ ->
+                        match elemExprOpt with
+                        | Some elemExpr ->
                             AggTranslator.tryTranslateAgg groupParamName wholeRowStructOpt argExpr colName
-                    | None ->
-                        AggTranslator.tryTranslateAgg groupParamName wholeRowStructOpt argExpr colName
+                        | None ->
+                            AggTranslator.tryTranslateAgg groupParamName wholeRowStructOpt argExpr colName
 
                 let translatedAggOpts =
                     nonKeyArgs
                     |> List.map (fun (colName, argExpr) -> tryTranslateSingleAgg colName argExpr)
 
-                // 3. Strict Pushdown Guard: if any non-key aggregate fails translation, abort native pushdown
                 if not (translatedAggOpts |> List.forall Option.isSome) then
                     None
                 else
@@ -1280,54 +1334,43 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     }
                     let groupByOp = QueryOp.GroupBy groupBySpec
 
-                    // Unified column resolver for post-aggregation stages (Having & Sort)
                     let resolveResultColName (e: Expression) : string option =
-                        match e with
-                        // Single key direct access: g.Key
+                        let cleanE = ExprTranslator.unwrap e
+                        match cleanE with
                         | MemberAccess(p, m) when m.Name = "Key" && keyDefs.Length = 1 ->
                             Some keyNameToOutputAliasMap.[fst keyDefs.[0]]
-                        // Composite key member access: g.Key.Year, g.Key.Region
                         | MemberAccess(MemberAccess(_, k), m) when k.Name = "Key" ->
                             keyNameToOutputAliasMap.TryFind m.Name |> Option.orElse (Some m.Name)
-                        // Parameter member access where parameter represents key: k.Year
                         | MemberAccess(p, m) when isKeyArg p ->
                             keyNameToOutputAliasMap.TryFind m.Name |> Option.orElse (Some m.Name)
-                        // Direct member on projected result: s.TotalRevenue
                         | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter ->
                             Some m.Name
-                        // Aggregated expression invocation: g.Sum(...)
                         | MethodCall _ as aggCall ->
                             List.zip memberNames args
                             |> List.tryPick (fun (colName, argExpr) ->
-                                if argExpr.ToString() = aggCall.ToString() then Some colName
+                                if (ExprTranslator.unwrap argExpr).ToString() = aggCall.ToString() then Some colName
                                 else None
                             )
                         | _ -> None
 
-                    // 4. Compile Having filters mapped to the aggregated column names
                     let havingFilterOps =
                         ctx.HavingPreds
                         |> List.choose (fun havingPred ->
                             let rec translateHaving (expr: Expression) : ExprHandle option =
                                 match expr with
-                                // Binary Operations: Delegate directly to ExprTranslator.translateBinary
                                 | Binary(op, left, right) ->
                                     match translateHaving left, translateHaving right with
                                     | Some l, Some r ->
                                         try Some (ExprTranslator.translateBinary op l r)
                                         with _ -> None
                                     | _ -> None
-
-                                // Literals / Constants
                                 | Constant _ ->
                                     ExprTranslator.tryTranslate "" expr
-
-                                // Output columns (Keys, Aggregations, Projected Properties)
                                 | other ->
                                     match resolveResultColName other with
                                     | Some colName -> Some (PolarsWrapper.Col colName)
                                     | None ->
-                                        match other with
+                                        match ExprTranslator.unwrap other with
                                         | MethodCall _ as aggCall ->
                                             AggTranslator.tryTranslateAgg havingPred.Parameters.[0].Name wholeRowStructOpt aggCall ""
                                         | _ -> None
@@ -1336,7 +1379,6 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                             |> Option.map QueryOp.Filter
                         )
 
-                    // 5. Compile Sort operations targeting GroupBy Keys or Aggregated columns
                     let sortSpecs =
                         ctx.SortStages
                         |> List.choose (fun (sortLambda, isDesc) ->
@@ -1359,30 +1401,74 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
                     Some (finalSelectOp :: sortOps @ havingFilterOps @ [ groupByOp ])
 
-            | _ -> None
-
-    /// Helper to translate individual projection arguments, supporting nested tuples and null-coalescing/IIF
     static member private TryTranslateSelectArg (paramName: string) (argExpr: Expression) : ExprHandle option =
         match ExprTranslator.tryTranslate paramName argExpr with
         | Some h -> Some h
         | None ->
             match argExpr with
-            // Pattern: IIF((Box(tupledArg.Item3) == null), "NO_EMPLOYEE", tupledArg.Item3.Name) -> FillNull(Col "Name", Lit "NO_EMPLOYEE")
+            // Pattern: Ternary null-coalescing / IIF (C# and F# compatible)
             | :? ConditionalExpression as cond ->
-                let colNameOpt = ExprTranslator.tryResolveColumnName paramName cond.IfFalse
-                let fallbackLitOpt =
-                    match cond.IfTrue with
-                    | :? ConstantExpression as ce when not (isNull ce.Value) ->
-                        Some (ExprTranslator.toLiteralHandle ce.Value cond.IfTrue.Type)
+                // Helper: checks whether an expression references the query's input parameter/tuple
+                let hasParamRef (e: Expression) =
+                    let rec check expr =
+                        match ExprTranslator.unwrap expr with
+                        | null -> false
+                        | :? ParameterExpression as p ->
+                            p.Name = paramName ||
+                            (paramName.Contains "|" && paramName.Split '|' |> Array.exists (fun n -> n = p.Name)) ||
+                            p.Name.StartsWith "_arg" ||
+                            p.Name.StartsWith "tupled" ||
+                            p.Name.Contains "TransparentIdentifier" ||
+                            p.Name.StartsWith "<>h__" ||
+                            p.Type.Name.StartsWith "AnonymousObject" ||
+                            p.Type.Name.Contains "AnonymousType" ||
+                            p.Type.Name.StartsWith "Tuple" ||
+                            p.Type.Name.StartsWith "ValueTuple"
+                        | MethodCall(_, target, args) -> (not (isNull target) && check target) || (args |> List.exists check)
+                        | MemberAccess(target, _) -> not (isNull target) && check target
+                        | Unary(_, inner) -> check inner
+                        | Binary(_, left, right) -> check left || check right
+                        | Lambda(_, body) -> check body
+                        | _ -> false
+                    check e
+
+                // Determine which branch is the physical column expression and which is the fallback literal
+                let colExprOpt, fallbackExprOpt =
+                    if hasParamRef cond.IfTrue && not (hasParamRef cond.IfFalse) then
+                        // Pattern: e != null ? e.Name : "NO_EMPLOYEE"
+                        Some cond.IfTrue, Some cond.IfFalse
+                    elif hasParamRef cond.IfFalse && not (hasParamRef cond.IfTrue) then
+                        // Pattern: if box e = null then "NO_EMPLOYEE" else e.Name
+                        Some cond.IfFalse, Some cond.IfTrue
+                    else
+                        None, None
+
+                match colExprOpt, fallbackExprOpt with
+                | Some colExpr, Some fallbackExpr ->
+                    let colHandleOpt =
+                        match ExprTranslator.tryResolveColumnName paramName colExpr with
+                        | Some c -> Some (PolarsWrapper.Col c)
+                        | None -> ExprTranslator.tryTranslate paramName colExpr
+
+                    // fallbackExpr is guaranteed to be free of runtime parameters, so tryEvaluate is completely safe
+                    let litHandleOpt =
+                        let cleanFallback = ExprTranslator.unwrap fallbackExpr
+                        match cleanFallback with
+                        | :? ConstantExpression as ce when not (isNull ce.Value) ->
+                            Some (ExprTranslator.toLiteralHandle ce.Value cleanFallback.Type)
+                        | other ->
+                            match tryEvaluate other with
+                            | Some v when not (isNull v) ->
+                                Some (ExprTranslator.toLiteralHandle v other.Type)
+                            | _ -> None
+
+                    match colHandleOpt, litHandleOpt with
+                    | Some colH, Some litH -> Some (PolarsWrapper.FillNull(colH, litH))
                     | _ -> None
 
-                match colNameOpt, fallbackLitOpt with
-                | Some colName, Some fallbackLit ->
-                    let colExpr = PolarsWrapper.Col colName
-                    Some (PolarsWrapper.FillNull(colExpr, fallbackLit))
                 | _ -> None
 
-            // Multi-level tuple member access (e.g. tupledArg.Item1.Name -> Col "Name")
+            // Multi-level tuple or object member access (e.g. d.DeptName -> Col "DeptName")
             | MemberAccess _ as ma ->
                 ExprTranslator.tryResolveColumnName paramName ma
                 |> Option.map PolarsWrapper.Col
@@ -1447,6 +1533,30 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 InvertSides = isRightJoin
             }
         | _ -> None
+
+    /// Compiles a two-parameter Join/LeftJoin result selector into a native Select projection operation
+    static member private CompileJoinResultSelector (resLambda: LambdaExpression) : QueryOp option =
+        if resLambda.Parameters.Count < 2 then None
+        else
+            let pLeft = resLambda.Parameters.[0]
+            let pRight = resLambda.Parameters.[1]
+            let multiParamName = sprintf "%s|%s" pLeft.Name pRight.Name
+
+            match PolarsQuery<'T>.TryExtractMemberBindings resLambda.Body with
+            | Some bindings ->
+                let exprOpts =
+                    bindings
+                    |> List.choose (fun (name, argExpr) ->
+                        PolarsQuery<'T>.TryTranslateSelectArg multiParamName argExpr
+                        |> Option.map (fun h -> PolarsWrapper.Alias(h, name))
+                    )
+
+                if exprOpts.Length = bindings.Length then
+                    Some (QueryOp.Select (List.toArray exprOpts))
+                else
+                    None
+            | None ->
+                None
 
     /// Compiles Intersect/Except/IntersectBy/ExceptBy stages into a native JoinSpec (Semi/Anti Join)
     static member private CompileSetOp (methodInfo: MethodInfo) (secondExpr: Expression) (firstKeyOpt: LambdaExpression option) (secondKeyOpt: LambdaExpression option) (baseLf: LazyFrameHandle) : JoinSpec option =
@@ -1873,9 +1983,30 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 let initCtx = { KeyLambda = keyLambda; ElemLambdaOpt = None; HavingPreds = []; SortStages = [] }
                 slurp tail initCtx
 
-            // 2. C# 3-arg GroupBy (keySelector, resultSelector)
-            | LinqStage.GroupByWithResult(keyLambda, resLambda) :: tail ->
-                dispatchCSharpGroupBy keyLambda None resLambda tail
+            // 2. C# 3-arg GroupBy: (keySelector, resultSelector) OR (keySelector, elementSelector)
+            | LinqStage.GroupByWithResult(keyLambda, secondLambda) :: tail ->
+                if secondLambda.Parameters.Count >= 2 then
+                    // resultSelector: (key, group) => new { ... }
+                    dispatchCSharpGroupBy keyLambda None secondLambda tail
+                else
+                    let rec slurp (stages: LinqStage list) (ctx: GroupFoldContext) =
+                        match stages with
+                        | LinqStage.Filter pred :: next ->
+                            slurp next { ctx with HavingPreds = ctx.HavingPreds @ [ pred ] }
+                        | LinqStage.Sort(sortLambda, isDesc) :: next ->
+                            slurp next { ctx with SortStages = ctx.SortStages @ [ (sortLambda, isDesc) ] }
+                        | LinqStage.Project projLambda :: next ->
+                            let isKeyArg (e: Expression) =
+                                let cleanE = ExprTranslator.unwrap e
+                                match cleanE with
+                                | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter && m.Name = "Key" -> true
+                                | _ -> false
+
+                            tryDispatchGroupBy ctx projLambda.Body projLambda.Parameters.[0].Name isKeyArg next
+                        | _ -> [], [], None, true
+
+                    let initCtx = { KeyLambda = keyLambda; ElemLambdaOpt = Some secondLambda; HavingPreds = []; SortStages = [] }
+                    slurp tail initCtx
 
             // 3. C# 4-arg GroupBy (keySelector, elementSelector, resultSelector)
             | LinqStage.GroupByWithElementAndResult(keyLambda, elemLambda, resLambda) :: tail ->
@@ -1979,9 +2110,35 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 else
                     fuse tail opsAcc clientPreds clientProjOpt
 
-            | LinqStage.Join(m, inner, outerKey, innerKey, _) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+            // | LinqStage.Join(m, inner, outerKey, innerKey, _) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+            //     match PolarsQuery<'T>.CompileJoin m inner outerKey innerKey with
+            //     | Some spec -> fuse tail (QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
+            //     | None -> [], [], None, true
+            // Join / LeftJoin / RightJoin with resultSelector
+            | LinqStage.Join(m, inner, outerKey, innerKey, resSel) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 match PolarsQuery<'T>.CompileJoin m inner outerKey innerKey with
-                | Some spec -> fuse tail (QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
+                | Some spec ->
+                    // Inspect whether resultSelector is just a transparent identifier (e.g. (d, e) => new { d, e })
+                    let isTransparent =
+                        match PolarsQuery<'T>.TryExtractMemberBindings resSel.Body with
+                        | Some bindings when resSel.Parameters.Count >= 2 ->
+                            let p1, p2 = resSel.Parameters.[0].Name, resSel.Parameters.[1].Name
+                            bindings |> List.forall (fun (_, expr) ->
+                                match ExprTranslator.unwrap expr with
+                                | :? ParameterExpression as p -> p.Name = p1 || p.Name = p2
+                                | _ -> false
+                            )
+                        | _ -> false
+
+                    if isTransparent then
+                        fuse tail (QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
+                    else
+                        match PolarsQuery<'T>.CompileJoinResultSelector resSel with
+                        | Some selectOp ->
+                            // Apply Join first, then apply the result projection
+                            fuse tail (selectOp :: QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
+                        | None ->
+                            [], [], None, true
                 | None -> [], [], None, true
 
             | LinqStage.GroupJoin(m, inner, outerKey, innerKey, _) :: LinqStage.Explode(collSelector, _) :: tail 
@@ -2245,38 +2402,46 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
             // Universal Select Projection Pushdown vs. Client Func Fallback
             | LinqStage.Project projLambda :: tail ->
-                match PolarsQuery<'T>.CompileSelectProjection projLambda with
-                | Some exprs when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                    fuse tail (QueryOp.Select exprs :: opsAcc) clientPreds None
+                // match PolarsQuery<'T>.CompileSelectProjection projLambda with
+                // | Some exprs when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+                //     fuse tail (QueryOp.Select exprs :: opsAcc) clientPreds None
+                match PolarsQuery<'T>.TryCompileTransparentLet projLambda with
+                | Some withColOp when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+                    fuse tail (withColOp :: opsAcc) clientPreds None
                 | _ ->
-                    let sourceType = projLambda.Parameters.[0].Type
+                    match PolarsQuery<'T>.CompileSelectProjection projLambda with
+                    | Some exprs when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+                        fuse tail (QueryOp.Select exprs :: opsAcc) clientPreds None
 
-                    // Compile a lambda into a typed Func<obj, obj> without DynamicInvoke reflection overhead
-                    let compileToBoxedFunc (lambda: LambdaExpression) =
-                        let rawParam = Expression.Parameter(typeof<obj>, "rawItem")
-                        let castParam = 
-                            if lambda.Parameters.[0].Type = typeof<obj> then rawParam :> Expression
-                            else Expression.Convert(rawParam, lambda.Parameters.[0].Type) :> Expression
-                        let invoked = Expression.Invoke(lambda, castParam)
-                        let boxedResult = Expression.Convert(invoked, typeof<obj>)
-                        Expression.Lambda<Func<obj, obj>>(boxedResult, rawParam).Compile()
+                    | _ ->
+                        let sourceType = projLambda.Parameters.[0].Type
 
-                    let currentFunc = compileToBoxedFunc projLambda
+                        // Compile a lambda into a typed Func<obj, obj> without DynamicInvoke reflection overhead
+                        let compileToBoxedFunc (lambda: LambdaExpression) =
+                            let rawParam = Expression.Parameter(typeof<obj>, "rawItem")
+                            let castParam = 
+                                if lambda.Parameters.[0].Type = typeof<obj> then rawParam :> Expression
+                                else Expression.Convert(rawParam, lambda.Parameters.[0].Type) :> Expression
+                            let invoked = Expression.Invoke(lambda, castParam)
+                            let boxedResult = Expression.Convert(invoked, typeof<obj>)
+                            Expression.Lambda<Func<obj, obj>>(boxedResult, rawParam).Compile()
 
-                    let nextProj =
-                        match clientProjOpt with
-                        | None ->
-                            // First projection stage: sourceType -> current intermediate
-                            Some (sourceType, currentFunc)
-                        | Some (prevSrcType, prevFunc) ->
-                            // Composed projection chain: prevSrcType -> prevResult -> currentResult
-                            let composed = Func<obj, obj>(fun rawItem ->
-                                let mid = prevFunc.Invoke(rawItem)
-                                currentFunc.Invoke(mid)
-                            )
-                            Some (prevSrcType, composed)
+                        let currentFunc = compileToBoxedFunc projLambda
 
-                    fuse tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds nextProj
+                        let nextProj =
+                            match clientProjOpt with
+                            | None ->
+                                // First projection stage: sourceType -> current intermediate
+                                Some (sourceType, currentFunc)
+                            | Some (prevSrcType, prevFunc) ->
+                                // Composed projection chain: prevSrcType -> prevResult -> currentResult
+                                let composed = Func<obj, obj>(fun rawItem ->
+                                    let mid = prevFunc.Invoke(rawItem)
+                                    currentFunc.Invoke(mid)
+                                )
+                                Some (prevSrcType, composed)
+
+                        fuse tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds nextProj
 
             | LinqStage.Cast _ :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 fuse tail opsAcc clientPreds clientProjOpt

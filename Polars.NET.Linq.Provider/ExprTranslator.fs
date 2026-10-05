@@ -12,6 +12,14 @@ open Apache.Arrow.Types
 /// Recursive module for translating LINQ Expression Trees to native Polars Expr handles.
 module internal rec ExprTranslator =
 
+    /// Strips Unary wraps like Convert or Quote recursively
+    let rec internal unwrap (e: Expression) =
+        match e with
+        | null -> null
+        | Unary(ExpressionType.Convert, inner)
+        | Unary(ExpressionType.ConvertChecked, inner)
+        | Unary(ExpressionType.Quote, inner) -> unwrap inner
+        | other -> other
     // =========================================================================
     // 1. Type & Literal Mapping Helpers
     // =========================================================================
@@ -116,6 +124,7 @@ module internal rec ExprTranslator =
                 | :? Half as h -> PolarsWrapper.Lit h
                 | :? float32 as f -> PolarsWrapper.Lit f
                 | :? double as d -> PolarsWrapper.Lit d
+                | :? char as c -> PolarsWrapper.Lit (string c)
                 | :? string as s -> PolarsWrapper.Lit s
                 | :? DateTime as dt -> PolarsWrapper.Lit dt
                 | :? DateTimeOffset as doff -> PolarsWrapper.Lit doff
@@ -138,28 +147,57 @@ module internal rec ExprTranslator =
     // 2. Column & Parameter Identifiers
     // =========================================================================
 
-    let private isFSharpAnonymousMember (m: MemberInfo) =
-        m.DeclaringType.Name.StartsWith "AnonymousObject" || 
-        m.DeclaringType.Name.StartsWith "Tuple" ||
-        m.DeclaringType.Name.Contains "TransparentIdentifier"
+    /// Determines if the member represents an intermediate transparent navigation boundary
+    /// rather than a physical table leaf column.
+    let internal isNavigationMember (m: MemberInfo) =
+        if isNull m || isNull m.DeclaringType then false
+        else
+            let typeName = m.DeclaringType.Name
+            let memberName = m.Name
+
+            // 1. F# 
+            typeName.StartsWith "Tuple" ||
+            typeName.StartsWith "ValueTuple" ||
+            typeName.StartsWith "AnonymousObject" ||
+            typeName.Contains "TransparentIdentifier" ||
+            memberName.Contains "TransparentIdentifier" ||
+            memberName.StartsWith "<>h__" ||
+
+            // C# Roslyn ：
+            (typeName.Contains "AnonymousType" &&
+            match m with
+            | :? PropertyInfo as p -> not (PolarsTypeHelper.IsScalarType p.PropertyType)
+            | :? FieldInfo as f    -> not (PolarsTypeHelper.IsScalarType f.FieldType)
+            | _                    -> false)
 
     let rec internal tryResolveColumnName (paramName: string) (expr: Expression) : string option =
         match expr with
-        | MemberAccess(_, m) when isFSharpAnonymousMember m -> None
+        | MemberAccess(_, m) when isNavigationMember m ->
+            None
+
         | MemberAccess(inner, m) ->
             let rec isRootedInParamOrClosure (e: Expression) =
-                match e with
+                match unwrap e with
                 | :? ParameterExpression as p ->
-                    p.Name = paramName || 
-                    p.Name.StartsWith "_arg" || 
+                    p.Name = paramName ||
+                    paramName.Contains "|" && paramName.Split '|' |> Array.exists (fun n -> n = p.Name) ||
+                    p.Name.StartsWith "_arg" ||
                     p.Name.StartsWith "tupled" ||
+                    p.Name.Contains "TransparentIdentifier" ||
+                    p.Name.StartsWith "<>h__" ||
                     p.Type.Name.StartsWith "AnonymousObject" ||
-                    p.Type.Name.StartsWith "Tuple"
-                | MemberAccess(nextInner, nextM) when isFSharpAnonymousMember nextM ->
+                    p.Type.Name.Contains "AnonymousType" ||
+                    p.Type.Name.StartsWith "Tuple" ||
+                    p.Type.Name.StartsWith "ValueTuple"
+                | MemberAccess(nextInner, nextM) when isNavigationMember nextM ->
                     isRootedInParamOrClosure nextInner
                 | _ -> false
 
-            if isRootedInParamOrClosure inner then Some m.Name else None
+            if isRootedInParamOrClosure inner then
+                Some m.Name
+            else
+                None
+
         | _ -> None
 
     // =========================================================================
@@ -288,6 +326,47 @@ module internal rec ExprTranslator =
     let private translateTemporalMethod (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
         let targetH () = tryTranslate paramName target
         match m.Name, args with
+        | "ParseExact", strExpr :: formatExpr :: _ when isNull target && m.DeclaringType = typeof<DateTime> ->
+            match tryTranslate paramName strExpr, tryEvaluate formatExpr with
+            | Some strH, Some (:? string as netFormat) ->
+                let chronoFormat = DateTimeFormatHelper.ToChronoFormat netFormat
+                let ambiguousExpr = PolarsWrapper.Lit "raise"
+                Some (PolarsWrapper.StrToDatetime(
+                    e = strH,
+                    unit = PlTimeUnit.Microseconds,
+                    timeZone = null,
+                    format = chronoFormat,
+                    strict = false,
+                    exact = true,
+                    cache = true,
+                    ambiguous = ambiguousExpr
+                ))
+            | _ -> None
+
+        | "Parse", [ strExpr ]
+
+        | "Parse", strExpr :: _ when isNull target && m.DeclaringType = typeof<DateTime> ->
+            tryTranslate paramName strExpr
+            |> Option.map (fun strH ->
+                let ambiguousExpr = PolarsWrapper.Lit "raise"
+                PolarsWrapper.StrToDatetime(
+                    e = strH,
+                    unit = PlTimeUnit.Microseconds,
+                    timeZone = null,
+                    format = null,
+                    strict = false,
+                    exact = false,
+                    cache = true,
+                    ambiguous = ambiguousExpr
+                ))
+
+        | "ParseExact", strExpr :: formatExpr :: _ when isNull target && m.DeclaringType = typeof<DateOnly> ->
+            match tryTranslate paramName strExpr, tryEvaluate formatExpr with
+            | Some strH, Some (:? string as netFormat) ->
+                let chronoFormat = DateTimeFormatHelper.ToChronoFormat netFormat
+                Some (PolarsWrapper.StrToDate(strH, chronoFormat, strict = false, exact = true, cache = true))
+            | _ -> None
+
         | "IsLeapYear", [ yearExpr ] when isNull target && m.DeclaringType = typeof<DateTime> ->
             tryTranslate paramName yearExpr
             |> Option.map (fun yearH ->

@@ -15,6 +15,7 @@
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="DuckDB.NET.Data.Full" Version="1.4.4" />
     <PackageReference Include="Google.Cloud.Storage.V1" Version="4.14.0" />
+    <PackageReference Include="linq2db" Version="6.5.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.4" />
     <PackageReference Include="Microsoft.ML" Version="5.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
@@ -37,7 +38,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Polars.CSharp\Polars.CSharp.csproj" />
-    <ProjectReference Include="..\Polars.NET.Linq\Polars.NET.Linq.csproj" />
+    <ProjectReference Include="..\Polars.NET.Linq.Provider\Polars.NET.Linq.Provider.fsproj" />
     <ProjectReference Include="..\Polars.NET.ML\Polars.NET.ML.csproj" />
   </ItemGroup>
 
