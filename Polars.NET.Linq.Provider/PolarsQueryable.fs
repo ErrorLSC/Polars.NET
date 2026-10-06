@@ -2410,9 +2410,6 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
             // Universal Select Projection Pushdown vs. Client Func Fallback
             | LinqStage.Project projLambda :: tail ->
-                // match PolarsQuery<'T>.CompileSelectProjection projLambda with
-                // | Some exprs when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                //     fuse tail (QueryOp.Select exprs :: opsAcc) clientPreds None
                 match PolarsQuery<'T>.TryCompileTransparentLet projLambda with
                 | Some withColOp when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                     fuse tail (withColOp :: opsAcc) clientPreds None

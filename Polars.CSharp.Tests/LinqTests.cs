@@ -4940,16 +4940,17 @@ public partial class LinqTests
         //   Row 1: 2.0 * 3.0 * 0.25 = 1.5
         //   Row 2: 3.0 * 0.25 = 0.75
         //   Row 3: 0.25
-        using var df = DataFrame.FromColumns([
-            Series.From("Name", ["A", "B", "C", "D"]),
-            Series.From("Factor", [0.5, 2.0, 3.0, 0.25])
+        using var df = DataFrame.FromRows([
+            new {Name = "A",Factor=0.5},
+            new {Name = "B",Factor=2.0},
+            new {Name = "C",Factor=3.0},
+            new {Name = "D",Factor=0.25}
         ]);
 
         var results = df.AsQueryable<ProductMetric>()
             .Select(x => new
-            {
-                x.Name,
-                x.Factor,
+            {   
+                x,
                 RunningProd = x.Factor.CumProd(),
                 ReverseRunningProd = x.Factor.CumProd(reverse: true)
             })
