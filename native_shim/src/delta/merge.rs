@@ -7,9 +7,8 @@ use polars_buffer::Buffer;
 use rand::RngExt;
 use roaring::RoaringBitmap;
 use url::Url;
-use deltalake::{DeltaTable, Path, table::state::DeltaTableState};
+use deltalake::{DeltaTable, Path, parquet::file::metadata::ParquetMetaDataReader, table::state::DeltaTableState};
 use deltalake::kernel::{Action, Add, Remove, scalars::ScalarExt};
-use deltalake::parquet::arrow::async_reader::{AsyncFileReader, ParquetObjectReader};
 use deltalake::protocol::{DeltaOperation};
 use deltalake::logstore::object_store::ObjectStoreExt;
 use uuid::Uuid;
@@ -1092,17 +1091,29 @@ pub async fn phase_process_staging(
 
             async move {
                 let src_path_str = meta.location.to_string();
-                let file_size = meta.size as i64;
+            // ---------------------------------------------------------
+            // A. Read Parquet Footer (IO - Small Read)
+            // ---------------------------------------------------------
+                let file_size = meta.size as usize;
+                let prefetch_size = 64 * 1024.min(file_size);
+                let start = file_size.saturating_sub(prefetch_size);
 
-                // ---------------------------------------------------------
-                // A. Read Parquet Footer (IO - Small Read)
-                // ---------------------------------------------------------
-                let mut reader = ParquetObjectReader::new(object_store.clone(), meta.location.clone())
-                    .with_file_size(meta.size as u64);
-                
-                let footer = reader.get_metadata(None).await
+                // Fetch the tail slice containing footer & metadata bytes
+                let footer_bytes = object_store
+                    .get_range(&meta.location, (start as u64)..(file_size as u64))
+                    .await
                     .map_err(|e| PolarsError::ComputeError(format!("Read parquet footer error: {}", e).into()))?;
-                
+
+                // Parse metadata using try_parse_sized with Bytes as ChunkReader
+                let mut reader = ParquetMetaDataReader::new();
+                reader
+                    .try_parse_sized(&footer_bytes, file_size as u64)
+                    .map_err(|e| PolarsError::ComputeError(format!("Parse parquet footer error: {}", e).into()))?;
+
+                let footer = reader
+                    .finish()
+                    .map_err(|e| PolarsError::ComputeError(format!("Finish parquet metadata read error: {}", e).into()))?;
+
                 // Extract Stats 
                 let (_, stats_json) = extract_delta_stats(&footer)?;
 
@@ -1132,7 +1143,7 @@ pub async fn phase_process_staging(
 
                 Ok::<Action, PolarsError>(Action::Add(Add {
                     path: dest_path_str,
-                    size: file_size,
+                    size: file_size as i64,
                     partition_values,
                     modification_time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64,
                     data_change: true, 
@@ -1251,6 +1262,7 @@ pub(crate) async fn phase_commit(
     let _commit_res = deltalake::kernel::transaction::CommitBuilder::default()
         .with_actions(actions)
         .with_app_metadata(crate::delta::utils::get_polars_net_metadata())
+        .with_max_retries(0)
         .build(
             Some(table.snapshot()?), 
             table.log_store().clone(),

@@ -126,7 +126,6 @@ pub(crate) fn sink_delta_internal(
     unified_args: UnifiedSinkArgs,
     mkdir: bool,
 ) -> PolarsResult<()> {
-    
     let rt = get_runtime();
     let write_id = Uuid::new_v4(); 
 
@@ -153,7 +152,7 @@ pub(crate) fn sink_delta_internal(
 
     // =========================================================
     // Phase 1: Physical Table Load, Mode Check & Partition Alignment
-    // =========================================================
+    // =========================================================);
     let (table, should_skip, final_partition_cols) = rt.block_on(
         phase_init_and_validate_sink(table_url, delta_opts, save_mode, partition_cols, &schema)
     )?;

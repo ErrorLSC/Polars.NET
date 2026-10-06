@@ -3,9 +3,10 @@ use polars::prelude::*;
 use polars::error::{PolarsError, PolarsResult};
 
 use crate::catalog::utils::get_catalog_table_info_and_options;
+use crate::pl_io::io_utils::build_unified_sink_args_from_map;
 use crate::utils::ptr_to_str;
 use crate::types::{LazyFrameContext, SelectorContext};
-use crate::pl_io::{io_utils::build_unified_sink_args, parquet::parquet_utils::build_parquet_write_options};
+use crate::pl_io::{parquet::parquet_utils::build_parquet_write_options};
 use crate::delta::utils::{build_delta_storage_options_map, get_runtime, map_savemode};
 use crate::delta::write::sink_delta_internal; 
 use super::ffi::CatalogContext;
@@ -70,15 +71,6 @@ pub extern "C" fn pl_sink_catalog_table(
             compression, compression_level, statistics, row_group_size, data_page_size, compat_level
         )?;
         let file_format = FileWriteFormat::Parquet(write_options_arc);
-        
-        let unified_args = unsafe {
-            build_unified_sink_args(
-                mkdir, maintain_order, sync_on_close,
-                cloud_provider, cloud_retries, cloud_retry_timeout_ms,
-                cloud_retry_init_backoff_ms, cloud_retry_max_backoff_ms, cloud_cache_ttl,
-                cloud_keys, cloud_values, cloud_len
-            )
-        };
 
         let rt = get_runtime();
 
@@ -89,6 +81,20 @@ pub extern "C" fn pl_sink_catalog_table(
             
             Ok::<(String, std::collections::HashMap<String, String>), PolarsError>((url.to_string(), options))
         })?;
+
+        let unified_args = build_unified_sink_args_from_map(
+            mkdir,
+            maintain_order,
+            sync_on_close,
+            cloud_provider,
+            cloud_retries,
+            cloud_retry_timeout_ms,
+            cloud_retry_init_backoff_ms,
+            cloud_retry_max_backoff_ms,
+            cloud_cache_ttl,
+            &final_options,
+        );
+        
         sink_delta_internal(
             lf_ctx.inner,
             schema,

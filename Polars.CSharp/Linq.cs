@@ -755,7 +755,7 @@ public static class LinqExtensions
     /// Computes the median value of the column.
     /// </summary>
     public static double? Median<T>(this T column) 
-        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions.");
+        => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
     /// Computes the quantile of the column with the specified probability and method.
@@ -764,7 +764,7 @@ public static class LinqExtensions
         this T column, 
         double quantile, 
         QuantileMethod method = QuantileMethod.Nearest) 
-        => throw new InvalidOperationException("This method is intended for use within Polars LINQ expressions.");
+        => throw MarkerExceptionHelper.Throw();
         
 }
 

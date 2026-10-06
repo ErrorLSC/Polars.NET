@@ -6,6 +6,7 @@ use polars_io::catalog::unity::schema::table_info_to_schemas;
 use crate::catalog::ffi::CatalogContext;
 use crate::catalog::utils::get_catalog_table_info_and_options;
 use crate::delta::utils::{build_delta_storage_options_map, get_runtime};
+use crate::pl_io::io_utils::build_cloud_options_from_map;
 use crate::pl_io::parquet::parquet_utils::build_scan_args;
 use crate::types::{LazyFrameContext, SchemaContext};
 use crate::utils::ptr_to_str;
@@ -39,7 +40,14 @@ pub extern "C" fn pl_scan_catalog_table(
         let table_name = ptr_to_str(table_name_ptr).unwrap();
 
         let base_options = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
+        let rt = get_runtime();
 
+        // 1. Query catalog metadata and resolve vended storage credentials (needs_write = false)
+        let (table_info, table_url, final_options) = rt.block_on(async {
+            get_catalog_table_info_and_options(ctx, catalog_name, schema_name, table_name, false, base_options).await
+        })?;
+
+        // 2. Build base scan arguments
         let mut args = build_scan_args(
             n_rows, parallel_code, low_memory, use_statistics, glob, true, 
             row_index_name_ptr, row_index_offset, include_path_col_ptr, schema_ptr, hive_partitioning,
@@ -48,17 +56,24 @@ pub extern "C" fn pl_scan_catalog_table(
             cloud_cache_ttl, cloud_keys, cloud_values, cloud_len
         );
 
-        let hive_schema_is_null = hive_schema_ptr.is_null();
-        let rt = get_runtime();
-
-        let (table_info, table_url, final_options) = rt.block_on(async {
-            get_catalog_table_info_and_options(ctx, catalog_name, schema_name, table_name, false, base_options).await
-        })?;
+        // 3. Inject the merged catalog credentials into args.cloud_options so Polars engine 
+        // can authenticate when reading Parquet data files during Collect()
+        args.cloud_options = build_cloud_options_from_map(
+            cloud_provider,
+            cloud_retries,
+            cloud_retry_timeout_ms,
+            cloud_retry_init_backoff_ms,
+            cloud_retry_max_backoff_ms,
+            cloud_cache_ttl,
+            &final_options,
+        );
 
         let (uc_schema, _uc_hive_schema) = table_info_to_schemas(&table_info)?;
         if args.schema.is_none() && uc_schema.is_some() {
             args.schema = uc_schema;
         }
+
+        let hive_schema_is_null = hive_schema_ptr.is_null();
 
         let final_lf = match table_info.data_source_format.as_ref() {
             Some(DataSourceFormat::Delta) => {

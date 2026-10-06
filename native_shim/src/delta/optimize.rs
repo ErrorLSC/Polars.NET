@@ -1,15 +1,35 @@
-use std::{collections::HashMap, ffi::c_char, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    collections::HashMap, 
+    ffi::c_char, 
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH}
+};
 use futures::StreamExt;
 use polars::prelude::*;
 use polars_buffer::Buffer;
 use rand::RngExt;
 use url::Url;
-use deltalake::{DeltaTable, PartitionFilter, PartitionValue, Path, kernel::scalars::ScalarExt, logstore::object_store::ObjectStoreExt};
-use deltalake::kernel::{Action, Add, Remove, transaction::CommitBuilder};
+use deltalake::{
+    DeltaTable, FilterOp, FilterValue, Path, 
+    kernel::scalars::ScalarExt, 
+    logstore::object_store::ObjectStoreExt,
+};
+use deltalake::kernel::{
+    Action, Add, Remove, 
+    transaction::CommitBuilder
+};
 use deltalake::protocol::DeltaOperation;
 use uuid::Uuid;
 
-use crate::{delta::{deletion_vector::{apply_deletion_vector, read_deletion_vector}, merge::phase_process_staging, utils::*}, pl_io::parquet::parquet_utils::build_parquet_write_options, utils::ptr_to_vec_string};
+use crate::{
+    delta::{
+        deletion_vector::{apply_deletion_vector, read_deletion_vector}, 
+        merge::phase_process_staging, 
+        utils::*
+    }, 
+    pl_io::parquet::parquet_utils::build_parquet_write_options, 
+    utils::ptr_to_vec_string
+};
 use crate::pl_io::io_utils::{build_cloud_options, build_unified_sink_args};
 use crate::utils::ptr_to_str;
 
@@ -20,11 +40,11 @@ use crate::utils::ptr_to_str;
 pub struct OptimizeContext {
     pub table_url: Url,
     pub target_size_bytes: i64,
-    pub partition_filters: Option<HashMap<String, String>>,// Optional filter
-    pub z_order_columns: Option<Vec<String>>
+    pub partition_filters: Option<HashMap<String, String>>,
+    pub z_order_columns: Option<Vec<String>>,
 }
 
-/// A bin means a separated optimize mission
+/// A bin represents an isolated optimization task within a single partition.
 #[derive(Debug, Clone)]
 struct OptimizeBin {
     pub partition_values: HashMap<String, Option<String>>, 
@@ -36,41 +56,32 @@ struct OptimizeBin {
 // Phase 1: Analysis (Bin-packing Strategy)
 // =========================================================
 
-/// Scan table to plan optimization bins
+/// Scan table to plan optimization bins.
 async fn phase_1_plan_bins(
     ctx: &OptimizeContext,
     table: &DeltaTable,
 ) -> PolarsResult<Vec<OptimizeBin>> {
-    
-    // =========================================================
-    // Build PartitionFilters
-    // =========================================================
     let mut filters = Vec::new();
+    
     if let Some(pf_map) = &ctx.partition_filters {
         for (key, value) in pf_map {
-            filters.push(PartitionFilter {
-                key: key.clone(),
-                value: PartitionValue::Equal(value.clone()), 
-            });
+            filters.push((
+                key.as_str(),
+                FilterOp::Eq,
+                FilterValue::Scalar(value.as_str()),
+            ));
         }
     }
     
     // 1. Get active add actions
     let mut stream = table.get_active_add_actions_by_partitions(&filters);
-
-    // Key = Canonical Partition String
     let mut buckets: HashMap<String, Vec<Add>> = HashMap::new();
-
     let min_rewrite_threshold = ctx.target_size_bytes / 2;
 
     while let Some(view_res) = stream.next().await {
         let view = view_res.map_err(|e| PolarsError::ComputeError(format!("Delta stream error: {}", e).into()))?;
         
-        // =========================================================
-        // Build Partition values map
-        // =========================================================
         let mut partition_values_map = HashMap::new();
-        
         if let Some(struct_data) = view.partition_values() {
             let fields = struct_data.fields();
             let values = struct_data.values();
@@ -85,10 +96,6 @@ async fn phase_1_plan_bins(
                 partition_values_map.insert(name, value);
             }
         }
-
-        // =========================================================
-        // Conversion to Add Action
-        // =========================================================
 
         let dv_descriptor = view.deletion_vector_descriptor();
 
@@ -106,24 +113,26 @@ async fn phase_1_plan_bins(
             clustering_provider: None,
         };
 
-        // =========================================================
-        // Small Files OR Dirty Files
-        // =========================================================
+        // Candidates: Small files, dirty files with DVs, or targets for Z-ordering.
         let is_small_file = add.size < min_rewrite_threshold;
         let has_dv = dv_descriptor.is_some();
+        let is_zorder_target = ctx.z_order_columns.is_some();
 
-        if !is_small_file && !has_dv {
+        if !is_small_file && !has_dv && !is_zorder_target {
             continue;
         }
 
-        // Generate partition Key
         let part_key = if add.partition_values.is_empty() {
             "__unpartitioned__".to_string()
         } else {
             let mut keys: Vec<&String> = add.partition_values.keys().collect();
             keys.sort();
             keys.iter().map(|k| {
-                format!("{}={}", k, add.partition_values.get(*k).unwrap_or(&Some("null".into())).as_deref().unwrap_or("null"))
+                format!(
+                    "{}={}", 
+                    k, 
+                    add.partition_values.get(*k).unwrap_or(&Some("null".into())).as_deref().unwrap_or("null")
+                )
             }).collect::<Vec<_>>().join("/")
         };
 
@@ -132,27 +141,28 @@ async fn phase_1_plan_bins(
 
     // Bin-packing (Greedy)
     let mut final_tasks = Vec::new();
-
     let max_bin_size = (ctx.target_size_bytes as f64 * 1.2) as i64;
     
     for (_part_key, mut files) in buckets {
-        if files.is_empty() { continue; }
+        if files.is_empty() { 
+            continue; 
+        }
 
         files.sort_by_key(|f| f.size);
-        
-        // Get Partition Values
         let partition_values = files[0].partition_values.clone();
 
-        let mut current_bin_files = Vec::new();
+        // Explicitly annotate Vec<Add> to resolve E0282 type inference issues
+        let mut current_bin_files: Vec<Add> = Vec::new();
         let mut current_bin_size = 0;
 
         for file in files {
-            // Greedy：if current bin size + current file size > target size -> close bin
             if current_bin_size > 0 && (current_bin_size + file.size) > max_bin_size {
-                
-                // Write Amplification Check
-                // Only files >1 in bin
-                if current_bin_files.len() > 1 {
+                // Files with DVs must be rewritten even if solitary to purge the DV
+                let should_rewrite = current_bin_files.len() > 1 
+                    || current_bin_files.iter().any(|f: &Add| f.deletion_vector.is_some())
+                    || ctx.z_order_columns.is_some();
+
+                if should_rewrite {
                     final_tasks.push(OptimizeBin {
                         partition_values: partition_values.clone(), 
                         files: std::mem::take(&mut current_bin_files), 
@@ -171,9 +181,13 @@ async fn phase_1_plan_bins(
 
         // Handle Residual Bin
         if !current_bin_files.is_empty() {
-            if current_bin_files.len() > 1 {
+            let should_rewrite = current_bin_files.len() > 1 
+                || current_bin_files.iter().any(|f: &Add| f.deletion_vector.is_some())
+                || ctx.z_order_columns.is_some();
+
+            if should_rewrite {
                 final_tasks.push(OptimizeBin {
-                    partition_values: partition_values, 
+                    partition_values, 
                     files: current_bin_files,
                     total_size: current_bin_size,
                 });
@@ -194,8 +208,6 @@ fn phase_2_execute_rewrite(
     bin: &OptimizeBin,
     cloud_args: &RawCloudArgs,
 ) -> PolarsResult<(String, Uuid)> {
-    
-    // 1. Setup Identity
     let write_id = Uuid::new_v4();
     let staging_dir_name = format!(".optimize_staging_{}", write_id);
     let root_trimmed = ctx.table_url.as_str().trim_end_matches('/');
@@ -207,13 +219,8 @@ fn phase_2_execute_rewrite(
         bin.total_size as f64 / 1024.0 / 1024.0
     );
 
-    // =========================================================
-    // 2. Construct Reader (Handling Deletion Vectors)
-    // =========================================================
-    let has_dv = bin.files.iter().any(|f| f.deletion_vector.is_some());
-
-    // Build ScanArgs
-    let make_scan_args = || unsafe {
+    // Build ScanArgs with optional row_index tracking for DV filtering
+    let make_scan_args = |with_row_index: bool| unsafe {
         let mut args = ScanArgsParquet::default();
         args.hive_options = HiveOptions {
             enabled: Some(true), 
@@ -229,8 +236,7 @@ fn phase_2_execute_rewrite(
         args.low_memory = true;
         args.rechunk = false;
         
-        // If has DV, turn on row index
-        if has_dv {
+        if with_row_index {
             args.row_index = Some(RowIndex { 
                 name: "__row_index".into(), 
                 offset: 0 
@@ -240,18 +246,16 @@ fn phase_2_execute_rewrite(
         args
     };
 
+    let has_dv = bin.files.iter().any(|f| f.deletion_vector.is_some());
+
     let mut lf = if !has_dv {
-        // ---------------------------------------------------------
-        // Scenario A: Fast Path (No DVs in this bin)
-        // ---------------------------------------------------------
+        // Fast Path: no DVs in this bin, read all files directly
         let full_paths: Vec<PlRefPath> = bin.files.iter()
             .map(|f| PlRefPath::new(format!("{}/{}", root_trimmed, f.path)))
             .collect();
-        LazyFrame::scan_parquet_files(Buffer::from(full_paths), make_scan_args())?
+        LazyFrame::scan_parquet_files(Buffer::from(full_paths), make_scan_args(false))?
     } else {
-        // ---------------------------------------------------------
-        // Scenario B: Slow Path (DVs present, need filtering)
-        // ---------------------------------------------------------
+        // Slow Path: separate clean files from dirty files to apply DV masks
         let mut lfs = Vec::new();
         let mut clean_paths = Vec::new();
         let mut dirty_files = Vec::new();
@@ -264,17 +268,17 @@ fn phase_2_execute_rewrite(
             }
         }
 
-        // Read Clean files
+        // Read Clean files without row index overhead
         if !clean_paths.is_empty() {
             let pl_paths: Vec<PlRefPath> = clean_paths.iter().map(|s| PlRefPath::new(s)).collect();
-            lfs.push(LazyFrame::scan_parquet_files(Buffer::from(pl_paths), make_scan_args())?);
+            lfs.push(LazyFrame::scan_parquet_files(Buffer::from(pl_paths), make_scan_args(false))?);
         }
 
-        // Read Dirty files then filter with DV
+        // Read Dirty files and apply DV filters
         if !dirty_files.is_empty() {
             let rt = get_runtime();
             let object_store = table.object_store();
-            let table_root = Path::from(root_trimmed);
+            let table_prefix = ctx.table_url.path().trim_matches('/');
 
             let dirty_lfs = rt.block_on(async {
                 let mut processed = Vec::with_capacity(dirty_files.len());
@@ -283,14 +287,80 @@ fn phase_2_execute_rewrite(
                     
                     let mut single_lf = LazyFrame::scan_parquet(
                         PlRefPath::new(&full_path), 
-                        make_scan_args()
+                        make_scan_args(true)
                     )?;
 
-                    // Apply DV
+                    // Apply DV bitmap with multi-candidate path resolution
                     if let Some(dv) = &f.deletion_vector {
-                        let bitmap = read_deletion_vector(object_store.clone(), dv, &table_root).await?;
+                        let raw_dv_path = dv.path_or_inline_dv.trim_matches('/');
+                        let mut candidates: Vec<(deltalake::kernel::DeletionVectorDescriptor, Path)> = Vec::new();
+
+                        // Candidate 1: Full URI path (Matches "s3:/bucket/table_prefix" in object store)
+                        candidates.push((dv.clone(), Path::from(root_trimmed)));
+
+                        // Candidate 2: Direct path from table root (Relative to table root: "")
+                        candidates.push((dv.clone(), Path::from("")));
+
+                        // Candidate 3: Prepending table_prefix (Relative to bucket: "table_prefix")
+                        if !table_prefix.is_empty() {
+                            candidates.push((dv.clone(), Path::from(table_prefix)));
+                        }
+
+                        // Candidate 4: Partition-aware subdirectories if data file is partitioned
+                        if let Some(idx) = f.path.rfind('/') {
+                            let parent_dir = &f.path[..idx];
+                            candidates.push((dv.clone(), Path::from(format!("{}/{}", root_trimmed, parent_dir))));
+                            candidates.push((dv.clone(), Path::from(parent_dir)));
+                            if !table_prefix.is_empty() {
+                                candidates.push((dv.clone(), Path::from(format!("{}/{}", table_prefix, parent_dir))));
+                            }
+                        }
+
+                        // Candidate 5: Stripping table_prefix if already embedded in raw_dv_path
+                        if !table_prefix.is_empty() {
+                            let prefix_slash = format!("{}/", table_prefix);
+                            if let Some(stripped) = raw_dv_path.strip_prefix(&prefix_slash) {
+                                let mut stripped_dv = dv.clone();
+                                stripped_dv.path_or_inline_dv = stripped.to_string();
+                                candidates.push((stripped_dv.clone(), Path::from("")));
+                                candidates.push((stripped_dv, Path::from(root_trimmed)));
+                            }
+                        }
+
+                        let mut bitmap_opt = None;
+                        let mut last_err = None;
+
+                        for (cand_dv, cand_root) in &candidates {
+                            match read_deletion_vector(object_store.clone(), cand_dv, cand_root).await {
+                                Ok(bm) => {
+                                    bitmap_opt = Some(bm);
+                                    break;
+                                }
+                                Err(e) => {
+                                    last_err = Some(e);
+                                }
+                            }
+                        }
+
+                        let bitmap = match bitmap_opt {
+                            Some(bm) => bm,
+                            None => return Err(last_err.unwrap_or_else(|| {
+                                PolarsError::ComputeError(format!("Failed to locate DV file '{}' across candidates", raw_dv_path).into())
+                            })),
+                        };
+
                         single_lf = apply_deletion_vector(single_lf, bitmap)?;
                     }
+
+                    // Drop auxiliary row index and file path columns immediately to align schemas
+                    single_lf = single_lf.drop(Selector::ByName { 
+                        names: Arc::from(vec![
+                            PlSmallStr::from_static("__row_index"),
+                            PlSmallStr::from_static("__file_path")
+                        ]),
+                        strict: false 
+                    });
+
                     processed.push(single_lf);
                 }
                 Ok::<_, PolarsError>(processed)
@@ -299,23 +369,16 @@ fn phase_2_execute_rewrite(
         }
 
         let args = UnionArgs {
-            parallel: true, rechunk: false, to_supertypes: true, diagonal: true, ..Default::default()
+            parallel: true, 
+            rechunk: false, 
+            to_supertypes: true, 
+            diagonal: true, 
+            ..Default::default()
         };
         polars::prelude::concat(lfs, args)?
     };
 
-    // Drop row index column
-    if has_dv {
-        lf = lf.drop(Selector::ByName { 
-            names: Arc::from(vec![PlSmallStr::from_static("__row_index"),
-                PlSmallStr::from_static("__file_path")]),
-            strict: false 
-        });
-    }
-
-    // =========================================================
-    // 3. Transformations (Z-Order & Partitions)
-    // =========================================================
+    // Transformations (Z-Order & Partitions)
     if let Some(z_cols) = &ctx.z_order_columns {
         lf = crate::delta::zorder::apply_z_order(lf, z_cols)?;
     }
@@ -331,9 +394,7 @@ fn phase_2_execute_rewrite(
         });
     }
 
-    // =========================================================
-    // 4. Sink to Staging
-    // =========================================================
+    // Physical Sink to Staging
     let mut part_path = String::new();
     if !bin.partition_values.is_empty() {
         let mut entries: Vec<(&String, &Option<String>)> = bin.partition_values.iter().collect();
@@ -372,7 +433,7 @@ fn phase_2_execute_rewrite(
 }
 
 // =========================================================
-// Phase 3: Commit (Transaction)
+// Phase 3: Commit (Transaction with OCC Pre-Validation)
 // =========================================================
 
 async fn phase_3_commit_optimize(
@@ -381,10 +442,9 @@ async fn phase_3_commit_optimize(
     staging_dir: &str,
     write_id: Uuid,
 ) -> Result<(), deltalake::errors::DeltaTableError> {
-    
     let partition_cols: Vec<String> = bin.partition_values.keys().cloned().collect();
     
-    let new_add_actions = phase_process_staging(
+    let mut new_add_actions = phase_process_staging(
         table, 
         staging_dir, 
         &partition_cols, 
@@ -395,6 +455,44 @@ async fn phase_3_commit_optimize(
         let object_store = table.object_store();
         let _ = object_store.delete(&Path::from(staging_dir)).await;
         return Ok(());
+    }
+
+    // Explicitly mark all newly generated Add actions with data_change = false for compaction
+    for action in &mut new_add_actions {
+        if let Action::Add(add) = action {
+            add.data_change = false;
+        }
+    }
+
+    // Refresh table state to check for concurrent modifications on files scheduled for removal
+    table.update_state().await?;
+
+    let mut active_files_stream = table.get_active_add_actions_by_partitions(&[]);
+    let mut active_files_map: HashMap<String, Option<deltalake::kernel::DeletionVectorDescriptor>> = HashMap::new();
+    while let Some(view_res) = active_files_stream.next().await {
+        let view = view_res?;
+        active_files_map.insert(
+            view.path().to_string(), 
+            view.deletion_vector_descriptor()
+        );
+    }
+
+    // OCC Conflict Check: abort if any file in bin was removed or modified with a new DV concurrently
+    for f in &bin.files {
+        match active_files_map.get(&f.path) {
+            None => {
+                let object_store = table.object_store();
+                let _ = object_store.delete(&Path::from(staging_dir)).await;
+                return Err(deltalake::errors::DeltaTableError::VersionAlreadyExists(0));
+            }
+            Some(current_dv) => {
+                if current_dv != &f.deletion_vector {
+                    let object_store = table.object_store();
+                    let _ = object_store.delete(&Path::from(staging_dir)).await;
+                    return Err(deltalake::errors::DeltaTableError::VersionAlreadyExists(0));
+                }
+            }
+        }
     }
 
     let remove_actions: Vec<Action> = bin.files.iter().map(|f| {
@@ -496,10 +594,8 @@ pub(crate) fn optimize_delta_internal(
                         .map_err(|e| PolarsError::ComputeError(format!("Reload table failed: {}", e).into()))?;
                 },
                 Err(deltalake::errors::DeltaTableError::CommitValidation { .. }) 
-                // | Err(deltalake::errors::DeltaTableError::Generic{ .. })
                 | Err(deltalake::errors::DeltaTableError::VersionAlreadyExists(_)) 
                 | Err(deltalake::errors::DeltaTableError::Transaction { .. }) => {
-
                     rt.block_on(async {
                         let os = table.object_store();
                         let _ = os.delete(&Path::from(staging_dir_fail_safe.as_str())).await;
@@ -541,7 +637,15 @@ pub extern "C" fn pl_io_delta_optimize(
     filter_json_ptr: *const c_char,
     z_order_cols_ptr: *const *const c_char,
     z_order_len: usize,
-    cloud_provider: u8, cloud_retries: usize, cloud_retry_timeout_ms: u64, cloud_retry_init_backoff_ms: u64, cloud_retry_max_backoff_ms: u64, cloud_cache_ttl: u64, cloud_keys: *const *const c_char, cloud_values: *const *const c_char, cloud_len: usize,
+    cloud_provider: u8, 
+    cloud_retries: usize, 
+    cloud_retry_timeout_ms: u64, 
+    cloud_retry_init_backoff_ms: u64, 
+    cloud_retry_max_backoff_ms: u64, 
+    cloud_cache_ttl: u64, 
+    cloud_keys: *const *const c_char, 
+    cloud_values: *const *const c_char, 
+    cloud_len: usize,
     out_num_files_optimized: *mut usize,
 ) {
     ffi_try_void!({
@@ -551,16 +655,22 @@ pub extern "C" fn pl_io_delta_optimize(
         
         let partition_filters = if !filter_json_ptr.is_null() {
             let json_str = ptr_to_str(filter_json_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
-            if json_str.trim().is_empty() { None } else {
+            if json_str.trim().is_empty() { 
+                None 
+            } else {
                 let map: HashMap<String, String> = serde_json::from_str(json_str)
                     .map_err(|e| PolarsError::ComputeError(format!("Invalid filter JSON: {}", e).into()))?;
                 Some(map)
             }
-        } else { None };
+        } else { 
+            None 
+        };
         
         let z_order_columns = if z_order_len > 0 && !z_order_cols_ptr.is_null() {
             unsafe { Some(ptr_to_vec_string(z_order_cols_ptr, z_order_len)) }
-        } else { None };
+        } else { 
+            None 
+        };
 
         let ctx = OptimizeContext {
             table_url,
@@ -569,7 +679,17 @@ pub extern "C" fn pl_io_delta_optimize(
             z_order_columns,
         };
 
-        let cloud_args = RawCloudArgs { provider: cloud_provider, retries: cloud_retries, retry_timeout_ms: cloud_retry_timeout_ms, retry_init_backoff_ms: cloud_retry_init_backoff_ms, retry_max_backoff_ms: cloud_retry_max_backoff_ms, cache_ttl: cloud_cache_ttl, keys: cloud_keys, values: cloud_values, len: cloud_len };
+        let cloud_args = RawCloudArgs { 
+            provider: cloud_provider, 
+            retries: cloud_retries, 
+            retry_timeout_ms: cloud_retry_timeout_ms, 
+            retry_init_backoff_ms: cloud_retry_init_backoff_ms, 
+            retry_max_backoff_ms: cloud_retry_max_backoff_ms, 
+            cache_ttl: cloud_cache_ttl, 
+            keys: cloud_keys, 
+            values: cloud_values, 
+            len: cloud_len 
+        };
 
         let total_optimized = optimize_delta_internal(ctx, delta_storage_options, cloud_args)?;
 

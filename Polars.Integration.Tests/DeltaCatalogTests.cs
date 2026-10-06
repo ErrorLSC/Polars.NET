@@ -178,7 +178,11 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
 
-        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        // var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        var cloudOptions = CloudOptions.Aws(
+                region: _minio.Region, 
+                endpoint: polarsEndpoint
+            );
         cloudOptions.Credentials!["aws_allow_http"] = "true";
         cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
 
@@ -761,7 +765,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
 
-        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint,accessKey: _minio.AccessKey,secretKey: _minio.SecretKey);
         cloudOptions.Credentials!["aws_allow_http"] = "true";
         cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
         cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
@@ -888,7 +892,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         
         using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
         using var resultDf = resultLf.Collect().Sort("Id");
-
+        
         Assert.Equal(100, resultDf.Height);
 
         var remainingIds = resultDf["Id"].ToArray<int>();
@@ -979,7 +983,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
 
-        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint,accessKey: _minio.AccessKey,secretKey: _minio.SecretKey);
         cloudOptions.Credentials!["aws_allow_http"] = "true";
         cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
         cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
@@ -1034,7 +1038,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
 
-        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint,accessKey: _minio.AccessKey,secretKey: _minio.SecretKey);
         cloudOptions.Credentials!["aws_allow_http"] = "true";
         cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
         cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
@@ -1102,7 +1106,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
 
-        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint,accessKey: _minio.AccessKey,secretKey: _minio.SecretKey);
         cloudOptions.Credentials!["aws_allow_http"] = "true";
         cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
         cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
@@ -1210,10 +1214,11 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
 
-        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint,accessKey: _minio.AccessKey,secretKey: _minio.SecretKey);
         cloudOptions.Credentials!["aws_allow_http"] = "true";
         cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
         cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
+        
 
         using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
 

@@ -1,4 +1,5 @@
 use std::ffi::c_char;
+use futures::TryStreamExt;
 use polars::error::PolarsError;
 use polars::error::PolarsResult;
 
@@ -138,34 +139,54 @@ pub extern "C" fn pl_catalog_delta_restore(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_catalog_delta_history(
     ctx_ptr: *mut CatalogContext,
-    catalog_name_ptr: *const c_char, schema_name_ptr: *const c_char, table_name_ptr: *const c_char,
-    limit: usize, 
-    cloud_keys: *const *const c_char, cloud_values: *const *const c_char, cloud_len: usize,
-    out_json_ptr: *mut *mut c_char, 
+    catalog_name_ptr: *const c_char,
+    schema_name_ptr: *const c_char,
+    table_name_ptr: *const c_char,
+    limit: usize,
+    cloud_keys: *const *const c_char,
+    cloud_values: *const *const c_char,
+    cloud_len: usize,
+    out_json_ptr: *mut *mut c_char,
 ) {
     ffi_try_void!({
         let ctx = unsafe { &*ctx_ptr };
         let catalog_name = ptr_to_str(catalog_name_ptr).unwrap().to_string();
         let schema_name = ptr_to_str(schema_name_ptr).unwrap().to_string();
         let table_name = ptr_to_str(table_name_ptr).unwrap().to_string();
-        
+
         let base_options = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
         let rt = get_runtime();
 
         let json_string = rt.block_on(async {
-            let (table, _,_) = load_catalog_table(ctx, &catalog_name, &schema_name, &table_name, false, base_options).await?;
+            let (table, _, _) = load_catalog_table(
+                ctx,
+                &catalog_name,
+                &schema_name,
+                &table_name,
+                false,
+                base_options,
+            )
+            .await?;
 
             let limit_opt = if limit == 0 { None } else { Some(limit) };
-            let history_iter = table.history(limit_opt).await
+
+            // delta-rs 1.0: history() is synchronous and returns a Stream of DeltaResult<CommitInfo>
+            let history_stream = table.history(limit_opt);
+
+            // Asynchronously collect the stream elements into a Vec<CommitInfo>
+            let commits: Vec<_> = history_stream
+                .try_collect()
+                .await
                 .map_err(|e| PolarsError::ComputeError(format!("Failed to get history: {}", e).into()))?;
 
-            let commits: Vec<_> = history_iter.collect();
             serde_json::to_string(&commits)
                 .map_err(|e| PolarsError::ComputeError(format!("Failed to serialize history: {}", e).into()))
         })?;
 
         let c_str = std::ffi::CString::new(json_string).unwrap();
-        unsafe { *out_json_ptr = c_str.into_raw(); }
+        unsafe {
+            *out_json_ptr = c_str.into_raw();
+        }
         Ok(())
     })
 }

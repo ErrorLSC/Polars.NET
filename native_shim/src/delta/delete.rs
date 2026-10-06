@@ -1,10 +1,9 @@
 use std::{cmp::Ordering, collections::HashMap, ffi::c_char, time::{SystemTime, UNIX_EPOCH}};
 
 use chrono::{NaiveDate, TimeDelta, Utc};
-use deltalake::{DeltaTable, DeltaTableError, ObjectStore, kernel::{DeletionVectorDescriptor, StorageType}, table::state::DeltaTableState}; 
+use deltalake::{DeltaTable, DeltaTableError, ObjectStore, kernel::{DeletionVectorDescriptor, StorageType}, parquet::file::metadata::ParquetMetaDataReader, table::state::DeltaTableState}; 
 use deltalake::kernel::{Action, Add, Remove};
 use deltalake::kernel::transaction::CommitBuilder;
-use deltalake::parquet::arrow::async_reader::{AsyncFileReader, ParquetObjectReader};
 use deltalake::protocol::DeltaOperation;
 use deltalake::logstore::object_store::ObjectStoreExt;
 use futures::StreamExt;
@@ -556,14 +555,33 @@ pub fn execute_copy_on_write(
     let rt = get_runtime();
     let (file_size, stats_json) = rt.block_on(async {
         let path = deltalake::Path::from(relative_new_path.clone());
-        let meta = ctx.object_store.head(&path).await
-                .map_err(|e| PolarsError::ComputeError(format!("Head error: {}", e).into()))?;
-        
-        let mut reader = ParquetObjectReader::new(ctx.object_store.clone(), path.clone())
-                .with_file_size(meta.size as u64);
-        let footer = reader.get_metadata(None).await
-                .map_err(|e| PolarsError::ComputeError(format!("Footer error: {}", e).into()))?;
-        
+        let meta = ctx
+            .object_store
+            .head(&path)
+            .await
+            .map_err(|e| PolarsError::ComputeError(format!("Head error: {}", e).into()))?;
+
+        let file_size = meta.size as usize;
+        let prefetch_size = 64 * 1024.min(file_size);
+        let start = file_size.saturating_sub(prefetch_size);
+
+        // Read parquet footer bytes directly from object store
+        let footer_bytes = ctx
+            .object_store
+            .get_range(&path, (start as u64)..(file_size as u64))
+            .await
+            .map_err(|e| PolarsError::ComputeError(format!("Footer read error: {}", e).into()))?;
+
+        // Parse parquet metadata using try_parse_sized
+        let mut reader = ParquetMetaDataReader::new();
+        reader
+            .try_parse_sized(&footer_bytes, file_size as u64)
+            .map_err(|e| PolarsError::ComputeError(format!("Footer parse error: {}", e).into()))?;
+
+        let footer = reader
+            .finish()
+            .map_err(|e| PolarsError::ComputeError(format!("Footer finish error: {}", e).into()))?;
+
         let (_, json) = extract_delta_stats(&footer)?;
         Ok::<_, PolarsError>((meta.size as i64, json))
     })?;
@@ -838,6 +856,7 @@ pub(crate) fn delete_delta_internal(
             CommitBuilder::default()
                 .with_actions(actions_to_commit)
                 .with_app_metadata(crate::delta::utils::get_polars_net_metadata())
+                .with_max_retries(0)
                 .build(
                     Some(t.snapshot().map_err(|e| DeltaTableError::Generic(e.to_string()))?),
                     t.log_store().clone(),

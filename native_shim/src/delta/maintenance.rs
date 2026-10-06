@@ -3,6 +3,7 @@ use chrono::Utc;
 use deltalake::DeltaTable;
 use deltalake::kernel::TableFeatures;
 use deltalake::operations::vacuum::VacuumMode;
+use futures::TryStreamExt;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::ffi::c_char;
@@ -154,6 +155,7 @@ pub extern "C" fn pl_io_delta_restore(
         Ok(())
     })
 }
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_io_delta_history(
     table_path_ptr: *const c_char,
@@ -182,13 +184,16 @@ pub extern "C" fn pl_io_delta_history(
             // limit: 0 => None, >0 => Some(limit)
             let limit_opt = if limit == 0 { None } else { Some(limit) };
 
-            let history_iter = table.history(limit_opt).await
+            // In delta-rs 1.0, history() is synchronous and returns a Stream of DeltaResult<CommitInfo>
+            let history_stream = table.history(limit_opt);
+
+            // Asynchronously collect CommitInfo items from the stream
+            let commits: Vec<_> = history_stream
+                .try_collect()
+                .await
                 .map_err(|e| PolarsError::ComputeError(format!("Failed to get history: {}", e).into()))?;
 
-            // Gather CommitInfo
-            let commits: Vec<_> = history_iter.collect();
-
-            // Serilize JSON 
+            // Serialize JSON 
             serde_json::to_string(&commits)
                 .map_err(|e| PolarsError::ComputeError(format!("Failed to serialize history: {}", e).into()))
         })?;
