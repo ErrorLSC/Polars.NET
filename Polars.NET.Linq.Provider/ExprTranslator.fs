@@ -1231,3 +1231,108 @@ module internal rec ExprTranslator =
             | _ -> None
         with _ ->
             None
+
+    // =========================================================================
+    // 10. Merge-Specific Binary-Parameter Translation Extensions
+    // =========================================================================
+
+    /// Resolves column name from a MemberAccess expression matching either target or source parameter,
+    /// appending the sourceSuffix when referencing the source parameter.
+    let rec internal tryResolveMergeColumnName
+        (targetParam: string)
+        (sourceParam: string)
+        (sourceSuffix: string)
+        (expr: Expression) : string option =
+        match expr with
+        | MemberAccess(_, m) when isNavigationMember m ->
+            None
+
+        | MemberAccess(inner, m) ->
+            let rec checkOrigin (e: Expression) : (bool * bool) option =
+                match unwrap e with
+                | :? ParameterExpression as p when p.Name = targetParam ->
+                    Some (true, false) // IsTarget
+                | :? ParameterExpression as p when p.Name = sourceParam ->
+                    Some (false, true) // IsSource
+                | MemberAccess(nextInner, nextM) when isNavigationMember nextM ->
+                    checkOrigin nextInner
+                | _ -> None
+
+            match checkOrigin inner with
+            | Some (true, false) ->
+                Some m.Name
+            | Some (false, true) ->
+                Some (m.Name + sourceSuffix)
+            | _ ->
+                None
+
+        | _ -> None
+
+    /// Recursively translates expressions containing references to both target and source parameters.
+    let rec internal tryTranslateMergeCore
+        (targetParam: string)
+        (sourceParam: string)
+        (sourceSuffix: string)
+        (expr: Expression) : ExprHandle option =
+        try
+            match expr with
+            // 1. Column resolution with suffix differentiation
+            | MemberAccess _ as memberExpr ->
+                match tryResolveMergeColumnName targetParam sourceParam sourceSuffix memberExpr with
+                | Some colName -> Some (PolarsWrapper.Col colName)
+                | None ->
+                    // Fall back to constants, captured closures, math, temporal properties
+                    translateMemberAccess targetParam memberExpr
+
+            // 2. Binary operations
+            | Binary(op, left, right) ->
+                let tL = tryTranslateMergeCore targetParam sourceParam sourceSuffix left
+                let tR = tryTranslateMergeCore targetParam sourceParam sourceSuffix right
+                match tL, tR with
+                | Some l, Some r -> Some (translateBinary op l r)
+                | _ -> None
+
+            // 3. Unary operations & conversions
+            | Unary(op, operand) ->
+                tryTranslateMergeCore targetParam sourceParam sourceSuffix operand
+                |> Option.bind (fun opH ->
+                    match op with
+                    | ExpressionType.Convert
+                    | ExpressionType.ConvertChecked ->
+                        tryTranslateCast expr.Type opH
+                    | _ ->
+                        translateUnary op opH)
+
+            // 4. Conditional ternary (test ? true : false)
+            | :? ConditionalExpression as cond ->
+                match tryTranslateMergeCore targetParam sourceParam sourceSuffix cond.Test,
+                      tryTranslateMergeCore targetParam sourceParam sourceSuffix cond.IfTrue,
+                      tryTranslateMergeCore targetParam sourceParam sourceSuffix cond.IfFalse with
+                | Some testH, Some trueH, Some falseH ->
+                    Some (PolarsWrapper.IfElse(testH, trueH, falseH))
+                | _ -> None
+
+            // 5. Single parameter fallback (e.g. methods, constants)
+            | other ->
+                match tryTranslate targetParam other with
+                | Some h -> Some h
+                | None -> tryTranslate sourceParam other
+        with _ ->
+            None
+
+    /// Entry point for Polars.CSharp: Translates a two-parameter LambdaExpression ((target, source) => ...)
+    /// into a native Polars ExprHandle with source columns suffixed.
+    let internal tryTranslateMergeLambda (sourceSuffix: string) (lambda: LambdaExpression) : ExprHandle option =
+        if isNull lambda || lambda.Parameters.Count < 2 then None
+        else
+            let targetParam = lambda.Parameters.[0].Name
+            let sourceParam = lambda.Parameters.[1].Name
+            tryTranslateMergeCore targetParam sourceParam sourceSuffix lambda.Body
+
+    /// Entry point for Polars.CSharp: Translates a single-parameter source LambdaExpression (source => ...)
+    /// into a native Polars ExprHandle with all referenced columns suffixed.
+    let internal tryTranslateSourceOnlyLambda (sourceSuffix: string) (lambda: LambdaExpression) : ExprHandle option =
+        if isNull lambda || lambda.Parameters.Count < 1 then None
+        else
+            let sourceParam = lambda.Parameters.[0].Name
+            tryTranslateMergeCore "" sourceParam sourceSuffix lambda.Body

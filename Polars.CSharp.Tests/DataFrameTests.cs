@@ -6,6 +6,7 @@ using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Polars.NET.Core;
 using System.Text.Json;
+
 namespace Polars.CSharp.Tests;
 
 public class DataFrameTests
@@ -3109,7 +3110,7 @@ public class DataFrameTests
             totalSalary += emp.Salary;
             collectedNames.Add(emp.Name);
         });
-
+    
         Assert.Equal(3, rowCount);
         Assert.Equal(21000, totalSalary);
         Assert.Equal(["Alice", "Bob", "Charlie"], collectedNames);

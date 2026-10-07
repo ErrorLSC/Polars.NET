@@ -5121,4 +5121,279 @@ public partial class LinqTests
         Assert.Equal(215.0, msft.MedianPrice!.Value, precision: 4);
         Assert.Equal(207.5, msft.Q25Linear!.Value, precision: 4);
     }
+    public record ProductItem(int Id, string Category, double Price, bool IsDiscontinued);
+    [Fact]
+    [Trait("LINQ", "TypedMergeCondition")]
+    public void TypedMergeBuilder_WithComplexConditions_ShouldHandleFullDataLifecycle()
+    {
+        // Arrange: Prepare source and target DataFrames with strong typing
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3, 4, 5 },
+            Category = new[] { "Seasonal", "Core", "Core", "Tech", "Tech" },
+            Price = new[] { 10.0, 20.0, 30.0, 100.0, 200.0 },
+            IsDiscontinued = new[] { false, false, false, false, false }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 3, 4, 5, 6, 7 },
+            Category = new[] { "Core", "Tech", "Tech", "New", "Trash" },
+            Price = new[] { 30.0, 120.0, 190.0, 50.0, 0.0 },
+            IsDiscontinued = new[] { true, false, false, false, false }
+        });
+
+        // Act: Perform strongly-typed merge using C# expression trees
+        var resultDf = targetDf.AsQueryable<ProductItem>().Merge(sourceDf.AsQueryable<ProductItem>(), t => t.Id, s => s.Id)
+            // If matched and source item is discontinued, delete from target
+            .WhenMatched(
+                (t, s) => s.IsDiscontinued,
+                then => then.Delete()
+            )
+            // If matched and source price is higher, update target price
+            .WhenMatched(
+                (t, s) => s.Price > t.Price,
+                then => then.Update(set => set.Set(t => t.Price, (t, s) => s.Price))
+            )
+            // Insert new items from source if Price > 0.0
+            .WhenNotMatchedByTarget(
+                s => s.Price > 0.0,
+                then => then.Insert()
+            )
+            // If item missing in source and category is Seasonal, delete from target
+            .WhenNotMatchedBySource(
+                t => t.Category == "Seasonal",
+                then => then.Delete()
+            )
+            .ToDataFrame();
+
+        resultDf = resultDf.Sort("Id");
+
+        var idArray = resultDf["Id"].ToArray<int>();
+        var priceArray = resultDf["Price"].ToArray<double>();
+
+        // Assert: 
+        // Id 1 (Target): Seasonal item missed in source table -> WhenNotMatchedBySource Delete -> Deleted
+        // Id 2 (Target): Core item missed in source table -> Kept
+        // Id 3 (Both): Source IsDiscontinued=true -> WhenMatched Delete -> Deleted
+        // Id 4 (Both): Source Price(120) > Target Price(100) -> WhenMatched Update -> Price: 120.0
+        // Id 5 (Both): Source Price(190) < Target Price(200) -> Kept original price: 200.0
+        // Id 6 (Source): New Item in source and price(50) > 0 -> WhenNotMatchedByTarget Insert -> Inserted with 50.0
+        // Id 7 (Source): New Item in source but price(0) is invalid -> Discarded
+        Assert.Equal([2, 4, 5, 6], idArray);
+        Assert.Equal([20.0, 120.0, 200.0, 50.0], priceArray);
+    }
+
+    [Fact]
+    [Trait("LINQ", "TypedMergeToList")]
+    public void TypedMergeBuilder_ToList_ShouldMaterializeDirectlyToEntities()
+    {
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2 },
+            Category = new[] { "Core", "Tech" },
+            Price = new[] { 10.0, 100.0 },
+            IsDiscontinued = new[] { false, false }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 2, 3 },
+            Category = new[] { "Tech", "New" },
+            Price = new[] { 150.0, 60.0 },
+            IsDiscontinued = new[] { false, false }
+        });
+
+        // Act: Directly execute and materialize into strongly-typed POCOs/Records
+        List<ProductItem> resultList = targetDf.Merge<ProductItem, ProductItem, int>(sourceDf, t => t.Id, s => s.Id)
+            .WhenMatched(
+                (t, s) => s.Price > t.Price,
+                then => then.Update(set => set.Set(t => t.Price, (t, s) => s.Price))
+            )
+            .WhenNotMatchedByTarget(then => then.Insert())
+            .ToList();
+
+        var sortedList = resultList.OrderBy(x => x.Id).ToList();
+
+        // Assert
+        Assert.Equal(3, sortedList.Count);
+        Assert.Equal(1, sortedList[0].Id);
+        Assert.Equal(10.0, sortedList[0].Price);
+        Assert.Equal(2, sortedList[1].Id);
+        Assert.Equal(150.0, sortedList[1].Price);
+        Assert.Equal(3, sortedList[2].Id);
+        Assert.Equal(60.0, sortedList[2].Price);
+    }
+    public record OrderIdItem(int Id, string Name, double Price);
+    public record NullableRecord(int Id, string Description, double Price);
+
+    [Fact]
+    [Trait("LINQ", "Merge")]
+    public void TypedMerge_MaintainOrder_ShouldPreserveTargetRowOrder()
+    {
+        // Arrange: Target DataFrame has non-sequential Ids to verify relative order preservation
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 40, 10, 50, 20, 30 },
+            Name = new[] { "Item40", "Item10", "Item50", "Item20", "Item30" },
+            Price = new[] { 40.0, 10.0, 50.0, 20.0, 30.0 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 20, 99, 10 },
+            Name = new[] { "Updated20", "New99", "Updated10" },
+            Price = new[] { 25.0, 99.0, 15.0 }
+        });
+
+        // Act: Execute typed merge via IQueryable with JoinMaintainOrder.Left
+        var resultList = targetDf.AsQueryable<OrderIdItem>()
+            .Merge(sourceDf.AsQueryable<OrderIdItem>(), t => t.Id, s => s.Id)
+            .MaintainOrder(JoinMaintainOrder.Left)
+            .WhenMatched(then => then.Update(set => set
+                .Set(t => t.Name, (t, s) => s.Name)
+                .Set(t => t.Price, (t, s) => s.Price)))
+            .WhenNotMatchedByTarget(then => then.Insert())
+            .ToList();
+
+        // Assert: Target rows preserve original order (40, 10, 50, 20, 30) followed by newly inserted row (99)
+        var actualIds = resultList.Select(x => x.Id).ToArray();
+        Assert.Equal([40, 10, 50, 20, 30, 99], actualIds);
+
+        // Verify values were updated for matched rows
+        var item10 = resultList.Single(x => x.Id == 10);
+        Assert.Equal("Updated10", item10.Name);
+        Assert.Equal(15.0, item10.Price);
+
+        var item20 = resultList.Single(x => x.Id == 20);
+        Assert.Equal("Updated20", item20.Name);
+        Assert.Equal(25.0, item20.Price);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Merge")]
+    public void TypedMerge_IncludeNulls_ShouldControlNullOverwriteBehavior()
+    {
+        // Arrange: Target has existing descriptions; Source contains null and non-null updates
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2 },
+            Description = new[] { "Original1", "Original2" },
+            Price = new[] { 10.0, 20.0 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2 },
+            Description = new string[] { null, "Updated2" },
+            Price = new[] { 100.0, 200.0 }
+        });
+
+        // Act 1: Merge with IncludeNulls(false) (default: do not overwrite target with source nulls)
+        var withoutNullsList = targetDf.AsQueryable<NullableRecord>()
+            .Merge(sourceDf.AsQueryable<NullableRecord>(), t => t.Id, s => s.Id)
+            .IncludeNulls(false)
+            .WhenMatched(then => then.Update())
+            .ToList();
+
+        // Act 2: Merge with IncludeNulls(true) (explicitly allow nulls to overwrite target values)
+        var withNullsList = targetDf.AsQueryable<NullableRecord>()
+            .Merge(sourceDf.AsQueryable<NullableRecord>(), t => t.Id, s => s.Id)
+            .IncludeNulls(true)
+            .WhenMatched(then => then.Update())
+            .ToList();
+
+        // Assert 1: IncludeNulls(false) preserves original Description for Id 1 while updating Price
+        var item1WithoutNull = withoutNullsList.Single(x => x.Id == 1);
+        Assert.Equal("Original1", item1WithoutNull.Description);
+        Assert.Equal(100.0, item1WithoutNull.Price);
+
+        // Assert 2: IncludeNulls(true) overwrites target Description with null for Id 1
+        var item1WithNull = withNullsList.Single(x => x.Id == 1);
+        Assert.Null(item1WithNull.Description);
+        Assert.Equal(100.0, item1WithNull.Price);
+
+        // Id 2 has non-null update in source, so it is updated in both cases
+        Assert.Equal("Updated2", withoutNullsList.Single(x => x.Id == 2).Description);
+        Assert.Equal("Updated2", withNullsList.Single(x => x.Id == 2).Description);
+    }
+    [Fact]
+    [Trait("LINQ", "Merge")]
+    public void TypedMerge_LinqPipeline_EndToEnd_ShouldFilterMergeAndChainBackToLinq()
+    {
+        // Arrange: Prepare initial datasets
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Name = new[] { "Alice", "Bob", "Charlie", "David" },
+            Age = new[] { 30, 22, 35, 40 },
+            Salary = new[] { 5000, 4000, 6000, 7000 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Name = new[] { "Alice", "Bob", "Eve", "Frank" },
+            Age = new[] { 31, 23, 28, 20 },
+            Salary = new[] { 5500, 4800, 5200, 3000 }
+        });
+
+        // Step 1: Upstream LINQ queries on both sides before merge
+        // Target: Filter out Bob (Age 22 < 25) -> Alice(30, 5000), Charlie(35, 6000), David(40, 7000)
+        var targetQuery = targetDf.AsQueryable<Employee>()
+            .Where(e => e.Age >= 25);
+
+        // Source: Filter out Frank (Salary 3000 <= 3500) -> Alice(31, 5500), Bob(23, 4800), Eve(28, 5200)
+        var sourceQuery = sourceDf.AsQueryable<Employee>()
+            .Where(s => s.Salary > 3500);
+
+        // Act:
+        // Step 2: Merge the filtered queries
+        // Step 3: Call AsQueryable() to transition back to IQueryable<Employee>
+        // Step 4: Continue downstream LINQ pipeline (Where, OrderBy, ToList)
+        List<Employee> results = [.. targetQuery
+            .Merge(sourceQuery, t => t.Name, s => s.Name)
+            .WhenMatched(
+                (t, s) => s.Salary > t.Salary,
+                then => then.Update(set => set
+                    .Set(t => t.Salary, (t, s) => s.Salary)
+                    .Set(t => t.Age, (t, s) => s.Age))
+            )
+            .WhenNotMatchedByTarget(then => then.Insert())
+            .AsQueryable()                          // Seamlessly return to Polars IQueryable
+            .Where(e => e.Salary >= 5000)           // Downstream Polars native predicate pushdown
+            .OrderBy(e => e.Salary)];
+
+        // Assert:
+        // Pipeline trace:
+        // 1. Target kept: Alice(5000), Charlie(6000), David(7000). Bob was filtered before merge.
+        // 2. Source kept: Alice(5500), Bob(4800), Eve(5200). Frank was filtered before merge.
+        // 3. Merge:
+        //    - Alice: Matched, 5500 > 5000 -> Updated to (Alice, 31, 5500)
+        //    - Charlie: Not in source -> Kept as (Charlie, 35, 6000)
+        //    - David: Not in source -> Kept as (David, 40, 7000)
+        //    - Bob: Not matched in target (was filtered out upfront) -> Inserted as (Bob, 23, 4800)
+        //    - Eve: Not in target -> Inserted as (Eve, 28, 5200)
+        // 4. Downstream Where(e.Salary >= 5000):
+        //    - Bob(4800) is filtered out.
+        //    - Remaining: Eve(5200), Alice(5500), Charlie(6000), David(7000).
+        // 5. OrderBy(Salary):
+        //    - Eve(5200) -> Alice(5500) -> Charlie(6000) -> David(7000).
+
+        Assert.Equal(4, results.Count);
+
+        Assert.Equal("Eve", results[0].Name);
+        Assert.Equal(28, results[0].Age);
+        Assert.Equal(5200, results[0].Salary);
+
+        Assert.Equal("Alice", results[1].Name);
+        Assert.Equal(31, results[1].Age);
+        Assert.Equal(5500, results[1].Salary);
+
+        Assert.Equal("Charlie", results[2].Name);
+        Assert.Equal(35, results[2].Age);
+        Assert.Equal(6000, results[2].Salary);
+
+        Assert.Equal("David", results[3].Name);
+        Assert.Equal(40, results[3].Age);
+        Assert.Equal(7000, results[3].Salary);
+    }
 }
