@@ -5396,4 +5396,56 @@ public partial class LinqTests
         Assert.Equal(40, results[3].Age);
         Assert.Equal(7000, results[3].Salary);
     }
+    [Fact]
+    [Trait("LINQ", "Merge")]
+    public void TypedMerge_CompositeKeys_ShouldMatchOnMultipleColumns()
+    {
+
+        List<EmployeeDept> target = [
+            new EmployeeDept {Name="Alice",Department="IT",Age=30,Salary=6000},
+            new EmployeeDept {Name="Alice",Department="HR",Age=30,Salary=5000},
+            new EmployeeDept {Name="Bob",Department="IT",Age=25,Salary=4000}
+        ];
+
+        List<EmployeeDept> source = [
+            new EmployeeDept {Name="Alice",Department="IT",Age=31,Salary=7000},
+            new EmployeeDept {Name="Alice",Department="Sales",Age=30,Salary=5500},
+            new EmployeeDept {Name="Charlie",Department="IT",Age=28,Salary=4500}
+        ];
+
+        // Act: Multiple Keys
+        var resultList = target
+            .Merge(
+                source, 
+                t => new { t.Name, t.Department }, 
+                s => new { s.Name, s.Department }
+            )
+            .WhenMatched(
+                (t, s) => s.Salary > t.Salary,
+                then => then.Update(set => set
+                    .Set(t => t.Salary, (t, s) => s.Salary)
+                    .Set(t => t.Age, (t, s) => s.Age))
+            )
+            .WhenNotMatchedByTarget(then => then.Insert())
+            .ToList();
+
+        // Assert:
+        // 1. (Alice, IT): Matched => Salary 6000 -> 7000, Age 30 -> 31
+        // 2. (Alice, HR): Target only -> Keep (Alice, HR, 30, 5000)
+        // 3. (Bob, IT): Target only -> Keep (Bob, IT, 25, 4000)
+        // 4. (Alice, Sales): Source only -> Insert (Alice, Sales, 30, 5500)
+        // 5. (Charlie, IT): Source only -> Insert (Charlie, IT, 28, 4500)
+
+        Assert.Equal(5, resultList.Count);
+
+        var aliceIt = resultList.Single(x => x.Name == "Alice" && x.Department == "IT");
+        Assert.Equal(31, aliceIt.Age);
+        Assert.Equal(7000, aliceIt.Salary);
+
+        var aliceHr = resultList.Single(x => x.Name == "Alice" && x.Department == "HR");
+        Assert.Equal(5000, aliceHr.Salary);
+
+        var aliceSales = resultList.Single(x => x.Name == "Alice" && x.Department == "Sales");
+        Assert.Equal(5500, aliceSales.Salary);
+    }
 }

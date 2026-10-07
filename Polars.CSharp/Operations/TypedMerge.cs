@@ -1,10 +1,10 @@
-#pragma warning disable CS1591
 using System.Linq.Expressions;
 using Microsoft.FSharp.Core;
 using Polars.NET.Core;
 using Polars.CSharp.Linq;
 using Polars.NET.Linq.Provider;
 using Pl = Polars.CSharp.Polars;
+using Polars.NET.Core.Helpers;
 
 namespace Polars.CSharp;
 
@@ -379,22 +379,40 @@ public class TypedMergeBuilder<TTarget, TSource> : MergeBuilderBase<TypedMergeBu
 public static class TypedMergeExtensions
 {
     /// <summary>
-    /// Initiates a strongly-typed Merge builder directly from a target query.
-    /// Infers TTarget, TSource, and TKey automatically.
+    /// Uniformly extracts a LazyFrame from an IQueryable, converting in-memory sequences when necessary.
+    /// </summary>
+    private static LazyFrame ResolveLazyFrame<T>(IEnumerable<T> sequence)
+    {
+        // Branch 1: Native Polars-backed queryable
+        if (sequence is IPolarsPlanSource planSource)
+        {
+            return new LazyFrame(planSource.GetCompiledLazyFrameHandle());
+        }
+
+        // Branch 2: In-memory sequence (e.g., EnumerableQuery<T> from list.AsQueryable())
+        if (sequence is IEnumerable<T> inMemoryRows)
+        {
+            var df = DataFrame.FromRows(inMemoryRows);
+            return df.Lazy();
+        }
+
+        throw new NotSupportedException(
+            $"Queryable of type '{sequence.GetType().Name}' cannot be converted to a Polars LazyFrame. " +
+            $"Ensure it implements IPolarsPlanSource or IEnumerable<{typeof(T).Name}>.");
+    }
+    
+    /// <summary>
+    /// Initiates a strongly-typed Merge builder between two queries.
+    /// Supports both native Polars queries and in-memory collections.
     /// </summary>
     public static TypedMergeBuilder<TTarget, TSource> Merge<TTarget, TSource, TKey>(
-        this IQueryable<TTarget> target,
-        IQueryable<TSource> source,
+        this IEnumerable<TTarget> target,
+        IEnumerable<TSource> source,
         Expression<Func<TTarget, TKey>> targetKey,
         Expression<Func<TSource, TKey>> sourceKey)
     {
-        if (target is not IPolarsPlanSource targetPlan || source is not IPolarsPlanSource sourcePlan)
-        {
-            throw new InvalidOperationException("Both target and source queries must be backed by Polars IQueryable providers.");
-        }
-
-        var targetLf = new LazyFrame(targetPlan.GetCompiledLazyFrameHandle());
-        var sourceLf = new LazyFrame(sourcePlan.GetCompiledLazyFrameHandle());
+        var targetLf = ResolveLazyFrame(target);
+        var sourceLf = ResolveLazyFrame(source);
 
         string[] onKeys = ExtractKeyNames(targetKey, sourceKey);
         return new TypedMergeBuilder<TTarget, TSource>(targetLf, sourceLf, onKeys);
@@ -404,7 +422,7 @@ public static class TypedMergeExtensions
     /// Overload when target is queryable but source is directly a DataFrame/LazyFrame.
     /// </summary>
     public static TypedMergeBuilder<TTarget, TSource> Merge<TTarget, TSource, TKey>(
-        this IQueryable<TTarget> target,
+        this IEnumerable<TTarget> target,
         DataFrame source,
         Expression<Func<TTarget, TKey>> targetKey,
         Expression<Func<TSource, TKey>> sourceKey)
@@ -418,16 +436,35 @@ public static class TypedMergeExtensions
     {
         static string[] GetNames(LambdaExpression expr)
         {
-            if (expr.Body is MemberExpression m)
-                return [m.Member.Name];
-            if (expr.Body is UnaryExpression { Operand: MemberExpression um })
-                return [um.Member.Name];
-            if (expr.Body is NewExpression ne)
-                return ne.Members?.Select(mem => mem.Name).ToArray() 
-                       ?? ne.Constructor?.GetParameters().Select(p => p.Name!).ToArray() 
-                       ?? throw new ArgumentException("Unable to extract member names from key selector.");
+            var cleanBody = expr.Body is UnaryExpression u ? u.Operand : expr.Body;
 
-            throw new ArgumentException($"Unsupported key selector expression: {expr}");
+            // Single Column: t => t.Id
+            if (cleanBody is MemberExpression m)
+                return [m.Member.Name];
+
+            // Anonymous object or ValueTuple: t => new { t.A, t.B } or t => (t.A, t.B)
+            if (cleanBody is NewExpression ne)
+            {
+                // Anonymous object: Member.Name
+                if (ne.Members != null && ne.Members.Count > 0)
+                {
+                    return [.. ne.Members.Select(mem => mem.Name)];
+                }
+
+                // ValueTuple (t.A, t.B)
+                var argNames = ne.Arguments.Select(arg =>
+                {
+                    var cleanArg = arg is UnaryExpression ua ? ua.Operand : arg;
+                    if (cleanArg is MemberExpression ma)
+                        return ma.Member.Name;
+                    throw new ArgumentException($"Cannot resolve column name from key argument: '{arg}'.");
+                }).ToArray();
+
+                if (argNames.Length > 0)
+                    return argNames;
+            }
+
+            throw new ArgumentException($"Unsupported key selector expression: '{expr}'. Use single property (x => x.Id), anonymous object (x => new {{ x.A, x.B }}), or tuple (x => (x.A, x.B)).");
         }
 
         var targetCols = GetNames(targetKey);
