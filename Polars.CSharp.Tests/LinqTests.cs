@@ -1,7 +1,5 @@
 using System.Text;
 using Polars.CSharp.Linq;
-using System.Linq;
-using Pl = Polars.CSharp.Polars;
 using System.Text.RegularExpressions;
 
 namespace Polars.CSharp.Tests;
@@ -33,7 +31,7 @@ public interface IWorker
     string Name { get; }
     int Salary { get; }
 }
-
+public readonly record struct MultiDateRecord(int Id, DateTime CreatedAt, DateTime UpdatedAt);
 public record struct WorkerRecord(string Name, int Age, int Salary) : IWorker;
 public readonly record struct DeptMetricSummary(
     int DeptId,
@@ -3421,6 +3419,52 @@ public partial class LinqTests
 
         Assert.Single(sundayOnly);
         Assert.Equal(10, sundayOnly[0].Id);
+    }
+  
+    [Fact]
+    [Trait("LINQ", "DateTimeMultiColumn")]
+    public void Test_Linq_DateTime_Multiple_Columns_And_Same_Column_Tuple_Projection()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2]),
+            Series.From("CreatedAt", [
+                new DateTime(2026, 1, 15, 10, 0, 0),
+                new DateTime(2025, 12, 31, 23, 59, 59)
+            ]),
+            Series.From("UpdatedAt", [
+                new DateTime(2026, 6, 20, 18, 30, 0),
+                new DateTime(2026, 1, 1, 0, 0, 0)
+            ])
+        ]);
+
+        // =========================================================================
+        // Scenario 1: Multiple DateTime columns in anonymous projection
+        // =========================================================================
+        var anonQuery = df.AsQueryable<MultiDateRecord>()
+                          .Select(r => new {
+                              r.Id,
+                              CreatedYear = r.CreatedAt.Year,
+                              UpdatedYear = r.UpdatedAt.Year,
+                              CreatedMonth = r.CreatedAt.Month,
+                              UpdatedMonth = r.UpdatedAt.Month
+                          })
+                          .ToList();
+
+        Assert.Equal(2, anonQuery.Count);
+        Assert.Equal(2026, anonQuery[0].CreatedYear);
+        Assert.Equal(2026, anonQuery[0].UpdatedYear);
+        Assert.Equal(1, anonQuery[0].CreatedMonth);
+        Assert.Equal(6, anonQuery[0].UpdatedMonth);
+
+        // =========================================================================
+        // Scenario 2: Multiple DateTime columns combined in Where predicate
+        // =========================================================================
+        var whereQuery = df.AsQueryable<MultiDateRecord>()
+                           .Where(r => r.CreatedAt.Year == 2026 && r.UpdatedAt.Month == 6)
+                           .ToList();
+
+        Assert.Single(whereQuery);
+        Assert.Equal(1, whereQuery[0].Id);
     }
     [Fact]
     [Trait("LINQ", "MathVectorized")]
