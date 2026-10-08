@@ -2,9 +2,8 @@ using System.Linq.Expressions;
 using Microsoft.FSharp.Core;
 using Polars.NET.Core;
 using Polars.CSharp.Linq;
-using Polars.NET.Linq.Provider;
+using Polars.NET.Linq;
 using Pl = Polars.CSharp.Polars;
-using Polars.NET.Core.Helpers;
 
 namespace Polars.CSharp;
 

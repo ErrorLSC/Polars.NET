@@ -5,7 +5,6 @@
   <Project Path="Polars.FSharp/Polars.FSharp.fsproj" />
   <Project Path="Polars.Integration.Tests/Polars.Integration.Tests.csproj" />
   <Project Path="Polars.NET.Core/Polars.NET.Core.csproj" />
-  <Project Path="Polars.NET.Linq.Provider/Polars.NET.Linq.Provider.fsproj" />
-  <Project Path="Polars.NET.Linq/Polars.NET.Linq.csproj" />
+  <Project Path="Polars.NET.Linq/Polars.NET.Linq.fsproj" />
   <Project Path="Polars.NET.ML/Polars.NET.ML.csproj" />
 </Solution>

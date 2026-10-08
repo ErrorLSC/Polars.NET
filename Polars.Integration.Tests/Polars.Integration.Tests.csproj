@@ -38,7 +38,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Polars.CSharp\Polars.CSharp.csproj" />
-    <ProjectReference Include="..\Polars.NET.Linq.Provider\Polars.NET.Linq.Provider.fsproj" />
+    <ProjectReference Include="..\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
     <ProjectReference Include="..\Polars.NET.ML\Polars.NET.ML.csproj" />
   </ItemGroup>
 

@@ -1,4 +1,4 @@
-namespace Polars.NET.Linq.Provider
+namespace Polars.NET.Linq
 
 open System
 open System.Collections
@@ -11,10 +11,10 @@ open Polars.NET.Core
 open Polars.NET.Core.Helpers
 
 [<Struct>]
-type AvgState = { mutable Sum: double; mutable Count: int64 }
+type internal AvgState = { mutable Sum: double; mutable Count: int64 }
 
 [<Struct>]
-type ExtremumState<'T> = { mutable HasValue: bool; mutable Value: 'T }
+type internal ExtremumState<'T> = { mutable HasValue: bool; mutable Value: 'T }
 /// Global reflection cache for LINQ methods to eliminate runtime lookup overhead.
 [<AbstractClass; Sealed>]
 type internal LinqReflectionCache private () =

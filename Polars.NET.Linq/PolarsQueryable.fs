@@ -1,4 +1,4 @@
-namespace Polars.NET.Linq.Provider
+namespace Polars.NET.Linq
 
 open System
 open System.Collections
@@ -50,7 +50,7 @@ type internal QueryMaterializerResolver =
                 failwith "No DataFrameMaterializer registered. Ensure upper API layers configured a materializer."
 
 /// Strongly-typed IQueryProvider backed by Polars.NET.Core
-type PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer) =
+type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer) =
     let clonedLf = PolarsWrapper.LazyClone initialLazyFrame
 
     /// Extracts the underlying sequence element type from generic collections/arrays

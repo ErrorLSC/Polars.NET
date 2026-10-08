@@ -1,4 +1,4 @@
-namespace Polars.NET.Linq.Provider
+namespace Polars.NET.Linq
 
 open System.Linq.Expressions
 open Polars.NET.Core

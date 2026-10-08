@@ -111,13 +111,12 @@
 
   <ItemGroup>
     <ProjectReference Include="../Polars.NET.Core/Polars.NET.Core.csproj" />
-    <ProjectReference Include="..\Polars.NET.Linq.Provider\Polars.NET.Linq.Provider.fsproj" />
+    <ProjectReference Include="..\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Polars.NET.ML" />
     <InternalsVisibleTo Include="Polars.NET.Linq" />
-    <InternalsVisibleTo Include="Polars.NET.Linq.Provider" />
   </ItemGroup>
 
   <ItemGroup>

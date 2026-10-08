@@ -1,4 +1,4 @@
-namespace Polars.NET.Linq.Provider
+namespace Polars.NET.Linq
 
 open Polars.NET.Core
 open Polars.NET.Core.Arrow

@@ -3,6 +3,14 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <PackageId>Polars.NET.Linq</PackageId> 
+    <Authors>ErrorLSC</Authors>
+    <Description>LINQ Translation Engine for Polars.NET and Polars.FSharp. Write strong-typed C#/F# queries and execute them at native speed</Description>
+    <PackageTags>polars;dataframe;data-analysis;linq;ast</PackageTags>
+    <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>

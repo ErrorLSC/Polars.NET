@@ -1,10 +1,10 @@
-namespace Polars.NET.Linq.Provider
+namespace Polars.NET.Linq
 
 open System
 open System.Collections.Generic
 open System.Linq.Expressions
 
-module FSharpAst =
+module internal FSharpAst =
 
     type private StructuralExpressionReplacer(paramMap: Dictionary<string, Expression>) =
         inherit ExpressionVisitor()

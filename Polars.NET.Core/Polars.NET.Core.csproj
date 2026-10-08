@@ -57,7 +57,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Polars.CSharp" />
     <InternalsVisibleTo Include="Polars.FSharp" />
-    <InternalsVisibleTo Include="Polars.NET.Linq.Provider" />
+    <InternalsVisibleTo Include="Polars.NET.Linq" />
   </ItemGroup>
 
   <ItemGroup>

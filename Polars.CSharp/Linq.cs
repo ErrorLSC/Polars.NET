@@ -1,9 +1,7 @@
 #pragma warning disable CS1591
 using Polars.NET.Core;
-using System.Linq;
-using Polars.NET.Linq.Provider;
+using Polars.NET.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using Polars.NET.Core.Helpers;
 using System.Runtime.CompilerServices;
