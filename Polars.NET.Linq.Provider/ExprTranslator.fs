@@ -20,6 +20,7 @@ module internal rec ExprTranslator =
         | Unary(ExpressionType.ConvertChecked, inner)
         | Unary(ExpressionType.Quote, inner) -> unwrap inner
         | other -> other
+
     // =========================================================================
     // 1. Type & Literal Mapping Helpers
     // =========================================================================
@@ -147,23 +148,18 @@ module internal rec ExprTranslator =
     // 2. Column & Parameter Identifiers
     // =========================================================================
 
-    /// Determines if the member represents an intermediate transparent navigation boundary
-    /// rather than a physical table leaf column.
     let internal isNavigationMember (m: MemberInfo) =
         if isNull m || isNull m.DeclaringType then false
         else
             let typeName = m.DeclaringType.Name
             let memberName = m.Name
 
-            // 1. F# 
             typeName.StartsWith "Tuple" ||
             typeName.StartsWith "ValueTuple" ||
             typeName.StartsWith "AnonymousObject" ||
             typeName.Contains "TransparentIdentifier" ||
             memberName.Contains "TransparentIdentifier" ||
             memberName.StartsWith "<>h__" ||
-
-            // C# Roslyn ：
             (typeName.Contains "AnonymousType" &&
             match m with
             | :? PropertyInfo as p -> not (PolarsTypeHelper.IsScalarType p.PropertyType)
@@ -212,7 +208,6 @@ module internal rec ExprTranslator =
         | Some actualCol -> Some (PolarsWrapper.Col actualCol)
         | None ->
             match memberExpr with
-            // Math constants (Math.PI, Math.E, Math.Tau)
             | MemberAccess(null, m) when m.DeclaringType = typeof<Math> || m.DeclaringType = typeof<MathF> ->
                 match m.Name with
                 | "PI"  -> Some (PolarsWrapper.Lit Math.PI)
@@ -220,11 +215,9 @@ module internal rec ExprTranslator =
                 | "Tau" -> Some (PolarsWrapper.Lit (Math.PI * 2.0))
                 | _     -> None
 
-            // String: s.Length -> StrLenChars
             | MemberAccess(target, m) when not (isNull target) && target.Type = typeof<string> && m.Name = "Length" ->
                 tryTranslate paramName target |> Option.map PolarsWrapper.StrLenChars
 
-            // Temporal property pushdowns
             | MemberAccess(target, m) when not (isNull target) && isTemporalType target.Type ->
                 let t () = tryTranslate paramName target
                 match m.Name with
@@ -243,7 +236,6 @@ module internal rec ExprTranslator =
                 | "TimeOfDay"   -> t () |> Option.map PolarsWrapper.DtTime
                 | _             -> None
 
-            // TimeSpan property pushdowns
             | MemberAccess(target, m) when not (isNull target) && target.Type = typeof<TimeSpan> ->
                 let t () = tryTranslate paramName target
                 match m.Name with
@@ -263,7 +255,6 @@ module internal rec ExprTranslator =
                 | "Nanoseconds"       -> t () |> Option.map PolarsWrapper.DtNanosecond
                 | _                   -> None
 
-            // Closures / captured variables
             | _ ->
                 tryEvaluate memberExpr
                 |> Option.map (fun value -> toLiteralHandle value memberExpr.Type)
@@ -271,6 +262,28 @@ module internal rec ExprTranslator =
     // =========================================================================
     // 4. Method Call Dispatchers (String / DateTime / Math)
     // =========================================================================
+
+    /// Evaluates StringComparison expression to determine case insensitivity.
+    let private tryEvaluateCaseInsensitive (compExpr: Expression) : bool option =
+        match tryEvaluate compExpr with
+        | Some (:? StringComparison as sc) ->
+            match sc with
+            | StringComparison.OrdinalIgnoreCase
+            | StringComparison.InvariantCultureIgnoreCase
+            | StringComparison.CurrentCultureIgnoreCase -> Some true
+            | _ -> Some false
+        | Some (:? bool as ignoreCase) ->
+            Some ignoreCase
+        | Some other ->
+            try
+                let intVal = Convert.ToInt32 other
+                match LanguagePrimitives.EnumOfValue<int, StringComparison> intVal with
+                | StringComparison.OrdinalIgnoreCase
+                | StringComparison.InvariantCultureIgnoreCase
+                | StringComparison.CurrentCultureIgnoreCase -> Some true
+                | _ -> Some false
+            with _ -> None
+        | None -> None
 
     let private translateStringMethod (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
         let targetH () = tryTranslate paramName target
@@ -292,18 +305,56 @@ module internal rec ExprTranslator =
                 let isEmpty = PolarsWrapper.Eq(stripped, PolarsWrapper.Lit "")
                 PolarsWrapper.Or(isNull, isEmpty))
 
+        // --- Contains ---
         | "Contains", [ arg ] ->
             match targetH (), tryTranslate paramName arg with
             | Some t, Some p -> Some (PolarsWrapper.StrContains(t, p, literal = true, strict = false))
             | _ -> None
+
+        | "Contains", [ arg; compExpr ] ->
+            match targetH (), tryTranslate paramName arg, tryEvaluateCaseInsensitive compExpr with
+            | Some t, Some p, Some true ->
+                let tLower = PolarsWrapper.StrToLower t
+                let pLower = PolarsWrapper.StrToLower p
+                Some (PolarsWrapper.StrContains(tLower, pLower, literal = true, strict = false))
+            | Some t, Some p, Some false ->
+                Some (PolarsWrapper.StrContains(t, p, literal = true, strict = false))
+            | _ -> None
+
+        // --- StartsWith ---
         | "StartsWith", [ arg ] ->
             match targetH (), tryTranslate paramName arg with
             | Some t, Some p -> Some (PolarsWrapper.StrStartsWith(t, p))
             | _ -> None
+
+        | "StartsWith", [ arg; compExpr ]
+        | "StartsWith", arg :: compExpr :: _ ->
+            match targetH (), tryTranslate paramName arg, tryEvaluateCaseInsensitive compExpr with
+            | Some t, Some p, Some true ->
+                let tLower = PolarsWrapper.StrToLower t
+                let pLower = PolarsWrapper.StrToLower p
+                Some (PolarsWrapper.StrStartsWith(tLower, pLower))
+            | Some t, Some p, Some false ->
+                Some (PolarsWrapper.StrStartsWith(t, p))
+            | _ -> None
+
+        // --- EndsWith ---
         | "EndsWith", [ arg ] ->
             match targetH (), tryTranslate paramName arg with
             | Some t, Some p -> Some (PolarsWrapper.StrEndsWith(t, p))
             | _ -> None
+
+        | "EndsWith", [ arg; compExpr ]
+        | "EndsWith", arg :: compExpr :: _ ->
+            match targetH (), tryTranslate paramName arg, tryEvaluateCaseInsensitive compExpr with
+            | Some t, Some p, Some true ->
+                let tLower = PolarsWrapper.StrToLower t
+                let pLower = PolarsWrapper.StrToLower p
+                Some (PolarsWrapper.StrEndsWith(tLower, pLower))
+            | Some t, Some p, Some false ->
+                Some (PolarsWrapper.StrEndsWith(t, p))
+            | _ -> None
+
         | "ToUpper", [] | "ToUpperInvariant", [] -> targetH () |> Option.map PolarsWrapper.StrToUpper
         | "ToLower", [] | "ToLowerInvariant", [] -> targetH () |> Option.map PolarsWrapper.StrToLower
         | "Substring", [ startExpr ] ->
@@ -314,10 +365,36 @@ module internal rec ExprTranslator =
             match targetH (), tryTranslate paramName startExpr, tryTranslate paramName lenExpr with
             | Some t, Some startH, Some lenH -> Some (PolarsWrapper.StrSlice(t, startH, lenH))
             | _ -> None
+
+        // --- Replace ---
         | "Replace", [ oldExpr; newExpr ] ->
             match targetH (), tryTranslate paramName oldExpr, tryTranslate paramName newExpr with
             | Some t, Some o, Some n -> Some (PolarsWrapper.StrReplaceAll(t, o, n, literal = true))
             | _ -> None
+
+        | "Replace", [ oldExpr; newExpr; compExpr ] ->
+            match targetH (), tryTranslate paramName newExpr, tryEvaluateCaseInsensitive compExpr with
+            | Some t, Some n, Some false ->
+                match tryTranslate paramName oldExpr with
+                | Some o -> Some (PolarsWrapper.StrReplaceAll(t, o, n, literal = true))
+                | _ -> None
+            | Some t, Some n, Some true ->
+                match tryEvaluate oldExpr with
+                | Some (:? string as oldStr) ->
+                    let escapedPattern = sprintf "(?i)%s" (Regex.Escape oldStr)
+                    Some (PolarsWrapper.StrReplaceAll(t, PolarsWrapper.Lit escapedPattern, n, literal = false))
+                | _ -> None
+            | _ -> None
+
+        // --- Split (Literal string.Split) ---
+        | "Split", [ sepExpr ] ->
+            match targetH (), tryEvaluate sepExpr with
+            | Some t, Some (:? char as c) ->
+                Some (PolarsWrapper.StrSplit(t, PolarsWrapper.Lit (string c), inclusive = false, literal = true, strict = false))
+            | Some t, Some (:? string as s) ->
+                Some (PolarsWrapper.StrSplit(t, PolarsWrapper.Lit s, inclusive = false, literal = true, strict = false))
+            | _ -> None
+
         | "Trim", []      -> targetH () |> Option.map (fun t -> PolarsWrapper.StrStripChars(t, PolarsWrapper.LitNull()))
         | "TrimStart", [] -> targetH () |> Option.map (fun t -> PolarsWrapper.StrStripCharsStart(t, PolarsWrapper.LitNull()))
         | "TrimEnd", []   -> targetH () |> Option.map (fun t -> PolarsWrapper.StrStripCharsEnd(t, PolarsWrapper.LitNull()))
@@ -344,7 +421,6 @@ module internal rec ExprTranslator =
             | _ -> None
 
         | "Parse", [ strExpr ]
-
         | "Parse", strExpr :: _ when isNull target && m.DeclaringType = typeof<DateTime> ->
             tryTranslate paramName strExpr
             |> Option.map (fun strH ->
@@ -402,7 +478,7 @@ module internal rec ExprTranslator =
         | _ -> None
 
     // =========================================================================
-    // 4. Numeric & Math Methods (Math, MathF, System.Decimal)
+    // 5. Numeric & Math Methods (Math, MathF, System.Decimal)
     // =========================================================================
 
     let private tryMapRoundMode (midpoint: MidpointRounding) : PlRoundMode option =
@@ -423,14 +499,12 @@ module internal rec ExprTranslator =
             | _ -> None
 
         match m.Name, args with
-        // --- 1. Math / Decimal Unary Operation ---
         | "Abs", [ x ]      -> t1 x |> Option.map PolarsWrapper.Abs
         | "Ceiling", [ x ]  -> t1 x |> Option.map PolarsWrapper.Ceil
         | "Floor", [ x ]    -> t1 x |> Option.map PolarsWrapper.Floor
         | "Truncate", [ x ] -> t1 x |> Option.map (fun h -> PolarsWrapper.Truncate(h, 0u))
         | "Sign", [ x ]     -> t1 x |> Option.map PolarsWrapper.Sign
 
-        // --- 2. Math / Decimal Round ---
         | "Round", [ x ] ->
             t1 x |> Option.map (fun h -> PolarsWrapper.Round(h, 0u, PlRoundMode.HalfToEven))
 
@@ -456,7 +530,6 @@ module internal rec ExprTranslator =
                 |> Option.map (fun plMode -> PolarsWrapper.Round(h, decimals, plMode))
             | _ -> None
 
-        // --- 3. Math / Decimal Binary Operation ---
         | "Min", [ x; y ] ->
             t2 x y |> Option.map (fun (l, r) ->
                 let cond = PolarsWrapper.LtEq(PolarsWrapper.CloneExpr l, PolarsWrapper.CloneExpr r)
@@ -472,7 +545,6 @@ module internal rec ExprTranslator =
             | Some v, Some minH, Some maxH -> Some (PolarsWrapper.Clip(v, minH, maxH))
             | _ -> None
 
-        // --- 4. Math ---
         | "Sqrt", [ x ]  -> t1 x |> Option.map PolarsWrapper.Sqrt
         | "Cbrt", [ x ]  -> t1 x |> Option.map PolarsWrapper.Cbrt
         | "Exp", [ x ]   -> t1 x |> Option.map PolarsWrapper.Exp
@@ -497,7 +569,6 @@ module internal rec ExprTranslator =
         | "Pow", [ x; y ]   -> t2 x y |> Option.map PolarsWrapper.Pow
         | "Atan2", [ y; x ] -> t2 y x |> Option.map PolarsWrapper.ArcTan2
 
-        // ---5. (decimal.ToInt32 / ToInt64 / ToDouble) ---
         | "ToInt32", [ x ]   -> t1 x |> Option.bind (tryTranslateCast typeof<int>)
         | "ToUInt32", [ x ]  -> t1 x |> Option.bind (tryTranslateCast typeof<uint32>)
         | "ToInt64", [ x ]   -> t1 x |> Option.bind (tryTranslateCast typeof<int64>)
@@ -509,7 +580,6 @@ module internal rec ExprTranslator =
         | "ToInt16", [ x ]   -> t1 x |> Option.bind (tryTranslateCast typeof<int16>)
         | "ToUInt16", [ x ]  -> t1 x |> Option.bind (tryTranslateCast typeof<uint16>)
 
-        // --- 6. System.Numerics.BitOperations ---
         | "PopCount", [ x ] ->
             t1 x |> Option.map PolarsWrapper.BitwiseCountOnes
 
@@ -522,7 +592,157 @@ module internal rec ExprTranslator =
         | _ -> None
 
     // =========================================================================
-    // 5. Window, Shift, Diff & Rolling Operations
+    // 6. Regex Dispatcher (Native Inline Flag Pushdown & UDF Fallback)
+    // =========================================================================
+
+    /// Synthesizes Rust-compatible inline flag expressions from .NET RegexOptions.
+    /// Returns Some(validPattern) if compatible with Rust regex engine, otherwise None.
+    let private tryBuildRustRegexPattern (pat: string) (options: RegexOptions) : string option =
+        // Options that alter regex execution semantics unsupported natively by Rust regex
+        let unsupported =
+            RegexOptions.RightToLeft |||
+            RegexOptions.ECMAScript |||
+            RegexOptions.ExplicitCapture
+
+        if options.HasFlag(unsupported) then None
+        else
+            let mutable flags = ""
+            if options.HasFlag(RegexOptions.IgnoreCase) then flags <- flags + "i"
+            if options.HasFlag(RegexOptions.Multiline) then flags <- flags + "m"
+            if options.HasFlag(RegexOptions.Singleline) then flags <- flags + "s"
+            if options.HasFlag(RegexOptions.IgnorePatternWhitespace) then flags <- flags + "x"
+
+            let candidate =
+                if String.IsNullOrEmpty flags then pat
+                else sprintf "(?%s:%s)" flags pat
+
+            // Validate that Rust's regex compiler can parse the candidate (e.g. rejects lookaround)
+            if PolarsWrapper.RegexIsValid(candidate) then
+                Some candidate
+            else
+                None
+
+    let private translateRegexInvocation (paramName: string) (invocation: RegexInvocation) : ExprHandle option =
+        let getRegex rxOpt pat =
+            match rxOpt with
+            | Some (rx: Regex) -> rx
+            | None -> Regex(pat)
+
+        let getOptions rxOpt =
+            match rxOpt with
+            | Some (rx: Regex) -> rx.Options
+            | None -> RegexOptions.None
+
+        match invocation with
+        // --- 1. IsMatch ---
+        | IsMatch(target, pat, rxOpt) ->
+            tryTranslate paramName target
+            |> Option.map (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    PolarsWrapper.StrContains(t, PolarsWrapper.Lit validPat, literal = false, strict = false)
+                | None ->
+                    let rx = getRegex rxOpt pat
+                    PolarsWrapper.MapStringPredicate(t, Func<string, bool>(rx.IsMatch)))
+
+        // --- 2. ReplaceLiteral ---
+        | ReplaceLiteral(target, pat, rep, rxOpt) ->
+            tryTranslate paramName target
+            |> Option.map (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    PolarsWrapper.StrReplaceAll(t, PolarsWrapper.Lit validPat, PolarsWrapper.Lit rep, literal = false)
+                | None ->
+                    let rx = getRegex rxOpt pat
+                    PolarsWrapper.MapStringTransform(t, Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep))))
+
+        // --- 3. ReplaceEvaluator (Managed delegate: always UDF) ---
+        | ReplaceEvaluator(target, pat, eval, rxOpt) ->
+            tryTranslate paramName target
+            |> Option.map (fun t ->
+                let rx = getRegex rxOpt pat
+                PolarsWrapper.MapStringTransform(t, Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, eval))))
+
+        // --- 4. MatchValue & Groups[i].Value ---
+        | MatchValue(target, pat, groupIndex, rxOpt) ->
+            tryTranslate paramName target
+            |> Option.map (fun t ->
+                let options = getOptions rxOpt
+                let rx = getRegex rxOpt pat
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    // Rust Native StrExtract returns Null when not matched.
+                    // To conform to BCL Match.Value / Group.Value semantics, coalesce Null to empty string (""),
+                    // while preserving genuine Null input if target was originally Null.
+                    let tCloned = PolarsWrapper.CloneExpr t
+                    let extracted = PolarsWrapper.StrExtract(t, PolarsWrapper.Lit validPat, groupIndex)
+                    let nonNullExtracted = PolarsWrapper.Coalesce [| extracted; PolarsWrapper.Lit "" |]
+                    let isTargetNull = PolarsWrapper.IsNull tCloned
+                    PolarsWrapper.IfElse(isTargetNull, PolarsWrapper.LitNull(), nonNullExtracted)
+                | None ->
+                    // Managed Arrow UDF fallback
+                    PolarsWrapper.MapStringTransform(t, Func<string, string>(fun s ->
+                        if isNull s then null
+                        else
+                            let m = rx.Match(s)
+                            if m.Success && groupIndex < m.Groups.Count then m.Groups.[groupIndex].Value else "")))
+
+        // --- 5. MatchesAll ---
+        | MatchesAll(target, pat, rxOpt) ->
+            tryTranslate paramName target
+            |> Option.map (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    PolarsWrapper.StrExtractAll(t, PolarsWrapper.Lit validPat)
+                | None ->
+                    let rx = getRegex rxOpt pat
+                    PolarsWrapper.MapStringToList(t, Func<string, Collections.Generic.IEnumerable<string>>(fun s ->
+                        if isNull s then null
+                        else
+                            let matches = rx.Matches(s)
+                            let list = Collections.Generic.List<string>(matches.Count)
+                            for m in matches do list.Add(m.Value)
+                            list :> Collections.Generic.IEnumerable<string>)))
+
+        // --- 6. MatchesCount / Regex.Count (.NET 7+) ---
+        | MatchesCount(target, pat, rxOpt) ->
+            tryTranslate paramName target
+            |> Option.map (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    let listExpr = PolarsWrapper.StrExtractAll(t, PolarsWrapper.Lit validPat)
+                    PolarsWrapper.ListLen listExpr
+                | None ->
+                    let rx = getRegex rxOpt pat
+                    let intDtype = PolarsWrapper.NewPrimitiveType(int PlDataType.Int32)
+                    PolarsWrapper.Map(t, Func<Apache.Arrow.IArrowArray, Apache.Arrow.IArrowArray>(fun arr ->
+                        let strViewArr = arr :?> Apache.Arrow.StringViewArray
+                        let builder = Apache.Arrow.Int32Array.Builder()
+                        for i in 0 .. strViewArr.Length - 1 do
+                            if strViewArr.IsNull(i) then builder.AppendNull() |> ignore
+                            else builder.Append(rx.Matches(strViewArr.GetString(i)).Count) |> ignore
+                        builder.Build() :> Apache.Arrow.IArrowArray
+                    ), intDtype))
+
+        // --- 7. Split ---
+        | Split(target, pat, rxOpt) ->
+            tryTranslate paramName target
+            |> Option.map (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    PolarsWrapper.StrSplit(t, PolarsWrapper.Lit validPat, inclusive = false, literal = false, strict = false)
+                | None ->
+                    let rx = getRegex rxOpt pat
+                    PolarsWrapper.MapStringToList(t, Func<string, seq<string>>(fun s ->
+                        if isNull s then null else rx.Split(s) :> seq<string>)))
+
+    // =========================================================================
+    // 7. Window, Shift, Diff & Rolling Operations
     // =========================================================================
 
     let private translateShiftMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
@@ -543,7 +763,6 @@ module internal rec ExprTranslator =
             match targetH (), offsetHandleOpt with
             | Some eH, Some nH -> Some (PolarsWrapper.Shift(eH, nH))
             | _ -> None
-
         | _ -> None
 
     let private translateDiffMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
@@ -573,16 +792,18 @@ module internal rec ExprTranslator =
                 Some (PolarsWrapper.Diff(eH, nH, nb))
             | _ -> None
         | _ -> None
+
     let private tryExtractRankMethod (value: obj) : PlRankMethod =
-            match value with
-            | :? PlRankMethod as pm -> pm
-            | null -> PlRankMethod.Average
-            | other ->
-                try
-                    let byteVal = Convert.ToByte other
-                    LanguagePrimitives.EnumOfValue<byte, PlRankMethod> byteVal
-                with _ ->
-                    PlRankMethod.Average
+        match value with
+        | :? PlRankMethod as pm -> pm
+        | null -> PlRankMethod.Average
+        | other ->
+            try
+                let byteVal = Convert.ToByte other
+                LanguagePrimitives.EnumOfValue<byte, PlRankMethod> byteVal
+            with _ ->
+                PlRankMethod.Average
+
     let private translateRankMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
         let targetH () = tryTranslate paramName target
         match args with
@@ -596,7 +817,6 @@ module internal rec ExprTranslator =
                 Some (PolarsWrapper.Rank(eH, PlRankMethod.Average, desc, Nullable()))
             | _ -> None
 
-        // RankMethod / PlRankMethod
         | [ methodExpr ] ->
             match targetH (), tryEvaluate methodExpr with
             | Some eH, Some mObj ->
@@ -604,7 +824,6 @@ module internal rec ExprTranslator =
                 Some (PolarsWrapper.Rank(eH, m, false, Nullable()))
             | _ -> None
 
-        // RankMethod, descending
         | [ methodExpr; descExpr ] ->
             match targetH (), tryEvaluate methodExpr, tryEvaluate descExpr with
             | Some eH, Some mObj, Some (:? bool as desc) ->
@@ -612,7 +831,6 @@ module internal rec ExprTranslator =
                 Some (PolarsWrapper.Rank(eH, m, desc, Nullable()))
             | _ -> None
 
-        // RankMethod, descending, seed
         | [ methodExpr; descExpr; seedExpr ] ->
             match targetH (), tryEvaluate methodExpr, tryEvaluate descExpr, tryEvaluate seedExpr with
             | Some eH, Some mObj, Some (:? bool as desc), Some seedObj ->
@@ -638,7 +856,6 @@ module internal rec ExprTranslator =
 
     let private translateWindowTarget (paramName: string) (expr: Expression) : ExprHandle option =
         match expr with
-        // 1. Single-arg aggregations: col.Sum(), col.Std(), col.Count()
         | :? MethodCallExpression as mc when mc.Arguments.Count = 1 && isNull mc.Object ->
             let colExpr = mc.Arguments.[0]
             let aggOpt =
@@ -651,10 +868,9 @@ module internal rec ExprTranslator =
             | Some h -> Some h
             | None   -> tryTranslate paramName expr
 
-        // 2. Explicit degree-of-freedom dispersion ops: col.Std(ddof), col.Var(ddof)
         | :? MethodCallExpression as mc when (mc.Method.Name = "Std" || mc.Method.Name = "StdDev" || 
-                                            mc.Method.Name = "Var" || mc.Method.Name = "Variance") 
-                                            && mc.Arguments.Count = 2 && isNull mc.Object ->
+                                              mc.Method.Name = "Var" || mc.Method.Name = "Variance") 
+                                              && mc.Arguments.Count = 2 && isNull mc.Object ->
             let colExpr = mc.Arguments.[0]
             let secondArg = mc.Arguments.[1]
             match tryTranslate paramName colExpr, tryEvaluate secondArg with
@@ -667,8 +883,6 @@ module internal rec ExprTranslator =
             | _ ->
                 tryTranslate paramName expr
 
-        // 3. All other conformal transform operations (Shift, Diff, Interpolate, InterpolateBy, etc.)
-        // fallback cleanly to standard expression translation pipeline.
         | other ->
             tryTranslate paramName other
 
@@ -718,7 +932,6 @@ module internal rec ExprTranslator =
                 target, args
 
         match m.Name, effectiveArgs with
-        // 1. Normal
         | ("Sum" | "Mean" | "Average" | "Min" | "Max"), [] ->
             tryTranslate paramName effectiveTarget
             |> Option.bind (translateReductionOp m.Name)
@@ -727,7 +940,6 @@ module internal rec ExprTranslator =
             tryTranslate paramName effectiveTarget
             |> Option.map PolarsWrapper.Count
 
-        // 2. Std / Var：
         | ("Std" | "StdDev"), [] ->
             tryTranslate paramName effectiveTarget
             |> Option.bind (translateDispersionOp m.Name 1uy)
@@ -736,7 +948,6 @@ module internal rec ExprTranslator =
             tryTranslate paramName effectiveTarget
             |> Option.bind (translateDispersionOp m.Name 1uy)
 
-        // 3. Std / Var：with ddof
         | ("Std" | "StdDev" | "Var" | "Variance"), [ ddofExpr ] ->
             match tryTranslate paramName effectiveTarget, tryEvaluate ddofExpr with
             | Some colH, Some ddofVal ->
@@ -768,13 +979,13 @@ module internal rec ExprTranslator =
             | "CumProd"  -> Some (PolarsWrapper.CumProd(colH, reverse))
             | "CumCount" -> Some (PolarsWrapper.CumCount(colH, reverse))
             | _          -> None)
+
     let private tryExtractInterpolationMethod (value: obj) : PlInterpolationMethod =
         match value with
         | :? PlInterpolationMethod as pm -> pm
         | null -> PlInterpolationMethod.Linear
         | other ->
             try
-
                 let byteVal = Convert.ToByte other
                 LanguagePrimitives.EnumOfValue<byte, PlInterpolationMethod> byteVal
             with _ ->
@@ -806,6 +1017,7 @@ module internal rec ExprTranslator =
             | _ -> None
 
         | _ -> None
+
     let internal tryExtractQuantileMethod (value: obj) : PlQuantileMethod =
         match value with
         | :? PlQuantileMethod as pm -> pm
@@ -816,6 +1028,7 @@ module internal rec ExprTranslator =
                 LanguagePrimitives.EnumOfValue<byte, PlQuantileMethod> byteVal
             with _ ->
                 PlQuantileMethod.Nearest
+
     let internal translateQuantileMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
         let effectiveTarget, effectiveArgs =
             if isNull target && not args.IsEmpty then args.Head, args.Tail
@@ -842,6 +1055,7 @@ module internal rec ExprTranslator =
             | _ -> None
 
         | _ -> None
+
     let private translateMethodCall (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
         let effectiveTarget, effectiveArgs =
             if isNull target && args.Length > 0 then
@@ -849,7 +1063,6 @@ module internal rec ExprTranslator =
             else
                 target, args
 
-        // 1. Window & Series Transform Pushdown (Shift, Diff, Over, Rolling)
         if not (isNull effectiveTarget) && m.Name = "Shift" then
             translateShiftMethod paramName effectiveTarget effectiveArgs
 
@@ -915,98 +1128,7 @@ module internal rec ExprTranslator =
             None
 
     // =========================================================================
-    // 6. Regex Dispatcher
-    // =========================================================================
-
-    let private translateRegexInvocation (paramName: string) (invocation: RegexInvocation) : ExprHandle option =
-        let getRegex rxOpt pat =
-            match rxOpt with
-            | Some (rx: Regex) -> rx
-            | None -> Regex(pat)
-
-        match invocation with
-        | IsMatch(target, pat, rxOpt) ->
-            tryTranslate paramName target
-            |> Option.map (fun t ->
-                if PolarsWrapper.RegexIsValid(pat) then
-                    PolarsWrapper.StrContains(t, PolarsWrapper.Lit pat, literal = false, strict = false)
-                else
-                    let rx = getRegex rxOpt pat
-                    PolarsWrapper.MapStringPredicate(t, Func<string, bool>(rx.IsMatch)))
-
-        | ReplaceLiteral(target, pat, rep, rxOpt) ->
-            tryTranslate paramName target
-            |> Option.map (fun t ->
-                if PolarsWrapper.RegexIsValid(pat) then
-                    PolarsWrapper.StrReplaceAll(t, PolarsWrapper.Lit pat, PolarsWrapper.Lit rep, literal = false)
-                else
-                    let rx = getRegex rxOpt pat
-                    PolarsWrapper.MapStringTransform(t, Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep))))
-
-        | ReplaceEvaluator(target, pat, eval, rxOpt) ->
-            tryTranslate paramName target
-            |> Option.map (fun t ->
-                let rx = getRegex rxOpt pat
-                PolarsWrapper.MapStringTransform(t, Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, eval))))
-
-        | MatchValue(target, pat, groupIndex, rxOpt) ->
-            tryTranslate paramName target
-            |> Option.map (fun t ->
-                if PolarsWrapper.RegexIsValid(pat) then
-                    PolarsWrapper.StrExtract(t, PolarsWrapper.Lit pat, groupIndex)
-                else
-                    let rx = getRegex rxOpt pat
-                    PolarsWrapper.MapStringTransform(t, Func<string, string>(fun s ->
-                        if isNull s then null
-                        else
-                            let m = rx.Match(s)
-                            if m.Success && groupIndex < m.Groups.Count then m.Groups.[groupIndex].Value else null)))
-
-        | MatchesAll(target, pat, rxOpt) ->
-            tryTranslate paramName target
-            |> Option.map (fun t ->
-                if PolarsWrapper.RegexIsValid(pat) then
-                    PolarsWrapper.StrExtractAll(t, PolarsWrapper.Lit pat)
-                else
-                    let rx = getRegex rxOpt pat
-                    PolarsWrapper.MapStringToList(t, Func<string, Collections.Generic.IEnumerable<string>>(fun s ->
-                        if isNull s then null
-                        else
-                            let matches = rx.Matches(s)
-                            let list = Collections.Generic.List<string>(matches.Count)
-                            for m in matches do list.Add(m.Value)
-                            list :> Collections.Generic.IEnumerable<string>)))
-
-        | MatchesCount(target, pat, rxOpt) ->
-            tryTranslate paramName target
-            |> Option.map (fun t ->
-                if PolarsWrapper.RegexIsValid(pat) then
-                    let listExpr = PolarsWrapper.StrExtractAll(t, PolarsWrapper.Lit pat)
-                    PolarsWrapper.ListLen listExpr
-                else
-                    let rx = getRegex rxOpt pat
-                    let intDtype = PolarsWrapper.NewPrimitiveType(int PlDataType.Int32)
-                    PolarsWrapper.Map(t, Func<Apache.Arrow.IArrowArray, Apache.Arrow.IArrowArray>(fun arr ->
-                        let strViewArr = arr :?> Apache.Arrow.StringViewArray
-                        let builder = Apache.Arrow.Int32Array.Builder()
-                        for i in 0 .. strViewArr.Length - 1 do
-                            if strViewArr.IsNull(i) then builder.AppendNull() |> ignore
-                            else builder.Append(rx.Matches(strViewArr.GetString(i)).Count) |> ignore
-                        builder.Build() :> Apache.Arrow.IArrowArray
-                    ), intDtype))
-
-        | Split(target, pat, rxOpt) ->
-            tryTranslate paramName target
-            |> Option.map (fun t ->
-                if PolarsWrapper.RegexIsValid(pat) then
-                    PolarsWrapper.StrSplit(t, PolarsWrapper.Lit pat, inclusive = false, literal = false, strict = false)
-                else
-                    let rx = getRegex rxOpt pat
-                    PolarsWrapper.MapStringToList(t, Func<string, seq<string>>(fun s ->
-                        if isNull s then null else rx.Split(s) :> seq<string>)))
-
-    // =========================================================================
-    // 7. List / Array Row-Level Expression Dispatcher
+    // 8. List / Array Row-Level Expression Dispatcher
     // =========================================================================
 
     let private translateListInvocation (paramName: string) (invocation: ListInvocation) : ExprHandle option =
@@ -1090,7 +1212,7 @@ module internal rec ExprTranslator =
         | ListSelect _ -> None
 
     // =========================================================================
-    // 8. Operators & Casts
+    // 9. Operators & Casts
     // =========================================================================
 
     let internal translateBinary (nodeType: ExpressionType) (left: ExprHandle) (right: ExprHandle) : ExprHandle =
@@ -1133,9 +1255,6 @@ module internal rec ExprTranslator =
             tryTranslate paramName left |> Option.map PolarsWrapper.IsNull
         elif op = ExpressionType.Equal && isNullConstantExpr left then
             tryTranslate paramName right |> Option.map PolarsWrapper.IsNull
-        // -------------------------------------------------------------
-        // Bitwise Shift: x.A << n and x.A >> n
-        // -------------------------------------------------------------
         elif op = ExpressionType.LeftShift then
             match tryTranslate paramName left, tryEvaluate right with
             | Some leftH, Some nVal ->
@@ -1169,15 +1288,14 @@ module internal rec ExprTranslator =
             |> Option.bind (translateUnary op)
 
     // =========================================================================
-    // 9. Main Entrypoint Dispatcher
+    // 10. Main Entrypoint Dispatcher
     // =========================================================================
 
     /// Attempts to translate an Expression AST node to a native Polars ExprHandle.
     let tryTranslate (paramName: string) (expr: Expression) : ExprHandle option =
         try
             match expr with
-            // 1. Row-level List / Array operations (Must precede general MemberAccess & MethodCall,
-            //    because x.Tags.Length / x.Tags.Count are MemberAccess, and x.Tags[i] / x.Tags.First() are MethodCall/ArrayIndex)
+            // 1. Row-level List / Array operations
             | ArrayIndexOp(target, indexExpr) ->
                 match tryTranslate paramName target, tryTranslate paramName indexExpr with
                 | Some t, Some idx -> Some (PolarsWrapper.ListGet(t, idx, nullOnOob = true))
@@ -1233,11 +1351,9 @@ module internal rec ExprTranslator =
             None
 
     // =========================================================================
-    // 10. Merge-Specific Binary-Parameter Translation Extensions
+    // 11. Merge-Specific Binary-Parameter Translation Extensions
     // =========================================================================
 
-    /// Resolves column name from a MemberAccess expression matching either target or source parameter,
-    /// appending the sourceSuffix when referencing the source parameter.
     let rec internal tryResolveMergeColumnName
         (targetParam: string)
         (sourceParam: string)
@@ -1251,9 +1367,9 @@ module internal rec ExprTranslator =
             let rec checkOrigin (e: Expression) : (bool * bool) option =
                 match unwrap e with
                 | :? ParameterExpression as p when p.Name = targetParam ->
-                    Some (true, false) // IsTarget
+                    Some (true, false)
                 | :? ParameterExpression as p when p.Name = sourceParam ->
-                    Some (false, true) // IsSource
+                    Some (false, true)
                 | MemberAccess(nextInner, nextM) when isNavigationMember nextM ->
                     checkOrigin nextInner
                 | _ -> None
@@ -1268,7 +1384,6 @@ module internal rec ExprTranslator =
 
         | _ -> None
 
-    /// Recursively translates expressions containing references to both target and source parameters.
     let rec internal tryTranslateMergeCore
         (targetParam: string)
         (sourceParam: string)
@@ -1276,15 +1391,12 @@ module internal rec ExprTranslator =
         (expr: Expression) : ExprHandle option =
         try
             match expr with
-            // 1. Column resolution with suffix differentiation
             | MemberAccess _ as memberExpr ->
                 match tryResolveMergeColumnName targetParam sourceParam sourceSuffix memberExpr with
                 | Some colName -> Some (PolarsWrapper.Col colName)
                 | None ->
-                    // Fall back to constants, captured closures, math, temporal properties
                     translateMemberAccess targetParam memberExpr
 
-            // 2. Binary operations
             | Binary(op, left, right) ->
                 let tL = tryTranslateMergeCore targetParam sourceParam sourceSuffix left
                 let tR = tryTranslateMergeCore targetParam sourceParam sourceSuffix right
@@ -1292,7 +1404,6 @@ module internal rec ExprTranslator =
                 | Some l, Some r -> Some (translateBinary op l r)
                 | _ -> None
 
-            // 3. Unary operations & conversions
             | Unary(op, operand) ->
                 tryTranslateMergeCore targetParam sourceParam sourceSuffix operand
                 |> Option.bind (fun opH ->
@@ -1303,7 +1414,6 @@ module internal rec ExprTranslator =
                     | _ ->
                         translateUnary op opH)
 
-            // 4. Conditional ternary (test ? true : false)
             | :? ConditionalExpression as cond ->
                 match tryTranslateMergeCore targetParam sourceParam sourceSuffix cond.Test,
                       tryTranslateMergeCore targetParam sourceParam sourceSuffix cond.IfTrue,
@@ -1312,7 +1422,6 @@ module internal rec ExprTranslator =
                     Some (PolarsWrapper.IfElse(testH, trueH, falseH))
                 | _ -> None
 
-            // 5. Single parameter fallback (e.g. methods, constants)
             | other ->
                 match tryTranslate targetParam other with
                 | Some h -> Some h
@@ -1320,8 +1429,6 @@ module internal rec ExprTranslator =
         with _ ->
             None
 
-    /// Entry point for Polars.CSharp: Translates a two-parameter LambdaExpression ((target, source) => ...)
-    /// into a native Polars ExprHandle with source columns suffixed.
     let internal tryTranslateMergeLambda (sourceSuffix: string) (lambda: LambdaExpression) : ExprHandle option =
         if isNull lambda || lambda.Parameters.Count < 2 then None
         else
@@ -1329,8 +1436,6 @@ module internal rec ExprTranslator =
             let sourceParam = lambda.Parameters.[1].Name
             tryTranslateMergeCore targetParam sourceParam sourceSuffix lambda.Body
 
-    /// Entry point for Polars.CSharp: Translates a single-parameter source LambdaExpression (source => ...)
-    /// into a native Polars ExprHandle with all referenced columns suffixed.
     let internal tryTranslateSourceOnlyLambda (sourceSuffix: string) (lambda: LambdaExpression) : ExprHandle option =
         if isNull lambda || lambda.Parameters.Count < 1 then None
         else

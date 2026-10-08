@@ -6,11 +6,11 @@ open System.Text.RegularExpressions
 open System.Collections
 open System
 
-
 [<AutoOpen>]
 module internal ExpressionPatterns =
     open System.Linq
     open Polars.NET.Core.Helpers
+
     /// Represents extracted components of a Regex method invocation (Static or Instance/SG)
     type internal RegexInvocation =
         | IsMatch of target: Expression * pattern: string * instanceOpt: Regex option
@@ -152,6 +152,7 @@ module internal ExpressionPatterns =
                 Some (target, m.Name)
 
         | _ -> None
+
     /// Active pattern to strip convert/quote wrappers and resolve root column names,
     /// seamlessly unwrapping F# AnonymousObject tuple chains
     let rec (|ExtractColumnName|_|) (expr: Expression) : string option =
@@ -169,10 +170,16 @@ module internal ExpressionPatterns =
             Some m.Name
         | _ -> None
 
-    /// Evaluates expressions that resolve to values (e.g., closures, captured variables, local props)
+    /// Evaluates expressions that resolve to values (e.g., closures, captured variables, local props, method calls)
     let rec tryEvaluate (expr: Expression) : obj option =
         match expr with
-        | Constant(value, _) -> Some value
+        | null -> None
+        | Unary(ExpressionType.Convert, inner)
+        | Unary(ExpressionType.ConvertChecked, inner)
+        | Unary(ExpressionType.Quote, inner) ->
+            tryEvaluate inner
+        | Constant(value, _) ->
+            Some value
         | MemberAccess(instanceExpr, memberInfo) ->
             let targetObj =
                 match instanceExpr with
@@ -187,32 +194,140 @@ module internal ExpressionPatterns =
                 let inst = match targetObj with Some o -> o | None -> null
                 Some (field.GetValue(inst))
             | _ -> None
+        | :? MethodCallExpression as mc when mc.Arguments.Count = 0 ->
+            // Supports evaluating parameterless factory methods such as [GeneratedRegex] partial methods
+            try
+                let targetObj =
+                    if isNull mc.Object then null
+                    else
+                        match tryEvaluate mc.Object with
+                        | Some o -> o
+                        | None -> null
+                Some (mc.Method.Invoke(targetObj, null))
+            with _ -> None
         | _ -> None
+
+    // =========================================================================
+    // Regex Helpers
+    // =========================================================================
+
+    /// Evaluates RegexOptions from an expression node.
+    let private tryEvaluateRegexOptions (expr: Expression) : RegexOptions option =
+        match tryEvaluate expr with
+        | Some (:? RegexOptions as opt) -> Some opt
+        | Some other ->
+            try
+                let intVal = Convert.ToInt32 other
+                Some (LanguagePrimitives.EnumOfValue<int, RegexOptions> intVal)
+            with _ -> None
+        | None -> None
+
+    /// Evaluates TimeSpan timeout from an expression node.
+    let private tryEvaluateTimeout (expr: Expression) : TimeSpan option =
+        match tryEvaluate expr with
+        | Some (:? TimeSpan as ts) -> Some ts
+        | _ -> None
+
+    /// Constructs a Regex instance for static invocations containing options or timeout specifications.
+    let private createRegexInstance (pattern: string) (optionsOpt: RegexOptions option) (timeoutOpt: TimeSpan option) : Regex option =
+        try
+            match optionsOpt, timeoutOpt with
+            | Some opt, Some timeout -> Some (Regex(pattern, opt, timeout))
+            | Some opt, None         -> Some (Regex(pattern, opt))
+            | None, Some timeout    -> Some (Regex(pattern, RegexOptions.None, timeout))
+            | None, None            -> None
+        with _ -> None
+
+    /// Extracts literal pattern and optional configured Regex instance from static method arguments.
+    let private tryExtractStaticPatternAndRegex (args: Expression list) : (string * Regex option) option =
+        match args with
+        | [ patternExpr ] ->
+            match tryEvaluate patternExpr with
+            | Some (:? string as pat) -> Some (pat, None)
+            | _ -> None
+
+        | [ patternExpr; optionsExpr ] ->
+            match tryEvaluate patternExpr, tryEvaluateRegexOptions optionsExpr with
+            | Some (:? string as pat), Some opt ->
+                Some (pat, createRegexInstance pat (Some opt) None)
+            | _ -> None
+
+        | [ patternExpr; optionsExpr; timeoutExpr ] ->
+            match tryEvaluate patternExpr, tryEvaluateRegexOptions optionsExpr, tryEvaluateTimeout timeoutExpr with
+            | Some (:? string as pat), Some opt, timeoutOpt ->
+                Some (pat, createRegexInstance pat (Some opt) timeoutOpt)
+            | _ -> None
+
+        | _ -> None
+
+    /// Extracts literal pattern and configured Regex instance for static Replace invocations.
+    let private tryExtractStaticReplacePatternAndRegex (patternExpr: Expression) (trailingArgs: Expression list) : (string * Regex option) option =
+        match trailingArgs with
+        | [] ->
+            match tryEvaluate patternExpr with
+            | Some (:? string as pat) -> Some (pat, None)
+            | _ -> None
+        | [ optionsExpr ] ->
+            match tryEvaluate patternExpr, tryEvaluateRegexOptions optionsExpr with
+            | Some (:? string as pat), Some opt ->
+                Some (pat, createRegexInstance pat (Some opt) None)
+            | _ -> None
+        | [ optionsExpr; timeoutExpr ] ->
+            match tryEvaluate patternExpr, tryEvaluateRegexOptions optionsExpr, tryEvaluateTimeout timeoutExpr with
+            | Some (:? string as pat), Some opt, timeoutOpt ->
+                Some (pat, createRegexInstance pat (Some opt) timeoutOpt)
+            | _ -> None
+        | _ -> None
+
+    /// Resolves group index from expression, supporting both numeric indices and group names.
+    let private tryResolveGroupIndex (groupArgExpr: Expression) (pattern: string) (rxOpt: Regex option) : int option =
+        match tryEvaluate groupArgExpr with
+        | Some (:? int as idx) -> Some idx
+        | Some (:? string as groupName) ->
+            let rx =
+                match rxOpt with
+                | Some r -> r
+                | None ->
+                    try Regex(pattern)
+                    with _ -> null
+            if isNull rx then None
+            else
+                let num = rx.GroupNumberFromName(groupName)
+                if num >= 0 then Some num else None
+        | Some other ->
+            try Some (Convert.ToInt32 other)
+            with _ -> None
+        | None -> None
+
+    // =========================================================================
+    // Regex Invocation Active Pattern
+    // =========================================================================
 
     let (|RegexInvocation|_|) (expr: Expression) : RegexInvocation option =
         match expr with
         // ---------------------------------------------------------------------
         // 1. Static Regex calls: Regex.IsMatch, Regex.Replace, Regex.Match
         // ---------------------------------------------------------------------
-        | MethodCall(m, null, [ target; patternExpr ]) 
+        | MethodCall(m, null, target :: rest) 
             when m.DeclaringType = typeof<Regex> && m.Name = "IsMatch" ->
-            match tryEvaluate patternExpr with
-            | Some (:? string as pat) -> Some (IsMatch(target, pat, None))
+            match tryExtractStaticPatternAndRegex rest with
+            | Some (pat, rxOpt) -> Some (IsMatch(target, pat, rxOpt))
             | _ -> None
 
-        | MethodCall(m, null, [ target; patternExpr; repExpr ]) 
+        | MethodCall(m, null, target :: patternExpr :: repExpr :: rest) 
             when m.DeclaringType = typeof<Regex> && m.Name = "Replace" ->
-            match tryEvaluate patternExpr, tryEvaluate repExpr with
-            | Some (:? string as pat), Some (:? string as rep) ->
-                Some (ReplaceLiteral(target, pat, rep, None))
-            | Some (:? string as pat), Some (:? MatchEvaluator as eval) ->
-                Some (ReplaceEvaluator(target, pat, eval, None))
+            match tryExtractStaticReplacePatternAndRegex patternExpr rest with
+            | Some (pat, rxOpt) ->
+                match tryEvaluate repExpr with
+                | Some (:? string as rep) -> Some (ReplaceLiteral(target, pat, rep, rxOpt))
+                | Some (:? MatchEvaluator as eval) -> Some (ReplaceEvaluator(target, pat, eval, rxOpt))
+                | _ -> None
             | _ -> None
 
-        | MethodCall(m, null, [ target; patternExpr ]) 
+        | MethodCall(m, null, target :: rest) 
             when m.DeclaringType = typeof<Regex> && m.Name = "Match" ->
-            match tryEvaluate patternExpr with
-            | Some (:? string as pat) -> Some (MatchValue(target, pat, 0, None))
+            match tryExtractStaticPatternAndRegex rest with
+            | Some (pat, rxOpt) -> Some (MatchValue(target, pat, 0, rxOpt))
             | _ -> None
 
         // ---------------------------------------------------------------------
@@ -231,20 +346,36 @@ module internal ExpressionPatterns =
 
         | MethodCall(m, rxExpr, [ target; repExpr ]) 
             when not (isNull rxExpr) && typeof<Regex>.IsAssignableFrom(rxExpr.Type) && m.Name = "Replace" ->
-            match tryEvaluate rxExpr, tryEvaluate repExpr with
-            | Some (:? Regex as rx), Some (:? string as rep) ->
-                Some (ReplaceLiteral(target, rx.ToString(), rep, Some rx))
-            | Some (:? Regex as rx), Some (:? MatchEvaluator as eval) ->
-                Some (ReplaceEvaluator(target, rx.ToString(), eval, Some rx))
+            match tryEvaluate rxExpr with
+            | Some (:? Regex as rx) ->
+                match tryEvaluate repExpr with
+                | Some (:? string as rep) -> Some (ReplaceLiteral(target, rx.ToString(), rep, Some rx))
+                | Some (:? MatchEvaluator as eval) -> Some (ReplaceEvaluator(target, rx.ToString(), eval, Some rx))
+                | _ -> None
             | _ -> None
 
         // ---------------------------------------------------------------------
-        // 3. Match(s, pat).Value / rx.Match(s).Value property chaining
+        // 3. Match.Success property chaining: Match(s, ...).Success / rx.Match(s).Success
         // ---------------------------------------------------------------------
-        | MemberAccess(MethodCall(m, null, [ target; patternExpr ]), memberInfo)
+        | MemberAccess(MethodCall(m, null, target :: rest), memberInfo)
+            when m.DeclaringType = typeof<Regex> && m.Name = "Match" && memberInfo.Name = "Success" ->
+            match tryExtractStaticPatternAndRegex rest with
+            | Some (pat, rxOpt) -> Some (IsMatch(target, pat, rxOpt))
+            | _ -> None
+
+        | MemberAccess(MethodCall(m, rxExpr, [ target ]), memberInfo)
+            when not (isNull rxExpr) && typeof<Regex>.IsAssignableFrom(rxExpr.Type) && m.Name = "Match" && memberInfo.Name = "Success" ->
+            match tryEvaluate rxExpr with
+            | Some (:? Regex as rx) -> Some (IsMatch(target, rx.ToString(), Some rx))
+            | _ -> None
+
+        // ---------------------------------------------------------------------
+        // 4. Match(s, ...).Value / rx.Match(s).Value property chaining
+        // ---------------------------------------------------------------------
+        | MemberAccess(MethodCall(m, null, target :: rest), memberInfo)
             when m.DeclaringType = typeof<Regex> && m.Name = "Match" && memberInfo.Name = "Value" ->
-            match tryEvaluate patternExpr with
-            | Some (:? string as pat) -> Some (MatchValue(target, pat, 0, None))
+            match tryExtractStaticPatternAndRegex rest with
+            | Some (pat, rxOpt) -> Some (MatchValue(target, pat, 0, rxOpt))
             | _ -> None
 
         | MemberAccess(MethodCall(m, rxExpr, [ target ]), memberInfo)
@@ -254,49 +385,54 @@ module internal ExpressionPatterns =
             | _ -> None
 
         // ---------------------------------------------------------------------
-        // 4. Match(s, pat).Groups[n].Value / rx.Match(s).Groups[n].Value
+        // 5. Match(s, ...).Groups[n].Value / rx.Match(s).Groups[n].Value
         // ---------------------------------------------------------------------
-        | MemberAccess(MethodCall(indexer, MemberAccess(MethodCall(m, null, [ target; patternExpr ]), groupsProp), [ groupIdxExpr ]), valueProp)
+        | MemberAccess(MethodCall(indexer, MemberAccess(MethodCall(m, null, target :: rest), groupsProp), [ groupIdxExpr ]), valueProp)
             when m.DeclaringType = typeof<Regex> && m.Name = "Match" && 
                  groupsProp.Name = "Groups" && valueProp.Name = "Value" && indexer.Name = "get_Item" ->
-            match tryEvaluate patternExpr, tryEvaluate groupIdxExpr with
-            | Some (:? string as pat), Some idx ->
-                Some (MatchValue(target, pat, Convert.ToInt32(idx), None))
+            match tryExtractStaticPatternAndRegex rest with
+            | Some (pat, rxOpt) ->
+                match tryResolveGroupIndex groupIdxExpr pat rxOpt with
+                | Some idx -> Some (MatchValue(target, pat, idx, rxOpt))
+                | _ -> None
             | _ -> None
 
         | MemberAccess(MethodCall(indexer, MemberAccess(MethodCall(m, rxExpr, [ target ]), groupsProp), [ groupIdxExpr ]), valueProp)
             when not (isNull rxExpr) && typeof<Regex>.IsAssignableFrom(rxExpr.Type) && m.Name = "Match" && 
                  groupsProp.Name = "Groups" && valueProp.Name = "Value" && indexer.Name = "get_Item" ->
-            match tryEvaluate rxExpr, tryEvaluate groupIdxExpr with
-            | Some (:? Regex as rx), Some idx ->
-                Some (MatchValue(target, rx.ToString(), Convert.ToInt32(idx), Some rx))
+            match tryEvaluate rxExpr with
+            | Some (:? Regex as rx) ->
+                let pat = rx.ToString()
+                match tryResolveGroupIndex groupIdxExpr pat (Some rx) with
+                | Some idx -> Some (MatchValue(target, pat, idx, Some rx))
+                | _ -> None
             | _ -> None
 
         // ---------------------------------------------------------------------
-        // 5. Matches: Regex.Matches(s, pat) / rx.Matches(s)
+        // 6. Matches Count: Regex.Count(s, ...) / rx.Count(s) / Matches(...).Count
         // ---------------------------------------------------------------------
-        // 5.1 Static: Regex.Count(input, pattern)
-        | MethodCall(m, null, [ target; patternExpr ])
+        // 6.1 Static: Regex.Count(input, pattern, options?) (.NET 7+)
+        | MethodCall(m, null, target :: rest)
             when m.DeclaringType = typeof<Regex> && m.Name = "Count" ->
-            match tryEvaluate patternExpr with
-            | Some (:? string as pat) -> Some (MatchesCount(target, pat, None))
+            match tryExtractStaticPatternAndRegex rest with
+            | Some (pat, rxOpt) -> Some (MatchesCount(target, pat, rxOpt))
             | _ -> None
 
-        // 5.2 Instance / SG Regex: rx.Count(input)
+        // 6.2 Instance / SG Regex: rx.Count(input) (.NET 7+)
         | MethodCall(m, rxExpr, [ target ])
             when not (isNull rxExpr) && typeof<Regex>.IsAssignableFrom(rxExpr.Type) && m.Name = "Count" ->
             match tryEvaluate rxExpr with
             | Some (:? Regex as rx) -> Some (MatchesCount(target, rx.ToString(), Some rx))
             | _ -> None
 
-        // 5.3 Static: Regex.Matches(s, pat).Count
-        | MemberAccess(MethodCall(m, null, [ target; patternExpr ]), countProp)
+        // 6.3 Static: Regex.Matches(s, pat, options?).Count
+        | MemberAccess(MethodCall(m, null, target :: rest), countProp)
             when m.DeclaringType = typeof<Regex> && m.Name = "Matches" && countProp.Name = "Count" ->
-            match tryEvaluate patternExpr with
-            | Some (:? string as pat) -> Some (MatchesCount(target, pat, None))
+            match tryExtractStaticPatternAndRegex rest with
+            | Some (pat, rxOpt) -> Some (MatchesCount(target, pat, rxOpt))
             | _ -> None
 
-        // 5.4 Instance / SG: rx.Matches(s).Count
+        // 6.4 Instance / SG: rx.Matches(s).Count
         | MemberAccess(MethodCall(m, rxExpr, [ target ]), countProp)
             when not (isNull rxExpr) && typeof<Regex>.IsAssignableFrom(rxExpr.Type) && 
                  m.Name = "Matches" && countProp.Name = "Count" ->
@@ -305,16 +441,15 @@ module internal ExpressionPatterns =
             | _ -> None
 
         // ---------------------------------------------------------------------
-        // 5.5 Matches + Select(m => m.Value).ToList() / .ToArray()
-        // Flattened matching without recursive self-invocation
+        // 7. Matches + Select(m => m.Value).ToList() / .ToArray()
         // ---------------------------------------------------------------------
-        // Static: Regex.Matches(s, pat).Select(m => m.Value).ToList() or .ToArray()
-        | MethodCall(collMethod, null, [ MethodCall(selMethod, null, [ MethodCall(m, null, [ target; patternExpr ]); _ ]) ])
+        // Static: Regex.Matches(s, pat, options?).Select(m => m.Value).ToList() or .ToArray()
+        | MethodCall(collMethod, null, [ MethodCall(selMethod, null, [ MethodCall(m, null, target :: rest); _ ]) ])
             when (collMethod.Name = "ToList" || collMethod.Name = "ToArray") && 
                  selMethod.Name = "Select" && 
                  m.DeclaringType = typeof<Regex> && m.Name = "Matches" ->
-            match tryEvaluate patternExpr with
-            | Some (:? string as pat) -> Some (MatchesAll(target, pat, None))
+            match tryExtractStaticPatternAndRegex rest with
+            | Some (pat, rxOpt) -> Some (MatchesAll(target, pat, rxOpt))
             | _ -> None
 
         // Instance / SG: rx.Matches(s).Select(m => m.Value).ToList() or .ToArray()
@@ -327,10 +462,10 @@ module internal ExpressionPatterns =
             | _ -> None
 
         // Standalone .Select(m => m.Value) (e.g. without trailing .ToList())
-        | MethodCall(selMethod, null, [ MethodCall(m, null, [ target; patternExpr ]); _ ])
+        | MethodCall(selMethod, null, [ MethodCall(m, null, target :: rest); _ ])
             when selMethod.Name = "Select" && m.DeclaringType = typeof<Regex> && m.Name = "Matches" ->
-            match tryEvaluate patternExpr with
-            | Some (:? string as pat) -> Some (MatchesAll(target, pat, None))
+            match tryExtractStaticPatternAndRegex rest with
+            | Some (pat, rxOpt) -> Some (MatchesAll(target, pat, rxOpt))
             | _ -> None
 
         | MethodCall(selMethod, null, [ MethodCall(m, rxExpr, [ target ]); _ ])
@@ -340,13 +475,13 @@ module internal ExpressionPatterns =
             | _ -> None
 
         // ---------------------------------------------------------------------
-        // 6. Split: Regex.Split(s, pat) / rx.Split(s)
+        // 8. Split: Regex.Split(s, pat, options?) / rx.Split(s)
         // ---------------------------------------------------------------------
-        // Static: Regex.Split(input, pattern)
-        | MethodCall(m, null, [ target; patternExpr ])
+        // Static: Regex.Split(input, pattern, options?)
+        | MethodCall(m, null, target :: rest)
             when m.DeclaringType = typeof<Regex> && m.Name = "Split" ->
-            match tryEvaluate patternExpr with
-            | Some (:? string as pat) -> Some (Split(target, pat, None))
+            match tryExtractStaticPatternAndRegex rest with
+            | Some (pat, rxOpt) -> Some (Split(target, pat, rxOpt))
             | _ -> None
 
         // Instance / SG Regex: rx.Split(input)
@@ -357,39 +492,41 @@ module internal ExpressionPatterns =
             | _ -> None
 
         | _ -> None
+
+    // =========================================================================
+    // List / Array Operations
+    // =========================================================================
+
     let private isListContainer (t: Type) =
         t <> typeof<string> &&
         (t.IsArray || typeof<IEnumerable>.IsAssignableFrom(t))
+
     let (|ArrayIndexOp|_|) (expr: Expression) : (Expression * Expression) option =
-            match expr with
-            | :? BinaryExpression as bin when bin.NodeType = ExpressionType.ArrayIndex ->
-                Some (bin.Left, bin.Right)
-            | :? MethodCallExpression as m when not (isNull m.Object) && m.Object.Type.IsArray && (m.Method.Name = "Get" || m.Method.Name = "Address") && m.Arguments.Count = 1 ->
-                Some (m.Object, m.Arguments.[0])
-            | :? IndexExpression as idx when idx.Arguments.Count = 1 && isListContainer idx.Object.Type ->
-                Some (idx.Object, idx.Arguments.[0])
-            | _ -> None
+        match expr with
+        | :? BinaryExpression as bin when bin.NodeType = ExpressionType.ArrayIndex ->
+            Some (bin.Left, bin.Right)
+        | :? MethodCallExpression as m when not (isNull m.Object) && m.Object.Type.IsArray && (m.Method.Name = "Get" || m.Method.Name = "Address") && m.Arguments.Count = 1 ->
+            Some (m.Object, m.Arguments.[0])
+        | :? IndexExpression as idx when idx.Arguments.Count = 1 && isListContainer idx.Object.Type ->
+            Some (idx.Object, idx.Arguments.[0])
+        | _ -> None
 
     let rec (|ListInvocation|_|) (expr: Expression) : ListInvocation option =
         match expr with
         // ---------------------------------------------------------------------
         // 1. Length & Count
         // ---------------------------------------------------------------------
-        // ArrayLength Unary Expression
         | :? UnaryExpression as u when u.NodeType = ExpressionType.ArrayLength ->
             Some (ListLen u.Operand)
 
-        // array.Length
         | MemberAccess(target, m) 
             when not (isNull target) && target.Type.IsArray && m.Name = "Length" ->
             Some (ListLen target)
 
-        // list.Count
         | MemberAccess(target, m) 
             when not (isNull target) && isListContainer target.Type && m.Name = "Count" ->
             Some (ListLen target)
 
-        // Enumerable.Count(target)
         | MethodCall(m, null, [ target ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Count" && isListContainer target.Type ->
             Some (ListLen target)
@@ -397,12 +534,10 @@ module internal ExpressionPatterns =
         // ---------------------------------------------------------------------
         // 2. Contains
         // ---------------------------------------------------------------------
-        // Enumerable.Contains(target, item)
         | MethodCall(m, null, [ target; itemExpr ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Contains" && isListContainer target.Type ->
             Some (ListContains(target, itemExpr))
 
-        // IList.Contains(item)
         | MethodCall(m, target, [ itemExpr ])
             when not (isNull target) && isListContainer target.Type && m.Name = "Contains" ->
             Some (ListContains(target, itemExpr))
@@ -410,25 +545,20 @@ module internal ExpressionPatterns =
         // ---------------------------------------------------------------------
         // 3. Index Access & ElementAt
         // ---------------------------------------------------------------------
-        // BinaryExpression: tags[i]
         | :? BinaryExpression as bin when bin.NodeType = ExpressionType.ArrayIndex ->
             Some (ListGet(bin.Left, bin.Right))
 
-        // MethodCall: tags[i] on Array (Address or Get)
         | MethodCall(m, target, [ indexExpr ])
             when not (isNull target) && target.Type.IsArray && (m.Name = "Get" || m.Name = "Address") ->
             Some (ListGet(target, indexExpr))
 
-        // IndexExpression: tags[i] or list[i]
         | :? IndexExpression as idx when idx.Arguments.Count = 1 && isListContainer idx.Object.Type ->
             Some (ListGet(idx.Object, idx.Arguments.[0]))
 
-        // MethodCall: list[i] (get_Item)
         | MethodCall(m, target, [ indexExpr ])
             when not (isNull target) && isListContainer target.Type && m.Name = "get_Item" ->
             Some (ListGet(target, indexExpr))
 
-        // Enumerable.ElementAt(target, i)
         | MethodCall(m, null, [ target; indexExpr ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "ElementAt" && isListContainer target.Type ->
             Some (ListGet(target, indexExpr))
@@ -447,22 +577,18 @@ module internal ExpressionPatterns =
         // ---------------------------------------------------------------------
         // 5. In-Row Numeric Aggregations: Sum, Average, Min, Max
         // ---------------------------------------------------------------------
-        // Enumerable.Sum(x.Scores)
         | MethodCall(m, null, [ target ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Sum" && isListContainer target.Type ->
             Some (ListSum target)
 
-        // Enumerable.Average(x.Scores)
         | MethodCall(m, null, [ target ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Average" && isListContainer target.Type ->
             Some (ListMean target)
 
-        // Enumerable.Min(x.Scores)
         | MethodCall(m, null, [ target ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Min" && isListContainer target.Type ->
             Some (ListMin target)
 
-        // Enumerable.Max(x.Scores)
         | MethodCall(m, null, [ target ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Max" && isListContainer target.Type ->
             Some (ListMax target)
@@ -470,7 +596,6 @@ module internal ExpressionPatterns =
         // ---------------------------------------------------------------------
         // 6. In-Row String Join: string.Join(sep, x.Tags)
         // ---------------------------------------------------------------------
-        // string.Join(separator, tags)
         | MethodCall(m, null, [ sepExpr; target ])
             when m.DeclaringType = typeof<string> && m.Name = "Join" && isListContainer target.Type ->
             Some (ListJoin(target, sepExpr))
@@ -478,17 +603,14 @@ module internal ExpressionPatterns =
         // ---------------------------------------------------------------------
         // 7. In-Row Slicing: Take(n), Skip(n)
         // ---------------------------------------------------------------------
-        // Enumerable.Take(tags, n)
         | MethodCall(m, null, [ target; countExpr ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Take" && isListContainer target.Type ->
             Some (ListHead(target, countExpr))
 
-        // Enumerable.TakeLast(tags, n) -> list().tail(n)
         | MethodCall(m, null, [ target; countExpr ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "TakeLast" && isListContainer target.Type ->
             Some (ListTail(target, countExpr))
 
-        // Enumerable.Skip(tags, n)
         | MethodCall(m, null, [ target; countExpr ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Skip" && isListContainer target.Type ->
             Some (ListSlice(target, countExpr, None))
@@ -496,34 +618,29 @@ module internal ExpressionPatterns =
         // ---------------------------------------------------------------------
         // 8. In-Row Transformations: Distinct(), Reverse()
         // ---------------------------------------------------------------------
-        // Enumerable.Distinct(tags)
         | MethodCall(m, null, [ target ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Distinct" && isListContainer target.Type ->
             Some (ListUnique target)
 
-        // Enumerable.Reverse(tags)
         | MethodCall(m, null, [ target ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Reverse" && isListContainer target.Type ->
             Some (ListReverse target)
+
         // ---------------------------------------------------------------------
         // 9. In-Row Sorting: OrderBy, Order, OrderByDescending, OrderDescending
         // ---------------------------------------------------------------------
-        // Enumerable.Order(scores) (.NET 7+)
         | MethodCall(m, null, [ target ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Order" && isListContainer target.Type ->
             Some (ListSort(target, false))
 
-        // Enumerable.OrderDescending(scores) (.NET 7+)
         | MethodCall(m, null, [ target ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "OrderDescending" && isListContainer target.Type ->
             Some (ListSort(target, true))
 
-        // Enumerable.OrderBy(scores, s => s) (Identity key selector)
         | MethodCall(m, null, [ target; Lambda([ p ], body) ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "OrderBy" && isListContainer target.Type && body = (p :> Expression) ->
             Some (ListSort(target, false))
 
-        // Enumerable.OrderByDescending(scores, s => s) (Identity key selector)
         | MethodCall(m, null, [ target; Lambda([ p ], body) ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "OrderByDescending" && isListContainer target.Type && body = (p :> Expression) ->
             Some (ListSort(target, true))
@@ -531,17 +648,14 @@ module internal ExpressionPatterns =
         // ---------------------------------------------------------------------
         // 10. In-Row Set Operations: Intersect, Union, Except
         // ---------------------------------------------------------------------
-        // Enumerable.Intersect(tags, otherTags)
         | MethodCall(m, null, [ target; otherExpr ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Intersect" && isListContainer target.Type ->
             Some (ListSetIntersection(target, otherExpr))
 
-        // Enumerable.Union(tags, otherTags)
         | MethodCall(m, null, [ target; otherExpr ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Union" && isListContainer target.Type ->
             Some (ListSetUnion(target, otherExpr))
 
-        // Enumerable.Except(tags, otherTags)
         | MethodCall(m, null, [ target; otherExpr ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Except" && isListContainer target.Type ->
             Some (ListSetDifference(target, otherExpr))
@@ -549,17 +663,14 @@ module internal ExpressionPatterns =
         // ---------------------------------------------------------------------
         // 11. In-Row Predicates: Any(), Any(predicate), All(predicate)
         // ---------------------------------------------------------------------
-        // Enumerable.Any(tags) -> check if list is non-empty (len > 0)
         | MethodCall(m, null, [ target ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Any" && isListContainer target.Type ->
             Some (ListAny(target, None))
 
-        // Enumerable.Any(tags, predicate)
         | MethodCall(m, null, [ target; :? LambdaExpression as lam ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Any" && isListContainer target.Type ->
             Some (ListAny(target, Some lam))
 
-        // Enumerable.All(tags, predicate)
         | MethodCall(m, null, [ target; :? LambdaExpression as lam ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "All" && isListContainer target.Type ->
             Some (ListAll(target, lam))
@@ -567,7 +678,6 @@ module internal ExpressionPatterns =
         // ---------------------------------------------------------------------
         // 12. In-Row Projection: Select(mapper)
         // ---------------------------------------------------------------------
-        // Enumerable.Select(tags, t => ...)
         | MethodCall(m, null, [ target; :? LambdaExpression as lam ])
             when m.DeclaringType = typeof<Enumerable> && m.Name = "Select" && isListContainer target.Type ->
             Some (ListSelect(target, lam))
