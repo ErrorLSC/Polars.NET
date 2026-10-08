@@ -34,7 +34,7 @@ type internal FSharpRowMapper<'T>() =
 
     /// Helper to identify all scalar/primitive types including string, DateTime, Guid, etc.
     static let isScalarOrString (t: Type) =
-        PolarsTypeHelper.IsScalarType t || t = typeof<string>
+        PolarsTypeHelper.IsScalarType t || t = typeof<string> || t.IsEnum
 
     /// Collects all flattened field/property names required by target type 'T
     static let rec collectRequiredNames (t: Type) : string[] =
@@ -82,13 +82,26 @@ type internal FSharpRowMapper<'T>() =
             let isNullable = Nullable.GetUnderlyingType(propType) <> null
             let acceptsNull = isOption || isList || isArray || isNullable
 
-            let closedExtractMethod = extractFieldMethodDef.MakeGenericMethod([| propType |])
             let colAccess = Expression.ArrayIndex(colsParam, Expression.Constant(colIdx))
             let acceptsNullConst = Expression.Constant(acceptsNull, typeof<bool>)
             let fieldNameConst = Expression.Constant(fieldName, typeof<string>)
 
-            Expression.Call(closedExtractMethod, colAccess, rowIdxParam, acceptsNullConst, fieldNameConst) :> Expression
-
+            // Handle Enum and Nullable<Enum>
+            if propType.IsEnum then
+                let underlyingType = Enum.GetUnderlyingType propType
+                let closedExtractMethod = extractFieldMethodDef.MakeGenericMethod([| underlyingType |])
+                let call = Expression.Call(closedExtractMethod, colAccess, rowIdxParam, acceptsNullConst, fieldNameConst)
+                Expression.Convert(call, propType) :> Expression
+            elif isNullable && (Nullable.GetUnderlyingType propType).IsEnum then
+                let underlyingEnum = Nullable.GetUnderlyingType propType
+                let underlyingType = Enum.GetUnderlyingType underlyingEnum
+                let nullableUnderlying = typedefof<Nullable<_>>.MakeGenericType underlyingType
+                let closedExtractMethod = extractFieldMethodDef.MakeGenericMethod([| nullableUnderlying |])
+                let call = Expression.Call(closedExtractMethod, colAccess, rowIdxParam, acceptsNullConst, fieldNameConst)
+                Expression.Convert(call, propType) :> Expression
+            else
+                let closedExtractMethod = extractFieldMethodDef.MakeGenericMethod([| propType |])
+                Expression.Call(closedExtractMethod, colAccess, rowIdxParam, acceptsNullConst, fieldNameConst) :> Expression
         // Helper to resolve column index supporting scope suffixes (_second, _right, _third)
         let tryFindCol (propName: string) (tupleIdx: int) (actualCols: string[]) : int option =
             let candidates = [
@@ -218,8 +231,8 @@ type internal FSharpRowMapper<'T>() =
 
         // Top-level build branch
         let rootExpr : Expression =
-            // 0. Primitive / Scalar (e.g. int, double, string) -> Read directly from column 0
-            if PolarsTypeHelper.IsScalarType targetType then
+            // 0. Primitive / Scalar / Enum -> Read directly from column 0
+            if isScalarOrString targetType then
                 createExtractExpr 0 targetType (if columnNames.Length > 0 then columnNames.[0] else "")
 
             // 1. Reference Tuple (F# Standard Tuple)
@@ -874,7 +887,14 @@ type FSharpRowCursorMaterializer() =
                 Unchecked.defaultof<'T>
             else
                 let firstCol = df.[0]
-                firstCol.GetValue<'T>(0L)
+                let targetType = typeof<'T>
+                if targetType.IsEnum then
+                    let underlyingType = Enum.GetUnderlyingType targetType
+                    let getValueMethod = typeof<Series>.GetMethod("GetValue", [| typeof<int64>; typeof<bool> |]).MakeGenericMethod([| underlyingType |])
+                    let rawVal = getValueMethod.Invoke(firstCol, [| box 0L; box true |])
+                    Enum.ToObject(targetType, rawVal) :?> 'T
+                else
+                    firstCol.GetValue<'T>(0L)
 
         member _.Aggregate<'TSource, 'TAccum>(handle:DataFrameHandle,seed:'TAccum,folder: Func<'TAccum, 'TSource, 'TAccum> ):'TAccum =
             let df = new DataFrame(handle)

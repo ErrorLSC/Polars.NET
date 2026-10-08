@@ -27,7 +27,7 @@ public readonly record struct AdvancedDeptSummary(
     int FirstMemberId,
     int MaxMemberId
 );
-
+public record CalendarRecord(int Id, DateTime Date);
 public interface IWorker
 {
     string Name { get; }
@@ -3368,6 +3368,7 @@ public partial class LinqTests
                           o.OrderDate.Year,
                           o.OrderDate.Month,
                           o.OrderDate.Day,
+                          o.OrderDate.DayOfWeek,
                           o.OrderDate.Hour,
                           Formatted = o.OrderDate.ToString("yyyy-MM-dd")
                       })
@@ -3379,6 +3380,7 @@ public partial class LinqTests
         Assert.Equal(2026, query[0].Year);
         Assert.Equal(1, query[0].Month);
         Assert.Equal(15, query[0].Day);
+        Assert.Equal(DayOfWeek.Thursday, query[0].DayOfWeek);
         Assert.Equal(10, query[0].Hour);
         Assert.Equal("2026-01-15", query[0].Formatted);
 
@@ -3386,9 +3388,40 @@ public partial class LinqTests
         Assert.Equal(2026, query[1].Year);
         Assert.Equal(8, query[1].Month);
         Assert.Equal(5, query[1].Day);
+        Assert.Equal(DayOfWeek.Wednesday, query[1].DayOfWeek);
         Assert.Equal("2026-08-05", query[1].Formatted);
     }
 
+    [Fact]
+    [Trait("LINQ", "DateTimeVectorized")]
+    public void Test_Linq_DateTime_DayOfWeek_Sunday_And_Filtering()
+    {
+        // 2026-01-18 is Sunday (DayOfWeek.Sunday = 0, ISO = 7)
+        // 2026-01-19 is Monday (DayOfWeek.Monday = 1, ISO = 1)
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [10, 20]),
+            Series.From("Date", [
+                new DateTime(2026, 1, 18, 9, 0, 0),
+                new DateTime(2026, 1, 19, 9, 0, 0)
+            ])
+        ]);
+
+        // 1. Test Sunday projection (0 vs 7 mapping)
+        var projected = df.AsQueryable<CalendarRecord>()
+                          .Select(c => new { c.Id, c.Date.DayOfWeek })
+                          .ToList();
+
+        Assert.Equal(DayOfWeek.Sunday, projected[0].DayOfWeek);
+        Assert.Equal(DayOfWeek.Monday, projected[1].DayOfWeek);
+
+        // 2. Test Sunday predicate pushdown (c.Date.DayOfWeek == DayOfWeek.Sunday)
+        var sundayOnly = df.AsQueryable<CalendarRecord>()
+                           .Where(c => c.Date.DayOfWeek == DayOfWeek.Sunday)
+                           .ToList();
+
+        Assert.Single(sundayOnly);
+        Assert.Equal(10, sundayOnly[0].Id);
+    }
     [Fact]
     [Trait("LINQ", "MathVectorized")]
     public void Test_Linq_Math_Vectorized_Ops()

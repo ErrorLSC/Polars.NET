@@ -225,7 +225,20 @@ module internal rec ExprTranslator =
                 | "Month"       -> t () |> Option.map PolarsWrapper.DtMonth
                 | "Day"         -> t () |> Option.map PolarsWrapper.DtDay
                 | "DayOfYear"   -> t () |> Option.map PolarsWrapper.DtOrdinalDay
-                | "DayOfWeek"   -> t () |> Option.map PolarsWrapper.DtWeekday
+                | "DayOfWeek"   ->
+                    // Polars dt.weekday() returns ISO weekday (1..7, Monday=1, Sunday=7) as Int8.
+                    // .NET System.DayOfWeek defines Sunday=0, Monday=1..Saturday=6, with underlying type Int32.
+                    // We cast to Int32 and compute (weekday % 7) to:
+                    // 1. Map Sunday (7 % 7 = 0) to DayOfWeek.Sunday and preserve Monday..Saturday (1..6).
+                    // 2. Ensure the Arrow column type is Int32 so CLR materializer can cleanly unbox it to DayOfWeek.
+                    t () |> Option.bind (fun dtH ->
+                        let weekdayH = PolarsWrapper.DtWeekday dtH
+                        match tryTranslateCast typeof<int> weekdayH with
+                        | Some weekdayInt ->
+                            Some (PolarsWrapper.Rem(weekdayInt, PolarsWrapper.Lit 7))
+                        | None ->
+                            let rem = PolarsWrapper.Rem(weekdayH, PolarsWrapper.Lit 7y)
+                            tryTranslateCast typeof<int> rem)
                 | "Hour"        -> t () |> Option.map PolarsWrapper.DtHour
                 | "Minute"      -> t () |> Option.map PolarsWrapper.DtMinute
                 | "Second"      -> t () |> Option.map PolarsWrapper.DtSecond

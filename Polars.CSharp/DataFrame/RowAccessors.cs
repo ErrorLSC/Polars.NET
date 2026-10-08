@@ -41,10 +41,30 @@ internal static class RowMapper<T>
         Expression CreateReadExpr(int colIdx, Type returnType)
         {
             var colExpr = Expression.Call(dfParam, columnIndexerMethod, Expression.Constant(colIdx));
-            var getValueMethod = getValueMethodDef.MakeGenericMethod(returnType);
-            return Expression.Call(colExpr, getValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
-        }
 
+            // Handle Enum and Nullable<Enum> types:
+            // Series.GetValue<T> operates on primitive storage types (e.g. int, byte).
+            // Read using the underlying numeric type and emit an unbox/cast Expression.Convert to the target enum.
+            var nonNullType = Nullable.GetUnderlyingType(returnType);
+            if (returnType.IsEnum)
+            {
+                var underlyingType = Enum.GetUnderlyingType(returnType);
+                var getValueMethod = getValueMethodDef.MakeGenericMethod(underlyingType);
+                var readExpr = Expression.Call(colExpr, getValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
+                return Expression.Convert(readExpr, returnType);
+            }
+            if (nonNullType != null && nonNullType.IsEnum)
+            {
+                var underlyingType = Enum.GetUnderlyingType(nonNullType);
+                var nullableUnderlying = typeof(Nullable<>).MakeGenericType(underlyingType);
+                var getValueMethod = getValueMethodDef.MakeGenericMethod(nullableUnderlying);
+                var readExpr = Expression.Call(colExpr, getValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
+                return Expression.Convert(readExpr, returnType);
+            }
+
+            var standardGetValueMethod = getValueMethodDef.MakeGenericMethod(returnType);
+            return Expression.Call(colExpr, standardGetValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
+        }
         // Branch 0: Target is a primitive / scalar (e.g. IQueryable<int>, IQueryable<string>)
         if (PolarsTypeHelper.IsScalarType(targetType))
         {
