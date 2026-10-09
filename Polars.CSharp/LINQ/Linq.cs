@@ -659,7 +659,7 @@ public static class LinqExtensions
         // 1. Evaluate preceding LINQ pipeline down to a DataFrame
         var df = source.ToDataFrame();
 
-        // 2. Reuse ExprTranslator directly to push down key selector to native Expr
+        // 2. Push down key selector using ExprTranslator
         var keyParam = keySelector.Parameters[0].Name ?? "x";
         var keyOpt = ExprTranslator.tryTranslate(keyParam, keySelector.Body);
         if (!FSharpOption<ExprHandle>.get_IsSome(keyOpt))
@@ -668,10 +668,10 @@ public static class LinqExtensions
         }
         var keyExpr = new Expr(keyOpt.Value);
 
-        // 3. Partition natively via Rust engine into partition DataFrames
-        var partitions = df.PartitionByAsDict(keyExpr);
+        // 3. Native partition via Rust engine directly to DataFrame[]
+        var partitions = df.PartitionBy(keyExpr, maintainOrder: true, includeKey: true);
 
-        // 4. Optionally translate element projection using ExprTranslator
+        // 4. Translate element selector if not identity
         var isIdentity = typeof(TSource) == typeof(TElement) && elementSelector.Body is ParameterExpression;
         Expr? elemExpr = null;
         if (!isIdentity)
@@ -684,22 +684,44 @@ public static class LinqExtensions
             }
         }
 
-        // 5. Assemble lookup dictionary: partition DataFrame matches TElement schema directly
+        // 5. Pre-allocate exactly one dictionary
         var groupDict = new Dictionary<TKey, PolarsGrouping<TKey, TElement>>(
-            partitions.Count,
+            partitions.Length,
             comparer ?? EqualityComparer<TKey>.Default);
 
-        foreach (var (keys, partDf) in partitions)
+        // Fast-path: Resolve key column name from simple member access
+        // Extract underlying expression body by stripping unnecessary Convert/ConvertChecked nodes
+        var body = keySelector.Body;
+        while (body is UnaryExpression { NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked } u)
         {
-            if (keys.Length == 0 || keys[0] is null || keys[0] is DBNull)
+            body = u.Operand;
+        }
+
+        string? singleKeyCol = body is MemberExpression me && me.Expression is ParameterExpression
+            ? me.Member.Name 
+            : null;
+        Func<DataFrame,long, TKey>? compositeKeyMapper = null;
+
+        foreach (var partDf in partitions)
+        {
+            if (partDf.Height == 0L) continue;
+
+            TKey key;
+            if (singleKeyCol is not null)
             {
-                continue;
+                // O(1) direct scalar read from Row 0 without object[] allocations
+                using var col = partDf[singleKeyCol];
+                key = ConvertKey<TKey>(col.GetValue<object>(0L, uncheck: true)!);
+            }
+            else
+            {
+                // Composite key fallback: compile RowMapper once
+                compositeKeyMapper ??= RowMapper<TKey>.GetOrCreate(partDf);
+                key = compositeKeyMapper(partDf, 0L);
             }
 
-            var typedKey = ConvertKey<TKey>(keys[0]!);
-            var finalDf = elemExpr is null ? partDf : partDf.Select(elemExpr);
-
-            groupDict[typedKey] = new PolarsGrouping<TKey, TElement>(typedKey, finalDf);
+            var finalDf = elemExpr is not null ? partDf.Select(elemExpr) : partDf;
+            groupDict[key] = new PolarsGrouping<TKey, TElement>(key, finalDf);
         }
 
         return new PolarsLookup<TKey, TElement>(groupDict);

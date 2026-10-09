@@ -3115,4 +3115,118 @@ public class DataFrameTests
         Assert.Equal(21000, totalSalary);
         Assert.Equal(["Alice", "Bob", "Charlie"], collectedNames);
     }
+    public readonly record struct MarketSliceKey(string Symbol, int Year);
+
+    public record DepartmentRegionKey(string Department, string Region);
+
+    [Fact]
+    [Trait("DataFrame", "PartitionByAsDict")]
+    public void Test_PartitionByAsDict_With_RecordStruct_CompositeKey()
+    {
+        // Arrange: Financial market telemetry data
+        using var df = DataFrame.FromColumns([
+            Series.From("Symbol", ["AAPL", "AAPL", "MSFT", "MSFT", "NVDA"]),
+            Series.From("Year", [2025, 2026, 2025, 2026, 2026]),
+            Series.From("Volume", [1000, 1500, 2000, 2500, 5000])
+        ]);
+
+        // Act: Partition directly into strongly typed record struct dictionary
+        var slices = df.PartitionByAsDict<MarketSliceKey>(["Symbol", "Year"]);
+
+        // Assert: 5 unique (Symbol, Year) partitions created
+        Assert.Equal(5, slices.Count);
+
+        var targetKey = new MarketSliceKey("NVDA", 2026);
+        Assert.True(slices.ContainsKey(targetKey));
+
+        using var nvdaDf = slices[targetKey];
+        Assert.Equal(1L, nvdaDf.Height);
+        Assert.Equal(5000, nvdaDf["Volume"].GetValue<int>(0L));
+
+        // Verify multi-row partition (AAPL, 2025)
+        var aapl2025Key = new MarketSliceKey("AAPL", 2025);
+        Assert.True(slices.ContainsKey(aapl2025Key));
+        using var aaplDf = slices[aapl2025Key];
+        Assert.Equal(1L, aaplDf.Height);
+        Assert.Equal(1000, aaplDf["Volume"].GetValue<int>(0L));
+    }
+
+    [Fact]
+    [Trait("DataFrame", "PartitionByAsDict")]
+    public void Test_PartitionByAsDict_With_RecordClass_DomainKey()
+    {
+        // Arrange: Organization employee headcount dataset
+        using var df = DataFrame.FromColumns([
+            Series.From("Department", ["Eng", "Eng", "HR", "Sales", "Eng"]),
+            Series.From("Region", ["US", "APAC", "US", "EMEA", "APAC"]),
+            Series.From("Salary", [100000, 80000, 60000, 75000, 90000])
+        ]);
+
+        // Act: Partition using standard DDD record class key (reference type)
+        var slices = df.PartitionByAsDict<DepartmentRegionKey>(["Department", "Region"]);
+
+        // Assert: Exactly 4 distinct departmental clusters
+        Assert.Equal(4, slices.Count);
+
+        var engApacKey = new DepartmentRegionKey("Eng", "APAC");
+        Assert.True(slices.ContainsKey(engApacKey));
+
+        using var engApacDf = slices[engApacKey];
+        Assert.Equal(2L, engApacDf.Height);
+        Assert.Equal(80000, engApacDf["Salary"].GetValue<int>(0L));
+        Assert.Equal(90000, engApacDf["Salary"].GetValue<int>(1L));
+
+        // Non-existent key lookup returns false
+        Assert.False(slices.ContainsKey(new DepartmentRegionKey("Sales", "APAC")));
+    }
+
+    [Fact]
+    [Trait("DataFrame", "PartitionByAsDict")]
+    public void Test_PartitionByAsDict_With_SingleScalarKey_FastPath()
+    {
+        // Arrange: Dataset with partition column situated at non-zero index
+        using var df = DataFrame.FromColumns([
+            Series.From("EmpId", [101, 102, 103, 104]),
+            Series.From("Dept", ["Sales", "Dev", "Dev", "HR"]),
+            Series.From("Score", [88.5, 92.0, 95.5, 80.0])
+        ]);
+
+        // Act: Partition by single string scalar (exercises scalar fast-path column resolution)
+        var slices = df.PartitionByAsDict<string>(["Dept"]);
+
+        // Assert: 3 departments extracted without object[] allocation
+        Assert.Equal(3, slices.Count);
+        Assert.True(slices.ContainsKey("Dev"));
+
+        using var devDf = slices["Dev"];
+        Assert.Equal(2L, devDf.Height);
+        Assert.Equal(102, devDf["EmpId"].GetValue<int>(0L));
+        Assert.Equal(103, devDf["EmpId"].GetValue<int>(1L));
+    }
+
+    [Fact]
+    [Trait("DataFrame", "PartitionByAsDict")]
+    public void Test_PartitionByAsDict_With_IncludeKey_False()
+    {
+        // Arrange: Partition data where key columns must be stripped from sub-dataframes
+        using var df = DataFrame.FromColumns([
+            Series.From("Category", ["A", "B", "A", "B"]),
+            Series.From("Metric", [10, 20, 30, 40])
+        ]);
+
+        // Act: includeKey = false forces key hydration from unique distinct slice
+        var slices = df.PartitionByAsDict<string>(["Category"], maintainOrder: true, includeKey: false);
+
+        // Assert: Both partitions present and key column is stripped
+        Assert.Equal(2, slices.Count);
+        Assert.True(slices.ContainsKey("A"));
+        Assert.True(slices.ContainsKey("B"));
+
+        using var dfA = slices["A"];
+        Assert.Equal(2L, dfA.Height);
+        Assert.DoesNotContain("Category", dfA.Columns);
+        Assert.Contains("Metric", dfA.Columns);
+        Assert.Equal(10, dfA["Metric"].GetValue<int>(0));
+        Assert.Equal(30, dfA["Metric"].GetValue<int>(1));
+    }
 }

@@ -1,4 +1,5 @@
 using Polars.NET.Core;
+using Polars.NET.Core.Helpers;
 using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
@@ -65,8 +66,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         {
             foreach (var p in partitions)
             {
-                using var keySlice = p.Select(resolvedCols);
-                dict.Add(keySlice.Row(0), p);
+                var row = new object?[resolvedCols.Length];
+                for (int i = 0; i < resolvedCols.Length; i++)
+                {
+                    using var col = p[resolvedCols[i]];
+                    row[i] = col.GetValue<object>(0L, uncheck: true);
+                }
+                dict.Add(row, p);
             }
         }
         else
@@ -75,6 +81,104 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             for (int i = 0; i < uniqueKeysDf.Height; i++)
             {
                 dict.Add(uniqueKeysDf.Row(i), partitions[i]);
+            }
+        }
+
+        return dict;
+    }
+    /// <summary>
+    /// Partitions the DataFrame by specified columns into a strongly typed dictionary.
+    /// Supports domain model keys (record struct / record class), scalar identifiers (string, int), and tuples.
+    /// </summary>
+    /// <typeparam name="TKey">The strongly typed domain key type.</typeparam>
+    /// <param name="by">Column selectors to partition by.</param>
+    /// <param name="maintainOrder">Ensure partition order matches input data sequence. Default is true.</param>
+    /// <param name="includeKey">Whether to retain key columns in each partition DataFrame. Default is true.</param>
+    /// <param name="comparer">Optional equality comparer for custom domain key hashing.</param>
+    /// <returns>A dictionary mapping strongly typed domain keys to their respective partition DataFrames.</returns>
+    public Dictionary<TKey, DataFrame> PartitionByAsDict<TKey>(
+        IEnumerable<IntoSelector> by,
+        bool maintainOrder = true,
+        bool includeKey = true,
+        IEqualityComparer<TKey>? comparer = null)
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(by);
+
+        var resolvedCols = by.SelectMany(s => Cs.ExpandSelector(this, s.Consume()))
+                             .Distinct()
+                             .ToArray();
+
+        if (resolvedCols.Length == 0)
+        {
+            throw new ArgumentException("At least one partition column must be specified.", nameof(by));
+        }
+
+        if (!includeKey && !maintainOrder)
+        {
+            throw new ArgumentException("Cannot use PartitionByAsDict with maintainOrder=false and includeKey=false. Group keys cannot be matched to partitions.");
+        }
+
+        var partitions = PartitionByInternal(resolvedCols, maintainOrder, includeKey);
+        var dict = new Dictionary<TKey, DataFrame>(partitions.Length, comparer ?? EqualityComparer<TKey>.Default);
+
+        if (partitions.Length == 0)
+        {
+            return dict;
+        }
+
+        bool isSingleScalar = resolvedCols.Length == 1 && PolarsTypeHelper.IsScalarType(typeof(TKey));
+
+        if (includeKey)
+        {
+            if (isSingleScalar)
+            {
+                // Fast-path: Single scalar domain key extracted directly from Row 0 of the resolved key column
+                var keyColName = resolvedCols[0];
+                foreach (var p in partitions)
+                {
+                    if (p.Height == 0L) continue;
+                    using var col = p[keyColName];
+                    var key = col.GetValue<TKey>(0L, uncheck: true);
+                    dict.Add(key!, p);
+                }
+            }
+            else
+            {
+                // Composite domain key: Compile RowMapper once against schema of partition 0
+                var keyMapper = RowMapper<TKey>.GetOrCreate(partitions[0]);
+                foreach (var p in partitions)
+                {
+                    if (p.Height == 0L) continue;
+                    var key = keyMapper(p, 0L);
+                    dict.Add(key, p);
+                }
+            }
+        }
+        else
+        {
+            // Fallback when partition DataFrames strip key columns: hydrate keys from unique distinct key slice
+            using var uniqueKeysDf = this.Select(resolvedCols).Unique(maintainOrder: true);
+            long keyHeight = uniqueKeysDf.Height;
+
+            if (isSingleScalar)
+            {
+                var keyColName = resolvedCols[0];
+                using var keyCol = uniqueKeysDf[keyColName];
+                for (long i = 0L; i < keyHeight; i++)
+                {
+                    var key = keyCol.GetValue<TKey>(i, uncheck: true);
+                    dict.Add(key!, partitions[i]);
+                }
+            }
+            else
+            {
+                var keyMapper = RowMapper<TKey>.GetOrCreate(uniqueKeysDf);
+                for (long i = 0L; i < keyHeight; i++)
+                {
+                    var key = keyMapper(uniqueKeysDf, i);
+                    dict.Add(key, partitions[i]);
+                }
             }
         }
 
