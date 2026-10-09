@@ -69,7 +69,7 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
             try
             {
                 using var oldLf = _sqlContext.Execute($"SELECT * FROM {tableName}");
-                using var oldDf = oldLf.Collect(useStreaming: false);
+                using var oldDf = oldLf.Collect();
                 oldHeight = oldDf.Height;
             }
             catch
@@ -79,7 +79,7 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
         }
 
         using var lazyFrame = _sqlContext.Execute(CommandText);
-        var newDf = lazyFrame.Collect(useStreaming: false);
+        var newDf = lazyFrame.Collect();
 
         int affectedRows = 0;
 
@@ -123,7 +123,7 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
     private IEnumerable<RecordBatch> ExecuteAndYieldBatches()
     {
         using var lazyFrame = _sqlContext.Execute(CommandText);
-        using var df = lazyFrame.Collect(useStreaming:false);
+        using var df = lazyFrame.Collect();
         using var batch = df.ToArrow();
         yield return batch;
     }

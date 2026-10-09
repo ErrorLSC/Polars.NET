@@ -7,7 +7,7 @@ namespace Polars.CSharp;
 /// Until the query is executed, operations are just recorded in a query plan.
 /// Once executed, the data is materialized in memory.
 /// </summary>
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Lazily scans a CSV file into a LazyFrame.

@@ -263,6 +263,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
-        return await lf.CollectAsync(useStreaming:true);
+        return await lf.CollectAsync();
     }
 }

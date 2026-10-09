@@ -36,7 +36,6 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             return new PolarsSchema(PolarsWrapper.GetLazySchema(Handle));
         }
     }
-    IPolarsSchema IPolarsLazyFrame.Schema => this.Schema;
     /// <summary>
     /// Resolve the schema of this LazyFrame.
     /// </summary>
@@ -164,26 +163,23 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <summary>
     /// Execute the query plan and return a DataFrame.
     /// </summary>
-    public DataFrame Collect(Engine engine=Engine.Auto,bool useStreaming=false)
-        => new(PolarsWrapper.LazyCollect(Handle,engine.ToNative(),useStreaming));
+    public DataFrame Collect(Engine engine=Engine.Auto)
+        => new(PolarsWrapper.LazyCollect(Handle,engine.ToNative()));
 
-    IPolarsDataFrame IPolarsLazyFrame.Collect(PlEngine engine,bool useStreaming)
-        => Collect((Engine)engine, useStreaming);
+    IPolarsDataFrame IPolarsLazyFrame.Collect(PlEngine engine)
+        => Collect((Engine)engine);
     /// <summary>
     /// Execute the query plan asynchronously and return a DataFrame.
     /// </summary>
-    public async Task<DataFrame> CollectAsync(Engine engine=Engine.Auto,bool useStreaming = false, CancellationToken cancellationToken = default)
+    public async Task<DataFrame> CollectAsync(Engine engine=Engine.Auto, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var dfHandle = await PolarsWrapper.LazyCollectAsync(Handle,engine.ToNative(), useStreaming, cancellationToken)
+        var dfHandle = await PolarsWrapper.LazyCollectAsync(Handle,engine.ToNative(), cancellationToken)
                                           .ConfigureAwait(false);
 
-        return new DataFrame(dfHandle);
+        return new(dfHandle);
     }
-
-    async Task<IPolarsDataFrame> IPolarsLazyFrame.CollectAsync(PlEngine engine,bool useStreaming, CancellationToken cancellationToken)
-        => await CollectAsync((Engine)engine, useStreaming, cancellationToken).ConfigureAwait(false);
 
     /// <summary>
     /// Dispose the LazyFrame and release native resources.

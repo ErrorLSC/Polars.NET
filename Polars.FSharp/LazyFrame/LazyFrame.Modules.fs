@@ -14,7 +14,7 @@ module LazyFrame =
             let lfClone = lf.CloneHandle()
 
             let! dfHandle =
-                Task.Run(fun () -> PolarsWrapper.LazyCollect(lfClone,PlEngine.Auto,true))
+                Task.Run(fun () -> PolarsWrapper.LazyCollect(lfClone,PlEngine.Auto))
                 |> Async.AwaitTask
 
             return new DataFrame(dfHandle)

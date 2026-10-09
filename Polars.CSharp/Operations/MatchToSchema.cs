@@ -81,7 +81,7 @@ public record MatchSchemaConfig
         FloatCast = (PlUpcastOrForbid)FloatCast
     };
 }
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Align the Frame's schema to the target schema.

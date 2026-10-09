@@ -5,7 +5,7 @@ using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// -----------------------------------
     /// Delta Lake

@@ -2,7 +2,7 @@ using Polars.NET.Core;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Lazily read an Arrow IPC (Feather v2) file, multiple files via glob patterns, or cloud storage.

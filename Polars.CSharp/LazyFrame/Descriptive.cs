@@ -3,7 +3,7 @@ using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Get an explanation of the optimized query plan.

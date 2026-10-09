@@ -132,7 +132,7 @@ type ``Complex Query Tests`` () =
             )
             |> LazyFrame.withColumn (
                 pl.cols ["name"; "tag_list"]
-                |> fun e -> e.Name.Prefix("my_")
+                |> fun e -> e.Name.Prefix "my_"
             )
             |> LazyFrame.withColumn (
                 (pl.col "my_tag_list").List.Join("-").Alias "joined_tags"

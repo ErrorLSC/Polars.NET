@@ -2,7 +2,7 @@ using Polars.NET.Core;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Lazily read from a parquet file or multiple files via glob patterns.

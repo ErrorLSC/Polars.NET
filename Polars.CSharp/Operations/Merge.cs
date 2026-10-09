@@ -531,12 +531,12 @@ public class DataFrameMergeBuilder : MergeBuilderBase<DataFrameMergeBuilder>
     /// <summary>
     /// Executes the merge operation eagerly and returns a materialized DataFrame.
     /// </summary>
-    public DataFrame Execute(Engine engine=Engine.Auto,bool streaming=false)
+    public DataFrame Execute(Engine engine=Engine.Auto)
     {   
          _srcSchemaCache = _source.CollectSchema().ToFrozenDictionary();
         _tgtSchemaCache = _target.Schema.ToFrozenDictionary();
         ValidateMergePhase();
-        return BuildAst().Collect(engine,streaming);
+        return BuildAst().Collect(engine);
     }
     
 }

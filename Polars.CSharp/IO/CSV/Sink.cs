@@ -1,7 +1,7 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Execute the LazyFrame and sink the result to a CSV file.

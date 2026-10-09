@@ -33,10 +33,7 @@ public interface IPolarsDataType: IDisposable
 }
 public interface IPolarsLazyFrame : IDisposable
 {
-    IPolarsDataFrame Collect(PlEngine engine=PlEngine.Auto,bool useStreaming=false);
-    IPolarsSchema Schema{get;}
-    string Explain(bool optimized=true);
-    Task<IPolarsDataFrame> CollectAsync(PlEngine engine=PlEngine.Auto,bool useStreaming = false, CancellationToken cancellationToken = default);
+    IPolarsDataFrame Collect(PlEngine engine=PlEngine.Auto);
 }
 
 public interface IPolarsSqlContext : IDisposable

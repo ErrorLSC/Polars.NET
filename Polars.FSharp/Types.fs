@@ -1331,42 +1331,28 @@ and LazyFrame(handle: LazyFrameHandle) =
         member x.Dispose() = x.Dispose()
 
     interface IPolarsLazyFrame with
-        member this.Collect(engine, useStreaming) =
-            let dfHandle = PolarsWrapper.LazyCollect(this.Handle, engine, useStreaming)
+        member this.Collect(engine) =
+            let dfHandle = PolarsWrapper.LazyCollect(this.Handle, engine)
             new DataFrame(dfHandle) :> IPolarsDataFrame
 
-        member this.Schema =
-            this.Schema :> IPolarsSchema
-
-        member this.Explain(optimized: bool) =
-            this.Explain optimized
-        member this.CollectAsync(engine:PlEngine,useStreaming: bool, cancellationToken: CancellationToken) =
-            task {
-                let! dfHandle = PolarsWrapper.LazyCollectAsync(this.Handle,engine,useStreaming, cancellationToken)
-
-                return new DataFrame(dfHandle) :> IPolarsDataFrame
-            }
     member internal this.CloneHandle() = PolarsWrapper.LazyClone handle
     member this.Clone() = new LazyFrame(this.CloneHandle())
     /// <summary> Execute the plan and return a DataFrame. </summary>
-    member this.Collect(?engine:Engine,?streaming:bool) =
-        let stream = defaultArg streaming false
+    member this.Collect(?engine:Engine) =
         let eng = defaultArg engine Engine.Auto
-        let dfHandle = PolarsWrapper.LazyCollect(handle,eng.ToNative(),stream)
+        let dfHandle = PolarsWrapper.LazyCollect(handle,eng.ToNative())
         new DataFrame(dfHandle)
     member this.CollectAsync
         (
             ?engine:Engine,
-            ?useStreaming: bool,
             ?cancellationToken: CancellationToken
         ) : Task<DataFrame> =
-        let us = defaultArg useStreaming false
         let cct = defaultArg cancellationToken CancellationToken.None
         let eng = defaultArg engine Engine.Auto
         task {
             cct.ThrowIfCancellationRequested()
 
-            let! dfHandle = PolarsWrapper.LazyCollectAsync(handle,eng.ToNative(), us,cct)
+            let! dfHandle = PolarsWrapper.LazyCollectAsync(handle,eng.ToNative(), cct)
 
             return new DataFrame(dfHandle)
         }

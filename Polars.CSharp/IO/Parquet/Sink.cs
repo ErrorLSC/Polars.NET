@@ -2,7 +2,7 @@ using Polars.NET.Core;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Sink the LazyFrame to a Parquet file.

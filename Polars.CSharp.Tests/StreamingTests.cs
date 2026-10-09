@@ -1,9 +1,10 @@
 using System.Diagnostics;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars;
 using Polars.NET.Core.Data;
 using Xunit.Abstractions;
+using Apache.Arrow.Ipc;
 
 namespace Polars.CSharp.Tests;
 public class StreamingTests(ITestOutputHelper output)
@@ -29,6 +30,8 @@ public class StreamingTests(ITestOutputHelper output)
             };
         }
     }
+
+    public readonly record struct SensorReading(int SensorId, double Temperature, string Location);
 
     [Fact]
     public void Test_FromArrowStream_Integration()
@@ -79,10 +82,10 @@ public class StreamingTests(ITestOutputHelper output)
         var lf = LazyFrame.ScanEnumerable(GenerateData_2(totalRows),null, batchSize);
 
         var q = lf
-            .Filter(Col("Group") == Lit("Even"))
+            .Filter(Pl.Col("Group") == Pl.Lit("Even"))
             .Select(
-                Col("Id"),
-                (Col("Value") * 2).Alias("DoubleValue")
+                Pl.Col("Id"),
+                (Pl.Col("Value") * 2).Alias("DoubleValue")
             );
 
         using var df1 = q.Clone().Collect();
@@ -131,8 +134,8 @@ public class StreamingTests(ITestOutputHelper output)
         var lf = LazyFrame.ScanEnumerable(InfiniteStream(),null, batchSize);
 
         var q = lf
-            .Filter(Col("Id") > 999_998) 
-            .Select(Col("Id"), Col("Value"));
+            .Filter(Pl.Col("Id") > 999_998) 
+            .Select(Pl.Col("Id"), Pl.Col("Value"));
 
         using var df = q.Collect();
 
@@ -215,14 +218,14 @@ public class StreamingTests(ITestOutputHelper output)
                     useBuffered: true
                 );
             var q = lf
-                .Filter(Col("Category") == Lit("Category_A"))
+                .Filter(Pl.Col("Category") == Pl.Lit("Category_A"))
                 .Select(
-                    Col("Id").Sum().Alias("SumId"),
-                    (Col("Value") * 2).Sum().Alias("SumValue"),
-                    Col("Id").Count().Alias("Count")
+                    Pl.Col("Id").Sum().Alias("SumId"),
+                    (Pl.Col("Value") * 2).Sum().Alias("SumValue"),
+                    Pl.Col("Id").Count().Alias("Count")
                 );
 
-            using var df = q.Collect(useStreaming:true);
+            using var df = q.Collect();
             
             sw.Stop();
             
@@ -364,10 +367,10 @@ public class StreamingTests(ITestOutputHelper output)
         var lf = LazyFrame.ScanDatabase(sourceReader,50000);
 
         var pipeline = lf
-            .Filter(Col("Region") == Lit("US"))
-            .WithColumns((Col("Amount") * 1.08).Alias("TaxedAmount"))
-            .Select(Col("OrderId"),Col("TaxedAmount"),
-                    Col("OrderDate"));
+            .Filter(Pl.Col("Region") == Pl.Lit("US"))
+            .WithColumns((Pl.Col("Amount") * 1.08).Alias("TaxedAmount"))
+            .Select(Pl.Col("OrderId"),Pl.Col("TaxedAmount"),
+                    Pl.Col("OrderDate"));
 
         // ---------------------------------------------------------
         // Load
@@ -578,7 +581,7 @@ public class StreamingTests(ITestOutputHelper output)
 
     }
     [Fact]
-    [Trait("Category", "Debug")]
+    [Trait("Stream", "Guid")]
     public void Test_4_Guid_FixedSizeBinary_Roundtrip()
     {
 
@@ -621,6 +624,112 @@ public class StreamingTests(ITestOutputHelper output)
         // Null
         var row2 = targetTable.Rows[2];
         Assert.Equal(DBNull.Value, row2["GuidVal"]);
+    }
+    [Fact]
+    [Trait("Stream", "ArrowStream")]
+    public async Task Test_ArrowStream_ToAsyncEnumerable_EndToEnd()
+    {
+        // 1. Construct source DataFrame
+        using var df = DataFrame.FromColumns([
+            Series.From("SensorId", [101, 102, 103, 104]),
+            Series.From("Temperature", [23.5, 24.1, 22.8, 25.0]),
+            Series.From("Location", ["Room_A", "Room_B", "Room_A", "Room_C"])
+        ]);
 
+        // 2. Export to Apache Arrow C Stream
+        using IArrowArrayStream stream = df.ToArrowStream();
+        Assert.NotNull(stream);
+
+        // 3. Stream consume rows asynchronously
+        var readings = new List<SensorReading>();
+        await foreach (var reading in stream.ToAsyncEnumerable<SensorReading>())
+        {
+            readings.Add(reading);
+        }
+
+        // 4. Assert correctness
+        Assert.Equal(4, readings.Count);
+        Assert.Equal(new SensorReading(101, 23.5, "Room_A"), readings[0]);
+        Assert.Equal(new SensorReading(104, 25.0, "Room_C"), readings[3]);
+    }
+    [Fact]
+    [Trait("Stream", "LazyFrame")]
+    public async Task Test_LazyFrame_ToAsyncEnumerable_WithFilter_Succeeds()
+    {
+        // Arrange: 5 sensor readings across multiple rooms
+        using var df = DataFrame.FromColumns([
+            Series.From("SensorId", [101, 102, 103, 104, 105]),
+            Series.From("Temperature", [21.5, 26.0, 19.8, 28.5, 23.0]),
+            Series.From("Location", ["Room_A", "Room_B", "Room_A", "Room_C", "Room_B"])
+        ]);
+
+        // Construct Lazy query filtering temperatures >= 23.0
+        using var lazyDf = df.Lazy().Filter(Pl.Col("Temperature") >= 23.0);
+
+        // Act: Stream results asynchronously using small chunk size (2) to test micro-batch boundary
+        var results = new List<SensorReading>();
+        await foreach (var record in lazyDf.ToAsyncEnumerable<SensorReading>(chunkSize: 2))
+        {
+            results.Add(record);
+        }
+
+        // Assert: Exactly 3 matching rows preserved in relative order
+        Assert.Equal(3, results.Count);
+        Assert.Equal(new SensorReading(102, 26.0, "Room_B"), results[0]);
+        Assert.Equal(new SensorReading(104, 28.5, "Room_C"), results[1]);
+        Assert.Equal(new SensorReading(105, 23.0, "Room_B"), results[2]);
+    }
+
+    [Fact]
+    [Trait("Stream", "LazyFrame")]
+    public async Task Test_LazyFrame_ToAsyncEnumerableWithBackpressure_Succeeds()
+    {
+        // Arrange
+        using var df = DataFrame.FromColumns([
+            Series.From("SensorId", [201, 202, 203, 204]),
+            Series.From("Temperature", [18.0, 22.4, 24.1, 30.2]),
+            Series.From("Location", ["Lab_1", "Lab_2", "Lab_1", "Lab_3"])
+        ]);
+
+        using var lazyDf = df.Lazy();
+
+        // Act: Stream via bounded channel with small capacity to exercise channel backpressure
+        var results = new List<SensorReading>();
+        await foreach (var record in lazyDf.ToAsyncEnumerableWithBackpressure<SensorReading>(
+            boundedCapacity: 2, 
+            chunkSize: 1))
+        {
+            results.Add(record);
+        }
+
+        // Assert: All 4 rows properly forwarded through bounded queue
+        Assert.Equal(4, results.Count);
+        Assert.Equal(new SensorReading(201, 18.0, "Lab_1"), results[0]);
+        Assert.Equal(new SensorReading(204, 30.2, "Lab_3"), results[3]);
+    }
+
+    [Fact]
+    [Trait("Stream", "LazyFrame")]
+    public async Task Test_LazyFrame_ToAsyncEnumerable_Cancellation_ThrowsOperationCanceledException()
+    {
+        // Arrange
+        using var df = DataFrame.FromColumns([
+            Series.From("SensorId", [301, 302, 303]),
+            Series.From("Temperature", [20.0, 21.0, 22.0]),
+            Series.From("Location", ["Zone_A", "Zone_B", "Zone_C"])
+        ]);
+
+        using var lazyDf = df.Lazy();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel(); // Pre-cancelled token
+
+        // Act & Assert
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (var _ in lazyDf.ToAsyncEnumerable<SensorReading>(cancellationToken: cts.Token))
+            {
+                // Should not reach inside loop
+            }
+        });
     }
 }

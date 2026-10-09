@@ -151,8 +151,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_lazy_collect(
         LazyFrameHandle lf, 
-        PlEngine engine, 
-        [MarshalAs(UnmanagedType.U1)] bool useStreaming
+        PlEngine engine
     );
     [LibraryImport(LibName)]
     public static partial int pl_lazy_collect_all(

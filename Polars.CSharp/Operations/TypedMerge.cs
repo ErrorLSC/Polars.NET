@@ -348,17 +348,17 @@ public class TypedMergeBuilder<TTarget, TSource> : MergeBuilderBase<TypedMergeBu
     /// <summary>
     /// Executes the merge operation eagerly and materializes as a DataFrame.
     /// </summary>
-    public DataFrame ToDataFrame(Engine engine = Engine.Auto, bool streaming = false)
+    public DataFrame ToDataFrame(Engine engine = Engine.Auto)
     {
-        return ToLazyFrame().Collect(engine, streaming);
+        return ToLazyFrame().Collect(engine);
     }
 
     /// <summary>
     /// Executes the merge operation and materializes directly into strongly-typed target entities.
     /// </summary>
-    public List<TTarget> ToList(Engine engine = Engine.Auto, bool streaming = false)
+    public List<TTarget> ToList(Engine engine = Engine.Auto)
     {
-        using var df = ToDataFrame(engine, streaming);
+        using var df = ToDataFrame(engine);
         var cursor = df.Rows<TTarget>();                       
         return cursor.ToList();
     }

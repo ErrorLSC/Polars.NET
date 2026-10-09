@@ -88,7 +88,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
     /// Post-processes raw scalar aggregate results (handling NaN, empty collections, and F# Option/ValueOption types)
     static member private BoxScalarResult<'TResult>(rawScalar: obj, methodName: string) : 'TResult =
         let targetType = typeof<'TResult>
-        let isEmpty = isNull rawScalar || (rawScalar :? double && Double.IsNaN(rawScalar :?> double))
+        let isEmpty = isNull rawScalar || rawScalar :? double && Double.IsNaN(rawScalar :?> double)
 
         if isEmpty then
             match methodName with
@@ -141,7 +141,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                 | Last -> -1L, 1u
                 | Single -> 0L, 2u
             let slicedLf = PolarsWrapper.LazySlice(filteredLf, offset, len)
-            let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+            let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto)
 
             match kind with
             | First ->
@@ -167,7 +167,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                     invoker.Invoke(mat, dfHandle, null) :?> 'TResult
 
         | ValueSome (Client (srcType, combinedPred)) ->
-            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+            let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
             let defaultVal = if srcType.IsValueType then Activator.CreateInstance(srcType) else null
 
             let rawEntity =
@@ -213,9 +213,9 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                         | Last -> -1L, 1u
                         | Single -> 0L, 2u
                     let slicedLf = PolarsWrapper.LazySlice(nativeLf, offset, len)
-                    PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                    PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto)
                 else
-                    PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                    PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
 
             match clientProjOpt with
             | Some (sourceType, projFunc) ->
@@ -335,11 +335,11 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                 let filteredLf = PolarsWrapper.LazyFilter(nativeLf, filterExpr)
                 let lenExpr = PolarsWrapper.Len()
                 let aggLf = PolarsWrapper.LazySelect(filteredLf, [| lenExpr |])
-                let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto, true)
+                let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto)
                 mat.MaterializeScalar<'TResult>(dfHandle)
 
             | ValueSome (Client (srcType, combinedPred)) ->
-                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                 let invoker = LinqReflectionCache.GetMaterializerCountInvoker srcType
                 let countVal = invoker.Invoke(mat, dfHandle, combinedPred)
                 Convert.ChangeType(countVal, targetType) :?> 'TResult
@@ -348,10 +348,10 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                 if not hasClientPreds then
                     let lenExpr = PolarsWrapper.Len()
                     let aggLf = PolarsWrapper.LazySelect(nativeLf, [| lenExpr |])
-                    let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto, true)
+                    let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto)
                     mat.MaterializeScalar<'TResult>(dfHandle)
                 else
-                    let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                    let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                     let elemTypeActual =
                         match clientProjOpt with
                         | Some (sourceType, _) -> sourceType
@@ -377,21 +377,21 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
             | ValueSome (Pushdown filterExpr) ->
                 let filteredLf = PolarsWrapper.LazyFilter(nativeLf, filterExpr)
                 let slicedLf = PolarsWrapper.LazySlice(filteredLf, 0L, 1u)
-                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto)
                 box (PolarsWrapper.DataFrameHeight dfHandle > 0L) :?> 'TResult
 
             | ValueSome (Client (srcType, combinedPred)) ->
-                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                 let invoker = LinqReflectionCache.GetMaterializerAnyInvoker srcType
                 box (invoker.Invoke(mat, dfHandle, combinedPred)) :?> 'TResult
 
             | ValueNone ->
                 if not hasClientPreds then
                     let slicedLf = PolarsWrapper.LazySlice(nativeLf, 0L, 1u)
-                    let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                    let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto)
                     box (PolarsWrapper.DataFrameHeight dfHandle > 0L) :?> 'TResult
                 else
-                    let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                    let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                     let srcType =
                         match clientProjOpt with
                         | Some (s, _) -> s
@@ -413,11 +413,11 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                 let notFilterExpr = PolarsWrapper.Not filterExpr
                 let filteredLf = PolarsWrapper.LazyFilter(nativeLf, notFilterExpr)
                 let slicedLf = PolarsWrapper.LazySlice(filteredLf, 0L, 1u)
-                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto)
                 box (PolarsWrapper.DataFrameHeight dfHandle = 0L) :?> 'TResult
 
             | ValueSome (Client (srcType, combinedPred)) ->
-                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                 let invoker = LinqReflectionCache.GetMaterializerAllInvoker srcType
                 box (invoker.Invoke(mat, dfHandle, combinedPred)) :?> 'TResult
 
@@ -481,12 +481,12 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
             | Some colExpr ->
                 let aggExpr = resolveScalarAggExpr m.Name colExpr
                 let aggLf = PolarsWrapper.LazySelect(nativeLf, [| aggExpr |])
-                let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto, true)
+                let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto)
                 let rawScalar = mat.MaterializeScalar<obj>(dfHandle)
                 PolarsQueryProvider.BoxScalarResult<'TResult>(rawScalar, m.Name)
 
             | None ->
-                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                 let h = PolarsWrapper.DataFrameHeight dfHandle
 
                 if h = 0L then
@@ -555,7 +555,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
 
                 if not hasClientPreds then
                     let slicedLf = PolarsWrapper.LazySlice(nativeLf, sliceOffset, 1u)
-                    let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                    let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto)
                     let h = PolarsWrapper.DataFrameHeight dfHandle
                     if h = 0L then
                         if isOrDefault then Unchecked.defaultof<'TResult>
@@ -570,7 +570,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                             let invoker = LinqReflectionCache.GetMaterializerElementAtInvoker elemType
                             invoker.Invoke(mat, dfHandle, 0L) :?> 'TResult
                 else
-                    let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                    let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                     let targetIndex =
                         if isFromEnd then
                             let totalHeight = PolarsWrapper.DataFrameHeight dfHandle
@@ -621,11 +621,11 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
             | Some combinedFilter ->
                 let filteredLf = PolarsWrapper.LazyFilter(nativeLf, combinedFilter)
                 let slicedLf = PolarsWrapper.LazySlice(filteredLf, 0L, 1u)
-                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto)
                 box (PolarsWrapper.DataFrameHeight dfHandle > 0L) :?> 'TResult
 
             | None ->
-                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                 match clientProjOpt with
                 | Some (sourceType, projFunc) ->
                     let compiledPred = Func<obj, bool>(fun projectedObj ->
@@ -668,21 +668,21 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
             match secondPlanOpt with
             | Some (secondLf, secondHasClient, secondProjOpt)
                 when not hasClientPreds && clientProjOpt.IsNone && not secondHasClient && secondProjOpt.IsNone && isNull compObj ->
-                let fullDf1 = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
-                let fullDf2 = PolarsWrapper.LazyCollect(secondLf, PlEngine.Auto, true)
+                let fullDf1 = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
+                let fullDf2 = PolarsWrapper.LazyCollect(secondLf, PlEngine.Auto)
                 if PolarsWrapper.DataFrameHeight fullDf1 <> PolarsWrapper.DataFrameHeight fullDf2 then
                     box false :?> 'TResult
                 else
                     box (PolarsWrapper.DataFrameEquals(fullDf1, fullDf2, nullEqual = true)) :?> 'TResult
 
             | Some (secondLf, _, _) ->
-                let df1 = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
-                let df2 = PolarsWrapper.LazyCollect(secondLf, PlEngine.Auto, true)
+                let df1 = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
+                let df2 = PolarsWrapper.LazyCollect(secondLf, PlEngine.Auto)
                 let invoker = LinqReflectionCache.GetMaterializerSeqEqualDfInvoker elemType
                 box (invoker.Invoke(mat, df1, df2, compObj)) :?> 'TResult
 
             | None ->
-                let df = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let df = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                 let secondSeq =
                     match tryEvaluate secondExpr with
                     | Some (:? IEnumerable as seq) -> seq
@@ -720,7 +720,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                         maintainOrder = false
                     )
                 let slicedLf = PolarsWrapper.LazySlice(sortedLf, 0L, 1u)
-                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto, true)
+                let dfHandle = PolarsWrapper.LazyCollect(slicedLf, PlEngine.Auto)
                 let h = PolarsWrapper.DataFrameHeight dfHandle
                 if h = 0L then
                     if PolarsTypeHelper.AcceptsNull elemType then
@@ -732,7 +732,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                     invoker.Invoke(mat, dfHandle, null) :?> 'TResult
 
             | None ->
-                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+                let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                 let compiledKeySel = keyLambda.Compile()
 
                 match clientProjOpt with
@@ -2562,7 +2562,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
         if requiresClientFallback then
             this.ExecuteInMemory()
         else
-            let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+            let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
             // let dfHeight = PolarsWrapper.DataFrameHeight collectedDf
             // printfn "\x1b[1;32m[EXECUTE QUERY COLLECTED] Height=%d\x1b[0m" dfHeight
             
@@ -2713,7 +2713,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                         | _ -> nativeLf
 
                     // 2. Collect filtered source LazyFrame into DataFrameHandle
-                    let sourceDfHandle = PolarsWrapper.LazyCollect(sourceLf, PlEngine.Auto, true)
+                    let sourceDfHandle = PolarsWrapper.LazyCollect(sourceLf, PlEngine.Auto)
 
                     match seedLambdaOpt with
                     | Some seedLambda ->
@@ -2792,7 +2792,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             not requiresClientFallback && clientPredicates.IsEmpty && clientProjOpt.IsNone && not (isScalar && width > 1UL)
 
         if canDirectlyCollectNative then
-            PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto, true)
+            PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
         else
             let rows = this.ExecuteQuery()
             DataFrameBuilder.FromRows<'T>(rows)

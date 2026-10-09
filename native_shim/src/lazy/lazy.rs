@@ -492,7 +492,6 @@ pub extern "C" fn pl_lazyframe_unnest(
 pub extern "C" fn pl_lazy_collect(
     lf_ptr: *mut LazyFrameContext, 
     engine_code: u8,
-    _use_streaming: bool
 ) -> *mut DataFrameContext {
     ffi_try!({
         let lf_ctx = unsafe { Box::from_raw(lf_ptr) };

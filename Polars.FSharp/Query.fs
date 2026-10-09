@@ -64,6 +64,6 @@ module LinqExtension =
         member this.ToDataFrame(): DataFrame =
             match tryExtractLazyFrame this with
             | Some lfHandle ->
-                let dfHandle = PolarsWrapper.LazyCollect(lfHandle, PlEngine.Auto, true)
+                let dfHandle = PolarsWrapper.LazyCollect(lfHandle, PlEngine.Auto)
                 new DataFrame(dfHandle)
             | None -> raise (NotSupportedException "ToDataFrame can only be invoked on queries originating from Polars.NET.")

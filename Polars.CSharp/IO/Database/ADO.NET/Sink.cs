@@ -5,7 +5,7 @@ using Polars.NET.Core;
 using Polars.NET.Core.Data;
 
 namespace Polars.CSharp;
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Stream the result of the LazyFrame calculation into an <see cref="IDataReader"/>.

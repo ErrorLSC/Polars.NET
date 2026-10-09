@@ -206,7 +206,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         => new(series);
 
     /// <summary>
-    /// Stream C# objects into Polars.
+    /// Stream C# objects into Polars by Arrow Interface
     /// </summary>
     public static DataFrame FromEnumerable<T>(IEnumerable<T> data, int batchSize = 100_000, Apache.Arrow.Schema? providedSchema = null)
     {
@@ -216,28 +216,6 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         var handle = ArrowStreamInterop.ImportEager(stream, schema);
 
         if (handle.IsInvalid) return From(Enumerable.Empty<T>());
-        return new(handle);
-    }
-    /// <summary>
-    /// Stream data into Polars using Arrow C Stream Interface.
-    /// This method supports datasets larger than available RAM by streaming chunks directly to Polars.
-    /// </summary>
-    /// <param name="data">Source data collection</param>
-    /// <param name="batchSize">Rows per chunk (default 100,000)</param>
-    /// <param name="providedSchema">Stream schema provided by user</param>
-    [Obsolete("Renamed to FromEnumerable")]
-    public static DataFrame FromArrowStream<T>(IEnumerable<T> data, int batchSize = 100_000, Apache.Arrow.Schema? providedSchema = null)
-    {
-        var schema = providedSchema ?? ArrowConverter.GetSchemaFromType<T>();
-        var stream = data.ToArrowBatches(batchSize);
-
-        var handle = ArrowStreamInterop.ImportEager(stream, schema);
-
-        if (handle.IsInvalid)
-        {
-            return From(Enumerable.Empty<T>());
-        }
-
         return new(handle);
     }
 
