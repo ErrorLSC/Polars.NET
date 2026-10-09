@@ -28,6 +28,7 @@
     <Compile Include="QueryTests.fs" />
     <Compile Include="ConfigTests.fs" />
     <Compile Include="DataFrameTests.fs" />
+    <Compile Include="AsyncTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

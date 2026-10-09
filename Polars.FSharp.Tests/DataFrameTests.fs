@@ -5,6 +5,8 @@ open Xunit
 open Polars.FSharp
 open Polars.NET.Core
 
+type SliceKey = { Department: string; Year: int }
+
 type SimplePerson = {
     Id: int
     Name: string
@@ -1251,7 +1253,34 @@ type DataFrameTests() =
         Assert.False(map.ContainsKey missingKey)
 
     [<Fact>]
-    [<Trait("Rows", "GroupBy")>]
+    [<Trait("DataFrame", "PartitionMap")>]
+    member _.``PartitionMap with FSharp Record key infers columns and partitions correctly`` () =
+        // Arrange: Dataset with Department, Year, and Metrics
+        let sDept = pl.series "Department" [| "Dev"; "Dev"; "HR"; "HR"; "Dev" |]
+        let sYear = pl.series "Year" [| 2025; 2026; 2025; 2026; 2026 |]
+        let sScore = pl.series "Score" [| 90.0; 95.0; 80.0; 85.0; 99.0 |]
+        use df = pl.dataframe [| sDept; sYear; sScore |]
+
+        // Act 1: Auto-infer partition columns directly from SliceKey record definition!
+        let slicesAuto = df |> DataFrame.partitionMap<SliceKey>
+
+        // Assert 1: Exactly 4 distinct (Department, Year) partitions
+        Assert.Equal(4, slicesAuto.Count)
+
+        let dev2026Key = { Department = "Dev"; Year = 2026 }
+        Assert.True(slicesAuto.ContainsKey dev2026Key)
+
+        let dev2026Df = slicesAuto.[dev2026Key]
+        Assert.Equal(2L, dev2026Df.Height)
+        Assert.Equal(95.0, dev2026Df.["Score"].GetValue<float>(0L))
+        Assert.Equal(99.0, dev2026Df.["Score"].GetValue<float>(1L))
+
+        // Act 2: Explicitly pass column list with SliceKey
+        let slicesExplicit = df |> DataFrame.partitionMapBy<SliceKey> [ "Department"; "Year" ]
+        Assert.Equal(4, slicesExplicit.Count)
+        Assert.True(slicesExplicit.ContainsKey { Department = "HR"; Year = 2025 })
+    [<Fact>]
+    [<Trait("DataFrame", "GroupBy")>]
     member _.``Rows groupBy partitions hydrated records into FSharp immutable Map`` () =
         // Arrange: DataFrame matching PartitionTestEmployee schema
         let sName = pl.series "Name" [| "Alice"; "Bob"; "Charlie"; "David"; "Eve" |]

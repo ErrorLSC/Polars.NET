@@ -2,6 +2,7 @@ namespace Polars.FSharp
 
 open System
 open System.Collections
+open System.Collections.Generic
 open Polars.NET.Core
 
 /// <summary>
@@ -19,7 +20,6 @@ module private PartitionKeyComparison =
             try
                 StructuralComparisons.StructuralComparer.Compare(a, b)
             with _ ->
-                // Fallback for non-comparable objects to guarantee total ordering in red-black tree
                 let h1 = a.GetHashCode()
                 let h2 = b.GetHashCode()
                 if h1 <> h2 then compare h1 h2
@@ -35,9 +35,6 @@ module private PartitionKeyComparison =
 type PartitionKey =
     | PartitionKey of obj array
 
-    /// <summary>
-    /// Unwraps the underlying boxed column values array.
-    /// </summary>
     member this.Values: obj array =
         let (PartitionKey v) = this
         v
@@ -117,9 +114,6 @@ module DataFramePartitionBy =
         /// <summary>
         /// Group by the given columns and return the groups as separate dataframes.
         /// </summary>
-        /// <param name="byCols">Column names to group by.</param>
-        /// <param name="maintainOrder">Ensure that the order of the groups is consistent with input data. Default is true.</param>
-        /// <param name="includeKey">Include partition key columns in output dataframes. Default is true.</param>
         member this.PartitionBy(byCols: seq<string>, ?maintainOrder: bool, ?includeKey: bool) : DataFrame[] =
             let ma = defaultArg maintainOrder true
             let inc = defaultArg includeKey true
@@ -130,18 +124,12 @@ module DataFramePartitionBy =
         /// <summary>
         /// Group by a single column and return the groups as separate dataframes.
         /// </summary>
-        /// <param name="byCol">Column name to group by.</param>
-        /// <param name="maintainOrder">Ensure consistent group ordering. Default is true.</param>
-        /// <param name="includeKey">Include partition key column in output dataframes. Default is true.</param>
         member this.PartitionBy(byCol: string, ?maintainOrder: bool, ?includeKey: bool) : DataFrame[] =
             this.PartitionBy([ byCol ], ?maintainOrder = maintainOrder, ?includeKey = includeKey)
 
         /// <summary>
         /// Partitions the DataFrame by a single column and associates each partition with its strongly-typed key in an immutable F# Map.
         /// </summary>
-        /// <typeparam name="'Key">The target scalar or enum type of the partition key.</typeparam>
-        /// <param name="byCol">Column name to group by.</param>
-        /// <param name="maintainOrder">Ensure consistent group ordering. Default is true.</param>
         member this.PartitionMap<'Key when 'Key: comparison>(byCol: string, ?maintainOrder: bool) : Map<'Key, DataFrame> =
             let partitions = this.PartitionBy([ byCol ], ?maintainOrder = maintainOrder, includeKey = true)
             let targetType = typeof<'Key>
@@ -150,12 +138,10 @@ module DataFramePartitionBy =
 
             partitions
             |> Array.choose (fun partDf ->
-                if partDf.Height = 0L then
-                    None
+                if partDf.Height = 0L then None
                 else
                     use keyCol = partDf.[byCol]
-                    if keyCol.IsNullAt(0L, uncheck = true) then
-                        None
+                    if keyCol.IsNullAt(0L, uncheck = true) then None
                     else
                         let rawVal = 
                             if isEnum then
@@ -171,22 +157,15 @@ module DataFramePartitionBy =
         /// <summary>
         /// Partitions the DataFrame by two columns and associates each partition with a strongly-typed tuple key in an immutable F# Map.
         /// </summary>
-        /// <typeparam name="'K1">The type of the first partition key column.</typeparam>
-        /// <typeparam name="'K2">The type of the second partition key column.</typeparam>
-        /// <param name="col1">First column name to group by.</param>
-        /// <param name="col2">Second column name to group by.</param>
-        /// <param name="maintainOrder">Ensure consistent group ordering. Default is true.</param>
         member this.PartitionMap<'K1, 'K2 when 'K1: comparison and 'K2: comparison>(col1: string, col2: string, ?maintainOrder: bool) : Map<'K1 * 'K2, DataFrame> =
             let partitions = this.PartitionBy([ col1; col2 ], ?maintainOrder = maintainOrder, includeKey = true)
             partitions
             |> Array.choose (fun partDf ->
-                if partDf.Height = 0L then
-                    None
+                if partDf.Height = 0L then None
                 else
                     use c1 = partDf.[col1]
                     use c2 = partDf.[col2]
-                    if c1.IsNullAt(0L, uncheck = true) || c2.IsNullAt(0L, uncheck = true) then
-                        None
+                    if c1.IsNullAt(0L, uncheck = true) || c2.IsNullAt(0L, uncheck = true) then None
                     else
                         let v1 = c1.GetValue<'K1>(0L, uncheck = true)
                         let v2 = c2.GetValue<'K2>(0L, uncheck = true)
@@ -195,18 +174,51 @@ module DataFramePartitionBy =
             |> Map.ofArray
 
         /// <summary>
-        /// Partitions the DataFrame by arbitrary multiple columns and associates each partition with a PartitionKey in an immutable F# Map.
+        /// Partitions the DataFrame by the specified columns and hydrates each partition's key into an F# Record or composite key.
         /// </summary>
-        /// <param name="byCols">Column names to group by.</param>
+        /// <typeparam name="'Key">The target domain record or composite key type.</typeparam>
+        /// <param name="byCols">Column names to partition by.</param>
         /// <param name="maintainOrder">Ensure consistent group ordering. Default is true.</param>
+        member this.PartitionMap<'Key when 'Key: comparison>(byCols: seq<string>, ?maintainOrder: bool) : Map<'Key, DataFrame> =
+            let byArr = byCols |> Seq.toArray
+            let partitions = this.PartitionBy(byArr, ?maintainOrder = maintainOrder, includeKey = true)
+            let mapperCols = FSharpRowMapper<'Key>.ColumnNames
+            let colsToExtract =
+                if mapperCols.Length > 0 then mapperCols
+                else byArr
+
+            partitions
+            |> Array.choose (fun partDf ->
+                if partDf.Height = 0L then None
+                else
+                    // Hoist Series instances in the exact layout expected by FSharpRowMapper
+                    let seriesArr = colsToExtract |> Array.map (fun name -> partDf.[name])
+                    let key = FSharpRowMapper<'Key>.Hydrate(seriesArr, 0L)
+                    Some (key, partDf)
+            )
+            |> Map.ofArray
+
+        /// <summary>
+        /// Partitions the DataFrame using an F# Record key, automatically inferring partition column names from 'Key record fields.
+        /// </summary>
+        /// <typeparam name="'Key">The F# Record type defining the composite partition key.</typeparam>
+        /// <param name="maintainOrder">Ensure consistent group ordering. Default is true.</param>
+        member this.PartitionMap<'Key when 'Key: comparison>(?maintainOrder: bool) : Map<'Key, DataFrame> =
+            let reqCols = FSharpRowMapper<'Key>.ColumnNames
+            if reqCols.Length = 0 then
+                invalidOp $"Type '{typeof<'Key>.FullName}' does not specify any record fields to infer partition columns. Specify column names explicitly or use an F# record."
+            this.PartitionMap<'Key>(reqCols, ?maintainOrder = maintainOrder)
+
+        /// <summary>
+        /// Partitions the DataFrame by arbitrary multiple columns and associates each partition with an untyped PartitionKey in an immutable F# Map.
+        /// </summary>
         member this.PartitionMap(byCols: seq<string>, ?maintainOrder: bool) : Map<PartitionKey, DataFrame> =
             let colNames = byCols |> Seq.toArray
             let partitions = this.PartitionBy(colNames, ?maintainOrder = maintainOrder, includeKey = true)
 
             partitions
             |> Array.choose (fun partDf ->
-                if partDf.Height = 0L then
-                    None
+                if partDf.Height = 0L then None
                 else
                     let compositeKey =
                         colNames

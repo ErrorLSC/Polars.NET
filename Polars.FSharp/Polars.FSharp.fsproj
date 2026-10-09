@@ -86,8 +86,8 @@
     <Compile Include="Operations/Pivot.fs" />
     <Compile Include="Operations/TensorInterops.fs" />
     <Compile Include="DataFrame/DataFrame.Factory.fs" />
-    <Compile Include="DataFrame/DataFrame.PartitionBy.fs" />
     <Compile Include="DataFrame/DataFrame.Conversions.fs" />
+    <Compile Include="DataFrame/DataFrame.PartitionBy.fs" />
     <Compile Include="DataFrame/DataFrame.Descriptive.fs" />
     <Compile Include="DataFrame/DataFrame.Transpose.fs" />
     <Compile Include="Display.fs" />
@@ -98,6 +98,7 @@
     <Compile Include="DataFrame/DataFrame.Unstack.fs" />
     <Compile Include="DataFrame/DataFrame.JsonNormalize.fs" />
     <Compile Include="DataFrame/DataFrame.Mapping.fs" />
+    <Compile Include="DataFrame/DataFrame.Async.fs" />
     <Compile Include="DataFrame/DataFrame.Modules.fs" />
     <Compile Include="LazyFrame/LazyFrame.Modules.fs" />
     <Compile Include="Series/Series.Modules.fs" />

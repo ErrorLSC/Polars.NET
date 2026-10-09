@@ -106,6 +106,39 @@ module DataFrame =
     let partitionBy (columns: seq<string>) (df: DataFrame) : DataFrame[] =
         df.PartitionBy columns
     /// <summary>
+    /// Partitions the DataFrame using an F# Record key with default ordering preserved (maintainOrder = true).
+    /// Automatically infers partition column names from 'Key record fields.
+    /// </summary>
+    /// <typeparam name="'Key">The F# Record type defining the composite partition key.</typeparam>
+    /// <param name="df">The source DataFrame.</param>
+    /// <returns>An immutable F# Map of partition keys to partition DataFrames.</returns>
+    let inline partitionMap<'Key when 'Key: comparison> (df: DataFrame) : Map<'Key, DataFrame> =
+        df.PartitionMap<'Key>(maintainOrder = true)
+
+    /// <summary>
+    /// Partitions the DataFrame using an F# Record key with explicit maintainOrder configuration.
+    /// </summary>
+    /// <typeparam name="'Key">The F# Record type defining the composite partition key.</typeparam>
+    /// <param name="maintainOrder">Ensure consistent group ordering. Setting to false improves partitioning throughput.</param>
+    /// <param name="df">The source DataFrame.</param>
+    let inline partitionMapWith<'Key when 'Key: comparison> (maintainOrder: bool) (df: DataFrame) : Map<'Key, DataFrame> =
+        df.PartitionMap<'Key>(maintainOrder = maintainOrder)
+
+    /// <summary>
+    /// Partitions the DataFrame by explicitly specified column names into an F# Record key.
+    /// </summary>
+    /// <typeparam name="'Key">The F# Record or tuple type of the partition key.</typeparam>
+    /// <param name="byCols">Column names to partition by.</param>
+    /// <param name="df">The source DataFrame.</param>
+    let inline partitionMapBy<'Key when 'Key: comparison> (byCols: seq<string>) (df: DataFrame) : Map<'Key, DataFrame> =
+        df.PartitionMap<'Key>(byCols, maintainOrder = true)
+
+    /// <summary>
+    /// Partitions the DataFrame by explicitly specified column names with full control over ordering.
+    /// </summary>
+    let inline partitionMapByWith<'Key when 'Key: comparison> (byCols: seq<string>) (maintainOrder: bool) (df: DataFrame) : Map<'Key, DataFrame> =
+        df.PartitionMap<'Key>(byCols, maintainOrder = maintainOrder)
+    /// <summary>
     /// Vertically stack another DataFrame to this one.
     /// </summary>
     let vstack (other: DataFrame) (df: DataFrame) : DataFrame =
