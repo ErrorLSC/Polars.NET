@@ -79,6 +79,12 @@ type FinalProductItem = {
     FinalPrice: float
 }
 
+type PartitionTestEmployee = { 
+    Name: string
+    Age: int
+    Department: string
+    Salary: float }
+
 type DataFrameTests() =
     [<Fact>]
     [<Trait("DataFrame", "ofColumns")>]
@@ -1142,3 +1148,142 @@ type DataFrameTests() =
 
         let action = fun () -> df1.Iter2<SourceRecord, MetricRecord>(df2, fun _ _ -> ())
         Assert.Throws<ArgumentException>(action) |> ignore
+
+    [<Fact>]
+    [<Trait("DataFrame", "PartitionBy")>]
+    member _.``PartitionBy splits DataFrame correctly by single column and multiple columns`` () =
+        // Arrange: Create a DataFrame with Category and Value
+        let sCat = pl.series "Category" [| "A"; "B"; "A"; "C"; "B" |]
+        let sVal = pl.series "Val" [| 10; 20; 30; 40; 50 |]
+        let df = pl.dataframe [| sCat; sVal |]
+
+        // Act 1: Partition by single column string overload
+        let partsSingle = df.PartitionBy("Category")
+
+        // Assert 1: Exactly 3 partition DataFrames
+        Assert.Equal(3, partsSingle.Length)
+        let totalRows1 = partsSingle |> Array.sumBy (fun p -> p.Height)
+        Assert.Equal(5L, totalRows1)
+
+        // Act 2: Partition by seq<string> overload
+        let partsSeq = df.PartitionBy([ "Category" ])
+
+        // Assert 2: Matches single string behavior
+        Assert.Equal(3, partsSeq.Length)
+
+    [<Fact>]
+    [<Trait("DataFrame", "PartitionMap")>]
+    member _.``PartitionMap with single typed key partitions into immutable FSharp Map`` () =
+        // Arrange: Employees with Department and Salary
+        let sDept = pl.series "Department" [| "Engineering"; "HR"; "Engineering"; "Finance"; "HR" |]
+        let sSalary = pl.series "Salary" [| 12000.0; 7000.0; 15000.0; 9000.0; 7500.0 |]
+        let df = pl.dataframe [| sDept; sSalary |]
+
+        // Act: Partition by Department into Map<string, DataFrame>
+        let map = df.PartitionMap<string>("Department")
+
+        // Assert: Map contains exactly 3 departments
+        Assert.Equal(3, map.Count)
+        Assert.True(map.ContainsKey "Engineering")
+        Assert.True(map.ContainsKey "HR")
+        Assert.True(map.ContainsKey "Finance")
+        Assert.False(map.ContainsKey "Marketing")
+
+        // Assert partition DataFrame details
+        let engDf = map.["Engineering"]
+        Assert.Equal(2L, engDf.Height)
+
+        let hrDf = map.["HR"]
+        Assert.Equal(2L, hrDf.Height)
+
+        let financeDf = map.["Finance"]
+        Assert.Equal(1L, financeDf.Height)
+
+    [<Fact>]
+    [<Trait("DataFrame", "PartitionMap")>]
+    member _.``PartitionMap with two keys creates strongly typed tuple key Map`` () =
+        // Arrange: Department, Year, and Headcount
+        let sDept = pl.series "Department" [| "Eng"; "Eng"; "HR"; "HR"; "Eng" |]
+        let sYear = pl.series "Year" [| 2025; 2026; 2025; 2026; 2026 |]
+        let sCount = pl.series "Headcount" [| 10; 15; 3; 4; 20 |]
+        let df = pl.dataframe [| sDept; sYear; sCount |]
+
+        // Act: Partition by Department and Year into Map<string * int, DataFrame>
+        let map = df.PartitionMap<string, int>("Department", "Year")
+
+        // Assert: 4 distinct (Department, Year) combinations
+        Assert.Equal(4, map.Count)
+        Assert.True(map.ContainsKey ("Eng", 2025))
+        Assert.True(map.ContainsKey ("Eng", 2026))
+        Assert.True(map.ContainsKey ("HR", 2025))
+        Assert.True(map.ContainsKey ("HR", 2026))
+        Assert.False(map.ContainsKey ("Eng", 2030))
+
+        // Eng in 2026 has two rows
+        let eng2026Df = map.[("Eng", 2026)]
+        Assert.Equal(2L, eng2026Df.Height)
+
+    [<Fact>]
+    [<Trait("DataFrame", "PartitionMap")>]
+    member _.``PartitionMap with multiple columns creates composite PartitionKey Map`` () =
+        // Arrange: 3-column composite key (Region, Department, Year)
+        let sRegion = pl.series "Region" [| "APAC"; "EMEA"; "APAC"; "APAC" |]
+        let sDept = pl.series "Department" [| "Dev"; "Dev"; "Dev"; "Sales" |]
+        let sYear = pl.series "Year" [| 2026; 2026; 2026; 2026 |]
+        let sMetrics = pl.series "Metric" [| 100.0; 200.0; 300.0; 400.0 |]
+        let df = pl.dataframe [| sRegion; sDept; sYear; sMetrics |]
+
+        // Act: Partition by 3 columns into Map<PartitionKey, DataFrame>
+        let map = df.PartitionMap([ "Region"; "Department"; "Year" ])
+
+        // Assert: 3 distinct groups
+        Assert.Equal(3, map.Count)
+
+        // Look up by constructed PartitionKey
+        let targetKey = PartitionKey [| box "APAC"; box "Dev"; box 2026 |]
+        Assert.True(map.ContainsKey targetKey)
+
+        let targetDf = map.[targetKey]
+        Assert.Equal(2L, targetDf.Height)
+
+        // Non-existent composite key lookup returns None
+        let missingKey = PartitionKey [| box "US"; box "Dev"; box 2026 |]
+        Assert.False(map.ContainsKey missingKey)
+
+    [<Fact>]
+    [<Trait("Rows", "GroupBy")>]
+    member _.``Rows groupBy partitions hydrated records into FSharp immutable Map`` () =
+        // Arrange: DataFrame matching PartitionTestEmployee schema
+        let sName = pl.series "Name" [| "Alice"; "Bob"; "Charlie"; "David"; "Eve" |]
+        let sAge = pl.series "Age" [| 25; 30; 25; 40; 30 |]
+        let sDept = pl.series "Department" [| "Eng"; "HR"; "Eng"; "Finance"; "HR" |]
+        let sSalary = pl.series "Salary" [| 10000.0; 7000.0; 12000.0; 9000.0; 8000.0 |]
+        let df = pl.dataframe [| sName; sAge; sDept; sSalary |]
+
+        // Act 1: Group by Department
+        let deptGroups =
+            df
+            |> DataFrame.toRows<PartitionTestEmployee>
+            |> Rows.groupBy (fun e -> e.Department)
+
+        // Assert 1: Exactly 3 departments mapped to record lists
+        Assert.Equal(3, deptGroups.Count)
+        Assert.True(deptGroups.ContainsKey "Eng")
+        Assert.True(deptGroups.ContainsKey "HR")
+        Assert.True(deptGroups.ContainsKey "Finance")
+
+        let engList = deptGroups.["Eng"]
+        Assert.Equal(2, engList.Length)
+        Assert.Equal("Alice", engList.[0].Name)
+        Assert.Equal("Charlie", engList.[1].Name)
+
+        // Act 2: Group by Age
+        let ageGroups =
+            df.Rows<PartitionTestEmployee>()
+            |> Rows.groupBy (fun e -> e.Age)
+
+        // Assert 2: Exactly 3 age brackets (25, 30, 40)
+        Assert.Equal(3, ageGroups.Count)
+        Assert.Equal(2, ageGroups.[25].Length)
+        Assert.Equal(2, ageGroups.[30].Length)
+        Assert.Equal(1, ageGroups.[40].Length)

@@ -1,6 +1,8 @@
+#pragma warning disable CS1591
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Collections.Concurrent;
+using System.Collections;
 using System.Runtime.CompilerServices;
 using Polars.NET.Core.Helpers;
 
@@ -475,6 +477,72 @@ public ref struct DataFrameRowEnumerator<T>
             list.Add(Current);
         }
         return list;
+    }
+}
+
+/// <summary>
+/// A heap-allocated, lazy IEnumerable wrapper around a Polars DataFrame.
+/// Defers row hydration to iteration time and avoids full eager array allocations.
+/// Implements IReadOnlyCollection for O(1) Count inspection.
+/// </summary>
+public sealed class PolarsRowEnumerable<T> : IReadOnlyCollection<T>
+{
+private readonly DataFrame _df;
+    private readonly Func<DataFrame, long, T> _mapper;
+
+    public int Count => checked((int)_df.Height);
+
+    internal PolarsRowEnumerable(DataFrame df, Func<DataFrame, long, T> mapper)
+    {
+        _df = df;
+        _mapper = mapper;
+    }
+
+    // Fast-path: duck-typed struct enumerator for foreach loops (Zero heap allocation)
+    public Enumerator GetEnumerator() => new Enumerator(_df, _mapper);
+
+    // Generic interface fallback
+    IEnumerator<T> IEnumerable<T>.GetEnumerator() => new Enumerator(_df, _mapper);
+
+    // Non-generic interface fallback
+    IEnumerator IEnumerable.GetEnumerator() => new Enumerator(_df, _mapper);
+
+    public struct Enumerator : IEnumerator<T>
+    {
+        private readonly DataFrame _df;
+        private readonly Func<DataFrame, long, T> _mapper;
+        private readonly long _height;
+        private long _index;
+        private T? _current;
+
+        internal Enumerator(DataFrame df, Func<DataFrame, long, T> mapper)
+        {
+            _df = df;
+            _mapper = mapper;
+            _height = df.Height;
+            _index = -1L;
+            _current = default;
+        }
+
+        public bool MoveNext()
+        {
+            long next = _index + 1L;
+            if (next < _height)
+            {
+                _index = next;
+                _current = _mapper(_df, _index);
+                return true;
+            }
+
+            _current = default;
+            return false;
+        }
+
+        public readonly T Current => _current!;
+        readonly object? IEnumerator.Current => Current;
+        public void Reset() { _index = -1L; _current = default; }
+        public readonly void Dispose() { }
+    
     }
 }
 

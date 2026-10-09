@@ -5623,4 +5623,93 @@ public partial class LinqTests
         var aliceSales = resultList.Single(x => x.Name == "Alice" && x.Department == "Sales");
         Assert.Equal(5500, aliceSales.Salary);
     }
+    [Fact]
+    [Trait("LINQ", "ToLookup")]
+    public void Test_Linq_ToLookup_With_Employee_Record()
+    {
+        // Construct DataFrame matching Employee record schema
+        using var df = DataFrame.FromColumns([
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
+            Series.From("Age", [25, 30, 25, 40, 30]),
+            Series.From("Salary", [50000, 70000, 60000, 90000, 80000])
+        ]);
+
+        // =========================================================================
+        // Scenario 1: Basic ToLookup by Age (Key: int, Element: Employee)
+        // Verifies Rust PartitionByAsDict integration and lazy hydration
+        // =========================================================================
+        var lookupByAge = df.AsQueryable<Employee>()
+                            .ToLookup(e => e.Age);
+
+        // Verify group count and key existence
+        Assert.Equal(3, lookupByAge.Count);
+        Assert.True(lookupByAge.Contains(25));
+        Assert.True(lookupByAge.Contains(30));
+        Assert.True(lookupByAge.Contains(40));
+        Assert.False(lookupByAge.Contains(99));
+
+        // Verify elements inside group (Age == 25)
+        var age25Group = lookupByAge[25].ToList();
+        Assert.Equal(2, age25Group.Count);
+        Assert.Equal(new Employee("Alice", 25, 50000), age25Group[0]);
+        Assert.Equal(new Employee("Charlie", 25, 60000), age25Group[1]);
+
+        // Verify BCL compliance: Missing key returns empty sequence rather than throwing
+        Assert.Empty(lookupByAge[999]);
+
+        // =========================================================================
+        // Scenario 2: ToLookup with elementSelector (Key: int, Element: string Name)
+        // Verifies ExprTranslator column pruning down to the partition DataFrame
+        // =========================================================================
+        var namesByAge = df.AsQueryable<Employee>()
+                           .ToLookup(e => e.Age, e => e.Name);
+
+        Assert.Equal(3, namesByAge.Count);
+
+        var age30Names = namesByAge[30].ToList();
+        Assert.Equal(2, age30Names.Count);
+        Assert.Equal(["Bob", "Eve"], age30Names);
+
+        var age40Names = namesByAge[40].ToList();
+        Assert.Single(age40Names);
+        Assert.Equal("David", age40Names[0]);
+
+        // =========================================================================
+        // Scenario 3: Chained Where filter before ToLookup
+        // Verifies filter pushdown to Rust engine before executing PartitionByAsDict
+        // =========================================================================
+        var highEarnersByAge = df.AsQueryable<Employee>()
+                                 .Where(e => e.Salary >= 70000)
+                                 .ToLookup(e => e.Age, e => e.Salary);
+
+        // Age 25 employees (50000, 60000) should be completely filtered out
+        Assert.Equal(2, highEarnersByAge.Count);
+        Assert.False(highEarnersByAge.Contains(25));
+        Assert.Empty(highEarnersByAge[25]);
+
+        // Age 30 has Bob (70000) and Eve (80000)
+        Assert.True(highEarnersByAge.Contains(30));
+        var age30Salaries = highEarnersByAge[30].ToList();
+        Assert.Equal([70000, 80000], age30Salaries);
+
+        // Age 40 has David (90000)
+        Assert.True(highEarnersByAge.Contains(40));
+        var age40Salaries = highEarnersByAge[40].ToList();
+        Assert.Single(age40Salaries);
+        Assert.Equal(90000, age40Salaries[0]);
+
+        // =========================================================================
+        // Scenario 4: Iterating over IGrouping directly
+        // Verifies PolarsGrouping metadata properties (Key, Count)
+        // =========================================================================
+        int totalEmployees = 0;
+        foreach (var group in lookupByAge)
+        {
+            Assert.True(group.Key is 25 or 30 or 40);
+            Assert.Equal(group.Count, group.ToList().Count);
+            totalEmployees += group.Count;
+        }
+
+        Assert.Equal(5, totalEmployees);
+    }
 }

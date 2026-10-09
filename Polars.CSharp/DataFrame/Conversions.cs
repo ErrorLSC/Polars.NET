@@ -15,6 +15,16 @@ namespace Polars.CSharp;
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
 {
     /// <summary>
+    /// Returns a lazy heap-allocated IEnumerable over DataFrame rows.
+    /// Ideal for LINQ composition, interface boundaries, and streaming scenarios.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public PolarsRowEnumerable<T> AsEnumerable<T>()
+    {
+        var mapper = RowMapper<T>.GetOrCreate(this);
+        return new(this, mapper);
+    }
+    /// <summary>
     /// Convert a DataFrame to a Series of type Struct.
     /// </summary>
     /// <param name="name">Name for the struct Series.</param>

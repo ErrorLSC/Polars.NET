@@ -791,6 +791,28 @@ module Rows =
             | true, count -> dict.[key] <- count + 1L
             | false, _    -> dict.[key] <- 1L
         dict
+    
+    /// <summary>
+    /// Groups the rows of the enumerator using the key-generating function,
+    /// returning an idiomatic F# immutable Map of key to row list.
+    /// </summary>
+    let inline groupBy ([<InlineIfLambda>] keySelector: 'T -> 'Key) (enumerator: RowEnumerator<'T>) : Map<'Key, 'T list> =
+        let dict = Dictionary<'Key, ResizeArray<'T>>()
+        let mutable it = enumerator
+        while it.MoveNext() do
+            let cur = it.Current
+            let key = keySelector cur
+            match dict.TryGetValue key with
+            | true, list -> list.Add cur
+            | false, _   -> 
+                let list = ResizeArray<'T>()
+                list.Add cur
+                dict.[key] <- list
+        
+        dict
+        |> Seq.map (fun kv -> kv.Key, kv.Value |> Seq.toList)
+        |> Map.ofSeq
+
 
 [<AutoOpen>]
 module DataFrameConversions =
@@ -860,15 +882,6 @@ type FSharpRowCursorMaterializer() =
         member _.Materialize<'T>(handle: DataFrameHandle) : IEnumerable<'T> =
             let height = PolarsWrapper.DataFrameHeight handle
             let width = PolarsWrapper.DataFrameWidth handle
-            // printfn "\x1b[1;36m[MATERIALIZER DEBUG] Materializing '%s', Height=%d, Width=%d\x1b[0m" typeof<'T>.Name height width
-
-            // let colNames =
-            //     Array.init (int width) (fun i ->
-            //         let col = PolarsWrapper.DataFrameGetColumnAt(handle, int64 i)
-            //         let name = PolarsWrapper.SeriesName col
-            //         name
-            //     )
-            // printfn "\x1b[1;36m[MATERIALIZER DEBUG] DataFrame Columns: [%s]\x1b[0m" (String.Join(", ", colNames))
 
             seq {
                 let cols = 
@@ -878,7 +891,6 @@ type FSharpRowCursorMaterializer() =
                     )
                 for rowIdx in 0L .. (height - 1L) do
                     let item = FSharpRowMapper<'T>.Hydrate(cols, rowIdx)
-                    // printfn "\x1b[32m[HYDRATE DEBUG] Row=%d, Value=%A\x1b[0m" rowIdx item
                     yield item
             }
         member _.MaterializeScalar<'T>(handle: DataFrameHandle) : 'T =

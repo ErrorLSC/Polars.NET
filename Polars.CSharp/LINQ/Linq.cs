@@ -5,6 +5,7 @@ using System.Linq.Expressions;
 using System.Runtime.InteropServices;
 using Polars.NET.Core.Helpers;
 using System.Runtime.CompilerServices;
+using Microsoft.FSharp.Core;
 
 namespace Polars.CSharp.Linq;
 
@@ -17,11 +18,10 @@ public sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
     public IEnumerable<T> Materialize<T>(DataFrameHandle handle)
     {
-        // Wrap DataFrameHandle into C# DataFrame wrapper
         var df = new DataFrame(handle);
 
-        // Consume duck-typed DataFrameRowEnumerator<T>
-        return df.Rows<T>().ToList();
+        // Return lazy, O(1) memory row stream
+        return df.AsEnumerable<T>();
     }
     public T MaterializeScalar<T>(DataFrameHandle handle)
     {
@@ -615,10 +615,11 @@ public static class LinqExtensions
         if (query is PolarsQuery<T> polarsQuery)
         {
             var lfHandle = polarsQuery.CompileToLazyFrameHandle();
-            return new LazyFrame(lfHandle);
+            return new(lfHandle);
         }
 
-        throw new NotSupportedException("ToLazyFrame can only be invoked on queries originating from Polars.NET.");
+        // Convert other LINQ query to DataFrame then LazyFrame
+        return DataFrame.FromRows([..query]).Lazy();
     }
 
     /// <summary>
@@ -632,7 +633,95 @@ public static class LinqExtensions
             return new(dfHandle);
         }
 
-        throw new NotSupportedException("ToDataFrame can only be invoked on queries originating from Polars.NET.");
+        // Convert other LINQ query to DataFrame
+        return DataFrame.FromRows([..query]);
+    }
+    public static PolarsLookup<TKey, TSource> ToLookup<TSource, TKey>(
+        this IQueryable<TSource> source,
+        Expression<Func<TSource, TKey>> keySelector,
+        IEqualityComparer<TKey>? comparer = null)
+        where TKey : notnull
+    {
+        return source.ToLookup(keySelector, e => e, comparer);
+    }
+
+    public static PolarsLookup<TKey, TElement> ToLookup<TSource, TKey, TElement>(
+        this IQueryable<TSource> source,
+        Expression<Func<TSource, TKey>> keySelector,
+        Expression<Func<TSource, TElement>> elementSelector,
+        IEqualityComparer<TKey>? comparer = null)
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(keySelector);
+        ArgumentNullException.ThrowIfNull(elementSelector);
+
+        // 1. Evaluate preceding LINQ pipeline down to a DataFrame
+        var df = source.ToDataFrame();
+
+        // 2. Reuse ExprTranslator directly to push down key selector to native Expr
+        var keyParam = keySelector.Parameters[0].Name ?? "x";
+        var keyOpt = ExprTranslator.tryTranslate(keyParam, keySelector.Body);
+        if (!FSharpOption<ExprHandle>.get_IsSome(keyOpt))
+        {
+            throw new NotSupportedException($"Key selector '{keySelector}' could not be translated to a Polars expression.");
+        }
+        var keyExpr = new Expr(keyOpt.Value);
+
+        // 3. Partition natively via Rust engine into partition DataFrames
+        var partitions = df.PartitionByAsDict(keyExpr);
+
+        // 4. Optionally translate element projection using ExprTranslator
+        var isIdentity = typeof(TSource) == typeof(TElement) && elementSelector.Body is ParameterExpression;
+        Expr? elemExpr = null;
+        if (!isIdentity)
+        {
+            var elemParam = elementSelector.Parameters[0].Name ?? "x";
+            var elemOpt = ExprTranslator.tryTranslate(elemParam, elementSelector.Body);
+            if (FSharpOption<ExprHandle>.get_IsSome(elemOpt))
+            {
+                elemExpr = new Expr(elemOpt.Value);
+            }
+        }
+
+        // 5. Assemble lookup dictionary: partition DataFrame matches TElement schema directly
+        var groupDict = new Dictionary<TKey, PolarsGrouping<TKey, TElement>>(
+            partitions.Count,
+            comparer ?? EqualityComparer<TKey>.Default);
+
+        foreach (var (keys, partDf) in partitions)
+        {
+            if (keys.Length == 0 || keys[0] is null || keys[0] is DBNull)
+            {
+                continue;
+            }
+
+            var typedKey = ConvertKey<TKey>(keys[0]!);
+            var finalDf = elemExpr is null ? partDf : partDf.Select(elemExpr);
+
+            groupDict[typedKey] = new PolarsGrouping<TKey, TElement>(typedKey, finalDf);
+        }
+
+        return new PolarsLookup<TKey, TElement>(groupDict);
+    }
+
+    private static TKey ConvertKey<TKey>(object rawKey)
+    {
+        if (rawKey is TKey exact)
+        {
+            return exact;
+        }
+
+        var targetType = typeof(TKey);
+        var underlying = Nullable.GetUnderlyingType(targetType) ?? targetType;
+
+        // Guarantee enum safety (e.g. DayOfWeek, StringComparison)
+        if (underlying.IsEnum)
+        {
+            return (TKey)Enum.ToObject(underlying, rawKey);
+        }
+
+        return (TKey)Convert.ChangeType(rawKey, underlying);
     }
     // =========================================================================
     // Shift
