@@ -185,3 +185,15 @@ public class FrozenCategoriesHandle : PolarsHandle
         return true;
     }
 }
+
+public class CollectBatchesHandle : PolarsHandle
+{
+    protected override bool ReleaseHandle()
+    {
+        if (!IsInvalid)
+        {
+            NativeBindings.pl_collect_batches_free(handle);
+        }
+        return true;
+    }
+}

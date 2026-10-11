@@ -182,6 +182,22 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     }
 
     /// <summary>
+    /// Streams materialized DataFrame batches asynchronously using Polars native streaming engine.
+    /// Memory consumption is bounded by the batch size O(batch).
+    /// </summary>
+    /// <param name="chunkSize">Maximum row count per native batch (0 uses Polars default batch size).</param>
+    /// <param name="engine">Execution engine selection.</param>
+    /// <param name="maintainOrder">Whether to enforce deterministic row ordering across batches.</param>
+    /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
+    /// <returns>An asynchronous stream of DataFrame batches.</returns>
+    public IAsyncEnumerable<DataFrame> CollectBatchesAsync(
+        long chunkSize = 0,
+        Engine engine = Engine.Auto,
+        bool maintainOrder = false,
+        CancellationToken cancellationToken = default)
+        => this.ToBatchAsyncEnumerable(chunkSize, engine, maintainOrder, cancellationToken);
+
+    /// <summary>
     /// Dispose the LazyFrame and release native resources.
     /// </summary>
     public void Dispose()

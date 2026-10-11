@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Polars.NET.Core.Native;
 
@@ -612,6 +613,63 @@ public readonly partial struct PolarsWrapper
         PlEngine engine,
         CancellationToken cancellationToken) 
             => Task.Run(() => LazyCollect(handle, engine), cancellationToken);
+    public static CollectBatchesHandle LazyCollectBatches(
+        LazyFrameHandle lf,
+        PlEngine engine = PlEngine.Auto,
+        bool maintainOrder = false,
+        nuint chunkSize = 0)
+    {
+        ArgumentNullException.ThrowIfNull(lf);
+        var h = NativeBindings.pl_lazy_collect_batches(lf, engine, maintainOrder, chunkSize);
+        lf.TransferOwnership();
+        return h;
+    }
+
+    /// <summary>
+    /// Pulls the next materialized batch DataFrame from the channel.
+    /// </summary>
+    public static DataFrameHandle CollectBatchesNext(
+        CollectBatchesHandle batches,
+        out bool isCompleted)
+    {
+        ArgumentNullException.ThrowIfNull(batches);
+        return NativeBindings.pl_collect_batches_next(batches, out isCompleted);
+    }
+    public static async IAsyncEnumerable<DataFrameHandle> LazyCollectBatchesStreamAsync(
+        LazyFrameHandle lf,
+        PlEngine engine = PlEngine.Auto,
+        bool maintainOrder = false,
+        long chunkSize = 0,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(lf);
+
+        // 1. Fail immediately on a pre-cancelled token before allocating any native resources
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // 2. Consume and start streaming batch execution on native engine
+        using var batches = LazyCollectBatches(lf, engine, maintainOrder, (nuint)Math.Max(0, chunkSize));
+
+        while (true)
+        {
+            // 3. Cooperative cancellation check before offloading batch read
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var (dfHandle, isCompleted) = await Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var df = CollectBatchesNext(batches, out var completed);
+                return (df, completed);
+            }, cancellationToken).ConfigureAwait(false);
+
+            if (isCompleted || dfHandle.IsInvalid)
+            {
+                break;
+            }
+
+            yield return dfHandle;
+        }
+    }
     // --- Clone Ops ---
     public static LazyFrameHandle LazyClone(LazyFrameHandle lf)
         => ErrorHelper.Check(NativeBindings.pl_lazy_clone(lf));

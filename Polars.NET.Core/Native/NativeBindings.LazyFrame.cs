@@ -275,4 +275,22 @@ unsafe internal partial class NativeBindings
         LazyFrameHandle other,
         string[] key,
         [MarshalAs(UnmanagedType.U1)] bool maintainOrder);
+    [LibraryImport(LibName)]
+    public static partial void pl_collect_batches_free(nint handle);
+    [LibraryImport(LibName)]
+    public static partial CollectBatchesHandle pl_lazy_collect_batches(
+        LazyFrameHandle lf,
+        PlEngine engine,
+        [MarshalAs(UnmanagedType.U1)] bool maintainOrder,
+        nuint chunkSize
+    );
+    [LibraryImport(LibName)]
+    public static partial DataFrameHandle pl_collect_batches_next(
+        CollectBatchesHandle batches,
+        [MarshalAs(UnmanagedType.U1)] out bool isCompleted
+    );
+
+
+
+    
 }
