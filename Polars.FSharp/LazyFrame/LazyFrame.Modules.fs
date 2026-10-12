@@ -1,6 +1,9 @@
 namespace Polars.FSharp
+
 open System.Threading.Tasks
 open Polars.NET.Core
+open System.Collections.Generic
+
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
     
@@ -19,6 +22,27 @@ module LazyFrame =
 
             return new DataFrame(dfHandle)
         }
+    /// <summary>
+    /// Streams materialized DataFrame batches asynchronously.
+    /// </summary>
+    let inline collectBatchesAsync
+        (chunkSize: int64)
+        (lf: LazyFrame) : IAsyncEnumerable<DataFrame> =
+        lf.CollectBatchesAsync(chunkSize = chunkSize)
+    /// <summary>
+    /// Streams strongly typed F# Records/Tuples/DTOs asynchronously from a LazyFrame.
+    /// </summary>
+    let inline toRowsAsync<'T>
+        (chunkSize: int64)
+        (lf: LazyFrame) : IAsyncEnumerable<'T> =
+        lf.RowsAsync<'T>(chunkSize = chunkSize)
+    /// <summary>
+    /// Streams strongly typed F# Records/Tuples/DTOs asynchronously from a LazyFrame.
+    /// </summary>
+    let inline toAsyncEnumerable<'T>
+        (chunkSize: int64)
+        (lf: LazyFrame) : IAsyncEnumerable<'T> =
+        lf.ToAsyncEnumerable<'T>(chunkSize = chunkSize)
     /// Collect the LazyFrame using the specified engine.
     let collectWithEngine (engine: Engine) (lazyFrame: LazyFrame) : DataFrame =
         lazyFrame.Collect(engine)

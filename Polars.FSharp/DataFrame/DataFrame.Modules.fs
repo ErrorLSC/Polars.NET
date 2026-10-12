@@ -1,6 +1,7 @@
 namespace Polars.FSharp
 
 open Apache.Arrow
+open System.Collections.Generic
 
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -302,3 +303,17 @@ module DataFrame =
     /// <returns>A row enumerator for the DataFrame.</returns>
     let inline toRows<'T>(df:DataFrame): RowEnumerator<'T> =
         df.Rows<'T>()
+    /// <summary>
+    /// Streams in-memory DataFrame rows asynchronously.
+    /// </summary>
+    let inline toRowsAsync<'T>
+        (chunkSize: int)
+        (df: DataFrame) : IAsyncEnumerable<'T> =
+        df.RowsAsync<'T>(chunkSize = chunkSize)
+    /// <summary>
+    /// Streams in-memory DataFrame rows asynchronously.
+    /// </summary>
+    let inline toAsyncEnumerable<'T>
+        (chunkSize: int)
+        (df: DataFrame) : IAsyncEnumerable<'T> =
+        df.ToAsyncEnumerable<'T>(chunkSize = chunkSize)
