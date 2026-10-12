@@ -8,6 +8,8 @@ open System.Linq.Expressions
 open System.Reflection
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
+open System.Threading
+open System.Threading.Tasks
 
 /// Internal classification of resolved predicate pushdown state
 type private ResolvedPredicate =
@@ -2822,3 +2824,177 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
     interface IPolarsPlanSource with
         member this.GetCompiledLazyFrameHandle() =
             this.CompileToLazyFrameHandle()
+
+    interface IAsyncEnumerable<'T> with
+        member this.GetAsyncEnumerator(cancellationToken: CancellationToken) : IAsyncEnumerator<'T> =
+            // Fail-fast immediately if token is already cancelled
+            cancellationToken.ThrowIfCancellationRequested()
+
+            let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback = this.GetCompiledPlan()
+            let targetType = typeof<'T>
+            let isGrouping = targetType.IsGenericType && targetType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
+
+            let rec hasShuffle (e: Expression) : bool =
+                match e with
+                | null -> false
+                | MethodCall(m, null, _) when m.Name = "Shuffle" -> true
+                | MethodCall(_, null, args) -> args |> List.exists hasShuffle
+                | _ -> false
+
+            let rec findChunkSize (e: Expression) : int option =
+                match e with
+                | null -> None
+                | MethodCall(m, null, [ _; sizeExpr ]) when m.Name = "Chunk" ->
+                    match tryEvaluate sizeExpr with
+                    | Some s -> Some (Convert.ToInt32 s)
+                    | None -> None
+                | MethodCall(_, null, args) -> args |> List.tryPick findChunkSize
+                | _ -> None
+
+            let rec findAggregateBy (e: Expression) =
+                match e with
+                | null -> None
+                | MethodCall(m, null, source :: CleanLambda k :: seedExpr :: CleanLambda f :: rest) when m.Name = "AggregateBy" ->
+                    let seedLambdaOpt = match seedExpr with CleanLambda s -> Some s | _ -> None
+                    let comparerExprOpt = rest |> List.tryHead
+                    Some (source, k, seedExpr, seedLambdaOpt, f, comparerExprOpt)
+                | MethodCall(_, null, args) -> args |> List.tryPick findAggregateBy
+                | _ -> None
+
+            let rec findDefaultIfEmpty (e: Expression) : bool =
+                match e with
+                | null -> false
+                | MethodCall(m, null, _) when m.Name = "DefaultIfEmpty" -> true
+                | MethodCall(_, null, args) -> args |> List.exists findDefaultIfEmpty
+                | _ -> false
+
+            let canStreamBatches =
+                not requiresClientFallback &&
+                not (hasShuffle expression) &&
+                not isGrouping &&
+                not (findDefaultIfEmpty expression) &&
+                (findChunkSize expression).IsNone &&
+                (findAggregateBy expression).IsNone
+
+            if not canStreamBatches then
+                // Fallback path: offload full in-memory LINQ or specialized reduction pipeline to thread pool
+                let enumeratorRef = ref (None: IEnumerator<'T> option)
+                { new IAsyncEnumerator<'T> with
+                    member _.Current =
+                        match enumeratorRef.Value with
+                        | Some e -> e.Current
+                        | None -> invalidOp "Enumeration has not started."
+
+                    member _.MoveNextAsync() : ValueTask<bool> =
+                        cancellationToken.ThrowIfCancellationRequested()
+                        match enumeratorRef.Value with
+                        | Some e -> ValueTask<bool>(e.MoveNext())
+                        | None ->
+                            ValueTask<bool>(task {
+                                cancellationToken.ThrowIfCancellationRequested()
+                                let rows = this.ExecuteQuery()
+                                let e = rows.GetEnumerator()
+                                enumeratorRef.Value <- Some e
+                                return e.MoveNext()
+                            })
+
+                    member _.DisposeAsync() : ValueTask =
+                        match enumeratorRef.Value with
+                        | Some e -> e.Dispose()
+                        | None -> ()
+                        ValueTask()
+                }
+            else
+                // Native streaming batch path: streams batches from Rust engine with O(batch) memory overhead
+                let batchStream =
+                    PolarsWrapper.LazyCollectBatchesStreamAsync(
+                        nativeLf,
+                        PlEngine.Auto,
+                        maintainOrder = false,
+                        chunkSize = 0L,
+                        cancellationToken = cancellationToken
+                    )
+
+                let batchEnumerator = batchStream.GetAsyncEnumerator(cancellationToken)
+                let mutable currentBatchHandle: DataFrameHandle = null
+                let mutable currentBatchRows: IEnumerator<'T> = null
+                let mutable hasActiveRows = false
+                let mutable isDisposed = false
+
+                let materializeBatch (dfHandle: DataFrameHandle) : IEnumerable<'T> =
+                    let mat = QueryMaterializerResolver.Resolve (Some materializer)
+                    match clientProjOpt with
+                    | Some (sourceType, func) ->
+                        let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
+                        let rawSourceRows = invoker.Invoke(mat, dfHandle)
+                        // Directly enumerate non-generic IEnumerable with single-pass filter and projection
+                        seq {
+                            for item in rawSourceRows do
+                                if clientPredicates.IsEmpty || clientPredicates |> List.forall (fun p -> p.Invoke item) then
+                                    yield func.Invoke item :?> 'T
+                        }
+                    | None ->
+                        let rows = mat.Materialize<'T>(dfHandle)
+                        if clientPredicates.IsEmpty then rows
+                        else rows |> Seq.filter (fun item -> clientPredicates |> List.forall (fun p -> p.Invoke (box item)))
+
+                { new IAsyncEnumerator<'T> with
+                    member _.Current =
+                        if hasActiveRows && not (isNull currentBatchRows) then
+                            currentBatchRows.Current
+                        else
+                            invalidOp "Enumeration has not started or is completed."
+
+                    member _.MoveNextAsync() : ValueTask<bool> =
+                        cancellationToken.ThrowIfCancellationRequested()
+
+                        // Fast-path: tight synchronous iteration within active batch without Task allocation
+                        if hasActiveRows && currentBatchRows.MoveNext() then
+                            ValueTask<bool>(true)
+                        else
+                            // Slow-path: fetch next native batch asynchronously
+                            ValueTask<bool>(task {
+                                cancellationToken.ThrowIfCancellationRequested()
+                                let mutable advanced = false
+                                let mutable doneStreaming = false
+
+                                while not advanced && not doneStreaming do
+                                    if hasActiveRows && currentBatchRows.MoveNext() then
+                                        advanced <- true
+                                    else
+                                        // Immediately dispose unmanaged memory of exhausted batch
+                                        if not (isNull currentBatchHandle) then
+                                            currentBatchHandle.Dispose()
+                                            currentBatchHandle <- null
+                                            currentBatchRows <- null
+                                            hasActiveRows <- false
+
+                                        let! hasNextBatch = batchEnumerator.MoveNextAsync()
+                                        if hasNextBatch then
+                                            let dfHandle = batchEnumerator.Current
+                                            let h = PolarsWrapper.DataFrameHeight dfHandle
+                                            if h > 0L then
+                                                currentBatchHandle <- dfHandle
+                                                let rows = materializeBatch dfHandle
+                                                currentBatchRows <- rows.GetEnumerator()
+                                                hasActiveRows <- true
+                                            else
+                                                dfHandle.Dispose()
+                                        else
+                                            doneStreaming <- true
+
+                                return advanced
+                            })
+
+                    member _.DisposeAsync() : ValueTask =
+                        ValueTask(task {
+                            if not isDisposed then
+                                isDisposed <- true
+                                if not (isNull currentBatchHandle) then
+                                    currentBatchHandle.Dispose()
+                                    currentBatchHandle <- null
+                                    currentBatchRows <- null
+                                    hasActiveRows <- false
+                                do! batchEnumerator.DisposeAsync()
+                        })
+                }

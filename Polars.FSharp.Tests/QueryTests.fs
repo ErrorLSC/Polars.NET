@@ -35,10 +35,15 @@ type PlayerOptionRecord = {
     Score: int voption            
     LastLogin: DateTime voption  
 }
+type LinqSensorRecord = {
+    SensorId: int
+    Temperature: float
+    Location: string
+}
 
 module QueryTests =
     open System.IO
-    open System.Threading.Tasks
+    open System.Collections.Generic
     [<Fact>]
     [<Trait("LINQ", "Option")>]
     let ``Test FSharp Option Scalar Aggregations with Empty Sequence`` () =
@@ -1248,3 +1253,33 @@ module QueryTests =
 
         finally
             if File.Exists fileName then File.Delete fileName
+
+    [<Fact>]
+    [<Trait("LINQ", "Async")>]
+    let ``FSharp query expression streams via RowsAsync successfully`` () = task {
+        // Arrange
+        use lf = 
+            let sId = pl.series "SensorId" [| 1..100 |]
+            let sTemp = pl.series "Temperature" [| for i in 1..100 -> float i * 0.5 |]
+            let sLoc = pl.series "Location" [| for i in 1..100 -> sprintf "Zone_%d" (i % 5) |]
+            pl.dataframe [| sId; sTemp; sLoc |]
+            |> DataFrame.asLazy
+
+        let q =
+            query {
+                for s in lf.AsQueryable<LinqSensorRecord>() do
+                where (s.Temperature > 40.0)
+                sortBy s.SensorId
+                select s
+            }
+
+        // Act: Cast to IAsyncEnumerable and pipe into RowsAsync.toList
+        let! results =
+            (q :?> IAsyncEnumerable<LinqSensorRecord>)
+            |> RowsAsync.toList
+
+        // Assert: 81..100 matched
+        Assert.Equal(20, results.Length)
+        Assert.Equal(81, results.Head.SensorId)
+        Assert.Equal(100, (results |> List.last).SensorId)
+    }

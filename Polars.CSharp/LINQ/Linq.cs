@@ -745,6 +745,36 @@ public static class LinqExtensions
 
         return (TKey)Convert.ChangeType(rawKey, underlying);
     }
+    /// <summary>
+    /// Returns the input typed as IAsyncEnumerable for streaming async enumeration.
+    /// </summary>
+    public static IAsyncEnumerable<T> AsAsyncEnumerable<T>(this IQueryable<T> source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        if (source is IAsyncEnumerable<T> asyncEnumerable)
+        {
+            return asyncEnumerable;
+        }
+
+        throw new InvalidOperationException(
+            $"The source IQueryable does not implement IAsyncEnumerable<{typeof(T).Name}>.");
+    }
+
+    /// <summary>
+    /// Asynchronously enumerates the query and materializes all results into a List.
+    /// </summary>
+    public static async Task<List<T>> ToListAsync<T>(
+        this IQueryable<T> source, 
+        CancellationToken cancellationToken = default)
+    {
+        var list = new List<T>();
+        await foreach (var item in source.AsAsyncEnumerable().WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            list.Add(item);
+        }
+        return list;
+    }
     // =========================================================================
     // Shift
     // =========================================================================

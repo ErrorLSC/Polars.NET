@@ -78,6 +78,7 @@ public readonly record struct ProductMetric(
     string Name,
     double Factor
 );
+public record SensorReading(int SensorId, double Temperature, string Location);
 public partial class LinqTests
 {
     [Fact]
@@ -5711,5 +5712,90 @@ public partial class LinqTests
         }
 
         Assert.Equal(5, totalEmployees);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Async")]
+    public async Task LinqQuery_StreamViaIAsyncEnumerable_YieldsCorrectFilteredRows()
+    {
+        // Arrange
+        using var df = DataFrame.FromColumns([
+            Series.From("SensorId", Enumerable.Range(1, 100)),
+            Series.From("Temperature", Enumerable.Range(1, 100).Select(i => i * 0.5)),
+            Series.From("Location", Enumerable.Range(1, 100).Select(i => $"Zone_{i % 5}"))
+        ]);
+        using var lazyDf = df.Lazy();
+
+        var query = lazyDf.AsQueryable<SensorReading>()
+                          .Where(x => x.Temperature > 40.0)
+                          .OrderBy(x => x.SensorId);
+
+        // Act: Enumerate via IAsyncEnumerable
+        var results = new List<SensorReading>();
+        await foreach (var item in (IAsyncEnumerable<SensorReading>)query)
+        {
+            results.Add(item);
+        }
+
+        // Assert: Temperature > 40.0 means SensorId > 80 (81..100 = 20 items)
+        Assert.Equal(20, results.Count);
+        Assert.Equal(81, results[0].SensorId);
+        Assert.Equal(100, results[^1].SensorId);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Async")]
+    public async Task LinqQuery_StreamEarlyBreak_AbortsGracefullyWithoutLeaks()
+    {
+        // Arrange: 10,000 rows
+        using var df = DataFrame.FromColumns([
+            Series.From("SensorId", Enumerable.Range(1, 10_000)),
+            Series.From("Temperature", Enumerable.Range(1, 10_000).Select(i => (double)i)),
+            Series.From("Location", Enumerable.Range(1, 10_000).Select(i => "A"))
+        ]);
+        using var lazyDf = df.Lazy();
+
+        var query = lazyDf.AsQueryable<SensorReading>();
+        int count = 0;
+
+        // Act: Take only 5 items and break
+        await foreach (var item in (IAsyncEnumerable<SensorReading>)query)
+        {
+            count++;
+            if (count == 5)
+            {
+                break; // Triggers DisposeAsync and drops native batch context immediately
+            }
+        }
+
+        // Assert
+        Assert.Equal(5, count);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Async")]
+    public async Task LinqQuery_StreamCancellation_ThrowsOperationCanceledException()
+    {
+        // Arrange
+        using var df = DataFrame.FromColumns([
+            Series.From("SensorId", Enumerable.Range(1, 10_000)),
+            Series.From("Temperature", Enumerable.Range(1, 10_000).Select(i => (double)i)),
+            Series.From("Location", Enumerable.Range(1, 10_000).Select(i => "A"))
+        ]);
+        using var lazyDf = df.Lazy();
+
+        var query = lazyDf.AsQueryable<SensorReading>();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel(); // Pre-cancelled token
+
+        // Act & Assert
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            var asyncStream = (IAsyncEnumerable<SensorReading>)query;
+            await foreach (var _ in asyncStream.WithCancellation(cts.Token))
+            {
+                // Should not reach
+            }
+        });
     }
 }
