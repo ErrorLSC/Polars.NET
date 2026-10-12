@@ -62,6 +62,62 @@ public static class DbToArrowStream
             yield return BuildBatch(schema, builders, rowCount);
         }
     }
+    /// <summary>
+    /// High-Performance Async: DbDataReader -> Arrow RecordBatch Stream.
+    /// Fully reuses the ColumnBuilder system; zero boxing on hot paths with strictly bounded O(batch) memory.
+    /// </summary>
+    public static async IAsyncEnumerable<RecordBatch> ToArrowBatchesAsync(
+        DbDataReader reader,
+        int batchSize = 50_000,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // 1. Resolve Schema using existing ArrowTypeResolver
+        var schema = ArrowTypeResolver.GetSchemaFromDataReader(reader);
+        int fieldCount = reader.FieldCount;
+
+        if (schema.FieldsList.Count != fieldCount)
+        {
+            throw new InvalidOperationException(
+                $"Schema mismatch! Reader has {fieldCount} fields, but Schema has {schema.FieldsList.Count} fields.");
+        }
+
+        // 2. Initialize Builders once (Builders automatically clear internal buffers on Build())
+        var builders = new ColumnBuilder[fieldCount];
+        for (int i = 0; i < fieldCount; i++)
+        {
+            var field = schema.FieldsList[i];
+            var netType = reader.GetFieldType(i);
+            builders[i] = ColumnBuilderFactory.Create(field, netType, isDbReader: true, batchSize);
+        }
+
+        // 3. Async Pump Loop
+        int rowCount = 0;
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            for (int i = 0; i < fieldCount; i++)
+            {
+                builders[i].Add(reader, i);
+            }
+
+            rowCount++;
+
+            if (rowCount >= batchSize)
+            {
+                yield return BuildBatch(schema, builders, rowCount);
+                rowCount = 0;
+            }
+        }
+
+        if (rowCount > 0)
+        {
+            yield return BuildBatch(schema, builders, rowCount);
+        }
+    }
     
     private static RecordBatch BuildBatch(Schema schema, ColumnBuilder[] builders, int length)
     {

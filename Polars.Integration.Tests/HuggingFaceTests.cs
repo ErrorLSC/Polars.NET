@@ -16,7 +16,7 @@ public class HuggingFaceTests
         });
 
         using var lf = LazyFrame.ScanParquet(hfUrl, cloudOptions: options);
-        using var df = lf.Collect(useStreaming:true);
+        using var df = lf.Collect();
 
         Assert.True(df.Height > 0);
         df.GlimpseFrame().Show();

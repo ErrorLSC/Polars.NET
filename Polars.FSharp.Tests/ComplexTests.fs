@@ -552,7 +552,7 @@ type ``Complex Query Tests`` () =
         // Transform
         // ---------------------------------------------------------
 
-        let lf = LazyFrame.scanDb(readerFactory, batchSize=50_000)
+        let lf = LazyFrame.ScanDb(readerFactory, batchSize=50_000)
 
         let pipeline =
             lf

@@ -147,10 +147,10 @@ public class MsSqlTests : IClassFixture<MsSqlFixture>
 
         using var df = DataFrame.FromColumns(new
         {
-            OrderId = Enumerable.Range(0, totalRows).ToArray(),
-            Region = Enumerable.Range(0, totalRows).Select(i => i % 100 == 0 ? null : "US").ToArray(),
-            Amount = Enumerable.Range(0, totalRows).Select(i => i % 50 == 0 ? (double?)null : 100.5).ToArray(),
-            OrderDate = Enumerable.Range(0, totalRows).Select(i => i % 10 == 0 ? (DateTime?)null : baseTime).ToArray()
+            OrderId = Enumerable.Range(0, totalRows),
+            Region = Enumerable.Range(0, totalRows).Select(i => i % 100 == 0 ? null : "US"),
+            Amount = Enumerable.Range(0, totalRows).Select(i => i % 50 == 0 ? (double?)null : 100.5),
+            OrderDate = Enumerable.Range(0, totalRows).Select(i => i % 10 == 0 ? (DateTime?)null : baseTime)
         });
 
         var overrides = new Dictionary<string, Type>

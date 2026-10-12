@@ -5,6 +5,8 @@ using Pl = Polars.CSharp.Polars;
 using Polars.NET.Core.Data;
 using Xunit.Abstractions;
 using Apache.Arrow.Ipc;
+using System.Data;
+using Polars.CSharp.Linq;
 
 namespace Polars.CSharp.Tests;
 public class StreamingTests(ITestOutputHelper output)
@@ -30,8 +32,6 @@ public class StreamingTests(ITestOutputHelper output)
             };
         }
     }
-
-    public readonly record struct SensorReading(int SensorId, double Temperature, string Location);
 
     [Fact]
     public void Test_FromArrowStream_Integration()
@@ -483,7 +483,7 @@ public class StreamingTests(ITestOutputHelper output)
     {
 
 
-        var sourceTable = new System.Data.DataTable();
+        var sourceTable = new DataTable();
         sourceTable.Columns.Add("Id", typeof(int));
         sourceTable.Columns.Add("TimeVal", typeof(TimeOnly));
         sourceTable.Columns.Add("UnsignedBig", typeof(ulong));
@@ -562,7 +562,7 @@ public class StreamingTests(ITestOutputHelper output)
         using var sourceReader = sourceTable.CreateDataReader();
         using var lf = LazyFrame.ScanDatabase(sourceReader, batchSize: 2);
 
-        var targetTable = new System.Data.DataTable();
+        var targetTable = new DataTable();
 
         lf.SinkTo(targetTable.Load, typeOverrides: null); 
 
@@ -585,7 +585,7 @@ public class StreamingTests(ITestOutputHelper output)
     public void Test_4_Guid_FixedSizeBinary_Roundtrip()
     {
 
-        var sourceTable = new System.Data.DataTable();
+        var sourceTable = new DataTable();
         sourceTable.Columns.Add("Id", typeof(int));
         sourceTable.Columns.Add("GuidVal", typeof(Guid));
         
@@ -731,5 +731,78 @@ public class StreamingTests(ITestOutputHelper output)
                 // Should not reach inside loop
             }
         });
+    }
+
+    private static DataTable CreateSampleDataTable(int rowCount = 100)
+    {
+        var table = new DataTable("Sensors");
+        table.Columns.Add("SensorId", typeof(int));
+        table.Columns.Add("Temperature", typeof(double));
+        table.Columns.Add("Location", typeof(string));
+
+        for (int i = 1; i <= rowCount; i++)
+        {
+            table.Rows.Add(i, i * 0.5, $"Zone_{i % 5}");
+        }
+
+        return table;
+    }
+
+    [Fact]
+    [Trait("Stream", "DataReader")]
+    public void DataReader_AsPolarsQueryable_FiltersAndOrdersViaLinqSuccessfully()
+    {
+        // Arrange: 100 rows (Temperature = SensorId * 0.5)
+        using var table = CreateSampleDataTable(100);
+        using var reader = table.CreateDataReader();
+
+        // Act: Directly bridge IDataReader to Polars LINQ without materializing intermediate lists
+        var results = reader.AsPolarsQueryable<SensorReading>()
+                            .Where(x => x.Temperature > 40.0)
+                            .OrderBy(x => x.SensorId)
+                            .ToList();
+
+        // Assert: Temperature > 40.0 means SensorId > 80 (81..100 = 20 items)
+        Assert.NotNull(results);
+        Assert.Equal(20, results.Count);
+        Assert.Equal(81, results[0].SensorId);
+        Assert.Equal(40.5, results[0].Temperature);
+        Assert.Equal(100, results[^1].SensorId);
+        Assert.Equal(50.0, results[^1].Temperature);
+    }
+
+    [Fact]
+    [Trait("Stream", "DataReader")]
+    public async Task DbDataReader_ReadDatabaseBatchesAsync_StreamsDataFramesInBatches()
+    {
+        // Arrange: 100 rows, batchSize = 30 -> expects batches of [30, 30, 30, 10]
+        using var table = CreateSampleDataTable(100);
+        using var reader = table.CreateDataReader(); // DataTableReader inherits DbDataReader
+
+        int batchCount = 0;
+        long totalRows = 0;
+        var batchHeights = new List<long>();
+
+        // Act: Asynchronously stream native DataFrame batches
+        await foreach (var df in reader.ReadDatabaseBatchesAsync(batchSize: 30))
+        {
+            using (df) // Ensure deterministic native memory drop per batch
+            {
+                batchCount++;
+                totalRows += df.Height;
+                batchHeights.Add(df.Height);
+
+                // Verify DataFrame schema consistency across chunks
+                Assert.Equal(3, df.Width);
+                Assert.Contains("SensorId", df.Columns);
+                Assert.Contains("Temperature", df.Columns);
+                Assert.Contains("Location", df.Columns);
+            }
+        }
+
+        // Assert: 100 total rows sliced exactly into 4 batches [30, 30, 30, 10]
+        Assert.Equal(4, batchCount);
+        Assert.Equal(100L, totalRows);
+        Assert.Equal(new long[] { 30, 30, 30, 10 }, batchHeights);
     }
 }

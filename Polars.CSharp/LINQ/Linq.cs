@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using Polars.NET.Core.Helpers;
 using System.Runtime.CompilerServices;
 using Microsoft.FSharp.Core;
+using System.Data;
 
 namespace Polars.CSharp.Linq;
 
@@ -638,7 +639,6 @@ public static class LinqExtensions
     }
     /// <summary>
     /// Asynchronously compiles and executes the query, materializing the result directly into a native Polars DataFrame.
-    /// When native pushdown is possible, this bypasses C# object hydration entirely for zero-allocation performance.
     /// </summary>
     /// <typeparam name="T">The element type of the query.</typeparam>
     /// <param name="source">The source queryable.</param>
@@ -851,6 +851,14 @@ public static class LinqExtensions
         this IQueryable<T> source,
         CancellationToken cancellationToken = default)
         => [.. await source.ToListAsync(cancellationToken).ConfigureAwait(false)];
+
+    /// <summary>
+    /// Convert DataReader to Polars Queryable
+    /// </summary>
+    /// <typeparam name="T">Target Type</typeparam>
+    public static IQueryable<T> AsPolarsQueryable<T>(this IDataReader reader, int batchSize=50000)
+        => DataFrame.ReadDatabase(reader,batchSize).AsQueryable<T>();
+
     // =========================================================================
     // Shift
     // =========================================================================

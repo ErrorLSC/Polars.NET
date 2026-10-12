@@ -170,45 +170,6 @@ module Describe =
             this.ToFrame().Describe()
 
 [<AutoOpen>]
-module InterfaceUnwrapperExtensions =
-    open Polars.NET.Core
-    open System
-
-    type IPolarsDataFrame with
-        
-        /// <summary>
-        /// Unwrap IPolarsDataFrame as DataFrame 
-        /// </summary>
-        member internal this.AsDataFrame() : DataFrame =
-            match this with
-            | :? DataFrame as df -> df
-            | _ -> raise (InvalidCastException "Not Standard Polars DataFrame")
-
-    type IPolarsLazyFrame with
-
-        /// <summary>
-        /// Unwrap IPolarsLazyFrame as LazyFrame 
-        /// </summary>
-        member internal this.AsLazyFrame() : LazyFrame =
-            match this with
-            | :? LazyFrame as lf -> lf
-            | _ -> raise (InvalidCastException "Not Standard Polars LazyFrame")
-
-    type IPolarsSeries with
-        member internal this.AsSeries() : Series = 
-            match this with
-            | :? Series as ips -> ips
-            | _ -> raise (InvalidCastException "Not Standard Polars Series")
-    let internal asDataFrame (idf: IPolarsDataFrame) : DataFrame = 
-        idf.AsDataFrame()
-
-    let internal asLazyFrame (ilf: IPolarsLazyFrame) : LazyFrame =
-        ilf.AsLazyFrame()
-    
-    let internal asSeries (ips: IPolarsSeries) : Series =
-        ips.AsSeries()
-
-[<AutoOpen>]
 module CategoriesExtensions =
     open Polars.NET.Core
     type FrozenCategories with

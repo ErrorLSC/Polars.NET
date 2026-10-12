@@ -484,7 +484,7 @@ type ``Basic Functionality Tests`` () =
 
         // 2. Lazy Scan -> Filter -> Collect
         let res =
-            LazyFrame.scanSeq data
+            LazyFrame.ScanSeq data
                 |> LazyFrame.filter(pl.col "Group" .== pl.lit "A")
                 |> pl.collect
 
@@ -497,7 +497,7 @@ type ``Basic Functionality Tests`` () =
 
         let data = Seq.init 10 (fun i -> { Key = i % 3; Val = i }) // Key: 0, 1, 2
 
-        let lf = LazyFrame.scanSeq data
+        let lf = LazyFrame.ScanSeq data
 
         // Self Join: lf.Join(lf, on="Key")
         let res =
@@ -630,7 +630,7 @@ type ``Basic Functionality Tests`` () =
         ]
 
         // Act
-        use lf = LazyFrame.scanSeq data
+        use lf = LazyFrame.ScanSeq data
 
         use df = lf.Collect()
 
@@ -656,7 +656,7 @@ type ``Basic Functionality Tests`` () =
                 }
         }
 
-        use lf = LazyFrame.scanSeq(data, useBuffered = true, batchSize = 100)
+        use lf = LazyFrame.ScanSeq(data, useBuffered = true, batchSize = 100)
 
         use df = lf.Collect()
 
@@ -671,7 +671,7 @@ type ``Basic Functionality Tests`` () =
     member _.``ScanSeq Empty Stream - Should preserve Schema without crashing`` () =
         let emptyData = Seq.empty<TestUser>
 
-        use lf = LazyFrame.scanSeq emptyData
+        use lf = LazyFrame.ScanSeq emptyData
 
         use df = lf.Collect()
         Assert.Equal(0L, df.Height)

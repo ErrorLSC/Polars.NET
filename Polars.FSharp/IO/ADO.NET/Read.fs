@@ -17,7 +17,7 @@ module DataReaderRead =
         /// <param name="data">The data source sequence.</param>
         /// <param name="batchSize">Rows per Arrow batch (default: 100,000).</param>
         /// <param name="useBuffered">Choose whether disk buffer file needed (for big data) <param>
-        static member scanSeq<'T>(data: seq<'T>, ?batchSize: int, ?useBuffered: bool) : LazyFrame =
+        static member ScanSeq<'T>(data: seq<'T>, ?batchSize: int, ?useBuffered: bool) : LazyFrame =
                 let size = defaultArg batchSize 100_000
                 let buffered = defaultArg useBuffered false
 
@@ -67,7 +67,7 @@ module DataReaderRead =
         /// Scan a database query lazily.
         /// Requires a factory function to create new IDataReaders for potential multi-pass scans.
         /// </summary>
-        static member scanDb(readerFactory: unit -> IDataReader, ?batchSize: int, ?useBuffered: bool) : LazyFrame =
+        static member ScanDb(readerFactory: unit -> IDataReader, ?batchSize: int, ?useBuffered: bool) : LazyFrame =
             let size = defaultArg batchSize 50_000
             let buffered = defaultArg useBuffered false
 
@@ -113,9 +113,8 @@ module DataReaderRead =
                 new LazyFrame(handle)
         /// <summary>
         /// [Lazy][Streaming] Scan a database DataReader directly.
-        /// <para>Upgraded to pure memory Streaming Mode using Arrow C-Data FFI!</para>
         /// </summary>
-        static member scanDb(reader: IDataReader, ?batchSize: int) : LazyFrame =
+        static member ScanDb(reader: IDataReader, ?batchSize: int) : LazyFrame =
             let size = defaultArg batchSize 50_000
             let schema = reader.GetArrowSchema()
             

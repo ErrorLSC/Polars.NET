@@ -108,6 +108,7 @@
     <Compile Include="IO/Delta/Read.fs" />
     <Compile Include="IO/Delta/Write.fs" />
     <Compile Include="IO/Catalog.fs" />
+    <Compile Include="IO/ADO.NET/DataExtensions.fs" />
   </ItemGroup>
 
   <ItemGroup>
