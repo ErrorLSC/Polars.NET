@@ -5724,18 +5724,11 @@ public partial class LinqTests
             Series.From("Temperature", Enumerable.Range(1, 100).Select(i => i * 0.5)),
             Series.From("Location", Enumerable.Range(1, 100).Select(i => $"Zone_{i % 5}"))
         ]);
-        using var lazyDf = df.Lazy();
 
-        var query = lazyDf.AsQueryable<SensorReading>()
+        var results = await df.AsQueryable<SensorReading>()
                           .Where(x => x.Temperature > 40.0)
-                          .OrderBy(x => x.SensorId);
-
-        // Act: Enumerate via IAsyncEnumerable
-        var results = new List<SensorReading>();
-        await foreach (var item in (IAsyncEnumerable<SensorReading>)query)
-        {
-            results.Add(item);
-        }
+                          .OrderBy(x => x.SensorId)
+                          .ToListAsync();
 
         // Assert: Temperature > 40.0 means SensorId > 80 (81..100 = 20 items)
         Assert.Equal(20, results.Count);
@@ -5755,11 +5748,11 @@ public partial class LinqTests
         ]);
         using var lazyDf = df.Lazy();
 
-        var query = lazyDf.AsQueryable<SensorReading>();
+        var query = lazyDf.AsQueryable<SensorReading>().AsAsyncEnumerable();
         int count = 0;
 
         // Act: Take only 5 items and break
-        await foreach (var item in (IAsyncEnumerable<SensorReading>)query)
+        await foreach (var item in query)
         {
             count++;
             if (count == 5)
@@ -5782,9 +5775,8 @@ public partial class LinqTests
             Series.From("Temperature", Enumerable.Range(1, 10_000).Select(i => (double)i)),
             Series.From("Location", Enumerable.Range(1, 10_000).Select(i => "A"))
         ]);
-        using var lazyDf = df.Lazy();
 
-        var query = lazyDf.AsQueryable<SensorReading>();
+        var query = df.AsQueryable<SensorReading>();
         using var cts = new CancellationTokenSource();
         cts.Cancel(); // Pre-cancelled token
 

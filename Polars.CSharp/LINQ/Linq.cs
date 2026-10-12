@@ -775,6 +775,13 @@ public static class LinqExtensions
         }
         return list;
     }
+    /// <summary>
+    /// Asynchronously streams the query results and materializes them into an Array.
+    /// </summary>
+    public static async Task<T[]> ToArrayAsync<T>(
+        this IQueryable<T> source,
+        CancellationToken cancellationToken = default)
+        => [.. await source.ToListAsync(cancellationToken).ConfigureAwait(false)];
     // =========================================================================
     // Shift
     // =========================================================================
