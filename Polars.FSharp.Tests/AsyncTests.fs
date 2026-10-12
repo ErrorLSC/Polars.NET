@@ -13,10 +13,6 @@ type AsyncSensorRecord =
 
 type AsyncTests() =
 
-    // =========================================================================
-    // Scenario 1: DataFrame RowsAsync streaming with micro-batch boundary
-    // Verifies synchronous batch hydration and conversion to F# immutable list
-    // =========================================================================
     [<Fact>]
     [<Trait("Async", "DataFrame")>]
     member _.``DataFrame RowsAsync streams strongly-typed records into FSharp list`` () =
@@ -37,11 +33,6 @@ type AsyncTests() =
             Assert.Equal({ SensorId = 101; Temperature = 21.5; Location = "Room_A" }, results.[0])
             Assert.Equal({ SensorId = 104; Temperature = 28.5; Location = "Room_C" }, results.[3])
         }
-
-    // =========================================================================
-    // Scenario 2: LazyFrame RowsAsync with filter pushdown and async collection
-    // Verifies background engine execution followed by stream consumption
-    // =========================================================================
     [<Fact>]
     [<Trait("Async", "LazyFrame")>]
     member _.``LazyFrame RowsAsync applies filter pushdown and streams collected rows`` () =
@@ -69,10 +60,6 @@ type AsyncTests() =
             Assert.Equal(105, hotSensors.[2].SensorId)
         }
 
-    // =========================================================================
-    // Scenario 3: Functional pipeline fold aggregation
-    // Verifies RowsAsync.fold without allocating intermediate collections
-    // =========================================================================
     [<Fact>]
     [<Trait("Async", "Combinators")>]
     member _.``RowsAsync fold computes aggregate across async stream correctly`` () =
@@ -92,10 +79,6 @@ type AsyncTests() =
             Assert.Equal(100.0, totalTemp)
         }
 
-    // =========================================================================
-    // Scenario 4: Cooperative cancellation test
-    // Verifies that cancelled tokens immediately abort iteration
-    // =========================================================================
     [<Fact>]
     [<Trait("Async", "Cancellation")>]
     member _.``RowsAsync cancellation throws OperationCanceledException`` () =
@@ -121,3 +104,248 @@ type AsyncTests() =
             let! _ = Assert.ThrowsAnyAsync<OperationCanceledException>(Func<Task>(action))
             ()
         }
+    // Helper to generate a standardized test DataFrame
+
+    [<Fact>]
+    [<Trait("Async", "Combinators")>]
+    member _.``RowsAsync toList materializes full async stream into FSharp list`` () = task {
+        // Arrange
+        use df =         
+            let sId = pl.series "SensorId" [| 1; 2; 3; 4 |]
+            let sTemp = pl.series "Temperature" [| 10.0; 20.0; 30.0; 40.0 |]
+            let sLoc = pl.series "Location" [| "A"; "B"; "C"; "D" |]
+            pl.dataframe [| sId; sTemp; sLoc |]
+
+        // Act: Drain stream across micro-batches (chunkSize = 2)
+        let! items =
+            df.RowsAsync<AsyncSensorRecord>(chunkSize = 2)
+            |> RowsAsync.toList
+
+        // Assert
+        Assert.Equal(4, items.Length)
+        Assert.Equal(1, items.[0].SensorId)
+        Assert.Equal(4, items.[3].SensorId)
+    }
+
+    [<Fact>]
+    [<Trait("Async", "Combinators")>]
+    member _.``RowsAsync toArray materializes full async stream into array`` () = task {
+        // Arrange
+        use df = 
+            let sId = pl.series "SensorId" [| 1; 2; 3; 4 |]
+            let sTemp = pl.series "Temperature" [| 10.0; 20.0; 30.0; 40.0 |]
+            let sLoc = pl.series "Location" [| "A"; "B"; "C"; "D" |]
+            pl.dataframe [| sId; sTemp; sLoc |]
+
+
+        // Act
+        let! arr =
+            df.RowsAsync<AsyncSensorRecord>(chunkSize = 1)
+            |> RowsAsync.toArray
+
+        // Assert
+        Assert.Equal(4, arr.Length)
+        Assert.Equal("B", arr.[1].Location)
+    }
+
+    [<Fact>]
+    [<Trait("Async", "Combinators")>]
+    member _.``RowsAsync filter and map compose functional pipeline correctly`` () = task {
+        // Arrange
+        use df = 
+            let sId = pl.series "SensorId" [| 1; 2; 3; 4 |]
+            let sTemp = pl.series "Temperature" [| 10.0; 20.0; 30.0; 40.0 |]
+            let sLoc = pl.series "Location" [| "A"; "B"; "C"; "D" |]
+            pl.dataframe [| sId; sTemp; sLoc |]
+
+        // Act: Filter rows with Temperature > 15.0 and project their Location
+        let! filteredLocations =
+            df.RowsAsync<AsyncSensorRecord>(chunkSize = 2)
+            |> RowsAsync.filter (fun s -> s.Temperature > 15.0)
+            |> RowsAsync.map (fun s -> s.Location)
+            |> RowsAsync.toList
+
+        // Assert: Items 2, 3, 4 matched
+        Assert.Equal<string list>(["B"; "C"; "D"], filteredLocations)
+    }
+
+    [<Fact>]
+    [<Trait("Async", "Combinators")>]
+    member _.``RowsAsync head fetches first row and terminates stream immediately`` () = task {
+        // Arrange
+        use df = 
+            let sId = pl.series "SensorId" [| 1; 2; 3; 4 |]
+            let sTemp = pl.series "Temperature" [| 10.0; 20.0; 30.0; 40.0 |]
+            let sLoc = pl.series "Location" [| "A"; "B"; "C"; "D" |]
+            pl.dataframe [| sId; sTemp; sLoc |]
+
+
+        // Act
+        let! firstItem =
+            df.RowsAsync<AsyncSensorRecord>(chunkSize = 2)
+            |> RowsAsync.head
+
+        // Assert
+        Assert.Equal(1, firstItem.SensorId)
+        Assert.Equal("A", firstItem.Location)
+    }
+
+    [<Fact>]
+    [<Trait("Async", "Combinators")>]
+    member _.``RowsAsync tryHead returns None on empty DataFrame`` () = task {
+        // Arrange: Empty DataFrame
+        use emptyDf = PolarsSchema.FromRecord<AsyncSensorRecord>().ToDataFrame()
+
+        // Act
+        let! headOpt =
+            emptyDf.RowsAsync<AsyncSensorRecord>()
+            |> RowsAsync.tryHead
+
+        // Assert
+        Assert.True(headOpt.IsNone)
+    }
+
+    [<Fact>]
+    [<Trait("Async", "Combinators")>]
+    member _.``RowsAsync tryHeadValue returns ValueSome on populated stream`` () = task {
+        // Arrange
+        use df =
+            let sId = pl.series "SensorId" [| 1; 2; 3; 4 |]
+            let sTemp = pl.series "Temperature" [| 10.0; 20.0; 30.0; 40.0 |]
+            let sLoc = pl.series "Location" [| "A"; "B"; "C"; "D" |]
+            pl.dataframe [| sId; sTemp; sLoc |]
+
+
+        // Act
+        let! headVOpt =
+            df
+            |> DataFrame.toRowsAsync<AsyncSensorRecord> 2
+            |> RowsAsync.tryHeadValue
+
+        // Assert
+        match headVOpt with
+        | ValueSome r -> Assert.Equal(10.0, r.Temperature)
+        | ValueNone -> Assert.Fail("Expected ValueSome but received ValueNone")
+    }
+
+    [<Fact>]
+    [<Trait("Async", "Combinators")>]
+    member _.``RowsAsync length accurately counts elements across batch boundaries`` () = task {
+        // Arrange
+        use df = 
+            let sId = pl.series "SensorId" [| 1; 2; 3; 4 |]
+            let sTemp = pl.series "Temperature" [| 10.0; 20.0; 30.0; 40.0 |]
+            let sLoc = pl.series "Location" [| "A"; "B"; "C"; "D" |]
+            pl.dataframe [| sId; sTemp; sLoc |]
+
+        // Act
+        let! totalCount =
+            df.RowsAsync<AsyncSensorRecord>(chunkSize = 1)
+            |> RowsAsync.length
+
+        // Assert
+        Assert.Equal(4L, totalCount)
+    }
+
+    [<Fact>]
+    [<Trait("Async", "Combinators")>]
+    member _.``RowsAsync iteri tracks zero-based row index accurately`` () = task {
+        // Arrange
+        use df = 
+            let sId = pl.series "SensorId" [| 1; 2; 3; 4 |]
+            let sTemp = pl.series "Temperature" [| 10.0; 20.0; 30.0; 40.0 |]
+            let sLoc = pl.series "Location" [| "A"; "B"; "C"; "D" |]
+            pl.dataframe [| sId; sTemp; sLoc |]
+
+        let indices = ResizeArray<int64>()
+        let sensorIds = ResizeArray<int>()
+
+        // Act
+        do!
+            df.RowsAsync<AsyncSensorRecord>(chunkSize = 2)
+            |> RowsAsync.iteri (fun idx s ->
+                indices.Add(idx)
+                sensorIds.Add(s.SensorId)
+            )
+
+        // Assert
+        Assert.Equal<int64 list>([ 0L; 1L; 2L; 3L ], indices |> Seq.toList)
+        Assert.Equal<int list>([ 1; 2; 3; 4 ], sensorIds |> Seq.toList)
+    }
+
+    [<Fact>]
+    [<Trait("Async", "LazyFrame")>]
+    member _.``LazyFrame RowsAsync computes fold correctly over native streaming batches`` () = task {
+        // Arrange
+        use df = 
+            let sId = pl.series "SensorId" [| 1; 2; 3; 4 |]
+            let sTemp = pl.series "Temperature" [| 10.0; 20.0; 30.0; 40.0 |]
+            let sLoc = pl.series "Location" [| "A"; "B"; "C"; "D" |]
+            pl.dataframe [| sId; sTemp; sLoc |]
+
+        use lazyDf = df.Lazy()
+
+        // Act: Stream through LazyFrame via Rust batch receiver
+        let! totalTemp =
+            lazyDf.RowsAsync<AsyncSensorRecord>(chunkSize = 2L, engine = Engine.Auto)
+            |> RowsAsync.fold (fun acc s -> acc + s.Temperature) 0.0
+
+        // Assert
+        Assert.Equal(100.0, totalTemp)
+    }
+
+    [<Fact>]
+    [<Trait("Async", "LazyFrame")>]
+    member _.``LazyFrame CollectBatchesAsync streams separate DataFrame chunks`` () = task {
+        // Arrange
+        let sId = pl.series "Id" [| 1..50 |]
+        use df = pl.dataframe [| sId |]
+        use lazyDf = df.Lazy()
+
+        let mutable batchCount = 0
+        let mutable totalRows = 0L
+
+        // Act: Pull batches of size 10 from streaming engine
+        let enumerator = lazyDf.CollectBatchesAsync(chunkSize = 10L).GetAsyncEnumerator()
+        try
+            let mutable hasNext = true
+            while hasNext do
+                let! moved = enumerator.MoveNextAsync()
+                if moved then
+                    use batch = enumerator.Current
+                    batchCount <- batchCount + 1
+                    totalRows <- totalRows + batch.Height
+                    Assert.True(batch.Height > 0L)
+                else
+                    hasNext <- false
+        finally
+            let vt = enumerator.DisposeAsync()
+            if not vt.IsCompletedSuccessfully then
+                do vt.AsTask() |> ignore
+
+        // Assert: 50 rows delivered in multiple chunk DataFrames
+        Assert.Equal(50L, totalRows)
+        Assert.True(batchCount >= 5)
+    }
+
+    [<Fact>]
+    [<Trait("Async", "Cancellation")>]
+    member _.``RowsAsync throws OperationCanceledException when pre-cancelled token passed`` () = task {
+        // Arrange
+        use df = 
+            let sId = pl.series "SensorId" [| 1; 2; 3; 4 |]
+            let sTemp = pl.series "Temperature" [| 10.0; 20.0; 30.0; 40.0 |]
+            let sLoc = pl.series "Location" [| "A"; "B"; "C"; "D" |]
+            pl.dataframe [| sId; sTemp; sLoc |]
+
+        use cts = new CancellationTokenSource()
+        cts.Cancel() // Pre-cancelled token
+
+        // Act & Assert
+        let! ex = Assert.ThrowsAnyAsync<OperationCanceledException>(fun () -> task {
+            let stream = df.RowsAsync<AsyncSensorRecord>(cancellationToken = cts.Token)
+            let! _ = stream |> RowsAsync.toList
+            ()
+        })
+        Assert.NotNull(ex)
+    }
