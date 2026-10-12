@@ -5790,4 +5790,74 @@ public partial class LinqTests
             }
         });
     }
+    [Fact]
+    [Trait("Linq", "Async")]
+    public async Task LinqQuery_ToDataFrameAsync_CompilesDirectlyToNativeDataFrame()
+    {
+        // Arrange: 100 sensor rows
+        using var df = DataFrame.FromColumns([
+            Series.From("SensorId", Enumerable.Range(1, 100)),
+            Series.From("Temperature", Enumerable.Range(1, 100).Select(i => i * 0.5)),
+            Series.From("Location", Enumerable.Range(1, 100).Select(i => $"Zone_{i % 5}"))
+        ]);
+        using var lazyDf = df.Lazy();
+
+        // Act: Write strongly-typed LINQ and materialize directly to DataFrame asynchronously
+        using var resultDf = await lazyDf.AsQueryable<SensorReading>()
+                                        .Where(x => x.Temperature > 40.0)
+                                        .OrderBy(x => x.SensorId)
+                                        .ToDataFrameAsync();
+
+        // Assert: Result is a real, high-performance native Polars DataFrame
+        Assert.NotNull(resultDf);
+        Assert.Equal(20L, resultDf.Height); // SensorId: 81..100
+        Assert.Equal(3, resultDf.Width);
+        
+        // Validate first and last row values in the returned DataFrame
+        Assert.Equal(81, resultDf["SensorId"].GetValue<int>(0));
+        Assert.Equal(40.5, resultDf["Temperature"].GetValue<double>(0));
+        Assert.Equal(100, resultDf["SensorId"].GetValue<int>(19));
+        Assert.Equal(50.0, resultDf["Temperature"].GetValue<double>(19));
+    }
+
+    [Fact]
+    [Trait("Linq", "Async")]
+    public async Task LinqQuery_ToDataFrameAsync_Cancellation_ThrowsOperationCanceledException()
+    {
+        // Arrange
+        using var df = DataFrame.FromColumns([
+            Series.From("SensorId", [1, 2, 3])
+        ]);
+        using var lazyDf = df.Lazy();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel(); // Pre-cancelled token
+
+        // Act & Assert
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            using var _ = await lazyDf.AsQueryable<SensorReading>()
+                                    .ToDataFrameAsync(cancellationToken: cts.Token);
+        });
+    }
+
+    [Fact]
+    [Trait("Linq", "Async")]
+    public async Task AsyncEnumerable_ToDataFrameAsync_MaterializesSuccessfully()
+    {
+        // Arrange: Define an asynchronous stream
+        static async IAsyncEnumerable<SensorReading> GenerateReadingsAsync()
+        {
+            await Task.Yield();
+            yield return new SensorReading(1, 25.5, "Zone_A");
+            yield return new SensorReading(2, 28.0, "Zone_B");
+        }
+
+        // Act
+        using var resultDf = await GenerateReadingsAsync().ToDataFrameAsync();
+
+        // Assert
+        Assert.Equal(2L, resultDf.Height);
+        Assert.Equal(1, resultDf["SensorId"][0]);
+        Assert.Equal(2, resultDf["SensorId"][1]);
+    }
 }

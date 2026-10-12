@@ -343,6 +343,7 @@ module AsyncExtensions =
 
 [<RequireQualifiedAccess>]
 module RowsAsync =
+    open Polars.NET.Core.Helpers
 
     /// <summary>
     /// Internal consumption helper ensuring exception safety and non-allocating asynchronous disposal.
@@ -571,3 +572,12 @@ module RowsAsync =
                     member _.DisposeAsync() = inner.DisposeAsync()
                 }
         }
+    /// <summary>
+    /// Materializes all items of the async stream directly into a native Polars DataFrame.
+    /// </summary>
+    let toDataFrame (stream: IAsyncEnumerable<'T>) : Task<DataFrame> = task {
+        let results = ResizeArray<'T>()
+        do! consumeStream stream results.Add
+        let dfHandle = DataFrameBuilder.FromRows<'T>(results)
+        return new DataFrame(dfHandle)
+    }
