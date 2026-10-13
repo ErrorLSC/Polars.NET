@@ -109,9 +109,12 @@ public partial class LinqTests
     [Trait("LINQ", "Scalar_Projection")]
     public void Test_CSharp_Linq_Scalar_Projection_Any_All()
     {
+        string upperAlice = "ALICE";
+        string alice = "Alice";
+
         var emps = new[]
         {
-            new Employee("Alice", 25, 50000),
+            new Employee(alice, 25, 50000),
             new Employee("Bob", 30, 60000)
         };
 
@@ -119,13 +122,14 @@ public partial class LinqTests
         var empQuery = dfEmps.AsQueryable(emps);
 
         var upperQuery = empQuery.Select(e => e.Name.ToUpper());
-        upperQuery.ToDataFrame().Show();
-        Assert.True(upperQuery.Any(name => name == "ALICE"));
-        Assert.False(upperQuery.Any(name => name == "Alice")); 
+
+        Assert.True(upperQuery.Any(name => name == upperAlice));
+        Assert.False(upperQuery.Any(name => name == alice)); 
 
         Assert.True(upperQuery.All(name => name.Length == 3 || name.Length == 5));
-        Assert.False(upperQuery.All(name => name == "ALICE"));
+        Assert.False(upperQuery.All(name => name == upperAlice));
     }
+    
     [Fact]
     [Trait("LINQ", "Scalar_Last")]
     public void Test_Linq_Last_And_LastOrDefault_Flow()

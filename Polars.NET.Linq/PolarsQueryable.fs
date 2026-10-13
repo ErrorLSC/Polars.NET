@@ -317,8 +317,8 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
             | "Sum"     -> PolarsWrapper.Sum colExpr
             | "Average" -> PolarsWrapper.Mean colExpr
             | other     -> failwithf "Unsupported scalar aggregate operator: %s" other
-
-        match expression with
+        let evaluatedExpr = PartialEvaluator.eval expression
+        match evaluatedExpr with
         // =========================================================================
         // 1. Count() / LongCount()
         // =========================================================================
@@ -1929,7 +1929,10 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
         // printfn "\n\x1b[1;32m================ [ORIGINAL EXPRESSION TREE] ================\x1b[0m"
         // printfn "%s" (expression.ToString())
 
-        let effectiveExpr = FSharpAst.rewrite expression
+        let effectiveExpr = 
+            expression 
+            |> FSharpAst.rewrite 
+            |> PartialEvaluator.eval
 
         // printfn "\n\x1b[1;32m================ [REWRITTEN EXPRESSION TREE] ================\x1b[0m"
         // printfn "%s" (effectiveExpr.ToString())
