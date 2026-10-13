@@ -167,34 +167,41 @@ module internal rec ExprTranslator =
             | _                    -> false)
 
     let rec internal tryResolveColumnName (paramName: string) (expr: Expression) : string option =
-        match expr with
-        | MemberAccess(_, m) when isNavigationMember m ->
-            None
-
-        | MemberAccess(inner, m) ->
-            let rec isRootedInParamOrClosure (e: Expression) =
-                match unwrap e with
-                | :? ParameterExpression as p ->
-                    p.Name = paramName ||
-                    paramName.Contains "|" && paramName.Split '|' |> Array.exists (fun n -> n = p.Name) ||
-                    p.Name.StartsWith "_arg" ||
-                    p.Name.StartsWith "tupled" ||
-                    p.Name.Contains "TransparentIdentifier" ||
-                    p.Name.StartsWith "<>h__" ||
-                    p.Type.Name.StartsWith "AnonymousObject" ||
-                    p.Type.Name.Contains "AnonymousType" ||
-                    p.Type.Name.StartsWith "Tuple" ||
-                    p.Type.Name.StartsWith "ValueTuple"
-                | MemberAccess(nextInner, nextM) when isNavigationMember nextM ->
-                    isRootedInParamOrClosure nextInner
-                | _ -> false
-
-            if isRootedInParamOrClosure inner then
-                Some m.Name
-            else
+        // If paramName binds to a scalar column (e.g. "x:Name"), properties like .Length or .Year
+        // represent scalar operations rather than DataFrame column identifiers.
+        if paramName.Contains ":" then None
+        else
+            match expr with
+            | MemberAccess(_, m) when isNavigationMember m ->
                 None
 
-        | _ -> None
+            | MemberAccess(inner, m) ->
+                if PolarsTypeHelper.IsScalarType inner.Type || inner.Type = typeof<string> || isTemporalType inner.Type then
+                    None
+                else
+                    let rec isRootedInParamOrClosure (e: Expression) =
+                        match unwrap e with
+                        | :? ParameterExpression as p ->
+                            p.Name = paramName ||
+                            paramName.Contains "|" && paramName.Split '|' |> Array.exists (fun n -> n = p.Name) ||
+                            p.Name.StartsWith "_arg" ||
+                            p.Name.StartsWith "tupled" ||
+                            p.Name.Contains "TransparentIdentifier" ||
+                            p.Name.StartsWith "<>h__" ||
+                            p.Type.Name.StartsWith "AnonymousObject" ||
+                            p.Type.Name.Contains "AnonymousType" ||
+                            p.Type.Name.StartsWith "Tuple" ||
+                            p.Type.Name.StartsWith "ValueTuple"
+                        | MemberAccess(nextInner, nextM) when isNavigationMember nextM ->
+                            isRootedInParamOrClosure nextInner
+                        | _ -> false
+
+                    if isRootedInParamOrClosure inner then
+                        Some m.Name
+                    else
+                        None
+
+            | _ -> None
 
     // =========================================================================
     // 3. Member Access Pushdown Dispatcher
@@ -1300,6 +1307,7 @@ module internal rec ExprTranslator =
             tryTranslate paramName operand
             |> Option.bind (translateUnary op)
 
+
     // =========================================================================
     // 10. Main Entrypoint Dispatcher
     // =========================================================================
@@ -1355,13 +1363,33 @@ module internal rec ExprTranslator =
             | Constant(value, t) ->
                 Some (toLiteralHandle value t)
 
-            // 10. Inner lambda placeholder
-            | :? ParameterExpression as p when p.Name = paramName ->
-                Some (PolarsWrapper.Col "")
+            // 10. Inner lambda placeholder or physical column mapping
+            | :? ParameterExpression as p ->
+                let baseParam, targetColOpt =
+                    match paramName.IndexOf ':' with
+                    | -1 -> paramName, None
+                    | idx -> paramName.Substring(0, idx), Some (paramName.Substring(idx + 1))
+
+                if p.Name = baseParam then
+                    match targetColOpt with
+                    | Some col when not (String.IsNullOrEmpty col) ->
+                        Some (PolarsWrapper.Col col)
+                    | _ ->
+                        Some (PolarsWrapper.Col "")
+                else
+                    None
 
             | _ -> None
         with _ ->
             None
+
+    /// Attempts to translate an Expression AST node with an optional target physical column name for scalar sequences.
+    let tryTranslateWithScalarCol (scalarColOpt: string option) (paramName: string) (expr: Expression) : ExprHandle option =
+        let effectiveParam =
+            match scalarColOpt with
+            | Some col when not (String.IsNullOrEmpty col) -> sprintf "%s:%s" paramName col
+            | _ -> paramName
+        tryTranslate effectiveParam expr
 
     // =========================================================================
     // 11. Merge-Specific Binary-Parameter Translation Extensions
