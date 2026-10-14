@@ -894,14 +894,29 @@ public static class LinqExtensions
 
         return "[Polars.NET] Query source is not a native PolarsQueryable. In-memory execution only.";
     }
-
     /// <summary>
-    /// Inspects the query plan at the current pipeline stage and invokes an inspector action (e.g. logger),
+    /// Gets or sets the default plan inspector action used when none is explicitly specified.
+    /// Defaults to <see cref="Console.WriteLine(string)"/>.
+    /// </summary>
+    public static Action<string> DefaultInspector { get; set; } = Console.WriteLine;
+    /// <summary>
+    /// Inspects the query plan using the default inspector (<see cref="DefaultInspector"/>)
+    /// without interrupting the fluent pipeline chain.
+    /// </summary>
+    /// <param name="source">The source queryable.</param>
+    /// <param name="optimized">Whether to display the optimized plan. Defaults to true.</param>
+    public static IQueryable<T> InspectPlan<T>(
+        this IQueryable<T> source,
+        bool optimized = true)
+        => source.InspectPlan(DefaultInspector, optimized);
+    
+    /// <summary>
+    /// Inspects the query plan at the current pipeline stage and invokes a custom inspector action,
     /// returning the queryable to maintain fluent chaining.
     /// </summary>
     /// <param name="source">The source queryable.</param>
     /// <param name="inspector">Action receiving the diagnostic plan string.</param>
-    /// <param name="optimized">Whether to display the optimized plan.</param>
+    /// <param name="optimized">Whether to display the optimized plan. Defaults to true.</param>
     public static IQueryable<T> InspectPlan<T>(
         this IQueryable<T> source, 
         Action<string> inspector, 

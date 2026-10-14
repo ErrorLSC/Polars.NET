@@ -239,7 +239,7 @@ public partial class LinqTests
         var query = df.AsQueryable<Employee>()
                       .Where(e => CustomSalaryPredicate(e))
                       .Select(e => e.Name)
-                      .InspectPlan(Console.WriteLine)
+                      .InspectPlan()
                       .ToList();
 
         Assert.Equal(3, query.Count);
