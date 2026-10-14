@@ -2,6 +2,7 @@ namespace Polars.NET.Linq
 
 open System.Linq.Expressions
 open Polars.NET.Core
+open Polars.NET.Core.Helpers
 open System
 
 module AggTranslator =
@@ -14,21 +15,41 @@ module AggTranslator =
         | :? ParameterExpression as p -> p.Name = groupParamName
         | _ -> false
 
-    /// Attempts to translate group collection operations into Polars ExprHandle
-    let rec tryTranslateAgg (groupParamName: string) (wholeRowStructOpt: ExprHandle option) (expr: Expression) (aliasName: string) : ExprHandle option =
+    /// Resolves the appropriate TranslationContext for inner group lambdas based on parameter type
+    let private getParamContext (scalarColOpt: string option) (p: ParameterExpression) : TranslationContext =
+        if PolarsTypeHelper.IsScalarType p.Type || p.Type = typeof<string> then
+            match scalarColOpt with
+            | Some col when not (String.IsNullOrEmpty col) ->
+                TranslationContext.Scalar(p.Name, col)
+            | _ ->
+                TranslationContext.Entity p.Name
+        else
+            TranslationContext.Entity p.Name
+
+    /// Attempts to translate group collection operations into native Polars ExprHandle
+    let rec tryTranslateAggWithScalarCol
+        (groupParamName: string)
+        (scalarColOpt: string option)
+        (wholeRowStructOpt: ExprHandle option)
+        (expr: Expression)
+        (aliasName: string) : ExprHandle option =
+
         let cleanExpr = unwrap expr
 
         match cleanExpr with
+        // string.Join(sep, group.Select(x => x.Col))
         | MethodCall(m, null, [ sepExpr; MethodCall(mSel, _, [ gArg; CleanLambda selLambda ]) ])
             when m.DeclaringType = typeof<string> && m.Name = "Join" && mSel.Name = "Select" &&
                  (match unwrap gArg with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false) ->
             
             match tryEvaluate sepExpr with
             | Some (:? string as sep) ->
+                let p = selLambda.Parameters.[0]
+                let ctx = getParamContext scalarColOpt p
                 let colExprOpt =
-                    match tryResolveColumnName selLambda.Parameters.[0].Name selLambda.Body with
+                    match tryResolveColumnNameWithContext ctx selLambda.Body with
                     | Some cName -> Some (PolarsWrapper.Col cName)
-                    | None -> tryTranslate selLambda.Parameters.[0].Name selLambda.Body
+                    | None -> tryTranslateWithContext ctx selLambda.Body
 
                 colExprOpt
                 |> Option.map (fun cExpr ->
@@ -37,6 +58,7 @@ module AggTranslator =
                     else PolarsWrapper.Alias(joined, aliasName)
                 )
             | _ -> None
+
         // 1. group.Count() or group.LongCount() -> Len()
         | MethodCall(methodInfo, null, [ targetSeq ]) 
             when methodInfo.Name = "Count" || methodInfo.Name = "LongCount" ->
@@ -53,7 +75,8 @@ module AggTranslator =
             when methodInfo.Name = "Count" || methodInfo.Name = "LongCount" ->
             match unwrap targetSeq with
             | :? ParameterExpression as param when param.Name = groupParamName ->
-                match tryTranslate p.Name filterBody with
+                let ctx = getParamContext scalarColOpt p
+                match tryTranslateWithContext ctx filterBody with
                 | Some boolExpr ->
                     let int64Dtype = PolarsWrapper.DataTypeExprFromDataType(PolarsWrapper.NewPrimitiveType(int PlDataType.Int64))
                     let castExpr = PolarsWrapper.ExprCast(boolExpr, int64Dtype, strict = false, wrapNumerical = false)
@@ -65,7 +88,8 @@ module AggTranslator =
         // 3. group.MinBy(x => x.ByCol).TargetCol / group.MaxBy(x => x.ByCol).TargetCol
         | MemberAccess(MethodCall(methodInfo, null, [ targetSeq; CleanLambda (Lambda([ p ], byBody)) ]), memberInfo)
             when (methodInfo.Name = "MinBy" || methodInfo.Name = "MaxBy") && isGroupParam groupParamName targetSeq ->
-            match tryTranslate p.Name byBody with
+            let ctx = getParamContext scalarColOpt p
+            match tryTranslateWithContext ctx byBody with
             | Some byExpr ->
                 let targetExpr = PolarsWrapper.Col memberInfo.Name
                 let aggExpr =
@@ -80,21 +104,24 @@ module AggTranslator =
         // 4. group.Select(x => x.Col).Op()
         | MethodCall(outerMethod, null, [ MethodCall(selectMethod, null, [ targetSeq; CleanLambda (Lambda([ p ], body)) ]) ])
             when selectMethod.Name = "Select" && isGroupParam groupParamName targetSeq ->
-            tryTranslate p.Name body
+            let ctx = getParamContext scalarColOpt p
+            tryTranslateWithContext ctx body
             |> Option.bind (translateReductionOp outerMethod.Name)
             |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
 
         // 5. group.Sum(x => x.Field), group.Min(x => x.Field), group.Max(x => x.Field), group.Average(x => x.Field)
         | MethodCall(methodInfo, null, [ targetSeq; CleanLambda (Lambda([ p ], body)) ]) 
             when isGroupParam groupParamName targetSeq ->
-            tryTranslate p.Name body
+            let ctx = getParamContext scalarColOpt p
+            tryTranslateWithContext ctx body
             |> Option.bind (translateReductionOp methodInfo.Name)
             |> Option.map (fun e -> PolarsWrapper.Alias(e, aliasName))
 
         // 6. Std(x => x.Salary, ddof) / group.Var(x => x.Salary, ddof)
         | MethodCall(methodInfo, null, [ targetSeq; CleanLambda (Lambda([ p ], body)); ddofExpr ]) 
             when isGroupParam groupParamName targetSeq ->
-            match tryTranslate p.Name body, tryEvaluate ddofExpr with
+            let ctx = getParamContext scalarColOpt p
+            match tryTranslateWithContext ctx body, tryEvaluate ddofExpr with
             | Some targetH, Some ddofVal ->
                 let ddof = Convert.ToByte ddofVal
                 translateDispersionOp methodInfo.Name ddof targetH
@@ -107,9 +134,10 @@ module AggTranslator =
             when (outerMethod.Name = "ToList" || outerMethod.Name = "ToArray") 
                 && selectMethod.Name = "Select" 
                 && isGroupParam groupParamName targetSeq ->
-            ExprTranslator.tryTranslate p.Name body
+            let ctx = getParamContext scalarColOpt p
+            tryTranslateWithContext ctx body
             |> Option.map (fun colH ->
-                let listExpr = PolarsWrapper.Implode(colH ,maintainOrder=true)
+                let listExpr = PolarsWrapper.Implode(colH, maintainOrder = true)
                 PolarsWrapper.Alias(listExpr, aliasName))
 
         // 8. Whole entity collection: group.ToList() / group.ToArray()
@@ -119,16 +147,16 @@ module AggTranslator =
                 && isGroupParam groupParamName targetSeq ->
             match wholeRowStructOpt with
             | Some rowStructExpr ->
-                // Clone the struct expression handle to prevent double-free in Rust FFI
                 let clonedStruct = PolarsWrapper.CloneExpr rowStructExpr
-                let listStructExpr = PolarsWrapper.Implode(clonedStruct,maintainOrder=true)
+                let listStructExpr = PolarsWrapper.Implode(clonedStruct, maintainOrder = true)
                 Some (PolarsWrapper.Alias(listStructExpr, aliasName))
             | None -> None
 
-        // group.Select(x => x.Col).Quantile(q)
+        // 9. group.Select(x => x.Col).Quantile(q)
         | MethodCall(outerMethod, null, [ MethodCall(selectMethod, null, [ targetSeq; CleanLambda (Lambda([ p ], body)) ]); qExpr ])
             when outerMethod.Name = "Quantile" && selectMethod.Name = "Select" && isGroupParam groupParamName targetSeq ->
-            match tryTranslate p.Name body, tryEvaluate qExpr with
+            let ctx = getParamContext scalarColOpt p
+            match tryTranslateWithContext ctx body, tryEvaluate qExpr with
             | Some colH, Some qVal ->
                 try
                     let q = Convert.ToDouble qVal
@@ -137,10 +165,11 @@ module AggTranslator =
                 with _ -> None
             | _ -> None
 
-        // group.Select(x => x.Col).Quantile(q, method)
+        // 10. group.Select(x => x.Col).Quantile(q, method)
         | MethodCall(outerMethod, null, [ MethodCall(selectMethod, null, [ targetSeq; CleanLambda (Lambda([ p ], body)) ]); qExpr; methodExpr ])
             when outerMethod.Name = "Quantile" && selectMethod.Name = "Select" && isGroupParam groupParamName targetSeq ->
-            match tryTranslate p.Name body, tryEvaluate qExpr, tryEvaluate methodExpr with
+            let ctx = getParamContext scalarColOpt p
+            match tryTranslateWithContext ctx body, tryEvaluate qExpr, tryEvaluate methodExpr with
             | Some colH, Some qVal, Some mVal ->
                 try
                     let q = Convert.ToDouble qVal

@@ -9,6 +9,51 @@ open System.Text.RegularExpressions
 open Polars.NET.Core.Helpers
 open Apache.Arrow.Types
 
+/// Represents the semantic parameter context for LINQ expression tree translation.
+[<RequireQualifiedAccess>]
+type internal TranslationContext =
+    /// Empty context with no parameter bindings (e.g. constants, unbound reductions, or outer Having predicates).
+    | Empty
+
+    /// Standard single-entity row context (e.g. e => e.Age), where member accesses resolve to DataFrame columns.
+    | Entity of paramName: string
+
+    /// Scalar sequence element context (e.g. x => x.Length or x => x > 10).
+    /// The parameter node itself resolves to physicalCol, while member accesses on it represent scalar operations.
+    | Scalar of paramName: string * physicalCol: string
+
+    /// Binary parameter context for Joins and Merges (e.g. (outer, inner) => new { outer.Id, inner.Name }).
+    | BinaryJoin of leftParam: string * rightParam: string
+
+    /// Merge context: (target, source) => predicate
+    /// Target columns resolve to "Col", source columns resolve to "Col" + sourceSuffix.
+    | Merge of targetParam: string * sourceParam: string * sourceSuffix: string
+
+    /// Determines whether the given parameter name matches any parameter active in the current scope.
+    member this.ContainsParam(name: string) : bool =
+        match this with
+        | TranslationContext.Empty -> false
+        | TranslationContext.Entity p -> p = name
+        | TranslationContext.Scalar (p, _) -> p = name
+        | TranslationContext.BinaryJoin (left, right) -> name = left || name = right
+        | TranslationContext.Merge (target, source, _) -> name = target || name = source
+
+    /// Attempts to resolve the parameter expression node itself to a native Polars ExprHandle.
+    member this.TryResolveParameterHandle(name: string) : ExprHandle option =
+        match this with
+        | TranslationContext.Scalar (p, physicalCol) when p = name && not (String.IsNullOrEmpty physicalCol) ->
+            Some (PolarsWrapper.Col physicalCol)
+        | TranslationContext.Entity p when p = name ->
+            // Entity placeholder within expressions (e.g. list_eval inner element placeholder)
+            Some (PolarsWrapper.Col "")
+        | _ -> None
+
+    /// Indicates whether member/property accesses are eligible to be resolved as DataFrame columns.
+    member this.AllowsColumnMemberLookup : bool =
+        match this with
+        | TranslationContext.Scalar _ -> false
+        | _ -> true
+
 /// Recursive module for translating LINQ Expression Trees to native Polars Expr handles.
 module internal rec ExprTranslator =
 
@@ -54,8 +99,8 @@ module internal rec ExprTranslator =
         match e with
         | null -> true
         | :? ConstantExpression as c -> isNull c.Value
-        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert || 
-                                       u.NodeType = ExpressionType.ConvertChecked || 
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ||
+                                       u.NodeType = ExpressionType.ConvertChecked ||
                                        u.NodeType = ExpressionType.Quote ->
             isNullConstantExpr u.Operand
         | _ -> false
@@ -166,10 +211,10 @@ module internal rec ExprTranslator =
             | :? FieldInfo as f    -> not (PolarsTypeHelper.IsScalarType f.FieldType)
             | _                    -> false)
 
-    let rec internal tryResolveColumnName (paramName: string) (expr: Expression) : string option =
-        // If paramName binds to a scalar column (e.g. "x:Name"), properties like .Length or .Year
-        // represent scalar operations rather than DataFrame column identifiers.
-        if paramName.Contains ":" then None
+    /// Resolves the underlying physical column name using a strongly-typed TranslationContext.
+    let rec internal tryResolveColumnNameWithContext (ctx: TranslationContext) (expr: Expression) : string option =
+        if not ctx.AllowsColumnMemberLookup then
+            None
         else
             match expr with
             | MemberAccess(_, m) when isNavigationMember m ->
@@ -179,27 +224,39 @@ module internal rec ExprTranslator =
                 if PolarsTypeHelper.IsScalarType inner.Type || inner.Type = typeof<string> || isTemporalType inner.Type then
                     None
                 else
-                    let rec isRootedInParamOrClosure (e: Expression) =
-                        match unwrap e with
-                        | :? ParameterExpression as p ->
-                            p.Name = paramName ||
-                            paramName.Contains "|" && paramName.Split '|' |> Array.exists (fun n -> n = p.Name) ||
-                            p.Name.StartsWith "_arg" ||
-                            p.Name.StartsWith "tupled" ||
-                            p.Name.Contains "TransparentIdentifier" ||
-                            p.Name.StartsWith "<>h__" ||
-                            p.Type.Name.StartsWith "AnonymousObject" ||
-                            p.Type.Name.Contains "AnonymousType" ||
-                            p.Type.Name.StartsWith "Tuple" ||
-                            p.Type.Name.StartsWith "ValueTuple"
-                        | MemberAccess(nextInner, nextM) when isNavigationMember nextM ->
-                            isRootedInParamOrClosure nextInner
-                        | _ -> false
+                    let rec isRootedIn (targetName: string) (e: Expression) =
+                        if String.IsNullOrEmpty targetName then false
+                        else
+                            match unwrap e with
+                            | :? ParameterExpression as p -> p.Name = targetName
+                            | MemberAccess(nextInner, nextM) when isNavigationMember nextM -> isRootedIn targetName nextInner
+                            | _ -> false
 
-                    if isRootedInParamOrClosure inner then
-                        Some m.Name
-                    else
-                        None
+                    match ctx with
+                    | TranslationContext.Merge (target, source, suffix) ->
+                        if isRootedIn target inner then Some m.Name
+                        elif isRootedIn source inner then Some (m.Name + suffix)
+                        else None
+
+                    | _ ->
+                        let rec isRootedInParamOrClosure (e: Expression) =
+                            match unwrap e with
+                            | :? ParameterExpression as p ->
+                                ctx.ContainsParam p.Name ||
+                                p.Name.StartsWith "_arg" ||
+                                p.Name.StartsWith "tupled" ||
+                                p.Name.Contains "TransparentIdentifier" ||
+                                p.Name.StartsWith "<>h__" ||
+                                p.Type.Name.StartsWith "AnonymousObject" ||
+                                p.Type.Name.Contains "AnonymousType" ||
+                                p.Type.Name.StartsWith "Tuple" ||
+                                p.Type.Name.StartsWith "ValueTuple"
+                            | MemberAccess(nextInner, nextM) when isNavigationMember nextM ->
+                                isRootedInParamOrClosure nextInner
+                            | _ -> false
+
+                        if isRootedInParamOrClosure inner then Some m.Name
+                        else None
 
             | _ -> None
 
@@ -210,8 +267,8 @@ module internal rec ExprTranslator =
     let private isTemporalType (t: Type) =
         t = typeof<DateTime> || t = typeof<DateTimeOffset> || t = typeof<DateOnly> || t = typeof<TimeOnly>
 
-    let private translateMemberAccess (paramName: string) (memberExpr: Expression) : ExprHandle option =
-        match tryResolveColumnName paramName memberExpr with
+    let private translateMemberAccess (ctx: TranslationContext) (memberExpr: Expression) : ExprHandle option =
+        match tryResolveColumnNameWithContext ctx memberExpr with
         | Some actualCol -> Some (PolarsWrapper.Col actualCol)
         | None ->
             match memberExpr with
@@ -223,10 +280,10 @@ module internal rec ExprTranslator =
                 | _     -> None
 
             | MemberAccess(target, m) when not (isNull target) && target.Type = typeof<string> && m.Name = "Length" ->
-                tryTranslate paramName target |> Option.map PolarsWrapper.StrLenChars
+                tryTranslateWithContext ctx target |> Option.map PolarsWrapper.StrLenChars
 
             | MemberAccess(target, m) when not (isNull target) && isTemporalType target.Type ->
-                let t () = tryTranslate paramName target
+                let t () = tryTranslateWithContext ctx target
                 match m.Name with
                 | "Year"        -> t () |> Option.map PolarsWrapper.DtYear
                 | "Month"       -> t () |> Option.map PolarsWrapper.DtMonth
@@ -257,7 +314,7 @@ module internal rec ExprTranslator =
                 | _             -> None
 
             | MemberAccess(target, m) when not (isNull target) && target.Type = typeof<TimeSpan> ->
-                let t () = tryTranslate paramName target
+                let t () = tryTranslateWithContext ctx target
                 match m.Name with
                 | "TotalDays"         -> t () |> Option.map (fun x -> PolarsWrapper.DtTotalDays(x, fractional = true))
                 | "TotalHours"        -> t () |> Option.map (fun x -> PolarsWrapper.DtTotalHours(x, fractional = true))
@@ -305,11 +362,11 @@ module internal rec ExprTranslator =
             with _ -> None
         | None -> None
 
-    let private translateStringMethod (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
-        let targetH () = tryTranslate paramName target
+    let private translateStringMethod (ctx: TranslationContext) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
+        let targetH () = tryTranslateWithContext ctx target
         match m.Name, args with
         | "IsNullOrEmpty", [ arg ] when isNull target ->
-            tryTranslate paramName arg
+            tryTranslateWithContext ctx arg
             |> Option.map (fun exprH ->
                 let cloned = PolarsWrapper.CloneExpr exprH
                 let isNull = PolarsWrapper.IsNull exprH
@@ -317,7 +374,7 @@ module internal rec ExprTranslator =
                 PolarsWrapper.Or(isNull, isEmpty))
 
         | "IsNullOrWhiteSpace", [ arg ] when isNull target ->
-            tryTranslate paramName arg
+            tryTranslateWithContext ctx arg
             |> Option.map (fun exprH ->
                 let cloned = PolarsWrapper.CloneExpr exprH
                 let isNull = PolarsWrapper.IsNull exprH
@@ -327,12 +384,12 @@ module internal rec ExprTranslator =
 
         // --- Contains ---
         | "Contains", [ arg ] ->
-            match targetH (), tryTranslate paramName arg with
+            match targetH (), tryTranslateWithContext ctx arg with
             | Some t, Some p -> Some (PolarsWrapper.StrContains(t, p, literal = true, strict = false))
             | _ -> None
 
         | "Contains", [ arg; compExpr ] ->
-            match targetH (), tryTranslate paramName arg, tryEvaluateCaseInsensitive compExpr with
+            match targetH (), tryTranslateWithContext ctx arg, tryEvaluateCaseInsensitive compExpr with
             | Some t, Some p, Some true ->
                 let tLower = PolarsWrapper.StrToLower t
                 let pLower = PolarsWrapper.StrToLower p
@@ -343,13 +400,13 @@ module internal rec ExprTranslator =
 
         // --- StartsWith ---
         | "StartsWith", [ arg ] ->
-            match targetH (), tryTranslate paramName arg with
+            match targetH (), tryTranslateWithContext ctx arg with
             | Some t, Some p -> Some (PolarsWrapper.StrStartsWith(t, p))
             | _ -> None
 
         | "StartsWith", [ arg; compExpr ]
         | "StartsWith", arg :: compExpr :: _ ->
-            match targetH (), tryTranslate paramName arg, tryEvaluateCaseInsensitive compExpr with
+            match targetH (), tryTranslateWithContext ctx arg, tryEvaluateCaseInsensitive compExpr with
             | Some t, Some p, Some true ->
                 let tLower = PolarsWrapper.StrToLower t
                 let pLower = PolarsWrapper.StrToLower p
@@ -360,13 +417,13 @@ module internal rec ExprTranslator =
 
         // --- EndsWith ---
         | "EndsWith", [ arg ] ->
-            match targetH (), tryTranslate paramName arg with
+            match targetH (), tryTranslateWithContext ctx arg with
             | Some t, Some p -> Some (PolarsWrapper.StrEndsWith(t, p))
             | _ -> None
 
         | "EndsWith", [ arg; compExpr ]
         | "EndsWith", arg :: compExpr :: _ ->
-            match targetH (), tryTranslate paramName arg, tryEvaluateCaseInsensitive compExpr with
+            match targetH (), tryTranslateWithContext ctx arg, tryEvaluateCaseInsensitive compExpr with
             | Some t, Some p, Some true ->
                 let tLower = PolarsWrapper.StrToLower t
                 let pLower = PolarsWrapper.StrToLower p
@@ -378,24 +435,24 @@ module internal rec ExprTranslator =
         | "ToUpper", [] | "ToUpperInvariant", [] -> targetH () |> Option.map PolarsWrapper.StrToUpper
         | "ToLower", [] | "ToLowerInvariant", [] -> targetH () |> Option.map PolarsWrapper.StrToLower
         | "Substring", [ startExpr ] ->
-            match targetH (), tryTranslate paramName startExpr with
+            match targetH (), tryTranslateWithContext ctx startExpr with
             | Some t, Some startH -> Some (PolarsWrapper.StrSlice(t, startH, PolarsWrapper.LitNull()))
             | _ -> None
         | "Substring", [ startExpr; lenExpr ] ->
-            match targetH (), tryTranslate paramName startExpr, tryTranslate paramName lenExpr with
+            match targetH (), tryTranslateWithContext ctx startExpr, tryTranslateWithContext ctx lenExpr with
             | Some t, Some startH, Some lenH -> Some (PolarsWrapper.StrSlice(t, startH, lenH))
             | _ -> None
 
         // --- Replace ---
         | "Replace", [ oldExpr; newExpr ] ->
-            match targetH (), tryTranslate paramName oldExpr, tryTranslate paramName newExpr with
+            match targetH (), tryTranslateWithContext ctx oldExpr, tryTranslateWithContext ctx newExpr with
             | Some t, Some o, Some n -> Some (PolarsWrapper.StrReplaceAll(t, o, n, literal = true))
             | _ -> None
 
         | "Replace", [ oldExpr; newExpr; compExpr ] ->
-            match targetH (), tryTranslate paramName newExpr, tryEvaluateCaseInsensitive compExpr with
+            match targetH (), tryTranslateWithContext ctx newExpr, tryEvaluateCaseInsensitive compExpr with
             | Some t, Some n, Some false ->
-                match tryTranslate paramName oldExpr with
+                match tryTranslateWithContext ctx oldExpr with
                 | Some o -> Some (PolarsWrapper.StrReplaceAll(t, o, n, literal = true))
                 | _ -> None
             | Some t, Some n, Some true ->
@@ -420,11 +477,11 @@ module internal rec ExprTranslator =
         | "TrimEnd", []   -> targetH () |> Option.map (fun t -> PolarsWrapper.StrStripCharsEnd(t, PolarsWrapper.LitNull()))
         | _ -> None
 
-    let private translateTemporalMethod (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
-        let targetH () = tryTranslate paramName target
+    let private translateTemporalMethod (ctx: TranslationContext) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
+        let targetH () = tryTranslateWithContext ctx target
         match m.Name, args with
         | "ParseExact", strExpr :: formatExpr :: _ when isNull target && m.DeclaringType = typeof<DateTime> ->
-            match tryTranslate paramName strExpr, tryEvaluate formatExpr with
+            match tryTranslateWithContext ctx strExpr, tryEvaluate formatExpr with
             | Some strH, Some (:? string as netFormat) ->
                 let chronoFormat = DateTimeFormatHelper.ToChronoFormat netFormat
                 let ambiguousExpr = PolarsWrapper.Lit "raise"
@@ -442,7 +499,7 @@ module internal rec ExprTranslator =
 
         | "Parse", [ strExpr ]
         | "Parse", strExpr :: _ when isNull target && m.DeclaringType = typeof<DateTime> ->
-            tryTranslate paramName strExpr
+            tryTranslateWithContext ctx strExpr
             |> Option.map (fun strH ->
                 let ambiguousExpr = PolarsWrapper.Lit "raise"
                 PolarsWrapper.StrToDatetime(
@@ -457,14 +514,14 @@ module internal rec ExprTranslator =
                 ))
 
         | "ParseExact", strExpr :: formatExpr :: _ when isNull target && m.DeclaringType = typeof<DateOnly> ->
-            match tryTranslate paramName strExpr, tryEvaluate formatExpr with
+            match tryTranslateWithContext ctx strExpr, tryEvaluate formatExpr with
             | Some strH, Some (:? string as netFormat) ->
                 let chronoFormat = DateTimeFormatHelper.ToChronoFormat netFormat
                 Some (PolarsWrapper.StrToDate(strH, chronoFormat, strict = false, exact = true, cache = true))
             | _ -> None
 
         | "IsLeapYear", [ yearExpr ] when isNull target && m.DeclaringType = typeof<DateTime> ->
-            tryTranslate paramName yearExpr
+            tryTranslateWithContext ctx yearExpr
             |> Option.map (fun yearH ->
                 let dateStrExpr = PolarsWrapper.FormatString("{}-01-01", [| yearH |])
                 let dtExpr = PolarsWrapper.StrToDate(dateStrExpr, "%Y-%m-%d", strict = false, exact = true, cache = true)
@@ -511,10 +568,10 @@ module internal rec ExprTranslator =
     let private isNumericDeclaringType (t: Type) =
         t = typeof<Math> || t = typeof<MathF> || t = typeof<decimal> || t = typeof<System.Numerics.BitOperations>
 
-    let private translateNumericMethod (paramName: string) (m: MethodInfo) (args: Expression list) : ExprHandle option =
-        let t1 expr = tryTranslate paramName expr
+    let private translateNumericMethod (ctx: TranslationContext) (m: MethodInfo) (args: Expression list) : ExprHandle option =
+        let t1 expr = tryTranslateWithContext ctx expr
         let t2 e1 e2 =
-            match tryTranslate paramName e1, tryTranslate paramName e2 with
+            match tryTranslateWithContext ctx e1, tryTranslateWithContext ctx e2 with
             | Some l, Some r -> Some (l, r)
             | _ -> None
 
@@ -624,29 +681,29 @@ module internal rec ExprTranslator =
             RegexOptions.ECMAScript |||
             RegexOptions.ExplicitCapture
 
-        if options.HasFlag(unsupported) then None
+        if options.HasFlag unsupported then None
         else
             let mutable flags = ""
-            if options.HasFlag(RegexOptions.IgnoreCase) then flags <- flags + "i"
-            if options.HasFlag(RegexOptions.Multiline) then flags <- flags + "m"
-            if options.HasFlag(RegexOptions.Singleline) then flags <- flags + "s"
-            if options.HasFlag(RegexOptions.IgnorePatternWhitespace) then flags <- flags + "x"
+            if options.HasFlag RegexOptions.IgnoreCase then flags <- flags + "i"
+            if options.HasFlag RegexOptions.Multiline then flags <- flags + "m"
+            if options.HasFlag RegexOptions.Singleline then flags <- flags + "s"
+            if options.HasFlag RegexOptions.IgnorePatternWhitespace then flags <- flags + "x"
 
             let candidate =
                 if String.IsNullOrEmpty flags then pat
                 else sprintf "(?%s:%s)" flags pat
 
             // Validate that Rust's regex compiler can parse the candidate (e.g. rejects lookaround)
-            if PolarsWrapper.RegexIsValid(candidate) then
+            if PolarsWrapper.RegexIsValid candidate then
                 Some candidate
             else
                 None
 
-    let private translateRegexInvocation (paramName: string) (invocation: RegexInvocation) : ExprHandle option =
+    let private translateRegexInvocation (ctx: TranslationContext) (invocation: RegexInvocation) : ExprHandle option =
         let getRegex rxOpt pat =
             match rxOpt with
             | Some (rx: Regex) -> rx
-            | None -> Regex(pat)
+            | None -> Regex pat
 
         let getOptions rxOpt =
             match rxOpt with
@@ -656,7 +713,7 @@ module internal rec ExprTranslator =
         match invocation with
         // --- 1. IsMatch ---
         | IsMatch(target, pat, rxOpt) ->
-            tryTranslate paramName target
+            tryTranslateWithContext ctx target
             |> Option.map (fun t ->
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
@@ -668,7 +725,7 @@ module internal rec ExprTranslator =
 
         // --- 2. ReplaceLiteral ---
         | ReplaceLiteral(target, pat, rep, rxOpt) ->
-            tryTranslate paramName target
+            tryTranslateWithContext ctx target
             |> Option.map (fun t ->
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
@@ -680,14 +737,14 @@ module internal rec ExprTranslator =
 
         // --- 3. ReplaceEvaluator (Managed delegate: always UDF) ---
         | ReplaceEvaluator(target, pat, eval, rxOpt) ->
-            tryTranslate paramName target
+            tryTranslateWithContext ctx target
             |> Option.map (fun t ->
                 let rx = getRegex rxOpt pat
                 PolarsWrapper.MapStringTransform(t, Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, eval))))
 
         // --- 4. MatchValue & Groups[i].Value ---
         | MatchValue(target, pat, groupIndex, rxOpt) ->
-            tryTranslate paramName target
+            tryTranslateWithContext ctx target
             |> Option.map (fun t ->
                 let options = getOptions rxOpt
                 let rx = getRegex rxOpt pat
@@ -711,7 +768,7 @@ module internal rec ExprTranslator =
 
         // --- 5. MatchesAll ---
         | MatchesAll(target, pat, rxOpt) ->
-            tryTranslate paramName target
+            tryTranslateWithContext ctx target
             |> Option.map (fun t ->
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
@@ -729,7 +786,7 @@ module internal rec ExprTranslator =
 
         // --- 6. MatchesCount / Regex.Count (.NET 7+) ---
         | MatchesCount(target, pat, rxOpt) ->
-            tryTranslate paramName target
+            tryTranslateWithContext ctx target
             |> Option.map (fun t ->
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
@@ -750,7 +807,7 @@ module internal rec ExprTranslator =
 
         // --- 7. Split ---
         | Split(target, pat, rxOpt) ->
-            tryTranslate paramName target
+            tryTranslateWithContext ctx target
             |> Option.map (fun t ->
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
@@ -765,8 +822,8 @@ module internal rec ExprTranslator =
     // 7. Window, Shift, Diff & Rolling Operations
     // =========================================================================
 
-    let private translateShiftMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
-        let targetH () = tryTranslate paramName target
+    let private translateShiftMethod (ctx: TranslationContext) (target: Expression) (args: Expression list) : ExprHandle option =
+        let targetH () = tryTranslateWithContext ctx target
         match args with
         | [ nExpr ] ->
             let offsetHandleOpt =
@@ -776,17 +833,17 @@ module internal rec ExprTranslator =
                         let intVal = Convert.ToInt64 nVal
                         Some (PolarsWrapper.Lit intVal)
                     with _ ->
-                        tryTranslate paramName nExpr
+                        tryTranslateWithContext ctx nExpr
                 | None ->
-                    tryTranslate paramName nExpr
+                    tryTranslateWithContext ctx nExpr
 
             match targetH (), offsetHandleOpt with
             | Some eH, Some nH -> Some (PolarsWrapper.Shift(eH, nH))
             | _ -> None
         | _ -> None
 
-    let private translateDiffMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
-        let targetH () = tryTranslate paramName target
+    let private translateDiffMethod (ctx: TranslationContext) (target: Expression) (args: Expression list) : ExprHandle option =
+        let targetH () = tryTranslateWithContext ctx target
         let resolveN nExpr =
             match tryEvaluate nExpr with
             | Some nVal ->
@@ -794,9 +851,9 @@ module internal rec ExprTranslator =
                     let intVal = Convert.ToInt64 nVal
                     Some (PolarsWrapper.Lit intVal)
                 with _ ->
-                    tryTranslate paramName nExpr
+                    tryTranslateWithContext ctx nExpr
             | None ->
-                tryTranslate paramName nExpr
+                tryTranslateWithContext ctx nExpr
 
         match args with
         | [] ->
@@ -824,8 +881,8 @@ module internal rec ExprTranslator =
             with _ ->
                 PlRankMethod.Average
 
-    let private translateRankMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
-        let targetH () = tryTranslate paramName target
+    let private translateRankMethod (ctx: TranslationContext) (target: Expression) (args: Expression list) : ExprHandle option =
+        let targetH () = tryTranslateWithContext ctx target
         match args with
         | [] ->
             targetH () |> Option.map (fun eH ->
@@ -864,8 +921,8 @@ module internal rec ExprTranslator =
 
         | _ -> None
 
-    let private translatePctChangeMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
-        let targetH () = tryTranslate paramName target
+    let private translatePctChangeMethod (ctx: TranslationContext) (target: Expression) (args: Expression list) : ExprHandle option =
+        let targetH () = tryTranslateWithContext ctx target
         match args with
         | [] -> targetH () |> Option.map (fun eH -> PolarsWrapper.PctChange(eH, 1L))
         | [ nExpr ] ->
@@ -874,48 +931,16 @@ module internal rec ExprTranslator =
             | _ -> None
         | _ -> None
 
-    let private translateWindowTarget (paramName: string) (expr: Expression) : ExprHandle option =
-        match expr with
-        | :? MethodCallExpression as mc when mc.Arguments.Count = 1 && isNull mc.Object ->
-            let colExpr = mc.Arguments.[0]
-            let aggOpt =
-                tryTranslate paramName colExpr
-                |> Option.bind (fun colH ->
-                    match mc.Method.Name with
-                    | "Count" -> Some (PolarsWrapper.Count colH)
-                    | op      -> translateReductionOp op colH)
-            match aggOpt with
-            | Some h -> Some h
-            | None   -> tryTranslate paramName expr
-
-        | :? MethodCallExpression as mc when (mc.Method.Name = "Std" || mc.Method.Name = "StdDev" || 
-                                              mc.Method.Name = "Var" || mc.Method.Name = "Variance") 
-                                              && mc.Arguments.Count = 2 && isNull mc.Object ->
-            let colExpr = mc.Arguments.[0]
-            let secondArg = mc.Arguments.[1]
-            match tryTranslate paramName colExpr, tryEvaluate secondArg with
-            | Some colH, Some ddofVal ->
-                try
-                    let ddof = Convert.ToByte ddofVal
-                    translateDispersionOp mc.Method.Name ddof colH
-                with _ ->
-                    tryTranslate paramName expr
-            | _ ->
-                tryTranslate paramName expr
-
-        | other ->
-            tryTranslate paramName other
-
-    let private translateOverMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
-        match translateWindowTarget paramName target with
+    let private translateOverMethod (ctx: TranslationContext) (target: Expression) (args: Expression list) : ExprHandle option =
+        match tryTranslateWithContext ctx target with
         | Some targetH ->
             let extractPartitions (exprs: Expression list) : Expression list =
                 exprs
                 |> List.collect (fun arg ->
                     match arg with
-                    | :? NewExpression as ne -> 
+                    | :? NewExpression as ne ->
                         ne.Arguments |> Seq.toList
-                    | :? NewArrayExpression as nae -> 
+                    | :? NewArrayExpression as nae ->
                         nae.Expressions |> Seq.toList
                     | other -> [ other ]
                 )
@@ -925,8 +950,8 @@ module internal rec ExprTranslator =
                 flattenedArgs
                 |> List.choose (fun arg ->
                     match arg with
-                    | :? LambdaExpression as lam -> tryTranslate lam.Parameters.[0].Name lam.Body
-                    | other -> tryTranslate paramName other
+                    | :? LambdaExpression as lam -> tryTranslateWithContext (TranslationContext.Entity lam.Parameters.[0].Name) lam.Body
+                    | other -> tryTranslateWithContext ctx other
                 )
 
             if partitionHandles.Length > 0 && partitionHandles.Length = flattenedArgs.Length then
@@ -944,7 +969,7 @@ module internal rec ExprTranslator =
                 None
         | None -> None
 
-    let private translateScalarReductionMethod (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
+    let private translateScalarReductionMethod (ctx: TranslationContext) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
         let effectiveTarget, effectiveArgs =
             if isNull target && not args.IsEmpty then
                 args.Head, args.Tail
@@ -952,24 +977,24 @@ module internal rec ExprTranslator =
                 target, args
 
         match m.Name, effectiveArgs with
-        | ("Sum" | "Mean" | "Average" | "Min" | "Max"), [] ->
-            tryTranslate paramName effectiveTarget
+        | ("Sum" | "Mean" | "Average" | "Min" | "Max" | "Median" | "First" | "Last"), [] ->
+            tryTranslateWithContext ctx effectiveTarget
             |> Option.bind (translateReductionOp m.Name)
 
         | "Count", [] ->
-            tryTranslate paramName effectiveTarget
+            tryTranslateWithContext ctx effectiveTarget
             |> Option.map PolarsWrapper.Count
 
         | ("Std" | "StdDev"), [] ->
-            tryTranslate paramName effectiveTarget
+            tryTranslateWithContext ctx effectiveTarget
             |> Option.bind (translateDispersionOp m.Name 1uy)
 
         | ("Var" | "Variance"), [] ->
-            tryTranslate paramName effectiveTarget
+            tryTranslateWithContext ctx effectiveTarget
             |> Option.bind (translateDispersionOp m.Name 1uy)
 
         | ("Std" | "StdDev" | "Var" | "Variance"), [ ddofExpr ] ->
-            match tryTranslate paramName effectiveTarget, tryEvaluate ddofExpr with
+            match tryTranslateWithContext ctx effectiveTarget, tryEvaluate ddofExpr with
             | Some colH, Some ddofVal ->
                 let ddof = Convert.ToByte ddofVal
                 translateDispersionOp m.Name ddof colH
@@ -977,7 +1002,7 @@ module internal rec ExprTranslator =
 
         | _ -> None
 
-    let private translateCumulativeMethod (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
+    let private translateCumulativeMethod (ctx: TranslationContext) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
         let effectiveTarget, effectiveArgs =
             if isNull target && not args.IsEmpty then args.Head, args.Tail
             else target, args
@@ -990,7 +1015,7 @@ module internal rec ExprTranslator =
                 | _ -> false
             | _ -> false
 
-        tryTranslate paramName effectiveTarget
+        tryTranslateWithContext ctx effectiveTarget
         |> Option.bind (fun colH ->
             match m.Name with
             | "CumSum"   -> Some (PolarsWrapper.CumSum(colH, reverse))
@@ -1011,18 +1036,18 @@ module internal rec ExprTranslator =
             with _ ->
                 PlInterpolationMethod.Linear
 
-    let private translateInterpolateMethod (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
+    let private translateInterpolateMethod (ctx: TranslationContext) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
         let effectiveTarget, effectiveArgs =
             if isNull target && not args.IsEmpty then args.Head, args.Tail
             else target, args
 
         match m.Name, effectiveArgs with
         | "Interpolate", [] ->
-            tryTranslate paramName effectiveTarget
+            tryTranslateWithContext ctx effectiveTarget
             |> Option.map (fun h -> PolarsWrapper.Interpolate(h, PlInterpolationMethod.Linear))
 
         | "Interpolate", [ methodExpr ] ->
-            match tryTranslate paramName effectiveTarget, tryEvaluate methodExpr with
+            match tryTranslateWithContext ctx effectiveTarget, tryEvaluate methodExpr with
             | Some targetH, Some methodVal ->
                 let method = tryExtractInterpolationMethod methodVal
                 Some (PolarsWrapper.Interpolate(targetH, method))
@@ -1031,7 +1056,7 @@ module internal rec ExprTranslator =
             | _ -> None
 
         | "InterpolateBy", [ byExpr ] ->
-            match tryTranslate paramName effectiveTarget, tryTranslate paramName byExpr with
+            match tryTranslateWithContext ctx effectiveTarget, tryTranslateWithContext ctx byExpr with
             | Some targetH, Some byH ->
                 Some (PolarsWrapper.InterpolateBy(targetH, byH))
             | _ -> None
@@ -1049,14 +1074,14 @@ module internal rec ExprTranslator =
             with _ ->
                 PlQuantileMethod.Nearest
 
-    let internal translateQuantileMethod (paramName: string) (target: Expression) (args: Expression list) : ExprHandle option =
+    let internal translateQuantileMethod (ctx: TranslationContext) (target: Expression) (args: Expression list) : ExprHandle option =
         let effectiveTarget, effectiveArgs =
             if isNull target && not args.IsEmpty then args.Head, args.Tail
             else target, args
 
         match effectiveArgs with
         | [ qExpr ] ->
-            match tryTranslate paramName effectiveTarget, tryEvaluate qExpr with
+            match tryTranslateWithContext ctx effectiveTarget, tryEvaluate qExpr with
             | Some targetH, Some qVal ->
                 try
                     let q = Convert.ToDouble qVal
@@ -1065,7 +1090,7 @@ module internal rec ExprTranslator =
             | _ -> None
 
         | [ qExpr; methodExpr ] ->
-            match tryTranslate paramName effectiveTarget, tryEvaluate qExpr, tryEvaluate methodExpr with
+            match tryTranslateWithContext ctx effectiveTarget, tryEvaluate qExpr, tryEvaluate methodExpr with
             | Some targetH, Some qVal, Some mVal ->
                 try
                     let q = Convert.ToDouble qVal
@@ -1076,7 +1101,7 @@ module internal rec ExprTranslator =
 
         | _ -> None
 
-    let private translateMethodCall (paramName: string) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
+    let private translateMethodCall (ctx: TranslationContext) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
         let effectiveTarget, effectiveArgs =
             if isNull target && args.Length > 0 then
                 args.Head, args.Tail
@@ -1084,56 +1109,57 @@ module internal rec ExprTranslator =
                 target, args
 
         if not (isNull effectiveTarget) && m.Name = "Shift" then
-            translateShiftMethod paramName effectiveTarget effectiveArgs
+            translateShiftMethod ctx effectiveTarget effectiveArgs
 
         elif not (isNull effectiveTarget) && m.Name = "Diff" then
-            translateDiffMethod paramName effectiveTarget effectiveArgs
+            translateDiffMethod ctx effectiveTarget effectiveArgs
 
         elif not (isNull effectiveTarget) && m.Name = "Over" then
-            translateOverMethod paramName effectiveTarget effectiveArgs
+            translateOverMethod ctx effectiveTarget effectiveArgs
 
         elif not (isNull effectiveTarget) && m.Name = "Rank" then
-            translateRankMethod paramName effectiveTarget effectiveArgs
+            translateRankMethod ctx effectiveTarget effectiveArgs
 
         elif not (isNull effectiveTarget) && m.Name = "PctChange" then
-            translatePctChangeMethod paramName effectiveTarget effectiveArgs
+            translatePctChangeMethod ctx effectiveTarget effectiveArgs
 
         elif not (isNull effectiveTarget) && m.Name = "Quantile" then
-            translateQuantileMethod paramName effectiveTarget effectiveArgs
-        
+            translateQuantileMethod ctx effectiveTarget effectiveArgs
+
         elif not (isNull effectiveTarget) && (m.Name = "Interpolate" || m.Name = "InterpolateBy") then
-            translateInterpolateMethod paramName m effectiveTarget effectiveArgs
+            translateInterpolateMethod ctx m effectiveTarget effectiveArgs
 
-        elif not (isNull effectiveTarget) && 
+        elif not (isNull effectiveTarget) &&
             (m.Name = "CumSum" || m.Name = "CumMax" || m.Name = "CumMin" || m.Name = "CumProd" || m.Name = "CumCount") then
-            translateCumulativeMethod paramName m effectiveTarget effectiveArgs
+            translateCumulativeMethod ctx m effectiveTarget effectiveArgs
 
-        elif m.Name = "Sum" || m.Name = "Mean" || m.Name = "Average" || 
-            m.Name = "Min" || m.Name = "Max"  || m.Name = "Count"   ||
-            m.Name = "Std" || m.Name = "StdDev" || m.Name = "Var" || m.Name = "Variance" then
-            translateScalarReductionMethod paramName m target args
- 
+        elif m.Name = "Sum" || m.Name = "Mean" || m.Name = "Average" ||
+             m.Name = "Min" || m.Name = "Max"  || m.Name = "Count"   ||
+             m.Name = "Median" || m.Name = "First" || m.Name = "Last" ||
+             m.Name = "Std" || m.Name = "StdDev" || m.Name = "Var" || m.Name = "Variance" then
+            translateScalarReductionMethod ctx m target args
+
         // 1. String methods (Static & Instance)
         elif m.DeclaringType = typeof<string> || not (isNull target) && target.Type = typeof<string> then
-            translateStringMethod paramName m target args
+            translateStringMethod ctx m target args
 
         // 2. Temporal methods (DateTime / DateOnly / TimeOnly)
         elif m.DeclaringType = typeof<DateTime> || not (isNull target) && isTemporalType target.Type then
-            translateTemporalMethod paramName m target args
+            translateTemporalMethod ctx m target args
 
         // 3. Math / MathF / Decimal methods (All static)
         elif isNumericDeclaringType m.DeclaringType && isNull target then
-            translateNumericMethod paramName m args
+            translateNumericMethod ctx m args
 
         // 4. Decimal / Numeric Instance Methods (e.g. d.ToString())
         elif not (isNull target) && target.Type = typeof<decimal> then
             match m.Name, args with
             | "ToString", [] ->
-                tryTranslate paramName target
+                tryTranslateWithContext ctx target
                 |> Option.bind (tryTranslateCast typeof<string>)
 
             | "ToString", [ formatExpr ] ->
-                match tryTranslate paramName target, tryEvaluate formatExpr with
+                match tryTranslateWithContext ctx target, tryEvaluate formatExpr with
                 | Some t, Some (:? string as fmt) ->
                     if fmt.StartsWith("F", StringComparison.OrdinalIgnoreCase) then
                         let precision = fmt.Substring(1)
@@ -1151,10 +1177,10 @@ module internal rec ExprTranslator =
     // 8. List / Array Row-Level Expression Dispatcher
     // =========================================================================
 
-    let private translateListInvocation (paramName: string) (invocation: ListInvocation) : ExprHandle option =
-        let t1 expr = tryTranslate paramName expr
+    let private translateListInvocation (ctx: TranslationContext) (invocation: ListInvocation) : ExprHandle option =
+        let t1 expr = tryTranslateWithContext ctx expr
         let t2 e1 e2 =
-            match tryTranslate paramName e1, tryTranslate paramName e2 with
+            match tryTranslateWithContext ctx e1, tryTranslateWithContext ctx e2 with
             | Some l, Some r -> Some (l, r)
             | _ -> None
 
@@ -1204,18 +1230,21 @@ module internal rec ExprTranslator =
         | ListAny(target, Some lam) when lam.Parameters.Count = 1 ->
             match t1 target with
             | Some t ->
-                tryTranslate lam.Parameters.[0].Name lam.Body
+                let innerCtx = TranslationContext.Entity lam.Parameters.[0].Name
+                tryTranslateWithContext innerCtx lam.Body
                 |> Option.map (fun innerCond ->
                     let anyExpr = PolarsWrapper.Any(innerCond, ignoreNulls = false)
                     let boolList = PolarsWrapper.ListEval(t, anyExpr)
                     PolarsWrapper.ListGet(boolList, PolarsWrapper.Lit 0, nullOnOob = true))
             | None -> None
+
         | ListAny _ -> None
 
         | ListAll(target, lam) when lam.Parameters.Count = 1 ->
             match t1 target with
             | Some t ->
-                tryTranslate lam.Parameters.[0].Name lam.Body
+                let innerCtx = TranslationContext.Entity lam.Parameters.[0].Name
+                tryTranslateWithContext innerCtx lam.Body
                 |> Option.map (fun innerCond ->
                     let allExpr = PolarsWrapper.All(innerCond, ignoreNulls = false)
                     let boolList = PolarsWrapper.ListEval(t, allExpr)
@@ -1226,7 +1255,8 @@ module internal rec ExprTranslator =
         | ListSelect(target, lam) when lam.Parameters.Count = 1 ->
             match t1 target with
             | Some t ->
-                tryTranslate lam.Parameters.[0].Name lam.Body
+                let innerCtx = TranslationContext.Entity lam.Parameters.[0].Name
+                tryTranslateWithContext innerCtx lam.Body
                 |> Option.map (fun mapperExpr -> PolarsWrapper.ListEval(t, mapperExpr))
             | None -> None
         | ListSelect _ -> None
@@ -1266,17 +1296,17 @@ module internal rec ExprTranslator =
         | ExpressionType.UnaryPlus    -> Some operand
         | _ -> None
 
-    let private translateBinaryExpr (paramName: string) (op: ExpressionType) (left: Expression) (right: Expression) : ExprHandle option =
+    let private translateBinaryExpr (ctx: TranslationContext) (op: ExpressionType) (left: Expression) (right: Expression) : ExprHandle option =
         if op = ExpressionType.NotEqual && isNullConstantExpr right then
-            tryTranslate paramName left |> Option.map PolarsWrapper.IsNotNull
+            tryTranslateWithContext ctx left |> Option.map PolarsWrapper.IsNotNull
         elif op = ExpressionType.NotEqual && isNullConstantExpr left then
-            tryTranslate paramName right |> Option.map PolarsWrapper.IsNotNull
+            tryTranslateWithContext ctx right |> Option.map PolarsWrapper.IsNotNull
         elif op = ExpressionType.Equal && isNullConstantExpr right then
-            tryTranslate paramName left |> Option.map PolarsWrapper.IsNull
+            tryTranslateWithContext ctx left |> Option.map PolarsWrapper.IsNull
         elif op = ExpressionType.Equal && isNullConstantExpr left then
-            tryTranslate paramName right |> Option.map PolarsWrapper.IsNull
+            tryTranslateWithContext ctx right |> Option.map PolarsWrapper.IsNull
         elif op = ExpressionType.LeftShift then
-            match tryTranslate paramName left, tryEvaluate right with
+            match tryTranslateWithContext ctx left, tryEvaluate right with
             | Some leftH, Some nVal ->
                 try
                     let n = Convert.ToInt32 nVal
@@ -1285,7 +1315,7 @@ module internal rec ExprTranslator =
             | _ -> None
 
         elif op = ExpressionType.RightShift then
-            match tryTranslate paramName left, tryEvaluate right with
+            match tryTranslateWithContext ctx left, tryEvaluate right with
             | Some leftH, Some nVal ->
                 try
                     let n = Convert.ToInt32 nVal
@@ -1293,68 +1323,67 @@ module internal rec ExprTranslator =
                 with _ -> None
             | _ -> None
         else
-            match tryTranslate paramName left, tryTranslate paramName right with
+            match tryTranslateWithContext ctx left, tryTranslateWithContext ctx right with
             | Some l, Some r -> Some (translateBinary op l r)
             | _ -> None
 
-    let private translateUnaryExpr (paramName: string) (op: ExpressionType) (operand: Expression) (targetType: Type) : ExprHandle option =
+    let private translateUnaryExpr (ctx: TranslationContext) (op: ExpressionType) (operand: Expression) (targetType: Type) : ExprHandle option =
         match op with
         | ExpressionType.Convert
         | ExpressionType.ConvertChecked ->
-            tryTranslate paramName operand
+            tryTranslateWithContext ctx operand
             |> Option.bind (tryTranslateCast targetType)
         | _ ->
-            tryTranslate paramName operand
+            tryTranslateWithContext ctx operand
             |> Option.bind (translateUnary op)
-
 
     // =========================================================================
     // 10. Main Entrypoint Dispatcher
     // =========================================================================
 
-    /// Attempts to translate an Expression AST node to a native Polars ExprHandle.
-    let tryTranslate (paramName: string) (expr: Expression) : ExprHandle option =
+    /// Attempts to translate an Expression AST node to a native Polars ExprHandle using a strongly-typed TranslationContext.
+    let tryTranslateWithContext (ctx: TranslationContext) (expr: Expression) : ExprHandle option =
         try
             match expr with
             // 1. Row-level List / Array operations
             | ArrayIndexOp(target, indexExpr) ->
-                match tryTranslate paramName target, tryTranslate paramName indexExpr with
+                match tryTranslateWithContext ctx target, tryTranslateWithContext ctx indexExpr with
                 | Some t, Some idx -> Some (PolarsWrapper.ListGet(t, idx, nullOnOob = true))
                 | _ -> None
 
             | ListInvocation listInv ->
-                translateListInvocation paramName listInv
+                translateListInvocation ctx listInv
 
             // 2. Struct field pushdown
             | StructFieldAccess(parentExpr, fieldName) ->
-                tryTranslate paramName parentExpr
+                tryTranslateWithContext ctx parentExpr
                 |> Option.map (fun parentHandle -> PolarsWrapper.StructFieldByName(parentHandle, [| fieldName |]))
 
             // 3. Regex operations
             | RegexInvocation invocation ->
-                translateRegexInvocation paramName invocation
+                translateRegexInvocation ctx invocation
 
             // 4. Member Access (Columns, temporal/time properties, Math constants, captured closures)
             | MemberAccess _ as memberExpr ->
-                translateMemberAccess paramName memberExpr
+                translateMemberAccess ctx memberExpr
 
             // 5. Method Calls (Strings, DateTime, Math, etc.)
             | MethodCall(m, target, args) ->
-                translateMethodCall paramName m target args
+                translateMethodCall ctx m target args
 
             // 6. Binary operations
             | Binary(op, left, right) ->
-                translateBinaryExpr paramName op left right
+                translateBinaryExpr ctx op left right
 
             // 7. Unary operations & conversions
             | Unary(op, operand) ->
-                translateUnaryExpr paramName op operand expr.Type
+                translateUnaryExpr ctx op operand expr.Type
 
             // 8. Conditional ternary (test ? true : false)
             | :? ConditionalExpression as cond ->
-                match tryTranslate paramName cond.Test,
-                      tryTranslate paramName cond.IfTrue,
-                      tryTranslate paramName cond.IfFalse with
+                match tryTranslateWithContext ctx cond.Test,
+                      tryTranslateWithContext ctx cond.IfTrue,
+                      tryTranslateWithContext ctx cond.IfFalse with
                 | Some testH, Some trueH, Some falseH ->
                     Some (PolarsWrapper.IfElse(testH, trueH, falseH))
                 | _ -> None
@@ -1363,122 +1392,10 @@ module internal rec ExprTranslator =
             | Constant(value, t) ->
                 Some (toLiteralHandle value t)
 
-            // 10. Inner lambda placeholder or physical column mapping
+            // 10. Parameter mapping: delegate physical column resolution directly to TranslationContext
             | :? ParameterExpression as p ->
-                let baseParam, targetColOpt =
-                    match paramName.IndexOf ':' with
-                    | -1 -> paramName, None
-                    | idx -> paramName.Substring(0, idx), Some (paramName.Substring(idx + 1))
-
-                if p.Name = baseParam then
-                    match targetColOpt with
-                    | Some col when not (String.IsNullOrEmpty col) ->
-                        Some (PolarsWrapper.Col col)
-                    | _ ->
-                        Some (PolarsWrapper.Col "")
-                else
-                    None
+                ctx.TryResolveParameterHandle p.Name
 
             | _ -> None
         with _ ->
             None
-
-    /// Attempts to translate an Expression AST node with an optional target physical column name for scalar sequences.
-    let tryTranslateWithScalarCol (scalarColOpt: string option) (paramName: string) (expr: Expression) : ExprHandle option =
-        let effectiveParam =
-            match scalarColOpt with
-            | Some col when not (String.IsNullOrEmpty col) -> sprintf "%s:%s" paramName col
-            | _ -> paramName
-        tryTranslate effectiveParam expr
-
-    // =========================================================================
-    // 11. Merge-Specific Binary-Parameter Translation Extensions
-    // =========================================================================
-
-    let rec internal tryResolveMergeColumnName
-        (targetParam: string)
-        (sourceParam: string)
-        (sourceSuffix: string)
-        (expr: Expression) : string option =
-        match expr with
-        | MemberAccess(_, m) when isNavigationMember m ->
-            None
-
-        | MemberAccess(inner, m) ->
-            let rec checkOrigin (e: Expression) : (bool * bool) option =
-                match unwrap e with
-                | :? ParameterExpression as p when p.Name = targetParam ->
-                    Some (true, false)
-                | :? ParameterExpression as p when p.Name = sourceParam ->
-                    Some (false, true)
-                | MemberAccess(nextInner, nextM) when isNavigationMember nextM ->
-                    checkOrigin nextInner
-                | _ -> None
-
-            match checkOrigin inner with
-            | Some (true, false) ->
-                Some m.Name
-            | Some (false, true) ->
-                Some (m.Name + sourceSuffix)
-            | _ ->
-                None
-
-        | _ -> None
-
-    let rec internal tryTranslateMergeCore
-        (targetParam: string)
-        (sourceParam: string)
-        (sourceSuffix: string)
-        (expr: Expression) : ExprHandle option =
-        try
-            match expr with
-            | MemberAccess _ as memberExpr ->
-                match tryResolveMergeColumnName targetParam sourceParam sourceSuffix memberExpr with
-                | Some colName -> Some (PolarsWrapper.Col colName)
-                | None ->
-                    translateMemberAccess targetParam memberExpr
-
-            | Binary(op, left, right) ->
-                let tL = tryTranslateMergeCore targetParam sourceParam sourceSuffix left
-                let tR = tryTranslateMergeCore targetParam sourceParam sourceSuffix right
-                match tL, tR with
-                | Some l, Some r -> Some (translateBinary op l r)
-                | _ -> None
-
-            | Unary(op, operand) ->
-                tryTranslateMergeCore targetParam sourceParam sourceSuffix operand
-                |> Option.bind (fun opH ->
-                    match op with
-                    | ExpressionType.Convert
-                    | ExpressionType.ConvertChecked ->
-                        tryTranslateCast expr.Type opH
-                    | _ ->
-                        translateUnary op opH)
-
-            | :? ConditionalExpression as cond ->
-                match tryTranslateMergeCore targetParam sourceParam sourceSuffix cond.Test,
-                      tryTranslateMergeCore targetParam sourceParam sourceSuffix cond.IfTrue,
-                      tryTranslateMergeCore targetParam sourceParam sourceSuffix cond.IfFalse with
-                | Some testH, Some trueH, Some falseH ->
-                    Some (PolarsWrapper.IfElse(testH, trueH, falseH))
-                | _ -> None
-
-            | other ->
-                match tryTranslate targetParam other with
-                | Some h -> Some h
-                | None -> tryTranslate sourceParam other
-        with _ ->
-            None
-
-    let internal tryTranslateMergeLambda (sourceSuffix: string) (lambda: LambdaExpression) : ExprHandle option =
-        if isNull lambda || lambda.Parameters.Count < 2 then None
-        else
-            let targetParam = lambda.Parameters.[0].Name
-            let sourceParam = lambda.Parameters.[1].Name
-            tryTranslateMergeCore targetParam sourceParam sourceSuffix lambda.Body
-
-    let internal tryTranslateSourceOnlyLambda (sourceSuffix: string) (lambda: LambdaExpression) : ExprHandle option =
-        if isNull lambda || lambda.Parameters.Count < 1 then None
-        else
-            let sourceParam = lambda.Parameters.[0].Name
-            tryTranslateMergeCore "" sourceParam sourceSuffix lambda.Body

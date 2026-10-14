@@ -728,48 +728,66 @@ public static class LinqExtensions
         // 1. Evaluate preceding LINQ pipeline down to a DataFrame
         var df = source.ToDataFrame();
 
-        // 2. Push down key selector using ExprTranslator
+        // 2. Resolve whether TSource is a scalar column or composite entity
+        bool isScalarSource = PolarsTypeHelper.IsScalarType(typeof(TSource)) || typeof(TSource) == typeof(string);
+        string? scalarCol = isScalarSource && df.Columns.Length == 1 ? df.Columns[0] : null;
+
+        TranslationContext CreateContext(string paramName) =>
+            scalarCol is not null
+                ? TranslationContext.NewScalar(paramName, scalarCol)
+                : TranslationContext.NewEntity(paramName);
+
+        // 3. Fold closures and push down key selector using TranslationContext
+        var evaluatedKeyBody = PartialEvaluator.eval(keySelector.Body);
         var keyParam = keySelector.Parameters[0].Name ?? "x";
-        var keyOpt = ExprTranslator.tryTranslate(keyParam, keySelector.Body);
+        var keyCtx = CreateContext(keyParam);
+
+        var keyOpt = ExprTranslator.tryTranslateWithContext(keyCtx, evaluatedKeyBody);
         if (!FSharpOption<ExprHandle>.get_IsSome(keyOpt))
         {
             throw new NotSupportedException($"Key selector '{keySelector}' could not be translated to a Polars expression.");
         }
         var keyExpr = new Expr(keyOpt.Value);
 
-        // 3. Native partition via Rust engine directly to DataFrame[]
+        // 4. Native partition via Rust engine directly to DataFrame[]
         var partitions = df.PartitionBy(keyExpr, maintainOrder: true, includeKey: true);
 
-        // 4. Translate element selector if not identity
+        // 5. Translate element selector if not identity
         var isIdentity = typeof(TSource) == typeof(TElement) && elementSelector.Body is ParameterExpression;
         Expr? elemExpr = null;
         if (!isIdentity)
         {
+            var evaluatedElemBody = PartialEvaluator.eval(elementSelector.Body);
             var elemParam = elementSelector.Parameters[0].Name ?? "x";
-            var elemOpt = ExprTranslator.tryTranslate(elemParam, elementSelector.Body);
+            var elemCtx = CreateContext(elemParam);
+
+            var elemOpt = ExprTranslator.tryTranslateWithContext(elemCtx, evaluatedElemBody);
             if (FSharpOption<ExprHandle>.get_IsSome(elemOpt))
             {
                 elemExpr = new Expr(elemOpt.Value);
             }
         }
 
-        // 5. Pre-allocate exactly one dictionary
+        // 6. Pre-allocate exactly one dictionary
         var groupDict = new Dictionary<TKey, PolarsGrouping<TKey, TElement>>(
             partitions.Length,
             comparer ?? EqualityComparer<TKey>.Default);
 
-        // Fast-path: Resolve key column name from simple member access
-        // Extract underlying expression body by stripping unnecessary Convert/ConvertChecked nodes
+        // Fast-path: Resolve key column name from simple member access or scalar parameter
         var body = keySelector.Body;
         while (body is UnaryExpression { NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked } u)
         {
             body = u.Operand;
         }
 
-        string? singleKeyCol = body is MemberExpression me && me.Expression is ParameterExpression
-            ? me.Member.Name 
-            : null;
-        Func<DataFrame,long, TKey>? compositeKeyMapper = null;
+        string? singleKeyCol = body switch
+        {
+            MemberExpression me when me.Expression is ParameterExpression => me.Member.Name,
+            ParameterExpression when scalarCol is not null => scalarCol, // Direct scalar key mapping
+            _ => null
+        };
+
+        Func<DataFrame, long, TKey>? compositeKeyMapper = null;
 
         foreach (var partDf in partitions)
         {

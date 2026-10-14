@@ -3,8 +3,8 @@ namespace Polars.NET.Linq
 open System
 open System.Collections.Generic
 open System.Linq.Expressions
-open System.Linq
 open System.Reflection
+open System.Linq
 
 /// Performs client-side partial evaluation to fold closure references 
 /// and local computations into ConstantExpressions before AST translation.
@@ -53,6 +53,31 @@ module internal PartialEvaluator =
                 cannotBeEvaluated <- cannotBeEvaluated || saveCannotBeEvaluated
                 node
 
+        /// Overrides MemberInit visiting: prevents the underlying NewExpression node from being
+        /// nominated as an independent candidate when the parent MemberInit depends on query parameters.
+        override this.VisitMemberInit(node: MemberInitExpression) =
+            // 1. Visit arguments of NewExpression directly so nested closures inside constructor arguments
+            // are nominated, without nominating the NewExpression container itself.
+            for arg in node.NewExpression.Arguments do
+                ignore (this.Visit arg)
+
+            // 2. Visit member bindings
+            for binding in node.Bindings do
+                match binding with
+                | :? MemberAssignment as ma ->
+                    ignore (this.Visit ma.Expression)
+                | :? MemberMemberBinding as mmb ->
+                    for b in mmb.Bindings do
+                        match b with
+                        | :? MemberAssignment as a -> ignore (this.Visit a.Expression)
+                        | _ -> ()
+                | :? MemberListBinding as mlb ->
+                    for init in mlb.Initializers do
+                        for arg in init.Arguments do
+                            ignore (this.Visit arg)
+                | _ -> ()
+            node :> Expression
+
     /// Phase 2: Rewrites maximal nominated subtrees into constant literals.
     type private SubtreeReplacer(candidates: HashSet<Expression>) =
         inherit ExpressionVisitor()
@@ -75,6 +100,7 @@ module internal PartialEvaluator =
         else
             let canBeEvaluated (node: Expression) =
                 node.NodeType <> ExpressionType.Parameter &&
+                node.NodeType <> ExpressionType.Lambda &&
                 not (typeof<IQueryable>.IsAssignableFrom node.Type)
 
             let nominator = Nominator canBeEvaluated

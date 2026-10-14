@@ -7,6 +7,23 @@ using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
+internal static class MergePropertyHelper
+{
+    public static string ExtractPropertyName<TTarget, TProp>(Expression<Func<TTarget, TProp>> propertyLambda)
+    {
+        var body = propertyLambda.Body;
+        while (body is UnaryExpression { NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked } u)
+        {
+            body = u.Operand;
+        }
+
+        if (body is MemberExpression member)
+            return member.Member.Name;
+
+        throw new ArgumentException($"Expression '{propertyLambda}' must refer directly to a property of {typeof(TTarget).Name}.");
+    }
+}
+
 /// <summary>
 /// Provides strongly-typed setters for updating Target columns during a Merge operation.
 /// </summary>
@@ -29,8 +46,18 @@ public class TypedMergeUpdateSetterBuilder<TTarget, TSource>
         Expression<Func<TTarget, TProp>> targetProperty,
         Expression<Func<TTarget, TSource, TProp>> valueExpression)
     {
-        string colName = ExtractPropertyName(targetProperty);
-        var exprHandleOpt = ExprTranslator.tryTranslateMergeLambda(_sourceSuffix, valueExpression);
+        string colName = MergePropertyHelper.ExtractPropertyName(targetProperty);
+
+        // 1. Fold external closure references
+        var evaluatedBody = PartialEvaluator.eval(valueExpression.Body);
+
+        // 2. Build strongly-typed Merge context
+        var targetParam = valueExpression.Parameters[0].Name ?? "target";
+        var sourceParam = valueExpression.Parameters[1].Name ?? "source";
+        var ctx = TranslationContext.NewMerge(targetParam, sourceParam, _sourceSuffix);
+
+        // 3. Translate expression natively
+        var exprHandleOpt = ExprTranslator.tryTranslateWithContext(ctx, evaluatedBody);
         if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
         {
             throw new NotSupportedException($"Expression '{valueExpression}' could not be translated to a native Polars expression.");
@@ -47,8 +74,17 @@ public class TypedMergeUpdateSetterBuilder<TTarget, TSource>
         Expression<Func<TTarget, TProp>> targetProperty,
         Expression<Func<TSource, TProp>> valueExpression)
     {
-        string colName = ExtractPropertyName(targetProperty);
-        var exprHandleOpt = ExprTranslator.tryTranslateSourceOnlyLambda(_sourceSuffix, valueExpression);
+        string colName = MergePropertyHelper.ExtractPropertyName(targetProperty);
+
+        // 1. Fold external closure references
+        var evaluatedBody = PartialEvaluator.eval(valueExpression.Body);
+
+        // 2. Source-only context: target is empty string
+        var sourceParam = valueExpression.Parameters[0].Name ?? "source";
+        var ctx = TranslationContext.NewMerge("", sourceParam, _sourceSuffix);
+
+        // 3. Translate expression natively
+        var exprHandleOpt = ExprTranslator.tryTranslateWithContext(ctx, evaluatedBody);
         if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
         {
             throw new NotSupportedException($"Expression '{valueExpression}' could not be translated to a native Polars expression.");
@@ -65,20 +101,10 @@ public class TypedMergeUpdateSetterBuilder<TTarget, TSource>
         Expression<Func<TTarget, TProp>> targetProperty,
         TProp value)
     {
-        string colName = ExtractPropertyName(targetProperty);
+        string colName = MergePropertyHelper.ExtractPropertyName(targetProperty);
         var handle = ExprTranslator.toLiteralHandle(value!, typeof(TProp));
         Setters[colName] = new Expr(handle);
         return this;
-    }
-
-    private static string ExtractPropertyName<TProp>(Expression<Func<TTarget, TProp>> propertyLambda)
-    {
-        if (propertyLambda.Body is MemberExpression member)
-            return member.Member.Name;
-        if (propertyLambda.Body is UnaryExpression { Operand: MemberExpression innerMember })
-            return innerMember.Member.Name;
-
-        throw new ArgumentException($"Expression '{propertyLambda}' must refer directly to a property of {typeof(TTarget).Name}.");
     }
 }
 
@@ -104,8 +130,17 @@ public class TypedMergeInsertSetterBuilder<TTarget, TSource>
         Expression<Func<TTarget, TProp>> targetProperty,
         Expression<Func<TSource, TProp>> valueExpression)
     {
-        string colName = ExtractPropertyName(targetProperty);
-        var exprHandleOpt = ExprTranslator.tryTranslateSourceOnlyLambda(_sourceSuffix, valueExpression);
+        string colName = MergePropertyHelper.ExtractPropertyName(targetProperty);
+
+        // 1. Fold external closure references
+        var evaluatedBody = PartialEvaluator.eval(valueExpression.Body);
+
+        // 2. Source-only context: target is empty string
+        var sourceParam = valueExpression.Parameters[0].Name ?? "source";
+        var ctx = TranslationContext.NewMerge("", sourceParam, _sourceSuffix);
+
+        // 3. Translate expression natively
+        var exprHandleOpt = ExprTranslator.tryTranslateWithContext(ctx, evaluatedBody);
         if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
         {
             throw new NotSupportedException($"Expression '{valueExpression}' could not be translated to a native Polars expression.");
@@ -122,20 +157,10 @@ public class TypedMergeInsertSetterBuilder<TTarget, TSource>
         Expression<Func<TTarget, TProp>> targetProperty,
         TProp value)
     {
-        string colName = ExtractPropertyName(targetProperty);
+        string colName = MergePropertyHelper.ExtractPropertyName(targetProperty);
         var handle = ExprTranslator.toLiteralHandle(value!, typeof(TProp));
         Setters[colName] = new Expr(handle);
         return this;
-    }
-
-    private static string ExtractPropertyName<TProp>(Expression<Func<TTarget, TProp>> propertyLambda)
-    {
-        if (propertyLambda.Body is MemberExpression member)
-            return member.Member.Name;
-        if (propertyLambda.Body is UnaryExpression { Operand: MemberExpression innerMember })
-            return innerMember.Member.Name;
-
-        throw new ArgumentException($"Expression '{propertyLambda}' must refer directly to a property of {typeof(TTarget).Name}.");
     }
 }
 
@@ -236,10 +261,22 @@ public class TypedMergeBuilder<TTarget, TSource> : MergeBuilderBase<TypedMergeBu
     /// Applies actions (Update or Delete) when a row is matched between Target and Source.
     /// </summary>
     public TypedMergeBuilder<TTarget, TSource> WhenMatched(
-        Expression<Func<TTarget, TSource, bool>> condition,
-        Action<MergeMatchedAction<TTarget, TSource>> then)
+            Expression<Func<TTarget, TSource, bool>> condition,
+            Action<MergeMatchedAction<TTarget, TSource>> then)
     {
-        var exprHandleOpt = ExprTranslator.tryTranslateMergeLambda(_tmpSfx, condition);
+        ArgumentNullException.ThrowIfNull(condition);
+        ArgumentNullException.ThrowIfNull(then);
+
+        // 1. Fold external closure references
+        var evaluatedBody = PartialEvaluator.eval(condition.Body);
+
+        // 2. Matched context: target + source with suffix
+        var targetParam = condition.Parameters[0].Name ?? "target";
+        var sourceParam = condition.Parameters[1].Name ?? "source";
+        var ctx = TranslationContext.NewMerge(targetParam, sourceParam, _tmpSfx);
+
+        // 3. Translate expression natively
+        var exprHandleOpt = ExprTranslator.tryTranslateWithContext(ctx, evaluatedBody);
         if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
         {
             throw new NotSupportedException($"Condition expression '{condition}' could not be translated natively.");
@@ -270,10 +307,21 @@ public class TypedMergeBuilder<TTarget, TSource> : MergeBuilderBase<TypedMergeBu
     /// Inserts a new row when a source row does not match any target row, filtered by condition.
     /// </summary>
     public TypedMergeBuilder<TTarget, TSource> WhenNotMatchedByTarget(
-        Expression<Func<TSource, bool>> condition,
-        Action<MergeNotMatchedByTargetAction<TTarget, TSource>> then)
+            Expression<Func<TSource, bool>> condition,
+            Action<MergeNotMatchedByTargetAction<TTarget, TSource>> then)
     {
-        var exprHandleOpt = ExprTranslator.tryTranslateSourceOnlyLambda(_tmpSfx, condition);
+        ArgumentNullException.ThrowIfNull(condition);
+        ArgumentNullException.ThrowIfNull(then);
+
+        // 1. Fold external closure references
+        var evaluatedBody = PartialEvaluator.eval(condition.Body);
+
+        // 2. Source-only context with suffix
+        var sourceParam = condition.Parameters[0].Name ?? "source";
+        var ctx = TranslationContext.NewMerge("", sourceParam, _tmpSfx);
+
+        // 3. Translate expression natively
+        var exprHandleOpt = ExprTranslator.tryTranslateWithContext(ctx, evaluatedBody);
         if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
         {
             throw new NotSupportedException($"Source condition expression '{condition}' could not be translated natively.");
@@ -307,7 +355,18 @@ public class TypedMergeBuilder<TTarget, TSource> : MergeBuilderBase<TypedMergeBu
         Expression<Func<TTarget, bool>> condition,
         Action<MergeNotMatchedBySourceAction<TTarget>> then)
     {
-        var exprHandleOpt = ExprTranslator.tryTranslate(condition.Parameters[0].Name, condition.Body);
+        ArgumentNullException.ThrowIfNull(condition);
+        ArgumentNullException.ThrowIfNull(then);
+
+        // 1. Fold external closure references into constants
+        var evaluatedBody = PartialEvaluator.eval(condition.Body);
+
+        // 2. Target table context without suffix
+        var targetParam = condition.Parameters[0].Name ?? "target";
+        var ctx = TranslationContext.NewEntity(targetParam);
+
+        // 3. Translate expression natively
+        var exprHandleOpt = ExprTranslator.tryTranslateWithContext(ctx, evaluatedBody);
         if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
         {
             throw new NotSupportedException($"Target condition expression '{condition}' could not be translated natively.");
@@ -359,7 +418,7 @@ public class TypedMergeBuilder<TTarget, TSource> : MergeBuilderBase<TypedMergeBu
     public List<TTarget> ToList(Engine engine = Engine.Auto)
     {
         using var df = ToDataFrame(engine);
-        var cursor = df.Rows<TTarget>();                       
+        var cursor = df.Rows<TTarget>();
         return cursor.ToList();
     }
     /// <summary>
@@ -399,7 +458,7 @@ public static class TypedMergeExtensions
             $"Queryable of type '{sequence.GetType().Name}' cannot be converted to a Polars LazyFrame. " +
             $"Ensure it implements IPolarsPlanSource or IEnumerable<{typeof(T).Name}>.");
     }
-    
+
     /// <summary>
     /// Initiates a strongly-typed Merge builder between two queries.
     /// Supports both native Polars queries and in-memory collections.

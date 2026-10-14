@@ -54,7 +54,17 @@ type internal QueryMaterializerResolver =
 /// Strongly-typed IQueryProvider backed by Polars.NET.Core
 type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer) =
     let clonedLf = PolarsWrapper.LazyClone initialLazyFrame
-
+    /// Creates an appropriate TranslationContext based on whether the sequence element type
+    /// is a scalar/primitive (bound to the underlying single physical column) or a composite entity.
+    static member createContextForType (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
+        if PolarsTypeHelper.IsScalarType elemType || elemType = typeof<string> then
+            let colNames = PolarsSchemaExtractor.GetColumnNames lf
+            if colNames.Length = 1 then
+                TranslationContext.Scalar(paramName, colNames.[0])
+            else
+                TranslationContext.Entity paramName
+        else
+            TranslationContext.Entity paramName
     /// Extracts the underlying sequence element type from generic collections/arrays
     static member private GetSequenceElementType(t: Type) =
         if t.IsGenericType then t.GetGenericArguments().[0]
@@ -79,15 +89,8 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
         | Some predLambda ->
             let nativeFilterOpt =
                 if not hasClientPreds && Option.isNone clientProjOpt then
-                    let isScalar = PolarsTypeHelper.IsScalarType elemType || elemType = typeof<string>
-                    let scalarColOpt =
-                        if isScalar then
-                            let colNames = PolarsQuery<obj>.GetLazyColumnNames nativeLf
-                            if colNames.Length = 1 then Some colNames.[0] else None
-                        else
-                            None
-
-                    ExprTranslator.tryTranslateWithScalarCol scalarColOpt predLambda.Parameters.[0].Name predLambda.Body
+                    let ctx = PolarsQueryProvider.createContextForType elemType nativeLf predLambda.Parameters.[0].Name
+                    ExprTranslator.tryTranslateWithContext ctx predLambda.Body
                 else None
 
             match nativeFilterOpt with
@@ -484,8 +487,8 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                 if not hasClientPreds && clientProjOpt.IsNone then
                     match selectorOpt with
                     | Some selector ->
-                        let scalarColOpt = PolarsQueryProvider.tryGetScalarColumnName elemType nativeLf
-                        ExprTranslator.tryTranslateWithScalarCol scalarColOpt selector.Parameters.[0].Name selector.Body
+                        let ctx = PolarsQueryProvider.createContextForType elemType nativeLf selector.Parameters.[0].Name
+                        ExprTranslator.tryTranslateWithContext ctx selector.Body
                     | None ->
                         if PolarsTypeHelper.IsSupportedSimpleType targetType then
                             let colNames = PolarsQuery<obj>.GetLazyColumnNames nativeLf
@@ -732,7 +735,8 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
 
             let nativeSortColOpt =
                 if not hasClientPreds && clientProjOpt.IsNone && isNull compObj then
-                    ExprTranslator.tryTranslateWithScalarCol scalarColOpt keyLambda.Parameters.[0].Name keyLambda.Body
+                    let ctx = PolarsQueryProvider.createContextForType elemType nativeLf keyLambda.Parameters.[0].Name
+                    ExprTranslator.tryTranslateWithContext ctx keyLambda.Body
                 else None
 
             match nativeSortColOpt with
@@ -1145,8 +1149,10 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
     /// Inspects whether a projection is an intermediate Roslyn Transparent Identifier (e.g. C# 'let' clause),
     /// which packages existing context and introduces new calculated columns via WithColumns.
-    static member private TryCompileTransparentLet (projLambda: LambdaExpression) : QueryOp option =
+    static member private TryCompileTransparentLet (lf: LazyFrameHandle) (projLambda: LambdaExpression) : QueryOp option =
         let param = projLambda.Parameters.[0]
+        let ctx = PolarsQueryProvider.createContextForType param.Type lf param.Name
+        
         match PolarsQuery<'T>.TryExtractMemberBindings projLambda.Body with
         | Some bindings ->
             let isNavigationBinding (_name: string, expr: Expression) =
@@ -1165,7 +1171,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 let translatedCols =
                     computedBindings
                     |> List.choose (fun (name, expr) ->
-                        ExprTranslator.tryTranslate param.Name expr
+                        ExprTranslator.tryTranslateWithContext ctx expr
                         |> Option.map (fun h -> PolarsWrapper.Alias(h, name))
                     )
 
@@ -1203,15 +1209,21 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
     /// Unified GroupBy compiler powering both single-key and multi-key GroupBy pipelines (C# LINQ & F# QueryBuilder)
     static member private CompileUnifiedGroupBy
+        (lf: LazyFrameHandle)
         (ctx: GroupFoldContext)
         (projBody: Expression)
         (groupParamName: string)
         (isKeyArg: Expression -> bool) : QueryOp list option =
 
         let keyParam = ctx.KeyLambda.Parameters.[0]
+        let keyCtx = PolarsQueryProvider.createContextForType keyParam.Type lf keyParam.Name
+        
         let elemExprOpt =
             ctx.ElemLambdaOpt
-            |> Option.bind (fun el -> ExprTranslator.tryTranslate el.Parameters.[0].Name el.Body)
+            |> Option.bind (fun el ->
+                let elParam = el.Parameters.[0]
+                let elCtx = PolarsQueryProvider.createContextForType elParam.Type lf elParam.Name
+                ExprTranslator.tryTranslateWithContext elCtx el.Body)
 
         let elemType = keyParam.Type
 
@@ -1227,7 +1239,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 None
 
         let translateKeyPart (e: Expression) : ExprHandle option =
-            match ExprTranslator.tryTranslate keyParam.Name e with
+            match ExprTranslator.tryTranslateWithContext keyCtx e with
             | Some h -> Some h
             | None ->
                 match e with
@@ -1304,6 +1316,19 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     List.zip memberNames args
                     |> List.filter (fun (_, argExpr) -> not (isKeyExpression argExpr))
 
+                // Resolve scalar column name for group elements if grouping over scalar elements or projected scalars
+                let scalarColOpt =
+                    match ctx.ElemLambdaOpt with
+                    | Some el ->
+                        match el.Body with
+                        | ExtractColumnName c -> Some c
+                        | _ -> None
+                    | None ->
+                        if PolarsTypeHelper.IsScalarType keyParam.Type || keyParam.Type = typeof<string> then
+                            let cols = PolarsSchemaExtractor.GetColumnNames lf
+                            if cols.Length = 1 then Some cols.[0] else None
+                        else None
+
                 let tryTranslateSingleAgg (colName: string) (rawArgExpr: Expression) : ExprHandle option =
                     let argExpr = ExprTranslator.unwrap rawArgExpr
                     
@@ -1337,19 +1362,21 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
                     | _ when (tryMatchNestedListAgg argExpr).IsSome ->
                         let selLambda = (tryMatchNestedListAgg argExpr).Value
+                        let selParam = selLambda.Parameters.[0]
+                        let selCtx = PolarsQueryProvider.createContextForType selParam.Type lf selParam.Name
                         let colExprOpt =
-                            match ExprTranslator.tryResolveColumnName selLambda.Parameters.[0].Name selLambda.Body with
+                            match ExprTranslator.tryResolveColumnNameWithContext selCtx selLambda.Body with
                             | Some cName -> Some (PolarsWrapper.Col cName)
-                            | None -> ExprTranslator.tryTranslate selLambda.Parameters.[0].Name selLambda.Body
+                            | None -> ExprTranslator.tryTranslateWithContext selCtx selLambda.Body
 
                         colExprOpt |> Option.map (fun cExpr -> PolarsWrapper.Alias(cExpr, colName))
 
                     | _ ->
                         match elemExprOpt with
-                        | Some elemExpr ->
-                            AggTranslator.tryTranslateAgg groupParamName wholeRowStructOpt argExpr colName
+                        | Some _ ->
+                            AggTranslator.tryTranslateAggWithScalarCol groupParamName scalarColOpt wholeRowStructOpt argExpr colName
                         | None ->
-                            AggTranslator.tryTranslateAgg groupParamName wholeRowStructOpt argExpr colName
+                            AggTranslator.tryTranslateAggWithScalarCol groupParamName scalarColOpt wholeRowStructOpt argExpr colName
 
                 let translatedAggOpts =
                     nonKeyArgs
@@ -1399,14 +1426,14 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                                         with _ -> None
                                     | _ -> None
                                 | Constant _ ->
-                                    ExprTranslator.tryTranslate "" expr
+                                    ExprTranslator.tryTranslateWithContext TranslationContext.Empty expr
                                 | other ->
                                     match resolveResultColName other with
                                     | Some colName -> Some (PolarsWrapper.Col colName)
                                     | None ->
                                         match ExprTranslator.unwrap other with
                                         | MethodCall _ as aggCall ->
-                                            AggTranslator.tryTranslateAgg havingPred.Parameters.[0].Name wholeRowStructOpt aggCall ""
+                                            AggTranslator.tryTranslateAggWithScalarCol havingPred.Parameters.[0].Name scalarColOpt wholeRowStructOpt aggCall ""
                                         | _ -> None
 
                             translateHaving havingPred.Body
@@ -1435,8 +1462,8 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
                     Some (finalSelectOp :: sortOps @ havingFilterOps @ [ groupByOp ])
 
-    static member private TryTranslateSelectArg (paramName: string) (argExpr: Expression) : ExprHandle option =
-        match ExprTranslator.tryTranslate paramName argExpr with
+    static member private TryTranslateSelectArg (ctx: TranslationContext) (argExpr: Expression) : ExprHandle option =
+        match ExprTranslator.tryTranslateWithContext ctx argExpr with
         | Some h -> Some h
         | None ->
             match argExpr with
@@ -1448,8 +1475,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                         match ExprTranslator.unwrap expr with
                         | null -> false
                         | :? ParameterExpression as p ->
-                            p.Name = paramName ||
-                            (paramName.Contains "|" && paramName.Split '|' |> Array.exists (fun n -> n = p.Name)) ||
+                            ctx.ContainsParam p.Name ||
                             p.Name.StartsWith "_arg" ||
                             p.Name.StartsWith "tupled" ||
                             p.Name.Contains "TransparentIdentifier" ||
@@ -1480,9 +1506,9 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 match colExprOpt, fallbackExprOpt with
                 | Some colExpr, Some fallbackExpr ->
                     let colHandleOpt =
-                        match ExprTranslator.tryResolveColumnName paramName colExpr with
+                        match ExprTranslator.tryResolveColumnNameWithContext ctx colExpr with
                         | Some c -> Some (PolarsWrapper.Col c)
-                        | None -> ExprTranslator.tryTranslate paramName colExpr
+                        | None -> ExprTranslator.tryTranslateWithContext ctx colExpr
 
                     // fallbackExpr is guaranteed to be free of runtime parameters, so tryEvaluate is completely safe
                     let litHandleOpt =
@@ -1504,14 +1530,15 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
             // Multi-level tuple or object member access (e.g. d.DeptName -> Col "DeptName")
             | MemberAccess _ as ma ->
-                ExprTranslator.tryResolveColumnName paramName ma
+                ExprTranslator.tryResolveColumnNameWithContext ctx ma
                 |> Option.map PolarsWrapper.Col
 
             | _ -> None
 
     /// Compiles a Select projection lambda into native Polars Select expressions
-    static member private CompileSelectProjection (projLambda: LambdaExpression) : ExprHandle array option =
+    static member private CompileSelectProjection (lf: LazyFrameHandle)(projLambda: LambdaExpression) : ExprHandle array option =
         let param = projLambda.Parameters.[0]
+        let ctx = PolarsQueryProvider.createContextForType param.Type lf param.Name
 
         // 1. Try unified composite projections (NewExpression & MemberInitExpression)
         match PolarsQuery<'T>.TryExtractMemberBindings projLambda.Body with
@@ -1519,7 +1546,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             let exprOpts =
                 bindings
                 |> List.choose (fun (name, argExpr) ->
-                    PolarsQuery<'T>.TryTranslateSelectArg param.Name argExpr
+                    PolarsQuery<'T>.TryTranslateSelectArg ctx argExpr
                     |> Option.map (fun h -> PolarsWrapper.Alias(h, name))
                 )
 
@@ -1535,39 +1562,45 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | ExtractColumnName colName ->
                 Some [| PolarsWrapper.Col colName |]
             | expr ->
-                ExprTranslator.tryTranslate param.Name expr
+                ExprTranslator.tryTranslateWithContext ctx expr
                 |> Option.map (fun h -> [| h |])
 
     /// Compiles a Join stage into a native JoinSpec (supporting both single-column and multi-column keys)
-    static member private CompileJoin (methodInfo: MethodInfo) (innerExpr: Expression) (outerKey: LambdaExpression) (innerKey: LambdaExpression) : JoinSpec option =
+    static member private CompileJoin (baseLf: LazyFrameHandle) (methodInfo: MethodInfo) (innerExpr: Expression) (outerKey: LambdaExpression) (innerKey: LambdaExpression) : JoinSpec option =
         let isRightJoin = methodInfo.Name = "RightJoin"
         let how = if isRightJoin || methodInfo.Name = "LeftJoin" then PlJoinType.Left else PlJoinType.Inner
 
-        let extractKeyExprs (keyLambda: LambdaExpression) : ExprHandle array option =
-            let paramName = keyLambda.Parameters.[0].Name
+        let extractKeyExprs (ctx: TranslationContext)(keyLambda: LambdaExpression) : ExprHandle array option =
             match PolarsQuery<'T>.TryExtractMemberBindings keyLambda.Body with
             // new { o.Col1, o.Col2 }
             | Some bindings ->
-                let exprs = bindings |> List.choose (fun (_, e) -> ExprTranslator.tryTranslate paramName e)
+                let exprs = bindings |> List.choose (fun (_, e) -> ExprTranslator.tryTranslateWithContext ctx e)
                 if exprs.Length = bindings.Length then Some (List.toArray exprs) else None
             // o => o.Col1
             | None ->
-                ExprTranslator.tryTranslate paramName keyLambda.Body
+                ExprTranslator.tryTranslateWithContext ctx keyLambda.Body
                 |> Option.map (fun h -> [| h |])
 
-        match PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr,
-              extractKeyExprs outerKey,
-              extractKeyExprs innerKey with
-        | Some rightLf, Some leftKeys, Some rightKeys when leftKeys.Length = rightKeys.Length ->
-            Some {
-                RightLf = rightLf
-                LeftOn = leftKeys
-                RightOn = rightKeys
-                How = how
-                Suffix = if isRightJoin then Some "_left" else Some "_right"
-                InvertSides = isRightJoin
-            }
-        | _ -> None
+        match PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr with
+        | Some rightLf ->
+            let outerParam = outerKey.Parameters.[0]
+            let innerParam = innerKey.Parameters.[0]
+            let leftCtx = PolarsQueryProvider.createContextForType outerParam.Type baseLf outerParam.Name
+            let rightCtx = PolarsQueryProvider.createContextForType innerParam.Type rightLf innerParam.Name
+
+            match extractKeyExprs leftCtx outerKey,
+                  extractKeyExprs rightCtx innerKey with
+            | Some leftKeys, Some rightKeys when leftKeys.Length = rightKeys.Length ->
+                Some {
+                    RightLf = rightLf
+                    LeftOn = leftKeys
+                    RightOn = rightKeys
+                    How = how
+                    Suffix = if isRightJoin then Some "_left" else Some "_right"
+                    InvertSides = isRightJoin
+                }
+            | _ -> None
+        | None -> None
 
     /// Compiles a two-parameter Join/LeftJoin result selector into a native Select projection operation
     static member private CompileJoinResultSelector (resLambda: LambdaExpression) : QueryOp option =
@@ -1575,14 +1608,14 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
         else
             let pLeft = resLambda.Parameters.[0]
             let pRight = resLambda.Parameters.[1]
-            let multiParamName = sprintf "%s|%s" pLeft.Name pRight.Name
+            let ctx = TranslationContext.BinaryJoin(pLeft.Name, pRight.Name)
 
             match PolarsQuery<'T>.TryExtractMemberBindings resLambda.Body with
             | Some bindings ->
                 let exprOpts =
                     bindings
                     |> List.choose (fun (name, argExpr) ->
-                        PolarsQuery<'T>.TryTranslateSelectArg multiParamName argExpr
+                        PolarsQuery<'T>.TryTranslateSelectArg ctx argExpr
                         |> Option.map (fun h -> PolarsWrapper.Alias(h, name))
                     )
 
@@ -1602,12 +1635,20 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             let keysOpt =
                 match firstKeyOpt, secondKeyOpt with
                 | Some k1, Some k2 ->
-                    match ExprTranslator.tryTranslate k1.Parameters.[0].Name k1.Body,
-                          ExprTranslator.tryTranslate k2.Parameters.[0].Name k2.Body with
+                    let p1 = k1.Parameters.[0]
+                    let p2 = k2.Parameters.[0]
+                    let ctx1 = PolarsQueryProvider.createContextForType p1.Type baseLf p1.Name
+                    let ctx2 = PolarsQueryProvider.createContextForType p2.Type rightLf p2.Name
+
+                    match ExprTranslator.tryTranslateWithContext ctx1 k1.Body,
+                          ExprTranslator.tryTranslateWithContext ctx2 k2.Body with
                     | Some lk, Some rk -> Some ([| lk |], [| rk |])
                     | _ -> None
                 | Some k1, None ->
-                    ExprTranslator.tryTranslate k1.Parameters.[0].Name k1.Body
+                    let p1 = k1.Parameters.[0]
+                    let ctx1 = PolarsQueryProvider.createContextForType p1.Type baseLf p1.Name
+
+                    ExprTranslator.tryTranslateWithContext ctx1 k1.Body
                     |> Option.bind (fun lk ->
                         let rightCols = PolarsQuery<'T>.GetLazyColumnNames rightLf
                         if rightCols.Length > 0 then Some ([| lk |], [| PolarsWrapper.Col rightCols.[0] |]) else None)
@@ -1979,7 +2020,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 if not clientPreds.IsEmpty then
                     [], [], None, true
                 else
-                    match PolarsQuery<'T>.CompileUnifiedGroupBy ctx projBody groupParamName isKeyArg with
+                    match PolarsQuery<'T>.CompileUnifiedGroupBy lfCloned ctx projBody groupParamName isKeyArg with
                     | Some compiledOps ->
                         fuse nextTail (compiledOps @ opsAcc) clientPreds clientProjOpt
                     | None ->
@@ -2052,7 +2093,8 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 dispatchCSharpGroupBy keyLambda (Some elemLambda) resLambda tail
 
             | LinqStage.Filter l :: tail ->
-                match ExprTranslator.tryTranslateWithScalarCol currentScalarCol l.Parameters.[0].Name l.Body with
+                let ctx = PolarsQueryProvider.createContextForType typeof<'T> lfCloned l.Parameters.[0].Name
+                match ExprTranslator.tryTranslateWithContext ctx l.Body with
                 | Some exprHandle when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                     fuse tail (QueryOp.Filter exprHandle :: opsAcc) clientPreds clientProjOpt
                 | _ ->
@@ -2088,12 +2130,12 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
                         // 3. Precise tuple member column resolution
                         | MemberAccess _ as ma ->
-                            match ExprTranslator.tryResolveColumnName l.Parameters.[0].Name ma with
+                            match ExprTranslator.tryResolveColumnNameWithContext ctx ma with
                             | Some colName -> Some (PolarsWrapper.Col colName)
                             | None -> None
 
                         | Constant _ ->
-                            ExprTranslator.tryTranslate l.Parameters.[0].Name e
+                            ExprTranslator.tryTranslateWithContext TranslationContext.Empty e
 
                         | _ -> None
 
@@ -2136,10 +2178,11 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 let param = l.Parameters.[0]
                 let isGrouping = param.Type.IsGenericType && param.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
                 if not isGrouping && clientPreds.IsEmpty && clientProjOpt.IsNone then
+                    let ctx = PolarsQueryProvider.createContextForType typeof<'T> lfCloned param.Name
                     let sortExprOpt =
-                        match ExprTranslator.tryTranslateWithScalarCol currentScalarCol param.Name l.Body with
+                        match ExprTranslator.tryTranslateWithContext ctx l.Body with
                         | Some h -> Some h
-                        | None -> PolarsQuery<'T>.TryTranslateSelectArg param.Name l.Body
+                        | None -> PolarsQuery<'T>.TryTranslateSelectArg ctx l.Body
 
                     match sortExprOpt with
                     | Some exprHandle ->
@@ -2151,7 +2194,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
             // Join / LeftJoin / RightJoin with resultSelector
             | LinqStage.Join(m, inner, outerKey, innerKey, resSel) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match PolarsQuery<'T>.CompileJoin m inner outerKey innerKey with
+                match PolarsQuery<'T>.CompileJoin lfCloned m inner outerKey innerKey with
                 | Some spec ->
                     // Inspect whether resultSelector is just a transparent identifier (e.g. (d, e) => new { d, e })
                     let isTransparent =
@@ -2179,20 +2222,27 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | LinqStage.GroupJoin(m, inner, outerKey, innerKey, _) :: LinqStage.Explode(collSelector, _) :: tail 
                 when collSelector.ToString().Contains "DefaultIfEmpty" && clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 
-                match PolarsQuery<'T>.ResolveToLazyFrameHandle inner,
-                      ExprTranslator.tryTranslate outerKey.Parameters.[0].Name outerKey.Body,
-                      ExprTranslator.tryTranslate innerKey.Parameters.[0].Name innerKey.Body with
-                | Some rightLf, Some leftKey, Some rightKey ->
-                    let joinSpec = {
-                        RightLf = rightLf
-                        LeftOn = [| leftKey |]
-                        RightOn = [| rightKey |]
-                        How = PlJoinType.Left
-                        Suffix = None
-                        InvertSides = false
-                    }
-                    fuse tail (QueryOp.Join joinSpec :: opsAcc) clientPreds clientProjOpt
-                | _ -> [], [], None, true
+                match PolarsQuery<'T>.ResolveToLazyFrameHandle inner with
+                | Some rightLf ->
+                    let outerParam = outerKey.Parameters.[0]
+                    let innerParam = innerKey.Parameters.[0]
+                    let leftCtx = PolarsQueryProvider.createContextForType outerParam.Type lfCloned outerParam.Name
+                    let rightCtx = PolarsQueryProvider.createContextForType innerParam.Type rightLf innerParam.Name
+
+                    match ExprTranslator.tryTranslateWithContext leftCtx outerKey.Body,
+                          ExprTranslator.tryTranslateWithContext rightCtx innerKey.Body with
+                    | Some leftKey, Some rightKey ->
+                        let joinSpec = {
+                            RightLf = rightLf
+                            LeftOn = [| leftKey |]
+                            RightOn = [| rightKey |]
+                            How = PlJoinType.Left
+                            Suffix = None
+                            InvertSides = false
+                        }
+                        fuse tail (QueryOp.Join joinSpec :: opsAcc) clientPreds clientProjOpt
+                    | _ -> [], [], None, true
+                | None -> [], [], None, true
 
             | LinqStage.SetOp(m, second, k1Opt, k2Opt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 match PolarsQuery<'T>.CompileSetOp m second k1Opt k2Opt lfCloned with
@@ -2325,7 +2375,8 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
             | LinqStage.TakeWhile l :: tail ->
                 let param = l.Parameters.[0]
-                match ExprTranslator.tryTranslateWithScalarCol currentScalarCol param.Name l.Body with
+                let ctx = PolarsQueryProvider.createContextForType typeof<'T> lfCloned param.Name
+                match ExprTranslator.tryTranslateWithContext ctx l.Body with
                 | Some boolExpr when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                     let cumMinExpr = PolarsWrapper.CumMin(boolExpr, false)
                     fuse tail (QueryOp.Filter cumMinExpr :: opsAcc) clientPreds clientProjOpt
@@ -2335,7 +2386,8 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
             | LinqStage.SkipWhile l :: tail ->
                 let param = l.Parameters.[0]
-                match ExprTranslator.tryTranslateWithScalarCol currentScalarCol param.Name l.Body with
+                let ctx = PolarsQueryProvider.createContextForType typeof<'T> lfCloned param.Name
+                match ExprTranslator.tryTranslateWithContext ctx l.Body with
                 | Some boolExpr when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                     let notExpr = PolarsWrapper.Not boolExpr
                     let cumMaxExpr = PolarsWrapper.CumMax(notExpr, false)
@@ -2345,54 +2397,59 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     fuse tail opsAcc (safePred :: clientPreds) clientProjOpt
 
             | LinqStage.GroupJoin(_, innerExpr, outerKey, innerKey, resSel) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                let resolvedRightLfOpt = PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr
-                let leftKeyOpt = ExprTranslator.tryTranslate outerKey.Parameters.[0].Name outerKey.Body
-                let rightKeyOpt = ExprTranslator.tryTranslate innerKey.Parameters.[0].Name innerKey.Body
+                match PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr with
+                | Some rightLf ->
+                    let outerParam = outerKey.Parameters.[0]
+                    let innerParam = innerKey.Parameters.[0]
+                    let leftCtx = PolarsQueryProvider.createContextForType outerParam.Type lfCloned outerParam.Name
+                    let rightCtx = PolarsQueryProvider.createContextForType innerParam.Type rightLf innerParam.Name
 
-                match resolvedRightLfOpt, leftKeyOpt, rightKeyOpt with
-                | Some rightLf, Some leftKey, Some rightKey ->
-                    let groupParam = resSel.Parameters.[1]
+                    match ExprTranslator.tryTranslateWithContext leftCtx outerKey.Body,
+                          ExprTranslator.tryTranslateWithContext rightCtx innerKey.Body with
+                    | Some leftKey, Some rightKey ->
+                        let groupParam = resSel.Parameters.[1]
 
-                    let preAggRightLf, aggColOpt =
-                        match PolarsQuery<'T>.TryExtractGroupAgg groupParam.Name resSel with
-                        | Some (aggColName, aggExpr) ->
-                            let clonedRight = PolarsWrapper.LazyClone rightLf
-                            let aggKeyClone = PolarsWrapper.CloneExpr rightKey
-                            let aggLf = PolarsWrapper.LazyGroupByAgg(clonedRight, [| aggKeyClone |], [| aggExpr |], null, false)
-                            aggLf, Some aggColName
-                        | None -> PolarsWrapper.LazyClone rightLf, None
+                        let preAggRightLf, aggColOpt =
+                            match PolarsQuery<'T>.TryExtractGroupAgg groupParam.Name resSel with
+                            | Some (aggColName, aggExpr) ->
+                                let clonedRight = PolarsWrapper.LazyClone rightLf
+                                let aggKeyClone = PolarsWrapper.CloneExpr rightKey
+                                let aggLf = PolarsWrapper.LazyGroupByAgg(clonedRight, [| aggKeyClone |], [| aggExpr |], null, false)
+                                aggLf, Some aggColName
+                            | None -> PolarsWrapper.LazyClone rightLf, None
 
-                    let leftKeyForJoin = PolarsWrapper.CloneExpr leftKey
-                    let rightKeyForJoin = PolarsWrapper.CloneExpr rightKey
-                    let joinSpec = {
-                        RightLf = preAggRightLf
-                        LeftOn = [| leftKeyForJoin |]
-                        RightOn = [| rightKeyForJoin |]
-                        How = PlJoinType.Left
-                        Suffix = Some "_right"
-                        InvertSides = false
-                    }
-                    let joinOp = QueryOp.Join joinSpec
+                        let leftKeyForJoin = PolarsWrapper.CloneExpr leftKey
+                        let rightKeyForJoin = PolarsWrapper.CloneExpr rightKey
+                        let joinSpec = {
+                            RightLf = preAggRightLf
+                            LeftOn = [| leftKeyForJoin |]
+                            RightOn = [| rightKeyForJoin |]
+                            How = PlJoinType.Left
+                            Suffix = Some "_right"
+                            InvertSides = false
+                        }
+                        let joinOp = QueryOp.Join joinSpec
 
-                    let renames = PolarsQuery<'T>.ExtractBinaryResultRenames resSel None
-                    let renameOps =
-                        if not renames.IsEmpty then
-                            [ QueryOp.Rename { ExistingNames = renames |> List.map fst |> List.toArray; NewNames = renames |> List.map snd |> List.toArray } ]
-                        else []
+                        let renames = PolarsQuery<'T>.ExtractBinaryResultRenames resSel None
+                        let renameOps =
+                            if not renames.IsEmpty then
+                                [ QueryOp.Rename { ExistingNames = renames |> List.map fst |> List.toArray; NewNames = renames |> List.map snd |> List.toArray } ]
+                            else []
 
-                    let fillOps =
-                        match aggColOpt with
-                        | Some aggCol ->
-                            let colExpr = PolarsWrapper.Col aggCol
-                            let zeroLit = PolarsWrapper.Lit 0u
-                            let filledExpr = PolarsWrapper.FillNull(colExpr, zeroLit)
-                            let aliased = PolarsWrapper.Alias(filledExpr, aggCol)
-                            [ QueryOp.WithColumns [| aliased |] ]
-                        | None -> []
+                        let fillOps =
+                            match aggColOpt with
+                            | Some aggCol ->
+                                let colExpr = PolarsWrapper.Col aggCol
+                                let zeroLit = PolarsWrapper.Lit 0u
+                                let filledExpr = PolarsWrapper.FillNull(colExpr, zeroLit)
+                                let aliased = PolarsWrapper.Alias(filledExpr, aggCol)
+                                [ QueryOp.WithColumns [| aliased |] ]
+                            | None -> []
 
-                    let nextOps = renameOps @ fillOps @ joinOp :: opsAcc
-                    fuse tail nextOps clientPreds clientProjOpt
-                | _ -> [], [], None, true
+                        let nextOps = renameOps @ fillOps @ joinOp :: opsAcc
+                        fuse tail nextOps clientPreds clientProjOpt
+                    | _ -> [], [], None, true
+                | None -> [], [], None, true
             
             | LinqStage.TakeLast count :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 let sliceOp = QueryOp.Slice(-int64 count, count)
@@ -2437,11 +2494,11 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
             // Universal Select Projection Pushdown vs. Client Func Fallback
             | LinqStage.Project projLambda :: tail ->
-                match PolarsQuery<'T>.TryCompileTransparentLet projLambda with
+                match PolarsQuery<'T>.TryCompileTransparentLet lfCloned projLambda with
                 | Some withColOp when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                     fuse tail (withColOp :: opsAcc) clientPreds None
                 | _ ->
-                    match PolarsQuery<'T>.CompileSelectProjection projLambda with
+                    match PolarsQuery<'T>.CompileSelectProjection lfCloned projLambda with
                     | Some exprs when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                         fuse tail (QueryOp.Select exprs :: opsAcc) clientPreds None
 
@@ -2490,7 +2547,8 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
             | LinqStage.CountBy keyLambda :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 let keyParam = keyLambda.Parameters.[0]
-                match ExprTranslator.tryTranslateWithScalarCol currentScalarCol keyParam.Name keyLambda.Body with
+                let ctx = PolarsQueryProvider.createContextForType typeof<'T> lfCloned keyParam.Name
+                match ExprTranslator.tryTranslateWithContext ctx keyLambda.Body with
                 | Some keyExpr ->
                     let keyAliased = PolarsWrapper.Alias(keyExpr, "Key")
                     let lenExpr = PolarsWrapper.Len()
