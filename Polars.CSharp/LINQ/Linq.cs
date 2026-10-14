@@ -877,6 +877,43 @@ public static class LinqExtensions
     public static IQueryable<T> AsPolarsQueryable<T>(this IDataReader reader, int batchSize=50000)
         => DataFrame.ReadDatabase(reader,batchSize).AsQueryable<T>();
 
+    /// <summary>
+    /// Returns the Polars native query execution plan, including warnings if parts of the query
+    /// fallback to managed client-side execution.
+    /// </summary>
+    /// <param name="source">The source queryable.</param>
+    /// <param name="optimized">Whether to display the Polars optimized logical plan or the raw plan.</param>
+    public static string Explain<T>(this IQueryable<T> source, bool optimized = true)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        if (source is IPolarsExplainable explainable)
+        {
+            return explainable.Explain(optimized);
+        }
+
+        return "[Polars.NET] Query source is not a native PolarsQueryable. In-memory execution only.";
+    }
+
+    /// <summary>
+    /// Inspects the query plan at the current pipeline stage and invokes an inspector action (e.g. logger),
+    /// returning the queryable to maintain fluent chaining.
+    /// </summary>
+    /// <param name="source">The source queryable.</param>
+    /// <param name="inspector">Action receiving the diagnostic plan string.</param>
+    /// <param name="optimized">Whether to display the optimized plan.</param>
+    public static IQueryable<T> InspectPlan<T>(
+        this IQueryable<T> source, 
+        Action<string> inspector, 
+        bool optimized = true)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(inspector);
+
+        inspector(source.Explain(optimized));
+        return source;
+    }
+
     // =========================================================================
     // Shift
     // =========================================================================

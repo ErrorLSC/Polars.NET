@@ -239,6 +239,7 @@ public partial class LinqTests
         var query = df.AsQueryable<Employee>()
                       .Where(e => CustomSalaryPredicate(e))
                       .Select(e => e.Name)
+                      .InspectPlan(Console.WriteLine)
                       .ToList();
 
         Assert.Equal(3, query.Count);
@@ -5863,5 +5864,112 @@ public partial class LinqTests
         Assert.Equal(2L, resultDf.Height);
         Assert.Equal(1, resultDf["SensorId"][0]);
         Assert.Equal(2, resultDf["SensorId"][1]);
+    }
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Exists_And_NotExists_WithExistingRecords()
+    {
+        var depts = new[]
+        {
+            new Department(25, "Engineering"),
+            new Department(40, "Sales"),
+            new Department(60, "Advisory") // No employees have Age = 60
+        };
+
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 80000), // Age 25, High Salary
+            new Employee("Bob", 40, 45000),   // Age 40, Normal Salary
+            new Employee("Charlie", 25, 50000) // Age 25, Normal Salary
+        };
+
+        using var dfDept = DataFrame.FromRows(depts);
+        using var dfEmp = DataFrame.FromRows(emps);
+
+        var deptQuery = dfDept.AsQueryable(depts);
+        var empQuery = dfEmp.AsQueryable(emps);
+
+        // =========================================================================
+        // 1. EXISTS + Inner Filter (Semi-Join)
+        // Find departments that have employees with Age == Id AND Salary > 60000.
+        // Only Alice (Age 25, Salary 80000) satisfies both. Dept 40 has Bob (Salary 45000 <= 60000).
+        // =========================================================================
+        var highSalaryDepts = deptQuery
+            .Where(d => empQuery.Any(e => e.Age == d.Id && e.Salary > 60000))
+            .ToList();
+
+        Assert.Single(highSalaryDepts);
+        Assert.Equal(25, highSalaryDepts[0].Id);
+        Assert.Equal("Engineering", highSalaryDepts[0].DeptName);
+
+        // =========================================================================
+        // 2. NOT EXISTS (Anti-Join)
+        // Find departments that have NO employees at all with Age == Id.
+        // Dept 25 matches Alice & Charlie; Dept 40 matches Bob; Dept 60 has no matches.
+        // =========================================================================
+        var emptyDepts = deptQuery
+            .Where(d => !empQuery.Any(e => e.Age == d.Id))
+            .ToList();
+
+        Assert.Single(emptyDepts);
+        Assert.Equal(60, emptyDepts[0].Id);
+        Assert.Equal("Advisory", emptyDepts[0].DeptName);
+
+        // =========================================================================
+        // 3. IN / Contains Subquery (Semi-Join)
+        // Find departments where Id IN (Employees with Salary <= 50000).
+        // Emp salary <= 50000 gives ages: [40 (Bob), 25 (Charlie)].
+        // =========================================================================
+        var normalSalaryDepts = deptQuery
+            .Where(d => empQuery.Where(e => e.Salary <= 50000).Select(e => e.Age).Contains(d.Id))
+            .OrderBy(d => d.Id)
+            .ToList();
+
+        Assert.Equal(2, normalSalaryDepts.Count);
+        Assert.Equal(25, normalSalaryDepts[0].Id);
+        Assert.Equal(40, normalSalaryDepts[1].Id);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_StringKey_SemiJoin()
+    {
+        // Test string column correlation: d.DeptName == e.Name
+        var depts = new[]
+        {
+            new Department(1, "Alice"),
+            new Department(2, "Bob"),
+            new Department(3, "Ghost") // No employee named "Ghost"
+        };
+
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 70000),
+            new Employee("Bob", 40, 50000)
+        };
+
+        using var dfDept = DataFrame.FromRows(depts);
+        using var dfEmp = DataFrame.FromRows(emps);
+
+        var deptQuery = dfDept.AsQueryable(depts);
+        var empQuery = dfEmp.AsQueryable(emps);
+
+        // EXISTS matching string column (d.DeptName == e.Name)
+        var matchedDepts = deptQuery
+            .Where(d => empQuery.Any(e => e.Name == d.DeptName))
+            .OrderBy(d => d.Id)
+            .ToList();
+
+        Assert.Equal(2, matchedDepts.Count);
+        Assert.Equal("Alice", matchedDepts[0].DeptName);
+        Assert.Equal("Bob", matchedDepts[1].DeptName);
+
+        // NOT EXISTS matching string column
+        var unmatchedDepts = deptQuery
+            .Where(d => !empQuery.Any(e => e.Name == d.DeptName))
+            .ToList();
+
+        Assert.Single(unmatchedDepts);
+        Assert.Equal("Ghost", unmatchedDepts[0].DeptName);
     }
 }
