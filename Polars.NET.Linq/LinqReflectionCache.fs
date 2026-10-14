@@ -19,30 +19,9 @@ type internal ExtremumState<'T> = { mutable HasValue: bool; mutable Value: 'T }
 [<AbstractClass; Sealed>]
 type internal LinqReflectionCache private () =
     // Static method definition pools
-    static let queryableMethods = typeof<Queryable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
     static let enumerableMethods = typeof<Enumerable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
-
-    // Pre-resolved Queryable definitions as static fields
-    static let whereMethodDef =
-        queryableMethods
-        |> Array.find (fun m -> 
-            m.Name = "Where" && 
-            m.GetParameters().Length = 2 && 
-            m.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<Expression<Func<_, _>>>)
-
-    static let countMethodDef = queryableMethods |> Array.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)
-    static let longCountMethodDef = queryableMethods |> Array.find (fun m -> m.Name = "LongCount" && m.GetParameters().Length = 1)
-    static let anyMethodDef = queryableMethods |> Array.find (fun m -> m.Name = "Any" && m.GetParameters().Length = 1)
-    static let singleMethodDef = queryableMethods |> Array.find (fun m -> m.Name = "Single" && m.GetParameters().Length = 1)
-    static let singleOrDefaultMethodDef = queryableMethods |> Array.find (fun m -> m.Name = "SingleOrDefault" && m.GetParameters().Length = 1)
-    static let firstMethodDef = queryableMethods |> Array.find (fun m -> m.Name = "First" && m.GetParameters().Length = 1)
-    static let firstOrDefaultMethodDef = queryableMethods |> Array.find (fun m -> m.Name = "FirstOrDefault" && m.GetParameters().Length = 1)
-    static let lastMethodDef = queryableMethods |> Array.find (fun m -> m.Name = "Last" && m.GetParameters().Length = 1)
-    static let lastOrDefaultMethodDef = queryableMethods |> Array.find (fun m -> m.Name = "LastOrDefault" && m.GetParameters().Length = 1)
-
     // Static thread-safe caches for constructed generic methods and compiled expression delegates
     static let materializerDelegateCache = ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, IEnumerable>>()
-    static let queryableGenericCache = ConcurrentDictionary<string * Type, MethodInfo>()
     static let enumerableGenericCache = ConcurrentDictionary<string * int * string, MethodInfo>()
     static let aggOverload1Cache = ConcurrentDictionary<Type, Func<IEnumerable, Delegate, obj>>()
     static let aggOverload2Cache = ConcurrentDictionary<Type * Type, Func<IEnumerable, obj, Delegate, obj>>()
@@ -58,14 +37,6 @@ type internal LinqReflectionCache private () =
     // Cache: elemType -> Func<IDataFrameMaterializer, DataFrameHandle, Delegate, bool> for All(predicate)
     static let matAllCache =
         ConcurrentDictionary<Type, Func<IDataFrameMaterializer, DataFrameHandle, Delegate, bool>>()
-
-    // Cache: (TIn, TOut) -> Func<Delegate, obj, obj> for fast typed projection invoke: (proj, entity) -> result
-    static let projectInvokerCache =
-        ConcurrentDictionary<Type * Type, Func<Delegate, obj, obj>>()
-
-    // Cache: (TMid) -> Func<Delegate, obj, bool> for fast typed predicate invoke: (pred, entity) -> bool
-    static let predicateInvokerCache =
-        ConcurrentDictionary<Type, Func<Delegate, obj, bool>>()
 
     // Cache: elemType -> Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj> for First(predicate)
     static let matFirstCache =
@@ -127,32 +98,6 @@ type internal LinqReflectionCache private () =
     // Cache: (sourceType, accumType) -> Func<IDataFrameMaterializer, DataFrameHandle, obj, Delegate, obj>
     static let matAggregateCache =
         ConcurrentDictionary<Type * Type, Func<IDataFrameMaterializer, DataFrameHandle, obj, Delegate, obj>>()
-
-    /// Cached MethodInfo for Queryable.Where definition
-    static member val QueryableWhereDef = whereMethodDef with get
-
-    static member GetQueryableWhere(elemType: Type) =
-        queryableGenericCache.GetOrAdd(("Where", elemType), fun _ -> whereMethodDef.MakeGenericMethod(elemType))
-
-    /// Resolves and caches 1-argument Queryable scalar methods (Count, Any, First, etc.)
-    static member GetQueryableScalar(methodName: string, elemType: Type) : MethodInfo =
-        queryableGenericCache.GetOrAdd((methodName, elemType), fun _ ->
-            let mDef =
-                match methodName with
-                | "Count" -> countMethodDef
-                | "LongCount" -> longCountMethodDef
-                | "Any" -> anyMethodDef
-                | "Single" -> singleMethodDef
-                | "SingleOrDefault" -> singleOrDefaultMethodDef
-                | "First" -> firstMethodDef
-                | "FirstOrDefault" -> firstOrDefaultMethodDef
-                | "Last" -> lastMethodDef
-                | "LastOrDefault" -> lastOrDefaultMethodDef
-                | other -> 
-                    queryableMethods 
-                    |> Array.find (fun m -> m.Name = other && m.GetParameters().Length = 1)
-            mDef.MakeGenericMethod(elemType)
-        )
 
     /// Resolves and caches Enumerable methods for in-memory fallbacks
     static member GetEnumerableMethod(name: string, paramCount: int, typeArgs: Type array) : MethodInfo =
@@ -439,41 +384,6 @@ type internal LinqReflectionCache private () =
                 boxResult, matParam, handleParam, predParam, defValParam
             ).Compile()
         )
-
-    /// Invokes a client projection delegate Func<TIn, TOut> with zero reflection overhead (strongly-typed invoke).
-    static member InvokeClientProjection(projDelegate: Delegate, entity: obj, inType: Type, outType: Type) : obj =
-        let invoker =
-            projectInvokerCache.GetOrAdd((inType, outType), fun (tIn, tOut) ->
-                let delParam = Expression.Parameter(typeof<Delegate>, "del")
-                let argParam = Expression.Parameter(typeof<obj>, "arg")
-
-                let funcType = typedefof<Func<_, _>>.MakeGenericType(tIn, tOut)
-                let castDel = Expression.Convert(delParam, funcType)
-                let castArg = Expression.Convert(argParam, tIn)
-
-                let callExpr = Expression.Invoke(castDel, castArg)
-                let boxResult = Expression.Convert(callExpr, typeof<obj>)
-
-                Expression.Lambda<Func<Delegate, obj, obj>>(boxResult, delParam, argParam).Compile()
-            )
-        invoker.Invoke(projDelegate, entity)
-
-    /// Invokes a client predicate delegate Func<T, bool> with zero reflection overhead.
-    static member InvokeClientPredicate(predDelegate: Delegate, entity: obj, argType: Type) : bool =
-        let invoker =
-            predicateInvokerCache.GetOrAdd(argType, fun t ->
-                let delParam = Expression.Parameter(typeof<Delegate>, "del")
-                let argParam = Expression.Parameter(typeof<obj>, "arg")
-
-                let funcType = typedefof<Func<_, _>>.MakeGenericType(t, typeof<bool>)
-                let castDel = Expression.Convert(delParam, funcType)
-                let castArg = Expression.Convert(argParam, t)
-
-                let callExpr = Expression.Invoke(castDel, castArg)
-
-                Expression.Lambda<Func<Delegate, obj, bool>>(callExpr, delParam, argParam).Compile()
-            )
-        invoker.Invoke(predDelegate, entity)
     /// Resolves a compiled invoker for IDataFrameMaterializer.Last<TSource>(handle, predicate)
     static member GetMaterializerLastInvoker(elemType: Type) : Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj> =
         matLastCache.GetOrAdd(elemType, fun t ->
@@ -883,7 +793,6 @@ type internal LinqReflectionCache private () =
         let accParam = Expression.Parameter(accumType, "acc")
         let srcParam = Expression.Parameter(sourceType, "src")
 
-        // 提取数值项
         let valExpr =
             match selectorOpt with
             | Some sel ->
@@ -899,7 +808,7 @@ type internal LinqReflectionCache private () =
             let folder = Expression.Lambda(lambdaType, body, accParam, srcParam).Compile()
             let seed = Activator.CreateInstance(accumType)
             let finisher = fun (acc: obj) (_: int64) -> acc
-            (seed, folder, finisher)
+            seed, folder, finisher
 
         | "Average" ->
             // accumType 使用 double
@@ -910,7 +819,7 @@ type internal LinqReflectionCache private () =
             let finisher = fun (acc: obj) (count: int64) ->
                 if count = 0L then invalidOp "Sequence contains no elements."
                 box ((acc :?> double) / float count)
-            (seed, folder, finisher)
+            seed, folder, finisher
 
         | "Min" ->
             let cond = Expression.Condition(
@@ -927,7 +836,7 @@ type internal LinqReflectionCache private () =
                     let isNullable = not accumType.IsValueType || (Nullable.GetUnderlyingType(accumType) <> null)
                     if isNullable then null else invalidOp "Sequence contains no elements."
                 else acc
-            (seed, folder, finisher)
+            seed, folder, finisher
 
         | "Max" ->
             let cond = Expression.Condition(
@@ -944,7 +853,7 @@ type internal LinqReflectionCache private () =
                     let isNullable = not accumType.IsValueType || (Nullable.GetUnderlyingType(accumType) <> null)
                     if isNullable then null else invalidOp "Sequence contains no elements."
                 else acc
-            (seed, folder, finisher)
+            seed, folder, finisher
 
         | _ -> failwithf "Unsupported aggregation operator: %s" opName
 

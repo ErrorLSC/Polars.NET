@@ -5,12 +5,10 @@ open System.Reflection
 open System.Text.RegularExpressions
 open System.Collections
 open System
-
+open System.Linq
+open Polars.NET.Core.Helpers
 [<AutoOpen>]
 module internal ExpressionPatterns =
-    open System.Linq
-    open Polars.NET.Core.Helpers
-
     /// Represents extracted components of a Regex method invocation (Static or Instance/SG)
     type internal RegexInvocation =
         | IsMatch of target: Expression * pattern: string * instanceOpt: Regex option
