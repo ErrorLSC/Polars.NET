@@ -365,6 +365,71 @@ module internal rec ExprTranslator =
     let private translateStringMethod (ctx: TranslationContext) (m: MethodInfo) (target: Expression) (args: Expression list) : ExprHandle option =
         let targetH () = tryTranslateWithContext ctx target
         match m.Name, args with
+        // --- 1. String.Concat (Static string.Concat / flattened arguments) ---
+        | "Concat", _ when isNull target ->
+            let flatArgs =
+                match args with
+                | [ :? NewArrayExpression as nae ] when nae.NodeType = ExpressionType.NewArrayInit ->
+                    nae.Expressions |> Seq.toList
+                | other -> other
+
+            if flatArgs.IsEmpty then
+                Some (PolarsWrapper.Lit "")
+            else
+                let argHandles = flatArgs |> List.choose (tryTranslateWithContext ctx)
+                if argHandles.Length = flatArgs.Length then
+                    let rustFmt = String.replicate argHandles.Length "{}"
+                    Some (PolarsWrapper.FormatString(rustFmt, List.toArray argHandles))
+                else
+                    None
+
+        // --- 2. String.Format & Interpolated Strings ($"{a} - {b}") ---
+        | "Format", _ when isNull target ->
+            let formatExprOpt, rawItems =
+                match args with
+                | providerExpr :: formatExpr :: rest when typeof<IFormatProvider>.IsAssignableFrom(providerExpr.Type) ->
+                    let items =
+                        match rest with
+                        | [ :? NewArrayExpression as nae ] when nae.NodeType = ExpressionType.NewArrayInit ->
+                            nae.Expressions |> Seq.toList
+                        | other -> other
+                    Some formatExpr, items
+                | formatExpr :: rest ->
+                    let items =
+                        match rest with
+                        | [ :? NewArrayExpression as nae ] when nae.NodeType = ExpressionType.NewArrayInit ->
+                            nae.Expressions |> Seq.toList
+                        | other -> other
+                    Some formatExpr, items
+                | [] -> None, []
+
+            match formatExprOpt with
+            | Some formatExpr ->
+                match tryEvaluate formatExpr with
+                | Some (:? string as netFormat) ->
+                    // Matches standard .NET placeholders like {0}, {1}, {0:F2}, etc.
+                    let matches = Regex.Matches(netFormat, @"\{(\d+)(?::[^}]+)?\}")
+                    let referencedIndices =
+                        matches
+                        |> Seq.map (fun m -> Int32.Parse(m.Groups.[1].Value))
+                        |> Seq.toList
+
+                    if referencedIndices.IsEmpty then
+                        Some (PolarsWrapper.Lit netFormat)
+                    elif referencedIndices |> List.forall (fun idx -> idx >= 0 && idx < rawItems.Length) then
+                        let orderedExprs = referencedIndices |> List.map (fun idx -> rawItems.[idx])
+                        let argHandles = orderedExprs |> List.choose (tryTranslateWithContext ctx)
+                        if argHandles.Length = orderedExprs.Length then
+                            // Convert {0}, {1:F2} to Polars/Rust {} positional placeholders
+                            let rustFmt = Regex.Replace(netFormat, @"\{(\d+)(?::[^}]+)?\}", "{}")
+                            Some (PolarsWrapper.FormatString(rustFmt, List.toArray argHandles))
+                        else
+                            None
+                    else
+                        None
+                | _ -> None
+            | None -> None
+
         | "IsNullOrEmpty", [ arg ] when isNull target ->
             tryTranslateWithContext ctx arg
             |> Option.map (fun exprH ->
@@ -1321,6 +1386,12 @@ module internal rec ExprTranslator =
                     let n = Convert.ToInt32 nVal
                     Some (PolarsWrapper.BitRightShift(leftH, n))
                 with _ -> None
+            | _ -> None
+        // Intercept String concatenation (+) to synthesize native FormatString
+        elif op = ExpressionType.Add && (left.Type = typeof<string> || right.Type = typeof<string>) then
+            match tryTranslateWithContext ctx left, tryTranslateWithContext ctx right with
+            | Some l, Some r ->
+                Some (PolarsWrapper.FormatString("{}{}", [| l; r |]))
             | _ -> None
         else
             match tryTranslateWithContext ctx left, tryTranslateWithContext ctx right with

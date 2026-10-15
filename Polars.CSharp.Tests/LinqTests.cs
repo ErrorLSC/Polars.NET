@@ -3534,6 +3534,52 @@ public partial class LinqTests
         Assert.Equal("CHARLIE", result[2].UpperName);
         Assert.Equal("CHA", result[2].SubName);
     }
+    [Fact]
+    [Trait("LINQ", "String_Interpolation")]
+    public void Test_Linq_String_Concat_And_Interpolation_Pushdown()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000)
+        };
+
+        using var df = DataFrame.FromRows(emps);
+        var query = df.AsQueryable(emps);
+
+        // 1. String Concatenation (+) in Projection
+        var concatPlus = query
+            .Select(e => e.Name + " is " + e.Age + " years old")
+            .ToList();
+        Assert.Equal("Alice is 25 years old", concatPlus[0]);
+        Assert.Equal("Bob is 30 years old", concatPlus[1]);
+
+        // 2. string.Concat in Projection
+        var concatMethod = query
+            .Select(e => string.Concat(e.Name, "-", e.Age))
+            .ToList();
+        Assert.Equal("Alice-25", concatMethod[0]);
+        Assert.Equal("Bob-30", concatMethod[1]);
+
+        // 3. String Interpolation ($"{...}") in Projection
+        var interpolated = query
+            .Select(e => $"{e.Name}: ${e.Salary}")
+            .ToList();
+        Assert.Equal("Alice: $50000", interpolated[0]);
+        Assert.Equal("Bob: $60000", interpolated[1]);
+
+        // 4. String Interpolation in Where Filter
+        var filtered = query
+            .Where(e => $"{e.Name}_{e.Age}" == "Alice_25")
+            .ToList();
+        Assert.Single(filtered);
+        Assert.Equal("Alice", filtered[0].Name);
+
+        // 5. Verify 100% Native Pushdown using Explain()
+        var plan = query.Select(e => $"{e.Name}-{e.Age}").Explain();
+        Assert.Contains("100% Native Pushdown", plan);
+        Assert.Contains("str.format", plan.ToLowerInvariant());
+    }
     // Complex lookahead regex: Rust engine does NOT support this -> routes to MapStringPredicate UDF
     [GeneratedRegex(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$")]
     private static partial Regex StrongPasswordRegex();
