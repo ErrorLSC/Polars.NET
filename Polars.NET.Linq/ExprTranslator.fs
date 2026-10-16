@@ -29,6 +29,10 @@ type internal TranslationContext =
     /// Target columns resolve to "Col", source columns resolve to "Col" + sourceSuffix.
     | Merge of targetParam: string * sourceParam: string * sourceSuffix: string
 
+    /// Binary Tuple Join context for .NET 11 tuple joins returning (TOuter Outer, TInner Inner).
+    /// Resolves pair.Outer (Item1) and pair.Inner (Item2) against physical columns in the joined LazyFrame.
+    | TupleJoin of pairParam: string * leftCols: Set<string> * rightSuffix: string
+
     /// Determines whether the given parameter name matches any parameter active in the current scope.
     member this.ContainsParam(name: string) : bool =
         match this with
@@ -37,6 +41,7 @@ type internal TranslationContext =
         | TranslationContext.Scalar (p, _) -> p = name
         | TranslationContext.BinaryJoin (left, right) -> name = left || name = right
         | TranslationContext.Merge (target, source, _) -> name = target || name = source
+        | TranslationContext.TupleJoin (pairParam, _, _) -> name = pairParam
 
     /// Attempts to resolve the parameter expression node itself to a native Polars ExprHandle.
     member this.TryResolveParameterHandle(name: string) : ExprHandle option =
@@ -193,8 +198,23 @@ module internal rec ExprTranslator =
     // 2. Column & Parameter Identifiers
     // =========================================================================
 
+    // Helper detecting Nullable<T>.Value property access
+    let private isNullableValue (m: MemberInfo) =
+        m.Name = "Value" &&
+        not (isNull m.DeclaringType) &&
+        m.DeclaringType.IsGenericType &&
+        m.DeclaringType.GetGenericTypeDefinition() = typedefof<Nullable<_>>
+
+    let private isNullableHasValue (m: MemberInfo) =
+        m.Name = "HasValue" &&
+        not (isNull m.DeclaringType) &&
+        m.DeclaringType.IsGenericType &&
+        m.DeclaringType.GetGenericTypeDefinition() = typedefof<Nullable<_>>
+
     let internal isNavigationMember (m: MemberInfo) =
         if isNull m || isNull m.DeclaringType then false
+        // Transparent navigation unwrap for Nullable<T>.Value
+        elif isNullableValue m then true
         else
             let typeName = m.DeclaringType.Name
             let memberName = m.Name
@@ -216,8 +236,15 @@ module internal rec ExprTranslator =
         if not ctx.AllowsColumnMemberLookup then
             None
         else
+            // Helper detecting Nullable<T>.Value property access
+            let isNullableValueProperty (m: MemberInfo) =
+                m.Name = "Value" && 
+                not (isNull m.DeclaringType) && 
+                m.DeclaringType.IsGenericType && 
+                m.DeclaringType.GetGenericTypeDefinition() = typedefof<Nullable<_>>
+
             match expr with
-            | MemberAccess(_, m) when isNavigationMember m ->
+            | MemberAccess(_, m) when isNavigationMember m || isNullableHasValue m ->
                 None
 
             | MemberAccess(inner, m) ->
@@ -229,7 +256,8 @@ module internal rec ExprTranslator =
                         else
                             match unwrap e with
                             | :? ParameterExpression as p -> p.Name = targetName
-                            | MemberAccess(nextInner, nextM) when isNavigationMember nextM -> isRootedIn targetName nextInner
+                            | MemberAccess(nextInner, nextM) when isNavigationMember nextM || isNullableValueProperty nextM ->
+                                isRootedIn targetName nextInner
                             | _ -> false
 
                     match ctx with
@@ -237,6 +265,36 @@ module internal rec ExprTranslator =
                         if isRootedIn target inner then Some m.Name
                         elif isRootedIn source inner then Some (m.Name + suffix)
                         else None
+
+                    | TranslationContext.TupleJoin (pairParam, leftCols, rightSuffix) ->
+                        // Transparently unwrap .Value on tuple components: pair.Outer.Value.DeptName
+                        let rec isTupleAccess (e: Expression) : bool option =
+                            match unwrap e with
+                            | :? MemberExpression as me ->
+                                match unwrap me.Expression with
+                                | :? ParameterExpression as p when p.Name = pairParam ->
+                                    let mName = me.Member.Name
+                                    if mName = "Item1" || mName = "Outer" then Some true
+                                    elif mName = "Item2" || mName = "Inner" then Some false
+                                    else None
+                                | other -> isTupleAccess other
+                            | _ -> None
+
+                        match isTupleAccess inner with
+                        | Some true -> 
+                            Some m.Name
+
+                        | Some false -> 
+                            if leftCols.Contains m.Name then
+                                Some (m.Name + rightSuffix)
+                            else
+                                Some m.Name
+
+                        | None ->
+                            if leftCols.Contains m.Name then
+                                Some m.Name
+                            else
+                                Some (m.Name + rightSuffix)
 
                     | _ ->
                         let rec isRootedInParamOrClosure (e: Expression) =
@@ -251,7 +309,8 @@ module internal rec ExprTranslator =
                                 p.Type.Name.Contains "AnonymousType" ||
                                 p.Type.Name.StartsWith "Tuple" ||
                                 p.Type.Name.StartsWith "ValueTuple"
-                            | MemberAccess(nextInner, nextM) when isNavigationMember nextM ->
+                            // Allow transparent navigation through Nullable<T>.Value
+                            | MemberAccess(nextInner, nextM) when isNavigationMember nextM || isNullableValueProperty nextM ->
                                 isRootedInParamOrClosure nextInner
                             | _ -> false
 
@@ -331,6 +390,34 @@ module internal rec ExprTranslator =
                 | "Microseconds"      -> t () |> Option.map PolarsWrapper.DtMicrosecond
                 | "Nanoseconds"       -> t () |> Option.map PolarsWrapper.DtNanosecond
                 | _                   -> None
+
+            // Translate Nullable<T>.HasValue directly to Polars is_not_null()
+            | MemberAccess(target, m) when not (isNull target) &&
+                target.Type.IsGenericType && target.Type.GetGenericTypeDefinition() = typedefof<Nullable<_>> &&
+                m.Name = "HasValue" ->
+                match tryTranslateWithContext ctx target with
+                | Some colH -> Some (PolarsWrapper.IsNotNull colH)
+                | None ->
+                    match ctx with
+                    | TranslationContext.TupleJoin (pairParam, leftCols, rightSuffix) ->
+                        let rec isTupleAccess (e: Expression) : bool option =
+                            match unwrap e with
+                            | :? MemberExpression as me ->
+                                match unwrap me.Expression with
+                                | :? ParameterExpression as p when p.Name = pairParam ->
+                                    let mName = me.Member.Name
+                                    if mName = "Item1" || mName = "Outer" then Some true
+                                    elif mName = "Item2" || mName = "Inner" then Some false
+                                    else None
+                                | other -> isTupleAccess other
+                            | _ -> None
+
+                        match isTupleAccess target with
+                        | Some true ->
+                            // Left side of join: picking any valid left column detects whether Outer row exists
+                            leftCols |> Seq.tryHead |> Option.map (fun c -> PolarsWrapper.IsNotNull(PolarsWrapper.Col c))
+                        | _ -> None
+                    | _ -> None
 
             | _ ->
                 tryEvaluate memberExpr
@@ -1425,8 +1512,10 @@ module internal rec ExprTranslator =
             | ListInvocation listInv ->
                 translateListInvocation ctx listInv
 
-            // 2. Struct field pushdown
-            | StructFieldAccess(parentExpr, fieldName) ->
+            // 2. Struct field pushdown (only when expression does NOT resolve to a top-level column or Nullable<T>.HasValue)
+            | StructFieldAccess(parentExpr, fieldName)
+                when (tryResolveColumnNameWithContext ctx expr).IsNone &&
+                     (match expr with MemberAccess(_, m) -> not (isNullableHasValue m) | _ -> true) ->
                 tryTranslateWithContext ctx parentExpr
                 |> Option.map (fun parentHandle -> PolarsWrapper.StructFieldByName(parentHandle, [| fieldName |]))
 

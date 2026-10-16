@@ -39,14 +39,28 @@ internal static class RowMapper<T>
 
         var getValueMethodDef = typeof(Series).GetMethod(nameof(Series.GetValue), [typeof(long), typeof(bool)])!;
         var columnIndexerMethod = typeof(DataFrame).GetMethod("get_Item", [typeof(int)])!;
+        var isNullMethod = typeof(Series).GetMethod("IsNull", [typeof(long)]) 
+                           ?? typeof(Series).GetMethod("is_null", [typeof(long)]);
+
+        // Checks whether a physical column value is null at the specified row index
+        Expression CreateIsNullExpr(int colIdx)
+        {
+            var colExpr = Expression.Call(dfParam, columnIndexerMethod, Expression.Constant(colIdx));
+            if (isNullMethod != null)
+            {
+                return Expression.Call(colExpr, isNullMethod, idxParam);
+            }
+
+            var getObjMethod = getValueMethodDef.MakeGenericMethod(typeof(object));
+            var readObjExpr = Expression.Call(colExpr, getObjMethod, idxParam, Expression.Constant(true, typeof(bool)));
+            return Expression.Equal(readObjExpr, Expression.Constant(null, typeof(object)));
+        }
 
         Expression CreateReadExpr(int colIdx, Type returnType)
         {
             var colExpr = Expression.Call(dfParam, columnIndexerMethod, Expression.Constant(colIdx));
 
-            // Handle Enum and Nullable<Enum> types:
-            // Series.GetValue<T> operates on primitive storage types (e.g. int, byte).
-            // Read using the underlying numeric type and emit an unbox/cast Expression.Convert to the target enum.
+            // Handle Enum and Nullable<Enum> types
             var nonNullType = Nullable.GetUnderlyingType(returnType);
             if (returnType.IsEnum)
             {
@@ -67,6 +81,7 @@ internal static class RowMapper<T>
             var standardGetValueMethod = getValueMethodDef.MakeGenericMethod(returnType);
             return Expression.Call(colExpr, standardGetValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
         }
+
         // Branch 0: Target is a primitive / scalar (e.g. IQueryable<int>, IQueryable<string>)
         if (PolarsTypeHelper.IsScalarType(targetType))
         {
@@ -80,11 +95,16 @@ internal static class RowMapper<T>
             colMap[df.ColumnNames[i]] = i;
         }
 
-        // Resolves column index by considering scope suffixes (_second, _right, _third) for zipped entities
+        // Resolves column index by considering scope suffixes (_left, _right, _second, _third) across joins
         bool TryFindCol(string propName, int tupleIndex, out int resolvedColIdx)
         {
             var candidates = new List<string>();
-            if (tupleIndex == 1)
+            if (tupleIndex == 0)
+            {
+                candidates.Add($"{propName}_left");
+                candidates.Add($"{propName}_first");
+            }
+            else if (tupleIndex == 1)
             {
                 candidates.Add($"{propName}_second");
                 candidates.Add($"{propName}_right");
@@ -107,20 +127,23 @@ internal static class RowMapper<T>
             return false;
         }
 
-        Expression BuildSingleObjectExpr(Type type, int tupleIndex)
+        Expression BuildSingleObjectExpr(Type targetType, int tupleIndex)
         {
+            // Unpack Nullable<TStruct> if target is a nullable value type
+            var underlyingType = Nullable.GetUnderlyingType(targetType);
+            bool isNullable = underlyingType != null || !targetType.IsValueType;
+            var type = underlyingType ?? targetType;
 
+            var usedColIndices = new List<int>();
             var ctors = type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            foreach (var c in ctors)
-            {
-                var pList = string.Join(", ", c.GetParameters().Select(p => $"{p.ParameterType.Name} {p.Name}"));
-            }
 
             // Exclude copy constructor: e.g. T(T original)
             var primaryCtor = ctors
                 .Where(c => !(c.GetParameters().Length == 1 && c.GetParameters()[0].ParameterType == type))
                 .OrderByDescending(c => c.GetParameters().Length)
                 .FirstOrDefault();
+
+            Expression instanceExpr;
 
             if (primaryCtor != null && primaryCtor.GetParameters().Length > 0)
             {
@@ -133,6 +156,7 @@ internal static class RowMapper<T>
 
                     if (TryFindCol(cleanParamName, tupleIndex, out int colIdx))
                     {
+                        usedColIndices.Add(colIdx);
                         ctorArgs[i] = CreateReadExpr(colIdx, param.ParameterType);
                     }
                     else
@@ -143,6 +167,7 @@ internal static class RowMapper<T>
 
                         if (matchingProp != null && TryFindCol(matchingProp.Name, tupleIndex, out int propColIdx))
                         {
+                            usedColIndices.Add(propColIdx);
                             ctorArgs[i] = CreateReadExpr(propColIdx, param.ParameterType);
                         }
                         else
@@ -151,69 +176,99 @@ internal static class RowMapper<T>
                         }
                     }
                 }
-                return Expression.New(primaryCtor, ctorArgs);
+                instanceExpr = Expression.New(primaryCtor, ctorArgs);
             }
-
-            // Fallback: Default constructor + property/field bindings
-            var defaultCtor = type.GetConstructor(
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-                null,
-                Type.EmptyTypes,
-                null);
-
-            var instanceVar = Expression.Variable(type, "subInstance");
-            Expression createInstanceExpr = defaultCtor != null
-                ? Expression.New(defaultCtor)
-                : Expression.New(type);
-
-            var blockExpressions = new List<Expression> { Expression.Assign(instanceVar, createInstanceExpr) };
-
-            // 1. Bind Properties (Standard and init-only)
-            var props = type.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            foreach (var prop in props)
+            else
             {
-                if (prop.Name == "EqualityContract") continue;
+                // Fallback: Default constructor + property/field bindings
+                var defaultCtor = type.GetConstructor(
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                    null,
+                    Type.EmptyTypes,
+                    null);
 
-                if (TryFindCol(prop.Name, tupleIndex, out int colIdx))
+                var instanceVar = Expression.Variable(type, "subInstance");
+                Expression createInstanceExpr = defaultCtor != null
+                    ? Expression.New(defaultCtor)
+                    : Expression.New(type);
+
+                var blockExpressions = new List<Expression> { Expression.Assign(instanceVar, createInstanceExpr) };
+
+                // 1. Bind Properties (Standard and init-only)
+                var props = type.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                foreach (var prop in props)
                 {
-                    var readExpr = CreateReadExpr(colIdx, prop.PropertyType);
+                    if (prop.Name == "EqualityContract") continue;
 
-                    if (prop.SetMethod != null)
+                    if (TryFindCol(prop.Name, tupleIndex, out int colIdx))
                     {
-                        blockExpressions.Add(Expression.Call(instanceVar, prop.SetMethod, readExpr));
-                    }
-                    else
-                    {
-                        var backingField = type.GetField($"<{prop.Name}>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
-                        if (backingField != null)
+                        usedColIndices.Add(colIdx);
+                        var readExpr = CreateReadExpr(colIdx, prop.PropertyType);
+
+                        if (prop.SetMethod != null)
                         {
-                            blockExpressions.Add(Expression.Assign(Expression.Field(instanceVar, backingField), readExpr));
+                            blockExpressions.Add(Expression.Call(instanceVar, prop.SetMethod, readExpr));
+                        }
+                        else
+                        {
+                            var backingField = type.GetField($"<{prop.Name}>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+                            if (backingField != null)
+                            {
+                                blockExpressions.Add(Expression.Assign(Expression.Field(instanceVar, backingField), readExpr));
+                            }
                         }
                     }
                 }
-            }
 
-            // 2. Bind Public Instance Fields (Supports public fields in records/classes/structs)
-            var fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance);
-            foreach (var field in fields)
-            {
-                if (TryFindCol(field.Name, tupleIndex, out int colIdx))
+                // 2. Bind Public Instance Fields (Supports public fields in records/classes/structs)
+                var fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance);
+                foreach (var field in fields)
                 {
-                    var readExpr = CreateReadExpr(colIdx, field.FieldType);
-                    blockExpressions.Add(Expression.Assign(Expression.Field(instanceVar, field), readExpr));
+                    if (TryFindCol(field.Name, tupleIndex, out int colIdx))
+                    {
+                        usedColIndices.Add(colIdx);
+                        var readExpr = CreateReadExpr(colIdx, field.FieldType);
+                        blockExpressions.Add(Expression.Assign(Expression.Field(instanceVar, field), readExpr));
+                    }
                 }
+
+                blockExpressions.Add(instanceVar);
+                instanceExpr = Expression.Block([instanceVar], blockExpressions);
             }
 
-            blockExpressions.Add(instanceVar);
-            return Expression.Block([instanceVar], blockExpressions);
+            // Outer Join Null folding: If target is nullable and all mapped columns are null in current row, fold to null
+            if (isNullable && usedColIndices.Count > 0)
+            {
+                var distinctCols = usedColIndices.Distinct().ToList();
+                var allNullExpr = distinctCols
+                    .Select(CreateIsNullExpr)
+                    .Aggregate(Expression.AndAlso);
+
+                var nullConst = Expression.Constant(null, targetType);
+                var valueExpr = underlyingType != null
+                    ? Expression.Convert(instanceExpr, targetType)
+                    : instanceExpr;
+
+                return Expression.Condition(allNullExpr, nullConst, valueExpr);
+            }
+
+            if (underlyingType != null)
+            {
+                return Expression.Convert(instanceExpr, targetType);
+            }
+
+            return instanceExpr;
         }
 
-        // Branch 1: ValueTuple composite mapping (e.g. ValueTuple<int, Employee>, ValueTuple<Person, Department>)
-        if (targetType.IsValueType && targetType.FullName != null && targetType.FullName.StartsWith("System.ValueTuple`"))
+        // Branch 1: Tuple composite mapping (Supports both System.ValueTuple and System.Tuple)
+        bool isTuple = targetType.FullName != null &&
+            (targetType.FullName.StartsWith("System.ValueTuple`") || targetType.FullName.StartsWith("System.Tuple`"));
+
+        if (isTuple)
         {
             var genericArgs = targetType.GetGenericArguments();
             var tupleCtor = targetType.GetConstructor(genericArgs)
-                ?? throw new NotSupportedException($"ValueTuple constructor matching arguments could not be resolved for '{targetType.FullName}'.");
+                ?? throw new NotSupportedException($"Tuple constructor matching arguments could not be resolved for '{targetType.FullName}'.");
 
             var tupleArgs = new Expression[genericArgs.Length];
             for (int i = 0; i < genericArgs.Length; i++)
@@ -223,8 +278,8 @@ internal static class RowMapper<T>
                 if (PolarsTypeHelper.IsScalarType(subType))
                 {
                     var candidateNames = new List<string> { $"Item{i + 1}" };
-                    if (i == 0) { candidateNames.Add("Index"); candidateNames.Add("First"); }
-                    else if (i == 1) { candidateNames.Add("Item"); candidateNames.Add("Second"); }
+                    if (i == 0) { candidateNames.Add("Outer"); candidateNames.Add("Index"); candidateNames.Add("First"); }
+                    else if (i == 1) { candidateNames.Add("Inner"); candidateNames.Add("Item"); candidateNames.Add("Second"); }
                     else if (i == 2) { candidateNames.Add("Third"); }
 
                     int colIdx = -1;

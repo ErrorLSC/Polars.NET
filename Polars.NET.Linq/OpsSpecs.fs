@@ -33,6 +33,7 @@ type internal JoinSpec = {
     How: PlJoinType
     Suffix: string option
     InvertSides: bool
+    Coalesce: PlJoinCoalesce
 }
 
 /// Specification for native GroupBy aggregation pushdown
@@ -102,7 +103,7 @@ type internal LinqStage =
     | Append of Expression
     | Prepend of Expression
     | Union of Expression * keyLambdaOpt: LambdaExpression option
-    | Join of MethodInfo * Expression * LambdaExpression * LambdaExpression * LambdaExpression
+    | Join of MethodInfo * Expression * LambdaExpression * LambdaExpression * LambdaExpression option
     | Explode of collectionLambda: LambdaExpression * resultLambdaOpt: LambdaExpression option
     | CrossJoin of innerExpr: Expression * resultLambdaOpt: LambdaExpression option
     | SetOp of MethodInfo * Expression * LambdaExpression option * LambdaExpression option

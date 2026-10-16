@@ -155,7 +155,7 @@ type DataFrameTests() =
 
         // Assert: Verify all rows were observed in exact order and values aggregated correctly
         Assert.Equal(3, observedSkus.Length)
-        Assert.Equal<string>([ "SKU-001"; "SKU-002"; "SKU-003" ], observedSkus)
+        Assert.Equal<string seq>([ "SKU-001"; "SKU-002"; "SKU-003" ], observedSkus)
         Assert.Equal(329.97, totalPrice, 2)
 
     [<Fact>]
@@ -972,7 +972,7 @@ type DataFrameTests() =
         // Assert: Verify dimensions and schema
         Assert.Equal(3L, result.Height)
         Assert.Equal(4L, result.Width)
-        Assert.Equal<string>([| "City"; "Fahrenheit"; "IsFreezing"; "RecordedAt" |], result.Columns)
+        Assert.Equal<string[]>([| "City"; "Fahrenheit"; "IsFreezing"; "RecordedAt" |], result.Columns)
 
         // Assert: Row 0 (Tokyo)
         Assert.Equal("TOKYO", result.["City"].GetValue<string>(0L))

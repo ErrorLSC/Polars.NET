@@ -103,6 +103,33 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                 TranslationContext.Scalar(paramName, colNames.[0])
             else
                 TranslationContext.Entity paramName
+        elif elemType.IsGenericType && (
+            elemType.Name.StartsWith("ValueTuple`2") || 
+            elemType.Name.StartsWith("Tuple`2") ||
+            (elemType.Name.Contains("AnonymousType") && 
+            not (isNull (elemType.GetProperty "Outer")) && 
+            not (isNull (elemType.GetProperty "Inner")))) then
+            let genArgs = elemType.GetGenericArguments()
+            let tOuter = genArgs.[0]
+
+            // Recursively extract all member names from TOuter, properly unwrapping Nullable<TStruct>
+            let rec getLeftMemberNames (t: Type) : Set<string> =
+                let actualT = Nullable.GetUnderlyingType(t) |> Option.ofObj |> Option.defaultValue t
+                if actualT.IsGenericType && (actualT.Name.StartsWith "ValueTuple" || actualT.Name.StartsWith "Tuple") then
+                    actualT.GetGenericArguments()
+                    |> Array.map getLeftMemberNames
+                    |> Set.unionMany
+                elif PolarsTypeHelper.IsScalarType actualT || actualT = typeof<string> then
+                    Set.empty
+                else
+                    let props = actualT.GetProperties(BindingFlags.Public ||| BindingFlags.Instance) |> Array.map (fun p -> p.Name)
+                    let fields = actualT.GetFields(BindingFlags.Public ||| BindingFlags.Instance) |> Array.map (fun f -> f.Name)
+                    Array.append props fields |> Set.ofArray
+
+            let typeCols = getLeftMemberNames tOuter
+            let lfCols = PolarsSchemaExtractor.GetColumnNames lf |> Set.ofArray
+            let leftCols = Set.union typeCols lfCols
+            TranslationContext.TupleJoin(paramName, leftCols, "_right")
         else
             TranslationContext.Entity paramName
     /// Extracts the underlying sequence element type from generic collections/arrays
@@ -1097,6 +1124,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                                             How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
                                             Suffix = None
                                             InvertSides = false
+                                            Coalesce = PlJoinCoalesce.JoinSpecific
                                         }
                                     else
                                         None
@@ -1133,6 +1161,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                                     How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
                                     Suffix = None
                                     InvertSides = false
+                                    Coalesce = PlJoinCoalesce.JoinSpecific
                                 }
                             | _ -> None
                         )
@@ -1788,31 +1817,43 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 ExprTranslator.tryTranslateWithContext ctx expr
                 |> Option.map (fun h -> [| h |])
 
-    /// Compiles a Join stage into a native JoinSpec (supporting both single-column and multi-column keys)
-    static member private CompileJoin (baseLf: LazyFrameHandle) (methodInfo: MethodInfo) (innerExpr: Expression) (outerKey: LambdaExpression) (innerKey: LambdaExpression) : JoinSpec option =
-        let isRightJoin = methodInfo.Name = "RightJoin"
-        let how = if isRightJoin || methodInfo.Name = "LeftJoin" then PlJoinType.Left else PlJoinType.Inner
+    /// Compiles a Join stage into a native JoinSpec (supporting single-column and multi-column keys across Inner, Left, Right, Full)
+    static member private CompileJoin 
+        (baseLf: LazyFrameHandle)
+        (methodInfo: MethodInfo) 
+        (innerExpr: Expression) 
+        (outerKey: LambdaExpression) 
+        (innerKey: LambdaExpression) : JoinSpec option =
 
-        let extractKeyExprs (ctx: TranslationContext)(keyLambda: LambdaExpression) : ExprHandle array option =
+        let isRightJoin = methodInfo.Name = "RightJoin"
+        let how = 
+            match methodInfo.Name with
+            | "RightJoin" | "LeftJoin" -> PlJoinType.Left
+            | "FullJoin" -> PlJoinType.Outer
+            | _ -> PlJoinType.Inner
+
+        let extractKeyExprs (ctx: TranslationContext) (keyLambda: LambdaExpression) : ExprHandle array option =
             match PolarsQuery<'T>.TryExtractMemberBindings keyLambda.Body with
-            // new { o.Col1, o.Col2 }
             | Some bindings ->
                 let exprs = bindings |> List.choose (fun (_, e) -> ExprTranslator.tryTranslateWithContext ctx e)
                 if exprs.Length = bindings.Length then Some (List.toArray exprs) else None
-            // o => o.Col1
             | None ->
-                ExprTranslator.tryTranslateWithContext ctx keyLambda.Body
-                |> Option.map (fun h -> [| h |])
+                let resOpt = ExprTranslator.tryTranslateWithContext ctx keyLambda.Body
+                resOpt |> Option.map (fun h -> [| h |])
 
-        match PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr with
+        let rightLfOpt = PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr
+
+        match rightLfOpt with
         | Some rightLf ->
             let outerParam = outerKey.Parameters.[0]
             let innerParam = innerKey.Parameters.[0]
             let leftCtx = PolarsQueryProvider.createContextForType outerParam.Type baseLf outerParam.Name
             let rightCtx = PolarsQueryProvider.createContextForType innerParam.Type rightLf innerParam.Name
 
-            match extractKeyExprs leftCtx outerKey,
-                  extractKeyExprs rightCtx innerKey with
+            let leftKeysOpt = extractKeyExprs leftCtx outerKey
+            let rightKeysOpt = extractKeyExprs rightCtx innerKey
+
+            match leftKeysOpt, rightKeysOpt with
             | Some leftKeys, Some rightKeys when leftKeys.Length = rightKeys.Length ->
                 Some {
                     RightLf = rightLf
@@ -1821,8 +1862,10 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     How = how
                     Suffix = if isRightJoin then Some "_left" else Some "_right"
                     InvertSides = isRightJoin
+                    Coalesce = PlJoinCoalesce.KeepColumns
                 }
-            | _ -> None
+            | _ -> 
+                None
         | None -> None
 
     /// Compiles a two-parameter Join/LeftJoin result selector into a native Select projection operation
@@ -1882,7 +1925,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 | _ -> None
 
             keysOpt |> Option.map (fun (leftOn, rightOn) ->
-                { RightLf = rightLf; LeftOn = leftOn; RightOn = rightOn; How = how; Suffix = None; InvertSides = false }
+                { RightLf = rightLf; LeftOn = leftOn; RightOn = rightOn; How = how; Suffix = None; InvertSides = false;Coalesce = PlJoinCoalesce.JoinSpecific }
             )
         )
 
@@ -1925,7 +1968,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
                 PolarsWrapper.Join(
                     leftLf, rightLf, leftOn, rightOn, spec.How, suffix,
-                    PlJoinValidation.ManyToMany, PlJoinCoalesce.JoinSpecific,
+                    PlJoinValidation.ManyToMany, spec.Coalesce,
                     PlJoinMaintainOrder.None, PlJoinSide.None, false, Nullable(), 0UL
                 )
 
@@ -2013,24 +2056,39 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             match e with
             | null -> acc
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as l) ]) when m.Name = "Select" ->
-                let rec isPassthroughTuple (body: Expression) =
-                    match body with
-                    | MemberAccess(:? ParameterExpression, memInfo) when isFSharpAnonymousMember memInfo -> true
-                    | :? NewExpression as ne when ne.Type.Name.StartsWith("AnonymousObject") ->
-                        // Detect F# redundant identity wrapper: _arg1 => new AnonymousObject`2(Item1 = _arg1.Item1, Item2 = _arg1.Item2)
-                        let p = l.Parameters.[0]
-                        let isIdentity =
-                            ne.Arguments
-                            |> Seq.mapi (fun idx arg ->
-                                match arg with
-                                | MemberAccess(:? ParameterExpression as pe, mem) when pe.Name = p.Name && mem.Name = sprintf "Item%d" (idx + 1) -> true
-                                | _ -> false
-                            )
-                            |> Seq.forall id
-                        isIdentity
-                    | _ -> false
+                let rec isPassthrough (body: Expression) =
+                    let p = l.Parameters.[0]
+                    let rec check (e: Expression) =
+                        match e with
+                        | null -> false
+                        // 1. Direct parameter identity: x => x
+                        | :? ParameterExpression as pe when pe.Name = p.Name -> true
+                        // 2. Identity cast/conversion of the whole entity: d => (Department?)d, x => (object)x
+                        | Unary(ExpressionType.Convert, inner)
+                        | Unary(ExpressionType.ConvertChecked, inner)
+                        | Unary(ExpressionType.Quote, inner) ->
+                            check inner
+                        // 3. F# anonymous member passthrough
+                        | MemberAccess(:? ParameterExpression as pe, memInfo) 
+                            when pe.Name = p.Name && isFSharpAnonymousMember memInfo -> true
+                        // 4. Transparent tuple wrappers (F# & C# ValueTuple / Tuple / AnonymousObject identity projections)
+                        | :? NewExpression as ne when ne.Type.Name.StartsWith("AnonymousObject") 
+                                                   || ne.Type.Name.StartsWith("Tuple") 
+                                                   || ne.Type.Name.StartsWith("ValueTuple") ->
+                            let isIdentity =
+                                ne.Arguments
+                                |> Seq.mapi (fun idx arg ->
+                                    match ExprTranslator.unwrap arg with
+                                    | MemberAccess(:? ParameterExpression as pe, mem) 
+                                        when pe.Name = p.Name && (mem.Name = sprintf "Item%d" (idx + 1) || mem.Name = "Outer" && idx = 0 || mem.Name = "Inner" && idx = 1) -> true
+                                    | _ -> false
+                                )
+                                |> Seq.forall id
+                            isIdentity
+                        | _ -> false
+                    check body
 
-                if isPassthroughTuple l.Body then
+                if isPassthrough l.Body then
                     flatten source acc
                 else
                     flatten source (LinqStage.Project l :: acc)
@@ -2079,9 +2137,17 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as k) ]) when m.Name = "GroupBy" ->
                 flatten source (LinqStage.GroupByKey k :: acc)
 
+            // Join with explicit resultSelector (5 or 6 args, including .NET 11 FullJoin):
+            // (outer, inner, outerKeySelector, innerKeySelector, resultSelector, [comparer])
             | MethodCall(m, _, outer :: inner :: StripQuotes (:? LambdaExpression as outerKey) :: StripQuotes (:? LambdaExpression as innerKey) :: StripQuotes (:? LambdaExpression as resSel) :: _) 
-                    when m.Name = "Join" || m.Name = "LeftJoin" || m.Name = "RightJoin" ->
-                    flatten outer (LinqStage.Join(m, inner, outerKey, innerKey, resSel) :: acc)
+                    when m.Name = "Join" || m.Name = "LeftJoin" || m.Name = "RightJoin" || m.Name = "FullJoin" ->
+                    flatten outer (LinqStage.Join(m, inner, outerKey, innerKey, Some resSel) :: acc)
+
+            // .NET 11 Tuple Join without resultSelector (4 or 5 args returning (TOuter Outer, TInner Inner)):
+            // (outer, inner, outerKeySelector, innerKeySelector, [comparer])
+            | MethodCall(m, _, outer :: inner :: StripQuotes (:? LambdaExpression as outerKey) :: StripQuotes (:? LambdaExpression as innerKey) :: _) 
+                    when m.Name = "Join" || m.Name = "LeftJoin" || m.Name = "RightJoin" || m.Name = "FullJoin" ->
+                    flatten outer (LinqStage.Join(m, inner, outerKey, innerKey, None) :: acc)
 
             | MethodCall(m, null, [ first; second ]) when m.Name = "Intersect" || m.Name = "Except" ->
                 flatten first (LinqStage.SetOp(m, second, None, None) :: acc)
@@ -2121,7 +2187,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 let nestedStagesOpt =
                     if containsParam then
                         match unwrapQuote colSel.Body with
-                        | :? MethodCallExpression as innerMc ->
+                        | :? MethodCallExpression as innerMc when innerMc.Method.Name <> "DefaultIfEmpty" ->
                             let innerStages = flatten innerMc []
                             if not innerStages.IsEmpty then Some innerStages else None
                         | _ -> None
@@ -2143,10 +2209,10 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | MethodCall(m, null, [ source; StripQuotes (:? LambdaExpression as l) ]) when m.Name = "SkipWhile" ->
                 flatten source (LinqStage.SkipWhile l :: acc)
 
-            | MethodCall(m, null, [ outer; inner; 
-                                StripQuotes (:? LambdaExpression as outerKey); 
-                                StripQuotes (:? LambdaExpression as innerKey); 
-                                StripQuotes (:? LambdaExpression as resSel) ]) 
+            | MethodCall(m, null, outer :: inner :: 
+                                StripQuotes (:? LambdaExpression as outerKey) :: 
+                                StripQuotes (:? LambdaExpression as innerKey) :: 
+                                StripQuotes (:? LambdaExpression as resSel) :: _) 
                 when m.Name = "GroupJoin" ->
                 flatten outer (LinqStage.GroupJoin(m, inner, outerKey, innerKey, resSel) :: acc)
 
@@ -2412,7 +2478,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 let param = l.Parameters.[0]
                 let isGrouping = param.Type.IsGenericType && param.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
                 if not isGrouping && clientPreds.IsEmpty && clientProjOpt.IsNone then
-                    let ctx = PolarsQueryProvider.createContextForType typeof<'T> lfCloned param.Name
+                    let ctx = PolarsQueryProvider.createContextForType param.Type lfCloned param.Name
                     let sortExprOpt =
                         match ExprTranslator.tryTranslateWithContext ctx l.Body with
                         | Some h -> Some h
@@ -2426,31 +2492,35 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 else
                     fuse tail opsAcc clientPreds clientProjOpt
 
-            // Join / LeftJoin / RightJoin with resultSelector
-            | LinqStage.Join(m, inner, outerKey, innerKey, resSel) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+            | LinqStage.Join(m, inner, outerKey, innerKey, resSelOpt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 match PolarsQuery<'T>.CompileJoin lfCloned m inner outerKey innerKey with
                 | Some spec ->
-                    // Inspect whether resultSelector is just a transparent identifier (e.g. (d, e) => new { d, e })
-                    let isTransparent =
-                        match PolarsQuery<'T>.TryExtractMemberBindings resSel.Body with
-                        | Some bindings when resSel.Parameters.Count >= 2 ->
-                            let p1, p2 = resSel.Parameters.[0].Name, resSel.Parameters.[1].Name
-                            bindings |> List.forall (fun (_, expr) ->
-                                match ExprTranslator.unwrap expr with
-                                | :? ParameterExpression as p -> p.Name = p1 || p.Name = p2
-                                | _ -> false
-                            )
-                        | _ -> false
-
-                    if isTransparent then
+                    match resSelOpt with
+                    | None ->
+                        // .NET 11 Tuple Join without resultSelector (transparent pair of Outer and Inner)
                         fuse tail (QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
-                    else
-                        match PolarsQuery<'T>.CompileJoinResultSelector resSel with
-                        | Some selectOp ->
-                            // Apply Join first, then apply the result projection
-                            fuse tail (selectOp :: QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
-                        | None ->
-                            [], [], None, true
+                    | Some resSel ->
+                        // Inspect whether resultSelector is just a transparent identifier (e.g. (d, e) => new { d, e })
+                        let isTransparent =
+                            match PolarsQuery<'T>.TryExtractMemberBindings resSel.Body with
+                            | Some bindings when resSel.Parameters.Count >= 2 ->
+                                let p1, p2 = resSel.Parameters.[0].Name, resSel.Parameters.[1].Name
+                                bindings |> List.forall (fun (_, expr) ->
+                                    match ExprTranslator.unwrap expr with
+                                    | :? ParameterExpression as p -> p.Name = p1 || p.Name = p2
+                                    | _ -> false
+                                )
+                            | _ -> false
+
+                        if isTransparent then
+                            fuse tail (QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
+                        else
+                            match PolarsQuery<'T>.CompileJoinResultSelector resSel with
+                            | Some selectOp ->
+                                // Apply Join first, then apply the result projection
+                                fuse tail (selectOp :: QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
+                            | None ->
+                                [], [], None, true
                 | None -> [], [], None, true
 
             | LinqStage.GroupJoin(m, inner, outerKey, innerKey, _) :: LinqStage.Explode(collSelector, _) :: tail 
@@ -2473,6 +2543,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                             How = PlJoinType.Left
                             Suffix = None
                             InvertSides = false
+                            Coalesce = PlJoinCoalesce.KeepColumns
                         }
                         fuse tail (QueryOp.Join joinSpec :: opsAcc) clientPreds clientProjOpt
                     | _ -> [], [], None, true
@@ -2593,6 +2664,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                         How = PlJoinType.Cross
                         Suffix = Some "_right"
                         InvertSides = false
+                        Coalesce = PlJoinCoalesce.KeepColumns
                     }
                     let joinOp = QueryOp.Join joinSpec
                     let renameOps =
@@ -2661,6 +2733,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                             How = PlJoinType.Left
                             Suffix = Some "_right"
                             InvertSides = false
+                            Coalesce = PlJoinCoalesce.JoinSpecific
                         }
                         let joinOp = QueryOp.Join joinSpec
 

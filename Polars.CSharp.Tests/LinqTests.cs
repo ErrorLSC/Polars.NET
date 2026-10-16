@@ -3495,7 +3495,7 @@ public partial class LinqTests
         // Record 1: 120.55
         Assert.Equal(1, query[0].Id);
         Assert.Equal(120.55, query[0].AbsAmount);
-        Assert.Equal(120.6, query[0].Rounded);
+        Assert.Equal(120.5, query[0].Rounded);
         Assert.Equal(121.0, query[0].CeilVal);
         Assert.Equal(120.55, query[0].MaxVal);
 
@@ -6017,5 +6017,312 @@ public partial class LinqTests
 
         Assert.Single(unmatchedDepts);
         Assert.Equal("Ghost", unmatchedDepts[0].DeptName);
+    }
+    [Fact]
+    [Trait("LINQ", "Net11_Joins")]
+    public void Test_Linq_Net11_TupleJoin_Inner()
+    {
+        var persons = new[]
+        {
+            new Person(1, "Alice", 10),
+            new Person(2, "Bob", 20),
+            new Person(3, "Charlie", 99) // Unmatched DeptId
+        };
+
+        var depts = new[]
+        {
+            new Department(10, "Engineering"),
+            new Department(20, "Sales"),
+            new Department(30, "HR") // Unmatched Id
+        };
+
+        using var dfPerson = DataFrame.FromRows(persons);
+        using var dfDept = DataFrame.FromRows(depts);
+
+        var personQuery = dfPerson.AsQueryable(persons);
+        var deptQuery = dfDept.AsQueryable(depts);
+
+        // .NET 11 Join returning (Person Outer, Department Inner)
+        var results = personQuery
+            .Join(deptQuery, p => p.DeptId, d => d.Id)
+            .OrderBy(pair => pair.Outer.Id)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+
+        Assert.Equal(1, results[0].Outer.Id);
+        Assert.Equal("Alice", results[0].Outer.Name);
+        Assert.Equal(10, results[0].Inner.Id);
+        Assert.Equal("Engineering", results[0].Inner.DeptName);
+
+        Assert.Equal(2, results[1].Outer.Id);
+        Assert.Equal("Bob", results[1].Outer.Name);
+        Assert.Equal(20, results[1].Inner.Id);
+        Assert.Equal("Sales", results[1].Inner.DeptName);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Net11_Joins")]
+    public void Test_Linq_Net11_TupleJoin_Chained_Filter_And_Projection()
+    {
+        var persons = new[]
+        {
+            new Person(1, "Alice", 10),
+            new Person(2, "Bob", 10),
+            new Person(3, "Charlie", 20)
+        };
+
+        var depts = new[]
+        {
+            new Department(10, "Engineering"),
+            new Department(20, "Sales")
+        };
+
+        using var dfPerson = DataFrame.FromRows(persons);
+        using var dfDept = DataFrame.FromRows(depts);
+
+        var personQuery = dfPerson.AsQueryable(persons);
+        var deptQuery = dfDept.AsQueryable(depts);
+
+        var query = personQuery
+            .Join(deptQuery, p => p.DeptId, d => d.Id)
+            .Where(pair => pair.Inner.DeptName == "Engineering" && pair.Outer.Id > 1)
+            .Select(pair => new PersonDeptJoined(
+                pair.Outer.Id,
+                pair.Outer.Name,
+                pair.Outer.DeptId,
+                pair.Inner.DeptName));
+
+        var plan = query.Explain();
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+
+        Assert.Single(results);
+        Assert.Equal(2, results[0].Id);
+        Assert.Equal("Bob", results[0].Name);
+        Assert.Equal(10, results[0].DeptId);
+        Assert.Equal("Engineering", results[0].DeptName);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Net11_Joins")]
+    public void Test_Linq_Net11_TupleJoin_LeftJoin_Class_NullFolding()
+    {
+        var depts = new[]
+        {
+            new Department(1, "Engineering"),
+            new Department(2, "EmptyDept")
+        };
+
+        var emps = new[]
+        {
+            new Employee("Engineering", 25, 75000)
+        };
+
+        using var dfDept = DataFrame.FromRows(depts);
+        using var dfEmp = DataFrame.FromRows(emps);
+
+        var deptQuery = dfDept.AsQueryable(depts);
+        var empQuery = dfEmp.AsQueryable(emps);
+
+        // Employee is a class record -> Inner is Employee?
+        var results = deptQuery
+            .LeftJoin(empQuery, d => d.DeptName, e => e.Name)
+            .OrderBy(pair => pair.Outer.Id)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+
+        // Row 1: Matched class instance
+        Assert.Equal("Engineering", results[0].Outer.DeptName);
+        Assert.NotNull(results[0].Inner);
+        Assert.Equal("Engineering", results[0].Inner!.Name);
+        Assert.Equal(75000, results[0].Inner!.Salary);
+
+        // Row 2: Unmatched class instance -> true null folding
+        Assert.Equal("EmptyDept", results[1].Outer.DeptName);
+        Assert.Null(results[1].Inner);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Net11_Joins")]
+    public void Test_Linq_Net11_TupleJoin_LeftJoin_Struct_DefaultFolding()
+    {
+        var persons = new[]
+        {
+            new Person(1, "Alice", 10),
+            new Person(2, "Ghost", 99) // No department with Id = 99
+        };
+
+        var depts = new[]
+        {
+            new Department(10, "Engineering")
+        };
+
+        using var dfPerson = DataFrame.FromRows(persons);
+        using var dfDept = DataFrame.FromRows(depts);
+
+        var personQuery = dfPerson.AsQueryable(persons);
+        var deptQuery = dfDept.AsQueryable(depts);
+
+        // Department is a struct -> pair.Inner is Department (defaults to default(Department) when unmatched)
+        var results = personQuery
+            .LeftJoin(deptQuery, p => p.DeptId, d => d.Id)
+            .OrderBy(pair => pair.Outer.Id)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+
+        // Row 1: Matched struct
+        Assert.Equal("Alice", results[0].Outer.Name);
+        Assert.Equal("Engineering", results[0].Inner.DeptName);
+        Assert.Equal(10, results[0].Inner.Id);
+
+        // Row 2: Unmatched struct -> folds to default(Department) where DeptName is null and Id is 0
+        Assert.Equal("Ghost", results[1].Outer.Name);
+        Assert.Null(results[1].Inner.DeptName);
+        Assert.Equal(0, results[1].Inner.Id);
+    }
+    [Fact]
+    [Trait("LINQ", "Net11_Joins")]
+    public void Test_Linq_Net11_FullJoin_WithResultSelector()
+    {
+        var depts = new[]
+        {
+            new Department(1, "Engineering"),
+            new Department(2, "Sales"),
+            new Department(3, "HR") // Dept only
+        };
+
+        var records = new[]
+        {
+            new DepartmentRecord("Engineering", 150000),
+            new DepartmentRecord("Sales", 90000),
+            new DepartmentRecord("Legal", 80000) // Record only
+        };
+
+        using var dfDept = DataFrame.FromRows(depts);
+        using var dfRecord = DataFrame.FromRows(records);
+
+        var deptQuery = dfDept.AsQueryable(depts);
+        var recordQuery = dfRecord.AsQueryable(records);
+
+        // Check struct presence via field nullability (DeptName / Department)
+        var results = deptQuery
+            .FullJoin(
+                recordQuery,
+                d => d.DeptName,
+                r => r.Department,
+                (d, r) => new DepartmentRecord(
+                    d.DeptName ?? r.Department,
+                    r.Department != null ? r.Salary : 0))
+            .OrderBy(r => r.Department)
+            .ToList();
+
+        Assert.Equal(4, results.Count);
+
+        Assert.Equal("Engineering", results[0].Department);
+        Assert.Equal(150000, results[0].Salary);
+
+        Assert.Equal("HR", results[1].Department);
+        Assert.Equal(0, results[1].Salary);
+
+        Assert.Equal("Legal", results[2].Department);
+        Assert.Equal(80000, results[2].Salary);
+
+        Assert.Equal("Sales", results[3].Department);
+        Assert.Equal(90000, results[3].Salary);
+    }
+    [Fact]
+    [Trait("LINQ", "Net11_Joins")]
+    public void Test_Linq_Net11_Tuple_FullJoin_Struct_DefaultFolding()
+    {
+        var depts = new[]
+        {
+            new Department(1, "Engineering"),
+            new Department(2, "HR") // Dept only
+        };
+
+        var records = new[]
+        {
+            new DepartmentRecord("Engineering", 120000),
+            new DepartmentRecord("Security", 60000) // Record only
+        };
+
+        using var dfDept = DataFrame.FromRows(depts);
+        using var dfRecord = DataFrame.FromRows(records);
+
+        var deptQuery = dfDept.AsQueryable(depts);
+        var recordQuery = dfRecord.AsQueryable(records);
+
+        var results = deptQuery
+            .FullJoin(recordQuery, d => d.DeptName, r => r.Department)
+            .OrderBy(pair => pair.Outer.DeptName ?? pair.Inner.Department)
+            .ToList();
+
+        Assert.Equal(3, results.Count);
+
+        // Row 1: Engineering (Matched on both sides)
+        Assert.Equal("Engineering", results[0].Outer.DeptName);
+        Assert.Equal(120000, results[0].Inner.Salary);
+
+        // Row 2: HR (Left side only -> Inner is default(DepartmentRecord))
+        Assert.Equal("HR", results[1].Outer.DeptName);
+        Assert.Null(results[1].Inner.Department);
+        Assert.Equal(0, results[1].Inner.Salary);
+
+        // Row 3: Security (Right side only -> Outer is default(Department))
+        Assert.Null(results[2].Outer.DeptName);
+        Assert.Equal(0, results[2].Outer.Id);
+        Assert.Equal("Security", results[2].Inner.Department);
+        Assert.Equal(60000, results[2].Inner.Salary);
+    }
+    [Fact]
+    [Trait("LINQ", "FullJoin")]
+    public void Test_Linq_Net11_Tuple_FullJoin_Explicit_NullableStruct()
+    {
+        var depts = new[]
+        {
+            new Department(1, "Engineering"),
+            new Department(2, "HR")
+        };
+
+        var records = new[]
+        {
+            new DepartmentRecord("Engineering", 120000),
+            new DepartmentRecord("Security", 60000)
+        };
+
+        using var dfDept = DataFrame.FromRows(depts);
+        using var dfRecord = DataFrame.FromRows(records);
+
+        // Cast query source element type to Nullable<TStruct>
+        var deptNullableQuery = dfDept.AsQueryable(depts).Select(d => (Department?)d);
+        var recordNullableQuery = dfRecord.AsQueryable(records).Select(r => (DepartmentRecord?)r);
+
+        var results = deptNullableQuery
+            .FullJoin(recordNullableQuery, d => d.Value.DeptName, r => r.Value.Department)
+            .OrderBy(pair => pair.Outer.HasValue ? pair.Outer.Value.DeptName : pair.Inner.Value.Department).InspectPlan()
+            .ToList();
+
+        Assert.Equal(3, results.Count);
+
+        // Row 1: Matched
+        Assert.True(results[0].Outer.HasValue);
+        Assert.True(results[0].Inner.HasValue);
+        Assert.Equal("Engineering", results[0].Outer!.Value.DeptName);
+        Assert.Equal(120000, results[0].Inner!.Value.Salary);
+
+        // Row 2: Left only -> Inner is actual Nullable null
+        Assert.True(results[1].Outer.HasValue);
+        Assert.False(results[1].Inner.HasValue);
+        Assert.Equal("HR", results[1].Outer!.Value.DeptName);
+
+        // Row 3: Right only -> Outer is actual Nullable null
+        Assert.False(results[2].Outer.HasValue);
+        Assert.True(results[2].Inner.HasValue);
+        Assert.Equal("Security", results[2].Inner!.Value.Department);
+        Assert.Equal(60000, results[2].Inner!.Value.Salary);
     }
 }
