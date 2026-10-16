@@ -90,7 +90,7 @@ module DataFrameJsonNormalizeOps =
                     if df.Columns |> Array.contains colName then
                         let castExpr =
                             Expr.Col(colName).Cast(dtype).Alias(colName)
-                        df.WithColumns(castExpr)
+                        df.WithColumns castExpr
                     else
                         df
                 ) df

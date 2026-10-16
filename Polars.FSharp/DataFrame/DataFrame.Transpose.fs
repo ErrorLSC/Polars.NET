@@ -17,6 +17,8 @@ module DataFrameTranspose =
 
         /// <summary>Transpose a DataFrame over the diagonal, using an existing column for column names.</summary>
         /// <param name="columnName">Existing column name to use for naming transposed columns.</param>
+        /// <param name="headerName">Name of the header column if includeHeader is true (default "column")</param>
+        /// <param name="includeHeader">If true, the column names will be added as the first column.</param>
         /// <inheritdoc cref="Transpose(bool, string)"/>
         member this.Transpose(columnName: string, ?includeHeader: bool, ?headerName: string) =
             if System.String.IsNullOrWhiteSpace columnName then
@@ -29,6 +31,8 @@ module DataFrameTranspose =
 
         /// <summary>Transpose a DataFrame over the diagonal, using custom names for transposed columns.</summary>
         /// <param name="customNames">Sequence of names for the value columns in the transposed data.</param>
+        /// <param name="headerName">Name of the header column if includeHeader is true (default "column")</param>
+        /// <param name="includeHeader">If true, the column names will be added as the first column.</param>
         /// <inheritdoc cref="Transpose(bool, string)"/>
         member this.Transpose(customNames: seq<string>, ?includeHeader: bool, ?headerName: string) =
             if isNull (box customNames) then nullArg (nameof(customNames))

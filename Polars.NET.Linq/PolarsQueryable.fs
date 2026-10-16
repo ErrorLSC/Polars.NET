@@ -431,6 +431,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
         // 1. Count() / LongCount()
         // =========================================================================
         | MethodCall(m, null, source :: rest) when m.Name = "Count" || m.Name = "LongCount" ->
+            let chunkSizeOpt = PolarsQuery<obj>.TryExtractChunkSize source
             let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
             let elemType = PolarsQueryProvider.GetSequenceElementType source.Type
             let predOpt =
@@ -438,28 +439,48 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                 | [ StripQuotes (:? LambdaExpression as p) ] -> Some p
                 | _ -> None
 
+            // Helper: adjusts raw row count to chunk count when no chunk-level predicate is present
+            let adjustForChunk (rowCount: int64) : int64 =
+                match chunkSizeOpt with
+                | Some size when size > 0 ->
+                    if rowCount <= 0L then 0L
+                    else (rowCount + int64 size - 1L) / int64 size
+                | _ -> rowCount
+
             let resolvedPred = PolarsQueryProvider.TryResolvePredicate hasClientPreds clientProjOpt elemType nativeLf predOpt
 
             match resolvedPred with
             | ValueSome (Pushdown filterExpr) ->
+                // Native pushdown predicate (filters applied BEFORE chunking)
                 let filteredLf = PolarsWrapper.LazyFilter(nativeLf, filterExpr)
                 let lenExpr = PolarsWrapper.Len()
                 let aggLf = PolarsWrapper.LazySelect(filteredLf, [| lenExpr |])
                 let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto)
-                mat.MaterializeScalar<'TResult>(dfHandle)
+                let rawRowCount = mat.MaterializeScalar<int64>(dfHandle)
+                let effectiveCount = adjustForChunk rawRowCount
+                Convert.ChangeType(effectiveCount, targetType) :?> 'TResult
 
             | ValueSome (Client (srcType, combinedPred)) ->
+                // Client-side predicate: could be an un-pushable row filter OR a predicate on TElement[] itself
                 let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                 let invoker = LinqReflectionCache.GetMaterializerCountInvoker srcType
                 let countVal = invoker.Invoke(mat, dfHandle, combinedPred)
-                Convert.ChangeType(countVal, targetType) :?> 'TResult
+                // If the predicate was applied at row-level, adjust for chunks; 
+                // if it operated directly on chunks, countVal is already chunk count.
+                let effectiveCount =
+                    if srcType.IsArray then Convert.ToInt64 countVal
+                    else adjustForChunk (Convert.ToInt64 countVal)
+                Convert.ChangeType(effectiveCount, targetType) :?> 'TResult
 
             | ValueNone ->
+                // Parameterless Count() over the sequence
                 if not hasClientPreds then
                     let lenExpr = PolarsWrapper.Len()
                     let aggLf = PolarsWrapper.LazySelect(nativeLf, [| lenExpr |])
                     let dfHandle = PolarsWrapper.LazyCollect(aggLf, PlEngine.Auto)
-                    mat.MaterializeScalar<'TResult>(dfHandle)
+                    let rawRowCount = mat.MaterializeScalar<int64>(dfHandle)
+                    let effectiveCount = adjustForChunk rawRowCount
+                    Convert.ChangeType(effectiveCount, targetType) :?> 'TResult
                 else
                     let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                     let elemTypeActual =
@@ -468,7 +489,8 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                         | None -> elemType
                     let invoker = LinqReflectionCache.GetMaterializerCountInvoker elemTypeActual
                     let countVal = invoker.Invoke(mat, dfHandle, null)
-                    Convert.ChangeType(countVal, targetType) :?> 'TResult
+                    let effectiveCount = adjustForChunk (Convert.ToInt64 countVal)
+                    Convert.ChangeType(effectiveCount, targetType) :?> 'TResult
 
         // =========================================================================
         // 2. Any
@@ -591,7 +613,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                         ExprTranslator.tryTranslateWithContext ctx selector.Body
                     | None ->
                         if PolarsTypeHelper.IsSupportedSimpleType targetType then
-                            let colNames = PolarsQuery<obj>.GetLazyColumnNames nativeLf
+                            let colNames = PolarsSchemaExtractor.GetColumnNames nativeLf
                             let targetCol = if colNames.Length > 0 then colNames.[0] else ""
                             Some (PolarsWrapper.Col targetCol)
                         else
@@ -829,7 +851,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
             let isScalar = PolarsTypeHelper.IsScalarType elemType || elemType = typeof<string>
             let scalarColOpt =
                 if isScalar then
-                    let colNames = PolarsQuery<obj>.GetLazyColumnNames nativeLf
+                    let colNames = PolarsSchemaExtractor.GetColumnNames nativeLf
                     if colNames.Length = 1 then Some colNames.[0] else None
                 else None
 
@@ -1181,7 +1203,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                                     let innerCtx = PolarsQueryProvider.createContextForType p.Type rightLf p.Name
                                     ExprTranslator.tryTranslateWithContext innerCtx selLambda.Body
                                 | None ->
-                                    let rightCols = PolarsQuery<'T>.GetLazyColumnNames rightLf
+                                    let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
                                     if rightCols.Length > 0 then Some (PolarsWrapper.Col rightCols.[0])
                                     else None
 
@@ -1208,7 +1230,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             let itemType = itemVal.GetType()
             // Branch 1: Single scalar literal matching against the first column
             if PolarsTypeHelper.IsScalarType itemType || itemType = typeof<string> || itemType.IsEnum then
-                let colNames = PolarsQuery<obj>.GetLazyColumnNames targetLf
+                let colNames = PolarsSchemaExtractor.GetColumnNames targetLf
                 let targetCol = if colNames.Length > 0 then colNames.[0] else ""
                 let colExpr = PolarsWrapper.Col targetCol
                 let litExpr = ExprTranslator.toLiteralHandle itemVal itemType
@@ -1315,9 +1337,18 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     let dfHandle = fromRows.Invoke(null, [| value |]) :?> DataFrameHandle
                     Some (PolarsWrapper.DataFrameToLazy dfHandle)
 
-    /// Helper to iterate and extract all column names from a LazyFrame schema
-    static member internal GetLazyColumnNames(lf: LazyFrameHandle) : string array =
-        PolarsSchemaExtractor.GetColumnNames lf
+    /// Recursively inspects the expression tree to locate Chunk(size) invocations.
+    static member internal TryExtractChunkSize (e: Expression) : int option =
+        let rec check expr =
+            match expr with
+            | null -> None
+            | MethodCall(m, null, [ _; sizeExpr ]) when m.Name = "Chunk" ->
+                match tryEvaluate sizeExpr with
+                | Some s -> Some (Convert.ToInt32 s)
+                | None -> None
+            | MethodCall(_, null, args) -> args |> List.tryPick check
+            | _ -> None
+        check e
 
     /// Helper to extract all column names and their corresponding DataTypeHandle from a LazyFrame schema
     static member internal GetLazySchemaFields(lf: LazyFrameHandle) : (string * DataTypeHandle) array =
@@ -1512,7 +1543,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
     /// Disambiguates duplicate column names against an existing set of columns by appending a given suffix,
     /// returning the safely renamed LazyFrame, updated column set, and a renaming map.
     static member private DisambiguateColumns (existingCols: Set<string>) (lf: LazyFrameHandle) (suffix: string) : LazyFrameHandle * Set<string> * Map<string, string> =
-        let cols = PolarsQuery<'T>.GetLazyColumnNames lf
+        let cols = PolarsSchemaExtractor.GetColumnNames lf
         let duplicates = cols |> Array.filter existingCols.Contains
 
         if duplicates.Length > 0 then
@@ -2010,11 +2041,11 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
                     ExprTranslator.tryTranslateWithContext ctx1 k1.Body
                     |> Option.bind (fun lk ->
-                        let rightCols = PolarsQuery<'T>.GetLazyColumnNames rightLf
+                        let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
                         if rightCols.Length > 0 then Some ([| lk |], [| PolarsWrapper.Col rightCols.[0] |]) else None)
                 | None, None ->
                     // Build distinct ExprHandle arrays for left and right to prevent pointer collision in Rust FFI
-                    let colNames = PolarsQuery<'T>.GetLazyColumnNames baseLf
+                    let colNames = PolarsSchemaExtractor.GetColumnNames baseLf
                     Some (colNames |> Array.map PolarsWrapper.Col, colNames |> Array.map PolarsWrapper.Col)
                 | _ -> None
 
@@ -2570,7 +2601,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 fuse tail (withCastOp :: indexOp :: opsAcc) clientPreds clientProjOpt
 
             | LinqStage.SortDefault isDesc :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                let colNames = PolarsQuery<'T>.GetLazyColumnNames lfCloned
+                let colNames = PolarsSchemaExtractor.GetColumnNames lfCloned
                 let targetCol = if colNames.Length > 0 then colNames.[0] else ""
                 let colExpr = PolarsWrapper.Col targetCol
                 let spec = { Expr = colExpr; Descending = isDesc; NullsLast = false }
@@ -2686,7 +2717,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             | LinqStage.Zip(secondExpr, resLambdaOpt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with
                 | Some otherLf ->
-                    let baseCols = PolarsQuery<'T>.GetLazyColumnNames lfCloned |> Set.ofArray
+                    let baseCols = PolarsSchemaExtractor.GetColumnNames lfCloned |> Set.ofArray
                     let safeSecondLf, _, suffixMap = PolarsQuery<'T>.DisambiguateColumns baseCols otherLf "_second"
 
                     let zipOp = QueryOp.HorizontalConcat [| PolarsWrapper.LazyClone safeSecondLf |]
@@ -2715,7 +2746,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr,
                       PolarsQuery<'T>.ResolveToLazyFrameHandle thirdExpr with
                 | Some secondLf, Some thirdLf ->
-                    let baseCols = PolarsQuery<'T>.GetLazyColumnNames lfCloned |> Set.ofArray
+                    let baseCols = PolarsSchemaExtractor.GetColumnNames lfCloned |> Set.ofArray
                     let safeSecondLf, colsAfter2, _ = PolarsQuery<'T>.DisambiguateColumns baseCols secondLf "_second"
                     let safeThirdLf, _, _ = PolarsQuery<'T>.DisambiguateColumns colsAfter2 thirdLf "_third"
 
@@ -3357,6 +3388,13 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
     /// Compiles the query and materializes directly into a native DataFrameHandle
     member this.CompileToDataFrameHandle() : DataFrameHandle =
+        let chunkSizeOpt = PolarsQuery<'T>.TryExtractChunkSize expression
+        if chunkSizeOpt.IsSome then
+            raise (InvalidOperationException(
+                "Cannot materialize a chunked sequence (IEnumerable<T[]>) into a single flat DataFrame. " +
+                "If you want to iterate over DataFrames in batches, use 'ToBatchesAsync(chunkSize)' or 'CollectBatchesStream'. " +
+                "If you want in-memory array chunks, enumerate the query directly via ToList() / foreach."
+            ))
         let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback = this.GetCompiledPlan()
         
         let schema = PolarsWrapper.GetLazySchema nativeLf
@@ -3365,7 +3403,10 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
         let shouldShuffle = PolarsQuery<'T>.HasShuffle expression
 
         let canDirectlyCollectNative = 
-            not requiresClientFallback && clientPredicates.IsEmpty && clientProjOpt.IsNone && not (isScalar && width > 1UL)
+            not requiresClientFallback && 
+            clientPredicates.IsEmpty && 
+            clientProjOpt.IsNone && 
+            not (isScalar && width > 1UL)
 
         if canDirectlyCollectNative then
             let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
@@ -3407,19 +3448,26 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
         let ops, clientPreds, clientProjOpt, requiresClientFallback = this.CompilePipeline()
         let nativeLf = PolarsQuery<'T>.ApplyNativeOps lfCloned ops
         let planStr = PolarsWrapper.Explain(nativeLf, optimized)
+        let chunkSizeOpt = PolarsQuery<'T>.TryExtractChunkSize expression
         let shouldShuffle = PolarsQuery<'T>.HasShuffle expression
 
-        let planWithShuffle =
-            if shouldShuffle then
-                planStr + "\n[Eager Post-Processing]: Shuffle(fraction = 1.0, with_replacement = false)"
-            else
-                planStr
+        let mutable postOps = []
+        if shouldShuffle then
+            postOps <- "[Eager Post-Processing]: Shuffle(fraction = 1.0, with_replacement = false)" :: postOps
+        match chunkSizeOpt with
+        | Some size ->
+            postOps <- sprintf "[Client Post-Processing]: Chunk(size = %d) -> Materialize as TSource[] batches" size :: postOps
+        | None -> ()
+
+        let planWithPostOps =
+            if postOps.IsEmpty then planStr
+            else planStr + "\n" + String.concat "\n" (List.rev postOps)
 
         {
-            NativePlan = planWithShuffle
+            NativePlan = planWithPostOps
             HasClientPredicates = not clientPreds.IsEmpty
             ClientPredicateExpressions = clientPreds |> List.map snd
-            HasClientProjection = clientProjOpt.IsSome || shouldShuffle
+            HasClientProjection = clientProjOpt.IsSome || chunkSizeOpt.IsSome || shouldShuffle
             IsFullFallback = requiresClientFallback
         }
 

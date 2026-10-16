@@ -37,7 +37,7 @@ module DataFrameFactory =
             let handle = ArrowStreamInterop.ImportEager(batchStream,schema)
 
             if handle.IsInvalid then
-                let emptyBatch = new RecordBatch(schema, System.Array.Empty<Apache.Arrow.IArrowArray>(), 0)
+                use emptyBatch = new RecordBatch(schema, System.Array.Empty<Apache.Arrow.IArrowArray>(), 0)
                 let safeHandle = ArrowFfiBridge.ImportDataFrame emptyBatch
                 new DataFrame(safeHandle)
             else

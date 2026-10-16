@@ -69,14 +69,14 @@ module UpdateOps =
                 let tmpSuffix = "__POLARS_RIGHT"
                 let dropColumns = [
                     yield! rightOther |> List.map (fun name -> $"{name}{tmpSuffix}")
-                    if validityCol.IsSome then yield validityCol.Value
+                    match validityCol with | Some v -> yield v | None -> ()
                     if rowIndexUsed then yield rowIndexName
                 ]
 
                 let rightSelectExprs = [|
                     yield! rightOnKeys |> Array.map pl.col
                     yield! rightOther |> Array.ofList |> Array.map pl.col
-                    if validityCol.IsSome then yield pl.col validityCol.Value
+                    match validityCol with | Some v -> yield pl.col v | None -> ()
                 |]
 
                 let leftOnExprs = leftOnKeys |> Array.map pl.col

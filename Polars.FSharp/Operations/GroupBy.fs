@@ -207,7 +207,7 @@ type GroupBy (df: DataFrame, groupByType: GroupByType, keys: Expr[]) =
         let safeKeys = ownedKeyHandles |> Array.map (fun h -> new Expr(PolarsWrapper.CloneExpr h))
         
         // Key feature: Route the eager GroupByType to the lazy engine builder
-        let lazyBuilder = new LazyGroupBy(df.Lazy().CloneHandle(), groupByType, safeKeys)
+        use lazyBuilder = new LazyGroupBy(df.Lazy().CloneHandle(), groupByType, safeKeys)
         
         let finalBuilder = 
             match havingExpr with
@@ -280,7 +280,6 @@ type GroupBy (df: DataFrame, groupByType: GroupByType, keys: Expr[]) =
 
 [<AutoOpen>]
 module LazyGroupByExtensions =
-    open Polars.NET.Core.Helpers
 
     type LazyFrame with
         /// <summary> Start a GroupBy operation. </summary>

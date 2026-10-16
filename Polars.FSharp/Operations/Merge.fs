@@ -39,7 +39,9 @@ module private MergeUtils =
         TargetFrame = targetFrame
     }
     let actionColName = "__ACTION"
+    [<Literal>]
     let targetFlagName = "__TGT"
+    [<Literal>]
     let sourceFlagName = "__SRC"
 
 module Merge =
@@ -176,11 +178,11 @@ module Merge =
         let tgtSchema = plan.Target.Schema
 
         plan.On |> Array.iter (fun key ->
-            if not (srcSchema.ContainsKey key) then invalidArg "on" $"Key '{key}' not found in source."
-            if not (tgtSchema.ContainsKey key) then invalidArg "on" $"Key '{key}' not found in target."
+            if not (srcSchema.ContainsKey key) then invalidArg "plan" $"Key '{key}' not found in source."
+            if not (tgtSchema.ContainsKey key) then invalidArg "plan" $"Key '{key}' not found in target."
 
             if srcSchema.[key] <> tgtSchema.[key] then
-                invalidArg "on" $"Key type mismatch for '{key}': source: {srcSchema.[key]}, target: {tgtSchema.[key]}."
+                invalidArg "plan" $"Key type mismatch for '{key}': source: {srcSchema.[key]}, target: {tgtSchema.[key]}."
         )
 
         let nullCheckExpr =
@@ -245,7 +247,7 @@ module Merge =
 
         let actionCol =
             actionsWithId
-            |> List.fold (fun accExpr (id, action) ->
+            |> List.fold (fun accExpr (pid, action) ->
                 let condFunc =
                     match action with
                     | MergeAction.MatchedUpdate (f, _) | MergeAction.MatchedDelete f
@@ -256,7 +258,7 @@ module Merge =
                     | MergeAction.MatchedUpdate _ | MergeAction.MatchedDelete _ -> isMatched .&& condExpr
                     | MergeAction.NotMatchedInsert _ -> isSourceOnly .&& condExpr
                     | MergeAction.NotMatchedBySourceDelete _ -> isTargetOnly .&& condExpr
-                pl.ifElse finalCond (pl.lit id) accExpr
+                pl.ifElse finalCond (pl.lit pid) accExpr
             ) baseActionExpr
 
         let tgtNames = plan.Target.Schema.Names
@@ -299,20 +301,21 @@ module Merge =
                                             (pl.ifElse (srcTmpCol.IsNotNull()) srcTmpCol current)
                                             current
                                 else current
-                        | _ -> current
+                        | MergeAction.MatchedDelete _
+                        | MergeAction.NotMatchedBySourceDelete _ -> current
                     ) initial
                 finalExpr |> pl.alias colName
             )
 
         let deleteIds =
             actionsWithId
-            |> List.choose (fun (id, action) ->
+            |> List.choose (fun (pid, action) ->
                 match action with
-                | MergeAction.MatchedDelete _ | MergeAction.NotMatchedBySourceDelete _ -> Some id
-                | _ -> None)
+                | MergeAction.MatchedDelete _ | MergeAction.NotMatchedBySourceDelete _ -> Some pid
+                | MergeAction.MatchedUpdate _ | MergeAction.NotMatchedInsert _ -> None)
         let keepCond =
             deleteIds
-            |> List.fold (fun cond id -> cond .&& (pl.col actionColName .!= pl.lit id)) (pl.col actionColName .!= pl.lit -1)
+            |> List.fold (fun cond pid -> cond .&& (pl.col actionColName .!= pl.lit pid)) (pl.col actionColName .!= pl.lit -1)
 
         let dropExprs =
             [ yield! srcNames |> List.map (fun n -> pl.col (n + sfx));

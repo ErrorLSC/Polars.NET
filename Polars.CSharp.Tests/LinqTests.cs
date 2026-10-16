@@ -1826,6 +1826,51 @@ public partial class LinqTests
         Assert.Equal(7, chunks[2][0].Id);
     }
     [Fact]
+    [Trait("LINQ", "Chunk")]
+    public void Test_Linq_Chunk_Shuffle_Batching()
+    {
+        // 1. Prepare 7 records
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3, 4, 5, 6, 7]),
+            Series.From("Name", ["A", "B", "C", "D", "E", "F", "G"]),
+            Series.From("DeptId", [10, 10, 20, 20, 30, 30, 40]),
+            Series.From("Age", [21, 22, 23, 24, 25, 26, 27]),
+            Series.From("Salary", [3000, 3500, 4000, 4500, 5000, 5500, 6000])
+        ]);
+
+        // 2. Build query combining Shuffle and Chunk(3)
+        var query = df.AsQueryable<MemberRecord>()
+            .Shuffle()
+            .Chunk(3);
+
+        // 3. Assert Point 1: Plan explanation reflects both Shuffle and Chunk post-processing stages
+        var planReport = query.Explain();
+        Assert.Contains("Shuffle", planReport);
+        Assert.Contains("Chunk", planReport);
+
+        // 4. Assert Point 2: Scalar Count() and LongCount() must return chunk count (ceil(7 / 3) = 3), not row count (7)
+        Assert.Equal(3, query.Count());
+        Assert.Equal(3L, query.LongCount());
+
+        // 5. Assert Point 3: ToDataFrame() must throw InvalidOperationException on chunked array sequences
+        var ex = Assert.Throws<InvalidOperationException>(() => query.ToDataFrame());
+        Assert.Contains("chunk", ex.Message, StringComparison.OrdinalIgnoreCase);
+
+        // 6. Materialize chunks via ToList()
+        var chunks = query.ToList();
+
+        // 7 items divided by 3 -> 3 chunks with lengths [3, 3, 1]
+        Assert.Equal(3, chunks.Count);
+        Assert.Equal(3, chunks[0].Length);
+        Assert.Equal(3, chunks[1].Length);
+        Assert.Single(chunks[2]);
+
+        // 7. Data integrity assertion: Verify that all 7 unique records are preserved across chunks despite shuffling
+        var allIds = chunks.SelectMany(c => c).Select(m => m.Id).OrderBy(id => id).ToArray();
+        Assert.Equal([1, 2, 3, 4, 5, 6, 7], allIds);
+    }
+    [Fact]
     [Trait("LINQ", "TakeLast")]
     public void Test_Linq_TakeLast_Pushdown()
     {
