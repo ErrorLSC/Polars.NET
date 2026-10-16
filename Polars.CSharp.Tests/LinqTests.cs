@@ -79,6 +79,8 @@ public readonly record struct ProductMetric(
     double Factor
 );
 public record SensorReading(int SensorId, double Temperature, string Location);
+public record OrderEvent(int OrderId, int EventTime, double Amount);
+public record PromoWindow(int PromoId, int StartTime, int EndTime, string Name);
 public partial class LinqTests
 {
     [Fact]
@@ -585,6 +587,109 @@ public partial class LinqTests
         var deptNameCol = joinedDf["DeptName"];
         Assert.Equal("Engineering", deptNameCol.GetValue<string>(0));
         Assert.Null(deptNameCol.GetValue<string>(1));
+    }
+    [Fact]
+    [Trait("LINQ", "JoinWhere")]
+    public void Test_Linq_CrossJoin_Filter_RBO_Inspection()
+    {
+        using var ordersDf = DataFrame.FromColumns([
+            Series.From("OrderId", [1, 2, 3, 4]),
+            Series.From("EventTime", [10, 25, 50, 80]), 
+            Series.From("Amount", [100.0, 200.0, 300.0, 400.0])
+        ]);
+
+        using var promosDf = DataFrame.FromColumns([
+            Series.From("PromoId", [101, 102]),
+            Series.From("StartTime", [5, 20]),
+            Series.From("EndTime", [15, 30]),
+            Series.From("Name", ["FlashSale", "WeekendSale"])
+        ]);
+
+        var query = from o in ordersDf.AsQueryable<OrderEvent>()
+                    from p in promosDf.AsQueryable<PromoWindow>()
+                    where o.EventTime >= p.StartTime && o.EventTime <= p.EndTime
+                    select new
+                    {
+                        o.OrderId,
+                        o.EventTime,
+                        p.PromoId,
+                        p.Name
+                    };
+
+        var optimizedPlan = query.Explain(optimized: true);
+
+        Assert.Contains("IEJOIN",optimizedPlan);
+
+        var results = query.ToList();
+
+        Assert.Equal(2, results.Count);
+
+        Assert.Equal(1, results[0].OrderId);
+        Assert.Equal(101, results[0].PromoId);
+        Assert.Equal("FlashSale", results[0].Name);
+
+        Assert.Equal(2, results[1].OrderId);
+        Assert.Equal(102, results[1].PromoId);
+        Assert.Equal("WeekendSale", results[1].Name);
+    }
+    [Fact]
+    [Trait("LINQ", "JoinWhere")]
+    public void Test_Linq_CrossJoin_Equi_And_Inequality_Filter()
+    {
+        // 1. Prepare orders with varied OrderId and EventTime
+        // Row 0: Hit Promo 1 (both equi and range match)
+        // Row 1: Hit Promo 2 (both equi and range match)
+        // Row 2: OrderId matches Promo 1, but EventTime is out of range (50 not in [5, 15])
+        // Row 3: EventTime is within Promo 1 range (10 in [5, 15]), but OrderId != PromoId (2 != 1)
+        // Row 4: No matching PromoId exists (3)
+        using var ordersDf = DataFrame.FromColumns([
+            Series.From("OrderId", [1, 2, 1, 2, 3]),
+            Series.From("EventTime", [10, 25, 50, 10, 25]),
+            Series.From("Amount", [100.0, 200.0, 300.0, 250.0, 400.0])
+        ]);
+
+        // 2. Prepare promo windows with PromoId matching OrderId
+        using var promosDf = DataFrame.FromColumns([
+            Series.From("PromoId", [1, 2]),
+            Series.From("StartTime", [5, 20]),
+            Series.From("EndTime", [15, 30]),
+            Series.From("Name", ["FlashSale", "WeekendSale"])
+        ]);
+
+        // 3. Construct mixed query: Equi-join (OrderId == PromoId) combined with range inequalities
+        var query = from o in ordersDf.AsQueryable<OrderEvent>()
+                    from p in promosDf.AsQueryable<PromoWindow>()
+                    where o.OrderId == p.PromoId 
+                    && o.EventTime >= p.StartTime 
+                    && o.EventTime <= p.EndTime
+                    select new
+                    {
+                        o.OrderId,
+                        o.EventTime,
+                        p.PromoId,
+                        p.Name
+                    };
+
+        // 4. Capture and inspect optimized plans
+        var optimizedPlan = query.Explain(optimized: true);
+        Assert.DoesNotContain("CROSS",optimizedPlan);
+
+        // 5. Materialize and assert exact matching results
+        var results = query.ToList();
+
+        Assert.Equal(2, results.Count);
+
+        // First match: OrderId 1 with FlashSale
+        Assert.Equal(1, results[0].OrderId);
+        Assert.Equal(10, results[0].EventTime);
+        Assert.Equal(1, results[0].PromoId);
+        Assert.Equal("FlashSale", results[0].Name);
+
+        // Second match: OrderId 2 with WeekendSale
+        Assert.Equal(2, results[1].OrderId);
+        Assert.Equal(25, results[1].EventTime);
+        Assert.Equal(2, results[1].PromoId);
+        Assert.Equal("WeekendSale", results[1].Name);
     }
 
     [Fact]
