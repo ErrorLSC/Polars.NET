@@ -998,17 +998,35 @@ public static class LinqExtensions
     /// </summary>
     public static double? PctChange<T>(this T column, long n = 1) 
         => throw MarkerExceptionHelper.Throw();
-    public static T Sum<T>(this T column) 
-        => throw MarkerExceptionHelper.Throw();
     public static double Mean<T>(this T column) 
         => throw MarkerExceptionHelper.Throw();
-    public static double Average<T>(this T column) 
+    public static T Sum<T>(this T column) where T : struct
         => throw MarkerExceptionHelper.Throw();
-    public static long Count<T>(this T column)
+    public static T? Sum<T>(this T? column) where T : struct
         => throw MarkerExceptionHelper.Throw();
-    public static T Min<T>(this T column) 
+    public static double Mean<T>(this T? column) where T : struct
         => throw MarkerExceptionHelper.Throw();
-    public static T Max<T>(this T column) 
+    public static double Average<T>(this T column) where T : struct
+        => throw MarkerExceptionHelper.Throw();
+    public static double Average<T>(this T? column) where T : struct
+        => throw MarkerExceptionHelper.Throw();
+    public static int Count<T>(this T column) where T : struct
+        => throw MarkerExceptionHelper.Throw();
+    public static int Count<T>(this T? column) where T : struct
+        => throw MarkerExceptionHelper.Throw();
+    public static int Count(this string? column)
+        => throw MarkerExceptionHelper.Throw();
+    public static T Min<T>(this T column) where T : struct
+        => throw MarkerExceptionHelper.Throw();
+    public static T? Min<T>(this T? column) where T : struct
+        => throw MarkerExceptionHelper.Throw();
+    public static string? Min(this string? column)
+        => throw MarkerExceptionHelper.Throw();
+    public static T Max<T>(this T column) where T : struct
+        => throw MarkerExceptionHelper.Throw();
+    public static T? Max<T>(this T? column) where T : struct
+        => throw MarkerExceptionHelper.Throw();
+    public static string? Max(this string? column)
         => throw MarkerExceptionHelper.Throw();
     /// <summary>
     /// Computes the sample standard deviation (ddof = 1 by default).

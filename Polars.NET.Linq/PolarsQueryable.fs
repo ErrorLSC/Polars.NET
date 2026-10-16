@@ -39,6 +39,29 @@ type private GroupFoldContext = {
     SortStages: (LambdaExpression * bool) list
 }
 
+/// Strongly-typed IGrouping implementation for GroupJoin materialization.
+type internal PolarsGrouping<'TKey, 'TElement>(key: 'TKey, elements: 'TElement array) =
+    // 1. Explicit base interface implementations resolving FS0363 interface diamond collision
+    interface IEnumerable<'TElement> with
+        member _.GetEnumerator() : IEnumerator<'TElement> = (elements :> IEnumerable<'TElement>).GetEnumerator()
+
+    interface IEnumerable with
+        member _.GetEnumerator() : IEnumerator = elements.GetEnumerator()
+
+    // 2. IGrouping specific implementation
+    interface IGrouping<'TKey, 'TElement> with
+        member _.Key = key
+
+    // 3. Collection interfaces for O(1) counting and fast BCL compatibility
+    interface IReadOnlyCollection<'TElement> with
+        member _.Count = elements.Length
+
+    interface System.Collections.ICollection with
+        member _.Count = elements.Length
+        member _.IsSynchronized = false
+        member _.SyncRoot = elements.SyncRoot
+        member _.CopyTo(array, index) = elements.CopyTo(array, index)
+
 /// Represents the diagnostic inspection result of a Polars LINQ query pipeline.
 type PlanInspection = {
     NativePlan: string
@@ -523,18 +546,28 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                 else Single
 
             let isOrDefault = m.Name.EndsWith "OrDefault"
-            let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
             let elemType = PolarsQueryProvider.GetSequenceElementType source.Type
 
-            let predLambdaOpt, defValOpt =
-                match rest with
-                | [ StripQuotes (:? LambdaExpression as p) ] -> Some p, None
-                | [ StripQuotes (:? LambdaExpression as p); defExpr ] -> Some p, tryEvaluate defExpr
-                | [ defExpr ] when not (typeof<LambdaExpression>.IsAssignableFrom(defExpr.Type)) -> None, tryEvaluate defExpr
-                | _ -> None, None
+            // Guard: If sequence element is an IGrouping interface, evaluate via pipeline materializer
+            if elemType.IsGenericType && elemType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>> then
+                let query = (this :> IQueryProvider).CreateQuery(source) :> IEnumerable
+                let castMethod = typeof<Enumerable>.GetMethod("Cast").MakeGenericMethod(elemType)
+                let seq = castMethod.Invoke(null, [| box query |]) :?> IEnumerable<'TResult>
+                match kind with
+                | First -> if isOrDefault then Seq.tryHead seq |> Option.defaultValue (Unchecked.defaultof<'TResult>) else Seq.head seq
+                | Last -> if isOrDefault then Seq.tryLast seq |> Option.defaultValue (Unchecked.defaultof<'TResult>) else Seq.last seq
+                | Single -> if isOrDefault then (if Seq.isEmpty seq then Unchecked.defaultof<'TResult> else Seq.exactlyOne seq) else Seq.exactlyOne seq
+            else
+                let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
+                let predLambdaOpt, defValOpt =
+                    match rest with
+                    | [ StripQuotes (:? LambdaExpression as p) ] -> Some p, None
+                    | [ StripQuotes (:? LambdaExpression as p); defExpr ] -> Some p, tryEvaluate defExpr
+                    | [ defExpr ] when not (typeof<LambdaExpression>.IsAssignableFrom(defExpr.Type)) -> None, tryEvaluate defExpr
+                    | _ -> None, None
 
-            this.ExecuteRowFetch<'TResult>
-                kind isOrDefault defValOpt nativeLf hasClientPreds clientProjOpt elemType predLambdaOpt
+                this.ExecuteRowFetch<'TResult>
+                    kind isOrDefault defValOpt nativeLf hasClientPreds clientProjOpt elemType predLambdaOpt
 
         // =========================================================================
         // 5. Max, Min, Sum, Average with or without selector
@@ -1379,6 +1412,37 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             )
         | _ -> None
 
+    /// Desugars a .NET 11 GroupJoin downstream projection (g => body)
+    /// into a classic 2-parameter result selector ((outer, innerGroup) => body)
+    /// where g.Key maps to 'outer' and 'g' (as IEnumerable) maps to 'innerGroup'.
+    static member private DesugarGroupJoinProject (projLambda: LambdaExpression) (outerType: Type) (innerType: Type) : LambdaExpression =
+        let gParam = projLambda.Parameters.[0]
+        let pOuter = Expression.Parameter(outerType, "outer")
+        let innerSeqType = typedefof<IEnumerable<_>>.MakeGenericType(innerType)
+        let pInnerGroup = Expression.Parameter(innerSeqType, "innerGroup")
+
+        let replacer =
+            { new ExpressionVisitor() with
+                override this.VisitMember(node: MemberExpression) =
+                    // Replace g.Key access with direct outer parameter
+                    match ExprTranslator.unwrap node.Expression with
+                    | :? ParameterExpression as p when p.Name = gParam.Name && node.Member.Name = "Key" ->
+                        pOuter :> Expression
+                    | _ ->
+                        base.VisitMember(node)
+
+                override this.VisitParameter(node: ParameterExpression) =
+                    // Replace group collection references (e.g. g in g.Count()) with innerGroup parameter
+                    if node.Name = gParam.Name then
+                        pInnerGroup :> Expression
+                    else
+                        base.VisitParameter(node)
+            }
+
+        let newBody = replacer.Visit(projLambda.Body)
+        let delegateType = typedefof<Func<_, _, _>>.MakeGenericType(outerType, innerSeqType, projLambda.ReturnType)
+        Expression.Lambda(delegateType, newBody, [| pOuter; pInnerGroup |])
+
     /// Universally extracts column renaming mappings from a two-parameter result selector
     static member private ExtractBinaryResultRenames (resLambda: LambdaExpression) (explodedInfoOpt: (string * string) option) : (string * string) list =
         match resLambda.Body with
@@ -1824,11 +1888,10 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
         (innerExpr: Expression) 
         (outerKey: LambdaExpression) 
         (innerKey: LambdaExpression) : JoinSpec option =
-
         let isRightJoin = methodInfo.Name = "RightJoin"
         let how = 
             match methodInfo.Name with
-            | "RightJoin" | "LeftJoin" -> PlJoinType.Left
+            | "RightJoin" | "LeftJoin" | "GroupJoin" -> PlJoinType.Left
             | "FullJoin" -> PlJoinType.Outer
             | _ -> PlJoinType.Inner
 
@@ -1838,22 +1901,18 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                 let exprs = bindings |> List.choose (fun (_, e) -> ExprTranslator.tryTranslateWithContext ctx e)
                 if exprs.Length = bindings.Length then Some (List.toArray exprs) else None
             | None ->
-                let resOpt = ExprTranslator.tryTranslateWithContext ctx keyLambda.Body
-                resOpt |> Option.map (fun h -> [| h |])
+                ExprTranslator.tryTranslateWithContext ctx keyLambda.Body
+                |> Option.map (fun h -> [| h |])
 
-        let rightLfOpt = PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr
-
-        match rightLfOpt with
+        match PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr with
         | Some rightLf ->
             let outerParam = outerKey.Parameters.[0]
             let innerParam = innerKey.Parameters.[0]
             let leftCtx = PolarsQueryProvider.createContextForType outerParam.Type baseLf outerParam.Name
             let rightCtx = PolarsQueryProvider.createContextForType innerParam.Type rightLf innerParam.Name
 
-            let leftKeysOpt = extractKeyExprs leftCtx outerKey
-            let rightKeysOpt = extractKeyExprs rightCtx innerKey
-
-            match leftKeysOpt, rightKeysOpt with
+            match extractKeyExprs leftCtx outerKey,
+                  extractKeyExprs rightCtx innerKey with
             | Some leftKeys, Some rightKeys when leftKeys.Length = rightKeys.Length ->
                 Some {
                     RightLf = rightLf
@@ -1864,8 +1923,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     InvertSides = isRightJoin
                     Coalesce = PlJoinCoalesce.KeepColumns
                 }
-            | _ -> 
-                None
+            | _ -> None
         | None -> None
 
     /// Compiles a two-parameter Join/LeftJoin result selector into a native Select projection operation
@@ -2214,7 +2272,15 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                                 StripQuotes (:? LambdaExpression as innerKey) :: 
                                 StripQuotes (:? LambdaExpression as resSel) :: _) 
                 when m.Name = "GroupJoin" ->
-                flatten outer (LinqStage.GroupJoin(m, inner, outerKey, innerKey, resSel) :: acc)
+                flatten outer (LinqStage.GroupJoin(m, inner, outerKey, innerKey, Some resSel) :: acc)
+
+            // .NET 11 GroupJoin without resultSelector (4 or 5 args, returning IGrouping<TOuter, TInner>):
+            // (outer, inner, outerKeySelector, innerKeySelector, [comparer])
+            | MethodCall(m, null, outer :: inner :: 
+                                StripQuotes (:? LambdaExpression as outerKey) :: 
+                                StripQuotes (:? LambdaExpression as innerKey) :: _) 
+                when m.Name = "GroupJoin" ->
+                flatten outer (LinqStage.GroupJoin(m, inner, outerKey, innerKey, None) :: acc)
 
             | MethodCall(m, null, [ source; second ]) when m.Name = "Zip" ->
                 flatten source (LinqStage.Zip(second, None) :: acc)
@@ -2702,7 +2768,17 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                     let safePred = PolarsQuery<'T>.CompileClientPredicate l
                     fuse tail opsAcc ((safePred, l) :: clientPreds) clientProjOpt
 
-            | LinqStage.GroupJoin(_, innerExpr, outerKey, innerKey, resSel) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+            // GroupJoin followed immediately by a Project stage: Desugar g.Key and g.Count() into native 2-arg pre-aggregated pipeline
+            | LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, None) :: LinqStage.Project projLambda :: tail 
+                when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+                let outerType = outerKey.Parameters.[0].Type
+                let innerType = innerKey.Parameters.[0].Type
+                let desugaredResSel = PolarsQuery<'T>.DesugarGroupJoinProject projLambda outerType innerType
+                // Re-inject as a standard 5-argument GroupJoin with explicit resultSelector
+                fuse (LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, Some desugaredResSel) :: tail) opsAcc clientPreds clientProjOpt
+
+            // Standard GroupJoin with explicit resultSelector (or desugared from above)
+            | LinqStage.GroupJoin(_, innerExpr, outerKey, innerKey, Some resSel) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 match PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr with
                 | Some rightLf ->
                     let outerParam = outerKey.Parameters.[0]
@@ -2757,6 +2833,14 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                         fuse tail nextOps clientPreds clientProjOpt
                     | _ -> [], [], None, true
                 | None -> [], [], None, true
+
+            // Standalone .NET 11 GroupJoin without resultSelector: compile natively as Left Join
+            | LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, None) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+                match PolarsQuery<'T>.CompileJoin lfCloned m innerExpr outerKey innerKey with
+                | Some spec ->
+                    fuse tail (QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
+                | None ->
+                    [], [], None, true
             
             | LinqStage.TakeLast count :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 let sliceOp = QueryOp.Slice(-int64 count, count)
@@ -3028,14 +3112,12 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
                 let aggByInfoOpt = findAggregateBy expression
 
-                // Case 1: GroupBy materialization (produces IEnumerable<IGrouping<TKey, TElement>>)
+                // Case 1: GroupBy & GroupJoin materialization (produces IEnumerable<IGrouping<TKey, TElement>>)
                 if isGrouping then
                     let genericArgs = targetType.GetGenericArguments()
                     let keyType, elemType = genericArgs.[0], genericArgs.[1]
 
                     let mat = QueryMaterializerResolver.Resolve (Some materializer)
-                    let invoker = LinqReflectionCache.GetMaterializerInvoker elemType
-                    let rawRows = invoker.Invoke(mat, dfHandle)
 
                     let rec findKeySelector (e: Expression) : LambdaExpression option =
                         match e with
@@ -3044,16 +3126,26 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                         | MethodCall(_, null, args) -> args |> List.tryPick findKeySelector
                         | _ -> None
 
-                    let rec findSortDirection (e: Expression) : bool option =
+                    let rec findGroupJoin (e: Expression) =
+                        match e with
+                        | null -> false
+                        | MethodCall(m, null, _) when m.Name = "GroupJoin" -> true
+                        | MethodCall(_, null, args) -> args |> List.exists findGroupJoin
+                        | _ -> false
+
+                    let rec findSortSelector (e: Expression) : (LambdaExpression * bool) option =
                         match e with
                         | null -> None
-                        | MethodCall(m, null, _) when m.Name = "OrderBy" -> Some false
-                        | MethodCall(m, null, _) when m.Name = "OrderByDescending" -> Some true
-                        | MethodCall(_, null, args) -> args |> List.tryPick findSortDirection
+                        | MethodCall(m, null, [ _; CleanLambda l ]) when m.Name = "OrderBy" -> Some (l, false)
+                        | MethodCall(m, null, [ _; CleanLambda l ]) when m.Name = "OrderByDescending" -> Some (l, true)
+                        | MethodCall(_, null, args) -> args |> List.tryPick findSortSelector
                         | _ -> None
 
                     match findKeySelector expression with
                     | Some keyLambda ->
+                        // Standard GroupBy materialization path
+                        let invoker = LinqReflectionCache.GetMaterializerInvoker elemType
+                        let rawRows = invoker.Invoke(mat, dfHandle)
                         let compiledKeySelector = keyLambda.Compile()
                         let groupByMethod = 
                             typeof<Enumerable>.GetMethods()
@@ -3062,14 +3154,78 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
                         let grouped = groupByMethod.Invoke(null, [| box rawRows; box compiledKeySelector |]) :?> IEnumerable<'T>
 
-                        match findSortDirection expression with
-                        | Some false ->
-                            let keyProp = targetType.GetProperty "Key"
-                            grouped |> Seq.sortBy (fun g -> keyProp.GetValue g :?> IComparable)
-                        | Some true ->
-                            let keyProp = targetType.GetProperty "Key"
-                            grouped |> Seq.sortByDescending (fun g -> keyProp.GetValue g :?> IComparable)
+                        match findSortSelector expression with
+                        | Some (sortLambda, false) ->
+                            let compiled = sortLambda.Compile()
+                            grouped |> Seq.sortBy (fun g -> compiled.DynamicInvoke([| box g |]) :?> IComparable)
+                        | Some (sortLambda, true) ->
+                            let compiled = sortLambda.Compile()
+                            grouped |> Seq.sortByDescending (fun g -> compiled.DynamicInvoke([| box g |]) :?> IComparable)
                         | None -> grouped
+
+                    | None when findGroupJoin expression ->
+                        // .NET 11 Standalone GroupJoin materialization:
+                        // keyType = TOuter, elemType = TInner
+                        let innerNullableType =
+                            if elemType.IsValueType then typedefof<Nullable<_>>.MakeGenericType elemType
+                            else elemType
+
+                        let pairType = typedefof<ValueTuple<_, _>>.MakeGenericType(keyType, innerNullableType)
+                        let invoker = LinqReflectionCache.GetMaterializerInvoker pairType
+                        let rawPairs = invoker.Invoke(mat, dfHandle)
+
+                        // Hydrate hierarchical groupings preserving outer sequence encounter order
+                        let keyOrder = Collections.Generic.List<obj>()
+                        let groupMap = Collections.Generic.Dictionary<obj, Collections.Generic.List<obj>>()
+
+                        for pairObj in rawPairs do
+                            let tuple = pairObj :?> System.Runtime.CompilerServices.ITuple
+                            let outerObj = tuple.[0]
+                            let innerObj = tuple.[1]
+
+                            match groupMap.TryGetValue outerObj with
+                            | true, list ->
+                                if not (isNull innerObj) then
+                                    list.Add innerObj
+                            | false, _ ->
+                                let list = Collections.Generic.List<obj>()
+                                if not (isNull innerObj) then
+                                    list.Add innerObj
+                                groupMap.[outerObj] <- list
+                                keyOrder.Add outerObj
+
+                        // Build strongly-typed PolarsGrouping<TOuter, TInner> instances
+                        let groupingType = typedefof<PolarsGrouping<_, _>>.MakeGenericType(keyType, elemType)
+                        let ctor = groupingType.GetConstructors().[0]
+
+                        let toArrayMethod =
+                            typeof<Enumerable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
+                            |> Array.find (fun m -> m.Name = "ToArray" && m.GetParameters().Length = 1)
+                            |> fun m -> m.MakeGenericMethod(elemType)
+
+                        let castMethod =
+                            typeof<Enumerable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
+                            |> Array.find (fun m -> m.Name = "Cast" && m.GetParameters().Length = 1)
+                            |> fun m -> m.MakeGenericMethod(elemType)
+
+                        let resultList = Collections.Generic.List<'T>()
+                        for k in keyOrder do
+                            let rawList = groupMap.[k]
+                            let castedSeq = castMethod.Invoke(null, [| box rawList |])
+                            let typedArray = toArrayMethod.Invoke(null, [| castedSeq |])
+                            let grpInstance = ctor.Invoke([| k; typedArray |]) :?> 'T
+                            resultList.Add grpInstance
+
+                        match findSortSelector expression with
+                        | Some (sortLambda, false) ->
+                            let compiled = sortLambda.Compile()
+                            resultList |> Seq.sortBy (fun g -> compiled.DynamicInvoke([| box g |]) :?> IComparable)
+                        | Some (sortLambda, true) ->
+                            let compiled = sortLambda.Compile()
+                            resultList |> Seq.sortByDescending (fun g -> compiled.DynamicInvoke([| box g |]) :?> IComparable)
+                        | None ->
+                            resultList :> IEnumerable<'T>
+
                     | None ->
                         failwith "Could not locate keySelector for GroupBy pipeline."
 

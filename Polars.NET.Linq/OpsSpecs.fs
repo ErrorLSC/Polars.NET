@@ -110,7 +110,7 @@ type internal LinqStage =
     | GroupByKey of LambdaExpression
     | GroupByWithResult of LambdaExpression * LambdaExpression
     | GroupByWithElementAndResult of keySelector: LambdaExpression * elemSelector: LambdaExpression * resSelector: LambdaExpression
-    | GroupJoin of MethodInfo * Expression * LambdaExpression * LambdaExpression * LambdaExpression
+    | GroupJoin of methodInfo: MethodInfo * inner: Expression * outerKey: LambdaExpression * innerKey: LambdaExpression * resSelOpt: LambdaExpression option
     | Zip of secondExpr: Expression * resultLambdaOpt: LambdaExpression option
     | Zip3 of secondExpr: Expression * thirdExpr: Expression
     | Reverse
