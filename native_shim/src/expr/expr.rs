@@ -1192,7 +1192,8 @@ pub extern "C" fn pl_expr_round(
         let mode = match mode_code {
             0 => RoundMode::HalfAwayFromZero,
             1 => RoundMode::HalfToEven,
-            _ => RoundMode::HalfAwayFromZero
+            2 => RoundMode::ToZero,
+            _ => RoundMode::HalfToEven
         };
         let new_expr = ctx.inner.round(decimals, mode); 
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))

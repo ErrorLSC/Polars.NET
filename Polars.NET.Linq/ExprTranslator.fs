@@ -1262,6 +1262,10 @@ module internal rec ExprTranslator =
 
         if not (isNull effectiveTarget) && m.Name = "Shift" then
             translateShiftMethod ctx effectiveTarget effectiveArgs
+        // Transparently unwrap client-side sequence materialization methods (ToArray, ToList, AsEnumerable)
+        elif (m.Name = "ToArray" || m.Name = "ToList" || m.Name = "AsEnumerable") && 
+             effectiveArgs.IsEmpty && not (isNull effectiveTarget) then
+            tryTranslateWithContext ctx effectiveTarget
 
         elif not (isNull effectiveTarget) && m.Name = "Diff" then
             translateDiffMethod ctx effectiveTarget effectiveArgs
@@ -1284,13 +1288,6 @@ module internal rec ExprTranslator =
         elif not (isNull effectiveTarget) &&
             (m.Name = "CumSum" || m.Name = "CumMax" || m.Name = "CumMin" || m.Name = "CumProd" || m.Name = "CumCount") then
             translateCumulativeMethod ctx m effectiveTarget effectiveArgs
-
-        elif m.Name = "Sum" || m.Name = "Mean" || m.Name = "Average" ||
-             m.Name = "Min" || m.Name = "Max"  || m.Name = "Count"   ||
-             m.Name = "Median" || m.Name = "First" || m.Name = "Last" ||
-             m.Name = "Std" || m.Name = "StdDev" || m.Name = "Var" || m.Name = "Variance" then
-            translateScalarReductionMethod ctx m target args
-
         // 1. String methods (Static & Instance)
         elif m.DeclaringType = typeof<string> || not (isNull target) && target.Type = typeof<string> then
             translateStringMethod ctx m target args
@@ -1303,6 +1300,14 @@ module internal rec ExprTranslator =
         elif isNumericDeclaringType m.DeclaringType && isNull target then
             translateNumericMethod ctx m args
 
+        elif m.Name = "Sum" || m.Name = "Mean" || m.Name = "Average" ||
+             m.Name = "Min" || m.Name = "Max"  || m.Name = "Count"   ||
+             m.Name = "Median" || m.Name = "First" || m.Name = "Last" ||
+             m.Name = "Std" || m.Name = "StdDev" || m.Name = "Var" || m.Name = "Variance" then
+            translateScalarReductionMethod ctx m target args
+
+
+
         // 4. Decimal / Numeric Instance Methods (e.g. d.ToString())
         elif not (isNull target) && target.Type = typeof<decimal> then
             match m.Name, args with
@@ -1314,9 +1319,18 @@ module internal rec ExprTranslator =
                 match tryTranslateWithContext ctx target, tryEvaluate formatExpr with
                 | Some t, Some (:? string as fmt) ->
                     if fmt.StartsWith("F", StringComparison.OrdinalIgnoreCase) then
-                        let precision = fmt.Substring(1)
-                        let rustFmt = sprintf "{:.%sf}" precision
-                        Some (PolarsWrapper.FormatString(rustFmt, [| t |]))
+                        // Safely parse precision, defaulting to 2 decimal places if "F" / "f" has no explicit digits
+                        let scale =
+                            let s = fmt.Substring(1)
+                            match Int32.TryParse(s) with
+                            | true, v -> v
+                            | false, _ -> 2
+
+                        // Two-phase cast: First cast to target scale Decimal (ensures rounding & zero-padding), then cast to String
+                        let decType = PolarsWrapper.NewDecimalType(38, scale)
+                        let decTypeExpr = PolarsWrapper.DataTypeExprFromDataType(decType)
+                        let scaled = PolarsWrapper.ExprCast(t, decTypeExpr, strict = false, wrapNumerical = false)
+                        tryTranslateCast typeof<string> scaled
                     else
                         None
                 | _ -> None

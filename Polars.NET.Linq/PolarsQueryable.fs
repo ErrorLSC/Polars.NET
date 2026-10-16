@@ -1645,15 +1645,30 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                             if cols.Length = 1 then Some cols.[0] else None
                         else None
 
+                // Resolve effective target column expression from element selector or scalar context
+                let targetColExprOpt =
+                    elemExprOpt
+                    |> Option.orElse (scalarColOpt |> Option.map PolarsWrapper.Col)
+
                 let tryTranslateSingleAgg (colName: string) (rawArgExpr: Expression) : ExprHandle option =
                     let argExpr = ExprTranslator.unwrap rawArgExpr
                     
+                    let isGroupParam (e: Expression) =
+                        match ExprTranslator.unwrap e with
+                        | :? ParameterExpression as p -> p.Name = groupParamName
+                        | _ -> false
+
                     let isGroupCountCall (m: MethodInfo) (targetObj: Expression) (callArgs: Expression list) =
                         (m.Name = "Count" || m.Name = "LongCount") &&
                         (
                             isNull targetObj && callArgs.Length = 1 && (match ExprTranslator.unwrap callArgs.Head with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false) ||
                             not (isNull targetObj) && callArgs.IsEmpty && match ExprTranslator.unwrap targetObj with :? ParameterExpression as p -> p.Name = groupParamName | _ -> false
                         )
+                    
+                    // Helper identifying direct scalar reductions on group parameter: e.g. salaries.Sum(), salaries.Average()
+                    let isGroupReductionCall (m: MethodInfo) (targetObj: Expression) (callArgs: Expression list) =
+                        isNull targetObj && callArgs.Length = 1 && isGroupParam callArgs.Head ||
+                        not (isNull targetObj) && callArgs.IsEmpty && isGroupParam targetObj
 
                     let tryMatchNestedListAgg (e: Expression) =
                         match e with
@@ -1675,6 +1690,12 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                             else
                                 PolarsWrapper.Len()
                         Some (PolarsWrapper.Alias(core, colName))
+
+                    // Direct scalar reductions without lambda selector: ids.Min(), ids.Max(), salaries.Sum(), etc.
+                    | MethodCall(m, target, callArgs) when isGroupReductionCall m target callArgs && targetColExprOpt.IsSome ->
+                        let clonedColExpr = PolarsWrapper.CloneExpr targetColExprOpt.Value
+                        ExprTranslator.translateReductionOp m.Name clonedColExpr
+                        |> Option.map (fun core -> PolarsWrapper.Alias(core, colName))
 
                     | _ when (tryMatchNestedListAgg argExpr).IsSome ->
                         let selLambda = (tryMatchNestedListAgg argExpr).Value
@@ -1777,6 +1798,21 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
                         QueryOp.Select orderedColExprs
 
                     Some (finalSelectOp :: sortOps @ havingFilterOps @ [ groupByOp ])
+
+    /// Recursively inspects the expression tree to detect if Shuffle() was called.
+    static member private HasShuffle (e: Expression) : bool =
+        let rec check expr =
+            match expr with
+            | null -> false
+            | MethodCall(m, null, _) when m.Name = "Shuffle" -> true
+            | MethodCall(_, null, args) -> args |> List.exists check
+            | _ -> false
+        check e
+
+    /// Applies eager row shuffling (sample_frac = 1.0, without replacement) to a DataFrame.
+    static member private ApplyShuffle (df: DataFrameHandle) : DataFrameHandle =
+        let fracHandle = PolarsWrapper.SeriesNew("", [| 1.0 |])
+        PolarsWrapper.SampleFrac(df, fracHandle, false, Nullable true, Nullable())
 
     static member private TryTranslateSelectArg (ctx: TranslationContext) (argExpr: Expression) : ExprHandle option =
         match ExprTranslator.tryTranslateWithContext ctx argExpr with
@@ -3047,23 +3083,12 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             let targetType = typeof<'T>
             let isGrouping = targetType.IsGenericType && targetType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
 
-            let rec hasShuffle (e: Expression) : bool =
-                match e with
-                | null -> false
-                | MethodCall(m, null, _) when m.Name = "Shuffle" -> true
-                | MethodCall(_, null, args) -> args |> List.exists hasShuffle
-                | _ -> false
-
-            let shouldShuffle = hasShuffle expression
-
-            let applyShuffleIfNeeded (df: DataFrameHandle) : DataFrameHandle =
+            let shouldShuffle = PolarsQuery<'T>.HasShuffle expression
+            let dfHandle =
                 if shouldShuffle then
-                    let fracHandle = PolarsWrapper.SeriesNew("", [| 1.0 |])
-                    PolarsWrapper.SampleFrac(df, fracHandle, false, Nullable true, Nullable())
+                    PolarsQuery<'T>.ApplyShuffle collectedDf
                 else
-                    df
-
-            let dfHandle = applyShuffleIfNeeded collectedDf
+                    collectedDf
 
             // Branch 0: Client-side UDF Projection Fallback
             match clientProjOpt with
@@ -3337,12 +3362,17 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
         let schema = PolarsWrapper.GetLazySchema nativeLf
         let width = PolarsWrapper.GetSchemaLen schema
         let isScalar = PolarsTypeHelper.IsScalarType typeof<'T> || typeof<'T> = typeof<string>
+        let shouldShuffle = PolarsQuery<'T>.HasShuffle expression
 
         let canDirectlyCollectNative = 
             not requiresClientFallback && clientPredicates.IsEmpty && clientProjOpt.IsNone && not (isScalar && width > 1UL)
 
         if canDirectlyCollectNative then
-            PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
+            let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
+            if shouldShuffle then
+                PolarsQuery<'T>.ApplyShuffle collectedDf
+            else
+                collectedDf
         else
             let rows = this.ExecuteQuery()
             DataFrameBuilder.FromRows<'T>(rows)
@@ -3377,12 +3407,19 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
         let ops, clientPreds, clientProjOpt, requiresClientFallback = this.CompilePipeline()
         let nativeLf = PolarsQuery<'T>.ApplyNativeOps lfCloned ops
         let planStr = PolarsWrapper.Explain(nativeLf, optimized)
+        let shouldShuffle = PolarsQuery<'T>.HasShuffle expression
+
+        let planWithShuffle =
+            if shouldShuffle then
+                planStr + "\n[Eager Post-Processing]: Shuffle(fraction = 1.0, with_replacement = false)"
+            else
+                planStr
 
         {
-            NativePlan = planStr
+            NativePlan = planWithShuffle
             HasClientPredicates = not clientPreds.IsEmpty
             ClientPredicateExpressions = clientPreds |> List.map snd
-            HasClientProjection = clientProjOpt.IsSome
+            HasClientProjection = clientProjOpt.IsSome || shouldShuffle
             IsFullFallback = requiresClientFallback
         }
 
@@ -3401,13 +3438,6 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
             let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback = this.GetCompiledPlan()
             let targetType = typeof<'T>
             let isGrouping = targetType.IsGenericType && targetType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
-
-            let rec hasShuffle (e: Expression) : bool =
-                match e with
-                | null -> false
-                | MethodCall(m, null, _) when m.Name = "Shuffle" -> true
-                | MethodCall(_, null, args) -> args |> List.exists hasShuffle
-                | _ -> false
 
             let rec findChunkSize (e: Expression) : int option =
                 match e with
@@ -3438,7 +3468,7 @@ and PolarsQuery<'T> internal (lazyFrameHandle: LazyFrameHandle, materializer: ID
 
             let canStreamBatches =
                 not requiresClientFallback &&
-                not (hasShuffle expression) &&
+                not (PolarsQuery<'T>.HasShuffle expression) &&
                 not isGrouping &&
                 not (findDefaultIfEmpty expression) &&
                 (findChunkSize expression).IsNone &&

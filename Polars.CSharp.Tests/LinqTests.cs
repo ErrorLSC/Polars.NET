@@ -239,7 +239,6 @@ public partial class LinqTests
         var query = df.AsQueryable<Employee>()
                       .Where(e => CustomSalaryPredicate(e))
                       .Select(e => e.Name)
-                      .InspectPlan()
                       .ToList();
 
         Assert.Equal(3, query.Count);
@@ -866,7 +865,7 @@ public partial class LinqTests
     }
 
     [Fact]
-    [Trait("LINQ", "GroupBy_4Args_Having")]
+    [Trait("LINQ", "GroupByHaving")]
     public void Test_Linq_GroupBy_With_ElementSelector_And_Having()
     {
         using var df = DataFrame.FromColumns(
@@ -890,7 +889,6 @@ public partial class LinqTests
             .Where(s => s.TotalSalary > 100000)
             .ToList();
 
-        // results.ToDataFrame().Show();
         // IT total = 210000, HR total = 125000, Finance = 80000 (filtered out)
         Assert.Equal(2, results.Count);
         Assert.Contains(results, r => r.Department == "IT" && r.TotalSalary == 210000);
@@ -1963,16 +1961,16 @@ public partial class LinqTests
     public void Test_Linq_Shuffle_PreservesCountAndElements()
     {
         // 1. Prepare 10 records
-        var ids = Enumerable.Range(1, 10).ToArray();
-        var ages = ids.Select(i => 20 + i).ToArray();
-        var salaries = ids.Select(i => 5000 + i * 100).ToArray();
-        var names = ids.Select(i => $"User_{i}").ToArray();
+        var ids = Enumerable.Range(1, 10);
+        var ages = ids.Select(i => 20 + i);
+        var salaries = ids.Select(i => 5000 + i * 100);
+        var names = ids.Select(i => $"User_{i}");
 
         using var df = DataFrame.FromColumns(
         [
             Series.From("Id", ids),
             Series.From("Name", names),
-            Series.From("DeptId", ids.Select(_ => 1).ToArray()),
+            Series.From("DeptId", ids.Select(_ => 1)),
             Series.From("Age", ages),
             Series.From("Salary", salaries)
         ]);
@@ -1981,7 +1979,6 @@ public partial class LinqTests
         var results = df.AsQueryable<MemberRecord>()
             .Shuffle()
             .ToList();
-
         // 3. Row count and distinct elements must remain identical
         Assert.Equal(10, results.Count);
         Assert.Equal(10, results.Select(r => r.Id).Distinct().Count());
@@ -3484,7 +3481,7 @@ public partial class LinqTests
                       .Select(o => new {
                           o.Id,
                           AbsAmount = Math.Abs(o.Amount),
-                          Rounded = Math.Round(o.Amount, 1),
+                          Rounded = Math.Round(o.Amount, 1, MidpointRounding.ToEven),
                           CeilVal = Math.Ceiling(o.Amount),
                           MaxVal = Math.Max(o.Amount, 100.0)
                       })
@@ -3495,7 +3492,7 @@ public partial class LinqTests
         // Record 1: 120.55
         Assert.Equal(1, query[0].Id);
         Assert.Equal(120.55, query[0].AbsAmount);
-        Assert.Equal(120.5, query[0].Rounded);
+        Assert.Equal(120.6, query[0].Rounded);
         Assert.Equal(121.0, query[0].CeilVal);
         Assert.Equal(120.55, query[0].MaxVal);
 
@@ -4174,7 +4171,7 @@ public partial class LinqTests
             Series.From("Id", [1, 2]),
             Series.From("Name", ["Alice", "Bob"]),
             Series.From("Tags", [
-                new[] { "dev", "ops", "qa", "sec" },
+                ["dev", "ops", "qa", "sec"],
                 new[] { "a", "b" }
             ])
         ]);

@@ -332,7 +332,8 @@ module internal ExpressionPatterns =
         // 2. Instance / Source-Generated Regex calls: rx.IsMatch, rx.Replace, rx.Match
         // ---------------------------------------------------------------------
         | MethodCall(m, rxExpr, [ target ]) 
-            when not (isNull rxExpr) && typeof<Regex>.IsAssignableFrom(rxExpr.Type) ->
+            when not (isNull rxExpr) && typeof<Regex>.IsAssignableFrom(rxExpr.Type) && 
+                 (m.Name = "IsMatch" || m.Name = "Match") ->
             match tryEvaluate rxExpr with
             | Some (:? Regex as rx) ->
                 let pat = rx.ToString()
