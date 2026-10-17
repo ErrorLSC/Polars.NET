@@ -9,29 +9,36 @@ open Polars.NET.Core
 [<RequireQualifiedAccess>]
 type GroupByType =
     | Standard of maintainOrder: bool
-    | Dynamic of 
-        indexColumn: string * every: string * period: string * offset: string * label: Label * includeBoundaries: bool * closedInterval: ClosedInterval * startBy: StartBy
-    | Rolling of 
-        indexColumn: string * period: string * offset: string * closedInterval: ClosedInterval
+    | Dynamic of
+        indexColumn: string *
+        every: string *
+        period: string *
+        offset: string *
+        label: Label *
+        includeBoundaries: bool *
+        closedInterval: ClosedInterval *
+        startBy: StartBy
+    | Rolling of indexColumn: string * period: string * offset: string * closedInterval: ClosedInterval
 
 /// <summary>
 /// A unified builder for Standard, Dynamic, and Rolling GroupBy operations.
 /// Holds the LazyFrame handle (ownership transferred to this builder) and grouping keys.
 /// </summary>
 [<Sealed>]
-type LazyGroupBy (lfHandle: LazyFrameHandle, groupByType: GroupByType, keys: Expr[]) =
-    
+type LazyGroupBy(lfHandle: LazyFrameHandle, groupByType: GroupByType, keys: Expr[]) =
+
     let mutable disposed = false
     let mutable havingExpr: Expr option = None
-    
-    let ownedKeyHandles = 
-        keys |> Array.map (fun k -> PolarsWrapper.CloneExpr k.Handle)
+
+    let ownedKeyHandles = keys |> Array.map (fun k -> PolarsWrapper.CloneExpr k.Handle)
 
     member this.Dispose() =
         if not disposed then
-            ownedKeyHandles 
-            |> Array.iter (fun h -> if not h.IsInvalid then h.Dispose())
-            
+            ownedKeyHandles
+            |> Array.iter (fun h ->
+                if not h.IsInvalid then
+                    h.Dispose())
+
             disposed <- true
             GC.SuppressFinalize(this)
 
@@ -41,55 +48,71 @@ type LazyGroupBy (lfHandle: LazyFrameHandle, groupByType: GroupByType, keys: Exp
     // --------------------------------------------------------
     // Builder Core Methods
     // --------------------------------------------------------
-    
+
     /// <summary>
     /// Filter groups with a list of predicates after aggregation.
     /// Using this method is equivalent to adding the predicates to the aggregation and filtering afterwards.
     /// </summary>
     member this.Having(predicate: Expr) : LazyGroupBy =
         havingExpr <- Some predicate
-        this 
+        this
 
     /// <summary>
     /// Apply aggregations to the group.
     /// Routes the operation to the appropriate PolarsWrapper native call based on GroupByType.
     /// </summary>
     member this.Agg(aggs: seq<Expr>) : LazyFrame =
-        if disposed then raise (ObjectDisposedException "LazyGroupBy")
+        if disposed then
+            raise (ObjectDisposedException "LazyGroupBy")
 
         let aggArray = Seq.toArray aggs
         let aggHandles = aggArray |> Array.map (fun a -> PolarsWrapper.CloneExpr a.Handle)
         let keysForRust = ownedKeyHandles |> Array.map (fun k -> PolarsWrapper.CloneExpr k)
 
-        let havingHandle = 
+        let havingHandle =
             match havingExpr with
             | Some expr -> PolarsWrapper.CloneExpr(expr.Handle)
             | None -> null
-            
+
         // Clone the original lazy frame handle for the native call just like C# wrapper does
         let clonedLf = PolarsWrapper.LazyClone(lfHandle)
 
-        let resHandle = 
+        let resHandle =
             match groupByType with
             | GroupByType.Standard maintainOrder ->
-                PolarsWrapper.LazyGroupByAgg(
-                    clonedLf, keysForRust, aggHandles, havingHandle, maintainOrder)
-                    
-            | GroupByType.Dynamic (indexCol, every, period, offset, label, incBoundaries, closedInt, startBy) ->
+                PolarsWrapper.LazyGroupByAgg(clonedLf, keysForRust, aggHandles, havingHandle, maintainOrder)
+
+            | GroupByType.Dynamic(indexCol, every, period, offset, label, incBoundaries, closedInt, startBy) ->
                 PolarsWrapper.LazyGroupByDynamic(
-                    clonedLf, indexCol, every, period, offset, 
-                    label.ToNative(), incBoundaries, closedInt.ToNative(), startBy.ToNative(), 
-                    keysForRust, aggHandles, havingHandle)
-                    
-            | GroupByType.Rolling (indexCol, period, offset, closedInt) ->
+                    clonedLf,
+                    indexCol,
+                    every,
+                    period,
+                    offset,
+                    label.ToNative(),
+                    incBoundaries,
+                    closedInt.ToNative(),
+                    startBy.ToNative(),
+                    keysForRust,
+                    aggHandles,
+                    havingHandle
+                )
+
+            | GroupByType.Rolling(indexCol, period, offset, closedInt) ->
                 PolarsWrapper.LazyGroupByRolling(
-                    clonedLf, indexCol, period, offset, closedInt.ToNative(), 
-                    keysForRust, aggHandles, havingHandle)
+                    clonedLf,
+                    indexCol,
+                    period,
+                    offset,
+                    closedInt.ToNative(),
+                    keysForRust,
+                    aggHandles,
+                    havingHandle
+                )
 
         new LazyFrame(resHandle)
 
-    member this.Agg([<ParamArray>] aggs: Expr[]) : LazyFrame =
-        this.Agg(aggs :> seq<Expr>)
+    member this.Agg([<ParamArray>] aggs: Expr[]) : LazyFrame = this.Agg(aggs :> seq<Expr>)
 
     // --------------------------------------------------------
     // Syntactic Sugar
@@ -113,22 +136,22 @@ type LazyGroupBy (lfHandle: LazyFrameHandle, groupByType: GroupByType, keys: Exp
 
     // Helper to get excluded key names for Explode in Head/Tail
     member private this.GetExcludedKeyNames() =
-        let baseKeys = 
-            keys 
-            |> Array.choose (fun expr -> 
+        let baseKeys =
+            keys
+            |> Array.choose (fun expr ->
                 match expr.Meta.OutputName() with
-                | null | "" -> None
-                | name -> Some name
-            )
+                | null
+                | "" -> None
+                | name -> Some name)
             |> Array.toList
-            
+
         // If it's a Dynamic or Rolling GroupBy, we must also exclude the indexColumn
         let allKeys =
             match groupByType with
-            | GroupByType.Dynamic (indexCol, _, _, _, _, _, _, _) -> indexCol :: baseKeys
-            | GroupByType.Rolling (indexCol, _, _, _) -> indexCol :: baseKeys
+            | GroupByType.Dynamic(indexCol, _, _, _, _, _, _, _) -> indexCol :: baseKeys
+            | GroupByType.Rolling(indexCol, _, _, _) -> indexCol :: baseKeys
             | GroupByType.Standard _ -> baseKeys
-            
+
         allKeys |> List.toArray
 
     /// <summary> Get the first n rows of each group. </summary>
@@ -177,13 +200,12 @@ type LazyGroupBy (lfHandle: LazyFrameHandle, groupByType: GroupByType, keys: Exp
 /// Intermediate builder for eager GroupBy operations.
 /// Under the hood, this routes through the Lazy engine to maximize performance.
 /// </summary>
-type GroupBy (df: DataFrame, groupByType: GroupByType, keys: Expr[]) =
+type GroupBy(df: DataFrame, groupByType: GroupByType, keys: Expr[]) =
 
     let mutable disposed = false
     let mutable havingExpr: Expr option = None
 
-    let ownedKeyHandles = 
-        keys |> Array.map (fun k -> PolarsWrapper.CloneExpr(k.Handle))
+    let ownedKeyHandles = keys |> Array.map (fun k -> PolarsWrapper.CloneExpr(k.Handle))
 
     /// <summary> Filter groups with a predicate after aggregation. </summary>
     member this.Having(predicate: Expr) =
@@ -192,9 +214,11 @@ type GroupBy (df: DataFrame, groupByType: GroupByType, keys: Expr[]) =
 
     member this.Dispose() =
         if not disposed then
-            ownedKeyHandles 
-            |> Array.iter (fun h -> if not h.IsInvalid then h.Dispose())
-            
+            ownedKeyHandles
+            |> Array.iter (fun h ->
+                if not h.IsInvalid then
+                    h.Dispose())
+
             disposed <- true
             GC.SuppressFinalize(this)
 
@@ -202,76 +226,129 @@ type GroupBy (df: DataFrame, groupByType: GroupByType, keys: Expr[]) =
         member this.Dispose() = this.Dispose()
 
     member this.Agg(aggs: seq<Expr>) : DataFrame =
-        if disposed then raise (ObjectDisposedException "GroupBy Builder")
+        if disposed then
+            raise (ObjectDisposedException "GroupBy Builder")
 
-        let safeKeys = ownedKeyHandles |> Array.map (fun h -> new Expr(PolarsWrapper.CloneExpr h))
-        
+        let safeKeys =
+            ownedKeyHandles |> Array.map (fun h -> new Expr(PolarsWrapper.CloneExpr h))
+
         // Key feature: Route the eager GroupByType to the lazy engine builder
         use lazyBuilder = new LazyGroupBy(df.Lazy().CloneHandle(), groupByType, safeKeys)
-        
-        let finalBuilder = 
+
+        let finalBuilder =
             match havingExpr with
             | Some h -> lazyBuilder.Having(h)
             | None -> lazyBuilder
-            
+
         use lazyResult = finalBuilder.Agg aggs
-        
+
         safeKeys |> Array.iter (fun k -> (k :> IDisposable).Dispose())
 
         lazyResult.Collect()
 
-    member this.Agg([<ParamArray>] aggs: Expr[]) : DataFrame =
-        this.Agg(aggs :> seq<Expr>)
+    /// <summary>
+    /// Aggregate columns using the provided expressions.
+    /// </summary>
+    member this.Agg([<ParamArray>] aggs: Expr[]) : DataFrame = this.Agg(aggs :> seq<Expr>)
 
-    // --- Syntactic Sugar for Eager GroupBy ---
+    /// <summary>
+    /// Count the number of rows in each group.
+    /// </summary>
     member this.Count() = this.Agg [ Expr.All().Count() ]
+
+    /// <summary>
+    /// Get all columns as lists.
+    /// </summary>
     member this.All() = this.Agg [ Expr.All() ]
-    
+
+    /// <summary>
+    /// Get the first value in each group.
+    /// </summary>
     member this.First(?ignoreNulls: bool) =
         let ig = defaultArg ignoreNulls false
         this.Agg [ Expr.All().First ig ]
-        
+
+    /// <summary>
+    /// Get the last value in each group.
+    /// </summary>
     member this.Last(?ignoreNulls: bool) =
         let ig = defaultArg ignoreNulls false
         this.Agg [ Expr.All().Last ig ]
-        
+
+    /// <summary>
+    /// Get the length of each group.
+    /// </summary>
     member this.Len(?name: string) =
         let colName = defaultArg name "len"
         this.Agg [ Expr.Len().Alias colName ]
 
+    /// <summary>
+    /// Get the maximum value in each group.
+    /// </summary>
     member this.Max() = this.Agg [ Expr.All().Max() ]
+
+    /// <summary>
+    /// Get the minimum value in each group.
+    /// </summary>
     member this.Min() = this.Agg [ Expr.All().Min() ]
+
+    /// <summary>
+    /// Get the median value in each group.
+    /// </summary>
     member this.Median() = this.Agg [ Expr.All().Median() ]
+
+    /// <summary>
+    /// Get the mean value in each group.
+    /// </summary>
     member this.Mean() = this.Agg [ Expr.All().Mean() ]
+
+    /// <summary>
+    /// Count the number of unique values in each group.
+    /// </summary>
     member this.NUnique() = this.Agg [ Expr.All().NUnique() ]
+
+    /// <summary>
+    /// Get the sum of values in each group.
+    /// </summary>
     member this.Sum() = this.Agg [ Expr.All().Sum() ]
 
+    /// <summary>
+    /// Get the quantile value in each group.
+    /// </summary>
     member this.Quantile(quantile: float, ?interpolation: QuantileMethod) =
         let interp = defaultArg interpolation QuantileMethod.Linear
         this.Agg [ Expr.All().Quantile(quantile, interp) ]
 
     member private this.GetExcludedKeyNames() =
-        let baseKeys = 
-            keys |> Array.choose (fun expr -> 
+        let baseKeys =
+            keys
+            |> Array.choose (fun expr ->
                 match expr.Meta.OutputName() with
-                | null | "" -> None
-                | name -> Some name
-            ) |> Array.toList
-            
+                | null
+                | "" -> None
+                | name -> Some name)
+            |> Array.toList
+
         let allKeys =
             match groupByType with
-            | GroupByType.Dynamic (indexCol, _, _, _, _, _, _, _) -> indexCol :: baseKeys
-            | GroupByType.Rolling (indexCol, _, _, _) -> indexCol :: baseKeys
+            | GroupByType.Dynamic(indexCol, _, _, _, _, _, _, _) -> indexCol :: baseKeys
+            | GroupByType.Rolling(indexCol, _, _, _) -> indexCol :: baseKeys
             | GroupByType.Standard _ -> baseKeys
-            
+
         allKeys |> List.toArray
 
+    /// <summary>
+    /// Get the first n rows of each group.
+    /// </summary>
     member this.Head(?n: int) =
         let count = defaultArg n 10
         let aggregatedDf = this.Agg [ Expr.All().Head count ]
         let keyNames = this.GetExcludedKeyNames()
         aggregatedDf.Explode(Expr.All().ToSelector().Exclude keyNames)
 
+    /// <summary>
+    /// Get the last n rows of each group.
+    /// </summary>
     member this.Tail(?n: int) =
         let count = defaultArg n 10
         let aggregatedDf = this.Agg [ Expr.All().Tail count ]
@@ -289,23 +366,25 @@ module LazyGroupByExtensions =
             new LazyGroupBy(this.CloneHandle(), GroupByType.Standard maintain, kExprs)
 
         /// <summary> Start a dynamic group-by (rolling window) operation. Returns a Builder. </summary>
-        member this.GroupByDynamic(
-            indexCol: string,
-            every: Dur,
-            ?period: Dur,
-            ?offset: Dur,
-            ?by: seq<#IColumnExpr>, 
-            ?label: Label,
-            ?includeBoundaries: bool,
-            ?closedWindow: ClosedInterval,
-            ?startBy: StartBy
-        ) : LazyGroupBy =
+        member this.GroupByDynamic
+            (
+                indexCol: string,
+                every: Dur,
+                ?period: Dur,
+                ?offset: Dur,
+                ?by: seq<#IColumnExpr>,
+                ?label: Label,
+                ?includeBoundaries: bool,
+                ?closedWindow: ClosedInterval,
+                ?startBy: StartBy
+            ) : LazyGroupBy =
             let periodVal = defaultArg period every
             let labelVal = defaultArg label Label.Left
             let includeBoundariesVal = defaultArg includeBoundaries false
             let closedWindowVal = defaultArg closedWindow ClosedInterval.Left
             let startByVal = defaultArg startBy StartBy.WindowBound
-            let offsetVal = 
+
+            let offsetVal =
                 match offset with
                 | Some o -> Dur.consume o
                 | None -> Dur.consume (Dur.TimeSpan TimeSpan.Zero)
@@ -313,30 +392,39 @@ module LazyGroupByExtensions =
             let everyStr = Dur.consume every
             let periodStr = Dur.consume periodVal
 
-            let keyExprs = 
+            let keyExprs =
                 match by with
                 | Some cols -> cols |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toArray
                 | None -> [||]
 
-            let dynType = GroupByType.Dynamic(indexCol, everyStr, periodStr, offsetVal, labelVal, includeBoundariesVal, closedWindowVal, startByVal)
+            let dynType =
+                GroupByType.Dynamic(
+                    indexCol,
+                    everyStr,
+                    periodStr,
+                    offsetVal,
+                    labelVal,
+                    includeBoundariesVal,
+                    closedWindowVal,
+                    startByVal
+                )
+
             new LazyGroupBy(this.CloneHandle(), dynType, keyExprs)
+
         /// <summary> Start a rolling group-by operation. Returns a Builder. </summary>
-        member this.GroupByRolling(
-            indexCol: string,
-            period: Dur,
-            ?offset: Dur,
-            ?by: seq<#IColumnExpr>, 
-            ?closedWindow: ClosedInterval
-        ) : LazyGroupBy =
-            let offsetVal = 
+        member this.GroupByRolling
+            (indexCol: string, period: Dur, ?offset: Dur, ?by: seq<#IColumnExpr>, ?closedWindow: ClosedInterval)
+            : LazyGroupBy =
+            let offsetVal =
                 match offset with
                 | Some o -> Dur.consume o
                 | None -> Dur.consume (Dur.TimeSpan TimeSpan.Zero)
+
             let closedWindowVal = defaultArg closedWindow ClosedInterval.Left
 
             let periodStr = Dur.consume period
 
-            let keyExprs = 
+            let keyExprs =
                 match by with
                 | Some cols -> cols |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toArray
                 | None -> [||]
@@ -357,22 +445,25 @@ module DataFrameGroupByExtensions =
             new GroupBy(this, GroupByType.Standard maintain, kExprs)
 
         /// <summary> Start a dynamic group-by operation. Returns a Builder. </summary>
-        member this.GroupByDynamic(
-            indexCol: string,
-            every: Dur,
-            ?period: Dur,
-            ?offset: Dur,
-            ?by: seq<#IColumnExpr>, 
-            ?label: Label,
-            ?includeBoundaries: bool,
-            ?closedWindow: ClosedInterval,
-            ?startBy: StartBy
-        ) : GroupBy =
+        member this.GroupByDynamic
+            (
+                indexCol: string,
+                every: Dur,
+                ?period: Dur,
+                ?offset: Dur,
+                ?by: seq<#IColumnExpr>,
+                ?label: Label,
+                ?includeBoundaries: bool,
+                ?closedWindow: ClosedInterval,
+                ?startBy: StartBy
+            ) : GroupBy =
             let periodVal = defaultArg period every
-            let offsetVal = 
+
+            let offsetVal =
                 match offset with
                 | Some o -> Dur.consume o
                 | None -> Dur.consume (Dur.TimeSpan TimeSpan.Zero)
+
             let labelVal = defaultArg label Label.Left
             let includeBoundariesVal = defaultArg includeBoundaries false
             let closedWindowVal = defaultArg closedWindow ClosedInterval.Left
@@ -381,30 +472,39 @@ module DataFrameGroupByExtensions =
             let everyStr = Dur.consume every
             let periodStr = Dur.consume periodVal
 
-            let keyExprs = 
+            let keyExprs =
                 match by with
                 | Some cols -> cols |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toArray
                 | None -> [||]
 
-            let dynType = GroupByType.Dynamic(indexCol, everyStr, periodStr, offsetVal, labelVal, includeBoundariesVal, closedWindowVal, startByVal)
+            let dynType =
+                GroupByType.Dynamic(
+                    indexCol,
+                    everyStr,
+                    periodStr,
+                    offsetVal,
+                    labelVal,
+                    includeBoundariesVal,
+                    closedWindowVal,
+                    startByVal
+                )
+
             new GroupBy(this, dynType, keyExprs)
+
         /// <summary> Start a rolling group-by operation. Returns a Builder. </summary>
-        member this.GroupByRolling(
-            indexCol: string,
-            period: Dur,
-            ?offset: Dur,
-            ?by: seq<#IColumnExpr>, 
-            ?closedWindow: ClosedInterval
-        ) : GroupBy =
-            let offsetVal = 
+        member this.GroupByRolling
+            (indexCol: string, period: Dur, ?offset: Dur, ?by: seq<#IColumnExpr>, ?closedWindow: ClosedInterval)
+            : GroupBy =
+            let offsetVal =
                 match offset with
                 | Some o -> Dur.consume o
                 | None -> Dur.consume (Dur.TimeSpan TimeSpan.Zero)
+
             let closedWindowVal = defaultArg closedWindow ClosedInterval.Left
 
             let periodStr = Dur.consume period
 
-            let keyExprs = 
+            let keyExprs =
                 match by with
                 | Some cols -> cols |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toArray
                 | None -> [||]

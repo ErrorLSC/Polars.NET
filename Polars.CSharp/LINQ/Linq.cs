@@ -1,4 +1,3 @@
-#pragma warning disable CS1591
 using Polars.NET.Core;
 using Polars.NET.Linq;
 using System.Linq.Expressions;
@@ -13,7 +12,7 @@ namespace Polars.CSharp.Linq;
 /// <summary>
 /// Bridges Polars.NET.Core DataFrameHandle to the strongly-typed zero-allocation C# Row Cursor.
 /// </summary>
-public sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
+internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 {
     public static readonly CSharpRowCursorMaterializer Instance = new();
 
@@ -704,16 +703,26 @@ public static class LinqExtensions
 
         var dfHandle = DataFrameBuilder.FromRows(rows);
         return new(dfHandle);
-    }
+    }    
+    /// <inheritdoc cref="System.Linq.Enumerable.ToLookup{TSource, TKey}(IEnumerable{TSource}, Func{TSource, TKey}, IEqualityComparer{TKey})"/>
     public static PolarsLookup<TKey, TSource> ToLookup<TSource, TKey>(
         this IQueryable<TSource> source,
         Expression<Func<TSource, TKey>> keySelector,
         IEqualityComparer<TKey>? comparer = null)
         where TKey : notnull
-    {
-        return source.ToLookup(keySelector, e => e, comparer);
-    }
-
+        => source.ToLookup(keySelector, e => e, comparer);
+    
+    /// <summary>
+    /// Converts a queryable sequence into a PolarsLookup, grouping elements by a specified key selector and selecting elements with a specified selector.
+    /// </summary>
+    /// <typeparam name="TSource">The type of the source elements.</typeparam>
+    /// <typeparam name="TKey">The type of the key.</typeparam>
+    /// <typeparam name="TElement">The type of the element.</typeparam>
+    /// <param name="source">The queryable sequence to convert.</param>
+    /// <param name="keySelector">The function to extract the key from each element.</param>
+    /// <param name="elementSelector">The function to extract the element from each element.</param>
+    /// <param name="comparer">The equality comparer to use for the keys.</param>
+    /// <returns>The resulting PolarsLookup.</returns>
     public static PolarsLookup<TKey, TElement> ToLookup<TSource, TKey, TElement>(
         this IQueryable<TSource> source,
         Expression<Func<TSource, TKey>> keySelector,
@@ -928,32 +937,51 @@ public static class LinqExtensions
         inspector(source.Explain(optimized));
         return source;
     }
-
-    // =========================================================================
-    // Shift
-    // =========================================================================
+    /// <summary>
+    /// Shifts the values in a column by a specified offset, introducing nulls for the shifted positions.
+    /// </summary>
+    /// <typeparam name="T">The type of the column.</typeparam>
+    /// <param name="column">The column to shift.</param>
+    /// <param name="offset">The offset by which to shift the values.</param>
+    /// <returns>The shifted column.</returns>
     public static T Shift<T>(this T column, long offset) 
         => throw MarkerExceptionHelper.Throw();
+    /// <inheritdoc cref="Shift{T}(T,long)"/>
     public static T Shift<T, TOffset>(this T column, TOffset offsetColumn) 
         => throw MarkerExceptionHelper.Throw();
-
-    // =========================================================================
-    // Diff
-    // =========================================================================
+    /// <inheritdoc cref="Diff{T}(T,long,NullBehavior)"/>
     public static T Diff<T>(this T column) 
         => throw MarkerExceptionHelper.Throw();
+    /// <inheritdoc cref="Diff{T}(T,long,NullBehavior)"/>
     public static T Diff<T>(this T column, long n) 
         => throw MarkerExceptionHelper.Throw();
+    /// <summary>
+    /// Computes the difference between the current value and the value n periods ago, with a specified null behavior.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="column">The column to compute differences for.</param>
+    /// <param name="n">The number of periods to look back.</param>
+    /// <param name="nullBehavior">The behavior for handling null values.</param>
+    /// <returns>The column with differences computed.</returns>
     public static T Diff<T>(this T column, long n, NullBehavior nullBehavior) 
         => throw MarkerExceptionHelper.Throw();
-
-    // =========================================================================
-    // Over
-    // =========================================================================
+    /// <inheritdoc cref="Over{T, TPartition, TOrder}(T, TPartition, TOrder, bool)"/>
     public static T Over<T, TPartition>(this T expr, TPartition partitionBy)
         => throw MarkerExceptionHelper.Throw();
+    /// <inheritdoc cref="Over{T, TPartition, TOrder}(T, TPartition, TOrder, bool)"/>
     public static T Over<T>(this T expr, params object[] partitionBy)
         => throw MarkerExceptionHelper.Throw();
+    /// <summary>
+    /// Computes a windowed expression over a specified partition and order, with an optional descending order.
+    /// </summary>
+    /// <typeparam name="T">The type of the expression.</typeparam>
+    /// <typeparam name="TPartition">The type of the partitioning column(s).</typeparam>
+    /// <typeparam name="TOrder">The type of the ordering column(s).</typeparam>
+    /// <param name="expr">The expression to compute the windowed operation for.</param>
+    /// <param name="partitionBy">The column(s) to partition by.</param>
+    /// <param name="orderBy">The column(s) to order by.</param>
+    /// <param name="descending">Indicates whether to sort in descending order.</param>
+    /// <returns>The column with the windowed expression computed.</returns>
     public static T Over<T, TPartition, TOrder>(
         this T expr, 
         TPartition partitionBy, 
@@ -989,66 +1017,130 @@ public static class LinqExtensions
     public static double Rank<T>(this T column, RankMethod method, bool descending, ulong? seed) 
         => throw MarkerExceptionHelper.Throw();
 
-    // =========================================================================
-    // PctChange
-    // =========================================================================
-
     /// <summary>
     /// Computes the percentage change between current and previous values.
     /// </summary>
     public static double? PctChange<T>(this T column, long n = 1) 
         => throw MarkerExceptionHelper.Throw();
+    
+    /// <summary>
+    /// Computes the mean of the column.
+    /// </summary>
     public static double Mean<T>(this T column) 
         => throw MarkerExceptionHelper.Throw();
+
+    /// <summary>
+    /// Computes the sum of the column.
+    /// </summary>
     public static T Sum<T>(this T column) where T : struct
         => throw MarkerExceptionHelper.Throw();
+
+    /// <summary>
+    /// Computes the sum of the nullable column.
+    /// </summary>
     public static T? Sum<T>(this T? column) where T : struct
         => throw MarkerExceptionHelper.Throw();
+
+     /// <summary>
+    /// Computes the mean of the nullable column.
+    /// </summary>
     public static double Mean<T>(this T? column) where T : struct
         => throw MarkerExceptionHelper.Throw();
+    
+    /// <summary>
+    /// Computes the average of the column.
+    /// </summary>
     public static double Average<T>(this T column) where T : struct
         => throw MarkerExceptionHelper.Throw();
+
+    /// <summary>
+    /// Computes the average of the nullable column.
+    /// </summary>
     public static double Average<T>(this T? column) where T : struct
         => throw MarkerExceptionHelper.Throw();
+
+    /// <summary>
+    /// Counts the number of non-null values in the column.
+    /// </summary>
     public static int Count<T>(this T column) where T : struct
         => throw MarkerExceptionHelper.Throw();
+
+    /// <summary>
+    /// Counts the number of non-null values in the nullable column.
+    /// </summary>
     public static int Count<T>(this T? column) where T : struct
         => throw MarkerExceptionHelper.Throw();
+    /// <summary>
+    /// Counts the number of non-null values in the column.
+    /// </summary>
     public static int Count(this string? column)
-        => throw MarkerExceptionHelper.Throw();
+        => throw MarkerExceptionHelper.Throw(); 
+
+    /// <summary>
+    /// Finds the minimum value in the column.
+    /// </summary>
     public static T Min<T>(this T column) where T : struct
         => throw MarkerExceptionHelper.Throw();
+    /// <summary>
+    /// Finds the minimum value in the nullable column.
+    /// </summary>
     public static T? Min<T>(this T? column) where T : struct
         => throw MarkerExceptionHelper.Throw();
+    /// <summary>
+    /// Finds the minimum value in the string column.
+    /// </summary>
     public static string? Min(this string? column)
         => throw MarkerExceptionHelper.Throw();
+    /// <summary>
+    /// Finds the maximum value in the column.
+    /// </summary>
     public static T Max<T>(this T column) where T : struct
         => throw MarkerExceptionHelper.Throw();
+    /// <summary>
+    /// Finds the maximum value in the nullable column.
+    /// </summary>
     public static T? Max<T>(this T? column) where T : struct
         => throw MarkerExceptionHelper.Throw();
+
+    /// <summary>
+    /// Finds the maximum value in the string column.
+    /// </summary>
     public static string? Max(this string? column)
         => throw MarkerExceptionHelper.Throw();
     /// <summary>
     /// Computes the sample standard deviation (ddof = 1 by default).
-    /// Stubs for LINQ expression tree translation pushdown.
     /// </summary>
     public static double Std<T>(this T column, byte ddof = 1) 
         => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
     /// Computes the sample variance (ddof = 1 by default).
-    /// Stubs for LINQ expression tree translation pushdown.
     /// </summary>
     public static double Var<T>(this T column, byte ddof = 1) 
         => throw MarkerExceptionHelper.Throw();
+    /// <summary>
+    /// Computes the cumulative sum of the column.
+    /// </summary>
     public static T CumSum<T>(this T column, bool reverse = false)
         => throw MarkerExceptionHelper.Throw();
+    /// <summary>
+    /// Computes the cumulative maximum of the column.
+    /// </summary>
     public static T CumMax<T>(this T column, bool reverse = false)
         => throw MarkerExceptionHelper.Throw();
+    /// <summary>
+    /// Computes the cumulative minimum of the column.
+    /// </summary>
     public static T CumMin<T>(this T column, bool reverse = false)
         => throw MarkerExceptionHelper.Throw();
+    /// <summary>
+    /// Computes the cumulative product of the column.
+    /// </summary>
     public static T CumProd<T>(this T column, bool reverse = false)
         => throw MarkerExceptionHelper.Throw();
+    /// <summary>
+    /// Computes the cumulative count of the column.
+    /// </summary>
     public static long CumCount<T>(this T column, bool reverse = false)
         => throw MarkerExceptionHelper.Throw();
     /// <summary>
@@ -1079,6 +1171,9 @@ public static class LinqExtensions
         
 }
 
+/// <summary>
+/// Provides LINQ IEnumerable extensions for C# Polars DataFrame and LazyFrame.
+/// </summary>
 public static class GroupAggregationExtensions
 {
     /// <summary>

@@ -94,7 +94,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
     {
         ArgumentNullException.ThrowIfNull(type);
         SchemaHandle handle = PolarsWrapper.NewSchemaFromType(type);
-        return new PolarsSchema(handle);
+        return [with(handle)];
     }
 
     /// <summary>

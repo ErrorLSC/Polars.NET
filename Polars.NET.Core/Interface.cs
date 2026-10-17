@@ -7,33 +7,29 @@ namespace Polars.NET.Core;
 
 public interface IPolarsDataFrame : IDisposable
 {
-    long Height{ get; }
+    long Height { get; }
     RecordBatch ToArrow();
     void Show();
-    IPolarsSchema Schema{get;}
+    IPolarsSchema Schema { get; }
     UpdateResult WriteToAdbc(AdbcStatement statement);
     IPolarsSeries Column(int index);
-    IArrowArrayStream ToArrowStream(ReadOnlySpan<int> columnIndices = default,ulong? seed = null);
+    IArrowArrayStream ToArrowStream(ReadOnlySpan<int> columnIndices = default, ulong? seed = null);
 
 }
 
 public interface IPolarsSeries : IDisposable
 {
     IPolarsDataFrame ToFrame();
-    void Rename(string newName)
-    {
-        this.Name = newName;
-    }
-    IPolarsDataType DataType {get;}
-    string Name{get;set;}
+    IPolarsDataType DataType { get; }
+    string Name { get; set; }
 }
-public interface IPolarsDataType: IDisposable
+public interface IPolarsDataType : IDisposable
 {
     IArrowType GetArrowType();
 }
 public interface IPolarsLazyFrame : IDisposable
 {
-    IPolarsDataFrame Collect(PlEngine engine=PlEngine.Auto);
+    IPolarsDataFrame Collect(PlEngine engine = PlEngine.Auto);
 }
 
 public interface IPolarsSqlContext : IDisposable
@@ -93,5 +89,5 @@ public interface IDataFrameMaterializer
 public static class DataFrameMaterializerRegistry
 {
     internal static IDataFrameMaterializer? Default { get; set; }
-   
+
 }

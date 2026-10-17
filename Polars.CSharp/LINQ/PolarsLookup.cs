@@ -89,8 +89,7 @@ public sealed class PolarsGrouping<TKey, TElement> : IGrouping<TKey, TElement>, 
 }
 
 /// <summary>
-/// High-performance, zero-overhead ILookup implementation backed by native Polars partitions.
-/// Mirrors BCL Lookup semantics by providing strongly typed group enumeration.
+/// ILookup implementation backed by native Polars partitions.
 /// </summary>
 public sealed class PolarsLookup<TKey, TElement> : ILookup<TKey, TElement>
     where TKey : notnull

@@ -9,14 +9,22 @@ type DataTypeKind =
     | SameAsInput
     | Null
     | Boolean
-    | Int8 | Int16 | Int32 | Int64
-    | UInt8 | UInt16 | UInt32 | UInt64
-    | Float32 | Float64
+    | Int8
+    | Int16
+    | Int32
+    | Int64
+    | UInt8
+    | UInt16
+    | UInt32
+    | UInt64
+    | Float32
+    | Float64
     | String
     | Binary
     | Date
     | Time
-    | Int128 | UInt128
+    | Int128
+    | UInt128
     | Float16
     | Datetime of TimeUnit * string option
     | Duration of TimeUnit
@@ -26,26 +34,34 @@ type DataTypeKind =
     | Struct of seq<Field>
     | Array of DataType * uint[]
     | Enum of FrozenCategories
-    | Extension of {| Name: string; Storage: DataType; Metadata: string option |}
+    | Extension of
+        {|
+            Name: string
+            Storage: DataType
+            Metadata: string option
+        |}
     | Unknown
 
 /// <summary>
 /// Polars data types for casting and schema definitions.
 /// </summary>
-and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
+and DataType(handle: DataTypeHandle, kind: DataTypeKind) =
     let mutable disposed = false
+
     [<DefaultValue>]
-    val mutable private _displayString : string
+    val mutable private _displayString: string
     // Cached FFI queries (eliminates repeated native crossings)
     let lazyTimeUnit = lazy (PolarsWrapper.GetTimeUnit handle |> TimeUnit.FromNative)
+
     let lazyTimeZone =
         lazy
             let tz = PolarsWrapper.GetTimeZone handle
             if String.IsNullOrEmpty tz then None else Some tz
+
     let lazyTimeZoneInfo =
         lazy
             match lazyTimeZone.Value with
-            | Some tz -> Some (TimeZoneInfo.FindSystemTimeZoneById(tz))
+            | Some tz -> Some(TimeZoneInfo.FindSystemTimeZoneById(tz))
             | None -> None
 
     // 2. Cached Array Metadata (avoids repeated array copies and pattern checks)
@@ -104,8 +120,9 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         | TimeUnit.Nanoseconds -> 0uy
         | TimeUnit.Microseconds -> 1uy
         | TimeUnit.Milliseconds -> 2uy
-    member internal this.toTimeUnit (unit:PlTimeUnit):TimeUnit =
-        match  PolarsWrapper.GetTimeUnit handle with
+
+    member internal this.toTimeUnit(unit: PlTimeUnit) : TimeUnit =
+        match PolarsWrapper.GetTimeUnit handle with
         | PlTimeUnit.Nanoseconds -> TimeUnit.Nanoseconds
         | PlTimeUnit.Microseconds -> TimeUnit.Microseconds
         | PlTimeUnit.Milliseconds -> TimeUnit.Milliseconds
@@ -113,19 +130,23 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
 
     member internal this.Handle = handle
     member this.Kind = kind
+
     member this.TimeUnit =
         if this.IsTemporal then
             lazyTimeUnit.Value
         else
             invalidOp "Invalid Operation for non-temporal type"
-    member this.TimeZone : string option =
+
+    member this.TimeZone: string option =
         match this.Kind with
         | DataTypeKind.Datetime _ -> lazyTimeZone.Value
         | _ -> invalidOp $"TimeZone is only applicable to Datetime, but current type is {this.Kind}."
-    member this.TimeZoneInfo : TimeZoneInfo option =
+
+    member this.TimeZoneInfo: TimeZoneInfo option =
         match this.Kind with
         | DataTypeKind.Datetime(_, tz) -> lazyTimeZoneInfo.Value
         | _ -> None
+
     /// Gets the decimal precision.
     /// Throws InvalidOperationException if the data type is not Decimal.
     member this.Precision: int =
@@ -145,6 +166,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         match kind with
         | DataTypeKind.Decimal(p, s) -> Some(p, s)
         | _ -> None
+
     /// <summary>
     /// Gets the first-dimension fixed width (number of elements in the leading dimension) of the Array.
     /// </summary>
@@ -160,6 +182,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     /// Thrown when the data type is not an Array.
     /// </exception>
     member this.ArrayShape: uint[] = Array.copy lazyArrayShape.Value
+
     /// <summary>
     /// Safely attempts to extract Array metadata without throwing exceptions.
     /// </summary>
@@ -195,50 +218,58 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         | DataTypeKind.Array(inner, _) -> Some inner
         | DataTypeKind.List inner -> Some inner
         | _ -> None
+
     /// <summary>
     /// The categories of this DataType, if it is a Categorical type.
     /// </summary>
     member this.Categories = categories.Value
+
     member this.TryGetCategories() =
         match kind with
         | DataTypeKind.Categorical _ -> Some categories.Value
         | _ -> None
+
     /// <summary>
     /// The frozen categories of this DataType, if it is an Enum type.
     /// </summary>
     member this.EnumCategories = frozenCategories.Value
+
     member this.TryGetEnumCategories() =
         match kind with
         | DataTypeKind.Enum _ -> Some frozenCategories.Value
         | _ -> None
 
-    static member Unknown     = new DataType(PolarsWrapper.NewPrimitiveType(0), DataTypeKind.Unknown)
-    static member SameAsInput = new DataType(PolarsWrapper.NewPrimitiveType(0), DataTypeKind.SameAsInput)
-    static member Null        = new DataType(PolarsWrapper.NewPrimitiveType(18), DataTypeKind.Null)
-    static member Boolean     = new DataType(PolarsWrapper.NewPrimitiveType(1), DataTypeKind.Boolean)
-    static member Int8        = new DataType(PolarsWrapper.NewPrimitiveType(2), DataTypeKind.Int8)
-    static member Int16       = new DataType(PolarsWrapper.NewPrimitiveType(3), DataTypeKind.Int16)
-    static member Int32       = new DataType(PolarsWrapper.NewPrimitiveType(4), DataTypeKind.Int32)
-    static member Int64       = new DataType(PolarsWrapper.NewPrimitiveType(5), DataTypeKind.Int64)
-    static member UInt8       = new DataType(PolarsWrapper.NewPrimitiveType(6), DataTypeKind.UInt8)
-    static member UInt16      = new DataType(PolarsWrapper.NewPrimitiveType(7), DataTypeKind.UInt16)
-    static member UInt32      = new DataType(PolarsWrapper.NewPrimitiveType(8), DataTypeKind.UInt32)
-    static member UInt64      = new DataType(PolarsWrapper.NewPrimitiveType(9), DataTypeKind.UInt64)
-    static member Float32     = new DataType(PolarsWrapper.NewPrimitiveType(10), DataTypeKind.Float32)
-    static member Float64     = new DataType(PolarsWrapper.NewPrimitiveType(11), DataTypeKind.Float64)
-    static member String      = new DataType(PolarsWrapper.NewPrimitiveType(12), DataTypeKind.String)
-    static member Binary      = new DataType(PolarsWrapper.NewPrimitiveType(17), DataTypeKind.Binary)
-    static member Date        = new DataType(PolarsWrapper.NewPrimitiveType(13), DataTypeKind.Date)
-    static member Time        = new DataType(PolarsWrapper.NewPrimitiveType(15), DataTypeKind.Time)
-    static member Int128      = new DataType(PolarsWrapper.NewPrimitiveType(24), DataTypeKind.Int128)
-    static member UInt128     = new DataType(PolarsWrapper.NewPrimitiveType(25), DataTypeKind.UInt128)
-    static member Float16     = new DataType(PolarsWrapper.NewPrimitiveType(26), DataTypeKind.Float16)
+    static member Unknown = new DataType(PolarsWrapper.NewPrimitiveType(0), DataTypeKind.Unknown)
+
+    static member SameAsInput =
+        new DataType(PolarsWrapper.NewPrimitiveType(0), DataTypeKind.SameAsInput)
+
+    static member Null = new DataType(PolarsWrapper.NewPrimitiveType(18), DataTypeKind.Null)
+    static member Boolean = new DataType(PolarsWrapper.NewPrimitiveType(1), DataTypeKind.Boolean)
+    static member Int8 = new DataType(PolarsWrapper.NewPrimitiveType(2), DataTypeKind.Int8)
+    static member Int16 = new DataType(PolarsWrapper.NewPrimitiveType(3), DataTypeKind.Int16)
+    static member Int32 = new DataType(PolarsWrapper.NewPrimitiveType(4), DataTypeKind.Int32)
+    static member Int64 = new DataType(PolarsWrapper.NewPrimitiveType(5), DataTypeKind.Int64)
+    static member UInt8 = new DataType(PolarsWrapper.NewPrimitiveType(6), DataTypeKind.UInt8)
+    static member UInt16 = new DataType(PolarsWrapper.NewPrimitiveType(7), DataTypeKind.UInt16)
+    static member UInt32 = new DataType(PolarsWrapper.NewPrimitiveType(8), DataTypeKind.UInt32)
+    static member UInt64 = new DataType(PolarsWrapper.NewPrimitiveType(9), DataTypeKind.UInt64)
+    static member Float32 = new DataType(PolarsWrapper.NewPrimitiveType(10), DataTypeKind.Float32)
+    static member Float64 = new DataType(PolarsWrapper.NewPrimitiveType(11), DataTypeKind.Float64)
+    static member String = new DataType(PolarsWrapper.NewPrimitiveType(12), DataTypeKind.String)
+    static member Binary = new DataType(PolarsWrapper.NewPrimitiveType(17), DataTypeKind.Binary)
+    static member Date = new DataType(PolarsWrapper.NewPrimitiveType(13), DataTypeKind.Date)
+    static member Time = new DataType(PolarsWrapper.NewPrimitiveType(15), DataTypeKind.Time)
+    static member Int128 = new DataType(PolarsWrapper.NewPrimitiveType(24), DataTypeKind.Int128)
+    static member UInt128 = new DataType(PolarsWrapper.NewPrimitiveType(25), DataTypeKind.UInt128)
+    static member Float16 = new DataType(PolarsWrapper.NewPrimitiveType(26), DataTypeKind.Float16)
 
     // ---------- Equality & Hashing ----------
     member this.Equals(other: DataType) =
         if obj.ReferenceEquals(other, null) then false
         elif obj.ReferenceEquals(this, other) then true
         else PolarsWrapper.DataTypeEq(this.Handle, other.Handle)
+
     interface IEquatable<DataType> with
         member this.Equals(other: DataType) = this.Equals other
 
@@ -247,25 +278,26 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         | :? DataType as other -> this.Equals other
         | _ -> false
 
-    override this.GetHashCode() =
-        this.ToString().GetHashCode()
+    override this.GetHashCode() = this.ToString().GetHashCode()
 
-    static member op_Equality (left: DataType, right: DataType) =
+    static member op_Equality(left: DataType, right: DataType) =
         if obj.ReferenceEquals(left, right) then true
         elif obj.ReferenceEquals(left, null) then false
         else left.Equals right
 
-    static member op_Inequality (left: DataType, right: DataType) =
-        not (left = right)
+    static member op_Inequality(left: DataType, right: DataType) = not (left = right)
 
     member this.Dispose() =
         if not disposed then
             if categories.IsValueCreated then
                 categories.Value.Dispose()
+
             if frozenCategories.IsValueCreated then
                 frozenCategories.Value.Dispose()
+
             if not (isNull (box handle)) && not handle.IsInvalid then
                 handle.Dispose()
+
             disposed <- true
             GC.SuppressFinalize this
 
@@ -303,18 +335,15 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             let tzStr = Option.toObj tz
             PolarsWrapper.NewDateTimeType(toUnitCode unit, tzStr)
 
-        | DataTypeKind.Duration unit ->
-            PolarsWrapper.NewDurationType(toUnitCode unit)
+        | DataTypeKind.Duration unit -> PolarsWrapper.NewDurationType(toUnitCode unit)
 
         | DataTypeKind.Categorical maybeCat ->
             let cat = defaultArg maybeCat (Categories.Global())
             PolarsWrapper.NewCategoricalType cat.Handle
 
-        | DataTypeKind.Enum frozenCat ->
-            PolarsWrapper.NewEnumType frozenCat.Handle
+        | DataTypeKind.Enum frozenCat -> PolarsWrapper.NewEnumType frozenCat.Handle
 
-        | DataTypeKind.Decimal(p, s) ->
-            PolarsWrapper.NewDecimalType(p, s)
+        | DataTypeKind.Decimal(p, s) -> PolarsWrapper.NewDecimalType(p, s)
 
         | DataTypeKind.List innerType ->
             use innerHandle = innerType.CreateHandle()
@@ -322,7 +351,10 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
 
         | DataTypeKind.Struct fields ->
             let names = fields |> Seq.map (fun f -> f.Name) |> Seq.toArray
-            let typeHandles = fields |> Seq.map (fun f -> f.DataType.CreateHandle()) |> Seq.toArray
+
+            let typeHandles =
+                fields |> Seq.map (fun f -> f.DataType.CreateHandle()) |> Seq.toArray
+
             try
                 PolarsWrapper.NewStructType(names, typeHandles)
             finally
@@ -330,6 +362,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         | DataTypeKind.Array(innerType, shape) ->
             if shape.Length = 0 then
                 invalidArg "shape" "Shape must not be empty."
+
             use innerHandle = innerType.CreateHandle()
             let span = ReadOnlySpan shape
             PolarsWrapper.NewArrayType(innerHandle, span)
@@ -339,15 +372,15 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
 
         | DataTypeKind.Unknown -> PolarsWrapper.NewPrimitiveType 0
 
-    static member Datetime(unit:TimeUnit, ?tz) =
+    static member Datetime(unit: TimeUnit, ?tz) =
         let handle = PolarsWrapper.NewDateTimeType(toUnitCode unit, Option.toObj tz)
         new DataType(handle, DataTypeKind.Datetime(unit, tz))
 
-    static member Duration unit:DataType =
+    static member Duration unit : DataType =
         let handle = PolarsWrapper.NewDurationType(toUnitCode unit)
         new DataType(handle, DataTypeKind.Duration unit)
 
-    static member Categorical ?categories =
+    static member Categorical?categories =
         let cat = defaultArg categories (Categories.Global())
         let handle = PolarsWrapper.NewCategoricalType cat.Handle
         new DataType(handle, DataTypeKind.Categorical(Some cat))
@@ -360,16 +393,19 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         let prec = defaultArg precision 0
         let sc = defaultArg scale 0
         let handle = PolarsWrapper.NewDecimalType(prec, sc)
-        new DataType(handle, DataTypeKind.Decimal(prec,sc))
+        new DataType(handle, DataTypeKind.Decimal(prec, sc))
 
     static member List(inner: DataType) =
         use innerHandle = inner.CreateHandle()
         let handle = PolarsWrapper.NewListType innerHandle
         new DataType(handle, DataTypeKind.List inner)
 
-    static member Struct(fields: seq<Field> ) =
+    static member Struct(fields: seq<Field>) =
         let names = fields |> Seq.map (fun f -> f.Name) |> Seq.toArray
-        let typeHandles = fields |> Seq.map (fun f -> f.DataType.CreateHandle()) |> Seq.toArray
+
+        let typeHandles =
+            fields |> Seq.map (fun f -> f.DataType.CreateHandle()) |> Seq.toArray
+
         try
             let handle = PolarsWrapper.NewStructType(names, typeHandles)
             new DataType(handle, DataTypeKind.Struct fields)
@@ -377,17 +413,31 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             typeHandles |> Array.iter (fun h -> h.Dispose())
 
     static member Array(inner: DataType, shape: uint[]) =
-        if shape.Length = 0 then invalidArg "shape" "Shape must not be empty."
+        if shape.Length = 0 then
+            invalidArg "shape" "Shape must not be empty."
+
         use innerHandle = inner.CreateHandle()
         let span = System.ReadOnlySpan(shape)
         let handle = PolarsWrapper.NewArrayType(innerHandle, span)
         new DataType(handle, DataTypeKind.Array(inner, shape))
 
     static member Extension(name: string, storage: DataType, ?metadata: string) =
-        let handle = PolarsWrapper.NewExtensionType(name, storage.CreateHandle(), Option.toObj metadata)
-        new DataType(handle, DataTypeKind.Extension {| Name = name; Storage = storage; Metadata = metadata |})
+        let handle =
+            PolarsWrapper.NewExtensionType(name, storage.CreateHandle(), Option.toObj metadata)
+
+        new DataType(
+            handle,
+            DataTypeKind.Extension
+                {|
+                    Name = name
+                    Storage = storage
+                    Metadata = metadata
+                |}
+        )
+
     static member FromHandle(handle: DataTypeHandle) : DataType =
         let kind = PolarsWrapper.GetDataTypeKind handle
+
         match kind with
         | PlDataType.Boolean -> DataType.Boolean
         | PlDataType.Int8 -> DataType.Int8
@@ -409,7 +459,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         | PlDataType.Datetime ->
             let unit = PolarsWrapper.GetTimeUnit handle |> TimeUnit.FromNative
             let tz = Option.ofObj (PolarsWrapper.GetTimeZone handle)
-            DataType.Datetime(unit, ?tz=tz)
+            DataType.Datetime(unit, ?tz = tz)
 
         | PlDataType.Time -> DataType.Time
         | PlDataType.Duration ->
@@ -430,10 +480,13 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
                     PolarsWrapper.GetStructField(handle, uint64 i, &name, &fieldHandle)
 
                     try
-                        { Name = name; DataType = DataType.FromHandle fieldHandle }
+                        {
+                            Name = name
+                            DataType = DataType.FromHandle fieldHandle
+                        }
                     finally
-                        if not fieldHandle.IsInvalid then fieldHandle.Dispose()
-                )
+                        if not fieldHandle.IsInvalid then
+                            fieldHandle.Dispose())
 
             DataType.Struct fields
 
@@ -444,17 +497,22 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
 
         | PlDataType.Categorical ->
             let maybeCatHandle = PolarsWrapper.GetCategories handle
+
             let maybeCat =
-                if maybeCatHandle = null || maybeCatHandle.IsInvalid then None
-                else Some (new Categories(maybeCatHandle))
+                if maybeCatHandle = null || maybeCatHandle.IsInvalid then
+                    None
+                else
+                    Some(new Categories(maybeCatHandle))
+
             new DataType(handle, DataTypeKind.Categorical maybeCat)
 
         | PlDataType.Enum ->
             let frozenHandle = PolarsWrapper.GetEnumCategories handle
+
             if frozenHandle = null || frozenHandle.IsInvalid then
                 raise (InvalidOperationException "Invalid FrozenCategoriesHandle in Enum type")
             else
-                new DataType(handle, DataTypeKind.Enum (new FrozenCategories(frozenHandle)))
+                new DataType(handle, DataTypeKind.Enum(new FrozenCategories(frozenHandle)))
 
         | PlDataType.Decimal ->
             let mutable prec = 0
@@ -472,8 +530,9 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             let name = PolarsWrapper.DataTypeGetExtensionName handle
             let storage = DataType.FromHandle(PolarsWrapper.GetInnerType handle)
             let metadata = Option.ofObj (PolarsWrapper.DataTypeGetExtensionMetadata handle)
+
             match ExtensionRegistry.TryResolve(name) with
-            | Some (ExtensionRegistration.AsType factory) -> factory(storage, metadata)
+            | Some(ExtensionRegistration.AsType factory) -> factory (storage, metadata)
             | Some ExtensionRegistration.AsStorage -> storage
             | None -> DataType.Extension(name, storage, ?metadata = metadata)
 
@@ -482,24 +541,45 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     override this.ToString() =
         if isNull this._displayString then
             this._displayString <- PolarsWrapper.GetDataTypeString(this.Handle)
+
         this._displayString
+
     member this.IsNumeric =
         match this.Kind with
-        | DataTypeKind.UInt8 | DataTypeKind.UInt16 | DataTypeKind.UInt32 | DataTypeKind.UInt64
-        | DataTypeKind.Int8 | DataTypeKind.Int16 | DataTypeKind.Int32 | DataTypeKind.Int64
-        | DataTypeKind.Float32 | DataTypeKind.Float64 | DataTypeKind.Int128 | DataTypeKind.Float16
+        | DataTypeKind.UInt8
+        | DataTypeKind.UInt16
+        | DataTypeKind.UInt32
+        | DataTypeKind.UInt64
+        | DataTypeKind.Int8
+        | DataTypeKind.Int16
+        | DataTypeKind.Int32
+        | DataTypeKind.Int64
+        | DataTypeKind.Float32
+        | DataTypeKind.Float64
+        | DataTypeKind.Int128
+        | DataTypeKind.Float16
         | DataTypeKind.Decimal _ -> true
         | _ -> false
+
     member this.IsInteger =
         match this.Kind with
-        | DataTypeKind.Int8 | DataTypeKind.Int16 | DataTypeKind.Int32 | DataTypeKind.Int64
-        | DataTypeKind.UInt8 | DataTypeKind.UInt16 | DataTypeKind.UInt32 | DataTypeKind.UInt64
-        | DataTypeKind.Int128 | DataTypeKind.UInt128 -> true
+        | DataTypeKind.Int8
+        | DataTypeKind.Int16
+        | DataTypeKind.Int32
+        | DataTypeKind.Int64
+        | DataTypeKind.UInt8
+        | DataTypeKind.UInt16
+        | DataTypeKind.UInt32
+        | DataTypeKind.UInt64
+        | DataTypeKind.Int128
+        | DataTypeKind.UInt128 -> true
         | _ -> false
 
     member this.IsFloat =
         match this.Kind with
-        | DataTypeKind.Float16 | DataTypeKind.Float32 | DataTypeKind.Float64 -> true
+        | DataTypeKind.Float16
+        | DataTypeKind.Float32
+        | DataTypeKind.Float64 -> true
         | _ -> false
 
     member this.IsDecimal =
@@ -514,35 +594,51 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
 
     member this.IsNested =
         match this.Kind with
-        | DataTypeKind.List _ | DataTypeKind.Array _ | DataTypeKind.Struct _ -> true
+        | DataTypeKind.List _
+        | DataTypeKind.Array _
+        | DataTypeKind.Struct _ -> true
         | _ -> false
 
     member this.IsTemporal =
         match this.Kind with
-        | DataTypeKind.Duration _ | DataTypeKind.Date
-        | DataTypeKind.Datetime _ | DataTypeKind.Time -> true
+        | DataTypeKind.Duration _
+        | DataTypeKind.Date
+        | DataTypeKind.Datetime _
+        | DataTypeKind.Time -> true
         | _ -> false
 
     member this.IsSignedInteger =
         match this.Kind with
-        | DataTypeKind.Int8 | DataTypeKind.Int16 | DataTypeKind.Int32 | DataTypeKind.Int64 | DataTypeKind.Int128 -> true
+        | DataTypeKind.Int8
+        | DataTypeKind.Int16
+        | DataTypeKind.Int32
+        | DataTypeKind.Int64
+        | DataTypeKind.Int128 -> true
         | _ -> false
 
     member this.IsUnsignedInteger =
         match this.Kind with
-        | DataTypeKind.UInt8 | DataTypeKind.UInt16 | DataTypeKind.UInt32 | DataTypeKind.UInt64 | DataTypeKind.UInt128 -> true
+        | DataTypeKind.UInt8
+        | DataTypeKind.UInt16
+        | DataTypeKind.UInt32
+        | DataTypeKind.UInt64
+        | DataTypeKind.UInt128 -> true
         | _ -> false
+
     member this.IsCategorical =
         match this.Kind with
         | DataTypeKind.Categorical _ -> true
         | _ -> false
+
     member this.IsEnum =
         match this.Kind with
         | DataTypeKind.Enum _ -> true
         | _ -> false
+
     member this.Code =
         match this.Kind with
-        | DataTypeKind.SameAsInput | DataTypeKind.Unknown -> 0
+        | DataTypeKind.SameAsInput
+        | DataTypeKind.Unknown -> 0
         | DataTypeKind.Boolean -> 1
         | DataTypeKind.Int8 -> 2
         | DataTypeKind.Int16 -> 3
@@ -571,8 +667,10 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         | DataTypeKind.Float16 -> 26
         | DataTypeKind.Enum _ -> 27
         | DataTypeKind.Extension _ -> 28
+
     /// <summary>Get the corresponding PlDataType enum value.</summary>
     member this.ToPlDataType() = enum<PlDataType>(this.Code)
+
     member this.GetArrowType() : Apache.Arrow.Types.IArrowType =
         ArrowFfiBridge.ImportDataType(this.Handle)
 
@@ -619,7 +717,8 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
                 | Apache.Arrow.Types.TimeUnit.Millisecond -> TimeUnit.Milliseconds
                 | Apache.Arrow.Types.TimeUnit.Nanosecond -> TimeUnit.Nanoseconds
                 | _ -> TimeUnit.Microseconds
-            DataType.Datetime(unit, ?tz=Option.ofObj t.Timezone)
+
+            DataType.Datetime(unit, ?tz = Option.ofObj t.Timezone)
         | :? Apache.Arrow.Types.DurationType as d ->
             let unit =
                 match d.Unit with
@@ -627,6 +726,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
                 | Apache.Arrow.Types.TimeUnit.Millisecond -> TimeUnit.Milliseconds
                 | Apache.Arrow.Types.TimeUnit.Nanosecond -> TimeUnit.Nanoseconds
                 | _ -> TimeUnit.Microseconds
+
             DataType.Duration unit
         | :? Apache.Arrow.Types.ListType as l -> DataType.List(DataType.FromArrowType l.ValueDataType)
         | :? Apache.Arrow.Types.LargeListType as l -> DataType.List(DataType.FromArrowType l.ValueDataType)
@@ -634,35 +734,49 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             DataType.Array(DataType.FromArrowType l.ValueDataType, [| uint l.ListSize |])
         | :? Apache.Arrow.Types.StructType as s ->
             let fields =
-                s.Fields |> Seq.map (fun f -> { Name = f.Name; DataType = DataType.FromArrowType f.DataType }) |> Seq.toList
+                s.Fields
+                |> Seq.map (fun f ->
+                    {
+                        Name = f.Name
+                        DataType = DataType.FromArrowType f.DataType
+                    })
+                |> Seq.toList
+
             DataType.Struct fields
         | _ -> raise (NotSupportedException(sprintf "ArrowType %s is not supported yet." (arrowType.GetType().Name)))
 
     /// <summary>
     /// Checks if a .NET type is a supported numeric primitive.
     /// </summary>
-    static member internal IsNumericType (t: Type) =
-        t = typeof<int> || t = typeof<int64> || t = typeof<double> || t = typeof<Half> ||
-        t = typeof<single> || t = typeof<uint32> || t = typeof<uint64> ||
-        t = typeof<int16> || t = typeof<uint16> || t = typeof<uint8> ||
-        t = typeof<int8>
+    static member internal IsNumericType(t: Type) =
+        t = typeof<int>
+        || t = typeof<int64>
+        || t = typeof<double>
+        || t = typeof<Half>
+        || t = typeof<single>
+        || t = typeof<uint32>
+        || t = typeof<uint64>
+        || t = typeof<int16>
+        || t = typeof<uint16>
+        || t = typeof<uint8>
+        || t = typeof<int8>
 
 and Field = { Name: string; DataType: DataType }
 
 /// <summary>
 /// Represents a Polars categorical type with optional name, namespace, and physical representation.
 /// </summary>
-and Categories (handle: CategoriesHandle) =
+and Categories(handle: CategoriesHandle) =
     let mutable disposed = false
     let physical = lazy (PolarsWrapper.CategoriesPhysical(handle))
 
     // --- Public constructors ---
 
     /// <summary>Create a new Categories with optional name, namespace, and physical type.</summary>
-    new (?name: string, ?nameSpace: string, ?physical: CategoricalPhysical) =
+    new(?name: string, ?nameSpace: string, ?physical: CategoricalPhysical) =
         let physical = defaultArg physical CategoricalPhysical.U32
-        let name = Option.toObj name            // None -> null
-        let nameSpace = defaultArg nameSpace ""  // None -> ""
+        let name = Option.toObj name // None -> null
+        let nameSpace = defaultArg nameSpace "" // None -> ""
         let h = PolarsWrapper.CategoriesNew(name, nameSpace, physical.ToNative())
         new Categories(h)
     // --- Properties ---
@@ -670,12 +784,14 @@ and Categories (handle: CategoriesHandle) =
     member this.Name = PolarsWrapper.CategoriesGetName(handle)
     member this.NameSpace = PolarsWrapper.CategoriesGetNameSpace(handle)
     member this.IsGlobal = PolarsWrapper.CategoriesIsGlobal(handle)
+
     member this.Physical =
         let raw = physical.Value
+
         match raw with
         | PlCategoricalPhysical.U32 -> CategoricalPhysical.U32
         | PlCategoricalPhysical.U16 -> CategoricalPhysical.U16
-        | PlCategoricalPhysical.U8  -> CategoricalPhysical.U8
+        | PlCategoricalPhysical.U8 -> CategoricalPhysical.U8
         | _ -> failwithf "Unexpected PlCategoricalPhysical value: %A" raw
 
     member this.Hash = PolarsWrapper.CategoriesHash(handle)
@@ -714,21 +830,22 @@ and Categories (handle: CategoriesHandle) =
 
     override this.GetHashCode() = int this.Hash
 
-    static member op_Equality (left: Categories, right: Categories) =
+    static member op_Equality(left: Categories, right: Categories) =
         if obj.ReferenceEquals(left, right) then true
         elif obj.ReferenceEquals(left, null) then false
         else left.Equals(right)
 
-    static member op_Inequality (left: Categories, right: Categories) =
-        not (left = right)
+    static member op_Inequality(left: Categories, right: Categories) = not (left = right)
 
     // --- IDisposable ---
     member this.Dispose() =
         if not disposed then
             if handle |> box |> isNull |> not && not handle.IsInvalid then
                 handle.Dispose()
+
             disposed <- true
             GC.SuppressFinalize(this)
+
     interface IDisposable with
         member this.Dispose() = this.Dispose()
 
@@ -744,12 +861,12 @@ and Categories (handle: CategoriesHandle) =
 /// <summary>
 /// Represents a frozen (immutable) categorical type with an explicit list of categories.
 /// </summary>
-and FrozenCategories (handle: FrozenCategoriesHandle) =
+and FrozenCategories(handle: FrozenCategoriesHandle) =
     let mutable disposed = false
     let physical = lazy (PolarsWrapper.FrozenCategoriesPhysical(handle))
 
     /// <summary>Create a FrozenCategories from a string array of categories.</summary>
-    new (categories: string[]) =
+    new(categories: string[]) =
         let handle = PolarsWrapper.FrozenCategoriesNew(categories)
         new FrozenCategories(handle)
 
@@ -758,10 +875,11 @@ and FrozenCategories (handle: FrozenCategoriesHandle) =
     /// <summary>The physical representation of the categories.</summary>
     member this.Physical =
         let raw = physical.Value
+
         match raw with
         | PlCategoricalPhysical.U32 -> CategoricalPhysical.U32
         | PlCategoricalPhysical.U16 -> CategoricalPhysical.U16
-        | PlCategoricalPhysical.U8  -> CategoricalPhysical.U8
+        | PlCategoricalPhysical.U8 -> CategoricalPhysical.U8
         | _ -> failwithf "Unexpected PlCategoricalPhysical value: %A" raw
 
     member this.Hash = PolarsWrapper.FrozenCategoriesHash(handle)
@@ -779,21 +897,22 @@ and FrozenCategories (handle: FrozenCategoriesHandle) =
 
     override this.GetHashCode() = int this.Hash
 
-    static member op_Equality (left: FrozenCategories, right: FrozenCategories) =
+    static member op_Equality(left: FrozenCategories, right: FrozenCategories) =
         if obj.ReferenceEquals(left, right) then true
         elif obj.ReferenceEquals(left, null) then false
         else left.Equals(right)
 
-    static member op_Inequality (left: FrozenCategories, right: FrozenCategories) =
-        not (left = right)
+    static member op_Inequality(left: FrozenCategories, right: FrozenCategories) = not (left = right)
 
     // ---------- IDisposable ----------
     member this.Dispose() =
         if not disposed then
             if not (obj.ReferenceEquals(handle, null)) && not handle.IsInvalid then
                 handle.Dispose()
+
             disposed <- true
             GC.SuppressFinalize(this)
+
     interface IDisposable with
         member this.Dispose() = this.Dispose()
 
@@ -804,14 +923,14 @@ and ExtensionRegistration =
     | AsType of ExtensionFactory
 
 and ExtensionRegistry private () =
-    static let registry = System.Collections.Concurrent.ConcurrentDictionary<string, ExtensionRegistration>()
+    static let registry =
+        System.Collections.Concurrent.ConcurrentDictionary<string, ExtensionRegistration>()
 
     static member Register(extName: string, registration: ExtensionRegistration) =
         if not (registry.TryAdd(extName, registration)) then
             invalidOp $"Extension type '{extName}' is already registered."
 
-    static member Unregister(extName: string) =
-        registry.TryRemove(extName) |> ignore
+    static member Unregister(extName: string) = registry.TryRemove(extName) |> ignore
 
     static member TryResolve(extName: string) : ExtensionRegistration option =
         match registry.TryGetValue(extName) with

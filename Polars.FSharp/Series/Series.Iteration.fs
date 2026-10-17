@@ -19,7 +19,8 @@ module SeriesIterationExtensions =
             ArgumentNullException.ThrowIfNull(action, nameof action)
 
             let len = this.Length
-            for i in 0L..len - 1L do
+
+            for i in 0L .. len - 1L do
                 action (this.TryGetValue<'T>(i))
 
         /// <summary>
@@ -29,7 +30,8 @@ module SeriesIterationExtensions =
             ArgumentNullException.ThrowIfNull(action, nameof action)
 
             let len = this.Length
-            for i in 0L..len - 1L do
+
+            for i in 0L .. len - 1L do
                 action i (this.TryGetValue<'T>(i))
 
         /// <summary>
@@ -42,7 +44,8 @@ module SeriesIterationExtensions =
             ArgumentNullException.ThrowIfNull(action, nameof action)
 
             let len = this.Length
-            for i in 0L..len - 1L do
+
+            for i in 0L .. len - 1L do
                 match this.TryGetValue<'T>(i) with
                 | ValueSome v -> action v
                 | ValueNone -> ()
@@ -55,7 +58,8 @@ module SeriesIterationExtensions =
             ArgumentNullException.ThrowIfNull(action, nameof action)
 
             let len = this.Length
-            for i in 0L..len - 1L do
+
+            for i in 0L .. len - 1L do
                 match this.TryGetValue<'T>(i) with
                 | ValueSome v -> action i v
                 | ValueNone -> ()
@@ -72,7 +76,8 @@ module SeriesIterationExtensions =
                 invalidArg (nameof other) $"Series lengths do not match: {this.Length} vs {other.Length}."
 
             let len = this.Length
-            for i in 0L..len - 1L do
+
+            for i in 0L .. len - 1L do
                 action (this.TryGetValue<'T1>(i)) (other.TryGetValue<'T2>(i))
 
         /// <summary>
@@ -86,7 +91,8 @@ module SeriesIterationExtensions =
                 invalidArg (nameof other) $"Series lengths do not match: {this.Length} vs {other.Length}."
 
             let len = this.Length
-            for i in 0L..len - 1L do
+
+            for i in 0L .. len - 1L do
                 match this.TryGetValue<'T1>(i), other.TryGetValue<'T2>(i) with
                 | ValueSome v1, ValueSome v2 -> action v1 v2
                 | _ -> ()

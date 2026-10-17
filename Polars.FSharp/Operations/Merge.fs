@@ -1,51 +1,61 @@
 namespace Polars.FSharp
+
 open System
 
 [<RequireQualifiedAccess>]
 type SetterSpec =
     | Explicit of Map<string, Expr>
-    | Dynamic  of (MergeContext -> Map<string, Expr>)
+    | Dynamic of (MergeContext -> Map<string, Expr>)
 
 and MergeAction =
-    | MatchedUpdate      of condition: (MergeContext -> Expr) * setters: SetterSpec option
-    | MatchedDelete      of condition: (MergeContext -> Expr)
-    | NotMatchedInsert   of condition: (MergeContext -> Expr) * setters: SetterSpec option
+    | MatchedUpdate of condition: (MergeContext -> Expr) * setters: SetterSpec option
+    | MatchedDelete of condition: (MergeContext -> Expr)
+    | NotMatchedInsert of condition: (MergeContext -> Expr) * setters: SetterSpec option
     | NotMatchedBySourceDelete of condition: (MergeContext -> Expr)
 
-and MergeContext = {
-    SourceCol   : string -> Expr
-    TargetCol   : string -> Expr
-    TargetFrame : LazyFrame
-}
+and MergeContext =
+    {
+        SourceCol: string -> Expr
+        TargetCol: string -> Expr
+        TargetFrame: LazyFrame
+    }
 
 [<RequireQualifiedAccess>]
-type MergePlan = {
-    Target    : LazyFrame
-    Source    : LazyFrame
-    On        : string[]
-    Actions   : MergeAction list
-    IncludeNulls : bool
-    MaintainOrder : JoinMaintainOrder
-    TmpSuffix : string
-    ActionCol : string
-    Context   : MergeContext
-}
+type MergePlan =
+    {
+        Target: LazyFrame
+        Source: LazyFrame
+        On: string[]
+        Actions: MergeAction list
+        IncludeNulls: bool
+        MaintainOrder: JoinMaintainOrder
+        TmpSuffix: string
+        ActionCol: string
+        Context: MergeContext
+    }
 
 module private MergeUtils =
-    let generateSuffix() = $"""__TMP_{Guid.NewGuid().ToString("N").Substring(0, 8)}"""
-    let createContext (suffix: string) (targetFrame: LazyFrame) = {
-        SourceCol   = fun name -> pl.col (name + suffix)
-        TargetCol   = pl.col
-        TargetFrame = targetFrame
-    }
+    let generateSuffix () =
+        $"""__TMP_{Guid.NewGuid().ToString("N").Substring(0, 8)}"""
+
+    let createContext (suffix: string) (targetFrame: LazyFrame) =
+        {
+            SourceCol = fun name -> pl.col (name + suffix)
+            TargetCol = pl.col
+            TargetFrame = targetFrame
+        }
+
     let actionColName = "__ACTION"
+
     [<Literal>]
     let targetFlagName = "__TGT"
+
     [<Literal>]
     let sourceFlagName = "__SRC"
 
 module Merge =
     open MergeUtils
+
     /// <summary>
     /// Initializes a Merge plan from a target and source LazyFrame, using the provided join key columns.
     /// This is the module-level equivalent of calling <c>myTarget.Merge(source, on)</c>.
@@ -56,20 +66,21 @@ module Merge =
     /// <returns>A new MergePlan ready for further configuration via <c>Merge.whenXxx</c> functions.</returns>
     let initiate (source: LazyFrame) (on: seq<string>) (target: LazyFrame) : MergePlan =
         let onArray = on |> Seq.toArray
-        let sfx = generateSuffix()
+        let sfx = generateSuffix ()
+
         {
-            Target    = target
-            Source    = source
-            On        = onArray
-            Actions   = []
+            Target = target
+            Source = source
+            On = onArray
+            Actions = []
             IncludeNulls = false
             MaintainOrder = JoinMaintainOrder.Left
             TmpSuffix = sfx
             ActionCol = actionColName
-            Context   = createContext sfx target
+            Context = createContext sfx target
         }
 
-    let private defaultCond : MergeContext -> Expr = fun _ -> pl.lit true
+    let private defaultCond: MergeContext -> Expr = fun _ -> pl.lit true
     /// <summary>
     /// Controls whether null values from the source should overwrite existing target values
     /// during a default column update (when no explicit setters are provided).
@@ -85,6 +96,7 @@ module Merge =
     /// <param name="plan">The current MergePlan being constructed.</param>
     /// <returns>A new MergePlan with the updated MaintainOrder setting.</returns>
     let maintainOrder (order: JoinMaintainOrder) (plan: MergePlan) = { plan with MaintainOrder = order }
+
     /// <summary>
     /// Adds a "WHEN MATCHED UPDATE" action to the merge plan.
     /// If the condition is not provided, all matched rows are updated.
@@ -96,12 +108,13 @@ module Merge =
     /// <param name="setters">Optional SetterSpec defining which columns to update and how.</param>
     /// <param name="plan">The current MergePlan being constructed.</param>
     /// <returns>A new MergePlan with the UPDATE action appended.</returns>
-    let whenMatchedUpdate
-        (condition: (MergeContext -> Expr) option)
-        (setters: SetterSpec option)
-        (plan: MergePlan) =
+    let whenMatchedUpdate (condition: (MergeContext -> Expr) option) (setters: SetterSpec option) (plan: MergePlan) =
         let cond = defaultArg condition defaultCond
-        { plan with Actions = MergeAction.MatchedUpdate(cond, setters) :: plan.Actions }
+
+        { plan with
+            Actions = MergeAction.MatchedUpdate(cond, setters) :: plan.Actions
+        }
+
     /// <summary>
     /// Adds a "WHEN MATCHED DELETE" action to the merge plan.
     /// If the condition is not provided, all matched rows are deleted.
@@ -109,11 +122,13 @@ module Merge =
     /// <param name="condition">Optional condition expression builder using the MergeContext.</param>
     /// <param name="plan">The current MergePlan being constructed.</param>
     /// <returns>A new MergePlan with the DELETE action appended.</returns>
-    let whenMatchedDelete
-        (condition: (MergeContext -> Expr) option)
-        (plan: MergePlan) =
+    let whenMatchedDelete (condition: (MergeContext -> Expr) option) (plan: MergePlan) =
         let cond = defaultArg condition defaultCond
-        { plan with Actions = MergeAction.MatchedDelete(cond) :: plan.Actions }
+
+        { plan with
+            Actions = MergeAction.MatchedDelete(cond) :: plan.Actions
+        }
+
     /// <summary>
     /// Adds a "WHEN NOT MATCHED INSERT" action to the merge plan.
     /// If the condition is not provided, all unmatched source rows are inserted.
@@ -124,12 +139,13 @@ module Merge =
     /// <param name="setters">Optional SetterSpec defining which columns to populate in the new row.</param>
     /// <param name="plan">The current MergePlan being constructed.</param>
     /// <returns>A new MergePlan with the INSERT action appended.</returns>
-    let whenNotMatchedInsert
-        (condition: (MergeContext -> Expr) option)
-        (setters: SetterSpec option)
-        (plan: MergePlan) =
+    let whenNotMatchedInsert (condition: (MergeContext -> Expr) option) (setters: SetterSpec option) (plan: MergePlan) =
         let cond = defaultArg condition defaultCond
-        { plan with Actions = MergeAction.NotMatchedInsert(cond, setters) :: plan.Actions }
+
+        { plan with
+            Actions = MergeAction.NotMatchedInsert(cond, setters) :: plan.Actions
+        }
+
     /// <summary>
     /// Adds a "WHEN NOT MATCHED BY SOURCE DELETE" action to the merge plan.
     /// This deletes rows from the target that have no matching row in the source,
@@ -138,11 +154,13 @@ module Merge =
     /// <param name="condition">Optional condition expression builder using the MergeContext.</param>
     /// <param name="plan">The current MergePlan being constructed.</param>
     /// <returns>A new MergePlan with the DELETE (by source) action appended.</returns>
-    let whenNotMatchedBySourceDelete
-        (condition: (MergeContext -> Expr) option)
-        (plan: MergePlan) =
+    let whenNotMatchedBySourceDelete (condition: (MergeContext -> Expr) option) (plan: MergePlan) =
         let cond = defaultArg condition defaultCond
-        { plan with Actions = MergeAction.NotMatchedBySourceDelete(cond) :: plan.Actions }
+
+        { plan with
+            Actions = MergeAction.NotMatchedBySourceDelete(cond) :: plan.Actions
+        }
+
     /// <summary>
     /// Convenience shorthand for <c>whenMatchedUpdate None None</c> – updates all matched rows
     /// using all source columns (with <see cref="includeNulls"/> controlling null overwrites).
@@ -150,6 +168,7 @@ module Merge =
     /// <param name="plan">The current MergePlan being constructed.</param>
     /// <returns>A new MergePlan with an unconditional, full-row UPDATE action appended.</returns>
     let whenMatchedUpdateAll plan = whenMatchedUpdate None None plan
+
     /// <summary>
     /// Convenience shorthand for <c>whenMatchedUpdate None (Some setters)</c> – updates all matched rows
     /// but only the columns specified by the <paramref name="setters"/>.
@@ -157,7 +176,9 @@ module Merge =
     /// <param name="setters">The SetterSpec (built via Set.build) defining which columns to update.</param>
     /// <param name="plan">The current MergePlan being constructed.</param>
     /// <returns>A new MergePlan with an unconditional, setter-defined UPDATE action appended.</returns>
-    let whenMatchedUpdateSet setters plan = whenMatchedUpdate None (Some setters) plan
+    let whenMatchedUpdateSet setters plan =
+        whenMatchedUpdate None (Some setters) plan
+
     /// <summary>
     /// Convenience shorthand for <c>whenNotMatchedInsert None None</c> – inserts all unmatched source rows
     /// with all source columns.
@@ -165,6 +186,7 @@ module Merge =
     /// <param name="plan">The current MergePlan being constructed.</param>
     /// <returns>A new MergePlan with an unconditional, full-row INSERT action appended.</returns>
     let whenNotMatchedInsertAll plan = whenNotMatchedInsert None None plan
+
     /// <summary>
     /// Convenience shorthand for <c>whenNotMatchedInsert None (Some setters)</c> – inserts unmatched source rows
     /// but only the columns specified by the <paramref name="setters"/>.
@@ -172,18 +194,25 @@ module Merge =
     /// <param name="setters">The SetterSpec (built via Set.build) defining which columns to populate.</param>
     /// <param name="plan">The current MergePlan being constructed.</param>
     /// <returns>A new MergePlan with an unconditional, setter-defined INSERT action appended.</returns>
-    let whenNotMatchedInsertSet setters plan = whenNotMatchedInsert None (Some setters) plan
+    let whenNotMatchedInsertSet setters plan =
+        whenNotMatchedInsert None (Some setters) plan
+
     let private validate (plan: MergePlan) =
         let srcSchema = plan.Source.Schema
         let tgtSchema = plan.Target.Schema
 
-        plan.On |> Array.iter (fun key ->
-            if not (srcSchema.ContainsKey key) then invalidArg "plan" $"Key '{key}' not found in source."
-            if not (tgtSchema.ContainsKey key) then invalidArg "plan" $"Key '{key}' not found in target."
+        plan.On
+        |> Array.iter (fun key ->
+            if not (srcSchema.ContainsKey key) then
+                invalidArg "plan" $"Key '{key}' not found in source."
+
+            if not (tgtSchema.ContainsKey key) then
+                invalidArg "plan" $"Key '{key}' not found in target."
 
             if srcSchema.[key] <> tgtSchema.[key] then
-                invalidArg "plan" $"Key type mismatch for '{key}': source: {srcSchema.[key]}, target: {tgtSchema.[key]}."
-        )
+                invalidArg
+                    "plan"
+                    $"Key type mismatch for '{key}': source: {srcSchema.[key]}, target: {tgtSchema.[key]}.")
 
         let nullCheckExpr =
             plan.On
@@ -193,47 +222,60 @@ module Merge =
 
         let nullCheck =
             plan.Source
-                |> LazyFrame.select (plan.On |> Array.map pl.col |> Array.toSeq)
-                |> LazyFrame.withColumns [nullCheckExpr]
-                |> LazyFrame.filter (pl.col plan.ActionCol)
-                |> LazyFrame.head 1
-                |> LazyFrame.collect
+            |> LazyFrame.select (plan.On |> Array.map pl.col |> Array.toSeq)
+            |> LazyFrame.withColumns [ nullCheckExpr ]
+            |> LazyFrame.filter (pl.col plan.ActionCol)
+            |> LazyFrame.head 1
+            |> LazyFrame.collect
+
         if nullCheck.Height > 0 then
             raise (System.IO.InvalidDataException $"""Null values found in merge keys: {String.Join(", ", plan.On)}""")
 
         let dupCheck =
             plan.Source
-                |> LazyFrame.groupBy (plan.On |> Array.map pl.col |> Array.toSeq)
-                |> LazyFrame.agg [pl.len() |> pl.alias "dup_count"]
-                |> LazyFrame.filter (pl.col "dup_count" .> pl.lit 1)
-                |> LazyFrame.head 1
-                |> LazyFrame.collect
+            |> LazyFrame.groupBy (plan.On |> Array.map pl.col |> Array.toSeq)
+            |> LazyFrame.agg [ pl.len () |> pl.alias "dup_count" ]
+            |> LazyFrame.filter (pl.col "dup_count" .> pl.lit 1)
+            |> LazyFrame.head 1
+            |> LazyFrame.collect
+
         if dupCheck.Height > 0 then
-            raise (System.IO.InvalidDataException $"""Duplicate keys found in source for: {String.Join(", ", plan.On)}""")
+            raise (
+                System.IO.InvalidDataException $"""Duplicate keys found in source for: {String.Join(", ", plan.On)}"""
+            )
+
     let private buildAst (plan: MergePlan) : LazyFrame =
         let sfx = plan.TmpSuffix
         let actionColName = plan.ActionCol
         let tgtValCol = targetFlagName
         let srcValCol = sourceFlagName
 
-        let defaultCond : MergeContext -> Expr = fun _ -> pl.lit true
+        let defaultCond: MergeContext -> Expr = fun _ -> pl.lit true
+
         let allActions =
             if plan.Actions.IsEmpty then
-                [ MergeAction.MatchedUpdate(defaultCond, None);
-                MergeAction.NotMatchedInsert(defaultCond, None) ]
-            else plan.Actions
+                [
+                    MergeAction.MatchedUpdate(defaultCond, None)
+                    MergeAction.NotMatchedInsert(defaultCond, None)
+                ]
+            else
+                plan.Actions
 
         let tgt = plan.Target |> LazyFrame.withColumn (pl.lit true |> pl.alias tgtValCol)
-        let src = plan.Source |> LazyFrame.select([
-                        pl.all().Name.Suffix sfx
-                        pl.lit true |> pl.alias srcValCol
-                    ])
+
+        let src =
+            plan.Source
+            |> LazyFrame.select [ pl.all().Name.Suffix sfx; pl.lit true |> pl.alias srcValCol ]
 
         let leftOn = plan.On |> Array.map pl.col
         let rightOn = plan.On |> Array.map (fun k -> pl.col (k + sfx))
 
         let hasInsert =
-            allActions |> List.exists (function MergeAction.NotMatchedInsert _ -> true | _ -> false)
+            allActions
+            |> List.exists (function
+                | MergeAction.NotMatchedInsert _ -> true
+                | _ -> false)
+
         let how = if hasInsert then JoinType.Outer else JoinType.Left
 
         let isMatched = pl.col(tgtValCol).IsNotNull() .&& pl.col(srcValCol).IsNotNull()
@@ -247,96 +289,127 @@ module Merge =
 
         let actionCol =
             actionsWithId
-            |> List.fold (fun accExpr (pid, action) ->
-                let condFunc =
-                    match action with
-                    | MergeAction.MatchedUpdate (f, _) | MergeAction.MatchedDelete f
-                    | MergeAction.NotMatchedInsert (f, _) | MergeAction.NotMatchedBySourceDelete f -> f
-                let condExpr = condFunc plan.Context
-                let finalCond =
-                    match action with
-                    | MergeAction.MatchedUpdate _ | MergeAction.MatchedDelete _ -> isMatched .&& condExpr
-                    | MergeAction.NotMatchedInsert _ -> isSourceOnly .&& condExpr
-                    | MergeAction.NotMatchedBySourceDelete _ -> isTargetOnly .&& condExpr
-                pl.ifElse finalCond (pl.lit pid) accExpr
-            ) baseActionExpr
+            |> List.fold
+                (fun accExpr (pid, action) ->
+                    let condFunc =
+                        match action with
+                        | MergeAction.MatchedUpdate(f, _)
+                        | MergeAction.MatchedDelete f
+                        | MergeAction.NotMatchedInsert(f, _)
+                        | MergeAction.NotMatchedBySourceDelete f -> f
+
+                    let condExpr = condFunc plan.Context
+
+                    let finalCond =
+                        match action with
+                        | MergeAction.MatchedUpdate _
+                        | MergeAction.MatchedDelete _ -> isMatched .&& condExpr
+                        | MergeAction.NotMatchedInsert _ -> isSourceOnly .&& condExpr
+                        | MergeAction.NotMatchedBySourceDelete _ -> isTargetOnly .&& condExpr
+
+                    pl.ifElse finalCond (pl.lit pid) accExpr)
+                baseActionExpr
 
         let tgtNames = plan.Target.Schema.Names
         let srcNames = plan.Source.Schema.Names
 
-        let allColumns =
-            tgtNames @ srcNames
-            |> List.distinct
+        let allColumns = tgtNames @ srcNames |> List.distinct
 
         let whenCondHelper condId thenExpr elseExpr =
             pl.ifElse (pl.col actionColName .== pl.lit condId) thenExpr elseExpr
 
         let columnUpdateExprs =
-            allColumns |> List.map (fun colName ->
-                let tgtCol = if List.contains colName tgtNames then pl.col colName else pl.litNull()
-                let srcTmpCol = if List.contains colName srcNames then pl.col (colName + sfx) else pl.litNull()
+            allColumns
+            |> List.map (fun colName ->
+                let tgtCol =
+                    if List.contains colName tgtNames then
+                        pl.col colName
+                    else
+                        pl.litNull ()
+
+                let srcTmpCol =
+                    if List.contains colName srcNames then
+                        pl.col (colName + sfx)
+                    else
+                        pl.litNull ()
+
                 let initial = tgtCol
+
                 let finalExpr =
                     actionsWithId
-                    |> List.fold (fun current (id, action) ->
-                        match action with
-                        | MergeAction.MatchedUpdate(_, settersSpec)
-                        | MergeAction.NotMatchedInsert(_, settersSpec) ->
-                            let settersMapOpt =
-                                settersSpec |> Option.map (fun spec ->
-                                    match spec with
-                                    | SetterSpec.Explicit m -> m
-                                    | SetterSpec.Dynamic f -> f plan.Context)
-                            match settersMapOpt with
-                            | Some settersMap ->
-                                match Map.tryFind colName settersMap with
-                                | Some userExpr -> whenCondHelper id userExpr current
-                                | None -> current
-                            | None ->
-                                if List.contains colName srcNames then
-                                    if plan.IncludeNulls then
-                                        whenCondHelper id srcTmpCol current
+                    |> List.fold
+                        (fun current (id, action) ->
+                            match action with
+                            | MergeAction.MatchedUpdate(_, settersSpec)
+                            | MergeAction.NotMatchedInsert(_, settersSpec) ->
+                                let settersMapOpt =
+                                    settersSpec
+                                    |> Option.map (fun spec ->
+                                        match spec with
+                                        | SetterSpec.Explicit m -> m
+                                        | SetterSpec.Dynamic f -> f plan.Context)
+
+                                match settersMapOpt with
+                                | Some settersMap ->
+                                    match Map.tryFind colName settersMap with
+                                    | Some userExpr -> whenCondHelper id userExpr current
+                                    | None -> current
+                                | None ->
+                                    if List.contains colName srcNames then
+                                        if plan.IncludeNulls then
+                                            whenCondHelper id srcTmpCol current
+                                        else
+                                            pl.ifElse
+                                                (pl.col actionColName .== pl.lit id)
+                                                (pl.ifElse (srcTmpCol.IsNotNull()) srcTmpCol current)
+                                                current
                                     else
-                                        pl.ifElse (pl.col actionColName .== pl.lit id)
-                                            (pl.ifElse (srcTmpCol.IsNotNull()) srcTmpCol current)
-                                            current
-                                else current
-                        | MergeAction.MatchedDelete _
-                        | MergeAction.NotMatchedBySourceDelete _ -> current
-                    ) initial
-                finalExpr |> pl.alias colName
-            )
+                                        current
+                            | MergeAction.MatchedDelete _
+                            | MergeAction.NotMatchedBySourceDelete _ -> current)
+                        initial
+
+                finalExpr |> pl.alias colName)
 
         let deleteIds =
             actionsWithId
             |> List.choose (fun (pid, action) ->
                 match action with
-                | MergeAction.MatchedDelete _ | MergeAction.NotMatchedBySourceDelete _ -> Some pid
-                | MergeAction.MatchedUpdate _ | MergeAction.NotMatchedInsert _ -> None)
+                | MergeAction.MatchedDelete _
+                | MergeAction.NotMatchedBySourceDelete _ -> Some pid
+                | MergeAction.MatchedUpdate _
+                | MergeAction.NotMatchedInsert _ -> None)
+
         let keepCond =
             deleteIds
-            |> List.fold (fun cond pid -> cond .&& (pl.col actionColName .!= pl.lit pid)) (pl.col actionColName .!= pl.lit -1)
+            |> List.fold
+                (fun cond pid -> cond .&& (pl.col actionColName .!= pl.lit pid))
+                (pl.col actionColName .!= pl.lit -1)
 
         let dropExprs =
-            [ yield! srcNames |> List.map (fun n -> pl.col (n + sfx));
-            yield pl.col tgtValCol; yield pl.col srcValCol; yield pl.col actionColName ]
+            [
+                yield! srcNames |> List.map (fun n -> pl.col (n + sfx))
+                yield pl.col tgtValCol
+                yield pl.col srcValCol
+                yield pl.col actionColName
+            ]
 
         let readyforDrop =
             tgt.Join(
-                        other = src,
-                        leftOn = leftOn,
-                        rightOn = rightOn,
-                        how = how,
-                        coalesce = JoinCoalesce.KeepColumns,
-                        maintainOrder = plan.MaintainOrder
-                    )
-            |> LazyFrame.withColumns [actionCol |> pl.alias actionColName]
+                other = src,
+                leftOn = leftOn,
+                rightOn = rightOn,
+                how = how,
+                coalesce = JoinCoalesce.KeepColumns,
+                maintainOrder = plan.MaintainOrder
+            )
+            |> LazyFrame.withColumns [ actionCol |> pl.alias actionColName ]
             |> LazyFrame.withColumns columnUpdateExprs
             |> LazyFrame.filter keepCond
+
         readyforDrop.Drop dropExprs
 
-    let private replaceSuffix (suffix: string) (s: string) =
-        s.Replace(suffix, ".Source")
+    let private replaceSuffix (suffix: string) (s: string) = s.Replace(suffix, ".Source")
 
     let private formatConditionInline (suffix: string) (cond: MergeContext -> Expr) (ctx: MergeContext) =
         let expr = cond ctx
@@ -346,10 +419,13 @@ module Merge =
         condStr = "true" || condStr = "Literal(true)"
 
     let private expandSetters (suffix: string) (ctx: MergeContext) (setterSpec: SetterSpec) : Map<string, string> =
-        let m = match setterSpec with
-                | SetterSpec.Explicit m -> m
-                | SetterSpec.Dynamic f -> f ctx
+        let m =
+            match setterSpec with
+            | SetterSpec.Explicit m -> m
+            | SetterSpec.Dynamic f -> f ctx
+
         m |> Map.map (fun _ expr -> expr.ToString() |> replaceSuffix suffix)
+
     /// <summary>
     /// Generates a human-readable string describing the logical merge plan,
     /// including merge keys, match strategy, actions with conditions and setters,
@@ -373,49 +449,59 @@ module Merge =
 
         let actionsToPrint =
             if plan.Actions.IsEmpty then
-                [ MergeAction.MatchedUpdate((fun _ -> lit true), None);
-                MergeAction.NotMatchedInsert((fun _ -> lit true), None) ]
-            else plan.Actions
+                [
+                    MergeAction.MatchedUpdate((fun _ -> lit true), None)
+                    MergeAction.NotMatchedInsert((fun _ -> lit true), None)
+                ]
+            else
+                plan.Actions
 
         let matchedActions =
-            actionsToPrint |> List.choose (function
+            actionsToPrint
+            |> List.choose (function
                 | MergeAction.MatchedUpdate(c, s) -> Some("UPDATE", c, s)
                 | MergeAction.MatchedDelete c -> Some("DELETE", c, None)
-                | _ -> None)
+                | MergeAction.NotMatchedInsert _
+                | MergeAction.NotMatchedBySourceDelete _ -> None)
+
         let notMatchedActions =
-            actionsToPrint |> List.choose (function
+            actionsToPrint
+            |> List.choose (function
                 | MergeAction.NotMatchedInsert(c, s) -> Some("INSERT", c, s)
                 | MergeAction.NotMatchedBySourceDelete c -> Some("DELETE (By Source)", c, None)
-                | _ -> None)
+                | MergeAction.MatchedUpdate _
+                | MergeAction.MatchedDelete _ -> None)
 
         let printActionGroup (title: string) (actions: (string * (MergeContext -> Expr) * SetterSpec option) list) =
             if not actions.IsEmpty then
-                let lines = [
-                    yield title
+                let lines =
+                    [
+                        yield title
 
-                    for i, (name, cond, setters) in List.indexed actions do
-                        let condStr = formatConditionInline suffix cond ctx
+                        for i, (name, cond, setters) in List.indexed actions do
+                            let condStr = formatConditionInline suffix cond ctx
 
-                        if isAlwaysTrueCond condStr then
-                            yield $"  [{i+1}] {name}"
-                        else
-                            yield $"  [{i+1}] {name} WHERE {condStr}"
+                            if isAlwaysTrueCond condStr then
+                                yield $"  [{i + 1}] {name}"
+                            else
+                                yield $"  [{i + 1}] {name} WHERE {condStr}"
 
-                        if name = "UPDATE" || name = "INSERT" then
-                            match setters with
-                            | Some spec ->
-                                let expanded = expandSetters suffix ctx spec
-                                if not expanded.IsEmpty then
-                                    yield $"      SET ({expanded.Count} overrides):"
-                                    for kv in expanded do
-                                        yield $"        - {kv.Key} = {kv.Value}"
-                                else
-                                    yield "      SET: (All Source Columns)"
-                            | None ->
-                                yield "      SET: (All Source Columns)"
+                            if name = "UPDATE" || name = "INSERT" then
+                                match setters with
+                                | Some spec ->
+                                    let expanded = expandSetters suffix ctx spec
 
-                    yield ""
-                ]
+                                    if not expanded.IsEmpty then
+                                        yield $"      SET ({expanded.Count} overrides):"
+
+                                        for kv in expanded do
+                                            yield $"        - {kv.Key} = {kv.Value}"
+                                    else
+                                        yield "      SET: (All Source Columns)"
+                                | None -> yield "      SET: (All Source Columns)"
+
+                        yield ""
+                    ]
 
                 lines |> List.iter (fun line -> sb.AppendLine line |> ignore)
 
@@ -423,14 +509,26 @@ module Merge =
         printActionGroup "WHEN NOT MATCHED:" notMatchedActions
 
         // JOIN STRATEGY
-        let hasInsert = actionsToPrint |> List.exists (function MergeAction.NotMatchedInsert _ -> true | _ -> false)
+        let hasInsert =
+            actionsToPrint
+            |> List.exists (function
+                | MergeAction.NotMatchedInsert _ -> true
+                | _ -> false)
+
         let joinType = if hasInsert then "Outer" else "Left"
-        let reason = if hasInsert then " (Upgraded to Outer to support INSERT)" else " (Left join sufficient)"
+
+        let reason =
+            if hasInsert then
+                " (Upgraded to Outer to support INSERT)"
+            else
+                " (Left join sufficient)"
+
         sb.AppendLine "JOIN STRATEGY:" |> ignore
         sb.AppendLine $"  Type: {joinType}{reason}" |> ignore
         sb.AppendLine $"  MaintainOrder: {plan.MaintainOrder}" |> ignore
 
         sb.ToString().TrimEnd()
+
     /// <summary>
     /// Inspects the current merge plan by passing its string representation to the given logger function,
     /// then returns the plan unchanged to continue the pipeline.
@@ -440,28 +538,32 @@ module Merge =
     /// <returns>The original MergePlan for further chaining.</returns>
     let inspectPlan (logger: string -> unit) (plan: MergePlan) =
         let planStr = toPlanString plan
-        let output = $"""
+
+        let output =
+            $"""
 ========== POLARS.NET MERGE PLAN ==========
 {planStr}
 ===========================================
     """
+
         logger output
         plan
+
     /// <summary>
     /// Convenience function that prints the merge plan to standard output using printfn.
     /// Equivalent to <c>inspectPlan (printfn "%s") plan</c>.
     /// </summary>
     /// <param name="plan">The MergePlan to inspect.</param>
     /// <returns>The original MergePlan for further chaining.</returns>
-    let printPlan (plan: MergePlan) =
-        inspectPlan (printfn "%s") plan
+    let printPlan (plan: MergePlan) = inspectPlan (printfn "%s") plan
     /// <summary>
     /// Returns the optimized execution plan for the merge operation
     /// as a string, using Polars' EXPLAIN mechanism. This is useful for performance tuning.
     /// </summary>
     /// <param name="plan">The constructed MergePlan.</param>
     /// <returns>A string representing the query plan (e.g., optimized logical/physical plan).</returns>
-    let explain (plan:MergePlan) = plan |> buildAst |> LazyFrame.explain
+    let explain (plan: MergePlan) = plan |> buildAst |> LazyFrame.explain
+
     /// <summary>
     /// Executes the merge plan lazily, returning a LazyFrame that can be further transformed
     /// or collected later. Validates the plan before building the AST.
@@ -471,6 +573,7 @@ module Merge =
     let execute (plan: MergePlan) =
         validate plan
         buildAst plan
+
     /// <summary>
     /// Executes the merge plan eagerly, materializing the result into a DataFrame.
     /// This is the terminal operation for a merge pipeline when a concrete result is needed.
@@ -495,6 +598,7 @@ module Set =
     type ColSpec =
         | Exact of string * (MergeContext -> Expr)
         | Select of IColumnExpr * (string -> MergeContext -> Expr)
+
     /// <summary>
     /// Creates an exact column assignment for a specific column name.
     /// The value function receives the <c>MergeContext</c> and should return the expression to be assigned.
@@ -511,6 +615,7 @@ module Set =
     /// <param name="valueFn">A function taking a column name and the MergeContext, returning the Expr for that column.</param>
     /// <returns>A ColSpec representing a batch selector mapping.</returns>
     let selector (sel: IColumnExpr) (valueFn: string -> MergeContext -> Expr) = Select(sel, valueFn)
+
     /// <summary>
     /// Builds a <c>SetterSpec</c> from a list of column specifications.
     /// Exact columns are mapped directly; selectors are expanded against the target frame to produce multiple column mappings.
@@ -524,13 +629,11 @@ module Set =
             specs
             |> List.collect (fun spec ->
                 match spec with
-                | Exact(name, fn) -> [name, fn ctx]
+                | Exact(name, fn) -> [ name, fn ctx ]
                 | Select(sel, fn) ->
                     let colNames = pl.cs.expandLf sel ctx.TargetFrame
-                    colNames |> Array.map (fun n -> n, fn n ctx) |> Array.toList
-            )
-            |> Map.ofList
-        )
+                    colNames |> Array.map (fun n -> n, fn n ctx) |> Array.toList)
+            |> Map.ofList)
 
 
 [<AutoOpen>]

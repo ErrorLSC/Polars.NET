@@ -3,50 +3,71 @@ namespace Polars.FSharp
 open Polars.NET.Core
 open System
 
-type [<Struct>] StructOps(handle: ExprHandle) =
+[<Struct>]
+type StructOps(handle: ExprHandle) =
     /// <summary> Retrieve a field from the struct by name. </summary>
-    member _.Field([<ParamArray>]names: string array) = 
+    member _.Field([<ParamArray>] names: string array) =
         new Expr(PolarsWrapper.StructFieldByName(handle, names))
+
     /// <summary>
     /// Retrieve a field by its index.
     /// </summary>
-    member _.Field(index: int) = 
+    member _.Field(index: int) =
         new Expr(PolarsWrapper.StructFieldByIndex(handle, index))
+
     /// <summary>
     /// Rename the fields of the struct.
     /// </summary>
     /// <param name="names">The new names for the fields.</param>
-    member _.RenameFields([<ParamArray>]names: string array) =
-        new Expr(PolarsWrapper.StructRenameFields(handle, names));
+    member _.RenameFields([<ParamArray>] names: string array) =
+        new Expr(PolarsWrapper.StructRenameFields(handle, names))
+
     /// <summary>
     /// Drop one or more fields from the struct.
     /// </summary>
     /// <param name="names">Names of the fields to drop.</param>
     /// <param name="strict">If True, raise an error if any of the specified fields do not exist in the struct.</param>
-    member _.Drop(names: string seq,?strict) =
+    member _.Drop(names: string seq, ?strict) =
         let st = defaultArg strict true
-        new Expr(PolarsWrapper.StructDrop(handle, names |> Seq.toArray ,st));
+        new Expr(PolarsWrapper.StructDrop(handle, names |> Seq.toArray, st))
+
     /// <summary>
     /// Convert the struct column into a JSON string column.
     /// Useful for debugging or exporting to systems that support JSON strings.
     /// </summary>
-    member _.JsonEncode() = 
-        new Expr(PolarsWrapper.StructJsonEncode handle);
+    member _.JsonEncode() =
+        new Expr(PolarsWrapper.StructJsonEncode handle)
+
     /// <summary>
     /// Expand the struct into its individual fields.Alias for Expr.Struct.field("*").
     /// </summary>
     member this.Unnest() = this.Field("*")
+
     /// <summary>
     /// Add or overwrite fields of this struct.This is similar to with_columns on DataFrame.
     /// </summary>
     /// <param name="expr">Field(s) to add, specified as positional arguments.</param>
-    member _.WithFields([<ParamArray>]fields: Expr array) = 
+    member _.WithFields([<ParamArray>] fields: Expr array) =
         if fields.Length = 0 then
-            new Expr(PolarsWrapper.StructWithFields(handle,[||]))
-        else 
+            new Expr(PolarsWrapper.StructWithFields(handle, [||]))
+        else
             let fr = fields |> Array.map (fun e -> e.CloneHandle())
-            new Expr(PolarsWrapper.StructWithFields(handle,fr))
-    member this.Item with get (index:int) = this.Field index
-    member this.Item with get (name:string) = this.Field name
-    member this.Item with get (names:string array) = this.Field names
+            new Expr(PolarsWrapper.StructWithFields(handle, fr))
 
+    /// <summary>
+    /// Access the fields of the struct by index.
+    /// </summary>
+    member this.Item
+        with get (index: int) = this.Field index
+
+    /// <summary>
+    /// Access the fields of the struct by name.
+    /// </summary>
+    member this.Item
+        with get (name: string) = this.Field name
+
+    /// <summary>
+    /// Access the fields of the struct by multiple names.
+    /// </summary>
+    member this.Item
+        with get (names: string array) = this.Field names

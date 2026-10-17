@@ -1,10 +1,11 @@
 namespace Polars.FSharp
+
 open Polars.NET.Core
 
 [<AutoOpen>]
 module PivotOps =
     type LazyFrame with
-       /// <summary>
+        /// <summary>
         /// Pivot the LazyFrame.
         /// <para>
         /// <b>Important:</b> Lazy pivot requires an eager <paramref name="onColumns"/> DataFrame
@@ -22,18 +23,20 @@ module PivotOps =
         /// <param name="aggregateFunction">Aggregation function to use if <paramref name="aggregateExpr"/> is null. Default is First.</param>
         /// <param name="maintainOrder">Sort the result by the index column.</param>
         /// <param name="separator">Separator used to combine column names when multiple value columns are selected.</param>
+        /// <param name="columnNaming">Controls how column names are constructed. Default is Auto.</param>
         /// <returns>A new LazyFrame with the pivot operation applied.</returns>
-        member this.Pivot(
-            index: Selector,
-            columns: Selector,
-            values: Selector,
-            onColumns: DataFrame,
-            ?aggregateExpr: Expr,
-            ?aggregateFunction: PivotAgg,
-            ?maintainOrder: bool,
-            ?separator: string,
-            ?columnNaming: PivotColumnNaming
-        ) =
+        member this.Pivot
+            (
+                index: Selector,
+                columns: Selector,
+                values: Selector,
+                onColumns: DataFrame,
+                ?aggregateExpr: Expr,
+                ?aggregateFunction: PivotAgg,
+                ?maintainOrder: bool,
+                ?separator: string,
+                ?columnNaming: PivotColumnNaming
+            ) =
             let aggFunc = defaultArg aggregateFunction PivotAgg.First
             let mo = defaultArg maintainOrder true
             let sep = Option.toObj separator
@@ -42,25 +45,28 @@ module PivotOps =
             use indexH = index.CloneHandle()
             use columnsH = columns.CloneHandle()
             use valuesH = values.CloneHandle()
+
             use aggExprH =
                 match aggregateExpr with
                 | Some e -> e.CloneHandle()
                 | None -> null
 
-            let h = PolarsWrapper.LazyPivot(
-                this.CloneHandle(),
-                columnsH,           // on (columns selector)
-                onColumns.Handle,   // onColumns (Eager DF Handle - passed directly, not cloned/disposed here)
-                indexH,             // index
-                valuesH,            // values
-                aggExprH,           // aggExpr
-                aggFunc.ToNative(), // aggregateFunction mapping
-                mo,                 // maintainOrder
-                sep,                 // separator
-                cn.ToNative()
-            )
+            let h =
+                PolarsWrapper.LazyPivot(
+                    this.CloneHandle(),
+                    columnsH, // on (columns selector)
+                    onColumns.Handle, // onColumns (Eager DF Handle - passed directly, not cloned/disposed here)
+                    indexH, // index
+                    valuesH, // values
+                    aggExprH, // aggExpr
+                    aggFunc.ToNative(), // aggregateFunction mapping
+                    mo, // maintainOrder
+                    sep, // separator
+                    cn.ToNative()
+                )
 
             new LazyFrame(h)
+
         /// <summary>
         /// Pivot the LazyFrame using column names.
         /// </summary>
@@ -73,16 +79,18 @@ module PivotOps =
         /// <param name="aggregateFunction">Aggregation function. Default is First.</param>
         /// <param name="maintainOrder">Sort the result by the index column.</param>
         /// <param name="separator">Separator for generated column names.</param>
-        member this.Pivot(
-            index: seq<string>,
-            columns: seq<string>,
-            values: seq<string>,
-            onColumns: DataFrame,
-            ?aggregateFunction: PivotAgg,
-            ?maintainOrder: bool,
-            ?separator: string,
-            ?columnNaming: PivotColumnNaming
-        ) =
+        /// <param name="columnNaming">Controls how column names are constructed. Default is Auto.</param>
+        member this.Pivot
+            (
+                index: seq<string>,
+                columns: seq<string>,
+                values: seq<string>,
+                onColumns: DataFrame,
+                ?aggregateFunction: PivotAgg,
+                ?maintainOrder: bool,
+                ?separator: string,
+                ?columnNaming: PivotColumnNaming
+            ) =
             use sIndex = new Selector(PolarsWrapper.SelectorCols(index |> Seq.toArray))
             use sColumns = new Selector(PolarsWrapper.SelectorCols(columns |> Seq.toArray))
             use sValues = new Selector(PolarsWrapper.SelectorCols(values |> Seq.toArray))
@@ -101,16 +109,17 @@ module PivotOps =
         /// <summary>
         /// Pivot the LazyFrame using column names and a custom aggregation expression.
         /// </summary>
-        member this.Pivot(
-            index: seq<string>,
-            columns: seq<string>,
-            values: seq<string>,
-            onColumns: DataFrame,
-            aggregateExpr: Expr,
-            ?maintainOrder: bool,
-            ?separator: string,
-            ?columnNaming: PivotColumnNaming
-        ) =
+        member this.Pivot
+            (
+                index: seq<string>,
+                columns: seq<string>,
+                values: seq<string>,
+                onColumns: DataFrame,
+                aggregateExpr: Expr,
+                ?maintainOrder: bool,
+                ?separator: string,
+                ?columnNaming: PivotColumnNaming
+            ) =
             use sIndex = new Selector(PolarsWrapper.SelectorCols(index |> Seq.toArray))
             use sColumns = new Selector(PolarsWrapper.SelectorCols(columns |> Seq.toArray))
             use sValues = new Selector(PolarsWrapper.SelectorCols(values |> Seq.toArray))
@@ -125,6 +134,7 @@ module PivotOps =
                 ?separator = separator,
                 ?columnNaming = columnNaming
             )
+
     type DataFrame with
         /// <summary>
         /// Pivot the DataFrame from long to wide format.
@@ -137,17 +147,19 @@ module PivotOps =
         /// <param name="sortColumns">Sort the pivoted columns.</param>
         /// <param name="maintainOrder">Maintain the order of the data.</param>
         /// <param name="separator">Separator used to combine column names when multiple value columns are selected.</param>
-        member this.Pivot(
-            index: Selector,
-            columns: Selector,
-            values: Selector,
-            ?aggregateExpr: Expr,
-            ?aggregateFunction: PivotAgg,
-            ?sortColumns: bool,
-            ?maintainOrder: bool,
-            ?separator: string,
-            ?columnNaming: PivotColumnNaming
-        ) =
+        /// <param name="columnNaming">Controls how column names are constructed. Default is Auto.</param>
+        member this.Pivot
+            (
+                index: Selector,
+                columns: Selector,
+                values: Selector,
+                ?aggregateExpr: Expr,
+                ?aggregateFunction: PivotAgg,
+                ?sortColumns: bool,
+                ?maintainOrder: bool,
+                ?separator: string,
+                ?columnNaming: PivotColumnNaming
+            ) =
             // 1. Resolve Defaults
             let aggFunc = defaultArg aggregateFunction PivotAgg.First
             let sort = defaultArg sortColumns false
@@ -158,39 +170,43 @@ module PivotOps =
             use indexH = index.CloneHandle()
             use columnsH = columns.CloneHandle()
             use valuesH = values.CloneHandle()
+
             use aggExprH =
                 match aggregateExpr with
                 | Some e -> e.CloneHandle()
                 | None -> null
 
             // 3. Native Call
-            let h = PolarsWrapper.Pivot(
-                this.Handle,
-                indexH,
-                columnsH,
-                valuesH,
-                aggExprH,
-                aggFunc.ToNative(),
-                sort,
-                mo,
-                sep,
-                cn.ToNative()
-            )
+            let h =
+                PolarsWrapper.Pivot(
+                    this.Handle,
+                    indexH,
+                    columnsH,
+                    valuesH,
+                    aggExprH,
+                    aggFunc.ToNative(),
+                    sort,
+                    mo,
+                    sep,
+                    cn.ToNative()
+                )
+
             new DataFrame(h)
 
         /// <summary>
         /// Pivot the DataFrame using column names.
         /// </summary>
-        member this.Pivot(
-            index: seq<string>,
-            columns: seq<string>,
-            values: seq<string>,
-            ?aggFn: PivotAgg,
-            ?sortColumns: bool,
-            ?maintainOrder: bool,
-            ?separator: string,
-            ?columnNaming: PivotColumnNaming
-        ) =
+        member this.Pivot
+            (
+                index: seq<string>,
+                columns: seq<string>,
+                values: seq<string>,
+                ?aggFn: PivotAgg,
+                ?sortColumns: bool,
+                ?maintainOrder: bool,
+                ?separator: string,
+                ?columnNaming: PivotColumnNaming
+            ) =
             use sIndex = new Selector(PolarsWrapper.SelectorCols(index |> Seq.toArray))
             use sColumns = new Selector(PolarsWrapper.SelectorCols(columns |> Seq.toArray))
             use sValues = new Selector(PolarsWrapper.SelectorCols(values |> Seq.toArray))
@@ -203,22 +219,23 @@ module PivotOps =
                 ?sortColumns = sortColumns,
                 ?maintainOrder = maintainOrder,
                 ?separator = separator,
-                ?columnNaming=columnNaming
+                ?columnNaming = columnNaming
             )
 
         /// <summary>
         /// Pivot the DataFrame using column names and a custom aggregation expression.
         /// </summary>
-        member this.Pivot(
-            index: seq<string>,
-            columns: seq<string>,
-            values: seq<string>,
-            aggExpr: Expr,
-            ?sortColumns: bool,
-            ?maintainOrder: bool,
-            ?separator: string,
-            ?columnNaming: PivotColumnNaming
-        ) =
+        member this.Pivot
+            (
+                index: seq<string>,
+                columns: seq<string>,
+                values: seq<string>,
+                aggExpr: Expr,
+                ?sortColumns: bool,
+                ?maintainOrder: bool,
+                ?separator: string,
+                ?columnNaming: PivotColumnNaming
+            ) =
             use sIndex = new Selector(PolarsWrapper.SelectorCols(index |> Seq.toArray))
             use sColumns = new Selector(PolarsWrapper.SelectorCols(columns |> Seq.toArray))
             use sValues = new Selector(PolarsWrapper.SelectorCols(values |> Seq.toArray))
@@ -231,7 +248,7 @@ module PivotOps =
                 ?sortColumns = sortColumns,
                 ?maintainOrder = maintainOrder,
                 ?separator = separator,
-                ?columnNaming= columnNaming
+                ?columnNaming = columnNaming
             )
 
 
@@ -242,7 +259,7 @@ module UnpivotOps =
         /// Unpivot (Melt) the LazyFrame using Selectors.
         /// Primary overload backed by native binding.
         /// </summary>
-        member this.Unpivot(index: Selector, on: Selector, ?variableName: string , ?valueName: string ) : LazyFrame =
+        member this.Unpivot(index: Selector, on: Selector, ?variableName: string, ?valueName: string) : LazyFrame =
             let lfClone = this.CloneHandle()
 
             let hIndex = index.CloneHandle()
@@ -256,17 +273,17 @@ module UnpivotOps =
         /// Unpivot (Melt) overload for simple string lists.
         /// Auto-converts to Selectors.
         /// </summary>
-        member this.Unpivot(index: seq<string>, on: seq<string>, ?variableName: string , ?valueName: string ) =
+        member this.Unpivot(index: seq<string>, on: seq<string>, ?variableName: string, ?valueName: string) =
             // 1. Convert Index strings to Selector
             let idxArr = Seq.toArray index
-            let sIndex = new Selector(PolarsWrapper.SelectorCols idxArr)
+            use sIndex = new Selector(PolarsWrapper.SelectorCols idxArr)
 
             // 2. Convert On strings to Selector
             let onArr = Seq.toArray on
-            let sOn = new Selector(PolarsWrapper.SelectorCols onArr)
+            use sOn = new Selector(PolarsWrapper.SelectorCols onArr)
 
             // 3. Route to main logic
-            this.Unpivot(sIndex, sOn, ?variableName=variableName, ?valueName=valueName)
+            this.Unpivot(sIndex, sOn, ?variableName = variableName, ?valueName = valueName)
 
         // ==========================================
         // Aliases (Melt)
@@ -276,7 +293,8 @@ module UnpivotOps =
             this.Unpivot(index, on, variableName, valueName)
 
         member this.Melt(index: seq<string>, on: seq<string>, ?variableName: string, ?valueName: string) =
-            this.Unpivot(index, on, ?variableName=variableName, ?valueName=valueName)
+            this.Unpivot(index, on, ?variableName = variableName, ?valueName = valueName)
+
     type DataFrame with
         /// <summary>
         /// Unpivot (Melt) the DataFrame from wide to long format using Selectors.
@@ -286,29 +304,31 @@ module UnpivotOps =
         /// <param name="on">Selector for Value variables (columns to melt)</param>
         /// <param name="variableName">Name for the variable column (default: "variable")</param>
         /// <param name="valueName">Name for the value column (default: "value")</param>
-        member this.Unpivot (index: Selector,on: Selector,?variableName: string,?valueName: string) : DataFrame =
-            this.Lazy().Unpivot(index,on,?variableName=variableName,?valueName=valueName).Collect()
+        member this.Unpivot(index: Selector, on: Selector, ?variableName: string, ?valueName: string) : DataFrame =
+            this.Lazy().Unpivot(index, on, ?variableName = variableName, ?valueName = valueName).Collect()
 
         /// <summary>
         /// Unpivot (Melt) overload for simple string lists.
         /// Auto-converts string lists to Column Selectors.
         /// </summary>
-        member this.Unpivot (index: seq<string>,on: seq<string>,?variableName: string,?valueName: string ) =
+        member this.Unpivot(index: seq<string>, on: seq<string>, ?variableName: string, ?valueName: string) =
             // 1. Index Selector
             let idxArr = Seq.toArray index
-            let sIndex = new Selector(PolarsWrapper.SelectorCols idxArr)
+            use sIndex = new Selector(PolarsWrapper.SelectorCols idxArr)
 
             // 2. On (Value) Selector
             let onArr = Seq.toArray on
-            let sOn = new Selector(PolarsWrapper.SelectorCols onArr)
+            use sOn = new Selector(PolarsWrapper.SelectorCols onArr)
 
-            this.Unpivot(sIndex,sOn,?variableName=variableName,?valueName=valueName)
+            this.Unpivot(sIndex, sOn, ?variableName = variableName, ?valueName = valueName)
+
         /// <summary> Alias for Unpivot. </summary>
         member this.Melt(index: Selector, on: Selector, ?variableName: string, ?valueName: string) =
-            this.Unpivot(index, on, ?variableName=variableName, ?valueName=valueName)
+            this.Unpivot(index, on, ?variableName = variableName, ?valueName = valueName)
+
         /// <summary>
         /// Melt (Unpivot) overload for simple string lists.
         /// Auto-converts string seqs to Column Selectors.
         /// </summary>
         member this.Melt(index: seq<string>, on: seq<string>, ?variableName: string, ?valueName: string) =
-            this.Unpivot(index, on, ?variableName=variableName, ?valueName=valueName)
+            this.Unpivot(index, on, ?variableName = variableName, ?valueName = valueName)
