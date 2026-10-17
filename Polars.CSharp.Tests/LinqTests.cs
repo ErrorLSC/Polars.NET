@@ -93,6 +93,11 @@ public record CustomerMathDto(int Id, double TaxedAmount);
 public record CustomerWithOrderAmounts(int Id, string Name, List<double> OrderAmounts);
 public record CustomerWithOrderArray(int Id, string Name, double[] OrderAmounts);
 public record CustomerWithSummaryAndList(int Id, string Name, int OrderCount, double TotalAmount, List<double> OrderAmounts);
+public record DailySale(int Day, double Amount);
+public record SaleRunningTotalDto(int Day, double Amount, double RunningTotal);
+public record DeptSale(int DeptId, int Day, double Amount);
+public record DeptSaleRunningTotalDto(int DeptId, int Day, double Amount, double RunningTotal, int RunningCount);
+public record SaleSlidingSumDto(int Day, double Amount, double Sliding2DaySum);
 public partial class LinqTests
 {
     [Fact]
@@ -7031,6 +7036,194 @@ public partial class LinqTests
         Assert.Equal(2, results[1].Id);
         Assert.Single(results[1].OrderAmounts);
         Assert.Equal(200.0, results[1].OrderAmounts[0]);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Projection_Cumulative_Sum()
+    {
+        var sales = new[]
+        {
+            new DailySale(1, 100.0),
+            new DailySale(2, 150.0),
+            new DailySale(3, 200.0),
+            new DailySale(4, 50.0)
+        };
+
+        using var df = DataFrame.FromRows(sales);
+        var salesQuery = df.AsQueryable(sales);
+
+        var query = salesQuery
+            .Select(s => new SaleRunningTotalDto(
+                s.Day,
+                s.Amount,
+                salesQuery.Where(s2 => s2.Day <= s.Day).Sum(s2 => s2.Amount)
+            ))
+            .OrderBy(s => s.Day);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(4, results.Count);
+        Assert.Equal(100.0, results[0].RunningTotal);
+        Assert.Equal(250.0, results[1].RunningTotal);
+        Assert.Equal(450.0, results[2].RunningTotal);
+        Assert.Equal(500.0, results[3].RunningTotal);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Projection_Cumulative_Sum_Unsorted_Input()
+    {
+        // Unsorted physical rows: Day 3, 1, 4, 2
+        var sales = new[]
+        {
+            new DailySale(3, 200.0),
+            new DailySale(1, 100.0),
+            new DailySale(4, 50.0),
+            new DailySale(2, 150.0)
+        };
+
+        using var df = DataFrame.FromRows(sales);
+        var salesQuery = df.AsQueryable(sales);
+
+        var query = salesQuery
+            .Select(s => new SaleRunningTotalDto(
+                s.Day,
+                s.Amount,
+                salesQuery.Where(s2 => s2.Day <= s.Day).Sum(s2 => s2.Amount)
+            ))
+            .OrderBy(s => s.Day);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(4, results.Count);
+        // Correct cumulative sums computed mathematically regardless of initial physical row order:
+        Assert.Equal(1, results[0].Day);
+        Assert.Equal(100.0, results[0].RunningTotal);
+
+        Assert.Equal(2, results[1].Day);
+        Assert.Equal(250.0, results[1].RunningTotal);
+
+        Assert.Equal(3, results[2].Day);
+        Assert.Equal(450.0, results[2].RunningTotal);
+
+        Assert.Equal(4, results[3].Day);
+        Assert.Equal(500.0, results[3].RunningTotal);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Projection_Cumulative_Partitioned_And_Coalesced()
+    {
+        var sales = new[]
+        {
+            // Dept 1
+            new DeptSale(1, 1, 100.0),
+            new DeptSale(1, 2, 150.0),
+            // Dept 2
+            new DeptSale(2, 1, 50.0),
+            new DeptSale(2, 2, 70.0),
+            new DeptSale(2, 3, 80.0)
+        };
+
+        using var df = DataFrame.FromRows(sales);
+        var salesQuery = df.AsQueryable(sales);
+
+        // Partitioned by DeptId + Non-equi Day <= s.Day, computing both Sum and Count in a single coalesced IEJoin group
+        var query = salesQuery
+            .Select(s => new DeptSaleRunningTotalDto(
+                s.DeptId,
+                s.Day,
+                s.Amount,
+                salesQuery.Where(s2 => s2.DeptId == s.DeptId && s2.Day <= s.Day).Sum(s2 => s2.Amount),
+                salesQuery.Where(s2 => s2.DeptId == s.DeptId && s2.Day <= s.Day).Count()
+            ))
+            .OrderBy(s => s.DeptId)
+            .ThenBy(s => s.Day);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(5, results.Count);
+
+        // Dept 1
+        Assert.Equal(1, results[0].DeptId);
+        Assert.Equal(1, results[0].Day);
+        Assert.Equal(100.0, results[0].RunningTotal);
+        Assert.Equal(1, results[0].RunningCount);
+
+        Assert.Equal(1, results[1].DeptId);
+        Assert.Equal(2, results[1].Day);
+        Assert.Equal(250.0, results[1].RunningTotal);
+        Assert.Equal(2, results[1].RunningCount);
+
+        // Dept 2
+        Assert.Equal(2, results[2].DeptId);
+        Assert.Equal(1, results[2].Day);
+        Assert.Equal(50.0, results[2].RunningTotal);
+        Assert.Equal(1, results[2].RunningCount);
+
+        Assert.Equal(2, results[3].DeptId);
+        Assert.Equal(2, results[3].Day);
+        Assert.Equal(120.0, results[3].RunningTotal);
+        Assert.Equal(2, results[3].RunningCount);
+
+        Assert.Equal(2, results[4].DeptId);
+        Assert.Equal(3, results[4].Day);
+        Assert.Equal(200.0, results[4].RunningTotal);
+        Assert.Equal(3, results[4].RunningCount);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Projection_Sliding_Window_Sum()
+    {
+        var sales = new[]
+        {
+            new DailySale(1, 100.0),
+            new DailySale(2, 150.0),
+            new DailySale(3, 200.0),
+            new DailySale(4, 50.0)
+        };
+
+        using var df = DataFrame.FromRows(sales);
+        var salesQuery = df.AsQueryable(sales);
+
+        // 2-day sliding window: s2.Day >= s.Day - 1 && s2.Day <= s.Day
+        var query = salesQuery
+            .Select(s => new SaleSlidingSumDto(
+                s.Day,
+                s.Amount,
+                salesQuery.Where(s2 => s2.Day >= s.Day - 1 && s2.Day <= s.Day).Sum(s2 => s2.Amount)
+            ))
+            .OrderBy(s => s.Day);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(4, results.Count);
+
+        // Day 1: [Day 1: 100.0] -> 100.0
+        Assert.Equal(1, results[0].Day);
+        Assert.Equal(100.0, results[0].Sliding2DaySum);
+
+        // Day 2: [Day 1: 100, Day 2: 150] -> 250.0
+        Assert.Equal(2, results[1].Day);
+        Assert.Equal(250.0, results[1].Sliding2DaySum);
+
+        // Day 3: [Day 2: 150, Day 3: 200] -> 350.0
+        Assert.Equal(3, results[2].Day);
+        Assert.Equal(350.0, results[2].Sliding2DaySum);
+
+        // Day 4: [Day 3: 200, Day 4: 50] -> 250.0
+        Assert.Equal(4, results[3].Day);
+        Assert.Equal(250.0, results[3].Sliding2DaySum);
     }
 
     // [Fact]
