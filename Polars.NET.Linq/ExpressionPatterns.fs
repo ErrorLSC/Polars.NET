@@ -1,4 +1,4 @@
-﻿namespace Polars.NET.Linq
+namespace Polars.NET.Linq
 
 open System.Linq.Expressions
 open System.Reflection
@@ -7,6 +7,29 @@ open System.Collections
 open System
 open System.Linq
 open Polars.NET.Core.Helpers
+
+[<AutoOpen>]
+module internal OptionComputationExpression =
+    type OptionBuilder() =
+        member inline _.Bind(m: 'T option, [<InlineIfLambda>] f: 'T -> 'U option) : 'U option =
+            Option.bind f m
+        member inline _.Return(x: 'T) : 'T option =
+            Some x
+        member inline _.ReturnFrom(m: 'T option) : 'T option =
+            m
+        member inline _.Zero() : unit option =
+            Some ()
+        member inline _.Combine(a: unit option, b: 'T option) : 'T option =
+            match a with
+            | Some () -> b
+            | None -> None
+        member inline _.Delay([<InlineIfLambda>] f: unit -> 'T option) : 'T option =
+            f ()
+
+    let option = OptionBuilder()
+
+    let inline guard (cond: bool) : unit option =
+        if cond then Some () else None
 
 [<AutoOpen>]
 module internal ExpressionPatterns =

@@ -764,173 +764,159 @@ module internal SubqueryDecorrelator =
             | Unary(ExpressionType.Not, inner) -> true, ExprTranslator.unwrap inner
             | other -> false, other
 
-        match tryMatchAny coreExpr with
-        | Some(innerSource, innerLambdaOpt) ->
-            tryExtractCorrelatedParts outerName innerSource innerLambdaOpt
-            |> Option.bind (fun parts ->
-                resolveSequenceLazyFrame parts.RootSource
-                |> Option.bind (fun rawRightLf ->
-                    tryApplyInnerFilters rawRightLf parts.InnerParam parts.InnerFilters
-                    |> Option.bind (fun rightLf ->
-                        let outerCtx = createContextForType outerParam.Type currentLf outerName
+        let tryAny () =
+            option {
+                let! innerSource, innerLambdaOpt = tryMatchAny coreExpr
+                let! parts = tryExtractCorrelatedParts outerName innerSource innerLambdaOpt
+                let! rawRightLf = resolveSequenceLazyFrame parts.RootSource
+                let! rightLf = tryApplyInnerFilters rawRightLf parts.InnerParam parts.InnerFilters
+                let outerCtx = createContextForType outerParam.Type currentLf outerName
 
-                        let innerCtx =
-                            createContextForType parts.InnerParam.Type rightLf parts.InnerParam.Name
+                let innerCtx =
+                    createContextForType parts.InnerParam.Type rightLf parts.InnerParam.Name
 
-                        if parts.ThetaConditions.IsEmpty then
-                            tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
-                            |> Option.map (fun keys ->
-                                [
-                                    QueryOp.Join
-                                        {
-                                            RightLf = rightLf
-                                            LeftOn = keys.OuterKeys
-                                            RightOn = keys.InnerJoinKeys
-                                            How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
-                                            Suffix = None
-                                            InvertSides = false
-                                            Coalesce = PlJoinCoalesce.JoinSpecific
-                                        }
-                                ])
-                        else
-                            let leftCols = PolarsSchemaExtractor.GetColumnNames currentLf |> Set.ofArray
-                            let originalCols = PolarsSchemaExtractor.GetColumnNames currentLf
+                if parts.ThetaConditions.IsEmpty then
+                    let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
 
-                            let correlatedCtx =
-                                TranslationContext.CorrelatedJoin(
-                                    outerName,
-                                    parts.InnerParam.Name,
-                                    leftCols,
-                                    "_right"
-                                )
-
-                            let combinedThetaExpr =
-                                parts.ThetaConditions
-                                |> List.reduce (fun a b -> Expression.AndAlso(a, b) :> Expression)
-
-                            ExprTranslator.tryTranslateWithContext correlatedCtx combinedThetaExpr
-                            |> Option.bind (fun thetaFilterH ->
-                                let equiKeysOpt =
-                                    if parts.EquiPairs.IsEmpty then
-                                        Some([||], [||])
-                                    else
-                                        tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
-                                        |> Option.map (fun k -> k.OuterKeys, k.InnerJoinKeys)
-
-                                equiKeysOpt
-                                |> Option.map (fun (outerKeys, innerKeys) ->
-                                    let uid = Guid.NewGuid().ToString "N"
-                                    let ridCol = $"__subquery_rid_{uid}"
-
-                                    let outerWithRidLf =
-                                        PolarsWrapper.LazyFrameWithRowIndex(
-                                            PolarsWrapper.LazyClone currentLf,
-                                            ridCol,
-                                            Nullable 0
-                                        )
-
-                                    let joinedLf =
-                                        if outerKeys.Length = 0 then
-                                            PolarsWrapper.Join(
-                                                outerWithRidLf,
-                                                rightLf,
-                                                [||],
-                                                [||],
-                                                PlJoinType.Cross,
-                                                "_right",
-                                                PlJoinValidation.ManyToMany,
-                                                PlJoinCoalesce.KeepColumns,
-                                                PlJoinMaintainOrder.None,
-                                                PlJoinSide.None,
-                                                false,
-                                                Nullable(),
-                                                0UL
-                                            )
-                                        else
-                                            PolarsWrapper.Join(
-                                                outerWithRidLf,
-                                                rightLf,
-                                                outerKeys |> Array.map PolarsWrapper.CloneExpr,
-                                                innerKeys |> Array.map PolarsWrapper.CloneExpr,
-                                                PlJoinType.Inner,
-                                                "_right",
-                                                PlJoinValidation.ManyToMany,
-                                                PlJoinCoalesce.JoinSpecific,
-                                                PlJoinMaintainOrder.None,
-                                                PlJoinSide.None,
-                                                false,
-                                                Nullable(),
-                                                0UL
-                                            )
-
-                                    let filteredLf = PolarsWrapper.LazyFilter(joinedLf, thetaFilterH)
-
-                                    let selectedLf =
-                                        PolarsWrapper.LazySelect(filteredLf, [| PolarsWrapper.Col ridCol |])
-
-                                    let matchedRidsLf =
-                                        PolarsWrapper.LazyUnique(selectedLf, null, PlUniqueKeepStrategy.Any, false)
-
-                                    let withRowIndexOp = QueryOp.WithRowIndex(ridCol, Some 0u)
-
-                                    let semiJoinOp =
-                                        QueryOp.Join
-                                            {
-                                                RightLf = matchedRidsLf
-                                                LeftOn = [| PolarsWrapper.Col ridCol |]
-                                                RightOn = [| PolarsWrapper.Col ridCol |]
-                                                How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
-                                                Suffix = None
-                                                InvertSides = false
-                                                Coalesce = PlJoinCoalesce.JoinSpecific
-                                            }
-
-                                    let restoreSchemaOp =
-                                        QueryOp.Select(originalCols |> Array.map PolarsWrapper.Col)
-
-                                    [ withRowIndexOp; semiJoinOp; restoreSchemaOp ])))))
-        | None ->
-            match tryMatchContains coreExpr with
-            | Some(innerSource, selLambdaOpt, outerKeyExpr) ->
-                if containsParameter outerName innerSource then
-                    None
+                    return
+                        [
+                            QueryOp.Join
+                                {
+                                    RightLf = rightLf
+                                    LeftOn = keys.OuterKeys
+                                    RightOn = keys.InnerJoinKeys
+                                    How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
+                                    Suffix = None
+                                    InvertSides = false
+                                    Coalesce = PlJoinCoalesce.JoinSpecific
+                                }
+                        ]
                 else
-                    resolveSequenceLazyFrame innerSource
-                    |> Option.bind (fun rightLf ->
-                        let outerCtx = createContextForType outerParam.Type currentLf outerName
-                        let leftKeyOpt = ExprTranslator.tryTranslateWithContext outerCtx outerKeyExpr
+                    let leftCols = PolarsSchemaExtractor.GetColumnNames currentLf |> Set.ofArray
+                    let originalCols = PolarsSchemaExtractor.GetColumnNames currentLf
 
-                        let rightKeyOpt =
-                            match selLambdaOpt with
-                            | Some selLambda ->
-                                let p = selLambda.Parameters.[0]
-                                let innerCtx = createContextForType p.Type rightLf p.Name
-                                ExprTranslator.tryTranslateWithContext innerCtx selLambda.Body
-                            | None ->
-                                let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
+                    let correlatedCtx =
+                        TranslationContext.CorrelatedJoin(outerName, parts.InnerParam.Name, leftCols, "_right")
 
-                                if rightCols.Length > 0 then
-                                    Some(PolarsWrapper.Col rightCols.[0])
-                                else
-                                    None
+                    let combinedThetaExpr =
+                        parts.ThetaConditions
+                        |> List.reduce (fun a b -> Expression.AndAlso(a, b) :> Expression)
 
-                        match leftKeyOpt, rightKeyOpt with
-                        | Some leftKey, Some rightKey ->
-                            Some
-                                [
-                                    QueryOp.Join
-                                        {
-                                            RightLf = rightLf
-                                            LeftOn = [| leftKey |]
-                                            RightOn = [| rightKey |]
-                                            How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
-                                            Suffix = None
-                                            InvertSides = false
-                                            Coalesce = PlJoinCoalesce.JoinSpecific
-                                        }
-                                ]
-                        | _ -> None)
-            | None -> None
+                    let! thetaFilterH =
+                        ExprTranslator.tryTranslateWithContext correlatedCtx combinedThetaExpr
+
+                    let! outerKeys, innerKeys =
+                        if parts.EquiPairs.IsEmpty then
+                            Some([||], [||])
+                        else
+                            tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
+                            |> Option.map (fun k -> k.OuterKeys, k.InnerJoinKeys)
+
+                    let uid = Guid.NewGuid().ToString "N"
+                    let ridCol = $"__subquery_rid_{uid}"
+
+                    let outerWithRidLf =
+                        PolarsWrapper.LazyFrameWithRowIndex(PolarsWrapper.LazyClone currentLf, ridCol, Nullable 0)
+
+                    let joinedLf =
+                        if outerKeys.Length = 0 then
+                            PolarsWrapper.Join(
+                                outerWithRidLf,
+                                rightLf,
+                                [||],
+                                [||],
+                                PlJoinType.Cross,
+                                "_right",
+                                PlJoinValidation.ManyToMany,
+                                PlJoinCoalesce.KeepColumns,
+                                PlJoinMaintainOrder.None,
+                                PlJoinSide.None,
+                                false,
+                                Nullable(),
+                                0UL
+                            )
+                        else
+                            PolarsWrapper.Join(
+                                outerWithRidLf,
+                                rightLf,
+                                outerKeys |> Array.map PolarsWrapper.CloneExpr,
+                                innerKeys |> Array.map PolarsWrapper.CloneExpr,
+                                PlJoinType.Inner,
+                                "_right",
+                                PlJoinValidation.ManyToMany,
+                                PlJoinCoalesce.JoinSpecific,
+                                PlJoinMaintainOrder.None,
+                                PlJoinSide.None,
+                                false,
+                                Nullable(),
+                                0UL
+                            )
+
+                    let filteredLf = PolarsWrapper.LazyFilter(joinedLf, thetaFilterH)
+
+                    let selectedLf =
+                        PolarsWrapper.LazySelect(filteredLf, [| PolarsWrapper.Col ridCol |])
+
+                    let matchedRidsLf =
+                        PolarsWrapper.LazyUnique(selectedLf, null, PlUniqueKeepStrategy.Any, false)
+
+                    let withRowIndexOp = QueryOp.WithRowIndex(ridCol, Some 0u)
+
+                    let semiJoinOp =
+                        QueryOp.Join
+                            {
+                                RightLf = matchedRidsLf
+                                LeftOn = [| PolarsWrapper.Col ridCol |]
+                                RightOn = [| PolarsWrapper.Col ridCol |]
+                                How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
+                                Suffix = None
+                                InvertSides = false
+                                Coalesce = PlJoinCoalesce.JoinSpecific
+                            }
+
+                    let restoreSchemaOp = QueryOp.Select(originalCols |> Array.map PolarsWrapper.Col)
+
+                    return [ withRowIndexOp; semiJoinOp; restoreSchemaOp ]
+            }
+
+        let tryContains () =
+            option {
+                let! innerSource, selLambdaOpt, outerKeyExpr = tryMatchContains coreExpr
+                do! guard (not (containsParameter outerName innerSource))
+                let! rightLf = resolveSequenceLazyFrame innerSource
+                let outerCtx = createContextForType outerParam.Type currentLf outerName
+                let! leftKey = ExprTranslator.tryTranslateWithContext outerCtx outerKeyExpr
+
+                let! rightKey =
+                    match selLambdaOpt with
+                    | Some selLambda ->
+                        let p = selLambda.Parameters.[0]
+                        let innerCtx = createContextForType p.Type rightLf p.Name
+                        ExprTranslator.tryTranslateWithContext innerCtx selLambda.Body
+                    | None ->
+                        let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
+
+                        if rightCols.Length > 0 then
+                            Some(PolarsWrapper.Col rightCols.[0])
+                        else
+                            None
+
+                return
+                    [
+                        QueryOp.Join
+                            {
+                                RightLf = rightLf
+                                LeftOn = [| leftKey |]
+                                RightOn = [| rightKey |]
+                                How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
+                                Suffix = None
+                                InvertSides = false
+                                Coalesce = PlJoinCoalesce.JoinSpecific
+                            }
+                    ]
+            }
+
+        tryAny () |> Option.orElseWith tryContains
 
     // =========================================================================
     // 5. Correlated Scalar Aggregate Filter Decorrelation (Step 3)
@@ -972,162 +958,133 @@ module internal SubqueryDecorrelator =
 
         match coreConjunct with
         | Binary(rawOp, left, right) ->
-            let effectiveOpOpt = if isNegated then negateOp rawOp else Some rawOp
+            option {
+                let! baseOp = if isNegated then negateOp rawOp else Some rawOp
 
-            effectiveOpOpt
-            |> Option.bind (fun baseOp ->
-                if containsParameter outerName left && not (containsSubquery left) then
-                    match tryExtractScaledAgg right with
-                    | Some(aggExpr, scale) ->
-                        let scaleOk =
-                            match scale with
-                            | AggScale.Identity -> true
-                            | AggScale.Multiply m
-                            | AggScale.Divide m -> not (containsParameter outerName m)
+                let! outerSideExpr, aggCallExpr, scale, effectiveOp =
+                    if containsParameter outerName left && not (containsSubquery left) then
+                        match tryExtractScaledAgg right with
+                        | Some(aggExpr, scale) ->
+                            let scaleOk =
+                                match scale with
+                                | AggScale.Identity -> true
+                                | AggScale.Multiply m
+                                | AggScale.Divide m -> not (containsParameter outerName m)
 
-                        if scaleOk then Some(left, aggExpr, scale, baseOp) else None
-                    | None -> None
-                elif containsParameter outerName right && not (containsSubquery right) then
-                    match tryExtractScaledAgg left with
-                    | Some(aggExpr, scale) ->
-                        let scaleOk =
-                            match scale with
-                            | AggScale.Identity -> true
-                            | AggScale.Multiply m
-                            | AggScale.Divide m -> not (containsParameter outerName m)
+                            if scaleOk then Some(left, aggExpr, scale, baseOp) else None
+                        | None -> None
+                    elif containsParameter outerName right && not (containsSubquery right) then
+                        match tryExtractScaledAgg left with
+                        | Some(aggExpr, scale) ->
+                            let scaleOk =
+                                match scale with
+                                | AggScale.Identity -> true
+                                | AggScale.Multiply m
+                                | AggScale.Divide m -> not (containsParameter outerName m)
 
-                        if scaleOk then
-                            invertOp baseOp |> Option.map (fun invOp -> (right, aggExpr, scale, invOp))
-                        else
-                            None
-                    | None -> None
-                else
-                    None)
-            |> Option.bind (fun (outerSideExpr, aggCallExpr, scale, effectiveOp) ->
-                match tryMatchAggCall aggCallExpr with
-                | None -> None
-                | Some aggCall ->
+                            if scaleOk then
+                                invertOp baseOp |> Option.map (fun invOp -> (right, aggExpr, scale, invOp))
+                            else
+                                None
+                        | None -> None
+                    else
+                        None
+
+                let! aggCall = tryMatchAggCall aggCallExpr
+
+                let! parts =
                     tryExtractCorrelatedParts outerName aggCall.InnerSeq aggCall.ExtraWhereLambdaOpt
-                    |> Option.bind (fun parts ->
-                        if not parts.ThetaConditions.IsEmpty then
-                            None
-                        else
-                            resolveSequenceLazyFrame parts.RootSource
-                            |> Option.bind (fun rawRightLf ->
-                                tryApplyInnerFilters rawRightLf parts.InnerParam parts.InnerFilters
-                                |> Option.bind (fun rightLf ->
-                                    let outerCtx = createContextForType outerParam.Type currentLf outerName
 
-                                    let innerCtx =
-                                        createContextForType parts.InnerParam.Type rightLf parts.InnerParam.Name
+                do! guard parts.ThetaConditions.IsEmpty
 
-                                    tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
-                                    |> Option.bind (fun keys ->
-                                        let isCount =
-                                            aggCall.MethodName = "Count" || aggCall.MethodName = "LongCount"
+                let! rawRightLf = resolveSequenceLazyFrame parts.RootSource
+                let! rightLf = tryApplyInnerFilters rawRightLf parts.InnerParam parts.InnerFilters
 
-                                        tryBuildAggHandle
-                                            rightLf
-                                            aggCall.MethodName
-                                            isCount
-                                            aggCall.SelectorLambdaOpt
-                                        |> Option.bind (fun rawAggH ->
-                                            let uid = Guid.NewGuid().ToString "N"
-                                            let aggColName = $"__subquery_agg_{uid}"
-                                            let aliasedAggH = PolarsWrapper.Alias(rawAggH, aggColName)
+                let outerCtx = createContextForType outerParam.Type currentLf outerName
 
-                                            let groupedLf =
-                                                PolarsWrapper.LazyGroupByAgg(
-                                                    rightLf,
-                                                    keys.InnerGroupByKeys,
-                                                    [| aliasedAggH |],
-                                                    null,
-                                                    false
-                                                )
+                let innerCtx =
+                    createContextForType parts.InnerParam.Type rightLf parts.InnerParam.Name
 
-                                            ExprTranslator.tryTranslateWithContext outerCtx outerSideExpr
-                                            |> Option.bind (fun outerSideH ->
-                                                let aggColBaseH =
-                                                    if isCount then
-                                                        PolarsWrapper.FillNull(
-                                                            PolarsWrapper.Col aggColName,
-                                                            PolarsWrapper.Lit 0u
-                                                        )
-                                                    else
-                                                        PolarsWrapper.Col aggColName
+                let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
 
-                                                let scaledAggHOpt =
-                                                    match scale with
-                                                    | AggScale.Identity -> Some aggColBaseH
-                                                    | AggScale.Multiply multExpr ->
-                                                        match tryEvaluate multExpr with
-                                                        | Some v when not (isNull v) ->
-                                                            let litH =
-                                                                ExprTranslator.toLiteralHandle v multExpr.Type
+                let isCount = aggCall.MethodName = "Count" || aggCall.MethodName = "LongCount"
 
-                                                            Some(PolarsWrapper.Mul(litH, aggColBaseH))
-                                                        | _ -> None
-                                                    | AggScale.Divide divExpr ->
-                                                        match tryEvaluate divExpr with
-                                                        | Some v when not (isNull v) ->
-                                                            let litH =
-                                                                ExprTranslator.toLiteralHandle v divExpr.Type
+                let! rawAggH =
+                    tryBuildAggHandle rightLf aggCall.MethodName isCount aggCall.SelectorLambdaOpt
 
-                                                            Some(PolarsWrapper.Div(aggColBaseH, litH))
-                                                        | _ -> None
+                let uid = Guid.NewGuid().ToString "N"
+                let aggColName = $"__subquery_agg_{uid}"
+                let aliasedAggH = PolarsWrapper.Alias(rawAggH, aggColName)
 
-                                                scaledAggHOpt
-                                                |> Option.bind (fun scaledAggH ->
-                                                    let cmpHandle =
-                                                        match effectiveOp with
-                                                        | ExpressionType.Equal ->
-                                                            PolarsWrapper.Eq(outerSideH, scaledAggH)
-                                                        | ExpressionType.NotEqual ->
-                                                            PolarsWrapper.Neq(outerSideH, scaledAggH)
-                                                        | ExpressionType.LessThan ->
-                                                            PolarsWrapper.Lt(outerSideH, scaledAggH)
-                                                        | ExpressionType.LessThanOrEqual ->
-                                                            PolarsWrapper.LtEq(outerSideH, scaledAggH)
-                                                        | ExpressionType.GreaterThan ->
-                                                            PolarsWrapper.Gt(outerSideH, scaledAggH)
-                                                        | ExpressionType.GreaterThanOrEqual ->
-                                                            PolarsWrapper.GtEq(outerSideH, scaledAggH)
-                                                        | _ -> null
+                let groupedLf =
+                    PolarsWrapper.LazyGroupByAgg(rightLf, keys.InnerGroupByKeys, [| aliasedAggH |], null, false)
 
-                                                    if isNull cmpHandle then
-                                                        None
-                                                    else
-                                                        let joinOp =
-                                                            QueryOp.Join
-                                                                {
-                                                                    RightLf = groupedLf
-                                                                    LeftOn = keys.OuterKeys
-                                                                    RightOn = keys.InnerJoinKeys
-                                                                    How = PlJoinType.Left
-                                                                    Suffix = None
-                                                                    InvertSides = false
-                                                                    Coalesce = PlJoinCoalesce.JoinSpecific
-                                                                }
+                let! outerSideH = ExprTranslator.tryTranslateWithContext outerCtx outerSideExpr
 
-                                                        let filterOp = QueryOp.Filter cmpHandle
+                let aggColBaseH =
+                    if isCount then
+                        PolarsWrapper.FillNull(PolarsWrapper.Col aggColName, PolarsWrapper.Lit 0u)
+                    else
+                        PolarsWrapper.Col aggColName
 
-                                                        let originalCols =
-                                                            PolarsSchemaExtractor.GetColumnNames currentLf
+                let! scaledAggH =
+                    match scale with
+                    | AggScale.Identity -> Some aggColBaseH
+                    | AggScale.Multiply multExpr ->
+                        match tryEvaluate multExpr with
+                        | Some v when not (isNull v) ->
+                            let litH = ExprTranslator.toLiteralHandle v multExpr.Type
 
-                                                        let ops =
-                                                            if originalCols.Length > 0 then
-                                                                [
-                                                                    joinOp
-                                                                    filterOp
-                                                                    QueryOp.Select(
-                                                                        originalCols
-                                                                        |> Array.map PolarsWrapper.Col
-                                                                    )
-                                                                ]
-                                                            else
-                                                                [ joinOp; filterOp ]
+                            Some(PolarsWrapper.Mul(litH, aggColBaseH))
+                        | _ -> None
+                    | AggScale.Divide divExpr ->
+                        match tryEvaluate divExpr with
+                        | Some v when not (isNull v) ->
+                            let litH = ExprTranslator.toLiteralHandle v divExpr.Type
 
-                                                        Some ops))))))))
+                            Some(PolarsWrapper.Div(aggColBaseH, litH))
+                        | _ -> None
+
+                let cmpHandle =
+                    match effectiveOp with
+                    | ExpressionType.Equal -> PolarsWrapper.Eq(outerSideH, scaledAggH)
+                    | ExpressionType.NotEqual -> PolarsWrapper.Neq(outerSideH, scaledAggH)
+                    | ExpressionType.LessThan -> PolarsWrapper.Lt(outerSideH, scaledAggH)
+                    | ExpressionType.LessThanOrEqual -> PolarsWrapper.LtEq(outerSideH, scaledAggH)
+                    | ExpressionType.GreaterThan -> PolarsWrapper.Gt(outerSideH, scaledAggH)
+                    | ExpressionType.GreaterThanOrEqual -> PolarsWrapper.GtEq(outerSideH, scaledAggH)
+                    | _ -> null
+
+                do! guard (not (isNull cmpHandle))
+
+                let joinOp =
+                    QueryOp.Join
+                        {
+                            RightLf = groupedLf
+                            LeftOn = keys.OuterKeys
+                            RightOn = keys.InnerJoinKeys
+                            How = PlJoinType.Left
+                            Suffix = None
+                            InvertSides = false
+                            Coalesce = PlJoinCoalesce.JoinSpecific
+                        }
+
+                let filterOp = QueryOp.Filter cmpHandle
+
+                let originalCols = PolarsSchemaExtractor.GetColumnNames currentLf
+
+                let ops =
+                    if originalCols.Length > 0 then
+                        [
+                            joinOp
+                            filterOp
+                            QueryOp.Select(originalCols |> Array.map PolarsWrapper.Col)
+                        ]
+                    else
+                        [ joinOp; filterOp ]
+
+                return ops
+            }
         | _ -> None
 
     /// Attempts to decorrelate one or more subquery expressions within a filter lambda,
@@ -1405,296 +1362,274 @@ module internal SubqueryDecorrelator =
                 let compileGroup (grpIdx: int) (grp: ProjectionSubqueryCandidate list) =
                     let head = grp.Head
 
-                    resolveSequenceLazyFrame head.RootSource
-                    |> Option.bind (fun rawRightLf ->
-                        tryApplyInnerFilters rawRightLf head.InnerParam head.InnerFilters
-                        |> Option.bind (fun rightLf ->
-                            let innerCtx =
-                                createContextForType head.InnerParam.Type rightLf head.InnerParam.Name
+                    let sameAggOp (c1: ProjectionSubqueryCandidate) (c2: ProjectionSubqueryCandidate) =
+                        c1.MethodName = c2.MethodName
+                        && c1.IsAny = c2.IsAny
+                        && match c1.SelectorLambdaOpt, c2.SelectorLambdaOpt with
+                           | None, None -> true
+                           | Some s1, Some s2 -> s1.ToString() = s2.ToString()
+                           | _ -> false
 
-                            let sameAggOp (c1: ProjectionSubqueryCandidate) (c2: ProjectionSubqueryCandidate) =
-                                c1.MethodName = c2.MethodName
-                                && c1.IsAny = c2.IsAny
-                                && match c1.SelectorLambdaOpt, c2.SelectorLambdaOpt with
-                                   | None, None -> true
-                                   | Some s1, Some s2 -> s1.ToString() = s2.ToString()
-                                   | _ -> false
+                    let rec assignAggCols buildAgg remaining assigned =
+                        match remaining with
+                        | [] -> Some(List.rev assigned)
+                        | (candIdx, cand) :: tail ->
+                            match assigned |> List.tryFind (fun (prevCand, _, _) -> sameAggOp cand prevCand) with
+                            | Some(_, prevColName, _) ->
+                                assignAggCols buildAgg tail ((cand, prevColName, None) :: assigned)
+                            | None ->
+                                let colName = $"__subquery_agg_{grpIdx}_{candIdx}"
 
-                            let rec assignAggCols buildAgg remaining assigned =
-                                match remaining with
-                                | [] -> Some(List.rev assigned)
-                                | (candIdx, cand) :: tail ->
-                                    match
-                                        assigned |> List.tryFind (fun (prevCand, _, _) -> sameAggOp cand prevCand)
-                                    with
-                                    | Some(_, prevColName, _) ->
-                                        assignAggCols buildAgg tail ((cand, prevColName, None) :: assigned)
-                                    | None ->
-                                        let colName = $"__subquery_agg_{grpIdx}_{candIdx}"
+                                match buildAgg cand with
+                                | None -> None
+                                | Some rawAggH ->
+                                    let aliased = PolarsWrapper.Alias(rawAggH, colName)
+                                    assignAggCols buildAgg tail ((cand, colName, Some aliased) :: assigned)
 
-                                        match buildAgg cand with
-                                        | None -> None
-                                        | Some rawAggH ->
-                                            let aliased = PolarsWrapper.Alias(rawAggH, colName)
-                                            assignAggCols buildAgg tail ((cand, colName, Some aliased) :: assigned)
+                    let buildFillNullOps
+                        (assignments: (ProjectionSubqueryCandidate * string * ExprHandle option) list)
+                        =
+                        let handledCols = HashSet<string>()
 
-                            let buildFillNullOps
-                                (assignments: (ProjectionSubqueryCandidate * string * ExprHandle option) list)
-                                =
-                                let handledCols = HashSet<string>()
-
-                                let fillExprs =
-                                    assignments
-                                    |> List.choose (fun (cand, colName, _) ->
-                                        let defaultValOpt =
-                                            if
-                                                cand.IsAny
-                                                || cand.MethodName = "Count"
-                                                || cand.MethodName = "LongCount"
-                                            then
-                                                Some(PolarsWrapper.Lit 0u)
-                                            elif cand.MethodName = "Sum" then
-                                                if cand.TargetType = typeof<double> then
-                                                    Some(PolarsWrapper.Lit 0.0)
-                                                elif cand.TargetType = typeof<float> then
-                                                    Some(PolarsWrapper.Lit 0.0f)
-                                                elif cand.TargetType = typeof<int> then
-                                                    Some(PolarsWrapper.Lit 0)
-                                                elif cand.TargetType = typeof<int64> then
-                                                    Some(PolarsWrapper.Lit 0L)
-                                                elif cand.TargetType = typeof<decimal> then
-                                                    Some(PolarsWrapper.Lit 0.0)
-                                                else
-                                                    None
-                                            else
-                                                None
-
-                                        match defaultValOpt with
-                                        | Some defVal when handledCols.Add colName ->
-                                            let filled = PolarsWrapper.FillNull(PolarsWrapper.Col colName, defVal)
-                                            Some(PolarsWrapper.Alias(filled, colName))
-                                        | _ -> None)
-
-                                if fillExprs.IsEmpty then
-                                    []
-                                else
-                                    [ QueryOp.WithColumns(fillExprs |> List.toArray) ]
-
-                            let buildReplacements
-                                (assignments: (ProjectionSubqueryCandidate * string * ExprHandle option) list)
-                                =
-                                assignments
-                                |> List.map (fun (cand, colName, _) ->
-                                    let replExpr =
-                                        if cand.IsAny then
-                                            Expression.GreaterThan(
-                                                Expression.Parameter(typeof<uint32>, colName),
-                                                Expression.Constant 0u
-                                            )
-                                            :> Expression
+                        let fillExprs =
+                            assignments
+                            |> List.choose (fun (cand, colName, _) ->
+                                let defaultValOpt =
+                                    if cand.IsAny || cand.MethodName = "Count" || cand.MethodName = "LongCount" then
+                                        Some(PolarsWrapper.Lit 0u)
+                                    elif cand.MethodName = "Sum" then
+                                        if cand.TargetType = typeof<double> then
+                                            Some(PolarsWrapper.Lit 0.0)
+                                        elif cand.TargetType = typeof<float> then
+                                            Some(PolarsWrapper.Lit 0.0f)
+                                        elif cand.TargetType = typeof<int> then
+                                            Some(PolarsWrapper.Lit 0)
+                                        elif cand.TargetType = typeof<int64> then
+                                            Some(PolarsWrapper.Lit 0L)
+                                        elif cand.TargetType = typeof<decimal> then
+                                            Some(PolarsWrapper.Lit 0.0)
                                         else
-                                            Expression.Parameter(cand.TargetType, colName) :> Expression
+                                            None
+                                    else
+                                        None
 
-                                    cand.OriginalExpr, replExpr)
+                                match defaultValOpt with
+                                | Some defVal when handledCols.Add colName ->
+                                    let filled = PolarsWrapper.FillNull(PolarsWrapper.Col colName, defVal)
+                                    Some(PolarsWrapper.Alias(filled, colName))
+                                | _ -> None)
 
-                            let indexedCandidates = grp |> List.mapi (fun i c -> i, c)
+                        if fillExprs.IsEmpty then
+                            []
+                        else
+                            [ QueryOp.WithColumns(fillExprs |> List.toArray) ]
 
-                            if head.ThetaConditions.IsEmpty then
-                                tryTranslateJoinKeys outerCtx innerCtx head.EquiPairs
-                                |> Option.bind (fun keys ->
-                                    let buildAgg (cand: ProjectionSubqueryCandidate) =
-                                        tryBuildAggHandle rightLf cand.MethodName cand.IsAny cand.SelectorLambdaOpt
+                    let buildReplacements
+                        (assignments: (ProjectionSubqueryCandidate * string * ExprHandle option) list)
+                        =
+                        assignments
+                        |> List.map (fun (cand, colName, _) ->
+                            let replExpr =
+                                if cand.IsAny then
+                                    Expression.GreaterThan(
+                                        Expression.Parameter(typeof<uint32>, colName),
+                                        Expression.Constant 0u
+                                    )
+                                    :> Expression
+                                else
+                                    Expression.Parameter(cand.TargetType, colName) :> Expression
 
-                                    assignAggCols buildAgg indexedCandidates []
-                                    |> Option.map (fun assignments ->
-                                        let aggExprsToEmit =
-                                            assignments
-                                            |> List.choose (fun (_, _, exprOpt) -> exprOpt)
-                                            |> List.toArray
+                            cand.OriginalExpr, replExpr)
 
-                                        let groupedLf =
-                                            PolarsWrapper.LazyGroupByAgg(
-                                                rightLf,
-                                                keys.InnerGroupByKeys,
-                                                aggExprsToEmit,
-                                                null,
-                                                false
-                                            )
+                    let indexedCandidates = grp |> List.mapi (fun i c -> i, c)
 
-                                        let joinOp =
-                                            QueryOp.Join
-                                                {
-                                                    RightLf = groupedLf
-                                                    LeftOn = keys.OuterKeys
-                                                    RightOn = keys.InnerJoinKeys
-                                                    How = PlJoinType.Left
-                                                    Suffix = None
-                                                    InvertSides = false
-                                                    Coalesce = PlJoinCoalesce.JoinSpecific
-                                                }
+                    option {
+                        let! rawRightLf = resolveSequenceLazyFrame head.RootSource
+                        let! rightLf = tryApplyInnerFilters rawRightLf head.InnerParam head.InnerFilters
 
-                                        let fillNullOps = buildFillNullOps assignments
-                                        let replacements = buildReplacements assignments
-                                        joinOp :: fillNullOps, replacements))
-                            else
-                                let leftCols = PolarsSchemaExtractor.GetColumnNames currentLf |> Set.ofArray
-                                let rightSuffix = "_right"
+                        let innerCtx =
+                            createContextForType head.InnerParam.Type rightLf head.InnerParam.Name
 
-                                let correlatedCtx =
-                                    TranslationContext.CorrelatedJoin(
-                                        outerParamName,
-                                        head.InnerParam.Name,
-                                        leftCols,
-                                        rightSuffix
+                        if head.ThetaConditions.IsEmpty then
+                            let! keys = tryTranslateJoinKeys outerCtx innerCtx head.EquiPairs
+
+                            let buildAgg (cand: ProjectionSubqueryCandidate) =
+                                tryBuildAggHandle rightLf cand.MethodName cand.IsAny cand.SelectorLambdaOpt
+
+                            let! assignments = assignAggCols buildAgg indexedCandidates []
+
+                            let aggExprsToEmit =
+                                assignments |> List.choose (fun (_, _, exprOpt) -> exprOpt) |> List.toArray
+
+                            let groupedLf =
+                                PolarsWrapper.LazyGroupByAgg(
+                                    rightLf,
+                                    keys.InnerGroupByKeys,
+                                    aggExprsToEmit,
+                                    null,
+                                    false
+                                )
+
+                            let joinOp =
+                                QueryOp.Join
+                                    {
+                                        RightLf = groupedLf
+                                        LeftOn = keys.OuterKeys
+                                        RightOn = keys.InnerJoinKeys
+                                        How = PlJoinType.Left
+                                        Suffix = None
+                                        InvertSides = false
+                                        Coalesce = PlJoinCoalesce.JoinSpecific
+                                    }
+
+                            let fillNullOps = buildFillNullOps assignments
+                            let replacements = buildReplacements assignments
+                            return joinOp :: fillNullOps, replacements
+                        else
+                            let leftCols = PolarsSchemaExtractor.GetColumnNames currentLf |> Set.ofArray
+                            let rightSuffix = "_right"
+
+                            let correlatedCtx =
+                                TranslationContext.CorrelatedJoin(
+                                    outerParamName,
+                                    head.InnerParam.Name,
+                                    leftCols,
+                                    rightSuffix
+                                )
+
+                            let combinedThetaExpr =
+                                head.ThetaConditions
+                                |> List.reduce (fun a b -> Expression.AndAlso(a, b) :> Expression)
+
+                            let! thetaFilterH =
+                                ExprTranslator.tryTranslateWithContext correlatedCtx combinedThetaExpr
+
+                            let! outerKeys, innerKeys =
+                                if head.EquiPairs.IsEmpty then
+                                    Some([||], [||])
+                                else
+                                    tryTranslateJoinKeys outerCtx innerCtx head.EquiPairs
+                                    |> Option.map (fun k -> k.OuterKeys, k.InnerJoinKeys)
+
+                            let uid = Guid.NewGuid().ToString "N"
+                            let ridCol = $"__subquery_rid_{grpIdx}_{uid}"
+
+                            let outerWithRidLf =
+                                PolarsWrapper.LazyFrameWithRowIndex(
+                                    PolarsWrapper.LazyClone currentLf,
+                                    ridCol,
+                                    Nullable 0
+                                )
+
+                            let joinedLf =
+                                if outerKeys.Length = 0 then
+                                    PolarsWrapper.Join(
+                                        outerWithRidLf,
+                                        rightLf,
+                                        [||],
+                                        [||],
+                                        PlJoinType.Cross,
+                                        rightSuffix,
+                                        PlJoinValidation.ManyToMany,
+                                        PlJoinCoalesce.KeepColumns,
+                                        PlJoinMaintainOrder.None,
+                                        PlJoinSide.None,
+                                        false,
+                                        Nullable(),
+                                        0UL
+                                    )
+                                else
+                                    PolarsWrapper.Join(
+                                        outerWithRidLf,
+                                        rightLf,
+                                        outerKeys |> Array.map PolarsWrapper.CloneExpr,
+                                        innerKeys |> Array.map PolarsWrapper.CloneExpr,
+                                        PlJoinType.Inner,
+                                        rightSuffix,
+                                        PlJoinValidation.ManyToMany,
+                                        PlJoinCoalesce.JoinSpecific,
+                                        PlJoinMaintainOrder.None,
+                                        PlJoinSide.None,
+                                        false,
+                                        Nullable(),
+                                        0UL
                                     )
 
-                                let combinedThetaExpr =
-                                    head.ThetaConditions
-                                    |> List.reduce (fun a b -> Expression.AndAlso(a, b) :> Expression)
+                            let filteredLf = PolarsWrapper.LazyFilter(joinedLf, thetaFilterH)
 
-                                ExprTranslator.tryTranslateWithContext correlatedCtx combinedThetaExpr
-                                |> Option.bind (fun thetaFilterH ->
-                                    let equiKeysOpt =
-                                        if head.EquiPairs.IsEmpty then
-                                            Some([||], [||])
+                            let buildAgg (cand: ProjectionSubqueryCandidate) =
+                                if cand.IsAny || cand.MethodName = "Count" || cand.MethodName = "LongCount" then
+                                    Some(PolarsWrapper.Len())
+                                elif cand.MethodName = "ToList" || cand.MethodName = "ToArray" then
+                                    match cand.SelectorLambdaOpt with
+                                    | Some selLam ->
+                                        ExprTranslator.tryTranslateWithContext correlatedCtx selLam.Body
+                                        |> Option.map (fun colH -> PolarsWrapper.Implode(colH, maintainOrder = true))
+                                    | None ->
+                                        let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
+
+                                        if rightCols.Length > 0 then
+                                            let cName =
+                                                if leftCols.Contains rightCols.[0] then
+                                                    rightCols.[0] + rightSuffix
+                                                else
+                                                    rightCols.[0]
+
+                                            Some(PolarsWrapper.Implode(PolarsWrapper.Col cName, maintainOrder = true))
                                         else
-                                            tryTranslateJoinKeys outerCtx innerCtx head.EquiPairs
-                                            |> Option.map (fun k -> k.OuterKeys, k.InnerJoinKeys)
+                                            None
+                                else
+                                    match cand.SelectorLambdaOpt with
+                                    | Some selLam ->
+                                        ExprTranslator.tryTranslateWithContext correlatedCtx selLam.Body
+                                        |> Option.bind (ExprTranslator.translateReductionOp cand.MethodName)
+                                    | None ->
+                                        let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
 
-                                    equiKeysOpt
-                                    |> Option.bind (fun (outerKeys, innerKeys) ->
-                                        let uid = Guid.NewGuid().ToString "N"
-                                        let ridCol = $"__subquery_rid_{grpIdx}_{uid}"
+                                        if rightCols.Length > 0 then
+                                            let cName =
+                                                if leftCols.Contains rightCols.[0] then
+                                                    rightCols.[0] + rightSuffix
+                                                else
+                                                    rightCols.[0]
 
-                                        let outerWithRidLf =
-                                            PolarsWrapper.LazyFrameWithRowIndex(
-                                                PolarsWrapper.LazyClone currentLf,
-                                                ridCol,
-                                                Nullable 0
-                                            )
+                                            PolarsWrapper.Col cName
+                                            |> ExprTranslator.translateReductionOp cand.MethodName
+                                        else
+                                            None
 
-                                        let joinedLf =
-                                            if outerKeys.Length = 0 then
-                                                PolarsWrapper.Join(
-                                                    outerWithRidLf,
-                                                    rightLf,
-                                                    [||],
-                                                    [||],
-                                                    PlJoinType.Cross,
-                                                    rightSuffix,
-                                                    PlJoinValidation.ManyToMany,
-                                                    PlJoinCoalesce.KeepColumns,
-                                                    PlJoinMaintainOrder.None,
-                                                    PlJoinSide.None,
-                                                    false,
-                                                    Nullable(),
-                                                    0UL
-                                                )
-                                            else
-                                                PolarsWrapper.Join(
-                                                    outerWithRidLf,
-                                                    rightLf,
-                                                    outerKeys |> Array.map PolarsWrapper.CloneExpr,
-                                                    innerKeys |> Array.map PolarsWrapper.CloneExpr,
-                                                    PlJoinType.Inner,
-                                                    rightSuffix,
-                                                    PlJoinValidation.ManyToMany,
-                                                    PlJoinCoalesce.JoinSpecific,
-                                                    PlJoinMaintainOrder.None,
-                                                    PlJoinSide.None,
-                                                    false,
-                                                    Nullable(),
-                                                    0UL
-                                                )
+                            let! assignments = assignAggCols buildAgg indexedCandidates []
 
-                                        let filteredLf = PolarsWrapper.LazyFilter(joinedLf, thetaFilterH)
+                            let aggExprsToEmit =
+                                assignments |> List.choose (fun (_, _, exprOpt) -> exprOpt) |> List.toArray
 
-                                        let buildAgg (cand: ProjectionSubqueryCandidate) =
-                                            if
-                                                cand.IsAny
-                                                || cand.MethodName = "Count"
-                                                || cand.MethodName = "LongCount"
-                                            then
-                                                Some(PolarsWrapper.Len())
-                                            elif cand.MethodName = "ToList" || cand.MethodName = "ToArray" then
-                                                match cand.SelectorLambdaOpt with
-                                                | Some selLam ->
-                                                    ExprTranslator.tryTranslateWithContext correlatedCtx selLam.Body
-                                                    |> Option.map (fun colH ->
-                                                        PolarsWrapper.Implode(colH, maintainOrder = true))
-                                                | None ->
-                                                    let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
+                            let groupedMatchesLf =
+                                PolarsWrapper.LazyGroupByAgg(
+                                    filteredLf,
+                                    [| PolarsWrapper.Col ridCol |],
+                                    aggExprsToEmit,
+                                    null,
+                                    false
+                                )
 
-                                                    if rightCols.Length > 0 then
-                                                        let cName =
-                                                            if leftCols.Contains rightCols.[0] then
-                                                                rightCols.[0] + rightSuffix
-                                                            else
-                                                                rightCols.[0]
+                            let withRowIndexOp = QueryOp.WithRowIndex(ridCol, Some 0u)
 
-                                                        Some(
-                                                            PolarsWrapper.Implode(
-                                                                PolarsWrapper.Col cName,
-                                                                maintainOrder = true
-                                                            )
-                                                        )
-                                                    else
-                                                        None
-                                            else
-                                                match cand.SelectorLambdaOpt with
-                                                | Some selLam ->
-                                                    ExprTranslator.tryTranslateWithContext correlatedCtx selLam.Body
-                                                    |> Option.bind (
-                                                        ExprTranslator.translateReductionOp cand.MethodName
-                                                    )
-                                                | None ->
-                                                    let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
+                            let joinOp =
+                                QueryOp.Join
+                                    {
+                                        RightLf = groupedMatchesLf
+                                        LeftOn = [| PolarsWrapper.Col ridCol |]
+                                        RightOn = [| PolarsWrapper.Col ridCol |]
+                                        How = PlJoinType.Left
+                                        Suffix = None
+                                        InvertSides = false
+                                        Coalesce = PlJoinCoalesce.JoinSpecific
+                                    }
 
-                                                    if rightCols.Length > 0 then
-                                                        let cName =
-                                                            if leftCols.Contains rightCols.[0] then
-                                                                rightCols.[0] + rightSuffix
-                                                            else
-                                                                rightCols.[0]
-
-                                                        PolarsWrapper.Col cName
-                                                        |> ExprTranslator.translateReductionOp cand.MethodName
-                                                    else
-                                                        None
-
-                                        assignAggCols buildAgg indexedCandidates []
-                                        |> Option.map (fun assignments ->
-                                            let aggExprsToEmit =
-                                                assignments
-                                                |> List.choose (fun (_, _, exprOpt) -> exprOpt)
-                                                |> List.toArray
-
-                                            let groupedMatchesLf =
-                                                PolarsWrapper.LazyGroupByAgg(
-                                                    filteredLf,
-                                                    [| PolarsWrapper.Col ridCol |],
-                                                    aggExprsToEmit,
-                                                    null,
-                                                    false
-                                                )
-
-                                            let withRowIndexOp = QueryOp.WithRowIndex(ridCol, Some 0u)
-
-                                            let joinOp =
-                                                QueryOp.Join
-                                                    {
-                                                        RightLf = groupedMatchesLf
-                                                        LeftOn = [| PolarsWrapper.Col ridCol |]
-                                                        RightOn = [| PolarsWrapper.Col ridCol |]
-                                                        How = PlJoinType.Left
-                                                        Suffix = None
-                                                        InvertSides = false
-                                                        Coalesce = PlJoinCoalesce.JoinSpecific
-                                                    }
-
-                                            let fillNullOps = buildFillNullOps assignments
-                                            let replacements = buildReplacements assignments
-                                            [ withRowIndexOp; joinOp ] @ fillNullOps, replacements)))))
+                            let fillNullOps = buildFillNullOps assignments
+                            let replacements = buildReplacements assignments
+                            return [ withRowIndexOp; joinOp ] @ fillNullOps, replacements
+                    }
 
                 let compiledGroupsOpt =
                     groups
