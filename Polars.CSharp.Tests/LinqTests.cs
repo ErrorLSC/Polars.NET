@@ -90,6 +90,9 @@ public record CustomerSummaryDto(int Id, string Name, int OrderCount);
 public record CustomerCoalescedDto(int Id, string Name, int OrderCount, double TotalAmount, double AvgAmount);
 public record CustomerAnyDto(int Id, string Name, bool HasOrders, bool HasBigOrders);
 public record CustomerMathDto(int Id, double TaxedAmount);
+public record CustomerWithOrderAmounts(int Id, string Name, List<double> OrderAmounts);
+public record CustomerWithOrderArray(int Id, string Name, double[] OrderAmounts);
+public record CustomerWithSummaryAndList(int Id, string Name, int OrderCount, double TotalAmount, List<double> OrderAmounts);
 public partial class LinqTests
 {
     [Fact]
@@ -6815,6 +6818,219 @@ public partial class LinqTests
         Assert.Equal(10, results[0].EventTime);
         Assert.Equal(2, results[1].OrderId);
         Assert.Equal(25, results[1].EventTime);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Projection_ListAgg_Scalar()
+    {
+        var customers = new[]
+        {
+            new SubqueryCustomer(1, "Alice"),
+            new SubqueryCustomer(2, "Bob"),
+            new SubqueryCustomer(3, "Charlie") // No orders
+        };
+
+        var orders = new[]
+        {
+            new SubqueryOrder(101, 1, 50.0, "Completed"),
+            new SubqueryOrder(102, 1, 150.0, "Completed"),
+            new SubqueryOrder(103, 2, 200.0, "Pending")
+        };
+
+        using var dfCust = DataFrame.FromRows(customers);
+        using var dfOrders = DataFrame.FromRows(orders);
+
+        var custQuery = dfCust.AsQueryable(customers);
+        var orderQuery = dfOrders.AsQueryable(orders);
+
+        var query = custQuery
+            .Select(c => new CustomerWithOrderAmounts(
+                c.Id,
+                c.Name,
+                orderQuery.Where(o => o.CustomerId == c.Id).Select(o => o.Amount).ToList()
+            ))
+            .OrderBy(c => c.Id);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(3, results.Count);
+
+        // Alice: [50.0, 150.0]
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal(2, results[0].OrderAmounts.Count);
+        Assert.Equal(50.0, results[0].OrderAmounts[0]);
+        Assert.Equal(150.0, results[0].OrderAmounts[1]);
+
+        // Bob: [200.0]
+        Assert.Equal(2, results[1].Id);
+        Assert.Single(results[1].OrderAmounts);
+        Assert.Equal(200.0, results[1].OrderAmounts[0]);
+
+        // Charlie: empty list or null
+        Assert.Equal(3, results[2].Id);
+        Assert.True(results[2].OrderAmounts == null || results[2].OrderAmounts.Count == 0);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Projection_ListAgg_Filtered()
+    {
+        var customers = new[]
+        {
+            new SubqueryCustomer(1, "Alice"),
+            new SubqueryCustomer(2, "Bob"),
+            new SubqueryCustomer(3, "Charlie")
+        };
+
+        var orders = new[]
+        {
+            new SubqueryOrder(101, 1, 50.0, "Completed"),
+            new SubqueryOrder(102, 1, 150.0, "Completed"),
+            new SubqueryOrder(103, 2, 200.0, "Pending") // Bob only has Pending
+        };
+
+        using var dfCust = DataFrame.FromRows(customers);
+        using var dfOrders = DataFrame.FromRows(orders);
+
+        var custQuery = dfCust.AsQueryable(customers);
+        var orderQuery = dfOrders.AsQueryable(orders);
+
+        var query = custQuery
+            .Select(c => new CustomerWithOrderAmounts(
+                c.Id,
+                c.Name,
+                orderQuery.Where(o => o.CustomerId == c.Id && o.Status == "Completed").Select(o => o.Amount).ToList()
+            ))
+            .OrderBy(c => c.Id);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(3, results.Count);
+
+        // Alice: [50.0, 150.0]
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal(2, results[0].OrderAmounts.Count);
+
+        // Bob: has only Pending orders, so completed orders list is empty or null
+        Assert.Equal(2, results[1].Id);
+        Assert.True(results[1].OrderAmounts == null || results[1].OrderAmounts.Count == 0);
+
+        // Charlie: empty or null
+        Assert.Equal(3, results[2].Id);
+        Assert.True(results[2].OrderAmounts == null || results[2].OrderAmounts.Count == 0);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Projection_ListAgg_Coalesced_With_Scalars()
+    {
+        var customers = new[]
+        {
+            new SubqueryCustomer(1, "Alice"),
+            new SubqueryCustomer(2, "Bob"),
+            new SubqueryCustomer(3, "Charlie")
+        };
+
+        var orders = new[]
+        {
+            new SubqueryOrder(101, 1, 50.0, "Completed"),
+            new SubqueryOrder(102, 1, 150.0, "Completed"),
+            new SubqueryOrder(103, 2, 200.0, "Pending")
+        };
+
+        using var dfCust = DataFrame.FromRows(customers);
+        using var dfOrders = DataFrame.FromRows(orders);
+
+        var custQuery = dfCust.AsQueryable(customers);
+        var orderQuery = dfOrders.AsQueryable(orders);
+
+        // Coalescing: single inner group by computes Count, Sum, and List simultaneously
+        var query = custQuery
+            .Select(c => new CustomerWithSummaryAndList(
+                c.Id,
+                c.Name,
+                orderQuery.Where(o => o.CustomerId == c.Id).Count(),
+                orderQuery.Where(o => o.CustomerId == c.Id).Select(o => o.Amount).Sum(),
+                orderQuery.Where(o => o.CustomerId == c.Id).Select(o => o.Amount).ToList()
+            ))
+            .OrderBy(c => c.Id);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(3, results.Count);
+
+        // Alice: Count=2, Sum=200.0, List=[50.0, 150.0]
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal(2, results[0].OrderCount);
+        Assert.Equal(200.0, results[0].TotalAmount);
+        Assert.Equal(2, results[0].OrderAmounts.Count);
+
+        // Bob: Count=1, Sum=200.0, List=[200.0]
+        Assert.Equal(2, results[1].Id);
+        Assert.Equal(1, results[1].OrderCount);
+        Assert.Equal(200.0, results[1].TotalAmount);
+        Assert.Single(results[1].OrderAmounts);
+
+        // Charlie: Count=0, Sum=0.0 (or default), List=empty/null
+        Assert.Equal(3, results[2].Id);
+        Assert.Equal(0, results[2].OrderCount);
+        Assert.True(results[2].OrderAmounts == null || results[2].OrderAmounts.Count == 0);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Projection_ArrayAgg()
+    {
+        var customers = new[]
+        {
+            new SubqueryCustomer(1, "Alice"),
+            new SubqueryCustomer(2, "Bob")
+        };
+
+        var orders = new[]
+        {
+            new SubqueryOrder(101, 1, 50.0, "Completed"),
+            new SubqueryOrder(102, 1, 150.0, "Completed"),
+            new SubqueryOrder(103, 2, 200.0, "Pending")
+        };
+
+        using var dfCust = DataFrame.FromRows(customers);
+        using var dfOrders = DataFrame.FromRows(orders);
+
+        var custQuery = dfCust.AsQueryable(customers);
+        var orderQuery = dfOrders.AsQueryable(orders);
+
+        var query = custQuery
+            .Select(c => new CustomerWithOrderArray(
+                c.Id,
+                c.Name,
+                orderQuery.Where(o => o.CustomerId == c.Id).Select(o => o.Amount).ToArray()
+            ))
+            .OrderBy(c => c.Id);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(2, results.Count);
+
+        // Alice: [50.0, 150.0]
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal(2, results[0].OrderAmounts.Length);
+        Assert.Equal(50.0, results[0].OrderAmounts[0]);
+        Assert.Equal(150.0, results[0].OrderAmounts[1]);
+
+        // Bob: [200.0]
+        Assert.Equal(2, results[1].Id);
+        Assert.Single(results[1].OrderAmounts);
+        Assert.Equal(200.0, results[1].OrderAmounts[0]);
     }
 
     // [Fact]

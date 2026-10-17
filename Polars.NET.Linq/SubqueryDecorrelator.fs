@@ -393,7 +393,9 @@ module internal SubqueryDecorrelator =
         | "Sum"
         | "Count"
         | "LongCount"
-        | "Median" -> true
+        | "Median"
+        | "ToList"
+        | "ToArray" -> true
         | _ -> false
 
     let rec internal unwrapWhere (seqExpr: Expression) : Expression * LambdaExpression list =
@@ -712,6 +714,21 @@ module internal SubqueryDecorrelator =
         : ExprHandle option =
         if isAnyOrCount || methodName = "Count" || methodName = "LongCount" then
             Some(PolarsWrapper.Len())
+        elif methodName = "ToList" || methodName = "ToArray" then
+            match selectorLambdaOpt with
+            | Some selLam ->
+                let selParam = selLam.Parameters.[0]
+                let selCtx = createContextForType selParam.Type rightLf selParam.Name
+
+                ExprTranslator.tryTranslateWithContext selCtx selLam.Body
+                |> Option.map (fun colH -> PolarsWrapper.Implode(colH, maintainOrder = true))
+            | None ->
+                let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
+
+                if rightCols.Length > 0 then
+                    Some(PolarsWrapper.Implode(PolarsWrapper.Col rightCols.[0], maintainOrder = true))
+                else
+                    None
         else
             match selectorLambdaOpt with
             | Some selLam ->
