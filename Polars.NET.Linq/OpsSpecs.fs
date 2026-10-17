@@ -6,55 +6,62 @@ open System.Reflection
 open System
 
 /// Specification for multi-column sorting pushdown
-type internal SortSpec = {
-    Expr: ExprHandle
-    Descending: bool
-    NullsLast: bool
-}
+type internal SortSpec =
+    {
+        Expr: ExprHandle
+        Descending: bool
+        NullsLast: bool
+    }
 
 /// Specification for exploding list/array columns
-type internal ExplodeSpec = {
-    ColumnNames: string array
-    EmptyAsNull: bool
-    KeepNulls: bool
-}
+type internal ExplodeSpec =
+    {
+        ColumnNames: string array
+        EmptyAsNull: bool
+        KeepNulls: bool
+    }
 
 /// Specification for column renaming pushdown
-type internal RenameSpec = {
-    ExistingNames: string array
-    NewNames: string array
-}
+type internal RenameSpec =
+    {
+        ExistingNames: string array
+        NewNames: string array
+    }
 
 /// Specification for native join pushdown
-type internal JoinSpec = {
-    RightLf: LazyFrameHandle
-    LeftOn: ExprHandle array
-    RightOn: ExprHandle array
-    How: PlJoinType
-    Suffix: string option
-    InvertSides: bool
-    Coalesce: PlJoinCoalesce
-}
+type internal JoinSpec =
+    {
+        RightLf: LazyFrameHandle
+        LeftOn: ExprHandle array
+        RightOn: ExprHandle array
+        How: PlJoinType
+        Suffix: string option
+        InvertSides: bool
+        Coalesce: PlJoinCoalesce
+    }
 
 /// Specification for native GroupBy aggregation pushdown
-type internal GroupBySpec = {
-    Keys: ExprHandle array
-    Aggs: ExprHandle array
-    Having: ExprHandle option
-    MaintainOrder: bool
-}
+type internal GroupBySpec =
+    {
+        Keys: ExprHandle array
+        Aggs: ExprHandle array
+        Having: ExprHandle option
+        MaintainOrder: bool
+    }
 
-type internal UniqueSpec = {
-    SubsetCols: string array option
-    Keep: PlUniqueKeepStrategy
-    MaintainOrder: bool
-}
+type internal UniqueSpec =
+    {
+        SubsetCols: string array option
+        Keep: PlUniqueKeepStrategy
+        MaintainOrder: bool
+    }
 
 /// Specification for vertical concatenation pushdown
-type internal ConcatSpec = {
-    OtherLf: LazyFrameHandle
-    Prepend: bool // false: current @ other (Append), true: other @ current (Prepend)
-}
+type internal ConcatSpec =
+    {
+        OtherLf: LazyFrameHandle
+        Prepend: bool // false: current @ other (Append), true: other @ current (Prepend)
+    }
 
 /// Uniform contract to expose internal LazyFrameHandle without leaking generic parameters
 type internal IPolarsPlanSource =
@@ -96,7 +103,11 @@ type internal LinqStage =
     | SkipLast of uint32
     | Chunk of size: int
     | CountBy of keySelector: LambdaExpression
-    | AggregateBy of keySelector: LambdaExpression * seedExpr: Expression * seedFactoryOpt: LambdaExpression option * func: LambdaExpression
+    | AggregateBy of
+        keySelector: LambdaExpression *
+        seedExpr: Expression *
+        seedFactoryOpt: LambdaExpression option *
+        func: LambdaExpression
     | Distinct
     | DistinctBy of LambdaExpression
     | Concat of Expression
@@ -109,8 +120,16 @@ type internal LinqStage =
     | SetOp of MethodInfo * Expression * LambdaExpression option * LambdaExpression option
     | GroupByKey of LambdaExpression
     | GroupByWithResult of LambdaExpression * LambdaExpression
-    | GroupByWithElementAndResult of keySelector: LambdaExpression * elemSelector: LambdaExpression * resSelector: LambdaExpression
-    | GroupJoin of methodInfo: MethodInfo * inner: Expression * outerKey: LambdaExpression * innerKey: LambdaExpression * resSelOpt: LambdaExpression option
+    | GroupByWithElementAndResult of
+        keySelector: LambdaExpression *
+        elemSelector: LambdaExpression *
+        resSelector: LambdaExpression
+    | GroupJoin of
+        methodInfo: MethodInfo *
+        inner: Expression *
+        outerKey: LambdaExpression *
+        innerKey: LambdaExpression *
+        resSelOpt: LambdaExpression option
     | Zip of secondExpr: Expression * resultLambdaOpt: LambdaExpression option
     | Zip3 of secondExpr: Expression * thirdExpr: Expression
     | Reverse

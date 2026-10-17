@@ -6,7 +6,7 @@ open System.Linq.Expressions
 open System.Reflection
 open System.Linq
 
-/// Performs client-side partial evaluation to fold closure references 
+/// Performs client-side partial evaluation to fold closure references
 /// and local computations into ConstantExpressions before AST translation.
 module internal PartialEvaluator =
 
@@ -40,16 +40,19 @@ module internal PartialEvaluator =
             candidates
 
         override this.Visit(node: Expression) =
-            if isNull node then null
+            if isNull node then
+                null
             else
                 let saveCannotBeEvaluated = cannotBeEvaluated
                 cannotBeEvaluated <- false
                 ignore (base.Visit node)
+
                 if not cannotBeEvaluated then
                     if canBeEvaluated node then
                         candidates.Add node |> ignore
                     else
                         cannotBeEvaluated <- true
+
                 cannotBeEvaluated <- cannotBeEvaluated || saveCannotBeEvaluated
                 node
 
@@ -64,8 +67,7 @@ module internal PartialEvaluator =
             // 2. Visit member bindings
             for binding in node.Bindings do
                 match binding with
-                | :? MemberAssignment as ma ->
-                    ignore (this.Visit ma.Expression)
+                | :? MemberAssignment as ma -> ignore (this.Visit ma.Expression)
                 | :? MemberMemberBinding as mmb ->
                     for b in mmb.Bindings do
                         match b with
@@ -76,6 +78,7 @@ module internal PartialEvaluator =
                         for arg in init.Arguments do
                             ignore (this.Visit arg)
                 | _ -> ()
+
             node :> Expression
 
     /// Phase 2: Rewrites maximal nominated subtrees into constant literals.
@@ -83,7 +86,8 @@ module internal PartialEvaluator =
         inherit ExpressionVisitor()
 
         override this.Visit(node: Expression) =
-            if isNull node then null
+            if isNull node then
+                null
             elif candidates.Contains node then
                 try
                     let value = evaluateSubtree node
@@ -96,12 +100,13 @@ module internal PartialEvaluator =
 
     /// Evaluates all closure variables and local computations within the expression tree.
     let eval (expr: Expression) : Expression =
-        if isNull expr then null
+        if isNull expr then
+            null
         else
             let canBeEvaluated (node: Expression) =
-                node.NodeType <> ExpressionType.Parameter &&
-                node.NodeType <> ExpressionType.Lambda &&
-                not (typeof<IQueryable>.IsAssignableFrom node.Type)
+                node.NodeType <> ExpressionType.Parameter
+                && node.NodeType <> ExpressionType.Lambda
+                && not (typeof<IQueryable>.IsAssignableFrom node.Type)
 
             let nominator = Nominator canBeEvaluated
             let candidates = nominator.Nominate expr

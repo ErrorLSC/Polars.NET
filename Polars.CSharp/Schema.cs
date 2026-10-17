@@ -10,7 +10,7 @@ namespace Polars.CSharp;
 /// <summary>
 /// Represents a Polars Schema (Name -> DataType mapping).
 /// </summary>
-public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,IReadOnlyDictionary<string, DataType>, IEnumerable<Field>
+public class PolarsSchema : IDisposable, IPolarsSchema, IEquatable<PolarsSchema>, IReadOnlyDictionary<string, DataType>, IEnumerable<Field>
 {
     internal SchemaHandle Handle { get; private set; }
     private bool _disposed;
@@ -94,7 +94,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
     {
         ArgumentNullException.ThrowIfNull(type);
         SchemaHandle handle = PolarsWrapper.NewSchemaFromType(type);
-        return [with(handle)];
+        return new(handle);
     }
 
     /// <summary>
@@ -206,14 +206,14 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
     /// Returns a n-row null-filled DataFrame with an identical schema. n can be greater than the current number of rows in the DataFrame.
     /// </summary>
     /// <returns>An empty DataFrame with columns and types matching the schema.</returns>
-    public DataFrame ToDataFrame(long length=0)
+    public DataFrame ToDataFrame(long length = 0)
         => new(PolarsWrapper.DataFrameFromSchema(Handle, (uint)length));
     /// <summary>
     /// Create an empty copy of the current LazyFrame, with zero to ‘n’ rows.
     /// Returns a copy with an identical schema but no data.
     /// </summary>
     /// <returns>An empty DataFrame with columns and types matching the schema.</returns>
-    public LazyFrame ToLazyFrame(long length=0)
+    public LazyFrame ToLazyFrame(long length = 0)
     {
         using var df = new DataFrame(PolarsWrapper.DataFrameFromSchema(Handle, (uint)length));
         return df.Lazy();
