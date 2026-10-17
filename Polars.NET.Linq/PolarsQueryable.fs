@@ -144,52 +144,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
     /// Creates an appropriate TranslationContext based on whether the sequence element type
     /// is a scalar/primitive (bound to the underlying single physical column) or a composite entity.
     static member createContextForType (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
-        if PolarsTypeHelper.IsScalarType elemType || elemType = typeof<string> then
-            let colNames = PolarsSchemaExtractor.GetColumnNames lf
-
-            if colNames.Length = 1 then
-                TranslationContext.Scalar(paramName, colNames.[0])
-            else
-                TranslationContext.Entity paramName
-        elif
-            elemType.IsGenericType
-            && (elemType.Name.StartsWith "ValueTuple`2"
-                || elemType.Name.StartsWith "Tuple`2"
-                || elemType.Name.Contains "AnonymousType"
-                   && not (isNull (elemType.GetProperty "Outer"))
-                   && not (isNull (elemType.GetProperty "Inner")))
-        then
-            let genArgs = elemType.GetGenericArguments()
-            let tOuter = genArgs.[0]
-
-            // Recursively extract all member names from TOuter, properly unwrapping Nullable<TStruct>
-            let rec getLeftMemberNames (t: Type) : Set<string> =
-                let actualT = Nullable.GetUnderlyingType(t) |> Option.ofObj |> Option.defaultValue t
-
-                if
-                    actualT.IsGenericType
-                    && (actualT.Name.StartsWith "ValueTuple" || actualT.Name.StartsWith "Tuple")
-                then
-                    actualT.GetGenericArguments() |> Array.map getLeftMemberNames |> Set.unionMany
-                elif PolarsTypeHelper.IsScalarType actualT || actualT = typeof<string> then
-                    Set.empty
-                else
-                    let props =
-                        actualT.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-                        |> Array.map (fun p -> p.Name)
-
-                    let fields =
-                        actualT.GetFields(BindingFlags.Public ||| BindingFlags.Instance)
-                        |> Array.map (fun f -> f.Name)
-
-                    Array.append props fields |> Set.ofArray
-
-            let typeCols = getLeftMemberNames tOuter
-            let lfCols = PolarsSchemaExtractor.GetColumnNames lf |> Set.ofArray
-            let leftCols = Set.union typeCols lfCols
-            TranslationContext.TupleJoin(paramName, leftCols, "_right")
-        else
-            TranslationContext.Entity paramName
+        SubqueryDecorrelator.createContextForType elemType lf paramName
 
     /// Extracts the underlying sequence element type from generic collections/arrays
     static member private GetSequenceElementType(t: Type) =
@@ -252,7 +207,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                 if PolarsTypeHelper.AcceptsNull targetType then
                     LinqReflectionCache.GetEmptyOptionalValue targetType :?> 'TResult
                 else
-                    Activator.CreateInstance(targetType) :?> 'TResult
+                    Activator.CreateInstance targetType :?> 'TResult
             | "Average"
             | "Min"
             | "Max" ->
@@ -1250,216 +1205,12 @@ and PolarsQuery<'T>
         (currentLf: LazyFrameHandle)
         (filterLambda: LambdaExpression)
         : JoinSpec option =
-
-        if filterLambda.Parameters.Count <> 1 then
-            None
-        else
-            let outerParam = filterLambda.Parameters.[0]
-            let outerName = outerParam.Name
-
-            let isNegated, coreExpr =
-                match ExprTranslator.unwrap filterLambda.Body with
-                | Unary(ExpressionType.Not, inner) -> true, ExprTranslator.unwrap inner
-                | other -> false, other
-
-            let rec flattenAnd (expr: Expression) : Expression list =
-                match ExprTranslator.unwrap expr with
-                | Binary(ExpressionType.AndAlso, left, right) -> flattenAnd left @ flattenAnd right
-                | other -> [ other ]
-
-            // Pattern 1: Any(innerSeq, [predicate]) or innerSeq.Where(predicate).Any()
-            let tryMatchAny (e: Expression) : (Expression * LambdaExpression option) option =
-                match e with
-                | MethodCall(m, null, [ innerSeq; CleanLambda lam ]) when m.Name = "Any" -> Some(innerSeq, Some lam)
-                | MethodCall(m, innerSeq, [ CleanLambda lam ]) when m.Name = "Any" -> Some(innerSeq, Some lam)
-                | MethodCall(m, null, [ innerSeq ]) when m.Name = "Any" ->
-                    match ExprTranslator.unwrap innerSeq with
-                    | MethodCall(mWhere, null, [ src; CleanLambda lam ]) when mWhere.Name = "Where" ->
-                        Some(src, Some lam)
-                    | MethodCall(mWhere, src, [ CleanLambda lam ]) when mWhere.Name = "Where" -> Some(src, Some lam)
-                    | _ -> Some(innerSeq, None)
-                | MethodCall(m, innerSeq, []) when m.Name = "Any" ->
-                    match ExprTranslator.unwrap innerSeq with
-                    | MethodCall(mWhere, null, [ src; CleanLambda lam ]) when mWhere.Name = "Where" ->
-                        Some(src, Some lam)
-                    | MethodCall(mWhere, src, [ CleanLambda lam ]) when mWhere.Name = "Where" -> Some(src, Some lam)
-                    | _ -> Some(innerSeq, None)
-                | _ -> None
-
-            // Pattern 2: innerSeq.Contains(keyExpr) or Contains(innerSeq, keyExpr)
-            let tryMatchContains (e: Expression) : (Expression * LambdaExpression option * Expression) option =
-                let matchSeqAndKey (innerSeq: Expression) (keyExpr: Expression) =
-                    match ExprTranslator.unwrap innerSeq with
-                    | MethodCall(mSel, null, [ src; CleanLambda selLam ]) when mSel.Name = "Select" ->
-                        Some(src, Some selLam, keyExpr)
-                    | MethodCall(mSel, src, [ CleanLambda selLam ]) when mSel.Name = "Select" ->
-                        Some(src, Some selLam, keyExpr)
-                    | otherSeq -> Some(otherSeq, None, keyExpr)
-
-                match e with
-                | MethodCall(m, null, [ innerSeq; keyExpr ]) when m.Name = "Contains" -> matchSeqAndKey innerSeq keyExpr
-                | MethodCall(m, innerSeq, [ keyExpr ]) when m.Name = "Contains" -> matchSeqAndKey innerSeq keyExpr
-                | _ -> None
-
-            match tryMatchAny coreExpr with
-            | Some(innerSource, Some innerLambda) ->
-                // Ensure innerSource does NOT depend on outerParam (must be an independent table/query)
-                if PolarsQuery<'T>.ContainsParameter outerName innerSource then
-                    None
-                else
-                    let innerParam = innerLambda.Parameters.[0]
-                    let innerName = innerParam.Name
-                    let conditions = flattenAnd innerLambda.Body
-
-                    // Classify each condition in the predicate
-                    let classify (cond: Expression) =
-                        match ExprTranslator.unwrap cond with
-                        | Binary(ExpressionType.Equal, left, right) ->
-                            let lOuter = PolarsQuery<'T>.ContainsParameter outerName left
-                            let lInner = PolarsQuery<'T>.ContainsParameter innerName left
-                            let rOuter = PolarsQuery<'T>.ContainsParameter outerName right
-                            let rInner = PolarsQuery<'T>.ContainsParameter innerName right
-
-                            if lOuter && not lInner && rInner && not rOuter then
-                                Choice1Of3(left, right) // (outerExpr, innerExpr)
-                            elif rOuter && not rInner && lInner && not lOuter then
-                                Choice1Of3(right, left) // (outerExpr, innerExpr)
-                            elif not (lOuter || rOuter) && (lInner || rInner) then
-                                Choice2Of3 cond // pure inner filter (e.g. e.Salary > 8000)
-                            else
-                                Choice3Of3() // unsupported cross-dependency or operator
-                        | other ->
-                            let hasOuter = PolarsQuery<'T>.ContainsParameter outerName other
-                            let hasInner = PolarsQuery<'T>.ContainsParameter innerName other
-
-                            if not hasOuter && hasInner then
-                                Choice2Of3 other
-                            else
-                                Choice3Of3()
-
-                    let classified = conditions |> List.map classify
-
-                    let hasUnsupported =
-                        classified
-                        |> List.exists (function
-                            | Choice3Of3() -> true
-                            | _ -> false)
-
-                    if hasUnsupported then
-                        None
-                    else
-                        let equiPairs =
-                            classified
-                            |> List.choose (function
-                                | Choice1Of3 pair -> Some pair
-                                | Choice2Of3 _
-                                | Choice3Of3 _ -> None)
-
-                        let innerFilters =
-                            classified
-                            |> List.choose (function
-                                | Choice2Of3 f -> Some f
-                                | Choice1Of3 _
-                                | Choice3Of3 _ -> None)
-
-                        // Must contain at least one equi-join condition
-                        if equiPairs.IsEmpty then
-                            None
-                        else
-                            PolarsQuery<'T>.ResolveToLazyFrameHandle innerSource
-                            |> Option.bind (fun rawRightLf ->
-                                // 1. Push down pure inner filters to right LazyFrame first
-                                let rightLfOpt =
-                                    if innerFilters.IsEmpty then
-                                        Some rawRightLf
-                                    else
-                                        let combinedInner =
-                                            innerFilters
-                                            |> List.reduce (fun a b -> Expression.AndAlso(a, b) :> Expression)
-
-                                        let innerCtx =
-                                            PolarsQueryProvider.createContextForType
-                                                innerParam.Type
-                                                rawRightLf
-                                                innerName
-
-                                        ExprTranslator.tryTranslateWithContext innerCtx combinedInner
-                                        |> Option.map (fun filterH -> PolarsWrapper.LazyFilter(rawRightLf, filterH))
-
-                                rightLfOpt
-                                |> Option.bind (fun rightLf ->
-                                    // 2. Translate join keys on both sides
-                                    let outerCtx =
-                                        PolarsQueryProvider.createContextForType outerParam.Type currentLf outerName
-
-                                    let innerCtx =
-                                        PolarsQueryProvider.createContextForType innerParam.Type rightLf innerName
-
-                                    let translatedKeys =
-                                        equiPairs
-                                        |> List.choose (fun (outerE, innerE) ->
-                                            match
-                                                ExprTranslator.tryTranslateWithContext outerCtx outerE,
-                                                ExprTranslator.tryTranslateWithContext innerCtx innerE
-                                            with
-                                            | Some lk, Some rk -> Some(lk, rk)
-                                            | _ -> None)
-
-                                    if translatedKeys.Length = equiPairs.Length then
-                                        Some
-                                            {
-                                                RightLf = rightLf
-                                                LeftOn = translatedKeys |> List.map fst |> List.toArray
-                                                RightOn = translatedKeys |> List.map snd |> List.toArray
-                                                How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
-                                                Suffix = None
-                                                InvertSides = false
-                                                Coalesce = PlJoinCoalesce.JoinSpecific
-                                            }
-                                    else
-                                        None))
-
-            | _ ->
-                match tryMatchContains coreExpr with
-                | Some(innerSource, selLambdaOpt, outerKeyExpr) ->
-                    if PolarsQuery<'T>.ContainsParameter outerName innerSource then
-                        None
-                    else
-                        PolarsQuery<'T>.ResolveToLazyFrameHandle innerSource
-                        |> Option.bind (fun rightLf ->
-                            let outerCtx =
-                                PolarsQueryProvider.createContextForType outerParam.Type currentLf outerName
-
-                            let leftKeyOpt = ExprTranslator.tryTranslateWithContext outerCtx outerKeyExpr
-
-                            let rightKeyOpt =
-                                match selLambdaOpt with
-                                | Some selLambda ->
-                                    let p = selLambda.Parameters.[0]
-                                    let innerCtx = PolarsQueryProvider.createContextForType p.Type rightLf p.Name
-                                    ExprTranslator.tryTranslateWithContext innerCtx selLambda.Body
-                                | None ->
-                                    let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
-
-                                    if rightCols.Length > 0 then
-                                        Some(PolarsWrapper.Col rightCols.[0])
-                                    else
-                                        None
-
-                            match leftKeyOpt, rightKeyOpt with
-                            | Some leftKey, Some rightKey ->
-                                Some
-                                    {
-                                        RightLf = rightLf
-                                        LeftOn = [| leftKey |]
-                                        RightOn = [| rightKey |]
-                                        How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
-                                        Suffix = None
-                                        InvertSides = false
-                                        Coalesce = PlJoinCoalesce.JoinSpecific
-                                    }
-                            | _ -> None)
-                | None -> None
+        match SubqueryDecorrelator.tryDecorrelateFilter currentLf filterLambda with
+        | Some {
+                   GeneratedOps = [ QueryOp.Join spec ]
+                   ResidualLambda = None
+               } -> Some spec
+        | _ -> None
 
     /// Builds a Polars equality filter expression matching an item (scalar primitive or composite entity/record)
     /// against the columns of a target LazyFrame.
@@ -1502,100 +1253,6 @@ and PolarsQuery<'T>
                     Some(conditions |> Array.reduce (fun acc c -> PolarsWrapper.And(acc, c)))
                 else
                     None
-
-    /// Compiles any sub-expression into an isolated LazyFrameHandle
-    static member internal CompileSubtreeToLazyFrame
-        (expr: Expression)
-        (currentMat: IDataFrameMaterializer)
-        : LazyFrameHandle option =
-        match expr with
-        | :? ConstantExpression as c when not (isNull c.Value) ->
-            match c.Value with
-            | :? IPolarsPlanSource as planSource -> Some(planSource.GetCompiledLazyFrameHandle())
-            | _ -> None
-        | _ ->
-            let rec findRootQueryable (e: Expression) : IQueryable option =
-                match e with
-                | :? ConstantExpression as c when not (isNull c.Value) ->
-                    match c.Value with
-                    | :? IQueryable as q -> Some q
-                    | _ -> None
-                | :? MethodCallExpression as mc -> mc.Arguments |> Seq.tryPick findRootQueryable
-                | _ -> None
-
-            match findRootQueryable expr with
-            | Some rootQuery ->
-                try
-                    let subQuery = rootQuery.Provider.CreateQuery(expr)
-
-                    match subQuery with
-                    | :? IPolarsPlanSource as ps -> Some(ps.GetCompiledLazyFrameHandle())
-                    | _ -> None
-                with _ ->
-                    None
-            | None ->
-                match tryEvaluate expr with
-                | Some(:? IPolarsPlanSource as ps) -> Some(ps.GetCompiledLazyFrameHandle())
-                | _ -> None
-
-    /// Uniformly extracts a LazyFrameHandle from an Expression
-    static member internal ResolveToLazyFrameHandle(expr: Expression) : LazyFrameHandle option =
-        let rec unwrap (e: Expression) =
-            match e with
-            | Unary(ExpressionType.Convert, inner)
-            | Unary(ExpressionType.ConvertChecked, inner)
-            | Unary(ExpressionType.Quote, inner) -> unwrap inner
-            | other -> other
-
-        let cleanExpr = unwrap expr
-
-        let rawObjOpt =
-            match cleanExpr with
-            | :? ConstantExpression as ce -> Some ce.Value
-            | other ->
-                match tryEvaluate other with
-                | Some v -> Some v
-                | None ->
-                    try
-                        let lambda =
-                            Expression.Lambda<Func<obj>>(Expression.Convert(other, typeof<obj>)).Compile()
-
-                        Some(lambda.Invoke())
-                    with _ ->
-                        None
-
-        match rawObjOpt with
-        | None -> None
-        | Some null -> None
-        | Some(:? IPolarsPlanSource as plan) -> Some(plan.GetCompiledLazyFrameHandle())
-        | Some(:? LazyFrameHandle as lf) -> Some(PolarsWrapper.LazyClone lf)
-        | Some(:? DataFrameHandle as df) -> Some(PolarsWrapper.DataFrameToLazy df)
-        | Some value ->
-            let valueType = value.GetType()
-
-            let handleProp =
-                valueType.GetProperty(
-                    "Handle",
-                    BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance
-                )
-
-            if not (isNull handleProp) then
-                match handleProp.GetValue value with
-                | :? LazyFrameHandle as lf -> Some(PolarsWrapper.LazyClone lf)
-                | :? DataFrameHandle as df -> Some(PolarsWrapper.DataFrameToLazy df)
-                | _ -> None
-            else
-                match PolarsTypeHelper.TryGetEnumerableElementType valueType with
-                | null -> None
-                | elemType ->
-                    let fromRows =
-                        typeof<DataFrameBuilder>
-                            .GetMethod("FromRows", BindingFlags.Public ||| BindingFlags.Static)
-                            .MakeGenericMethod
-                            elemType
-
-                    let dfHandle = fromRows.Invoke(null, [| value |]) :?> DataFrameHandle
-                    Some(PolarsWrapper.DataFrameToLazy dfHandle)
 
     /// Recursively inspects the expression tree to locate Chunk(size) invocations.
     static member internal TryExtractChunkSize(e: Expression) : int option =
@@ -1650,21 +1307,6 @@ and PolarsQuery<'T>
         match colLambda.Body with
         | ExtractColumnName colName -> Some colName
         | _ -> None
-
-    /// Checks recursively whether an expression contains references to a specific parameter
-    static member private ContainsParameter (paramName: string) (expr: Expression) : bool =
-        let rec check (e: Expression) =
-            match e with
-            | null -> false
-            | :? ParameterExpression as p -> p.Name = paramName
-            | MethodCall(_, target, args) -> (not (isNull target) && check target) || (args |> List.exists check)
-            | MemberAccess(target, _) -> target <> null && check target
-            | Unary(_, inner) -> check inner
-            | Binary(_, left, right) -> check left || check right
-            | Lambda(_, body) -> check body
-            | _ -> false
-
-        check expr
 
     /// Uniformly extracts member name and expression pairs from NewExpression or MemberInitExpression
     static member private TryExtractMemberBindings(expr: Expression) : (string * Expression) list option =
@@ -2326,7 +1968,7 @@ and PolarsQuery<'T>
                 ExprTranslator.tryTranslateWithContext ctx keyLambda.Body
                 |> Option.map (fun h -> [| h |])
 
-        match PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr with
+        match SubqueryDecorrelator.resolveToLazyFrameHandle innerExpr with
         | Some rightLf ->
             let outerParam = outerKey.Parameters.[0]
             let innerParam = innerKey.Parameters.[0]
@@ -2389,7 +2031,7 @@ and PolarsQuery<'T>
             else
                 PlJoinType.Anti
 
-        PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr
+        SubqueryDecorrelator.resolveToLazyFrameHandle secondExpr
         |> Option.bind (fun rightLf ->
             let keysOpt =
                 match firstKeyOpt, secondKeyOpt with
@@ -2746,7 +2388,7 @@ and PolarsQuery<'T>
                     | _ -> e
 
                 let paramName = colSel.Parameters.[0].Name
-                let containsParam = PolarsQuery<'T>.ContainsParameter paramName colSel.Body
+                let containsParam = SubqueryDecorrelator.containsParameter paramName colSel.Body
 
                 // Unpack inner pipeline ONLY if it references the current parameter AND yields non-empty stages (e.g. F# transparent join chains)
                 let nestedStagesOpt =
@@ -3017,9 +2659,14 @@ and PolarsQuery<'T>
 
             | LinqStage.Filter l :: tail ->
                 // Attempt subquery decorrelation (EXISTS/IN -> Semi-Join, NOT EXISTS/NOT IN -> Anti-Join)
-                match PolarsQuery<'T>.TryDecorrelateSubquery lfCloned l with
-                | Some joinSpec when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                    fuse tail (QueryOp.Join joinSpec :: opsAcc) clientPreds clientProjOpt
+                match SubqueryDecorrelator.tryDecorrelateFilter lfCloned l with
+                | Some decorResult when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+                    let newOpsAcc = (decorResult.GeneratedOps |> List.rev) @ opsAcc
+
+                    match decorResult.ResidualLambda with
+                    | Some residualLam ->
+                        fuse (LinqStage.Filter residualLam :: tail) newOpsAcc clientPreds clientProjOpt
+                    | None -> fuse tail newOpsAcc clientPreds clientProjOpt
                 | _ ->
                     let p = l.Parameters.[0]
                     let ctx = PolarsQueryProvider.createContextForType p.Type lfCloned p.Name
@@ -3193,7 +2840,7 @@ and PolarsQuery<'T>
                 && clientProjOpt.IsNone
                 ->
 
-                match PolarsQuery<'T>.ResolveToLazyFrameHandle inner with
+                match SubqueryDecorrelator.resolveToLazyFrameHandle inner with
                 | Some rightLf ->
                     let outerParam = outerKey.Parameters.[0]
                     let innerParam = innerKey.Parameters.[0]
@@ -3262,7 +2909,7 @@ and PolarsQuery<'T>
                 | None -> [], [], None, true
 
             | LinqStage.Concat otherExpr :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match PolarsQuery<'T>.CompileSubtreeToLazyFrame otherExpr materializer with
+                match SubqueryDecorrelator.compileSubtreeToLazyFrame otherExpr with
                 | Some otherCompiledLf ->
                     let spec =
                         {
@@ -3274,7 +2921,7 @@ and PolarsQuery<'T>
                 | None -> [], [], None, true
 
             | LinqStage.Zip(secondExpr, resLambdaOpt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with
+                match SubqueryDecorrelator.resolveToLazyFrameHandle secondExpr with
                 | Some otherLf ->
                     let baseCols = PolarsSchemaExtractor.GetColumnNames lfCloned |> Set.ofArray
 
@@ -3312,8 +2959,8 @@ and PolarsQuery<'T>
 
             | LinqStage.Zip3(secondExpr, thirdExpr) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 match
-                    PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr,
-                    PolarsQuery<'T>.ResolveToLazyFrameHandle thirdExpr
+                    SubqueryDecorrelator.resolveToLazyFrameHandle secondExpr,
+                    SubqueryDecorrelator.resolveToLazyFrameHandle thirdExpr
                 with
                 | Some secondLf, Some thirdLf ->
                     let baseCols = PolarsSchemaExtractor.GetColumnNames lfCloned |> Set.ofArray
@@ -3332,7 +2979,7 @@ and PolarsQuery<'T>
                 | _ -> [], [], None, true
 
             | LinqStage.Union(secondExpr, keyLambdaOpt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match PolarsQuery<'T>.ResolveToLazyFrameHandle secondExpr with
+                match SubqueryDecorrelator.resolveToLazyFrameHandle secondExpr with
                 | Some otherLf ->
                     let concatOp = QueryOp.Concat { OtherLf = otherLf; Prepend = false }
 
@@ -3397,7 +3044,7 @@ and PolarsQuery<'T>
                 | None -> [], [], None, true
 
             | LinqStage.CrossJoin(innerExpr, resLambdaOpt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr with
+                match SubqueryDecorrelator.resolveToLazyFrameHandle innerExpr with
                 | Some rightLf ->
                     let joinSpec =
                         {
@@ -3478,7 +3125,7 @@ and PolarsQuery<'T>
             | LinqStage.GroupJoin(_, innerExpr, outerKey, innerKey, Some resSel) :: tail when
                 clientPreds.IsEmpty && clientProjOpt.IsNone
                 ->
-                match PolarsQuery<'T>.ResolveToLazyFrameHandle innerExpr with
+                match SubqueryDecorrelator.resolveToLazyFrameHandle innerExpr with
                 | Some rightLf ->
                     let outerParam = outerKey.Parameters.[0]
                     let innerParam = innerKey.Parameters.[0]
@@ -3620,48 +3267,59 @@ and PolarsQuery<'T>
 
             // Universal Select Projection Pushdown vs. Client Func Fallback
             | LinqStage.Project projLambda :: tail ->
-                match PolarsQuery<'T>.TryCompileTransparentLet lfCloned projLambda with
-                | Some withColOp when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                    fuse tail (withColOp :: opsAcc) clientPreds None
-                | _ ->
-                    match PolarsQuery<'T>.CompileSelectProjection lfCloned projLambda with
-                    | Some exprs when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                        fuse tail (QueryOp.Select exprs :: opsAcc) clientPreds None
+                let decorrelatedOpt =
+                    if clientPreds.IsEmpty && clientProjOpt.IsNone then
+                        SubqueryDecorrelator.tryDecorrelateProjection lfCloned projLambda
+                    else
+                        None
 
+                match decorrelatedOpt with
+                | Some (subqueryOps, rewrittenProjLambda) ->
+                    let newOpsAcc = (subqueryOps |> List.rev) @ opsAcc
+                    fuse (LinqStage.Project rewrittenProjLambda :: tail) newOpsAcc clientPreds None
+                | None ->
+                    match PolarsQuery<'T>.TryCompileTransparentLet lfCloned projLambda with
+                    | Some withColOp when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+                        fuse tail (withColOp :: opsAcc) clientPreds None
                     | _ ->
-                        let sourceType = projLambda.Parameters.[0].Type
+                        match PolarsQuery<'T>.CompileSelectProjection lfCloned projLambda with
+                        | Some exprs when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+                            fuse tail (QueryOp.Select exprs :: opsAcc) clientPreds None
 
-                        // Compile a lambda into a typed Func<obj, obj> without DynamicInvoke reflection overhead
-                        let compileToBoxedFunc (lambda: LambdaExpression) =
-                            let rawParam = Expression.Parameter(typeof<obj>, "rawItem")
+                        | _ ->
+                            let sourceType = projLambda.Parameters.[0].Type
 
-                            let castParam =
-                                if lambda.Parameters.[0].Type = typeof<obj> then
-                                    rawParam :> Expression
-                                else
-                                    Expression.Convert(rawParam, lambda.Parameters.[0].Type) :> Expression
+                            // Compile a lambda into a typed Func<obj, obj> without DynamicInvoke reflection overhead
+                            let compileToBoxedFunc (lambda: LambdaExpression) =
+                                let rawParam = Expression.Parameter(typeof<obj>, "rawItem")
 
-                            let invoked = Expression.Invoke(lambda, castParam)
-                            let boxedResult = Expression.Convert(invoked, typeof<obj>)
-                            Expression.Lambda<Func<obj, obj>>(boxedResult, rawParam).Compile()
+                                let castParam =
+                                    if lambda.Parameters.[0].Type = typeof<obj> then
+                                        rawParam :> Expression
+                                    else
+                                        Expression.Convert(rawParam, lambda.Parameters.[0].Type) :> Expression
 
-                        let currentFunc = compileToBoxedFunc projLambda
+                                let invoked = Expression.Invoke(lambda, castParam)
+                                let boxedResult = Expression.Convert(invoked, typeof<obj>)
+                                Expression.Lambda<Func<obj, obj>>(boxedResult, rawParam).Compile()
 
-                        let nextProj =
-                            match clientProjOpt with
-                            | None ->
-                                // First projection stage: sourceType -> current intermediate
-                                Some(sourceType, currentFunc)
-                            | Some(prevSrcType, prevFunc) ->
-                                // Composed projection chain: prevSrcType -> prevResult -> currentResult
-                                let composed =
-                                    Func<obj, obj>(fun rawItem ->
-                                        let mid = prevFunc.Invoke(rawItem)
-                                        currentFunc.Invoke(mid))
+                            let currentFunc = compileToBoxedFunc projLambda
 
-                                Some(prevSrcType, composed)
+                            let nextProj =
+                                match clientProjOpt with
+                                | None ->
+                                    // First projection stage: sourceType -> current intermediate
+                                    Some(sourceType, currentFunc)
+                                | Some(prevSrcType, prevFunc) ->
+                                    // Composed projection chain: prevSrcType -> prevResult -> currentResult
+                                    let composed =
+                                        Func<obj, obj>(fun rawItem ->
+                                            let mid = prevFunc.Invoke(rawItem)
+                                            currentFunc.Invoke(mid))
 
-                        fuse tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds nextProj
+                                    Some(prevSrcType, composed)
+
+                            fuse tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds nextProj
 
             | LinqStage.Cast _ :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 fuse tail opsAcc clientPreds clientProjOpt

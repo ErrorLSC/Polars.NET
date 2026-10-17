@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -21,6 +21,7 @@
     <Compile Include="AggTranslator.fs" />
     <Compile Include="FSharpAstRewriter.fs" />
     <Compile Include="LinqReflectionCache.fs" />
+    <Compile Include="SubqueryDecorrelator.fs" />
     <Compile Include="PolarsQueryable.fs" />
   </ItemGroup>
 

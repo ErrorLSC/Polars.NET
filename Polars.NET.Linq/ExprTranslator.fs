@@ -33,6 +33,9 @@ type internal TranslationContext =
     /// Resolves pair.Outer (Item1) and pair.Inner (Item2) against physical columns in the joined LazyFrame.
     | TupleJoin of pairParam: string * leftCols: Set<string> * rightSuffix: string
 
+    /// Binary correlated subquery join context (outerParam, innerParam, leftCols, rightSuffix)
+    | CorrelatedJoin of outerParam: string * innerParam: string * leftCols: Set<string> * rightSuffix: string
+
     /// Determines whether the given parameter name matches any parameter active in the current scope.
     member this.ContainsParam(name: string) : bool =
         match this with
@@ -42,6 +45,7 @@ type internal TranslationContext =
         | TranslationContext.BinaryJoin(left, right) -> name = left || name = right
         | TranslationContext.Merge(target, source, _) -> name = target || name = source
         | TranslationContext.TupleJoin(pairParam, _, _) -> name = pairParam
+        | TranslationContext.CorrelatedJoin(outer, inner, _, _) -> name = outer || name = inner
 
     /// Attempts to resolve the parameter expression node itself to a native Polars ExprHandle.
     member this.TryResolveParameterHandle(name: string) : ExprHandle option =
@@ -260,6 +264,12 @@ module internal rec ExprTranslator =
                 && m.DeclaringType.GetGenericTypeDefinition() = typedefof<Nullable<_>>
 
             match expr with
+            | :? ParameterExpression as p when
+                not (isNull p.Name)
+                && (p.Name.StartsWith "__subquery_agg_" || p.Name.StartsWith "__subquery_col_")
+                ->
+                Some p.Name
+
             | MemberAccess(_, m) when isNavigationMember m || isNullableHasValue m -> None
 
             | MemberAccess(inner, m) ->
@@ -287,6 +297,17 @@ module internal rec ExprTranslator =
                         if isRootedIn target inner then Some m.Name
                         elif isRootedIn source inner then Some(m.Name + suffix)
                         else None
+
+                    | TranslationContext.CorrelatedJoin(outerParam, innerParam, leftCols, rightSuffix) ->
+                        if isRootedIn outerParam inner then
+                            Some m.Name
+                        elif isRootedIn innerParam inner then
+                            if leftCols.Contains m.Name then
+                                Some(m.Name + rightSuffix)
+                            else
+                                Some m.Name
+                        else
+                            None
 
                     | TranslationContext.TupleJoin(pairParam, leftCols, rightSuffix) ->
                         // Transparently unwrap .Value on tuple components: pair.Outer.Value.DeptName
@@ -1822,7 +1843,14 @@ module internal rec ExprTranslator =
             | Constant(value, t) -> Some(toLiteralHandle value t)
 
             // 10. Parameter mapping: delegate physical column resolution directly to TranslationContext
-            | :? ParameterExpression as p -> ctx.TryResolveParameterHandle p.Name
+            | :? ParameterExpression as p ->
+                if
+                    not (isNull p.Name)
+                    && (p.Name.StartsWith "__subquery_agg_" || p.Name.StartsWith "__subquery_col_")
+                then
+                    Some(PolarsWrapper.Col p.Name)
+                else
+                    ctx.TryResolveParameterHandle p.Name
 
             | _ -> None
         with _ ->

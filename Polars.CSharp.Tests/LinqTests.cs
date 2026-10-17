@@ -7,7 +7,7 @@ namespace Polars.CSharp.Tests;
 public record Employee(string Name, int Age, int Salary);
 public readonly record struct EmployeeDept(string Name, string Department, int Age, int Salary);
 public readonly record struct DeptEmpCount(int DeptId, string DeptName, int EmployeeCount);
-public record struct DepartmentRecord(string Department,int Salary);
+public record struct DepartmentRecord(string Department, int Salary);
 public readonly record struct Person(int Id, string Name, int DeptId);
 public readonly record struct Department(int Id, string DeptName);
 public readonly record struct PersonDeptJoined(int Id, string Name, int DeptId, string DeptName);
@@ -68,12 +68,15 @@ public class StockPrice
     public double? Price { get; set; }
 }
 public record struct DeveloperProfile(int Id, string[] Skills, string[] DesiredSkills);
+public readonly record struct PartItem(int Id, string Name, double SupplyCost);
+public readonly record struct PartSuppItem(int PartKey, int SuppKey, double SupplyCost, int AvailQty);
+public readonly record struct LineItemRecord(int OrderKey, int PartKey, int SuppKey, int Quantity, DateTime ShipDate);
 public readonly record struct UserInfo(int Id, string Email, string Password);
 public readonly record struct LogEntry(int Id, string Message);
 public record struct AddressInfo(string City, string ZipCode);
 public record struct CustomerProfile(int Id, string CustomerName, AddressInfo Address);
 public record struct UserProfile(int Id, string Nickname, string FallbackName);
-public record OrderItem(string ItemName,decimal Price,decimal DiscountRate);
+public record OrderItem(string ItemName, decimal Price, decimal DiscountRate);
 public readonly record struct ProductMetric(
     string Name,
     double Factor
@@ -81,6 +84,12 @@ public readonly record struct ProductMetric(
 public record SensorReading(int SensorId, double Temperature, string Location);
 public record OrderEvent(int OrderId, int EventTime, double Amount);
 public record PromoWindow(int PromoId, int StartTime, int EndTime, string Name);
+public record SubqueryCustomer(int Id, string Name);
+public record SubqueryOrder(int OrderId, int CustomerId, double Amount, string Status);
+public record CustomerSummaryDto(int Id, string Name, int OrderCount);
+public record CustomerCoalescedDto(int Id, string Name, int OrderCount, double TotalAmount, double AvgAmount);
+public record CustomerAnyDto(int Id, string Name, bool HasOrders, bool HasBigOrders);
+public record CustomerMathDto(int Id, double TaxedAmount);
 public partial class LinqTests
 {
     [Fact]
@@ -126,12 +135,12 @@ public partial class LinqTests
         var upperQuery = empQuery.Select(e => e.Name.ToUpper());
 
         Assert.True(upperQuery.Any(name => name == upperAlice));
-        Assert.False(upperQuery.Any(name => name == alice)); 
+        Assert.False(upperQuery.Any(name => name == alice));
 
         Assert.True(upperQuery.All(name => name.Length == 3 || name.Length == 5));
         Assert.False(upperQuery.All(name => name == upperAlice));
     }
-    
+
     [Fact]
     [Trait("LINQ", "Scalar_Last")]
     public void Test_Linq_Last_And_LastOrDefault_Flow()
@@ -264,7 +273,7 @@ public partial class LinqTests
                       .Where(e => e.Age >= 18)
                       .Where(e => CheckSecurityClearance(e.Name, e.Salary))
                       .ToList();
-        
+
         // Qualified:
         // Alice: Age 25 >= 18, in approved set, salary 5000 > 4500 -> True
         // Charlie: Age 30 >= 18, in approved set, salary 7000 > 4500 -> True
@@ -594,7 +603,7 @@ public partial class LinqTests
     {
         using var ordersDf = DataFrame.FromColumns([
             Series.From("OrderId", [1, 2, 3, 4]),
-            Series.From("EventTime", [10, 25, 50, 80]), 
+            Series.From("EventTime", [10, 25, 50, 80]),
             Series.From("Amount", [100.0, 200.0, 300.0, 400.0])
         ]);
 
@@ -618,7 +627,7 @@ public partial class LinqTests
 
         var optimizedPlan = query.Explain(optimized: true);
 
-        Assert.Contains("IEJOIN",optimizedPlan);
+        Assert.Contains("IEJOIN", optimizedPlan);
 
         var results = query.ToList();
 
@@ -659,8 +668,8 @@ public partial class LinqTests
         // 3. Construct mixed query: Equi-join (OrderId == PromoId) combined with range inequalities
         var query = from o in ordersDf.AsQueryable<OrderEvent>()
                     from p in promosDf.AsQueryable<PromoWindow>()
-                    where o.OrderId == p.PromoId 
-                    && o.EventTime >= p.StartTime 
+                    where o.OrderId == p.PromoId
+                    && o.EventTime >= p.StartTime
                     && o.EventTime <= p.EndTime
                     select new
                     {
@@ -672,7 +681,7 @@ public partial class LinqTests
 
         // 4. Capture and inspect optimized plans
         var optimizedPlan = query.Explain(optimized: true);
-        Assert.DoesNotContain("CROSS",optimizedPlan);
+        Assert.DoesNotContain("CROSS", optimizedPlan);
 
         // 5. Materialize and assert exact matching results
         var results = query.ToList();
@@ -849,7 +858,7 @@ public partial class LinqTests
         Assert.Equal(4, summaries[2].HighestPaidMemberId);
     }
     [Fact]
-    [Trait("LINQ","GroupBy")]
+    [Trait("LINQ", "GroupBy")]
     public void Test_Linq_GroupBy_Without_Agg_Returns_Grouping_Sequence()
     {
         // 1. Prepare sample DataFrame with multiple persons per department
@@ -896,7 +905,7 @@ public partial class LinqTests
     }
 
     [Fact]
-    [Trait("LINQ","GroupBy")]
+    [Trait("LINQ", "GroupBy")]
     public void Test_Linq_GroupBy_FollowedBy_Select_Pushdown()
     {
         // 1. Prepare sample DataFrame with existing Person struct
@@ -940,7 +949,7 @@ public partial class LinqTests
     }
 
     [Fact]
-    [Trait("LINQ","GroupBy")]
+    [Trait("LINQ", "GroupBy")]
     public void Test_Linq_GroupBy_Aggregations_On_Empty_Dataset_Pushdown()
     {
         // 1. Prepare dataset where Where filter eliminates all records
@@ -1000,7 +1009,7 @@ public partial class LinqTests
         Assert.Contains(results, r => r.Department == "HR" && r.TotalSalary == 125000);
     }
     [Fact]
-    [Trait("LINQ","Complex")]
+    [Trait("LINQ", "Complex")]
     public void Test_Linq_Join_FollowedBy_GroupBy_Aggregations_Pushdown()
     {
         // 1. Prepare Persons (left table)
@@ -1056,7 +1065,7 @@ public partial class LinqTests
     }
 
     [Fact]
-    [Trait("LINQ","Complex")]
+    [Trait("LINQ", "Complex")]
     public void Test_Linq_Complex_Filter_Join_OrderBy_And_Aggregations()
     {
         // 1. Source tables
@@ -1111,7 +1120,7 @@ public partial class LinqTests
     }
 
     [Fact]
-    [Trait("LINQ","Complex")]
+    [Trait("LINQ", "Complex")]
     public void Test_Linq_LeftJoin_FollowedBy_GroupBy_Aggregations()
     {
         // 1. Employees with an unmatched department (Dept 99)
@@ -1170,7 +1179,7 @@ public partial class LinqTests
         Assert.Equal(4, summaries[2].MinId);
         Assert.Equal(4, summaries[2].MaxId);
     }
-    
+
     [Fact]
     [Trait("LINQ", "RightJoin")]
     public void Test_Linq_RightJoin_Materialize_Rows()
@@ -1520,7 +1529,7 @@ public partial class LinqTests
         [
             Series.From("Id", [1, 2]),
             Series.From("Name", ["Alice", "Bob"]),
-            Series.From("Tags", new string[][] 
+            Series.From("Tags", new string[][]
             {
                 ["Rust", "DotNet"],
                 ["Polars"]
@@ -1661,7 +1670,7 @@ public partial class LinqTests
         [
             Series.From("Id", [1, 2]),
             Series.From("Name", ["Alice", "Bob"]),
-            Series.From("Tags", new string[][] 
+            Series.From("Tags", new string[][]
             {
                 ["Rust", "DotNet"],
                 ["Polars"]
@@ -2791,7 +2800,7 @@ public partial class LinqTests
         var results = df.AsQueryable<Employee>()
             .Index()
             .ToList();
-            
+
         // Assert: Verify 0-based index and element mapping
         Assert.Equal(3, results.Count);
 
@@ -3035,7 +3044,7 @@ public partial class LinqTests
         // - Dept 10 (Engineering): Bob(102)                      -> MemberCount: 1 (Filtered out by Having >= 2L!)
         // Archive Group:
         // - Dept 40 (Marketing): MemberCount: 1, Min: 401, Max: 401
-        
+
         // Sorted By MemberCount Descending:
         // Rank 0: Dept 20 (Finance) - MemberCount: 3
         // Rank 1: Dept 30 (HR)      - MemberCount: 2
@@ -3348,7 +3357,7 @@ public partial class LinqTests
         var upperNames = query.Select(e => e.Name.ToUpper());
         Assert.True(upperNames.Contains("ALICE"));
         Assert.True(upperNames.Contains("BOB"));
-        Assert.False(upperNames.Contains("Alice")); 
+        Assert.False(upperNames.Contains("Alice"));
         Assert.False(upperNames.Contains("DAVID"));
 
         Employee[] emptyEmps = [];
@@ -3493,8 +3502,9 @@ public partial class LinqTests
 
         // Tests: Trim(), ToLower(), Contains(), StartsWith(), Length
         var query = df.AsQueryable<OrderRecord>()
-                      .Where(o => o.CustomerName.Trim().ToLower().Contains("li",StringComparison.InvariantCultureIgnoreCase) || o.CustomerName.StartsWith("  A",StringComparison.Ordinal))
-                      .Select(o => new {
+                      .Where(o => o.CustomerName.Trim().ToLower().Contains("li", StringComparison.InvariantCultureIgnoreCase) || o.CustomerName.StartsWith("  A", StringComparison.Ordinal))
+                      .Select(o => new
+                      {
                           CleanName = o.CustomerName.Trim().ToLower(),
                           Len = o.CustomerName.Length
                       })
@@ -3514,7 +3524,8 @@ public partial class LinqTests
         // Tests: .Year, .Month, .Day, ToString(chrono format), AddDays
         var query = df.AsQueryable<OrderRecord>()
                       .Where(o => o.OrderDate.Year == 2026 && o.OrderDate.Month >= 1)
-                      .Select(o => new {
+                      .Select(o => new
+                      {
                           o.Id,
                           o.OrderDate.Year,
                           o.OrderDate.Month,
@@ -3526,7 +3537,7 @@ public partial class LinqTests
                       .ToList();
 
         Assert.Equal(2, query.Count);
-        
+
         Assert.Equal(1, query[0].Id);
         Assert.Equal(2026, query[0].Year);
         Assert.Equal(1, query[0].Month);
@@ -3573,7 +3584,7 @@ public partial class LinqTests
         Assert.Single(sundayOnly);
         Assert.Equal(10, sundayOnly[0].Id);
     }
-  
+
     [Fact]
     [Trait("LINQ", "DateTimeMultiColumn")]
     public void Test_Linq_DateTime_Multiple_Columns_And_Same_Column_Tuple_Projection()
@@ -3594,7 +3605,8 @@ public partial class LinqTests
         // Scenario 1: Multiple DateTime columns in anonymous projection
         // =========================================================================
         var anonQuery = df.AsQueryable<MultiDateRecord>()
-                          .Select(r => new {
+                          .Select(r => new
+                          {
                               r.Id,
                               CreatedYear = r.CreatedAt.Year,
                               UpdatedYear = r.UpdatedAt.Year,
@@ -3628,7 +3640,8 @@ public partial class LinqTests
         // Tests: Math.Abs, Math.Round, Math.Sqrt, Math.Max
         var query = df.AsQueryable<OrderRecord>()
                       .Where(o => Math.Abs(o.Amount) > 50.0)
-                      .Select(o => new {
+                      .Select(o => new
+                      {
                           o.Id,
                           AbsAmount = Math.Abs(o.Amount),
                           Rounded = Math.Round(o.Amount, 1, MidpointRounding.ToEven),
@@ -3662,10 +3675,11 @@ public partial class LinqTests
 
         // Complex combined filter + projection without hitting fallback
         var result = df.AsQueryable<OrderRecord>()
-                       .Where(o => o.OrderDate.Year >= 2025 && 
-                                   Math.Abs(o.Amount) > 30.0 && 
+                       .Where(o => o.OrderDate.Year >= 2025 &&
+                                   Math.Abs(o.Amount) > 30.0 &&
                                    !string.IsNullOrEmpty(o.CustomerName))
-                       .Select(o => new {
+                       .Select(o => new
+                       {
                            UpperName = o.CustomerName.Trim().ToUpper(),
                            SubName = o.CustomerName.Trim().Substring(0, 3),
                            o.OrderDate.Year,
@@ -3758,7 +3772,7 @@ public partial class LinqTests
             Series.From("Email", ["alice@example.com", "bob_invalid", "charlie@polars.net"]),
             Series.From("Password", ["P@ssw0rd1", "weakpass", "Admin2026"])
         ]);
-        
+
         // Scenario 1: Standard regex -> Validated -> Natively pushed down to Rust StrContains
         var validEmailPattern = @"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$";
         var nativeQuery = df.AsQueryable<UserInfo>()
@@ -3825,7 +3839,8 @@ public partial class LinqTests
         MatchEvaluator uppercaseWord = m => m.Value.ToUpperInvariant();
 
         var query = df.AsQueryable<LogEntry>()
-                      .Select(e => new {
+                      .Select(e => new
+                      {
                           e.Id,
                           // 1. True Static Regex.Replace with MatchEvaluator
                           DoubledMessage = Regex.Replace(e.Message, @"\d+", doubleNumbers),
@@ -3862,7 +3877,8 @@ public partial class LinqTests
         MatchEvaluator lowercaseTag = m => $"[{m.Groups[1].Value.ToLowerInvariant()}]";
 
         var query = df.AsQueryable<LogEntry>()
-                      .Select(e => new {
+                      .Select(e => new
+                      {
                           e.Id,
                           // SG Regex with MatchEvaluator and RegexOptions.IgnoreCase (matches both [info] and [CRITICAL])
                           NormalizedMessage = CaseInsensitiveTagRegex().Replace(e.Message, lowercaseTag)
@@ -3903,7 +3919,8 @@ public partial class LinqTests
         ]);
 
         var query = df.AsQueryable<LogEntry>()
-                      .Select(e => new {
+                      .Select(e => new
+                      {
                           e.Id,
                           // 1. Static Regex.Match with lowercase pattern + RegexOptions.IgnoreCase -> Native StrExtract (Group 0)
                           FullTag = Regex.Match(e.Message, @"\[(info|warn|error):(\d+)\]", RegexOptions.IgnoreCase).Value,
@@ -3958,7 +3975,8 @@ public partial class LinqTests
         ]);
 
         var query = df.AsQueryable<LogEntry>()
-                      .Select(e => new {
+                      .Select(e => new
+                      {
                           e.Id,
                           // 1. Static Regex.Matches(s, pat).Count -> Native StrExtractAll + ListLen
                           DigitCount = Regex.Matches(e.Message, @"\d+").Count,
@@ -4013,7 +4031,8 @@ public partial class LinqTests
         ]);
 
         var query = df.AsQueryable<LogEntry>()
-                      .Select(e => new {
+                      .Select(e => new
+                      {
                           e.Id,
                           // 1. Static Regex.Matches without options -> Native StrExtractAll
                           StaticTokens = Regex.Matches(e.Message, @"\b[A-Za-z]+\b")
@@ -4090,7 +4109,8 @@ public partial class LinqTests
         ]);
 
         var query = df.AsQueryable<LogEntry>()
-                      .Select(e => new {
+                      .Select(e => new
+                      {
                           e.Id,
                           // 1. Static Regex.Split without options -> Rust Native StrSplit (literal: false)
                           StaticWords = Regex.Split(e.Message, @"[\s,;]+"),
@@ -4139,7 +4159,7 @@ public partial class LinqTests
         Assert.Equal(["apple", "banana", "Orange"], query[2].SgWordsIgnoreCase);
         Assert.Equal(["apple", "banana", "Orange"], query[2].UdfTokensWithEnum);
     }
-    
+
     [Fact]
     [Trait("LINQ", "ListOperators")]
     public void Test_Linq_List_Operators_Pushdown_Using_PersonWithTags()
@@ -4165,7 +4185,8 @@ public partial class LinqTests
 
         // 2. Test Select with Length, First, Last, Indexer
         var projected = df.AsQueryable<PersonWithTags>()
-                          .Select(p => new {
+                          .Select(p => new
+                          {
                               p.Id,
                               TagCount = p.Tags.Length,
                               FirstTag = p.Tags.First(),
@@ -4210,7 +4231,8 @@ public partial class LinqTests
         ]);
 
         var query = df.AsQueryable<PersonWithTags>()
-                      .Select(p => new {
+                      .Select(p => new
+                      {
                           p.Id,
                           JoinedTags = string.Join(";", p.Tags),
                           CommaTags = string.Join(", ", p.Tags)
@@ -4246,7 +4268,8 @@ public partial class LinqTests
         ]);
 
         var query = df.AsQueryable<PersonWithTags>()
-                      .Select(p => new {
+                      .Select(p => new
+                      {
                           p.Id,
                           // 1. Take(2) -> ListHead
                           TopTags = p.Tags.Take(2),
@@ -4288,7 +4311,8 @@ public partial class LinqTests
         ]);
 
         var query = df.AsQueryable<PersonWithTags>()
-                      .Select(p => new {
+                      .Select(p => new
+                      {
                           p.Id,
                           // Distinct() -> list().eval(col("").unique())
                           UniqueTags = p.Tags.Distinct(),
@@ -4327,7 +4351,8 @@ public partial class LinqTests
         ]);
 
         var query = df.AsQueryable<PersonWithTags>()
-                      .Select(p => new {
+                      .Select(p => new
+                      {
                           p.Id,
                           // TakeLast(2) -> list().tail(2)
                           LastTwoTags = p.Tags.TakeLast(2)
@@ -4359,7 +4384,8 @@ public partial class LinqTests
         ]);
 
         var query = df.AsQueryable<DeveloperProfile>()
-                      .Select(d => new {
+                      .Select(d => new
+                      {
                           d.Id,
                           // 1. Sort ascending
                           SortedSkills = d.Skills.OrderBy(s => s),
@@ -4397,7 +4423,8 @@ public partial class LinqTests
         ]);
 
         var query = df.AsQueryable<StudentScores>()
-                      .Select(s => new {
+                      .Select(s => new
+                      {
                           s.Id,
                           // Has any score recorded
                           HasScores = s.Scores.Any(),
@@ -4439,7 +4466,8 @@ public partial class LinqTests
         ]);
 
         var query = df.AsQueryable<StudentScores>()
-                      .Select(s => new {
+                      .Select(s => new
+                      {
                           s.Id,
                           // Any() without predicate
                           HasScores = s.Scores.Any(),
@@ -4477,7 +4505,8 @@ public partial class LinqTests
         ]);
 
         var query = df.AsQueryable<PersonWithTags>()
-                      .Select(p => new {
+                      .Select(p => new
+                      {
                           p.Id,
                           // tags.Select(t => t.ToUpper()) -> list().eval(col("").str().to_uppercase())
                           UpperTags = p.Tags.Select(t => t.ToUpper()).ToArray()
@@ -4515,7 +4544,8 @@ public partial class LinqTests
 
         // 3. Act & Assert: Select projection pushdown extracting nested struct fields
         var projected = df.AsQueryable<CustomerProfile>()
-                          .Select(c => new {
+                          .Select(c => new
+                          {
                               c.Id,
                               CityName = c.Address.City,
                               Postal = c.Address.ZipCode
@@ -4524,7 +4554,7 @@ public partial class LinqTests
                           .ToList();
 
         Assert.Equal(3, projected.Count);
-        
+
         Assert.Equal(1, projected[0].Id);
         Assert.Equal("Tokyo", projected[0].CityName);
         Assert.Equal("100-0001", projected[0].Postal);
@@ -4550,7 +4580,8 @@ public partial class LinqTests
 
         // Act: Test ?? operator inside Select projection
         var query = df.AsQueryable<UserProfile>()
-                      .Select(u => new {
+                      .Select(u => new
+                      {
                           u.Id,
                           DisplayName = u.Nickname ?? u.FallbackName
                       })
@@ -4590,7 +4621,8 @@ public partial class LinqTests
         Assert.Equal("Widget C", filtered[1].ItemName);
 
         var projected = df.AsQueryable<OrderItem>()
-                          .Select(o => new {
+                          .Select(o => new
+                          {
                               o.ItemName,
                               RoundedPrice = decimal.Round(o.Price, 2),
                               CeilPrice = decimal.Ceiling(o.Price),
@@ -4646,7 +4678,8 @@ public partial class LinqTests
 
         // 2. Select (MidpointRounding, Clamp, Min, Max, Truncate)
         var projected = df.AsQueryable<OrderItem>()
-                          .Select(o => new {
+                          .Select(o => new
+                          {
                               o.ItemName,
                               // HalfToEven
                               RoundDefault = decimal.Round(o.Price, 2),
@@ -4697,7 +4730,7 @@ public partial class LinqTests
         Assert.Equal(-15.0m, b.Ceil);
         Assert.Equal(-15.0m, b.Trunc);
         Assert.Equal(15.75m, b.Abs);
-        Assert.Equal(-15.7m, b.RoundToZero); 
+        Assert.Equal(-15.7m, b.RoundToZero);
         Assert.Equal(15, b.PriceAsInt);
 
         // Item C: Price = 100.50m (ToEven / HalfToEven)
@@ -4713,7 +4746,7 @@ public partial class LinqTests
         var d = projected[3];
         Assert.Equal(6.0m, d.RoundAwayFromZero);
         Assert.Equal(6.0m, d.RoundToEven);
-        Assert.Equal(10.0m, d.Clamped);            
+        Assert.Equal(10.0m, d.Clamped);
     }
 
     [Fact]
@@ -4733,7 +4766,8 @@ public partial class LinqTests
         ]);
 
         var query = df.AsQueryable<StockPrice>()
-                    .Select(s => new {
+                    .Select(s => new
+                    {
                         s.Symbol,
                         s.TradeDate,
                         s.Price,
@@ -4744,7 +4778,7 @@ public partial class LinqTests
                     .ToList();
 
         Assert.Equal(5, query.Count);
-        
+
         Assert.Equal(150.0, query[0].Price);
         Assert.Null(query[0].PrevPrice);
         Assert.Null(query[0].PriceDiff);
@@ -4838,7 +4872,7 @@ public partial class LinqTests
         // David (Salary 4000) 
         var david = dept2.Single(r => r.Name == "David");
         Assert.Equal(2.0, david.DeptRank);
-        Assert.Null(david.DeptSalaryPctChange); 
+        Assert.Null(david.DeptSalaryPctChange);
     }
     [Fact]
     [Trait("LINQ", "WindowFunctions")]
@@ -5323,7 +5357,7 @@ public partial class LinqTests
 
         var results = df.AsQueryable<ProductMetric>()
             .Select(x => new
-            {   
+            {
                 x,
                 RunningProd = x.Factor.CumProd(),
                 ReverseRunningProd = x.Factor.CumProd(reverse: true)
@@ -5790,8 +5824,8 @@ public partial class LinqTests
         // Act: Multiple Keys
         var resultList = target
             .Merge(
-                source, 
-                t => new { t.Name, t.Department }, 
+                source,
+                t => new { t.Name, t.Department },
                 s => new { s.Name, s.Department }
             )
             .WhenMatched(
@@ -6010,7 +6044,7 @@ public partial class LinqTests
         Assert.NotNull(resultDf);
         Assert.Equal(20L, resultDf.Height); // SensorId: 81..100
         Assert.Equal(3, resultDf.Width);
-        
+
         // Validate first and last row values in the returned DataFrame
         Assert.Equal(81, resultDf["SensorId"].GetValue<int>(0));
         Assert.Equal(40.5, resultDf["Temperature"].GetValue<double>(0));
@@ -6165,6 +6199,624 @@ public partial class LinqTests
         Assert.Single(unmatchedDepts);
         Assert.Equal("Ghost", unmatchedDepts[0].DeptName);
     }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_CompoundPredicates_And_MultiSubqueries()
+    {
+        var depts = new[]
+        {
+            new Department(25, "Engineering"),
+            new Department(40, "Sales"),
+            new Department(60, "Advisory")
+        };
+
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 80000),
+            new Employee("Bob", 40, 45000),
+            new Employee("Charlie", 25, 50000)
+        };
+
+        using var dfDept = DataFrame.FromRows(depts);
+        using var dfEmp = DataFrame.FromRows(emps);
+
+        var deptQuery = dfDept.AsQueryable(depts);
+        var empQuery = dfEmp.AsQueryable(emps);
+
+        // 1. Compound predicate: normal filter + Semi-Join
+        var highSalaryDepts = deptQuery
+            .Where(d => d.Id > 20 && empQuery.Any(e => e.Age == d.Id && e.Salary > 60000))
+            .ToList();
+
+        Assert.Single(highSalaryDepts);
+        Assert.Equal(25, highSalaryDepts[0].Id);
+        Assert.Equal("Engineering", highSalaryDepts[0].DeptName);
+
+        // 2. Compound predicate: normal filter + Anti-Join
+        var emptyOlderDepts = deptQuery
+            .Where(d => d.Id > 30 && !empQuery.Any(e => e.Age == d.Id))
+            .ToList();
+
+        Assert.Single(emptyOlderDepts);
+        Assert.Equal(60, emptyOlderDepts[0].Id);
+        Assert.Equal("Advisory", emptyOlderDepts[0].DeptName);
+
+        // 3. Compound predicate: normal filter + IN/Contains Semi-Join
+        var salesWithNormalSalary = deptQuery
+            .Where(d => d.Id >= 25 && d.DeptName == "Sales" && empQuery.Where(e => e.Salary <= 50000)
+            .Select(e => e.Age).Contains(d.Id))
+            .ToList();
+
+        Assert.Single(salesWithNormalSalary);
+        Assert.Equal(40, salesWithNormalSalary[0].Id);
+
+        // 4. Multi-subquery in single WHERE clause: EXISTS and NOT EXISTS (TPC-H Q21 pattern)
+        // Dept 25: has employees, and none have salary < 50000 (Alice 80k, Charlie 50k)
+        // Dept 40: Bob has salary 45000 (< 50000), so excluded
+        // Dept 60: no employees, so excluded
+        var multiSubqueryDepts = deptQuery
+            .Where(d => empQuery.Any(e => e.Age == d.Id) && !empQuery.Any(e => e.Age == d.Id && e.Salary < 50000))
+            .ToList();
+
+        Assert.Single(multiSubqueryDepts);
+        Assert.Equal(25, multiSubqueryDepts[0].Id);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_UncorrelatedScalarSubquery_Folding()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 80000),
+            new Employee("Bob", 40, 45000),
+            new Employee("Charlie", 25, 50000),
+            new Employee("Diana", 50, 95000)
+        };
+
+        using var dfEmp = DataFrame.FromRows(emps);
+        var empQuery = dfEmp.AsQueryable(emps);
+
+        // 1. TPC-H Q15 pattern: Equal to Scalar Max
+        // Max salary = 95000 (Diana)
+        var topEarnersQuery = empQuery.Where(e => e.Salary == empQuery.Max(x => x.Salary));
+        var topEarnersPlan = topEarnersQuery.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", topEarnersPlan);
+
+        var topEarners = topEarnersQuery.ToList();
+        Assert.Single(topEarners);
+        Assert.Equal("Diana", topEarners[0].Name);
+        Assert.Equal(95000, topEarners[0].Salary);
+
+        // 2. TPC-H Q22 / Q11 pattern: Compare to subquery Average with inner filter
+        // Subquery: Average salary for Age <= 30 is (80000 + 50000)/2 = 65000.
+        // Employees with Salary > 65000 are Alice (80000) and Diana (95000).
+        var aboveAvgYoungSalaryQuery = empQuery
+            .Where(e => e.Salary > empQuery.Where(x => x.Age <= 30).Average(x => x.Salary))
+            .OrderBy(e => e.Salary);
+
+        var aboveAvgYoungSalary = aboveAvgYoungSalaryQuery.ToList();
+        Assert.Equal(2, aboveAvgYoungSalary.Count);
+        Assert.Equal("Alice", aboveAvgYoungSalary[0].Name);
+        Assert.Equal("Diana", aboveAvgYoungSalary[1].Name);
+
+        // 3. Uncorrelated scalar subquery with arithmetic multiplier (e.g. 0.8 * Average)
+        // Average salary of all: (80000 + 45000 + 50000 + 95000)/4 = 67500.
+        // 0.8 * 67500 = 54000.
+        // Employees with Salary > 54000: Alice (80000) and Diana (95000).
+        var above80PctAvg = empQuery
+            .Where(e => e.Salary > 0.8 * empQuery.Average(x => x.Salary))
+            .OrderBy(e => e.Salary)
+            .ToList();
+
+        Assert.Equal(2, above80PctAvg.Count);
+        Assert.Equal("Alice", above80PctAvg[0].Name);
+        Assert.Equal("Diana", above80PctAvg[1].Name);
+
+        // 4. Combined: Uncorrelated scalar subquery + Correlated Semi-Join (TPC-H Q22 pattern)
+        var depts = new[]
+        {
+            new Department(25, "Engineering"),
+            new Department(40, "Sales"),
+            new Department(50, "Executive")
+        };
+        using var dfDept = DataFrame.FromRows(depts);
+        var deptQuery = dfDept.AsQueryable(depts);
+
+        // Depts where Id < (average employee age = 35) AND has employees (Age == Id)
+        // Average age = (25 + 40 + 25 + 50)/4 = 35.
+        // Dept 25: Id 25 < 35, matches Alice & Charlie -> Included!
+        // Dept 40: Id 40 >= 35 -> Excluded
+        // Dept 50: Id 50 >= 35 -> Excluded
+        var youngDeptsWithEmployees = deptQuery
+            .Where(d => d.Id < empQuery.Average(e => e.Age) && empQuery.Any(e => e.Age == d.Id))
+            .ToList();
+
+        Assert.Single(youngDeptsWithEmployees);
+        Assert.Equal(25, youngDeptsWithEmployees[0].Id);
+        Assert.Equal("Engineering", youngDeptsWithEmployees[0].DeptName);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_CorrelatedScalarAgg_Min_TPCH_Q2()
+    {
+        var parts = new[]
+        {
+            new PartItem(1, "PartA", 10.0),
+            new PartItem(2, "PartB", 20.0),
+            new PartItem(3, "PartC", 15.0)
+        };
+
+        var partsupp = new[]
+        {
+            new PartSuppItem(1, 101, 10.0, 100),
+            new PartSuppItem(1, 102, 12.0, 50),
+            new PartSuppItem(2, 101, 25.0, 80),
+            new PartSuppItem(2, 102, 30.0, 20),
+            new PartSuppItem(3, 103, 15.0, 70)
+        };
+
+        using var dfParts = DataFrame.FromRows(parts);
+        using var dfPartSupp = DataFrame.FromRows(partsupp);
+
+        var partsQuery = dfParts.AsQueryable(parts);
+        var partsuppQuery = dfPartSupp.AsQueryable(partsupp);
+
+        // TPC-H Q2 pattern: p.SupplyCost == partsupp.Where(ps => ps.PartKey == p.Id).Min(ps => ps.SupplyCost)
+        var query = partsQuery
+            .Where(p => p.SupplyCost == partsuppQuery.Where(ps => ps.PartKey == p.Id).Min(ps => ps.SupplyCost))
+            .OrderBy(p => p.Id);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(2, results.Count);
+        Assert.Equal("PartA", results[0].Name);
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal("PartC", results[1].Name);
+        Assert.Equal(3, results[1].Id);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_CorrelatedScalarAgg_Average_Scaled_TPCH_Q17()
+    {
+        var lineitems = new[]
+        {
+            new LineItemRecord(1, 1, 101, 1, new DateTime(2023, 1, 1)),
+            new LineItemRecord(2, 1, 102, 20, new DateTime(2023, 1, 2)),
+            new LineItemRecord(3, 1, 101, 29, new DateTime(2023, 1, 3)),
+            new LineItemRecord(4, 2, 101, 10, new DateTime(2023, 1, 4)),
+            new LineItemRecord(5, 2, 102, 10, new DateTime(2023, 1, 5))
+        };
+
+        using var dfLineItems = DataFrame.FromRows(lineitems);
+        var lineitemQuery = dfLineItems.AsQueryable(lineitems);
+
+        // TPC-H Q17 pattern: (double)l.Quantity < 0.2 * lineitems.Where(l2 => l2.PartKey == l.PartKey).Average(l2 => (double)l2.Quantity)
+        var query = lineitemQuery
+            .Where(l => (double)l.Quantity < 0.2 * lineitemQuery.Where(l2 => l2.PartKey == l.PartKey).Average(l2 => (double)l2.Quantity));
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Single(results);
+        Assert.Equal(1, results[0].OrderKey);
+        Assert.Equal(1, results[0].Quantity);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_CorrelatedScalarAgg_MultiKey_Sum_Scaled_TPCH_Q20()
+    {
+        var partsupp = new[]
+        {
+            new PartSuppItem(1, 101, 10.0, 100),
+            new PartSuppItem(1, 102, 12.0, 10)
+        };
+
+        var lineitems = new[]
+        {
+            new LineItemRecord(1, 1, 101, 50, new DateTime(2023, 3, 1)),
+            new LineItemRecord(2, 1, 101, 60, new DateTime(2023, 6, 1)),
+            new LineItemRecord(3, 1, 101, 500, new DateTime(2024, 1, 1)), // Filtered out by date
+            new LineItemRecord(4, 1, 102, 40, new DateTime(2023, 5, 1))
+        };
+
+        using var dfPartSupp = DataFrame.FromRows(partsupp);
+        using var dfLineItems = DataFrame.FromRows(lineitems);
+
+        var partsuppQuery = dfPartSupp.AsQueryable(partsupp);
+        var lineitemQuery = dfLineItems.AsQueryable(lineitems);
+
+        var startDate = new DateTime(2023, 1, 1);
+        var endDate = new DateTime(2024, 1, 1);
+
+        // TPC-H Q20 pattern: (double)ps.AvailQty > 0.5 * lineitem.Where(l => l.PartKey == ps.PartKey && l.SuppKey == ps.SuppKey && l.ShipDate >= startDate && l.ShipDate < endDate).Sum(l => l.Quantity)
+        var query = partsuppQuery
+            .Where(ps => ps.AvailQty > 0.5 * lineitemQuery.Where(l => l.PartKey == ps.PartKey && l.SuppKey == ps.SuppKey && l.ShipDate >= startDate && l.ShipDate < endDate).Sum(l => l.Quantity));
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Single(results);
+        Assert.Equal(1, results[0].PartKey);
+        Assert.Equal(101, results[0].SuppKey);
+        Assert.Equal(100, results[0].AvailQty);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_CorrelatedScalarAgg_Count_WithEmptyGroups()
+    {
+        var depts = new[]
+        {
+            new Department(1, "Eng"),
+            new Department(2, "HR")
+        };
+
+        var emps = new[]
+        {
+            new Employee("Alice", 1, 80000), // Age = 1 (DeptId)
+            new Employee("Bob", 1, 90000)     // Age = 1 (DeptId)
+        };
+
+        using var dfDept = DataFrame.FromRows(depts);
+        using var dfEmp = DataFrame.FromRows(emps);
+
+        var deptQuery = dfDept.AsQueryable(depts);
+        var empQuery = dfEmp.AsQueryable(emps);
+
+        // Department where employee count == 0. Unmatched rows produce NULL, which our engine fills with 0.
+        var zeroEmpDepts = deptQuery
+            .Where(d => empQuery.Where(e => e.Age == d.Id).Count() == 0)
+            .ToList();
+
+        Assert.Single(zeroEmpDepts);
+        Assert.Equal(2, zeroEmpDepts[0].Id);
+        Assert.Equal("HR", zeroEmpDepts[0].DeptName);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_CorrelatedScalarAgg_WithResidualFilter()
+    {
+        var lineitems = new[]
+        {
+            new LineItemRecord(1, 1, 101, 1, new DateTime(2023, 1, 1)),
+            new LineItemRecord(2, 1, 101, 2, new DateTime(2023, 1, 2)),
+            new LineItemRecord(3, 1, 101, 29, new DateTime(2023, 1, 3))
+        };
+
+        using var dfLineItems = DataFrame.FromRows(lineitems);
+        var lineitemQuery = dfLineItems.AsQueryable(lineitems);
+
+        // Average for Part 1 is (1 + 2 + 29) / 3 = 10.666...
+        // 0.5 * Average = 5.333...
+        // Order 1 (Qty 1) and Order 2 (Qty 2) both have Qty < 5.333...
+        // But residual outer filter `l.Quantity > 1` filters out Order 1!
+        // Only Order 2 should remain!
+        var query = lineitemQuery
+            .Where(l => l.Quantity > 1 && l.Quantity < 0.5 * lineitemQuery.Where(l2 => l2.PartKey == l.PartKey).Average(l2 => (double)l2.Quantity));
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Single(results);
+        Assert.Equal(2, results[0].OrderKey);
+        Assert.Equal(2, results[0].Quantity);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Projection_SingleCount()
+    {
+        var customers = new[]
+        {
+            new SubqueryCustomer(1, "Alice"),
+            new SubqueryCustomer(2, "Bob"),
+            new SubqueryCustomer(3, "Charlie") // No orders
+        };
+
+        var orders = new[]
+        {
+            new SubqueryOrder(101, 1, 50.0, "Completed"),
+            new SubqueryOrder(102, 1, 150.0, "Completed"),
+            new SubqueryOrder(103, 2, 200.0, "Pending")
+        };
+
+        using var dfCust = DataFrame.FromRows(customers);
+        using var dfOrders = DataFrame.FromRows(orders);
+
+        var custQuery = dfCust.AsQueryable(customers);
+        var orderQuery = dfOrders.AsQueryable(orders);
+
+        var query = custQuery
+            .Select(c => new CustomerSummaryDto(
+                c.Id,
+                c.Name,
+                orderQuery.Where(o => o.CustomerId == c.Id).Count()
+            ))
+            .OrderBy(c => c.Id);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(3, results.Count);
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal(2, results[0].OrderCount);
+        Assert.Equal(2, results[1].Id);
+        Assert.Equal(1, results[1].OrderCount);
+        Assert.Equal(3, results[2].Id);
+        Assert.Equal(0, results[2].OrderCount); // Empty count filled with 0
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Projection_CoalescedAggregates()
+    {
+        var customers = new[]
+        {
+            new SubqueryCustomer(1, "Alice"),
+            new SubqueryCustomer(2, "Bob")
+        };
+
+        var orders = new[]
+        {
+            new SubqueryOrder(101, 1, 100.0, "Completed"),
+            new SubqueryOrder(102, 1, 300.0, "Completed"),
+            new SubqueryOrder(103, 2, 50.0, "Pending")
+        };
+
+        using var dfCust = DataFrame.FromRows(customers);
+        using var dfOrders = DataFrame.FromRows(orders);
+
+        var custQuery = dfCust.AsQueryable(customers);
+        var orderQuery = dfOrders.AsQueryable(orders);
+
+        // Multiple subqueries against the same orders table with same CustomerId key
+        // Must coalesce into a single GroupBy with multiple aggregations!
+        var query = custQuery
+            .Select(c => new CustomerCoalescedDto(
+                c.Id,
+                c.Name,
+                orderQuery.Where(o => o.CustomerId == c.Id).Count(),
+                orderQuery.Where(o => o.CustomerId == c.Id).Sum(o => o.Amount),
+                orderQuery.Where(o => o.CustomerId == c.Id).Average(o => o.Amount)
+            ))
+            .OrderBy(c => c.Id);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(2, results.Count);
+
+        // Alice: 2 orders, total 400.0, avg 200.0
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal(2, results[0].OrderCount);
+        Assert.Equal(400.0, results[0].TotalAmount);
+        Assert.Equal(200.0, results[0].AvgAmount);
+
+        // Bob: 1 order, total 50.0, avg 50.0
+        Assert.Equal(2, results[1].Id);
+        Assert.Equal(1, results[1].OrderCount);
+        Assert.Equal(50.0, results[1].TotalAmount);
+        Assert.Equal(50.0, results[1].AvgAmount);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Projection_Any_Predicate()
+    {
+        var customers = new[]
+        {
+            new SubqueryCustomer(1, "Alice"),
+            new SubqueryCustomer(2, "Bob"),
+            new SubqueryCustomer(3, "Charlie")
+        };
+
+        var orders = new[]
+        {
+            new SubqueryOrder(101, 1, 50.0, "Completed"),
+            new SubqueryOrder(102, 1, 150.0, "Completed"), // Big order > 100
+            new SubqueryOrder(103, 2, 30.0, "Pending")     // No big order
+        };
+
+        using var dfCust = DataFrame.FromRows(customers);
+        using var dfOrders = DataFrame.FromRows(orders);
+
+        var custQuery = dfCust.AsQueryable(customers);
+        var orderQuery = dfOrders.AsQueryable(orders);
+
+        var query = custQuery
+            .Select(c => new CustomerAnyDto(
+                c.Id,
+                c.Name,
+                orderQuery.Any(o => o.CustomerId == c.Id),
+                orderQuery.Any(o => o.CustomerId == c.Id && o.Amount > 100.0)
+            ))
+            .OrderBy(c => c.Id);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(3, results.Count);
+
+        // Alice: HasOrders = true, HasBigOrders = true
+        Assert.Equal(1, results[0].Id);
+        Assert.True(results[0].HasOrders);
+        Assert.True(results[0].HasBigOrders);
+
+        // Bob: HasOrders = true, HasBigOrders = false
+        Assert.Equal(2, results[1].Id);
+        Assert.True(results[1].HasOrders);
+        Assert.False(results[1].HasBigOrders);
+
+        // Charlie: HasOrders = false, HasBigOrders = false
+        Assert.Equal(3, results[2].Id);
+        Assert.False(results[2].HasOrders);
+        Assert.False(results[2].HasBigOrders);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Projection_Arithmetic_And_InnerFilter()
+    {
+        var customers = new[]
+        {
+            new SubqueryCustomer(1, "Alice"),
+            new SubqueryCustomer(2, "Bob")
+        };
+
+        var orders = new[]
+        {
+            new SubqueryOrder(101, 1, 100.0, "Completed"),
+            new SubqueryOrder(102, 1, 200.0, "Cancelled"), // filtered out
+            new SubqueryOrder(103, 2, 50.0, "Completed")
+        };
+
+        using var dfCust = DataFrame.FromRows(customers);
+        using var dfOrders = DataFrame.FromRows(orders);
+
+        var custQuery = dfCust.AsQueryable(customers);
+        var orderQuery = dfOrders.AsQueryable(orders);
+
+        // Arithmetic * 1.1 applied on top of correlated subquery sum
+        var query = custQuery
+            .Select(c => new CustomerMathDto(
+                c.Id,
+                orderQuery.Where(o => o.CustomerId == c.Id && o.Status == "Completed").Sum(o => o.Amount) * 1.1
+            ))
+            .OrderBy(c => c.Id);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(2, results.Count);
+
+        // Alice: 100.0 * 1.1 = 110.0
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal(110.0, results[0].TaxedAmount, precision: 2);
+
+        // Bob: 50.0 * 1.1 = 55.0
+        Assert.Equal(2, results[1].Id);
+        Assert.Equal(55.0, results[1].TaxedAmount, precision: 2);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Theta_Any_PureInequality()
+    {
+        using var ordersDf = DataFrame.FromColumns([
+            Series.From("OrderId", [1, 2, 3, 4]),
+            Series.From("EventTime", [10, 25, 50, 80]),
+            Series.From("Amount", [100.0, 200.0, 300.0, 400.0])
+        ]);
+
+        // Notice Order 1 (10) hits BOTH FlashSale (5..15) AND SuperSale (8..12)
+        // Row count must NOT multiply: Order 1 must still appear exactly ONCE!
+        using var promosDf = DataFrame.FromColumns([
+            Series.From("PromoId", [101, 102, 103]),
+            Series.From("StartTime", [5, 20, 8]),
+            Series.From("EndTime", [15, 30, 12]),
+            Series.From("Name", ["FlashSale", "WeekendSale", "SuperSale"])
+        ]);
+
+        var ordersQuery = ordersDf.AsQueryable<OrderEvent>();
+        var promosQuery = promosDf.AsQueryable<PromoWindow>();
+
+        var query = ordersQuery
+            .Where(o => promosQuery.Any(p => o.EventTime >= p.StartTime && o.EventTime <= p.EndTime))
+            .OrderBy(o => o.OrderId);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+        Assert.Contains("IEJOIN", plan);
+
+        var results = query.ToList();
+        Assert.Equal(2, results.Count);
+        Assert.Equal(1, results[0].OrderId);
+        Assert.Equal(2, results[1].OrderId);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Theta_NotAny_PureInequality()
+    {
+        using var ordersDf = DataFrame.FromColumns([
+            Series.From("OrderId", [1, 2, 3, 4]),
+            Series.From("EventTime", [10, 25, 50, 80]),
+            Series.From("Amount", [100.0, 200.0, 300.0, 400.0])
+        ]);
+
+        using var promosDf = DataFrame.FromColumns([
+            Series.From("PromoId", [101, 102]),
+            Series.From("StartTime", [5, 20]),
+            Series.From("EndTime", [15, 30]),
+            Series.From("Name", ["FlashSale", "WeekendSale"])
+        ]);
+
+        var ordersQuery = ordersDf.AsQueryable<OrderEvent>();
+        var promosQuery = promosDf.AsQueryable<PromoWindow>();
+
+        var query = ordersQuery
+            .Where(o => !promosQuery.Any(p => o.EventTime >= p.StartTime && o.EventTime <= p.EndTime))
+            .OrderBy(o => o.OrderId);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(2, results.Count);
+        Assert.Equal(3, results[0].OrderId);
+        Assert.Equal(4, results[1].OrderId);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Subquery_Decorrelation")]
+    public void Test_Linq_Subquery_Decorrelation_Theta_Any_EquiAndInequality()
+    {
+        using var ordersDf = DataFrame.FromColumns([
+            Series.From("OrderId", [1, 2, 1, 2, 3]),
+            Series.From("EventTime", [10, 25, 50, 10, 25]),
+            Series.From("Amount", [100.0, 200.0, 300.0, 250.0, 400.0])
+        ]);
+
+        using var promosDf = DataFrame.FromColumns([
+            Series.From("PromoId", [1, 2]),
+            Series.From("StartTime", [5, 20]),
+            Series.From("EndTime", [15, 30]),
+            Series.From("Name", ["FlashSale", "WeekendSale"])
+        ]);
+
+        var ordersQuery = ordersDf.AsQueryable<OrderEvent>();
+        var promosQuery = promosDf.AsQueryable<PromoWindow>();
+
+        var query = ordersQuery
+            .Where(o => promosQuery.Any(p => p.PromoId == o.OrderId && o.EventTime >= p.StartTime && o.EventTime <= p.EndTime))
+            .OrderBy(o => o.EventTime);
+
+        var plan = query.Explain(optimized: true);
+        Assert.Contains("100% Native Pushdown", plan);
+
+        var results = query.ToList();
+        Assert.Equal(2, results.Count);
+        Assert.Equal(1, results[0].OrderId);
+        Assert.Equal(10, results[0].EventTime);
+        Assert.Equal(2, results[1].OrderId);
+        Assert.Equal(25, results[1].EventTime);
+    }
+
     // [Fact]
     // [Trait("LINQ", "Net11_Joins")]
     // public void Test_Linq_Net11_TupleJoin_Inner()

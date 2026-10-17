@@ -31,7 +31,7 @@ module LinqExtension =
             | :? IPolarsPlanSource as ps -> Some(ps.GetCompiledLazyFrameHandle())
             | _ -> None
         // 3. Fallback: Expression tree evaluation through PolarsQuery resolver
-        | _ -> PolarsQuery<obj>.ResolveToLazyFrameHandle q.Expression
+        | _ -> SubqueryDecorrelator.resolveToLazyFrameHandle q.Expression
 
     type LazyFrame with
         /// <summary>
