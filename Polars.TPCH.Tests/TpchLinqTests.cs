@@ -733,5 +733,408 @@ public class TpchLinqTests
         Assert.Equal(1996, row3.l_year);
         Assert.Equal(379095.89m, row3.revenue);
     }
+
+    /*
+     * TPC-H Query 8: National Market Share Query
+     *
+     * SELECT
+     *     o_year,
+     *     sum(CASE
+     *         WHEN nation = 'BRAZIL' THEN volume
+     *         ELSE 0
+     *     END) / sum(volume) AS mkt_share
+     * FROM (
+     *     SELECT
+     *         extract(year FROM o_orderdate) AS o_year,
+     *         l_extendedprice * (1 - l_discount) AS volume,
+     *         n2.n_name AS nation
+     *     FROM
+     *         part,
+     *         supplier,
+     *         lineitem,
+     *         orders,
+     *         customer,
+     *         nation n1,
+     *         nation n2,
+     *         region
+     *     WHERE
+     *         p_partkey = l_partkey
+     *         AND s_suppkey = l_suppkey
+     *         AND l_orderkey = o_orderkey
+     *         AND o_custkey = c_custkey
+     *         AND c_nationkey = n1.n_nationkey
+     *         AND n1.n_regionkey = r_regionkey
+     *         AND r_name = 'AMERICA'
+     *         AND s_nationkey = n2.n_nationkey
+     *         AND o_orderdate BETWEEN CAST('1995-01-01' AS date) AND CAST('1996-12-31' AS date)
+     *         AND p_type = 'ECONOMY ANODIZED STEEL'
+     * ) AS all_nations
+     * GROUP BY
+     *     o_year
+     * ORDER BY
+     *     o_year;
+     */
+    [Fact]
+    [Trait("TPCH", "Q8")]
+    public void Test_Q8_National_Market_Share()
+    {
+        using var lfPart = TpchData.Part();
+        using var lfSupplier = TpchData.Supplier();
+        using var lfLineItem = TpchData.LineItem();
+        using var lfOrders = TpchData.Orders();
+        using var lfCustomer = TpchData.Customer();
+        using var lfNation = TpchData.Nation();
+        using var lfRegion = TpchData.Region();
+
+        var partQuery = lfPart.AsQueryable<Part>();
+        var supplierQuery = lfSupplier.AsQueryable<Supplier>();
+        var lineitemQuery = lfLineItem.AsQueryable<LineItem>();
+        var ordersQuery = lfOrders.AsQueryable<Orders>();
+        var customerQuery = lfCustomer.AsQueryable<Customer>();
+        var nationQuery = lfNation.AsQueryable<Nation>();
+        var regionQuery = lfRegion.AsQueryable<Region>();
+
+        var startDate = new DateOnly(1995, 1, 1);
+        var endDate = new DateOnly(1996, 12, 31);
+
+        var query = (from a in from p in partQuery
+                               where p.p_type == "ECONOMY ANODIZED STEEL"
+                               join l in lineitemQuery on p.p_partkey equals l.l_partkey
+                               join s in supplierQuery on l.l_suppkey equals s.s_suppkey
+                               join n2 in nationQuery.Select(n => new { supp_nationkey = n.n_nationkey, supp_nation = n.n_name })
+                                   on s.s_nationkey equals n2.supp_nationkey
+                               join o in ordersQuery on l.l_orderkey equals o.o_orderkey
+                               where o.o_orderdate >= startDate && o.o_orderdate <= endDate
+                               join c in customerQuery on o.o_custkey equals c.c_custkey
+                               join n1 in nationQuery on c.c_nationkey equals n1.n_nationkey
+                               join r in regionQuery on n1.n_regionkey equals r.r_regionkey
+                               where r.r_name == "AMERICA"
+                               select new
+                               {
+                                   o_year = o.o_orderdate.Year,
+                                   volume = l.l_extendedprice * (1m - l.l_discount),
+                                   nation = n2.supp_nation
+                               }
+                     group a by a.o_year into g
+                     orderby g.Key
+                     select new
+                     {
+                         o_year = g.Key,
+                         brazil_volume = g.Sum(x => x.nation == "BRAZIL" ? x.volume : 0m),
+                         total_volume = g.Sum(x => x.volume)
+                     })
+                     .Select(x => new
+                     {
+                         x.o_year,
+                         mkt_share = (double)(x.brazil_volume / x.total_volume)
+                     });
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+
+        Assert.Equal(2, results.Count);
+
+        var row0 = results[0];
+        Assert.Equal(1995, row0.o_year);
+        Assert.Equal(0.0, row0.mkt_share, precision: 4);
+
+        var row1 = results[1];
+        Assert.Equal(1996, row1.o_year);
+        Assert.Equal(0.0, row1.mkt_share, precision: 4);
+    }
+
+    /*
+     * TPC-H Query 9: Product Type Profit Measure Query
+     *
+     * SELECT
+     *     nation,
+     *     o_year,
+     *     sum(amount) AS sum_profit
+     * FROM (
+     *     SELECT
+     *         n_name AS nation,
+     *         extract(year FROM o_orderdate) AS o_year,
+     *         l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity AS amount
+     *     FROM
+     *         part,
+     *         supplier,
+     *         lineitem,
+     *         partsupp,
+     *         orders,
+     *         nation
+     *     WHERE
+     *         s_suppkey = l_suppkey
+     *         AND ps_suppkey = l_suppkey
+     *         AND ps_partkey = l_partkey
+     *         AND p_partkey = l_partkey
+     *         AND o_orderkey = l_orderkey
+     *         AND s_nationkey = n_nationkey
+     *         AND p_name LIKE '%green%'
+     * ) AS profit
+     * GROUP BY
+     *     nation,
+     *     o_year
+     * ORDER BY
+     *     nation,
+     *     o_year DESC;
+     */
+    [Fact]
+    [Trait("TPCH", "Q9")]
+    public void Test_Q9_Product_Type_Profit_Measure()
+    {
+        using var lfPart = TpchData.Part();
+        using var lfSupplier = TpchData.Supplier();
+        using var lfLineItem = TpchData.LineItem();
+        using var lfPartSupp = TpchData.PartSupp();
+        using var lfOrders = TpchData.Orders();
+        using var lfNation = TpchData.Nation();
+
+        var partQuery = lfPart.AsQueryable<Part>();
+        var supplierQuery = lfSupplier.AsQueryable<Supplier>();
+        var lineitemQuery = lfLineItem.AsQueryable<LineItem>();
+        var partsuppQuery = lfPartSupp.AsQueryable<PartSupp>();
+        var ordersQuery = lfOrders.AsQueryable<Orders>();
+        var nationQuery = lfNation.AsQueryable<Nation>();
+
+        var query = from pr in from p in partQuery
+                               where p.p_name.Contains("green")
+                               join l in lineitemQuery on p.p_partkey equals l.l_partkey
+                               join ps in partsuppQuery on new { l.l_partkey, l.l_suppkey } equals new { l_partkey = ps.ps_partkey, l_suppkey = ps.ps_suppkey }
+                               join s in supplierQuery on l.l_suppkey equals s.s_suppkey
+                               join o in ordersQuery on l.l_orderkey equals o.o_orderkey
+                               join n in nationQuery on s.s_nationkey equals n.n_nationkey
+                               select new
+                               {
+                                   nation = n.n_name,
+                                   o_year = o.o_orderdate.Year,
+                                   amount = (l.l_extendedprice * (1m - l.l_discount)) - (ps.ps_supplycost * l.l_quantity)
+                               }
+                    group pr by new { pr.nation, pr.o_year } into g
+                    orderby g.Key.nation, g.Key.o_year descending
+                    select new
+                    {
+                        g.Key.nation,
+                        g.Key.o_year,
+                        sum_profit = g.Sum(x => x.amount)
+                    };
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+
+        Assert.Equal(173, results.Count);
+
+        var row0 = results[0];
+        Assert.Equal("ALGERIA", row0.nation);
+        Assert.Equal(1998, row0.o_year);
+        Assert.Equal(97864.58m, row0.sum_profit);
+
+        var row1 = results[1];
+        Assert.Equal("ALGERIA", row1.nation);
+        Assert.Equal(1997, row1.o_year);
+        Assert.Equal(368231.67m, row1.sum_profit);
+
+        var row2 = results[2];
+        Assert.Equal("ALGERIA", row2.nation);
+        Assert.Equal(1996, row2.o_year);
+        Assert.Equal(196525.81m, row2.sum_profit);
+
+        var last = results[^1];
+        Assert.Equal("VIETNAM", last.nation);
+        Assert.Equal(1992, last.o_year);
+        Assert.Equal(716126.53m, last.sum_profit);
+    }
+
+    /*
+     * TPC-H Query 10: Returned Item Reporting Query
+     *
+     * SELECT
+     *     c_custkey,
+     *     c_name,
+     *     sum(l_extendedprice * (1 - l_discount)) AS revenue,
+     *     c_acctbal,
+     *     n_name,
+     *     c_address,
+     *     c_phone,
+     *     c_comment
+     * FROM
+     *     customer,
+     *     orders,
+     *     lineitem,
+     *     nation
+     * WHERE
+     *     c_custkey = o_custkey
+     *     AND l_orderkey = o_orderkey
+     *     AND o_orderdate >= CAST('1993-10-01' AS date)
+     *     AND o_orderdate < CAST('1994-01-01' AS date)
+     *     AND l_returnflag = 'R'
+     *     AND c_nationkey = n_nationkey
+     * GROUP BY
+     *     c_custkey,
+     *     c_name,
+     *     c_acctbal,
+     *     c_phone,
+     *     n_name,
+     *     c_address,
+     *     c_comment
+     * ORDER BY
+     *     revenue DESC
+     * LIMIT 20;
+     */
+    [Fact]
+    [Trait("TPCH", "Q10")]
+    public void Test_Q10_Returned_Item_Reporting()
+    {
+        using var lfCustomer = TpchData.Customer();
+        using var lfOrders = TpchData.Orders();
+        using var lfLineItem = TpchData.LineItem();
+        using var lfNation = TpchData.Nation();
+
+        var customerQuery = lfCustomer.AsQueryable<Customer>();
+        var ordersQuery = lfOrders.AsQueryable<Orders>();
+        var lineitemQuery = lfLineItem.AsQueryable<LineItem>();
+        var nationQuery = lfNation.AsQueryable<Nation>();
+
+        var startDate = new DateOnly(1993, 10, 1);
+        var endDate = new DateOnly(1994, 1, 1);
+
+        var query = (from c in customerQuery
+                     join o in ordersQuery on c.c_custkey equals o.o_custkey
+                     where o.o_orderdate >= startDate && o.o_orderdate < endDate
+                     join l in lineitemQuery on o.o_orderkey equals l.l_orderkey
+                     where l.l_returnflag == "R"
+                     join n in nationQuery on c.c_nationkey equals n.n_nationkey
+                     group l by new
+                     {
+                         c.c_custkey,
+                         c.c_name,
+                         c.c_acctbal,
+                         n.n_name,
+                         c.c_address,
+                         c.c_phone,
+                         c.c_comment
+                     } into g
+                     select new
+                     {
+                         g.Key.c_custkey,
+                         g.Key.c_name,
+                         revenue = g.Sum(x => x.l_extendedprice * (1m - x.l_discount)),
+                         g.Key.c_acctbal,
+                         g.Key.n_name,
+                         g.Key.c_address,
+                         g.Key.c_phone,
+                         g.Key.c_comment
+                     })
+                     .OrderByDescending(x => x.revenue)
+                     .Take(20);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+
+        Assert.Equal(20, results.Count);
+
+        var row0 = results[0];
+        Assert.Equal(679, row0.c_custkey);
+        Assert.Equal("Customer#000000679", row0.c_name);
+        Assert.Equal(378211.32m, row0.revenue);
+        Assert.Equal(1394.44m, row0.c_acctbal);
+        Assert.Equal("IRAN", row0.n_name);
+        Assert.Equal("jhLZlG1fRiSE0 wDLOCguVB96dH6a5", row0.c_address);
+        Assert.Equal("20-146-696-9508", row0.c_phone);
+        Assert.Equal("oys. furiously silent pinto beans", row0.c_comment);
+
+        var row1 = results[1];
+        Assert.Equal(1201, row1.c_custkey);
+        Assert.Equal("Customer#000001201", row1.c_name);
+        Assert.Equal(374331.55m, row1.revenue);
+        Assert.Equal(5165.39m, row1.c_acctbal);
+        Assert.Equal("IRAN", row1.n_name);
+    }
+
+    /*
+     * TPC-H Query 11: Important Stock Identification Query
+     *
+     * SELECT
+     *     ps_partkey,
+     *     sum(ps_supplycost * ps_availqty) AS value
+     * FROM
+     *     partsupp,
+     *     supplier,
+     *     nation
+     * WHERE
+     *     ps_suppkey = s_suppkey
+     *     AND s_nationkey = n_nationkey
+     *     AND n_name = 'GERMANY'
+     * GROUP BY
+     *     ps_partkey
+     * HAVING
+     *     sum(ps_supplycost * ps_availqty) > (
+     *         SELECT
+     *             sum(ps_supplycost * ps_availqty) * 0.0001000000
+     *         FROM
+     *             partsupp,
+     *             supplier,
+     *             nation
+     *         WHERE
+     *             ps_suppkey = s_suppkey
+     *             AND s_nationkey = n_nationkey
+     *             AND n_name = 'GERMANY'
+     *     )
+     * ORDER BY
+     *     value DESC;
+     */
+    [Fact]
+    [Trait("TPCH", "Q11")]
+    public void Test_Q11_Important_Stock_Identification()
+    {
+        using var lfPartSupp = TpchData.PartSupp();
+        using var lfSupplier = TpchData.Supplier();
+        using var lfNation = TpchData.Nation();
+
+        var partsuppQuery = lfPartSupp.AsQueryable<PartSupp>();
+        var supplierQuery = lfSupplier.AsQueryable<Supplier>();
+        var nationQuery = lfNation.AsQueryable<Nation>();
+
+        var query = (from ps in partsuppQuery
+                     join s in supplierQuery on ps.ps_suppkey equals s.s_suppkey
+                     join n in nationQuery on s.s_nationkey equals n.n_nationkey
+                     where n.n_name == "GERMANY"
+                     group ps by ps.ps_partkey into g
+                     select new
+                     {
+                         ps_partkey = g.Key,
+                         value = g.Sum(x => x.ps_supplycost * x.ps_availqty)
+                     })
+                     .Where(x => x.value > (from ps2 in partsuppQuery
+                                            join s2 in supplierQuery on ps2.ps_suppkey equals s2.s_suppkey
+                                            join n2 in nationQuery on s2.s_nationkey equals n2.n_nationkey
+                                            where n2.n_name == "GERMANY"
+                                            select ps2.ps_supplycost * ps2.ps_availqty).Sum() * 0.0001m)
+                     .OrderByDescending(x => x.value);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+
+        Assert.Equal(359, results.Count);
+
+        var row0 = results[0];
+        Assert.Equal(1376, row0.ps_partkey);
+        Assert.Equal(13271249.89m, row0.value);
+
+        var row1 = results[1];
+        Assert.Equal(788, row1.ps_partkey);
+        Assert.Equal(9498648.06m, row1.value);
+
+        var last = results[^1];
+        Assert.Equal(295, last.ps_partkey);
+        Assert.Equal(97604.25m, last.value);
+    }
 }
+
+
+
+
 
