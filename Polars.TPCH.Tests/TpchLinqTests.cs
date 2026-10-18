@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 
 namespace Polars.TPCH.Tests;
 
@@ -1132,7 +1133,163 @@ public class TpchLinqTests
         Assert.Equal(295, last.ps_partkey);
         Assert.Equal(97604.25m, last.value);
     }
+
+    /*
+     * TPC-H Query 12: Shipping Modes and Order Priority Query
+     *
+     * SELECT
+     *     l_shipmode,
+     *     sum(
+     *         CASE WHEN o_orderpriority = '1-URGENT'
+     *             OR o_orderpriority = '2-HIGH' THEN
+     *             1
+     *         ELSE
+     *             0
+     *         END) AS high_line_count,
+     *     sum(
+     *         CASE WHEN o_orderpriority <> '1-URGENT'
+     *             AND o_orderpriority <> '2-HIGH' THEN
+     *             1
+     *         ELSE
+     *             0
+     *         END) AS low_line_count
+     * FROM
+     *     orders,
+     *     lineitem
+     * WHERE
+     *     o_orderkey = l_orderkey
+     *     AND l_shipmode IN ('MAIL', 'SHIP')
+     *     AND l_commitdate < l_receiptdate
+     *     AND l_shipdate < l_commitdate
+     *     AND l_receiptdate >= CAST('1994-01-01' AS date)
+     *     AND l_receiptdate < CAST('1995-01-01' AS date)
+     * GROUP BY
+     *     l_shipmode
+     * ORDER BY
+     *     l_shipmode;
+     */
+    [Fact]
+    [Trait("TPCH", "Q12")]
+    public void Test_Q12_Shipping_Modes_and_Order_Priority()
+    {
+        using var lfOrders = TpchData.Orders();
+        using var lfLineItem = TpchData.LineItem();
+
+        var ordersQuery = lfOrders.AsQueryable<Orders>();
+        var lineitemQuery = lfLineItem.AsQueryable<LineItem>();
+
+        var startDate = new DateOnly(1994, 1, 1);
+        var endDate = new DateOnly(1995, 1, 1);
+
+        var query = from l in lineitemQuery
+                    where (l.l_shipmode == "MAIL" || l.l_shipmode == "SHIP")
+                       && l.l_commitdate < l.l_receiptdate
+                       && l.l_shipdate < l.l_commitdate
+                       && l.l_receiptdate >= startDate && l.l_receiptdate < endDate
+                    join o in ordersQuery on l.l_orderkey equals o.o_orderkey
+                    group o by l.l_shipmode into g
+                    orderby g.Key
+                    select new
+                    {
+                        l_shipmode = g.Key,
+                        high_line_count = g.Count(x => x.o_orderpriority == "1-URGENT" || x.o_orderpriority == "2-HIGH"),
+                        low_line_count = g.Count(x => x.o_orderpriority != "1-URGENT" && x.o_orderpriority != "2-HIGH")
+                    };
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+
+        Assert.Equal(2, results.Count);
+
+        var row0 = results[0];
+        Assert.Equal("MAIL", row0.l_shipmode);
+        Assert.Equal(64, row0.high_line_count);
+        Assert.Equal(86, row0.low_line_count);
+
+        var row1 = results[1];
+        Assert.Equal("SHIP", row1.l_shipmode);
+        Assert.Equal(61, row1.high_line_count);
+        Assert.Equal(96, row1.low_line_count);
+    }
+
+    /*
+     * TPC-H Query 13: Customer Distribution Query
+     *
+     * SELECT
+     *     c_count,
+     *     count(*) AS custdist
+     * FROM (
+     *     SELECT
+     *         c_custkey,
+     *         count(o_orderkey) AS c_count
+     *     FROM
+     *         customer
+     *     LEFT OUTER JOIN orders ON c_custkey = o_custkey
+     *         AND o_comment NOT LIKE '%special%requests%'
+     *     GROUP BY
+     *         c_custkey
+     * ) AS c_orders (c_custkey, c_count)
+     * GROUP BY
+     *     c_count
+     * ORDER BY
+     *     custdist DESC,
+     *     c_count DESC;
+     */
+    [Fact]
+    [Trait("TPCH", "Q13")]
+    public void Test_Q13_Customer_Distribution()
+    {
+        using var lfCustomer = TpchData.Customer();
+        using var lfOrders = TpchData.Orders();
+
+        var customerQuery = lfCustomer.AsQueryable<Customer>();
+        var ordersQuery = lfOrders.AsQueryable<Orders>();
+
+        var filteredOrders = ordersQuery.Where(o => !Regex.IsMatch(o.o_comment, "special.*requests"));
+
+        var c_orders = from c in customerQuery
+                       join o in filteredOrders on c.c_custkey equals o.o_custkey into g
+                       select new
+                       {
+                           c.c_custkey,
+                           c_count = g.Count()
+                       };
+
+        var query = from co in c_orders
+                    group co by co.c_count into g
+                    orderby g.Count() descending, g.Key descending
+                    select new
+                    {
+                        c_count = g.Key,
+                        custdist = g.Count()
+                    };
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+
+        Assert.Equal(32, results.Count);
+
+        var row0 = results[0];
+        Assert.Equal(0, row0.c_count);
+        Assert.Equal(500, row0.custdist);
+
+        var row1 = results[1];
+        Assert.Equal(10, row1.c_count);
+        Assert.Equal(69, row1.custdist);
+
+        var row2 = results[2];
+        Assert.Equal(9, row2.c_count);
+        Assert.Equal(66, row2.custdist);
+
+        var row3 = results[3];
+        Assert.Equal(11, row3.c_count);
+        Assert.Equal(63, row3.custdist);
+    }
 }
+
+
 
 
 
