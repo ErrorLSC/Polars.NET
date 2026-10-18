@@ -1745,10 +1745,10 @@ public partial class TpchLinqTests
         var lineitemQuery = lfLineItem.AsQueryable<LineItem>();
         var partQuery = lfPart.AsQueryable<Part>();
 
-        var smContainers = new[] { "SM CASE", "SM BOX", "SM PACK", "SM PKG" };
-        var medContainers = new[] { "MED BAG", "MED BOX", "MED PKG", "MED PACK" };
-        var lgContainers = new[] { "LG CASE", "LG BOX", "LG PACK", "LG PKG" };
-        var shipModes = new[] { "AIR", "AIR REG" };
+        string[] smContainers = ["SM CASE", "SM BOX", "SM PACK", "SM PKG"];
+        string[] medContainers = ["MED BAG", "MED BOX", "MED PKG", "MED PACK"];
+        string[] lgContainers = ["LG CASE", "LG BOX", "LG PACK", "LG PKG"];
+        string[] shipModes = ["AIR", "AIR REG"];
 
         var query = from l in lineitemQuery
                     join p in partQuery on l.l_partkey equals p.p_partkey
@@ -1786,6 +1786,101 @@ public partial class TpchLinqTests
         // Polars native Decimal arithmetic retains scale 2 (Decimal(38, 2)), rounding to 22923.03m.
         Assert.Equal(22923.03m, results[0].revenue);
         Assert.Equal(22923.0280, (double)results[0].revenue, precision: 1);
+    }
+
+    /*
+     * TPC-H Q20: Potential Part Promotion Query
+     *
+     * SELECT
+     *     s_name,
+     *     s_address
+     * FROM
+     *     supplier,
+     *     nation
+     * WHERE
+     *     s_suppkey IN (
+     *         SELECT
+     *             ps_suppkey
+     *         FROM
+     *             partsupp
+     *         WHERE
+     *             ps_partkey IN (
+     *                 SELECT
+     *                     p_partkey
+     *                 FROM
+     *                     part
+     *                 WHERE
+     *                     p_name LIKE 'forest%'
+     *             )
+     *             AND ps_availqty > (
+     *                 SELECT
+     *                     0.5 * sum(l_quantity)
+     *                 FROM
+     *                     lineitem
+     *                 WHERE
+     *                     l_partkey = ps_partkey
+     *                     AND l_suppkey = ps_suppkey
+     *                     AND l_shipdate >= CAST('1994-01-01' AS date)
+     *                     AND l_shipdate < CAST('1995-01-01' AS date)
+     *             )
+     *     )
+     *     AND s_nationkey = n_nationkey
+     *     AND n_name = 'CANADA'
+     * ORDER BY
+     *     s_name;
+     */
+    [Fact]
+    [Trait("TPCH", "Q20")]
+    public void Test_Q20_Potential_Part_Promotion()
+    {
+        using var lfSupplier = TpchData.Supplier();
+        using var lfNation = TpchData.Nation();
+        using var lfPartSupp = TpchData.PartSupp();
+        using var lfPart = TpchData.Part();
+        using var lfLineItem = TpchData.LineItem();
+
+        var supplierQuery = lfSupplier.AsQueryable<Supplier>();
+        var nationQuery = lfNation.AsQueryable<Nation>();
+        var partsuppQuery = lfPartSupp.AsQueryable<PartSupp>();
+        var partQuery = lfPart.AsQueryable<Part>();
+        var lineitemQuery = lfLineItem.AsQueryable<LineItem>();
+
+        var startDate = new DateOnly(1994, 1, 1);
+        var endDate = new DateOnly(1995, 1, 1);
+
+        var forestParts = from p in partQuery
+                          where p.p_name.StartsWith("forest")
+                          select p.p_partkey;
+
+        var eligiblePartSupp = from ps in partsuppQuery
+                               where forestParts.Contains(ps.ps_partkey)
+                               where ps.ps_availqty > 0.5m * lineitemQuery
+                                                        .Where(l => l.l_partkey == ps.ps_partkey
+                                                                 && l.l_suppkey == ps.ps_suppkey
+                                                                 && l.l_shipdate >= startDate
+                                                                 && l.l_shipdate < endDate)
+                                                        .Sum(l => l.l_quantity)
+                               select ps.ps_suppkey;
+
+        var query = from s in supplierQuery
+                    where eligiblePartSupp.Contains(s.s_suppkey)
+                    join n in nationQuery on s.s_nationkey equals n.n_nationkey
+                    where n.n_name == "CANADA"
+                    orderby s.s_name
+                    select new
+                    {
+                        s.s_name,
+                        s.s_address
+                    };
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+
+        Assert.Single(results);
+        var row0 = results[0];
+        Assert.Equal("Supplier#000000013", row0.s_name);
+        Assert.Equal("kgTZjbt4CAa4c3SlirlBLqIL41YbCj", row0.s_address);
     }
 }
 
