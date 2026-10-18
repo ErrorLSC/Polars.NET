@@ -100,6 +100,21 @@ public record DeptSaleRunningTotalDto(int DeptId, int Day, double Amount, double
 public record SaleSlidingSumDto(int Day, double Amount, double Sliding2DaySum);
 public partial class LinqTests
 {
+
+    private static void AssertPlan<T>(
+        IQueryable<T> query,
+        string expectedPlan)
+    {
+        var actualPlan = query.Explain();
+        Assert.Contains(expectedPlan, actualPlan);
+    }
+
+    private const string NativePushdown = "100% Native Pushdown";
+
+    private const string HybridPushdown = "Hybrid Execution";
+
+    private const string ClientFallback = "Full Fallback to In-Memory LINQ";
+
     [Fact]
     [Trait("LINQ", "SingleColumn")]
     public void Test_CSharp_Linq_Scalar_Projection_ToUpper()
@@ -114,6 +129,8 @@ public partial class LinqTests
         var empQuery = dfEmps.AsQueryable(emps);
 
         IQueryable<string> upperQuery = empQuery.Select(e => e.Name.ToUpper());
+
+        AssertPlan(upperQuery, NativePushdown);
 
         var firstName = upperQuery.First();
 
@@ -188,12 +205,15 @@ public partial class LinqTests
         var threshold = 18;
         var query = df.AsQueryable<Employee>()
                       .Where(e => e.Age >= threshold && e.Salary > 4000)
-                      .Take(10)
-                      .ToList();
+                      .Take(10);
 
-        Assert.Equal(2, query.Count);
-        Assert.Equal("Alice", query[0].Name);
-        Assert.Equal("Charlie", query[1].Name);
+        AssertPlan(query, NativePushdown);
+
+        var result = query.ToList();
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("Alice", result[0].Name);
+        Assert.Equal("Charlie", result[1].Name);
     }
     /// <summary>
     /// External static lookup table simulating a pure managed security/audit cache.
@@ -257,13 +277,16 @@ public partial class LinqTests
 
         var query = df.AsQueryable<Employee>()
                       .Where(e => CustomSalaryPredicate(e))
-                      .Select(e => e.Name)
-                      .ToList();
+                      .Select(e => e.Name);
 
-        Assert.Equal(3, query.Count);
-        Assert.Equal("Alice", query[0]);
-        Assert.Equal("Charlie", query[1]);
-        Assert.Equal("Eve", query[2]);
+        AssertPlan(query, HybridPushdown);
+
+        var result = query.ToList();
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal("Alice", result[0]);
+        Assert.Equal("Charlie", result[1]);
+        Assert.Equal("Eve", result[2]);
     }
     [Fact]
     [Trait("LINQ", "Fallback")]
@@ -279,16 +302,18 @@ public partial class LinqTests
         // 2. Where(CustomMagicAudit) must gracefully fallback to client-side cursor evaluation
         var query = df.AsQueryable<Employee>()
                       .Where(e => e.Age >= 18)
-                      .Where(e => CheckSecurityClearance(e.Name, e.Salary))
-                      .ToList();
+                      .Where(e => CheckSecurityClearance(e.Name, e.Salary));
+
+        AssertPlan(query, HybridPushdown);
+        var result = query.ToList();
 
         // Qualified:
         // Alice: Age 25 >= 18, in approved set, salary 5000 > 4500 -> True
         // Charlie: Age 30 >= 18, in approved set, salary 7000 > 4500 -> True
         // Eve: Age 28 >= 18, NOT in approved set -> False
-        Assert.Equal(2, query.Count);
-        Assert.Equal("Alice", query[0].Name);
-        Assert.Equal("Charlie", query[1].Name);
+        Assert.Equal(2, result.Count);
+        Assert.Equal("Alice", result[0].Name);
+        Assert.Equal("Charlie", result[1].Name);
     }
     [Fact]
     [Trait("LINQ", "Fallback")]
@@ -335,31 +360,34 @@ public partial class LinqTests
         var query = df.AsQueryable<EmployeeDept>()
                       .Where(e => -e.Age <= -18 && e.Salary / 1000.0f > 3.5f)
                       .OrderBy(e => e.Department)
-                      .ThenByDescending(e => e.Salary)
-                      .ToList();
+                      .ThenByDescending(e => e.Salary);
+
+        AssertPlan(query, NativePushdown);
+
+        var result = query.ToList();
 
         // Qualified:
         // Eve: HR, 28, 6200
         // Charlie: IT, 30, 7000
         // Alice: IT, 25, 5000
         // Frank: IT, 22, 5000
-        Assert.Equal(4, query.Count);
+        Assert.Equal(4, result.Count);
 
         // Department "HR" comes first
-        Assert.Equal("Eve", query[0].Name);
-        Assert.Equal("HR", query[0].Department);
-        Assert.Equal(6200, query[0].Salary);
+        Assert.Equal("Eve", result[0].Name);
+        Assert.Equal("HR", result[0].Department);
+        Assert.Equal(6200, result[0].Salary);
 
         // Department "IT": Charlie (7000) has higher salary than Alice (5000) and Frank (5000)
-        Assert.Equal("Charlie", query[1].Name);
-        Assert.Equal("IT", query[1].Department);
-        Assert.Equal(7000, query[1].Salary);
+        Assert.Equal("Charlie", result[1].Name);
+        Assert.Equal("IT", result[1].Department);
+        Assert.Equal(7000, result[1].Salary);
 
-        Assert.Equal("IT", query[2].Department);
-        Assert.Equal(5000, query[2].Salary);
+        Assert.Equal("IT", result[2].Department);
+        Assert.Equal(5000, result[2].Salary);
 
-        Assert.Equal("IT", query[3].Department);
-        Assert.Equal(5000, query[3].Salary);
+        Assert.Equal("IT", result[3].Department);
+        Assert.Equal(5000, result[3].Salary);
     }
     [Fact]
     [Trait("LINQ", "Join")]
@@ -412,33 +440,35 @@ public partial class LinqTests
                     c.EmployeeCount
                 }
             )
-            .OrderBy(r => r.Id)
-            .ToList();
+            .OrderBy(r => r.Id);
+
+        AssertPlan(query, NativePushdown);
+        var result = query.ToList();
 
         // Verification:
         // Alice (1) -> DeptId 10, IT, Count 2
         // Bob (2)   -> DeptId 20, HR, Count 1
         // Charlie (3) -> DeptId 10, IT, Count 2
         // David (4) is DeptId 30 (Finance), which doesn't exist in rightDf -> inner join excludes David
-        Assert.Equal(3, query.Count);
+        Assert.Equal(3, result.Count);
 
-        Assert.Equal(1, query[0].Id);
-        Assert.Equal("Alice", query[0].Name);
-        Assert.Equal(10, query[0].DeptId);
-        Assert.Equal("IT", query[0].DeptName);
-        Assert.Equal(2, query[0].EmployeeCount);
+        Assert.Equal(1, result[0].Id);
+        Assert.Equal("Alice", result[0].Name);
+        Assert.Equal(10, result[0].DeptId);
+        Assert.Equal("IT", result[0].DeptName);
+        Assert.Equal(2, result[0].EmployeeCount);
 
-        Assert.Equal(2, query[1].Id);
-        Assert.Equal("Bob", query[1].Name);
-        Assert.Equal(20, query[1].DeptId);
-        Assert.Equal("HR", query[1].DeptName);
-        Assert.Equal(1, query[1].EmployeeCount);
+        Assert.Equal(2, result[1].Id);
+        Assert.Equal("Bob", result[1].Name);
+        Assert.Equal(20, result[1].DeptId);
+        Assert.Equal("HR", result[1].DeptName);
+        Assert.Equal(1, result[1].EmployeeCount);
 
-        Assert.Equal(3, query[2].Id);
-        Assert.Equal("Charlie", query[2].Name);
-        Assert.Equal(10, query[2].DeptId);
-        Assert.Equal("IT", query[2].DeptName);
-        Assert.Equal(2, query[2].EmployeeCount);
+        Assert.Equal(3, result[2].Id);
+        Assert.Equal("Charlie", result[2].Name);
+        Assert.Equal(10, result[2].DeptId);
+        Assert.Equal("IT", result[2].DeptName);
+        Assert.Equal(2, result[2].EmployeeCount);
     }
     [Fact]
     [Trait("LINQ", "Join")]
@@ -461,7 +491,7 @@ public partial class LinqTests
 
         // 3. Native Pushdown Join
         // Both sides are LazyFrames / PolarsQuery instances
-        using var resultDf = personsDf.AsQueryable<Person>()
+        var query = personsDf.AsQueryable<Person>()
             .Where(p => p.Id <= 3) // Alice (10), Bob (20), Charlie (10)
             .Join(
                 deptsDf.AsQueryable<Department>(),
@@ -469,8 +499,10 @@ public partial class LinqTests
                 dept => dept.Id,
                 (person, dept) => new PersonDeptJoined(person.Id, person.Name, person.DeptId, dept.DeptName)
             )
-            .OrderBy(r => r.Id)
-            .ToDataFrame();
+            .OrderBy(r => r.Id);
+
+        AssertPlan(query, NativePushdown);
+        using var resultDf = query.ToDataFrame();
 
         // Qualified matches:
         // Alice: Id=1, DeptId=10 -> Engineering
@@ -512,15 +544,17 @@ public partial class LinqTests
                 d => d.Id,
                 (p, d) => new PersonDeptJoined(p.Id, p.Name, p.DeptId, d.DeptName)
             )
-            .OrderBy(r => r.Id)
-            .ToList();
+            .OrderBy(r => r.Id);
 
-        Assert.Equal(2, query.Count);
-        Assert.Equal("Alice", query[0].Name);
-        Assert.Equal("Finance", query[0].DeptName);
+        AssertPlan(query, NativePushdown);
+        var result = query.ToList();
 
-        Assert.Equal("Bob", query[1].Name);
-        Assert.Equal("Marketing", query[1].DeptName);
+        Assert.Equal(2, result.Count);
+        Assert.Equal("Alice", result[0].Name);
+        Assert.Equal("Finance", result[0].DeptName);
+
+        Assert.Equal("Bob", result[1].Name);
+        Assert.Equal("Marketing", result[1].DeptName);
     }
     [Fact]
     [Trait("LINQ", "Join")]
@@ -542,15 +576,17 @@ public partial class LinqTests
         ]);
 
         // 3. Perform LeftJoin via the .NET 8 extension method
-        var results = employeesDf.AsQueryable<Person>()
+        var query = employeesDf.AsQueryable<Person>()
             .LeftJoin(
                 departmentsDf.AsQueryable<Department>(),
                 emp => emp.DeptId,
                 dept => dept.Id,
                 (emp, dept) => new EmployeeDeptRecord(emp.Id, emp.Name, dept.DeptName)
             )
-            .OrderBy(r => r.Id)
-            .ToList();
+            .OrderBy(r => r.Id);
+
+        AssertPlan(query, NativePushdown);
+        var results = query.ToList();
 
         // All 4 left rows must be preserved in a Left Outer Join
         Assert.Equal(4, results.Count);
@@ -588,15 +624,17 @@ public partial class LinqTests
         ]);
 
         // Execute LeftJoin directly to native DataFrame
-        using DataFrame joinedDf = employeesDf.AsQueryable<Person>()
+        var query = employeesDf.AsQueryable<Person>()
             .LeftJoin(
                 departmentsDf.AsQueryable<Department>(),
                 emp => emp.DeptId,
                 dept => dept.Id,
                 (emp, dept) => new EmployeeDeptRecord(emp.Id, emp.Name, dept.DeptName)
             )
-            .OrderBy(r => r.Id)
-            .ToDataFrame();
+            .OrderBy(r => r.Id);
+
+        AssertPlan(query, NativePushdown);
+        using var joinedDf = query.ToDataFrame();
 
         Assert.Equal(2, joinedDf.Height);
 
@@ -727,7 +765,7 @@ public partial class LinqTests
         // Dept 30: David (4)                         -> Count=1, MinId=4, MaxId=4
 
         // 2. Perform native GroupBy + Aggregations pushdown via LINQ
-        var summaries = personsDf.AsQueryable<Person>()
+        var query = personsDf.AsQueryable<Person>()
             .Where(p => p.Id <= 5) // Exclude Frank (6) -> Dept 10 now has 2 members
             .GroupBy(
                 p => p.DeptId,
@@ -738,8 +776,10 @@ public partial class LinqTests
                     group.Max(x => x.Id)
                 )
             )
-            .OrderBy(s => s.DeptId)
-            .ToList();
+            .OrderBy(s => s.DeptId);
+
+        AssertPlan(query, NativePushdown);
+        var summaries = query.ToList();
 
         // 3. Verify results
         Assert.Equal(3, summaries.Count);
@@ -774,7 +814,7 @@ public partial class LinqTests
             Series.From("DeptId", [10, 20, 10, 30, 20, 10])
         ]);
 
-        var summaries = personsDf.AsQueryable<Person>()
+        var query = personsDf.AsQueryable<Person>()
             .GroupBy(
                 p => p.DeptId,
                 (deptId, group) => new AdvancedDeptSummary(
@@ -785,9 +825,12 @@ public partial class LinqTests
                     group.Max(x => x.Id)
                 )
             )
-            .OrderBy(s => s.DeptId)
-            .ToList();
+            .OrderBy(s => s.DeptId);
 
+        AssertPlan(query, NativePushdown);
+        var summaries = query.ToList();
+
+        // 3. Verify results
         Assert.Equal(3, summaries.Count);
 
         // Dept 10: Alice (1), Charlie (3), Frank (6)
@@ -828,7 +871,7 @@ public partial class LinqTests
 
         // 2. Pushdown MinBy & MaxBy within GroupBy using standard LINQ syntax:
         // group.MinBy(x => x.Age).Id
-        var summaries = membersDf.AsQueryable<MemberRecord>()
+        var query = membersDf.AsQueryable<MemberRecord>()
             .GroupBy(
                 m => m.DeptId,
                 (deptId, group) => new DeptMinMaxBySummary(
@@ -837,10 +880,10 @@ public partial class LinqTests
                     group.MaxBy(x => x.Salary).Id   // Member Id with max Salary
                 )
             )
-            .OrderBy(s => s.DeptId)
-            .ToList();
+            .OrderBy(s => s.DeptId);
 
-        Assert.Equal(3, summaries.Count);
+        AssertPlan(query, NativePushdown);
+        var summaries = query.ToList();
 
         // Dept 10:
         // Alice: Id=1, Age=25, Salary=5000
@@ -879,11 +922,13 @@ public partial class LinqTests
 
         // 2. Execute bare GroupBy without immediate aggregation
         // Expected signature: IEnumerable<IGrouping<int, Person>>
-        var groupingList = personsDf.AsQueryable<Person>()
+        var query = personsDf.AsQueryable<Person>()
             .Where(p => p.Id <= 4) // Alice (10), Bob (20), Charlie (10), David (30)
             .GroupBy(p => p.DeptId)
-            .OrderBy(g => g.Key)
-            .ToList();
+            .OrderBy(g => g.Key);
+
+        AssertPlan(query, HybridPushdown);
+        var groupingList = query.ToList();
 
         // 3. Verify top-level group count
         // Dept 10, 20, 30 are expected
@@ -926,7 +971,7 @@ public partial class LinqTests
 
         // 2. Standard C# LINQ syntax: GroupBy followed by Select projection
         // Should compile into a single native LazyGroupByAgg call
-        var results = personsDf.AsQueryable<Person>()
+        var query = personsDf.AsQueryable<Person>()
             .Where(p => p.Id >= 102) // Filter out Alice (101, Dept 1) -> Dept 1 now only has Charlie (103)
             .GroupBy(p => p.DeptId)
             .Select(g => new DeptAggResult(
@@ -934,8 +979,10 @@ public partial class LinqTests
                 g.Count(),
                 g.Max(x => x.Id)
             ))
-            .OrderBy(r => r.DeptId)
-            .ToList();
+            .OrderBy(r => r.DeptId);
+
+        AssertPlan(query, NativePushdown);
+        var results = query.ToList();
 
         // 3. Verify correctness
         Assert.Equal(3, results.Count);
@@ -969,7 +1016,7 @@ public partial class LinqTests
         ]);
 
         // 2. Pushdown aggregation on zero rows (Id > 999 eliminates everything)
-        var results = personsDf.AsQueryable<Person>()
+        var query = personsDf.AsQueryable<Person>()
             .Where(p => p.Id > 999)
             .GroupBy(
                 p => p.DeptId,
@@ -979,8 +1026,10 @@ public partial class LinqTests
                     group.Min(x => x.Id),
                     group.Max(x => x.Id)
                 )
-            )
-            .ToList();
+            );
+
+        AssertPlan(query, NativePushdown);
+        var results = query.ToList();
 
         // 3. Native engine must return an empty sequence gracefully without null-pointer exceptions
         Assert.Empty(results);
@@ -1003,13 +1052,16 @@ public partial class LinqTests
         // 2. elementSelector: d => d.Salary
         // 3. resultSelector: (dept, salaries) => new DeptSummary(dept, salaries.Sum())
         // Followed by Where (HAVING): TotalSalary > 100000
-        var results = query
+        var finalQuery = query
             .GroupBy(
                 d => d.Department,
                 d => d.Salary,
                 (dept, salaries) => new DeptSummary(dept, salaries.Sum()))
-            .Where(s => s.TotalSalary > 100000)
-            .ToList();
+            .Where(s => s.TotalSalary > 100000);
+
+        AssertPlan(finalQuery, NativePushdown);
+
+        var results = finalQuery.ToList();
 
         // IT total = 210000, HR total = 125000, Finance = 80000 (filtered out)
         Assert.Equal(2, results.Count);
@@ -1037,7 +1089,7 @@ public partial class LinqTests
 
         // 3. Pipeline: Inner Join -> GroupBy DeptId -> Vectorized Aggregations
         // Pipeline pushes down: pl_lazy_join -> pl_lazy_groupby_agg -> sort
-        var summaries = personsDf.AsQueryable<Person>()
+        var query = personsDf.AsQueryable<Person>()
             .Join(
                 departmentsDf.AsQueryable<Department>(),
                 p => p.DeptId,
@@ -1053,8 +1105,11 @@ public partial class LinqTests
                     group.Max(x => x.Id)
                 )
             )
-            .OrderBy(s => s.DeptId)
-            .ToList();
+            .OrderBy(s => s.DeptId);
+
+        AssertPlan(query, NativePushdown);
+
+        var summaries = query.ToList();
 
         // 4. Assert correctness
         Assert.Equal(2, summaries.Count);
@@ -1092,7 +1147,7 @@ public partial class LinqTests
 
         // 2. High-complexity pipeline:
         // Filter Left -> Inner Join Right -> Two-stage GroupBy + Select -> Multi-column Sort -> Take Limit
-        var results = personsDf.AsQueryable<Person>()
+        var query = personsDf.AsQueryable<Person>()
             .Where(p => p.Id >= 2) // Eliminates Alice(1)
             .Join(
                 deptsDf.AsQueryable<Department>(),
@@ -1108,8 +1163,11 @@ public partial class LinqTests
             ))
             .OrderByDescending(r => r.TotalCount)
             .ThenBy(r => r.DeptId)
-            .Take(2)
-            .ToList();
+            .Take(2);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         // Left rows matching:
         // Bob(2, Dept 20), Charlie(3, Dept 10), Eve(5, Dept 20), Frank(6, Dept 10)
@@ -1147,7 +1205,7 @@ public partial class LinqTests
         ]);
 
         // 3. LeftJoin preserves David(4, Dept 99) -> Group by DeptId -> Aggregate Min/Max Id
-        var summaries = employeesDf.AsQueryable<Person>()
+        var query = employeesDf.AsQueryable<Person>()
             .LeftJoin(
                 departmentsDf.AsQueryable<Department>(),
                 emp => emp.DeptId,
@@ -1163,8 +1221,11 @@ public partial class LinqTests
                     g.Max(x => x.Id)
                 )
             )
-            .OrderBy(s => s.DeptId)
-            .ToList();
+            .OrderBy(s => s.DeptId);
+
+        AssertPlan(query, NativePushdown);
+
+        var summaries = query.ToList();
 
         // Expecting 3 groups: 10, 20, 99
         Assert.Equal(3, summaries.Count);
@@ -1205,15 +1266,18 @@ public partial class LinqTests
             Series.From("DeptName", ["Engineering", "Marketing"])
         ]);
 
-        var result = personsDf.AsQueryable<Person>()
+        var query = personsDf.AsQueryable<Person>()
             .RightJoin(
                 deptsDf.AsQueryable<Department>(),
                 p => p.DeptId,
                 d => d.Id,
                 (p, d) => new EmployeeDeptRecord(d.Id, p.Name, d.DeptName)
             )
-            .OrderBy(r => r.DeptName)
-            .ToList();
+            .OrderBy(r => r.DeptName);
+
+        AssertPlan(query, NativePushdown);
+
+        var result = query.ToList();
 
         Assert.Equal(2, result.Count);
         // Marketing has no matching person in left table
@@ -1241,10 +1305,13 @@ public partial class LinqTests
             Series.From("DeptId", [20, 40, 50])
         ]);
 
-        var result = leftDf.AsQueryable<Person>()
+        var query = leftDf.AsQueryable<Person>()
             .Intersect(rightDf.AsQueryable<Person>())
-            .OrderBy(p => p.Id)
-            .ToList();
+            .OrderBy(p => p.Id);
+
+        AssertPlan(query, NativePushdown);
+
+        var result = query.ToList();
 
         // Bob (2) and David (4) exist in both datasets
         Assert.Equal(2, result.Count);
@@ -1273,9 +1340,12 @@ public partial class LinqTests
             Series.From("DeptName", ["Engineering", "Legal"])
         ]);
 
-        var result = personsDf.AsQueryable<Person>()
-            .IntersectBy(validDeptsDf.AsQueryable<Department>().Select(d => d.Id), p => p.DeptId)
-            .ToList();
+        var query = personsDf.AsQueryable<Person>()
+            .IntersectBy(validDeptsDf.AsQueryable<Department>().Select(d => d.Id), p => p.DeptId);
+
+        AssertPlan(query, NativePushdown);
+
+        var result = query.ToList();
 
         // Only Alice matches DeptId = 10
         Assert.Single(result);
@@ -1302,10 +1372,13 @@ public partial class LinqTests
             Series.From("DeptId", [20])
         ]);
 
-        var result = leftDf.AsQueryable<Person>()
+        var query = leftDf.AsQueryable<Person>()
             .Except(rightDf.AsQueryable<Person>())
-            .OrderBy(p => p.Id)
-            .ToList();
+            .OrderBy(p => p.Id);
+
+        AssertPlan(query, NativePushdown);
+
+        var result = query.ToList();
 
         // Bob (2) should be excluded
         Assert.Equal(2, result.Count);
@@ -1334,9 +1407,12 @@ public partial class LinqTests
             Series.From("DeptName", ["Engineering", "Research"])
         ]);
 
-        var result = personsDf.AsQueryable<Person>()
-            .ExceptBy(excludedDeptsDf.AsQueryable<Department>().Select(d => d.Id), p => p.DeptId)
-            .ToList();
+        var query = personsDf.AsQueryable<Person>()
+            .ExceptBy(excludedDeptsDf.AsQueryable<Department>().Select(d => d.Id), p => p.DeptId);
+
+        AssertPlan(query, NativePushdown);
+
+        var result = query.ToList();
 
         // Only Bob (DeptId = 20) should remain
         Assert.Single(result);
@@ -1354,10 +1430,13 @@ public partial class LinqTests
             Series.From("DeptId", [10, 20, 10, 30, 20])
         ]);
 
-        var result = df.AsQueryable<Person>()
+        var query = df.AsQueryable<Person>()
             .Distinct()
-            .OrderBy(p => p.Id)
-            .ToList();
+            .OrderBy(p => p.Id);
+
+        AssertPlan(query, NativePushdown);
+
+        var result = query.ToList();
 
         Assert.Equal(3, result.Count);
         Assert.Equal([1, 2, 3], result.Select(r => r.Id).ToArray());
@@ -1375,10 +1454,13 @@ public partial class LinqTests
         ]);
 
         // DistinctBy DeptId: should preserve only the first record for each DeptId
-        var result = df.AsQueryable<Person>()
+        var query = df.AsQueryable<Person>()
             .DistinctBy(p => p.DeptId)
-            .OrderBy(p => p.DeptId)
-            .ToList();
+            .OrderBy(p => p.DeptId);
+
+        AssertPlan(query, NativePushdown);
+
+        var result = query.ToList();
 
         Assert.Equal(2, result.Count);
         Assert.Equal(10, result[0].DeptId);
@@ -1405,10 +1487,13 @@ public partial class LinqTests
             Series.From("DeptId", [30, 40])
         ]);
 
-        var result = leftDf.AsQueryable<Person>()
+        var query = leftDf.AsQueryable<Person>()
             .Concat(rightDf.AsQueryable<Person>())
-            .OrderBy(p => p.Id)
-            .ToList();
+            .OrderBy(p => p.Id);
+
+        AssertPlan(query, NativePushdown);
+
+        var result = query.ToList();
 
         Assert.Equal(4, result.Count);
         Assert.Equal([1, 2, 3, 4], [.. result.Select(r => r.Id)]);
@@ -1433,10 +1518,13 @@ public partial class LinqTests
         ]);
 
         // Row (2, "Bob", 20) is duplicated across tables and should appear once
-        var result = leftDf.AsQueryable<Person>()
+        var query = leftDf.AsQueryable<Person>()
             .Union(rightDf.AsQueryable<Person>())
-            .OrderBy(p => p.Id)
-            .ToList();
+            .OrderBy(p => p.Id);
+
+        AssertPlan(query, NativePushdown);
+
+        var result = query.ToList();
 
         Assert.Equal(3, result.Count);
         Assert.Equal([1, 2, 3], [.. result.Select(r => r.Id)]);
@@ -1461,10 +1549,13 @@ public partial class LinqTests
         ]);
 
         // 2. Act (Case A): Full-row Union (Id 3 is identical in both -> deduplicated)
-        var unionResults = df1.AsQueryable<Person>()
+        var unionQuery = df1.AsQueryable<Person>()
             .Union(df2.AsQueryable<Person>())
-            .OrderBy(p => p.Id)
-            .ToList();
+            .OrderBy(p => p.Id);
+
+        AssertPlan(unionQuery, NativePushdown);
+
+        var unionResults = unionQuery.ToList();
 
         // 3. Assert (Case A): Total 5 unique elements (1, 2, 3, 4, 5)
         Assert.Equal(5, unionResults.Count);
@@ -1516,10 +1607,13 @@ public partial class LinqTests
         ]);
 
         // Distinct on DeptId: only the first record with DeptId 20 ("Bob") is preserved
-        var result = leftDf.AsQueryable<Person>()
+        var query = leftDf.AsQueryable<Person>()
             .UnionBy(rightDf.AsQueryable<Person>(), p => p.DeptId)
-            .OrderBy(p => p.DeptId)
-            .ToList();
+            .OrderBy(p => p.DeptId);
+
+        AssertPlan(query, NativePushdown);
+
+        var result = query.ToList();
 
         Assert.Equal(3, result.Count);
         Assert.Equal(10, result[0].DeptId);
@@ -1545,10 +1639,13 @@ public partial class LinqTests
         ]);
 
         // 2. Execute SelectMany with ResultSelector
-        var results = df.AsQueryable<PersonWithTags>()
+        var query = df.AsQueryable<PersonWithTags>()
             .SelectMany(p => p.Tags, (p, tag) => new PersonTagPair(p.Id, p.Name, tag))
-            .OrderBy(r => r.Id)
-            .ToList();
+            .OrderBy(r => r.Id);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         // 3. Expected:
         // Alice -> Rust
@@ -1590,14 +1687,17 @@ public partial class LinqTests
 
         // 3. Cartesian Product (2 x 2 = 4 records)
         // Projects to existing readonly record struct EmployeeDept
-        var results = empDf.AsQueryable<Employee>()
+        var query = empDf.AsQueryable<Employee>()
             .SelectMany(
                 _ => deptsDf.AsQueryable<Department>(),
                 (e, d) => new EmployeeDept(e.Name, d.DeptName, e.Age, e.Salary)
             )
             .OrderBy(r => r.Name)
-            .ThenBy(r => r.Department)
-            .ToList();
+            .ThenBy(r => r.Department);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         Assert.Equal(4, results.Count);
 
@@ -1639,10 +1739,13 @@ public partial class LinqTests
 
         // Case A: Explicit cast to (long) inside keySelector: p => (long)p.DeptId
         // Verifies ExpressionPatterns.(|ExtractColumnName|_|) stripping Convert nodes recursively
-        var distinctLongKey = df.AsQueryable<Person>()
+        var query = df.AsQueryable<Person>()
             .DistinctBy(p => (long)p.DeptId)
-            .OrderBy(p => p.DeptId)
-            .ToList();
+            .OrderBy(p => p.DeptId);
+
+        AssertPlan(query, NativePushdown);
+
+        var distinctLongKey = query.ToList();
 
         Assert.Equal(3, distinctLongKey.Count);
         Assert.Equal(10, distinctLongKey[0].DeptId);
@@ -1650,10 +1753,13 @@ public partial class LinqTests
         Assert.Equal(30, distinctLongKey[2].DeptId);
 
         // Case B: Boxed cast to (object): p => (object)p.DeptId
-        var distinctBoxed = df.AsQueryable<Person>()
+        var queryBoxed = df.AsQueryable<Person>()
             .DistinctBy(p => (object)p.DeptId)
-            .OrderBy(p => p.DeptId)
-            .ToList();
+            .OrderBy(p => p.DeptId);
+
+        AssertPlan(queryBoxed, NativePushdown);
+
+        var distinctBoxed = queryBoxed.ToList();
 
         Assert.Equal(3, distinctBoxed.Count);
         Assert.Equal("Alice", distinctBoxed[0].Name);
@@ -1661,10 +1767,13 @@ public partial class LinqTests
         Assert.Equal("Eve", distinctBoxed[2].Name);
 
         // Case C: Multi-column anonymous object projection: p => new { p.DeptId, p.Name }
-        var distinctCompound = df.AsQueryable<Person>()
+        var queryCompound = df.AsQueryable<Person>()
             .DistinctBy(p => new { p.DeptId, p.Name })
-            .OrderBy(p => p.Id)
-            .ToList();
+            .OrderBy(p => p.Id);
+
+        AssertPlan(queryCompound, NativePushdown);
+
+        var distinctCompound = queryCompound.ToList();
 
         Assert.Equal(5, distinctCompound.Count);
     }
@@ -1686,11 +1795,14 @@ public partial class LinqTests
         ]);
 
         // Case A: Map Tags -> Tag (Single letter truncation rename)
-        var results = df.AsQueryable<PersonWithTags>()
+        var query = df.AsQueryable<PersonWithTags>()
             .SelectMany(p => p.Tags, (p, tag) => new PersonTagPair(p.Id, p.Name, tag))
             .OrderBy(r => r.Id)
-            .ThenBy(r => r.Tag)
-            .ToList();
+            .ThenBy(r => r.Tag);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         Assert.Equal(3, results.Count);
         Assert.Equal(1, results[0].Id);
@@ -1706,11 +1818,14 @@ public partial class LinqTests
         Assert.Equal("Polars", results[2].Tag);
 
         // Case B: Map Id -> PersonId and Tags -> TagName (Dual property rename test)
-        var detailedResults = df.AsQueryable<PersonWithTags>()
+        var queryDetailed = df.AsQueryable<PersonWithTags>()
             .SelectMany(p => p.Tags, (p, t) => new PersonTagDetailed(p.Id, t))
             .OrderBy(r => r.PersonId)
-            .ThenBy(r => r.TagName)
-            .ToList();
+            .ThenBy(r => r.TagName);
+
+        AssertPlan(queryDetailed, NativePushdown);
+
+        var detailedResults = queryDetailed.ToList();
 
         Assert.Equal(3, detailedResults.Count);
         Assert.Equal(1, detailedResults[0].PersonId);
@@ -1730,9 +1845,12 @@ public partial class LinqTests
 
         // Take elements while Id < 10.
         // Even though 4 and 5 are < 10, they appear after 10, so they MUST NOT be included.
-        var results = df.AsQueryable<Person>()
-            .TakeWhile(p => p.Id < 10)
-            .ToList();
+        var query = df.AsQueryable<Person>()
+            .TakeWhile(p => p.Id < 10);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         Assert.Equal(3, results.Count);
         Assert.Equal([1, 2, 3], [.. results.Select(r => r.Id)]);
@@ -1750,9 +1868,12 @@ public partial class LinqTests
 
         // Skip while Id < 10.
         // Starts keeping from 10 onwards, preserving subsequent elements even if < 10.
-        var results = df.AsQueryable<Person>()
-            .SkipWhile(p => p.Id < 10)
-            .ToList();
+        var query = df.AsQueryable<Person>()
+            .SkipWhile(p => p.Id < 10);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         Assert.Equal(3, results.Count);
         Assert.Equal([10, 2, 1], [.. results.Select(r => r.Id)]);
@@ -1778,15 +1899,18 @@ public partial class LinqTests
         ]);
 
         // 3. GroupJoin: Departments with their Employees
-        var results = deptsDf.AsQueryable<Department>()
+        var query = deptsDf.AsQueryable<Department>()
             .GroupJoin(
                 empsDf.AsQueryable<Person>(),
                 d => d.Id,
                 e => e.DeptId,
                 (dept, empGroup) => new DeptEmpCount(dept.Id, dept.DeptName, empGroup.Count())
             )
-            .OrderBy(r => r.DeptId)
-            .ToList();
+            .OrderBy(r => r.DeptId);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         Assert.Equal(3, results.Count);
 
@@ -1825,13 +1949,16 @@ public partial class LinqTests
 
         // 3. Zip side-by-side into existing EmployeeDept record struct:
         // public readonly record struct EmployeeDept(string Name, string Department, int Age, int Salary);
-        var results = empDf.AsQueryable<Employee>()
+        var query = empDf.AsQueryable<Employee>()
             .Zip(
                 deptDf.AsQueryable<Department>(),
                 (e, d) => new EmployeeDept(e.Name, d.DeptName, e.Age, e.Salary)
             )
-            .OrderBy(ed => ed.Age)
-            .ToList();
+            .OrderBy(ed => ed.Age);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         Assert.Equal(3, results.Count);
 
@@ -1879,13 +2006,16 @@ public partial class LinqTests
         ]);
 
         // 4. Three-way positional Zip: (TFirst, TSecond, TThird)
-        var results = df1.AsQueryable<MemberRecord>()
+        var query = df1.AsQueryable<MemberRecord>()
             .Zip(
                 df2.AsQueryable<Employee>(),
                 df3.AsQueryable<Department>()
             )
-            .OrderBy(tuple => tuple.Second.Age)
-            .ToList();
+            .OrderBy(tuple => tuple.Second.Age);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         Assert.Equal(3, results.Count);
 
@@ -1923,10 +2053,13 @@ public partial class LinqTests
         ]);
 
         // 2. Chunk by batch size of 3
-        var chunks = df.AsQueryable<MemberRecord>()
+        var query = df.AsQueryable<MemberRecord>()
             .OrderBy(m => m.Id)
-            .Chunk(3)
-            .ToList();
+            .Chunk(3);
+
+        AssertPlan(query, HybridPushdown);
+
+        var chunks = query.ToList();
 
         // 7 items divided by 3 -> 3 chunks: [3, 3, 1]
         Assert.Equal(3, chunks.Count);
@@ -2003,9 +2136,12 @@ public partial class LinqTests
             Series.From("Salary", [5000, 6000, 7000, 8000, 9000])
         ]);
 
-        var results = df.AsQueryable<Employee>()
-            .TakeLast(2)
-            .ToList();
+        var query = df.AsQueryable<Employee>()
+            .TakeLast(2);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         Assert.Equal(2, results.Count);
         Assert.Equal("David", results[0].Name);
@@ -2024,9 +2160,12 @@ public partial class LinqTests
         ]);
 
         // 2. Skip the last 2 records natively via LINQ (should retain Alice, Bob, Charlie)
-        var results = df.AsQueryable<Employee>()
-            .SkipLast(2)
-            .ToList();
+        var query = df.AsQueryable<Employee>()
+            .SkipLast(2);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         // 3. Assert count and elements
         Assert.Equal(3, results.Count);
@@ -2059,9 +2198,12 @@ public partial class LinqTests
         ]);
 
         // Skipping count >= total rows returns an empty sequence
-        var results = df.AsQueryable<Employee>()
-            .SkipLast(5)
-            .ToList();
+        var query = df.AsQueryable<Employee>()
+            .SkipLast(5);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         Assert.Empty(results);
     }
@@ -2079,10 +2221,13 @@ public partial class LinqTests
         var first = new Employee("Alice", 25, 5000);
         var last = new Employee("Charlie", 35, 7000);
 
-        var results = df.AsQueryable<Employee>()
+        var query = df.AsQueryable<Employee>()
             .Prepend(first)
-            .Append(last)
-            .ToList();
+            .Append(last);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         Assert.Equal(3, results.Count);
         Assert.Equal("Alice", results[0].Name);
@@ -2102,9 +2247,12 @@ public partial class LinqTests
         ]);
 
         // 2. Reverse row order natively via LINQ
-        var results = df.AsQueryable<Employee>()
-            .Reverse()
-            .ToList();
+        var query = df.AsQueryable<Employee>()
+            .Reverse();
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         Assert.Equal(3, results.Count);
 
@@ -2143,9 +2291,13 @@ public partial class LinqTests
         ]);
 
         // 2. Shuffle rows natively
-        var results = df.AsQueryable<MemberRecord>()
-            .Shuffle()
-            .ToList();
+        var query = df.AsQueryable<MemberRecord>()
+            .Shuffle();
+
+        AssertPlan(query, HybridPushdown);
+
+        var results = query.ToList();
+
         // 3. Row count and distinct elements must remain identical
         Assert.Equal(10, results.Count);
         Assert.Equal(10, results.Select(r => r.Id).Distinct().Count());
@@ -2382,28 +2534,37 @@ public partial class LinqTests
             Series.From("Salary", [50000, 60000])
         ]);
 
-        var nonEmptyResults = df.AsQueryable<Employee>()
-            .DefaultIfEmpty()
-            .ToList();
+        var nonEmptyQuery = df.AsQueryable<Employee>()
+            .DefaultIfEmpty();
+
+        AssertPlan(nonEmptyQuery, NativePushdown);
+
+        var nonEmptyResults = nonEmptyQuery.ToList();
 
         Assert.Equal(2, nonEmptyResults.Count);
         Assert.Equal("Alice", nonEmptyResults[0].Name);
 
         // 2. Filtered to empty -> returns single default(Employee)
-        var emptyResults = df.AsQueryable<Employee>()
+        var emptyQuery = df.AsQueryable<Employee>()
             .Where(e => e.Age > 100)
-            .DefaultIfEmpty()
-            .ToList();
+            .DefaultIfEmpty();
+
+        AssertPlan(emptyQuery, NativePushdown);
+
+        var emptyResults = emptyQuery.ToList();
 
         Assert.Single(emptyResults);
         Assert.Equal(default, emptyResults[0]);
 
         // 3. Custom defaultValue provided
         var customDefault = new Employee("Unknown", 0, 0);
-        var customResults = df.AsQueryable<Employee>()
+        var customQuery = df.AsQueryable<Employee>()
             .Where(e => e.Age > 100)
-            .DefaultIfEmpty(customDefault)
-            .ToList();
+            .DefaultIfEmpty(customDefault);
+
+        AssertPlan(customQuery, NativePushdown);
+
+        var customResults = customQuery.ToList();
 
         Assert.Single(customResults);
         Assert.Equal("Unknown", customResults[0].Name);
@@ -2482,6 +2643,7 @@ public partial class LinqTests
         Assert.True(idQuery.Contains(4));
         Assert.False(idQuery.Contains(42));
     }
+
     [Fact]
     [Trait("LINQ", "Scalar_SequenceEqual")]
     public void Test_Linq_SequenceEqual_Pushdown()
@@ -2537,6 +2699,7 @@ public partial class LinqTests
         };
         Assert.True(q1.SequenceEqual(inMemoryList));
     }
+
     [Fact]
     [Trait("LINQ", "Scalar_All")]
     public void Test_Linq_All_Pushdown()
@@ -2633,12 +2796,17 @@ public partial class LinqTests
         var query = df.AsQueryable<DepartmentRecord>();
 
         // Native CountBy pushdown: groups by Department, counts occurrences
-        var counts = query.CountBy(d => d.Department).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+        var counts = query.CountBy(d => d.Department);
 
-        Assert.Equal(3, counts["IT"]);
-        Assert.Equal(2, counts["HR"]);
-        Assert.Equal(1, counts["Finance"]);
+        AssertPlan(counts, NativePushdown);
+
+        var countsDict = counts.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+        Assert.Equal(3, countsDict["IT"]);
+        Assert.Equal(2, countsDict["HR"]);
+        Assert.Equal(1, countsDict["Finance"]);
     }
+
     [Fact]
     [Trait("LINQ", "Scalar_MinBy_MaxBy")]
     public void Test_Linq_MinBy_And_MaxBy_Pushdown()
@@ -2669,6 +2837,7 @@ public partial class LinqTests
         var missingMax = query.Where(e => e.Salary < 1000).MaxBy(e => e.Age);
         Assert.Equal(default, missingMax);
     }
+
     [Fact]
     [Trait("LINQ", "Aggregate")]
     public void Test_Linq_Aggregate()
@@ -2719,6 +2888,7 @@ public partial class LinqTests
         Assert.Equal(125000, deptSalaries["HR"]);       // 60000 + 65000
         Assert.Equal(80000, deptSalaries["Finance"]);   // 80000
     }
+
     [Fact]
     [Trait("LINQ", "Aggregate_Overloads")]
     public void Test_Linq_Aggregate_All_Overloads()
@@ -2791,6 +2961,7 @@ public partial class LinqTests
         Assert.Equal(125200, seedFactoryResults["HR"]);       // 200 + 125000
         Assert.Equal(80300, seedFactoryResults["Finance"]);   // 300 + 80000
     }
+
     [Fact]
     [Trait("LINQ", "Index")]
     public void Test_Linq_Index_WithRowIndexPushdown()
@@ -2805,9 +2976,12 @@ public partial class LinqTests
 
         // 2. Act: Call .NET 9 Index()
         // Index() yields tuples of (Index, Item)
-        var results = df.AsQueryable<Employee>()
-            .Index()
-            .ToList();
+        var query = df.AsQueryable<Employee>()
+            .Index();
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         // Assert: Verify 0-based index and element mapping
         Assert.Equal(3, results.Count);
@@ -2836,14 +3010,20 @@ public partial class LinqTests
         ]);
 
         // 2. Act: Test .NET 7 Order() (Ascending)
-        var ascResults = df.AsQueryable<int>()
-            .Order()
-            .ToList();
+        var ascQuery = df.AsQueryable<int>()
+            .Order();
+
+        AssertPlan(ascQuery, NativePushdown);
+
+        var ascResults = ascQuery.ToList();
 
         // 3. Act: Test .NET 7 OrderDescending()
-        var descResults = df.AsQueryable<int>()
-            .OrderDescending()
-            .ToList();
+        var descQuery = df.AsQueryable<int>()
+            .OrderDescending();
+
+        AssertPlan(descQuery, NativePushdown);
+
+        var descResults = descQuery.ToList();
 
         // 4. Assert
         Assert.Equal([10, 20, 30, 40], ascResults);
@@ -2877,14 +3057,17 @@ public partial class LinqTests
         ]);
 
         // 4. BCL Standard: Zip 3 sequences to tuple, then project to EmployeeDeptRecord
-        var results = df1.AsQueryable<Person>()
+        var query = df1.AsQueryable<Person>()
             .Zip(
                 df2.AsQueryable<Employee>(),
                 df3.AsQueryable<Department>()
             )
             .Select(t => new EmployeeDeptRecord(t.First.Id, t.Second.Name, t.Third.DeptName))
-            .OrderBy(record => record.Id)
-            .ToList();
+            .OrderBy(record => record.Id);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
 
         // 5. Assert: Verify merged and projected columns
         Assert.Equal(3, results.Count);
@@ -2925,9 +3108,12 @@ public partial class LinqTests
         ]);
 
         // 2. Act (Case A): 2-way Zip into ValueTuple (Person First, Department Second)
-        var tupleResults = df1.AsQueryable<Person>()
-            .Zip(df2.AsQueryable<Department>())
-            .ToList();
+        var tupleQuery = df1.AsQueryable<Person>()
+            .Zip(df2.AsQueryable<Department>());
+
+        AssertPlan(tupleQuery, NativePushdown);
+
+        var tupleResults = tupleQuery.ToList();
 
         // 3. Assert (Case A): Tuple elements must resolve their respective 'Id' correctly
         Assert.Equal(3, tupleResults.Count);
@@ -2951,13 +3137,15 @@ public partial class LinqTests
         Assert.Equal("Finance", tupleResults[2].Second.DeptName);
 
         // 4. Act (Case B): 2-way Zip with custom resultSelector projecting to PersonDeptJoined
-        var projectedResults = df1.AsQueryable<Person>()
+        var projectedQuery = df1.AsQueryable<Person>()
             .Zip(
                 df2.AsQueryable<Department>(),
                 (p, d) => new PersonDeptJoined(p.Id, p.Name, p.DeptId, d.DeptName)
             )
-            .OrderBy(p => p.Id)
-            .ToList();
+            .OrderBy(p => p.Id);
+
+        AssertPlan(projectedQuery, NativePushdown);
+        var projectedResults = projectedQuery.ToList();
 
         // 5. Assert (Case B): Projected DTO correctly maps fields without column collision exception
         Assert.Equal(3, projectedResults.Count);
@@ -2966,6 +3154,7 @@ public partial class LinqTests
         Assert.Equal(new PersonDeptJoined(2, "Bob", 20, "IT"), projectedResults[1]);
         Assert.Equal(new PersonDeptJoined(3, "Charlie", 30, "Finance"), projectedResults[2]);
     }
+
     [Fact]
     [Trait("LINQ", "ComplexEndToEnd")]
     public void Test_Linq_Complex_EndToEnd_Aggregation_Pipeline()
@@ -3028,8 +3217,10 @@ public partial class LinqTests
             // 2.4 Native Having pushdown: Only departments with MemberCount >= 2
             .Where(summary => summary.MemberCount >= 2L);
 
+        AssertPlan(activeDeptSummary, NativePushdown);
+
         // Pipeline B: Union with archive -> OrderBy -> Slicing -> .NET 9 Index()
-        var finalRankedResults = activeDeptSummary
+        var finalRankedQuery = activeDeptSummary
             // 2.5 Vertical Concat + Deduplication via Union
             .Union(archiveDf.AsQueryable<DeptPersonSummary>())
             // 2.6 Multi-column ordering: Sort by MemberCount descending, then DeptId ascending
@@ -3039,11 +3230,11 @@ public partial class LinqTests
             .Skip(0)
             .Take(2)
             // 2.8 Attach 0-based native rank using .NET 9 Index()
-            .Index()
-            .ToList();
-        // -------------------------------------------------------------
-        // 3. Assert: Verify end-to-end data integrity
-        // -------------------------------------------------------------
+            .Index();
+
+        AssertPlan(finalRankedQuery, NativePushdown);
+
+        var finalRankedResults = finalRankedQuery.ToList();
 
         // Filter: Id > 101 filters out Alice(101)
         // Group breakdown:
@@ -3076,8 +3267,9 @@ public partial class LinqTests
         Assert.Equal(301, rank1.Item.MinId);
         Assert.Equal(302, rank1.Item.MaxId);
     }
+
     [Fact]
-    [Trait("LINQ", "Expr_TernaryConditional")]
+    [Trait("LINQ", "Ternary")]
     public void Test_Linq_TernaryConditional_Pushdown()
     {
         using var df = DataFrame.FromColumns(
@@ -3090,9 +3282,12 @@ public partial class LinqTests
 
         // 1. Conditional in Where filter:
         // If IT, check Salary > 60000; otherwise check Salary >= 80000
-        var filtered = query
-            .Where(d => d.Department == "IT" ? d.Salary > 60000 : d.Salary >= 80000)
-            .ToList();
+        var filteredQuery = query
+            .Where(d => d.Department == "IT" ? d.Salary > 60000 : d.Salary >= 80000);
+
+        AssertPlan(filteredQuery, NativePushdown);
+
+        var filtered = filteredQuery.ToList();
 
         Assert.Equal(2, filtered.Count);
         Assert.Contains(filtered, d => d.Department == "IT" && d.Salary == 70000);
@@ -3100,18 +3295,22 @@ public partial class LinqTests
 
         // 2. Chained nested conditional with ToDataFrame()
         // Bonus calculation: IT gets 10000, HR gets 5000, others get 2000
-        var projected = query
+        var projectedQuery = query
             .Select(d => new
             {
                 d.Department,
                 Bonus = d.Department == "IT" ? 10000 : (d.Department == "HR" ? 5000 : 2000)
-            })
-            .ToDataFrame();
+            });
+
+        AssertPlan(projectedQuery, NativePushdown);
+
+        var projected = projectedQuery.ToDataFrame();
 
         // Verifies the Bonus column is generated entirely within Native Polars
         var bonusCol = projected["Bonus"].ToArray<int>();
         Assert.Equal([10000, 5000, 10000, 2000], bonusCol);
     }
+
     [Fact]
     [Trait("LINQ", "AnonymousType")]
     public void Test_Linq_AnonymousType_Sequence_Inference()
@@ -3131,17 +3330,20 @@ public partial class LinqTests
         var threshold = 18;
         var results = query.Where(e => e.Age >= threshold && e.Salary > 4000)
                            .OrderBy(e => e.Age)
-                           .Take(10)
-                           .ToList();
+                           .Take(10);
 
-        Assert.Equal(2, results.Count);
-        Assert.Equal("Alice", results[0].Name);
-        Assert.Equal(25, results[0].Age);
-        Assert.Equal(5000, results[0].Salary);
+        AssertPlan(results, NativePushdown);
 
-        Assert.Equal("Charlie", results[1].Name);
-        Assert.Equal(30, results[1].Age);
-        Assert.Equal(7000, results[1].Salary);
+        var finalResults = results.ToList();
+
+        Assert.Equal(2, finalResults.Count);
+        Assert.Equal("Alice", finalResults[0].Name);
+        Assert.Equal(25, finalResults[0].Age);
+        Assert.Equal(5000, finalResults[0].Salary);
+
+        Assert.Equal("Charlie", finalResults[1].Name);
+        Assert.Equal(30, finalResults[1].Age);
+        Assert.Equal(7000, finalResults[1].Salary);
     }
 
     [Fact]
@@ -3172,15 +3374,19 @@ public partial class LinqTests
         Assert.Equal(80000, highestEarner.Salary);
 
         // 3. Projection to a new anonymous shape
-        var summaries = query.Where(x => x.Bonus >= 4000)
+        var finalQuery = query.Where(x => x.Bonus >= 4000)
                              .Select(x => new { DepartmentName = x.Dept, TotalCompensation = x.Salary + x.Bonus })
-                             .OrderByDescending(x => x.TotalCompensation)
-                             .ToList();
+                             .OrderByDescending(x => x.TotalCompensation);
 
-        Assert.Equal(3, summaries.Count);
-        Assert.Equal("IT", summaries[0].DepartmentName);
-        Assert.Equal(87000, summaries[0].TotalCompensation);
+        AssertPlan(finalQuery, NativePushdown);
+
+        var finalResults = finalQuery.ToList();
+
+        Assert.Equal(3, finalResults.Count);
+        Assert.Equal("IT", finalResults[0].DepartmentName);
+        Assert.Equal(87000, finalResults[0].TotalCompensation);
     }
+
     [Fact]
     [Trait("LINQ", "Scalar_Count")]
     public void Test_CSharp_Linq_Scalar_Count_And_LongCount()
@@ -3308,6 +3514,7 @@ public partial class LinqTests
         Assert.Equal("DEFAULT_NAME", upperQuery.SingleOrDefault("DEFAULT_NAME"));
         Assert.Equal("DEFAULT_NAME", upperQuery.SingleOrDefault(name => name.StartsWith('Z'), "DEFAULT_NAME"));
     }
+
     [Fact]
     [Trait("LINQ", "Scalar_ElementAt_Index")]
     public void Test_CSharp_Linq_Scalar_ElementAt_And_Index()
@@ -3344,6 +3551,7 @@ public partial class LinqTests
         Assert.Equal("BOB", upperQuery.ElementAt(^2));
         Assert.Null(upperQuery.ElementAtOrDefault(^10));
     }
+
     [Fact]
     [Trait("LINQ", "Scalar_Contains")]
     public void Test_CSharp_Linq_Scalar_Contains_Flow()
@@ -3373,6 +3581,7 @@ public partial class LinqTests
         var emptyQuery = emptyDf.AsQueryable(emptyEmps);
         Assert.False(emptyQuery.Contains(alice));
     }
+
     [Fact]
     [Trait("LINQ", "Scalar_SequenceEqual")]
     public void Test_CSharp_Linq_Scalar_SequenceEqual_Flow()
@@ -3417,6 +3626,7 @@ public partial class LinqTests
         };
         Assert.False(q1.SequenceEqual(empsExtra));
     }
+
     [Fact]
     [Trait("LINQ", "Scalar_MinBy_MaxBy")]
     public void Test_CSharp_Linq_Scalar_MinBy_And_MaxBy_Flow()
@@ -3451,6 +3661,7 @@ public partial class LinqTests
         Assert.Null(emptyQuery.MinBy(e => e.Age));
         Assert.Null(emptyQuery.MaxBy(e => e.Age));
     }
+
     [Fact]
     [Trait("LINQ", "Scalar_Numeric_Aggregations")]
     public void Test_CSharp_Linq_Scalar_Numeric_Aggregations_Flow()
@@ -3510,17 +3721,20 @@ public partial class LinqTests
 
         // Tests: Trim(), ToLower(), Contains(), StartsWith(), Length
         var query = df.AsQueryable<OrderRecord>()
-                      .Where(o => o.CustomerName.Trim().ToLower().Contains("li", StringComparison.InvariantCultureIgnoreCase) || o.CustomerName.StartsWith("  A", StringComparison.Ordinal))
+                      .Where(o => o.CustomerName.Trim().ToLower().Contains("li", StringComparison.InvariantCultureIgnoreCase)
+                                 || o.CustomerName.StartsWith("  A", StringComparison.Ordinal))
                       .Select(o => new
                       {
                           CleanName = o.CustomerName.Trim().ToLower(),
                           Len = o.CustomerName.Length
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(2, query.Count);
-        Assert.Equal("alice smith", query[0].CleanName);
-        Assert.Equal("charlie", query[1].CleanName);
+        AssertPlan(query, NativePushdown);
+        var results = query.ToList();
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal("alice smith", results[0].CleanName);
+        Assert.Equal("charlie", results[1].CleanName);
     }
 
     [Fact]
@@ -3541,25 +3755,27 @@ public partial class LinqTests
                           o.OrderDate.DayOfWeek,
                           o.OrderDate.Hour,
                           Formatted = o.OrderDate.ToString("yyyy-MM-dd")
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(2, query.Count);
+        AssertPlan(query, NativePushdown);
+        var results = query.ToList();
 
-        Assert.Equal(1, query[0].Id);
-        Assert.Equal(2026, query[0].Year);
-        Assert.Equal(1, query[0].Month);
-        Assert.Equal(15, query[0].Day);
-        Assert.Equal(DayOfWeek.Thursday, query[0].DayOfWeek);
-        Assert.Equal(10, query[0].Hour);
-        Assert.Equal("2026-01-15", query[0].Formatted);
+        Assert.Equal(2, results.Count);
 
-        Assert.Equal(3, query[1].Id);
-        Assert.Equal(2026, query[1].Year);
-        Assert.Equal(8, query[1].Month);
-        Assert.Equal(5, query[1].Day);
-        Assert.Equal(DayOfWeek.Wednesday, query[1].DayOfWeek);
-        Assert.Equal("2026-08-05", query[1].Formatted);
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal(2026, results[0].Year);
+        Assert.Equal(1, results[0].Month);
+        Assert.Equal(15, results[0].Day);
+        Assert.Equal(DayOfWeek.Thursday, results[0].DayOfWeek);
+        Assert.Equal(10, results[0].Hour);
+        Assert.Equal("2026-01-15", results[0].Formatted);
+
+        Assert.Equal(3, results[1].Id);
+        Assert.Equal(2026, results[1].Year);
+        Assert.Equal(8, results[1].Month);
+        Assert.Equal(5, results[1].Day);
+        Assert.Equal(DayOfWeek.Wednesday, results[1].DayOfWeek);
+        Assert.Equal("2026-08-05", results[1].Formatted);
     }
 
     [Fact]
@@ -3577,17 +3793,21 @@ public partial class LinqTests
         ]);
 
         // 1. Test Sunday projection (0 vs 7 mapping)
-        var projected = df.AsQueryable<CalendarRecord>()
-                          .Select(c => new { c.Id, c.Date.DayOfWeek })
-                          .ToList();
+        var projectedQuery = df.AsQueryable<CalendarRecord>()
+                          .Select(c => new { c.Id, c.Date.DayOfWeek });
+
+        AssertPlan(projectedQuery, NativePushdown);
+        var projected = projectedQuery.ToList();
 
         Assert.Equal(DayOfWeek.Sunday, projected[0].DayOfWeek);
         Assert.Equal(DayOfWeek.Monday, projected[1].DayOfWeek);
 
         // 2. Test Sunday predicate pushdown (c.Date.DayOfWeek == DayOfWeek.Sunday)
-        var sundayOnly = df.AsQueryable<CalendarRecord>()
-                           .Where(c => c.Date.DayOfWeek == DayOfWeek.Sunday)
-                           .ToList();
+        var sundayOnlyQuery = df.AsQueryable<CalendarRecord>()
+                           .Where(c => c.Date.DayOfWeek == DayOfWeek.Sunday);
+
+        AssertPlan(sundayOnlyQuery, NativePushdown);
+        var sundayOnly = sundayOnlyQuery.ToList();
 
         Assert.Single(sundayOnly);
         Assert.Equal(10, sundayOnly[0].Id);
@@ -3620,25 +3840,30 @@ public partial class LinqTests
                               UpdatedYear = r.UpdatedAt.Year,
                               CreatedMonth = r.CreatedAt.Month,
                               UpdatedMonth = r.UpdatedAt.Month
-                          })
-                          .ToList();
+                          });
 
-        Assert.Equal(2, anonQuery.Count);
-        Assert.Equal(2026, anonQuery[0].CreatedYear);
-        Assert.Equal(2026, anonQuery[0].UpdatedYear);
-        Assert.Equal(1, anonQuery[0].CreatedMonth);
-        Assert.Equal(6, anonQuery[0].UpdatedMonth);
+        AssertPlan(anonQuery, NativePushdown);
+        var anonQueryResults = anonQuery.ToList();
+
+        Assert.Equal(2, anonQueryResults.Count);
+        Assert.Equal(2026, anonQueryResults[0].CreatedYear);
+        Assert.Equal(2026, anonQueryResults[0].UpdatedYear);
+        Assert.Equal(1, anonQueryResults[0].CreatedMonth);
+        Assert.Equal(6, anonQueryResults[0].UpdatedMonth);
 
         // =========================================================================
         // Scenario 2: Multiple DateTime columns combined in Where predicate
         // =========================================================================
         var whereQuery = df.AsQueryable<MultiDateRecord>()
-                           .Where(r => r.CreatedAt.Year == 2026 && r.UpdatedAt.Month == 6)
-                           .ToList();
+                           .Where(r => r.CreatedAt.Year == 2026 && r.UpdatedAt.Month == 6);
 
-        Assert.Single(whereQuery);
-        Assert.Equal(1, whereQuery[0].Id);
+        AssertPlan(whereQuery, NativePushdown);
+        var whereResults = whereQuery.ToList();
+
+        Assert.Single(whereResults);
+        Assert.Equal(1, whereResults[0].Id);
     }
+
     [Fact]
     [Trait("LINQ", "MathVectorized")]
     public void Test_Linq_Math_Vectorized_Ops()
@@ -3655,24 +3880,26 @@ public partial class LinqTests
                           Rounded = Math.Round(o.Amount, 1, MidpointRounding.ToEven),
                           CeilVal = Math.Ceiling(o.Amount),
                           MaxVal = Math.Max(o.Amount, 100.0)
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(2, query.Count);
+        AssertPlan(query, NativePushdown);
+        var queryResults = query.ToList();
+
+        Assert.Equal(2, queryResults.Count);
 
         // Record 1: 120.55
-        Assert.Equal(1, query[0].Id);
-        Assert.Equal(120.55, query[0].AbsAmount);
-        Assert.Equal(120.6, query[0].Rounded);
-        Assert.Equal(121.0, query[0].CeilVal);
-        Assert.Equal(120.55, query[0].MaxVal);
+        Assert.Equal(1, queryResults[0].Id);
+        Assert.Equal(120.55, queryResults[0].AbsAmount);
+        Assert.Equal(120.6, queryResults[0].Rounded);
+        Assert.Equal(121.0, queryResults[0].CeilVal);
+        Assert.Equal(120.55, queryResults[0].MaxVal);
 
         // Record 3: 999.4
-        Assert.Equal(3, query[1].Id);
-        Assert.Equal(999.4, query[1].AbsAmount);
-        Assert.Equal(999.4, query[1].Rounded);
-        Assert.Equal(1000.0, query[1].CeilVal);
-        Assert.Equal(999.4, query[1].MaxVal);
+        Assert.Equal(3, queryResults[1].Id);
+        Assert.Equal(999.4, queryResults[1].AbsAmount);
+        Assert.Equal(999.4, queryResults[1].Rounded);
+        Assert.Equal(1000.0, queryResults[1].CeilVal);
+        Assert.Equal(999.4, queryResults[1].MaxVal);
     }
 
     [Fact]
@@ -3682,7 +3909,7 @@ public partial class LinqTests
         using var df = CreateSampleOrdersDf();
 
         // Complex combined filter + projection without hitting fallback
-        var result = df.AsQueryable<OrderRecord>()
+        var query = df.AsQueryable<OrderRecord>()
                        .Where(o => o.OrderDate.Year >= 2025 &&
                                    Math.Abs(o.Amount) > 30.0 &&
                                    !string.IsNullOrEmpty(o.CustomerName))
@@ -3692,17 +3919,20 @@ public partial class LinqTests
                            SubName = o.CustomerName.Trim().Substring(0, 3),
                            o.OrderDate.Year,
                            SqrtAmount = Math.Sqrt(Math.Abs(o.Amount))
-                       })
-                       .ToList();
+                       });
 
-        Assert.Equal(3, result.Count);
-        Assert.Equal("ALICE SMITH", result[0].UpperName);
-        Assert.Equal("Ali", result[0].SubName);
-        Assert.Equal("BOB_JONES", result[1].UpperName);
-        Assert.Equal("bob", result[1].SubName);
-        Assert.Equal("CHARLIE", result[2].UpperName);
-        Assert.Equal("CHA", result[2].SubName);
+        AssertPlan(query, NativePushdown);
+        var queryResults = query.ToList();
+
+        Assert.Equal(3, queryResults.Count);
+        Assert.Equal("ALICE SMITH", queryResults[0].UpperName);
+        Assert.Equal("Ali", queryResults[0].SubName);
+        Assert.Equal("BOB_JONES", queryResults[1].UpperName);
+        Assert.Equal("bob", queryResults[1].SubName);
+        Assert.Equal("CHARLIE", queryResults[2].UpperName);
+        Assert.Equal("CHA", queryResults[2].SubName);
     }
+
     [Fact]
     [Trait("LINQ", "String_Interpolation")]
     public void Test_Linq_String_Concat_And_Interpolation_Pushdown()
@@ -3717,30 +3947,34 @@ public partial class LinqTests
         var query = df.AsQueryable(emps);
 
         // 1. String Concatenation (+) in Projection
-        var concatPlus = query
-            .Select(e => e.Name + " is " + e.Age + " years old")
-            .ToList();
+        var concatPlusQuery = query
+            .Select(e => e.Name + " is " + e.Age + " years old");
+        AssertPlan(concatPlusQuery, NativePushdown);
+        var concatPlus = concatPlusQuery.ToList();
         Assert.Equal("Alice is 25 years old", concatPlus[0]);
         Assert.Equal("Bob is 30 years old", concatPlus[1]);
 
         // 2. string.Concat in Projection
-        var concatMethod = query
-            .Select(e => string.Concat(e.Name, "-", e.Age))
-            .ToList();
+        var concatMethodQuery = query
+            .Select(e => string.Concat(e.Name, "-", e.Age));
+        AssertPlan(concatMethodQuery, NativePushdown);
+        var concatMethod = concatMethodQuery.ToList();
         Assert.Equal("Alice-25", concatMethod[0]);
         Assert.Equal("Bob-30", concatMethod[1]);
 
         // 3. String Interpolation ($"{...}") in Projection
-        var interpolated = query
-            .Select(e => $"{e.Name}: ${e.Salary}")
-            .ToList();
+        var interpolatedQuery = query
+            .Select(e => $"{e.Name}: ${e.Salary}");
+        AssertPlan(interpolatedQuery, NativePushdown);
+        var interpolated = interpolatedQuery.ToList();
         Assert.Equal("Alice: $50000", interpolated[0]);
         Assert.Equal("Bob: $60000", interpolated[1]);
 
         // 4. String Interpolation in Where Filter
-        var filtered = query
-            .Where(e => $"{e.Name}_{e.Age}" == "Alice_25")
-            .ToList();
+        var filteredQuery = query
+            .Where(e => $"{e.Name}_{e.Age}" == "Alice_25");
+        AssertPlan(filteredQuery, NativePushdown);
+        var filtered = filteredQuery.ToList();
         Assert.Single(filtered);
         Assert.Equal("Alice", filtered[0].Name);
 
@@ -3784,54 +4018,63 @@ public partial class LinqTests
         // Scenario 1: Standard regex -> Validated -> Natively pushed down to Rust StrContains
         var validEmailPattern = @"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$";
         var nativeQuery = df.AsQueryable<UserInfo>()
-                            .Where(u => Regex.IsMatch(u.Email, validEmailPattern))
-                            .ToList();
+                            .Where(u => Regex.IsMatch(u.Email, validEmailPattern));
 
-        Assert.Equal(2, nativeQuery.Count);
-        Assert.Equal("alice@example.com", nativeQuery[0].Email);
-        Assert.Equal("charlie@polars.net", nativeQuery[1].Email);
+        AssertPlan(nativeQuery, NativePushdown);
+        var nativeQueryResults = nativeQuery.ToList();
+
+        Assert.Equal(2, nativeQueryResults.Count);
+        Assert.Equal("alice@example.com", nativeQueryResults[0].Email);
+        Assert.Equal("charlie@polars.net", nativeQueryResults[1].Email);
 
         // Scenario 2: Static Regex.IsMatch with RegexOptions.IgnoreCase -> Pushed down natively via inline (?i:...)
         var staticOptionsQuery = df.AsQueryable<UserInfo>()
-                                   .Where(u => Regex.IsMatch(u.Email, @"^ALICE", RegexOptions.IgnoreCase))
-                                   .ToList();
+                                   .Where(u => Regex.IsMatch(u.Email, @"^ALICE", RegexOptions.IgnoreCase));
 
-        Assert.Single(staticOptionsQuery);
-        Assert.Equal("alice@example.com", staticOptionsQuery[0].Email);
+        AssertPlan(staticOptionsQuery, NativePushdown);
+        var staticOptionsQueryResults = staticOptionsQuery.ToList();
+
+        Assert.Single(staticOptionsQueryResults);
+        Assert.Equal("alice@example.com", staticOptionsQueryResults[0].Email);
 
         // Scenario 3: SG Regex with RegexOptions.IgnoreCase -> Pushed down natively via inline (?i:...)
         var sgOptionsQuery = df.AsQueryable<UserInfo>()
-                               .Where(u => AlicePrefixRegex().IsMatch(u.Email))
-                               .ToList();
+                               .Where(u => AlicePrefixRegex().IsMatch(u.Email));
 
-        Assert.Single(sgOptionsQuery);
-        Assert.Equal("alice@example.com", sgOptionsQuery[0].Email);
+        AssertPlan(sgOptionsQuery, NativePushdown);
+        var sgOptionsQueryResults = sgOptionsQuery.ToList();
+
+        Assert.Single(sgOptionsQueryResults);
+        Assert.Equal("alice@example.com", sgOptionsQueryResults[0].Email);
 
         // Scenario 4: Match(..).Success property chaining -> Canonicalized to IsMatch pushdown
         var matchSuccessQuery = df.AsQueryable<UserInfo>()
-                                  .Where(u => Regex.Match(u.Email, validEmailPattern).Success)
-                                  .ToList();
+                                  .Where(u => Regex.Match(u.Email, validEmailPattern).Success);
+        AssertPlan(matchSuccessQuery, NativePushdown);
+        var matchSuccessQueryResults = matchSuccessQuery.ToList();
 
-        Assert.Equal(2, matchSuccessQuery.Count);
-        Assert.Equal("alice@example.com", matchSuccessQuery[0].Email);
+        Assert.Equal(2, matchSuccessQueryResults.Count);
+        Assert.Equal("alice@example.com", matchSuccessQueryResults[0].Email);
 
         // Scenario 5: SG Regex with Lookaround -> Rejected by Rust -> Pushed down to MapStringPredicate UDF
         var udfQuery = df.AsQueryable<UserInfo>()
-                         .Where(u => StrongPasswordRegex().IsMatch(u.Password))
-                         .ToList();
+                         .Where(u => StrongPasswordRegex().IsMatch(u.Password));
+        AssertPlan(udfQuery, NativePushdown);
+        var udfQueryResults = udfQuery.ToList();
 
-        Assert.Equal(2, udfQuery.Count);
-        Assert.Equal("P@ssw0rd1", udfQuery[0].Password);
-        Assert.Equal("Admin2026", udfQuery[1].Password);
+        Assert.Equal(2, udfQueryResults.Count);
+        Assert.Equal("P@ssw0rd1", udfQueryResults[0].Password);
+        Assert.Equal("Admin2026", udfQueryResults[1].Password);
 
         // Scenario 6: Mixed Where conditions (Native + UDF combined)
         var combinedQuery = df.AsQueryable<UserInfo>()
-                              .Where(u => Regex.IsMatch(u.Email, validEmailPattern) && StrongPasswordRegex().IsMatch(u.Password))
-                              .ToList();
+                              .Where(u => Regex.IsMatch(u.Email, validEmailPattern) && StrongPasswordRegex().IsMatch(u.Password));
+        AssertPlan(combinedQuery, NativePushdown);
+        var combinedQueryResults = combinedQuery.ToList();
 
-        Assert.Equal(2, combinedQuery.Count);
-        Assert.Equal("alice@example.com", combinedQuery[0].Email);
-        Assert.Equal("Admin2026", combinedQuery[1].Password);
+        Assert.Equal(2, combinedQueryResults.Count);
+        Assert.Equal("alice@example.com", combinedQueryResults[0].Email);
+        Assert.Equal("Admin2026", combinedQueryResults[1].Password);
     }
 
     [Fact]
@@ -3854,22 +4097,24 @@ public partial class LinqTests
                           DoubledMessage = Regex.Replace(e.Message, @"\d+", doubleNumbers),
                           // 2. Static Regex.Replace with MatchEvaluator + RegexOptions.IgnoreCase
                           NormalizedScore = Regex.Replace(e.Message, @"score", uppercaseWord, RegexOptions.IgnoreCase)
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(3, query.Count);
+        AssertPlan(query, NativePushdown);
+        var queryResults = query.ToList();
+
+        Assert.Equal(3, queryResults.Count);
 
         // Record 1
-        Assert.Equal("Item 20 costs 40", query[0].DoubledMessage);
-        Assert.Equal("Item 10 costs 20", query[0].NormalizedScore);
+        Assert.Equal("Item 20 costs 40", queryResults[0].DoubledMessage);
+        Assert.Equal("Item 10 costs 20", queryResults[0].NormalizedScore);
 
         // Record 2: "Score" matches "score" due to RegexOptions.IgnoreCase
-        Assert.Equal("Score 10 bonus 200", query[1].DoubledMessage);
-        Assert.Equal("SCORE 5 bonus 100", query[1].NormalizedScore);
+        Assert.Equal("Score 10 bonus 200", queryResults[1].DoubledMessage);
+        Assert.Equal("SCORE 5 bonus 100", queryResults[1].NormalizedScore);
 
         // Record 3
-        Assert.Equal("Zero 0 none", query[2].DoubledMessage);
-        Assert.Equal("Zero 0 none", query[3 - 1].NormalizedScore);
+        Assert.Equal("Zero 0 none", queryResults[2].DoubledMessage);
+        Assert.Equal("Zero 0 none", queryResults[2].NormalizedScore);
     }
 
     [Fact]
@@ -3890,12 +4135,13 @@ public partial class LinqTests
                           e.Id,
                           // SG Regex with MatchEvaluator and RegexOptions.IgnoreCase (matches both [info] and [CRITICAL])
                           NormalizedMessage = CaseInsensitiveTagRegex().Replace(e.Message, lowercaseTag)
-                      })
-                      .ToList();
+                      });
+        AssertPlan(query, NativePushdown);
+        var queryResults = query.ToList();
 
-        Assert.Equal(2, query.Count);
-        Assert.Equal("Status: [info] at server", query[0].NormalizedMessage);
-        Assert.Equal("Error: [critical] failure", query[1].NormalizedMessage);
+        Assert.Equal(2, queryResults.Count);
+        Assert.Equal("Status: [info] at server", queryResults[0].NormalizedMessage);
+        Assert.Equal("Error: [critical] failure", queryResults[1].NormalizedMessage);
     }
     // Case-insensitive SG Regex with named groups: (?<severity>...) and (?<code>...)
     [GeneratedRegex(@"\[(?<severity>info|warn|error):(?<code>\d+)\]", RegexOptions.IgnoreCase)]
@@ -3940,37 +4186,40 @@ public partial class LinqTests
                           NamedSeverity = CaseInsensitiveLogHeaderRegex().Match(e.Message).Groups["severity"].Value,
                           // 5. Lookahead SG Regex -> Fallback to MapStringTransform UDF
                           Latency = LatencyLookaheadRegex().Match(e.Message).Value
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(3, query.Count);
+        AssertPlan(query, NativePushdown);
+        var queryResults = query.ToList();
+
+        Assert.Equal(3, queryResults.Count);
 
         // Record 1: Normal processing
-        Assert.Equal(1, query[0].Id);
-        Assert.Equal("[INFO:200]", query[0].FullTag);
-        Assert.Equal("INFO", query[0].Severity);
-        Assert.Equal("200", query[0].StatusCode);
-        Assert.Equal("INFO", query[0].NamedSeverity);
-        Assert.Equal("45", query[0].Latency);
+        Assert.Equal(1, queryResults[0].Id);
+        Assert.Equal("[INFO:200]", queryResults[0].FullTag);
+        Assert.Equal("INFO", queryResults[0].Severity);
+        Assert.Equal("200", queryResults[0].StatusCode);
+        Assert.Equal("INFO", queryResults[0].NamedSeverity);
+        Assert.Equal("45", queryResults[0].Latency);
 
         // Record 2: Error log
-        Assert.Equal(2, query[1].Id);
-        Assert.Equal("[ERROR:500]", query[1].FullTag);
-        Assert.Equal("ERROR", query[1].Severity);
-        Assert.Equal("500", query[1].StatusCode);
-        Assert.Equal("ERROR", query[1].NamedSeverity);
-        Assert.Equal("1200", query[1].Latency);
+        Assert.Equal(2, queryResults[1].Id);
+        Assert.Equal("[ERROR:500]", queryResults[1].FullTag);
+        Assert.Equal("ERROR", queryResults[1].Severity);
+        Assert.Equal("500", queryResults[1].StatusCode);
+        Assert.Equal("ERROR", queryResults[1].NamedSeverity);
+        Assert.Equal("1200", queryResults[1].Latency);
 
         // Record 3: No match -> All coalesced to string.Empty
-        Assert.Equal(3, query[2].Id);
-        Assert.Equal(string.Empty, query[2].FullTag);
-        Assert.Equal(string.Empty, query[2].Severity);
-        Assert.Equal(string.Empty, query[2].StatusCode);
-        Assert.Equal(string.Empty, query[2].NamedSeverity);
-        Assert.Equal(string.Empty, query[2].Latency);
+        Assert.Equal(3, queryResults[2].Id);
+        Assert.Equal(string.Empty, queryResults[2].FullTag);
+        Assert.Equal(string.Empty, queryResults[2].Severity);
+        Assert.Equal(string.Empty, queryResults[2].StatusCode);
+        Assert.Equal(string.Empty, queryResults[2].NamedSeverity);
+        Assert.Equal(string.Empty, queryResults[2].Latency);
     }
+
     [Fact]
-    [Trait("LINQ", "RegexMatches")]
+    [Trait("LINQ", "RegexMatch")]
     public void Test_Linq_Regex_Matches_Count_And_Extraction_Using_LogEntry()
     {
         using var df = DataFrame.FromColumns([
@@ -3996,34 +4245,36 @@ public partial class LinqTests
                           CaseInsensitiveMsCount = CaseInsensitiveMsRegex().Count(e.Message),
                           // 5. Lookahead SG Regex Matches(s).Count -> UDF Fallback (Int32 Array)
                           LookaheadCount = LookaheadMsRegex().Count(e.Message)
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(3, query.Count);
+        AssertPlan(query, NativePushdown);
+        var queryResults = query.ToList();
+
+        Assert.Equal(3, queryResults.Count);
 
         // Record 1: 3 numbers, 3 hardware headers, 0 "ms"
-        Assert.Equal(1, query[0].Id);
-        Assert.Equal(3, query[0].DigitCount);
-        Assert.Equal(3, query[0].HardwareHeaderCount);
-        Assert.Equal(3, query[0].HardwareMatchesCount);
-        Assert.Equal(0, query[0].CaseInsensitiveMsCount);
-        Assert.Equal(0, query[0].LookaheadCount);
+        Assert.Equal(1, queryResults[0].Id);
+        Assert.Equal(3, queryResults[0].DigitCount);
+        Assert.Equal(3, queryResults[0].HardwareHeaderCount);
+        Assert.Equal(3, queryResults[0].HardwareMatchesCount);
+        Assert.Equal(0, queryResults[0].CaseInsensitiveMsCount);
+        Assert.Equal(0, queryResults[0].LookaheadCount);
 
         // Record 2: 2 numbers, 0 hardware headers, 2 "ms"
-        Assert.Equal(2, query[1].Id);
-        Assert.Equal(2, query[1].DigitCount);
-        Assert.Equal(0, query[1].HardwareHeaderCount);
-        Assert.Equal(0, query[1].HardwareMatchesCount);
-        Assert.Equal(2, query[1].CaseInsensitiveMsCount);
-        Assert.Equal(2, query[1].LookaheadCount);
+        Assert.Equal(2, queryResults[1].Id);
+        Assert.Equal(2, queryResults[1].DigitCount);
+        Assert.Equal(0, queryResults[1].HardwareHeaderCount);
+        Assert.Equal(0, queryResults[1].HardwareMatchesCount);
+        Assert.Equal(2, queryResults[1].CaseInsensitiveMsCount);
+        Assert.Equal(2, queryResults[1].LookaheadCount);
 
         // Record 3: No matches
-        Assert.Equal(3, query[2].Id);
-        Assert.Equal(0, query[2].DigitCount);
-        Assert.Equal(0, query[2].HardwareHeaderCount);
-        Assert.Equal(0, query[2].HardwareMatchesCount);
-        Assert.Equal(0, query[2].CaseInsensitiveMsCount);
-        Assert.Equal(0, query[2].LookaheadCount);
+        Assert.Equal(3, queryResults[2].Id);
+        Assert.Equal(0, queryResults[2].DigitCount);
+        Assert.Equal(0, queryResults[2].HardwareHeaderCount);
+        Assert.Equal(0, queryResults[2].HardwareMatchesCount);
+        Assert.Equal(0, queryResults[2].CaseInsensitiveMsCount);
+        Assert.Equal(0, queryResults[2].LookaheadCount);
     }
     [Fact]
     [Trait("LINQ", "RegexMatchesToList")]
@@ -4061,31 +4312,33 @@ public partial class LinqTests
                           LookaheadLatencies = LookaheadMsRegex().Matches(e.Message)
                                                                          .Select(m => m.Value)
                                                                          .ToList()
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(3, query.Count);
+        AssertPlan(query, NativePushdown);
+        var queryResults = query.ToList();
+
+        Assert.Equal(3, queryResults.Count);
 
         // Record 1
-        Assert.Equal(1, query[0].Id);
-        Assert.Equal(["Server", "alpha", "port", "latency", "ms"], query[0].StaticTokens);
-        Assert.Equal(["Server"], query[0].KeywordTokens);
-        Assert.Equal(["alpha"], query[0].EnvTokens);
-        Assert.Equal(["12"], query[0].LookaheadLatencies);
+        Assert.Equal(1, queryResults[0].Id);
+        Assert.Equal(["Server", "alpha", "port", "latency", "ms"], queryResults[0].StaticTokens);
+        Assert.Equal(["Server"], queryResults[0].KeywordTokens);
+        Assert.Equal(["alpha"], queryResults[0].EnvTokens);
+        Assert.Equal(["12"], queryResults[0].LookaheadLatencies);
 
         // Record 2
-        Assert.Equal(2, query[1].Id);
-        Assert.Equal(["Backup", "beta", "delay", "ms", "and", "ms"], query[1].StaticTokens);
-        Assert.Equal(["Backup"], query[1].KeywordTokens);
-        Assert.Equal(["beta"], query[1].EnvTokens);
-        Assert.Equal(["250", "300"], query[1].LookaheadLatencies);
+        Assert.Equal(2, queryResults[1].Id);
+        Assert.Equal(["Backup", "beta", "delay", "ms", "and", "ms"], queryResults[1].StaticTokens);
+        Assert.Equal(["Backup"], queryResults[1].KeywordTokens);
+        Assert.Equal(["beta"], queryResults[1].EnvTokens);
+        Assert.Equal(["250", "300"], queryResults[1].LookaheadLatencies);
 
         // Record 3
-        Assert.Equal(3, query[2].Id);
-        Assert.Equal(["Idle"], query[2].StaticTokens);
-        Assert.Equal(["Idle"], query[2].KeywordTokens);
-        Assert.Empty(query[2].EnvTokens);
-        Assert.Empty(query[2].LookaheadLatencies);
+        Assert.Equal(3, queryResults[2].Id);
+        Assert.Equal(["Idle"], queryResults[2].StaticTokens);
+        Assert.Equal(["Idle"], queryResults[2].KeywordTokens);
+        Assert.Empty(queryResults[2].EnvTokens);
+        Assert.Empty(queryResults[2].LookaheadLatencies);
     }
     // Standard Delimiter SG Regex
     [GeneratedRegex(@"[\s,;]+")]
@@ -4137,35 +4390,37 @@ public partial class LinqTests
 
                           // 6. Lookbehind + IgnoreCase SG Regex -> Arrow LargeList UDF Fallback with preserved options
                           UdfTokensWithEnum = CaseInsensitiveLookbehindRegex().Split(e.Message)
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(3, query.Count);
+        AssertPlan(query, NativePushdown);
+        var queryResults = query.ToList();
+
+        Assert.Equal(3, queryResults.Count);
 
         // =========================================================================
         // Record 1: Delimiter split
         // =========================================================================
-        Assert.Equal(1, query[0].Id);
-        Assert.Equal(["apple", "banana", "orange", "grape"], query[0].StaticWords);
-        Assert.Equal(["apple,banana;orange grape"], query[0].StaticWordsIgnoreCase);
-        Assert.Equal(["apple", "banana", "orange", "grape"], query[0].SgWords);
+        Assert.Equal(1, queryResults[0].Id);
+        Assert.Equal(["apple", "banana", "orange", "grape"], queryResults[0].StaticWords);
+        Assert.Equal(["apple,banana;orange grape"], queryResults[0].StaticWordsIgnoreCase);
+        Assert.Equal(["apple", "banana", "orange", "grape"], queryResults[0].SgWords);
 
         // =========================================================================
         // Record 2: CamelCase split via UDF Fallback
         // =========================================================================
-        Assert.Equal(2, query[1].Id);
+        Assert.Equal(2, queryResults[1].Id);
         // Note: Regex.Split("SplitCamelCaseText", @"(?=[A-Z])") may yield an empty leading token before the first capital letter
-        var cleanedTokens = query[1].Tokens.Where(s => !string.IsNullOrEmpty(s)).ToList();
+        var cleanedTokens = queryResults[1].Tokens.Where(s => !string.IsNullOrEmpty(s)).ToList();
         Assert.Equal(["Split", "Camel", "Case", "Text"], cleanedTokens);
 
         // =========================================================================
         // Record 3: Case-insensitive Split with Enum Overloads (Native & UDF)
         // =========================================================================
-        Assert.Equal(3, query[2].Id);
+        Assert.Equal(3, queryResults[2].Id);
         // Both "SPLIT" and "Split" should be matched and split across the string
-        Assert.Equal(["apple", "banana", "Orange"], query[2].StaticWordsIgnoreCase);
-        Assert.Equal(["apple", "banana", "Orange"], query[2].SgWordsIgnoreCase);
-        Assert.Equal(["apple", "banana", "Orange"], query[2].UdfTokensWithEnum);
+        Assert.Equal(["apple", "banana", "Orange"], queryResults[2].StaticWordsIgnoreCase);
+        Assert.Equal(["apple", "banana", "Orange"], queryResults[2].SgWordsIgnoreCase);
+        Assert.Equal(["apple", "banana", "Orange"], queryResults[2].UdfTokensWithEnum);
     }
 
     [Fact]
@@ -4184,15 +4439,17 @@ public partial class LinqTests
         ]);
 
         // 1. Test Where with List.Contains
-        var adminUsers = df.AsQueryable<PersonWithTags>()
-                           .Where(p => p.Tags.Contains("admin"))
-                           .ToList();
+        var adminUsersQuery = df.AsQueryable<PersonWithTags>()
+                           .Where(p => p.Tags.Contains("admin"));
+
+        AssertPlan(adminUsersQuery, NativePushdown);
+        var adminUsers = adminUsersQuery.ToList();
 
         Assert.Single(adminUsers);
         Assert.Equal("Alice", adminUsers[0].Name);
 
         // 2. Test Select with Length, First, Last, Indexer
-        var projected = df.AsQueryable<PersonWithTags>()
+        var projectedQuery = df.AsQueryable<PersonWithTags>()
                           .Select(p => new
                           {
                               p.Id,
@@ -4200,8 +4457,10 @@ public partial class LinqTests
                               FirstTag = p.Tags.First(),
                               LastTag = p.Tags.Last(),
                               SecondTag = p.Tags[1]
-                          })
-                          .ToList();
+                          });
+
+        AssertPlan(projectedQuery, NativePushdown);
+        var projected = projectedQuery.ToList();
 
         Assert.Equal(3, projected.Count);
 
@@ -4223,6 +4482,7 @@ public partial class LinqTests
         Assert.Equal("tester", projected[2].LastTag);
         Assert.Equal("tester", projected[2].SecondTag);
     }
+
     [Fact]
     [Trait("LINQ", "ListJoin")]
     public void Test_Linq_List_Join_Pushdown_Using_PersonWithTags()
@@ -4244,23 +4504,27 @@ public partial class LinqTests
                           p.Id,
                           JoinedTags = string.Join(";", p.Tags),
                           CommaTags = string.Join(", ", p.Tags)
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(3, query.Count);
+        AssertPlan(query, NativePushdown);
+
+        var queryResults = query.ToList();
+
+        Assert.Equal(3, queryResults.Count);
 
         // Record 1
-        Assert.Equal("admin;dev;ops", query[0].JoinedTags);
-        Assert.Equal("admin, dev, ops", query[0].CommaTags);
+        Assert.Equal("admin;dev;ops", queryResults[0].JoinedTags);
+        Assert.Equal("admin, dev, ops", queryResults[0].CommaTags);
 
         // Record 2
-        Assert.Equal("guest", query[1].JoinedTags);
-        Assert.Equal("guest", query[1].CommaTags);
+        Assert.Equal("guest", queryResults[1].JoinedTags);
+        Assert.Equal("guest", queryResults[1].CommaTags);
 
         // Record 3
-        Assert.Equal("dev;tester", query[2].JoinedTags);
-        Assert.Equal("dev, tester", query[2].CommaTags);
+        Assert.Equal("dev;tester", queryResults[2].JoinedTags);
+        Assert.Equal("dev, tester", queryResults[2].CommaTags);
     }
+
     [Fact]
     [Trait("LINQ", "ListTransformations")]
     public void Test_Linq_List_Transformations_Pushdown_Using_PersonWithTags()
@@ -4287,23 +4551,27 @@ public partial class LinqTests
                           UniqueTags = p.Tags.Distinct(),
                           // 4. Reverse() -> ListReverse
                           ReversedTags = p.Tags.Reverse()
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(2, query.Count);
+        AssertPlan(query, NativePushdown);
+
+        var queryResults = query.ToList();
+
+        Assert.Equal(2, queryResults.Count);
 
         // Record 1: ["dev", "ops", "dev", "qa"]
-        Assert.Equal(["dev", "ops"], query[0].TopTags);
-        Assert.Equal(["ops", "dev", "qa"], query[0].SkippedTags);
-        Assert.Equal(["dev", "ops", "qa"], query[0].UniqueTags);
-        Assert.Equal(["qa", "dev", "ops", "dev"], query[0].ReversedTags);
+        Assert.Equal(["dev", "ops"], queryResults[0].TopTags);
+        Assert.Equal(["ops", "dev", "qa"], queryResults[0].SkippedTags);
+        Assert.Equal(["dev", "ops", "qa"], queryResults[0].UniqueTags);
+        Assert.Equal(["qa", "dev", "ops", "dev"], queryResults[0].ReversedTags);
 
         // Record 2: ["a", "b", "c"]
-        Assert.Equal(["a", "b"], query[1].TopTags);
-        Assert.Equal(["b", "c"], query[1].SkippedTags);
-        Assert.Equal(["a", "b", "c"], query[1].UniqueTags);
-        Assert.Equal(["c", "b", "a"], query[1].ReversedTags);
+        Assert.Equal(["a", "b"], queryResults[1].TopTags);
+        Assert.Equal(["b", "c"], queryResults[1].SkippedTags);
+        Assert.Equal(["a", "b", "c"], queryResults[1].UniqueTags);
+        Assert.Equal(["c", "b", "a"], queryResults[1].ReversedTags);
     }
+
     [Fact]
     [Trait("LINQ", "ListEvalTransformations")]
     public void Test_Linq_List_Distinct_And_Reverse_Using_PersonWithTags()
@@ -4326,25 +4594,28 @@ public partial class LinqTests
                           UniqueTags = p.Tags.Distinct(),
                           // Reverse() -> list().eval(col("").reverse())
                           ReversedTags = p.Tags.Reverse()
-                      })
-                      .ToList();
+                      });
+        AssertPlan(query, NativePushdown);
 
-        Assert.Equal(2, query.Count);
+        var queryResults = query.ToList();
+
+        Assert.Equal(2, queryResults.Count);
 
         // Record 1: ["dev", "ops", "dev", "qa"]
-        Assert.Equal(1, query[0].Id);
+        Assert.Equal(1, queryResults[0].Id);
         // Note: Polars unique maintains original encounter order or set uniqueness
-        Assert.Equal(3, query[0].UniqueTags.Count());
-        Assert.Contains("dev", query[0].UniqueTags);
-        Assert.Contains("ops", query[0].UniqueTags);
-        Assert.Contains("qa", query[0].UniqueTags);
-        Assert.Equal(["qa", "dev", "ops", "dev"], query[0].ReversedTags);
+        Assert.Equal(3, queryResults[0].UniqueTags.Count());
+        Assert.Contains("dev", queryResults[0].UniqueTags);
+        Assert.Contains("ops", queryResults[0].UniqueTags);
+        Assert.Contains("qa", queryResults[0].UniqueTags);
+        Assert.Equal(["qa", "dev", "ops", "dev"], queryResults[0].ReversedTags);
 
         // Record 2: ["a", "b", "c"]
-        Assert.Equal(2, query[1].Id);
-        Assert.Equal(["a", "b", "c"], query[1].UniqueTags);
-        Assert.Equal(["c", "b", "a"], query[1].ReversedTags);
+        Assert.Equal(2, queryResults[1].Id);
+        Assert.Equal(["a", "b", "c"], queryResults[1].UniqueTags);
+        Assert.Equal(["c", "b", "a"], queryResults[1].ReversedTags);
     }
+
     [Fact]
     [Trait("LINQ", "ListTakeLast")]
     public void Test_Linq_List_TakeLast_Pushdown_Using_PersonWithTags()
@@ -4364,17 +4635,21 @@ public partial class LinqTests
                           p.Id,
                           // TakeLast(2) -> list().tail(2)
                           LastTwoTags = p.Tags.TakeLast(2)
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(2, query.Count);
+        AssertPlan(query, NativePushdown);
+
+        var queryResults = query.ToList();
+
+        Assert.Equal(2, queryResults.Count);
 
         // Record 1: ["dev", "ops", "qa", "sec"] -> Last 2: ["qa", "sec"]
-        Assert.Equal(["qa", "sec"], query[0].LastTwoTags);
+        Assert.Equal(["qa", "sec"], queryResults[0].LastTwoTags);
 
         // Record 2: ["a", "b"] -> Last 2: ["a", "b"]
-        Assert.Equal(["a", "b"], query[1].LastTwoTags);
+        Assert.Equal(["a", "b"], queryResults[1].LastTwoTags);
     }
+
     [Fact]
     [Trait("LINQ", "ListSetAndSort")]
     public void Test_Linq_List_Set_Operations_And_Sort()
@@ -4401,21 +4676,25 @@ public partial class LinqTests
                           MatchedSkills = d.Skills.Intersect(d.DesiredSkills),
                           // 3. Set Difference: Skills - DesiredSkills
                           UnneededSkills = d.Skills.Except(d.DesiredSkills)
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(2, query.Count);
+        AssertPlan(query, NativePushdown);
+
+        var queryResults = query.ToList();
+
+        Assert.Equal(2, queryResults.Count);
 
         // Record 1
-        Assert.Equal(["csharp", "fsharp", "rust"], query[0].SortedSkills);
-        Assert.Equal(["csharp"], query[0].MatchedSkills);
-        Assert.Equal(["rust", "fsharp"], query[0].UnneededSkills);
+        Assert.Equal(["csharp", "fsharp", "rust"], queryResults[0].SortedSkills);
+        Assert.Equal(["csharp"], queryResults[0].MatchedSkills);
+        Assert.Equal(["rust", "fsharp"], queryResults[0].UnneededSkills);
 
         // Record 2
-        Assert.Equal(["python", "sql"], query[1].SortedSkills);
-        Assert.Equal(["sql"], query[1].MatchedSkills);
-        Assert.Equal(["python"], query[1].UnneededSkills);
+        Assert.Equal(["python", "sql"], queryResults[1].SortedSkills);
+        Assert.Equal(["sql"], queryResults[1].MatchedSkills);
+        Assert.Equal(["python"], queryResults[1].UnneededSkills);
     }
+
     [Fact]
     [Trait("LINQ", "ListPredicates")]
     public void Test_Linq_List_Any_And_All_Pushdown()
@@ -4440,26 +4719,30 @@ public partial class LinqTests
                           HasHighScore = s.Scores.Any(x => x >= 90),
                           // Passed all exams (all >= 60)
                           PassedAll = s.Scores.All(x => x >= 60)
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(3, query.Count);
+        AssertPlan(query, NativePushdown);
+
+        var queryResults = query.ToList();
+
+        Assert.Equal(3, queryResults.Count);
 
         // Alice: [95, 88, 92]
-        Assert.True(query[0].HasScores);
-        Assert.True(query[0].HasHighScore);
-        Assert.True(query[0].PassedAll);
+        Assert.True(queryResults[0].HasScores);
+        Assert.True(queryResults[0].HasHighScore);
+        Assert.True(queryResults[0].PassedAll);
 
         // Bob: [50, 59, 45]
-        Assert.True(query[1].HasScores);
-        Assert.False(query[1].HasHighScore);
-        Assert.False(query[1].PassedAll);
+        Assert.True(queryResults[1].HasScores);
+        Assert.False(queryResults[1].HasHighScore);
+        Assert.False(queryResults[1].PassedAll);
 
         // Charlie: []
-        Assert.False(query[2].HasScores);
-        Assert.False(query[2].HasHighScore);
-        Assert.True(query[2].PassedAll); // Vacation truth: All on empty set is true in BCL
+        Assert.False(queryResults[2].HasScores);
+        Assert.False(queryResults[2].HasHighScore);
+        Assert.True(queryResults[2].PassedAll); // Vacation truth: All on empty set is true in BCL
     }
+
     [Fact]
     [Trait("LINQ", "ListAnyAll")]
     public void Test_Linq_List_Any_And_All_Eval_Pushdown()
@@ -4483,20 +4766,23 @@ public partial class LinqTests
                           HasHonor = s.Scores.Any(x => x >= 90),
                           // All(x => x >= 60)
                           PassedAll = s.Scores.All(x => x >= 60)
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(2, query.Count);
+        AssertPlan(query, NativePushdown);
+
+        var queryResults = query.ToList();
+
+        Assert.Equal(2, queryResults.Count);
 
         // Alice: [95, 88, 92]
-        Assert.True(query[0].HasScores);
-        Assert.True(query[0].HasHonor);
-        Assert.True(query[0].PassedAll);
+        Assert.True(queryResults[0].HasScores);
+        Assert.True(queryResults[0].HasHonor);
+        Assert.True(queryResults[0].PassedAll);
 
         // Bob: [50, 59, 45]
-        Assert.True(query[1].HasScores);
-        Assert.False(query[1].HasHonor);
-        Assert.False(query[1].PassedAll);
+        Assert.True(queryResults[1].HasScores);
+        Assert.False(queryResults[1].HasHonor);
+        Assert.False(queryResults[1].PassedAll);
     }
     [Fact]
     [Trait("LINQ", "ListSelect")]
@@ -4518,13 +4804,17 @@ public partial class LinqTests
                           p.Id,
                           // tags.Select(t => t.ToUpper()) -> list().eval(col("").str().to_uppercase())
                           UpperTags = p.Tags.Select(t => t.ToUpper()).ToArray()
-                      })
-                      .ToList();
+                      });
 
-        Assert.Equal(2, query.Count);
-        Assert.Equal(["ADMIN", "DEV"], query[0].UpperTags);
-        Assert.Equal(["GUEST"], query[1].UpperTags);
+        AssertPlan(query, NativePushdown);
+
+        var queryResults = query.ToList();
+
+        Assert.Equal(2, queryResults.Count);
+        Assert.Equal(["ADMIN", "DEV"], queryResults[0].UpperTags);
+        Assert.Equal(["GUEST"], queryResults[1].UpperTags);
     }
+
     [Fact]
     [Trait("LINQ", "StructFieldPushdown")]
     public void Test_Linq_Nested_Struct_Field_Pushdown_Using_CustomerProfile()
@@ -4542,13 +4832,16 @@ public partial class LinqTests
 
         // 2. Act & Assert: Where filter pushdown on nested struct field: c.Address.City == "Yokohama"
         var yokohamaCustomers = df.AsQueryable<CustomerProfile>()
-                                  .Where(c => c.Address.City == "Yokohama")
-                                  .ToList();
+                                  .Where(c => c.Address.City == "Yokohama");
 
-        Assert.Single(yokohamaCustomers);
-        Assert.Equal("Bob", yokohamaCustomers[0].CustomerName);
-        Assert.Equal("Yokohama", yokohamaCustomers[0].Address.City);
-        Assert.Equal("220-0012", yokohamaCustomers[0].Address.ZipCode);
+        AssertPlan(yokohamaCustomers, NativePushdown);
+
+        var queryResults = yokohamaCustomers.ToList();
+
+        Assert.Single(queryResults);
+        Assert.Equal("Bob", queryResults[0].CustomerName);
+        Assert.Equal("Yokohama", queryResults[0].Address.City);
+        Assert.Equal("220-0012", queryResults[0].Address.ZipCode);
 
         // 3. Act & Assert: Select projection pushdown extracting nested struct fields
         var projected = df.AsQueryable<CustomerProfile>()
@@ -4558,23 +4851,27 @@ public partial class LinqTests
                               CityName = c.Address.City,
                               Postal = c.Address.ZipCode
                           })
-                          .OrderBy(x => x.Id)
-                          .ToList();
+                          .OrderBy(x => x.Id);
 
-        Assert.Equal(3, projected.Count);
+        AssertPlan(projected, NativePushdown);
 
-        Assert.Equal(1, projected[0].Id);
-        Assert.Equal("Tokyo", projected[0].CityName);
-        Assert.Equal("100-0001", projected[0].Postal);
+        var projectedQueryResults = projected.ToList();
 
-        Assert.Equal(2, projected[1].Id);
-        Assert.Equal("Yokohama", projected[1].CityName);
-        Assert.Equal("220-0012", projected[1].Postal);
+        Assert.Equal(3, projectedQueryResults.Count);
 
-        Assert.Equal(3, projected[2].Id);
-        Assert.Equal("Osaka", projected[2].CityName);
-        Assert.Equal("530-0001", projected[2].Postal);
+        Assert.Equal(1, projectedQueryResults[0].Id);
+        Assert.Equal("Tokyo", projectedQueryResults[0].CityName);
+        Assert.Equal("100-0001", projectedQueryResults[0].Postal);
+
+        Assert.Equal(2, projectedQueryResults[1].Id);
+        Assert.Equal("Yokohama", projectedQueryResults[1].CityName);
+        Assert.Equal("220-0012", projectedQueryResults[1].Postal);
+
+        Assert.Equal(3, projectedQueryResults[2].Id);
+        Assert.Equal("Osaka", projectedQueryResults[2].CityName);
+        Assert.Equal("530-0001", projectedQueryResults[2].Postal);
     }
+
     [Fact]
     [Trait("LINQ", "NullCoalescing")]
     public void Test_Linq_Null_Coalescing_Pushdown()
@@ -4593,23 +4890,27 @@ public partial class LinqTests
                           u.Id,
                           DisplayName = u.Nickname ?? u.FallbackName
                       })
-                      .OrderBy(u => u.Id)
-                      .ToList();
+                      .OrderBy(u => u.Id);
 
-        Assert.Equal(3, query.Count);
+        AssertPlan(query, NativePushdown);
+
+        var queryResults = query.ToList();
+
+        Assert.Equal(3, queryResults.Count);
 
         // Record 1: Nickname is not null -> "Neo"
-        Assert.Equal(1, query[0].Id);
-        Assert.Equal("Neo", query[0].DisplayName);
+        Assert.Equal(1, queryResults[0].Id);
+        Assert.Equal("Neo", queryResults[0].DisplayName);
 
         // Record 2: Nickname is null -> "Guest"
-        Assert.Equal(2, query[1].Id);
-        Assert.Equal("Guest", query[1].DisplayName);
+        Assert.Equal(2, queryResults[1].Id);
+        Assert.Equal("Guest", queryResults[1].DisplayName);
 
         // Record 3: Nickname is not null -> "Trinity"
-        Assert.Equal(3, query[2].Id);
-        Assert.Equal("Trinity", query[2].DisplayName);
+        Assert.Equal(3, queryResults[2].Id);
+        Assert.Equal("Trinity", queryResults[2].DisplayName);
     }
+
     [Fact]
     [Trait("LINQ", "DecimalMethods")]
     public void Test_Linq_Decimal_Methods_Pushdown()
@@ -4638,32 +4939,36 @@ public partial class LinqTests
                               AbsPrice = decimal.Abs(o.Price),
                               ClampedPrice = decimal.Clamp(decimal.Abs(o.Price), 10.0m, 50.0m),
                               MinPrice = decimal.Min(decimal.Abs(o.Price), 20.0m)
-                          })
-                          .ToList();
+                          });
 
-        Assert.Equal(4, projected.Count);
+        AssertPlan(projected, NativePushdown);
+
+        var projectedQueryResults = projected.ToList();
+
+        Assert.Equal(4, projectedQueryResults.Count);
 
         // Widget A (Price: 12.3456m)
-        Assert.Equal(12.35m, projected[0].RoundedPrice);
-        Assert.Equal(13.0m, projected[0].CeilPrice);
-        Assert.Equal(12.0m, projected[0].FloorPrice);
-        Assert.Equal(12.3456m, projected[0].AbsPrice);
-        Assert.Equal(12.3456m, projected[0].ClampedPrice);
-        Assert.Equal(12.3456m, projected[0].MinPrice);
+        Assert.Equal(12.35m, projectedQueryResults[0].RoundedPrice);
+        Assert.Equal(13.0m, projectedQueryResults[0].CeilPrice);
+        Assert.Equal(12.0m, projectedQueryResults[0].FloorPrice);
+        Assert.Equal(12.3456m, projectedQueryResults[0].AbsPrice);
+        Assert.Equal(12.3456m, projectedQueryResults[0].ClampedPrice);
+        Assert.Equal(12.3456m, projectedQueryResults[0].MinPrice);
 
         // Widget B (Price: -15.75m)
-        Assert.Equal(-15.75m, projected[1].RoundedPrice);
-        Assert.Equal(-15.0m, projected[1].CeilPrice);
-        Assert.Equal(-16.0m, projected[1].FloorPrice);
-        Assert.Equal(15.75m, projected[1].AbsPrice);
-        Assert.Equal(15.75m, projected[1].ClampedPrice);
-        Assert.Equal(15.75m, projected[1].MinPrice);
+        Assert.Equal(-15.75m, projectedQueryResults[1].RoundedPrice);
+        Assert.Equal(-15.0m, projectedQueryResults[1].CeilPrice);
+        Assert.Equal(-16.0m, projectedQueryResults[1].FloorPrice);
+        Assert.Equal(15.75m, projectedQueryResults[1].AbsPrice);
+        Assert.Equal(15.75m, projectedQueryResults[1].ClampedPrice);
+        Assert.Equal(15.75m, projectedQueryResults[1].MinPrice);
 
         // Widget C (Price: 100.00m)
-        Assert.Equal(100.00m, projected[2].RoundedPrice);
-        Assert.Equal(50.0m, projected[2].ClampedPrice);
-        Assert.Equal(20.0m, projected[2].MinPrice);
+        Assert.Equal(100.00m, projectedQueryResults[2].RoundedPrice);
+        Assert.Equal(50.0m, projectedQueryResults[2].ClampedPrice);
+        Assert.Equal(20.0m, projectedQueryResults[2].MinPrice);
     }
+
     [Fact]
     [Trait("LINQ", "DecimalMethods")]
     public void Test_Linq_Decimal_Methods_And_Conversions_Pushdown()
@@ -4677,12 +4982,15 @@ public partial class LinqTests
 
         // 1. Where (decimal.Abs, decimal.Floor, decimal.Truncate)
         var filtered = df.AsQueryable<OrderItem>()
-                         .Where(o => decimal.Abs(o.Price) >= 10.0m && decimal.Floor(o.Price) > 5.0m)
-                         .ToList();
+                         .Where(o => decimal.Abs(o.Price) >= 10.0m && decimal.Floor(o.Price) > 5.0m);
 
-        Assert.Equal(2, filtered.Count);
-        Assert.Equal("Item A", filtered[0].ItemName);
-        Assert.Equal("Item C", filtered[1].ItemName);
+        AssertPlan(filtered, NativePushdown);
+
+        var filteredQueryResults = filtered.ToList();
+
+        Assert.Equal(2, filteredQueryResults.Count);
+        Assert.Equal("Item A", filteredQueryResults[0].ItemName);
+        Assert.Equal("Item C", filteredQueryResults[1].ItemName);
 
         // 2. Select (MidpointRounding, Clamp, Min, Max, Truncate)
         var projected = df.AsQueryable<OrderItem>()
@@ -4712,13 +5020,16 @@ public partial class LinqTests
                               // ToString with format string
                               StrPrice = o.Price.ToString(),
                               StrPriceF2 = o.Price.ToString("F2")
-                          })
-                          .ToList();
+                          });
 
-        Assert.Equal(4, projected.Count);
+        AssertPlan(projected, NativePushdown);
+
+        var projectedQueryResults = projected.ToList();
+
+        Assert.Equal(4, projectedQueryResults.Count);
 
         // Item A: Price = 12.3456m
-        var a = projected[0];
+        var a = projectedQueryResults[0];
         Assert.Equal(12.35m, a.RoundDefault);
         Assert.Equal(12.0m, a.Floor);
         Assert.Equal(13.0m, a.Ceil);
@@ -4732,7 +5043,7 @@ public partial class LinqTests
         Assert.Equal("12.35", a.StrPriceF2);
 
         // Item B: Price = -15.75m 
-        var b = projected[1];
+        var b = projectedQueryResults[1];
         Assert.Equal(-15.75m, b.RoundDefault);
         Assert.Equal(-16.0m, b.Floor);
         Assert.Equal(-15.0m, b.Ceil);
@@ -4742,7 +5053,7 @@ public partial class LinqTests
         Assert.Equal(15, b.PriceAsInt);
 
         // Item C: Price = 100.50m (ToEven / HalfToEven)
-        var c = projected[2];
+        var c = projectedQueryResults[2];
         Assert.Equal(101.0m, c.RoundAwayFromZero); // AwayFromZero -> 101
         Assert.Equal(100.0m, c.RoundToEven);       // ToEven -> even 100
         Assert.Equal(50.0m, c.Clamped);            // Clamp 
@@ -4751,7 +5062,7 @@ public partial class LinqTests
         Assert.Equal("100.50", c.StrPriceF2);
 
         // Item D: Price = 5.50m
-        var d = projected[3];
+        var d = projectedQueryResults[3];
         Assert.Equal(6.0m, d.RoundAwayFromZero);
         Assert.Equal(6.0m, d.RoundToEven);
         Assert.Equal(10.0m, d.Clamped);
@@ -4882,6 +5193,7 @@ public partial class LinqTests
         Assert.Equal(2.0, david.DeptRank);
         Assert.Null(david.DeptSalaryPctChange);
     }
+
     [Fact]
     [Trait("LINQ", "WindowFunctions")]
     public void Test_Linq_LeadLag_Shift_And_Diff_Over_Partition_Pushdown_Nullable()
@@ -5227,6 +5539,7 @@ public partial class LinqTests
             Assert.Equal(4500000.0, r.AnonSubGroupVar, precision: 4);
         });
     }
+
     [Fact]
     [Trait("LINQ", "CumulativeOperations")]
     public void Test_Linq_Cumulative_Operators_Direct_And_Over()
@@ -5384,6 +5697,7 @@ public partial class LinqTests
         Assert.Equal(0.75, results[2].ReverseRunningProd, precision: 4);
         Assert.Equal(0.25, results[3].ReverseRunningProd, precision: 4);
     }
+
     [Fact]
     [Trait("LINQ", "NestedList")]
     public void Test_Linq_GroupBy_ToList_Explicit_Column_Vs_Whole_Group()
@@ -5405,19 +5719,19 @@ public partial class LinqTests
                 Emails = g.Select(x => x.Email).ToList(),
                 Passwords = g.Select(x => x.Password).ToArray()
             })
-            .OrderBy(r => r.Id)
-            .ToList();
+            .OrderBy(r => r.Id);
 
-        Assert.Equal(2, explicitListResults.Count);
+        var explicitListQueryResults = explicitListResults.ToList();
+        Assert.Equal(2, explicitListQueryResults.Count);
 
         // Id = 1
-        var group1 = explicitListResults[0];
+        var group1 = explicitListQueryResults[0];
         Assert.Equal(1, group1.Id);
         Assert.Equal(["alice@test.com", "bob@test.com"], group1.Emails);
         Assert.Equal(["p1", "p2"], group1.Passwords);
 
         // Id = 2
-        var group2 = explicitListResults[1];
+        var group2 = explicitListQueryResults[1];
         Assert.Equal(2, group2.Id);
         Assert.Equal(["charlie@test.com"], group2.Emails);
         Assert.Equal(["p3"], group2.Passwords);
@@ -5425,24 +5739,25 @@ public partial class LinqTests
         // -------------------------------------------------------------------------
         // Case B: g.ToList()
         // -------------------------------------------------------------------------
-        var wholeGroupResults = df.AsQueryable<UserInfo>()
+        var wholeGroupQuery = df.AsQueryable<UserInfo>()
             .GroupBy(u => u.Id)
             .Select(g => new
             {
                 Id = g.Key,
                 Users = g.ToList()
             })
-            .OrderBy(r => r.Id)
-            .ToList();
+            .OrderBy(r => r.Id);
 
-        Assert.Equal(2, wholeGroupResults.Count);
+        var wholeGroupQueryResults = wholeGroupQuery.ToList();
+        Assert.Equal(2, wholeGroupQueryResults.Count);
 
-        var usersG1 = wholeGroupResults[0];
+        var usersG1 = wholeGroupQueryResults[0];
         Assert.Equal(1, usersG1.Id);
         Assert.Equal(2, usersG1.Users.Count);
         Assert.Equal("alice@test.com", usersG1.Users[0].Email);
         Assert.Equal("bob@test.com", usersG1.Users[1].Email);
     }
+
     [Fact]
     [Trait("LINQ", "WindowFunctions")]
     public void Test_Linq_Median_And_Quantile_Over_Partition_Pushdown()
@@ -5812,6 +6127,7 @@ public partial class LinqTests
         Assert.Equal(40, results[3].Age);
         Assert.Equal(7000, results[3].Salary);
     }
+
     [Fact]
     [Trait("LINQ", "Merge")]
     public void TypedMerge_CompositeKeys_ShouldMatchOnMultipleColumns()
@@ -5864,6 +6180,7 @@ public partial class LinqTests
         var aliceSales = resultList.Single(x => x.Name == "Alice" && x.Department == "Sales");
         Assert.Equal(5500, aliceSales.Salary);
     }
+
     [Fact]
     [Trait("LINQ", "ToLookup")]
     public void Test_Linq_ToLookup_With_Employee_Record()
@@ -6190,19 +6507,23 @@ public partial class LinqTests
         var empQuery = dfEmp.AsQueryable(emps);
 
         // EXISTS matching string column (d.DeptName == e.Name)
-        var matchedDepts = deptQuery
+        var matchedDeptsQuery = deptQuery
             .Where(d => empQuery.Any(e => e.Name == d.DeptName))
-            .OrderBy(d => d.Id)
-            .ToList();
+            .OrderBy(d => d.Id);
+
+        AssertPlan(matchedDeptsQuery, NativePushdown);
+        var matchedDepts = matchedDeptsQuery.ToList();
 
         Assert.Equal(2, matchedDepts.Count);
         Assert.Equal("Alice", matchedDepts[0].DeptName);
         Assert.Equal("Bob", matchedDepts[1].DeptName);
 
         // NOT EXISTS matching string column
-        var unmatchedDepts = deptQuery
-            .Where(d => !empQuery.Any(e => e.Name == d.DeptName))
-            .ToList();
+        var unmatchedDeptsQuery = deptQuery
+            .Where(d => !empQuery.Any(e => e.Name == d.DeptName));
+
+        AssertPlan(unmatchedDeptsQuery, NativePushdown);
+        var unmatchedDepts = unmatchedDeptsQuery.ToList();
 
         Assert.Single(unmatchedDepts);
         Assert.Equal("Ghost", unmatchedDepts[0].DeptName);
@@ -6233,28 +6554,34 @@ public partial class LinqTests
         var empQuery = dfEmp.AsQueryable(emps);
 
         // 1. Compound predicate: normal filter + Semi-Join
-        var highSalaryDepts = deptQuery
-            .Where(d => d.Id > 20 && empQuery.Any(e => e.Age == d.Id && e.Salary > 60000))
-            .ToList();
+        var highSalaryDeptsQuery = deptQuery
+            .Where(d => d.Id > 20 && empQuery.Any(e => e.Age == d.Id && e.Salary > 60000));
+
+        AssertPlan(highSalaryDeptsQuery, NativePushdown);
+        var highSalaryDepts = highSalaryDeptsQuery.ToList();
 
         Assert.Single(highSalaryDepts);
         Assert.Equal(25, highSalaryDepts[0].Id);
         Assert.Equal("Engineering", highSalaryDepts[0].DeptName);
 
         // 2. Compound predicate: normal filter + Anti-Join
-        var emptyOlderDepts = deptQuery
-            .Where(d => d.Id > 30 && !empQuery.Any(e => e.Age == d.Id))
-            .ToList();
+        var emptyOlderDeptsQuery = deptQuery
+            .Where(d => d.Id > 30 && !empQuery.Any(e => e.Age == d.Id));
+
+        AssertPlan(emptyOlderDeptsQuery, NativePushdown);
+        var emptyOlderDepts = emptyOlderDeptsQuery.ToList();
 
         Assert.Single(emptyOlderDepts);
         Assert.Equal(60, emptyOlderDepts[0].Id);
         Assert.Equal("Advisory", emptyOlderDepts[0].DeptName);
 
         // 3. Compound predicate: normal filter + IN/Contains Semi-Join
-        var salesWithNormalSalary = deptQuery
+        var salesWithNormalSalaryQuery = deptQuery
             .Where(d => d.Id >= 25 && d.DeptName == "Sales" && empQuery.Where(e => e.Salary <= 50000)
-            .Select(e => e.Age).Contains(d.Id))
-            .ToList();
+            .Select(e => e.Age).Contains(d.Id));
+
+        AssertPlan(salesWithNormalSalaryQuery, NativePushdown);
+        var salesWithNormalSalary = salesWithNormalSalaryQuery.ToList();
 
         Assert.Single(salesWithNormalSalary);
         Assert.Equal(40, salesWithNormalSalary[0].Id);
@@ -6263,9 +6590,11 @@ public partial class LinqTests
         // Dept 25: has employees, and none have salary < 50000 (Alice 80k, Charlie 50k)
         // Dept 40: Bob has salary 45000 (< 50000), so excluded
         // Dept 60: no employees, so excluded
-        var multiSubqueryDepts = deptQuery
-            .Where(d => empQuery.Any(e => e.Age == d.Id) && !empQuery.Any(e => e.Age == d.Id && e.Salary < 50000))
-            .ToList();
+        var multiSubqueryDeptsQuery = deptQuery
+            .Where(d => empQuery.Any(e => e.Age == d.Id) && !empQuery.Any(e => e.Age == d.Id && e.Salary < 50000));
+
+        AssertPlan(multiSubqueryDeptsQuery, NativePushdown);
+        var multiSubqueryDepts = multiSubqueryDeptsQuery.ToList();
 
         Assert.Single(multiSubqueryDepts);
         Assert.Equal(25, multiSubqueryDepts[0].Id);
@@ -6289,9 +6618,7 @@ public partial class LinqTests
         // 1. TPC-H Q15 pattern: Equal to Scalar Max
         // Max salary = 95000 (Diana)
         var topEarnersQuery = empQuery.Where(e => e.Salary == empQuery.Max(x => x.Salary));
-        var topEarnersPlan = topEarnersQuery.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", topEarnersPlan);
-
+        AssertPlan(topEarnersQuery, NativePushdown);
         var topEarners = topEarnersQuery.ToList();
         Assert.Single(topEarners);
         Assert.Equal("Diana", topEarners[0].Name);
@@ -6303,7 +6630,7 @@ public partial class LinqTests
         var aboveAvgYoungSalaryQuery = empQuery
             .Where(e => e.Salary > empQuery.Where(x => x.Age <= 30).Average(x => x.Salary))
             .OrderBy(e => e.Salary);
-
+        AssertPlan(aboveAvgYoungSalaryQuery, NativePushdown);
         var aboveAvgYoungSalary = aboveAvgYoungSalaryQuery.ToList();
         Assert.Equal(2, aboveAvgYoungSalary.Count);
         Assert.Equal("Alice", aboveAvgYoungSalary[0].Name);
@@ -6313,10 +6640,11 @@ public partial class LinqTests
         // Average salary of all: (80000 + 45000 + 50000 + 95000)/4 = 67500.
         // 0.8 * 67500 = 54000.
         // Employees with Salary > 54000: Alice (80000) and Diana (95000).
-        var above80PctAvg = empQuery
+        var above80PctAvgQuery = empQuery
             .Where(e => e.Salary > 0.8 * empQuery.Average(x => x.Salary))
-            .OrderBy(e => e.Salary)
-            .ToList();
+            .OrderBy(e => e.Salary);
+        AssertPlan(above80PctAvgQuery, NativePushdown);
+        var above80PctAvg = above80PctAvgQuery.ToList();
 
         Assert.Equal(2, above80PctAvg.Count);
         Assert.Equal("Alice", above80PctAvg[0].Name);
@@ -6337,9 +6665,10 @@ public partial class LinqTests
         // Dept 25: Id 25 < 35, matches Alice & Charlie -> Included!
         // Dept 40: Id 40 >= 35 -> Excluded
         // Dept 50: Id 50 >= 35 -> Excluded
-        var youngDeptsWithEmployees = deptQuery
-            .Where(d => d.Id < empQuery.Average(e => e.Age) && empQuery.Any(e => e.Age == d.Id))
-            .ToList();
+        var youngDeptsWithEmployeesQuery = deptQuery
+            .Where(d => d.Id < empQuery.Average(e => e.Age) && empQuery.Any(e => e.Age == d.Id));
+        AssertPlan(youngDeptsWithEmployeesQuery, NativePushdown);
+        var youngDeptsWithEmployees = youngDeptsWithEmployeesQuery.ToList();
 
         Assert.Single(youngDeptsWithEmployees);
         Assert.Equal(25, youngDeptsWithEmployees[0].Id);
@@ -6377,8 +6706,7 @@ public partial class LinqTests
             .Where(p => p.SupplyCost == partsuppQuery.Where(ps => ps.PartKey == p.Id).Min(ps => ps.SupplyCost))
             .OrderBy(p => p.Id);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(2, results.Count);
@@ -6408,8 +6736,7 @@ public partial class LinqTests
         var query = lineitemQuery
             .Where(l => (double)l.Quantity < 0.2 * lineitemQuery.Where(l2 => l2.PartKey == l.PartKey).Average(l2 => (double)l2.Quantity));
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Single(results);
@@ -6448,8 +6775,7 @@ public partial class LinqTests
         var query = partsuppQuery
             .Where(ps => ps.AvailQty > 0.5 * lineitemQuery.Where(l => l.PartKey == ps.PartKey && l.SuppKey == ps.SuppKey && l.ShipDate >= startDate && l.ShipDate < endDate).Sum(l => l.Quantity));
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Single(results);
@@ -6481,9 +6807,11 @@ public partial class LinqTests
         var empQuery = dfEmp.AsQueryable(emps);
 
         // Department where employee count == 0. Unmatched rows produce NULL, which our engine fills with 0.
-        var zeroEmpDepts = deptQuery
-            .Where(d => empQuery.Where(e => e.Age == d.Id).Count() == 0)
-            .ToList();
+        var zeroEmpDeptsQuery = deptQuery
+            .Where(d => empQuery.Where(e => e.Age == d.Id).Count() == 0);
+
+        AssertPlan(zeroEmpDeptsQuery, NativePushdown);
+        var zeroEmpDepts = zeroEmpDeptsQuery.ToList();
 
         Assert.Single(zeroEmpDepts);
         Assert.Equal(2, zeroEmpDepts[0].Id);
@@ -6512,8 +6840,7 @@ public partial class LinqTests
         var query = lineitemQuery
             .Where(l => l.Quantity > 1 && l.Quantity < 0.5 * lineitemQuery.Where(l2 => l2.PartKey == l.PartKey).Average(l2 => (double)l2.Quantity));
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Single(results);
@@ -6553,8 +6880,7 @@ public partial class LinqTests
             ))
             .OrderBy(c => c.Id);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(3, results.Count);
@@ -6601,8 +6927,7 @@ public partial class LinqTests
             ))
             .OrderBy(c => c.Id);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(2, results.Count);
@@ -6653,8 +6978,7 @@ public partial class LinqTests
             ))
             .OrderBy(c => c.Id);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(3, results.Count);
@@ -6706,8 +7030,7 @@ public partial class LinqTests
             ))
             .OrderBy(c => c.Id);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(2, results.Count);
@@ -6781,8 +7104,7 @@ public partial class LinqTests
             .Where(o => !promosQuery.Any(p => o.EventTime >= p.StartTime && o.EventTime <= p.EndTime))
             .OrderBy(o => o.OrderId);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(2, results.Count);
@@ -6814,8 +7136,7 @@ public partial class LinqTests
             .Where(o => promosQuery.Any(p => p.PromoId == o.OrderId && o.EventTime >= p.StartTime && o.EventTime <= p.EndTime))
             .OrderBy(o => o.EventTime);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(2, results.Count);
@@ -6857,8 +7178,7 @@ public partial class LinqTests
             ))
             .OrderBy(c => c.Id);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(3, results.Count);
@@ -6911,8 +7231,7 @@ public partial class LinqTests
             ))
             .OrderBy(c => c.Id);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(3, results.Count);
@@ -6965,8 +7284,7 @@ public partial class LinqTests
             ))
             .OrderBy(c => c.Id);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(3, results.Count);
@@ -7020,8 +7338,7 @@ public partial class LinqTests
             ))
             .OrderBy(c => c.Id);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(2, results.Count);
@@ -7061,8 +7378,7 @@ public partial class LinqTests
             ))
             .OrderBy(s => s.Day);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(4, results.Count);
@@ -7096,8 +7412,7 @@ public partial class LinqTests
             ))
             .OrderBy(s => s.Day);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(4, results.Count);
@@ -7145,8 +7460,7 @@ public partial class LinqTests
             .OrderBy(s => s.DeptId)
             .ThenBy(s => s.Day);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(5, results.Count);
@@ -7203,8 +7517,7 @@ public partial class LinqTests
             ))
             .OrderBy(s => s.Day);
 
-        var plan = query.Explain(optimized: true);
-        Assert.Contains("100% Native Pushdown", plan);
+        AssertPlan(query, NativePushdown);
 
         var results = query.ToList();
         Assert.Equal(4, results.Count);

@@ -11,25 +11,21 @@ open Polars.NET.Core.Helpers
 [<AutoOpen>]
 module internal OptionComputationExpression =
     type OptionBuilder() =
-        member inline _.Bind(m: 'T option, [<InlineIfLambda>] f: 'T -> 'U option) : 'U option =
-            Option.bind f m
-        member inline _.Return(x: 'T) : 'T option =
-            Some x
-        member inline _.ReturnFrom(m: 'T option) : 'T option =
-            m
-        member inline _.Zero() : unit option =
-            Some ()
+        member inline _.Bind(m: 'T option, [<InlineIfLambda>] f: 'T -> 'U option) : 'U option = Option.bind f m
+        member inline _.Return(x: 'T) : 'T option = Some x
+        member inline _.ReturnFrom(m: 'T option) : 'T option = m
+        member inline _.Zero() : unit option = Some()
+
         member inline _.Combine(a: unit option, b: 'T option) : 'T option =
             match a with
-            | Some () -> b
+            | Some() -> b
             | None -> None
-        member inline _.Delay([<InlineIfLambda>] f: unit -> 'T option) : 'T option =
-            f ()
+
+        member inline _.Delay([<InlineIfLambda>] f: unit -> 'T option) : 'T option = f ()
 
     let option = OptionBuilder()
 
-    let inline guard (cond: bool) : unit option =
-        if cond then Some () else None
+    let inline guard (cond: bool) : unit option = if cond then Some() else None
 
 [<AutoOpen>]
 module internal ExpressionPatterns =
@@ -602,8 +598,38 @@ module internal ExpressionPatterns =
     // List / Array Operations
     // =========================================================================
 
+    [<TailCall>]
+    let rec internal unwrapSpanOrArray (expr: Expression) : Expression =
+        match expr with
+        | null -> null
+        | :? UnaryExpression as u when
+            u.NodeType = ExpressionType.Convert
+            || u.NodeType = ExpressionType.ConvertChecked
+            ->
+            unwrapSpanOrArray u.Operand
+        | :? MethodCallExpression as mc when
+            mc.Method.Name = "op_Implicit"
+            && mc.Arguments.Count = 1
+            && (mc.Type.Name.StartsWith "ReadOnlySpan`1"
+                || mc.Type.Name.StartsWith "Span`1"
+                || mc.Type.Name.StartsWith "ReadOnlyMemory`1"
+                || mc.Type.Name.StartsWith "Memory`1")
+            ->
+            unwrapSpanOrArray mc.Arguments.[0]
+        | :? MethodCallExpression as mc when
+            (mc.Method.Name = "AsSpan" || mc.Method.Name = "AsMemory")
+            && not (isNull mc.Method.DeclaringType)
+            && mc.Method.DeclaringType.Name = "MemoryExtensions"
+            && (not (isNull mc.Object) || mc.Arguments.Count >= 1)
+            ->
+            let inner = if isNull mc.Object then mc.Arguments.[0] else mc.Object
+            unwrapSpanOrArray inner
+        | other -> other
+
     let private isListContainer (t: Type) =
-        t <> typeof<string> && (t.IsArray || typeof<IEnumerable>.IsAssignableFrom(t))
+        t <> typeof<string>
+        && not (typeof<MatchCollection>.IsAssignableFrom t)
+        && (t.IsArray || typeof<IEnumerable>.IsAssignableFrom t)
 
     let (|ArrayIndexOp|_|) (expr: Expression) : (Expression * Expression) option =
         match expr with
@@ -648,6 +674,18 @@ module internal ExpressionPatterns =
             && isListContainer target.Type
             ->
             Some(ListContains(target, itemExpr))
+
+        | MethodCall(m, null, [ spanExpr; itemExpr ]) when
+            not (isNull m.DeclaringType)
+            && m.DeclaringType.Name = "MemoryExtensions"
+            && m.Name = "Contains"
+            ->
+            let target = unwrapSpanOrArray spanExpr
+
+            if isListContainer target.Type then
+                Some(ListContains(target, itemExpr))
+            else
+                None
 
         | MethodCall(m, target, [ itemExpr ]) when
             not (isNull target) && isListContainer target.Type && m.Name = "Contains"

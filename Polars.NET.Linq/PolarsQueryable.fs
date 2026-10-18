@@ -1994,28 +1994,70 @@ and PolarsQuery<'T>
             | _ -> None
         | None -> None
 
-    /// Compiles a two-parameter Join/LeftJoin result selector into a native Select projection operation
-    static member private CompileJoinResultSelector(resLambda: LambdaExpression) : QueryOp option =
+    /// Compiles a two-parameter Join/LeftJoin/RightJoin result selector into a native Select projection operation
+    static member private CompileJoinResultSelector
+        (leftCols: string array)
+        (rightCols: string array)
+        (spec: JoinSpec)
+        (resLambda: LambdaExpression)
+        : QueryOp option =
         if resLambda.Parameters.Count < 2 then
             None
         else
             let pLeft = resLambda.Parameters.[0]
             let pRight = resLambda.Parameters.[1]
-            let ctx = TranslationContext.BinaryJoin(pLeft.Name, pRight.Name)
 
-            match PolarsQuery<'T>.TryExtractMemberBindings resLambda.Body with
-            | Some bindings ->
-                let exprOpts =
-                    bindings
-                    |> List.choose (fun (name, argExpr) ->
-                        PolarsQuery<'T>.TryTranslateSelectArg ctx argExpr
-                        |> Option.map (fun h -> PolarsWrapper.Alias(h, name)))
-
-                if exprOpts.Length = bindings.Length then
-                    Some(QueryOp.Select(List.toArray exprOpts))
+            let firstParam, secondParam, firstCols, secondCols, secondSuffix =
+                if spec.InvertSides then
+                    pRight, pLeft, rightCols, leftCols, (spec.Suffix |> Option.defaultValue "_left")
                 else
-                    None
-            | None -> None
+                    pLeft, pRight, leftCols, rightCols, (spec.Suffix |> Option.defaultValue "_right")
+
+            let firstColSet = Set.ofArray firstCols
+            let ctx = TranslationContext.BinaryJoin(firstParam.Name, secondParam.Name, firstColSet, secondSuffix)
+
+            let unwrappedBody = ExprTranslator.unwrap resLambda.Body
+            match unwrappedBody with
+            // 1. Selector is directly the first parameter in the native joined frame (e.g. (d, e) => d)
+            | :? ParameterExpression as p when p.Name = firstParam.Name ->
+                let selectExprs = firstCols |> Array.map PolarsWrapper.Col
+                Some(QueryOp.Select selectExprs)
+
+            // 2. Selector is directly the second parameter in the native joined frame (e.g. (d, e) => e)
+            | :? ParameterExpression as p when p.Name = secondParam.Name ->
+                let selectExprs =
+                    secondCols
+                    |> Array.map (fun c ->
+                        if firstColSet.Contains c then
+                            PolarsWrapper.Alias(PolarsWrapper.Col(c + secondSuffix), c)
+                        else
+                            PolarsWrapper.Col c)
+                Some(QueryOp.Select selectExprs)
+
+            // 3. Composite member bindings (new { ... } or new Dto { ... })
+            | _ ->
+                match PolarsQuery<'T>.TryExtractMemberBindings unwrappedBody with
+                | Some bindings ->
+                    let exprOpts =
+                        bindings
+                        |> List.choose (fun (name, argExpr) ->
+                            PolarsQuery<'T>.TryTranslateSelectArg ctx argExpr
+                            |> Option.map (fun h -> PolarsWrapper.Alias(h, name)))
+
+                    if exprOpts.Length = bindings.Length then
+                        Some(QueryOp.Select(List.toArray exprOpts))
+                    else
+                        None
+
+                // 4. Single member or expression projection (e.g. (d, e) => d.DeptName)
+                | None ->
+                    match unwrappedBody with
+                    | MemberAccess(_, m) ->
+                        ExprTranslator.tryTranslateWithContext ctx unwrappedBody
+                        |> Option.map (fun h -> QueryOp.Select [| PolarsWrapper.Alias(h, m.Name) |])
+                    | _ ->
+                        ExprTranslator.tryTranslateWithContext ctx unwrappedBody
+                        |> Option.map (fun h -> QueryOp.Select [| h |])
 
     /// Compiles Intersect/Except/IntersectBy/ExceptBy stages into a native JoinSpec (Semi/Anti Join)
     static member private CompileSetOp
@@ -2506,18 +2548,22 @@ and PolarsQuery<'T>
 
         let effectiveExpr = expression |> FSharpAst.rewrite |> PartialEvaluator.eval
 
-        // printfn "\n\x1b[1;32m================ [REWRITTEN EXPRESSION TREE] ================\x1b[0m"
-        // printfn "%s" (effectiveExpr.ToString())
-        // printfn "\x1b[1;32m============================================================\x1b[0m\n"
+        // eprintfn "\n================ [REWRITTEN EXPRESSION TREE] ================"
+        // eprintfn "%s" (effectiveExpr.ToString())
+        // eprintfn "============================================================\n"
 
         let stages = flatten effectiveExpr []
-        // printfn "\x1b[33m[FLATTENED STAGES COUNT]\x1b[0m %d" stages.Length
-        // stages |> List.iteri (fun idx s -> printfn "  Stage[%d] = %A" idx s)
+        // eprintfn "[FLATTENED STAGES COUNT] %d" stages.Length
+        // stages |> List.iteri (fun idx s -> eprintfn "  Stage[%d] = %A" idx s)
 
         let addSort (spec: SortSpec) (ops: QueryOp list) =
             match ops with
             | QueryOp.Sort specs :: tail -> QueryOp.Sort(specs @ [ spec ]) :: tail
             | _ -> QueryOp.Sort [ spec ] :: ops
+
+        let isGrouping =
+            typeof<'T>.IsGenericType
+            && typeof<'T>.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
 
         let rec fuse
             (remaining: LinqStage list)
@@ -2538,7 +2584,11 @@ and PolarsQuery<'T>
                 else
                     match PolarsQuery<'T>.CompileUnifiedGroupBy lfCloned ctx projBody groupParamName isKeyArg with
                     | Some compiledOps -> fuse nextTail (compiledOps @ opsAcc) clientPreds clientProjOpt
-                    | None -> [], [], None, true
+                    | None ->
+                        if isGrouping then
+                            fuse nextTail opsAcc clientPreds clientProjOpt
+                        else
+                            [], [], None, true
 
             // Helper to dispatch standard C# GroupBy overloads (3-arg and 4-arg)
             let dispatchCSharpGroupBy
@@ -2597,6 +2647,17 @@ and PolarsQuery<'T>
                             | _ -> false
 
                         tryDispatchGroupBy ctx projLambda.Body projLambda.Parameters.[0].Name isKeyArg next
+                    | [] when isGrouping ->
+                        let clientHavingPreds =
+                            ctx.HavingPreds
+                            |> List.map (fun predLambda ->
+                                let rawParam = Expression.Parameter(typeof<obj>, "rawItem")
+                                let castParam = Expression.Convert(rawParam, predLambda.Parameters.[0].Type)
+                                let invoked = Expression.Invoke(predLambda, castParam)
+                                let safePred = Expression.Lambda<Func<obj, bool>>(invoked, rawParam).Compile()
+                                safePred, predLambda)
+
+                        fuse [] opsAcc (clientHavingPreds @ clientPreds) clientProjOpt
                     | _ -> [], [], None, true
 
                 let initCtx =
@@ -2641,6 +2702,17 @@ and PolarsQuery<'T>
                                 | _ -> false
 
                             tryDispatchGroupBy ctx projLambda.Body projLambda.Parameters.[0].Name isKeyArg next
+                        | [] when isGrouping ->
+                            let clientHavingPreds =
+                                ctx.HavingPreds
+                                |> List.map (fun predLambda ->
+                                    let rawParam = Expression.Parameter(typeof<obj>, "rawItem")
+                                    let castParam = Expression.Convert(rawParam, predLambda.Parameters.[0].Type)
+                                    let invoked = Expression.Invoke(predLambda, castParam)
+                                    let safePred = Expression.Lambda<Func<obj, bool>>(invoked, rawParam).Compile()
+                                    (safePred, predLambda))
+
+                            fuse [] opsAcc (clientHavingPreds @ clientPreds) clientProjOpt
                         | _ -> [], [], None, true
 
                     let initCtx =
@@ -2827,7 +2899,10 @@ and PolarsQuery<'T>
                         if isTransparent then
                             fuse tail (QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
                         else
-                            match PolarsQuery<'T>.CompileJoinResultSelector resSel with
+                            let leftCols = PolarsQuery<'T>.GetLazySchemaFields lfCloned |> Array.map fst
+                            let rightCols = PolarsQuery<'T>.GetLazySchemaFields spec.RightLf |> Array.map fst
+
+                            match PolarsQuery<'T>.CompileJoinResultSelector leftCols rightCols spec resSel with
                             | Some selectOp ->
                                 // Apply Join first, then apply the result projection
                                 fuse tail (selectOp :: QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
@@ -3274,7 +3349,7 @@ and PolarsQuery<'T>
                         None
 
                 match decorrelatedOpt with
-                | Some (subqueryOps, rewrittenProjLambda) ->
+                | Some(subqueryOps, rewrittenProjLambda) ->
                     let newOpsAcc = (subqueryOps |> List.rev) @ opsAcc
                     fuse (LinqStage.Project rewrittenProjLambda :: tail) newOpsAcc clientPreds None
                 | None ->
@@ -3539,11 +3614,13 @@ and PolarsQuery<'T>
 
                     let mat = QueryMaterializerResolver.Resolve(Some materializer)
 
-                    let rec findKeySelector (e: Expression) : LambdaExpression option =
+                    let rec findGroupByInfo (e: Expression) : (LambdaExpression * LambdaExpression option) option =
                         match e with
                         | null -> None
-                        | MethodCall(m, null, [ _; CleanLambda l ]) when m.Name = "GroupBy" -> Some l
-                        | MethodCall(_, null, args) -> args |> List.tryPick findKeySelector
+                        | MethodCall(m, null, [ _; CleanLambda k; CleanLambda elem ]) when m.Name = "GroupBy" ->
+                            Some(k, Some elem)
+                        | MethodCall(m, null, [ _; CleanLambda k ]) when m.Name = "GroupBy" -> Some(k, None)
+                        | MethodCall(_, null, args) -> args |> List.tryPick findGroupByInfo
                         | _ -> None
 
                     let rec findGroupJoin (e: Expression) =
@@ -3561,36 +3638,66 @@ and PolarsQuery<'T>
                         | MethodCall(_, null, args) -> args |> List.tryPick findSortSelector
                         | _ -> None
 
-                    match findKeySelector expression with
-                    | Some keyLambda ->
+                    match findGroupByInfo expression with
+                    | Some(keyLambda, elemLambdaOpt) ->
                         // Standard GroupBy materialization path
-                        let invoker = LinqReflectionCache.GetMaterializerInvoker elemType
-                        let rawRows = invoker.Invoke(mat, dfHandle)
                         let compiledKeySelector = keyLambda.Compile()
 
-                        let groupByMethod =
-                            typeof<Enumerable>.GetMethods()
-                            |> Array.find (fun m ->
-                                m.Name = "GroupBy"
-                                && m.GetParameters().Length = 2
-                                && m.GetGenericArguments().Length = 2)
-                            |> fun m -> m.MakeGenericMethod(elemType, keyType)
-
                         let grouped =
-                            groupByMethod.Invoke(null, [| box rawRows; box compiledKeySelector |]) :?> IEnumerable<'T>
+                            match elemLambdaOpt with
+                            | Some elemLambda ->
+                                let sourceType = elemLambda.Parameters.[0].Type
+                                let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
+                                let rawRows = invoker.Invoke(mat, dfHandle)
+                                let compiledElemSelector = elemLambda.Compile()
+
+                                let groupByMethod =
+                                    typeof<Enumerable>.GetMethods()
+                                    |> Array.find (fun m ->
+                                        m.Name = "GroupBy"
+                                        && m.GetParameters().Length = 3
+                                        && m.GetGenericArguments().Length = 3)
+                                    |> fun m -> m.MakeGenericMethod(sourceType, keyType, elemType)
+
+                                groupByMethod.Invoke(
+                                    null,
+                                    [| box rawRows; box compiledKeySelector; box compiledElemSelector |]
+                                )
+                                :?> IEnumerable<'T>
+                            | None ->
+                                let invoker = LinqReflectionCache.GetMaterializerInvoker elemType
+                                let rawRows = invoker.Invoke(mat, dfHandle)
+
+                                let groupByMethod =
+                                    typeof<Enumerable>.GetMethods()
+                                    |> Array.find (fun m ->
+                                        m.Name = "GroupBy"
+                                        && m.GetParameters().Length = 2
+                                        && m.GetGenericArguments().Length = 2)
+                                    |> fun m -> m.MakeGenericMethod(elemType, keyType)
+
+                                groupByMethod.Invoke(null, [| box rawRows; box compiledKeySelector |])
+                                :?> IEnumerable<'T>
+
+                        let filtered =
+                            if clientPredicates.IsEmpty then
+                                grouped
+                            else
+                                grouped
+                                |> Seq.filter (fun g -> clientPredicates |> List.forall (fun p -> p.Invoke(box g)))
 
                         match findSortSelector expression with
                         | Some(sortLambda, false) ->
                             let compiled = sortLambda.Compile()
 
-                            grouped
+                            filtered
                             |> Seq.sortBy (fun g -> compiled.DynamicInvoke([| box g |]) :?> IComparable)
                         | Some(sortLambda, true) ->
                             let compiled = sortLambda.Compile()
 
-                            grouped
+                            filtered
                             |> Seq.sortByDescending (fun g -> compiled.DynamicInvoke([| box g |]) :?> IComparable)
-                        | None -> grouped
+                        | None -> filtered
 
                     | None when findGroupJoin expression ->
                         // .NET 11 Standalone GroupJoin materialization:
@@ -3778,11 +3885,16 @@ and PolarsQuery<'T>
         let isScalar =
             PolarsTypeHelper.IsScalarType targetType || targetType = typeof<string>
 
+        let isGrouping =
+            targetType.IsGenericType
+            && targetType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
+
         let requiresClientEvaluation =
             requiresClientFallback
             || not clientPredicates.IsEmpty
             || clientProjOpt.IsSome
             || (isScalar && width > 1UL)
+            || isGrouping
 
         if not requiresClientEvaluation then
             nativeLf
@@ -3813,6 +3925,10 @@ and PolarsQuery<'T>
         let isScalar =
             PolarsTypeHelper.IsScalarType typeof<'T> || typeof<'T> = typeof<string>
 
+        let isGrouping =
+            typeof<'T>.IsGenericType
+            && typeof<'T>.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
+
         let shouldShuffle = PolarsQuery<'T>.HasShuffle expression
 
         let canDirectlyCollectNative =
@@ -3820,6 +3936,7 @@ and PolarsQuery<'T>
             && clientPredicates.IsEmpty
             && clientProjOpt.IsNone
             && not (isScalar && width > 1UL)
+            && not isGrouping
 
         if canDirectlyCollectNative then
             let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
@@ -3865,11 +3982,20 @@ and PolarsQuery<'T>
         let chunkSizeOpt = PolarsQuery<'T>.TryExtractChunkSize expression
         let shouldShuffle = PolarsQuery<'T>.HasShuffle expression
 
+        let isGrouping =
+            typeof<'T>.IsGenericType
+            && typeof<'T>.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
+
         let mutable postOps = []
 
         if shouldShuffle then
             postOps <-
                 "[Eager Post-Processing]: Shuffle(fraction = 1.0, with_replacement = false)"
+                :: postOps
+
+        if isGrouping then
+            postOps <-
+                "[Client Post-Processing]: Materialize to IEnumerable<IGrouping<TKey, TElement>>"
                 :: postOps
 
         match chunkSizeOpt with
@@ -3889,7 +4015,7 @@ and PolarsQuery<'T>
             NativePlan = planWithPostOps
             HasClientPredicates = not clientPreds.IsEmpty
             ClientPredicateExpressions = clientPreds |> List.map snd
-            HasClientProjection = clientProjOpt.IsSome || chunkSizeOpt.IsSome || shouldShuffle
+            HasClientProjection = clientProjOpt.IsSome || chunkSizeOpt.IsSome || shouldShuffle || isGrouping
             IsFullFallback = requiresClientFallback
         }
 

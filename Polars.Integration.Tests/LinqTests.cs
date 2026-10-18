@@ -56,6 +56,18 @@ public class LinqProviderTests
         public int Id { get; set; }
         public string Name { get; set; } = "";
     }
+    private static void AssertPlan<T>(
+        IQueryable<T> query,
+        string expectedPlan)
+    {
+        var actualPlan = query.Explain();
+        Assert.Contains(expectedPlan, actualPlan);
+    }
+    private const string NativePushdown = "100% Native Pushdown";
+
+    private const string HybridPushdown = "Hybrid Execution";
+
+    private const string ClientFallback = "Full Fallback to In-Memory LINQ";
     [Fact]
     [Trait("LINQ", "Where")]
     public void Test_Polars_Linq_Where_And_OrderBy()
@@ -76,6 +88,8 @@ public class LinqProviderTests
         var query = df.AsQueryable<Person>()
                       .Where(p => p.Age > ageLimit && p.Name != excludeName)
                       .OrderByDescending(p => p.Sales);
+
+        AssertPlan(query, NativePushdown);
 
         // SELECT
         //         p."Name",
@@ -99,7 +113,7 @@ public class LinqProviderTests
         // └─────────┴─────┴───────┘
         var results = query.ToList();
         Assert.NotNull(results);
-        Assert.Equal(2, results.Count); 
+        Assert.Equal(2, results.Count);
 
         Assert.Equal("Charlie", results[0].Name);
         Assert.Equal(35, results[0].Age);
@@ -125,10 +139,10 @@ public class LinqProviderTests
 
         var query = df.AsQueryable<Person>()
                       .Where(p => p.Sales > 150)
-                      .Select(p => new PersonDto 
-                      { 
-                          Name = p.Name, 
-                          Sales = p.Sales 
+                      .Select(p => new PersonDto
+                      {
+                          Name = p.Name,
+                          Sales = p.Sales
                       });
         // SELECT
         //         p."Name",
@@ -147,16 +161,16 @@ public class LinqProviderTests
         // │ Bob     ┆ 200.0 │
         // │ Charlie ┆ 300.0 │
         // └─────────┴───────┘
-
+        AssertPlan(query, NativePushdown);
         var results = query.ToList();
         Assert.Equal(2, results.Count);
-        
+
         Assert.IsType<List<PersonDto>>(results);
         Assert.Equal("Bob", results[0].Name);
         Assert.Equal(200.0, results[0].Sales);
     }
     [Fact]
-    [Trait("LINQ","Join")]
+    [Trait("LINQ", "Join")]
     public void Test_Polars_Linq_Inner_Join()
     {
         var depts = new[]
@@ -181,7 +195,7 @@ public class LinqProviderTests
         var query = from e in empQuery
                     join d in deptQuery on e.DeptId equals d.DeptId
                     where e.Name != "Bob"
-                    orderby d.DeptName,e.Name
+                    orderby d.DeptName, e.Name
                     select new EmpDeptDto
                     {
                         EmpName = e.Name,
@@ -208,9 +222,10 @@ public class LinqProviderTests
         // │ Charlie ┆ Engineering │
         // └─────────┴─────────────┘
 
+        AssertPlan(query, NativePushdown);
         var results = query.ToList();
         Assert.Equal(2, results.Count);
-        
+
         Assert.Equal("Alice", results[0].EmpName);
         Assert.Equal("Engineering", results[0].DepartmentName);
 
@@ -218,7 +233,7 @@ public class LinqProviderTests
         Assert.Equal("Engineering", results[1].DepartmentName);
     }
     [Fact]
-    [Trait("LINQ","GroupByHaving")]
+    [Trait("LINQ", "GroupByHaving")]
     public void Test_Polars_Linq_GroupBy_Aggregation_With_Having()
     {
         var emps = new[]
@@ -231,12 +246,12 @@ public class LinqProviderTests
         };
 
         using var dfEmps = DataFrame.From(emps);
-        
+
         var empQuery = dfEmps.AsQueryable<EmployeeSalary>();
 
         var query = from e in empQuery
                     group e by e.DeptId into g
-                    where g.Sum(x => x.Salary) > 5000.0 
+                    where g.Sum(x => x.Salary) > 5000.0
                     orderby g.Key
                     select new DeptStatsDto
                     {
@@ -244,7 +259,7 @@ public class LinqProviderTests
                         TotalSalary = g.Sum(x => x.Salary),
                         EmployeeCount = (int)g.Count()
                     };
-
+        AssertPlan(query, NativePushdown);
         var results = query.ToList();
 
         // SELECT
@@ -268,7 +283,7 @@ public class LinqProviderTests
         // │ Charlie ┆ Engineering │
         // └─────────┴─────────────┘
 
-        Assert.Equal(2, results.Count); 
+        Assert.Equal(2, results.Count);
 
         Assert.Equal(1, results[0].DeptId);
         Assert.Equal(11000.0, results[0].TotalSalary); // 5000 + 6000
@@ -277,13 +292,13 @@ public class LinqProviderTests
         Assert.Equal(2, results[1].DeptId);
         Assert.Equal(8500.0, results[1].TotalSalary); // 4000 + 4500
         Assert.Equal(2, results[1].EmployeeCount);
-        
+
         Assert.DoesNotContain(results, r => r.DeptId == 3);
     }
     [Fact]
     [Trait("LINQ", "ScalarAndFirst")]
     public void Test_Polars_Linq_Scalar_And_First()
-    {     
+    {
         var data = new[]
         {
             new { Id = 1, Name = "Alice", Score = 80 },
@@ -294,8 +309,8 @@ public class LinqProviderTests
         var query = DataFrame.FromRows(data).AsQueryable(data);
 
         int highScorersCount = query.Where(s => s.Score > 82).Count();
-        
-        Assert.Equal(2, highScorersCount); 
+
+        Assert.Equal(2, highScorersCount);
 
         // linq2db : SELECT MAX(Score) FROM students
         int maxScore = query.Max(s => s.Score);
@@ -305,7 +320,7 @@ public class LinqProviderTests
         var topStudent = query.Where(s => s.Score > 82)
                               .OrderByDescending(s => s.Score)
                               .First();
-                              
+
         Assert.NotNull(topStudent);
         Assert.Equal("Bob", topStudent.Name);
         Assert.Equal(90, topStudent.Score);
@@ -328,29 +343,38 @@ public class LinqProviderTests
 
         var query = df.AsQueryable<Product>();
 
-        // linq2db : SELECT ... FROM products WHERE Category IN ('Fruit', 'Meat')
-        var targetCategories = new[] { "Fruit", "Meat" };
-        var inResult = query.Where(p => targetCategories.Contains(p.Category)).ToList();
-        
+        // ELECT ... FROM products WHERE Category IN ('Fruit', 'Meat')
+        string[] targetCategories = ["Fruit", "Meat"];
+        var inQuery = query.Where(p => targetCategories.Contains(p.Category));
+
+        AssertPlan(inQuery, NativePushdown);
+        var inResult = inQuery.ToList();
+
         Assert.Equal(3, inResult.Count); // Apple, Banana, Beef
         Assert.DoesNotContain(inResult, p => p.Category == "Vegetable");
 
-        // linq2db : SELECT ... FROM products WHERE Name LIKE 'A%' ESCAPE '~' (ESCAPE will be removed)
-        // ==========================================
-        var likeResult = query.Where(p => p.Name.StartsWith('A')).ToList();
-        
+        // SELECT ... FROM products WHERE Name LIKE 'A%' ESCAPE '~' (ESCAPE will be removed)
+
+        var likeQuery = query.Where(p => p.Name.StartsWith('A'));
+        AssertPlan(likeQuery, NativePushdown);
+        var likeResult = likeQuery.ToList();
+
         Assert.Equal(2, likeResult.Count); // Apple, Avocado
         Assert.Contains(likeResult, p => p.Name == "Apple");
         Assert.Contains(likeResult, p => p.Name == "Avocado");
 
-        var complexResult = query.Where(p => 
-            targetCategories.Contains(p.Category) && 
-            p.Name.Contains('e') && 
+        var complexQuery = query.Where(p =>
+            targetCategories.Contains(p.Category) &&
+            p.Name.Contains('e') &&
             p.Price > 1.0
-        ).ToList();
+        );
 
-        Assert.Equal(2, complexResult.Count); 
+        AssertPlan(complexQuery, NativePushdown);
+        var complexResult = complexQuery.ToList();
+
+        Assert.Equal(2, complexResult.Count);
     }
+
     [Fact]
     [Trait("LINQ", "PaginationAndDistinct")]
     public void Test_Polars_Linq_Skip_Take_And_Distinct()
@@ -368,24 +392,29 @@ public class LinqProviderTests
         using var df = DataFrame.FromRows(data);
         var query = df.AsQueryable<Product>();
 
-        // linq2db : SELECT DISTINCT p."Category" FROM products p
-        var distinctCategories = query.Select(p => p.Category).Distinct().ToList();
-        
+        // SELECT DISTINCT p."Category" FROM products p
+        var distinctCategoriesQuery = query.Select(p => p.Category).Distinct();
+        AssertPlan(distinctCategoriesQuery, NativePushdown);
+        var distinctCategories = distinctCategoriesQuery.ToList();
+
         Assert.Equal(2, distinctCategories.Count);
         Assert.Contains("Fruit", distinctCategories);
         Assert.Contains("Meat", distinctCategories);
 
-        var distinctProducts = query.Distinct().ToList();
-        Assert.Equal(6, distinctProducts.Count); 
+        var distinctProductsQuery = query.Distinct();
+        AssertPlan(distinctProductsQuery, NativePushdown);
+        var distinctProducts = distinctProductsQuery.ToList();
+        Assert.Equal(6, distinctProducts.Count);
 
-        // linq2db : SELECT ... FROM products ORDER BY p."Id" LIMIT 2 OFFSET 2
-        var pagedResult = query.OrderBy(p => p.Id)
+        // SELECT ... FROM products ORDER BY p."Id" LIMIT 2 OFFSET 2
+        var pagedResultQuery = query.OrderBy(p => p.Id)
                                .Skip(2)
-                               .Take(2)
-                               .ToList();
-                               
+                               .Take(2);
+        AssertPlan(pagedResultQuery, NativePushdown);
+        var pagedResult = pagedResultQuery.ToList();
+
         Assert.Equal(2, pagedResult.Count);
-        Assert.Equal(3, pagedResult[0].Id); 
+        Assert.Equal(3, pagedResult[0].Id);
         Assert.Equal(4, pagedResult[1].Id);
     }
     [Fact]
@@ -401,8 +430,8 @@ public class LinqProviderTests
 
         var emps = new[]
         {
-            new { Name = "Alice", DeptId = 1, Salary = 6000.0 }, 
-            new { Name = "Bob",   DeptId = 2, Salary = 4000.0 }, 
+            new { Name = "Alice", DeptId = 1, Salary = 6000.0 },
+            new { Name = "Bob",   DeptId = 2, Salary = 4000.0 },
             new { Name = "Charlie", DeptId = 1, Salary = 4500.0 }
         };
 
@@ -414,14 +443,15 @@ public class LinqProviderTests
 
         var query = deptQuery
             .Join(
-                empQuery.Where(e => e.Salary > 5000), 
-                d => d.DeptId, 
-                e => e.DeptId, 
-                (d, e) => d 
+                empQuery.Where(e => e.Salary > 5000),
+                d => d.DeptId,
+                e => e.DeptId,
+                (d, e) => d
             )
             .Distinct();
+        AssertPlan(query, NativePushdown);
         var result = query.ToList();
-        
+
         Assert.Single(result);
         Assert.Equal("Engineering", result[0].DeptName);
     }
@@ -451,7 +481,7 @@ public class LinqProviderTests
         {
             new DeptDto { DeptId = 1, DeptName = "Engineering" },
             new DeptDto { DeptId = 2, DeptName = "Sales" },
-            new DeptDto { DeptId = 3, DeptName = "HR" } 
+            new DeptDto { DeptId = 3, DeptName = "HR" }
         };
 
         var emps = new[]
@@ -470,14 +500,14 @@ public class LinqProviderTests
         // Classic LINQ Left Join
         var query = from d in deptQuery
                     join e in empQuery on d.DeptId equals e.DeptId into empGroup
-                    from e in empGroup.DefaultIfEmpty() 
+                    from e in empGroup.DefaultIfEmpty()
                     orderby d.DeptId, e.Name
                     select new LeftJoinResult
                     {
                         DeptName = d.DeptName,
-                        EmployeeName = e != null ? e.Name : "NO_EMPLOYEE" 
+                        EmployeeName = e != null ? e.Name : "NO_EMPLOYEE"
                     };
-
+        AssertPlan(query, NativePushdown);
         var results = query.ToList();
         // SELECT
         //         d."DeptName",
@@ -507,7 +537,7 @@ public class LinqProviderTests
 
         Assert.Equal("Engineering", results[0].DeptName);
         Assert.Equal("Alice", results[0].EmployeeName);
-        
+
         Assert.Equal("Engineering", results[1].DeptName);
         Assert.Equal("Charlie", results[1].EmployeeName);
 
@@ -539,29 +569,31 @@ public class LinqProviderTests
         var deptQuery = dfDepts.AsQueryable<DeptDto>();
         var empQuery = dfEmps.AsQueryable<EmpDto>();
 
-        // linq2db : SELECT ... FROM departments d CROSS JOIN employees e
+        // SELECT ... FROM departments d CROSS JOIN employees e
         var crossJoinQuery = from d in deptQuery
                              from e in empQuery
                              select new { d.DeptName, e.Name };
-
+        AssertPlan(crossJoinQuery, NativePushdown);
         var crossResult = crossJoinQuery.ToList();
-        
+
         Assert.Equal(4, crossResult.Count);
         Assert.Contains(crossResult, x => x.DeptName == "Engineering" && x.Name == "Alice");
         Assert.Contains(crossResult, x => x.DeptName == "Sales" && x.Name == "Bob");
 
-        // linq2db : SELECT ... FROM employees WHERE ... UNION ALL SELECT ... FROM employees WHERE ...
+        // SELECT ... FROM employees WHERE ... UNION ALL SELECT ... FROM employees WHERE ...
         var query1 = empQuery.Where(e => e.DeptId == 1);
         var query2 = empQuery.Where(e => e.DeptId == 2);
-        
-        var unionResult = query1.Concat(query2).ToList();
 
-        Assert.Equal(2, unionResult.Count);
-        Assert.Contains(unionResult, x => x.Name == "Alice");
-        Assert.Contains(unionResult, x => x.Name == "Bob");
+        var unionQuery = query1.Concat(query2);
+        var unionResults = unionQuery.ToList();
+        AssertPlan(unionQuery, NativePushdown);
+
+        Assert.Equal(2, unionResults.Count);
+        Assert.Contains(unionResults, x => x.Name == "Alice");
+        Assert.Contains(unionResults, x => x.Name == "Bob");
 
         var upperResult = empQuery.Select(e => e.Name.ToUpper()).ToList();
-        
+
         Assert.Contains("ALICE", upperResult);
         Assert.Contains("BOB", upperResult);
     }
@@ -586,29 +618,34 @@ public class LinqProviderTests
         // linq2db: SELECT ... INTERSECT SELECT ...
         var q1 = empQuery.Where(e => e.DeptId == 1);
         var q2 = empQuery.Where(e => e.Salary > 4000);
-        
-        var intersectResult = q1.Intersect(q2).ToList();
-        
+
+        var intersectQuery = q1.Intersect(q2);
+        var intersectResult = intersectQuery.ToList();
+        AssertPlan(intersectQuery, NativePushdown);
+
         Assert.Equal(2, intersectResult.Count); // Alice , Charlie
         Assert.Contains(intersectResult, e => e.Name == "Alice");
         Assert.Contains(intersectResult, e => e.Name == "Charlie");
 
         // linq2db : SELECT ... EXCEPT SELECT ...
-        var exceptResult = q2.Except(q1).ToList();
-        
+        var exceptQuery = q2.Except(q1);
+        var exceptResult = exceptQuery.ToList();
+        AssertPlan(exceptQuery, NativePushdown);
+
         Assert.Equal(2, exceptResult.Count); // David (8000, 3) , Eve (5500, 2)
         Assert.DoesNotContain(exceptResult, e => e.DeptId == 1);
 
         var letQuery = from e in empQuery
                        let bonus = e.Salary * 1.5
                        where bonus > 8000
-                       select new 
-                       { 
-                           e.Name, 
-                           Bonus = bonus 
+                       select new
+                       {
+                           e.Name,
+                           Bonus = bonus
                        };
 
         var letResult = letQuery.ToList();
+        AssertPlan(letQuery, NativePushdown);
 
         Assert.Equal(3, letResult.Count);
         Assert.Contains(letResult, x => x.Name == "Alice" && x.Bonus == 9000.0);
@@ -638,7 +675,7 @@ public class LinqProviderTests
                         e.Salary,
                         // RANK() OVER (PARTITION BY DeptId ORDER BY Salary DESC)
                         DeptRank = e.Salary.Rank(RankMethod.Min, true).Over(e.DeptId),
-                                         
+
                         // SUM(Salary) OVER (PARTITION BY DeptId)
                         DeptTotalSalary = e.Salary.Sum().Over(e.DeptId)
                     };
@@ -669,12 +706,12 @@ public class LinqProviderTests
         Assert.Equal(5, results.Count);
 
         var alice = results.First(r => r.Name == "Alice");
-        Assert.Equal(1, alice.DeptRank); 
-        Assert.Equal(10500.0, alice.DeptTotalSalary); 
+        Assert.Equal(1, alice.DeptRank);
+        Assert.Equal(10500.0, alice.DeptTotalSalary);
 
         var charlie = results.First(r => r.Name == "Charlie");
-        Assert.Equal(2, charlie.DeptRank); 
-        Assert.Equal(10500.0, charlie.DeptTotalSalary); 
+        Assert.Equal(2, charlie.DeptRank);
+        Assert.Equal(10500.0, charlie.DeptTotalSalary);
 
         var eve = results.First(r => r.Name == "Eve");
         Assert.Equal(1, eve.DeptRank);
@@ -707,12 +744,13 @@ public class LinqProviderTests
         // ==========================================
         // CASE WHEN 
         // ==========================================
-        var caseWhenQueryRaw = empQuery.Select(e => new
+        var caseWhenQuery = empQuery.Select(e => new
         {
             e.Name,
             SalaryTier = e.Salary >= 6000 ? "High" : (e.Salary >= 4500 ? "Medium" : "Low")
         });
-        var caseWhenQuery = caseWhenQueryRaw.ToList();
+        AssertPlan(caseWhenQuery, NativePushdown);
+        var caseWhenQueryResult = caseWhenQuery.ToList();
         // SELECT
         //         e."Name" AS "Name",
         //         CASE
@@ -736,22 +774,22 @@ public class LinqProviderTests
         // │ Eve     ┆ Medium     │
         // └─────────┴────────────┘
 
-        Assert.Equal(5, caseWhenQuery.Count);
-        Assert.Equal("High", caseWhenQuery.First(e => e.Name == "Alice").SalaryTier);   // 6000
-        Assert.Equal("High", caseWhenQuery.First(e => e.Name == "David").SalaryTier);   // 8000
-        Assert.Equal("Medium", caseWhenQuery.First(e => e.Name == "Eve").SalaryTier);     // 5500
-        Assert.Equal("Medium", caseWhenQuery.First(e => e.Name == "Charlie").SalaryTier); // 4500
-        Assert.Equal("Low", caseWhenQuery.First(e => e.Name == "Bob").SalaryTier);        // 4000
+        Assert.Equal(5, caseWhenQueryResult.Count);
+        Assert.Equal("High", caseWhenQueryResult.First(e => e.Name == "Alice").SalaryTier);   // 6000
+        Assert.Equal("High", caseWhenQueryResult.First(e => e.Name == "David").SalaryTier);   // 8000
+        Assert.Equal("Medium", caseWhenQueryResult.First(e => e.Name == "Eve").SalaryTier);     // 5500
+        Assert.Equal("Medium", caseWhenQueryResult.First(e => e.Name == "Charlie").SalaryTier); // 4500
+        Assert.Equal("Low", caseWhenQueryResult.First(e => e.Name == "Bob").SalaryTier);        // 4000
 
         // ==========================================
         // CTE 
         // ==========================================
-        
-        var cte = empQuery.Where(e => e.Salary > 5000);
 
+        var cte = empQuery.Where(e => e.Salary > 5000);
         var cteQuery = from c in cte
-                         where c.DeptId == 1 || c.DeptId == 3
-                         select c;
+                       where c.DeptId == 1 || c.DeptId == 3
+                       select c;
+        AssertPlan(cteQuery, NativePushdown);
         var cteResult = cteQuery.ToList();
 
         // WITH "HighEarners" ("DeptId", "Name", "Salary")
@@ -850,7 +888,7 @@ public class LinqProviderTests
         // │ 2024 ┆ North  ┆ 300.0        │
         // └──────┴────────┴──────────────┘
         Assert.Equal(3, multiGroupResult.Count);
-        
+
         Assert.Equal(2023, multiGroupResult[0].Year);
         Assert.Equal("North", multiGroupResult[0].Region);
         Assert.Equal(250.0, multiGroupResult[0].TotalRevenue);
@@ -891,8 +929,8 @@ public class LinqProviderTests
         Assert.Contains(febOrders, o => o.OrderId == 5);
     }
     public record NullableEmpDto(
-        string? Name, 
-        int DeptId, 
+        string? Name,
+        int DeptId,
         double Salary
     );
 
@@ -910,7 +948,7 @@ public class LinqProviderTests
         var emps = new[]
         {
             new NullableEmpDto("Alice", 1, 6000.0),
-            new NullableEmpDto(null, 2, 4000.0), 
+            new NullableEmpDto(null, 2, 4000.0),
             new NullableEmpDto("Charlie", 1, 4500.0),
             new NullableEmpDto("David", 3, 8000.0)
         };
@@ -924,10 +962,11 @@ public class LinqProviderTests
         // ==========================================
         // IN Subquery
         // ==========================================
-        
+
         var highPaidDeptIds = empQuery.Where(e => e.Salary > 5000).Select(e => e.DeptId);
-        
+        AssertPlan(highPaidDeptIds, NativePushdown);
         var richDeptsQuery = deptQuery.Where(d => highPaidDeptIds.Contains(d.DeptId));
+        AssertPlan(richDeptsQuery, NativePushdown);
         var richDepts = richDeptsQuery.ToList();
         // SELECT
         //         d."DeptId",
@@ -954,7 +993,7 @@ public class LinqProviderTests
         // │ 3      ┆ HR          │
         // └────────┴─────────────┘
 
-        Assert.Equal(2, richDepts.Count); 
+        Assert.Equal(2, richDepts.Count);
         Assert.Contains(richDepts, d => d.DeptName == "Engineering");
         Assert.Contains(richDepts, d => d.DeptName == "HR");
 
@@ -965,6 +1004,7 @@ public class LinqProviderTests
         {
             SafeName = e.Name ?? "Unknown"
         });
+        AssertPlan(coalesceQuery, NativePushdown);
         var coalesceResult = coalesceQuery.ToList();
         // SELECT
         //         Coalesce(e."Name", 'Unknown') AS "SafeName"
@@ -984,7 +1024,7 @@ public class LinqProviderTests
         // └──────────┘
 
         Assert.Equal(4, coalesceResult.Count);
-        Assert.Contains(coalesceResult, e => e.SafeName == "Unknown"); 
+        Assert.Contains(coalesceResult, e => e.SafeName == "Unknown");
 
         // ==========================================
         // Substring / Concat
@@ -996,6 +1036,7 @@ public class LinqProviderTests
                 e.Name,
                 ShortName = e.Name!.Substring(0, 3)
             });
+        AssertPlan(stringQuery, NativePushdown);
         var stringResult = stringQuery.ToList();
         // SELECT
         //         e."Name" AS "Name",
@@ -1025,7 +1066,7 @@ public class LinqProviderTests
         var lengthQuery = empQuery
             .Where(e => e.Name != null && e.Name.Length > 5)
             .Select(e => e.Name);
-
+        AssertPlan(lengthQuery, NativePushdown);
         var lengthResult = lengthQuery.ToList();
         // SELECT
         //         e."Name"
@@ -1044,7 +1085,7 @@ public class LinqProviderTests
         // └─────────┘
 
         Assert.Single(lengthResult);
-        Assert.Equal("Charlie", lengthResult[0]); 
+        Assert.Equal("Charlie", lengthResult[0]);
 
         // ==========================================
         // ToLower
@@ -1052,6 +1093,7 @@ public class LinqProviderTests
         var caseQuery = empQuery
             .Where(e => e.Name == "Alice")
             .Select(e => e.Name!.ToLower());
+        AssertPlan(caseQuery, NativePushdown);
         var caseResult = caseQuery.ToList();
         // SELECT
         //         Lower(e."Name") as c1
@@ -1078,7 +1120,7 @@ public class LinqProviderTests
             .Where(e => e.Name != null && (e.Name.StartsWith('D') || e.Name.Contains("lic")))
             .OrderBy(e => e.Name)
             .Select(e => e.Name);
-
+        AssertPlan(likeQuery, NativePushdown);
         // SELECT
         //         e."Name"
         // FROM
@@ -1113,7 +1155,7 @@ public class LinqProviderTests
         var sales = new[]
         {
             new SalesData("Tech", "Laptop", 1000.5, 50.0),
-            new SalesData("Tech", "Mouse", -20.0, 0.0), 
+            new SalesData("Tech", "Mouse", -20.0, 0.0),
             new SalesData("Office", "Desk", 500.2, 10.0),
             new SalesData("Office", "Chair", 150.8, 5.0)
         };
@@ -1128,6 +1170,7 @@ public class LinqProviderTests
             FullName = s.Category + " - " + s.ProductName,
             NetRevenue = Math.Round(Math.Abs(s.Revenue) - s.Discount, 2)
         });
+        AssertPlan(scalarQuery, NativePushdown);
         // SELECT
         //         s."Category" || ' - ' || s."ProductName" AS "FullName",
         //         Abs(s."Revenue") - s."Discount" AS "NetRevenue"
@@ -1155,14 +1198,14 @@ public class LinqProviderTests
         // Conditional Aggregation / Pivot
         // ==========================================
         var aggQuery = salesQuery
-            .GroupBy(s => 1) 
+            .GroupBy(s => 1)
             .Select(g => new
             {
                 Total = g.Sum(x => Math.Abs(x.Revenue)),
                 TechTotal = g.Sum(x => x.Category == "Tech" ? Math.Abs(x.Revenue) : 0),
                 OfficeTotal = g.Sum(x => x.Category == "Office" ? Math.Abs(x.Revenue) : 0)
             });
-
+        AssertPlan(aggQuery, NativePushdown);
         // SELECT
         //         SUM(Abs(g_1."Revenue")) AS "Total",
         //         SUM(CASE
@@ -1254,20 +1297,21 @@ public class LinqProviderTests
 
         var aaplDay2 = lagResult.First(s => s.Ticker == "AAPL" && s.Date.Day == 2);
         Assert.Equal(155.0, aaplDay2.Price);
-        Assert.Equal(150.0, aaplDay2.PrevPrice); 
+        Assert.Equal(150.0, aaplDay2.PrevPrice);
 
         // ==========================================
         // STRING_AGG
         // ==========================================
         var nestedQuery = from d in deptQuery
                           join e in empQuery on d.DeptId equals e.DeptId into empGroup
-                          from e in empGroup.DefaultIfEmpty() 
-                          group e by d.DeptName into g      
+                          from e in empGroup.DefaultIfEmpty()
+                          group e by d.DeptName into g
                           select new
                           {
                               DeptName = g.Key,
                               Employees = string.Join(", ", g.Select(e => e.Name))
                           };
+        AssertPlan(nestedQuery, NativePushdown);
         // SELECT
         //         g_1."DeptName" AS "DeptName",
         //         ARRAY_TO_STRING(ARRAY_AGG(e."Name"), ', ') AS "Employees"
@@ -1289,7 +1333,7 @@ public class LinqProviderTests
         var nestedResult = nestedQuery.ToList();
 
         Assert.Equal(2, nestedResult.Count);
-        
+
         var techDept = nestedResult.First(d => d.DeptName == "Tech");
 
         Assert.Contains("Alice", techDept.Employees);
@@ -1299,48 +1343,7 @@ public class LinqProviderTests
 
         Assert.Equal("Charlie", salesDept.Employees);
     }
-    // [Fact]
-    // [Trait("LINQ", "UnifiedCRUD")]
-    // public void Test_Polars_Linq_Unified_CRUD_UX()
-    // {
-        // var emps = new[]
-        // {
-        //     new EmployeeSalary { Name = "Alice", DeptId = 1, Salary = 5000.0 },
-        //     new EmployeeSalary { Name = "Bob",   DeptId = 2, Salary = 4000.0 },
-        //     new EmployeeSalary { Name = "Eve",   DeptId = 3, Salary = 3000.0 }
-        // };
 
-        // using var dfEmps = DataFrame.FromRows(emps);
-        
-        // var table = dfEmps.AsQueryable<EmployeeSalary>();
-
-        // // ==========================================
-        // // SELECT
-        // // ==========================================
-        // var richEmps = table.Where(e => e.Salary >= 5000).ToList();
-        // Assert.Single(richEmps);
-        // Assert.Equal("Alice", richEmps[0].Name);
-
-        // ==========================================
-        // UPDATE (NOT SUPPORTED)
-        // ==========================================
-        // try
-        // {
-        //     table.Where(e => e.DeptId == 1)
-        //          .Set(e => e.Salary, e => e.Salary + 1000)
-        //          .Update();
-        // }
-        // catch (Exception ex)
-        // {
-        //     Console.WriteLine($"Expected Update Error: {ex.Message}");
-        // }
-
-        // ==========================================
-        // Delete
-        // ==========================================
-        // int deleted = table.Where(e => e.DeptId == 3).Delete();
-        // Assert.True(deleted >= 0);
-    // }
     public record StaffRecord(string name, int age, int salary);
     [Fact]
     [Trait("LINQ", "LazyIO")]
@@ -1358,18 +1361,18 @@ David,40,80000";
         {
             using var schema = PolarsSchema.From<StaffRecord>();
 
-            using var lf = LazyFrame.ScanCsv(fileName,schema:schema);
-            
+            using var lf = LazyFrame.ScanCsv(fileName, schema: schema);
+
             var results = lf.AsQueryable<StaffRecord>()
                           .Where(e => e.age > 30)
-                          .Select(e => new 
-                          { 
-                              e.name, 
-                              e.salary 
+                          .Select(e => new
+                          {
+                              e.name,
+                              e.salary
                           }).ToList();
 
             Assert.NotNull(results);
-            Assert.Equal(2, results.Count); 
+            Assert.Equal(2, results.Count);
 
             Assert.Equal("Charlie", results[0].name);
             Assert.Equal(70000.0, results[0].salary);
@@ -1382,11 +1385,11 @@ David,40,80000";
             if (File.Exists(fileName)) File.Delete(fileName);
         }
     }
-    
+
     public record StaffRecordWithBonus(
-        string name, 
-        int age, 
-        int salary, 
+        string name,
+        int age,
+        int salary,
         double bonus);
 
     [Fact]
@@ -1405,16 +1408,16 @@ David,40,80000";
         {
             using var schema = PolarsSchema.From<StaffRecord>();
 
-            using var lf = LazyFrame.ScanCsv(fileName, schema: schema,hasHeader:false,truncateRaggedLines:true);
-            
+            using var lf = LazyFrame.ScanCsv(fileName, schema: schema, hasHeader: false, truncateRaggedLines: true);
+
             using var lfWithBonus = lf.WithColumns((Pl.Col("salary") * 0.1).Alias("bonus"));
 
             var query = lfWithBonus.AsQueryable<StaffRecordWithBonus>()
-                                   .Where(e => e.age > 30 && e.bonus >= 7000.0) 
-                                   .Select(e => new 
-                                   { 
-                                       e.name, 
-                                       TotalCompensation = e.salary + e.bonus 
+                                   .Where(e => e.age > 30 && e.bonus >= 7000.0)
+                                   .Select(e => new
+                                   {
+                                       e.name,
+                                       TotalCompensation = e.salary + e.bonus
                                    });
             // SELECT
             //         e.name AS "name",
@@ -1439,10 +1442,10 @@ David,40,80000";
             Assert.Equal(2, results.Count);
 
             Assert.Equal("Charlie", results[0].name);
-            Assert.Equal(77000.0, results[0].TotalCompensation); 
+            Assert.Equal(77000.0, results[0].TotalCompensation);
 
             Assert.Equal("David", results[1].name);
-            Assert.Equal(88000.0, results[1].TotalCompensation); 
+            Assert.Equal(88000.0, results[1].TotalCompensation);
         }
         finally
         {
@@ -1450,14 +1453,14 @@ David,40,80000";
         }
     }
     [Fact]
-    [Trait("LINQ","Sandwich")]
+    [Trait("LINQ", "Sandwich")]
     public void Test_Polars_Double_Hybrid_Sandwich()
     {
         using var schema = PolarsSchema.From<StaffRecord>();
         string path = "/home/qinglei/Projects/Polars.NET/Polars.Integration.Tests/TestData/staffrecord.csv";
 
-        using var rawLf = LazyFrame.ScanCsv(path,schema:schema);
-        
+        using var rawLf = LazyFrame.ScanCsv(path, schema: schema);
+
         var query = rawLf.AsQueryable<StaffRecord>()
                       .Where(e => e.salary > 5000)
                       .Select(e => new { e.name, e.salary });
@@ -1485,7 +1488,7 @@ David,40,80000";
         // │ Charlie ┆ 70000  ┆ 12909.944487 │
         // │ David   ┆ 80000  ┆ 12909.944487 │
         // └─────────┴────────┴──────────────┘
-      
+
         Assert.True(df.Height > 0);
     }
     public class SalesRecord
@@ -1518,15 +1521,15 @@ David,40,80000";
             {
                 Absolute = Math.Abs(x.Revenue),
                 Rounded = Math.Round(x.Revenue),
-                Ceiled = Math.Ceiling(x.Revenue) 
+                Ceiled = Math.Ceiling(x.Revenue)
             });
-
+        AssertPlan(mathQuery, NativePushdown);
         var mathResult = mathQuery.ToList();
 
         Assert.Equal(3, mathResult.Count);
         Assert.Equal(150.5, mathResult[0].Absolute);
-        Assert.Equal(-150.0, mathResult[0].Rounded); 
-        Assert.Equal(201.0, mathResult[1].Ceiled);   
+        Assert.Equal(-150.0, mathResult[0].Rounded);
+        Assert.Equal(201.0, mathResult[1].Ceiled);
 
         // ==========================================
         // Date
@@ -1534,6 +1537,7 @@ David,40,80000";
         var dateQuery = table
             .Where(x => x.SaleDate.Year == 2023)
             .Select(x => x.Id);
+        AssertPlan(dateQuery, NativePushdown);
         var dateResult = dateQuery.ToList();
         // SELECT
         //         x."Id"
@@ -1551,7 +1555,7 @@ David,40,80000";
         // │ 2   │
         // └─────┘
 
-        Assert.Equal(2, dateResult.Count); 
+        Assert.Equal(2, dateResult.Count);
         Assert.Contains(1, dateResult);
     }
     public class WindowStatsRecord
@@ -1571,7 +1575,7 @@ David,40,80000";
             new WindowStatsRecord { DeptId = 1, EmpName = "Bob",     Salary = 6000 },
             new WindowStatsRecord { DeptId = 1, EmpName = "Charlie", Salary = 7000 },
             new WindowStatsRecord { DeptId = 2, EmpName = "Dave",    Salary = 4000 },
-            new WindowStatsRecord { DeptId = 2, EmpName = "Eve",     Salary = 4000 }, 
+            new WindowStatsRecord { DeptId = 2, EmpName = "Eve",     Salary = 4000 },
             new WindowStatsRecord { DeptId = 2, EmpName = "Frank",   Salary = 8000 }
         };
 
@@ -1590,14 +1594,14 @@ David,40,80000";
                 StdDevSalary = g.Std(x => x.Salary)
             })
             .OrderBy(x => x.DeptId);
-        
+
         var statsResult = statsQuery.ToList();
 
         Assert.Equal(2, statsResult.Count);
-        
+
         Assert.Equal(1, statsResult[0].DeptId);
         Assert.Equal(6000.0, statsResult[0].MedianSalary);
-        Assert.True(statsResult[0].StdDevSalary > 0); 
+        Assert.True(statsResult[0].StdDevSalary > 0);
 
         // ==========================================
         // Complex Window Functions
@@ -1647,14 +1651,14 @@ David,40,80000";
         Assert.Equal(1, charlie.Rank);
 
         var frank = windowResult.First(x => x.EmpName == "Frank");
-        Assert.Equal(1, frank.Rank); 
+        Assert.Equal(1, frank.Rank);
 
         var dave = windowResult.First(x => x.EmpName == "Dave");
         var eve = windowResult.First(x => x.EmpName == "Eve");
-        
+
         Assert.Equal(2, dave.Rank);
         Assert.Equal(2, eve.Rank);
-        
+
         Assert.True(dave.RowNum != eve.RowNum);
         Assert.True(dave.RowNum == 2 || dave.RowNum == 3);
     }
@@ -1690,7 +1694,7 @@ David,40,80000";
                 Var = g.Var(x => x.Value),
 
                 // PERCENTILE_CONT
-                Q50_Cont = g.Select(x => x.Value).Quantile( 0.5, QuantileMethod.Linear),
+                Q50_Cont = g.Select(x => x.Value).Quantile(0.5, QuantileMethod.Linear),
 
                 // (PERCENTILE_DISC Nearest
                 Q50_Disc = g.Select(x => x.Value).Quantile(0.5, QuantileMethod.Nearest),
@@ -1726,7 +1730,7 @@ David,40,80000";
         Assert.Equal(25.0, result.Q50_Cont);
 
         Assert.True(result.Q50_Disc == 20.0 || result.Q50_Disc == 30.0, $"Actual Q50_Disc was {result.Q50_Disc}");
-        Assert.NotEqual(25.0, result.Q50_Disc); 
+        Assert.NotEqual(25.0, result.Q50_Disc);
 
         Assert.True(result.Q99_Cont > 39.0);
     }
@@ -1758,13 +1762,13 @@ David,40,80000";
             {
                 x.Id,
                 // Bitwise AND
-                AndResult = x.A & x.B, 
+                AndResult = x.A & x.B,
                 // Bitwise OR
-                OrResult  = x.A | x.B, 
+                OrResult = x.A | x.B,
                 // Bitwise XOR
-                XorResult  = x.A ^ x.B,
+                XorResult = x.A ^ x.B,
                 // Bitwise NOT
-                NotResult = ~x.A,       
+                NotResult = ~x.A,
                 // Bitwise COUNT
                 CountResult = BitOperations.PopCount((uint)x.A),
                 // Bitwise SHL 
@@ -1772,7 +1776,7 @@ David,40,80000";
                 // Bitwise SHR 
                 ShrResult = x.A >> 1
             });
-
+        AssertPlan(firstQuery, NativePushdown);
         var bitQuery = firstQuery.ToList();
 
         Assert.Equal(2, bitQuery.Count);
@@ -1789,7 +1793,7 @@ David,40,80000";
         Assert.Equal(1, row1.AndResult);
         Assert.Equal(7, row1.OrResult);
         Assert.Equal(6, row1.XorResult);
-        Assert.Equal(~5, row1.NotResult); 
+        Assert.Equal(~5, row1.NotResult);
         Assert.Equal(2, row1.CountResult);
         Assert.Equal(10, row1.ShlResult);
         Assert.Equal(2, row1.ShrResult);
@@ -1839,9 +1843,10 @@ David,40,80000";
                 x.EventTime.Month,
                 x.EventTime.Day,
                 x.EventTime.Hour,
-                
+
                 FormattedDate = x.EventTime.ToString("YYYY-mm-dd")
             });
+        AssertPlan(timeQuery, NativePushdown);
         var timeResult = timeQuery.ToList();
         // SELECT
         //         x."Id",
@@ -1865,7 +1870,7 @@ David,40,80000";
         // └─────┴────────┴─────────┴───────┴────────┴───────────────┘
 
         Assert.Equal(2, timeResult.Count);
-        
+
         Assert.Equal(2024, timeResult[0].Year);
         Assert.Equal(3, timeResult[0].Month);
         Assert.Equal(15, timeResult[0].Day);
@@ -1877,7 +1882,7 @@ David,40,80000";
         public int Id { get; set; }
         public string Text1 { get; set; } = "";
         public string Text2 { get; set; } = "";
-        public string TimeStr {get; set;} ="";
+        public string TimeStr { get; set; } = "";
     }
 
     [Fact]
@@ -1899,18 +1904,18 @@ David,40,80000";
             {
                 x.Id,
                 ConcatStr = x.Text1 + " " + x.Text2,
-                
+
                 LTrimStr = x.Text1.TrimStart(),
                 RTrimStr = x.Text1.TrimEnd(),
-                
+
                 ReplaceStr = x.Text2.Replace("r", "x"),
-                
-                PosStr = x.Text2.IndexOf('o') ,
+
+                PosStr = x.Text2.IndexOf('o'),
                 ParsedTime = DateTime.ParseExact(x.TimeStr, "yyyy-MM-dd HH:mm:ss", null)
 
             });
-        
-        var strResult =strQuery.ToList();
+        AssertPlan(strQuery, NativePushdown);
+        var strResult = strQuery.ToList();
         // SELECT
         //         x."Id" AS "Id",
         //         x."Text1" || ' ' || x."Text2" AS "ConcatStr",
@@ -1933,35 +1938,35 @@ David,40,80000";
         // │ 2   ┆ Polars Data     ┆ Polars   ┆ Polars   ┆ Data       ┆ -1     ┆ 2025-12-01 09:15:45 │
         // └─────┴─────────────────┴──────────┴──────────┴────────────┴────────┴─────────────────────┘
         Assert.Equal(2, strResult.Count);
-        
+
         var row1 = strResult[0];
         Assert.Equal("  Hello   World", row1.ConcatStr);
         Assert.Equal("Hello  ", row1.LTrimStr);
         Assert.Equal("  Hello", row1.RTrimStr);
-        Assert.Equal("Woxld", row1.ReplaceStr); 
-        Assert.Equal(1, row1.PosStr); 
+        Assert.Equal("Woxld", row1.ReplaceStr);
+        Assert.Equal(1, row1.PosStr);
         Assert.Equal(new DateTime(2024, 3, 15, 14, 30, 0), row1.ParsedTime);
 
         var row2 = strResult[1];
         Assert.Equal("Polars Data", row2.ConcatStr);
         Assert.Equal("Polars", row2.LTrimStr);
         Assert.Equal("Polars", row2.RTrimStr);
-        Assert.Equal("Data", row2.ReplaceStr); 
-        Assert.Equal(-1, row2.PosStr); 
+        Assert.Equal("Data", row2.ReplaceStr);
+        Assert.Equal(-1, row2.PosStr);
         Assert.Equal(new DateTime(2025, 12, 1, 9, 15, 45), row2.ParsedTime);
     }
     [Fact]
     [Trait("LINQ", "ControlFlow")]
     public void Test_Polars_Linq_Native_Control_Flow_Functions()
-    {       
+    {
 
-        var mockData = new[] 
-        { 
+        var mockData = new[]
+        {
             new { Id = 1, Val1 = (int?)10, Val2 = (int?)20 },
             new { Id = 2, Val1 = (int?)null, Val2 = (int?)30 },
             new { Id = 3, Val1 = (int?)40, Val2 = (int?)40 }
         };
-        
+
         var table = DataFrame.FromRows(mockData).AsQueryable(mockData);
 
         var query = table
@@ -1969,18 +1974,18 @@ David,40,80000";
             .Select(x => new
             {
                 x.Id,
-                
+
                 CoalesceVal = x.Val1 ?? x.Val2 ?? 0,
-                
+
                 MaxVal = Math.Max(x.Val1 ?? 0, x.Val2 ?? 0),
-                
+
                 MinVal = Math.Min(x.Val1 ?? 0, x.Val2 ?? 0),
 
                 IfStr = x.Val1 > 15 ? "Big" : "Small",
-                
+
                 NullIfVal = x.Val1 == x.Val2 ? null : x.Val1
             });
-
+        AssertPlan(query, NativePushdown);
         var result = query.ToList();
         // SELECT
         //         x."Id" AS "Id",
@@ -2014,7 +2019,7 @@ David,40,80000";
         // └─────┴─────────────┴────────┴────────┴───────┴───────────┘
 
         Assert.Equal(3, result.Count);
-        
+
         Assert.Equal(30, result[1].CoalesceVal); // null ?? 30 = 30
         Assert.Equal(20, result[0].MaxVal);      // Max(10, 20) = 20
         Assert.Null(result[2].NullIfVal);        // 40 == 40 -> null        
@@ -2023,13 +2028,13 @@ David,40,80000";
     [Trait("LINQ", "MathTrig")]
     public void Test_Polars_Linq_Native_Math_Trig_Functions()
     {
-        var mockData = new[] 
-        { 
+        var mockData = new[]
+        {
             new { Id = 1, V1 = 0.5, V2 = 1.0 },
             new { Id = 2, V1 = 0.0, V2 = -0.5 },
             new { Id = 3, V1 = -1.0, V2 = 0.5 }
         };
-        
+
         var table = DataFrame.FromRows(mockData).AsQueryable(mockData);
 
         var query = table
@@ -2040,14 +2045,15 @@ David,40,80000";
                 SinVal = Math.Sin(x.V1),
                 CosVal = Math.Cos(x.V1),
                 TanVal = Math.Tan(x.V1),
-                
+
                 AsinVal = Math.Asin(x.V1),
                 AcosVal = Math.Acos(x.V1),
                 AtanVal = Math.Atan(x.V1),
-                
+
 
                 Atan2Val = Math.Atan2(x.V1, x.V2)
             });
+        AssertPlan(query, NativePushdown);
         var result = query.ToList();
         // SELECT
         //         x."Id" AS "Id",
@@ -2074,7 +2080,7 @@ David,40,80000";
         // └─────┴───────────┴──────────┴───────────┴───────────┴──────────┴───────────┴───────────┘
 
         Assert.Equal(3, result.Count);
-        
+
         Assert.True(Math.Abs(result[0].SinVal - Math.Sin(0.5)) < 1e-6);
 
     }
@@ -2083,11 +2089,11 @@ David,40,80000";
     public void Test_Polars_Linq_Native_Math_General_Functions()
     {
 
-        var mockData = new[] 
-        { 
+        var mockData = new[]
+        {
             new { Id = 1, V1 = 2.0, V2 = 3.0, IntVal = 10, Divisor = 3 }
         };
-        
+
         var table = DataFrame.FromRows(mockData).AsQueryable(mockData);
 
         var query = table
@@ -2095,26 +2101,26 @@ David,40,80000";
             .Select(x => new
             {
                 x.Id,
-                
-                AbsVal = Math.Abs(x.V2 * -1),                   
-                ModVal = x.IntVal % x.Divisor,     
-                DivOpVal = x.IntVal / x.Divisor,                 
 
-                CeilVal = Math.Ceiling(x.V1 + 0.5),          
-                FloorVal = Math.Floor(x.V1 + 0.5),               
-                RoundVal = Math.Round(x.V1 + 0.54, 1),     
-                
-                PowVal = Math.Pow(x.V1, x.V2),              
-                SqrtVal = Math.Sqrt(x.V1),                      
-                ExpVal = Math.Exp(x.V1),                       
+                AbsVal = Math.Abs(x.V2 * -1),
+                ModVal = x.IntVal % x.Divisor,
+                DivOpVal = x.IntVal / x.Divisor,
 
-                LnVal = Math.Log(x.V1),                       
+                CeilVal = Math.Ceiling(x.V1 + 0.5),
+                FloorVal = Math.Floor(x.V1 + 0.5),
+                RoundVal = Math.Round(x.V1 + 0.54, 1),
 
-                SignVal = Math.Sign(x.V1 - 5.0),                
-                
-                PiFunc = Math.PI                         
+                PowVal = Math.Pow(x.V1, x.V2),
+                SqrtVal = Math.Sqrt(x.V1),
+                ExpVal = Math.Exp(x.V1),
+
+                LnVal = Math.Log(x.V1),
+
+                SignVal = Math.Sign(x.V1 - 5.0),
+
+                PiFunc = Math.PI
             });
-
+        AssertPlan(query, NativePushdown);
         var df = query.ToDataFrame();
         // SELECT
         //         x."Id" AS "Id",
@@ -2156,7 +2162,7 @@ David,40,80000";
     public class JoinResult
     {
         public string DeptName { get; set; } = string.Empty;
-        public string? EmployeeName { get; set; } 
+        public string? EmployeeName { get; set; }
     }
     [Fact]
     [Trait("LINQ", "LeftJoinNew")]
@@ -2167,7 +2173,7 @@ David,40,80000";
         {
             new DeptDto { DeptId = 1, DeptName = "Engineering" },
             new DeptDto { DeptId = 2, DeptName = "Sales" },
-            new DeptDto { DeptId = 3, DeptName = "HR" } 
+            new DeptDto { DeptId = 3, DeptName = "HR" }
         };
 
         var emps = new[]
@@ -2188,11 +2194,11 @@ David,40,80000";
                 empQuery,
                 d => d.DeptId,
                 e => e.DeptId,
-                (d, e) => new 
+                (d, e) => new
                 {
                     d.DeptId,
                     d.DeptName,
-                    EmployeeName = e != null ? e.Name : "NO_EMPLOYEE" 
+                    EmployeeName = e != null ? e.Name : "NO_EMPLOYEE"
                 })
             .OrderBy(x => x.DeptId)
             .ThenBy(x => x.EmployeeName)
@@ -2201,7 +2207,7 @@ David,40,80000";
                 DeptName = x.DeptName,
                 EmployeeName = x.EmployeeName
             });
-
+        AssertPlan(query, NativePushdown);
         var results = query.ToList();
         // SELECT
         //         x."DeptName",
@@ -2265,7 +2271,7 @@ David,40,80000";
             new EmpDto { Name = "Alice", DeptId = 1 },
             new EmpDto { Name = "Bob",   DeptId = 2 },
             new EmpDto { Name = "Charlie", DeptId = 1 },
-            new EmpDto { Name = "David", DeptId = 99 } 
+            new EmpDto { Name = "David", DeptId = 99 }
         };
 
         using var dfDepts = DataFrame.FromRows(depts);
@@ -2279,12 +2285,12 @@ David,40,80000";
                 deptQuery,
                 e => e.DeptId,
                 d => d.DeptId,
-                (e, d) => new 
+                (e, d) => new
                 {
                     d.DeptId,
                     d.DeptName,
 
-                    EmployeeName = e != null ? e.Name : "NO_EMPLOYEE" 
+                    EmployeeName = e != null ? e.Name : "NO_EMPLOYEE"
                 })
             .OrderBy(x => x.DeptId)
             .ThenBy(x => x.EmployeeName)
@@ -2293,7 +2299,7 @@ David,40,80000";
                 DeptName = x.DeptName,
                 EmployeeName = x.EmployeeName
             });
-
+        AssertPlan(query, NativePushdown);
         var results = query.ToList();
         // SELECT
         //         x."DeptName",
@@ -2358,6 +2364,7 @@ David,40,80000";
         var countQuery = salesQuery
             .CountBy(x => x.Category)
             .OrderBy(x => x.Key);
+        AssertPlan(countQuery, NativePushdown);
         var countResult = countQuery.ToList();
         // SELECT
         //         g_1."Category" as "Key_1",
@@ -2379,7 +2386,7 @@ David,40,80000";
         // └─────────────┴─────────┘
 
         Assert.Equal(3, countResult.Count);
-        
+
         // Books: 1, Clothing: 3, Electronics: 2
         Assert.Equal("Books", countResult[0].Key);
         Assert.Equal(1, countResult[0].Value);
@@ -2392,10 +2399,10 @@ David,40,80000";
 
         var sumQuery = salesQuery
             .GroupBy(x => x.Category)
-            .Select(g => new 
+            .Select(g => new
             {
-                Key = g.Key, 
-                Value = g.Sum(x => x.Amount) 
+                Key = g.Key,
+                Value = g.Sum(x => x.Amount)
             })
             .OrderBy(x => x.Key);
         // SELECT

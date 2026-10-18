@@ -23,7 +23,7 @@ type internal TranslationContext =
     | Scalar of paramName: string * physicalCol: string
 
     /// Binary parameter context for Joins and Merges (e.g. (outer, inner) => new { outer.Id, inner.Name }).
-    | BinaryJoin of leftParam: string * rightParam: string
+    | BinaryJoin of leftParam: string * rightParam: string * leftCols: Set<string> * rightSuffix: string
 
     /// Merge context: (target, source) => predicate
     /// Target columns resolve to "Col", source columns resolve to "Col" + sourceSuffix.
@@ -42,7 +42,7 @@ type internal TranslationContext =
         | TranslationContext.Empty -> false
         | TranslationContext.Entity p -> p = name
         | TranslationContext.Scalar(p, _) -> p = name
-        | TranslationContext.BinaryJoin(left, right) -> name = left || name = right
+        | TranslationContext.BinaryJoin(left, right, _, _) -> name = left || name = right
         | TranslationContext.Merge(target, source, _) -> name = target || name = source
         | TranslationContext.TupleJoin(pairParam, _, _) -> name = pairParam
         | TranslationContext.CorrelatedJoin(outer, inner, _, _) -> name = outer || name = inner
@@ -239,13 +239,13 @@ module internal rec ExprTranslator =
             let typeName = m.DeclaringType.Name
             let memberName = m.Name
 
-            typeName.StartsWith "Tuple"
-            || typeName.StartsWith "ValueTuple"
-            || typeName.StartsWith "AnonymousObject"
-            || typeName.Contains "TransparentIdentifier"
+            typeName.Contains "TransparentIdentifier"
             || memberName.Contains "TransparentIdentifier"
             || memberName.StartsWith "<>h__"
-            || (typeName.Contains "AnonymousType"
+            || ((typeName.StartsWith "Tuple"
+                 || typeName.StartsWith "ValueTuple"
+                 || typeName.StartsWith "AnonymousObject"
+                 || typeName.Contains "AnonymousType")
                 && match m with
                    | :? PropertyInfo as p -> not (PolarsTypeHelper.IsScalarType p.PropertyType)
                    | :? FieldInfo as f -> not (PolarsTypeHelper.IsScalarType f.FieldType)
@@ -298,10 +298,11 @@ module internal rec ExprTranslator =
                         elif isRootedIn source inner then Some(m.Name + suffix)
                         else None
 
-                    | TranslationContext.CorrelatedJoin(outerParam, innerParam, leftCols, rightSuffix) ->
-                        if isRootedIn outerParam inner then
+                    | TranslationContext.BinaryJoin(leftParam, rightParam, leftCols, rightSuffix)
+                    | TranslationContext.CorrelatedJoin(leftParam, rightParam, leftCols, rightSuffix) ->
+                        if isRootedIn leftParam inner then
                             Some m.Name
-                        elif isRootedIn innerParam inner then
+                        elif isRootedIn rightParam inner then
                             if leftCols.Contains m.Name then
                                 Some(m.Name + rightSuffix)
                             else
@@ -703,15 +704,71 @@ module internal rec ExprTranslator =
                 Some(PolarsWrapper.StrSplit(t, PolarsWrapper.Lit s, inclusive = false, literal = true, strict = false))
             | _ -> None
 
+        // --- IndexOf ---
+        | "IndexOf", [ arg ] ->
+            match targetH (), tryTranslateWithContext ctx arg with
+            | Some t, Some p ->
+                let findH = PolarsWrapper.StrFind(t, p, literal = true, strict = false)
+                let castedH = tryTranslateCast typeof<int> findH |> Option.defaultValue findH
+                Some(PolarsWrapper.FillNull(castedH, PolarsWrapper.Lit -1))
+            | _ -> None
+
+        | "IndexOf", [ arg; compExpr ]
+        | "IndexOf", arg :: compExpr :: _ ->
+            match targetH (), tryTranslateWithContext ctx arg, tryEvaluateCaseInsensitive compExpr with
+            | Some t, Some p, Some true ->
+                let tLower = PolarsWrapper.StrToLower t
+                let pLower = PolarsWrapper.StrToLower p
+                let findH = PolarsWrapper.StrFind(tLower, pLower, literal = true, strict = false)
+                let castedH = tryTranslateCast typeof<int> findH |> Option.defaultValue findH
+                Some(PolarsWrapper.FillNull(castedH, PolarsWrapper.Lit -1))
+            | Some t, Some p, Some false ->
+                let findH = PolarsWrapper.StrFind(t, p, literal = true, strict = false)
+                let castedH = tryTranslateCast typeof<int> findH |> Option.defaultValue findH
+                Some(PolarsWrapper.FillNull(castedH, PolarsWrapper.Lit -1))
+            | _ -> None
+
         | "Trim", [] ->
             targetH ()
             |> Option.map (fun t -> PolarsWrapper.StrStripChars(t, PolarsWrapper.LitNull()))
+        | "Trim", [ arg ] ->
+            match unwrap arg with
+            | :? ConstantExpression as ce when isNull ce.Value ->
+                targetH () |> Option.map (fun t -> PolarsWrapper.StrStripChars(t, PolarsWrapper.LitNull()))
+            | :? NewArrayExpression as nae when nae.Expressions.Count = 0 ->
+                targetH () |> Option.map (fun t -> PolarsWrapper.StrStripChars(t, PolarsWrapper.LitNull()))
+            | _ ->
+                match targetH (), tryTranslateWithContext ctx arg with
+                | Some t, Some p -> Some(PolarsWrapper.StrStripChars(t, p))
+                | _ -> None
+
         | "TrimStart", [] ->
             targetH ()
             |> Option.map (fun t -> PolarsWrapper.StrStripCharsStart(t, PolarsWrapper.LitNull()))
+        | "TrimStart", [ arg ] ->
+            match unwrap arg with
+            | :? ConstantExpression as ce when isNull ce.Value ->
+                targetH () |> Option.map (fun t -> PolarsWrapper.StrStripCharsStart(t, PolarsWrapper.LitNull()))
+            | :? NewArrayExpression as nae when nae.Expressions.Count = 0 ->
+                targetH () |> Option.map (fun t -> PolarsWrapper.StrStripCharsStart(t, PolarsWrapper.LitNull()))
+            | _ ->
+                match targetH (), tryTranslateWithContext ctx arg with
+                | Some t, Some p -> Some(PolarsWrapper.StrStripCharsStart(t, p))
+                | _ -> None
+
         | "TrimEnd", [] ->
             targetH ()
             |> Option.map (fun t -> PolarsWrapper.StrStripCharsEnd(t, PolarsWrapper.LitNull()))
+        | "TrimEnd", [ arg ] ->
+            match unwrap arg with
+            | :? ConstantExpression as ce when isNull ce.Value ->
+                targetH () |> Option.map (fun t -> PolarsWrapper.StrStripCharsEnd(t, PolarsWrapper.LitNull()))
+            | :? NewArrayExpression as nae when nae.Expressions.Count = 0 ->
+                targetH () |> Option.map (fun t -> PolarsWrapper.StrStripCharsEnd(t, PolarsWrapper.LitNull()))
+            | _ ->
+                match targetH (), tryTranslateWithContext ctx arg with
+                | Some t, Some p -> Some(PolarsWrapper.StrStripCharsEnd(t, p))
+                | _ -> None
         | _ -> None
 
     let private translateTemporalMethod
@@ -1476,7 +1533,10 @@ module internal rec ExprTranslator =
             else
                 target, args
 
-        if not (isNull effectiveTarget) && m.Name = "Shift" then
+        if (m.Name = "IsNull" || m.Name = "isNull") && args.Length = 1 then
+            tryTranslateWithContext ctx args.Head
+            |> Option.map PolarsWrapper.IsNull
+        elif not (isNull effectiveTarget) && m.Name = "Shift" then
             translateShiftMethod ctx effectiveTarget effectiveArgs
         // Transparently unwrap client-side sequence materialization methods (ToArray, ToList, AsEnumerable)
         elif
@@ -1551,8 +1611,6 @@ module internal rec ExprTranslator =
         then
             translateScalarReductionMethod ctx m target args
 
-
-
         // 4. Decimal / Numeric Instance Methods (e.g. d.ToString())
         elif not (isNull target) && target.Type = typeof<decimal> then
             match m.Name, args with
@@ -1566,7 +1624,7 @@ module internal rec ExprTranslator =
                     if fmt.StartsWith("F", StringComparison.OrdinalIgnoreCase) then
                         // Safely parse precision, defaulting to 2 decimal places if "F" / "f" has no explicit digits
                         let scale =
-                            let s = fmt.Substring(1)
+                            let s = fmt.Substring 1
 
                             match Int32.TryParse(s) with
                             | true, v -> v
@@ -1592,6 +1650,45 @@ module internal rec ExprTranslator =
     // 8. List / Array Row-Level Expression Dispatcher
     // =========================================================================
 
+    let internal tryCreateSeriesHandleFromObject (objVal: obj) : SeriesHandle option =
+        match objVal with
+        | null -> None
+        | :? Array as arr ->
+            try
+                let h = SeriesFactory.Create("", arr)
+                if not (isNull h || h.IsInvalid) then Some h else None
+            with _ ->
+                None
+        | :? System.Collections.IEnumerable as seq ->
+            try
+                let elemType =
+                    let t = seq.GetType()
+
+                    let iface =
+                        t.GetInterfaces()
+                        |> Seq.tryFind (fun i ->
+                            i.IsGenericType && i.GetGenericTypeDefinition() = typedefof<ResizeArray<_>>)
+
+                    match iface with
+                    | Some i -> i.GetGenericArguments().[0]
+                    | None -> typeof<obj>
+
+                let items = ResizeArray<obj>()
+
+                for item in seq do
+                    items.Add item
+
+                let arr = Array.CreateInstance(elemType, items.Count)
+
+                for i = 0 to items.Count - 1 do
+                    arr.SetValue(items.[i], i)
+
+                let h = SeriesFactory.Create("", arr)
+                if not (isNull h || h.IsInvalid) then Some h else None
+            with _ ->
+                None
+        | _ -> None
+
     let private translateListInvocation (ctx: TranslationContext) (invocation: ListInvocation) : ExprHandle option =
         let t1 expr = tryTranslateWithContext ctx expr
 
@@ -1603,8 +1700,23 @@ module internal rec ExprTranslator =
         match invocation with
         | ListLen target -> t1 target |> Option.map PolarsWrapper.ListLen
         | ListContains(target, itemExpr) ->
-            t2 target itemExpr
-            |> Option.map (fun (t, item) -> PolarsWrapper.ListContains(t, item, nullsEqual = false))
+            match t2 target itemExpr with
+            | Some(t, item) -> Some(PolarsWrapper.ListContains(t, item, nullsEqual = false))
+            | None ->
+                // Check if target is an in-memory collection (IN predicate: item IN target)
+                option {
+                    let! itemH = t1 itemExpr
+                    let unwrapped = unwrapSpanOrArray target
+                    let! evaluated = tryEvaluate unwrapped
+
+                    match evaluated with
+                    | :? System.Collections.IEnumerable as coll when coll.GetType() <> typeof<string> ->
+                        let! seriesHandle = tryCreateSeriesHandleFromObject coll
+                        let litH = PolarsWrapper.Lit seriesHandle
+                        let implodedH = PolarsWrapper.Implode(litH, maintainOrder = false)
+                        return PolarsWrapper.IsIn(itemH, implodedH, nullsEqual = false)
+                    | _ -> return! None
+                }
         | ListGet(target, indexExpr) ->
             t2 target indexExpr
             |> Option.map (fun (t, idx) -> PolarsWrapper.ListGet(t, idx, nullOnOob = true))
@@ -1623,8 +1735,9 @@ module internal rec ExprTranslator =
             let sepOpt =
                 match tryEvaluate separatorExpr with
                 | Some(:? string as sep) -> Some sep
-                | Some(:? char as sep) -> Some (string sep)
+                | Some(:? char as sep) -> Some(string sep)
                 | _ -> None
+
             match t1 target, sepOpt with
             | Some t, Some sep -> Some(PolarsWrapper.ListJoin(t, sep, ignoreNulls = true))
             | _ -> None
@@ -1802,9 +1915,13 @@ module internal rec ExprTranslator =
                 | Some t, Some idx -> Some(PolarsWrapper.ListGet(t, idx, nullOnOob = true))
                 | _ -> None
 
+            // 1. Regex operations
+            | RegexInvocation invocation -> translateRegexInvocation ctx invocation
+
+            // 2. List / Array operations
             | ListInvocation listInv -> translateListInvocation ctx listInv
 
-            // 2. Struct field pushdown (only when expression does NOT resolve to a top-level column or Nullable<T>.HasValue)
+            // 3. Struct field pushdown (only when expression does NOT resolve to a top-level column or Nullable<T>.HasValue)
             | StructFieldAccess(parentExpr, fieldName) when
                 (tryResolveColumnNameWithContext ctx expr).IsNone
                 && match expr with
@@ -1813,9 +1930,6 @@ module internal rec ExprTranslator =
                 ->
                 tryTranslateWithContext ctx parentExpr
                 |> Option.map (fun parentHandle -> PolarsWrapper.StructFieldByName(parentHandle, [| fieldName |]))
-
-            // 3. Regex operations
-            | RegexInvocation invocation -> translateRegexInvocation ctx invocation
 
             // 4. Member Access (Columns, temporal/time properties, Math constants, captured closures)
             | MemberAccess _ as memberExpr -> translateMemberAccess ctx memberExpr

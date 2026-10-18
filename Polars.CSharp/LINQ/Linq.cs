@@ -35,13 +35,13 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         return df.GetValue<T>(0L, df.ColumnNames[0])!;
     }
     public TAccum Aggregate<TSource, TAccum>(
-        DataFrameHandle handle, 
-        TAccum seed, 
+        DataFrameHandle handle,
+        TAccum seed,
         Func<TAccum, TSource, TAccum> folder)
     {
         var df = new DataFrame(handle);
-        var enumerator = df.Rows<TSource>(); 
-        
+        var enumerator = df.Rows<TSource>();
+
         TAccum acc = seed;
         while (enumerator.MoveNext())
         {
@@ -55,7 +55,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         TAccum seed,
         Func<TAccum, TSource, TAccum> folder,
         IEqualityComparer<TKey>? comparer = null)
-        where TKey :notnull
+        where TKey : notnull
     {
         var df = new DataFrame(handle);
         var dict = new Dictionary<TKey, TAccum>(comparer);
@@ -145,7 +145,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
             int currentBatchSize = (int)Math.Min(chunkSize, totalRows - offset);
             yield return ReadChunkBatch<T>(df, offset, currentBatchSize);
         }
-        
+
     }
     public long Count<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
     {
@@ -562,7 +562,7 @@ internal static class MarkerExceptionHelper
         var frame = new System.Diagnostics.StackFrame(1);
         string methodName = frame.GetMethod()?.Name ?? "Marker";
 
-        string message = 
+        string message =
             $"The Polars LINQ method '{methodName}' is an expression marker and cannot be evaluated on client-side collections.\n" +
             "Cause: An earlier operation in the query could not be translated natively to Polars, causing the query to fall back to client-side evaluation.\n" +
             "Fix: Ensure native Polars operations run first, or isolate unsupported client-side methods by materializing data first (e.g., calling .ToList() / .ToDataFrame()).";
@@ -582,13 +582,13 @@ public static class LinqExtensions
     /// </summary>
     public static IQueryable<T> AsQueryable<T>(this LazyFrame lf)
         => new PolarsQuery<T>(lf.Handle, CSharpRowCursorMaterializer.Instance);
-    
+
     /// <summary>
     /// Converts an eager DataFrame into an IQueryable LINQ query provider backed by LazyFrame.
     /// </summary>
     public static IQueryable<T> AsQueryable<T>(this DataFrame df)
         => df.Lazy().AsQueryable<T>();
-        
+
     /// <summary>
     /// Converts a DataFrame into an IQueryable LINQ query provider,
     /// inferring the anonymous type or entity type directly from a sample sequence (e.g. source array).
@@ -606,7 +606,7 @@ public static class LinqExtensions
     /// </summary>
     public static IQueryable<T> AsQueryable<T>(this LazyFrame lf, IEnumerable<T> source)
         => lf.AsQueryable<T>();
-    
+
     /// <summary>
     /// Compiles the LINQ query pipeline and converts it back to a Polars LazyFrame.
     /// </summary>
@@ -619,7 +619,7 @@ public static class LinqExtensions
         }
 
         // Convert other LINQ query to DataFrame then LazyFrame
-        return DataFrame.FromRows([..query]).Lazy();
+        return DataFrame.FromRows([.. query]).Lazy();
     }
 
     /// <summary>
@@ -634,7 +634,7 @@ public static class LinqExtensions
         }
 
         // Convert other LINQ query to DataFrame
-        return DataFrame.FromRows([..query]);
+        return DataFrame.FromRows([.. query]);
     }
     /// <summary>
     /// Asynchronously compiles and executes the query, materializing the result directly into a native Polars DataFrame.
@@ -703,7 +703,7 @@ public static class LinqExtensions
 
         var dfHandle = DataFrameBuilder.FromRows(rows);
         return new(dfHandle);
-    }    
+    }
     /// <inheritdoc cref="System.Linq.Enumerable.ToLookup{TSource, TKey}(IEnumerable{TSource}, Func{TSource, TKey}, IEqualityComparer{TKey})"/>
     public static PolarsLookup<TKey, TSource> ToLookup<TSource, TKey>(
         this IQueryable<TSource> source,
@@ -711,7 +711,7 @@ public static class LinqExtensions
         IEqualityComparer<TKey>? comparer = null)
         where TKey : notnull
         => source.ToLookup(keySelector, e => e, comparer);
-    
+
     /// <summary>
     /// Converts a queryable sequence into a PolarsLookup, grouping elements by a specified key selector and selecting elements with a specified selector.
     /// </summary>
@@ -861,7 +861,7 @@ public static class LinqExtensions
     /// Asynchronously enumerates the query and materializes all results into a List.
     /// </summary>
     public static async Task<List<T>> ToListAsync<T>(
-        this IQueryable<T> source, 
+        this IQueryable<T> source,
         CancellationToken cancellationToken = default)
     {
         var list = new List<T>();
@@ -883,8 +883,8 @@ public static class LinqExtensions
     /// Convert DataReader to Polars Queryable
     /// </summary>
     /// <typeparam name="T">Target Type</typeparam>
-    public static IQueryable<T> AsPolarsQueryable<T>(this IDataReader reader, int batchSize=50000)
-        => DataFrame.ReadDatabase(reader,batchSize).AsQueryable<T>();
+    public static IQueryable<T> AsPolarsQueryable<T>(this IDataReader reader, int batchSize = 50000)
+        => DataFrame.ReadDatabase(reader, batchSize).AsQueryable<T>();
 
     /// <summary>
     /// Returns the Polars native query execution plan, including warnings if parts of the query
@@ -910,7 +910,6 @@ public static class LinqExtensions
     public static Action<string> DefaultInspector { get; set; } = Console.WriteLine;
     /// <summary>
     /// Inspects the query plan using the default inspector (<see cref="DefaultInspector"/>)
-    /// without interrupting the fluent pipeline chain.
     /// </summary>
     /// <param name="source">The source queryable.</param>
     /// <param name="optimized">Whether to display the optimized plan. Defaults to true.</param>
@@ -918,17 +917,16 @@ public static class LinqExtensions
         this IQueryable<T> source,
         bool optimized = true)
         => source.InspectPlan(DefaultInspector, optimized);
-    
+
     /// <summary>
     /// Inspects the query plan at the current pipeline stage and invokes a custom inspector action,
-    /// returning the queryable to maintain fluent chaining.
     /// </summary>
     /// <param name="source">The source queryable.</param>
     /// <param name="inspector">Action receiving the diagnostic plan string.</param>
     /// <param name="optimized">Whether to display the optimized plan. Defaults to true.</param>
     public static IQueryable<T> InspectPlan<T>(
-        this IQueryable<T> source, 
-        Action<string> inspector, 
+        this IQueryable<T> source,
+        Action<string> inspector,
         bool optimized = true)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -944,16 +942,16 @@ public static class LinqExtensions
     /// <param name="column">The column to shift.</param>
     /// <param name="offset">The offset by which to shift the values.</param>
     /// <returns>The shifted column.</returns>
-    public static T Shift<T>(this T column, long offset) 
+    public static T Shift<T>(this T column, long offset)
         => throw MarkerExceptionHelper.Throw();
     /// <inheritdoc cref="Shift{T}(T,long)"/>
-    public static T Shift<T, TOffset>(this T column, TOffset offsetColumn) 
+    public static T Shift<T, TOffset>(this T column, TOffset offsetColumn)
         => throw MarkerExceptionHelper.Throw();
     /// <inheritdoc cref="Diff{T}(T,long,NullBehavior)"/>
-    public static T Diff<T>(this T column) 
+    public static T Diff<T>(this T column)
         => throw MarkerExceptionHelper.Throw();
     /// <inheritdoc cref="Diff{T}(T,long,NullBehavior)"/>
-    public static T Diff<T>(this T column, long n) 
+    public static T Diff<T>(this T column, long n)
         => throw MarkerExceptionHelper.Throw();
     /// <summary>
     /// Computes the difference between the current value and the value n periods ago, with a specified null behavior.
@@ -963,7 +961,7 @@ public static class LinqExtensions
     /// <param name="n">The number of periods to look back.</param>
     /// <param name="nullBehavior">The behavior for handling null values.</param>
     /// <returns>The column with differences computed.</returns>
-    public static T Diff<T>(this T column, long n, NullBehavior nullBehavior) 
+    public static T Diff<T>(this T column, long n, NullBehavior nullBehavior)
         => throw MarkerExceptionHelper.Throw();
     /// <inheritdoc cref="Over{T, TPartition, TOrder}(T, TPartition, TOrder, bool)"/>
     public static T Over<T, TPartition>(this T expr, TPartition partitionBy)
@@ -983,9 +981,9 @@ public static class LinqExtensions
     /// <param name="descending">Indicates whether to sort in descending order.</param>
     /// <returns>The column with the windowed expression computed.</returns>
     public static T Over<T, TPartition, TOrder>(
-        this T expr, 
-        TPartition partitionBy, 
-        TOrder orderBy, 
+        this T expr,
+        TPartition partitionBy,
+        TOrder orderBy,
         bool descending = false)
         => throw MarkerExceptionHelper.Throw();
 
@@ -996,37 +994,37 @@ public static class LinqExtensions
     /// <summary>
     /// Computes the rank of values using the default Average method.
     /// </summary>
-    public static double Rank<T>(this T column) 
+    public static double Rank<T>(this T column)
         => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
     /// Computes the rank of values with a specified sorting order.
     /// </summary>
-    public static double Rank<T>(this T column, bool descending) 
+    public static double Rank<T>(this T column, bool descending)
         => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
     /// Computes the rank of values using user-facing RankMethod.
     /// </summary>
-    public static double Rank<T>(this T column, RankMethod method, bool descending = false) 
+    public static double Rank<T>(this T column, RankMethod method, bool descending = false)
         => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
     /// Computes the rank of values using user-facing RankMethod with seed.
     /// </summary>
-    public static double Rank<T>(this T column, RankMethod method, bool descending, ulong? seed) 
+    public static double Rank<T>(this T column, RankMethod method, bool descending, ulong? seed)
         => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
     /// Computes the percentage change between current and previous values.
     /// </summary>
-    public static double? PctChange<T>(this T column, long n = 1) 
+    public static double? PctChange<T>(this T column, long n = 1)
         => throw MarkerExceptionHelper.Throw();
-    
+
     /// <summary>
     /// Computes the mean of the column.
     /// </summary>
-    public static double Mean<T>(this T column) 
+    public static double Mean<T>(this T column)
         => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
@@ -1041,12 +1039,12 @@ public static class LinqExtensions
     public static T? Sum<T>(this T? column) where T : struct
         => throw MarkerExceptionHelper.Throw();
 
-     /// <summary>
+    /// <summary>
     /// Computes the mean of the nullable column.
     /// </summary>
     public static double Mean<T>(this T? column) where T : struct
         => throw MarkerExceptionHelper.Throw();
-    
+
     /// <summary>
     /// Computes the average of the column.
     /// </summary>
@@ -1074,7 +1072,7 @@ public static class LinqExtensions
     /// Counts the number of non-null values in the column.
     /// </summary>
     public static int Count(this string? column)
-        => throw MarkerExceptionHelper.Throw(); 
+        => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
     /// Finds the minimum value in the column.
@@ -1110,13 +1108,13 @@ public static class LinqExtensions
     /// <summary>
     /// Computes the sample standard deviation (ddof = 1 by default).
     /// </summary>
-    public static double Std<T>(this T column, byte ddof = 1) 
+    public static double Std<T>(this T column, byte ddof = 1)
         => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
     /// Computes the sample variance (ddof = 1 by default).
     /// </summary>
-    public static double Var<T>(this T column, byte ddof = 1) 
+    public static double Var<T>(this T column, byte ddof = 1)
         => throw MarkerExceptionHelper.Throw();
     /// <summary>
     /// Computes the cumulative sum of the column.
@@ -1146,29 +1144,29 @@ public static class LinqExtensions
     /// <summary>
     /// Interpolates null values using the specified user-facing InterpolationMethod (defaults to Linear).
     /// </summary>
-    public static T Interpolate<T>(this T column, InterpolationMethod method = InterpolationMethod.Linear) 
+    public static T Interpolate<T>(this T column, InterpolationMethod method = InterpolationMethod.Linear)
         => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
     /// Interpolates null values based on the values of another column (e.g., timestamps or indices).
     /// </summary>
-    public static T InterpolateBy<T, TBy>(this T column, TBy byColumn) 
+    public static T InterpolateBy<T, TBy>(this T column, TBy byColumn)
         => throw MarkerExceptionHelper.Throw();
     /// <summary>
     /// Computes the median value of the column.
     /// </summary>
-    public static double? Median<T>(this T column) 
+    public static double? Median<T>(this T column)
         => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
     /// Computes the quantile of the column with the specified probability and method.
     /// </summary>
     public static double? Quantile<T>(
-        this T column, 
-        double quantile, 
-        QuantileMethod method = QuantileMethod.Nearest) 
+        this T column,
+        double quantile,
+        QuantileMethod method = QuantileMethod.Nearest)
         => throw MarkerExceptionHelper.Throw();
-        
+
 }
 
 /// <summary>
@@ -1180,33 +1178,33 @@ public static class GroupAggregationExtensions
     /// Computes sample standard deviation of a group by selector with default ddof = 1.
     /// </summary>
     public static double Std<TSource, TResult>(
-        this IEnumerable<TSource> source, 
-        Expression<Func<TSource, TResult>> selector) 
+        this IEnumerable<TSource> source,
+        Expression<Func<TSource, TResult>> selector)
         => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
     /// Computes standard deviation of a group by selector with explicit degree of freedom (ddof).
     /// </summary>
     public static double Std<TSource, TResult>(
-        this IEnumerable<TSource> source, 
-        Expression<Func<TSource, TResult>> selector, 
-        byte ddof) 
+        this IEnumerable<TSource> source,
+        Expression<Func<TSource, TResult>> selector,
+        byte ddof)
         => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
     /// Computes sample variance of a group by selector with default ddof = 1.
     /// </summary>
     public static double Var<TSource, TResult>(
-        this IEnumerable<TSource> source, 
-        Expression<Func<TSource, TResult>> selector) 
+        this IEnumerable<TSource> source,
+        Expression<Func<TSource, TResult>> selector)
         => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
     /// Computes variance of a group by selector with explicit degree of freedom (ddof).
     /// </summary>
     public static double Var<TSource, TResult>(
-        this IEnumerable<TSource> source, 
-        Expression<Func<TSource, TResult>> selector, 
-        byte ddof) 
+        this IEnumerable<TSource> source,
+        Expression<Func<TSource, TResult>> selector,
+        byte ddof)
         => throw MarkerExceptionHelper.Throw();
 }

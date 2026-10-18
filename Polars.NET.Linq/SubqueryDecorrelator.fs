@@ -962,7 +962,7 @@ module internal SubqueryDecorrelator =
                 let! baseOp = if isNegated then negateOp rawOp else Some rawOp
 
                 let! outerSideExpr, aggCallExpr, scale, effectiveOp =
-                    if containsParameter outerName left && not (containsSubquery left) then
+                    if not (containsSubquery left) && containsSubquery right then
                         match tryExtractScaledAgg right with
                         | Some(aggExpr, scale) ->
                             let scaleOk =
@@ -973,7 +973,7 @@ module internal SubqueryDecorrelator =
 
                             if scaleOk then Some(left, aggExpr, scale, baseOp) else None
                         | None -> None
-                    elif containsParameter outerName right && not (containsSubquery right) then
+                    elif not (containsSubquery right) && containsSubquery left then
                         match tryExtractScaledAgg left with
                         | Some(aggExpr, scale) ->
                             let scaleOk =

@@ -32,6 +32,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Polars.CSharp" />
     <InternalsVisibleTo Include="Polars.FSharp" />
+    <InternalsVisibleTo Include="Polars.FSharp.Tests" />
   </ItemGroup>
 
 </Project>

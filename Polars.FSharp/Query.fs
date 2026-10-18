@@ -10,13 +10,65 @@ open System.Threading.Tasks
 open System.Collections.Generic
 open Polars.NET.Core.Helpers
 open System.Runtime.ExceptionServices
+open System.Reflection
 
 [<AutoOpen>]
 module LinqExtension =
 
+    [<TailCall>]
+    let rec private getFieldAnywhere (t: Type) (name: string) : FieldInfo =
+        if isNull t || t = typeof<obj> then
+            null
+        else
+            let f =
+                t.GetField(name, BindingFlags.NonPublic ||| BindingFlags.Public ||| BindingFlags.Instance)
+
+            if not (isNull f) then
+                f
+            else
+                getFieldAnywhere t.BaseType name
+
+    /// Inspects an object or IQueryable and safely extracts its underlying Polars IPolarsExplainable
+    [<TailCall>]
+    let rec private tryExtractExplainable (obj: obj) : IPolarsExplainable option =
+        match obj with
+        | null -> None
+        | :? IPolarsExplainable as exp -> Some exp
+        | _ ->
+            let t = obj.GetType()
+            let fSource = getFieldAnywhere t "_source"
+
+            if not (isNull fSource) then
+                tryExtractExplainable (fSource.GetValue obj)
+            else
+                let fEnumerable = getFieldAnywhere t "_enumerable"
+
+                if not (isNull fEnumerable) then
+                    tryExtractExplainable (fEnumerable.GetValue obj)
+                else
+                    match obj with
+                    | :? IQueryable as q ->
+                        match q.Expression with
+                        | :? System.Linq.Expressions.ConstantExpression as ce when
+                            not (isNull ce.Value || Object.ReferenceEquals(ce.Value, obj))
+                            ->
+                            tryExtractExplainable ce.Value
+                        | _ ->
+                            if not (isNull q.Provider) && (q.Provider :? PolarsQueryProvider) then
+                                try
+                                    let polarsQ = q.Provider.CreateQuery q.Expression
+
+                                    match polarsQ with
+                                    | :? IPolarsExplainable as exp -> Some exp
+                                    | _ -> None
+                                with _ ->
+                                    None
+                            else
+                                None
+                    | _ -> None
 
     /// Inspects an IQueryable and safely extracts its underlying Polars LazyFrameHandle
-    let private tryExtractLazyFrame (q: IQueryable) : LazyFrameHandle option =
+    let rec private tryExtractLazyFrame (q: IQueryable) : LazyFrameHandle option =
         match q with
         | null -> None
         // 1. Direct plan source
@@ -31,7 +83,13 @@ module LinqExtension =
             | :? IPolarsPlanSource as ps -> Some(ps.GetCompiledLazyFrameHandle())
             | _ -> None
         // 3. Fallback: Expression tree evaluation through PolarsQuery resolver
-        | _ -> SubqueryDecorrelator.resolveToLazyFrameHandle q.Expression
+        | _ ->
+            match SubqueryDecorrelator.resolveToLazyFrameHandle q.Expression with
+            | Some h -> Some h
+            | None ->
+                match tryExtractExplainable (box q) with
+                | Some(:? IPolarsPlanSource as ps) -> Some(ps.GetCompiledLazyFrameHandle())
+                | _ -> None
 
     type LazyFrame with
         /// <summary>
@@ -109,13 +167,7 @@ module LinqExtension =
         /// <summary>
         /// Compiles the LINQ query pipeline and converts it back to a Polars DataFrame.
         /// </summary>
-        member this.ToDataFrame() : DataFrame =
-            match tryExtractLazyFrame this with
-            | Some lfHandle ->
-                let dfHandle = PolarsWrapper.LazyCollect(lfHandle, PlEngine.Auto)
-                new DataFrame(dfHandle)
-            | None ->
-                raise (NotSupportedException "ToDataFrame can only be invoked on queries originating from Polars.NET.")
+        member this.ToDataFrame() : DataFrame = this.ToDataFrame(Engine.Auto)
 
         /// <summary>
         /// Asynchronously compiles and executes the query, materializing the result directly into a native Polars DataFrame.
@@ -131,28 +183,29 @@ module LinqExtension =
             ct.ThrowIfCancellationRequested()
 
             // 1. Fast-path: Directly extract compiled plan without hydrating intermediate objects
-            match box this with
-            | :? IPolarsPlanSource as planSource ->
+            match tryExtractLazyFrame this with
+            | Some lfHandle ->
                 task {
                     ct.ThrowIfCancellationRequested()
-                    let lfHandle = planSource.GetCompiledLazyFrameHandle()
                     use lazyDf = new LazyFrame(lfHandle)
                     return! lazyDf.CollectAsync(engine = eng, cancellationToken = ct)
                 }
 
             // 2. Fallback path A: Stream asynchronously if the source supports IAsyncEnumerable
-            | :? IAsyncEnumerable<'T> as asyncStream -> asyncStream.ToDataFrameAsync(cancellationToken = ct)
+            | None ->
+                match box this with
+                | :? IAsyncEnumerable<'T> as asyncStream -> asyncStream.ToDataFrameAsync(cancellationToken = ct)
 
-            // 3. Fallback path B: Synchronous in-memory LINQ offloaded to thread pool
-            | _ ->
-                Task.Run(
-                    (fun () ->
-                        ct.ThrowIfCancellationRequested()
-                        let rows = this |> Seq.toList
-                        let dfHandle = DataFrameBuilder.FromRows<'T>(rows)
-                        new DataFrame(dfHandle)),
-                    ct
-                )
+                // 3. Fallback path B: Synchronous in-memory LINQ offloaded to thread pool
+                | _ ->
+                    Task.Run(
+                        (fun () ->
+                            ct.ThrowIfCancellationRequested()
+                            let rows = this |> Seq.toList
+                            let dfHandle = DataFrameBuilder.FromRows<'T>(rows)
+                            new DataFrame(dfHandle)),
+                        ct
+                    )
 
         /// <summary>
         /// Synchronously compiles and executes the query, returning the result directly as a native Polars DataFrame.
@@ -163,12 +216,47 @@ module LinqExtension =
         member this.ToDataFrame(?engine: Engine) : DataFrame =
             let eng = defaultArg engine Engine.Auto
 
-            match box this with
-            | :? IPolarsPlanSource as planSource ->
-                let lfHandle = planSource.GetCompiledLazyFrameHandle()
+            match tryExtractLazyFrame this with
+            | Some lfHandle ->
                 use lazyDf = new LazyFrame(lfHandle)
                 lazyDf.Collect(engine = eng)
-            | _ ->
+            | None ->
                 let rows = this |> Seq.toList
                 let dfHandle = DataFrameBuilder.FromRows<'T> rows
                 new DataFrame(dfHandle)
+
+        /// <summary>
+        /// Returns the Polars native query execution plan, including warnings if parts of the query
+        /// fallback to managed client-side execution.
+        /// </summary>
+        /// <param name="optimized">Whether to display the Polars optimized logical plan or the raw plan.</param>
+        member this.Explain(?optimized: bool) : string =
+            let optimized = defaultArg optimized true
+
+            match tryExtractExplainable (box this) with
+            | Some explainable -> explainable.Explain optimized
+            | None -> "[Polars.FSharp] Query source is not a native PolarsQueryable. In-memory execution only."
+
+        /// <summary>
+        /// Gets or sets the default plan inspector action used when none is explicitly specified.
+        /// Defaults to <see cref="Console.WriteLine(string)"/>.
+        /// </summary>
+        member this.DefaultInspector = printfn "%s"
+
+        /// <summary>
+        /// Inspects the query plan using the default inspector (<see cref="DefaultInspector"/>)
+        /// </summary>
+        /// <param name="optimized">Whether to display the optimized plan. Defaults to true.</param>
+        member this.InspectPlan(?optimized: bool) : string = this.Explain(?optimized = optimized)
+
+        /// <summary>
+        /// Inspects the query plan at the current pipeline stage and invokes a custom inspector action,
+        /// </summary>
+        /// <param name="inspector">Action receiving the diagnostic plan string.</param>
+        /// <param name="optimized">Whether to display the optimized plan. Defaults to true.</param>
+        member this.InspectPlan(?inspector: string -> unit, ?optimized: bool) =
+            let optimized = defaultArg optimized true
+            let inspector = defaultArg inspector this.DefaultInspector
+
+            inspector (this.Explain optimized)
+            this
