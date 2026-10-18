@@ -1521,6 +1521,76 @@ public partial class TpchLinqTests
         Assert.Equal(36, row2.p_size);
         Assert.Equal(6, row2.supplier_cnt);
     }
+
+    /*
+     * TPC-H Query 17: Small-Quantity-Order Revenue Query
+     *
+     * SELECT
+     *     sum(l_extendedprice) / 7.0 AS avg_yearly
+     * FROM
+     *     lineitem,
+     *     part
+     * WHERE
+     *     p_partkey = l_partkey
+     *     AND p_brand = 'Brand#23'
+     *     AND p_container = 'MED BOX'
+     *     AND l_quantity < (
+     *         SELECT
+     *             0.2 * avg(l_quantity)
+     *         FROM
+     *             lineitem
+     *         WHERE
+     *             l_partkey = p_partkey
+     *     );
+     */
+    [Fact]
+    [Trait("TPCH", "Q17")]
+    public void Test_Q17_Small_Quantity_Order_Revenue()
+    {
+        using var lfLineItem = TpchData.LineItem();
+        using var lfPart = TpchData.Part();
+
+        var lineitemQuery = lfLineItem.AsQueryable<LineItem>();
+        var partQuery = lfPart.AsQueryable<Part>();
+
+        // 1. Standard TPC-H Spec Parameters: Brand#23, MED BOX (Matches 0 parts in SF=0.01)
+        var standardQuery = from l in lineitemQuery
+                            where l.l_quantity < 0.2m * lineitemQuery
+                                                     .Where(l2 => l2.l_partkey == l.l_partkey)
+                                                     .Average(l2 => l2.l_quantity)
+                            join p in partQuery.Where(p => p.p_brand == "Brand#23" && p.p_container == "MED BOX")
+                                                     on l.l_partkey equals p.p_partkey
+                            group l by 1 into g
+                            select new
+                            {
+                                avg_yearly = (double)g.Sum(x => x.l_extendedprice) / 7.0
+                            };
+
+        AssertPlan(standardQuery, NativePushdown);
+
+        var standardResults = standardQuery.ToList();
+        Assert.Single(standardResults);
+        Assert.Equal(0.0, standardResults[0].avg_yearly);
+
+        // 2. Active Dataset Case on SF=0.01: Brand#23, MED DRUM (Has 11 matching lineitems, verified by DuckDB)
+        var activeQuery = from l in lineitemQuery
+                          where l.l_quantity < 0.2m * lineitemQuery
+                                                   .Where(l2 => l2.l_partkey == l.l_partkey)
+                                                   .Average(l2 => l2.l_quantity)
+                          join p in partQuery.Where(p => p.p_brand == "Brand#23" && p.p_container == "MED DRUM")
+                                                   on l.l_partkey equals p.p_partkey
+                          group l by 1 into g
+                          select new
+                          {
+                              avg_yearly = (double)g.Sum(x => x.l_extendedprice) / 7.0
+                          };
+
+        AssertPlan(activeQuery, NativePushdown);
+
+        var activeResults = activeQuery.ToList();
+        Assert.Single(activeResults);
+        Assert.Equal(7590.6514, activeResults[0].avg_yearly, precision: 4);
+    }
 }
 
 
