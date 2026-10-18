@@ -1996,6 +1996,100 @@ public partial class TpchLinqTests
         Assert.Equal("Supplier#000000074", row0.s_name);
         Assert.Equal(9, row0.numwait);
     }
+
+    /*
+     * TPC-H Q22: Global Sales Opportunity Query
+     *
+     * SELECT
+     *     cntrycode,
+     *     count(*) AS numcust,
+     *     sum(c_acctbal) AS totacctbal
+     * FROM
+     *     (
+     *         SELECT
+     *             substring(c_phone FROM 1 FOR 2) AS cntrycode,
+     *             c_acctbal
+     *         FROM
+     *             customer
+     *         WHERE
+     *             substring(c_phone FROM 1 FOR 2) IN
+     *                 ('13', '31', '23', '29', '30', '18', '17')
+     *             AND c_acctbal > (
+     *                 SELECT
+     *                     avg(c_acctbal)
+     *                 FROM
+     *                     customer
+     *                 WHERE
+     *                     c_acctbal > 0.00
+     *                     AND substring(c_phone FROM 1 FOR 2) IN
+     *                         ('13', '31', '23', '29', '30', '18', '17')
+     *             )
+     *             AND NOT EXISTS (
+     *                 SELECT
+     *                     *
+     *                 FROM
+     *                     orders
+     *                 WHERE
+     *                     o_custkey = c_custkey
+     *             )
+     *     ) AS custsale
+     * GROUP BY
+     *     cntrycode
+     * ORDER BY
+     *     cntrycode;
+     */
+    [Fact]
+    [Trait("TPCH", "Q22")]
+    public void Test_Q22_Global_Sales_Opportunity()
+    {
+        using var lfCustomer = TpchData.Customer();
+        using var lfOrders = TpchData.Orders();
+
+        var customerQuery = lfCustomer.AsQueryable<Customer>();
+        var ordersQuery = lfOrders.AsQueryable<Orders>();
+
+        string[] countryCodes = ["13", "31", "23", "29", "30", "18", "17"];
+
+        var query = from c in customerQuery
+                    where countryCodes.Contains(c.c_phone.Substring(0, 2))
+                       && c.c_acctbal > customerQuery
+                                            .Where(c2 => c2.c_acctbal > 0m
+                                                      && countryCodes.Contains(c2.c_phone.Substring(0, 2)))
+                                            .Average(c2 => c2.c_acctbal)
+                       && !ordersQuery.Any(o => o.o_custkey == c.c_custkey)
+                    group c by c.c_phone.Substring(0, 2) into g
+                    orderby g.Key
+                    select new
+                    {
+                        cntrycode = g.Key,
+                        numcust = g.Count(),
+                        totacctbal = g.Sum(x => x.c_acctbal)
+                    };
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+
+        Assert.Equal(7, results.Count);
+
+        var expected = new (string code, int count, decimal total)[]
+        {
+            ("13", 10, 75359.29m),
+            ("17", 8, 62288.98m),
+            ("18", 14, 111072.45m),
+            ("23", 5, 40458.86m),
+            ("29", 11, 88722.85m),
+            ("30", 17, 122189.33m),
+            ("31", 8, 66313.16m)
+        };
+
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.Equal(expected[i].code, results[i].cntrycode);
+            Assert.Equal(expected[i].count, results[i].numcust);
+            Assert.Equal(expected[i].total, results[i].totacctbal);
+        }
+    }
 }
 
 
