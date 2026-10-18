@@ -1695,6 +1695,98 @@ public partial class TpchLinqTests
         Assert.Equal(422359.65m, row1.o_totalprice);
         Assert.Equal(303.00m, row1.sum_qty);
     }
+
+    /*
+     * TPC-H Q19: Discounted Revenue Query
+     *
+     * SELECT
+     *     sum(l_extendedprice * (1 - l_discount)) AS revenue
+     * FROM
+     *     lineitem,
+     *     part
+     * WHERE
+     *     (
+     *         p_partkey = l_partkey
+     *         AND p_brand = 'Brand#12'
+     *         AND p_container IN ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG')
+     *         AND l_quantity >= 1 AND l_quantity <= 1 + 10
+     *         AND p_size BETWEEN 1 AND 5
+     *         AND l_shipmode IN ('AIR', 'AIR REG')
+     *         AND l_shipinstruct = 'DELIVER IN PERSON'
+     *     )
+     *     OR
+     *     (
+     *         p_partkey = l_partkey
+     *         AND p_brand = 'Brand#23'
+     *         AND p_container IN ('MED BAG', 'MED BOX', 'MED PKG', 'MED PACK')
+     *         AND l_quantity >= 10 AND l_quantity <= 10 + 10
+     *         AND p_size BETWEEN 1 AND 10
+     *         AND l_shipmode IN ('AIR', 'AIR REG')
+     *         AND l_shipinstruct = 'DELIVER IN PERSON'
+     *     )
+     *     OR
+     *     (
+     *         p_partkey = l_partkey
+     *         AND p_brand = 'Brand#34'
+     *         AND p_container IN ('LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')
+     *         AND l_quantity >= 20 AND l_quantity <= 20 + 10
+     *         AND p_size BETWEEN 1 AND 15
+     *         AND l_shipmode IN ('AIR', 'AIR REG')
+     *         AND l_shipinstruct = 'DELIVER IN PERSON'
+     *     );
+     */
+    [Fact]
+    [Trait("TPCH", "Q19")]
+    public void Test_Q19_Discounted_Revenue()
+    {
+        using var lfLineItem = TpchData.LineItem();
+        using var lfPart = TpchData.Part();
+
+        var lineitemQuery = lfLineItem.AsQueryable<LineItem>();
+        var partQuery = lfPart.AsQueryable<Part>();
+
+        var smContainers = new[] { "SM CASE", "SM BOX", "SM PACK", "SM PKG" };
+        var medContainers = new[] { "MED BAG", "MED BOX", "MED PKG", "MED PACK" };
+        var lgContainers = new[] { "LG CASE", "LG BOX", "LG PACK", "LG PKG" };
+        var shipModes = new[] { "AIR", "AIR REG" };
+
+        var query = from l in lineitemQuery
+                    join p in partQuery on l.l_partkey equals p.p_partkey
+                    where ((p.p_brand == "Brand#12"
+                            && smContainers.Contains(p.p_container)
+                            && l.l_quantity >= 1m && l.l_quantity <= 11m
+                            && p.p_size >= 1 && p.p_size <= 5
+                            && shipModes.Contains(l.l_shipmode)
+                            && l.l_shipinstruct == "DELIVER IN PERSON")
+                        || (p.p_brand == "Brand#23"
+                            && medContainers.Contains(p.p_container)
+                            && l.l_quantity >= 10m && l.l_quantity <= 20m
+                            && p.p_size >= 1 && p.p_size <= 10
+                            && shipModes.Contains(l.l_shipmode)
+                            && l.l_shipinstruct == "DELIVER IN PERSON")
+                        || (p.p_brand == "Brand#34"
+                            && lgContainers.Contains(p.p_container)
+                            && l.l_quantity >= 20m && l.l_quantity <= 30m
+                            && p.p_size >= 1 && p.p_size <= 15
+                            && shipModes.Contains(l.l_shipmode)
+                            && l.l_shipinstruct == "DELIVER IN PERSON"))
+                    group l by 1 into g
+                    select new
+                    {
+                        revenue = g.Sum(x => x.l_extendedprice * (1m - x.l_discount))
+                    };
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+
+        Assert.Single(results);
+        // Ground truth verification against DuckDB TPCH (SF = 0.01):
+        // DuckDB DECIMAL(15,2) * DECIMAL(15,2) produces DECIMAL(18,4) = 22923.0280.
+        // Polars native Decimal arithmetic retains scale 2 (Decimal(38, 2)), rounding to 22923.03m.
+        Assert.Equal(22923.03m, results[0].revenue);
+        Assert.Equal(22923.0280, (double)results[0].revenue, precision: 1);
+    }
 }
 
 
