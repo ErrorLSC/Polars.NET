@@ -1,6 +1,6 @@
 using System.Text;
-using Polars.CSharp.Linq;
 using System.Text.RegularExpressions;
+using Polars.CSharp.Linq;
 
 namespace Polars.CSharp.Tests;
 
@@ -5538,6 +5538,50 @@ public partial class LinqTests
             Assert.Equal(r.AnonSubGroupVar, r.ParamsSubGroupVar);
             Assert.Equal(4500000.0, r.AnonSubGroupVar, precision: 4);
         });
+    }
+
+    [Fact]
+    [Trait("LINQ", "AggregationPipelines")]
+    public void Test_Linq_Composable_Aggregation_Pipelines()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3, 4, 5]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eva"]),
+            Series.From("DeptId", [1, 1, 1, 2, 2]),
+            Series.From("Age", [25, 30, 30, 40, 35]),
+            Series.From("Salary", [5000, 8000, 11000, 4000, 6000])
+        ]);
+
+        var results = df.AsQueryable<MemberRecord>()
+            .GroupBy(x => x.DeptId)
+            .Select(g => new
+            {
+                DeptId = g.Key,
+                HighSalaryCount = g.Count(x => x.Salary > 5000),
+                HighSalarySum = g.Where(x => x.Salary > 5000).Sum(x => x.Salary),
+                ProjectedCount = g.Select(x => x.Salary).Count(),
+                DistinctAges = g.Select(x => x.Age).Distinct().Count()
+            })
+            .OrderBy(r => r.DeptId)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+
+        // Dept 1: Alice(5000, age 25), Bob(8000, age 30), Charlie(11000, age 30)
+        var d1 = results[0];
+        Assert.Equal(1, d1.DeptId);
+        Assert.Equal(2, d1.HighSalaryCount); // Bob, Charlie
+        Assert.Equal(19000, d1.HighSalarySum); // 8000 + 11000
+        Assert.Equal(3, d1.ProjectedCount);
+        Assert.Equal(2, d1.DistinctAges); // 25, 30
+
+        // Dept 2: David(4000, age 40), Eva(6000, age 35)
+        var d2 = results[1];
+        Assert.Equal(2, d2.DeptId);
+        Assert.Equal(1, d2.HighSalaryCount); // Eva
+        Assert.Equal(6000, d2.HighSalarySum); // 6000
+        Assert.Equal(2, d2.ProjectedCount);
+        Assert.Equal(2, d2.DistinctAges); // 40, 35
     }
 
     [Fact]

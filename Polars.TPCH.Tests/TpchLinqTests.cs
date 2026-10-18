@@ -1418,7 +1418,111 @@ public partial class TpchLinqTests
         Assert.Equal("12-253-590-5816", row0.s_phone);
         Assert.Equal(1161099.49m, row0.total_revenue);
     }
+
+    /*
+     * TPC-H Query 16: Parts/Supplier Relationship Query
+     *
+     * SELECT
+     *     p_brand,
+     *     p_type,
+     *     p_size,
+     *     count(DISTINCT ps_suppkey) AS supplier_cnt
+     * FROM
+     *     partsupp,
+     *     part
+     * WHERE
+     *     p_partkey = ps_partkey
+     *     AND p_brand <> 'Brand#45'
+     *     AND p_type NOT LIKE 'MEDIUM POLISHED%'
+     *     AND p_size IN (49, 14, 23, 45, 19, 3, 36, 9)
+     *     AND ps_suppkey NOT IN (
+     *         SELECT
+     *             s_suppkey
+     *         FROM
+     *             supplier
+     *         WHERE
+     *             s_comment LIKE '%Customer%Complaints%'
+     *     )
+     * GROUP BY
+     *     p_brand,
+     *     p_type,
+     *     p_size
+     * ORDER BY
+     *     supplier_cnt DESC,
+     *     p_brand,
+     *     p_type,
+     *     p_size;
+     */
+    [GeneratedRegex("Customer.*Complaints")]
+    private static partial Regex CustomerComplaintsRegex();
+
+    [Fact]
+    [Trait("TPCH", "Q16")]
+    public void Test_Q16_Parts_Supplier_Relationship()
+    {
+        using var lfPartSupp = TpchData.PartSupp();
+        using var lfPart = TpchData.Part();
+        using var lfSupplier = TpchData.Supplier();
+
+        var partsuppQuery = lfPartSupp.AsQueryable<PartSupp>();
+        var partQuery = lfPart.AsQueryable<Part>();
+        var supplierQuery = lfSupplier.AsQueryable<Supplier>();
+
+        int[] targetSizes = [49, 14, 23, 45, 19, 3, 36, 9];
+
+        var complaintsSuppliers = supplierQuery
+            .Where(s => CustomerComplaintsRegex().IsMatch(s.s_comment))
+            .Select(s => s.s_suppkey);
+
+        var filteredParts = partQuery.Where(p => p.p_brand != "Brand#45"
+                                              && !p.p_type.StartsWith("MEDIUM POLISHED")
+                                              && targetSizes.Contains(p.p_size));
+
+        var partPartSupp = from ps in partsuppQuery
+                           where !complaintsSuppliers.Contains(ps.ps_suppkey)
+                           join p in filteredParts on ps.ps_partkey equals p.p_partkey
+                           select new { ps.ps_suppkey, p.p_brand, p.p_type, p.p_size };
+
+        var query = from x in partPartSupp
+                    group x by new { x.p_brand, x.p_type, x.p_size } into g
+                    orderby g.Select(s => s.ps_suppkey).Distinct().Count() descending,
+                            g.Key.p_brand,
+                            g.Key.p_type,
+                            g.Key.p_size
+                    select new
+                    {
+                        g.Key.p_brand,
+                        g.Key.p_type,
+                        g.Key.p_size,
+                        supplier_cnt = g.Select(s => s.ps_suppkey).Distinct().Count()
+                    };
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+
+        Assert.Equal(296, results.Count);
+
+        var row0 = results[0];
+        Assert.Equal("Brand#14", row0.p_brand);
+        Assert.Equal("PROMO BRUSHED STEEL", row0.p_type);
+        Assert.Equal(9, row0.p_size);
+        Assert.Equal(8, row0.supplier_cnt);
+
+        var row1 = results[1];
+        Assert.Equal("Brand#35", row1.p_brand);
+        Assert.Equal("SMALL POLISHED COPPER", row1.p_type);
+        Assert.Equal(14, row1.p_size);
+        Assert.Equal(8, row1.supplier_cnt);
+
+        var row2 = results[2];
+        Assert.Equal("Brand#22", row2.p_brand);
+        Assert.Equal("LARGE BURNISHED TIN", row2.p_type);
+        Assert.Equal(36, row2.p_size);
+        Assert.Equal(6, row2.supplier_cnt);
+    }
 }
+
 
 
 
