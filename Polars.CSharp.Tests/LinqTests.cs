@@ -145,8 +145,8 @@ public partial class LinqTests
     [Trait("LINQ", "Scalar_Projection")]
     public void Test_CSharp_Linq_Scalar_Projection_Any_All()
     {
-        string upperAlice = "ALICE";
-        string alice = "Alice";
+        const string upperAlice = "ALICE";
+        const string alice = "Alice";
 
         var emps = new[]
         {
@@ -202,7 +202,7 @@ public partial class LinqTests
             Series.From("Salary", [5000, 3000, 7000, 2000])
         ]);
 
-        var threshold = 18;
+        const int threshold = 18;
         var query = df.AsQueryable<Employee>()
                       .Where(e => e.Age >= threshold && e.Salary > 4000)
                       .Take(10);
@@ -1439,7 +1439,7 @@ public partial class LinqTests
         var result = query.ToList();
 
         Assert.Equal(3, result.Count);
-        Assert.Equal([1, 2, 3], result.Select(r => r.Id).ToArray());
+        Assert.Equal([1, 2, 3], [.. result.Select(r => r.Id)]);
     }
 
     [Fact]
@@ -2122,7 +2122,7 @@ public partial class LinqTests
         Assert.Single(chunks[2]);
 
         // 7. Data integrity assertion: Verify that all 7 unique records are preserved across chunks despite shuffling
-        var allIds = chunks.SelectMany(c => c).Select(m => m.Id).OrderBy(id => id).ToArray();
+        var allIds = chunks.SelectMany(c => c).Select(m => m.Id).Order().ToArray();
         Assert.Equal([1, 2, 3, 4, 5, 6, 7], allIds);
     }
     [Fact]
@@ -2278,7 +2278,7 @@ public partial class LinqTests
         // 1. Prepare 10 records
         var ids = Enumerable.Range(1, 10);
         var ages = ids.Select(i => 20 + i);
-        var salaries = ids.Select(i => 5000 + i * 100);
+        var salaries = ids.Select(i => 5000 + (i * 100));
         var names = ids.Select(i => $"User_{i}");
 
         using var df = DataFrame.FromColumns(
@@ -2464,21 +2464,12 @@ public partial class LinqTests
         var missingDefault = query.SingleOrDefault(e => e.Salary > 200000);
         Assert.Equal(default, missingDefault);
 
-        Assert.Throws<InvalidOperationException>(() =>
-        {
-            query.Single(e => e.Salary > 200000);
-        });
+        Assert.Throws<InvalidOperationException>(() => query.Single(e => e.Salary > 200000));
 
         // 4. More than one match -> Both Single and SingleOrDefault MUST throw
-        Assert.Throws<InvalidOperationException>(() =>
-        {
-            query.Single(e => e.Age >= 25);
-        });
+        Assert.Throws<InvalidOperationException>(() => query.Single(e => e.Age >= 25));
 
-        Assert.Throws<InvalidOperationException>(() =>
-        {
-            query.SingleOrDefault(e => e.Age >= 25);
-        });
+        Assert.Throws<InvalidOperationException>(() => query.SingleOrDefault(e => e.Age >= 25));
     }
     [Fact]
     [Trait("LINQ", "Scalar_ElementAt")]
@@ -2505,19 +2496,13 @@ public partial class LinqTests
         Assert.Equal("Charlie", row2.Name);
 
         // 3. Out-of-bounds (index >= count)
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-        {
-            query.ElementAt(3);
-        });
+        Assert.Throws<ArgumentOutOfRangeException>(() => query.ElementAt(3));
 
         var outOfBoundsDefault = query.ElementAtOrDefault(5);
         Assert.Equal(default, outOfBoundsDefault);
 
         // 4. Negative index (< 0)
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-        {
-            query.ElementAt(-1);
-        });
+        Assert.Throws<ArgumentOutOfRangeException>(() => query.ElementAt(-1));
 
         var negativeDefault = query.ElementAtOrDefault(-1);
         Assert.Equal(default, negativeDefault);
@@ -6345,7 +6330,7 @@ public partial class LinqTests
         using var df = DataFrame.FromColumns([
             Series.From("SensorId", Enumerable.Range(1, 10_000)),
             Series.From("Temperature", Enumerable.Range(1, 10_000).Select(i => (double)i)),
-            Series.From("Location", Enumerable.Range(1, 10_000).Select(i => "A"))
+            Series.From("Location", Enumerable.Range(1, 10_000).Select(_ => "A"))
         ]);
         using var lazyDf = df.Lazy();
 
@@ -6374,7 +6359,7 @@ public partial class LinqTests
         using var df = DataFrame.FromColumns([
             Series.From("SensorId", Enumerable.Range(1, 10_000)),
             Series.From("Temperature", Enumerable.Range(1, 10_000).Select(i => (double)i)),
-            Series.From("Location", Enumerable.Range(1, 10_000).Select(i => "A"))
+            Series.From("Location", Enumerable.Range(1, 10_000).Select(_ => "A"))
         ]);
 
         var query = df.AsQueryable<SensorReading>();

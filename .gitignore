@@ -25,6 +25,7 @@ Thumbs.db
 !users.csv
 !sales.csv
 !dates.csv
+load.sql
 
 .fake
 
