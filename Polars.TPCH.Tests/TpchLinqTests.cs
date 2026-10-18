@@ -91,7 +91,7 @@ public record Supplier(
 
 #endregion
 
-public class TpchLinqTests
+public partial class TpchLinqTests
 {
     private static void AssertPlan<T>(
         IQueryable<T> query,
@@ -1236,6 +1236,9 @@ public class TpchLinqTests
      *     custdist DESC,
      *     c_count DESC;
      */
+    [GeneratedRegex("special.*requests")]
+    private static partial Regex SpecialRequestsRegex();
+
     [Fact]
     [Trait("TPCH", "Q13")]
     public void Test_Q13_Customer_Distribution()
@@ -1246,17 +1249,13 @@ public class TpchLinqTests
         var customerQuery = lfCustomer.AsQueryable<Customer>();
         var ordersQuery = lfOrders.AsQueryable<Orders>();
 
-        var filteredOrders = ordersQuery.Where(o => !Regex.IsMatch(o.o_comment, "special.*requests"));
-
-        var c_orders = from c in customerQuery
-                       join o in filteredOrders on c.c_custkey equals o.o_custkey into g
-                       select new
-                       {
-                           c.c_custkey,
-                           c_count = g.Count()
-                       };
-
-        var query = from co in c_orders
+        var query = from co in from c in customerQuery
+                               join o in ordersQuery.Where(o => !SpecialRequestsRegex().IsMatch(o.o_comment)) on c.c_custkey equals o.o_custkey into g
+                               select new
+                               {
+                                   c.c_custkey,
+                                   c_count = g.Count()
+                               }
                     group co by co.c_count into g
                     orderby g.Count() descending, g.Key descending
                     select new
@@ -1287,7 +1286,57 @@ public class TpchLinqTests
         Assert.Equal(11, row3.c_count);
         Assert.Equal(63, row3.custdist);
     }
+
+    /*
+     * TPC-H Query 14: Promotion Effect Query
+     *
+     * SELECT
+     *     100.00 * sum(
+     *         CASE WHEN p_type LIKE 'PROMO%' THEN
+     *             l_extendedprice * (1 - l_discount)
+     *         ELSE
+     *             0
+     *         END) / sum(l_extendedprice * (1 - l_discount)) AS promo_revenue
+     * FROM
+     *     lineitem,
+     *     part
+     * WHERE
+     *     l_partkey = p_partkey
+     *     AND l_shipdate >= date '1995-09-01'
+     *     AND l_shipdate < CAST('1995-10-01' AS date);
+     */
+    [Fact]
+    [Trait("TPCH", "Q14")]
+    public void Test_Q14_Promotion_Effect()
+    {
+        using var lfLineItem = TpchData.LineItem();
+        using var lfPart = TpchData.Part();
+
+        var lineitemQuery = lfLineItem.AsQueryable<LineItem>();
+        var partQuery = lfPart.AsQueryable<Part>();
+
+        var startDate = new DateOnly(1995, 9, 1);
+        var endDate = new DateOnly(1995, 10, 1);
+
+        var query = from l in lineitemQuery
+                    where l.l_shipdate >= startDate && l.l_shipdate < endDate
+                    join p in partQuery on l.l_partkey equals p.p_partkey
+                    group new { l, p } by 1 into g
+                    select new
+                    {
+                        promo_revenue = 100.0 * (double)g.Sum(x => x.p.p_type.StartsWith("PROMO") ? x.l.l_extendedprice * (1m - x.l.l_discount) : 0m)
+                                        / (double)g.Sum(x => x.l.l_extendedprice * (1m - x.l.l_discount))
+                    };
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+
+        Assert.Single(results);
+        Assert.Equal(15.4865, results[0].promo_revenue, precision: 4);
+    }
 }
+
 
 
 

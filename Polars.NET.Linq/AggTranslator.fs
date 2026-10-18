@@ -259,4 +259,45 @@ module AggTranslator =
                     None
             | _ -> None
 
+        // 11. Binary arithmetic or logical expressions over group aggregations: e.g. 100.0 * (double)g.Sum(...) / (double)g.Sum(...)
+        | Binary(op, left, right) ->
+            match
+                tryTranslateAggWithScalarCol groupParamName scalarColOpt wholeRowStructOpt left "",
+                tryTranslateAggWithScalarCol groupParamName scalarColOpt wholeRowStructOpt right ""
+            with
+            | Some leftH, Some rightH ->
+                let binH = ExprTranslator.translateBinary op leftH rightH
+
+                if String.IsNullOrEmpty aliasName then
+                    Some binH
+                else
+                    Some(PolarsWrapper.Alias(binH, aliasName))
+            | _ -> None
+
+        // 12. Unary operations / conversions on aggregations: e.g. (double)g.Sum(...)
+        | Unary(op, operand) ->
+            tryTranslateAggWithScalarCol groupParamName scalarColOpt wholeRowStructOpt operand ""
+            |> Option.bind (fun innerH ->
+                match op with
+                | ExpressionType.Convert
+                | ExpressionType.ConvertChecked ->
+                    ExprTranslator.tryTranslateCast cleanExpr.Type innerH
+                | _ ->
+                    ExprTranslator.translateUnary op innerH)
+            |> Option.map (fun uH ->
+                if String.IsNullOrEmpty aliasName then
+                    uH
+                else
+                    PolarsWrapper.Alias(uH, aliasName))
+
+        // 13. Constant values inside aggregation arithmetic expressions: e.g. 100.0, 100.00m
+        | Constant(v, t) ->
+            let litH = ExprTranslator.toLiteralHandle v t
+
+            if String.IsNullOrEmpty aliasName then
+                Some litH
+            else
+                Some(PolarsWrapper.Alias(litH, aliasName))
+
         | _ -> None
+

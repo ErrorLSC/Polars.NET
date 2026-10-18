@@ -203,7 +203,7 @@ module internal rec ExprTranslator =
                         "Type '%s' is not supported as a constant literal in Polars LINQ"
                         (other.GetType().FullName)
 
-    let private tryTranslateCast (targetType: Type) (operand: ExprHandle) : ExprHandle option =
+    let internal tryTranslateCast (targetType: Type) (operand: ExprHandle) : ExprHandle option =
         if targetType = typeof<obj> then
             Some operand
         else
@@ -1835,7 +1835,7 @@ module internal rec ExprTranslator =
         | ExpressionType.Coalesce -> PolarsWrapper.Coalesce [| left; right |]
         | other -> failwithf "Binary operator '%A' is not currently supported in Polars LINQ" other
 
-    let private translateUnary (nodeType: ExpressionType) (operand: ExprHandle) : ExprHandle option =
+    let internal translateUnary (nodeType: ExpressionType) (operand: ExprHandle) : ExprHandle option =
         match nodeType with
         | ExpressionType.Not -> Some(PolarsWrapper.Not operand)
         | ExpressionType.Negate
