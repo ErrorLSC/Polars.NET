@@ -1591,6 +1591,110 @@ public partial class TpchLinqTests
         Assert.Single(activeResults);
         Assert.Equal(7590.6514, activeResults[0].avg_yearly, precision: 4);
     }
+
+    /*
+     * TPC-H Query 18: Large Volume Customer Query
+     *
+     * SELECT
+     *     c_name,
+     *     c_custkey,
+     *     o_orderkey,
+     *     o_orderdate,
+     *     o_totalprice,
+     *     sum(l_quantity)
+     * FROM
+     *     customer,
+     *     orders,
+     *     lineitem
+     * WHERE
+     *     o_orderkey IN (
+     *         SELECT
+     *             l_orderkey
+     *         FROM
+     *             lineitem
+     *         GROUP BY
+     *             l_orderkey
+     *         HAVING
+     *             sum(l_quantity) > 300
+     *     )
+     *     AND c_custkey = o_custkey
+     *     AND o_orderkey = l_orderkey
+     * GROUP BY
+     *     c_name,
+     *     c_custkey,
+     *     o_orderkey,
+     *     o_orderdate,
+     *     o_totalprice
+     * ORDER BY
+     *     o_totalprice DESC,
+     *     o_orderdate
+     * LIMIT 100;
+     */
+    [Fact]
+    [Trait("TPCH", "Q18")]
+    public void Test_Q18_Large_Volume_Customer()
+    {
+        using var lfCustomer = TpchData.Customer();
+        using var lfOrders = TpchData.Orders();
+        using var lfLineItem = TpchData.LineItem();
+
+        var customerQuery = lfCustomer.AsQueryable<Customer>();
+        var ordersQuery = lfOrders.AsQueryable<Orders>();
+        var lineitemQuery = lfLineItem.AsQueryable<LineItem>();
+
+        var bigOrders = from l in lineitemQuery
+                        group l by l.l_orderkey into g
+                        select new
+                        {
+                            l_orderkey = g.Key,
+                            total_qty = g.Sum(x => x.l_quantity)
+                        } into og
+                        where og.total_qty > 300m
+                        select og.l_orderkey;
+
+        AssertPlan(bigOrders, NativePushdown);
+
+        var filteredOrders = from o in ordersQuery
+                             where bigOrders.Contains(o.o_orderkey)
+                             select o;
+
+        var query = (from c in customerQuery
+                     join o in filteredOrders on c.c_custkey equals o.o_custkey
+                     join l in lineitemQuery on o.o_orderkey equals l.l_orderkey
+                     group l by new { c.c_name, c.c_custkey, o.o_orderkey, o.o_orderdate, o.o_totalprice } into g
+                     orderby g.Key.o_totalprice descending, g.Key.o_orderdate
+                     select new
+                     {
+                         g.Key.c_name,
+                         g.Key.c_custkey,
+                         g.Key.o_orderkey,
+                         g.Key.o_orderdate,
+                         g.Key.o_totalprice,
+                         sum_qty = g.Sum(x => x.l_quantity)
+                     }).Take(100);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+
+        Assert.Equal(2, results.Count);
+
+        var row0 = results[0];
+        Assert.Equal("Customer#000000667", row0.c_name);
+        Assert.Equal(667, row0.c_custkey);
+        Assert.Equal(29158, row0.o_orderkey);
+        Assert.Equal(new DateOnly(1995, 10, 21), row0.o_orderdate);
+        Assert.Equal(439687.23m, row0.o_totalprice);
+        Assert.Equal(305.00m, row0.sum_qty);
+
+        var row1 = results[1];
+        Assert.Equal("Customer#000000178", row1.c_name);
+        Assert.Equal(178, row1.c_custkey);
+        Assert.Equal(6882, row1.o_orderkey);
+        Assert.Equal(new DateOnly(1997, 4, 9), row1.o_orderdate);
+        Assert.Equal(422359.65m, row1.o_totalprice);
+        Assert.Equal(303.00m, row1.sum_qty);
+    }
 }
 
 
