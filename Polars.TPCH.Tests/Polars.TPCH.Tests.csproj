@@ -21,6 +21,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <Using Include="Polars.CSharp" />
+    <Using Include="Polars.CSharp.Linq" />
     <Using Include="Polars.CSharp.Polars" Alias="Pl" />
   </ItemGroup>
 
