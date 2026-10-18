@@ -1882,6 +1882,120 @@ public partial class TpchLinqTests
         Assert.Equal("Supplier#000000013", row0.s_name);
         Assert.Equal("kgTZjbt4CAa4c3SlirlBLqIL41YbCj", row0.s_address);
     }
+
+    /*
+     * TPC-H Q21: Suppliers Who Kept Orders Waiting Query
+     *
+     * SELECT
+     *     s_name,
+     *     count(*) AS numwait
+     * FROM
+     *     supplier,
+     *     lineitem l1,
+     *     orders,
+     *     nation
+     * WHERE
+     *     s_suppkey = l1.l_suppkey
+     *     AND o_orderkey = l1.l_orderkey
+     *     AND o_orderstatus = 'F'
+     *     AND l1.l_receiptdate > l1.l_commitdate
+     *     AND EXISTS (
+     *         SELECT
+     *             *
+     *         FROM
+     *             lineitem l2
+     *         WHERE
+     *             l2.l_orderkey = l1.l_orderkey
+     *             AND l2.l_suppkey <> l1.l_suppkey
+     *     )
+     *     AND NOT EXISTS (
+     *         SELECT
+     *             *
+     *         FROM
+     *             lineitem l3
+     *         WHERE
+     *             l3.l_orderkey = l1.l_orderkey
+     *             AND l3.l_suppkey <> l1.l_suppkey
+     *             AND l3.l_receiptdate > l3.l_commitdate
+     *     )
+     *     AND s_nationkey = n_nationkey
+     *     AND n_name = 'SAUDI ARABIA'
+     * GROUP BY
+     *     s_name
+     * ORDER BY
+     *     numwait DESC,
+     *     s_name
+     * LIMIT 100;
+     */
+    [Fact]
+    [Trait("TPCH", "Q21")]
+    public void Test_Q21_Suppliers_Who_Kept_Orders_Waiting()
+    {
+        using var lfSupplier = TpchData.Supplier();
+        using var lfLineItem = TpchData.LineItem();
+        using var lfOrders = TpchData.Orders();
+        using var lfNation = TpchData.Nation();
+
+        var supplierQuery = lfSupplier.AsQueryable<Supplier>();
+        var lineitemQuery = lfLineItem.AsQueryable<LineItem>();
+        var ordersQuery = lfOrders.AsQueryable<Orders>();
+        var nationQuery = lfNation.AsQueryable<Nation>();
+
+        // 1. Orders with more than one supplier
+        var multiSuppOrders = from l in lineitemQuery
+                              group l by l.l_orderkey into g
+                              select new
+                              {
+                                  l_orderkey = g.Key,
+                                  supp_count = g.Select(x => x.l_suppkey).Distinct().Count()
+                              } into og
+                              where og.supp_count > 1
+                              select og.l_orderkey;
+
+        // 2. Orders where exactly one supplier was late
+        var singleLateSuppOrders = from l in lineitemQuery
+                                   where l.l_receiptdate > l.l_commitdate
+                                   group l by l.l_orderkey into g
+                                   select new
+                                   {
+                                       l_orderkey = g.Key,
+                                       l_suppkey = g.Max(x => x.l_suppkey),
+                                       supp_count = g.Select(x => x.l_suppkey).Distinct().Count()
+                                   } into og
+                                   where og.supp_count == 1
+                                   select new
+                                   {
+                                       og.l_orderkey,
+                                       og.l_suppkey
+                                   };
+
+        var query = (from l1 in lineitemQuery
+                     where l1.l_receiptdate > l1.l_commitdate
+                     where multiSuppOrders.Contains(l1.l_orderkey)
+                     join slo in singleLateSuppOrders on l1.l_orderkey equals slo.l_orderkey
+                     where l1.l_suppkey == slo.l_suppkey
+                     join o in ordersQuery on l1.l_orderkey equals o.o_orderkey
+                     where o.o_orderstatus == "F"
+                     join s in supplierQuery on l1.l_suppkey equals s.s_suppkey
+                     join n in nationQuery on s.s_nationkey equals n.n_nationkey
+                     where n.n_name == "SAUDI ARABIA"
+                     group l1 by s.s_name into g
+                     orderby g.Count() descending, g.Key
+                     select new
+                     {
+                         s_name = g.Key,
+                         numwait = g.Count()
+                     }).Take(100);
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+
+        Assert.Single(results);
+        var row0 = results[0];
+        Assert.Equal("Supplier#000000074", row0.s_name);
+        Assert.Equal(9, row0.numwait);
+    }
 }
 
 
