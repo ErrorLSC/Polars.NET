@@ -1335,7 +1335,91 @@ public partial class TpchLinqTests
         Assert.Single(results);
         Assert.Equal(15.4865, results[0].promo_revenue, precision: 4);
     }
+
+    /*
+     * TPC-H Query 15: Top Supplier Query
+     *
+     * WITH revenue AS (
+     *     SELECT
+     *         l_suppkey AS supplier_no,
+     *         sum(l_extendedprice * (1 - l_discount)) AS total_revenue
+     *     FROM
+     *         lineitem
+     *     WHERE
+     *         l_shipdate >= CAST('1996-01-01' AS date)
+     *         AND l_shipdate < CAST('1996-04-01' AS date)
+     *     GROUP BY
+     *         l_suppkey
+     * )
+     * SELECT
+     *     s_suppkey,
+     *     s_name,
+     *     s_address,
+     *     s_phone,
+     *     total_revenue
+     * FROM
+     *     supplier,
+     *     revenue
+     * WHERE
+     *     s_suppkey = supplier_no
+     *     AND total_revenue = (
+     *         SELECT
+     *             max(total_revenue)
+     *         FROM
+     *             revenue
+     *     )
+     * ORDER BY
+     *     s_suppkey;
+     */
+    [Fact]
+    [Trait("TPCH", "Q15")]
+    public void Test_Q15_Top_Supplier()
+    {
+        using var lfSupplier = TpchData.Supplier();
+        using var lfLineItem = TpchData.LineItem();
+
+        var supplierQuery = lfSupplier.AsQueryable<Supplier>();
+        var lineitemQuery = lfLineItem.AsQueryable<LineItem>();
+
+        var startDate = new DateOnly(1996, 1, 1);
+        var endDate = new DateOnly(1996, 4, 1);
+
+        var revenue = from l in lineitemQuery
+                      where l.l_shipdate >= startDate && l.l_shipdate < endDate
+                      group l by l.l_suppkey into g
+                      select new
+                      {
+                          supplier_no = g.Key,
+                          total_revenue = g.Sum(x => x.l_extendedprice * (1m - x.l_discount))
+                      };
+
+        var query = from s in supplierQuery
+                    join r in revenue on s.s_suppkey equals r.supplier_no
+                    where r.total_revenue == revenue.Select(x => x.total_revenue).Max()
+                    orderby s.s_suppkey
+                    select new
+                    {
+                        s.s_suppkey,
+                        s.s_name,
+                        s.s_address,
+                        s.s_phone,
+                        r.total_revenue
+                    };
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+
+        Assert.Single(results);
+        var row0 = results[0];
+        Assert.Equal(21, row0.s_suppkey);
+        Assert.Equal("Supplier#000000021", row0.s_name);
+        Assert.Equal("TZoQwNFFO i,baXpbpin02,hvuhE,GRVIKm ", row0.s_address);
+        Assert.Equal("12-253-590-5816", row0.s_phone);
+        Assert.Equal(1161099.49m, row0.total_revenue);
+    }
 }
+
 
 
 
