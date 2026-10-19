@@ -20,6 +20,8 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
     private readonly bool[] _activeColumns;
     private readonly int[] _neededOriginalIndices;
     private readonly IArrowArray[] _currentArrays;
+    private readonly IDisposable? _resourceToDispose;
+    private readonly long _baseRowOffset;
 
     // ==========================================
     // Metadata & State Properties
@@ -32,7 +34,7 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
         => _activeColumns[column.Index];
 
     public override ValueGetter<DataViewRowId> GetIdGetter() =>
-        (ref id) => id = new DataViewRowId((ulong)_position, 0);
+        (ref id) => id = new DataViewRowId((ulong)(_baseRowOffset + _position), 0);
 
     // ==========================================
     // Iteration Logic
@@ -43,43 +45,55 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
         {
             _batchEnumerator.Dispose();
             _currentBatch?.Dispose();
+            _resourceToDispose?.Dispose();
         }
     }
 
     public override bool MoveNext()
     {
-        _position++;
-        _batchRowIndex++;
-
-        if (_currentBatch == null || _batchRowIndex >= _currentBatch.Length)
+        while (true)
         {
-            if (_batchEnumerator.MoveNext())
+            _batchRowIndex++;
+
+            if (_currentBatch != null && _batchRowIndex < _currentBatch.Length)
             {
-                _currentBatch?.Dispose();
-                _currentBatch = _batchEnumerator.Current;
-                _batchRowIndex = 0;
-
-                for (int i = 0; i < _neededOriginalIndices.Length; i++)
-                {
-                    int originalIdx = _neededOriginalIndices[i];
-                    _currentArrays[originalIdx] = _currentBatch.Column(i);
-                }
-
+                _position++;
                 return true;
             }
-            return false;
-        }
 
-        return true;
+            if (!_batchEnumerator.MoveNext())
+            {
+                return false;
+            }
+
+            _currentBatch?.Dispose();
+            _currentBatch = _batchEnumerator.Current;
+            _batchRowIndex = -1;
+
+            if (_currentBatch == null || _currentBatch.Length == 0)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < _neededOriginalIndices.Length; i++)
+            {
+                int originalIdx = _neededOriginalIndices[i];
+                _currentArrays[originalIdx] = _currentBatch.Column(i);
+            }
+        }
     }
 
     public PolarsRowCursor(
         DataViewSchema schema,
         IEnumerable<RecordBatch> batches,
-        IEnumerable<DataViewSchema.Column>? columnsNeeded)
+        IEnumerable<DataViewSchema.Column>? columnsNeeded,
+        IDisposable? resourceToDispose = null,
+        long baseRowOffset = 0)
     {
         Schema = schema;
         _batchEnumerator = batches.GetEnumerator();
+        _resourceToDispose = resourceToDispose;
+        _baseRowOffset = baseRowOffset;
 
         _activeColumns = new bool[schema.Count];
         _currentArrays = new IArrowArray[schema.Count];

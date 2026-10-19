@@ -14,7 +14,7 @@ public interface IPolarsDataFrame : IDisposable
     UpdateResult WriteToAdbc(AdbcStatement statement);
     IPolarsSeries Column(int index);
     IArrowArrayStream ToArrowStream(ReadOnlySpan<int> columnIndices = default, ulong? seed = null);
-
+    IPolarsDataFrame Slice(long offset, ulong length);
 }
 
 public interface IPolarsSeries : IDisposable

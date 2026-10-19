@@ -251,6 +251,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
 
         return new(PolarsWrapper.Slice(Handle, absoluteOffset, realLength));
     }
+    IPolarsDataFrame IPolarsDataFrame.Slice(long offset, ulong length) => Slice(offset, length);
     /// <summary>
     /// e.g. df.Slice(1..5) or df.Slice(..^10)
     /// </summary>

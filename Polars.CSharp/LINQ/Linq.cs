@@ -133,7 +133,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         if (chunkSize <= 0)
             throw new ArgumentOutOfRangeException(nameof(chunkSize), "Chunk size must be greater than zero.");
 
-        var df = new DataFrame(handle);
+        DataFrame df = new(handle);
         long totalRows = df.Height;
 
         if (totalRows == 0)

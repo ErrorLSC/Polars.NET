@@ -1442,6 +1442,13 @@ and DataFrame(handle: DataFrameHandle) =
         member this.ToArrowStream(columnIndices: ReadOnlySpan<int>, seed: Nullable<uint64>) =
             ArrowStreamInterop.ExportToStream(this.Handle, columnIndices, seed)
 
+        member this.Slice(offset: int64, length: uint64) =
+            let absoluteOffset = if offset < 0L then int64 this.Height + offset else offset
+            if absoluteOffset < 0L || absoluteOffset >= int64 this.Height then
+                new DataFrame(PolarsWrapper.Slice(this.Handle, absoluteOffset, 0UL)) :> IPolarsDataFrame
+            else
+                new DataFrame(PolarsWrapper.Slice(this.Handle, absoluteOffset, length)) :> IPolarsDataFrame
+
 /// <summary>
 /// A LazyFrame represents a logical plan of operations that will be optimized and executed only when collected.
 /// <para>

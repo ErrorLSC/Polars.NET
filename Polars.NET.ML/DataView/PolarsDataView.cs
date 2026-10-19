@@ -43,7 +43,54 @@ public sealed class PolarsDataView(IPolarsDataFrame df, bool enableMacroShuffle 
 
     /// <inheritdoc/>
     public DataViewRowCursor[] GetRowCursorSet(IEnumerable<DataViewSchema.Column> columnsNeeded, int n, Random? rand = null)
-        => [GetRowCursor(columnsNeeded, rand)];
+    {
+        if (n <= 1 || _rowCount == 0)
+        {
+            return [GetRowCursor(columnsNeeded, rand)];
+        }
+
+        int cursorCount = (int)Math.Min(n, _rowCount);
+        if (cursorCount <= 1)
+        {
+            return [GetRowCursor(columnsNeeded, rand)];
+        }
+
+        int[] indices = columnsNeeded?.Select(c => c.Index).ToArray() ?? [];
+        long rowsPerCursor = _rowCount / cursorCount;
+        long remainder = _rowCount % cursorCount;
+
+        var cursors = new DataViewRowCursor[cursorCount];
+        long currentOffset = 0;
+        int createdCount = 0;
+
+        try
+        {
+            for (int i = 0; i < cursorCount; i++)
+            {
+                long sliceLength = rowsPerCursor + (i < remainder ? 1 : 0);
+                long sliceOffset = currentOffset;
+                currentOffset += sliceLength;
+
+                IPolarsDataFrame sliceDf = _df.Slice(sliceOffset, (ulong)sliceLength);
+                ulong? seed = rand != null ? (ulong)rand.Next() : null;
+                IArrowArrayStream arrowStream = sliceDf.ToArrowStream(indices, seed);
+                var batches = new ArrowStreamEnumerable(arrowStream);
+
+                cursors[i] = new PolarsRowCursor(Schema, batches, columnsNeeded, sliceDf, baseRowOffset: sliceOffset);
+                createdCount++;
+            }
+
+            return cursors;
+        }
+        catch
+        {
+            for (int i = 0; i < createdCount; i++)
+            {
+                cursors[i]?.Dispose();
+            }
+            throw;
+        }
+    }
 
     private static DataViewSchema BuildSchema(IPolarsDataFrame df)
     {

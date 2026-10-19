@@ -20,7 +20,7 @@ public partial class LazyFrame : IDisposable
     /// <param name="rowIndexOffset">Offset for the row index.</param>
     /// <param name="includePathColumn">If provided, adds a column with the source file path.</param>
     /// <param name="schema">
-    /// Manually specify the schema of the file(s). 
+    /// Manually specify the schema of the file(s).
     /// Useful if the file footer is missing or to avoid I/O overhead of reading the schema.</param>
     /// <param name="hivePartitioning">Enable Hive partitioning inference (default: false).</param>
     /// <param name="hivePartitionSchema">

@@ -66,7 +66,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             cloudOptions
         );
 
-        if (columns != null && columns.Length > 0)
+        if (columns?.Length > 0)
         {
             var colsToSelect = new List<string>(columns);
 
@@ -88,9 +88,6 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
 
     /// <summary>
     /// Read Parquet from an in-memory byte array.
-    /// <para>
-    /// Note: This method internally uses LazyFrame.ScanParquet and collects the result.
-    /// </para>
     /// </summary>
     /// <param name="buffer">The byte array containing the parquet file.</param>
     /// <param name="columns">Columns to select. If null, select all columns.</param>
@@ -131,7 +128,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             tryParseHiveDates
         );
 
-        if (columns != null && columns.Length > 0)
+        if (columns?.Length > 0)
         {
             var colsToSelect = new List<string>(columns);
 
@@ -153,9 +150,6 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
 
     /// <summary>
     /// Read Parquet from a Stream.
-    /// <para>
-    /// Note: This method copies the stream to memory and then uses the Lazy execution engine.
-    /// </para>
     /// </summary>
     /// <param name="stream">The input stream containing the parquet file.</param>
     /// <param name="columns">Columns to select. If null, select all columns.</param>
@@ -243,7 +237,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             cloudOptions
         );
 
-        if (columns != null && columns.Length > 0)
+        if (columns?.Length > 0)
         {
             var colsToSelect = new List<string>(columns);
 

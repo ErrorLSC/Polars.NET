@@ -219,10 +219,10 @@ public sealed class CloudOptions
         string[]? keys = null;
         string[]? values = null;
 
-        if (options.Credentials != null && options.Credentials.Count > 0)
+        if (options.Credentials?.Count > 0)
         {
-            keys = options.Credentials.Keys.ToArray();
-            values = options.Credentials.Values.ToArray();
+            keys = [.. options.Credentials.Keys];
+            values = [.. options.Credentials.Values];
         }
 
         return (
