@@ -2,7 +2,8 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Write DataFrame to an IPC (Arrow/Feather) file.
@@ -63,8 +64,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         var lf = Lazy();
         lf.SinkIpcPartitioned(
-            path,partitionBy,includeKeys,keysPreGrouped,maxRowsPerFile,approxBytesPerFile,
-            compression,compatLevel,recordBatchSize,recordBatchStatistics,maintainOrder,syncOnClose,mkdir,cloudOptions
+            path, partitionBy, includeKeys, keysPreGrouped, maxRowsPerFile, approxBytesPerFile,
+            compression, compatLevel, recordBatchSize, recordBatchStatistics, maintainOrder, syncOnClose, mkdir, cloudOptions
         );
     }
     /// <inheritdoc cref="LazyFrame.SinkIpcMemory(IpcCompression, int, int, bool, bool)"/>
@@ -96,12 +97,12 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         IpcCompression compression = IpcCompression.None,
         int compatLevel = -1
     )
-        => PolarsWrapper.WriteIpcStream(Handle,path,compression.ToNative(),compatLevel);
+        => PolarsWrapper.WriteIpcStream(Handle, path, compression.ToNative(), compatLevel);
     /// <inheritdoc cref="DataFrame.WriteIpcStream"/>
     public byte[] WriteIpcStreamMemory(
         IpcCompression compression = IpcCompression.None,
         int compatLevel = -1
     )
-        => PolarsWrapper.WriteIpcStreamMemory(Handle,compression.ToNative(),compatLevel);
-    
+        => PolarsWrapper.WriteIpcStreamMemory(Handle, compression.ToNative(), compatLevel);
+
 }

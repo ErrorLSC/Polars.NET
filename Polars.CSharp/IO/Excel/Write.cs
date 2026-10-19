@@ -1,7 +1,8 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Writes the DataFrame to an Excel file (.xlsx) using the native high-performance engine.
@@ -25,9 +26,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// If null, defaults to "yyyy-mm-dd hh:mm:ss".
     /// </param>
     public void WriteExcel(
-        string path, 
+        string path,
         string? sheetName = null,
-        string? dateFormat = null, 
+        string? dateFormat = null,
         string? datetimeFormat = null)
     {
         if (string.IsNullOrWhiteSpace(path))

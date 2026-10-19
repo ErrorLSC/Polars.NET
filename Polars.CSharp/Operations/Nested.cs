@@ -2,6 +2,7 @@ using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
@@ -80,7 +81,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         => Explode(Cs.ByName(columns));
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Decompose a struct column into multiple columns.

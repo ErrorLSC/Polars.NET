@@ -1,14 +1,15 @@
 using Polars.NET.Core;
-using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
 
     /// <summary> Cast all columns to the specified target type. </summary>
-    public LazyFrame Cast(IntoDataTypeExpr dtype, bool strict = true,bool wrapNumerical = false)
-        => Select(Pl.All().Cast(dtype, strict,wrapNumerical));
+    public LazyFrame Cast(IntoDataTypeExpr dtype, bool strict = true, bool wrapNumerical = false)
+        => Select(Pl.All().Cast(dtype, strict, wrapNumerical));
 
     /// <summary> Cast a specific Expression, String, Selector, or Type to a DataType. </summary>
     public LazyFrame Cast(IntoSelector selector, IntoDataTypeExpr dtype, bool strict = true, bool wrapNumerical = false)
@@ -25,13 +26,13 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     {
         if (casts.Length == 0) return this;
         var castExprs = new IntoExprColumn[casts.Length];
-        
+
         for (int i = 0; i < casts.Length; i++)
         {
             using var sel = casts[i].Selector.Consume();
-            castExprs[i] = sel.ToExpr().Cast(casts[i].Dtype, strict: true, wrapNumerical: false); 
+            castExprs[i] = sel.ToExpr().Cast(casts[i].Dtype, strict: true, wrapNumerical: false);
         }
-            
+
         return WithColumns(castExprs);
     }
     /// <summary> 
@@ -40,10 +41,10 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     public LazyFrame Cast(IntoSchema schemaWrapper, bool strict = true, bool wrapNumerical = false)
     {
         var schema = schemaWrapper.Consume();
-        
+
         try
         {
-            if (schema == null || schema.Handle.IsInvalid || schema.Count == 0) 
+            if (schema == null || schema.Handle.IsInvalid || schema.Count == 0)
                 return this;
 
             var fields = schema.ToList();
@@ -62,11 +63,11 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         }
     }
 }
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary> Cast all columns to the specified target type. </summary>
-    public DataFrame Cast(IntoDataTypeExpr dtype, bool strict = true,bool wrapNumerical = false)
-        => Select(Pl.All().Cast(dtype, strict,wrapNumerical));
+    public DataFrame Cast(IntoDataTypeExpr dtype, bool strict = true, bool wrapNumerical = false)
+        => Select(Pl.All().Cast(dtype, strict, wrapNumerical));
 
     /// <summary> Cast a specific Expression, String, Selector, or Type to a DataType. </summary>
     public DataFrame Cast(IntoSelector selector, IntoDataTypeExpr dtype, bool strict = true, bool wrapNumerical = false)
@@ -83,13 +84,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         if (casts.Length == 0) return this;
         var castExprs = new IntoExprColumn[casts.Length];
-        
+
         for (int i = 0; i < casts.Length; i++)
         {
             using var sel = casts[i].Selector.Consume();
-            castExprs[i] = sel.ToExpr().Cast(casts[i].Dtype, strict: true, wrapNumerical: false); 
+            castExprs[i] = sel.ToExpr().Cast(casts[i].Dtype, strict: true, wrapNumerical: false);
         }
-            
+
         return WithColumns(castExprs);
     }
     /// <summary> 
@@ -98,10 +99,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public DataFrame Cast(IntoSchema schemaWrapper, bool strict = true, bool wrapNumerical = false)
     {
         var schema = schemaWrapper.Consume();
-        
+
         try
         {
-            if (schema == null || schema.Handle.IsInvalid || schema.Count == 0) 
+            if (schema == null || schema.Handle.IsInvalid || schema.Count == 0)
                 return this;
 
             var fields = schema.ToList();

@@ -117,7 +117,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         Dictionary<string, IntoExprColumn>? setters = null;
         if (set != null)
         {
-            var sb = new MergeSetterBuilder(_ctx,_target);
+            var sb = new MergeSetterBuilder(_ctx, _target);
             set(sb);
             setters = sb.Setters;
         }
@@ -148,7 +148,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         Dictionary<string, IntoExprColumn>? setters = null;
         if (set != null)
         {
-            var sb = new MergeSetterBuilder(_ctx,_target);
+            var sb = new MergeSetterBuilder(_ctx, _target);
             set(sb);
             setters = sb.Setters;
         }
@@ -533,9 +533,9 @@ public class DataFrameMergeBuilder : MergeBuilderBase<DataFrameMergeBuilder>
     /// <summary>
     /// Executes the merge operation eagerly and returns a materialized DataFrame.
     /// </summary>
-    public DataFrame Execute(Engine engine=Engine.Auto)
+    public DataFrame Execute(Engine engine = Engine.Auto)
     {
-         _srcSchemaCache = _source.CollectSchema().ToFrozenDictionary();
+        _srcSchemaCache = _source.CollectSchema().ToFrozenDictionary();
         _tgtSchemaCache = _target.Schema.ToFrozenDictionary();
         ValidateMergePhase();
         return BuildAst().Collect(engine);
@@ -588,7 +588,7 @@ public partial class LazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Initiates a Merge (Upsert) builder to apply changes from a source DataFrame.
@@ -596,7 +596,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="source">The source DataFrame containing updates/inserts.</param>
     /// <param name="on">The column names to merge on.</param>
     public DataFrameMergeBuilder Merge(DataFrame source, params string[] on)
-        =>new(Lazy(), source.Lazy(), on);
+        => new(Lazy(), source.Lazy(), on);
     /// <summary>
     /// Initiates an eager Merge builder using a Selector or Column Expression.
     /// </summary>

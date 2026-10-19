@@ -6,7 +6,7 @@ namespace Polars.CSharp;
 /// <summary>
 /// Unified builder for DataFrame GroupBy operations (Standard, Dynamic, Rolling)
 /// </summary>
-public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
+public class GroupByBuilder : IEnumerable<(object[] Key, DataFrame Group)>
 {
     private readonly DataFrame _df;
     private readonly LazyGroupBy _lazyGrouped;
@@ -44,7 +44,7 @@ public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
     /// <param name="ignoreNulls">Ignore null values (default False). If set to True, the first non-null value for each aggregation is returned,
     /// otherwise None is returned if no non-null value exists.</param>
     /// <returns></returns>
-    public DataFrame First(bool ignoreNulls=false)
+    public DataFrame First(bool ignoreNulls = false)
         => Agg(Pl.All().First(ignoreNulls));
     /// <summary>
     /// Aggregate the last values in the group.
@@ -52,7 +52,7 @@ public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
     /// <param name="ignoreNulls">Ignore null values (default False). If set to True, the last non-null value for each aggregation is returned,
     /// otherwise None is returned if no non-null value exists.</param>
     /// <returns></returns>
-    public DataFrame Last(bool ignoreNulls=false)
+    public DataFrame Last(bool ignoreNulls = false)
         => Agg(Pl.All().Last(ignoreNulls));
     public DataFrame Head(int n = 10) => _lazyGrouped.Head(n).Collect();
     public DataFrame Tail(int n = 10) => _lazyGrouped.Tail(n).Collect();
@@ -61,7 +61,7 @@ public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
     /// </summary>
     /// <param name="name">Assign a name to the resulting column; if unset, defaults to “len”.</param>
     /// <returns></returns>
-    public DataFrame Len(string name="len")
+    public DataFrame Len(string name = "len")
         => Agg(Pl.Len().Alias(name));
     /// <summary>
     /// Reduce the groups to the maximal value.
@@ -105,8 +105,8 @@ public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
     /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
     /// <param name="interpolation">Interpolation method.</param>
     /// <returns></returns>
-    public DataFrame Quantile(double quantile,QuantileMethod interpolation = QuantileMethod.Linear)
-        => Agg(Pl.All().Quantile(quantile,interpolation));
+    public DataFrame Quantile(double quantile, QuantileMethod interpolation = QuantileMethod.Linear)
+        => Agg(Pl.All().Quantile(quantile, interpolation));
 
     /// <summary>
     /// Aggregate with specified expressions.

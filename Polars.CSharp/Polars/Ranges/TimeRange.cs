@@ -1,6 +1,7 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
+
 public readonly partial struct Polars
 {
     /// <summary>
@@ -11,20 +12,20 @@ public readonly partial struct Polars
     /// <param name="interval">Interval of the range periods</param>
     /// <param name="closed">Define which sides of the range are closed.</param>
     public static Expr TimeRange(
-        IntoExprColumn? start = null, 
-        IntoExprColumn? end = null, 
-        IntoDuration? interval = null, 
+        IntoExprColumn? start = null,
+        IntoExprColumn? end = null,
+        IntoDuration? interval = null,
         ClosedInterval closed = ClosedInterval.Both)
     {
         using Expr realStart = start?.Consume() ?? Lit(TimeOnly.MinValue);
         using Expr realEnd = end?.Consume() ?? Lit(TimeOnly.MaxValue);
-        
-        string actualInterval = interval.HasValue ? interval.Value.Value : "1h"; 
+
+        string actualInterval = interval.HasValue ? interval.Value.Value : "1h";
 
         var handle = PolarsWrapper.TimeRange(
-            realStart.CloneHandle(), 
-            realEnd.CloneHandle(), 
-            actualInterval, 
+            realStart.CloneHandle(),
+            realEnd.CloneHandle(),
+            actualInterval,
             closed.ToNative()
         );
 
@@ -32,37 +33,37 @@ public readonly partial struct Polars
     }
     /// <inheritdoc cref="TimeRange"/>
     public static Series TimeRangeAsSeries(
-        IntoExprColumn? start = null, 
-        IntoExprColumn? end = null, 
-        IntoDuration? interval = null, 
+        IntoExprColumn? start = null,
+        IntoExprColumn? end = null,
+        IntoDuration? interval = null,
         ClosedInterval closed = ClosedInterval.Both,
         string name = "time")
     {
-        var expr = TimeRange(start,end,interval,closed);
+        var expr = TimeRange(start, end, interval, closed);
         Series series = CreateSeries(expr);
         series.Rename(name);
         return series;
     }
-    
+
     /// <summary>
     /// Create a column of time ranges.
     /// </summary>
     /// <inheritdoc cref="TimeRange"/>
     public static Expr TimeRanges(
-        IntoExprColumn? start = null, 
-        IntoExprColumn? end = null, 
-        IntoDuration? interval = null, 
+        IntoExprColumn? start = null,
+        IntoExprColumn? end = null,
+        IntoDuration? interval = null,
         ClosedInterval closed = ClosedInterval.Both)
     {
         using Expr realStart = start?.Consume() ?? Lit(TimeOnly.MinValue);
         using Expr realEnd = end?.Consume() ?? Lit(TimeOnly.MaxValue);
-        
+
         string actualInterval = interval.HasValue ? interval.Value.Value : "1h";
 
         var handle = PolarsWrapper.TimeRanges(
-            realStart.CloneHandle(), 
-            realEnd.CloneHandle(), 
-            actualInterval, 
+            realStart.CloneHandle(),
+            realEnd.CloneHandle(),
+            actualInterval,
             closed.ToNative()
         );
 
@@ -70,13 +71,13 @@ public readonly partial struct Polars
     }
     /// <inheritdoc cref="TimeRanges"/>
     public static Series TimeRangesAsSeries(
-        IntoExprColumn? start = null, 
-        IntoExprColumn? end = null, 
-        IntoDuration? interval = null, 
+        IntoExprColumn? start = null,
+        IntoExprColumn? end = null,
+        IntoDuration? interval = null,
         ClosedInterval closed = ClosedInterval.Both,
         string name = "time")
     {
-        var expr = TimeRanges(start,end,interval,closed);
+        var expr = TimeRanges(start, end, interval, closed);
         Series series = CreateSeries(expr);
         series.Rename(name);
         return series;

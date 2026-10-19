@@ -1,5 +1,6 @@
 using Polars.NET.Core;
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
@@ -19,7 +20,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         {
             string issue = "negative";
             throw new ArgumentOutOfRangeException(
-                nameof(offset), 
+                nameof(offset),
                 $"`offset` input for `WithRowIndex` cannot be {issue}, got {offset.Value}"
             );
         }
@@ -27,7 +28,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Add a column at index 0 that counts the rows.
@@ -46,13 +47,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         {
             string issue = "negative";
             throw new ArgumentOutOfRangeException(
-                nameof(offset), 
+                nameof(offset),
                 $"`offset` input for `WithRowIndex` cannot be {issue}, got {offset.Value}"
             );
         }
-        
+
         var newHandle = PolarsWrapper.DataFrameWithRowIndex(Handle, name, offset);
-        
+
         return new DataFrame(newHandle);
     }
 }

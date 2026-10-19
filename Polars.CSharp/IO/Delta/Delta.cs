@@ -34,7 +34,7 @@ public static class DeltaTableFeatures
     // /// Enables Identity Columns (auto-incrementing IDs).
     // /// </summary>
     // public const string IdentityColumns = "identityColumns";
-    
+
     /// <summary>
     /// Enables Check Constraints on columns.
     /// </summary>
@@ -44,7 +44,7 @@ public static class DeltaTableFeatures
     /// Enables TimestampWithoutTimezone.
     /// </summary>
     public const string TimestampWithoutTimezone = "TimestampWithoutTimezone";
-    
+
     // /// <summary>
     // /// Enables V2 Checkpointing (JSON + Parquet sidecars).
     // /// </summary>
@@ -84,7 +84,7 @@ public static class DeltaTableProperties
     /// Default: true.
     /// </summary>
     public const string DataSkippingNumIndexedCols = "delta.dataSkippingNumIndexedCols";
-    
+
     /// <summary>
     /// If true, enables the Change Data Feed (CDF).
     /// </summary>
@@ -116,7 +116,7 @@ public static class Delta
     /// By default, this operation performs a Copy-on-Write (CoW), meaning any underlying data files containing matching rows are entirely rewritten.
     /// </para>
     /// <para>
-    /// Note: If Deletion Vectors are enabled on the table, this operation automatically shifts to a Merge-on-Read (MoR) approach. 
+    /// If Deletion Vectors are enabled on the table, this operation automatically shifts to a Merge-on-Read (MoR) approach. 
     /// Instead of expensive file rewrites, deleted rows are swiftly marked in a separate deletion vector file, which drastically improves deletion performance.
     /// </para>
     /// </summary>
@@ -172,7 +172,7 @@ public static class Delta
         int? retentionHours = null,
         bool enforceRetention = true,
         bool dryRun = false,
-        bool vacuumModeFull = false, 
+        bool vacuumModeFull = false,
         CloudOptions? cloudOptions = null)
     {
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
@@ -228,7 +228,7 @@ public static class Delta
             // Convert DateTime to Unix Milliseconds
             DateTime utcTime = timestamp.Value.ToUniversalTime();
             targetTs = new DateTimeOffset(utcTime).ToUnixTimeMilliseconds();
-            
+
             // FFI Defense: Unix timestamp could theoretically be negative (pre-1970).
             // Since we use -1 as a sentinel, we must disallow timestamps before 1970-01-01 00:00:00.000 UTC.
             if (targetTs < 0)
@@ -271,7 +271,7 @@ public static class Delta
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
         string json = PolarsWrapper.History(path, limit, keys, values);
         byte[] buffer = Encoding.UTF8.GetBytes(json);
-        
+
         var df = DataFrame.ReadJson(buffer, jsonFormat: JsonFormat.Json, inferSchemaLen: 2000);
 
         // =========================================================
@@ -283,8 +283,8 @@ public static class Delta
         {
             df = df.WithColumns(
                 Polars.Col("timestamp")
-                    .Cast(DataType.Datetime(TimeUnit.Milliseconds,"UCT")) 
-                    .Alias("timestamp") 
+                    .Cast(DataType.Datetime(TimeUnit.Milliseconds, "UCT"))
+                    .Alias("timestamp")
             );
         }
 
@@ -293,7 +293,7 @@ public static class Delta
         {
             df = df.Unnest("operationParameters");
         }
-        
+
         if (df.ColumnNames.Contains("operationMetrics"))
         {
             df = df.Unnest("operationMetrics");
@@ -311,9 +311,9 @@ public static class Delta
         var priorityCols = new[] { "version", "timestamp", "operation", "mode", "predicate", "userName" };
         var existingCols = df.ColumnNames;
         var selection = priorityCols.Where(c => existingCols.Contains(c)).ToList();
-        
+
         selection.AddRange(existingCols.Except(priorityCols));
-        
+
         return df.Select(selection.Select(c => Polars.Col(c)).ToArray());
     }
     /// <summary>
@@ -322,7 +322,7 @@ public static class Delta
     /// This operation significantly improves read performance by reducing the number of files and co-locating related data.
     /// </para>
     /// <para>
-    /// Note: If Deletion Vectors (DV) are enabled on the table, any soft-deleted rows tracked by the vectors 
+    /// If Deletion Vectors (DV) are enabled on the table, any soft-deleted rows tracked by the vectors 
     /// will be physically removed (materialized) from the newly compacted Parquet files, effectively clearing 
     /// the deletion vectors for the optimized partitions.
     /// </para>
@@ -371,7 +371,7 @@ public static class Delta
 
         // 3. Parse Cloud Options
         // Unlike Restore, Optimize needs all cloud retry/timeout settings passed down
-        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
+        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) =
             CloudOptions.ParseCloudOptions(cloudOptions);
 
         // 4. Call Wrapper
@@ -408,9 +408,9 @@ public static class Delta
     /// </param>
     /// <param name="cloudOptions">Cloud storage credentials.</param>
     public static void AddFeature(
-        string path, 
-        string featureName, 
-        bool allowProtocolIncrease = true, 
+        string path,
+        string featureName,
+        bool allowProtocolIncrease = true,
         CloudOptions? cloudOptions = null)
     {
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
@@ -468,9 +468,9 @@ public static class Delta
     /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
     /// <returns>A LazyFrame containing the change data stream.</returns>
     public static LazyFrame ReadChangeDataFeed(
-        string path, 
-        long startVersion, 
-        long endVersion, 
+        string path,
+        long startVersion,
+        long endVersion,
         CloudOptions? cloudOptions = null)
     {
         if (startVersion > endVersion)
@@ -478,7 +478,7 @@ public static class Delta
             throw new ArgumentException("startVersion cannot be greater than endVersion.");
         }
 
-        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
+        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) =
             CloudOptions.ParseCloudOptions(cloudOptions);
 
         var handle = PolarsWrapper.DeltaReadCdc(
@@ -486,12 +486,12 @@ public static class Delta
             startVersion,
             endVersion,
             provider.ToNative(),
-            retries, 
-            timeout, 
-            initBackoff, 
-            maxBackoff, 
-            cacheTtl, 
-            keys, 
+            retries,
+            timeout,
+            initBackoff,
+            maxBackoff,
+            cacheTtl,
+            keys,
             values
         );
 
@@ -507,9 +507,9 @@ public static class Delta
     /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
     /// <returns>A LazyFrame containing the change data stream filtered by the exact milliseconds.</returns>
     public static LazyFrame ReadChangeDataFeed(
-        string path, 
-        DateTime startTimestamp, 
-        DateTime? endTimestamp = null, 
+        string path,
+        DateTime startTimestamp,
+        DateTime? endTimestamp = null,
         CloudOptions? cloudOptions = null)
     {
         DateTime actualEnd = endTimestamp ?? DateTime.UtcNow;
@@ -522,7 +522,7 @@ public static class Delta
         long startMs = new DateTimeOffset(startTimestamp.ToUniversalTime()).ToUnixTimeMilliseconds();
         long endMs = new DateTimeOffset(actualEnd.ToUniversalTime()).ToUnixTimeMilliseconds();
 
-        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
+        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) =
             CloudOptions.ParseCloudOptions(cloudOptions);
 
         var handle = PolarsWrapper.DeltaReadCdcByTime(
@@ -530,12 +530,12 @@ public static class Delta
             startMs,
             endMs,
             provider.ToNative(),
-            retries, 
-            timeout, 
-            initBackoff, 
-            maxBackoff, 
-            cacheTtl, 
-            keys, 
+            retries,
+            timeout,
+            initBackoff,
+            maxBackoff,
+            cacheTtl,
+            keys,
             values
         );
 
@@ -571,10 +571,10 @@ public class DeltaMergeBuilder
     /// Physical Path Merge Builder
     /// </summary>
     internal DeltaMergeBuilder(
-        LazyFrame sourceLf, 
-        string path, 
-        string[] mergeKeys, 
-        bool canEvolve = false, 
+        LazyFrame sourceLf,
+        string path,
+        string[] mergeKeys,
+        bool canEvolve = false,
         CloudOptions? cloudOptions = null)
     {
         _sourceLf = sourceLf;
@@ -589,13 +589,13 @@ public class DeltaMergeBuilder
     /// Unity Catalog Merge Builder
     /// </summary>
     internal DeltaMergeBuilder(
-        LazyFrame sourceLf, 
+        LazyFrame sourceLf,
         UnityCatalog catalog,
         string catalogName,
         string schemaName,
         string tableName,
-        string[] mergeKeys, 
-        bool canEvolve = false, 
+        string[] mergeKeys,
+        bool canEvolve = false,
         CloudOptions? cloudOptions = null)
     {
         _sourceLf = sourceLf;
@@ -691,8 +691,8 @@ public class DeltaMergeBuilder
     {
         if (_actions.Count == 0)
         {
-            WhenMatchedUpdate();     
-            WhenNotMatchedInsert();  
+            WhenMatchedUpdate();
+            WhenNotMatchedInsert();
         }
 
         var actionTypes = new PlMergeActionType[_actions.Count];
@@ -701,10 +701,10 @@ public class DeltaMergeBuilder
         for (int i = 0; i < _actions.Count; i++)
         {
             actionTypes[i] = _actions[i].ActionType.ToNative();
-            actionExprs[i] = _actions[i].Condition.CloneHandle(); 
+            actionExprs[i] = _actions[i].Condition.CloneHandle();
         }
 
-        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
+        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) =
             CloudOptions.ParseCloudOptions(_cloudOptions);
 
         if (_catalog != null)
@@ -726,7 +726,7 @@ public class DeltaMergeBuilder
         else
         {
             PolarsWrapper.DeltaMergeOrdered(
-                _sourceLf.CloneHandle(), 
+                _sourceLf.CloneHandle(),
                 _path!,
                 _mergeKeys,
                 actionTypes,

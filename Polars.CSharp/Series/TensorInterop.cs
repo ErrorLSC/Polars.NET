@@ -4,7 +4,7 @@ using Polars.NET.Core.TensorInterop;
 
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable,IPolarsSeries
+public partial class Series : IDisposable, IPolarsSeries
 {
     /// <summary>
     /// Generate zero-copy ReadOnlySpan from a numeric Series.
@@ -14,7 +14,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <exception cref="InvalidOperationException">Thrown if the Series is not a numeric type or contains nulls.</exception>
     public ReadOnlySpan<T> AsReadOnlySpan<T>() where T : unmanaged
     {
-        if (DataType == DataType.String || 
+        if (DataType == DataType.String ||
             DataType.Kind == DataTypeKind.Categorical)
         {
             throw new InvalidOperationException(
@@ -37,7 +37,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <exception cref="InvalidOperationException">Thrown if the Series contains nulls or is not numeric.</exception>
     public ReadOnlyTensorSpan<T> AsTensorSpan<T>() where T : unmanaged
         => ArrowTensorInterop.AsTensorSpan<T>(Handle);
-    
+
     /// <summary>
     /// Generates a zero-copy N-Dimensional Tensor representation from the Series.
     /// Allows explicit reshaping of the underlying memory (e.g., for 3D/4D image matrices).
@@ -135,7 +135,7 @@ public partial class Series : IDisposable,IPolarsSeries
         }
         return ArrowTensorInterop.GetNativePointers<T>(Handle, shape);
     }
-     
+
     /// <summary>
     /// Converts an N-Dimensional .NET Tensor into a Polars Series.
     /// Automatically infers the rank and dynamically wraps the data into Polars native types:

@@ -5,20 +5,21 @@ using Polars.NET.Core;
 using Polars.NET.Core.Data;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Common Write Interface:Transform DataFrame to IDataReader
     /// </summary>
-    public void WriteTo( Action<IDataReader> writerAction, int bufferSize = 5,Dictionary<string, Type>? typeOverrides = null)
+    public void WriteTo(Action<IDataReader> writerAction, int bufferSize = 5, Dictionary<string, Type>? typeOverrides = null)
     {
         using var buffer = new BlockingCollection<RecordBatch>(bufferSize);
 
         // Consumer Task
-        var consumerTask = Task.Run(() => 
+        var consumerTask = Task.Run(() =>
         {
-            using var reader = new ArrowToDbStream(buffer.GetConsumingEnumerable(),typeOverrides);
-            
+            using var reader = new ArrowToDbStream(buffer.GetConsumingEnumerable(), typeOverrides);
+
             writerAction(reader);
         });
 
@@ -33,5 +34,5 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         }
 
         consumerTask.Wait();
-    } 
+    }
 }

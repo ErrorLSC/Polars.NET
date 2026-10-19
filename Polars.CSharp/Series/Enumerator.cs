@@ -1,5 +1,5 @@
-using Polars.NET.Core;
 using System.Runtime.CompilerServices;
+using Polars.NET.Core;
 
 namespace Polars.CSharp;
 

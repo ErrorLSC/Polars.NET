@@ -1,7 +1,8 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Read an Avro file into a DataFrame.
@@ -12,9 +13,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="projection">Columns to select/project by index.</param>
     /// <returns>A new DataFrame.</returns>
     public static DataFrame ReadAvro(
-        string path, 
-        ulong? nRows = null, 
-        string[]? columns = null, 
+        string path,
+        ulong? nRows = null,
+        string[]? columns = null,
         int[]? projection = null)
     {
         var handle = PolarsWrapper.ReadAvro(path, nRows, columns, projection);
@@ -29,9 +30,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="projection">Columns to select/project by index.</param>
     /// <returns>A new DataFrame.</returns>
     public static DataFrame ReadAvro(
-        byte[] buffer, 
-        ulong? nRows = null, 
-        string[]? columns = null, 
+        byte[] buffer,
+        ulong? nRows = null,
+        string[]? columns = null,
         int[]? projection = null)
     {
         var handle = PolarsWrapper.ReadAvro(buffer, nRows, columns, projection);
@@ -46,9 +47,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="projection">Columns to select/project by index.</param>
     /// <returns>A new DataFrame.</returns>
     public static DataFrame ReadAvro(
-        Stream stream, 
-        ulong? nRows = null, 
-        string[]? columns = null, 
+        Stream stream,
+        ulong? nRows = null,
+        string[]? columns = null,
         int[]? projection = null)
     {
         using var ms = new MemoryStream();

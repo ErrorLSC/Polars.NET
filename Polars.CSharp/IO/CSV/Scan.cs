@@ -55,8 +55,8 @@ public partial class LazyFrame : IDisposable
         IntoSchema? dtypeOverride = null,
         bool hasHeader = true,
         char separator = ',',
-        char? quoteChar = '"',           
-        char eolChar = '\n',            
+        char? quoteChar = '"',
+        char eolChar = '\n',
         bool ignoreErrors = false,
         bool tryParseDates = true,
         bool lowMemory = false,
@@ -76,14 +76,14 @@ public partial class LazyFrame : IDisposable
         ulong rowIndexOffset = 0,
         string? includeFilePaths = null,
         CsvEncoding encoding = CsvEncoding.UTF8,
-        string[]? nullValues = null,    
-        bool missingIsNull = true,      
-        string? commentPrefix = null,   
+        string[]? nullValues = null,
+        bool missingIsNull = true,
+        string? commentPrefix = null,
         bool decimalComma = false,
         bool truncateRaggedLines = false,
-        CloudOptions? cloudOptions = null)      
+        CloudOptions? cloudOptions = null)
     {
-        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = 
+        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) =
             CloudOptions.ParseCloudOptions(cloudOptions);
 
         var handle = PolarsWrapper.ScanCsv(
@@ -175,8 +175,8 @@ public partial class LazyFrame : IDisposable
         IntoSchema? dtypeOverride = null,
         bool hasHeader = true,
         char separator = ',',
-        char? quoteChar = '"',          
-        char eolChar = '\n',           
+        char? quoteChar = '"',
+        char eolChar = '\n',
         bool ignoreErrors = false,
         bool tryParseDates = true,
         bool lowMemory = false,
@@ -196,11 +196,11 @@ public partial class LazyFrame : IDisposable
         ulong rowIndexOffset = 0,
         string? includeFilePaths = null,
         CsvEncoding encoding = CsvEncoding.UTF8,
-        string[]? nullValues = null,   
-        bool missingIsNull = true,     
-        string? commentPrefix = null,  
+        string[]? nullValues = null,
+        bool missingIsNull = true,
+        string? commentPrefix = null,
         bool decimalComma = false,
-        bool truncateRaggedLines = false)     
+        bool truncateRaggedLines = false)
     {
         var handle = PolarsWrapper.ScanCsv(
             buffer,

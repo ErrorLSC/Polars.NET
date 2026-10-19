@@ -15,7 +15,7 @@ namespace Polars.CSharp;
 /// <param name="bearerToken">Personal Access Token (PAT) or OAuth Token</param>
 public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
 {
-    internal CatalogHandle Handle { get;  } = PolarsWrapper.InitUnityCatalog(workspaceUrl, bearerToken);
+    internal CatalogHandle Handle { get; } = PolarsWrapper.InitUnityCatalog(workspaceUrl, bearerToken);
     private bool _isDisposed;
 
     /// <summary>
@@ -41,8 +41,8 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         bool lowMemory = false,
         bool useStatistics = true,
         bool glob = true,
-        bool rechunk = false, 
-        bool cache = true,    
+        bool rechunk = false,
+        bool cache = true,
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
@@ -74,14 +74,14 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             lowMemory,
             useStatistics,
             glob,
-            rechunk, 
-            cache,   
+            rechunk,
+            cache,
             rowIndexName,
             rowIndexOffset,
             includePathColumn,
-            schemaHandle,     
+            schemaHandle,
             hivePartitioning,
-            hiveSchemaHandle, 
+            hiveSchemaHandle,
             tryParseHiveDates,
             provider.ToNative(),
             retries,
@@ -110,14 +110,14 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         LazyFrame lf,
         IntoSelector? partitionBy = null,
         DeltaSaveMode mode = DeltaSaveMode.Append,
-        bool canEvolve=false,
+        bool canEvolve = false,
         bool includeKeys = true,
         bool keysPreGrouped = false,
         int maxRowsPerFile = 0,
         long approxBytesPerFile = 0,
         ParquetCompression compression = ParquetCompression.Snappy,
         int compressionLevel = -1,
-        bool statistics = true, 
+        bool statistics = true,
         uint rowGroupSize = 0,
         uint dataPageSize = 0,
         int compatLevel = -1,
@@ -126,9 +126,9 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         bool mkdir = false,
         CloudOptions? cloudOptions = null)
     {
-        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = 
+        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) =
             CloudOptions.ParseCloudOptions(cloudOptions);
-        using var partitionByH = partitionBy?.Consume().CloneHandle(); 
+        using var partitionByH = partitionBy?.Consume().CloneHandle();
         PolarsWrapper.SinkCatalogTable(
             Handle,
             catalogName,
@@ -136,7 +136,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             tableName,
             lf.Handle,
             // --- Delta Options ---
-            mode.ToNative(), 
+            mode.ToNative(),
             canEvolve,
             // --- Partition Params ---
             partitionByH,
@@ -151,7 +151,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             statistics,
             rowGroupSize > 0 ? rowGroupSize : 0,
             dataPageSize > 0 ? dataPageSize : 0,
-            compatLevel, 
+            compatLevel,
 
             // --- Unified Options ---
             maintainOrder,
@@ -283,13 +283,13 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         CloudOptions? cloudOptions = null)
     {
         return new DeltaMergeBuilder(
-            sourceData, 
-            this, 
-            catalogName, 
-            schemaName, 
-            tableName, 
-            mergeKeys, 
-            canEvolve, 
+            sourceData,
+            this,
+            catalogName,
+            schemaName,
+            tableName,
+            mergeKeys,
+            canEvolve,
             cloudOptions
         );
     }
@@ -318,13 +318,13 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         CloudOptions? cloudOptions = null)
     {
         return new DeltaMergeBuilder(
-            sourceData.Lazy(), 
-            this, 
-            catalogName, 
-            schemaName, 
-            tableName, 
-            mergeKeys, 
-            canEvolve, 
+            sourceData.Lazy(),
+            this,
+            catalogName,
+            schemaName,
+            tableName,
+            mergeKeys,
+            canEvolve,
             cloudOptions
         );
     }
@@ -383,14 +383,14 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             zOrderColsArr = null;
         }
 
-        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
+        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) =
             CloudOptions.ParseCloudOptions(cloudOptions);
 
         ulong result = PolarsWrapper.CatalogOptimize(
             Handle,
-            catalogName, 
-            schemaName, 
-            tableName, 
+            catalogName,
+            schemaName,
+            tableName,
             targetSizeMb,
             filterJson,
             zOrderColsArr,
@@ -446,7 +446,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         int? retentionHours = null,
         bool enforceRetention = true,
         bool dryRun = false,
-        bool vacuumModeFull = false, 
+        bool vacuumModeFull = false,
         CloudOptions? cloudOptions = null)
     {
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
@@ -455,9 +455,9 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             throw new ArgumentException("Retention hours cannot be negative.", nameof(retentionHours));
         return PolarsWrapper.CatalogVacuum(
             Handle,
-            catalogName, 
-            schemaName, 
-            tableName, 
+            catalogName,
+            schemaName,
+            tableName,
             retentionArg,
             enforceRetention,
             dryRun,
@@ -517,7 +517,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     {
         if (version.HasValue && timestamp.HasValue)
             throw new ArgumentException("Cannot specify both 'version' and 'timestamp'.");
-            
+
         if (!version.HasValue && !timestamp.HasValue)
             throw new ArgumentException("Must specify either 'version' or 'timestamp'.");
 
@@ -583,13 +583,13 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         CloudOptions? cloudOptions = null)
     {
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
-        string json = PolarsWrapper.CatalogHistory(        
+        string json = PolarsWrapper.CatalogHistory(
             Handle,
-            catalogName, 
-            schemaName, 
+            catalogName,
+            schemaName,
             tableName, limit, keys, values);
         byte[] buffer = Encoding.UTF8.GetBytes(json);
-        
+
         var df = DataFrame.ReadJson(buffer, jsonFormat: JsonFormat.Json, inferSchemaLen: 2000);
 
         // =========================================================
@@ -601,8 +601,8 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         {
             df = df.WithColumns(
                 Polars.Col("timestamp")
-                    .Cast(DataType.Datetime(TimeUnit.Milliseconds,"UCT")) 
-                    .Alias("timestamp") 
+                    .Cast(DataType.Datetime(TimeUnit.Milliseconds, "UCT"))
+                    .Alias("timestamp")
             );
         }
         if (df.ColumnNames.Contains("operationMetrics"))
@@ -628,9 +628,9 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         string[] priorityCols = ["version", "timestamp", "operation", "mode", "predicate", "userName"];
         var existingCols = df.ColumnNames;
         var selection = priorityCols.Where(c => existingCols.Contains(c)).ToList();
-        
+
         selection.AddRange(existingCols.Except(priorityCols));
-        
+
         return df.Select(selection);
     }
     /// <summary>
@@ -645,7 +645,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             {
                 Handle?.Dispose();
             }
-            
+
             _isDisposed = true;
         }
     }
@@ -660,7 +660,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     }
 }
 
-public readonly partial struct Polars 
+public readonly partial struct Polars
 {
     /// <summary>
     /// Init Unity Catalog connection
@@ -695,7 +695,7 @@ public static class UnityCatalogExtensions
         long approxBytesPerFile = 0,
         ParquetCompression compression = ParquetCompression.Snappy,
         int compressionLevel = -1,
-        bool statistics = true, 
+        bool statistics = true,
         uint rowGroupSize = 0,
         uint dataPageSize = 0,
         int compatLevel = -1,
@@ -732,7 +732,7 @@ public static class UnityCatalogExtensions
         long approxBytesPerFile = 0,
         ParquetCompression compression = ParquetCompression.Snappy,
         int compressionLevel = -1,
-        bool statistics = true, 
+        bool statistics = true,
         uint rowGroupSize = 0,
         uint dataPageSize = 0,
         int compatLevel = -1,
@@ -763,12 +763,12 @@ public static class UnityCatalogExtensions
         bool canEvolve = false,
         CloudOptions? cloudOptions = null)
     => catalog.MergeCatalogRecords(
-        catalogName, 
-        schemaName, 
-        tableName, 
+        catalogName,
+        schemaName,
+        tableName,
         sourceData,
-        mergeKeys, 
-        canEvolve, 
+        mergeKeys,
+        canEvolve,
         cloudOptions
     );
     /// <summary>
@@ -785,12 +785,12 @@ public static class UnityCatalogExtensions
         bool canEvolve = false,
         CloudOptions? cloudOptions = null)
     => catalog.MergeCatalogRecords(
-        catalogName, 
-        schemaName, 
-        tableName, 
+        catalogName,
+        schemaName,
+        tableName,
         sourceData,
-        mergeKeys, 
-        canEvolve, 
+        mergeKeys,
+        canEvolve,
         cloudOptions
     );
 }

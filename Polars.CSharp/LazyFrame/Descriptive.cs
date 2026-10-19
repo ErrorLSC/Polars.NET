@@ -3,6 +3,7 @@ using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable
 {
     /// <summary>
@@ -17,8 +18,8 @@ public partial class LazyFrame : IDisposable
     /// <example>
     /// <code>
     /// var q = df.Lazy()
-    ///     .Filter(Col("group") != "C")
-    ///     .WithColumns((Col("val") * 2).Alias("val_x_2"))
+    ///     .Filter(Pl.Col("group") != "C")
+    ///     .WithColumns((Pl.Col("val") * 2).Alias("val_x_2"))
     ///     .Select("group", "val_x_2");
     /// 
     /// Console.WriteLine(q.Explain());

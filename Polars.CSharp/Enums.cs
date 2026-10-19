@@ -5,16 +5,16 @@ namespace Polars.CSharp;
 /// <summary>
 /// Enums of RightTypes
 /// </summary>
-public enum JoinType: byte
+public enum JoinType : byte
 {
-    Inner,Left, Outer,Cross,Semi,Anti,IEJoin
+    Inner, Left, Outer, Cross, Semi, Anti, IEJoin
 }
 /// <summary>
 /// Specifies the aggregation function for pivot operations.
 /// </summary>
 public enum PivotAgg : byte
 {
-    First,Sum,Min,Max, Mean,Median,Count,Len,Last
+    First, Sum, Min, Max, Mean, Median, Count, Len, Last
 }
 
 public enum PivotColumnNaming : byte
@@ -63,12 +63,12 @@ public enum RoundMode
     /// <summary>
     /// Always round (truncate) towards zero, discarding the fractional part beyond decimals. For example, 0.9 rounds to 0, -0.9 rounds to 0, 1.29 rounds to 1.2 (with decimals=1). Equivalent to the truncate() method.
     /// </summary>
-    ToZero =2
+    ToZero = 2
 }
 
 public enum CorrelationMethod
 {
-    Pearson,Spearman
+    Pearson, Spearman
 }
 
 
@@ -77,36 +77,36 @@ public enum CorrelationMethod
 /// </summary>
 public enum ConcatType
 {
-    Vertical,Horizontal,Diagonal
+    Vertical, Horizontal, Diagonal
 }
 
 /// <summary>
 /// Enum of DataTypeKind
 /// </summary>
-public enum DataTypeKind:byte
+public enum DataTypeKind : byte
 {
-    Boolean = 1 ,
-    Int8 =2,
-    Int16=3,
-    Int32=4,
-    Int64=5,
-    UInt8=6,
-    UInt16=7,
-    UInt32=8,UInt64=9,
-    Float32=10,Float64=11,
-    String=12,Date=13,Datetime=14,Time=15,Duration=16,
-    Binary=17,
-    Null=18,
-    Struct=19,List=20,Categorical=21,
-    Decimal=22,
-    Array=23,
+    Boolean = 1,
+    Int8 = 2,
+    Int16 = 3,
+    Int32 = 4,
+    Int64 = 5,
+    UInt8 = 6,
+    UInt16 = 7,
+    UInt32 = 8, UInt64 = 9,
+    Float32 = 10, Float64 = 11,
+    String = 12, Date = 13, Datetime = 14, Time = 15, Duration = 16,
+    Binary = 17,
+    Null = 18,
+    Struct = 19, List = 20, Categorical = 21,
+    Decimal = 22,
+    Array = 23,
     Int128 = 24,
-    UInt128=25,
-    Float16=26,
-    Enum=27,
-    Extension=28,
+    UInt128 = 25,
+    Float16 = 26,
+    Enum = 27,
+    Extension = 28,
     Unknown = 0,
-    SameAsInput=0
+    SameAsInput = 0
 }
 
 /// <summary>
@@ -119,7 +119,7 @@ public enum Engine : byte
     Streaming = 2,
     Gpu = 3
 }
-public enum FillNullStrategy: byte
+public enum FillNullStrategy : byte
 {
     Forward = 0,
     Backward = 1,
@@ -156,7 +156,7 @@ public enum StartBy
     Sunday
 }
 
-public enum NullBehavior: byte
+public enum NullBehavior : byte
 {
     Ignore = 0,
     Drop = 1,
@@ -191,7 +191,7 @@ public enum QuantileMethod : byte
     Lower = 2,
     Midpoint = 3,
     Linear = 4,
-    Equiprobable =5
+    Equiprobable = 5
 }
 
 public enum RankMethod : byte
@@ -254,7 +254,7 @@ public enum UniqueKeepStrategy : byte
     None = 3
 }
 
-public enum JoinValidation: byte
+public enum JoinValidation : byte
 {
     // Default
     ManyToMany = 0,
@@ -263,7 +263,7 @@ public enum JoinValidation: byte
     OneToOne = 3
 }
 
-public enum JoinCoalesce: byte
+public enum JoinCoalesce : byte
 {
     // Default
     JoinSpecific = 0,
@@ -271,14 +271,14 @@ public enum JoinCoalesce: byte
     KeepColumns = 2,
 }
 
-public enum JoinMaintainOrder: byte
+public enum JoinMaintainOrder : byte
 {
     // Default
     None = 0,
     Left = 1,
-    Right =2,
-    LeftRight =3,
-    RightLeft =4
+    Right = 2,
+    LeftRight = 3,
+    RightLeft = 4
 }
 /// <summary>
 /// Specifies the strategy for the hash join build side.
@@ -320,34 +320,34 @@ public enum JoinSide : byte
     ForceRight = 4
 }
 
-public enum AsofStrategy: byte
+public enum AsofStrategy : byte
 {
     Backward = 0,
     Forward = 1,
     Nearest = 2
 }
 
-public enum ParallelStrategy: byte
+public enum ParallelStrategy : byte
 {
     Auto = 0,
     Columns = 1,
     RowGroups = 2,
-    None =3
+    None = 3
 }
 
-public enum CsvEncoding: byte
+public enum CsvEncoding : byte
 {
     UTF8 = 0,
     LossyUTF8 = 1,
 }
 
-public enum JsonFormat: byte
+public enum JsonFormat : byte
 {
     Json = 0,
     JsonLines = 1,
 }
 
-public enum IpcCompression: byte
+public enum IpcCompression : byte
 {
     None = 0,
     LZ4 = 1,
@@ -475,18 +475,18 @@ public enum DeltaSaveMode
     Ignore = 3
 }
 
-public enum ExternalCompression: byte
+public enum ExternalCompression : byte
 {
     Uncompressed = 0,
-    Gzip=1,
-    ZSTD=2
+    Gzip = 1,
+    ZSTD = 2
 }
 
-public enum AvroCompression: byte
+public enum AvroCompression : byte
 {
     Uncompressed = 0,
-    Deflate=1,
-    Snappy=2
+    Deflate = 1,
+    Snappy = 2
 }
 
 /// <summary>
@@ -555,7 +555,7 @@ public enum UnstackDirection
 
 public enum ClosedInterval
 {
-    Left,Right,Both,None
+    Left, Right, Both, None
 }
 
 public enum AmbiguousStrategy
@@ -566,7 +566,7 @@ public enum AmbiguousStrategy
     Null
 }
 
-public enum WindowMappingStrategy: byte
+public enum WindowMappingStrategy : byte
 {
     /// <summary>
     /// If the aggregation results in multiple values per group,
@@ -609,7 +609,7 @@ public enum CategoricalPhysical : byte
     U8 = 2
 }
 
-public enum FloatFormat: byte
+public enum FloatFormat : byte
 {
     /// <summary>
     /// Limit the number of decimal places and use scientific notation for large/small values.
@@ -621,12 +621,12 @@ public enum FloatFormat: byte
     Full = 1
 }
 
-public enum Alignment: byte
+public enum Alignment : byte
 {
-    Left,Center,Right
+    Left, Center, Right
 }
 
-public enum TableFormatting: byte
+public enum TableFormatting : byte
 {
     AsciiFull,
     AsciiFullCondensed,
@@ -651,10 +651,10 @@ public enum ExtraColumnsPolicy : byte { Raise = 0, Ignore = 1 }
 [Flags]
 public enum SortStateFlags : byte
 {
-    NotSorted  = 0,
-    IsSorted   = 1 << 0, // 001 (1)
+    NotSorted = 0,
+    IsSorted = 1 << 0, // 001 (1)
     Descending = 1 << 1, // 010 (2)
-    NullsLast  = 1 << 2  // 100 (4)
+    NullsLast = 1 << 2  // 100 (4)
 }
 
 internal static class EnumExtensions
@@ -666,7 +666,7 @@ internal static class EnumExtensions
         DataTypeKind.UInt8 => CoreEnums.PlDataType.UInt8,
         DataTypeKind.Int16 => CoreEnums.PlDataType.Int16,
         DataTypeKind.UInt16 => CoreEnums.PlDataType.UInt16,
-        DataTypeKind.Int32=> CoreEnums.PlDataType.Int32,
+        DataTypeKind.Int32 => CoreEnums.PlDataType.Int32,
         DataTypeKind.UInt64 => CoreEnums.PlDataType.UInt64,
         DataTypeKind.Int128 => CoreEnums.PlDataType.Int128,
         DataTypeKind.UInt128 => CoreEnums.PlDataType.UInt128,
@@ -677,7 +677,7 @@ internal static class EnumExtensions
         DataTypeKind.Date => CoreEnums.PlDataType.Date,
         DataTypeKind.Time => CoreEnums.PlDataType.Time,
         DataTypeKind.Duration => CoreEnums.PlDataType.Duration,
-        DataTypeKind.List=> CoreEnums.PlDataType.List,
+        DataTypeKind.List => CoreEnums.PlDataType.List,
         DataTypeKind.Array => CoreEnums.PlDataType.Array,
         DataTypeKind.Struct => CoreEnums.PlDataType.Struct,
         DataTypeKind.Binary => CoreEnums.PlDataType.Binary,

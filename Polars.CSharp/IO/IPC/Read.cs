@@ -3,7 +3,8 @@ using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     // ---------------------------------------------------------
     // Read IPC (File / Cloud)
@@ -11,10 +12,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
     /// <summary>
     /// Read an Arrow IPC (Feather v2) file into a DataFrame.
-    /// <para>
-    /// Note: This method internally uses LazyFrame.ScanIpc and collects the result. 
-    /// For larger-than-memory datasets or better query optimization, consider using LazyFrame.ScanIpc directly.
-    /// </para>
     /// </summary>
     /// <param name="path">Path to the IPC file, glob pattern, or cloud path (e.g., "s3://...").</param>
     /// <param name="columns">Columns to select. If null, select all columns. (Optimized via projection pushdown).</param>
@@ -65,7 +62,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         if (columns != null && columns.Length > 0)
         {
             var colsToSelect = new List<string>(columns);
-            
+
             if (!string.IsNullOrEmpty(rowIndexName) && !colsToSelect.Contains(rowIndexName))
             {
                 colsToSelect.Add(rowIndexName);
@@ -88,9 +85,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
     /// <summary>
     /// Read Arrow IPC (Feather v2) from in-memory bytes.
-    /// <para>
-    /// Note: This method internally uses LazyFrame.ScanIpc and collects the result.
-    /// </para>
     /// </summary>
     /// <param name="buffer">The byte array containing the IPC data.</param>
     /// <param name="columns">Columns to select. If null, select all columns.</param>
@@ -126,7 +120,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         if (columns != null && columns.Length > 0)
         {
             var colsToSelect = new List<string>(columns);
-            
+
             if (!string.IsNullOrEmpty(rowIndexName) && !colsToSelect.Contains(rowIndexName))
             {
                 colsToSelect.Add(rowIndexName);
@@ -149,9 +143,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
     /// <summary>
     /// Read Arrow IPC (Feather v2) from a Stream.
-    /// <para>
-    /// Note: This reads the stream fully into memory and then uses the Lazy execution engine.
-    /// </para>
     /// </summary>
     /// <param name="stream">The input stream containing the IPC data.</param>
     /// <param name="columns">Columns to select. If null, select all columns.</param>
@@ -172,7 +163,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         using var ms = new MemoryStream();
         stream.CopyTo(ms);
-        
+
         return ReadIpc(
             ms.ToArray(),
             columns,
@@ -216,7 +207,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             nRows,
             rowIndexName,
             rowIndexOffset,
-            rechunk)); 
+            rechunk));
     }
     /// <inheritdoc cref="DataFrame.ReadIpcStream(string, string[],uint[],ulong?, string?, uint, bool)"/>
     public static DataFrame ReadIpcStream(
@@ -236,7 +227,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             nRows,
             rowIndexName,
             rowIndexOffset,
-            rechunk)); 
+            rechunk));
     }
     /// <summary>
     /// Get the schema of an IPC file without reading data.

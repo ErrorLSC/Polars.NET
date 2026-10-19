@@ -2,36 +2,36 @@ using Polars.NET.Core;
 
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable,IPolarsSeries
+public partial class Series : IDisposable, IPolarsSeries
 {
     /// <summary>  
     /// <inheritdoc cref="Expr.RollingMin(IntoDuration, int, double[], bool)" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.RollingMin(IntoDuration, int, double[], bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the rolling minimum.</returns>
-    public Series RollingMin(IntoDuration windowSize, int minPeriods = 1, double[]? weights= null, bool center=false) 
-        => ApplyExpr(Polars.Col(Name).RollingMin(windowSize, minPeriods,weights,center));
+    public Series RollingMin(IntoDuration windowSize, int minPeriods = 1, double[]? weights = null, bool center = false)
+        => ApplyExpr(Polars.Col(Name).RollingMin(windowSize, minPeriods, weights, center));
     /// <summary>  
     /// <inheritdoc cref="Expr.RollingMax(IntoDuration, int, double[], bool)" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.RollingMax(IntoDuration, int, double[], bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the rolling maximum.</returns>
-    public Series RollingMax(IntoDuration windowSize, int minPeriods = 1, double[]? weights= null, bool center=false) 
-        => ApplyExpr(Polars.Col(Name).RollingMax(windowSize, minPeriods,weights,center));
+    public Series RollingMax(IntoDuration windowSize, int minPeriods = 1, double[]? weights = null, bool center = false)
+        => ApplyExpr(Polars.Col(Name).RollingMax(windowSize, minPeriods, weights, center));
     /// <summary>
     /// <inheritdoc cref="Expr.RollingMean(IntoDuration, int, double[], bool)" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.RollingMean(IntoDuration, int, double[], bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the rolling mean.</returns>
-    public Series RollingMean(IntoDuration windowSize, int minPeriods = 1,double[]? weights= null, bool center=false) 
-        => ApplyExpr(Polars.Col(Name).RollingMean(windowSize, minPeriods, weights,center));
+    public Series RollingMean(IntoDuration windowSize, int minPeriods = 1, double[]? weights = null, bool center = false)
+        => ApplyExpr(Polars.Col(Name).RollingMean(windowSize, minPeriods, weights, center));
     /// <summary>
     /// <inheritdoc cref="Expr.RollingSum(IntoDuration, int, double[], bool)" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.RollingSum(IntoDuration, int, double[], bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the rolling sum.</returns>
-    public Series RollingSum(IntoDuration windowSize, int minPeriods = 1,double[]? weights= null, bool center=false) 
-        => ApplyExpr(Polars.Col(Name).RollingSum(windowSize, minPeriods,weights,center));
+    public Series RollingSum(IntoDuration windowSize, int minPeriods = 1, double[]? weights = null, bool center = false)
+        => ApplyExpr(Polars.Col(Name).RollingSum(windowSize, minPeriods, weights, center));
     /// <summary>
     /// <inheritdoc cref="Expr.RollingStd(IntoDuration, int, double[], bool)" path="/summary"/>
     /// </summary>

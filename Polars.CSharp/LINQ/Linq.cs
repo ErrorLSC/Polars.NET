@@ -1,11 +1,11 @@
-using Polars.NET.Core;
-using Polars.NET.Linq;
-using System.Linq.Expressions;
-using System.Runtime.InteropServices;
-using Polars.NET.Core.Helpers;
-using System.Runtime.CompilerServices;
-using Microsoft.FSharp.Core;
 using System.Data;
+using System.Linq.Expressions;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using Microsoft.FSharp.Core;
+using Polars.NET.Core;
+using Polars.NET.Core.Helpers;
+using Polars.NET.Linq;
 
 namespace Polars.CSharp.Linq;
 

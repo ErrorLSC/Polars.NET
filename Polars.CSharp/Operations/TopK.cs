@@ -2,6 +2,7 @@ using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
@@ -11,10 +12,10 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     public LazyFrame TopK(int k, IntoExprColumn by, bool reverse = false)
     {
         using var safeExpr = by.Consume();
-        
+
         var handles = new[] { PolarsWrapper.CloneExpr(safeExpr.Handle) };
         var h = PolarsWrapper.LazyFrameTopK(CloneHandle(), (uint)k, handles, [reverse]);
-        
+
         return new LazyFrame(h);
     }
 
@@ -39,7 +40,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         var h = PolarsWrapper.LazyFrameTopK(CloneHandle(), (uint)k, handles, revArray);
         return new LazyFrame(h);
     }
-    
+
     /// <summary>
     /// Get the top k rows with specific reverse directions using Tuples.
     /// Usage: lf.TopK(5, ("Score", false), ("Age", true), (Cs.Numeric(), false))
@@ -70,7 +71,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         var exprArray = by as Expr[] ?? [.. by];
         if (exprArray.Length == 0) return this;
 
-        var revArray = reverse ?? new bool[exprArray.Length]; 
+        var revArray = reverse ?? new bool[exprArray.Length];
 
         var handles = new ExprHandle[exprArray.Length];
         for (int i = 0; i < exprArray.Length; i++)
@@ -89,10 +90,10 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     public LazyFrame BottomK(int k, IntoExprColumn by, bool reverse = false)
     {
         using var safeExpr = by.Consume();
-        
+
         var handles = new[] { PolarsWrapper.CloneExpr(safeExpr.Handle) };
         var h = PolarsWrapper.LazyFrameBottomK(CloneHandle(), (uint)k, handles, [reverse]);
-        
+
         return new LazyFrame(h);
     }
 
@@ -117,7 +118,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         var h = PolarsWrapper.LazyFrameBottomK(CloneHandle(), (uint)k, handles, revArray);
         return new LazyFrame(h);
     }
-    
+
     /// <summary>
     /// Get the Bottom k rows with specific reverse directions using Tuples.
     /// Usage: lf.BottomK(5, ("Score", false), ("Age", true), (Cs.Numeric(), false))
@@ -148,7 +149,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         var exprArray = by as Expr[] ?? [.. by];
         if (exprArray.Length == 0) return this;
 
-        var revArray = reverse ?? new bool[exprArray.Length]; 
+        var revArray = reverse ?? new bool[exprArray.Length];
 
         var handles = new ExprHandle[exprArray.Length];
         for (int i = 0; i < exprArray.Length; i++)
@@ -161,13 +162,13 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Get the top k rows according to the given expressions.
     /// <para>This selects the largest values.</para>
     /// </summary>
-    public DataFrame TopK(int k, IEnumerable<Expr> by, bool[] reverse) => Lazy().TopK(k, by, reverse) .Collect();
+    public DataFrame TopK(int k, IEnumerable<Expr> by, bool[] reverse) => Lazy().TopK(k, by, reverse).Collect();
 
     /// <summary>
     /// Get the top k rows according to a single expression.
@@ -187,7 +188,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Get the top k rows according to the given expressions.
     /// <para>This selects the largest values.</para>
     /// </summary>
-    public DataFrame BottomK(int k, IEnumerable<Expr> by, bool[] reverse) => Lazy().BottomK(k, by, reverse) .Collect();
+    public DataFrame BottomK(int k, IEnumerable<Expr> by, bool[] reverse) => Lazy().BottomK(k, by, reverse).Collect();
 
     /// <summary>
     /// Get the Bottom k rows according to a single expression.

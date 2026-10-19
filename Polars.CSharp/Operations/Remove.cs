@@ -2,6 +2,7 @@ using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
@@ -12,7 +13,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     {
         using var litTrue = Pl.Lit(true);
         using var invertedExpr = predicate.NeqMissing(litTrue);
-        
+
         return Filter(invertedExpr);
     }
 
@@ -25,9 +26,9 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         {
             throw new InvalidOperationException("Can not remove by non-boolean series.");
         }
-        
-        using var expr = Pl.Lit(predicate); 
-        return Remove(expr); 
+
+        using var expr = Pl.Lit(predicate);
+        return Remove(expr);
     }
 
     /// <summary>
@@ -40,7 +41,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Remove rows that match the predicate.

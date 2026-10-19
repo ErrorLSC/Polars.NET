@@ -48,7 +48,6 @@ internal sealed class PolarsPartitionEnumerator<TElement> : IEnumerator<TElement
 /// </summary>
 public sealed class PolarsGrouping<TKey, TElement> : IGrouping<TKey, TElement>, IReadOnlyList<TElement>
 {
-    private readonly DataFrame _df;
     private readonly Func<DataFrame, long, TElement> _mapper;
 
     public TKey Key { get; }
@@ -56,33 +55,33 @@ public sealed class PolarsGrouping<TKey, TElement> : IGrouping<TKey, TElement>, 
     /// <summary>
     /// Gets the underlying partition DataFrame representing this group.
     /// </summary>
-    public DataFrame DataFrame => _df;
+    public DataFrame DataFrame { get; }
 
     /// <summary>
     /// Gets the total number of elements in this group partition in O(1).
     /// </summary>
-    public int Count => checked((int)_df.Height);
+    public int Count => checked((int)DataFrame.Height);
 
     public TElement this[int index]
     {
         get
         {
-            if ((uint)index >= (uint)_df.Height)
-                throw new ArgumentOutOfRangeException(nameof(index), $"Index {index} is out of bounds for partition height {_df.Height}.");
-            return _mapper(_df, index);
+            if ((uint)index >= (uint)DataFrame.Height)
+                throw new ArgumentOutOfRangeException(nameof(index), $"Index {index} is out of bounds for partition height {DataFrame.Height}.");
+            return _mapper(DataFrame, index);
         }
     }
 
     internal PolarsGrouping(TKey key, DataFrame df)
     {
         Key = key;
-        _df = df;
+        DataFrame = df;
         _mapper = RowMapper<TElement>.GetOrCreate(df);
     }
 
     public IEnumerator<TElement> GetEnumerator()
     {
-        return new PolarsPartitionEnumerator<TElement>(_df, _mapper);
+        return new PolarsPartitionEnumerator<TElement>(DataFrame, _mapper);
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();

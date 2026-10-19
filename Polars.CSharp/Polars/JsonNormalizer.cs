@@ -24,7 +24,7 @@ public readonly partial struct Polars
         int? maxLevel = null,
         IntoSchema? schema = null,
         bool strict = true,
-        uint? inferSchemaLength = 100, 
+        uint? inferSchemaLength = 100,
         Func<object?, string>? encoder = null)
     {
         int actualMaxLevel = maxLevel.HasValue ? maxLevel.Value + 1 : int.MaxValue;
@@ -48,16 +48,16 @@ public readonly partial struct Polars
 
         // Normalize
         var normalizedData = JsonNormalizeHelper.SimpleJsonNormalize(
-            dataList, 
-            separator, 
-            actualMaxLevel, 
+            dataList,
+            separator,
+            actualMaxLevel,
             encoder
         );
 
         return CSharp.DataFrame.FromDicts(
-            (IEnumerable<IDictionary<string, object?>>)normalizedData, 
-            schema, 
-            null, 
+            (IEnumerable<IDictionary<string, object?>>)normalizedData,
+            schema,
+            null,
             strict,
             inferSchemaLength
         );

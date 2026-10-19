@@ -85,7 +85,7 @@ public partial class LazyFrame : IDisposable
             Handle,
             path,
             // --- Partition Params ---
-            partitionBy.Consume().CloneHandle(), 
+            partitionBy.Consume().CloneHandle(),
             includeKeys,
             keysPreGrouped,
             maxRowsPerFile > 0 ? (nuint)maxRowsPerFile : 0,

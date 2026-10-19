@@ -1,6 +1,7 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
+
 public readonly partial struct Polars
 {
     /// <summary>
@@ -11,9 +12,9 @@ public readonly partial struct Polars
     /// <param name="numSamples">Number of samples to generate.</param>
     /// <param name="closed">Whether the intervals are closed or open.</param>
     public static Expr LinearSpace(
-        IntoExprColumn start, 
-        IntoExprColumn end, 
-        IntoExprColumn numSamples, 
+        IntoExprColumn start,
+        IntoExprColumn end,
+        IntoExprColumn numSamples,
         ClosedInterval closed = ClosedInterval.Both)
     {
         using var realStart = start.Consume();
@@ -32,17 +33,17 @@ public readonly partial struct Polars
 
     /// <inheritdoc cref="LinearSpace"/>
     public static Series LinearSpaceAsSeries(
-        IntoExprColumn start, 
-        IntoExprColumn end, 
-        IntoExprColumn numSamples, 
+        IntoExprColumn start,
+        IntoExprColumn end,
+        IntoExprColumn numSamples,
         ClosedInterval closed = ClosedInterval.Both,
         string name = "linear_space")
     {
         var expr = LinearSpace(start, end, numSamples, closed);
-        
+
         Series series = CreateSeries(expr);
         series.Rename(name);
-        
+
         return series;
     }
     /// <summary>
@@ -54,9 +55,9 @@ public readonly partial struct Polars
     /// <param name="closed">Whether the intervals are closed or open.</param>
     /// <param name="asArray">If true, returns an Array dtype instead of List. Requires numSamples to be a constant.</param>
     public static Expr LinearSpaces(
-        IntoExprColumn start, 
-        IntoExprColumn end, 
-        IntoExprColumn numSamples, 
+        IntoExprColumn start,
+        IntoExprColumn end,
+        IntoExprColumn numSamples,
         ClosedInterval closed = ClosedInterval.Both,
         bool asArray = false)
     {
@@ -77,9 +78,9 @@ public readonly partial struct Polars
 
     /// <inheritdoc cref="LinearSpaces"/>
     public static Series LinearSpacesAsSeries(
-        IntoExprColumn start, 
-        IntoExprColumn end, 
-        IntoExprColumn numSamples, 
+        IntoExprColumn start,
+        IntoExprColumn end,
+        IntoExprColumn numSamples,
         ClosedInterval closed = ClosedInterval.Both,
         bool asArray = false,
         string name = "linear_spaces")
@@ -87,7 +88,7 @@ public readonly partial struct Polars
         var expr = LinearSpaces(start, end, numSamples, closed, asArray);
         Series series = CreateSeries(expr);
         series.Rename(name);
-        
+
         return series;
     }
 }

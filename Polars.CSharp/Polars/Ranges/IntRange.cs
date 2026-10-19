@@ -1,6 +1,7 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
+
 public readonly partial struct Polars
 {
     /// <summary>
@@ -14,17 +15,17 @@ public readonly partial struct Polars
     public static Expr IntRange(IntoExprColumn start, IntoExprColumn? end = null, long step = 1, IntoDataTypeExpr? datatype = null)
     {
         IntoDataTypeExpr resolvedDtype = datatype ?? DataType.Int64;
-        
+
         using DataTypeExpr actualDtypeExpr = resolvedDtype.Consume();
-        
+
         using Expr realStart = end is null ? Lit(0) : start.Consume();
         using Expr realEnd = end is null ? start.Consume() : end.Value.Consume();
 
         Expr expr = new(PolarsWrapper.IntRange(
-            realStart.CloneHandle(), 
-            realEnd.CloneHandle(), 
-            step, 
-            actualDtypeExpr.Handle 
+            realStart.CloneHandle(),
+            realEnd.CloneHandle(),
+            step,
+            actualDtypeExpr.Handle
         ));
         return expr.SetSorted(descending: step < 0);
     }
@@ -37,12 +38,12 @@ public readonly partial struct Polars
     /// <param name="name">The name of generated series.</param>
     /// <param name="dtype">Integer data type of the ranges. Defaults to Int64.</param>
     /// <returns>A Literal Expression containing the integer series.</returns>
-    public static Series IntRangeAsSeries(IntoExprColumn start, IntoExprColumn? end=null, long step = 1, string name = "int", IntoDataTypeExpr? dtype = null)
+    public static Series IntRangeAsSeries(IntoExprColumn start, IntoExprColumn? end = null, long step = 1, string name = "int", IntoDataTypeExpr? dtype = null)
     {
-        var expr = IntRange(start,end,step,dtype);
+        var expr = IntRange(start, end, step, dtype);
         Series series = CreateSeries(expr);
         series.Rename(name);
-        return series.SetSorted(descending:step < 0);
+        return series.SetSorted(descending: step < 0);
     }
 
     /// <summary>
@@ -61,16 +62,16 @@ public readonly partial struct Polars
         using Expr realStep = step is null ? Lit(1) : step.Value.Consume();
 
         return new Expr(PolarsWrapper.IntRanges(
-            realStart.CloneHandle(), 
-            realEnd.CloneHandle(), 
-            realStep.CloneHandle(), 
-            actualDtypeExpr.Handle 
+            realStart.CloneHandle(),
+            realEnd.CloneHandle(),
+            realStep.CloneHandle(),
+            actualDtypeExpr.Handle
         ));
     }
     /// <inheritdoc cref="IntRanges"/>
-    public static Series IntRangesAsSeries(IntoExprColumn start, IntoExprColumn? end=null, IntoExprColumn? step = null, string name = "int", IntoDataTypeExpr? datatype = null)
+    public static Series IntRangesAsSeries(IntoExprColumn start, IntoExprColumn? end = null, IntoExprColumn? step = null, string name = "int", IntoDataTypeExpr? datatype = null)
     {
-        var expr = IntRanges(start,end,step,datatype);
+        var expr = IntRanges(start, end, step, datatype);
         Series series = CreateSeries(expr);
         series.Rename(name);
         return series;

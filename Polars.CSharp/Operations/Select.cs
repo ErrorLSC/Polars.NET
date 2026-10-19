@@ -1,6 +1,7 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
@@ -43,7 +44,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         var intoExprs = new IntoExprColumn[cols.Length];
         for (int i = 0; i < cols.Length; i++)
         {
-            intoExprs[i] = cols[i]; 
+            intoExprs[i] = cols[i];
         }
 
         return Select(intoExprs);
@@ -76,7 +77,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Select columns from the DataFrame and apply expressions to them.

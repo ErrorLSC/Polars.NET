@@ -1,8 +1,9 @@
 using Polars.NET.Core;
-using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
@@ -19,19 +20,19 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </summary>
     public LazyFrame FillNull(object value)
         => FillNull(Expr.MakeLit(value));
-    
+
     /// <summary>
     /// Fill NaN values in floating point columns with a specified Expression.
     /// </summary>
     public LazyFrame FillNan(Expr fillValue)
     {
         ArgumentNullException.ThrowIfNull(fillValue);
-        
+
         return WithColumns(Cs.Float().ToExpr().FillNan(fillValue));
     }
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Fill null values in all columns with a specified Expression.
@@ -40,7 +41,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         ArgumentNullException.ThrowIfNull(fillValue);
         using var lf = Lazy();
-        var filledLf = lf.FillNull(fillValue); 
+        var filledLf = lf.FillNull(fillValue);
         return filledLf.Collect();
     }
 

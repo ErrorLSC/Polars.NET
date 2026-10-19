@@ -1,9 +1,10 @@
 #pragma warning disable CS1591
 using Polars.NET.Core;
-using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
@@ -17,9 +18,9 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     public LazyFrame SetSorted(IntoSelector columns, bool descending = false, bool nullsLast = false)
     {
         using var selector = columns.Consume();
-        
+
         string[] cols = Cs.ExpandSelector(this, selector);
-        
+
         if (cols.Length == 0)
         {
             return this.Clone();
@@ -31,8 +32,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <inheritdoc cref="LazyFrame.SetSorted(IntoSelector, bool, bool)"/>
-    public DataFrame SetSorted(IntoSelector columns, bool descending = false, bool nullsLast = false) => Lazy().SetSorted(columns,descending,nullsLast).Collect();
+    public DataFrame SetSorted(IntoSelector columns, bool descending = false, bool nullsLast = false) => Lazy().SetSorted(columns, descending, nullsLast).Collect();
 }

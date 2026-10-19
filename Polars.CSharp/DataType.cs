@@ -10,7 +10,7 @@ namespace Polars.CSharp;
 /// Represents a Polars data type.
 /// Wraps the underlying Rust DataType Handle and provides high-level metadata.
 /// </summary>
-public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
+public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
 {
     internal DataTypeHandle Handle { get; }
 
@@ -318,7 +318,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         if (other is null) return false;
         if (ReferenceEquals(this, other)) return true;
 
-        return PolarsWrapper.DataTypeEq(this.Handle,other.Handle);
+        return PolarsWrapper.DataTypeEq(this.Handle, other.Handle);
     }
 
     public override int GetHashCode()
@@ -344,14 +344,14 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         DataTypeKind.Int8 or DataTypeKind.Int16 or DataTypeKind.Int32 or DataTypeKind.Int64 or
         DataTypeKind.UInt8 or DataTypeKind.UInt16 or DataTypeKind.UInt32 or DataTypeKind.UInt64 or
         DataTypeKind.Float32 or DataTypeKind.Float64 or DataTypeKind.Decimal or
-        DataTypeKind.Int128 or DataTypeKind.UInt128 or DataTypeKind.Float16=> true,
+        DataTypeKind.Int128 or DataTypeKind.UInt128 or DataTypeKind.Float16 => true,
         _ => false
     };
     public bool IsInteger => Kind switch
     {
         DataTypeKind.Int8 or DataTypeKind.Int16 or DataTypeKind.Int32 or DataTypeKind.Int64 or
         DataTypeKind.UInt8 or DataTypeKind.UInt16 or DataTypeKind.UInt32 or DataTypeKind.UInt64 or
-        DataTypeKind.Int128 or DataTypeKind.UInt128=> true,
+        DataTypeKind.Int128 or DataTypeKind.UInt128 => true,
         _ => false
     };
     public bool IsFloat => Kind switch
@@ -402,24 +402,24 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
 
     public static DataType Unknown => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Unknown), DataTypeKind.Unknown);
     public static DataType Boolean => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Boolean), DataTypeKind.Boolean);
-    public static DataType Int8    => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int8), DataTypeKind.Int8);
-    public static DataType Int16   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int16), DataTypeKind.Int16);
-    public static DataType Int32   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int32), DataTypeKind.Int32);
-    public static DataType Int64   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64), DataTypeKind.Int64);
-    public static DataType Int128   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int128), DataTypeKind.Int128);
-    public static DataType UInt8   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt8), DataTypeKind.UInt8);
-    public static DataType UInt16  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt16), DataTypeKind.UInt16);
-    public static DataType UInt32  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt32), DataTypeKind.UInt32);
-    public static DataType UInt64  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt64), DataTypeKind.UInt64);
-    public static DataType UInt128   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt128), DataTypeKind.UInt128);
+    public static DataType Int8 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int8), DataTypeKind.Int8);
+    public static DataType Int16 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int16), DataTypeKind.Int16);
+    public static DataType Int32 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int32), DataTypeKind.Int32);
+    public static DataType Int64 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64), DataTypeKind.Int64);
+    public static DataType Int128 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int128), DataTypeKind.Int128);
+    public static DataType UInt8 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt8), DataTypeKind.UInt8);
+    public static DataType UInt16 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt16), DataTypeKind.UInt16);
+    public static DataType UInt32 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt32), DataTypeKind.UInt32);
+    public static DataType UInt64 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt64), DataTypeKind.UInt64);
+    public static DataType UInt128 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt128), DataTypeKind.UInt128);
     public static DataType Float16 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Float16), DataTypeKind.Float16);
     public static DataType Float32 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Float32), DataTypeKind.Float32);
     public static DataType Float64 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Float64), DataTypeKind.Float64);
-    public static DataType String  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.String), DataTypeKind.String);
-    public static DataType Date    => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Date), DataTypeKind.Date);
-    public static DataType Time    => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Time), DataTypeKind.Time);
-    public static DataType Null  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Null), DataTypeKind.Null);
-    public static DataType Binary  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Binary), DataTypeKind.Binary);
+    public static DataType String => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.String), DataTypeKind.String);
+    public static DataType Date => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Date), DataTypeKind.Date);
+    public static DataType Time => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Time), DataTypeKind.Time);
+    public static DataType Null => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Null), DataTypeKind.Null);
+    public static DataType Binary => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Binary), DataTypeKind.Binary);
     public static DataType SameAsInput => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.SameAsInput), DataTypeKind.SameAsInput);
 
     // ==========================================
@@ -449,21 +449,21 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// <summary>
     /// Create a Categorical type
     /// </summary>
-    public static DataType Categorical(Categories? categories=null)
+    public static DataType Categorical(Categories? categories = null)
     {
         Categories realCate = categories ?? Categories.Global();
         return new(PolarsWrapper.NewCategoricalType(realCate.Handle), DataTypeKind.Categorical);
     }
     public static DataType Categorical(string categories)
     {
-        Categories realCate = new(name:categories);
+        Categories realCate = new(name: categories);
         return new(PolarsWrapper.NewCategoricalType(realCate.Handle), DataTypeKind.Categorical);
     }
     /// <summary>
     /// Create a Enum type
     /// </summary>
     /// <param name="categories"></param>
-    public static DataType Enum(FrozenCategories categories) => new(PolarsWrapper.NewEnumType(categories.Handle),DataTypeKind.Enum);
+    public static DataType Enum(FrozenCategories categories) => new(PolarsWrapper.NewEnumType(categories.Handle), DataTypeKind.Enum);
     public static DataType Enum(Series categories)
     {
         FrozenCategories cate = new(categories.ToArray<string>());
@@ -637,7 +637,8 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
                 t.Timezone
             ),
             DurationType d => Duration(
-                d.Unit switch {
+                d.Unit switch
+                {
                     Apache.Arrow.Types.TimeUnit.Microsecond => CSharp.TimeUnit.Microseconds,
                     Apache.Arrow.Types.TimeUnit.Millisecond => CSharp.TimeUnit.Milliseconds,
                     Apache.Arrow.Types.TimeUnit.Nanosecond => CSharp.TimeUnit.Nanoseconds,
@@ -672,7 +673,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
 /// </summary>
 /// <param name="name">The name of the field within its parent Struct.</param>
 /// <param name="dataType">The DataType of the field’s values.</param>
-public readonly struct Field(string name, DataType dataType): IEquatable<Field>
+public readonly struct Field(string name, DataType dataType) : IEquatable<Field>
 {
     public string Name { get; } = name ?? throw new ArgumentNullException(nameof(name));
     public DataType DataType { get; } = dataType ?? throw new ArgumentNullException(nameof(dataType));
@@ -701,15 +702,15 @@ public readonly struct Field(string name, DataType dataType): IEquatable<Field>
     public static bool operator !=(Field left, Field right) => !left.Equals(right);
 }
 
-public class Categories : IDisposable,IEquatable<Categories>
+public class Categories : IDisposable, IEquatable<Categories>
 {
     internal CategoriesHandle Handle { get; }
     private bool _disposed;
     private CategoricalPhysical? _physical;
 
-    public Categories(string? name=null, string? nameSpace= "",CategoricalPhysical physical = CategoricalPhysical.U32)
+    public Categories(string? name = null, string? nameSpace = "", CategoricalPhysical physical = CategoricalPhysical.U32)
     {
-        Handle = PolarsWrapper.CategoriesNew(name,nameSpace,physical.ToNative());
+        Handle = PolarsWrapper.CategoriesNew(name, nameSpace, physical.ToNative());
         _physical = physical;
     }
 
@@ -720,7 +721,7 @@ public class Categories : IDisposable,IEquatable<Categories>
 
     public static Categories Random(string nameSpace = "", CategoricalPhysical physical = CategoricalPhysical.U32)
     {
-        var handle = PolarsWrapper.CategoriesRandom(nameSpace,physical.ToNative());
+        var handle = PolarsWrapper.CategoriesRandom(nameSpace, physical.ToNative());
         Categories cat = new(handle);
         cat._physical = physical;
         return cat;
@@ -780,7 +781,7 @@ public class Categories : IDisposable,IEquatable<Categories>
     }
 }
 
-public class FrozenCategories : IDisposable,IEquatable<FrozenCategories>
+public class FrozenCategories : IDisposable, IEquatable<FrozenCategories>
 {
     internal FrozenCategoriesHandle Handle { get; }
     private bool _disposed;

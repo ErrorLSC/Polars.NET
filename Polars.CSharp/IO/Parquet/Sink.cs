@@ -51,9 +51,9 @@ public partial class LazyFrame : IDisposable
             mkdir,
             provider.ToNative(),
             retries,
-            retryTimeoutMs,      
+            retryTimeoutMs,
             retryInitBackoffMs,
-            retryMaxBackoffMs, 
+            retryMaxBackoffMs,
             cacheTtl,
             keys,
             values
@@ -110,9 +110,9 @@ public partial class LazyFrame : IDisposable
         PolarsWrapper.SinkParquetPartitioned(
             Handle,
             path,
-            
+
             // --- Partition Params ---
-            pby.CloneHandle(), 
+            pby.CloneHandle(),
             includeKeys,
             keysPreGrouped,
             maxRowsPerFile > 0 ? (nuint)maxRowsPerFile : 0,
@@ -150,7 +150,7 @@ public partial class LazyFrame : IDisposable
     /// </summary>
     public byte[] SinkParquetMemory(
         ParquetCompression compression = ParquetCompression.ZSTD,
-        int compressionLevel = 3, 
+        int compressionLevel = 3,
         bool statistics = true,
         int rowGroupSize = 0,
         int dataPageSize = 0,

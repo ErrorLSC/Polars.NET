@@ -24,7 +24,7 @@ public partial class LazyFrame : IDisposable
     /// <param name="rowIndexName">If provided, adds a column with the row index.</param>
     /// <param name="rowIndexOffset">Offset for the row index (default: 0).</param>
     /// <param name="includePathColumn">If provided, adds a column with the source file path.</param>
-   /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
+    /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
     public static LazyFrame ScanNdjson(
         string path,
         IntoSchema? schema = null,
@@ -39,9 +39,9 @@ public partial class LazyFrame : IDisposable
         string? includePathColumn = null,
         CloudOptions? cloudOptions = null)
     {
-        if (!File.Exists(path)) 
+        if (!File.Exists(path))
             throw new FileNotFoundException($"NDJSON file not found: {path}");
-        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = 
+        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) =
             CloudOptions.ParseCloudOptions(cloudOptions);
         var schemaHandle = schema?.Consume().Handle;
 
@@ -129,7 +129,7 @@ public partial class LazyFrame : IDisposable
     {
         using var ms = new MemoryStream();
         stream.CopyTo(ms);
-        
+
         return ScanNdjson(
             ms.ToArray(),
             schema,

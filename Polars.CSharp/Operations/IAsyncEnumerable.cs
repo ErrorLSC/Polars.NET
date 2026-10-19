@@ -15,7 +15,6 @@ public static class AsyncExtensions
 {
     /// <summary>
     /// Exposes in-memory DataFrame rows as a cooperative, cancellation-aware IAsyncEnumerable.
-    /// Employs chunked micro-batching to eliminate per-row task state machine allocations.
     /// </summary>
     /// <typeparam name="T">The target strongly typed record or struct.</typeparam>
     /// <param name="df">The source DataFrame.</param>
@@ -67,7 +66,6 @@ public static class AsyncExtensions
 
     /// <summary>
     /// Streams strongly typed rows asynchronously from an Apache Arrow C Stream interface.
-    /// Hydrates rows batch-by-batch with bounded memory overhead.
     /// </summary>
     /// <typeparam name="T">The target strongly typed record or struct.</typeparam>
     /// <param name="stream">The source Arrow stream.</param>
@@ -112,7 +110,6 @@ public static class AsyncExtensions
 
     /// <summary>
     /// Executes the LazyFrame via native streaming batch engine,
-    /// yielding strongly typed rows with bounded O(batch) memory overhead and pull-based backpressure.
     /// </summary>
     /// <typeparam name="T">The target strongly typed record or struct.</typeparam>
     /// <param name="lazyDf">The source LazyFrame.</param>
@@ -203,7 +200,6 @@ public static class AsyncExtensions
 
     /// <summary>
     /// Executes the LazyFrame and hydrates rows via a bounded channel pipeline,
-    /// overlapping native query execution, row hydration, and consumer processing while strictly enforcing memory backpressure limits.
     /// </summary>
     /// <typeparam name="T">The target strongly typed record or struct.</typeparam>
     /// <param name="lazyDf">The source LazyFrame.</param>

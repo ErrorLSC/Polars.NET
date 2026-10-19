@@ -2,7 +2,8 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Write DataFrame to a comma-separated values (CSV) file.
@@ -147,7 +148,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         lf.SinkCsvPartitioned(
             path,
             // --- Partition Params ---
-            partitionBy, 
+            partitionBy,
             includeKeys,
             keysPreGrouped,
             maxRowsPerFile,
@@ -180,8 +181,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool includeBom = false,
         bool includeHeader = true,
         int batchSize = 1024,
-        bool checkExtension = false, 
-        ExternalCompression compressionCode = 0,    
+        bool checkExtension = false,
+        ExternalCompression compressionCode = 0,
         int compressionLevel = 0,
         string? dateFormat = null,
         string? timeFormat = null,
@@ -193,7 +194,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         byte quoteChar = (byte)'"',
         string? nullValue = null,
         string? lineTerminator = "\n",
-        QuoteStyle quoteStyle = QuoteStyle.Necessary,         
+        QuoteStyle quoteStyle = QuoteStyle.Necessary,
         bool maintainOrder = true)
     {
         var lf = Lazy();

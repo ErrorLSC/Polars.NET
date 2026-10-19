@@ -2,6 +2,7 @@ using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
@@ -10,9 +11,9 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <param name="subset">Selector defining the subset of columns. If null, uses all columns.</param>
     /// <param name="keep">Strategy to keep duplicates (First, Last, Any, None).</param>
     /// <param name="maintainOrder">Whether to maintain the original order of the rows (stable).</param>
-    public LazyFrame Unique(Selector? subset = null, UniqueKeepStrategy keep = UniqueKeepStrategy.First, bool maintainOrder=false)
-        => new (PolarsWrapper.LazyUnique(CloneHandle(), subset?.CloneHandle()!, keep.ToNative(),maintainOrder));
-    
+    public LazyFrame Unique(Selector? subset = null, UniqueKeepStrategy keep = UniqueKeepStrategy.First, bool maintainOrder = false)
+        => new(PolarsWrapper.LazyUnique(CloneHandle(), subset?.CloneHandle()!, keep.ToNative(), maintainOrder));
+
     /// <summary>
     /// Keep unique rows based on specific column names.
     /// </summary>
@@ -20,19 +21,19 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <param name="keep">Strategy to keep duplicates (First, Last, Any, None).</param>
     /// <param name="maintainOrder">Whether to maintain the original order of the rows (stable).</param>
     public LazyFrame Unique(
-        IEnumerable<string> columns, 
-        UniqueKeepStrategy keep = UniqueKeepStrategy.First, 
+        IEnumerable<string> columns,
+        UniqueKeepStrategy keep = UniqueKeepStrategy.First,
         bool maintainOrder = false)
     {
         var columnsArray = columns as string[] ?? [.. columns];
-        
+
         if (columnsArray.Length == 0)
         {
             return Unique(subset: null, keep, maintainOrder);
         }
 
         using var selector = Cs.ByName(columnsArray);
-        
+
         return Unique(selector, keep, maintainOrder);
     }
     /// <summary>
@@ -45,7 +46,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Returns a new DataFrame with unique rows based on ALL columns.
@@ -55,19 +56,19 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="offset">The starting index from which to begin the slice of unique results.</param>
     /// <param name="len">The maximum number of rows to include in the result.</param>
     public DataFrame Unique(
-        UniqueKeepStrategy keep = UniqueKeepStrategy.First, 
+        UniqueKeepStrategy keep = UniqueKeepStrategy.First,
         bool maintainOrder = false,
-        long? offset = null, 
+        long? offset = null,
         long? len = null)
     {
-        (long offset, ulong len)? slice = (offset.HasValue && len.HasValue) 
-            ? (offset.Value, (ulong)Math.Max(0, len.Value)) 
+        (long offset, ulong len)? slice = (offset.HasValue && len.HasValue)
+            ? (offset.Value, (ulong)Math.Max(0, len.Value))
             : null;
 
         var h = PolarsWrapper.DataFrameUnique(
-            Handle, 
-            null, 
-            keep.ToNative(), 
+            Handle,
+            null,
+            keep.ToNative(),
             maintainOrder,
             slice
         );
@@ -79,27 +80,27 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Supports C# 12 collection expressions like ["Id", "Date"].
     /// </summary>
     public DataFrame Unique(
-        IEnumerable<string> subset, 
-        UniqueKeepStrategy keep = UniqueKeepStrategy.First, 
+        IEnumerable<string> subset,
+        UniqueKeepStrategy keep = UniqueKeepStrategy.First,
         bool maintainOrder = false,
-        long? offset = null, 
+        long? offset = null,
         long? len = null)
     {
         var columns = subset as string[] ?? [.. subset];
-        
+
         if (columns.Length == 0)
         {
             return Unique(keep, maintainOrder, offset, len);
         }
 
-        (long offset, ulong len)? slice = (offset.HasValue && len.HasValue) 
-            ? (offset.Value, (ulong)Math.Max(0, len.Value)) 
+        (long offset, ulong len)? slice = (offset.HasValue && len.HasValue)
+            ? (offset.Value, (ulong)Math.Max(0, len.Value))
             : null;
 
         var h = PolarsWrapper.DataFrameUnique(
-            Handle, 
-            columns, 
-            keep.ToNative(), 
+            Handle,
+            columns,
+            keep.ToNative(),
             maintainOrder,
             slice
         );
@@ -110,14 +111,14 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Returns a new DataFrame with unique rows based on a subset of columns (Selector, Type, DataType).
     /// </summary>
     public DataFrame Unique(
-        IntoSelector subset, 
-        UniqueKeepStrategy keep = UniqueKeepStrategy.First, 
+        IntoSelector subset,
+        UniqueKeepStrategy keep = UniqueKeepStrategy.First,
         bool maintainOrder = false,
-        long? offset = null, 
+        long? offset = null,
         long? len = null)
     {
         using var selector = subset.Consume();
-        
+
         string[] columns = Cs.ExpandSelector(this, selector);
 
         if (columns.Length == 0)

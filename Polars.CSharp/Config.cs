@@ -47,7 +47,7 @@ public sealed class PolarsConfig
     /// <summary>
     /// Activates this config profile by backing up the current global state and applying overrides.
     /// </summary>
-    public PolarsConfigScope BeginScope() => new (_snapshotBeforeChain);
+    public PolarsConfigScope BeginScope() => new(_snapshotBeforeChain);
     /// <summary>
     /// Save the current set of Config options as a JSON string.
     /// </summary>
@@ -81,13 +81,13 @@ public sealed class PolarsConfig
     /// <param name="ifSet">By default this will show the state of all Config environment variables. 
     /// change this to True to restrict the returned dictionary to include only those that have been set to a specific value.</param>
     /// <param name="envOnly">Include only Config environment variables in the output; some options (such as “set_fmt_float”) are set directly, not via an environment variable.</param>
-    public Dictionary<string, string?> Status(bool ifSet = false, bool envOnly = false) 
+    public Dictionary<string, string?> Status(bool ifSet = false, bool envOnly = false)
         => CoreConfig.GetState(ifSet, envOnly);
 
     // ========================================================
     // Indexer
     // ========================================================
-    
+
     /// <summary>
     /// string style = cfg["decimal_separator"];
     /// </summary>
@@ -136,7 +136,7 @@ public sealed class PolarsConfig
                             else
                             {
                                 string cleanVal = value.Trim().ToLowerInvariant();
-                                
+
                                 if (cleanVal is "1" or "true")
                                 {
                                     CoreConfig.TrimDecimalZeros = true;
@@ -147,7 +147,7 @@ public sealed class PolarsConfig
                                 }
                                 else
                                 {
-                                    CoreConfig.TrimDecimalZeros = null; 
+                                    CoreConfig.TrimDecimalZeros = null;
                                 }
                             }
                             break;
@@ -175,7 +175,7 @@ public sealed class PolarsConfig
     public static void SetEnvVars(IEnumerable<KeyValuePair<string, string>> variables)
     {
         ArgumentNullException.ThrowIfNull(variables);
-        
+
         foreach (var kvp in variables)
         {
             PolarsWrapper.SetEnvVar(kvp.Key, kvp.Value);
@@ -189,7 +189,7 @@ public sealed class PolarsConfig
     public static void SetEnvVars(params (string Key, string Value)[] variables)
     {
         if (variables == null || variables.Length == 0) return;
-        
+
         foreach (var (key, value) in variables)
         {
             PolarsWrapper.SetEnvVar(key, value);
@@ -201,7 +201,7 @@ public sealed class PolarsConfig
     /// Use ASCII characters to display table outlines.
     /// Set False to revert to the standard UTF8_FULL_CONDENSED formatting style.
     /// </summary>
-    public PolarsConfig SetAsciiTables(bool? active=true)
+    public PolarsConfig SetAsciiTables(bool? active = true)
     {
         Apply(() => CoreConfig.AsciiTables = active);
         return this;
@@ -211,7 +211,7 @@ public sealed class PolarsConfig
     /// Set the decimal separator character.
     /// </summary>
     /// <param name="separator">Character to use as the decimal separator. Set to None to revert to the default ('.').</param>
-    public PolarsConfig SetDecimalSeparator(char? separator=null)
+    public PolarsConfig SetDecimalSeparator(char? separator = null)
     {
         Apply(() => CoreConfig.DecimalSeparator = separator);
         return this;
@@ -252,7 +252,7 @@ public sealed class PolarsConfig
     /// Strip trailing zeros from Decimal data type values.
     /// </summary>
     /// <param name="active">Enable stripping of trailing ‘0’ characters from Decimal values.</param>
-    public PolarsConfig SetTrimDecimalZeros(bool? active=true)
+    public PolarsConfig SetTrimDecimalZeros(bool? active = true)
     {
         Apply(() => CoreConfig.TrimDecimalZeros = active);
         return this;
@@ -262,7 +262,7 @@ public sealed class PolarsConfig
     /// </summary>
     /// <param name="engine">The default execution engine Polars will attempt to use when calling .Collect(). 
     /// However, the query is not guaranteed to execute with the specified engine.</param>
-    public PolarsConfig SetEngineAffinity(Engine? engine=null)
+    public PolarsConfig SetEngineAffinity(Engine? engine = null)
     {
         Apply(() => CoreConfig.EngineAffinity = engine?.ToNative());
         return this;
@@ -271,7 +271,7 @@ public sealed class PolarsConfig
     /// Control the number of decimal places displayed for floating point values.
     /// </summary>
     /// <param name="precision">Number of decimal places to display; set to None to revert to the default/standard behaviour.</param>
-    public PolarsConfig SetFloatPrecision(int? precision=null)
+    public PolarsConfig SetFloatPrecision(int? precision = null)
     {
         Apply(() => CoreConfig.FloatPrecision = precision);
         return this;
@@ -280,7 +280,7 @@ public sealed class PolarsConfig
     /// Control how floating point values are displayed.
     /// </summary>
     /// <param name="format">How to format floating point numbers</param>
-    public PolarsConfig SetFormatFloat(FloatFormat? format=FloatFormat.Mixed)
+    public PolarsConfig SetFormatFloat(FloatFormat? format = FloatFormat.Mixed)
     {
         Apply(() => CoreConfig.FloatFormat = format?.ToNative());
         return this;
@@ -355,7 +355,7 @@ public sealed class PolarsConfig
     /// <summary>
     /// Display the data type next to the column name (to the right, in parentheses).
     /// </summary>
-    public PolarsConfig SetTableColumnDataTypeInline(bool? active=true)
+    public PolarsConfig SetTableColumnDataTypeInline(bool? active = true)
     {
         Apply(() => CoreConfig.TableColumnDataTypeInline = active);
         return this;
@@ -363,10 +363,10 @@ public sealed class PolarsConfig
     /// <summary>
     /// Configures whether Polars should run in verbose mode, printing query profiles and optimization decisions.
     /// </summary>
-    public PolarsConfig SetVerbose(bool? verbose=true)
+    public PolarsConfig SetVerbose(bool? verbose = true)
     {
         Apply(() => CoreConfig.Verbose = verbose);
-        return this; 
+        return this;
     }
     /// <summary>
     /// Print the DataFrame shape information below the data when displaying tables.
@@ -379,7 +379,7 @@ public sealed class PolarsConfig
     /// <summary>
     /// Sets the text/ASCII formatting style for outputting DataFrames.
     /// </summary>
-    public PolarsConfig SetTableFormatting(TableFormatting? format=null, bool? roundedCorners = false)
+    public PolarsConfig SetTableFormatting(TableFormatting? format = null, bool? roundedCorners = false)
     {
         Apply(() => CoreConfig.TableFormatting = (format?.ToNative(), roundedCorners));
         return this;
@@ -413,7 +413,7 @@ public sealed class PolarsConfig
     /// </summary>
     public PolarsConfig SetTableHideDataTypeSeparator(bool? active = true)
     {
-        Apply(() => CoreConfig.TableHideDataTypeSeparator =active);
+        Apply(() => CoreConfig.TableHideDataTypeSeparator = active);
         return this;
     }
     /// <summary>
@@ -422,7 +422,7 @@ public sealed class PolarsConfig
     /// <param name="width">Maximum table width in characters; if n is less than 0 (eg: -1), display full width.</param>
     public PolarsConfig SetTableWidthChars(int? width)
     {
-        Apply(() => CoreConfig.TableWidthChars =width);
+        Apply(() => CoreConfig.TableWidthChars = width);
         return this;
     }
     /// <summary>
@@ -431,7 +431,7 @@ public sealed class PolarsConfig
     /// <param name="retries">Max retries for delta module</param>
     public PolarsConfig SetDeltaMaxRetries(int? retries)
     {
-        Apply(()=> CoreConfig.PolarsDeltaMaxRetry = retries);
+        Apply(() => CoreConfig.PolarsDeltaMaxRetry = retries);
         return this;
     }
 

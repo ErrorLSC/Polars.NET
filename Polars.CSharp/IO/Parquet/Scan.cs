@@ -39,8 +39,8 @@ public partial class LazyFrame : IDisposable
         bool useStatistics = true,
         bool glob = true,
         bool allowMissingColumns = false,
-        bool rechunk = false, 
-        bool cache = true,    
+        bool rechunk = false,
+        bool cache = true,
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
@@ -48,7 +48,7 @@ public partial class LazyFrame : IDisposable
         bool hivePartitioning = false,
         IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false,
-        CloudOptions? cloudOptions = null) 
+        CloudOptions? cloudOptions = null)
     {
         var schemaHandle = schema?.Consume().Handle;
         var hiveSchemaHandle = hivePartitionSchema?.Consume().Handle;
@@ -63,14 +63,14 @@ public partial class LazyFrame : IDisposable
             useStatistics,
             glob,
             allowMissingColumns,
-            rechunk, 
-            cache,   
+            rechunk,
+            cache,
             rowIndexName,
             rowIndexOffset,
             includePathColumn,
-            schemaHandle,     
+            schemaHandle,
             hivePartitioning,
-            hiveSchemaHandle, 
+            hiveSchemaHandle,
             tryParseHiveDates,
             provider.ToNative(),
             retries,

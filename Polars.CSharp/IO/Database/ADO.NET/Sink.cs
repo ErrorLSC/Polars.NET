@@ -5,6 +5,7 @@ using Polars.NET.Core;
 using Polars.NET.Core.Data;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable
 {
     /// <summary>
@@ -55,18 +56,18 @@ public partial class LazyFrame : IDisposable
     /// */
     /// </code>
     /// </example>
-    public void SinkTo(Action<IDataReader> writerAction, int bufferSize = 5,Dictionary<string, Type>? typeOverrides = null)
+    public void SinkTo(Action<IDataReader> writerAction, int bufferSize = 5, Dictionary<string, Type>? typeOverrides = null)
     {
         // 1. Producer-Consumer buffer
         using var buffer = new BlockingCollection<RecordBatch>(boundedCapacity: bufferSize);
 
         // 2. Start consumer (DB Writer)
-        var consumerTask = Task.Run(() => 
+        var consumerTask = Task.Run(() =>
         {
-            
+
             // ArrowToDbStream is responsible for disguising Buffer as DataReader
             // It automatically handles Dispose, so Batch will be released after writerAction finishes reading
-            using var reader = new ArrowToDbStream(buffer.GetConsumingEnumerable(),typeOverrides);
+            using var reader = new ArrowToDbStream(buffer.GetConsumingEnumerable(), typeOverrides);
             // Hand over the reader to user logic
             // Users call bulk.WriteToServer(reader) here
             writerAction(reader);

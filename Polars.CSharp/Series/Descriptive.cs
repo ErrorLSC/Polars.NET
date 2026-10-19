@@ -2,7 +2,7 @@ using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable,IPolarsSeries
+public partial class Series : IDisposable, IPolarsSeries
 {
     /// <summary>
     /// Get the length of each individual chunk.
@@ -112,10 +112,10 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <typeparam name="T"></typeparam>
     /// <param name="collection"></param>
     /// <param name="nullsEqual"></param>
-    public Series IsIn<T>(IEnumerable<T?> collection,bool nullsEqual=false)
+    public Series IsIn<T>(IEnumerable<T?> collection, bool nullsEqual = false)
     {
-        using var other = From("__TEMP_FOR_ISIN",collection);
-        return IsIn(other,nullsEqual);
+        using var other = From("__TEMP_FOR_ISIN", collection);
+        return IsIn(other, nullsEqual);
     }
     /// <summary>
     /// Return a Boolean series, where null value will be masked as true.

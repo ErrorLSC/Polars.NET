@@ -1,10 +1,9 @@
-using Cs = Polars.CSharp.Polars.Selectors;
-
 using Polars.NET.Core;
+using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
 
     /// <summary>
@@ -20,8 +19,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool lowMemory = false,
         bool useStatistics = true,
         bool glob = true,
-        bool rechunk = false, 
-        bool cache = true,    
+        bool rechunk = false,
+        bool cache = true,
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
@@ -31,7 +30,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool tryParseHiveDates = true,
         CloudOptions? cloudOptions = null)
     {
-        
+
         var lf = LazyFrame.ScanDelta(
             path,
             version,
@@ -41,14 +40,14 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             lowMemory,
             useStatistics,
             glob,
-            rechunk, 
-            cache,   
+            rechunk,
+            cache,
             rowIndexName,
             rowIndexOffset,
             includePathColumn,
-            schema,     
+            schema,
             hivePartitioning,
-            hivePartitionSchema, 
+            hivePartitionSchema,
             tryParseHiveDates,
             cloudOptions
         );
@@ -64,14 +63,14 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         string path,
         IntoSelector? partitionBy = null,
         DeltaSaveMode mode = DeltaSaveMode.Append,
-        bool canEvolve=false,
+        bool canEvolve = false,
         bool includeKeys = true,
         bool keysPreGrouped = false,
         int maxRowsPerFile = 0,
         long approxBytesPerFile = 0,
         ParquetCompression compression = ParquetCompression.Snappy,
         int compressionLevel = -1,
-        bool statistics = true, 
+        bool statistics = true,
         uint rowGroupSize = 0,
         uint dataPageSize = 0,
         int compatLevel = -1,
@@ -85,10 +84,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             path,
             partitionBy,
             // --- Delta Options ---
-            mode, 
+            mode,
             canEvolve,
             // --- Partition Params ---
-            
+
             includeKeys,
             keysPreGrouped,
             maxRowsPerFile,
@@ -100,7 +99,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             statistics,
             rowGroupSize,
             dataPageSize,
-            compatLevel, 
+            compatLevel,
 
             // --- Unified Options ---
             maintainOrder,
@@ -127,7 +126,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         Expr? matchedDeleteCond = null,
         Expr? notMatchedInsertCond = null,
         Expr? notMatchedBySourceDeleteCond = null,
-        bool canEvolve=false,
+        bool canEvolve = false,
         CloudOptions? cloudOptions = null)
     {
         var lf = Lazy();
@@ -165,13 +164,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </code>
     /// </example>
     public DeltaMergeBuilder MergeDeltaOrdered(
-        string path, 
-        string[] mergeKeys, 
-        bool canEvolve = false, 
+        string path,
+        string[] mergeKeys,
+        bool canEvolve = false,
         CloudOptions? cloudOptions = null)
     {
         return new DeltaMergeBuilder(Lazy(), path, mergeKeys, canEvolve, cloudOptions);
     }
 
- 
+
 }

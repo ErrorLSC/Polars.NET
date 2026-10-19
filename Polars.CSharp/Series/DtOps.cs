@@ -10,10 +10,10 @@ public readonly struct SeriesDtOps
     private readonly Series _series;
     internal SeriesDtOps(Series series) { _series = series; }
 
-    private Series Apply(Func<Expr, Expr> op) 
+    private Series Apply(Func<Expr, Expr> op)
     {
         var expr = op(Pl.Col(_series.Name));
-        
+
         return _series.ApplyExpr(expr);
     }
     /// <inheritdoc cref="DtOps.Millennium"/>
@@ -63,21 +63,21 @@ public readonly struct SeriesDtOps
     /// <inheritdoc cref="DtOps.Time"/>
     public Series Time() => Apply(e => e.Dt.Time());
     /// <inheritdoc cref="DtOps.TotalDays"/>
-    public Series TotalDays(bool fractional=false) => Apply(e => e.Dt.TotalDays(fractional));
+    public Series TotalDays(bool fractional = false) => Apply(e => e.Dt.TotalDays(fractional));
     /// <inheritdoc cref="DtOps.TotalHours"/>
-    public Series TotalHours(bool fractional=false) => Apply(e => e.Dt.TotalHours(fractional));
+    public Series TotalHours(bool fractional = false) => Apply(e => e.Dt.TotalHours(fractional));
     /// <inheritdoc cref="DtOps.TotalMinutes"/>
-    public Series TotalMinutes(bool fractional=false) => Apply(e => e.Dt.TotalMinutes(fractional));
+    public Series TotalMinutes(bool fractional = false) => Apply(e => e.Dt.TotalMinutes(fractional));
     /// <inheritdoc cref="DtOps.TotalMilliseconds"/>
-    public Series TotalMilliseconds(bool fractional=false) => Apply(e => e.Dt.TotalMilliseconds(fractional));
+    public Series TotalMilliseconds(bool fractional = false) => Apply(e => e.Dt.TotalMilliseconds(fractional));
     /// <inheritdoc cref="DtOps.TotalMicroseconds"/>
-    public Series TotalMicroseconds(bool fractional=false) => Apply(e => e.Dt.TotalMicroseconds(fractional));
+    public Series TotalMicroseconds(bool fractional = false) => Apply(e => e.Dt.TotalMicroseconds(fractional));
     /// <inheritdoc cref="DtOps.TotalNanoseconds"/>
-    public Series TotalNanoseconds(bool fractional=false) => Apply(e => e.Dt.TotalNanoseconds(fractional));
+    public Series TotalNanoseconds(bool fractional = false) => Apply(e => e.Dt.TotalNanoseconds(fractional));
     /// <inheritdoc cref="DtOps.ToString"/>
-    public Series ToString(string format="iso") => Apply(e => e.Dt.ToString(format));
+    public Series ToString(string format = "iso") => Apply(e => e.Dt.ToString(format));
     /// <inheritdoc cref="DtOps.Strftime"/>
-    public Series Strftime(string format="iso") => Apply(e => e.Dt.Strftime(format));
+    public Series Strftime(string format = "iso") => Apply(e => e.Dt.Strftime(format));
     // ==========================================
     // Truncate & Round
     // ==========================================
@@ -98,9 +98,9 @@ public readonly struct SeriesDtOps
     /// <inheritdoc cref="DtOps.Timestamp"/>
     public Series Timestamp(TimeUnit timeUnit = TimeUnit.Microseconds) => Apply(e => e.Dt.Timestamp(timeUnit));
     /// <inheritdoc cref="DtOps.Combine"/>
-    public Series Combine(Expr time,TimeUnit timeUnit) => Apply(e => e.Dt.Combine(time,timeUnit));
+    public Series Combine(Expr time, TimeUnit timeUnit) => Apply(e => e.Dt.Combine(time, timeUnit));
     /// <inheritdoc cref="DtOps.Combine"/>
-    public Series Combine(Series time,TimeUnit timeUnit) => Apply(e => e.Dt.Combine(Pl.Lit(time),timeUnit));
+    public Series Combine(Series time, TimeUnit timeUnit) => Apply(e => e.Dt.Combine(Pl.Lit(time), timeUnit));
 
     // ==========================================
     // TimeZone
@@ -110,20 +110,20 @@ public readonly struct SeriesDtOps
 
     /// <inheritdoc cref="DtOps.ReplaceTimeZone"/>
     public Series ReplaceTimeZone(string? timeZone, AmbiguousArg? ambiguous = null, NonExistent nonExistent = NonExistent.Raise)
-         =>Apply(e => e.Dt.ReplaceTimeZone(timeZone,ambiguous,nonExistent));
+         => Apply(e => e.Dt.ReplaceTimeZone(timeZone, ambiguous, nonExistent));
     // ==========================================
     // BusinessDays
     // ==========================================
     /// <inheritdoc cref="DtOps.AddBusinessDays"/>
     public Series AddBusinessDays(
-        Expr n, 
+        Expr n,
         bool[]? weekMask = null,
-        IntoDateExpr? holidays = null,  
+        IntoDateExpr? holidays = null,
         Roll roll = Roll.Raise)
-        =>Apply(e => e.Dt.AddBusinessDays(n,weekMask,holidays,roll));
+        => Apply(e => e.Dt.AddBusinessDays(n, weekMask, holidays, roll));
     /// <inheritdoc cref="DtOps.IsBusinessDay(bool[],IntoDateExpr?)"/>
-    public Series IsBusinessDay(bool[]? weekMask = null,IntoDateExpr? holidays=null)
-        =>Apply(e => e.Dt.IsBusinessDay(weekMask,holidays));
+    public Series IsBusinessDay(bool[]? weekMask = null, IntoDateExpr? holidays = null)
+        => Apply(e => e.Dt.IsBusinessDay(weekMask, holidays));
     /// <inheritdoc cref="DtOps.Replace"/>
     public Series Replace(
         IntoExprColumn? year = null,
@@ -134,8 +134,8 @@ public readonly struct SeriesDtOps
         IntoExprColumn? second = null,
         IntoExprColumn? microsecond = null,
         AmbiguousArg? ambiguous = null)
-    => Apply(e => e.Dt.Replace(year,month,day,hour,minute,second,microsecond,ambiguous));
+    => Apply(e => e.Dt.Replace(year, month, day, hour, minute, second, microsecond, ambiguous));
     /// <inheritdoc cref="DtOps.Epoch"/>
     public Series Epoch(EpochTimeUnit timeUnit = EpochTimeUnit.Microseconds) => Apply(e => e.Dt.Epoch(timeUnit));
-    
+
 }
