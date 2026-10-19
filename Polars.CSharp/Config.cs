@@ -435,4 +435,23 @@ public sealed class PolarsConfig
         return this;
     }
 
+    /// <summary>
+    /// Set the maximum capacity for the LINQ Query Plan Cache.
+    /// </summary>
+    /// <param name="capacity">Maximum number of query plan templates to retain. Pass null to reset to default.</param>
+    public PolarsConfig SetQueryCacheCapacity(int? capacity = 1024)
+    {
+        Apply(() => CoreConfig.QueryCacheCapacity = capacity);
+        return this;
+    }
+
+    /// <summary>
+    /// Enable or disable the LINQ Query Plan Cache globally.
+    /// </summary>
+    /// <param name="enabled">True to enable caching, false to disable, null to reset to default.</param>
+    public PolarsConfig SetQueryCacheEnabled(bool? enabled = true)
+    {
+        Apply(() => CoreConfig.QueryCacheEnabled = enabled);
+        return this;
+    }
 }

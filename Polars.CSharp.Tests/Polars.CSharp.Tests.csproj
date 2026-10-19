@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFrameworks>net10.0</TargetFrameworks>
@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Polars.CSharp\Polars.CSharp.csproj" />
+    <ProjectReference Include="..\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
   </ItemGroup>
 
 </Project>

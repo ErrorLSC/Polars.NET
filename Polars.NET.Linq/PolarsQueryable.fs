@@ -2546,13 +2546,30 @@ and PolarsQuery<'T>
         let currentScalarCol =
             PolarsQueryProvider.tryGetScalarColumnName typeof<'T> lfCloned
 
-        let effectiveExpr = expression |> FSharpAst.rewrite |> PartialEvaluator.eval
+        let rewrittenExpr = expression |> FSharpAst.rewrite
+        let extraction = PartialEvaluator.extract rewrittenExpr
+        let cacheKey = QueryCacheKey.Create(typeof<'T>, extraction.NormalizedExpression)
 
-        // eprintfn "\n================ [REWRITTEN EXPRESSION TREE] ================"
-        // eprintfn "%s" (effectiveExpr.ToString())
-        // eprintfn "============================================================\n"
+        let cached =
+            QueryPlanCache.GetOrAdd(
+                cacheKey,
+                fun _ ->
+                    {
+                        Key = cacheKey
+                        NormalizedExpression = extraction.NormalizedExpression
+                        ParamNames = extraction.Parameters.Keys |> Seq.toArray
+                        NormalizedStages = []
+                        LastAccessTick = Environment.TickCount64
+                    }
+            )
 
-        let stages = flatten effectiveExpr []
+        let bound =
+            if extraction.Parameters.Count = 0 then
+                rewrittenExpr
+            else
+                PartialEvaluator.substituteExtracted cached.NormalizedExpression extraction.Parameters
+
+        let stages = flatten bound []
         // eprintfn "[FLATTENED STAGES COUNT] %d" stages.Length
         // stages |> List.iteri (fun idx s -> eprintfn "  Stage[%d] = %A" idx s)
 

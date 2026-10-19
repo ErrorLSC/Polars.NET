@@ -300,3 +300,15 @@ module Config =
     /// </summary>
     let deltaMaxRetries (retries: NumSet) =
         fun () -> CoreConfig.PolarsDeltaMaxRetry <- retries.ToNative()
+
+    /// <summary>
+    /// Set the maximum capacity for the LINQ Query Plan Cache.
+    /// </summary>
+    let queryCacheCapacity (capacity: NumSet) =
+        fun () -> CoreConfig.QueryCacheCapacity <- capacity.ToNative()
+
+    /// <summary>
+    /// Enable or disable the LINQ Query Plan Cache globally.
+    /// </summary>
+    let queryCacheEnabled (active: Active) =
+        fun () -> CoreConfig.QueryCacheEnabled <- active.ToNative()

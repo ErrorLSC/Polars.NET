@@ -85,9 +85,9 @@ internal static class CoreConfig
         TableWidthCharsKey,
         // Polars.NET specified
         PrefetchBufferSizeKey,
-        PolarsDeltaMaxRetryKey 
-        
-
+        PolarsDeltaMaxRetryKey,
+        QueryCacheCapacityKey,
+        QueryCacheEnabledKey
     ];
 
     private static readonly (string DirectKey, Func<string?> ValueGetter)[] DirectVarRules =
@@ -882,5 +882,47 @@ internal static class CoreConfig
             return null;
         }
         set => PolarsWrapper.SetEnvVar(PolarsDeltaMaxRetryKey,value?.ToString());
+    }
+
+    private const string QueryCacheCapacityKey = "POLARS_QUERY_CACHE_CAPACITY";
+
+    /// <summary>
+    /// Maximum number of compiled query plans to retain in the Query Plan Cache.
+    /// Default is 1024 if unset. Can change this by SetEnvironmentVariable("POLARS_QUERY_CACHE_CAPACITY")
+    /// </summary>
+    public static int? QueryCacheCapacity
+    {
+        get
+        {
+            var envValue = Environment.GetEnvironmentVariable(QueryCacheCapacityKey);
+            if (int.TryParse(envValue, out int cap) && cap > 0)
+            {
+                return cap;
+            }
+            return null;
+        }
+        set
+        {
+            if (value.HasValue && value.Value <= 0)
+                throw new ArgumentOutOfRangeException(nameof(value), "Must be greater than 0");
+            PolarsWrapper.SetEnvVar(QueryCacheCapacityKey, value?.ToString());
+        }
+    }
+
+    private const string QueryCacheEnabledKey = "POLARS_QUERY_CACHE_ENABLED";
+
+    /// <summary>
+    /// Whether Query Plan Cache is globally enabled.
+    /// Default is true if unset. Can change this by SetEnvironmentVariable("POLARS_QUERY_CACHE_ENABLED")
+    /// </summary>
+    public static bool? QueryCacheEnabled
+    {
+        get
+        {
+            var envValue = Environment.GetEnvironmentVariable(QueryCacheEnabledKey);
+            if (string.IsNullOrEmpty(envValue)) return null;
+            return envValue is "1" or "true" or "TRUE" or "True";
+        }
+        set => PolarsWrapper.SetEnvVar(QueryCacheEnabledKey, value.ToFmtString());
     }
 }
