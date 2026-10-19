@@ -6,25 +6,25 @@ namespace Polars.NET.Core;
 
 public readonly partial struct PolarsWrapper
 {
-    public static ExprHandle StrContains(ExprHandle expr, ExprHandle pat,bool literal, bool strict) 
+    public static ExprHandle StrContains(ExprHandle expr, ExprHandle pat,bool literal, bool strict)
     {
         ExprHandle h;
-        
+
         if (!literal)
         {
-            
+
             h = NativeBindings.pl_expr_str_contains(expr, pat, strict);
         }
         else
         {
             h = NativeBindings.pl_expr_str_contains_literal(expr, pat);
         }
-        
+
         expr.TransferOwnership();
         pat.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle StrContainsAny(ExprHandle e, ExprHandle pat,bool asciiCaseInsensitive) 
+    public static ExprHandle StrContainsAny(ExprHandle e, ExprHandle pat,bool asciiCaseInsensitive)
     {
         var h = NativeBindings.pl_expr_str_contains_any(e, pat,asciiCaseInsensitive);
         e.TransferOwnership();
@@ -36,9 +36,9 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle StrToLower(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_to_lowercase, e);
     public static ExprHandle StrToTitlecase(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_to_titlecase, e);
     public static ExprHandle StrLenBytes(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_len_bytes, e);
-    public static ExprHandle StrLenChars(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_len_chars, e); 
-    public static ExprHandle StrEscapeRegex(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_escape_regex, e); 
-    public static ExprHandle StrReverse(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_reverse, e); 
+    public static ExprHandle StrLenChars(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_len_chars, e);
+    public static ExprHandle StrEscapeRegex(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_escape_regex, e);
+    public static ExprHandle StrReverse(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_reverse, e);
     public static ExprHandle StrSlice(ExprHandle e, ExprHandle offset, ExprHandle length)
     {
         var h = NativeBindings.pl_expr_str_slice(e, offset, length);
@@ -48,10 +48,10 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     public static ExprHandle StrSplit(
-        ExprHandle expr, 
-        ExprHandle by, 
-        bool inclusive, 
-        bool literal, 
+        ExprHandle expr,
+        ExprHandle by,
+        bool inclusive,
+        bool literal,
         bool strict)
     {
         ExprHandle h;
@@ -92,8 +92,8 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     public static ExprHandle StrSplitExact(
-        ExprHandle expr, 
-        ExprHandle by, 
+        ExprHandle expr,
+        ExprHandle by,
         int n,
         bool inclusive)
     {
@@ -112,9 +112,9 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     public static ExprHandle StrFind(
-        ExprHandle expr, 
-        ExprHandle pat, 
-        bool literal, 
+        ExprHandle expr,
+        ExprHandle pat,
+        bool literal,
         bool strict)
     {
         ExprHandle h;
@@ -263,7 +263,7 @@ public readonly partial struct PolarsWrapper
     }
     public static ExprHandle StrHexEncode(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_hex_encode,e);
     public static ExprHandle StrBase64Encode(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_base64_encode,e);
-    public static ExprHandle StrToDate(        
+    public static ExprHandle StrToDate(
         ExprHandle e,
         string? format,
         [MarshalAs(UnmanagedType.U1)] bool strict,
@@ -274,7 +274,7 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle StrToTime(        
+    public static ExprHandle StrToTime(
         ExprHandle e,
         string? format,
         [MarshalAs(UnmanagedType.U1)] bool strict,
@@ -285,7 +285,7 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle StrToDatetime(        
+    public static ExprHandle StrToDatetime(
         ExprHandle e,
         PlTimeUnit unit,
         string? timeZone,
@@ -300,7 +300,7 @@ public readonly partial struct PolarsWrapper
         ambiguous.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle Strptime(        
+    public static ExprHandle Strptime(
         ExprHandle e,
         DataTypeExprHandle dtype,
         string? format,
@@ -352,6 +352,6 @@ public readonly partial struct PolarsWrapper
         int status = NativeBindings.pl_regex_is_valid(in bufferRef, (nuint)actualBytes, out bool isValid);
         ErrorHelper.CheckStatus(status);
         return isValid;
-        
+
     }
 }

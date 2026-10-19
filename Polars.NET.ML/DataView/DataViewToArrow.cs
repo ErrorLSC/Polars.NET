@@ -14,9 +14,9 @@ internal static class DataViewToPolarsExtensions
     /// </summary>
     public static DataFrameHandle ToPolarsDataFrameHandle(this IDataView dataView, int batchSize = 64_000)
     {
-        var (recordBatches,arrowSchema) = DataViewToArrow.ToArrowBatches(dataView,batchSize); 
+        var (recordBatches, arrowSchema) = dataView.ToArrowBatches(batchSize);
         return ArrowStreamInterop.ImportEager(recordBatches, arrowSchema);
-    }  
+    }
 }
 
 /// <summary>
@@ -34,17 +34,17 @@ public static class DataViewToArrow
 
         var batches = PumpLazily(dataView, arrowSchema, batchSize, rowCount);
 
-        return (batches, arrowSchema);  
+        return (batches, arrowSchema);
     }
     private static IEnumerable<RecordBatch> PumpLazily(
-        IDataView dataView, 
-        Schema arrowSchema, 
+        IDataView dataView,
+        Schema arrowSchema,
         int batchSize,
         long? rowCount
         )
     {
         using var cursor = dataView.GetRowCursor(dataView.Schema);
-        
+
         var pumpers = CreatePumpers(cursor, dataView.Schema,rowCount,batchSize).ToArray();
 
         int currentBatchCount = 0;
@@ -76,7 +76,7 @@ public static class DataViewToArrow
         {
             arrays[i] = pumpers[i].BuildArrayAndClear();
         }
-        
+
         var batch = new RecordBatch(schema, arrays, length);
         return batch;
     }
@@ -87,9 +87,9 @@ public static class DataViewToArrow
         for (int i = 0; i < schema.Count; i++)
         {
             var col = schema[i];
-            
+
             IArrowType arrowType = ArrowDataViewMapper.GetArrowType(col.Type);
-            
+
             fields[i] = new Field(col.Name, arrowType, nullable: true);
         }
 
@@ -105,27 +105,35 @@ public static class DataViewToArrow
 
             if (col.Type is VectorDataViewType vecType)
             {
-                if (vecType.ItemType == NumberDataViewType.Single) 
+                if (vecType.ItemType == NumberDataViewType.Single)
                 {
                     if (vecType.Size > 0) yield return new FloatVectorPumper(cursor, col, vecType.Size);
                     else yield return new VarLenFloatVectorPumper(cursor, col);
                 }
-                else if (vecType.ItemType == NumberDataViewType.Int32) 
+                else if (vecType.ItemType == NumberDataViewType.Int32)
                 {
                     if (vecType.Size > 0) yield return new Int32VectorPumper(cursor, col, vecType.Size);
                     else yield return new VarLenInt32VectorPumper(cursor, col);
                 }
-                else throw new NotSupportedException($"Vector of type '{vecType.ItemType.RawType.Name}' is not supported.");
+                else
+                {
+                    throw new NotSupportedException($"Vector of type '{vecType.ItemType.RawType.Name}' is not supported.");
+                }
+
                 continue;
             }
 
             if (col.Type is KeyDataViewType keyType)
             {
-                if (keyType.RawType == typeof(uint) || keyType.RawType == typeof(byte)) 
+                if (keyType.RawType == typeof(uint) || keyType.RawType == typeof(byte))
                 {
-                    yield return new KeyToStringPumper(cursor, col, rowCount,batchSize);
+                    yield return new KeyToStringPumper(cursor, col, rowCount, batchSize);
                 }
-                else throw new NotSupportedException($"KeyDataViewType with RawType '{keyType.RawType.Name}' is not supported.");
+                else
+                {
+                    throw new NotSupportedException($"KeyDataViewType with RawType '{keyType.RawType.Name}' is not supported.");
+                }
+
                 continue;
             }
 
@@ -137,14 +145,14 @@ public static class DataViewToArrow
             else if (rawType == typeof(ReadOnlyMemory<char>)) yield return new StringPumper(cursor, col, rowCount,batchSize);
             else if (rawType == typeof(DateTime)) yield return new DateTimePumper(cursor, col);
             else if (rawType == typeof(TimeSpan)) yield return new TimeSpanPumper(cursor, col);
-            
+
             else if (rawType == typeof(sbyte)) yield return new Int8Pumper(cursor, col);
             else if (rawType == typeof(short)) yield return new Int16Pumper(cursor, col);
             else if (rawType == typeof(byte)) yield return new UInt8Pumper(cursor, col);
             else if (rawType == typeof(ushort)) yield return new UInt16Pumper(cursor, col);
             else if (rawType == typeof(uint)) yield return new UInt32Pumper(cursor, col);
             else if (rawType == typeof(ulong)) yield return new UInt64Pumper(cursor, col);
-            
+
             else throw new NotSupportedException($"DataView type {col.Type} (RawType: {rawType.Name}) is not supported for reverse pumping yet.");
         }
     }
@@ -168,7 +176,7 @@ internal sealed class FloatPumper(DataViewRowCursor cursor, DataViewSchema.Colum
     public void Pump()
     {
         _getter(ref _val);
-        
+
         if (float.IsNaN(_val)) _builder.AppendNull();
         else _builder.Append(_val);
     }
@@ -190,7 +198,7 @@ internal sealed class DoublePumper(DataViewRowCursor cursor, DataViewSchema.Colu
     public void Pump()
     {
         _getter(ref _val);
-        
+
         if (double.IsNaN(_val)) _builder.AppendNull();
         else _builder.Append(_val);
     }
@@ -216,7 +224,7 @@ internal sealed class Int8Pumper(DataViewRowCursor cursor, DataViewSchema.Column
     public void Pump()
     {
         _getter(ref _val);
-        
+
         _builder.Append(_val);
     }
 
@@ -237,7 +245,7 @@ internal sealed class Int16Pumper(DataViewRowCursor cursor, DataViewSchema.Colum
     public void Pump()
     {
         _getter(ref _val);
-        
+
         _builder.Append(_val);
     }
 
@@ -258,7 +266,7 @@ internal sealed class Int32Pumper(DataViewRowCursor cursor, DataViewSchema.Colum
     public void Pump()
     {
         _getter(ref _val);
-        
+
         _builder.Append(_val);
     }
 
@@ -279,7 +287,7 @@ internal sealed class Int64Pumper(DataViewRowCursor cursor, DataViewSchema.Colum
     public void Pump()
     {
         _getter(ref _val);
-        
+
         _builder.Append(_val);
     }
 
@@ -304,7 +312,7 @@ internal sealed class UInt8Pumper(DataViewRowCursor cursor, DataViewSchema.Colum
     public void Pump()
     {
         _getter(ref _val);
-        
+
         _builder.Append(_val);
     }
 
@@ -325,7 +333,7 @@ internal sealed class UInt16Pumper(DataViewRowCursor cursor, DataViewSchema.Colu
     public void Pump()
     {
         _getter(ref _val);
-        
+
         _builder.Append(_val);
     }
 
@@ -346,7 +354,7 @@ internal sealed class UInt32Pumper(DataViewRowCursor cursor, DataViewSchema.Colu
     public void Pump()
     {
         _getter(ref _val);
-        
+
         _builder.Append(_val);
     }
 
@@ -368,7 +376,7 @@ internal sealed class UInt64Pumper(DataViewRowCursor cursor, DataViewSchema.Colu
     public void Pump()
     {
         _getter(ref _val);
-        
+
         _builder.Append(_val);
     }
 
@@ -412,11 +420,11 @@ internal sealed class StringPumper(DataViewRowCursor cursor, DataViewSchema.Colu
 {
     private readonly ValueGetter<ReadOnlyMemory<char>> _getter = cursor.GetGetter<ReadOnlyMemory<char>>(col);
     private readonly StringViewArray.Builder _builder = CreateAndReserveBuilder(rowCount, batchSize);
-    
+
     private static StringViewArray.Builder CreateAndReserveBuilder(long? rowCount, int batchSize)
     {
         var builder = new StringViewArray.Builder();
-        if (rowCount.HasValue && rowCount.Value > 0)
+        if (rowCount > 0)
         {
             builder.Reserve((int)Math.Min(rowCount.Value, batchSize));
         }
@@ -427,22 +435,22 @@ internal sealed class StringPumper(DataViewRowCursor cursor, DataViewSchema.Colu
     public void Pump()
     {
         _getter(ref _val);
-        
-        if (_val.IsEmpty) 
+
+        if (_val.IsEmpty)
         {
             _builder.Append([]);
             return;
         }
 
         ReadOnlySpan<char> charSpan = _val.Span;
-        
+
         int maxByteCount = System.Text.Encoding.UTF8.GetMaxByteCount(charSpan.Length);
 
         if (maxByteCount <= 1024)
         {
             Span<byte> byteSpan = stackalloc byte[maxByteCount];
             int actualByteCount = System.Text.Encoding.UTF8.GetBytes(charSpan, byteSpan);
-            
+
             _builder.Append(byteSpan[..actualByteCount]);
         }
         else
@@ -463,13 +471,13 @@ internal sealed class StringPumper(DataViewRowCursor cursor, DataViewSchema.Colu
     public IArrowArray BuildArrayAndClear()
     {
         var arr = _builder.Build();
-        _builder.Clear(); 
-        
-        if (rowCount.HasValue && rowCount.Value > 0)
+        _builder.Clear();
+
+        if (rowCount > 0)
         {
             _builder.Reserve((int)Math.Min(rowCount.Value, batchSize));
         }
-        
+
         return arr;
     }
 }
@@ -481,21 +489,21 @@ internal sealed class StringPumper(DataViewRowCursor cursor, DataViewSchema.Colu
 internal sealed class DateTimePumper(DataViewRowCursor cursor, DataViewSchema.Column col) : IColumnPumper
 {
     private readonly ValueGetter<DateTime> _getter = cursor.GetGetter<DateTime>(col);
-    
+
     private static readonly TimestampType _arrowType = new(TimeUnit.Microsecond, timezone: null as string);
-    
+
     private readonly TimestampArray.Builder _builder = new(_arrowType);
     private DateTime _val;
 
     public void Pump()
     {
         _getter(ref _val);
-        
-        if (_val == DateTime.MinValue) 
+
+        if (_val == DateTime.MinValue)
         {
             _builder.AppendNull();
         }
-        else 
+        else
         {
             _builder.Append(new DateTimeOffset(_val.Ticks, TimeSpan.Zero));
         }
@@ -512,21 +520,21 @@ internal sealed class DateTimePumper(DataViewRowCursor cursor, DataViewSchema.Co
 internal sealed class TimeSpanPumper(DataViewRowCursor cursor, DataViewSchema.Column col) : IColumnPumper
 {
     private readonly ValueGetter<TimeSpan> _getter = cursor.GetGetter<TimeSpan>(col);
-    
+
     private static readonly DurationType _arrowType = DurationType.Microsecond;
-    
+
     private readonly DurationArray.Builder _builder = new(_arrowType);
     private TimeSpan _val;
 
     public void Pump()
     {
         _getter(ref _val);
-        
-        if (_val == TimeSpan.MinValue) 
+
+        if (_val == TimeSpan.MinValue)
         {
             _builder.AppendNull();
         }
-        else 
+        else
         {
             long microSeconds = _val.Ticks / 10;
             _builder.Append(microSeconds);
@@ -551,7 +559,7 @@ internal sealed class FloatVectorPumper(DataViewRowCursor cursor, DataViewSchema
 
     private readonly FixedSizeListType _arrowType = new(FloatType.Default, vectorSize);
 
-    private readonly float[] _denseBuffer = new float[vectorSize]; 
+    private readonly float[] _denseBuffer = new float[vectorSize];
     private VBuffer<float> _val;
 
     public void Pump()
@@ -567,12 +575,12 @@ internal sealed class FloatVectorPumper(DataViewRowCursor cursor, DataViewSchema
         _valueBuilder.Clear();
 
         int length = flatArray.Length / vectorSize;
-        
+
         return new FixedSizeListArray(
-            _arrowType, 
-            length, 
-            flatArray, 
-            ArrowBuffer.Empty); 
+            _arrowType,
+            length,
+            flatArray,
+            ArrowBuffer.Empty);
     }
 }
 
@@ -580,10 +588,10 @@ internal sealed class Int32VectorPumper(DataViewRowCursor cursor, DataViewSchema
 {
     private readonly ValueGetter<VBuffer<int>> _getter = cursor.GetGetter<VBuffer<int>>(col);
     private readonly Int32Array.Builder _valueBuilder = new();
-    
+
     private readonly FixedSizeListType _arrowType = new(Int32Type.Default, vectorSize);
-    
-    private readonly int[] _denseBuffer = new int[vectorSize]; 
+
+    private readonly int[] _denseBuffer = new int[vectorSize];
     private VBuffer<int> _val;
 
     public void Pump()
@@ -599,12 +607,12 @@ internal sealed class Int32VectorPumper(DataViewRowCursor cursor, DataViewSchema
         _valueBuilder.Clear();
 
         int length = flatArray.Length / vectorSize;
-        
+
         return new FixedSizeListArray(
-            _arrowType, 
-            length, 
-            flatArray, 
-            ArrowBuffer.Empty); 
+            _arrowType,
+            length,
+            flatArray,
+            ArrowBuffer.Empty);
     }
 }
 
@@ -616,23 +624,23 @@ internal sealed class VarLenFloatVectorPumper : IColumnPumper
 {
     private readonly ValueGetter<VBuffer<float>> _getter;
     private readonly FloatArray.Builder _valueBuilder = new();
-    
+
     private readonly ArrowBuffer.Builder<long> _offsetsBuilder = new();
     private readonly LargeListType _arrowType = new(FloatType.Default);
-    
-    private VBuffer<float> _val;
-    private long _currentOffset = 0L; 
 
-    public VarLenFloatVectorPumper(DataViewRowCursor cursor, DataViewSchema.Column col) 
-    { 
+    private VBuffer<float> _val;
+    private long _currentOffset = 0L;
+
+    public VarLenFloatVectorPumper(DataViewRowCursor cursor, DataViewSchema.Column col)
+    {
         _getter = cursor.GetGetter<VBuffer<float>>(col);
-        _offsetsBuilder.Append(0L); 
+        _offsetsBuilder.Append(0L);
     }
 
     public void Pump()
     {
         _getter(ref _val);
-        int len = _val.Length; 
+        int len = _val.Length;
 
         if (len > 0)
         {
@@ -651,21 +659,21 @@ internal sealed class VarLenFloatVectorPumper : IColumnPumper
     {
         var valuesArray = _valueBuilder.Build();
         var offsetsBuffer = _offsetsBuilder.Build();
-        
+
         _valueBuilder.Clear();
         _offsetsBuilder.Clear();
 
-        int length = (offsetsBuffer.Length / sizeof(long)) - 1; 
+        int length = (offsetsBuffer.Length / sizeof(long)) - 1;
 
         _currentOffset = 0L;
         _offsetsBuilder.Append(0L);
 
         var data = new ArrayData(
             _arrowType, length, 0, 0,
-            [ArrowBuffer.Empty, offsetsBuffer], 
-            [valuesArray.Data]                  
+            [ArrowBuffer.Empty, offsetsBuffer],
+            [valuesArray.Data]
         );
-        return new LargeListArray(data); 
+        return new LargeListArray(data);
     }
 }
 
@@ -673,15 +681,15 @@ internal sealed class VarLenInt32VectorPumper : IColumnPumper
 {
     private readonly ValueGetter<VBuffer<int>> _getter;
     private readonly Int32Array.Builder _valueBuilder = new();
-    
+
     private readonly ArrowBuffer.Builder<long> _offsetsBuilder = new();
     private readonly LargeListType _arrowType = new(Int32Type.Default);
-    
+
     private VBuffer<int> _val;
     private long _currentOffset = 0L;
 
-    public VarLenInt32VectorPumper(DataViewRowCursor cursor, DataViewSchema.Column col) 
-    { 
+    public VarLenInt32VectorPumper(DataViewRowCursor cursor, DataViewSchema.Column col)
+    {
         _getter = cursor.GetGetter<VBuffer<int>>(col);
         _offsetsBuilder.Append(0L);
     }
@@ -708,21 +716,21 @@ internal sealed class VarLenInt32VectorPumper : IColumnPumper
     {
         var valuesArray = _valueBuilder.Build();
         var offsetsBuffer = _offsetsBuilder.Build();
-        
+
         _valueBuilder.Clear();
         _offsetsBuilder.Clear();
 
-        int length = (offsetsBuffer.Length / sizeof(long)) - 1; 
-        
+        int length = (offsetsBuffer.Length / sizeof(long)) - 1;
+
         _currentOffset = 0L;
         _offsetsBuilder.Append(0L);
 
         var data = new ArrayData(
             _arrowType, length, 0, 0,
-            [ArrowBuffer.Empty, offsetsBuffer], 
+            [ArrowBuffer.Empty, offsetsBuffer],
             [valuesArray.Data]
         );
-        return new LargeListArray(data); 
+        return new LargeListArray(data);
     }
 }
 
@@ -733,15 +741,15 @@ internal sealed class VarLenInt32VectorPumper : IColumnPumper
 internal sealed class KeyToStringPumper(DataViewRowCursor cursor, DataViewSchema.Column col,long? rowCount, int batchSize) : IColumnPumper
 {
     private readonly ValueGetter<uint> _getter = cursor.GetGetter<uint>(col);
-    
+
     private readonly string[] _dictMap = ExtractDictionaryToArray(col);
     private uint _val;
     private readonly StringViewArray.Builder _builder = CreateAndReserveBuilder(rowCount, batchSize);
-    
+
     private static StringViewArray.Builder CreateAndReserveBuilder(long? rowCount, int batchSize)
     {
         var builder = new StringViewArray.Builder();
-        if (rowCount.HasValue && rowCount.Value > 0)
+        if (rowCount > 0)
         {
             builder.Reserve((int)Math.Min(rowCount.Value, batchSize));
         }
@@ -750,12 +758,12 @@ internal sealed class KeyToStringPumper(DataViewRowCursor cursor, DataViewSchema
     public void Pump()
     {
         _getter(ref _val);
-        
-        if (_val == 0 || _val > _dictMap.Length) 
+
+        if (_val == 0 || _val > _dictMap.Length)
         {
             _builder.AppendNull();
         }
-        else 
+        else
         {
             _builder.Append(_dictMap[_val - 1]);
         }
@@ -765,7 +773,7 @@ internal sealed class KeyToStringPumper(DataViewRowCursor cursor, DataViewSchema
     {
         var array = _builder.Build();
         _builder.Clear();
-        if (rowCount.HasValue && rowCount.Value > 0)
+        if (rowCount > 0)
         {
             _builder.Reserve((int)Math.Min(rowCount.Value, batchSize));
         }
@@ -776,7 +784,7 @@ internal sealed class KeyToStringPumper(DataViewRowCursor cursor, DataViewSchema
     {
         var list = new List<string>();
         var keyValuesCol = col.Annotations.Schema.GetColumnOrNull("KeyValues");
-        
+
         if (keyValuesCol.HasValue)
         {
             VBuffer<ReadOnlyMemory<char>> keys = default;
@@ -791,7 +799,7 @@ internal sealed class KeyToStringPumper(DataViewRowCursor cursor, DataViewSchema
         {
             list.Add("Unknown");
         }
-        
+
         return [.. list];
     }
 }

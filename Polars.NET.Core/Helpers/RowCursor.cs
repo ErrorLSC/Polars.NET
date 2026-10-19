@@ -1,25 +1,7 @@
 namespace Polars.NET.Core.Helpers;
 
 using System.Runtime.CompilerServices;
-// using System.Runtime.InteropServices;
-/// <summary>
-/// Packed column metadata descriptor for zero-overhead cursor reads.
-/// Fits cleanly into CPU registers (16 bytes).
-/// </summary>
-// [StructLayout(LayoutKind.Sequential, Pack = 4)]
-// public readonly struct ColumnMeta(
-//     PlDataType dtype,
-//     int scale = 0,
-//     int precision = 0,
-//     PlTimeUnit timeUnit = PlTimeUnit.Microseconds,
-//     string? timeZone = null)
-// {
-//     public readonly PlDataType DType = dtype;
-//     public readonly PlTimeUnit TimeUnit = timeUnit;
-//     public readonly int Scale = scale;
-//     public readonly int Precision = precision;
-//     public readonly string? TimeZone = timeZone;
-// }
+
 internal static class RowCursor
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

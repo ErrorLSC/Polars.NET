@@ -21,7 +21,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
     private readonly IEnumerator<RecordBatch> _enumerator = enumerator;
     private readonly Schema _schema = schema;
     private bool _isDisposed;
-    
+
     internal IntPtr _lastErrorPointer = IntPtr.Zero;
 
     // Export as C pointer
@@ -31,7 +31,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
         outStream->get_next = &GetNextStatic;
         outStream->get_last_error = &GetLastErrorStatic;
         outStream->release = &ReleaseStatic;
-        
+
         // GCHandle let GC not move or recycle data
         outStream->private_data = (void*)GCHandle.ToIntPtr(GCHandle.Alloc(this));
     }
@@ -59,7 +59,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
         catch (Exception ex)
         {
             SafelySetLastError(stream, $"GetSchema Error: {ex.Message}");
-            return 5; 
+            return 5;
         }
     }
 
@@ -69,7 +69,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
         try
         {
             var exporter = GetExporter(stream);
-            
+
             if (exporter._enumerator.MoveNext())
             {
                 var batch = exporter._enumerator.Current;
@@ -78,14 +78,14 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
             else
             {
                 // Indicate End of Stream
-                *outArray = default; 
+                *outArray = default;
             }
             return 0;
         }
         catch (Exception ex)
         {
             SafelySetLastError(stream, $"GetNext Error: {ex.Message}");
-            return 5; 
+            return 5;
         }
     }
 
@@ -97,18 +97,18 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
         try
         {
             var handle = GCHandle.FromIntPtr((IntPtr)stream->private_data);
-            
+
             if (handle.Target is ArrowStreamExporter exporter)
             {
                 return (byte*)exporter._lastErrorPointer;
             }
         }
-        catch 
-        { 
-            
+        catch
+        {
+
         }
-        
-        return null; 
+
+        return null;
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -124,12 +124,12 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
             {
                 var exporter = (ArrowStreamExporter)handle.Target!;
                 exporter.Dispose();
-                handle.Free(); 
+                handle.Free();
             }
             stream->private_data = null;
         }
-        
-        stream->release = null; 
+
+        stream->release = null;
     }
 
     // --- Helper Methods ---
@@ -163,10 +163,10 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
             Marshal.FreeCoTaskMem(_lastErrorPointer);
             _lastErrorPointer = IntPtr.Zero;
         }
-        
+
         _enumerator.Dispose();
         _isDisposed = true;
-        
+
         GC.SuppressFinalize(this);
     }
 }

@@ -88,7 +88,7 @@ public static partial class ArrowExtensions
             Int16Array i16 => i16.GetValue(index),
             Int32Array i32 => i32.GetValue(index),
             Int64Array i64 => i64.GetValue(index),
-            
+
             // Unsigned Integers
             UInt8Array  u8  => u8.GetValue(index),
             UInt16Array u16 => u16.GetValue(index),
@@ -105,19 +105,7 @@ public static partial class ArrowExtensions
             _ => null
         };
     }
-    // public static Int128? GetInt128Value(this IArrowArray array, int index)
-    // {
-    //     if (array.IsNull(index)) return null;
-    //     return array switch
-    //     {
-    //         // Signed Integes
-    //         Int128Array  i128  => i128.GetValue(index),   // Polars Month/Day/Weekday is Int8
-    //         // Unsigned Integers
-    //         UInt128Array  u128  => u128.GetValue(index),
 
-    //         _ => null
-    //     };
-    // }
     /// <summary>
     /// Deal with Double Values
     /// </summary>

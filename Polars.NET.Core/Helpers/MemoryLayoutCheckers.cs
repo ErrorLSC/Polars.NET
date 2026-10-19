@@ -12,7 +12,6 @@ public static partial class ArrayHelper
     // Int128 Special Flags
     internal static readonly bool IsInt128TypeA; // [Value(16), Bool(1), Pad(15)]
     internal static readonly bool IsInt128TypeB; // [Bool(1), Pad(15), Value(16)] <--- Linux .NET Default
-    // internal static readonly bool Int128NeedsSwap; // True if [Hi, Lo] mismatch
     /// <summary>
     /// Check Int32 Memory Layout
     /// </summary>
@@ -66,14 +65,7 @@ public static partial class ArrayHelper
                 bool hasValueAt0 = *bPtr == 1;
                 bool valueAt4 = *(int*)(bPtr + 4) == 0x12345678;
 
-                if (hasValueAt0 && valueAt4 && sizeof(int?) == 8)
-                {
-                    IsInt32LayoutCompatible = true;
-                }
-                else
-                {
-                    IsInt32LayoutCompatible = false;
-                }
+                IsInt32LayoutCompatible = hasValueAt0 && valueAt4 && sizeof(int?) == 8;
             }
         }
         catch
@@ -107,11 +99,11 @@ public static partial class ArrayHelper
             fixed (Int128?* p = probe)
             {
                 byte* b = (byte*)p;
-                
+
                 // Check Type A: Value @ 0, Bool @ 16
                 bool valAt0 = *(Int128*)b == val;
                 bool boolAt16 = *(b + 16) == 1;
-                
+
                 if (valAt0 && boolAt16)
                 {
                     IsInt128TypeA = true;
@@ -131,21 +123,5 @@ public static partial class ArrayHelper
             }
         }
         catch { /* Ignore */ }
-
-    //     // 3. Detect Int128 Internal Layout (High/Low Swap Check)
-    //     try
-    //     {
-    //         Int128 val = 1; 
-            
-    //         unsafe
-    //         {
-    //             byte* p = (byte*)&val;
-    //             bool isLittleEndian = (*p == 1);
-                
-    //             Int128NeedsSwap = !isLittleEndian; 
-                
-    //         }
-    //     }
-    //     catch { }
     }
 }

@@ -41,14 +41,14 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool[]? descArray = descending as bool[] ?? (descending is not null ? [.. descending] : null);
         bool[]? nullsLastArray = nullsLast as bool[] ?? (nullsLast is not null ? [.. nullsLast] : null);
 
-        return PolarsWrapper.IsSorted(Handle, byArray, descArray!, nullsLastArray!);
+        return PolarsWrapper.IsSorted(Handle, byArray, descArray, nullsLastArray);
     }
     /// <summary>
     /// Overload for checking if DataFrame is sorted by a single column.
     /// </summary>
     public bool IsSorted(string by, bool descending = false, bool nullsLast = false)
         => IsSorted([by], [descending], [nullsLast]);
-    
+
     /// <summary>
     /// Return an estimation of the total (heap) allocated size of the Series/DataFrame.
     /// Estimated size is given in the specified unit (bytes by default).
@@ -77,13 +77,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public DataFrame Describe()
     {
         using var schema = Schema;
-        
+
         var numericCols = new List<string>();
 
         foreach (var name in schema.ColumnNames)
         {
             using var dtype = schema[name];
-            
+
             if (dtype.IsNumeric)
             {
                 numericCols.Add(name);
@@ -108,7 +108,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         };
 
         var rowFrames = new List<DataFrame>();
-        
+
         try
         {
             foreach (var (statName, op) in metrics)
@@ -170,16 +170,16 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             var dtype = cols[colIdx].Type;
 
             string displayColName = colName.Length > maxColnameLength
-                ? string.Concat(colName.AsSpan(0, maxColnameLength - 1), "…")
+                ? $"{colName.AsSpan(0, maxColnameLength - 1)}…"
                 : colName;
-            
+
             maxNameLen = Math.Max(maxNameLen, displayColName.Length);
 
-            string dtypeStr = $"<{dtype.Kind}>"; 
+            string dtypeStr = $"<{dtype.Kind}>";
             maxDtypeLen = Math.Max(maxDtypeLen, dtypeStr.Length);
 
-            using var strSeries = strDf[colIdx]; 
-            
+            using var strSeries = strDf[colIdx];
+
             var valStrs = new List<string>((int)limit);
             for (long rowIdx = 0; rowIdx < limit; rowIdx++)
             {
@@ -190,7 +190,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                 else
                 {
                     string? s = strSeries.GetValue<string>(rowIdx);
-                    
+
                     if (dtype.Kind == DataTypeKind.String)
                     {
                         valStrs.Add($"'{s}'");
@@ -227,13 +227,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         int limit = (int)Math.Min(maxItemsPerColumn, nRows);
 
         var cols = Schema.ToList();
-        
+
         using var headDf = Head(limit);
         using var strDf = headDf.Select(Pl.All().Cast(DataType.String));
 
         var outColNames = new string[cols.Count];
         var outDtypes = new string[cols.Count];
-        
+
         var outValues = new string[cols.Count][];
 
         for (int colIdx = 0; colIdx < cols.Count; colIdx++)
@@ -242,15 +242,15 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             var dtype = cols[colIdx].Type;
 
             outColNames[colIdx] = colName.Length > maxColnameLength
-                ? string.Concat(colName.AsSpan(0, maxColnameLength - 1), "…")
+                ? $"{colName.AsSpan(0, maxColnameLength - 1)}…"
                 : colName;
 
             outDtypes[colIdx] = dtype.ToString();
 
             using var strSeries = strDf[colIdx];
-            
+
             var valArray = new string[limit];
-            
+
             for (long rowIdx = 0; rowIdx < limit; rowIdx++)
             {
                 if (strSeries.IsNullAt(rowIdx))
@@ -268,7 +268,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         }
         var s1 = Series.From("column", outColNames);
         var s2 = Series.From("dtype", outDtypes);
-        
+
         var s3 = Series.From("values", outValues); 
 
         return DataFrame.FromSeries(s1, s2, s3);
@@ -297,11 +297,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public string ToHtml()
     {
         int? configRows = CoreConfig.TableMaxRows;
-        int rowsToShowSetting = (configRows.HasValue && configRows.Value > 0) ? configRows.Value : 10;
+        int rowsToShowSetting = (configRows > 0) ? configRows.Value : 10;
         int rowsToShow = (int)Math.Min(Height, rowsToShowSetting);
 
         int? configCols = CoreConfig.TableMaxCols;
-        int maxColsToShow = (configCols.HasValue && configCols.Value > 0) ? configCols.Value : 8;
+        int maxColsToShow = (configCols > 0) ? configCols.Value : 8;
 
         int rawColCount = (int)Width;
         bool isColTruncated = rawColCount > maxColsToShow;
@@ -312,7 +312,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var schema = batch.Schema;
 
         var sb = new StringBuilder();
-        
+
         sb.Append(@"
 <style>
 .pl-dataframe { font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; border-collapse: collapse; border: 1px solid rgba(128, 128, 128, 0.2); }
@@ -327,7 +327,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         // Dimensions Info
         sb.Append($"<div class='pl-dim'>Polars DataFrame: <b>({Height} rows, {rawColCount} columns)</b></div>");
-        
+
         sb.Append("<div style='overflow-x:auto'><table class='pl-dataframe'>");
 
         // Header (From Arrow Schema)
@@ -336,8 +336,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         {
             var field = schema.FieldsList[c];
             var colName = System.Net.WebUtility.HtmlEncode(field.Name);
-            var colType = field.DataType.Name; 
-            
+            var colType = field.DataType.Name;
+
             sb.Append($"<th>{colName}<span class='pl-dtype'>{colType}</span></th>");
         }
         if (isColTruncated)
@@ -348,7 +348,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         // Body (From Arrow Batch)
         sb.Append("<tbody>");
-        
+
         int rowCount = batch.Length;
 
         for (int r = 0; r < rowCount; r++)
@@ -358,7 +358,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             {
                 var colArray = batch.Column(c);
                 var field = schema.GetFieldByIndex(c);
-                
+
                 string valStr = colArray.FormatValue(r);
 
                 if (valStr != "null")
@@ -391,7 +391,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             }
             sb.Append("</tr>");
         }
-        
+
         // Footer for hidden rows
         int finalDisplayColSpan = isColTruncated ? colCount + 1 : colCount;
         long remaining = Height - rowsToShow;

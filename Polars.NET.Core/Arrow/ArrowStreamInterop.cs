@@ -59,24 +59,24 @@ public static unsafe class ArrowStreamInterop
             // Resume Context
             var handle = GCHandle.FromIntPtr((IntPtr)userData);
             var context = (ScanContext)handle.Target!;
-            
+
             // Create
             var enumerable = context.Factory();
             var rawEnumerator = enumerable.GetEnumerator();
             var safeEnumerator = new SafeEnumerator<RecordBatch>(rawEnumerator);
-            
+
             // Alloc C Struct at Heap
             var ptr = (CArrowArrayStream*)Marshal.AllocHGlobal(sizeof(CArrowArrayStream));
 
-            lock(context.AllocatedStreams) 
+            lock(context.AllocatedStreams)
             {
                 context.AllocatedStreams.Add((IntPtr)ptr);
             }
-            
+
             // Init Exporter and export
             var exporter = new ArrowStreamExporter(safeEnumerator, context.Schema);
             exporter.Export(ptr);
-            
+
             return ptr;
         }
         catch (Exception ex)
@@ -98,7 +98,7 @@ public static unsafe class ArrowStreamInterop
             if (handle.IsAllocated)
             {
                 var context = (ScanContext)handle.Target!;
-                
+
                 if (context.AllocatedStreams != null)
                 {
                     lock(context.AllocatedStreams)
@@ -120,7 +120,6 @@ public static unsafe class ArrowStreamInterop
         }
     }
 
-    
     // ---------------------------------------------------------
     // Eager Mode
     // ---------------------------------------------------------
@@ -136,7 +135,7 @@ public static unsafe class ArrowStreamInterop
         // Init Exporter
         using var enumerator = stream.GetEnumerator();
         using var exporter = new ArrowStreamExporter(enumerator, schema);
-        
+
         exporter.Export(&cStream);
 
         // Call Rust
@@ -144,7 +143,7 @@ public static unsafe class ArrowStreamInterop
     }
 
     public static void* CreateDirectScanContext(
-        Func<IEnumerable<RecordBatch>> factory, 
+        Func<IEnumerable<RecordBatch>> factory,
         Schema schema)
     {
         var context = new ScanContext
@@ -161,7 +160,7 @@ public static unsafe class ArrowStreamInterop
     /// Logic For Lazy Scan
     /// </summary>
     public static LazyFrameHandle ScanStream(
-        Func<IEnumerable<RecordBatch>> streamFactory, 
+        Func<IEnumerable<RecordBatch>> streamFactory,
         Schema schema)
     {
         var userData = CreateDirectScanContext(streamFactory, schema);
@@ -202,9 +201,9 @@ public static unsafe class ArrowStreamInterop
 
             // Get boxedStruct
             object boxedStruct = fieldInfo.GetValue(stream)!;
-            
+
             // Get self defined struct size
-            int structSize = sizeof(CArrowArrayStream); 
+            int structSize = sizeof(CArrowArrayStream);
 
             // Get payload first mem address
             ref byte streamPayload = ref Unsafe.As<RawDataScanner>(stream).Data;
@@ -215,7 +214,7 @@ public static unsafe class ArrowStreamInterop
             for (int offset = 0; offset < 128; offset++)
             {
                 ref byte candidate = ref Unsafe.Add(ref streamPayload, offset);
-                
+
                 // Byte Compare
                 bool match = true;
                 for (int i = 0; i < structSize; i++)
@@ -248,18 +247,18 @@ public static unsafe class ArrowStreamInterop
         try
         {
             ref byte payloadStart = ref Unsafe.As<RawDataScanner>(stream).Data;
-            
+
             ref byte targetStart = ref Unsafe.Add(ref payloadStart, _streamByteOffset);
-            
+
             ref var myStructRef = ref Unsafe.As<byte, CArrowArrayStream>(ref targetStart);
             ValidateStream(ref myStructRef); // Safe checker
 
             *customCStream = myStructRef;
-            myStructRef = default; 
+            myStructRef = default;
 
             var handle = NativeBindings.pl_dataframe_new_from_stream_strict_type(customCStream);
-            
-            return ErrorHelper.Check(handle); 
+
+            return ErrorHelper.Check(handle);
         }
         finally
         {
@@ -267,102 +266,6 @@ public static unsafe class ArrowStreamInterop
             GC.KeepAlive(stream);
         }
     }
-    // Safe Code Here:
-
-    // private delegate ref Apache.Arrow.C.CArrowArrayStream GetCArrayStreamDelegate(object instance);
-    // private static readonly ConcurrentDictionary<Type, GetCArrayStreamDelegate> _streamAccessorCache = new();
-    // private static readonly ConcurrentDictionary<Type, FieldInfo> _aotFieldCache = new();
-
-    /// <param name="ptr"></param>
-    /// <returns></returns>
-    // /// <summary>
-    // /// Get C ptr from ADBC Stream and send to Rust
-    // /// </summary>
-    // public static DataFrameHandle ImportForeignStream(IArrowArrayStream stream)
-    // {
-    //     var type = stream.GetType();
-    //     Console.WriteLine($"\n[Wormhole Radar] Target Type Name : {type.FullName}");
-    //     Console.WriteLine($"[Wormhole Radar] Target Assembly  : {type.Assembly.GetName().Name}");
-    //     Console.WriteLine($"[Wormhole Radar] Base Type        : {type.BaseType?.FullName}\n");
-        
-    //     var allocatedStream = Apache.Arrow.C.CArrowArrayStream.Create();
-    //     var customCStream = (CArrowArrayStream*)allocatedStream;
-
-    //     try
-    //     {
-    //         if (RuntimeFeature.IsDynamicCodeSupported)
-    //         {
-    //             // ==========================================
-    //             // JIT  (IL Emit + Unsafe)
-    //             // ==========================================
-    //             var accessor = _streamAccessorCache.GetOrAdd(type, t =>
-    //             {
-    //                 var field = t.GetField("_cArrayStream", BindingFlags.NonPublic | BindingFlags.Instance)
-    //                     ?? throw new NotSupportedException($"Type {t.Name} does not have _cArrayStream.");
-
-    //                 var method = new DynamicMethod("GetCArrayStream_Fast",
-    //                     typeof(Apache.Arrow.C.CArrowArrayStream).MakeByRefType(),
-    //                     [typeof(object)], typeof(ArrowStreamInterop).Module, skipVisibility: true);
-
-    //                 var il = method.GetILGenerator();
-    //                 il.Emit(OpCodes.Ldarg_0);
-    //                 il.Emit(OpCodes.Castclass, t);
-    //                 il.Emit(OpCodes.Ldflda, field);
-    //                 il.Emit(OpCodes.Ret);
-    //                 return (GetCArrayStreamDelegate)method.CreateDelegate(typeof(GetCArrayStreamDelegate));
-    //             });
-
-    //             ref var apacheStructRef = ref accessor(stream);
-    //             ref var myStructRef = ref Unsafe.As<Apache.Arrow.C.CArrowArrayStream, CArrowArrayStream>(ref apacheStructRef);
-
-    //             ValidateStream(ref myStructRef); // Safe checker
-
-    //             *customCStream = myStructRef;
-    //             myStructRef = default; // Prevent double free
-    //         }
-    //         else
-    //         {
-    //             // ==========================================
-    //             // Native AOT
-    //             // ==========================================
-
-    //             var fieldInfo = _aotFieldCache.GetOrAdd(type, t =>
-    //                 t.GetField("_cArrayStream", BindingFlags.NonPublic | BindingFlags.Instance)
-    //                 ?? throw new NotSupportedException($"Type {t.Name} does not have _cArrayStream.")
-    //             );
-
-    //             // Unbox
-    //             object boxedValue = fieldInfo.GetValue(stream)!;
-    //             var apacheStruct = (Apache.Arrow.C.CArrowArrayStream)boxedValue;
-                
-    //             // Reinterpret
-    //             ref var myStructRef = ref Unsafe.As<Apache.Arrow.C.CArrowArrayStream, CArrowArrayStream>(ref apacheStruct);
-                
-    //             // Check
-    //             ValidateStream(ref myStructRef);
-
-    //             // Copy
-    //             *customCStream = myStructRef;
-                
-    //             // Reset
-    //             fieldInfo.SetValue(stream, default(Apache.Arrow.C.CArrowArrayStream));
-    //         }
-
-    //         // Call Rust
-    //         var handle = NativeBindings.pl_dataframe_new_from_stream_strict_type(customCStream);
-
-    //         return ErrorHelper.Check(handle);
-    //     }
-    //     finally
-    //     {
-    //         if (allocatedStream != null)
-    //         {
-    //             Apache.Arrow.C.CArrowArrayStream.Free(allocatedStream);
-    //         }
-    //         GC.KeepAlive(stream);
-    //     }
-    // }
-    // [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_cArrayStream")]
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool IsInvalidPtr(void* ptr) => (nint)ptr < 0x10000;
@@ -372,10 +275,10 @@ public static unsafe class ArrowStreamInterop
     {
         if (IsInvalidPtr(streamRef.release))
             throw new InvalidOperationException("Invalid ArrowArrayStream release function pointer (Null or Zero-Page).");
-            
+
         if (IsInvalidPtr(streamRef.get_next) || IsInvalidPtr(streamRef.get_schema))
             throw new InvalidOperationException("Invalid ArrowArrayStream data/schema callbacks.");
-            
+
         if (IsInvalidPtr(streamRef.private_data))
             throw new InvalidOperationException("Invalid ArrowArrayStream private_data. External DB driver fault.");
 
@@ -390,9 +293,9 @@ public static unsafe class ArrowStreamInterop
     /// Export Polars DataFrame to C# IArrowArrayStream
     /// </summary>
     public static IArrowArrayStream ExportToStream(
-        DataFrameHandle dfHandle, 
-        ReadOnlySpan<int> columnIndices = default, 
-        ulong? seed = null) 
+        DataFrameHandle dfHandle,
+        ReadOnlySpan<int> columnIndices = default,
+        ulong? seed = null)
     {
         var cStream = Apache.Arrow.C.CArrowArrayStream.Create();
         int result;
@@ -401,18 +304,18 @@ public static unsafe class ArrowStreamInterop
         {
             ulong seedValue = seed.Value;
             result = NativeBindings.pl_dataframe_export_to_stream(
-                dfHandle, 
-                (Apache.Arrow.C.CArrowArrayStream*)cStream, 
-                columnIndices, 
+                dfHandle,
+                (Apache.Arrow.C.CArrowArrayStream*)cStream,
+                columnIndices,
                 (nuint)columnIndices.Length,
-                &seedValue); 
+                &seedValue);
         }
         else
         {
             result = NativeBindings.pl_dataframe_export_to_stream(
-                dfHandle, 
-                (Apache.Arrow.C.CArrowArrayStream*)cStream, 
-                columnIndices, 
+                dfHandle,
+                (Apache.Arrow.C.CArrowArrayStream*)cStream,
+                columnIndices,
                 (nuint)columnIndices.Length,
                 null); // 
         }
@@ -420,38 +323,38 @@ public static unsafe class ArrowStreamInterop
         ErrorHelper.CheckStatus(result);
 
         var managedStream = Apache.Arrow.C.CArrowArrayStreamImporter.ImportArrayStream(cStream);
-        
+
         return new SafePolarsExportStream(managedStream, (IntPtr)cStream);
     }
 
     /// <summary>
-    /// Export Polars DataFrame to Native CArrowArrayStream 
+    /// Export Polars DataFrame to Native CArrowArrayStream
     /// </summary>
     public static IntPtr ExportToNativeCStream(
-        DataFrameHandle dfHandle, 
+        DataFrameHandle dfHandle,
         ReadOnlySpan<int> columnIndices = default,
         ulong? seed = null)
     {
         var cStream = Apache.Arrow.C.CArrowArrayStream.Create();
         int result;
-        
+
         if (seed.HasValue)
         {
             ulong seedValue = seed.Value;
             result = NativeBindings.pl_dataframe_export_to_stream(
-                dfHandle, 
-                (Apache.Arrow.C.CArrowArrayStream*)cStream, 
-                columnIndices, 
-                (nuint)columnIndices.Length, 
+                dfHandle,
+                (Apache.Arrow.C.CArrowArrayStream*)cStream,
+                columnIndices,
+                (nuint)columnIndices.Length,
                 &seedValue);
         }
         else
         {
             result = NativeBindings.pl_dataframe_export_to_stream(
-                dfHandle, 
-                (Apache.Arrow.C.CArrowArrayStream*)cStream, 
-                columnIndices, 
-                (nuint)columnIndices.Length, 
+                dfHandle,
+                (Apache.Arrow.C.CArrowArrayStream*)cStream,
+                columnIndices,
+                (nuint)columnIndices.Length,
                 null);
         }
 
@@ -459,9 +362,9 @@ public static unsafe class ArrowStreamInterop
         {
             Apache.Arrow.C.CArrowArrayStream.Free((Apache.Arrow.C.CArrowArrayStream*)cStream);
             ErrorHelper.CheckStatus(result);
-            throw new Exception("Rust FFI failed to export the stream."); 
+            throw new Exception("Rust FFI failed to export the stream.");
         }
-        
+
         return (IntPtr)cStream;
     }
 
@@ -475,8 +378,8 @@ public static unsafe class ArrowStreamInterop
     // Rust: fn(*mut ArrowArray, *mut ArrowSchema, *mut char) -> i32
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int SinkCallback(
-        CArrowArray* array, 
-        CArrowSchema* schema, 
+        CArrowArray* array,
+        CArrowSchema* schema,
         byte* errorMsg
     );
 
@@ -494,7 +397,7 @@ public static unsafe class ArrowStreamInterop
     private class SinkContext
     {
         public Action<RecordBatch> UserAction = null!;
-        public SinkCallback KeepAliveCallback = null!; 
+        public SinkCallback KeepAliveCallback = null!;
     }
 
     // ------------------------------------------------------------
@@ -569,7 +472,7 @@ public static unsafe class ArrowStreamInterop
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine($"[CRITICAL INTEROP ERROR] Stream iteration failed: {ex}");
                 Console.ResetColor();
-                return false; 
+                return false;
             }
         }
 
@@ -609,15 +512,15 @@ public sealed class ArrowStreamEnumerable(IArrowArrayStream stream) : IEnumerabl
         private RecordBatch? _current;
 
         public RecordBatch Current => _current!;
-        
+
         object System.Collections.IEnumerator.Current => _current!;
 
         public bool MoveNext()
         {
             _current?.Dispose();
-            
+
             _current = stream.ReadNextRecordBatchAsync().AsTask().GetAwaiter().GetResult();
-            
+
             return _current != null;
         }
 
@@ -626,7 +529,7 @@ public sealed class ArrowStreamEnumerable(IArrowArrayStream stream) : IEnumerabl
         public void Dispose()
         {
             _current?.Dispose();
-            stream.Dispose(); 
+            stream.Dispose();
         }
     }
 }

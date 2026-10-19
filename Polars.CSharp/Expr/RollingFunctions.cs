@@ -378,7 +378,6 @@ public partial class Expr : IDisposable
     /// </summary>
     /// <param name="quantile">Quantile between 0.0 and 1.0 (e.g., 0.5 for median).</param>
     /// <param name="method">Interpolation method when the quantile lies between two data points.</param>
-    ///     
     /// <param name="windowSize">
     /// The size of the time window as a <see cref="TimeSpan"/>.
     /// <para>This will be automatically converted to a Polars duration string (e.g., <c>01:30:00</c> -> <c>"1h30m"</c>).</para>

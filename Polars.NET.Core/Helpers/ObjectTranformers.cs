@@ -59,7 +59,7 @@ internal sealed class ColumnBuffer<T>(int capacity) : IColumnBuffer
     {
         ReadOnlySpan<T?> span = _buffer.AsSpan(0, _count);
         var handle = SeriesFactory.CreateSpan(name, span);
-        if (handle == null || handle.IsInvalid)
+        if (handle?.IsInvalid != false)
         {
             return SeriesFactory.CreateGenericType(name, _buffer.Take(_count));
         }
@@ -135,8 +135,6 @@ internal static class ColumnBufferFactory
 /// <typeparam name="T">The record or POCO row model type.</typeparam>
 public static class ObjectSchemaTransposer<T>
 {
-    private static readonly PropertyInfo[] Properties;
-    private static readonly bool CanUseBatchFastPath;
     private static readonly Func<T[], SeriesHandle[]>? BatchFastTransposer;
     private static readonly Func<SeriesHandle[]>? EmptySeriesFactory;
     private static readonly Action<T, IColumnBuffer[]>? StreamingRowWriter;
@@ -144,38 +142,38 @@ public static class ObjectSchemaTransposer<T>
     static ObjectSchemaTransposer()
     {
         Type rowType = typeof(T);
-        Properties = PolarsTypeHelper.GetModelProperties(rowType);
+        ModelProperties = PolarsTypeHelper.GetModelProperties(rowType);
 
-        if (Properties.Length == 0)
+        if (ModelProperties.Length == 0)
         {
             return;
         }
 
-        CanUseBatchFastPath = Array.TrueForAll(Properties, static p => PolarsTypeHelper.IsSupportedSimpleType(p.PropertyType));
+        IsBatchFastPathSupported = Array.TrueForAll(ModelProperties, static p => PolarsTypeHelper.IsSupportedSimpleType(p.PropertyType));
 
-        if (CanUseBatchFastPath)
+        if (IsBatchFastPathSupported)
         {
-            BatchFastTransposer = CompileBatchTransposer(Properties);
-            EmptySeriesFactory = CompileEmptySeriesFactory(Properties);
+            BatchFastTransposer = CompileBatchTransposer(ModelProperties);
+            EmptySeriesFactory = CompileEmptySeriesFactory(ModelProperties);
         }
 
-        StreamingRowWriter = CompileStreamingWriter(Properties);
+        StreamingRowWriter = CompileStreamingWriter(ModelProperties);
     }
 
-    public static PropertyInfo[] ModelProperties => Properties;
-    public static bool IsBatchFastPathSupported => CanUseBatchFastPath;
+    public static PropertyInfo[] ModelProperties { get; }
+    public static bool IsBatchFastPathSupported { get; }
 
     public static SeriesHandle[] Transpose(IEnumerable<T> data)
     {
         ArgumentNullException.ThrowIfNull(data);
 
-        if (Properties.Length == 0)
+        if (ModelProperties.Length == 0)
         {
             return [];
         }
 
         // 1. Direct array fast path (Straight-line compiled IL loop, zero delegate calls)
-        if (CanUseBatchFastPath && BatchFastTransposer != null)
+        if (IsBatchFastPathSupported && BatchFastTransposer != null)
         {
             if (data is T[] array)
             {
@@ -198,10 +196,10 @@ public static class ObjectSchemaTransposer<T>
             return EmptySeriesFactory();
         }
 
-        var handles = new SeriesHandle[Properties.Length];
-        for (int i = 0; i < Properties.Length; i++)
+        var handles = new SeriesHandle[ModelProperties.Length];
+        for (int i = 0; i < ModelProperties.Length; i++)
         {
-            var p = Properties[i];
+            var p = ModelProperties[i];
             var buffer = ColumnBufferFactory.Create(p.PropertyType, 0);
             handles[i] = buffer.ToSeriesHandle(p.Name);
         }
@@ -210,10 +208,10 @@ public static class ObjectSchemaTransposer<T>
 
     public static IColumnBuffer[] CreateBuffers(int capacity)
     {
-        var buffers = new IColumnBuffer[Properties.Length];
-        for (int i = 0; i < Properties.Length; i++)
+        var buffers = new IColumnBuffer[ModelProperties.Length];
+        for (int i = 0; i < ModelProperties.Length; i++)
         {
-            buffers[i] = ColumnBufferFactory.Create(Properties[i].PropertyType, capacity);
+            buffers[i] = ColumnBufferFactory.Create(ModelProperties[i].PropertyType, capacity);
         }
         return buffers;
     }
@@ -223,11 +221,11 @@ public static class ObjectSchemaTransposer<T>
     private static SeriesHandle[] TransposeStreaming(IEnumerable<T> data)
     {
         int capacity = data is ICollection<T> col ? col.Count : 16;
-        var buffers = new IColumnBuffer[Properties.Length];
+        var buffers = new IColumnBuffer[ModelProperties.Length];
 
-        for (int i = 0; i < Properties.Length; i++)
+        for (int i = 0; i < ModelProperties.Length; i++)
         {
-            buffers[i] = ColumnBufferFactory.Create(Properties[i].PropertyType, capacity);
+            buffers[i] = ColumnBufferFactory.Create(ModelProperties[i].PropertyType, capacity);
         }
 
         var writer = StreamingRowWriter!;
@@ -236,10 +234,10 @@ public static class ObjectSchemaTransposer<T>
             writer(item, buffers);
         }
 
-        var handles = new SeriesHandle[Properties.Length];
-        for (int i = 0; i < Properties.Length; i++)
+        var handles = new SeriesHandle[ModelProperties.Length];
+        for (int i = 0; i < ModelProperties.Length; i++)
         {
-            handles[i] = buffers[i].ToSeriesHandle(Properties[i].Name);
+            handles[i] = buffers[i].ToSeriesHandle(ModelProperties[i].Name);
         }
 
         return handles;
@@ -338,7 +336,7 @@ public static class ObjectSchemaTransposer<T>
         var handle = SeriesFactory.CreateSpan<TField>(name, colData.AsSpan());
         
         // Fallback for types not handled by CreateSpan SIMD/Unsafe paths
-        if (handle == null || handle.IsInvalid)
+        if (handle?.IsInvalid is not false)
         {
             return SeriesFactory.CreateGenericType(name, colData);
         }
@@ -375,7 +373,7 @@ public static class ObjectSchemaTransposer<T>
     private static SeriesHandle CreateEmptyColumnHandle<TField>(string colName)
     {
         var handle = SeriesFactory.CreateSpan(colName, ReadOnlySpan<TField>.Empty);
-        if (handle == null || handle.IsInvalid)
+        if (handle?.IsInvalid != false)
         {
             return SeriesFactory.CreateGenericType(colName, Array.Empty<TField>());
         }
@@ -621,7 +619,7 @@ public static class DictSchemaTransposer
         // ==========================================
         // 1. Schema Inference Phase
         // ==========================================
-        if (targetKeys != null && targetKeys.Count > 0)
+        if (targetKeys?.Count > 0)
         {
             for (int i = 0; i < targetKeys.Count; i++)
             {

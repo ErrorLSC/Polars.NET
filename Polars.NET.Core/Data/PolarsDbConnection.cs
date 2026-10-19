@@ -11,15 +11,14 @@ namespace Polars.NET.Core.Data;
 /// Represents a virtual ADO.NET connection to the Polars SQL engine.
 /// </summary>
 /// <remarks>
-/// This class acts as a bridge between standard .NET data access abstractions and the 
-/// Rust-backed Polars <see cref="IPolarsSqlContext"/>. 
+/// This class acts as a bridge between standard .NET data access abstractions and the
+/// Rust-backed Polars <see cref="IPolarsSqlContext"/>.
 /// <para>
-/// Unlike traditional connections, <see cref="PolarsDbConnection"/> does not establish 
-/// a network socket. Instead, it provides the necessary metadata and command-routing 
+/// Unlike traditional connections, <see cref="PolarsDbConnection"/> does not establish
+/// a network socket. Instead, it provides the necessary metadata and command-routing
 /// logic to allow ORM to treat an in-memory Polars context as a relational database.
 /// </para>
 /// </remarks>
-/// <param name="sqlContext">The underlying Polars SQL context where tables are registered and queries are executed.</param>
 public class PolarsDbConnection(IPolarsSqlContext sqlContext) : DbConnection
 {
     private readonly IPolarsSqlContext _sqlContext = sqlContext;
@@ -49,13 +48,13 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
     public override UpdateRowSource UpdatedRowSource { get; set; }
     protected override DbConnection? DbConnection { get; set; }
     protected override DbTransaction? DbTransaction { get; set; }
-    
+
     protected override DbParameterCollection DbParameterCollection => new PolarsDbParameterCollection();
     protected override DbParameter CreateDbParameter() => new PolarsDbParameter();
 
     [GeneratedRegex(@"(?:DELETE\s+FROM|UPDATE)\s+""?([a-zA-Z0-9_]+)""?", RegexOptions.IgnoreCase | RegexOptions.Singleline, "en-US")]
     private static partial Regex DmlTableRegex();
-    
+
     public override void Cancel() { }
     public override int ExecuteNonQuery()
     {
@@ -90,8 +89,8 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
             if (oldHeight >= 0)
             {
                 affectedRows = (int)(oldHeight - newDf.Height);
-                
-                if (affectedRows < 0) affectedRows = 0; 
+
+                if (affectedRows < 0) affectedRows = 0;
             }
         }
         else
@@ -99,17 +98,17 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
             newDf.Dispose();
         }
 
-        return affectedRows > 0 ? affectedRows : 0; 
+        return affectedRows > 0 ? affectedRows : 0;
     }
     public override object? ExecuteScalar()
     {
         using var reader = ExecuteDbDataReader(CommandBehavior.Default);
-        
+
         if (reader.Read() && reader.FieldCount > 0)
         {
             return reader.GetValue(0);
         }
-        
+
         return null;
     }
     public override void Prepare() {}
@@ -119,7 +118,7 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
         var stream = ExecuteAndYieldBatches();
         return new ArrowToDbStream(stream);
     }
- 
+
     private IEnumerable<RecordBatch> ExecuteAndYieldBatches()
     {
         using var lazyFrame = _sqlContext.Execute(CommandText);
@@ -127,12 +126,12 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
         using var batch = df.ToArrow();
         yield return batch;
     }
-    protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken)
+    protected override Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken)
     {
-        return await Task.Run(() => 
+        return Task.Run(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return ExecuteDbDataReader(behavior); 
+            return ExecuteDbDataReader(behavior);
         }, cancellationToken);
     }
 }

@@ -40,10 +40,7 @@ public interface IPolarsSqlContext : IDisposable
     IPolarsLazyFrame Execute(string sql);
 }
 
-public interface IPolarsSchema : IDisposable, IReadOnlyDictionary<string, IPolarsDataType>
-{
-
-}
+public interface IPolarsSchema : IDisposable, IReadOnlyDictionary<string, IPolarsDataType>;
 
 public interface IDataFrameMaterializer
 {

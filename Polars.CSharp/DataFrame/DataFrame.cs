@@ -291,13 +291,18 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
             throw new ArgumentOutOfRangeException(nameof(nRows), "Number of rows per slice must be greater than zero.");
         }
 
-        long totalRows = Height;
-        for (long offset = 0; offset < totalRows; offset += nRows)
-        {
-            // Calculate the exact length for the current slice to prevent out-of-bounds on the last chunk
-            ulong currentLength = (ulong)Math.Min(nRows, totalRows - offset);
+        return IterSlices2();
 
-            yield return Slice(offset, currentLength);
+        IEnumerable<DataFrame> IterSlices2()
+        {
+            long totalRows = Height;
+            for (long offset = 0; offset < totalRows; offset += nRows)
+            {
+                // Calculate the exact length for the current slice to prevent out-of-bounds on the last chunk
+                ulong currentLength = (ulong)Math.Min(nRows, totalRows - offset);
+
+                yield return Slice(offset, currentLength);
+            }
         }
     }
 
@@ -356,8 +361,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         {
             index = (int)(Width + index);
             if (index < 0)
+            {
                 throw new ArgumentOutOfRangeException(nameof(index),
                     $"Column index {originalIndex} is out of range (frame has {Width} columns)");
+            }
         }
         else if (index > Width)
         {

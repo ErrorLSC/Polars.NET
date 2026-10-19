@@ -59,7 +59,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         }
 
         var partitions = PartitionByInternal(resolvedCols, maintainOrder, includeKey);
-        
+
         var dict = new Dictionary<object?[], DataFrame>(ObjectArrayComparer.Instance);
 
         if (includeKey)
@@ -210,7 +210,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             if (ReferenceEquals(x, y)) return true;
             if (x is null || y is null) return false;
             if (x.Length != y.Length) return false;
-            
+
             for (int i = 0; i < x.Length; i++)
             {
                 if (!Equals(x[i], y[i])) return false;
@@ -221,7 +221,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         public int GetHashCode(object?[] obj)
         {
             if (obj is null) return 0;
-            
+
             var hash = new HashCode();
             foreach (var item in obj)
             {

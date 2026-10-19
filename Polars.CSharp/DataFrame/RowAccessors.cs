@@ -39,7 +39,7 @@ internal static class RowMapper<T>
 
         var getValueMethodDef = typeof(Series).GetMethod(nameof(Series.GetValue), [typeof(long), typeof(bool)])!;
         var columnIndexerMethod = typeof(DataFrame).GetMethod("get_Item", [typeof(int)])!;
-        var isNullMethod = typeof(Series).GetMethod("IsNull", [typeof(long)]) 
+        var isNullMethod = typeof(Series).GetMethod("IsNull", [typeof(long)])
                            ?? typeof(Series).GetMethod("is_null", [typeof(long)]);
 
         // Checks whether a physical column value is null at the specified row index
@@ -69,7 +69,7 @@ internal static class RowMapper<T>
                 var readExpr = Expression.Call(colExpr, getValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
                 return Expression.Convert(readExpr, returnType);
             }
-            if (nonNullType != null && nonNullType.IsEnum)
+            if (nonNullType?.IsEnum is true)
             {
                 var underlyingType = Enum.GetUnderlyingType(nonNullType);
                 var nullableUnderlying = typeof(Nullable<>).MakeGenericType(underlyingType);
@@ -145,7 +145,7 @@ internal static class RowMapper<T>
 
             Expression instanceExpr;
 
-            if (primaryCtor != null && primaryCtor.GetParameters().Length > 0)
+            if (primaryCtor?.GetParameters().Length > 0)
             {
                 var ctorParams = primaryCtor.GetParameters();
                 var ctorArgs = new Expression[ctorParams.Length];
@@ -331,7 +331,6 @@ public ref struct DataFrameRowEnumerator<T>
 {
     private readonly DataFrame _df;
     private readonly Func<DataFrame, long, T> _mapper;
-    private readonly long _height;
     private long _index;
     private T? _current;
 
@@ -340,7 +339,7 @@ public ref struct DataFrameRowEnumerator<T>
     {
         _df = df;
         _mapper = mapper;
-        _height = df.Height;
+        Length = df.Height;
         _index = -1L;
         _current = default;
     }
@@ -352,7 +351,7 @@ public ref struct DataFrameRowEnumerator<T>
     public bool MoveNext()
     {
         long next = _index + 1L;
-        if (next < _height)
+        if (next < Length)
         {
             _index = next;
             _current = _mapper(_df, _index);
@@ -379,23 +378,23 @@ public ref struct DataFrameRowEnumerator<T>
     /// <summary>
     /// Gets a value indicating whether the DataFrame is empty.
     /// </summary>
-    public readonly bool IsEmpty => _height == 0;
+    public readonly bool IsEmpty => Length == 0;
     /// <summary>
     /// Gets the total number of rows as an integer.
     /// Throws <see cref="OverflowException"/> if row count exceeds <see cref="int.MaxValue"/>.
     /// </summary>
-    public readonly int Count => checked((int)_height);
+    public readonly int Count => checked((int)Length);
     /// <summary>
     /// Gets the total number of rows as a long.
     /// </summary>
-    public readonly long Length => _height;
+    public readonly long Length { get; }
     /// <summary>
     /// Reads a mapped row at the specified physical index directly without looping through previous rows.
     /// </summary>
     public readonly T ElementAt(long index)
     {
-        if (index < 0 || index >= _height)
-            throw new ArgumentOutOfRangeException(nameof(index), $"Index {index} is out of bounds for DataFrame height {_height}.");
+        if (index < 0 || index >= Length)
+            throw new ArgumentOutOfRangeException(nameof(index), $"Index {index} is out of bounds for DataFrame height {Length}.");
         return _mapper(_df, index);
     }
     /// <summary>
@@ -404,7 +403,7 @@ public ref struct DataFrameRowEnumerator<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public readonly T? ElementAtOrDefault(long index, T? defaultValue = default)
     {
-        if (index < 0 || index >= _height)
+        if (index < 0 || index >= Length)
             return defaultValue;
         return _mapper(_df, index);
     }
@@ -415,10 +414,10 @@ public ref struct DataFrameRowEnumerator<T>
     /// </summary>
     public readonly int CopyTo(Span<T> destination)
     {
-        if (_height > destination.Length)
-            throw new ArgumentException($"Destination span length ({destination.Length}) is smaller than row count ({_height}).", nameof(destination));
+        if (Length > destination.Length)
+            throw new ArgumentException($"Destination span length ({destination.Length}) is smaller than row count ({Length}).", nameof(destination));
 
-        int total = (int)_height;
+        int total = (int)Length;
         for (int i = 0; i < total; i++)
         {
             destination[i] = _mapper(_df, i);
@@ -430,13 +429,13 @@ public ref struct DataFrameRowEnumerator<T>
     /// </summary>
     public readonly bool TryCopyTo(Span<T> destination, out int written)
     {
-        if (_height > destination.Length)
+        if (Length > destination.Length)
         {
             written = 0;
             return false;
         }
 
-        int total = (int)_height;
+        int total = (int)Length;
         for (int i = 0; i < total; i++)
         {
             destination[i] = _mapper(_df, i);
@@ -451,7 +450,7 @@ public ref struct DataFrameRowEnumerator<T>
     /// </summary>
     public readonly T First()
     {
-        if (_height == 0)
+        if (Length == 0)
         {
             throw new InvalidOperationException("DataFrame contains no rows.");
         }
@@ -464,7 +463,7 @@ public ref struct DataFrameRowEnumerator<T>
     /// </summary>
     public readonly T? FirstOrDefault(T? defaultValue = default)
     {
-        if (_height == 0)
+        if (Length == 0)
         {
             return defaultValue;
         }
@@ -478,13 +477,13 @@ public ref struct DataFrameRowEnumerator<T>
     /// </summary>
     public readonly T Last()
     {
-        if (_height == 0)
+        if (Length == 0)
         {
             throw new InvalidOperationException("DataFrame contains no rows.");
         }
 
         // O(1) direct access instead of exhausting MoveNext()
-        return ElementAt(_height - 1);
+        return ElementAt(Length - 1);
     }
 
     /// <summary>
@@ -492,23 +491,23 @@ public ref struct DataFrameRowEnumerator<T>
     /// </summary>
     public readonly T? LastOrDefault(T? defaultValue = default)
     {
-        if (_height == 0)
+        if (Length == 0)
         {
             return defaultValue;
         }
 
-        return ElementAt(_height - 1);
+        return ElementAt(Length - 1);
     }
     /// <summary>
     /// Materializes all mapped rows into an array with exact pre-allocation.
     /// </summary>
     public T[] ToArray()
     {
-        if (_height == 0) return [];
-        if (_height > int.MaxValue)
-            throw new OverflowException($"DataFrame row count ({_height}) exceeds Int32.MaxValue.");
+        if (Length == 0) return [];
+        if (Length > int.MaxValue)
+            throw new OverflowException($"DataFrame row count ({Length}) exceeds Int32.MaxValue.");
 
-        var array = new T[(int)_height];
+        var array = new T[(int)Length];
         int idx = 0;
         while (MoveNext())
         {
@@ -522,11 +521,11 @@ public ref struct DataFrameRowEnumerator<T>
     /// </summary>
     public List<T> ToList()
     {
-        if (_height == 0) return [];
-        if (_height > int.MaxValue)
-            throw new OverflowException($"DataFrame row count ({_height}) exceeds Int32.MaxValue.");
+        if (Length == 0) return [];
+        if (Length > int.MaxValue)
+            throw new OverflowException($"DataFrame row count ({Length}) exceeds Int32.MaxValue.");
 
-        var list = new List<T>((int)_height);
+        var list = new List<T>((int)Length);
         while (MoveNext())
         {
             list.Add(Current);
@@ -554,7 +553,7 @@ private readonly DataFrame _df;
     }
 
     // Fast-path: duck-typed struct enumerator for foreach loops (Zero heap allocation)
-    public Enumerator GetEnumerator() => new Enumerator(_df, _mapper);
+    public Enumerator GetEnumerator() => new(_df, _mapper);
 
     // Generic interface fallback
     IEnumerator<T> IEnumerable<T>.GetEnumerator() => new Enumerator(_df, _mapper);

@@ -55,7 +55,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <returns>A list of dictionaries, one per row, mapping column names to their values as <c>object?</c>.</returns>
     public List<Dictionary<string, object?>> ToDicts()
     {
-        var columns = GetColumns();         
+        var columns = GetColumns();
         int rowCount = (int)Height;
         var result = new List<Dictionary<string, object?>>(rowCount);
 
@@ -86,7 +86,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public void ExportBatches(Action<RecordBatch> onBatchReceived) => PolarsWrapper.ExportBatches(Handle, onBatchReceived);
     /// <summary>
     /// Export DataFrame As DbDataReader (Zero-Copy Enabled)
-    /// </summary>    
+    /// </summary>
     public DbDataReader AsDataReader(int bufferSize = 5, Dictionary<string, Type>? typeOverrides = null)
     {
         var channel = Channel.CreateBounded<RecordBatch>(new BoundedChannelOptions(bufferSize)
@@ -98,15 +98,12 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         var cts = new CancellationTokenSource();
 
-        var producerTask = Task.Run(async () => 
+        var producerTask = Task.Run(async () =>
         {
             try
             {
-                ExportBatches(batch => 
-                {
-                    channel.Writer.WriteAsync(batch, cts.Token).AsTask().Wait(cts.Token);
-                });
-                
+                ExportBatches(batch => channel.Writer.WriteAsync(batch, cts.Token).AsTask().Wait(cts.Token));
+
                 channel.Writer.Complete();
             }
             catch (OperationCanceledException)
@@ -121,7 +118,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         });
 
         var stream = channel.Reader.ReadAllAsync(cts.Token).ToBlockingEnumerable(cts.Token);
-        
+
         var innerReader = new ArrowToDbStream(stream, typeOverrides);
 
         return new PolarsDataReader(innerReader, cts, producerTask); 
@@ -155,7 +152,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             throw new InvalidOperationException("Cannot create a Tensor from an empty DataFrame.");
 
         int cols = targetColumns.Length;
-        int rows = (int)Height; 
+        int rows = (int)Height;
 
         T[] tensorData = new T[rows * cols];
         Span<T> destSpan = tensorData.AsSpan();
