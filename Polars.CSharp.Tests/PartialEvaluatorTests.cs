@@ -21,7 +21,7 @@ public class PartialEvaluatorTests
     [Trait("LINQ", "PartialEvaluator")]
     public void Eval_ClosureVariable_FoldsToConstant()
     {
-        const int threshold = 100;
+        var threshold = 100;
         Expression<Func<int, bool>> expr = x => x > threshold;
         var evaluated = (LambdaExpression)PartialEvaluator.eval(expr);
 
@@ -48,7 +48,7 @@ public class PartialEvaluatorTests
     [Trait("LINQ", "PartialEvaluator")]
     public void Extract_ClosureVariable_ExtractsParameter()
     {
-        const string container = "MED BOX";
+        var container = "MED BOX";
         Expression<Func<string, bool>> expr = s => s == container;
         var result = PartialEvaluator.extract(expr);
 
@@ -69,8 +69,8 @@ public class PartialEvaluatorTests
     [Trait("LINQ", "PartialEvaluator")]
     public void Extract_MultipleClosureVariables_ExtractsAllInOrder()
     {
-        const string brand = "Brand#23";
-        const string container = "MED BOX";
+        var brand = "Brand#23";
+        var container = "MED BOX";
         Expression<Func<string, string, bool>> expr = (b, c) => b == brand && c == container;
         var result = PartialEvaluator.extract(expr);
 
@@ -91,7 +91,7 @@ public class PartialEvaluatorTests
     [Trait("LINQ", "PartialEvaluator")]
     public void Extract_NestedClosure_FastReflection_ExtractsCorrectly()
     {
-        const string outerVar = "OuterValue";
+        var outerVar = "OuterValue";
 
         void Inner(string innerVar)
         {
@@ -110,7 +110,7 @@ public class PartialEvaluatorTests
     [Trait("LINQ", "PartialEvaluator")]
     public void Extract_ComplexSubtree_EvaluatesMaximalSubtree()
     {
-        const int offset = 10;
+        var offset = 10;
         Expression<Func<int, bool>> expr = x => x > offset + 5;
         var result = PartialEvaluator.extract(expr);
 
@@ -127,7 +127,7 @@ public class PartialEvaluatorTests
     [Trait("LINQ", "PartialEvaluator")]
     public void Substitute_RoundTrip_RestoresConstants()
     {
-        const string container = "MED BOX";
+        var container = "MED BOX";
         Expression<Func<string, bool>> expr = s => s == container;
 
         var extracted = PartialEvaluator.extract(expr);
@@ -145,7 +145,7 @@ public class PartialEvaluatorTests
     [Trait("LINQ", "PartialEvaluator")]
     public void Substitute_WithNewValues_ReplacesCorrectly()
     {
-        const string container = "MED BOX";
+        var container = "MED BOX";
         Expression<Func<string, bool>> expr = s => s == container;
 
         var extracted = PartialEvaluator.extract(expr);

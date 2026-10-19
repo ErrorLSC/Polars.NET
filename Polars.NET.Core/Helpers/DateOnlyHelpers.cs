@@ -11,9 +11,9 @@ public static partial class ArrayHelper
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<int>(len);
-        
+
         // 1970-01-01 DayNumber
-        int epochShift = 719162; 
+        int epochShift = 719162;
 
         // Get ref to the first element
         ref DateOnly srcRef = ref MemoryMarshal.GetReference(data);
@@ -86,7 +86,7 @@ public static partial class ArrayHelper
         {
             // Layout: [Bool(1), Pad(3), Int(4)]
             long* pRawSrc = (long*)pSrc;
-            
+
             int i = 0;
             int limit = len - 8;
 
@@ -95,7 +95,7 @@ public static partial class ArrayHelper
             // =========================================================
             for (; i <= limit; i += 8)
             {
-                HandleDateOnlyItem(i,     pRawSrc, pDst, ref validity, ref validRef, byteLen, epochShift);
+                HandleDateOnlyItem(i, pRawSrc, pDst, ref validity, ref validRef, byteLen, epochShift);
                 HandleDateOnlyItem(i + 1, pRawSrc, pDst, ref validity, ref validRef, byteLen, epochShift);
                 HandleDateOnlyItem(i + 2, pRawSrc, pDst, ref validity, ref validRef, byteLen, epochShift);
                 HandleDateOnlyItem(i + 3, pRawSrc, pDst, ref validity, ref validRef, byteLen, epochShift);
@@ -132,7 +132,7 @@ public static partial class ArrayHelper
         {
             // Extract upper 32 btis Value 
             int dayNumber = (int)(raw >> 32);
-            
+
             // Sub epoch
             pDst[i] = dayNumber - epochShift;
 
@@ -152,14 +152,14 @@ public static partial class ArrayHelper
                 // Init Validity
                 validity = new byte[byteLen];
                 validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                
+
                 // Backfill
                 int bytesToFill = i >> 3;
                 if (bytesToFill > 0) Unsafe.InitBlock(ref validRef, 0xFF, (uint)bytesToFill);
                 int remainingBits = i & 7;
                 if (remainingBits > 0) Unsafe.Add(ref validRef, bytesToFill) = (byte)((1 << remainingBits) - 1);
             }
-            
+
             pDst[i] = 0; // Default
         }
     }

@@ -18,7 +18,7 @@ public static class DataReaderExtensions
     /// Convert IDataReader to Arrow RecordBatch Stream
     /// </summary>
     public static IEnumerable<RecordBatch> ToArrowBatches(this IDataReader reader, int batchSize = 50_000)
-        => DbToArrowStream.ToArrowBatches(reader,batchSize);
+        => DbToArrowStream.ToArrowBatches(reader, batchSize);
     /// <summary>
     /// Asynchronously streams database cursor records in chunks of Apache Arrow RecordBatches.
     /// </summary>
@@ -28,5 +28,5 @@ public static class DataReaderExtensions
         int batchSize = 50_000,
         CancellationToken cancellationToken = default)
         => DbToArrowStream.ToArrowBatchesAsync(reader, batchSize, cancellationToken);
-    
+
 }

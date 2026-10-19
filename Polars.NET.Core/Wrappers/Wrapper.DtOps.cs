@@ -28,13 +28,13 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle DtDatetime(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_dt_datetime, e);
     public static ExprHandle DtDate(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_dt_date, e);
     public static ExprHandle DtTime(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_dt_time, e);
-    public static ExprHandle DtTotalDays(ExprHandle e,bool fractional) => UnaryBoolOp(NativeBindings.pl_expr_dt_total_days, e,fractional);
-    public static ExprHandle DtTotalHours(ExprHandle e,bool fractional) => UnaryBoolOp(NativeBindings.pl_expr_dt_total_hours, e,fractional);
-    public static ExprHandle DtTotalMinutes(ExprHandle e,bool fractional) => UnaryBoolOp(NativeBindings.pl_expr_dt_total_minutes, e,fractional);
-    public static ExprHandle DtTotalSeconds(ExprHandle e,bool fractional) => UnaryBoolOp(NativeBindings.pl_expr_dt_total_seconds, e,fractional);
-    public static ExprHandle DtTotalMilliseconds(ExprHandle e,bool fractional) => UnaryBoolOp(NativeBindings.pl_expr_dt_total_milliseconds, e,fractional);
-    public static ExprHandle DtTotalMicroseconds(ExprHandle e,bool fractional) => UnaryBoolOp(NativeBindings.pl_expr_dt_total_microseconds, e,fractional);
-    public static ExprHandle DtTotalNanoseconds(ExprHandle e,bool fractional) => UnaryBoolOp(NativeBindings.pl_expr_dt_total_nanoseconds, e,fractional);
+    public static ExprHandle DtTotalDays(ExprHandle e, bool fractional) => UnaryBoolOp(NativeBindings.pl_expr_dt_total_days, e, fractional);
+    public static ExprHandle DtTotalHours(ExprHandle e, bool fractional) => UnaryBoolOp(NativeBindings.pl_expr_dt_total_hours, e, fractional);
+    public static ExprHandle DtTotalMinutes(ExprHandle e, bool fractional) => UnaryBoolOp(NativeBindings.pl_expr_dt_total_minutes, e, fractional);
+    public static ExprHandle DtTotalSeconds(ExprHandle e, bool fractional) => UnaryBoolOp(NativeBindings.pl_expr_dt_total_seconds, e, fractional);
+    public static ExprHandle DtTotalMilliseconds(ExprHandle e, bool fractional) => UnaryBoolOp(NativeBindings.pl_expr_dt_total_milliseconds, e, fractional);
+    public static ExprHandle DtTotalMicroseconds(ExprHandle e, bool fractional) => UnaryBoolOp(NativeBindings.pl_expr_dt_total_microseconds, e, fractional);
+    public static ExprHandle DtTotalNanoseconds(ExprHandle e, bool fractional) => UnaryBoolOp(NativeBindings.pl_expr_dt_total_nanoseconds, e, fractional);
     public static ExprHandle DtToString(ExprHandle e, string format)
     {
         var h = NativeBindings.pl_expr_dt_to_string(e, format);
@@ -53,10 +53,10 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle DtCombine(ExprHandle expr, ExprHandle time, PlTimeUnit tu)
     {
         var h = NativeBindings.pl_expr_dt_combine(expr, time, tu);
-        
+
         expr.TransferOwnership();
         time.TransferOwnership();
-        
+
         return ErrorHelper.Check(h);
     }
     public static ExprHandle DtConvertTimeZone(ExprHandle e, string timeZone)
@@ -66,9 +66,9 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     public static ExprHandle DtReplaceTimeZone(
-        ExprHandle e, 
-        string? timeZone, 
-        ExprHandle ambiguous, 
+        ExprHandle e,
+        string? timeZone,
+        ExprHandle ambiguous,
         PlNonExistent nonExistent)
     {
         var h = NativeBindings.pl_expr_dt_replace_time_zone(e, timeZone, ambiguous, nonExistent);
@@ -77,13 +77,13 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     public static ExprHandle DtAddBusinessDays(
-        ExprHandle expr, 
-        ExprHandle n, 
-        bool[] weekMask, 
+        ExprHandle expr,
+        ExprHandle n,
+        bool[] weekMask,
         ExprHandle holidays,
-        PlRoll roll) 
+        PlRoll roll)
     {
-        if (weekMask.Length != 7) 
+        if (weekMask.Length != 7)
             throw new ArgumentException("Week mask must have length 7.");
 
         var maskBytes = new byte[7];
@@ -106,7 +106,7 @@ public readonly partial struct PolarsWrapper
         bool[] weekMask,
         ExprHandle holidays)
     {
-        if (weekMask.Length != 7) 
+        if (weekMask.Length != 7)
             throw new ArgumentException("Week mask must have length 7.");
 
         var maskBytes = new byte[7];
@@ -122,12 +122,12 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     public static ExprHandle DtBusinessDayCount(
-        ExprHandle start, 
-        ExprHandle end, 
-        bool[] weekMask, 
-        ExprHandle holidays) 
+        ExprHandle start,
+        ExprHandle end,
+        bool[] weekMask,
+        ExprHandle holidays)
     {
-        if (weekMask.Length != 7) 
+        if (weekMask.Length != 7)
             throw new ArgumentException("Week mask must have length 7.");
 
         var maskBytes = new byte[7];
@@ -144,15 +144,15 @@ public readonly partial struct PolarsWrapper
         holidays.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle DtCastTimeUnit(ExprHandle expr,PlTimeUnit unit)
+    public static ExprHandle DtCastTimeUnit(ExprHandle expr, PlTimeUnit unit)
     {
-        var h = NativeBindings.pl_expr_dt_cast_time_unit(expr,unit);
+        var h = NativeBindings.pl_expr_dt_cast_time_unit(expr, unit);
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle DtWithTimeUnit(ExprHandle expr,PlTimeUnit unit)
+    public static ExprHandle DtWithTimeUnit(ExprHandle expr, PlTimeUnit unit)
     {
-        var h = NativeBindings.pl_expr_dt_with_time_unit(expr,unit);
+        var h = NativeBindings.pl_expr_dt_with_time_unit(expr, unit);
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
@@ -168,7 +168,7 @@ public readonly partial struct PolarsWrapper
         ExprHandle ambiguous
     )
     {
-        var h = NativeBindings.pl_expr_dt_replace(expr,year,month,day,hour,minute,second,microsecond,ambiguous);
+        var h = NativeBindings.pl_expr_dt_replace(expr, year, month, day, hour, minute, second, microsecond, ambiguous);
         expr.TransferOwnership();
         year.TransferOwnership();
         month.TransferOwnership();
@@ -178,7 +178,7 @@ public readonly partial struct PolarsWrapper
         second.TransferOwnership();
         microsecond.TransferOwnership();
         ambiguous.TransferOwnership();
-        return ErrorHelper.Check(h);   
+        return ErrorHelper.Check(h);
     }
 
 }

@@ -19,7 +19,7 @@ public static class StructPacker
                 var prop = props[i];
                 var method = typeof(StructPacker).GetMethod(nameof(BuildColumnPacker), BindingFlags.NonPublic | BindingFlags.Static)!;
                 var genericMethod = method.MakeGenericMethod(typeof(T), prop.PropertyType);
-                
+
                 ColumnPackers[i] = (Func<T[], SeriesHandle>)genericMethod.Invoke(null, [prop])!;
             }
         }
@@ -59,7 +59,7 @@ public static class StructPacker
         {
             int count = rows.Length;
             TProp[] columnData = new TProp[count];
-            
+
             for (int i = 0; i < count; i++)
             {
                 columnData[i] = getter(rows[i]);
@@ -75,7 +75,7 @@ public static class StructPacker
         var instanceParam = Expression.Parameter(typeof(T), "instance");
         var propertyAccess = Expression.Property(instanceParam, propInfo);
         var lambda = Expression.Lambda<Func<T, TProp>>(propertyAccess, instanceParam);
-        
+
         // Compile into a high-performance delegate
         return lambda.Compile();
     }

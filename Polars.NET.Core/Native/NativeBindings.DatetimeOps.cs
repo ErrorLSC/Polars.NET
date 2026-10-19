@@ -28,17 +28,17 @@ internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_datetime(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_date(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_time(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_total_days(ExprHandle expr,[MarshalAs(UnmanagedType.U1)]bool fractional);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_total_hours(ExprHandle expr,[MarshalAs(UnmanagedType.U1)]bool fractional);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_total_minutes(ExprHandle expr,[MarshalAs(UnmanagedType.U1)]bool fractional);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_total_seconds(ExprHandle expr,[MarshalAs(UnmanagedType.U1)]bool fractional);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_total_milliseconds(ExprHandle expr,[MarshalAs(UnmanagedType.U1)]bool fractional);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_total_microseconds(ExprHandle expr,[MarshalAs(UnmanagedType.U1)]bool fractional);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_total_nanoseconds(ExprHandle expr,[MarshalAs(UnmanagedType.U1)]bool fractional);
-    
-    [LibraryImport(LibName)] 
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_total_days(ExprHandle expr, [MarshalAs(UnmanagedType.U1)] bool fractional);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_total_hours(ExprHandle expr, [MarshalAs(UnmanagedType.U1)] bool fractional);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_total_minutes(ExprHandle expr, [MarshalAs(UnmanagedType.U1)] bool fractional);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_total_seconds(ExprHandle expr, [MarshalAs(UnmanagedType.U1)] bool fractional);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_total_milliseconds(ExprHandle expr, [MarshalAs(UnmanagedType.U1)] bool fractional);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_total_microseconds(ExprHandle expr, [MarshalAs(UnmanagedType.U1)] bool fractional);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_total_nanoseconds(ExprHandle expr, [MarshalAs(UnmanagedType.U1)] bool fractional);
+
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_dt_to_string(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string format);
-    
+
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_dt_truncate(ExprHandle e, ExprHandle every);
 
@@ -48,20 +48,20 @@ internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_dt_offset_by(ExprHandle e, ExprHandle by);
     [LibraryImport(LibName)]
-    public static partial ExprHandle pl_expr_dt_combine(ExprHandle e, ExprHandle time,PlTimeUnit timeUnit);
+    public static partial ExprHandle pl_expr_dt_combine(ExprHandle e, ExprHandle time, PlTimeUnit timeUnit);
     [LibraryImport(LibName)]
-    public static partial ExprHandle pl_expr_dt_cast_time_unit(ExprHandle e,PlTimeUnit timeUnit);
+    public static partial ExprHandle pl_expr_dt_cast_time_unit(ExprHandle e, PlTimeUnit timeUnit);
     [LibraryImport(LibName)]
-    public static partial ExprHandle pl_expr_dt_with_time_unit(ExprHandle e,PlTimeUnit timeUnit);
+    public static partial ExprHandle pl_expr_dt_with_time_unit(ExprHandle e, PlTimeUnit timeUnit);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_dt_timestamp(ExprHandle e, PlTimeUnit unitCode);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_dt_convert_time_zone(ExprHandle e, string timeZone);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_dt_replace_time_zone(
-        ExprHandle e, 
-        string? timeZone, 
-        ExprHandle ambiguous, 
+        ExprHandle e,
+        string? timeZone,
+        ExprHandle ambiguous,
         PlNonExistent nonExistent
     );
     [LibraryImport(LibName)]

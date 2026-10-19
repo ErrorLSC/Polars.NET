@@ -29,7 +29,7 @@ public static partial class ArrayHelper
             {
                 byte* b = (byte*)p;
                 // Bool @0, Value @1
-                bool boolAt0 = *b == 1; 
+                bool boolAt0 = *b == 1;
                 bool valAt1 = *(b + 1) == 0x7F;
 
                 IsInt8LayoutCompatible = boolAt0 && valAt1 && (sizeof(sbyte?) == 2);
@@ -92,7 +92,8 @@ public static partial class ArrayHelper
         }
         catch { IsInt64LayoutCompatible = false; }
         // Check Int128 Layout
-        try {
+        try
+        {
             Int128 val = Int128.MaxValue;
             Int128?[] probe = [val];
 

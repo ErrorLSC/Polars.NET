@@ -334,7 +334,7 @@ public static class ObjectSchemaTransposer<T>
     {
         TField[] colData = extractor(records);
         var handle = SeriesFactory.CreateSpan<TField>(name, colData.AsSpan());
-        
+
         // Fallback for types not handled by CreateSpan SIMD/Unsafe paths
         if (handle?.IsInvalid is not false)
         {
@@ -704,7 +704,7 @@ public static class DictSchemaTransposer
             for (int colIdx = 0; colIdx < numCols; colIdx++)
             {
                 string colName = orderedKeys[colIdx];
-                
+
                 // Explicitly guard against missing key leaving 'val' undefined
                 if (!row.TryGetValue(colName, out var val))
                 {
@@ -884,7 +884,7 @@ public static class DataFrameBuilder
         for (int i = 0; i < properties.Length; i++)
         {
             var p = properties[i];
-            var val = p.GetValue(columns) 
+            var val = p.GetValue(columns)
                 ?? throw new ArgumentNullException(nameof(columns), $"Column property '{p.Name}' cannot be null.");
 
             var elemType = PolarsTypeHelper.TryGetEnumerableElementType(val.GetType()) ?? typeof(object);
@@ -916,5 +916,5 @@ public static class DataFrameBuilder
 
         return PolarsWrapper.DataFrameNew(handles.ToArray());
     }
-    
+
 }

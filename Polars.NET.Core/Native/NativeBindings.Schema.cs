@@ -10,14 +10,14 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SchemaHandle pl_schema_new(
-        string[] names, 
-        IntPtr[] dtypes, 
+        string[] names,
+        IntPtr[] dtypes,
         UIntPtr len
     );
     // Introspection
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_schema_len(SchemaHandle schema,out uint len);
+    public static partial bool pl_schema_len(SchemaHandle schema, out uint len);
 
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]

@@ -24,12 +24,12 @@ internal partial class NativeBindings
         long targetTimestampMs,
         [MarshalAs(UnmanagedType.U1)] bool ignoreMissingFiles,
         [MarshalAs(UnmanagedType.U1)] bool protocolDowngradeAllowed,
-        
+
         // Cloud Options
         string[]? keys,
         string[]? values,
         nuint len,
-        
+
         // Output
         out ulong newVersion
     );
@@ -98,8 +98,8 @@ internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool low_memory,
         [MarshalAs(UnmanagedType.U1)] bool use_statistics,
         [MarshalAs(UnmanagedType.U1)] bool glob,
-        [MarshalAs(UnmanagedType.U1)] bool rechunk, 
-        [MarshalAs(UnmanagedType.U1)] bool cache,   
+        [MarshalAs(UnmanagedType.U1)] bool rechunk,
+        [MarshalAs(UnmanagedType.U1)] bool cache,
         // --- Option Names ---
         string? row_index_name,
         uint row_index_offset,
@@ -142,7 +142,7 @@ internal partial class NativeBindings
         nuint row_group_size,
         nuint data_page_size,
         int compat_level,
-    
+
         // --- Unified Options ---
         [MarshalAs(UnmanagedType.U1)] bool maintain_order,
         PlSyncOnClose sync_on_close,
@@ -203,12 +203,12 @@ internal partial class NativeBindings
         string[] merge_key,
         nuint merge_key_len,
 
-        PlMergeActionType[] action_types,    
-        IntPtr[] action_exprs,    
-        nuint actions_count,      
+        PlMergeActionType[] action_types,
+        IntPtr[] action_exprs,
+        nuint actions_count,
 
         [MarshalAs(UnmanagedType.U1)] bool can_evolve,
-        
+
         // --- Cloud Options ---
         PlCloudProvider cloud_provider,
         UIntPtr cloud_retries,

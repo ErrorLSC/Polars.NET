@@ -7,7 +7,7 @@ namespace Polars.NET.Core;
 public readonly partial struct PolarsWrapper
 {
     /// <summary>
-    /// Get the schema handle for LazyFrame 
+    /// Get the schema handle for LazyFrame
     /// </summary>
     public static SchemaHandle GetLazySchema(LazyFrameHandle lf)
         => ErrorHelper.Check(NativeBindings.pl_lazyframe_get_schema(lf));
@@ -28,13 +28,13 @@ public readonly partial struct PolarsWrapper
     {
         var rawExprs = HandlesToPtrs(exprs);
         var newLf = NativeBindings.pl_lazy_select(lf, rawExprs, (UIntPtr)rawExprs.Length);
-        lf.TransferOwnership(); 
+        lf.TransferOwnership();
         return ErrorHelper.Check(newLf);
     }
 
-    public static DataFrameHandle LazyCollect(LazyFrameHandle lf,PlEngine engine)
+    public static DataFrameHandle LazyCollect(LazyFrameHandle lf, PlEngine engine)
     {
-        var df = NativeBindings.pl_lazy_collect(lf,engine);
+        var df = NativeBindings.pl_lazy_collect(lf, engine);
         lf.TransferOwnership();
         return ErrorHelper.Check(df);
     }
@@ -42,18 +42,18 @@ public readonly partial struct PolarsWrapper
     {
         if (lfs == null || lfs.Length == 0) return [];
 
-        var inPtrs = HandlesToPtrs(lfs)!; 
-        
+        var inPtrs = HandlesToPtrs(lfs)!;
+
         var outPtrs = new nint[lfs.Length];
 
         int status = NativeBindings.pl_lazy_collect_all(
-            inPtrs, 
-            (nuint)lfs.Length, 
-            outPtrs, 
+            inPtrs,
+            (nuint)lfs.Length,
+            outPtrs,
             engine
         );
 
-        ErrorHelper.CheckStatus(status); 
+        ErrorHelper.CheckStatus(status);
 
         var result = new DataFrameHandle[lfs.Length];
         for (int i = 0; i < lfs.Length; i++)
@@ -70,50 +70,50 @@ public readonly partial struct PolarsWrapper
     {
         if (lfs == null || lfs.Length == 0) return "";
 
-        var inPtrs = HandlesToPtrs(lfs)!; 
-        
+        var inPtrs = HandlesToPtrs(lfs)!;
+
         var outPtrs = new nint[lfs.Length];
 
         int status = NativeBindings.pl_lazy_explain_all(
-            inPtrs, 
-            (nuint)lfs.Length, 
-            out nint plan 
+            inPtrs,
+            (nuint)lfs.Length,
+            out nint plan
         );
 
-        ErrorHelper.CheckStatus(status); 
+        ErrorHelper.CheckStatus(status);
 
         return ErrorHelper.CheckString(plan);
     }
     public static LazyFrameHandle LazyFilter(LazyFrameHandle lf, ExprHandle expr)
     {
         var h = NativeBindings.pl_lazy_filter(lf, expr);
-        lf.TransferOwnership();   
-        expr.TransferOwnership(); 
+        lf.TransferOwnership();
+        expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static LazyFrameHandle LazySlice(LazyFrameHandle lf, long offset, uint len)
     {
-        var h = NativeBindings.pl_lazyframe_slice(lf, offset,len);
-        lf.TransferOwnership();   
+        var h = NativeBindings.pl_lazyframe_slice(lf, offset, len);
+        lf.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static LazyFrameHandle LazyRename(LazyFrameHandle lf, string[] existing, string[] newNames, bool strict)
     {
         var h = NativeBindings.pl_lazyframe_rename(
-            lf, 
-            existing, 
-            (nuint)existing.Length, 
-            newNames, 
-            (nuint)newNames.Length, 
+            lf,
+            existing,
+            (nuint)existing.Length,
+            newNames,
+            (nuint)newNames.Length,
             strict
         );
-        lf.TransferOwnership();   
-        
+        lf.TransferOwnership();
+
         return ErrorHelper.Check(h);
     }
     public static LazyFrameHandle LazyFrameSort(
-        LazyFrameHandle lf, 
-        ExprHandle[] exprs, 
+        LazyFrameHandle lf,
+        ExprHandle[] exprs,
         bool[] descending,
         bool[] nullsLast,
         bool maintainOrder)
@@ -121,7 +121,7 @@ public readonly partial struct PolarsWrapper
         if ((descending.Length != 1 && descending.Length != exprs.Length) ||
             (nullsLast.Length != 1 && nullsLast.Length != exprs.Length))
         {
-                throw new ArgumentException("Sort options length mismatch.");
+            throw new ArgumentException("Sort options length mismatch.");
         }
 
         var exprPtrs = HandlesToPtrs(exprs);
@@ -156,11 +156,11 @@ public readonly partial struct PolarsWrapper
             fixed (bool* rPtr = reverse)
             {
                 var h = NativeBindings.pl_lazyframe_top_k(
-                    lf, 
-                    k, 
-                    byPtrs, 
-                    (UIntPtr)byPtrs.Length, 
-                    rPtr, 
+                    lf,
+                    k,
+                    byPtrs,
+                    (UIntPtr)byPtrs.Length,
+                    rPtr,
                     (UIntPtr)reverse.Length
                 );
                 lf.TransferOwnership();
@@ -177,11 +177,11 @@ public readonly partial struct PolarsWrapper
             fixed (bool* rPtr = reverse)
             {
                 var h = NativeBindings.pl_lazyframe_bottom_k(
-                    lf, 
-                    k, 
-                    byPtrs, 
-                    (UIntPtr)byPtrs.Length, 
-                    rPtr, 
+                    lf,
+                    k,
+                    byPtrs,
+                    (UIntPtr)byPtrs.Length,
+                    rPtr,
                     (UIntPtr)reverse.Length
                 );
                 lf.TransferOwnership();
@@ -189,7 +189,7 @@ public readonly partial struct PolarsWrapper
             }
         }
     }
-    public static LazyFrameHandle LazyFrameUnnest(LazyFrameHandle lf, SelectorHandle selector,string? separator)
+    public static LazyFrameHandle LazyFrameUnnest(LazyFrameHandle lf, SelectorHandle selector, string? separator)
     {
         var h = ErrorHelper.Check(NativeBindings.pl_lazyframe_unnest(lf, selector, separator));
         lf.TransferOwnership();
@@ -204,43 +204,43 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     public static LazyFrameHandle LazyFrameDropNulls(LazyFrameHandle lf, SelectorHandle? selector)
-    {   
+    {
         var selPtr = selector?.TransferOwnership() ?? IntPtr.Zero;
         var h = ErrorHelper.Check(NativeBindings.pl_lazyframe_drop_nulls(lf, selPtr));
         lf.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static LazyFrameHandle LazyFrameDropNans(LazyFrameHandle lf, SelectorHandle? selector)
-    {   
+    {
         var selPtr = selector?.TransferOwnership() ?? IntPtr.Zero;
         var h = ErrorHelper.Check(NativeBindings.pl_lazyframe_drop_nans(lf, selPtr));
         lf.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static LazyFrameHandle LazyUnique(
-        LazyFrameHandle lfHandle, 
-        SelectorHandle selector, 
+        LazyFrameHandle lfHandle,
+        SelectorHandle selector,
         PlUniqueKeepStrategy keep,
         bool maintainOrder)
     {
         IntPtr selPtr = selector?.DangerousGetHandle() ?? IntPtr.Zero;
-        var h = NativeBindings.pl_lazyframe_unique(lfHandle,selPtr,keep,maintainOrder);
+        var h = NativeBindings.pl_lazyframe_unique(lfHandle, selPtr, keep, maintainOrder);
         lfHandle.TransferOwnership();
         selector?.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static LazyFrameHandle LazyGroupByAgg(LazyFrameHandle lf, ExprHandle[] keys, ExprHandle[] aggs,ExprHandle? havingExpr,bool maintainOrder)
+    public static LazyFrameHandle LazyGroupByAgg(LazyFrameHandle lf, ExprHandle[] keys, ExprHandle[] aggs, ExprHandle? havingExpr, bool maintainOrder)
     {
         var keyPtrs = HandlesToPtrs(keys);
         var aggPtrs = HandlesToPtrs(aggs);
         IntPtr havingExprPtr = havingExpr?.TransferOwnership() ?? IntPtr.Zero;
-        
+
         var h = NativeBindings.pl_lazy_groupby_agg(
-            lf, 
-            keyPtrs, (UIntPtr)keyPtrs.Length, 
-            aggPtrs, (UIntPtr)aggPtrs.Length,havingExprPtr,maintainOrder
+            lf,
+            keyPtrs, (UIntPtr)keyPtrs.Length,
+            aggPtrs, (UIntPtr)aggPtrs.Length, havingExprPtr, maintainOrder
         );
-        
+
         lf.TransferOwnership();
         return ErrorHelper.Check(h);
     }
@@ -257,9 +257,9 @@ public readonly partial struct PolarsWrapper
         bool includeBoundaries,
         PlClosedInterval ClosedInterval,
         PlStartBy startBy,
-        ExprHandle[] keys,  
+        ExprHandle[] keys,
         ExprHandle[] aggs,
-        ExprHandle? havingExpr)  
+        ExprHandle? havingExpr)
     {
         var keyPtrs = HandlesToPtrs(keys);
         var aggPtrs = HandlesToPtrs(aggs);
@@ -288,9 +288,9 @@ public readonly partial struct PolarsWrapper
         string period,
         string offset,
         PlClosedInterval ClosedInterval,
-        ExprHandle[] keys,  
+        ExprHandle[] keys,
         ExprHandle[] aggs,
-        ExprHandle? havingExpr)  
+        ExprHandle? havingExpr)
     {
         var keyPtrs = HandlesToPtrs(keys);
         var aggPtrs = HandlesToPtrs(aggs);
@@ -316,22 +316,22 @@ public readonly partial struct PolarsWrapper
         lf.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static LazyFrameHandle LazyExplode(LazyFrameHandle lf, SelectorHandle selector, bool emptyAsNull,bool keepNulls)
+    public static LazyFrameHandle LazyExplode(LazyFrameHandle lf, SelectorHandle selector, bool emptyAsNull, bool keepNulls)
     {
-        var newLf = NativeBindings.pl_lazyframe_explode(lf, selector,emptyAsNull,keepNulls);
-        lf.TransferOwnership(); 
+        var newLf = NativeBindings.pl_lazyframe_explode(lf, selector, emptyAsNull, keepNulls);
+        lf.TransferOwnership();
         selector.TransferOwnership();
         return ErrorHelper.Check(newLf);
     }
     public static LazyFrameHandle LazyPivot(
-        LazyFrameHandle lf, 
-        SelectorHandle on, 
-        DataFrameHandle onColumns, 
-        SelectorHandle index, 
-        SelectorHandle values, 
-        ExprHandle? aggExpr, 
-        PlPivotAgg aggCode, 
-        bool maintainOrder, 
+        LazyFrameHandle lf,
+        SelectorHandle on,
+        DataFrameHandle onColumns,
+        SelectorHandle index,
+        SelectorHandle values,
+        ExprHandle? aggExpr,
+        PlPivotAgg aggCode,
+        bool maintainOrder,
         string? separator,
         PlPivotColumnNaming columnNaming)
     {
@@ -349,7 +349,7 @@ public readonly partial struct PolarsWrapper
             separator,
             columnNaming
         );
-        
+
         lf.TransferOwnership();
 
         on.TransferOwnership();
@@ -364,7 +364,7 @@ public readonly partial struct PolarsWrapper
         var h = NativeBindings.pl_lazyframe_unpivot(
             lf,
             index,
-            onPtr, 
+            onPtr,
             variableName,
             valueName
         );
@@ -372,10 +372,10 @@ public readonly partial struct PolarsWrapper
         index.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static LazyFrameHandle LazyConcat(LazyFrameHandle[] handles,PlConcatType how, bool rechunk = false, bool parallel = true)
+    public static LazyFrameHandle LazyConcat(LazyFrameHandle[] handles, PlConcatType how, bool rechunk = false, bool parallel = true)
     {
-        var ptrs = HandlesToPtrs(handles); 
-        var h = NativeBindings.pl_lazy_concat(ptrs, (UIntPtr)ptrs.Length,(int)how, rechunk, parallel);
+        var ptrs = HandlesToPtrs(handles);
+        var h = NativeBindings.pl_lazy_concat(ptrs, (UIntPtr)ptrs.Length, (int)how, rechunk, parallel);
         foreach (var handle in handles)
         {
             handle.TransferOwnership();
@@ -383,10 +383,10 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     public static LazyFrameHandle Join(
-        LazyFrameHandle left, 
-        LazyFrameHandle right, 
-        ExprHandle[] leftOn, 
-        ExprHandle[] rightOn, 
+        LazyFrameHandle left,
+        LazyFrameHandle right,
+        ExprHandle[] leftOn,
+        ExprHandle[] rightOn,
         PlJoinType how,
         string? suffix,
         PlJoinValidation validation,
@@ -399,29 +399,29 @@ public readonly partial struct PolarsWrapper
     {
         var lPtrs = HandlesToPtrs(leftOn);
         var rPtrs = HandlesToPtrs(rightOn);
-        unsafe 
+        unsafe
         {
             long offsetVal = sliceOffset.GetValueOrDefault();
             IntPtr offsetPtr = sliceOffset.HasValue ? (IntPtr)(&offsetVal) : IntPtr.Zero;
 
             var h = NativeBindings.pl_lazyframe_join(
-                left, 
-                right, 
-                lPtrs, (UIntPtr)lPtrs.Length, 
-                rPtrs, (UIntPtr)rPtrs.Length, 
+                left,
+                right,
+                lPtrs, (UIntPtr)lPtrs.Length,
+                rPtrs, (UIntPtr)rPtrs.Length,
                 how,
-                suffix,         
+                suffix,
                 validation,
                 coalesce,
                 maintainOrder,
                 joinSide,
                 nullsEqual,
-                offsetPtr,      
+                offsetPtr,
                 (UIntPtr)sliceLen
             );
             left.TransferOwnership();
             right.TransferOwnership();
-        
+
             return ErrorHelper.Check(h);
         }
     }
@@ -451,7 +451,7 @@ public readonly partial struct PolarsWrapper
         var lByPtrs = HandlesToPtrs(leftBy ?? []);
         var rByPtrs = HandlesToPtrs(rightBy ?? []);
 
-        unsafe 
+        unsafe
         {
             // Tolerance Pointers
             long tIntVal = toleranceInt.GetValueOrDefault();
@@ -493,9 +493,9 @@ public readonly partial struct PolarsWrapper
         }
     }
     public static LazyFrameHandle JoinWhere(
-        LazyFrameHandle left, 
-        LazyFrameHandle right, 
-        ExprHandle[] predicates, 
+        LazyFrameHandle left,
+        LazyFrameHandle right,
+        ExprHandle[] predicates,
         PlJoinType how,
         string? suffix,
         PlJoinValidation validation,
@@ -506,11 +506,11 @@ public readonly partial struct PolarsWrapper
         var lPtrs = HandlesToPtrs(predicates);
 
         var h = NativeBindings.pl_lazyframe_join_where(
-            left, 
-            right, 
-            lPtrs, (nuint)lPtrs.Length, 
+            left,
+            right,
+            lPtrs, (nuint)lPtrs.Length,
             how,
-            suffix,         
+            suffix,
             validation,
             coalesce,
             maintainOrder,
@@ -518,13 +518,13 @@ public readonly partial struct PolarsWrapper
         );
         left.TransferOwnership();
         right.TransferOwnership();
-    
+
         return ErrorHelper.Check(h);
     }
     public struct PlMatchToSchemaConfig
     {
         public PlMissingColumnsPolicyType MissingColumnsType;
-        public ExprHandle? MissingColumnsExpr; 
+        public ExprHandle? MissingColumnsExpr;
         public PlMissingColumnsPolicy MissingStructFields;
         public PlExtraColumnsPolicy ExtraStructFields;
         public PlUpcastOrForbid IntegerCast;
@@ -534,12 +534,12 @@ public readonly partial struct PolarsWrapper
         LazyFrameHandle lf,
         SchemaHandle schema,
         PlExtraColumnsPolicy extraColumnsCode,
-        PlMatchToSchemaConfig defaultConfig, 
+        PlMatchToSchemaConfig defaultConfig,
         IReadOnlyDictionary<string, PlMatchToSchemaConfig>? overrides)
     {
         int ovLen = overrides?.Count ?? 0;
-        
-        string[]? ovNames = ovLen > 0 ? new string[ovLen] : null; 
+
+        string[]? ovNames = ovLen > 0 ? new string[ovLen] : null;
         byte[]? ovMissingType = ovLen > 0 ? new byte[ovLen] : null;
         IntPtr[]? ovMissingExprPtrs = ovLen > 0 ? new IntPtr[ovLen] : null;
         byte[]? ovMissingStruct = ovLen > 0 ? new byte[ovLen] : null;
@@ -555,8 +555,8 @@ public readonly partial struct PolarsWrapper
             foreach (var kvp in overrides)
             {
                 var cfg = kvp.Value;
-                
-                ovNames![i] = kvp.Key; 
+
+                ovNames![i] = kvp.Key;
                 ovMissingType![i] = (byte)cfg.MissingColumnsType;
                 ovMissingExprPtrs![i] = cfg.MissingColumnsExpr?.TransferOwnership() ?? IntPtr.Zero;
                 ovMissingStruct![i] = (byte)cfg.MissingStructFields;
@@ -577,7 +577,7 @@ public readonly partial struct PolarsWrapper
         );
 
         lf.TransferOwnership();
-        
+
         return ErrorHelper.Check(h);
     }
     public static LazyFrameHandle LazyFrameWithRowIndex(LazyFrameHandle lf, string name, int? offset = null)
@@ -593,7 +593,7 @@ public readonly partial struct PolarsWrapper
         string[] key,
         bool maintainOrder)
     {
-        var h = NativeBindings.pl_lazyframe_merge_sorted(lf,other,key,maintainOrder);
+        var h = NativeBindings.pl_lazyframe_merge_sorted(lf, other, key, maintainOrder);
         lf.TransferOwnership();
         other.TransferOwnership();
         return ErrorHelper.Check(h);
@@ -603,15 +603,15 @@ public readonly partial struct PolarsWrapper
         LazyFrameHandle index,
         bool nullOnOob)
     {
-        var h = NativeBindings.pl_lazyframe_gather(lf,index,nullOnOob);
+        var h = NativeBindings.pl_lazyframe_gather(lf, index, nullOnOob);
         lf.TransferOwnership();
         index.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static Task<DataFrameHandle> LazyCollectAsync(
-        LazyFrameHandle handle, 
+        LazyFrameHandle handle,
         PlEngine engine,
-        CancellationToken cancellationToken) 
+        CancellationToken cancellationToken)
             => Task.Run(() => LazyCollect(handle, engine), cancellationToken);
     public static CollectBatchesHandle LazyCollectBatches(
         LazyFrameHandle lf,

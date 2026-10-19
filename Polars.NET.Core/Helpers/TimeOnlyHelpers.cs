@@ -15,7 +15,7 @@ public static partial class ArrayHelper
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
-        
+
         long multiplier = 100;
 
         // Get ref to the first element
@@ -95,7 +95,7 @@ public static partial class ArrayHelper
             // Offset 0: Header (Bool)
             // Offset 1: Value (Ticks)
             long* pRawSrc = (long*)pSrc;
-            
+
             int i = 0;
             int limit = len - 4;
 
@@ -104,7 +104,7 @@ public static partial class ArrayHelper
             // =========================================================
             for (; i <= limit; i += 4)
             {
-                HandleTimeOnlyItem(i,     pRawSrc, pDst, ref validity, ref validRef, byteLen, multiplier);
+                HandleTimeOnlyItem(i, pRawSrc, pDst, ref validity, ref validRef, byteLen, multiplier);
                 HandleTimeOnlyItem(i + 1, pRawSrc, pDst, ref validity, ref validRef, byteLen, multiplier);
                 HandleTimeOnlyItem(i + 2, pRawSrc, pDst, ref validity, ref validRef, byteLen, multiplier);
                 HandleTimeOnlyItem(i + 3, pRawSrc, pDst, ref validity, ref validRef, byteLen, multiplier);
@@ -123,7 +123,7 @@ public static partial class ArrayHelper
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static unsafe void HandleTimeOnlyItem(
         int i,
-        long* pRawSrc, 
+        long* pRawSrc,
         long* pDst,
         ref byte[]? validity,
         ref byte validRef,
@@ -133,16 +133,16 @@ public static partial class ArrayHelper
         // Calc current element ptr location
         // i * 2 because long* ptr +1 will move 8 bytes，but Item is 16 bytes
         long* pItem = pRawSrc + (i * 2);
-        
+
         // Read Header (Bool + Padding)
         // If Lower 8 bits != 0，that means HasValue
-        byte hasValue = *(byte*)pItem; 
+        byte hasValue = *(byte*)pItem;
 
         if (hasValue != 0)
         {
             // Read Value 
             long ticks = *(pItem + 1);
-            
+
             // Ticks * 100 = ns
             pDst[i] = ticks * multiplier;
 
@@ -161,15 +161,15 @@ public static partial class ArrayHelper
             {
                 validity = new byte[byteLen];
                 validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                
+
                 // Backfill valid bits (0..i-1)
                 int bytesToFill = i >> 3;
                 if (bytesToFill > 0) Unsafe.InitBlock(ref validRef, 0xFF, (uint)bytesToFill);
                 int remainingBits = i & 7;
                 if (remainingBits > 0) Unsafe.Add(ref validRef, bytesToFill) = (byte)((1 << remainingBits) - 1);
             }
-            
-            pDst[i] = 0; 
+
+            pDst[i] = 0;
         }
     }
 }

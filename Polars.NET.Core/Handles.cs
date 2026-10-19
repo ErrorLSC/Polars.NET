@@ -29,10 +29,10 @@ public class ExprHandle : PolarsHandle
     }
     internal ExprHandle(IntPtr ptr) => SetHandle(ptr);
 
-    public ExprHandle() 
-    { 
+    public ExprHandle()
+    {
     }
-    
+
 }
 
 public class DataTypeExprHandle : PolarsHandle
@@ -44,10 +44,10 @@ public class DataTypeExprHandle : PolarsHandle
     }
     internal DataTypeExprHandle(IntPtr ptr) => SetHandle(ptr);
 
-    public DataTypeExprHandle() 
-    { 
+    public DataTypeExprHandle()
+    {
     }
-    
+
 }
 
 // 3. DataFrame Handle
@@ -55,10 +55,10 @@ public class DataFrameHandle : PolarsHandle
 {
     internal DataFrameHandle(IntPtr ptr) => SetHandle(ptr);
 
-    public DataFrameHandle() 
-    { 
+    public DataFrameHandle()
+    {
     }
-    
+
     protected override bool ReleaseHandle()
     {
         NativeBindings.pl_dataframe_free(handle);

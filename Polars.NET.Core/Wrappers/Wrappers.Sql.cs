@@ -5,22 +5,22 @@ namespace Polars.NET.Core;
 
 public readonly partial struct PolarsWrapper
 {
-    public static SqlContextHandle SqlContextNew() 
+    public static SqlContextHandle SqlContextNew()
         => ErrorHelper.Check(NativeBindings.pl_sql_context_new());
 
     public static void SqlRegister(SqlContextHandle ctx, string name, LazyFrameHandle lf)
     {
         NativeBindings.pl_sql_context_register(ctx, name, lf);
-        
+
         lf.TransferOwnership();
-        
+
         ErrorHelper.CheckVoid();
     }
 
     public static void SqlUnRegister(SqlContextHandle ctx, string name)
     {
         NativeBindings.pl_sql_context_unregister(ctx, name);
-        
+
         ErrorHelper.CheckVoid();
     }
 
@@ -29,7 +29,7 @@ public readonly partial struct PolarsWrapper
     public static string[] SqlGetTables(SqlContextHandle ctx)
     {
         IntPtr ptr = NativeBindings.pl_sql_context_get_tables(ctx, out nuint len);
-        
+
         ErrorHelper.CheckVoid();
 
         if (ptr == IntPtr.Zero)
@@ -49,10 +49,10 @@ public readonly partial struct PolarsWrapper
             for (int i = 0; i < (int)len; i++)
             {
                 IntPtr strPtr = Marshal.ReadIntPtr(ptr, i * IntPtr.Size);
-                
+
                 tables[i] = Marshal.PtrToStringUTF8(strPtr) ?? string.Empty;
             }
-            
+
             return tables;
         }
         finally

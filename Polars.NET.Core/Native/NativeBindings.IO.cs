@@ -21,12 +21,12 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_csv(
         string path,
-        
+
         // --- 1. Core Configs ---
         [MarshalAs(UnmanagedType.U1)] bool has_header,
         byte separator,
-        byte quote_char,       
-        byte eol_char,         
+        byte quote_char,
+        byte eol_char,
         [MarshalAs(UnmanagedType.U1)] bool ignore_errors,
         [MarshalAs(UnmanagedType.U1)] bool try_parse_dates,
         [MarshalAs(UnmanagedType.U1)] bool low_memory,
@@ -56,19 +56,19 @@ unsafe internal partial class NativeBindings
         PlCsvEncoding encoding,
 
         // --- 5. Advanced Parsing ---
-        string[]? null_values, 
+        string[]? null_values,
         nuint null_values_len,
         [MarshalAs(UnmanagedType.U1)] bool missing_is_null,
         string? comment_prefix,
         [MarshalAs(UnmanagedType.U1)] bool decimal_comma,
         [MarshalAs(UnmanagedType.U1)] bool truncate_ragged_lines,
-        
+
         // --- 6. Cloud Params ---
         PlCloudProvider cloud_provider,
         nuint cloud_retries,
-        ulong cloud_retry_timeout_ms,      
-        ulong cloud_retry_init_backoff_ms, 
-        ulong cloud_retry_max_backoff_ms,  
+        ulong cloud_retry_timeout_ms,
+        ulong cloud_retry_init_backoff_ms,
+        ulong cloud_retry_max_backoff_ms,
         ulong cloud_cache_ttl,
         string[]? cloud_keys,
         string[]? cloud_values,
@@ -79,12 +79,12 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_scan_csv_mem(
         byte* bufferPtr,        // Buffer Pointer
         nuint bufferLen,      // Buffer Length
-        
+
         // --- 1. Core Configs ---
         [MarshalAs(UnmanagedType.U1)] bool has_header,
         byte separator,
-        byte quote_char,       
-        byte eol_char,         
+        byte quote_char,
+        byte eol_char,
         [MarshalAs(UnmanagedType.U1)] bool ignore_errors,
         [MarshalAs(UnmanagedType.U1)] bool try_parse_dates,
         [MarshalAs(UnmanagedType.U1)] bool low_memory,
@@ -114,14 +114,14 @@ unsafe internal partial class NativeBindings
         PlCsvEncoding encoding,
 
         // --- 5. Advanced Parsing ---
-        string[]? null_values, 
+        string[]? null_values,
         nuint null_values_len,
         [MarshalAs(UnmanagedType.U1)] bool missing_is_null,
         string? comment_prefix,
         [MarshalAs(UnmanagedType.U1)] bool decimal_comma,
         [MarshalAs(UnmanagedType.U1)] bool truncate_ragged_lines
     );
- 
+
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_lazyframe_sink_csv(
         LazyFrameHandle lf,
@@ -131,11 +131,11 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool include_bom,
         [MarshalAs(UnmanagedType.U1)] bool include_header,
         nuint batch_size,
-        [MarshalAs(UnmanagedType.U1)] bool check_extension, 
+        [MarshalAs(UnmanagedType.U1)] bool check_extension,
 
         // --- Compression ---
-        PlExternalCompression compression_code, 
-        int compression_level, 
+        PlExternalCompression compression_code,
+        int compression_level,
 
         // --- SerializeOptions  ---
         string? date_format,
@@ -148,11 +148,11 @@ unsafe internal partial class NativeBindings
         byte quote_char,
         string? null_value,
         string? line_terminator,
-        PlQuoteStyle quote_style, 
+        PlQuoteStyle quote_style,
 
         // --- UnifiedSinkArgs ---
         [MarshalAs(UnmanagedType.U1)] bool maintain_order,
-        PlSyncOnClose sync_on_close, 
+        PlSyncOnClose sync_on_close,
         [MarshalAs(UnmanagedType.U1)] bool mkdir,
 
         // --- Cloud Options ---
@@ -180,11 +180,11 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool include_bom,
         [MarshalAs(UnmanagedType.U1)] bool include_header,
         nuint batch_size,
-        [MarshalAs(UnmanagedType.U1)] bool check_extension, 
+        [MarshalAs(UnmanagedType.U1)] bool check_extension,
 
         // --- Compression ---
-        PlExternalCompression compression_code, 
-        int compression_level, 
+        PlExternalCompression compression_code,
+        int compression_level,
 
         // --- SerializeOptions  ---
         string? date_format,
@@ -197,11 +197,11 @@ unsafe internal partial class NativeBindings
         byte quote_char,
         string? null_value,
         string? line_terminator,
-        PlQuoteStyle quote_style, 
+        PlQuoteStyle quote_style,
 
         // --- UnifiedSinkArgs ---
         [MarshalAs(UnmanagedType.U1)] bool maintain_order,
-        PlSyncOnClose sync_on_close, 
+        PlSyncOnClose sync_on_close,
         [MarshalAs(UnmanagedType.U1)] bool mkdir,
 
         // --- Cloud Options ---
@@ -243,7 +243,7 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool maintain_order
     );
     // Parquet
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_parquet(
         string path,
         IntPtr n_rows, // null for None
@@ -252,8 +252,8 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool use_statistics,
         [MarshalAs(UnmanagedType.U1)] bool glob,
         [MarshalAs(UnmanagedType.U1)] bool allow_missing_columns,
-        [MarshalAs(UnmanagedType.U1)] bool rechunk, 
-        [MarshalAs(UnmanagedType.U1)] bool cache,   
+        [MarshalAs(UnmanagedType.U1)] bool rechunk,
+        [MarshalAs(UnmanagedType.U1)] bool cache,
         string? row_index_name,
         uint row_index_offset,
         string? include_path_col,
@@ -272,7 +272,7 @@ unsafe internal partial class NativeBindings
         string[]? cloud_values,
         UIntPtr cloud_len
     );
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_parquet_memory(
         IntPtr buffer_ptr,
         UIntPtr buffer_len,
@@ -282,8 +282,8 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool use_statistics,
         [MarshalAs(UnmanagedType.U1)] bool glob,
         [MarshalAs(UnmanagedType.U1)] bool allow_missing_columns,
-        [MarshalAs(UnmanagedType.U1)] bool rechunk, 
-        [MarshalAs(UnmanagedType.U1)] bool cache,   
+        [MarshalAs(UnmanagedType.U1)] bool rechunk,
+        [MarshalAs(UnmanagedType.U1)] bool cache,
         string? row_index_name,
         uint row_index_offset,
         string? include_path_col,
@@ -295,7 +295,7 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_lazyframe_sink_parquet(
-        LazyFrameHandle lf, 
+        LazyFrameHandle lf,
         string path,
         // --- ParquetWriteOptions ---
         PlParquetCompression compression,
@@ -361,13 +361,13 @@ unsafe internal partial class NativeBindings
         out FfiBuffer out_buffer,
 
         // --- Parquet Options ---
-        PlParquetCompression compression, 
+        PlParquetCompression compression,
         int compression_level,
-        [MarshalAs(UnmanagedType.U1)] bool statistics,       
-        nuint row_group_size,  
+        [MarshalAs(UnmanagedType.U1)] bool statistics,
+        nuint row_group_size,
         nuint data_page_size,
         int compat_level,
-        
+
         // --- Unified Options ---
         [MarshalAs(UnmanagedType.U1)] bool maintain_order
     );
@@ -380,9 +380,9 @@ unsafe internal partial class NativeBindings
         // columns (Option<Vec<String>>)
         string[]? columns, UIntPtr columnsLen,
         // schema (Option<Schema>)
-        IntPtr schema, 
+        IntPtr schema,
         // infer_schema_len (Option<usize>) -> pointer to usize
-        IntPtr inferSchemaLen, 
+        IntPtr inferSchemaLen,
         // batch_size (Option<usize>) -> pointer to usize
         IntPtr batchSize,
         // ignore_errors (bool)
@@ -456,13 +456,13 @@ unsafe internal partial class NativeBindings
     // -----------------------------------------------------
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_dataframe_write_json(
-        DataFrameHandle df, 
+        DataFrameHandle df,
         string path,
         PlJsonFormat jsonFormat
     );
     [LibraryImport(LibName)]
     public static partial void pl_dataframe_write_json_memory(
-        DataFrameHandle df, 
+        DataFrameHandle df,
         out FfiBuffer out_buffer,
         PlJsonFormat jsonFormat
     );
@@ -545,7 +545,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_ipc(
         string path,
-        
+
         // --- Unified Args ---
         IntPtr nRows,
         [MarshalAs(UnmanagedType.U1)] bool rechunk,
@@ -554,19 +554,19 @@ unsafe internal partial class NativeBindings
         string? rowIndexName,
         uint rowIndexOffset,
         string? includePathColumn,
-        
+
         // --- Schema & Hive ---
         IntPtr schema,
         [MarshalAs(UnmanagedType.U1)] bool hivePartitioning,
         IntPtr hiveSchema,
         [MarshalAs(UnmanagedType.U1)] bool tryParseHiveDates,
-        
+
         // --- Cloud Params ---
         PlCloudProvider cloudProvider,
         nuint cloudRetries,
-        ulong cloudRetryTimeoutMs,      
-        ulong cloudRetryInitBackoffMs, 
-        ulong cloudRetryMaxBackoffMs,  
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
         string[]? cloudValues,
@@ -578,9 +578,9 @@ unsafe internal partial class NativeBindings
     // ---------------------------------------------------------
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_ipc_memory(
-        byte* buffer, 
+        byte* buffer,
         nuint bufferLen,
-        
+
         // --- Unified Args ---
         nint nRows,
         [MarshalAs(UnmanagedType.U1)] bool rechunk,
@@ -588,7 +588,7 @@ unsafe internal partial class NativeBindings
         string? rowIndexName,
         uint rowIndexOffset,
         string? includePathColumn,
-        
+
         // --- Schema & Hive ---
         nint schema,
         [MarshalAs(UnmanagedType.U1)] bool hivePartitioning,
@@ -648,19 +648,19 @@ unsafe internal partial class NativeBindings
         string path,
 
         // --- IpcWriterOptions params ---
-        PlIpcCompression compression, 
+        PlIpcCompression compression,
         int compat_level,
-        nuint record_batch_size,      
-        [MarshalAs(UnmanagedType.U1)] bool record_batch_statistics, 
+        nuint record_batch_size,
+        [MarshalAs(UnmanagedType.U1)] bool record_batch_statistics,
 
         // --- UnifiedSinkArgs params ---
         [MarshalAs(UnmanagedType.U1)] bool maintain_order,
-        PlSyncOnClose sync_on_close,  
+        PlSyncOnClose sync_on_close,
         [MarshalAs(UnmanagedType.U1)] bool mkdir,
 
         // --- Cloud Options ---
-        PlCloudProvider cloud_provider, 
-        nuint cloud_retries,            
+        PlCloudProvider cloud_provider,
+        nuint cloud_retries,
         ulong cloud_retry_timeout_ms,
         ulong cloud_retry_init_backoff_ms,
         ulong cloud_retry_max_backoff_ms,
@@ -681,19 +681,19 @@ unsafe internal partial class NativeBindings
         nuint max_rows_per_file,
         ulong approx_bytes_per_file,
         // --- IpcWriterOptions params ---
-        PlIpcCompression compression, 
+        PlIpcCompression compression,
         int compat_level,
-        nuint record_batch_size,      
-        [MarshalAs(UnmanagedType.U1)] bool record_batch_statistics, 
+        nuint record_batch_size,
+        [MarshalAs(UnmanagedType.U1)] bool record_batch_statistics,
 
         // --- UnifiedSinkArgs params ---
         [MarshalAs(UnmanagedType.U1)] bool maintain_order,
-        PlSyncOnClose sync_on_close,  
+        PlSyncOnClose sync_on_close,
         [MarshalAs(UnmanagedType.U1)] bool mkdir,
 
         // --- Cloud Options ---
-        PlCloudProvider cloud_provider, 
-        nuint cloud_retries,            
+        PlCloudProvider cloud_provider,
+        nuint cloud_retries,
         ulong cloud_retry_timeout_ms,
         ulong cloud_retry_init_backoff_ms,
         ulong cloud_retry_max_backoff_ms,
@@ -708,10 +708,10 @@ unsafe internal partial class NativeBindings
         out FfiBuffer out_buffer,
 
         // --- IpcWriterOptions params ---
-        PlIpcCompression compression, 
+        PlIpcCompression compression,
         int compat_level,
-        nuint record_batch_size,      
-        [MarshalAs(UnmanagedType.U1)] bool record_batch_statistics, 
+        nuint record_batch_size,
+        [MarshalAs(UnmanagedType.U1)] bool record_batch_statistics,
 
         // --- UnifiedSinkArgs params ---
         [MarshalAs(UnmanagedType.U1)] bool maintain_order
@@ -756,7 +756,7 @@ unsafe internal partial class NativeBindings
     // Avro - Memory Buffer
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static unsafe partial DataFrameHandle pl_read_avro_mem(
-        byte* bufferPtr,    
+        byte* bufferPtr,
         nuint bufferLen,
         IntPtr nRowsPtr,
         string[]? columns,
@@ -767,9 +767,9 @@ unsafe internal partial class NativeBindings
     // Write Avro
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_write_avro(
-        DataFrameHandle df, 
-        string path, 
-        PlAvroCompression compressionType, 
+        DataFrameHandle df,
+        string path,
+        PlAvroCompression compressionType,
         string name
     );
     // Write Avro Buffer

@@ -75,8 +75,8 @@ public readonly partial struct PolarsWrapper
             try
             {
                 var h = NativeBindings.pl_expr_map(expr, callback, outputType, s_cleanupDelegate, GCHandle.ToIntPtr(handle));
-                var checkedHandle = ErrorHelper.Check(h);   
-                expr.TransferOwnership();                   
+                var checkedHandle = ErrorHelper.Check(h);
+                expr.TransferOwnership();
                 return checkedHandle;
             }
             catch
@@ -121,8 +121,8 @@ public readonly partial struct PolarsWrapper
                 var h = NativeBindings.pl_expr_map_many(
                     main, argsPtrs, (nuint)argsPtrs.Length,
                     callback, outputType, s_cleanupDelegate, GCHandle.ToIntPtr(handle));
-                var checkedHandle = ErrorHelper.Check(h);  
-                main.TransferOwnership();                   
+                var checkedHandle = ErrorHelper.Check(h);
+                main.TransferOwnership();
                 return checkedHandle;
             }
             catch
@@ -135,12 +135,12 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle MapStringPredicate(ExprHandle expr, Func<string?, bool> predicate)
     {
         var boolDtype = NewPrimitiveType((int)PlDataType.Boolean);
-        
+
         return Map(expr, arrowArray =>
         {
             var strViewArray = (StringViewArray)arrowArray;
             var builder = new BooleanArray.Builder();
-            
+
             for (int i = 0; i < strViewArray.Length; i++)
             {
                 if (strViewArray.IsNull(i))
@@ -153,19 +153,19 @@ public readonly partial struct PolarsWrapper
                     builder.Append(predicate(val));
                 }
             }
-            
+
             return builder.Build();
         }, boolDtype);
     }
     public static ExprHandle MapStringTransform(ExprHandle expr, Func<string?, string?> transform)
     {
         var strDtype = NewPrimitiveType((int)PlDataType.String);
-        
+
         return Map(expr, arrowArray =>
         {
             var strViewArray = (StringViewArray)arrowArray;
             var builder = new StringViewArray.Builder();
-            
+
             for (int i = 0; i < strViewArray.Length; i++)
             {
                 if (strViewArray.IsNull(i))
@@ -180,7 +180,7 @@ public readonly partial struct PolarsWrapper
                     else builder.Append(res);
                 }
             }
-            
+
             return builder.Build();
         }, strDtype);
     }

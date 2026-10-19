@@ -4,7 +4,7 @@ namespace Polars.NET.Core.Helpers;
 
 internal static class JsonNormalizeHelper
 {
-    internal static readonly Func<object?, string> DefaultEncoder = 
+    internal static readonly Func<object?, string> DefaultEncoder =
         obj => JsonSerializer.Serialize(obj);
 
     private static void NormalizeJson(
@@ -98,15 +98,15 @@ internal static class JsonNormalizeHelper
                 return normalizedList;
             }
         }
-        
-        return data; 
+
+        return data;
     }
     /// <summary>
     /// Recursively convert a <see cref="JsonElement"/> into a corresponding CLR object.
     /// </summary>
     /// <param name="element">The JSON element to convert.</param>
     /// <returns>
-    /// A boxed primitive (string, long, double, bool), null, 
+    /// A boxed primitive (string, long, double, bool), null,
     /// a <see cref="Dictionary{string, object?}"/> for JSON objects,
     /// or an <see cref="List{object?}"/> for JSON arrays.
     /// </returns>

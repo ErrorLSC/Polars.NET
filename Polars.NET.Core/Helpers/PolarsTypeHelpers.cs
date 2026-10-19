@@ -95,7 +95,7 @@ public static class PolarsTypeHelper
 
         if (IsFSharpRecord(type))
         {
-            return FSharpType.GetRecordFields(type,null);
+            return FSharpType.GetRecordFields(type, null);
         }
 
         var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
@@ -279,7 +279,7 @@ public static class PolarsTypeHelper
             return false;
 
         // 4. Exclude System.Tuple and System.ValueTuple (used for Zip/Joins)
-        if (core.FullName != null && 
+        if (core.FullName != null &&
            (core.FullName.StartsWith("System.Tuple") || core.FullName.StartsWith("System.ValueTuple")))
             return false;
 

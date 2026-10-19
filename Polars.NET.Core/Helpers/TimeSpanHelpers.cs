@@ -24,7 +24,7 @@ public static partial class ArrayHelper
         {
             // TimeSpan is long (Ticks)
             long* pRawSrc = (long*)pSrc;
-            
+
             int i = 0;
             int limit = len - 8;
 
@@ -33,7 +33,7 @@ public static partial class ArrayHelper
             // =========================================================
             for (; i <= limit; i += 8)
             {
-                pDst[i]     = pRawSrc[i]     / 10;
+                pDst[i] = pRawSrc[i] / 10;
                 pDst[i + 1] = pRawSrc[i + 1] / 10;
                 pDst[i + 2] = pRawSrc[i + 2] / 10;
                 pDst[i + 3] = pRawSrc[i + 3] / 10;
@@ -51,7 +51,7 @@ public static partial class ArrayHelper
         }
         return values;
     }
-    
+
     /// <summary>
     /// [Scalar Extreme] ReadOnlySpan<TimeSpan?> -> (Int64[], Validity)
     /// Layout: 16 Bytes [Bool(1), Pad(7), Ticks(8)]
@@ -73,13 +73,13 @@ public static partial class ArrayHelper
         {
             // convert to 2 long* (16 bytes)
             long* pRawSrc = (long*)pSrc;
-            
+
             int i = 0;
             int limit = len - 4; // Unroll 4 (Cache Line friendly for 16-byte items)
 
             for (; i <= limit; i += 4)
             {
-                HandleTimeSpanItem(i,     pRawSrc, pDst, ref validity, ref validRef, byteLen);
+                HandleTimeSpanItem(i, pRawSrc, pDst, ref validity, ref validRef, byteLen);
                 HandleTimeSpanItem(i + 1, pRawSrc, pDst, ref validity, ref validRef, byteLen);
                 HandleTimeSpanItem(i + 2, pRawSrc, pDst, ref validity, ref validRef, byteLen);
                 HandleTimeSpanItem(i + 3, pRawSrc, pDst, ref validity, ref validRef, byteLen);
@@ -105,15 +105,15 @@ public static partial class ArrayHelper
     {
         // Calc Current Item Address
         long* pItem = pRawSrc + (i * 2);
-        
+
         // Header (Bool)
-        byte hasValue = *(byte*)pItem; 
+        byte hasValue = *(byte*)pItem;
 
         if (hasValue != 0)
         {
             // Value (Offset 8 bytes)
             long ticks = *(pItem + 1);
-            
+
             // Logic: Ticks / 10
             pDst[i] = ticks / 10;
 
@@ -137,7 +137,7 @@ public static partial class ArrayHelper
                 int remainingBits = i & 7;
                 if (remainingBits > 0) Unsafe.Add(ref validRef, bytesToFill) = (byte)((1 << remainingBits) - 1);
             }
-            pDst[i] = 0; 
+            pDst[i] = 0;
         }
     }
 }
@@ -154,7 +154,7 @@ public static class DurationFormatter
         var sb = new StringBuilder();
 
         // Polars suffixs: ns, us, ms, s, m, h, d, w
-        
+
         // 1. Days (d)
         if (ts.Days > 0) sb.Append($"{ts.Days}d");
 
@@ -178,7 +178,7 @@ public static class DurationFormatter
 
         return sb.ToString();
     }
-    
+
     [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(ts))]
     public static string? ToPolarsString(TimeSpan? ts)
     {
@@ -189,10 +189,10 @@ public static class DurationFormatter
 public static class PolarsExtensions
 {
     // ts.ToPolarsDuration()
-    public static string ToPolarsDuration(this TimeSpan ts) 
+    public static string ToPolarsDuration(this TimeSpan ts)
         => DurationFormatter.ToPolarsString(ts);
 
     // tsNullable.ToPolarsDuration()
-    public static string? ToPolarsDuration(this TimeSpan? ts) 
+    public static string? ToPolarsDuration(this TimeSpan? ts)
         => DurationFormatter.ToPolarsString(ts);
 }

@@ -1,9 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Linq.Expressions;
 using Polars.NET.Linq;
-using Xunit;
 
 namespace Polars.CSharp.Tests;
 
@@ -53,8 +49,8 @@ public class QueryCacheKeyTests
     [Trait("LINQ", "QueryCacheKey")]
     public void ExtractedParameters_SameNormalizedShape_AreEqual()
     {
-        const int threshold1 = 25;
-        const int threshold2 = 50;
+        var threshold1 = 25;
+        var threshold2 = 50;
 
         Expression<Func<Person, bool>> expr1 = p => p.Age > threshold1;
         Expression<Func<Person, bool>> expr2 = p => p.Age > threshold2;
@@ -128,11 +124,11 @@ public class QueryCacheKeyTests
     [Trait("LINQ", "QueryCacheKey")]
     public void ComplexQuery_NormalizedParameterExtraction_CacheHit()
     {
-        const string brand1 = "Brand#23";
-        const string container1 = "MED BOX";
+        var brand1 = "Brand#23";
+        var container1 = "MED BOX";
 
-        const string brand2 = "Brand#45";
-        const string container2 = "SM PKG";
+        var brand2 = "Brand#45";
+        var container2 = "SM PKG";
 
         Expression<Func<Person, bool>> q1 = p => p.Name == brand1 && p.Age > (container1.Length);
         Expression<Func<Person, bool>> q2 = p => p.Name == brand2 && p.Age > (container2.Length);

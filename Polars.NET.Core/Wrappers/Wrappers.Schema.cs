@@ -33,10 +33,10 @@ public readonly partial struct PolarsWrapper
     /// </summary>
     public static ulong GetSchemaLen(SchemaHandle schema)
     {
-        bool success = NativeBindings.pl_schema_len(schema,out uint len);
-        
-        ErrorHelper.CheckBool(success); 
-        
+        bool success = NativeBindings.pl_schema_len(schema, out uint len);
+
+        ErrorHelper.CheckBool(success);
+
         return len;
     }
     /// <summary>
@@ -45,13 +45,13 @@ public readonly partial struct PolarsWrapper
     public static void GetSchemaFieldAt(SchemaHandle schema, ulong index, out string name, out DataTypeHandle typeHandle)
     {
         bool success = NativeBindings.pl_schema_get_at_index(
-                schema, 
-                (UIntPtr)index, 
-                out IntPtr namePtr, 
+                schema,
+                (UIntPtr)index,
+                out IntPtr namePtr,
                 out var outTypeHandle
             );
 
-        ErrorHelper.CheckBool(success); 
+        ErrorHelper.CheckBool(success);
 
         typeHandle = ErrorHelper.Check(outTypeHandle);
 
@@ -68,7 +68,7 @@ public readonly partial struct PolarsWrapper
             handlesLock.Pointers[1]
         );
 
-        ErrorHelper.CheckVoid(); 
+        ErrorHelper.CheckVoid();
     }
     /// <summary>
     /// Create a SchemaHandle directly from a .NET Type by leveraging Apache Arrow Type resolution.
@@ -80,7 +80,7 @@ public readonly partial struct PolarsWrapper
         ArgumentNullException.ThrowIfNull(type);
 
         var members = ArrowTypeResolver.GetReadableMembers(type);
-        
+
         var names = new string[members.Length];
         var typeHandles = new DataTypeHandle[members.Length];
 
@@ -88,10 +88,10 @@ public readonly partial struct PolarsWrapper
         {
             var member = members[i];
             names[i] = member.Name;
-            
+
             var memberType = ArrowTypeResolver.GetMemberType(member);
             var arrowType = ArrowTypeResolver.GetArrowTypeFromNetType(memberType);
-            
+
             typeHandles[i] = MapArrowToDataTypeHandle(arrowType);
         }
 
@@ -122,12 +122,12 @@ public readonly partial struct PolarsWrapper
             // String & Binary
             StringType or StringViewType or LargeStringType => NewPrimitiveType((int)PlDataType.String),
             BinaryType or BinaryViewType or LargeBinaryType or FixedSizeBinaryType => NewPrimitiveType((int)PlDataType.Binary),
-            
-            
+
+
             // Date & Time
             Date32Type or Date64Type => NewPrimitiveType((int)PlDataType.Date),
             Time32Type or Time64Type => NewPrimitiveType((int)PlDataType.Time),
-            
+
             TimestampType ts => NewDateTimeType(
                 ts.Unit switch
                 {
@@ -136,7 +136,7 @@ public readonly partial struct PolarsWrapper
                     TimeUnit.Millisecond => 2,  // ms
                     _ => 1
                 }, ts.Timezone),
-                
+
             DurationType dur => NewDurationType(
                 dur.Unit switch
                 {
@@ -145,15 +145,15 @@ public readonly partial struct PolarsWrapper
                     TimeUnit.Millisecond => 2,
                     _ => 1
                 }),
-                
+
             ListType list => NewListType(MapArrowToDataTypeHandle(list.ValueDataType)),
             LargeListType lList => NewListType(MapArrowToDataTypeHandle(lList.ValueDataType)),
             FixedSizeListType fList => NewArrayType(MapArrowToDataTypeHandle(fList.ValueDataType), (uint)fList.ListSize),
-            
+
             StructType str => NewStructType(
                 [.. str.Fields.Select(f => f.Name)],
                 [.. str.Fields.Select(f => MapArrowToDataTypeHandle(f.DataType))]),
-                
+
             NullType => NewPrimitiveType((int)PlDataType.Null),
             _ => NewPrimitiveType((int)PlDataType.Unknown)
         };

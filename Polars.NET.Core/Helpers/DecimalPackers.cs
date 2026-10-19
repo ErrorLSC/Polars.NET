@@ -31,11 +31,11 @@ public static unsafe class DecimalPacker
         {
             // decimal is 16 bytes (4 int)
             int* pInt = (int*)pSrc;
-            
+
             // Unroll 
             for (int i = 0; i < len; i++)
             {
-                int flags = pInt[i * 4]; 
+                int flags = pInt[i * 4];
                 byte s = (byte)((flags >> 16) & 0xFF);
                 if (s > maxScale) maxScale = s;
             }
@@ -50,16 +50,16 @@ public static unsafe class DecimalPacker
             // pSrc -> decimal[] Array
             // treat it as int array
             int* pRawDec = (int*)pSrc;
-            
+
             for (int i = 0; i < len; i++)
             {
                 // Calc decimal int* start position
                 int baseIdx = i * 4;
-                
+
                 int flags = pRawDec[baseIdx];     // [0] Flags
-                int hi    = pRawDec[baseIdx + 1]; // [1] Hi
-                int lo    = pRawDec[baseIdx + 2]; // [2] Lo
-                int mid   = pRawDec[baseIdx + 3]; // [3] Mid
+                int hi = pRawDec[baseIdx + 1]; // [1] Hi
+                int lo = pRawDec[baseIdx + 2]; // [2] Lo
+                int mid = pRawDec[baseIdx + 3]; // [3] Mid
 
                 // Assemble 96-bit Mantissa -> Int128
                 Int128 mantissa = ((Int128)(uint)hi << 64) | ((Int128)(uint)mid << 32) | (Int128)(uint)lo;
@@ -73,21 +73,21 @@ public static unsafe class DecimalPacker
                 // Rescale
                 int currentScale = (flags >> 16) & 0xFF;
                 int diff = maxScale - currentScale;
-                
-                if (diff > 0) 
+
+                if (diff > 0)
                 {
-                    try 
+                    try
                     {
-                        checked 
+                        checked
                         {
                             mantissa *= PowersOf10Int128[diff];
                         }
                     }
                     catch (OverflowException)
                     {
-                         throw new OverflowException(
-                            $"Decimal overflow at index {i}. " +
-                            $"Item cannot be rescaled to Scale {maxScale} without exceeding 38-digit limit.");
+                        throw new OverflowException(
+                           $"Decimal overflow at index {i}. " +
+                           $"Item cannot be rescaled to Scale {maxScale} without exceeding 38-digit limit.");
                     }
                 }
 
@@ -117,12 +117,12 @@ public static unsafe class DecimalPacker
                 if (s > maxScale) maxScale = s;
             }
         }
-        
+
         // Pass 2: Convert
         var values = GC.AllocateUninitializedArray<Int128>(len);
         byte[]? validity = null;
         ref byte validRef = ref Unsafe.NullRef<byte>();
-        
+
         fixed (Int128* pDst = values)
         {
             ref Int128 dstRef = ref MemoryMarshal.GetArrayDataReference(values);
@@ -130,17 +130,17 @@ public static unsafe class DecimalPacker
             for (int i = 0; i < len; i++)
             {
                 ref decimal? item = ref Unsafe.Add(ref srcRef, i);
-                
+
                 if (item.HasValue)
                 {
                     decimal d = item.GetValueOrDefault();
-                    
+
                     int* pDec = (int*)Unsafe.AsPointer(ref d);
-                    
+
                     int flags = pDec[0];
-                    int hi    = pDec[1];
-                    int lo    = pDec[2];
-                    int mid   = pDec[3];
+                    int hi = pDec[1];
+                    int lo = pDec[2];
+                    int mid = pDec[3];
 
                     Int128 mantissa = ((Int128)(uint)hi << 64) | ((Int128)(uint)mid << 32) | (Int128)(uint)lo;
 
@@ -148,14 +148,14 @@ public static unsafe class DecimalPacker
                     {
                         mantissa = -mantissa;
                     }
-                    
+
                     int scale = (flags >> 16) & 0xFF;
                     int diff = maxScale - scale;
-                    if (diff > 0) 
+                    if (diff > 0)
                     {
-                        try 
+                        try
                         {
-                            checked 
+                            checked
                             {
                                 mantissa *= PowersOf10Int128[diff];
                             }
@@ -167,9 +167,9 @@ public static unsafe class DecimalPacker
                                 $"Item cannot be rescaled to Scale {maxScale} without exceeding 38-digit limit.");
                         }
                     }
-                    
+
                     Unsafe.Add(ref dstRef, i) = mantissa;
-                    
+
                     if (validity != null)
                     {
                         if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
@@ -217,14 +217,14 @@ public static unsafe class DecimalPacker
         fixed (Int128* pDst = values)
         {
             int* pRawDec = (int*)pSrc;
-            
+
             for (int i = 0; i < len; i++)
             {
                 int baseIdx = i * 4;
                 int flags = pRawDec[baseIdx];
-                int hi    = pRawDec[baseIdx + 1];
-                int lo    = pRawDec[baseIdx + 2];
-                int mid   = pRawDec[baseIdx + 3];
+                int hi = pRawDec[baseIdx + 1];
+                int lo = pRawDec[baseIdx + 2];
+                int mid = pRawDec[baseIdx + 3];
 
                 Int128 mantissa = ((Int128)(uint)hi << 64) | ((Int128)(uint)mid << 32) | (Int128)(uint)lo;
 
@@ -232,12 +232,12 @@ public static unsafe class DecimalPacker
 
                 int currentScale = (flags >> 16) & 0xFF;
                 int diff = maxScale - currentScale;
-                
-                if (diff > 0) 
+
+                if (diff > 0)
                 {
-                    try 
+                    try
                     {
-                        checked 
+                        checked
                         {
                             mantissa *= PowersOf10Int128[diff];
                         }
@@ -245,9 +245,9 @@ public static unsafe class DecimalPacker
                     catch (OverflowException)
                     {
 
-                         throw new OverflowException(
-                            $"Decimal overflow at index {i}. " +
-                            $"Item cannot be rescaled to Scale {maxScale} without exceeding 38-digit limit.");
+                        throw new OverflowException(
+                           $"Decimal overflow at index {i}. " +
+                           $"Item cannot be rescaled to Scale {maxScale} without exceeding 38-digit limit.");
                     }
                 }
 

@@ -10,7 +10,7 @@ unsafe internal partial class NativeBindings
     public static partial void pl_datatype_free(IntPtr ptr);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_datatype_export_arrow_schema(DataTypeHandle dataTypePtr,CArrowSchema* outSchema);
+    public static partial bool pl_datatype_export_arrow_schema(DataTypeHandle dataTypePtr, CArrowSchema* outSchema);
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_new_primitive(int code);
 
@@ -28,8 +28,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_new_array(
         DataTypeHandle inner,
-        ref nuint shape,   
-        nuint ndim         
+        ref nuint shape,
+        nuint ndim
     );
 
     [LibraryImport(LibName)]
@@ -50,8 +50,8 @@ unsafe internal partial class NativeBindings
     public static partial void pl_free_shape(IntPtr data, nuint len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataTypeHandle pl_datatype_new_struct(
-    string[] names, 
-    [In] IntPtr[] types, 
+    string[] names,
+    [In] IntPtr[] types,
     UIntPtr len
     );
     [LibraryImport(LibName)]
@@ -61,7 +61,7 @@ unsafe internal partial class NativeBindings
     // 1. GetKind 
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_datatype_get_kind(DataTypeHandle handle,out PlDataType kind);
+    public static partial bool pl_datatype_get_kind(DataTypeHandle handle, out PlDataType kind);
 
     // 2. GetTimeUnit 
     [LibraryImport(LibName)]
@@ -86,10 +86,10 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_datatype_get_struct_field(
-        DataTypeHandle handle, 
-        UIntPtr index, 
-        out IntPtr namePtr,       
-        out DataTypeHandle typeHandle 
+        DataTypeHandle handle,
+        UIntPtr index,
+        out IntPtr namePtr,
+        out DataTypeHandle typeHandle
     );
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_new_enum(FrozenCategoriesHandle frozenCategories);
@@ -109,9 +109,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial int pl_datatype_eq(DataTypeHandle a, DataTypeHandle b, [MarshalAs(UnmanagedType.U1)] out bool isEqual);
     [LibraryImport(LibName)]
-    public static partial int pl_datatype_get_extension_name(DataTypeHandle dtype,out nint name);
+    public static partial int pl_datatype_get_extension_name(DataTypeHandle dtype, out nint name);
     [LibraryImport(LibName)]
-    public static partial int pl_datatype_get_extension_metadata(DataTypeHandle dtype,out nint metadata);
+    public static partial int pl_datatype_get_extension_metadata(DataTypeHandle dtype, out nint metadata);
     [LibraryImport(LibName)]
     public static partial int pl_datatype_get_extension_storage(DataTypeHandle dtype, out DataTypeHandle storage);
 }

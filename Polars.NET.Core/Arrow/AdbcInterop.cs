@@ -46,7 +46,7 @@
 //         if (s_nativeStatementField != null) return;
 
 //         const BindingFlags BF = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.IgnoreCase;
-        
+
 //         var stmtType = stmt.GetType(); 
 
 //         s_nativeStatementField = stmtType.GetField("_nativeStatement", BF)
@@ -126,8 +126,8 @@ namespace Polars.NET.Core.Arrow;
 public static unsafe class AdbcInterop
 {
     private static FieldInfo? s_nativeDriverField;
-    private static FieldInfo? s_bindStreamField; 
-    
+    private static FieldInfo? s_bindStreamField;
+
     private static int s_nativeStatementOffset = -1;
     private static int s_driverOffset = -1;
 
@@ -156,7 +156,7 @@ public static unsafe class AdbcInterop
         if (s_nativeStatementOffset != -1) return;
 
         const BindingFlags BF = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.IgnoreCase;
-        var stmtType = stmt.GetType(); 
+        var stmtType = stmt.GetType();
 
         var nativeStatementField = stmtType.GetField("_nativeStatement", BF)
             ?? throw new InvalidOperationException("Wormhole: Failed to find _nativeStatement");
@@ -178,7 +178,7 @@ public static unsafe class AdbcInterop
         {
             ref byte candidate = ref Unsafe.Add(ref stmtPayload, offset);
             ref byte target = ref Unsafe.As<RawDataScanner>(boxedStmtStruct).Data;
-            
+
             bool match = true;
             for (int i = 0; i < structSize; i++)
             {
@@ -223,9 +223,12 @@ public static unsafe class AdbcInterop
         ref CAdbcStatement cStmtRef = ref Unsafe.As<byte, CAdbcStatement>(ref Unsafe.Add(ref payloadStart, s_nativeStatementOffset));
 
         CAdbcDriver cDriver;
-        if (s_nativeDriverField!.FieldType.IsPointer) {
+        if (s_nativeDriverField!.FieldType.IsPointer)
+        {
             cDriver = *(CAdbcDriver*)Pointer.Unbox(s_nativeDriverField.GetValue(driverObj)!);
-        } else {
+        }
+        else
+        {
             cDriver = (CAdbcDriver)s_nativeDriverField.GetValue(driverObj)!;
         }
 

@@ -17,7 +17,7 @@ public static partial class ArrayHelper
         // High 128: 8 Bools (Offset 0)
         0, 4, 8, 12, 16, 20, 24, 28,
         // Padding
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF 
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
     );
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static unsafe (short[] values, byte[]? validity) UnzipInt16SIMD(ReadOnlySpan<short?> data, short defaultValue)
@@ -25,7 +25,7 @@ public static partial class ArrayHelper
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<short>(len);
         int byteLen = (len + 7) >> 3;
-        byte[]? validity = null; 
+        byte[]? validity = null;
 
         fixed (short?* pSrc = data)
         fixed (short* pDstVal = values)
@@ -53,7 +53,7 @@ public static partial class ArrayHelper
                         {
                             validity = new byte[byteLen];
                             validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                            
+
                             int bytesToFill = i >> 3;
                             if (bytesToFill > 0) Unsafe.InitBlock(ref validRef, 0xFF, (uint)bytesToFill);
                         }
@@ -61,7 +61,7 @@ public static partial class ArrayHelper
 
                     if (validity != null)
                     {
-                        if (Unsafe.IsNullRef(ref validRef)) 
+                        if (Unsafe.IsNullRef(ref validRef))
                         {
                             validRef = ref MemoryMarshal.GetArrayDataReference(validity);
                         }
@@ -78,26 +78,26 @@ public static partial class ArrayHelper
 
                         Unsafe.Add(ref validRef, i >> 3) = (byte)packedByte;
 
-                        if (packedByte != 0xFF) 
+                        if (packedByte != 0xFF)
                         {
                             if ((packedByte & 1) == 0) pDstVal[i] = defaultValue;
-                            if ((packedByte & 2) == 0) pDstVal[i+1] = defaultValue;
-                            if ((packedByte & 4) == 0) pDstVal[i+2] = defaultValue;
-                            if ((packedByte & 8) == 0) pDstVal[i+3] = defaultValue;
-                            if ((packedByte & 16) == 0) pDstVal[i+4] = defaultValue;
-                            if ((packedByte & 32) == 0) pDstVal[i+5] = defaultValue;
-                            if ((packedByte & 64) == 0) pDstVal[i+6] = defaultValue;
-                            if ((packedByte & 128) == 0) pDstVal[i+7] = defaultValue;
+                            if ((packedByte & 2) == 0) pDstVal[i + 1] = defaultValue;
+                            if ((packedByte & 4) == 0) pDstVal[i + 2] = defaultValue;
+                            if ((packedByte & 8) == 0) pDstVal[i + 3] = defaultValue;
+                            if ((packedByte & 16) == 0) pDstVal[i + 4] = defaultValue;
+                            if ((packedByte & 32) == 0) pDstVal[i + 5] = defaultValue;
+                            if ((packedByte & 64) == 0) pDstVal[i + 6] = defaultValue;
+                            if ((packedByte & 128) == 0) pDstVal[i + 7] = defaultValue;
                         }
                     }
                 }
             }
-            
+
             if (i < len)
             {
                 UnzipScalarLoop(
-                    ref Unsafe.AsRef<short?>(pSrc), 
-                    ref Unsafe.AsRef<short>(pDstVal), 
+                    ref Unsafe.AsRef<short?>(pSrc),
+                    ref Unsafe.AsRef<short>(pDstVal),
                     ref validity, i, len, defaultValue
                 );
             }

@@ -1,11 +1,6 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Linq.Expressions;
 using Polars.CSharp.Linq;
-using Polars.NET.Core;
 using Polars.NET.Linq;
-using Xunit;
+
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
@@ -84,11 +79,11 @@ public class QueryPlanCacheTests
         int initialCount = QueryPlanCache.Count;
 
         // Query 1: Where City == param
-        const string city = "Beijing";
+        var city = "Beijing";
         var q1 = df.AsQueryable<Customer>().Where(c => c.City == city).ToList();
 
         // Query 2: Where Balance > param (different property & condition)
-        const decimal minBalance = 150m;
+        var minBalance = 150m;
         var q2 = df.AsQueryable<Customer>().Where(c => c.Balance > minBalance).ToList();
 
         // Query 3: Where City == param and Balance > param
@@ -111,10 +106,10 @@ public class QueryPlanCacheTests
                 new Customer { Id = 1, City = "Beijing", Balance = 100m },
             ]);
 
-            const string city1 = "Beijing";
+            var city1 = "Beijing";
             var q1 = df.AsQueryable<Customer>().Where(c => c.City == city1).ToList();
 
-            const string city2 = "Tokyo";
+            var city2 = "Tokyo";
             var q2 = df.AsQueryable<Customer>().Where(c => c.City == city2).ToList();
 
             Assert.Equal(0, QueryPlanCache.Hits);

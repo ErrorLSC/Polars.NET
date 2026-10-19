@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="Polars.Config.Tests/Polars.Config.Tests.csproj" />
   <Project Path="Polars.CSharp.Tests/Polars.CSharp.Tests.csproj" />
   <Project Path="Polars.CSharp/Polars.CSharp.csproj" />
   <Project Path="Polars.FSharp.Tests/Polars.FSharp.Tests.fsproj" />

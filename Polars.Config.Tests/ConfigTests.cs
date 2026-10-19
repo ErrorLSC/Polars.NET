@@ -1,6 +1,6 @@
 using Pl = Polars.CSharp.Polars;
 
-namespace Polars.CSharp.Tests;
+namespace Polars.Config.Tests;
 
 public class ConfigTests
 {

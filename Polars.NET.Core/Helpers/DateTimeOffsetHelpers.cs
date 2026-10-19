@@ -16,7 +16,7 @@ public static partial class ArrayHelper
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
 
-        long epoch = 621355968000000000; 
+        long epoch = 621355968000000000;
 
         // Pointer Ops
         // DateTimeOffset is a struct contains (DateTime DateTime, short OffsetMinutes)
@@ -28,7 +28,7 @@ public static partial class ArrayHelper
         int limit = len - 8;
         for (; i <= limit; i += 8)
         {
-            Unsafe.Add(ref dstRef, i)     = (Unsafe.Add(ref srcRef, i).UtcTicks     - epoch) / 10;
+            Unsafe.Add(ref dstRef, i) = (Unsafe.Add(ref srcRef, i).UtcTicks - epoch) / 10;
             Unsafe.Add(ref dstRef, i + 1) = (Unsafe.Add(ref srcRef, i + 1).UtcTicks - epoch) / 10;
             Unsafe.Add(ref dstRef, i + 2) = (Unsafe.Add(ref srcRef, i + 2).UtcTicks - epoch) / 10;
             Unsafe.Add(ref dstRef, i + 3) = (Unsafe.Add(ref srcRef, i + 3).UtcTicks - epoch) / 10;
@@ -67,7 +67,7 @@ public static partial class ArrayHelper
         for (int i = 0; i < len; i++)
         {
             ref DateTimeOffset? item = ref Unsafe.Add(ref srcRef, i);
-            
+
             if (item.HasValue)
             {
                 long utcTicks = item.GetValueOrDefault().UtcTicks;

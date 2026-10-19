@@ -83,7 +83,7 @@ public readonly partial struct PolarsWrapper
                 cloudLen,
                 out jsonPtr
             );
-            
+
             ErrorHelper.CheckVoid();
 
             string? json = Marshal.PtrToStringUTF8(jsonPtr);
@@ -242,8 +242,8 @@ public readonly partial struct PolarsWrapper
             lowMemory,
             useStatistics,
             glob,
-            rechunk, 
-            cache,  
+            rechunk,
+            cache,
             rowIndexName,
             rowIndexOffset,
             includePathColumn,
@@ -267,7 +267,7 @@ public readonly partial struct PolarsWrapper
     public static void SinkDelta(
         LazyFrameHandle lf,
         string path,
-        
+
         // --- Delta Options ---
         PlDeltaSaveMode mode,
         bool canEvolve,
@@ -304,7 +304,7 @@ public readonly partial struct PolarsWrapper
     {
         nuint rgs = rowGroupSize > 0 ? rowGroupSize : 0;
         nuint dps = dataPageSize > 0 ? dataPageSize : 0;
-        
+
         int safeCompatLevel = compatLevel;
         if (safeCompatLevel < -1) safeCompatLevel = -1;
         else if (safeCompatLevel > 1) safeCompatLevel = 1;
@@ -314,7 +314,7 @@ public readonly partial struct PolarsWrapper
         NativeBindings.pl_sink_delta(
             lf,
             path,
-            
+
             // Delta Options
             mode,
             canEvolve,
@@ -351,7 +351,7 @@ public readonly partial struct PolarsWrapper
         );
 
         lf.TransferOwnership();
-        
+
         ErrorHelper.CheckVoid();
     }
     public static void DeltaDelete(
@@ -369,7 +369,7 @@ public readonly partial struct PolarsWrapper
     )
     {
         nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-        
+
         NativeBindings.pl_io_delta_delete(
             path,
             predicate,
@@ -449,10 +449,10 @@ public readonly partial struct PolarsWrapper
         LazyFrameHandle sourceLf,
         string path,
         string[] mergeKeys,
-        
+
         PlMergeActionType[] actionTypes,
         ExprHandle[] actionExprs,
-        
+
         bool can_evolve,
         // Cloud Options
         PlCloudProvider cloudProvider,
@@ -469,7 +469,7 @@ public readonly partial struct PolarsWrapper
         {
             throw new ArgumentException("Merge keys cannot be null or empty.", nameof(mergeKeys));
         }
-        
+
         if (actionTypes == null || actionExprs == null || actionTypes.Length != actionExprs.Length)
         {
             throw new ArgumentException("Action types and expressions must be non-null and of the same length.");
@@ -485,7 +485,7 @@ public readonly partial struct PolarsWrapper
             {
                 throw new ArgumentNullException(nameof(actionExprs), $"Expression at index {i} cannot be null.");
             }
-            
+
             exprPtrs[i] = actionExprs[i].TransferOwnership();
         }
 
@@ -496,11 +496,11 @@ public readonly partial struct PolarsWrapper
             path,
             mergeKeys,
             mergeKeysLen,
-            
-            actionTypes,  
-            exprPtrs,     
-            actionsCount, 
-            
+
+            actionTypes,
+            exprPtrs,
+            actionsCount,
+
             can_evolve,
             cloudProvider,
             cloudRetries,

@@ -9,7 +9,7 @@ namespace Polars.NET.Core;
 public readonly partial struct PolarsWrapper
 {
     /// <summary>
-    /// Background Async Prefetch batch size 
+    /// Background Async Prefetch batch size
     /// Default is 2. Can change this by GetEnvironmentVariable("POLARS_NET_PREFETCH_SIZE")
     /// </summary>
     public static int DefaultPrefetchBufferSize { get; set; } = GetDefaultPrefetchSizeFromEnv();
@@ -17,12 +17,12 @@ public readonly partial struct PolarsWrapper
     private static int GetDefaultPrefetchSizeFromEnv()
     {
         var envValue = Environment.GetEnvironmentVariable("POLARS_NET_PREFETCH_SIZE");
-        
+
         if (int.TryParse(envValue, out int size) && size > 0)
         {
             return size;
         }
-        
+
         return 2;
     }
     /// <summary>
@@ -46,7 +46,7 @@ public readonly partial struct PolarsWrapper
             }
             finally
             {
-                Marshal.FreeCoTaskMem(utf8Ptr); 
+                Marshal.FreeCoTaskMem(utf8Ptr);
             }
         }
 
@@ -75,7 +75,7 @@ public readonly partial struct PolarsWrapper
         ErrorHelper.CheckStatus(status);
         return verbose;
     }
-   public static bool ConfigGetWarnUnstable()
+    public static bool ConfigGetWarnUnstable()
     {
         int status = NativeBindings.pl_config_get_warn_unstable(out bool warn);
         ErrorHelper.CheckStatus(status);
@@ -109,25 +109,25 @@ public readonly partial struct PolarsWrapper
     {
         int status = NativeBindings.pl_config_get_engine_affinity(out PlEngine engine);
         ErrorHelper.CheckStatus(status);
-        return engine;     
+        return engine;
     }
     public static PlResolveMode ConfigGetResolveMetadataLevel()
     {
         int status = NativeBindings.pl_config_get_resolve_metadata_level(out PlResolveMode mode);
         ErrorHelper.CheckStatus(status);
-        return mode;     
+        return mode;
     }
     public static ulong ConfigGetIdealMorselSize()
     {
         int status = NativeBindings.pl_config_get_ideal_morsel_size(out ulong size);
         ErrorHelper.CheckStatus(status);
-        return size;     
+        return size;
     }
     public static ulong ConfigGetParquetBinaryStatisticsTruncateLength()
     {
         int status = NativeBindings.pl_config_get_parquet_binary_statistics_truncate_length(out ulong length);
         ErrorHelper.CheckStatus(status);
-        return length;     
+        return length;
     }
     public static bool ConfigGetPruneParquetMetadata()
     {
@@ -145,25 +145,25 @@ public readonly partial struct PolarsWrapper
     {
         int status = NativeBindings.pl_config_get_ooc_spill_policy(out PlOOCSpillPolicy policy);
         ErrorHelper.CheckStatus(status);
-        return policy;     
+        return policy;
     }
     public static PlOOCSpillFormat ConfigGetOOCSpillFormat()
     {
         int status = NativeBindings.pl_config_get_ooc_spill_format(out PlOOCSpillFormat fmt);
         ErrorHelper.CheckStatus(status);
-        return fmt;     
+        return fmt;
     }
     public static double ConfigGetOOCMemoryBudgetFraction()
     {
         int status = NativeBindings.pl_config_get_ooc_memory_budget_fraction(out double fraction);
         ErrorHelper.CheckStatus(status);
-        return fraction;     
+        return fraction;
     }
     public static ulong ConfigGetOOCSpillMinBytes()
     {
         int status = NativeBindings.pl_config_get_ooc_spill_min_bytes(out ulong bytes);
         ErrorHelper.CheckStatus(status);
-        return bytes;     
+        return bytes;
     }
     public static string ConfigGetOOCSpillDir()
     {
@@ -174,7 +174,7 @@ public readonly partial struct PolarsWrapper
     {
         int status = NativeBindings.pl_config_get_join_sample_limit(out ulong limit);
         ErrorHelper.CheckStatus(status);
-        return limit;     
+        return limit;
     }
     public static bool ConfigGetProjectionPushdownPruneStrictHconcatInputs()
     {
@@ -186,7 +186,7 @@ public readonly partial struct PolarsWrapper
     {
         int status = NativeBindings.pl_config_get_float_fmt(out PlFloatFormat fmt);
         ErrorHelper.CheckStatus(status);
-        return fmt;     
+        return fmt;
     }
     public static void ConfigSetFloatFormat(PlFloatFormat fmt)
     {
@@ -197,7 +197,7 @@ public readonly partial struct PolarsWrapper
     {
         int status = NativeBindings.pl_config_get_float_precision(out long precision);
         ErrorHelper.CheckStatus(status);
-        return precision;     
+        return precision;
     }
     public static void ConfigSetFloatPrecision(long precision)
     {
@@ -230,9 +230,9 @@ public readonly partial struct PolarsWrapper
         ErrorHelper.CheckStatus(status);
         return trim;
     }
-    public static void ConfigSetTrimDecimalZeros(bool active,bool hasValue)
+    public static void ConfigSetTrimDecimalZeros(bool active, bool hasValue)
     {
-        NativeBindings.pl_config_set_trim_decimal_zeros(active,hasValue);
+        NativeBindings.pl_config_set_trim_decimal_zeros(active, hasValue);
         ErrorHelper.CheckVoid();
     }
 

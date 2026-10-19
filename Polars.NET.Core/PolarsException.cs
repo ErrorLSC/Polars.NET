@@ -28,14 +28,14 @@ internal static class ErrorHelper
     // =========================================================================
     public static T Check<T>(T handle) where T : PolarsHandle
     {
-        if (!handle.IsInvalid) 
+        if (!handle.IsInvalid)
         {
             return handle;
         }
 
         ThrowRustError();
-        
-        return null!; 
+
+        return null!;
     }
 
     // =========================================================================
@@ -44,7 +44,7 @@ internal static class ErrorHelper
     public static void CheckVoid()
     {
         IntPtr msgPtr = NativeBindings.pl_get_last_error();
-        
+
         if (msgPtr != IntPtr.Zero)
         {
             HandleErrorPtrAndThrow(msgPtr);
@@ -56,24 +56,24 @@ internal static class ErrorHelper
     // =========================================================================
     public static string CheckString(IntPtr ptr)
     {
-        if (ptr == IntPtr.Zero) 
+        if (ptr == IntPtr.Zero)
         {
             IntPtr errPtr = NativeBindings.pl_get_last_error();
             if (errPtr != IntPtr.Zero)
             {
                 HandleErrorPtrAndThrow(errPtr);
             }
-            
-            return string.Empty; 
+
+            return string.Empty;
         }
 
-        try 
-        { 
-            return Marshal.PtrToStringUTF8(ptr) ?? string.Empty; 
+        try
+        {
+            return Marshal.PtrToStringUTF8(ptr) ?? string.Empty;
         }
-        finally 
-        { 
-            NativeBindings.pl_free_string(ptr); 
+        finally
+        {
+            NativeBindings.pl_free_string(ptr);
         }
     }
     // =========================================================================
@@ -106,7 +106,7 @@ internal static class ErrorHelper
     // Helpers
     // =========================================================================
 
-    [DoesNotReturn] 
+    [DoesNotReturn]
     private static void ThrowRustError()
     {
         IntPtr msgPtr = NativeBindings.pl_get_last_error();

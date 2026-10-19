@@ -10,77 +10,82 @@ public static partial class ArrayHelper
     /// Unzip nullable array to data array + validity BITMAP (1 bit per row)
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static (T[] values, byte[]? validity) UnzipNullable<T>(ReadOnlySpan<T?> data, T defaultValue = default) 
+    public static (T[] values, byte[]? validity) UnzipNullable<T>(ReadOnlySpan<T?> data, T defaultValue = default)
         where T : struct
     {
         if (data.IsEmpty) return ([], null);
         Type t = typeof(T);
 
         // --- 1 Byte Values (stride 2) ---
-        if (IsInt8LayoutCompatible) {
-            if (t == typeof(byte))  
+        if (IsInt8LayoutCompatible)
+        {
+            if (t == typeof(byte))
                 return Reinterpret<byte, T>(UnzipInt8SIMD(CastNullableSpan<T, byte>(data), (byte)(object)defaultValue));
-            
-            if (t == typeof(sbyte)) 
+
+            if (t == typeof(sbyte))
                 return Reinterpret<byte, T>(UnzipInt8SIMD(CastNullableSpan<T, byte>(data), (byte)(sbyte)(object)defaultValue));
         }
 
         // --- 2 Byte Values (stride 4) ---
-        if (IsInt16LayoutCompatible) {
-            if (t == typeof(short))  
+        if (IsInt16LayoutCompatible)
+        {
+            if (t == typeof(short))
                 return Reinterpret<short, T>(UnzipInt16SIMD(CastNullableSpan<T, short>(data), (short)(object)defaultValue));
-            
-            if (t == typeof(ushort)) 
+
+            if (t == typeof(ushort))
                 return Reinterpret<short, T>(UnzipInt16SIMD(CastNullableSpan<T, short>(data), (short)(ushort)(object)defaultValue));
-            
-            if (t == typeof(Half))   
+
+            if (t == typeof(Half))
                 return Reinterpret<short, T>(UnzipInt16SIMD(CastNullableSpan<T, short>(data), BitConverter.HalfToInt16Bits((Half)(object)defaultValue)));
         }
 
         // --- 4 Byte Values (stride 8) ---
-        if (IsInt32LayoutCompatible) {
-            if (t == typeof(int))   
+        if (IsInt32LayoutCompatible)
+        {
+            if (t == typeof(int))
                 return Reinterpret<int, T>(UnzipInt32SIMD(CastNullableSpan<T, int>(data), (int)(object)defaultValue));
-            
-            if (t == typeof(uint))  
+
+            if (t == typeof(uint))
                 return Reinterpret<int, T>(UnzipInt32SIMD(CastNullableSpan<T, int>(data), (int)(uint)(object)defaultValue));
-            
-            if (t == typeof(float)) 
+
+            if (t == typeof(float))
                 return Reinterpret<int, T>(UnzipInt32SIMD(CastNullableSpan<T, int>(data), BitConverter.SingleToInt32Bits((float)(object)defaultValue)));
         }
 
         // --- 8 Byte Values (stride 16) ---
-        if (IsInt64LayoutCompatible) {
-            if (t == typeof(long))   
+        if (IsInt64LayoutCompatible)
+        {
+            if (t == typeof(long))
                 return Reinterpret<long, T>(UnzipInt64SIMD(CastNullableSpan<T, long>(data), (long)(object)defaultValue));
-            
-            if (t == typeof(ulong))  
+
+            if (t == typeof(ulong))
                 return Reinterpret<long, T>(UnzipInt64SIMD(CastNullableSpan<T, long>(data), (long)(ulong)(object)defaultValue));
-            
-            if (t == typeof(double)) 
+
+            if (t == typeof(double))
                 return Reinterpret<long, T>(UnzipInt64SIMD(CastNullableSpan<T, long>(data), BitConverter.DoubleToInt64Bits((double)(object)defaultValue)));
         }
 
         // --- 16 Byte Values (stride 32) ---
-        if (IsInt128TypeA || IsInt128TypeB) {
-            if (t == typeof(Int128))  
+        if (IsInt128TypeA || IsInt128TypeB)
+        {
+            if (t == typeof(Int128))
                 return Reinterpret<Int128, T>(UnzipInt128SIMD(CastNullableSpan<T, Int128>(data), (Int128)(object)defaultValue));
-            
-            if (t == typeof(UInt128)) 
+
+            if (t == typeof(UInt128))
                 return Reinterpret<Int128, T>(UnzipInt128SIMD(CastNullableSpan<T, Int128>(data), (Int128)(UInt128)(object)defaultValue));
         }
-        
+
         return UnzipGeneric(data, defaultValue);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static (T[] values, byte[]? validity) UnzipNullable<T>(T?[] data, T defaultValue = default) 
+    public static (T[] values, byte[]? validity) UnzipNullable<T>(T?[] data, T defaultValue = default)
         where T : struct
         => UnzipNullable(new ReadOnlySpan<T?>(data), defaultValue);
 
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static (T[] values, byte[]? validity) UnzipGeneric<T>(ReadOnlySpan<T?> data, T defaultValue) 
+    private static (T[] values, byte[]? validity) UnzipGeneric<T>(ReadOnlySpan<T?> data, T defaultValue)
         where T : struct
     {
         int len = data.Length;
@@ -97,7 +102,7 @@ public static partial class ArrayHelper
     // =========================================================================
     // Helpers
     // =========================================================================
-    
+
     // Helper to cast result back
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static (T[], byte[]?) Reinterpret<S, T>((S[], byte[]?) res)
@@ -116,24 +121,24 @@ public static partial class ArrayHelper
     {
         // Get Head Reference of original span
         ref T? srcRef = ref MemoryMarshal.GetReference(span);
-        
+
         // Convert its type to new span
         ref U? dstRef = ref Unsafe.As<T?, U?>(ref srcRef);
-        
+
         return MemoryMarshal.CreateReadOnlySpan(ref dstRef, span.Length);
     }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void UnzipScalarLoop<T>(
-        ref T? baseSrcRef,      
-        ref T baseValRef,       
-        ref byte[]? validity,   
-        int startIdx,           
-        int len,                
+        ref T? baseSrcRef,
+        ref T baseValRef,
+        ref byte[]? validity,
+        int startIdx,
+        int len,
         T defaultValue) where T : struct
     {
         // 1. Init validRef
         ref byte validRef = ref Unsafe.NullRef<byte>();
-        if (validity != null) 
+        if (validity != null)
             validRef = ref MemoryMarshal.GetArrayDataReference(validity);
 
         for (int i = startIdx; i < len; i++)
@@ -148,7 +153,7 @@ public static partial class ArrayHelper
                 // 2. Input Validity
                 if (validity != null)
                 {
-                    if (Unsafe.IsNullRef(ref validRef)) 
+                    if (Unsafe.IsNullRef(ref validRef))
                         validRef = ref MemoryMarshal.GetArrayDataReference(validity);
 
                     ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
@@ -160,11 +165,11 @@ public static partial class ArrayHelper
                 if (validity == null)
                 {
                     int byteLen = (len + 7) >> 3;
-                    validity = new byte[byteLen]; 
+                    validity = new byte[byteLen];
                     validRef = ref MemoryMarshal.GetArrayDataReference(validity);
 
                     int bytesToFill = i >> 3;
-                    if (bytesToFill > 0) 
+                    if (bytesToFill > 0)
                     {
                         Unsafe.InitBlock(ref validRef, 0xFF, (uint)bytesToFill);
                     }
@@ -174,7 +179,7 @@ public static partial class ArrayHelper
                         Unsafe.Add(ref validRef, bytesToFill) = (byte)((1 << remainingBits) - 1);
                     }
                 }
-                
+
                 Unsafe.Add(ref baseValRef, i) = defaultValue;
             }
         }
