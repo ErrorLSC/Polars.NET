@@ -2007,5 +2007,79 @@ module QueryTests =
         Assert.Equal(2L, unnested.Height)
         Assert.Equal<string seq>([| "Alice"; "Bob" |], unnested.Column("Name").ToArray<string>())
 
+    [<Fact>]
+    [<Trait("LINQ", "Series_AsQueryable")>]
+    let ``FSharp Series AsQueryable on scalar series`` () =
+        use s = Series.create ("nums", [| 10; 20; 30; 40; 50 |])
+
+        // 1. Where + Select pushdown
+        let q = s.AsQueryable<int>()
+        let filtered =
+            q.Where(fun x -> x > 25).Select(fun x -> x * 2).ToList()
+        Assert.Equal<int seq>([| 60; 80; 100 |], filtered)
+
+        // 2. Native scalar aggregations
+        Assert.Equal(5, s.AsQueryable<int>().Count())
+        Assert.Equal(150, s.AsQueryable<int>().Sum())
+        Assert.Equal(30.0, s.AsQueryable<int>().Average())
+        Assert.Equal(50, s.AsQueryable<int>().Max())
+        Assert.Equal(10, s.AsQueryable<int>().Min())
+
+        // 3. Round-trip back to Series
+        use roundTrip = s.AsQueryable<int>().Where(fun x -> x <= 30).ToSeries("small_nums")
+        Assert.Equal("small_nums", roundTrip.Name)
+        Assert.Equal<int seq>([| 10; 20; 30 |], roundTrip.ToArray<int>())
+
+        // 4. AsSeq on Series
+        let seqFiltered = s.AsSeq<int>() |> Seq.filter (fun x -> x % 20 = 0) |> Seq.toList
+        Assert.Equal<int list>([ 20; 40 ], seqFiltered)
+
+    [<Fact>]
+    [<Trait("LINQ", "Series_AsQueryable")>]
+    let ``FSharp Series AsQueryable on struct series`` () =
+        let people =
+            [
+                { Name = "Alice"; Age = 25; Sales = 100.0 }
+                { Name = "Bob"; Age = 30; Sales = 200.0 }
+                { Name = "Charlie"; Age = 35; Sales = 300.0 }
+            ]
+
+        use structSeries = people.ToSeries("people_struct")
+        Assert.Equal(3L, structSeries.Length)
+        match structSeries.DataType.Kind with
+        | DataTypeKind.Struct _ -> ()
+        | other -> Assert.Fail($"Expected Struct but got {other}")
+
+        // 1. Where filter on unnested struct query
+        let q = structSeries.AsQueryable<Person>()
+        let seniors = q.Where(fun p -> p.Age >= 30).ToList()
+        Assert.Equal(2, seniors.Count)
+        Assert.Equal("Bob", seniors.[0].Name)
+        Assert.Equal("Charlie", seniors.[1].Name)
+
+        // 2. Query.asQueryable module function
+        let viaModule = Query.asQueryable<Person> structSeries
+        let rich = viaModule.Where(fun p -> p.Sales > 250.0).ToList()
+        Assert.Single(rich) |> ignore
+        Assert.Equal("Charlie", rich.[0].Name)
+
+        // 3. Round-trip back to Struct Series
+        use filteredStruct = q.Where(fun p -> p.Age >= 30).ToSeries("seniors_struct")
+        Assert.Equal(2L, filteredStruct.Length)
+        match filteredStruct.DataType.Kind with
+        | DataTypeKind.Struct _ -> ()
+        | other -> Assert.Fail($"Expected Struct but got {other}")
+
+        // 4. Re-query roundtripped Struct Series
+        let reQueried = filteredStruct.AsQueryable<Person>().ToList()
+        Assert.Equal(2, reQueried.Count)
+        Assert.Equal("Bob", reQueried.[0].Name)
+
+        // 5. AsSeq on Struct Series
+        let asSeqList = structSeries.AsSeq<Person>() |> Seq.toList
+        Assert.Equal(3, asSeqList.Length)
+        Assert.Equal("Alice", asSeqList.[0].Name)
+
+
 
 

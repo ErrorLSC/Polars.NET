@@ -20,6 +20,7 @@ public interface IPolarsDataFrame : IDisposable
 public interface IPolarsSeries : IDisposable
 {
     IPolarsDataFrame ToFrame();
+    IPolarsDataFrame ToDataFrame() => ToFrame();
     IPolarsDataType DataType { get; }
     string Name { get; set; }
 }

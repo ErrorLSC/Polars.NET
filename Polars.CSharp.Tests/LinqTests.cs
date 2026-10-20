@@ -8322,4 +8322,79 @@ public partial class LinqTests
         Assert.Equal(3, unnested.Width);
         Assert.Equal(2, unnested.Height);
     }
+
+    [Fact]
+    [Trait("LINQ", "Series_AsQueryable")]
+    public void Test_Series_AsQueryable_Scalar()
+    {
+        using var s = Series.From("nums", [10, 20, 30, 40, 50]);
+
+        // 1. Where + Select pushdown
+        var query = s.AsQueryable<int>();
+        var filtered = query.Where(x => x > 25).Select(x => x * 2).ToList();
+        Assert.Equal([60, 80, 100], filtered);
+
+        // 2. Native scalar aggregations
+        Assert.Equal(5, s.AsQueryable<int>().Count());
+        Assert.Equal(150, s.AsQueryable<int>().Sum());
+        Assert.Equal(30.0, s.AsQueryable<int>().Average());
+        Assert.Equal(50, s.AsQueryable<int>().Max());
+        Assert.Equal(10, s.AsQueryable<int>().Min());
+
+        // 3. Round-trip back to Series
+        using var roundTrip = s.AsQueryable<int>().Where(x => x <= 30).ToSeries("small_nums");
+        Assert.Equal("small_nums", roundTrip.Name);
+        Assert.Equal([10, 20, 30], roundTrip.ToArray<int>());
+
+        // 4. AsEnumerable on Series
+        var enumerated = s.AsEnumerable<int>().Where(x => x % 20 == 0).ToList();
+        Assert.Equal([20, 40], enumerated);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Series_AsQueryable")]
+    public void Test_Series_AsQueryable_Struct_NonScalar()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000),
+            new Employee("Charlie", 35, 70000)
+        };
+
+        using var structSeries = emps.ToSeries("emp_struct");
+        Assert.Equal(DataTypeKind.Struct, structSeries.DataType.Kind);
+
+        // 1. Where filter on unnested struct query
+        var query = structSeries.AsQueryable<Employee>();
+        var seniors = query.Where(e => e.Age >= 30).ToList();
+        Assert.Equal(2, seniors.Count);
+        Assert.Equal("Bob", seniors[0].Name);
+        Assert.Equal("Charlie", seniors[1].Name);
+
+        // 2. Projection to scalar
+        var seniorNames = structSeries.AsQueryable<Employee>()
+                                      .Where(e => e.Salary > 55000)
+                                      .Select(e => e.Name)
+                                      .ToList();
+        Assert.Equal(["Bob", "Charlie"], seniorNames);
+
+        // 3. Multi-column query round-trip back to Struct Series
+        using var seniorStructSeries = structSeries.AsQueryable<Employee>()
+                                                   .Where(e => e.Age >= 30)
+                                                   .ToSeries("senior_struct");
+        Assert.Equal(DataTypeKind.Struct, seniorStructSeries.DataType.Kind);
+        Assert.Equal(2L, seniorStructSeries.Length);
+
+        // 4. Re-query the round-tripped Struct Series
+        var reQueried = seniorStructSeries.AsQueryable<Employee>().ToList();
+        Assert.Equal(2, reQueried.Count);
+        Assert.Equal("Bob", reQueried[0].Name);
+        Assert.Equal("Charlie", reQueried[1].Name);
+
+        // 5. AsEnumerable on Struct Series
+        var enumerated = structSeries.AsEnumerable<Employee>().ToList();
+        Assert.Equal(3, enumerated.Count);
+        Assert.Equal("Alice", enumerated[0].Name);
+    }
 }

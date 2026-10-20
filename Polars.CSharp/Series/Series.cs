@@ -744,6 +744,15 @@ public partial class Series : IDisposable, IPolarsSeries, IEquatable<Series>
     IPolarsDataFrame IPolarsSeries.ToFrame()
         => ToFrame();
 
+    /// <summary>
+    /// Convert this single Series into a DataFrame.
+    /// Functional alias for <see cref="ToFrame"/>.
+    /// </summary>
+    public DataFrame ToDataFrame()
+        => ToFrame();
+    IPolarsDataFrame IPolarsSeries.ToDataFrame()
+        => ToFrame();
+
     // ==========================================
     // Window & Rolling
     // ==========================================

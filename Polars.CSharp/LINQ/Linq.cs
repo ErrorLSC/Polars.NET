@@ -608,6 +608,56 @@ public static class LinqExtensions
         => lf.AsQueryable<T>();
 
     /// <summary>
+    /// Converts a Series into an IQueryable LINQ query provider backed by Polars.
+    /// For Struct Series, it is unnested into a multi-column DataFrame matching the struct fields.
+    /// For scalar and other Series, it is converted into a single-column DataFrame.
+    /// </summary>
+    public static IQueryable<T> AsQueryable<T>(this Series series)
+    {
+        ArgumentNullException.ThrowIfNull(series);
+        if (series.DataType.Kind == DataTypeKind.Struct)
+        {
+            return series.Unnest().AsQueryable<T>();
+        }
+        return series.ToFrame().AsQueryable<T>();
+    }
+
+    /// <summary>
+    /// Converts a Series into an IQueryable LINQ query provider,
+    /// inferring the anonymous type or entity type directly from a sample sequence.
+    /// </summary>
+    public static IQueryable<T> AsQueryable<T>(this Series series, IEnumerable<T> source)
+        => series.AsQueryable<T>();
+
+    /// <summary>
+    /// Converts a Series into an IQueryable LINQ query provider backed by Polars.
+    /// </summary>
+    public static IQueryable<T> AsPolarsQueryable<T>(this Series series)
+        => series.AsQueryable<T>();
+
+    /// <summary>
+    /// Converts a Series into an IQueryable LINQ query provider backed by Polars,
+    /// inferring the anonymous type or entity type directly from a sample sequence.
+    /// </summary>
+    public static IQueryable<T> AsPolarsQueryable<T>(this Series series, IEnumerable<T> source)
+        => series.AsQueryable<T>();
+
+    /// <summary>
+    /// Exposes a Series as a strongly-typed IEnumerable sequence of elements.
+    /// For Struct Series, elements are materialized into objects matching the struct fields.
+    /// For scalar Series, elements are materialized directly.
+    /// </summary>
+    public static IEnumerable<T> AsEnumerable<T>(this Series series)
+    {
+        ArgumentNullException.ThrowIfNull(series);
+        if (series.DataType.Kind == DataTypeKind.Struct)
+        {
+            return series.Unnest().AsEnumerable<T>();
+        }
+        return series.ToFrame().AsEnumerable<T>();
+    }
+
+    /// <summary>
     /// Compiles the LINQ query pipeline and converts it back to a Polars LazyFrame.
     /// </summary>
     public static LazyFrame ToLazyFrame<T>(this IQueryable<T> query)

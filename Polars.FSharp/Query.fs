@@ -111,6 +111,38 @@ module LinqExtension =
         /// Directly creates an IQueryable with type inferred from an existing sample sequence
         member this.AsQueryable(sample: 'T seq) : IQueryable<'T> = this.AsQueryable<'T>()
 
+    type Series with
+        /// <summary>
+        /// Converts this Series into a single-column DataFrame.
+        /// </summary>
+        member this.ToDataFrame() : DataFrame = this.ToFrame()
+
+        /// <summary>
+        /// Converts a Series into an IQueryable LINQ query provider backed by Polars.
+        /// For Struct Series, it is unnested into a multi-column DataFrame matching the struct fields.
+        /// For scalar and other Series, it is converted into a single-column DataFrame.
+        /// </summary>
+        member this.AsQueryable<'T>() : IQueryable<'T> =
+            match this.DataType.Kind with
+            | DataTypeKind.Struct _ -> this.Unnest().AsQueryable<'T>()
+            | _ -> this.ToFrame().AsQueryable<'T>()
+
+        /// Directly creates an IQueryable with type inferred from an existing sample sequence
+        member this.AsQueryable(sample: 'T seq) : IQueryable<'T> = this.AsQueryable<'T>()
+
+        /// <summary>
+        /// Transposes a Series into a native Polars LINQ queryable.
+        /// </summary>
+        member this.AsPolarsQueryable<'T>() : IQueryable<'T> = this.AsQueryable<'T>()
+
+        /// Directly creates an IQueryable with type inferred from an existing sample sequence
+        member this.AsPolarsQueryable(sample: 'T seq) : IQueryable<'T> = this.AsQueryable<'T>()
+
+        /// <summary>
+        /// Explicitly transitions the Series to a managed sequence ('T seq) for client-side evaluation.
+        /// </summary>
+        member this.AsSeq<'T>() : 'T seq = this.AsQueryable<'T>() :> 'T seq
+
     type IAsyncEnumerable<'T> with
         /// <summary>
         /// Asynchronously drains an IAsyncEnumerable sequence of objects directly into a native Polars DataFrame.
@@ -362,5 +394,11 @@ module Query =
     /// </summary>
     let inline asPolarsQueryable (source: 'T seq) : IQueryable<'T> =
         source.AsPolarsQueryable()
+
+    /// <summary>
+    /// Converts a Series into an IQueryable LINQ query provider.
+    /// </summary>
+    let inline asQueryable<'T> (series: Series) : IQueryable<'T> =
+        series.AsQueryable<'T>()
 
 
