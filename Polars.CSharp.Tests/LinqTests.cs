@@ -8278,4 +8278,48 @@ public partial class LinqTests
         using var resDf = query.ToDataFrame();
         Assert.Equal(2, resDf.Height);
     }
+
+    [Fact]
+    [Trait("LINQ", "ToSeries_NonScalar")]
+    public void Test_InMemoryCollection_ToSeries_NonScalar_CreatesStructSeries()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000)
+        };
+
+        using var series = emps.ToSeries("emp_struct");
+
+        Assert.Equal("emp_struct", series.Name);
+        Assert.Equal(2, series.Length);
+        Assert.Equal(Pl.Struct([("Name", Pl.String), ("Age", Pl.Int32), ("Salary", Pl.Int32)]), series.DataType);
+
+        using var unnested = series.Unnest();
+        Assert.Equal(3, unnested.Width);
+        Assert.Equal(2, unnested.Height);
+        Assert.Equal(["Alice", "Bob"], unnested["Name"].ToArray<string>());
+    }
+
+    [Fact]
+    [Trait("LINQ", "ToSeries_NonScalar")]
+    public void Test_Queryable_ToSeries_MultiColumn_CreatesStructSeries()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000)
+        };
+
+        using var df = DataFrame.FromRows(emps);
+        using var series = df.AsQueryable(emps).ToSeries("query_struct");
+
+        Assert.Equal("query_struct", series.Name);
+        Assert.Equal(2, series.Length);
+        Assert.Equal(Pl.Struct([("Name", Pl.String), ("Age", Pl.Int32), ("Salary", Pl.Int32)]), series.DataType);
+
+        using var unnested = series.Unnest();
+        Assert.Equal(3, unnested.Width);
+        Assert.Equal(2, unnested.Height);
+    }
 }

@@ -674,10 +674,12 @@ public static class LinqExtensions
     }
 
     /// <summary>
-    /// Compiles a single-column LINQ query and materializes it directly into a Polars Series.
+    /// Compiles a LINQ query and materializes it into a Polars Series.
+    /// If the query yields a single column, returns that column directly.
+    /// If the query yields multiple columns, assembles them into a native Struct Series.
     /// </summary>
-    /// <typeparam name="T">The scalar element type.</typeparam>
-    /// <param name="query">The single-column query.</param>
+    /// <typeparam name="T">The element type.</typeparam>
+    /// <param name="query">The query sequence.</param>
     /// <param name="name">Optional override name for the Series. If empty, the projected column name is preserved.</param>
     /// <returns>A new Series containing the query result.</returns>
     public static Series ToSeries<T>(this IQueryable<T> query, string name = "")
@@ -688,12 +690,17 @@ public static class LinqExtensions
         if (df.Width == 0)
             return Series.From(name, Array.Empty<T>());
 
-        var series = df.Column(0);
-        if (!string.IsNullOrEmpty(name) && series.Name != name)
+        if (df.Width == 1)
         {
-            series.Rename(name);
+            var series = df.Column(0);
+            if (!string.IsNullOrEmpty(name) && series.Name != name)
+            {
+                series.Rename(name);
+            }
+            return series;
         }
-        return series;
+
+        return df.ToStruct(name);
     }
 
     /// <summary>

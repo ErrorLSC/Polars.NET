@@ -6,6 +6,7 @@ open System
 open System.Reflection
 open System.Linq.Expressions
 open System.Linq
+open System.Collections.Generic
 
 /// Represents the result of attempting subquery decorrelation on a filter expression.
 type internal DecorrelationResult =
@@ -19,7 +20,6 @@ type internal DecorrelationResult =
 /// Dedicated engine for decorrelating subqueries (EXISTS, NOT EXISTS, IN, NOT IN, scalar aggregates,
 /// and embedded projection subqueries) into native Polars pushdown operations.
 module internal SubqueryDecorrelator =
-    open System.Collections.Generic
 
     // =========================================================================
     // 1. AST Inspection & Reflection Helpers

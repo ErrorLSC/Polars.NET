@@ -1963,4 +1963,49 @@ module QueryTests =
         use resDf = q.ToDataFrame()
         Assert.Equal(2L, resDf.Height)
 
+    [<Fact>]
+    [<Trait("LINQ", "ToSeries_NonScalar")>]
+    let ``FSharp in-memory collection ToSeries on non-scalar produces Struct Series`` () =
+        let people =
+            [
+                { Name = "Alice"; Age = 25; Sales = 100.0 }
+                { Name = "Bob"; Age = 30; Sales = 200.0 }
+            ]
+
+        use s = people.ToSeries("person_struct")
+        Assert.Equal("person_struct", s.Name)
+        Assert.Equal(2L, s.Length)
+        match s.DataType.Kind with
+        | DataTypeKind.Struct _ -> ()
+        | other -> Assert.Fail($"Expected Struct but got {other}")
+
+        use unnested = s.Unnest()
+        Assert.Equal(3L, unnested.Width)
+        Assert.Equal(2L, unnested.Height)
+        Assert.Equal<string seq>([| "Alice"; "Bob" |], unnested.Column("Name").ToArray<string>())
+
+    [<Fact>]
+    [<Trait("LINQ", "ToSeries_NonScalar")>]
+    let ``FSharp IQueryable ToSeries on multi-column query produces Struct Series`` () =
+        let people =
+            [
+                { Name = "Alice"; Age = 25; Sales = 100.0 }
+                { Name = "Bob"; Age = 30; Sales = 200.0 }
+            ]
+
+        use df = DataFrame.ofRecords people
+        use s = df.AsQueryable<Person>().ToSeries("query_struct")
+
+        Assert.Equal("query_struct", s.Name)
+        Assert.Equal(2L, s.Length)
+        match s.DataType.Kind with
+        | DataTypeKind.Struct _ -> ()
+        | other -> Assert.Fail($"Expected Struct but got {other}")
+
+        use unnested = s.Unnest()
+        Assert.Equal(3L, unnested.Width)
+        Assert.Equal(2L, unnested.Height)
+        Assert.Equal<string seq>([| "Alice"; "Bob" |], unnested.Column("Name").ToArray<string>())
+
+
 

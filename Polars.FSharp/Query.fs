@@ -255,19 +255,23 @@ module LinqExtension =
         member this.AsSeq() : 'T seq = this :> 'T seq
 
         /// <summary>
-        /// Compiles a single-column LINQ query and materializes it directly into a Polars Series.
+        /// Compiles a LINQ query and materializes it into a Polars Series.
+        /// If the query yields a single column, returns that column directly.
+        /// If the query yields multiple columns, assembles them into a native Struct Series.
         /// </summary>
         /// <param name="name">Optional name override for the Series.</param>
         member this.ToSeries(?name: string) : Series =
             use df = this.ToDataFrame()
             if df.Width = 0L then
                 Series.create (defaultArg name "", Array.empty<'T>)
-            else
+            elif df.Width = 1L then
                 let s = df.Column(0L)
                 match name with
                 | Some n when not (String.IsNullOrEmpty n) && s.Name <> n ->
                     s.Rename n
                 | _ -> s
+            else
+                df.ToStruct(?name = name)
 
         /// <summary>
         /// Inspects the query plan at the current pipeline stage and invokes a custom inspector action,
