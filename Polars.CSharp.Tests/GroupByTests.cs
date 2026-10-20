@@ -1,12 +1,12 @@
-using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
 
 public class TimeSeriesTests
 {
     [Fact]
-    [Trait("TimeSeries","DynamicGroupBy")]
+    [Trait("TimeSeries", "DynamicGroupBy")]
     public void Test_GroupByDynamic_Basic_TimeSpan()
     {
         // 10:00, 10:10, 10:20, 10:30, 10:40, 10:50
@@ -41,14 +41,14 @@ public class TimeSeriesTests
         Assert.Equal(3, res.GetValue<int>(1, "Count"));
     }
     [Fact]
-    [Trait("TimeSeries","DynamicGroupBy")]
+    [Trait("TimeSeries", "DynamicGroupBy")]
     public void Test_GroupByDynamic_Advanced_Rolling()
     {
         var start = new DateTime(2024, 1, 1, 10, 0, 0);
         var dates = Enumerable.Range(0, 10).Select(i => start.AddMinutes(i)).ToArray();
         var values = Enumerable.Range(0, 10).Select(i => 1).ToArray();
 
-        var df = DataFrame.FromColumns(new {Time = dates,Val = values});
+        var df = DataFrame.FromColumns(new { Time = dates, Val = values });
 
         // Every: 5m
         // Period: 10m
@@ -160,7 +160,8 @@ public class TimeSeriesTests
             .Select(i => new DateTime(start + i))
             .ToArray();
 
-        using var df = DataFrame.FromColumns(new {
+        using var df = DataFrame.FromColumns(new
+        {
             Ts = dates,       // DateTime[]
             Val = dates       // DateTime[]
         });
@@ -189,16 +190,16 @@ public class TimeSeriesTests
             time = new[] { new TimeOnly(10, 30, 0), new TimeOnly(23, 59, 59, 123) } // 123ms
         });
 
-        // Note: Only sub-second units (Nanoseconds, Microseconds, Milliseconds) are supported here.
+        // Only sub-second units (Nanoseconds, Microseconds, Milliseconds) are supported here.
         var res = df.Select(
             Pl.Col("date").Dt.Combine(Pl.Col("time"), TimeUnit.Milliseconds).Alias("dt_ms"),
             Pl.Col("date").Dt.Combine(Pl.Col("time"), TimeUnit.Microseconds).Alias("dt_us")
         );
 
         Assert.Equal(new DateTime(2024, 1, 1, 10, 30, 0), res["dt_ms"][0]);
-        Assert.Equal(new DateTime(2024, 1, 1, 10, 30, 0),res["dt_us"][0]);
+        Assert.Equal(new DateTime(2024, 1, 1, 10, 30, 0), res["dt_us"][0]);
 
-        Assert.Equal(new DateTime(2024, 12, 31, 23, 59, 59, 123),res["dt_ms"][1]);
+        Assert.Equal(new DateTime(2024, 12, 31, 23, 59, 59, 123), res["dt_ms"][1]);
         Assert.Equal(new DateTime(2024, 12, 31, 23, 59, 59, 123), res["dt_us"][1]);
 
         Assert.Equal(DataTypeKind.Datetime, res.Schema["dt_ms"].Kind);

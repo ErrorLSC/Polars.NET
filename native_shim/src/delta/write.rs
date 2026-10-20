@@ -8,7 +8,7 @@ use uuid::Uuid;
 use polars::{error::{PolarsError, PolarsResult}, prelude::*};
 use deltalake::protocol::SaveMode;
 
-use crate::pl_io::{io_utils::build_unified_sink_args, parquet::parquet_utils::build_parquet_write_options};
+use crate::pl_io::parquet::parquet_utils::build_parquet_write_options;
 use crate::types::{LazyFrameContext,SelectorContext};
 use crate::utils::ptr_to_str;
 use crate::delta::utils::*;
@@ -73,22 +73,20 @@ pub extern "C" fn pl_sink_delta(
             Vec::new()
         };
 
+        let cloud_args = RawCloudArgs::from_raw(
+            cloud_provider, cloud_retries, cloud_retry_timeout_ms,
+            cloud_retry_init_backoff_ms, cloud_retry_max_backoff_ms, cloud_cache_ttl,
+            cloud_keys, cloud_values, cloud_len,
+        );
         let save_mode = map_savemode(mode);
-        let delta_opts = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
+        let delta_opts = cloud_args.storage_options();
         
         let write_options_arc = build_parquet_write_options(
             compression, compression_level, statistics, row_group_size, data_page_size, compat_level
         )?;
         let file_format = FileWriteFormat::Parquet(write_options_arc);
         
-        let unified_args = unsafe {
-            build_unified_sink_args(
-                mkdir, maintain_order, sync_on_close,
-                cloud_provider, cloud_retries, cloud_retry_timeout_ms,
-                cloud_retry_init_backoff_ms, cloud_retry_max_backoff_ms, cloud_cache_ttl,
-                cloud_keys, cloud_values, cloud_len
-            )
-        };
+        let unified_args = cloud_args.to_unified_sink_args(mkdir, maintain_order, sync_on_close);
 
         sink_delta_internal(
             lf_ctx.inner,

@@ -14,7 +14,6 @@ use deltalake::logstore::object_store::ObjectStoreExt;
 use uuid::Uuid;
 
 use crate::{delta::{delete::{create_dv_descriptor, write_dv_file}, deletion_vector::{read_deletion_vector}, utils::*}, pl_io::parquet::parquet_utils::build_parquet_write_options, types::{ExprContext, LazyFrameContext}};
-use crate::pl_io::io_utils::{build_cloud_options, build_unified_sink_args};
 
 const MAX_PRUNING_CANDIDATES: usize = 100_000;
 
@@ -501,16 +500,12 @@ pub(crate) fn construct_target_lf(
 
     let root_trimmed = table_url.as_str().trim_end_matches('/');
     
-    let make_scan_args = || unsafe {
+    let make_scan_args = || {
         let mut args = ScanArgsParquet::default();
         args.hive_options = HiveOptions {
             enabled: Some(true), hive_start_idx: 0, schema: None, try_parse_dates: true,
         };
-        args.cloud_options = build_cloud_options(
-            cloud_args.provider, cloud_args.retries, cloud_args.retry_timeout_ms,
-            cloud_args.retry_init_backoff_ms, cloud_args.retry_max_backoff_ms, cloud_args.cache_ttl,
-            cloud_args.keys, cloud_args.values, cloud_args.len,
-        );
+        args.cloud_options = cloud_args.to_cloud_options();
 
         if is_mor {
             args.row_index = Some(RowIndex { 
@@ -946,23 +941,8 @@ pub(crate) fn phase_execution(
         -1  // compat_level: Default
     ).map_err(|e| PolarsError::ComputeError(format!("Options error: {}", e).into()))?;
 
-    // 5. Re-build Cloud Args (Unsafe FFI)
-    let unified_args = unsafe {
-        build_unified_sink_args(
-            false, // mkdir
-            false, // maintain_order: false
-            0,     // sync_on_close: Default
-            cloud_args.provider,
-            cloud_args.retries,
-            cloud_args.retry_timeout_ms,
-            cloud_args.retry_init_backoff_ms,
-            cloud_args.retry_max_backoff_ms,
-            cloud_args.cache_ttl,
-            cloud_args.keys,
-            cloud_args.values,
-            cloud_args.len,
-        )
-    };
+    // 5. Re-build Cloud Args
+    let unified_args = cloud_args.to_unified_sink_args(false, false, 0);
 
     // 6. Execute
     processed_lf
@@ -1282,7 +1262,6 @@ pub(crate) fn merge_delta_internal_custom(
     cond_insert: Option<Expr>,
     cond_src_delete: Option<Expr>,
     can_evolve: bool,
-    delta_storage_options: std::collections::HashMap<String, String>,
     cloud_args: RawCloudArgs,
 ) -> PolarsResult<()> {
     let rt = crate::delta::utils::get_runtime();
@@ -1293,7 +1272,7 @@ pub(crate) fn merge_delta_internal_custom(
         .unwrap_or(5);
 
     let (mut table, partition_cols, mut target_schema) = rt.block_on(
-        crate::delta::merge::phase_1_load_table(table_url.clone(), delta_storage_options)
+        crate::delta::merge::phase_1_load_table(table_url.clone(), cloud_args.storage_options())
     )?;
     
     let snapshot = table.snapshot().map_err(|e| PolarsError::ComputeError(format!("Snapshot error: {}", e).into()))?;
@@ -1458,13 +1437,22 @@ pub extern "C" fn pl_io_delta_merge(
         let cond_insert = if !not_matched_insert_cond.is_null() { Some(unsafe { *Box::from_raw(not_matched_insert_cond) }.inner) } else { None };
         let cond_src_delete = if !not_matched_by_source_delete_cond.is_null() { Some(unsafe { *Box::from_raw(not_matched_by_source_delete_cond) }.inner) } else { None };
 
-        let delta_storage_options = crate::delta::utils::build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
-        let cloud_args = RawCloudArgs { provider: cloud_provider, retries: cloud_retries, retry_timeout_ms: cloud_retry_timeout_ms, retry_init_backoff_ms: cloud_retry_init_backoff_ms, retry_max_backoff_ms: cloud_retry_max_backoff_ms, cache_ttl: cloud_cache_ttl, keys: cloud_keys, values: cloud_values, len: cloud_len };
+        let cloud_args = RawCloudArgs::from_raw(
+            cloud_provider,
+            cloud_retries,
+            cloud_retry_timeout_ms,
+            cloud_retry_init_backoff_ms,
+            cloud_retry_max_backoff_ms,
+            cloud_cache_ttl,
+            cloud_keys,
+            cloud_values,
+            cloud_len,
+        );
 
         merge_delta_internal_custom(
             source_lf_ctx.inner, table_url, merge_keys, 
             cond_update, cond_delete, cond_insert, cond_src_delete, 
-            can_evolve, delta_storage_options, cloud_args
+            can_evolve, cloud_args
         )?;
         
         Ok(()) 

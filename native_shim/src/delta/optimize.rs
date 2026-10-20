@@ -30,7 +30,6 @@ use crate::{
     pl_io::parquet::parquet_utils::build_parquet_write_options, 
     utils::ptr_to_vec_string
 };
-use crate::pl_io::io_utils::{build_cloud_options, build_unified_sink_args};
 use crate::utils::ptr_to_str;
 
 // =========================================================
@@ -220,7 +219,7 @@ fn phase_2_execute_rewrite(
     );
 
     // Build ScanArgs with optional row_index tracking for DV filtering
-    let make_scan_args = |with_row_index: bool| unsafe {
+    let make_scan_args = |with_row_index: bool| {
         let mut args = ScanArgsParquet::default();
         args.hive_options = HiveOptions {
             enabled: Some(true), 
@@ -228,11 +227,7 @@ fn phase_2_execute_rewrite(
             schema: None, 
             try_parse_dates: true,
         };
-        args.cloud_options = build_cloud_options(
-            cloud_args.provider, cloud_args.retries, cloud_args.retry_timeout_ms,
-            cloud_args.retry_init_backoff_ms, cloud_args.retry_max_backoff_ms, cloud_args.cache_ttl,
-            cloud_args.keys, cloud_args.values, cloud_args.len,
-        );
+        args.cloud_options = cloud_args.to_cloud_options();
         args.low_memory = true;
         args.rechunk = false;
         
@@ -415,12 +410,7 @@ fn phase_2_execute_rewrite(
     let write_opts = build_parquet_write_options(1, -1, true, 0, 0, -1)
         .map_err(|e| PolarsError::ComputeError(format!("Options error: {}", e).into()))?;
 
-    let unified_args = unsafe { build_unified_sink_args(
-        true, false, 0, 
-        cloud_args.provider, cloud_args.retries, cloud_args.retry_timeout_ms,
-        cloud_args.retry_init_backoff_ms, cloud_args.retry_max_backoff_ms, cloud_args.cache_ttl,
-        cloud_args.keys, cloud_args.values, cloud_args.len,
-    )};
+    let unified_args = cloud_args.to_unified_sink_args(true, false, 0);
 
     let destination = SinkDestination::File {
         target: SinkTarget::Path(PlRefPath::from(dest_path_str.as_str())),
@@ -536,7 +526,6 @@ async fn phase_3_commit_optimize(
 
 pub(crate) fn optimize_delta_internal(
     ctx: OptimizeContext,
-    delta_storage_options: std::collections::HashMap<String, String>,
     cloud_args: RawCloudArgs,
 ) -> PolarsResult<usize> {
     let rt = get_runtime();
@@ -550,7 +539,7 @@ pub(crate) fn optimize_delta_internal(
     let (mut table, _polars_schema) = rt.block_on(async {
         let t = DeltaTable::try_from_url_with_storage_options(
             ctx.table_url.clone(), 
-            delta_storage_options.clone()
+            cloud_args.storage_options(),
         )
         .await.map_err(|e| PolarsError::ComputeError(format!("Delta load error: {}", e).into()))?;
         
@@ -651,8 +640,7 @@ pub extern "C" fn pl_io_delta_optimize(
     ffi_try_void!({
         let path_str = ptr_to_str(target_path_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
         let table_url = parse_table_url(path_str)?;
-        let delta_storage_options = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
-        
+
         let partition_filters = if !filter_json_ptr.is_null() {
             let json_str = ptr_to_str(filter_json_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
             if json_str.trim().is_empty() { 
@@ -679,19 +667,19 @@ pub extern "C" fn pl_io_delta_optimize(
             z_order_columns,
         };
 
-        let cloud_args = RawCloudArgs { 
-            provider: cloud_provider, 
-            retries: cloud_retries, 
-            retry_timeout_ms: cloud_retry_timeout_ms, 
-            retry_init_backoff_ms: cloud_retry_init_backoff_ms, 
-            retry_max_backoff_ms: cloud_retry_max_backoff_ms, 
-            cache_ttl: cloud_cache_ttl, 
-            keys: cloud_keys, 
-            values: cloud_values, 
-            len: cloud_len 
-        };
+        let cloud_args = RawCloudArgs::from_raw(
+            cloud_provider, 
+            cloud_retries, 
+            cloud_retry_timeout_ms, 
+            cloud_retry_init_backoff_ms, 
+            cloud_retry_max_backoff_ms, 
+            cloud_cache_ttl, 
+            cloud_keys, 
+            cloud_values, 
+            cloud_len,
+        );
 
-        let total_optimized = optimize_delta_internal(ctx, delta_storage_options, cloud_args)?;
+        let total_optimized = optimize_delta_internal(ctx, cloud_args)?;
 
         if !out_num_files_optimized.is_null() {
             unsafe { *out_num_files_optimized = total_optimized; }

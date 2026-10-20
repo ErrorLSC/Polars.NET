@@ -130,31 +130,25 @@ pub extern "C" fn pl_io_delta_read_cdc(
             .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
         let table_url = crate::delta::utils::parse_table_url(path_str)?;
         
-        let cloud_args = RawCloudArgs {
-            provider: cloud_provider, 
-            retries: cloud_retries, 
-            retry_timeout_ms: cloud_retry_timeout_ms,
-            retry_init_backoff_ms: cloud_retry_init_backoff_ms, 
-            retry_max_backoff_ms: cloud_retry_max_backoff_ms,
-            cache_ttl: cloud_cache_ttl, 
-            keys: cloud_keys, 
-            values: cloud_values, 
-            len: cloud_len,
-        };
+        let cloud_args = RawCloudArgs::from_raw(
+            cloud_provider, 
+            cloud_retries, 
+            cloud_retry_timeout_ms,
+            cloud_retry_init_backoff_ms, 
+            cloud_retry_max_backoff_ms,
+            cloud_cache_ttl, 
+            cloud_keys, 
+            cloud_values, 
+            cloud_len,
+        );
         
-        let delta_storage_options = crate::delta::utils::build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
-
         let mut scan_args = ScanArgsParquet::default();
-        scan_args.cloud_options = unsafe { crate::pl_io::io_utils::build_cloud_options(
-            cloud_args.provider, cloud_args.retries, cloud_args.retry_timeout_ms,
-            cloud_args.retry_init_backoff_ms, cloud_args.retry_max_backoff_ms, cloud_args.cache_ttl,
-            cloud_args.keys, cloud_args.values, cloud_args.len,
-        ) };
+        scan_args.cloud_options = cloud_args.to_cloud_options();
 
         let rt = crate::delta::utils::get_runtime();
 
         let lf = rt.block_on(async {
-            let table = deltalake::DeltaTable::try_from_url_with_storage_options(table_url.clone(), delta_storage_options)
+            let table = deltalake::DeltaTable::try_from_url_with_storage_options(table_url.clone(), cloud_args.storage_options())
                 .await
                 .map_err(|e| PolarsError::ComputeError(format!("Failed to load table: {}", e).into()))?;
 
@@ -192,20 +186,14 @@ pub extern "C" fn pl_io_delta_read_cdc_by_time(
             .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
         let table_url = crate::delta::utils::parse_table_url(path_str)?;
         
-        let cloud_args = crate::delta::utils::RawCloudArgs {
-            provider: cloud_provider, retries: cloud_retries, retry_timeout_ms: cloud_retry_timeout_ms,
-            retry_init_backoff_ms: cloud_retry_init_backoff_ms, retry_max_backoff_ms: cloud_retry_max_backoff_ms,
-            cache_ttl: cloud_cache_ttl, keys: cloud_keys, values: cloud_values, len: cloud_len,
-        };
+        let cloud_args = RawCloudArgs::from_raw(
+            cloud_provider, cloud_retries, cloud_retry_timeout_ms,
+            cloud_retry_init_backoff_ms, cloud_retry_max_backoff_ms,
+            cloud_cache_ttl, cloud_keys, cloud_values, cloud_len,
+        );
         
-        let delta_storage_options = crate::delta::utils::build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
-
         let mut scan_args = ScanArgsParquet::default();
-        scan_args.cloud_options = unsafe { crate::pl_io::io_utils::build_cloud_options(
-            cloud_args.provider, cloud_args.retries, cloud_args.retry_timeout_ms,
-            cloud_args.retry_init_backoff_ms, cloud_args.retry_max_backoff_ms, cloud_args.cache_ttl,
-            cloud_args.keys, cloud_args.values, cloud_args.len,
-        ) };
+        scan_args.cloud_options = cloud_args.to_cloud_options();
 
         let rt = crate::delta::utils::get_runtime();
         let lf = rt.block_on(async {
@@ -216,7 +204,7 @@ pub extern "C" fn pl_io_delta_read_cdc_by_time(
                 .ok_or_else(|| PolarsError::ComputeError("Invalid end timestamp".into()))?;
             let mut table = deltalake::DeltaTable::try_from_url_with_storage_options(
                 table_url.clone(), 
-                delta_storage_options
+                cloud_args.storage_options(),
             )
             .await
             .map_err(|e| PolarsError::ComputeError(format!("Failed to safely load table: {}", e).into()))?;

@@ -4,13 +4,15 @@ use polars_io::catalog::unity::models::DataSourceFormat;
 use polars_io::catalog::unity::schema::table_info_to_schemas;
 
 use crate::catalog::ffi::CatalogContext;
-use crate::catalog::utils::{get_catalog_table_info_and_options, load_catalog_table};
-use crate::delta::utils::{build_delta_storage_options_map, get_runtime};
-use crate::pl_io::io_utils::build_cloud_options_from_map;
+use crate::catalog::utils::{
+    get_catalog_table_info_and_options_sync, load_catalog_table, load_catalog_table_sync,
+    parse_catalog_table_args,
+};
+use crate::delta::read::scan_delta_internal;
+use crate::delta::utils::{build_delta_storage_options_map, get_runtime, RawCloudArgs};
 use crate::pl_io::parquet::parquet_utils::build_scan_args;
 use crate::types::{LazyFrameContext, SchemaContext};
-use crate::utils::ptr_to_str;
-use crate::delta::read::scan_delta_internal; 
+use crate::utils::ptr_to_str; 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_scan_catalog_table(
@@ -26,26 +28,20 @@ pub extern "C" fn pl_scan_catalog_table(
     cloud_values: *const *const c_char, cloud_len: usize
 ) -> *mut LazyFrameContext {
     ffi_try!({
-        let ctx = unsafe {
-            if ctx_ptr.is_null() { return Err(PolarsError::ComputeError("CatalogContext pointer is null".into())); }
-            &*ctx_ptr
-        };
+        let (ctx, catalog_name, schema_name, table_name) = parse_catalog_table_args(
+            ctx_ptr, catalog_name_ptr, schema_name_ptr, table_name_ptr,
+        )?;
         let version_val = if version.is_null() { None } else { unsafe { Some(*version) } };
         let datetime_str = if datetime_ptr.is_null() { None } else { 
             Some(ptr_to_str(datetime_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string()) 
         };
 
-        let catalog_name = ptr_to_str(catalog_name_ptr).unwrap();
-        let schema_name = ptr_to_str(schema_name_ptr).unwrap();
-        let table_name = ptr_to_str(table_name_ptr).unwrap();
-
         let base_options = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
-        let rt = get_runtime();
 
         // 1. Query catalog metadata and resolve vended storage credentials (needs_write = false)
-        let (table_info, table_url, final_options) = rt.block_on(async {
-            get_catalog_table_info_and_options(ctx, catalog_name, schema_name, table_name, false, base_options).await
-        })?;
+        let (table_info, table_url, final_options) = get_catalog_table_info_and_options_sync(
+            ctx, catalog_name, schema_name, table_name, false, base_options,
+        )?;
 
         // 2. Build base scan arguments
         let mut args = build_scan_args(
@@ -58,15 +54,16 @@ pub extern "C" fn pl_scan_catalog_table(
 
         // 3. Inject the merged catalog credentials into args.cloud_options so Polars engine 
         // can authenticate when reading Parquet data files during Collect()
-        args.cloud_options = build_cloud_options_from_map(
+        let cloud_args = RawCloudArgs::new(
             cloud_provider,
             cloud_retries,
             cloud_retry_timeout_ms,
             cloud_retry_init_backoff_ms,
             cloud_retry_max_backoff_ms,
             cloud_cache_ttl,
-            &final_options,
+            final_options.clone(),
         );
+        args.cloud_options = cloud_args.to_cloud_options();
 
         let (uc_schema, _uc_hive_schema) = table_info_to_schemas(&table_info)?;
         if args.schema.is_none() && uc_schema.is_some() {
@@ -113,43 +110,31 @@ pub extern "C" fn pl_catalog_delta_read_cdc(
     cloud_len: usize,
 ) -> *mut LazyFrameContext {
     ffi_try!({
-        let ctx = unsafe {
-            if ctx_ptr.is_null() { return Err(PolarsError::ComputeError("CatalogContext pointer is null".into())); }
-            &*ctx_ptr
+        let (ctx, catalog_name, schema_name, table_name) = parse_catalog_table_args(
+            ctx_ptr, catalog_name_ptr, schema_name_ptr, table_name_ptr,
+        )?;
+        let cloud_args = RawCloudArgs::from_raw(
+            cloud_provider, cloud_retries, cloud_retry_timeout_ms,
+            cloud_retry_init_backoff_ms, cloud_retry_max_backoff_ms, cloud_cache_ttl,
+            cloud_keys, cloud_values, cloud_len,
+        );
+        let (table, table_url, final_options) = load_catalog_table_sync(
+            ctx, catalog_name, schema_name, table_name, false, cloud_args.storage_options(),
+        )?;
+
+        let effective_cloud_args = RawCloudArgs::new(
+            cloud_args.provider, cloud_args.retries, cloud_args.retry_timeout_ms,
+            cloud_args.retry_init_backoff_ms, cloud_args.retry_max_backoff_ms, cloud_args.cache_ttl,
+            final_options,
+        );
+        let scan_args = polars::prelude::ScanArgsParquet {
+            cloud_options: effective_cloud_args.to_cloud_options(),
+            ..Default::default()
         };
-        let catalog_name = ptr_to_str(catalog_name_ptr)
-            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
-        let schema_name = ptr_to_str(schema_name_ptr)
-            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
-        let table_name = ptr_to_str(table_name_ptr)
-            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
 
-        let base_options = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
-        let rt = get_runtime();
-
-        let lf = rt.block_on(async {
-            let (table, table_url, final_options) = load_catalog_table(
-                ctx, 
-                &catalog_name, 
-                &schema_name, 
-                &table_name, 
-                false, 
-                base_options
-            ).await?;
-
-            let mut scan_args = polars::prelude::ScanArgsParquet::default();
-            scan_args.cloud_options = build_cloud_options_from_map(
-                cloud_provider,
-                cloud_retries,
-                cloud_retry_timeout_ms,
-                cloud_retry_init_backoff_ms,
-                cloud_retry_max_backoff_ms,
-                cloud_cache_ttl,
-                &final_options,
-            );
-
-            crate::delta::cdc::read_change_data_stream(&table, &table_url, start_version, end_version, scan_args).await
-        })?;
+        let lf = get_runtime().block_on(crate::delta::cdc::read_change_data_stream(
+            &table, &table_url, start_version, end_version, scan_args,
+        ))?;
 
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner: lf })))
     })
@@ -175,20 +160,16 @@ pub extern "C" fn pl_catalog_delta_read_cdc_by_time(
     cloud_len: usize,
 ) -> *mut LazyFrameContext {
     ffi_try!({
-        let ctx = unsafe {
-            if ctx_ptr.is_null() { return Err(PolarsError::ComputeError("CatalogContext pointer is null".into())); }
-            &*ctx_ptr
-        };
-        let catalog_name = ptr_to_str(catalog_name_ptr)
-            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
-        let schema_name = ptr_to_str(schema_name_ptr)
-            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
-        let table_name = ptr_to_str(table_name_ptr)
-            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
+        let (ctx, catalog_name, schema_name, table_name) = parse_catalog_table_args(
+            ctx_ptr, catalog_name_ptr, schema_name_ptr, table_name_ptr,
+        )?;
+        let cloud_args = RawCloudArgs::from_raw(
+            cloud_provider, cloud_retries, cloud_retry_timeout_ms,
+            cloud_retry_init_backoff_ms, cloud_retry_max_backoff_ms, cloud_cache_ttl,
+            cloud_keys, cloud_values, cloud_len,
+        );
 
-        let base_options = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
         let rt = get_runtime();
-
         let lf = rt.block_on(async {
             use chrono::{TimeZone, Utc};
             let start_dt = Utc.timestamp_millis_opt(start_timestamp_ms).single()
@@ -198,11 +179,11 @@ pub extern "C" fn pl_catalog_delta_read_cdc_by_time(
 
             let (mut table, table_url, final_options) = load_catalog_table(
                 ctx, 
-                &catalog_name, 
-                &schema_name, 
-                &table_name, 
+                catalog_name, 
+                schema_name, 
+                table_name, 
                 false, 
-                base_options
+                cloud_args.storage_options(),
             ).await?;
 
             let v_start = match table.load_with_datetime(start_dt).await {
@@ -218,16 +199,15 @@ pub extern "C" fn pl_catalog_delta_read_cdc_by_time(
                 Err(e) => return Err(PolarsError::ComputeError(format!("Failed to parse end datetime: {}", e).into())),
             };
 
-            let mut scan_args = polars::prelude::ScanArgsParquet::default();
-            scan_args.cloud_options = build_cloud_options_from_map(
-                cloud_provider,
-                cloud_retries,
-                cloud_retry_timeout_ms,
-                cloud_retry_init_backoff_ms,
-                cloud_retry_max_backoff_ms,
-                cloud_cache_ttl,
-                &final_options,
+            let effective_cloud_args = RawCloudArgs::new(
+                cloud_args.provider, cloud_args.retries, cloud_args.retry_timeout_ms,
+                cloud_args.retry_init_backoff_ms, cloud_args.retry_max_backoff_ms, cloud_args.cache_ttl,
+                final_options,
             );
+            let scan_args = polars::prelude::ScanArgsParquet {
+                cloud_options: effective_cloud_args.to_cloud_options(),
+                ..Default::default()
+            };
 
             let mut lf = crate::delta::cdc::read_change_data_stream(&table, &table_url, v_start, v_end, scan_args).await?;
 

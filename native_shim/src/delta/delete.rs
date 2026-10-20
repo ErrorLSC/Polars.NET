@@ -13,8 +13,7 @@ use rand::RngExt;
 use roaring::RoaringBitmap;
 use serde_json::Value;
 use uuid::Uuid;
-use crate::{delta::{deletion_vector::read_deletion_vector, utils::{RawCloudArgs, build_delta_storage_options_map, check_file_overlap_optimized, extract_delta_stats, get_polars_schema_from_delta, get_runtime, parse_hive_partitions, parse_table_url, view_to_add_action}}, pl_io::parquet::parquet_utils::build_parquet_write_options};
-use crate::pl_io::io_utils::{build_cloud_options, build_unified_sink_args};
+use crate::{delta::{deletion_vector::read_deletion_vector, utils::{RawCloudArgs, check_file_overlap_optimized, extract_delta_stats, get_polars_schema_from_delta, get_runtime, parse_hive_partitions, parse_table_url, view_to_add_action}}, pl_io::parquet::parquet_utils::build_parquet_write_options};
 use crate::types::ExprContext;
 use crate::utils::ptr_to_str;
 
@@ -449,19 +448,7 @@ pub fn execute_copy_on_write(
     let full_scan_path = format!("{}/{}", ctx.table_root.trim_end_matches('/'), file_path_str);
 
     // Build Scan Args
-    let scan_cloud_options = unsafe {
-        build_cloud_options(
-            ctx.cloud_args.provider, 
-            ctx.cloud_args.retries, 
-            ctx.cloud_args.retry_timeout_ms,
-            ctx.cloud_args.retry_init_backoff_ms, 
-            ctx.cloud_args.retry_max_backoff_ms, 
-            ctx.cloud_args.cache_ttl,
-            ctx.cloud_args.keys, 
-            ctx.cloud_args.values, 
-            ctx.cloud_args.len
-        )
-    };
+    let scan_cloud_options = ctx.cloud_args.to_cloud_options();
     
     // Scan Parquet
     let mut lf = LazyFrame::scan_parquet(
@@ -539,14 +526,7 @@ pub fn execute_copy_on_write(
     let target = SinkTarget::Path(PlRefPath::new(&full_write_path));
     
     // Rebuild Unified Sink Args
-    let unified_args = unsafe {
-        build_unified_sink_args(
-            false, false, 0, 
-            ctx.cloud_args.provider, ctx.cloud_args.retries, ctx.cloud_args.retry_timeout_ms,
-            ctx.cloud_args.retry_init_backoff_ms, ctx.cloud_args.retry_max_backoff_ms, ctx.cloud_args.cache_ttl,
-            ctx.cloud_args.keys, ctx.cloud_args.values, ctx.cloud_args.len 
-        )
-    };
+    let unified_args = ctx.cloud_args.to_unified_sink_args(false, false, 0);
 
     new_lf.sink(SinkDestination::File { target }, FileWriteFormat::Parquet(write_opts), unified_args)?
         .collect_with_engine(Engine::Streaming)?;
@@ -631,19 +611,7 @@ pub fn execute_merge_on_read(
     let full_scan_path = format!("{}/{}", ctx.table_root.trim_end_matches('/'), file_path_str);
 
     // Scan Parquet to Get deletion row index
-    let scan_cloud_options = unsafe {
-        build_cloud_options(
-            ctx.cloud_args.provider, 
-            ctx.cloud_args.retries, 
-            ctx.cloud_args.retry_timeout_ms,
-            ctx.cloud_args.retry_init_backoff_ms, 
-            ctx.cloud_args.retry_max_backoff_ms, 
-            ctx.cloud_args.cache_ttl,
-            ctx.cloud_args.keys, 
-            ctx.cloud_args.values, 
-            ctx.cloud_args.len
-        )
-    };
+    let scan_cloud_options = ctx.cloud_args.to_cloud_options();
 
     let mut lf = LazyFrame::scan_parquet(
         PlRefPath::new(&full_scan_path), 
@@ -768,15 +736,19 @@ pub extern "C" fn pl_io_delta_delete(
         let predicate_ctx = unsafe { *Box::from_raw(predicate_ptr) };
         let predicate_expr = predicate_ctx.inner;
 
-        let cloud_args = RawCloudArgs {
-            provider: cloud_provider, retries: cloud_retries, retry_timeout_ms: cloud_retry_timeout_ms,
-            retry_init_backoff_ms: cloud_retry_init_backoff_ms, retry_max_backoff_ms: cloud_retry_max_backoff_ms,
-            cache_ttl: cloud_cache_ttl, keys: cloud_keys, values: cloud_values, len: cloud_len,
-        };
-        
-        let delta_storage_options = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
+        let cloud_args = RawCloudArgs::from_raw(
+            cloud_provider,
+            cloud_retries,
+            cloud_retry_timeout_ms,
+            cloud_retry_init_backoff_ms,
+            cloud_retry_max_backoff_ms,
+            cloud_cache_ttl,
+            cloud_keys,
+            cloud_values,
+            cloud_len,
+        );
 
-        delete_delta_internal(table_url, predicate_expr, delta_storage_options, cloud_args)?;
+        delete_delta_internal(table_url, predicate_expr, cloud_args)?;
         Ok(())
     })
 
@@ -785,7 +757,6 @@ pub extern "C" fn pl_io_delta_delete(
 pub(crate) fn delete_delta_internal(
     table_url: url::Url,
     predicate_expr: Expr,
-    delta_storage_options: HashMap<String, String>,
     cloud_args: RawCloudArgs,
 ) -> PolarsResult<()> {
     let rt = get_runtime();
@@ -799,7 +770,7 @@ pub(crate) fn delete_delta_internal(
         // Phase 1: Load 
         // ==========================================
         let (t, schema, part_cols, all_files) = rt.block_on(async {
-            let t = DeltaTable::try_from_url_with_storage_options(table_url.clone(), delta_storage_options.clone())
+            let t = DeltaTable::try_from_url_with_storage_options(table_url.clone(), cloud_args.storage_options())
                 .await.map_err(|e| PolarsError::ComputeError(format!("Delta load error: {}", e).into()))?;
             
             let schema = get_polars_schema_from_delta(&t)?;

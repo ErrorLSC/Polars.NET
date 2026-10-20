@@ -188,7 +188,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// Explode list/array columns into multiple rows.
     /// <para>
     /// This un-nests list columns. If multiple columns are provided, they are exploded in parallel.
-    /// Note: The list columns being exploded must have the same length for each row.
+    /// The list columns being exploded must have the same length for each row.
     /// </para>
     /// </summary>
     /// <param name="columns">Expressions selecting the columns to explode.</param>

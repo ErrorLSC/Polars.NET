@@ -4394,7 +4394,7 @@ public partial class LinqTests
         // Record 2: CamelCase split via UDF Fallback
         // =========================================================================
         Assert.Equal(2, queryResults[1].Id);
-        // Note: Regex.Split("SplitCamelCaseText", @"(?=[A-Z])") may yield an empty leading token before the first capital letter
+        // Regex.Split("SplitCamelCaseText", @"(?=[A-Z])") may yield an empty leading token before the first capital letter
         var cleanedTokens = queryResults[1].Tokens.Where(s => !string.IsNullOrEmpty(s)).ToList();
         Assert.Equal(["Split", "Camel", "Case", "Text"], cleanedTokens);
 
@@ -4588,7 +4588,7 @@ public partial class LinqTests
 
         // Record 1: ["dev", "ops", "dev", "qa"]
         Assert.Equal(1, queryResults[0].Id);
-        // Note: Polars unique maintains original encounter order or set uniqueness
+        // Polars unique maintains original encounter order or set uniqueness
         Assert.Equal(3, queryResults[0].UniqueTags.Count());
         Assert.Contains("dev", queryResults[0].UniqueTags);
         Assert.Contains("ops", queryResults[0].UniqueTags);

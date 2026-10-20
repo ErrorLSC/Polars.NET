@@ -2,12 +2,11 @@ use std::ffi::c_char;
 use polars::prelude::*;
 use polars::error::{PolarsError, PolarsResult};
 
-use crate::catalog::utils::get_catalog_table_info_and_options;
+use crate::catalog::utils::{get_catalog_table_info_and_options_sync, parse_catalog_table_args};
 use crate::pl_io::io_utils::build_unified_sink_args_from_map;
-use crate::utils::ptr_to_str;
 use crate::types::{LazyFrameContext, SelectorContext};
-use crate::pl_io::{parquet::parquet_utils::build_parquet_write_options};
-use crate::delta::utils::{build_delta_storage_options_map, get_runtime, map_savemode};
+use crate::pl_io::parquet::parquet_utils::build_parquet_write_options;
+use crate::delta::utils::{build_delta_storage_options_map, map_savemode};
 use crate::delta::write::sink_delta_internal; 
 use super::ffi::CatalogContext;
 
@@ -43,13 +42,8 @@ pub extern "C" fn pl_sink_catalog_table(
     cloud_cache_ttl: u64, cloud_keys: *const *const c_char, cloud_values: *const *const c_char, cloud_len: usize
 ) {
     ffi_try_void!({
-        let ctx = unsafe {
-            if ctx_ptr.is_null() { return Err(PolarsError::ComputeError("CatalogContext pointer is null".into())); }
-            &*ctx_ptr
-        };
-        let catalog_name = ptr_to_str(catalog_name_ptr).unwrap();
-        let schema_name = ptr_to_str(schema_name_ptr).unwrap();
-        let table_name = ptr_to_str(table_name_ptr).unwrap();
+        let (ctx, catalog_name, schema_name, table_name) = 
+            parse_catalog_table_args(ctx_ptr, catalog_name_ptr, schema_name_ptr, table_name_ptr)?;
 
         let mut lf_ctx = unsafe { Box::from_raw(lf_ptr) };
         let schema = lf_ctx.inner.collect_schema()
@@ -72,15 +66,10 @@ pub extern "C" fn pl_sink_catalog_table(
         )?;
         let file_format = FileWriteFormat::Parquet(write_options_arc);
 
-        let rt = get_runtime();
-
-        let (table_url_str, final_options) = rt.block_on(async {
-            let (_, url, options) = get_catalog_table_info_and_options(
-                ctx, catalog_name, schema_name, table_name, true, base_options
-            ).await?;
-            
-            Ok::<(String, std::collections::HashMap<String, String>), PolarsError>((url.to_string(), options))
-        })?;
+        let (_, url, final_options) = get_catalog_table_info_and_options_sync(
+            ctx, catalog_name, schema_name, table_name, true, base_options
+        )?;
+        let table_url_str = url.to_string();
 
         let unified_args = build_unified_sink_args_from_map(
             mkdir,

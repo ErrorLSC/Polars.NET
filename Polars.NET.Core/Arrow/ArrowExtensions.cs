@@ -145,7 +145,7 @@ public static partial class ArrowExtensions
     }
     /// <summary>
     /// Get Decimal value.
-    /// Note: Arrow Decimal128 is converted to C# decimal.
+    /// Arrow Decimal128 is converted to C# decimal.
     /// Use with caution if precision > 28.
     /// </summary>
     public static decimal? GetDecimalValue(this IArrowArray array, int index)

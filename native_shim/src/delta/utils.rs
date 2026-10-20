@@ -404,7 +404,7 @@ pub(crate) fn convert_to_delta_schema(pl_schema: &Schema) -> PolarsResult<Struct
 }
 
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Debug)]
 pub struct RawCloudArgs {
     pub provider: u8,
     pub retries: usize,
@@ -412,9 +412,88 @@ pub struct RawCloudArgs {
     pub retry_init_backoff_ms: u64, 
     pub retry_max_backoff_ms: u64, 
     pub cache_ttl: u64,
-    pub keys: *const *const c_char,
-    pub values: *const *const c_char,
-    pub len: usize,
+    pub options: std::sync::Arc<HashMap<String, String>>,
+}
+
+impl RawCloudArgs {
+    pub fn new(
+        provider: u8,
+        retries: usize,
+        retry_timeout_ms: u64,
+        retry_init_backoff_ms: u64,
+        retry_max_backoff_ms: u64,
+        cache_ttl: u64,
+        options: HashMap<String, String>,
+    ) -> Self {
+        Self {
+            provider,
+            retries,
+            retry_timeout_ms,
+            retry_init_backoff_ms,
+            retry_max_backoff_ms,
+            cache_ttl,
+            options: std::sync::Arc::new(options),
+        }
+    }
+
+    pub fn from_raw(
+        provider: u8,
+        retries: usize,
+        retry_timeout_ms: u64,
+        retry_init_backoff_ms: u64,
+        retry_max_backoff_ms: u64,
+        cache_ttl: u64,
+        keys: *const *const std::os::raw::c_char,
+        values: *const *const std::os::raw::c_char,
+        len: usize,
+    ) -> Self {
+        let options = build_delta_storage_options_map(keys, values, len);
+        Self::new(
+            provider,
+            retries,
+            retry_timeout_ms,
+            retry_init_backoff_ms,
+            retry_max_backoff_ms,
+            cache_ttl,
+            options,
+        )
+    }
+
+    pub fn to_cloud_options(&self) -> Option<polars_io::cloud::CloudOptions> {
+        crate::pl_io::io_utils::build_cloud_options_from_map(
+            self.provider,
+            self.retries,
+            self.retry_timeout_ms,
+            self.retry_init_backoff_ms,
+            self.retry_max_backoff_ms,
+            self.cache_ttl,
+            &self.options,
+        )
+    }
+
+    pub fn to_unified_sink_args(
+        &self,
+        mkdir: bool,
+        maintain_order: bool,
+        sync_on_close_code: u8,
+    ) -> polars::prelude::UnifiedSinkArgs {
+        crate::pl_io::io_utils::build_unified_sink_args_from_map(
+            mkdir,
+            maintain_order,
+            sync_on_close_code,
+            self.provider,
+            self.retries,
+            self.retry_timeout_ms,
+            self.retry_init_backoff_ms,
+            self.retry_max_backoff_ms,
+            self.cache_ttl,
+            &self.options,
+        )
+    }
+
+    pub fn storage_options(&self) -> HashMap<String, String> {
+        (*self.options).clone()
+    }
 }
 
 pub(crate) fn view_to_add_action(view: &LogicalFileView) -> Add {

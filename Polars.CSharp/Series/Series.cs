@@ -206,7 +206,7 @@ public partial class Series : IDisposable, IPolarsSeries, IEquatable<Series>
     public Series Take(ReadOnlySpan<int> indices) => Gather(indices);
     /// <summary>
     /// Take elements by physical integer indices.
-    /// Note: Negative indices are not supported. All values must be >= 0.
+    /// Negative indices are not supported. All values must be >= 0.
     /// </summary>
     public Series Take(Series indices)
     {
@@ -513,7 +513,7 @@ public partial class Series : IDisposable, IPolarsSeries, IEquatable<Series>
         => ApplyBinaryExpr(by, (left, right) => left.InterpolateBy(right));
     /// <summary>
     /// Fill floating point NaN values with a specified value.
-    /// Note: This is different from FillNull. It only handles IEEE 754 NaN.
+    /// This is different from FillNull. It only handles IEEE 754 NaN.
     /// </summary>
     public Series FillNan(IntoExpr value) => ApplyExpr(Pl.Col(Name).FillNan(value));
     // ==========================================
