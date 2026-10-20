@@ -1,11 +1,11 @@
-using WireMock.Server;
+using Polars.CSharp;
+using Polars.Integration.Tests.Fixtures;
+using Polars.NET.Core;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
-using Polars.CSharp;
-using Pl = Polars.CSharp.Polars;
+using WireMock.Server;
 using Cs = Polars.CSharp.Polars.Selectors;
-using Polars.Integration.Tests.Fixtures;
-using Polars.NET.Core; 
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.Integration.Tests;
 
@@ -27,12 +27,12 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
     }
 
     private void SetupUnityCatalogMock(
-        string catalog, 
-        string schema, 
-        string table, 
-        string s3StorageLocation, 
-        string expectedToken, 
-        string accessKey, 
+        string catalog,
+        string schema,
+        string table,
+        string s3StorageLocation,
+        string expectedToken,
+        string accessKey,
         string secretKey)
     {
         var dummyTableId = Guid.NewGuid().ToString();
@@ -47,7 +47,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             .RespondWith(
                 Response.Create()
                     .WithStatusCode(200)
-                    .WithBodyAsJson(new 
+                    .WithBodyAsJson(new
                     {
                         name = table,
                         catalog_name = catalog,
@@ -56,7 +56,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
                         data_source_format = "DELTA",
                         storage_location = s3StorageLocation,
                         table_id = dummyTableId,
-                        
+
                         created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                         created_by = "test_admin",
                         updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -68,31 +68,31 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             .Given(
                 Request.Create()
                     .WithPath("/api/2.1/unity-catalog/temporary-table-credentials")
-                    .UsingPost() 
+                    .UsingPost()
                     .WithHeader("Authorization", $"Bearer {expectedToken}")
             )
             .RespondWith(
                 Response.Create()
                     .WithStatusCode(200)
-                    .WithBodyAsJson(new 
+                    .WithBodyAsJson(new
                     {
-                        aws_temp_credentials = new 
+                        aws_temp_credentials = new
                         {
                             access_key_id = accessKey,
                             secret_access_key = secretKey,
-                            session_token = (string?)null, 
+                            session_token = (string?)null,
                             access_point = (string?)null
                         },
                         azure_user_delegation_sas = (object?)null,
                         gcp_oauth_token = (object?)null,
-                        
+
                         expiration_time = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeMilliseconds()
                     })
             );
     }
 
     [Fact]
-    [Trait("Catalog","Scan")]
+    [Trait("Catalog", "Scan")]
     public void Test_ScanDeltaCatalog_With_Minio_And_WireMock()
     {
         var catalog = "main";
@@ -116,7 +116,8 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         writeOptions.Credentials!["aws_s3_force_path_style"] = "true";
         writeOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
 
-        using (var df = DataFrame.FromColumns(new { 
+        using (var df = DataFrame.FromColumns(new
+        {
             Id = new[] { 1, 2, 3 },
             Msg = new[] { "Alice", "Bob", "Charlie" }
         }))
@@ -129,7 +130,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         // ==========================================
         // ScanDeltaCatalog
         // ==========================================
-        
+
         var readOptions = CloudOptions.Aws(
             region: _minio.Region,
             endpoint: polarsEndpoint
@@ -138,7 +139,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         readOptions.Credentials!["aws_s3_force_path_style"] = "true";
 
         using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
-        
+
         using var lf = uc.ScanCatalogTable(
             catalogName: catalog,
             schemaName: schema,
@@ -180,7 +181,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         // var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
         var cloudOptions = CloudOptions.Aws(
-                region: _minio.Region, 
+                region: _minio.Region,
                 endpoint: polarsEndpoint
             );
         cloudOptions.Credentials!["aws_allow_http"] = "true";
@@ -188,34 +189,36 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
 
-        using (var df1 = DataFrame.FromColumns(new { 
+        using (var df1 = DataFrame.FromColumns(new
+        {
             Id = new[] { 1, 2 },
             Name = new[] { "Alice", "Bob" }
         }))
         {
             df1.WriteCatalogTable(
-                uc, catalog, schema, table, 
-                mode: DeltaSaveMode.Overwrite, 
+                uc, catalog, schema, table,
+                mode: DeltaSaveMode.Overwrite,
                 cloudOptions: cloudOptions
             );
         }
 
-        using (var df2 = DataFrame.FromColumns(new { 
+        using (var df2 = DataFrame.FromColumns(new
+        {
             Id = new[] { 3, 4 },
             Name = new[] { "Charlie", "David" }
         }))
         {
             df2.WriteCatalogTable(
-                uc, catalog, schema, table, 
-                mode: DeltaSaveMode.Append, 
+                uc, catalog, schema, table,
+                mode: DeltaSaveMode.Append,
                 cloudOptions: cloudOptions
             );
         }
 
-        
+
         using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
         using var resultDf = resultLf.Collect().Sort(["Id"]);
-        
+
         // shape: (4, 2)
         // ┌─────┬─────────┐
         // │ Id  ┆ Name    │
@@ -254,50 +257,52 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
 
-        using (var df1 = DataFrame.FromColumns(new { 
+        using (var df1 = DataFrame.FromColumns(new
+        {
             Id = new[] { 1, 2 },
             Region = new[] { "North", "South" }
         }))
         {
             df1.WriteCatalogTable(
-                uc, catalog, schema, table, 
-                mode: DeltaSaveMode.Overwrite, 
-                partitionBy: Cs.ByName("Region"), 
+                uc, catalog, schema, table,
+                mode: DeltaSaveMode.Overwrite,
+                partitionBy: Cs.ByName("Region"),
                 cloudOptions: cloudOptions
             );
         }
 
-        using (var df2 = DataFrame.FromColumns(new { 
+        using (var df2 = DataFrame.FromColumns(new
+        {
             Id = new[] { 3, 4 },
             Region = new[] { "East", "North" }
         }))
         {
             df2.WriteCatalogTable(
-                uc, catalog, schema, table, 
-                mode: DeltaSaveMode.Append, 
-                partitionBy: null, 
+                uc, catalog, schema, table,
+                mode: DeltaSaveMode.Append,
+                partitionBy: null,
                 cloudOptions: cloudOptions
             );
         }
 
         using (var dfError = DataFrame.FromColumns(new { Id = new[] { 5 }, Region = new[] { "West" } }))
         {
-            var ex = Assert.Throws<PolarsException>(() => 
+            var ex = Assert.Throws<PolarsException>(() =>
             {
                 dfError.WriteCatalogTable(
-                    uc, catalog, schema, table, 
-                    mode: DeltaSaveMode.ErrorIfExists, 
+                    uc, catalog, schema, table,
+                    mode: DeltaSaveMode.ErrorIfExists,
                     cloudOptions: cloudOptions
                 );
             });
-            Assert.Contains("already exists", ex.Message); 
+            Assert.Contains("already exists", ex.Message);
         }
 
         using (var dfIgnore = DataFrame.FromColumns(new { Id = new[] { 6 }, Region = new[] { "West" } }))
         {
             dfIgnore.WriteCatalogTable(
-                uc, catalog, schema, table, 
-                mode: DeltaSaveMode.Ignore, 
+                uc, catalog, schema, table,
+                mode: DeltaSaveMode.Ignore,
                 cloudOptions: cloudOptions
             );
         }
@@ -317,7 +322,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         // └─────┴────────┘
 
         Assert.Equal(4, resultDf.Height);
-        
+
         var idArray = resultDf["Id"].ToArray<int>();
         Assert.Contains(1, idArray);
         Assert.Contains(3, idArray);
@@ -341,7 +346,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
         cloudOptions.Credentials!["aws_allow_http"] = "true";
         cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
-        cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"; 
+        cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
 
         using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
 
@@ -349,8 +354,8 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         using (var dfInit = DataFrame.FromColumns(new { WorkerId = new[] { 0 }, RowId = new[] { 0 } }))
         {
             dfInit.WriteCatalogTable(
-                uc, catalog, schema, table, 
-                mode: DeltaSaveMode.Overwrite, 
+                uc, catalog, schema, table,
+                mode: DeltaSaveMode.Overwrite,
                 cloudOptions: cloudOptions
             );
         }
@@ -364,7 +369,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             int workerId = i + 1;
             tasks.Add(Task.Run(() =>
             {
-                try 
+                try
                 {
                     var workerIds = Enumerable.Repeat(workerId, rowsPerWorker).ToArray();
                     var rowIds = Enumerable.Range(1, rowsPerWorker).ToArray();
@@ -372,22 +377,22 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
                     using var sourceDf = DataFrame.FromColumns(new { WorkerId = workerIds, RowId = rowIds });
 
                     sourceDf.WriteCatalogTable(
-                        uc, catalog, schema, table, 
-                        mode: DeltaSaveMode.Append, 
+                        uc, catalog, schema, table,
+                        mode: DeltaSaveMode.Append,
                         cloudOptions: cloudOptions
                     );
-                    
+
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"[Worker {workerId}] FAILED: {ex.Message}");
-                    throw; 
+                    throw;
                 }
             }));
         }
 
         await Task.WhenAll(tasks);
-        
+
         using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
         using var resultDf = resultLf.Collect();
 
@@ -423,15 +428,16 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         _catalogMockServer
             .Given(Request.Create().WithPath("/api/2.1/unity-catalog/tables").UsingPost().WithHeader("Authorization", $"Bearer {expectedToken}"))
-            .RespondWith(Response.Create().WithStatusCode(200).WithBodyAsJson(new {
-                name = table, 
-                catalog_name = catalog, 
+            .RespondWith(Response.Create().WithStatusCode(200).WithBodyAsJson(new
+            {
+                name = table,
+                catalog_name = catalog,
                 schema_name = schema,
-                table_type = "EXTERNAL", 
+                table_type = "EXTERNAL",
                 data_source_format = "DELTA",
-                storage_location = s3StorageLocation, 
+                storage_location = s3StorageLocation,
                 table_id = Guid.NewGuid().ToString(),
-                
+
                 created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 created_by = "test_admin",
                 updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -452,14 +458,15 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         }))
         {
             uc.CreateCatalogTable(
-                catalog, schema, table, 
-                tableSchema, 
-                CatalogTableType.External, 
+                catalog, schema, table,
+                tableSchema,
+                CatalogTableType.External,
                 s3StorageLocation
             );
         }
 
-        using (var df = DataFrame.FromColumns(new { 
+        using (var df = DataFrame.FromColumns(new
+        {
             Id = new[] { 1, 2, 3 },
             Msg = new[] { "Alice", "Bob", "Charlie" }
         }))
@@ -502,16 +509,17 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
 
 
-        using (var df = DataFrame.FromColumns(new { 
-            Id = new[] { 1, 2, 3, 4, 5 }, 
+        using (var df = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3, 4, 5 },
             Msg = new[] { "A", "B", "C", "D", "E" },
             Year = new[] { "2023", "2023", "2024", "2024", "2024" }
         }))
         {
             df.WriteCatalogTable(
-                uc, catalog, schema, table, 
-                partitionBy: Cs.ByName("Year"), 
-                mode: DeltaSaveMode.Overwrite, 
+                uc, catalog, schema, table,
+                partitionBy: Cs.ByName("Year"),
+                mode: DeltaSaveMode.Overwrite,
                 cloudOptions: cloudOptions
             );
         }
@@ -519,7 +527,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         using var dfV1 = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions).Collect();
         Assert.Equal(5, dfV1.Height);
         dfV1.Show();
-        
+
         // Predicate: (Year == '2024') & (Id == 4)
         var predicateRewrite = (Pl.Col("Year") == Pl.Lit("2024")) & (Pl.Col("Id") == 4);
 
@@ -530,9 +538,9 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.DoesNotContain(4, dfV2["Id"].ToArray<int>());
         Assert.Contains(3, dfV2["Id"].ToArray<int>());
         Assert.Contains(5, dfV2["Id"].ToArray<int>());
-        
+
         var predicateDrop = Pl.Col("Year") == Pl.Lit("2023");
-        
+
         uc.DeleteCatalogRecords(catalog, schema, table, predicateDrop, cloudOptions: cloudOptions);
 
         using var dfV3 = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions).Collect().Sort("Id");
@@ -540,18 +548,18 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.DoesNotContain(1, dfV3["Id"].ToArray<int>());
         Assert.DoesNotContain(2, dfV3["Id"].ToArray<int>());
         Assert.Equal("2024", dfV3["Year"].ToArray<string>()[0]);
-        
+
         var predicateNoOp = Pl.Col("Id") == 999;
         uc.DeleteCatalogRecords(catalog, schema, table, predicateNoOp, cloudOptions: cloudOptions);
 
         using var dfV4 = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions).Collect();
         Assert.Equal(2, dfV4.Height);
 
-        
+
         // V1
         using var dfBackV1 = uc.ScanCatalogTable(catalog, schema, table, version: 1, cloudOptions: cloudOptions).Collect();
         Assert.Equal(5, dfBackV1.Height);
-        
+
         // V2 
         using var dfBackV2 = uc.ScanCatalogTable(catalog, schema, table, version: 2, cloudOptions: cloudOptions).Collect();
         Assert.Equal(4, dfBackV2.Height);
@@ -579,7 +587,8 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
 
-        using (var dfInit = DataFrame.FromColumns(new { 
+        using (var dfInit = DataFrame.FromColumns(new
+        {
             Id = Enumerable.Range(1, 10).ToArray(),
             Msg = Enumerable.Repeat("Target", 10).ToArray()
         }))
@@ -587,23 +596,23 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             dfInit.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Overwrite, cloudOptions: cloudOptions);
         }
 
-        
+
         int concurrency = 5;
         var tasks = new List<Task>();
-        
+
         int successCount = 0;
         int conflictCount = 0;
 
         for (int i = 0; i < concurrency; i++)
         {
-            int targetId = i + 1; 
+            int targetId = i + 1;
             tasks.Add(Task.Run(() =>
             {
-                try 
+                try
                 {
                     var predicate = Pl.Col("Id") == targetId;
                     uc.DeleteCatalogRecords(catalog, schema, table, predicate, cloudOptions: cloudOptions);
-                    
+
                     Interlocked.Increment(ref successCount);
                 }
                 catch (Exception ex)
@@ -661,7 +670,8 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
 
-        using (var dfInit = DataFrame.FromColumns(new { 
+        using (var dfInit = DataFrame.FromColumns(new
+        {
             Id = Enumerable.Range(1, 50).ToArray(),
             Team = Enumerable.Repeat("Init", 50).ToArray()
         }))
@@ -670,7 +680,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         }
 
 
-        
+
         var tasks = new List<Task>();
         int concurrency = 5;
 
@@ -681,13 +691,14 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             tasks.Add(Task.Run(() =>
             {
                 var startId = 100 + (workerId * 10) + 1;
-                using var dfAppend = DataFrame.FromColumns(new { 
-                    Id = Enumerable.Range(startId, 10).ToArray(), 
-                    Team = Enumerable.Repeat($"Writer_{workerId}", 10).ToArray() 
+                using var dfAppend = DataFrame.FromColumns(new
+                {
+                    Id = Enumerable.Range(startId, 10).ToArray(),
+                    Team = Enumerable.Repeat($"Writer_{workerId}", 10).ToArray()
                 });
-                
+
                 dfAppend.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Append, cloudOptions: cloudOptions);
-                Console.WriteLine($"[Team Fire] Writer {workerId} appended IDs {startId} to {startId+9}.");
+                Console.WriteLine($"[Team Fire] Writer {workerId} appended IDs {startId} to {startId + 9}.");
             }));
         }
 
@@ -699,7 +710,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             {
                 var minId = (workerId * 10) + 1;
                 var maxId = minId + 9;
-                
+
                 var predicate = (Pl.Col("Id") >= minId) & (Pl.Col("Id") <= maxId);
                 uc.DeleteCatalogRecords(catalog, schema, table, predicate, cloudOptions: cloudOptions);
                 Console.WriteLine($"[Team Ice] Deleter {workerId} deleted IDs {minId} to {maxId}.");
@@ -713,25 +724,26 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             tasks.Add(Task.Run(() =>
             {
                 var startId = 200 + (workerId * 10) + 1;
-                using var dfMerge = DataFrame.FromColumns(new { 
-                    Id = Enumerable.Range(startId, 10).ToArray(), 
-                    Team = Enumerable.Repeat($"Merger_{workerId}", 10).ToArray() 
+                using var dfMerge = DataFrame.FromColumns(new
+                {
+                    Id = Enumerable.Range(startId, 10).ToArray(),
+                    Team = Enumerable.Repeat($"Merger_{workerId}", 10).ToArray()
                 });
 
-                dfMerge.MergeCatalogRecords(uc,catalog, schema, table, ["Id"], cloudOptions: cloudOptions)
+                dfMerge.MergeCatalogRecords(uc, catalog, schema, table, ["Id"], cloudOptions: cloudOptions)
                   .WhenMatchedUpdate()
                   .WhenNotMatchedInsert()
                   .Execute();
-                  
-                Console.WriteLine($"[Team Lightning] Merger {workerId} upserted IDs {startId} to {startId+9}.");
+
+                Console.WriteLine($"[Team Lightning] Merger {workerId} upserted IDs {startId} to {startId + 9}.");
             }));
         }
 
         await Task.WhenAll(tasks);
-        
+
         using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
         using var resultDf = resultLf.Collect().Sort("Id");
-        
+
         Assert.Equal(100, resultDf.Height);
 
         var remainingIds = resultDf["Id"].ToArray<int>();
@@ -744,7 +756,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         Assert.Contains(201, remainingIds);
         Assert.Contains(250, remainingIds);
-        
+
         // Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
         Pl.Config.RestoreDefaults();
     }
@@ -765,7 +777,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
 
-        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint,accessKey: _minio.AccessKey,secretKey: _minio.SecretKey);
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
         cloudOptions.Credentials!["aws_allow_http"] = "true";
         cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
         cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
@@ -773,7 +785,8 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
 
 
-        using (var dfInit = DataFrame.FromColumns(new { 
+        using (var dfInit = DataFrame.FromColumns(new
+        {
             Id = Enumerable.Range(1, 50).ToArray(),
             Team = Enumerable.Repeat("Init", 50).ToArray(),
             Value = Enumerable.Repeat(1.0, 50).ToArray()
@@ -782,10 +795,10 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             dfInit.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Overwrite, cloudOptions: cloudOptions);
         }
 
-        Delta.AddFeature(
-            s3StorageLocation, 
-            DeltaTableFeatures.DeletionVectors, 
-            allowProtocolIncrease: true, 
+        uc.AddFeature(
+            catalog, schema, table,
+            DeltaTableFeatures.DeletionVectors,
+            allowProtocolIncrease: true,
             cloudOptions: cloudOptions
         );
 
@@ -806,17 +819,17 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
                         throw new Exception("Simulated Transient Network Failure!");
                     }
                     action();
-                    return; 
+                    return;
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"[Chaos Simulator] {workerName} failed on attempt {attempt}: {ex.Message}");
                     if (attempt == maxWorkerRetries)
-                        throw; 
+                        throw;
                 }
             }
         }
-        
+
         var tasks = new List<Task>();
         int concurrency = 5;
 
@@ -827,13 +840,14 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             tasks.Add(Task.Run(() => ExecuteWithChaosAsync($"Writer_{workerId}", () =>
             {
                 var startId = 100 + (workerId * 10) + 1;
-                using var dfAppend = DataFrame.FromColumns(new { 
-                    Id = Enumerable.Range(startId, 10).ToArray(), 
+                using var dfAppend = DataFrame.FromColumns(new
+                {
+                    Id = Enumerable.Range(startId, 10).ToArray(),
                     Team = Enumerable.Repeat($"Writer_{workerId}", 10).ToArray(),
-                    Value = Enumerable.Repeat(1.0, 10).ToArray() 
+                    Value = Enumerable.Repeat(1.0, 10).ToArray()
                 });
                 dfAppend.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Append, cloudOptions: cloudOptions);
-                Console.WriteLine($"[Team Fire] Writer {workerId} appended IDs {startId} to {startId+9}.");
+                Console.WriteLine($"[Team Fire] Writer {workerId} appended IDs {startId} to {startId + 9}.");
             })));
         }
 
@@ -858,17 +872,18 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             tasks.Add(Task.Run(() => ExecuteWithChaosAsync($"Merger_{workerId}", () =>
             {
                 var startId = 200 + (workerId * 10) + 1;
-                using var dfMerge = DataFrame.FromColumns(new { 
-                    Id = Enumerable.Range(startId, 10).ToArray(), 
+                using var dfMerge = DataFrame.FromColumns(new
+                {
+                    Id = Enumerable.Range(startId, 10).ToArray(),
                     Team = Enumerable.Repeat($"Merger_{workerId}", 10).ToArray(),
-                    Value = Enumerable.Repeat(99.9, 10).ToArray() 
+                    Value = Enumerable.Repeat(99.9, 10).ToArray()
                 });
 
-                dfMerge.MergeCatalogRecords(uc,catalog, schema, table, ["Id"], cloudOptions: cloudOptions)
+                dfMerge.MergeCatalogRecords(uc, catalog, schema, table, ["Id"], cloudOptions: cloudOptions)
                   .WhenMatchedUpdate()
                   .WhenNotMatchedInsert()
                   .Execute();
-                Console.WriteLine($"[Team Lightning] Merger {workerId} upserted IDs {startId} to {startId+9}.");
+                Console.WriteLine($"[Team Lightning] Merger {workerId} upserted IDs {startId} to {startId + 9}.");
             })));
         }
 
@@ -879,9 +894,9 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             tasks.Add(Task.Run(() => ExecuteWithChaosAsync($"Optimizer_{workerId}", () =>
             {
                 long filesOptimized = uc.OptimizeCatalogTable(
-                    catalog, schema, table, 
-                    targetSizeMb: 128, 
-                    zOrderColumns: ["Id"], 
+                    catalog, schema, table,
+                    targetSizeMb: 128,
+                    zOrderColumns: ["Id"],
                     cloudOptions: cloudOptions
                 );
                 Console.WriteLine($"[Team Architect] Optimizer {workerId} successfully compacted {filesOptimized} files.");
@@ -889,10 +904,10 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         }
 
         await Task.WhenAll(tasks);
-        
+
         using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
         using var resultDf = resultLf.Collect().Sort("Id");
-        
+
         Assert.Equal(100, resultDf.Height);
 
         var remainingIds = resultDf["Id"].ToArray<int>();
@@ -907,8 +922,8 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Contains(250, remainingIds);
 
         ulong newVersion = uc.DeltaRestore(
-            catalog, schema, table, 
-            version: 1, 
+            catalog, schema, table,
+            version: 1,
             cloudOptions: cloudOptions
         );
 
@@ -964,7 +979,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         // │         ┆ 07:16:17.8 ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
         // │         ┆ 29 UTC     ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
         // └─────────┴────────────┴───────────┴───────────┴───┴───────────┴───────────┴───────────┴───────────┘
-        
+
         Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
     }
     [Fact]
@@ -983,14 +998,15 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
 
-        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint,accessKey: _minio.AccessKey,secretKey: _minio.SecretKey);
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
         cloudOptions.Credentials!["aws_allow_http"] = "true";
         cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
         cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
 
         using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
 
-        using (var dfInit = DataFrame.FromColumns(new { 
+        using (var dfInit = DataFrame.FromColumns(new
+        {
             Id = Enumerable.Range(1, 50).ToArray(),
             Team = Enumerable.Repeat("Init", 50).ToArray(),
             Value = Enumerable.Repeat(1.0, 50).ToArray()
@@ -999,15 +1015,15 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             dfInit.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Overwrite, cloudOptions: cloudOptions);
         }
 
-        Delta.AddFeature(
-            s3StorageLocation, 
-            "deletionVectors", 
-            allowProtocolIncrease: true, 
+        uc.AddFeature(
+            catalog, schema, table,
+            "deletionVectors",
+            allowProtocolIncrease: true,
             cloudOptions: cloudOptions
         );
 
         var deletePredicate = Pl.Col("Id") <= 10;
-        
+
         uc.DeleteCatalogRecords(catalog, schema, table, deletePredicate, cloudOptions: cloudOptions);
 
         using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
@@ -1038,14 +1054,15 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
 
-        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint,accessKey: _minio.AccessKey,secretKey: _minio.SecretKey);
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
         cloudOptions.Credentials!["aws_allow_http"] = "true";
         cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
         cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
 
         using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
 
-        using (var dfInit = DataFrame.FromColumns(new { 
+        using (var dfInit = DataFrame.FromColumns(new
+        {
             Id = new[] { 1, 2, 3, 4, 5 },
             Team = new[] { "A", "A", "B", "B", "C" },
             Value = new[] { 10.0, 20.0, 30.0, 40.0, 50.0 }
@@ -1054,25 +1071,26 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             dfInit.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Overwrite, cloudOptions: cloudOptions);
         }
 
-        Delta.AddFeature(
-            s3StorageLocation, 
-            "deletionVectors", 
-            allowProtocolIncrease: true, 
+        uc.AddFeature(
+            catalog, schema, table,
+            "deletionVectors",
+            allowProtocolIncrease: true,
             cloudOptions: cloudOptions
         );
 
         // ==========================================
         // Merge(Update 1~3, Insert 6~7)
         // ==========================================
-        using (var dfMerge = DataFrame.FromColumns(new { 
+        using (var dfMerge = DataFrame.FromColumns(new
+        {
             Id = new[] { 1, 2, 3, 6, 7 },
             Team = new[] { "A_Upd", "A_Upd", "B_Upd", "New", "New" },
             Value = new[] { 99.0, 99.0, 99.0, 100.0, 100.0 }
         }))
         {
-            dfMerge.MergeCatalogRecords(uc,catalog, schema, table, ["Id"], cloudOptions: cloudOptions)
+            dfMerge.MergeCatalogRecords(uc, catalog, schema, table, ["Id"], cloudOptions: cloudOptions)
               .WhenMatchedUpdate()
-              .WhenNotMatchedInsert() 
+              .WhenNotMatchedInsert()
               .Execute();
         }
 
@@ -1106,7 +1124,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
 
-        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint,accessKey: _minio.AccessKey,secretKey: _minio.SecretKey);
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
         cloudOptions.Credentials!["aws_allow_http"] = "true";
         cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
         cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
@@ -1116,7 +1134,8 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         for (int i = 0; i < 10; i++)
         {
             int startId = (i * 10) + 1;
-            using var dfInit = DataFrame.FromColumns(new { 
+            using var dfInit = DataFrame.FromColumns(new
+            {
                 Id = Enumerable.Range(startId, 10).ToArray(),
                 Team = Enumerable.Repeat("Init", 10).ToArray(),
                 Value = Enumerable.Repeat(1.0, 10).ToArray()
@@ -1125,7 +1144,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             dfInit.WriteCatalogTable(uc, catalog, schema, table, mode: mode, cloudOptions: cloudOptions);
         }
 
-        Delta.AddFeature(s3StorageLocation, "deletionVectors", allowProtocolIncrease: true, cloudOptions: cloudOptions);
+        uc.AddFeature(catalog, schema, table, "deletionVectors", allowProtocolIncrease: true, cloudOptions: cloudOptions);
 
         var tasks = new List<Task>();
 
@@ -1133,21 +1152,22 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         for (int i = 0; i < 5; i++)
         {
             int workerId = i;
-            tasks.Add(Task.Run(() => 
+            tasks.Add(Task.Run(() =>
             {
                 var startId = 51 + (workerId * 10); // Update: 51~100
                 var insertId = 101 + (workerId * 10); // Insert: 101~150
-                using var dfMerge = DataFrame.FromColumns(new { 
-                    Id = Enumerable.Range(startId, 10).Concat(Enumerable.Range(insertId, 10)).ToArray(), 
+                using var dfMerge = DataFrame.FromColumns(new
+                {
+                    Id = Enumerable.Range(startId, 10).Concat(Enumerable.Range(insertId, 10)).ToArray(),
                     Team = Enumerable.Repeat($"Merger_{workerId}", 20).ToArray(),
-                    Value = Enumerable.Repeat(99.9, 20).ToArray() 
+                    Value = Enumerable.Repeat(99.9, 20).ToArray()
                 });
-                
+
                 uc.MergeCatalogRecords(catalog, schema, table, dfMerge, ["Id"], cloudOptions: cloudOptions)
                   .WhenMatchedUpdate()
                   .WhenNotMatchedInsert()
                   .Execute();
-                  
+
                 Console.WriteLine($"[Team Lightning] Merger {workerId} Finished.");
             }));
         }
@@ -1156,15 +1176,15 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         for (int i = 0; i < 3; i++)
         {
             int workerId = i;
-            tasks.Add(Task.Run(async () => 
+            tasks.Add(Task.Run(async () =>
             {
                 await Task.Delay(new Random().Next(100, 500));
-                try 
+                try
                 {
                     long filesOptimized = uc.OptimizeCatalogTable(
-                        catalog, schema, table, 
-                        targetSizeMb: 128, 
-                        zOrderColumns: ["Id"], 
+                        catalog, schema, table,
+                        targetSizeMb: 128,
+                        zOrderColumns: ["Id"],
                         cloudOptions: cloudOptions
                     );
                     Console.WriteLine($"[Team Architect] Optimizer {workerId} compacted {filesOptimized} files.");
@@ -1214,15 +1234,16 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
 
-        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint,accessKey: _minio.AccessKey,secretKey: _minio.SecretKey);
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
         cloudOptions.Credentials!["aws_allow_http"] = "true";
         cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
         cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
-        
+
 
         using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
 
-        using (var dfInit = DataFrame.FromColumns(new { 
+        using (var dfInit = DataFrame.FromColumns(new
+        {
             Id = Enumerable.Range(1, 50).ToArray(),
             Team = Enumerable.Repeat("Init", 50).ToArray(),
             Value = Enumerable.Repeat(1.0, 50).ToArray()
@@ -1231,7 +1252,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             dfInit.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Overwrite, cloudOptions: cloudOptions);
         }
 
-        Delta.AddFeature(s3StorageLocation, DeltaTableFeatures.DeletionVectors,allowProtocolIncrease: true, cloudOptions: cloudOptions);
+        uc.AddFeature(catalog, schema, table, DeltaTableFeatures.DeletionVectors, allowProtocolIncrease: true, cloudOptions: cloudOptions);
 
         static async Task ExecuteWithChaosAsync(string workerName, Action action)
         {
@@ -1243,7 +1264,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
                 {
                     if (rnd.NextDouble() < 0.20) throw new Exception("Simulated Transient Network Failure!");
                     action();
-                    return; 
+                    return;
                 }
                 catch (Exception ex)
                 {
@@ -1261,10 +1282,11 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             tasks.Add(Task.Run(() => ExecuteWithChaosAsync($"Writer_{workerId}", () =>
             {
                 var startId = 100 + (workerId * 10) + 1;
-                using var dfAppend = DataFrame.FromColumns(new { 
-                    Id = Enumerable.Range(startId, 10).ToArray(), 
+                using var dfAppend = DataFrame.FromColumns(new
+                {
+                    Id = Enumerable.Range(startId, 10).ToArray(),
                     Team = Enumerable.Repeat($"Writer_{workerId}", 10).ToArray(),
-                    Value = Enumerable.Repeat(1.0, 10).ToArray() 
+                    Value = Enumerable.Repeat(1.0, 10).ToArray()
                 });
                 dfAppend.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Append, cloudOptions: cloudOptions);
             })));
@@ -1288,14 +1310,15 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             tasks.Add(Task.Run(() => ExecuteWithChaosAsync($"Merger_{workerId}", () =>
             {
                 var startId = 20 + (workerId * 10) + 1; // 21, 31, 41
-                using var dfMerge = DataFrame.FromColumns(new { 
-                    Id = Enumerable.Range(startId, 10).ToArray(), 
+                using var dfMerge = DataFrame.FromColumns(new
+                {
+                    Id = Enumerable.Range(startId, 10).ToArray(),
                     Team = Enumerable.Repeat($"Merger_{workerId}", 10).ToArray(),
-                    Value = Enumerable.Repeat(99.9, 10).ToArray() 
+                    Value = Enumerable.Repeat(99.9, 10).ToArray()
                 });
 
                 uc.MergeCatalogRecords(catalog, schema, table, dfMerge, ["Id"], cloudOptions: cloudOptions)
-                  .WhenMatchedUpdate() 
+                  .WhenMatchedUpdate()
                   .Execute();
             })));
         }
@@ -1313,14 +1336,14 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
         using var resultDf = resultLf.Collect().Sort("Id");
-        
+
         Assert.Equal(70, resultDf.Height);
         var yesterday = DateTime.UtcNow.AddDays(-1);
 
-        var cdcLf = Delta.ReadChangeDataFeed(
-            path: s3StorageLocation, 
+        var cdcLf = uc.ReadChangeDataFeed(
+            catalog, schema, table,
             startTimestamp: yesterday,
-            cloudOptions:cloudOptions
+            cloudOptions: cloudOptions
         );
 
         cdcLf.Collect();
@@ -1379,17 +1402,19 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
 
-        using var dfV1 = DataFrame.FromColumns(new { 
+        using var dfV1 = DataFrame.FromColumns(new
+        {
             Id = new[] { 1, 2, 3 },
             Hero = new[] { "Iron Man", "Captain America", "Thor" }
         });
-        
+
         dfV1.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Overwrite, cloudOptions: cloudOptions);
 
 
-        using var dfV2 = DataFrame.FromColumns(new { 
+        using var dfV2 = DataFrame.FromColumns(new
+        {
             Id = new[] { 4, 5 },
-            Hero = new[] { "Thanos", "Ultron" } 
+            Hero = new[] { "Thanos", "Ultron" }
         });
 
         dfV2.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Append, cloudOptions: cloudOptions);
@@ -1399,7 +1424,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Equal(5, currentDf.Height);
 
         using var historyDf = uc.DeltaHistory(catalog, schema, table, cloudOptions: cloudOptions);
-        
+
         // --- Table History ---
         // shape: (3, 10)
         // ┌───────────┬───────────┬───────────┬───────────┬───┬───────────┬───────────┬───────────┬──────────┐
@@ -1419,12 +1444,12 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         // │ 8.095 UTC ┆           ┆           ┆ ":1,"minW ┆   ┆           ┆           ┆           ┆          │
         // │           ┆           ┆           ┆ rit…      ┆   ┆           ┆           ┆           ┆          │
         // └───────────┴───────────┴───────────┴───────────┴───┴───────────┴───────────┴───────────┴──────────┘
-        
+
         Assert.True(historyDf.Height >= 2);
 
         ulong newVersion = uc.DeltaRestore(
-            catalog, schema, table, 
-            version: 1, 
+            catalog, schema, table,
+            version: 1,
             cloudOptions: cloudOptions
         );
 
@@ -1432,13 +1457,13 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         using var restoredLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
         using var restoredDf = restoredLf.Collect().Sort("Id");
-        
+
         Assert.Equal(3, restoredDf.Height);
 
         long deletedFiles = uc.DeltaVacuum(
             catalog, schema, table,
-            retentionHours: 0,          
-            enforceRetention: false,    
+            retentionHours: 0,
+            enforceRetention: false,
             cloudOptions: cloudOptions
         );
 

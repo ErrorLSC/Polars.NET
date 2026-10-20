@@ -234,4 +234,55 @@ internal partial class NativeBindings
         // Output: ptr to json
         out IntPtr jsonPtr
     );
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_catalog_delta_add_feature(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        string featureName,
+        [MarshalAs(UnmanagedType.U1)] bool allowProtocolIncrease,
+        string[]? keys,
+        string[]? values,
+        nuint len
+    );
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_catalog_delta_read_cdc(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        ulong startVersion,
+        ulong endVersion,
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues,
+        nuint cloudLen
+    );
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_catalog_delta_read_cdc_by_time(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        long startTimestampMs,
+        long endTimestampMs,
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues,
+        nuint cloudLen
+    );
 }

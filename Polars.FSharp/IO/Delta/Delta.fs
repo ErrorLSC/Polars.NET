@@ -467,6 +467,87 @@ type Delta =
             cVals
         )
 
+    /// <summary>
+    /// Reads the Change Data Feed (CDC) stream for a Delta table between the specified versions.
+    /// The table must have 'delta.enableChangeDataFeed' set to 'true'.
+    /// </summary>
+    /// <param name="path">The URI or local path of the Delta table.</param>
+    /// <param name="startVersion">The starting version (inclusive).</param>
+    /// <param name="endVersion">The ending version (inclusive).</param>
+    /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <returns>A LazyFrame containing the change data stream.</returns>
+    static member ReadChangeDataFeed(
+        path: string,
+        startVersion: int64,
+        endVersion: int64,
+        ?cloudOptions: CloudOptions
+    ) : LazyFrame =
+        if startVersion > endVersion then
+            invalidArg "startVersion" "startVersion cannot be greater than endVersion."
+
+        let provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values =
+            CloudOptions.ParseCloudOptions cloudOptions
+
+        let handle =
+            PolarsWrapper.DeltaReadCdc(
+                path,
+                startVersion,
+                endVersion,
+                provider,
+                retries,
+                timeout,
+                initBackoff,
+                maxBackoff,
+                cacheTtl,
+                keys,
+                values
+            )
+
+        new LazyFrame(handle)
+
+    /// <summary>
+    /// Reads the Change Data Feed (CDC) stream for a Delta table between the specified datetimes.
+    /// The table must have 'delta.enableChangeDataFeed' set to 'true'.
+    /// </summary>
+    /// <param name="path">The URI or local path of the Delta table.</param>
+    /// <param name="startTimestamp">The starting datetime (inclusive).</param>
+    /// <param name="endTimestamp">Optional. The ending datetime (inclusive). Defaults to DateTime.UtcNow if null.</param>
+    /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <returns>A LazyFrame containing the change data stream filtered by the exact milliseconds.</returns>
+    static member ReadChangeDataFeed(
+        path: string,
+        startTimestamp: System.DateTime,
+        ?endTimestamp: System.DateTime,
+        ?cloudOptions: CloudOptions
+    ) : LazyFrame =
+        let actualEnd = defaultArg endTimestamp System.DateTime.UtcNow
+
+        if startTimestamp > actualEnd then
+            invalidArg "startTimestamp" "startTimestamp cannot be greater than endTimestamp."
+
+        let startMs = System.DateTimeOffset(startTimestamp.ToUniversalTime()).ToUnixTimeMilliseconds()
+        let endMs = System.DateTimeOffset(actualEnd.ToUniversalTime()).ToUnixTimeMilliseconds()
+
+        let provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values =
+            CloudOptions.ParseCloudOptions cloudOptions
+
+        let handle =
+            PolarsWrapper.DeltaReadCdcByTime(
+                path,
+                startMs,
+                endMs,
+                provider,
+                retries,
+                timeout,
+                initBackoff,
+                maxBackoff,
+                cacheTtl,
+                keys,
+                values
+            )
+
+        new LazyFrame(handle)
+
 /// <summary>
 /// Databricks Unity Catalog Client
 /// </summary>
@@ -1130,6 +1211,134 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
         let finalCols = Array.append selection rest
         
         df.Select(finalCols |> Array.map Expr.Col |> Array.map (fun x -> x :> IColumnExpr))
+
+    /// <summary>
+    /// Adds a feature to the Unity Catalog Delta table.
+    /// </summary>
+    /// <param name="catalogName">The catalog name.</param>
+    /// <param name="schemaName">The schema name.</param>
+    /// <param name="tableName">The table name.</param>
+    /// <param name="featureName">The feature name (e.g. "deletionVectors").</param>
+    /// <param name="allowProtocolIncrease">
+    /// If true, allows the operation to upgrade the table's Protocol Version if the feature requires it.
+    /// </param>
+    /// <param name="cloudOptions">Optional cloud storage options and retry policies.</param>
+    member this.AddFeature(
+        catalogName: string,
+        schemaName: string,
+        tableName: string,
+        featureName: string,
+        ?allowProtocolIncrease: bool,
+        ?cloudOptions: CloudOptions
+    ) =
+        let pAllow = defaultArg allowProtocolIncrease true
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+
+        PolarsWrapper.CatalogAddFeature(
+            this.Handle,
+            catalogName,
+            schemaName,
+            tableName,
+            featureName,
+            pAllow,
+            cKeys,
+            cVals
+        )
+
+    /// <summary>
+    /// Reads the Change Data Feed (CDC) stream for a Unity Catalog Delta table between the specified versions.
+    /// The table must have 'delta.enableChangeDataFeed' set to 'true'.
+    /// </summary>
+    /// <param name="catalogName">The name of the catalog.</param>
+    /// <param name="schemaName">The name of the schema/database.</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="startVersion">The starting version (inclusive).</param>
+    /// <param name="endVersion">The ending version (inclusive).</param>
+    /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <returns>A LazyFrame containing the change data stream.</returns>
+    member this.ReadChangeDataFeed(
+        catalogName: string,
+        schemaName: string,
+        tableName: string,
+        startVersion: int64,
+        endVersion: int64,
+        ?cloudOptions: CloudOptions
+    ) : LazyFrame =
+        if startVersion > endVersion then
+            invalidArg "startVersion" "startVersion cannot be greater than endVersion."
+
+        let provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values =
+            CloudOptions.ParseCloudOptions cloudOptions
+
+        let handle =
+            PolarsWrapper.CatalogReadCdc(
+                this.Handle,
+                catalogName,
+                schemaName,
+                tableName,
+                uint64 startVersion,
+                uint64 endVersion,
+                provider,
+                retries,
+                timeout,
+                initBackoff,
+                maxBackoff,
+                cacheTtl,
+                keys,
+                values
+            )
+
+        new LazyFrame(handle)
+
+    /// <summary>
+    /// Reads the Change Data Feed (CDC) stream for a Unity Catalog Delta table between the specified datetimes.
+    /// The table must have 'delta.enableChangeDataFeed' set to 'true'.
+    /// </summary>
+    /// <param name="catalogName">The name of the catalog.</param>
+    /// <param name="schemaName">The name of the schema/database.</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="startTimestamp">The starting datetime (inclusive).</param>
+    /// <param name="endTimestamp">Optional. The ending datetime (inclusive). Defaults to DateTime.UtcNow if null.</param>
+    /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <returns>A LazyFrame containing the change data stream filtered by the exact milliseconds.</returns>
+    member this.ReadChangeDataFeed(
+        catalogName: string,
+        schemaName: string,
+        tableName: string,
+        startTimestamp: System.DateTime,
+        ?endTimestamp: System.DateTime,
+        ?cloudOptions: CloudOptions
+    ) : LazyFrame =
+        let actualEnd = defaultArg endTimestamp System.DateTime.UtcNow
+
+        if startTimestamp > actualEnd then
+            invalidArg "startTimestamp" "startTimestamp cannot be greater than endTimestamp."
+
+        let startMs = System.DateTimeOffset(startTimestamp.ToUniversalTime()).ToUnixTimeMilliseconds()
+        let endMs = System.DateTimeOffset(actualEnd.ToUniversalTime()).ToUnixTimeMilliseconds()
+
+        let provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values =
+            CloudOptions.ParseCloudOptions cloudOptions
+
+        let handle =
+            PolarsWrapper.CatalogReadCdcByTime(
+                this.Handle,
+                catalogName,
+                schemaName,
+                tableName,
+                startMs,
+                endMs,
+                provider,
+                retries,
+                timeout,
+                initBackoff,
+                maxBackoff,
+                cacheTtl,
+                keys,
+                values
+            )
+
+        new LazyFrame(handle)
 
 /// <summary>
 /// Builder for Delta Merge (Upsert) operations.

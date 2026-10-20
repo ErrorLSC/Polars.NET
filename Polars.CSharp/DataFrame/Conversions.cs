@@ -1,18 +1,18 @@
-using Polars.NET.Core;
-using Polars.NET.Core.Arrow;
-using Apache.Arrow;
-using Polars.NET.Core.Data;
-using Apache.Arrow.Ipc;
 using System.Data.Common;
-using System.Threading.Channels;
 using System.Numerics.Tensors;
-using Pl = Polars.CSharp.Polars;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading.Channels;
+using Apache.Arrow;
+using Apache.Arrow.Ipc;
+using Polars.NET.Core;
+using Polars.NET.Core.Arrow;
+using Polars.NET.Core.Data;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Returns a lazy heap-allocated IEnumerable over DataFrame rows.
@@ -29,7 +29,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     /// <param name="name">Name for the struct Series.</param>
     /// <returns></returns>
-    public Series ToStruct(string name="")
+    public Series ToStruct(string name = "")
     {
         using var df = Select(Pl.Struct(Pl.All()));
         var series = df[0];
@@ -92,8 +92,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var channel = Channel.CreateBounded<RecordBatch>(new BoundedChannelOptions(bufferSize)
         {
             FullMode = BoundedChannelFullMode.Wait,
-            SingleWriter = true, 
-            SingleReader = true  
+            SingleWriter = true,
+            SingleReader = true
         });
 
         var cts = new CancellationTokenSource();
@@ -121,7 +121,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         var innerReader = new ArrowToDbStream(stream, typeOverrides);
 
-        return new PolarsDataReader(innerReader, cts, producerTask); 
+        return new PolarsDataReader(innerReader, cts, producerTask);
     }
 
     /// <summary>
@@ -136,7 +136,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
     /// <summary>
     /// Converts selected DataFrame columns into a managed 2D Row-Major Tensor [Rows, Columns].
-    /// Automatically handles memory fragmentation and performs the Column-Major to Row-Major transposition 
+    /// Automatically handles memory fragmentation and performs the Column-Major to Row-Major transposition
     /// required by most Machine Learning frameworks (like ONNX, TorchSharp, ML.NET).
     /// </summary>
     /// <typeparam name="T">Unmanaged Type Only (e.g., float, double, int)</typeparam>
@@ -148,7 +148,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             ? GetColumns()
             : System.Array.ConvertAll(columnNames, Column);
 
-        if (targetColumns.Length == 0) 
+        if (targetColumns.Length == 0)
             throw new InvalidOperationException("Cannot create a Tensor from an empty DataFrame.");
 
         int cols = targetColumns.Length;
@@ -174,7 +174,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                     for (int r = 0; r < rows; r++)
                     {
                         Unsafe.Add(
-                            ref MemoryMarshal.GetReference(destSpan), 
+                            ref MemoryMarshal.GetReference(destSpan),
                             destIdx) = srcSpan[r];
 
                         destIdx += cols;

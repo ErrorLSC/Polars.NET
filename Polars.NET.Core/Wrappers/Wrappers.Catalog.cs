@@ -494,4 +494,112 @@ public readonly partial struct PolarsWrapper
             }
         }
     }
+
+    public static void CatalogAddFeature(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        string featureName,
+        bool allowProtocolIncrease,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+
+        NativeBindings.pl_catalog_delta_add_feature(
+            handle,
+            catalogName,
+            schemaName,
+            tableName,
+            featureName,
+            allowProtocolIncrease,
+            cloudKeys,
+            cloudValues,
+            cloudLen
+        );
+
+        ErrorHelper.CheckVoid();
+    }
+
+    public static LazyFrameHandle CatalogReadCdc(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        ulong startVersion,
+        ulong endVersion,
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+
+        var h = NativeBindings.pl_catalog_delta_read_cdc(
+            handle,
+            catalogName,
+            schemaName,
+            tableName,
+            startVersion,
+            endVersion,
+            cloudProvider,
+            cloudRetries,
+            cloudRetryTimeoutMs,
+            cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs,
+            cloudCacheTtl,
+            cloudKeys,
+            cloudValues,
+            cloudLen
+        );
+
+        return ErrorHelper.Check(h);
+    }
+
+    public static LazyFrameHandle CatalogReadCdcByTime(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        long startTimestampMs,
+        long endTimestampMs,
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+
+        var h = NativeBindings.pl_catalog_delta_read_cdc_by_time(
+            handle,
+            catalogName,
+            schemaName,
+            tableName,
+            startTimestampMs,
+            endTimestampMs,
+            cloudProvider,
+            cloudRetries,
+            cloudRetryTimeoutMs,
+            cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs,
+            cloudCacheTtl,
+            cloudKeys,
+            cloudValues,
+            cloudLen
+        );
+
+        return ErrorHelper.Check(h);
+    }
 }

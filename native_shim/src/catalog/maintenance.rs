@@ -190,3 +190,61 @@ pub extern "C" fn pl_catalog_delta_history(
         Ok(())
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_catalog_delta_add_feature(
+    ctx_ptr: *mut CatalogContext,
+    catalog_name_ptr: *const c_char,
+    schema_name_ptr: *const c_char,
+    table_name_ptr: *const c_char,
+    feature_name_ptr: *const c_char,
+    allow_protocol_increase: bool,
+    cloud_keys: *const *const c_char,
+    cloud_values: *const *const c_char,
+    cloud_len: usize,
+) {
+    ffi_try_void!({
+        let ctx = unsafe { 
+            if ctx_ptr.is_null() {
+                return Err(PolarsError::ComputeError("Catalog context pointer is null".into()));
+            }
+            &*ctx_ptr 
+        };
+        let catalog_name = ptr_to_str(catalog_name_ptr)
+            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
+        let schema_name = ptr_to_str(schema_name_ptr)
+            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
+        let table_name = ptr_to_str(table_name_ptr)
+            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
+        let feature_str = ptr_to_str(feature_name_ptr)
+            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+
+        let feature = <deltalake::kernel::TableFeatures as std::str::FromStr>::from_str(feature_str)
+            .map_err(|_| PolarsError::ComputeError(format!("Unknown table feature: {}", feature_str).into()))?;
+
+        let base_options = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
+        let rt = get_runtime();
+
+        rt.block_on(async {
+            let (table, _, _) = load_catalog_table(
+                ctx, 
+                &catalog_name, 
+                &schema_name, 
+                &table_name, 
+                true,
+                base_options
+            ).await?;
+
+            let builder = table.add_feature()
+                .with_feature(feature)
+                .with_allow_protocol_versions_increase(allow_protocol_increase);
+
+            builder.await
+                .map_err(|e| PolarsError::ComputeError(format!("Failed to add feature: {}", e).into()))?;
+
+            Ok::<(), PolarsError>(())
+        })?;
+
+        Ok(())
+    })
+}
