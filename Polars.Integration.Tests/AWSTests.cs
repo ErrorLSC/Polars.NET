@@ -1,5 +1,5 @@
-using Polars.Integration.Tests.Fixtures;
 using Polars.CSharp;
+using Polars.Integration.Tests.Fixtures;
 
 namespace Polars.Integration.Tests;
 
@@ -16,7 +16,7 @@ public class AwsTests(MinioFixture minio) : IClassFixture<MinioFixture>
             endpoint: minio.Endpoint
         );
         options.Credentials!["aws_allow_http"] = "true";
-        options.Credentials!["aws_s3_force_path_style"] = "true"; 
+        options.Credentials!["aws_s3_force_path_style"] = "true";
 
         using var df = DataFrame.FromColumns(new
         {
@@ -30,10 +30,10 @@ public class AwsTests(MinioFixture minio) : IClassFixture<MinioFixture>
         using var dfRead = DataFrame.ReadParquet(s3Url, cloudOptions: options);
 
         Assert.Equal(df.Height, dfRead.Height);
-        
+
         var originalNames = df["Name"].ToArray<string>();
         var readNames = dfRead["Name"].ToArray<string>();
-        
+
         Assert.Equal(originalNames, readNames);
 
     }

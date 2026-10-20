@@ -8162,4 +8162,120 @@ public partial class LinqTests
     //     // EmptyDept has 0 persons
     //     Assert.Empty(results[1]);
     // }
+
+    [Fact]
+    [Trait("LINQ", "InMemoryCollection_Transposition")]
+    public void Test_InMemoryCollection_Concat_TransposesToDataFrame_NativePushdown()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000)
+        };
+        var extraEmps = new[]
+        {
+            new Employee("Charlie", 35, 70000),
+            new Employee("David", 40, 80000)
+        };
+
+        using var df = DataFrame.FromRows(emps);
+        var query = df.AsQueryable(emps)
+            .Where(e => e.Age >= 25)
+            .Concat(extraEmps);
+
+        AssertPlan(query, NativePushdown);
+        using var resDf = query.ToDataFrame();
+        Assert.Equal(4, resDf.Height);
+    }
+
+    [Fact]
+    [Trait("LINQ", "InMemoryCollection_Transposition")]
+    public void Test_InMemoryCollection_Union_TransposesToDataFrame_NativePushdown()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000)
+        };
+        var unionEmps = new List<Employee>
+        {
+            new("Bob", 30, 60000),
+            new("Charlie", 35, 70000)
+        };
+
+        using var df = DataFrame.FromRows(emps);
+        var query = df.AsQueryable(emps).Union(unionEmps);
+
+        AssertPlan(query, NativePushdown);
+        using var resDf = query.ToDataFrame();
+        Assert.Equal(3, resDf.Height);
+    }
+
+    [Fact]
+    [Trait("LINQ", "InMemoryCollection_Transposition")]
+    public void Test_InMemoryCollection_Join_TransposesToDataFrame_NativePushdown()
+    {
+        var orders = new[]
+        {
+            new SubqueryOrder(101, 1, 50.0, "Completed"),
+            new SubqueryOrder(102, 2, 75.0, "Completed")
+        };
+        var inMemoryCustomers = new[]
+        {
+            new SubqueryCustomer(1, "Alice"),
+            new SubqueryCustomer(2, "Bob")
+        };
+
+        using var df = DataFrame.FromRows(orders);
+        var query = df.AsQueryable(orders)
+            .Join(
+                inMemoryCustomers,
+                o => o.CustomerId,
+                c => c.Id,
+                (o, c) => new { o.OrderId, c.Name, o.Amount }
+            );
+
+        AssertPlan(query, NativePushdown);
+        using var resDf = query.ToDataFrame();
+        Assert.Equal(2, resDf.Height);
+    }
+
+    [Fact]
+    [Trait("LINQ", "InMemoryCollection_Transposition")]
+    public void Test_InMemoryCollection_AppendPrepend_InlineNew_NativePushdown()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000)
+        };
+
+        using var df = DataFrame.FromRows(emps);
+        var query = df.AsQueryable(emps)
+            .Prepend(new Employee("Start", 20, 40000))
+            .Append(new Employee("End", 50, 90000));
+
+        AssertPlan(query, NativePushdown);
+        using var resDf = query.ToDataFrame();
+        Assert.Equal(3, resDf.Height);
+    }
+
+    [Fact]
+    [Trait("LINQ", "InMemoryCollection_Transposition")]
+    public void Test_InMemoryCollection_AsPolarsQueryable_NativePushdown()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000),
+            new Employee("Charlie", 35, 70000)
+        };
+
+        var query = emps.AsPolarsQueryable()
+            .Where(e => e.Age > 25)
+            .Select(e => new { e.Name, e.Salary });
+
+        AssertPlan(query, NativePushdown);
+        using var resDf = query.ToDataFrame();
+        Assert.Equal(2, resDf.Height);
+    }
 }

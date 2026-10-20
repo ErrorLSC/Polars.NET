@@ -1898,3 +1898,69 @@ module QueryTests =
         Assert.Equal(2L, nameSeries.Length)
         Assert.Equal<string seq>([| "Alice"; "Charlie" |], nameSeries.ToArray<string>())
 
+    [<Fact>]
+    [<Trait("LINQ", "InMemoryCollection_Transposition")>]
+    let ``FSharp in-memory collection Concat transposition into DataFrame`` () =
+        use df =
+            DataFrame.create
+                [
+                    Series.create ("Name", [ "Alice"; "Bob" ])
+                    Series.create ("Age", [ 25; 30 ])
+                    Series.create ("Sales", [ 100.0; 200.0 ])
+                ]
+
+        let extraPeople =
+            [
+                { Name = "Charlie"; Age = 35; Sales = 300.0 }
+                { Name = "David"; Age = 40; Sales = 400.0 }
+            ]
+
+        let q = df.AsQueryable<Person>().Concat(extraPeople)
+        use resDf = q.ToDataFrame()
+
+        Assert.Equal(4L, resDf.Height)
+
+    [<Fact>]
+    [<Trait("LINQ", "InMemoryCollection_Transposition")>]
+    let ``FSharp in-memory collection Union transposition into DataFrame`` () =
+        use df =
+            DataFrame.create
+                [
+                    Series.create ("Name", [ "Alice"; "Bob" ])
+                    Series.create ("Age", [ 25; 30 ])
+                    Series.create ("Sales", [ 100.0; 200.0 ])
+                ]
+
+        let unionPeople =
+            [
+                { Name = "Bob"; Age = 30; Sales = 200.0 }
+                { Name = "Charlie"; Age = 35; Sales = 300.0 }
+            ]
+
+        let q = df.AsQueryable<Person>().Union(unionPeople)
+        use resDf = q.ToDataFrame()
+
+        Assert.Equal(3L, resDf.Height)
+
+    [<Fact>]
+    [<Trait("LINQ", "InMemoryCollection_Transposition")>]
+    let ``FSharp in-memory collection AsPolarsQueryable execution`` () =
+        let people =
+            [
+                { Name = "Alice"; Age = 25; Sales = 100.0 }
+                { Name = "Bob"; Age = 30; Sales = 200.0 }
+                { Name = "Charlie"; Age = 35; Sales = 300.0 }
+            ]
+
+        let q =
+            people.AsPolarsQueryable()
+            |> fun s -> query {
+                for p in s do
+                    where (p.Age > 25)
+                    select p
+            }
+
+        use resDf = q.ToDataFrame()
+        Assert.Equal(2L, resDf.Height)
+
+

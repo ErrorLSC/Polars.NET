@@ -949,9 +949,12 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
             let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
 
             let secondPlanOpt =
-                match tryEvaluate secondExpr with
-                | Some(:? IInternalPlanSource as ps) -> Some(ps.GetPlanInfo())
-                | _ -> None
+                match SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr with
+                | Some lf -> Some(lf, false, None)
+                | None ->
+                    match tryEvaluate secondExpr with
+                    | Some(:? IInternalPlanSource as ps) -> Some(ps.GetPlanInfo())
+                    | _ -> None
 
             match secondPlanOpt with
             | Some(secondLf, secondHasClient, secondProjOpt) when
@@ -2030,7 +2033,7 @@ and PolarsQuery<'T>
                 ExprTranslator.tryTranslateWithContext ctx keyLambda.Body
                 |> Option.map (fun h -> [| h |])
 
-        match SubqueryDecorrelator.resolveToLazyFrameHandle innerExpr with
+        match SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr with
         | Some rightLf ->
             let outerParam = outerKey.Parameters.[0]
             let innerParam = innerKey.Parameters.[0]
@@ -2135,7 +2138,7 @@ and PolarsQuery<'T>
             else
                 PlJoinType.Anti
 
-        SubqueryDecorrelator.resolveToLazyFrameHandle secondExpr
+        SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr
         |> Option.bind (fun rightLf ->
             let keysOpt =
                 match firstKeyOpt, secondKeyOpt with
@@ -2994,7 +2997,7 @@ and PolarsQuery<'T>
                 && clientProjOpt.IsNone
                 ->
 
-                match SubqueryDecorrelator.resolveToLazyFrameHandle inner with
+                match SubqueryDecorrelator.resolveSequenceLazyFrame inner with
                 | Some rightLf ->
                     let outerParam = outerKey.Parameters.[0]
                     let innerParam = innerKey.Parameters.[0]
@@ -3063,7 +3066,7 @@ and PolarsQuery<'T>
                 | None -> [], [], None, true
 
             | LinqStage.Concat otherExpr :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match SubqueryDecorrelator.compileSubtreeToLazyFrame otherExpr with
+                match SubqueryDecorrelator.resolveSequenceLazyFrame otherExpr with
                 | Some otherCompiledLf ->
                     let spec =
                         {
@@ -3075,7 +3078,7 @@ and PolarsQuery<'T>
                 | None -> [], [], None, true
 
             | LinqStage.Zip(secondExpr, resLambdaOpt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match SubqueryDecorrelator.resolveToLazyFrameHandle secondExpr with
+                match SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr with
                 | Some otherLf ->
                     let baseCols = PolarsSchemaExtractor.GetColumnNames lfCloned |> Set.ofArray
 
@@ -3113,8 +3116,8 @@ and PolarsQuery<'T>
 
             | LinqStage.Zip3(secondExpr, thirdExpr) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
                 match
-                    SubqueryDecorrelator.resolveToLazyFrameHandle secondExpr,
-                    SubqueryDecorrelator.resolveToLazyFrameHandle thirdExpr
+                    SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr,
+                    SubqueryDecorrelator.resolveSequenceLazyFrame thirdExpr
                 with
                 | Some secondLf, Some thirdLf ->
                     let baseCols = PolarsSchemaExtractor.GetColumnNames lfCloned |> Set.ofArray
@@ -3133,7 +3136,7 @@ and PolarsQuery<'T>
                 | _ -> [], [], None, true
 
             | LinqStage.Union(secondExpr, keyLambdaOpt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match SubqueryDecorrelator.resolveToLazyFrameHandle secondExpr with
+                match SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr with
                 | Some otherLf ->
                     let concatOp = QueryOp.Concat { OtherLf = otherLf; Prepend = false }
 
@@ -3198,7 +3201,7 @@ and PolarsQuery<'T>
                 | None -> [], [], None, true
 
             | LinqStage.CrossJoin(innerExpr, resLambdaOpt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match SubqueryDecorrelator.resolveToLazyFrameHandle innerExpr with
+                match SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr with
                 | Some rightLf ->
                     let joinSpec =
                         {
@@ -3279,7 +3282,7 @@ and PolarsQuery<'T>
             | LinqStage.GroupJoin(_, innerExpr, outerKey, innerKey, Some resSel) :: tail when
                 clientPreds.IsEmpty && clientProjOpt.IsNone
                 ->
-                match SubqueryDecorrelator.resolveToLazyFrameHandle innerExpr with
+                match SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr with
                 | Some rightLf ->
                     let outerParam = outerKey.Parameters.[0]
                     let innerParam = innerKey.Parameters.[0]
@@ -3376,7 +3379,16 @@ and PolarsQuery<'T>
                 fuse tail (QueryOp.SkipLast count :: opsAcc) clientPreds clientProjOpt
 
             | LinqStage.Append elemExpr :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match tryEvaluate elemExpr with
+                let evaluatedOpt =
+                    match tryEvaluate elemExpr with
+                    | Some elem -> Some elem
+                    | None ->
+                        try
+                            let lambda = Expression.Lambda<Func<obj>>(Expression.Convert(elemExpr, typeof<obj>)).Compile()
+                            Some (lambda.Invoke())
+                        with _ -> None
+
+                match evaluatedOpt with
                 | Some elem when not (isNull elem) ->
                     let elemType = elem.GetType()
 
@@ -3395,7 +3407,16 @@ and PolarsQuery<'T>
                 | _ -> [], [], None, true
 
             | LinqStage.Prepend elemExpr :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match tryEvaluate elemExpr with
+                let evaluatedOpt =
+                    match tryEvaluate elemExpr with
+                    | Some elem -> Some elem
+                    | None ->
+                        try
+                            let lambda = Expression.Lambda<Func<obj>>(Expression.Convert(elemExpr, typeof<obj>)).Compile()
+                            Some (lambda.Invoke())
+                        with _ -> None
+
+                match evaluatedOpt with
                 | Some elem when not (isNull elem) ->
                     let elemType = elem.GetType()
 

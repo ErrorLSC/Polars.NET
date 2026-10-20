@@ -316,6 +316,12 @@ module LinqExtension =
             | :? IQueryable<'T> as q -> q.ToSeries(?name = name)
             | _ -> Series.create (colName, this)
 
+        /// <summary>
+        /// Transposes an in-memory sequence into a native Polars LazyFrame and exposes it as a Polars LINQ queryable.
+        /// </summary>
+        member this.AsPolarsQueryable() : IQueryable<'T> =
+            this.ToLazyFrame().AsQueryable<'T>()
+
 [<RequireQualifiedAccess>]
 module Query =
     /// <summary>
@@ -346,4 +352,11 @@ module Query =
     /// </summary>
     let inline toLazyFrame (source: 'T seq) : LazyFrame =
         source.ToLazyFrame()
+
+    /// <summary>
+    /// Transposes an in-memory sequence into a native Polars LazyFrame and exposes it as a Polars LINQ queryable.
+    /// </summary>
+    let inline asPolarsQueryable (source: 'T seq) : IQueryable<'T> =
+        source.AsPolarsQueryable()
+
 

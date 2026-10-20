@@ -1,19 +1,19 @@
-using Polars.Integration.Tests.Fixtures;
-using Polars.CSharp;
-using Pl = Polars.CSharp.Polars;
 using System.Text;
 using Minio;
 using Minio.DataModel.Args;
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+using Polars.Integration.Tests.Fixtures;
 using Polars.Integration.Tests.Utils;
 using Polars.NET.Core;
-using Polars.CSharp.Linq;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.Integration.Tests;
 
 public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 {
     [Fact]
-    [Trait("DeltaLake","Scan")]
+    [Trait("DeltaLake", "Scan")]
     public async Task Test_Scan_Delta_AWS_Minio()
     {
         var tableName = $"delta_table_{Guid.NewGuid()}";
@@ -31,10 +31,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
             region: minio.Region,
             accessKey: minio.AccessKey,
             secretKey: minio.SecretKey,
-            endpoint: polarsEndpoint 
+            endpoint: polarsEndpoint
         );
-        options.Credentials!["aws_allow_http"] = "true"; 
-        options.Credentials!["aws_s3_force_path_style"] = "true"; 
+        options.Credentials!["aws_allow_http"] = "true";
+        options.Credentials!["aws_s3_force_path_style"] = "true";
 
         using var df = DataFrame.FromColumns(new
         {
@@ -97,7 +97,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
             .WithRegion(minio.Region)
             .Build();
 
-        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(logContent));
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(logContent));
         await minioClient.PutObjectAsync(new PutObjectArgs()
             .WithBucket(minio.BucketName)
             .WithObject(logPath)
@@ -120,27 +120,27 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // │ 3   ┆ Rust   ┆ 30.5  │
         // └─────┴────────┴───────┘
         Assert.Equal(df.Height, dfRead.Height);
-        
+
         var originalNames = df["Name"].ToArray<string>();
         var readNames = dfRead["Name"].ToArray<string>();
-        
+
         Assert.Equal(originalNames, readNames);
-        
+
         Assert.Contains("Value", dfRead.ColumnNames);
 
     }
     [Fact]
-    [Trait("DeltaLake","TimeTravel")]
+    [Trait("DeltaLake", "TimeTravel")]
     public async Task Test_Scan_Delta_TimeTravel()
     {
 
         var tableName = $"delta_time_travel_{Guid.NewGuid()}";
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-        
+
         // Endpoint
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
-        var polarsEndpoint = $"http://{rawEndpoint}"; 
-        
+        var polarsEndpoint = $"http://{rawEndpoint}";
+
         // Polars Cloud Options
         var options = CloudOptions.Aws(
             region: minio.Region,
@@ -158,15 +158,18 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
             .WithRegion(minio.Region)
             .Build();
 
-        var timeV0 = DateTimeOffset.UtcNow.AddHours(-1); 
+        var timeV0 = DateTimeOffset.UtcNow.AddHours(-1);
 
         var timeV1 = DateTimeOffset.UtcNow;
 
 
         var fileV0 = "part-v0.parquet";
-        
-        using (var df0 = DataFrame.FromColumns(new { 
-            Id = new[] { 1 }, Name = new[] { "V0" }, Value = new[] { 10.0 } 
+
+        using (var df0 = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1 },
+            Name = new[] { "V0" },
+            Value = new[] { 10.0 }
         }))
         {
             df0.WriteParquet($"{rootUrl}/{fileV0}", cloudOptions: options);
@@ -176,11 +179,11 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         var sb0 = new StringBuilder();
         sb0.AppendLine(DeltaLakeTestHelper.ActionProtocol());
         sb0.AppendLine(DeltaLakeTestHelper.ActionMetadata(
-            DeltaLakeTestHelper.GenerateSchemaString(), 
+            DeltaLakeTestHelper.GenerateSchemaString(),
             timeV0.ToUnixTimeMilliseconds() // 手动指定时间
         ));
         sb0.AppendLine(DeltaLakeTestHelper.ActionAdd(fileV0, modTime: timeV0.ToUnixTimeMilliseconds()));
-        
+
         await DeltaLakeTestHelper.UploadLogAsync(minioClient, minio.BucketName, tableName, 0, sb0.ToString());
 
         // ==========================================
@@ -188,8 +191,11 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         var fileV1 = "part-v1.parquet";
 
-        using (var df1 = DataFrame.FromColumns(new { 
-            Id = new[] { 2 }, Name = new[] { "V1" }, Value = new[] { 20.0 } 
+        using (var df1 = DataFrame.FromColumns(new
+        {
+            Id = new[] { 2 },
+            Name = new[] { "V1" },
+            Value = new[] { 20.0 }
         }))
         {
             df1.WriteParquet($"{rootUrl}/{fileV1}", cloudOptions: options);
@@ -202,18 +208,18 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         using var lfLatest = LazyFrame.ScanDelta(rootUrl, cloudOptions: options);
         var dfLatest = lfLatest.Collect();
-        
-        Assert.Equal(2, dfLatest.Height); 
+
+        Assert.Equal(2, dfLatest.Height);
         Assert.Contains("V1", dfLatest["Name"].ToArray<string>());
 
         using var lfV0 = LazyFrame.ScanDelta(rootUrl, version: 0, cloudOptions: options);
         var dfV0 = lfV0.Collect();
 
-        Assert.Equal(1, dfV0.Height); 
+        Assert.Equal(1, dfV0.Height);
         Assert.Equal("V0", dfV0["Name"].ToArray<string>()[0]);
 
         var queryTime = timeV0.AddMinutes(1).ToString("yyyy-MM-ddTHH:mm:ssZ");
-        
+
         using var lfTime = LazyFrame.ScanDelta(rootUrl, datetime: queryTime, cloudOptions: options);
         var dfTime = lfTime.Collect();
 
@@ -226,10 +232,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
     {
         var tableName = $"delta_modes_{Guid.NewGuid()}";
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-        
+
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -242,14 +248,15 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         options.Credentials!["AWS_S3_FORCE_PATH_STYLE"] = "true";
         options.Credentials!["aws_s3_force_path_style"] = "true";
         options.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
-        
+
         // ==========================================
         // Mode: Append Version 0 + 1
         // ==========================================
 
-        using (var df = DataFrame.FromColumns(new { 
-            Id = new[] { 1, 2 }, 
-            Msg = new[] { "V1_A", "V1_B" } 
+        using (var df = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2 },
+            Msg = new[] { "V1_A", "V1_B" }
         }))
         {
             df.WriteDelta(rootUrl, mode: DeltaSaveMode.Append, cloudOptions: options);
@@ -262,9 +269,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Mode: Append Version 2
         // ==========================================
 
-        using (var df2 = DataFrame.FromColumns(new { 
-            Id = new[] { 3 }, 
-            Msg = new[] { "V2_C" } 
+        using (var df2 = DataFrame.FromColumns(new
+        {
+            Id = new[] { 3 },
+            Msg = new[] { "V2_C" }
         }))
         {
             df2.WriteDelta(rootUrl, mode: DeltaSaveMode.Append, cloudOptions: options);
@@ -279,9 +287,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Mode: Overwrite Version 3
         // ==========================================
 
-        using (var dfOverwrite = DataFrame.FromColumns(new { 
-            Id = new[] { 999 }, 
-            Msg = new[] { "Overwrite_New" } 
+        using (var dfOverwrite = DataFrame.FromColumns(new
+        {
+            Id = new[] { 999 },
+            Msg = new[] { "Overwrite_New" }
         }))
         {
             dfOverwrite.WriteDelta(rootUrl, mode: DeltaSaveMode.Overwrite, cloudOptions: options);
@@ -300,20 +309,18 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         using (var dfError = DataFrame.FromColumns(new { Id = new[] { 0 } }))
         {
-            var ex = Assert.Throws<PolarsException>(() => 
-            {
-                dfError.WriteDelta(rootUrl, mode: DeltaSaveMode.ErrorIfExists, cloudOptions: options);
-            });
-            
+            var ex = Assert.Throws<PolarsException>(() => dfError.WriteDelta(rootUrl, mode: DeltaSaveMode.ErrorIfExists, cloudOptions: options));
+
             Assert.Contains("Table already exists", ex.Message);
         }
 
         // ==========================================
         // Mode: Ignore
         // ==========================================
-        using (var dfIgnore = DataFrame.FromColumns(new { 
-            Id = new[] { 888 }, 
-            Msg = new[] { "Should_Not_Exist" } 
+        using (var dfIgnore = DataFrame.FromColumns(new
+        {
+            Id = new[] { 888 },
+            Msg = new[] { "Should_Not_Exist" }
         }))
         {
             dfIgnore.WriteDelta(rootUrl, mode: DeltaSaveMode.Ignore, cloudOptions: options);
@@ -331,10 +338,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         var tableName = $"delta_partitioned_{Guid.NewGuid()}";
 
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-        
+
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -345,28 +352,29 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
         options.Credentials!["aws_s3_force_path_style"] = "true";
         options.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
-        
+
         // ==========================================
         // Mode: Append (Version 0 + 1)
         // ==========================================
 
-        using (var df = DataFrame.FromColumns(new { 
-            Id = new[] { 1, 2, 3 }, 
+        using (var df = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
             Msg = new[] { "V1_2023_A", "V1_2023_B", "V1_2024_A" },
-            Year = new[] { "2023", "2023", "2024" } 
+            Year = new[] { "2023", "2023", "2024" }
         }))
         {
             df.WriteDelta(
-                rootUrl, 
-                partitionBy: "Year", 
-                mode: DeltaSaveMode.Append, 
+                rootUrl,
+                partitionBy: "Year",
+                mode: DeltaSaveMode.Append,
                 cloudOptions: options
             );
         }
 
         using var dfV1 = DataFrame.ReadDelta(rootUrl, cloudOptions: options).Sort("Id");
         Assert.Equal(3, dfV1.Height);
-        
+
         var yearsV0 = dfV1["Year"].ToArray<string>();
         Assert.Equal("2023", yearsV0[0]);
         Assert.Equal("2024", yearsV0[2]);
@@ -374,39 +382,41 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // Mode: Append Version 2
         // ==========================================
-        using (var df2 = DataFrame.FromColumns(new { 
-            Id = new[] { 4, 5 }, 
+        using (var df2 = DataFrame.FromColumns(new
+        {
+            Id = new[] { 4, 5 },
             Msg = new[] { "V2_2024_B", "V2_2025_A" },
-            Year = new[] { "2024", "2025" } 
+            Year = new[] { "2024", "2025" }
         }))
         {
             df2.WriteDelta(
-                rootUrl, 
-                partitionBy: "Year", 
-                mode: DeltaSaveMode.Append, 
+                rootUrl,
+                partitionBy: "Year",
+                mode: DeltaSaveMode.Append,
                 cloudOptions: options
             );
         }
 
         using var dfV2 = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect().Sort("Id");
         Assert.Equal(5, dfV2.Height);
-        
+
         Assert.Contains("2025", dfV2["Year"].ToArray<string>());
 
         // ==========================================
         // Mode: Overwrite Version 3
         // ==========================================
 
-        using (var dfOverwrite = DataFrame.FromColumns(new { 
-            Id = new[] { 999 }, 
+        using (var dfOverwrite = DataFrame.FromColumns(new
+        {
+            Id = new[] { 999 },
             Msg = new[] { "Overwrite_All" },
-            Year = new[] { "2099" } 
+            Year = new[] { "2099" }
         }))
         {
             dfOverwrite.WriteDelta(
-                rootUrl, 
-                partitionBy: "Year", 
-                mode: DeltaSaveMode.Overwrite, 
+                rootUrl,
+                partitionBy: "Year",
+                mode: DeltaSaveMode.Overwrite,
                 cloudOptions: options
             );
         }
@@ -414,7 +424,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         using var dfV3 = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
         Assert.Equal(1, dfV3.Height);
         Assert.Equal("2099", dfV3["Year"].ToArray<string>()[0]);
-        
+
         using var dfBackToV1 = LazyFrame.ScanDelta(rootUrl, version: 2, cloudOptions: options).Collect();
         Assert.Equal(5, dfBackToV1.Height);
 
@@ -423,12 +433,12 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         using (var dfError = DataFrame.FromColumns(new { Id = new[] { 0 }, Year = new[] { "0000" } }))
         {
-            var ex = Assert.Throws<PolarsException>(() => 
+            var ex = Assert.Throws<PolarsException>(() =>
             {
                 dfError.WriteDelta(
-                    rootUrl, 
+                    rootUrl,
                     partitionBy: "Year",
-                    mode: DeltaSaveMode.ErrorIfExists, 
+                    mode: DeltaSaveMode.ErrorIfExists,
                     cloudOptions: options
                 );
             });
@@ -438,16 +448,17 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // Mode: Ignore
         // ==========================================
-        using (var dfIgnore = DataFrame.FromColumns(new { 
-            Id = new[] { 888 }, 
+        using (var dfIgnore = DataFrame.FromColumns(new
+        {
+            Id = new[] { 888 },
             Msg = new[] { "Should_Not_Exist" },
             Year = new[] { "2099" }
         }))
         {
             dfIgnore.WriteDelta(
-                rootUrl, 
+                rootUrl,
                 partitionBy: "Year",
-                mode: DeltaSaveMode.Ignore, 
+                mode: DeltaSaveMode.Ignore,
                 cloudOptions: options
             );
         }
@@ -463,7 +474,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
     {
         var tableName = $"delta_evolve_{Guid.NewGuid()}";
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -477,15 +488,16 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // Phase 1: Schema A: Id, Val
         // ==========================================
-        using (var dfInit = DataFrame.FromColumns(new { 
-            Id = new[] { 1 }, 
-            Val = new[] { "OldRow" } 
+        using (var dfInit = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1 },
+            Val = new[] { "OldRow" }
         }))
         {
             dfInit.WriteDelta(
-                rootUrl, 
-                partitionBy: "Id", 
-                mode: DeltaSaveMode.Overwrite, 
+                rootUrl,
+                partitionBy: "Id",
+                mode: DeltaSaveMode.Overwrite,
                 cloudOptions: options
             );
         }
@@ -494,19 +506,20 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Phase 2: Schema B: Id, Val, NewCol
         // can_evolve = false => Exception
         // ==========================================
-        using var dfNew = DataFrame.FromColumns(new { 
-            Id = new[] { 2 }, 
-            Val = new[] { "NewRow" }, 
-            NewCol = new[] { 999 } 
+        using var dfNew = DataFrame.FromColumns(new
+        {
+            Id = new[] { 2 },
+            Val = new[] { "NewRow" },
+            NewCol = new[] { 999 }
         });
 
-        var ex = Assert.Throws<PolarsException>(() => 
+        var ex = Assert.Throws<PolarsException>(() =>
         {
             dfNew.WriteDelta(
-                rootUrl, 
-                partitionBy: "Id", 
-                mode: DeltaSaveMode.Append, 
-                canEvolve: false, 
+                rootUrl,
+                partitionBy: "Id",
+                mode: DeltaSaveMode.Append,
+                canEvolve: false,
                 cloudOptions: options
             );
         });
@@ -518,9 +531,9 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Phase 3: Schema Evolution
         // ==========================================
         dfNew.WriteDelta(
-            rootUrl, 
+            rootUrl,
             partitionBy: "Id",
-            mode: DeltaSaveMode.Append, 
+            mode: DeltaSaveMode.Append,
             canEvolve: true,
             cloudOptions: options
         );
@@ -529,7 +542,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Phase 4: Read Validation
         // ==========================================
         using var resultDf = LazyFrame.ScanDelta(rootUrl, cloudOptions: options)
-            .Sort("Id", false) 
+            .Sort("Id", false)
             .Collect();
 
         var columns = resultDf.ColumnNames;
@@ -539,11 +552,11 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         var row1 = resultDf.Row(0);
         Assert.Equal(1, row1[0]);
-        Assert.Null(row1[2]);     
+        Assert.Null(row1[2]);
 
-        var row2 = resultDf.Row(1); 
-        Assert.Equal(2, row2[0]); 
-        Assert.Equal(999, row2[2]); 
+        var row2 = resultDf.Row(1);
+        Assert.Equal(2, row2[0]);
+        Assert.Equal(999, row2[2]);
 
     }
     [Fact]
@@ -552,10 +565,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
     {
         var tableName = $"delta_delete_{Guid.NewGuid()}";
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-        
+
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -566,22 +579,23 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
         options.Credentials!["aws_s3_force_path_style"] = "true";
         options.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
-        
+
         // ==========================================
         // Version 1
         // ==========================================
         // 2023: ID 1, 2
         // 2024: ID 3, 4, 5
-        using (var df = DataFrame.FromColumns(new { 
-            Id = new[] { 1, 2, 3, 4, 5 }, 
+        using (var df = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3, 4, 5 },
             Msg = new[] { "A", "B", "C", "D", "E" },
             Year = new[] { "2023", "2023", "2024", "2024", "2024" }
         }))
         {
             df.WriteDelta(
-                rootUrl, 
-                partitionBy: "Year", 
-                mode: DeltaSaveMode.Append, 
+                rootUrl,
+                partitionBy: "Year",
+                mode: DeltaSaveMode.Append,
                 cloudOptions: options
             );
         }
@@ -593,10 +607,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // Rewrite Test
         // ==========================================
-        
+
         // Predicate: (Year == '2024') & (Id == 4)
-        var predicateRewrite = (Pl.Col("Year") == Pl.Lit("2024")) & (Pl.Col("Id")==4);
-        
+        var predicateRewrite = (Pl.Col("Year") == Pl.Lit("2024")) & (Pl.Col("Id") == 4);
+
         Delta.Delete(rootUrl, predicateRewrite, cloudOptions: options);
 
         using var dfV2 = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect().Sort("Id");
@@ -608,24 +622,24 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // Drop Partition
         // ==========================================
-        
+
         var predicateDrop = Pl.Col("Year") == Pl.Lit("2023");
-        
+
         Delta.Delete(rootUrl, predicateDrop, cloudOptions: options);
 
         using var dfV3 = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect().Sort("Id");
         Assert.Equal(2, dfV3.Height);
         Assert.DoesNotContain(1, dfV3["Id"].ToArray<int>());
         Assert.DoesNotContain(2, dfV3["Id"].ToArray<int>());
-        Assert.Equal("2024", dfV3["Year"].ToArray<string>()[0]); 
+        Assert.Equal("2024", dfV3["Year"].ToArray<string>()[0]);
 
         // ==========================================
         // No-op Test
         // ==========================================
 
-        
+
         var predicateNoOp = Pl.Col("Id") == 999;
-        
+
         Delta.Delete(rootUrl, predicateNoOp, cloudOptions: options);
 
         using var dfV4 = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
@@ -638,7 +652,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         // V1
         using var dfBackV1 = LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect();
-        
+
         // V2 
         using var dfBackV2 = LazyFrame.ScanDelta(rootUrl, version: 2, cloudOptions: options).Collect();
         Assert.Equal(4, dfBackV2.Height);
@@ -653,7 +667,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -667,7 +681,8 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // V1 - CoW Ready
         // ==========================================
-        using (var df = DataFrame.FromColumns(new { 
+        using (var df = DataFrame.FromColumns(new
+        {
             Id = Enumerable.Range(0, 10).ToArray(), // 0..9
             Data = Enumerable.Repeat("A", 10).ToArray()
         }))
@@ -678,35 +693,35 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // Deletion Vectors (Upgrade to v7)
         // ==========================================
-        
+
         // Protocol => Reader v3 / Writer v7
         Delta.AddFeature(
-            rootUrl, 
-            DeltaTableFeatures.DeletionVectors, 
-            allowProtocolIncrease: true, 
+            rootUrl,
+            DeltaTableFeatures.DeletionVectors,
+            allowProtocolIncrease: true,
             cloudOptions: options
         );
 
-        int[] validIds = [0,2,4];
-        
+        int[] validIds = [0, 2, 4];
+
         var predicate = Pl.Col("Id").IsIn(Pl.Lit(validIds).Implode());
-        
+
         Delta.Delete(rootUrl, predicate, cloudOptions: options);
 
         using var dfV2 = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect().Sort("Id");
 
         Assert.Equal(7, dfV2.Height);
-        
+
         var ids = dfV2["Id"].ToArray<int>();
         Assert.DoesNotContain(0, ids);
         Assert.DoesNotContain(2, ids);
         Assert.DoesNotContain(4, ids);
         Assert.Contains(1, ids);
         Assert.Contains(9, ids);
-        
+
         using var dfV1 = LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect();
         Assert.Equal(10, dfV1.Height);
-        
+
     }
     [Fact]
     [Trait("DeltaLake", "Upsert")]
@@ -714,10 +729,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
     {
         var tableName = $"delta_merge_{Guid.NewGuid()}";
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-        
+
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -728,24 +743,25 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
         options.Credentials!["aws_s3_force_path_style"] = "true";
         options.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
-        
+
         // ==========================================
         // [Target] Version 1
         // ==========================================
 
         // 2024-01-01: Order 1 (Pending), Order 2 (Pending)
         // 2024-01-02: Order 3 (Pending)
-        using (var df = DataFrame.FromColumns(new { 
-            OrderId = new[] { 1, 2, 3 }, 
+        using (var df = DataFrame.FromColumns(new
+        {
+            OrderId = new[] { 1, 2, 3 },
             Status = new[] { "Pending", "Pending", "Pending" },
             Amount = new[] { 100.0, 200.0, 300.0 },
-            Date = new[] { "2024-01-01", "2024-01-01", "2024-01-02" } 
+            Date = new[] { "2024-01-01", "2024-01-01", "2024-01-02" }
         }))
         {
             df.WriteDelta(
-                rootUrl, 
-                partitionBy: "Date", 
-                mode: DeltaSaveMode.Append, 
+                rootUrl,
+                partitionBy: "Date",
+                mode: DeltaSaveMode.Append,
                 cloudOptions: options
             );
         }
@@ -756,23 +772,24 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // [Source]
         // ==========================================
-        
+
         // Source DataFrame
         // 1. Update: Order 1 -> Status="Shipped" 
         // 2. Insert (Backfill): Order 4 
         // 3. Insert (New Partition): Order 5
         // 4. Unchanged: Order 2, Order 3 
-        
-        using var sourceDf = DataFrame.FromColumns(new { 
-            OrderId = new[] { 1, 4, 5 }, 
+
+        using var sourceDf = DataFrame.FromColumns(new
+        {
+            OrderId = new[] { 1, 4, 5 },
             Status = new[] { "Shipped", "Paid", "New" },
-            Amount = new[] { 100.0, 400.0, 500.0 }, 
-            Date = new[] { "2024-01-01", "2024-01-01", "2024-01-03" } 
+            Amount = new[] { 100.0, 400.0, 500.0 },
+            Date = new[] { "2024-01-01", "2024-01-01", "2024-01-03" }
         });
         // ==========================================
         // MERGE (Upsert)
         // ==========================================
-        
+
         sourceDf.MergeDeltaOrdered(rootUrl, mergeKeys: ["OrderId"], cloudOptions: options).Execute();
 
         // ==========================================
@@ -785,7 +802,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         var row1 = dfMerged.Filter(Pl.Col("OrderId") == 1);
         Assert.Equal("Shipped", row1["Status"].ToArray<string>()[0]);
-        Assert.Equal("2024-01-01", row1["Date"].ToArray<string>()[0]); 
+        Assert.Equal("2024-01-01", row1["Date"].ToArray<string>()[0]);
 
         var row4 = dfMerged.Filter(Pl.Col("OrderId") == 4);
         Assert.Equal("Paid", row4["Status"].ToArray<string>()[0]);
@@ -795,10 +812,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         Assert.Equal("New", row5["Status"].ToArray<string>()[0]);
         Assert.Equal("2024-01-03", row5["Date"].ToArray<string>()[0]);
 
-        var row2 = dfMerged.Filter(Pl.Col("OrderId") ==2 );
+        var row2 = dfMerged.Filter(Pl.Col("OrderId") == 2);
         Assert.Equal("Pending", row2["Status"].ToArray<string>()[0]);
-        
-        var row3 = dfMerged.Filter(Pl.Col("OrderId")==3);
+
+        var row3 = dfMerged.Filter(Pl.Col("OrderId") == 3);
         Assert.Equal("Pending", row3["Status"].ToArray<string>()[0]);
 
         // ==========================================
@@ -806,13 +823,13 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // Source Partition: 2024-01-01, 2024-01-03
         // Target Partition: 2024-01-01, 2024-01-02
-        
+
         using var dfHistory = LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect().Sort("OrderId");
-        
-        var row1Old = dfHistory.Filter(Pl.Col("OrderId")==1);
+
+        var row1Old = dfHistory.Filter(Pl.Col("OrderId") == 1);
         Assert.Equal("Pending", row1Old["Status"].ToArray<string>()[0]);
 
-        Assert.Equal(0, dfHistory.Filter(Pl.Col("OrderId")==4).Height);
+        Assert.Equal(0, dfHistory.Filter(Pl.Col("OrderId") == 4).Height);
 
     }
     [Fact]
@@ -821,7 +838,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
     {
         var tableName = $"delta_merge_evolve_{Guid.NewGuid()}";
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -837,9 +854,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // Schema: [Id: Int, Val: String]
         // Data:   (1, "Old_A")
-        using (var dfV1 = DataFrame.FromColumns(new { 
-            Id = new[] { 1 }, 
-            Val = new[] { "Old_A" } 
+        using (var dfV1 = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1 },
+            Val = new[] { "Old_A" }
         }))
         {
             dfV1.WriteDelta(rootUrl, mode: DeltaSaveMode.Overwrite, cloudOptions: options);
@@ -852,37 +870,38 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Data:
         //   (1, "Updated_A", "Filled")  <-- Matched Update
         //   (2, "New_B",     "Filled")  <-- Not Matched Insert
-        using var sourceDf = DataFrame.FromColumns(new { 
-            Id = new[] { 1, 2 }, 
-            Val = new[] { "Updated_A", "New_B" }, 
-            NewCol = new[] { "Filled", "Filled" } 
+        using var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2 },
+            Val = new[] { "Updated_A", "New_B" },
+            NewCol = new[] { "Filled", "Filled" }
         });
 
         // ==========================================
         // Phase 3: Negative Test
         // ==========================================
-        var ex = Assert.Throws<PolarsException>(() => 
+        var ex = Assert.Throws<PolarsException>(() =>
         {
             sourceDf.MergeDeltaOrdered(
-                rootUrl, 
-                mergeKeys: ["Id"], 
+                rootUrl,
+                mergeKeys: ["Id"],
                 cloudOptions: options
             ).Execute();
         });
 
         Assert.Contains("Schema mismatch", ex.Message);
         Assert.Contains("NewCol", ex.Message);
-        Assert.Contains("can_evolve", ex.Message); 
+        Assert.Contains("can_evolve", ex.Message);
 
         // ==========================================
         // Phase 4: Evolution Test
         // ==========================================
         sourceDf.MergeDeltaOrdered(
-            rootUrl, 
-            mergeKeys: ["Id"], 
-            cloudOptions: options,
-            canEvolve: true 
-        ).Execute();
+                rootUrl,
+                mergeKeys: ["Id"],
+                canEvolve: true,
+                cloudOptions: options)
+            .Execute();
 
         // ==========================================
         // Phase 5:Read & Verify
@@ -893,12 +912,12 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         var cols = resultDf.ColumnNames;
         Assert.Contains("NewCol", cols);
-        Assert.Equal(3, cols.Length); 
+        Assert.Equal(3, cols.Length);
 
         var row1 = resultDf.Row(0);
-        Assert.Equal(1, row1[0]);           
-        Assert.Equal("Updated_A", row1[1]); 
-        Assert.Equal("Filled", row1[2]);   
+        Assert.Equal(1, row1[0]);
+        Assert.Equal("Updated_A", row1[1]);
+        Assert.Equal("Filled", row1[2]);
 
         var row2 = resultDf.Row(1);
         Assert.Equal(2, row2[0]);
@@ -908,15 +927,16 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // Phase 6: Backfill Null Test
         // ==========================================
-        
-        using (var dfV1_Late = DataFrame.FromColumns(new { 
-            Id = new[] { 3 }, 
-            Val = new[] { "Late_Arrival_V1" } 
+
+        using (var dfV1_Late = DataFrame.FromColumns(new
+        {
+            Id = new[] { 3 },
+            Val = new[] { "Late_Arrival_V1" }
         }))
         {
             dfV1_Late.MergeDeltaOrdered(
-                rootUrl, 
-                mergeKeys: ["Id"], 
+                rootUrl,
+                mergeKeys: ["Id"],
                 cloudOptions: options
             ).Execute();
         }
@@ -928,10 +948,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
             .Sort("Id", false)
             .Collect();
 
-        var row3 = finalDf.Row(2); 
+        var row3 = finalDf.Row(2);
         Assert.Equal(3, row3[0]);
         Assert.Equal("Late_Arrival_V1", row3[1]);
-        Assert.Null(row3[2]); 
+        Assert.Null(row3[2]);
 
     }
     [Fact]
@@ -940,10 +960,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
     {
         var tableName = $"delta_merge_full_{Guid.NewGuid()}";
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-        
+
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -962,18 +982,19 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ID 3: Stock=0,  Status=Recall  
         // ID 4: Stock=0,  Status=Obsolete 
         // ID 5: Stock=50, Status=Active  
-        
-        using (var df = DataFrame.FromColumns(new { 
-            Id = new[] { 1, 2, 3, 4, 5 }, 
+
+        using (var df = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3, 4, 5 },
             Stock = new[] { 10, 20, 0, 0, 50 },
             Status = new[] { "Active", "Active", "Recall", "Obsolete", "Active" },
             Category = new[] { "A", "A", "B", "B", "A" } // Partition
         }))
         {
             df.WriteDelta(
-                rootUrl, 
-                partitionBy: "Category", 
-                mode: DeltaSaveMode.Append, 
+                rootUrl,
+                partitionBy: "Category",
+                mode: DeltaSaveMode.Append,
                 cloudOptions: options
             );
         }
@@ -981,16 +1002,17 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // Merge Source
         // ==========================================
-        
+
         // ID 1: Stock=100 (New) -> Update (New > Old)
         // ID 2: Stock=15  (New) -> Not Update (15 < 20)，Keep 20
         // ID 3: Status=DeleteMe -> Matched Delete 
         // ID 6: Stock=60  (New) -> Insert (Stock > 0)
         // ID 7: Stock=0   (New) -> Not Insert (Stock > 0),Discard
         // ID 4 & 5: Not Matched By Source
-        
-        using var sourceDf = DataFrame.FromColumns(new { 
-            Id = new[] { 1, 2, 3, 6, 7 }, 
+
+        using var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3, 6, 7 },
             Stock = new[] { 100, 15, 0, 60, 0 },
             Status = new[] { "Active", "Active", "DeleteMe", "New", "Bad" },
             Category = new[] { "A", "A", "B", "C", "C" }
@@ -1025,7 +1047,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         .WhenNotMatchedBySourceDelete(srcDeleteCond)
         .WhenNotMatchedInsert(insertCond)
         .Execute();
-        
+
         using var dfRes = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect().Sort("Id");
         // shape: (4, 4)
         // ┌─────┬───────┬────────┬──────────┐
@@ -1055,7 +1077,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         // Case 2: Conditional Update Skip (Keep Target)
         var row2 = dfRes.Filter(Pl.Col("Id") == 2);
-        Assert.Equal(20, row2["Stock"].ToArray<int>()[0]); 
+        Assert.Equal(20, row2["Stock"].ToArray<int>()[0]);
 
         // Case 3: Matched Delete
         Assert.Equal(0, dfRes.Filter(Pl.Col("Id") == 3).Height);
@@ -1070,11 +1092,11 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Case 6: Conditional Insert
         var row6 = dfRes.Filter(Pl.Col("Id") == 6);
         Assert.Equal(60, row6["Stock"].ToArray<int>()[0]);
-        Assert.Equal("C", row6["Category"].ToArray<string>()[0]); 
+        Assert.Equal("C", row6["Category"].ToArray<string>()[0]);
 
         // Case 7: Conditional Insert Skip
         Assert.Equal(0, dfRes.Filter(Pl.Col("Id") == 7).Height);
-        Delta.History(path:rootUrl,cloudOptions:options);
+        Delta.History(path: rootUrl, cloudOptions: options);
         // shape: (3, 16)
         // ┌───────────┬───────────┬───────────┬───────────┬───┬───────────┬───────────┬───────────┬──────────┐
         // │ timestamp ┆ operation ┆ mode      ┆ predicate ┆ … ┆ engineInf ┆ engine    ┆ clientVer ┆ engineMa │
@@ -1099,10 +1121,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
     {
         var tableName = $"delta_merge_dv_{Guid.NewGuid()}";
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-        
+
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -1116,17 +1138,18 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // [Target] (Version 1)
         // ==========================================
-        using (var df = DataFrame.FromColumns(new { 
-            Id = new[] { 1, 2, 3, 4, 5 }, 
+        using (var df = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3, 4, 5 },
             Stock = new[] { 10, 20, 0, 0, 50 },
             Status = new[] { "Active", "Active", "Recall", "Obsolete", "Active" },
             Category = new[] { "A", "A", "B", "B", "A" } // Partition
         }))
         {
             df.WriteDelta(
-                rootUrl, 
-                partitionBy: "Category", 
-                mode: DeltaSaveMode.Append, 
+                rootUrl,
+                partitionBy: "Category",
+                mode: DeltaSaveMode.Append,
                 cloudOptions: options
             );
         }
@@ -1135,18 +1158,19 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Deletion Vectors (Version 2)
         // ==========================================
         Delta.AddFeature(
-            rootUrl, 
+            rootUrl,
             DeltaTableFeatures.DeletionVectors,
-            allowProtocolIncrease: true, 
+            allowProtocolIncrease: true,
             cloudOptions: options
         );
 
         // ==========================================
         // Merge Source
         // ==========================================
-        
-        using var sourceDf = DataFrame.FromColumns(new { 
-            Id = new[] { 1, 2, 3, 6, 7 }, 
+
+        using var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3, 6, 7 },
             Stock = new[] { 100, 15, 0, 60, 0 },
             Status = new[] { "Active", "Active", "DeleteMe", "New", "Bad" },
             Category = new[] { "A", "A", "B", "C", "C" }
@@ -1175,7 +1199,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // Version 3
         // ==========================================
-        
+
         using var dfRes = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect().Sort("Id");
 
         Assert.Equal(4, dfRes.Height);
@@ -1238,7 +1262,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
     {
         var tableName = $"delta_merge_composite_{Guid.NewGuid()}";
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -1253,7 +1277,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // [Target] Version 1
         // ==========================================
         // [Region, StoreId]
-        
+
         // Data Scenarios:
         // 1. [North, 101]: Stock 10  -> Update
         // 2. [North, 102]: Stock 20  -> Update Skip
@@ -1261,17 +1285,18 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // 4. [South, 999]: Obsolete  -> Source Delete
         // 5. [East,  555]: Active    -> Target Only Keep
 
-        using (var df = DataFrame.FromColumns(new { 
-            Region = new[]  { "North", "North", "South", "South", "East" },
-            StoreId = new[] { 101,     102,     101,     999,     555 },
-            Stock = new[]   { 10,      20,      5,       0,       50 },
-            Status = new[]  { "Active","Active","Recall","Obsolete","Active" }
+        using (var df = DataFrame.FromColumns(new
+        {
+            Region = new[] { "North", "North", "South", "South", "East" },
+            StoreId = new[] { 101, 102, 101, 999, 555 },
+            Stock = new[] { 10, 20, 5, 0, 50 },
+            Status = new[] { "Active", "Active", "Recall", "Obsolete", "Active" }
         }))
         {
             df.WriteDelta(
-                rootUrl, 
-                partitionBy: "Region", 
-                mode: DeltaSaveMode.Append, 
+                rootUrl,
+                partitionBy: "Region",
+                mode: DeltaSaveMode.Append,
                 cloudOptions: options
             );
         }
@@ -1287,17 +1312,18 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // 4. [West,  888]: Stock 60              -> Insert (New Region)
         // 5. [West,  999]: Stock 0               -> Skip Insert (Condition Fail)
 
-        using var sourceDf = DataFrame.FromColumns(new { 
-            Region = new[]  { "North", "North", "South", "West", "West" },
-            StoreId = new[] { 101,     102,     101,     888,     999 },
-            Stock = new[]   { 100,     15,      0,       60,      0 },
-            Status = new[]  { "Active","Active","DeleteMe","New",   "Bad" }
+        using var sourceDf = DataFrame.FromColumns(new
+        {
+            Region = new[] { "North", "North", "South", "West", "West" },
+            StoreId = new[] { 101, 102, 101, 888, 999 },
+            Stock = new[] { 100, 15, 0, 60, 0 },
+            Status = new[] { "Active", "Active", "DeleteMe", "New", "Bad" }
         });
 
         // ==========================================
         // Merge Expressions
         // ==========================================
-        
+
         var updateCond = Delta.Source("Stock") > Delta.Target("Stock");
 
         var matchDeleteCond = Delta.Source("Status") == "DeleteMe";
@@ -1308,7 +1334,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         sourceDf.MergeDelta(
             rootUrl,
-            mergeKeys:  ["Region", "StoreId"], 
+            mergeKeys: ["Region", "StoreId"],
             matchedUpdateCond: updateCond,
             matchedDeleteCond: matchDeleteCond,
             notMatchedInsertCond: insertCond,
@@ -1361,7 +1387,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -1373,18 +1399,20 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         options.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
 
         // Target: Id, ColA, ColB
-        using (var df = DataFrame.FromColumns(new { 
-            Id = new[] { 1 }, 
-            ColA = new[] { 10 }, 
-            ColB = new[] { 20 } 
+        using (var df = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1 },
+            ColA = new[] { 10 },
+            ColB = new[] { 20 }
         }))
         {
             df.WriteDelta(rootUrl, mode: DeltaSaveMode.Append, cloudOptions: options);
         }
 
         // Source: Id, ColA (Missing ColB)
-        using var sourceDf = DataFrame.FromColumns(new { 
-            Id = new[] { 1 }, 
+        using var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1 },
             ColA = new[] { 99 }
         });
 
@@ -1404,7 +1432,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -1416,24 +1444,23 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         options.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
 
         // Prepare Target Data (Id=1, Val=10)
-        using (var dfTarget = DataFrame.FromColumns(new { 
-            Id = new[] { 1 }, 
-            Time = new[] {"2025"},
-            Val = new[] { 10 } 
+        using (var dfTarget = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1 },
+            Time = new[] { "2025" },
+            Val = new[] { 10 }
         }))
         {
             dfTarget.WriteDelta(rootUrl, mode: DeltaSaveMode.Append, cloudOptions: options);
         }
 
-        using var dfSource = DataFrame.FromColumns(new { 
-            Id = new[] { 1, 1,1 }, 
-            Time = new[] {"2025","2024","2025"},
-            Val = new[] { 88, 99,100 }
-        });
-        var ex = Assert.Throws<PolarsException>(() => 
+        using var dfSource = DataFrame.FromColumns(new
         {
-            dfSource.MergeDeltaOrdered(rootUrl, mergeKeys: ["Id","Time"], cloudOptions: options).Execute();
+            Id = new[] { 1, 1, 1 },
+            Time = new[] { "2025", "2024", "2025" },
+            Val = new[] { 88, 99, 100 }
         });
+        var ex = Assert.Throws<PolarsException>(() => dfSource.MergeDeltaOrdered(rootUrl, mergeKeys: ["Id", "Time"], cloudOptions: options).Execute());
 
     }
     [Fact]
@@ -1444,7 +1471,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -1456,17 +1483,19 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         options.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
 
         // Target: Id=1, Val=100
-        using (var dfTarget = DataFrame.FromColumns(new { 
-            Id = new[] { 1 }, 
-            Val = new int?[] { 100 } 
+        using (var dfTarget = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1 },
+            Val = new int?[] { 100 }
         }))
         {
             dfTarget.WriteDelta(rootUrl, mode: DeltaSaveMode.Append, cloudOptions: options);
         }
 
         // Source: Id=1, Val=null
-        using (var dfSource = DataFrame.FromColumns(new { 
-            Id = new[] { 1 }, 
+        using (var dfSource = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1 },
             Val = new int?[] { null }
         }))
         {
@@ -1475,7 +1504,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         }
 
         using var res = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
-        
+
         Assert.Null(res["Val"][0]);
         Assert.Equal(1, res.Height);
     }
@@ -1487,7 +1516,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -1499,30 +1528,32 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         options.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
 
         // Target: Id, OldCol
-        using (var dfTarget = DataFrame.FromColumns(new { 
-            Id = new[] { 1, 2 }, 
-            OldCol = new[] { "Existing1", "Existing2" } 
+        using (var dfTarget = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2 },
+            OldCol = new[] { "Existing1", "Existing2" }
         }))
         {
             dfTarget.WriteDelta(rootUrl, mode: DeltaSaveMode.Append, cloudOptions: options);
         }
 
         // Source: Id, NewCol
-        using (var dfSource = DataFrame.FromColumns(new { 
-            Id = new[] { 1, 3 }, 
+        using (var dfSource = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 3 },
             NewCol = new[] { "NewValue", "FreshValue" }
         }))
         {
             // Merge 
-            dfSource.MergeDeltaOrdered(rootUrl, mergeKeys: ["Id"], cloudOptions: options,canEvolve:true).Execute();
+            dfSource.MergeDeltaOrdered(rootUrl, mergeKeys: ["Id"], canEvolve: true, cloudOptions: options).Execute();
         }
 
         using var res = LazyFrame.ScanDelta(rootUrl, cloudOptions: options)
-            .Sort("Id", false) 
+            .Sort("Id", false)
             .Collect();
 
         Assert.Contains("OldCol", res.ColumnNames);
-        Assert.Contains("NewCol", res.ColumnNames); 
+        Assert.Contains("NewCol", res.ColumnNames);
 
         // Id=1 (Matched): OldCol=Existing1 (Kept), NewCol=NewValue (Added)
         var row1 = res.Row(0); // Id=1
@@ -1533,8 +1564,8 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Id=2 (Target Only): OldCol=Existing2, NewCol=null (Backfilled)
         var row2 = res.Row(1); // Id=2
         Assert.Equal(2, row2[0]);
-        Assert.Equal("Existing2", row2[1]); 
-        Assert.Null(row2[2]); 
+        Assert.Equal("Existing2", row2[1]);
+        Assert.Null(row2[2]);
 
         // Id=3 (Insert): OldCol=null, NewCol=FreshValue
         var row3 = res.Row(2); // Id=3
@@ -1550,7 +1581,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -1574,21 +1605,21 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
             int workerId = i + 1;
             tasks.Add(Task.Run(() =>
             {
-                try 
+                try
                 {
 
-                    using var sourceDf = DataFrame.FromColumns(new 
-                    { 
-                        Id = new[] { 1, 100 + workerId }, 
-                        Value = new[] { workerId, workerId } 
+                    using var sourceDf = DataFrame.FromColumns(new
+                    {
+                        Id = new[] { 1, 100 + workerId },
+                        Value = new[] { workerId, workerId }
                     });
-                    
+
                     sourceDf.MergeDeltaOrdered(
-                        rootUrl, 
-                        mergeKeys: ["Id"], 
+                        rootUrl,
+                        mergeKeys: ["Id"],
                         cloudOptions: options
                     ).Execute();
-                    
+
                 }
                 catch (Exception ex)
                 {
@@ -1600,13 +1631,13 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         await Task.WhenAll(tasks);
 
-    using var result = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
+        using var result = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
 
-    int finalValue = (int)result.Filter(Pl.Col("Id") ==1)["Value"][0]!;
-    Assert.True(finalValue > 0, "Id=1 should be updated by someone");
+        int finalValue = (int)result.Filter(Pl.Col("Id") == 1)["Value"][0]!;
+        Assert.True(finalValue > 0, "Id=1 should be updated by someone");
 
-    var countNewRows = result.Filter(Pl.Col("Id") > 100).Height;
-    Assert.Equal(concurrency, countNewRows);
+        var countNewRows = result.Filter(Pl.Col("Id") > 100).Height;
+        Assert.Equal(concurrency, countNewRows);
     }
     [Fact]
     [Trait("DeltaLake", "ConcurrentWrite")]
@@ -1615,10 +1646,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         var tableName = $"delta_concurrent_write_{Guid.NewGuid():N}";
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-        
+
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -1643,28 +1674,28 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
             int workerId = i + 1;
             tasks.Add(Task.Run(() =>
             {
-                try 
+                try
                 {
                     var workerIds = Enumerable.Repeat(workerId, rowsPerWorker).ToArray();
                     var rowIds = Enumerable.Range(1, rowsPerWorker).ToArray();
 
-                    using var sourceDf = DataFrame.FromColumns(new 
-                    { 
-                        WorkerId = workerIds, 
-                        RowId = rowIds 
+                    using var sourceDf = DataFrame.FromColumns(new
+                    {
+                        WorkerId = workerIds,
+                        RowId = rowIds
                     });
-                    
+
                     sourceDf.WriteDelta(
-                        rootUrl, 
-                        mode: DeltaSaveMode.Append, 
+                        rootUrl,
+                        mode: DeltaSaveMode.Append,
                         cloudOptions: options
                     );
-                    
+
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"[Worker {workerId}] FAILED: {ex.Message}");
-                    throw; 
+                    throw;
                 }
             }));
         }
@@ -1672,7 +1703,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         await Task.WhenAll(tasks);
 
         using var result = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
-        
+
         result.Show();
 
         long expectedHeight = 1 + (concurrency * rowsPerWorker);
@@ -1692,10 +1723,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         var tableName = $"delta_vacuum_{Guid.NewGuid()}";
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-        
+
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -1707,26 +1738,28 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         options.Credentials!["aws_s3_force_path_style"] = "true";
         options.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
 
-        using (var df = DataFrame.FromColumns(new { 
-            Id = new[] { 1, 2, 3 }, 
+        using (var df = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
             Value = new[] { 10, 20, 30 }
         }))
         {
             df.WriteDelta(
-                rootUrl, 
-                mode: DeltaSaveMode.Overwrite, 
+                rootUrl,
+                mode: DeltaSaveMode.Overwrite,
                 cloudOptions: options
             );
         }
 
-        using (var df2 = DataFrame.FromColumns(new { 
-            Id = new[] { 4, 5 }, 
+        using (var df2 = DataFrame.FromColumns(new
+        {
+            Id = new[] { 4, 5 },
             Value = new[] { 40, 50 }
         }))
         {
             df2.WriteDelta(
-                rootUrl, 
-                mode: DeltaSaveMode.Overwrite, 
+                rootUrl,
+                mode: DeltaSaveMode.Overwrite,
                 cloudOptions: options
             );
         }
@@ -1739,9 +1772,9 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         // DryRun
         long filesToDelete = Delta.Vacuum(
-            rootUrl, 
-            retentionHours: 0, 
-            enforceRetention: false, 
+            rootUrl,
+            retentionHours: 0,
+            enforceRetention: false,
             dryRun: true,
             cloudOptions: options
         );
@@ -1753,21 +1786,18 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         // RealRun
         long deletedCount = Delta.Vacuum(
-            rootUrl, 
-            retentionHours: 0, 
-            enforceRetention: false, 
-            dryRun: false, 
+            rootUrl,
+            retentionHours: 0,
+            enforceRetention: false,
+            dryRun: false,
             cloudOptions: options
         );
 
         Assert.Equal(filesToDelete, deletedCount);
 
-        var ex = Assert.ThrowsAny<Exception>(() => 
-        {
-            LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect();
-        });
+        var ex = Assert.ThrowsAny<Exception>(() => LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect());
 
-        Assert.Contains("404 Not Found", ex.Message); 
+        Assert.Contains("404 Not Found", ex.Message);
 
         using var aliveDf = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
         Assert.Equal(2, aliveDf.Height);
@@ -1782,7 +1812,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -1808,8 +1838,8 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         Assert.Equal("Bad", currentDf["Val"][0]);
 
         ulong newVersion = Delta.Restore(
-            rootUrl, 
-            version: 1, 
+            rootUrl,
+            version: 1,
             cloudOptions: options
         );
 
@@ -1827,7 +1857,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -1854,24 +1884,24 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
                 Category = cats,
                 Val = vals
             });
-            
-            df.WriteDelta(rootUrl, mode: DeltaSaveMode.Append,partitionBy: "Category", cloudOptions: options);
+
+            df.WriteDelta(rootUrl, partitionBy: "Category", mode: DeltaSaveMode.Append, cloudOptions: options);
         }
 
         using var beforeDf = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
         Assert.Equal(100, beforeDf.Height);
-        
+
         var zCols = new[] { "Id" };
-        
+
         long numFiles = Delta.Optimize(
             rootUrl,
-            targetSizeMb: 128, 
+            targetSizeMb: 128,
             zOrderColumns: zCols,
             cloudOptions: options
         );
 
         using var afterDf = LazyFrame.ScanDelta(rootUrl, cloudOptions: options)
-            .Sort("Id",  false )
+            .Sort("Id", false)
             .Collect();
 
         Assert.Equal(100, afterDf.Height);
@@ -1896,7 +1926,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Row 0
         Assert.Equal(0, afterDf["Id"][0]);
         Assert.Equal("Even", afterDf["Category"][0]);
-        
+
         // Row 49 (Middle)
         Assert.Equal(49, afterDf["Id"][49]);
         Assert.Equal("Odd", afterDf["Category"][49]); // 49 is Odd
@@ -1916,7 +1946,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -1941,8 +1971,8 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
                 Category = cats,
                 Val = vals
             });
-            
-            df.WriteDelta(rootUrl, mode: DeltaSaveMode.Append, partitionBy: "Category", cloudOptions: options);
+
+            df.WriteDelta(rootUrl, partitionBy: "Category", mode: DeltaSaveMode.Append, cloudOptions: options);
         }
 
         using var beforeDf = DataFrame.ReadDelta(rootUrl, cloudOptions: options);
@@ -1951,9 +1981,9 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Add DV Feature
         // ==========================================
         Delta.AddFeature(
-            rootUrl, 
-            DeltaTableFeatures.DeletionVectors, 
-            allowProtocolIncrease: true, 
+            rootUrl,
+            DeltaTableFeatures.DeletionVectors,
+            allowProtocolIncrease: true,
             cloudOptions: options
         );
 
@@ -1962,8 +1992,8 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
             delDf.MergeDeltaOrdered(
                 rootUrl,
                 mergeKeys: ["Id"],
-                canEvolve:true,
-                
+                canEvolve: true,
+
                 cloudOptions: options
             )
             .WhenMatchedDelete(m => m.Source("Action") == "DeleteMe")
@@ -1971,17 +2001,17 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         }
 
         using var midDf = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
-        Assert.Equal(98, midDf.Height); 
+        Assert.Equal(98, midDf.Height);
 
         // ==========================================
         // Optimize (Z-Order by Id + DV Purging)
         // ==========================================
-        
+
         var zCols = new[] { "Id" };
-        
+
         long numFiles = Delta.Optimize(
             rootUrl,
-            targetSizeMb: 128, 
+            targetSizeMb: 128,
             zOrderColumns: zCols,
             cloudOptions: options
         );
@@ -1992,26 +2022,26 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Data Integrity & Purge Check
         // ==========================================
         using var afterDf = LazyFrame.ScanDelta(rootUrl, cloudOptions: options)
-            .Sort("Id", false) 
+            .Sort("Id", false)
             .Collect();
 
         afterDf.Show();
 
         Assert.Equal(98, afterDf.Height);
-        var validIds = new[] {10,99};
-        
+        var validIds = new[] { 10, 99 };
+
         var predicate = Pl.Col("Id").IsIn(Pl.Lit(validIds).Implode());
         var deletedRows = afterDf.Filter(predicate);
-        Assert.Equal(0, deletedRows.Height); 
+        Assert.Equal(0, deletedRows.Height);
 
         // Row 0
         Assert.Equal(0, afterDf["Id"][0]);
         Assert.Equal("Even", afterDf["Category"][0]);
-        
+
         // Row 49 (Id=49 is actually at index 48 now because Id=10 is gone)
         var row49 = afterDf.Filter(Pl.Col("Id") == 49);
         Assert.Equal(49, row49["Id"][0]);
-        Assert.Equal("Odd", row49["Category"][0]); 
+        Assert.Equal("Odd", row49["Category"][0]);
 
         // Row 98 (Last element, since 99 was deleted)
         var lastRow = afterDf.Filter(Pl.Col("Id") == 98);
@@ -2028,37 +2058,37 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
             secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
-        
+
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
         options.Credentials!["aws_s3_force_path_style"] = "true";
         options.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
-        
+
         using (var df = DataFrame.FromColumns(new { Id = new[] { 1 } }))
         {
             df.WriteDelta(rootUrl, cloudOptions: options);
         }
 
-        
+
         var props = new Dictionary<string, string>
         {
             { DeltaTableProperties.DeletedFileRetentionDuration, "interval 1 hour" },
-            { "my.custom.metadata", "polars-driver-v1" } 
+            { "my.custom.metadata", "polars-driver-v1" }
         };
 
         Delta.SetTableProperties(rootUrl, props, cloudOptions: options);
-        
+
         using (var df2 = DataFrame.FromColumns(new { Id = new[] { 2 } }))
         {
             df2.WriteDelta(rootUrl, mode: DeltaSaveMode.Append, cloudOptions: options);
         }
-        
+
         using var dfRead = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
         Assert.Equal(2, dfRead.Height);
     }
@@ -2068,7 +2098,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
     {
         var tableName = $"delta_merge_composite_ordered_{Guid.NewGuid()}";
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -2090,17 +2120,18 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // 4. [South, 999]: Obsolete  -> Source Delete
         // 5. [East,  555]: Active    -> Target Only Keep
 
-        using (var df = DataFrame.FromColumns(new { 
-            Region = new[]  { "North", "North", "South", "South", "East" },
-            StoreId = new[] { 101,     102,     101,     999,     555 },
-            Stock = new[]   { 10,      20,      5,       0,       50 },
-            Status = new[]  { "Active","Active","Recall","Obsolete","Active" }
+        using (var df = DataFrame.FromColumns(new
+        {
+            Region = new[] { "North", "North", "South", "South", "East" },
+            StoreId = new[] { 101, 102, 101, 999, 555 },
+            Stock = new[] { 10, 20, 5, 0, 50 },
+            Status = new[] { "Active", "Active", "Recall", "Obsolete", "Active" }
         }))
         {
             df.WriteDelta(
-                rootUrl, 
-                partitionBy: "Region", 
-                mode: DeltaSaveMode.Append, 
+                rootUrl,
+                partitionBy: "Region",
+                mode: DeltaSaveMode.Append,
                 cloudOptions: options
             );
         }
@@ -2115,11 +2146,12 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // 4. [West,  888]: Stock 60              -> Insert (New Region)
         // 5. [West,  999]: Stock 0               -> Skip Insert (Condition Fail)
 
-        using var sourceDf = DataFrame.FromColumns(new { 
-            Region = new[]  { "North", "North", "South", "West", "West" },
-            StoreId = new[] { 101,     102,     101,     888,     999 },
-            Stock = new[]   { 100,     15,      0,       60,      0 },
-            Status = new[]  { "Active","Active","DeleteMe","New",   "Bad" }
+        using var sourceDf = DataFrame.FromColumns(new
+        {
+            Region = new[] { "North", "North", "South", "West", "West" },
+            StoreId = new[] { 101, 102, 101, 888, 999 },
+            Stock = new[] { 100, 15, 0, 60, 0 },
+            Status = new[] { "Active", "Active", "DeleteMe", "New", "Bad" }
         });
 
         static Expr updateCond(MergeContext m) => m.Source("Stock") > m.Target("Stock");
@@ -2129,16 +2161,16 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         sourceDf.MergeDeltaOrdered(
                 rootUrl,
-                mergeKeys: ["Region", "StoreId"], 
+                mergeKeys: ["Region", "StoreId"],
                 cloudOptions: options
             )
-            .WhenMatchedDelete(matchDeleteCond)          
-            .WhenMatchedUpdate(updateCond)             
-            .WhenNotMatchedInsert(insertCond)             
-            .WhenNotMatchedBySourceDelete(srcDeleteCond) 
-            .Execute();                                  
+            .WhenMatchedDelete(matchDeleteCond)
+            .WhenMatchedUpdate(updateCond)
+            .WhenNotMatchedInsert(insertCond)
+            .WhenNotMatchedBySourceDelete(srcDeleteCond)
+            .Execute();
 
-        
+
         using var dfRes = LazyFrame.ScanDelta(rootUrl, cloudOptions: options)
             .Collect()
             .Sort(["Region", "StoreId"]); // Sort for deterministic assert
@@ -2154,7 +2186,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // │ North  ┆ 102     ┆ 20    ┆ Active │
         // │ West   ┆ 888     ┆ 60    ┆ New    │
         // └────────┴─────────┴───────┴────────┘
-        
+
         // 1. North/101: Updated (100)
         // 2. North/102: Kept (20)
         // 3. South/101: Deleted
@@ -2209,10 +2241,11 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
         options.Credentials!["aws_s3_force_path_style"] = "true";
 
-        using (var dfTarget = DataFrame.FromColumns(new { 
-            Id = new[] { 1 }, 
-            Stock = new[] { 10 }, 
-            Status = new[] { "Active" } 
+        using (var dfTarget = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1 },
+            Stock = new[] { 10 },
+            Status = new[] { "Active" }
         }))
         {
             dfTarget.WriteDelta(urlDeleteWins, mode: DeltaSaveMode.Overwrite, cloudOptions: options);
@@ -2221,10 +2254,11 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         // This record meets "Stock > Target" (100 > 10)
         // and "Status == DeleteMe"
-        using var sourceDf = DataFrame.FromColumns(new { 
-            Id = new[] { 1 }, 
-            Stock = new[] { 100 }, 
-            Status = new[] { "DeleteMe" } 
+        using var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1 },
+            Stock = new[] { 100 },
+            Status = new[] { "DeleteMe" }
         });
         var m = MergeContext.Delta;
         var updateCond = m.Source("Stock") > m.Target("Stock");
@@ -2234,22 +2268,22 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Delete First
         // ==========================================
         sourceDf.MergeDeltaOrdered(urlDeleteWins, mergeKeys: ["Id"], cloudOptions: options)
-            .WhenMatchedDelete(deleteCond)  
-            .WhenMatchedUpdate(updateCond)  
+            .WhenMatchedDelete(deleteCond)
+            .WhenMatchedUpdate(updateCond)
             .Execute();
 
         // ==========================================
         // Update First
         // ==========================================
         sourceDf.MergeDeltaOrdered(urlUpdateWins, mergeKeys: ["Id"], cloudOptions: options)
-            .WhenMatchedUpdate(updateCond)  
+            .WhenMatchedUpdate(updateCond)
             .WhenMatchedDelete(deleteCond)
             .Execute();
 
         using var resDeleteWins = LazyFrame.ScanDelta(urlDeleteWins, cloudOptions: options).Collect();
         using var resUpdateWins = LazyFrame.ScanDelta(urlUpdateWins, cloudOptions: options).Collect();
 
-        Assert.Equal(0, resDeleteWins.Height); 
+        Assert.Equal(0, resDeleteWins.Height);
 
         Assert.Equal(1, resUpdateWins.Height);
         Assert.Equal(100, resUpdateWins["Stock"].ToArray<int>()[0]);
@@ -2266,7 +2300,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         var tableName = $"delta_merge_composite_ordered_{Guid.NewGuid():N}";
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-        
+
         var options = CloudOptions.Aws(
             region: minio.Region,
             accessKey: minio.AccessKey,
@@ -2278,17 +2312,18 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         options.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
 
 
-        using (var df = DataFrame.FromColumns(new { 
-            Region = new[]  { "North", "North", "South", "South", "East" },
-            StoreId = new[] { 101,     102,     101,     999,     555 },
-            Stock = new[]   { 10,      20,      5,       0,       50 },
-            Status = new[]  { "Active","Active","Recall","Obsolete","Active" }
+        using (var df = DataFrame.FromColumns(new
+        {
+            Region = new[] { "North", "North", "South", "South", "East" },
+            StoreId = new[] { 101, 102, 101, 999, 555 },
+            Stock = new[] { 10, 20, 5, 0, 50 },
+            Status = new[] { "Active", "Active", "Recall", "Obsolete", "Active" }
         }))
         {
             df.WriteDelta(
-                rootUrl, 
-                partitionBy: "Region", 
-                mode: DeltaSaveMode.Append, 
+                rootUrl,
+                partitionBy: "Region",
+                mode: DeltaSaveMode.Append,
                 cloudOptions: options
             );
         }
@@ -2301,8 +2336,8 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
             .Select(x => new StoreRecord(
                 x.Region,
                 x.StoreId,
-                (x.Region == "North" && x.StoreId == 101) ? 100 : 
-                (x.Region == "North" && x.StoreId == 102) ? 15 : 0, 
+                (x.Region == "North" && x.StoreId == 101) ? 100 :
+                (x.Region == "North" && x.StoreId == 102) ? 15 : 0,
                 (x.Region == "South" && x.StoreId == 101) ? "DeleteMe" : x.Status
             ))
             .Concat([
@@ -2336,16 +2371,16 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         sourceDf.MergeDeltaOrdered(
                 rootUrl,
-                mergeKeys: ["Region", "StoreId"], 
+                mergeKeys: ["Region", "StoreId"],
                 cloudOptions: options
             )
-            .WhenMatchedDelete(matchDeleteCond)           
-            .WhenMatchedUpdate(updateCond)                
-            .WhenNotMatchedInsert(insertCond)             
-            .WhenNotMatchedBySourceDelete(srcDeleteCond)  
-            .Execute();                                   
+            .WhenMatchedDelete(matchDeleteCond)
+            .WhenMatchedUpdate(updateCond)
+            .WhenNotMatchedInsert(insertCond)
+            .WhenNotMatchedBySourceDelete(srcDeleteCond)
+            .Execute();
 
-        
+
         using var dfRes = LazyFrame.ScanDelta(rootUrl, cloudOptions: options)
             .Collect()
             .Sort(["Region", "StoreId"]);
@@ -2361,7 +2396,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // │ North  ┆ 102     ┆ 20    ┆ Active │
         // │ West   ┆ 888     ┆ 60    ┆ New    │
         // └────────┴─────────┴───────┴────────┘
-        
+
         Assert.Equal(4, dfRes.Height);
 
         // Case 1: Composite Match Update

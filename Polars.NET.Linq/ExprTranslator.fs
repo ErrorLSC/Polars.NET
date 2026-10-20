@@ -1659,31 +1659,19 @@ module internal rec ExprTranslator =
                 if not (isNull h || h.IsInvalid) then Some h else None
             with _ ->
                 None
-        | :? System.Collections.IEnumerable as seq ->
+        | :? System.Collections.IEnumerable as seq when seq.GetType() <> typeof<string> ->
             try
                 let elemType =
-                    let t = seq.GetType()
+                    match PolarsTypeHelper.TryGetEnumerableElementType (seq.GetType()) with
+                    | null -> typeof<obj>
+                    | t -> t
 
-                    let iface =
-                        t.GetInterfaces()
-                        |> Seq.tryFind (fun i ->
-                            i.IsGenericType && i.GetGenericTypeDefinition() = typedefof<ResizeArray<_>>)
+                let createGeneric =
+                    typeof<SeriesFactory>
+                        .GetMethod("CreateGenericType", BindingFlags.Public ||| BindingFlags.Static)
+                        .MakeGenericMethod(elemType)
 
-                    match iface with
-                    | Some i -> i.GetGenericArguments().[0]
-                    | None -> typeof<obj>
-
-                let items = ResizeArray<obj>()
-
-                for item in seq do
-                    items.Add item
-
-                let arr = Array.CreateInstance(elemType, items.Count)
-
-                for i = 0 to items.Count - 1 do
-                    arr.SetValue(items.[i], i)
-
-                let h = SeriesFactory.Create("", arr)
+                let h = createGeneric.Invoke(null, [| box ""; seq |]) :?> SeriesHandle
                 if not (isNull h || h.IsInvalid) then Some h else None
             with _ ->
                 None

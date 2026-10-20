@@ -241,6 +241,38 @@ module internal ExpressionPatterns =
                 Some(mc.Method.Invoke(targetObj, null))
             with _ ->
                 None
+        | :? NewArrayExpression as na when na.NodeType = ExpressionType.NewArrayInit ->
+            try
+                let elemType = na.Type.GetElementType()
+                let arr = Array.CreateInstance(elemType, na.Expressions.Count)
+                let mutable allOk = true
+                let mutable i = 0
+                while allOk && i < na.Expressions.Count do
+                    match tryEvaluate na.Expressions.[i] with
+                    | Some v ->
+                        arr.SetValue(v, i)
+                        i <- i + 1
+                    | None ->
+                        allOk <- false
+                if allOk then
+                    Some(box arr)
+                else
+                    let lambda = Expression.Lambda<Func<obj>>(Expression.Convert(na, typeof<obj>)).Compile()
+                    Some(lambda.Invoke())
+            with _ ->
+                None
+        | :? NewExpression as ne ->
+            try
+                let lambda = Expression.Lambda<Func<obj>>(Expression.Convert(ne, typeof<obj>)).Compile()
+                Some(lambda.Invoke())
+            with _ ->
+                None
+        | :? ListInitExpression as li ->
+            try
+                let lambda = Expression.Lambda<Func<obj>>(Expression.Convert(li, typeof<obj>)).Compile()
+                Some(lambda.Invoke())
+            with _ ->
+                None
         | _ -> None
 
     // =========================================================================

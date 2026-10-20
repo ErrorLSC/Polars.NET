@@ -197,18 +197,23 @@ module internal SubqueryDecorrelator =
                 | :? LazyFrameHandle as lf -> Some(PolarsWrapper.LazyClone lf)
                 | :? DataFrameHandle as df -> Some(PolarsWrapper.DataFrameToLazy df)
                 | _ -> None
-            else
+            else if valueType <> typeof<string> then
                 match PolarsTypeHelper.TryGetEnumerableElementType valueType with
                 | null -> None
                 | elemType ->
-                    let fromRows =
-                        typeof<DataFrameBuilder>
-                            .GetMethod("FromRows", BindingFlags.Public ||| BindingFlags.Static)
-                            .MakeGenericMethod
-                            elemType
+                    try
+                        let fromRows =
+                            typeof<DataFrameBuilder>
+                                .GetMethod("FromRows", BindingFlags.Public ||| BindingFlags.Static)
+                                .MakeGenericMethod
+                                elemType
 
-                    let dfHandle = fromRows.Invoke(null, [| value |]) :?> DataFrameHandle
-                    Some(PolarsWrapper.DataFrameToLazy dfHandle)
+                        let dfHandle = fromRows.Invoke(null, [| value |]) :?> DataFrameHandle
+                        Some(PolarsWrapper.DataFrameToLazy dfHandle)
+                    with _ ->
+                        None
+            else
+                None
 
     /// Compiles any sub-expression into an isolated LazyFrameHandle.
     let compileSubtreeToLazyFrame (expr: Expression) : LazyFrameHandle option =
@@ -245,8 +250,8 @@ module internal SubqueryDecorrelator =
     /// Resolves an inner sequence expression to a LazyFrameHandle by trying direct evaluation,
     /// handle unwrapping, and full subtree queryable compilation.
     let resolveSequenceLazyFrame (expr: Expression) : LazyFrameHandle option =
-        resolveToLazyFrameHandle expr
-        |> Option.orElseWith (fun () -> compileSubtreeToLazyFrame expr)
+        compileSubtreeToLazyFrame expr
+        |> Option.orElseWith (fun () -> resolveToLazyFrameHandle expr)
 
     /// Evaluates an uncorrelated expression into a scalar ConstantExpression.
     let tryEvaluateUncorrelatedScalar (expr: Expression) : Expression option =

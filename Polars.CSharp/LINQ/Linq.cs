@@ -961,6 +961,18 @@ public static class LinqExtensions
         => DataFrame.ReadDatabase(reader, batchSize).AsQueryable<T>();
 
     /// <summary>
+    /// Transposes an in-memory sequence into a native Polars LazyFrame and exposes it as a Polars LINQ queryable.
+    /// </summary>
+    /// <typeparam name="T">Row record type</typeparam>
+    /// <param name="source">The in-memory collection</param>
+    /// <returns>A queryable supported by the Polars native execution engine</returns>
+    public static IQueryable<T> AsPolarsQueryable<T>(this IEnumerable<T> source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return source.ToLazyFrame().AsQueryable<T>();
+    }
+
+    /// <summary>
     /// Returns the Polars native query execution plan, including warnings if parts of the query
     /// fallback to managed client-side execution.
     /// </summary>

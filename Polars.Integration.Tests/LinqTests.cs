@@ -1,7 +1,7 @@
-using Polars.CSharp;
-using Pl = Polars.CSharp.Polars;
-using Polars.CSharp.Linq;
 using System.Numerics;
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.Integration.Tests;
 

@@ -38,9 +38,9 @@ public class HuggingFaceTests
         // │ 149 ┆ 6.2           ┆ 3.4          ┆ 5.4           ┆ 2.3          ┆ Iris-virginica │
         // │ 150 ┆ 5.9           ┆ 3.0          ┆ 5.1           ┆ 1.8          ┆ Iris-virginica │
         // └─────┴───────────────┴──────────────┴───────────────┴──────────────┴────────────────┘
-        
+
         var columns = df.Columns;
-        Assert.Contains("Id", columns); 
+        Assert.Contains("Id", columns);
         Assert.Contains("SepalLengthCm", columns);
 
     }

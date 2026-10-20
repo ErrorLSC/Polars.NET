@@ -3,14 +3,9 @@ using Polars.Integration.Tests.Fixtures;
 
 namespace Polars.Integration.Tests;
 
-public class HttpTests : IClassFixture<HttpFixture>
+public class HttpTests(HttpFixture http) : IClassFixture<HttpFixture>
 {
-    private readonly HttpFixture _http;
-
-    public HttpTests(HttpFixture http)
-    {
-        _http = http;
-    }
+    private readonly HttpFixture _http = http;
 
     [Fact]
     public void Test_ScanParquet_From_Http_Nginx()
@@ -39,6 +34,6 @@ public class HttpTests : IClassFixture<HttpFixture>
         Assert.Equal(2, df.Height);
         Assert.Equal("HTTP", df["Name"][0]);
         Assert.Equal(123, df["Value"][0]);
-        
+
     }
 }
