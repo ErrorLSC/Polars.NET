@@ -109,7 +109,7 @@ public sealed class PolarsConfig
 
             Apply(() =>
             {
-                if (lowerKey is "decimal_separator" or "thousands_separator" or "float_precision" or "float_format" or "prefetch_buffer_size" or "trim_decimal_zeros")
+                if (lowerKey is "decimal_separator" or "thousands_separator" or "float_precision" or "float_format" or "prefetch_buffer_size" or "trim_decimal_zeros" or "client_evaluation_policy")
                 {
                     switch (lowerKey)
                     {
@@ -151,6 +151,12 @@ public sealed class PolarsConfig
                                 }
                             }
                             break;
+                        case "client_evaluation_policy":
+                            if (string.IsNullOrEmpty(value))
+                                CoreConfig.ClientEvaluationPolicy = ClientEvaluationPolicy.Strict;
+                            else if (Enum.TryParse<ClientEvaluationPolicy>(value, ignoreCase: true, out var pol))
+                                CoreConfig.ClientEvaluationPolicy = pol;
+                            break;
                     }
                 }
                 else
@@ -160,6 +166,11 @@ public sealed class PolarsConfig
             });
         }
     }
+
+    /// <summary>
+    /// Gets the current client-side evaluation policy.
+    /// </summary>
+    public ClientEvaluationPolicy ClientEvaluationPolicy => CoreConfig.ClientEvaluationPolicy;
     /// <summary>
     /// Inject Environment var to Rust
     /// </summary>
@@ -452,6 +463,16 @@ public sealed class PolarsConfig
     public PolarsConfig SetQueryCacheEnabled(bool? enabled = true)
     {
         Apply(() => CoreConfig.QueryCacheEnabled = enabled);
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the client-side evaluation policy for operations or expressions that cannot be pushed down to the native Polars engine.
+    /// </summary>
+    /// <param name="policy">Policy mode: Strict (default), Warn, or Allow.</param>
+    public PolarsConfig SetClientEvaluationPolicy(ClientEvaluationPolicy policy = ClientEvaluationPolicy.Strict)
+    {
+        Apply(() => CoreConfig.ClientEvaluationPolicy = policy);
         return this;
     }
 }

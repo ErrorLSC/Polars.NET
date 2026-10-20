@@ -312,3 +312,9 @@ module Config =
     /// </summary>
     let queryCacheEnabled (active: Active) =
         fun () -> CoreConfig.QueryCacheEnabled <- active.ToNative()
+
+    /// <summary>
+    /// Sets the client-side evaluation policy for operations or expressions that cannot be pushed down to the native Polars engine.
+    /// </summary>
+    let clientEvaluationPolicy (policy: ClientEvaluationPolicy) =
+        fun () -> CoreConfig.ClientEvaluationPolicy <- policy

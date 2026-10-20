@@ -1812,3 +1812,89 @@ module QueryTests =
             Assert.Equal(81, results.Head.SensorId)
             Assert.Equal(100, (results |> List.last).SensorId)
         }
+
+    [<Fact>]
+    [<Trait("LINQ", "AsSeq")>]
+    let ``FSharp AsSeq enables client-side UDF filtering and ToDataFrame`` () =
+        use df =
+            DataFrame.create
+                [
+                    Series.create ("Name", [ "Alice"; "Bob"; "Charlie" ])
+                    Series.create ("Age", [ 25; 17; 30 ])
+                    Series.create ("Sales", [ 100.0; 50.0; 200.0 ])
+                ]
+
+        // 1. Where (Age >= 18) pushes down natively
+        // 2. AsSeq() cleanly switches to F# sequence
+        // 3. Seq.filter executes custom F# client UDF
+        // 4. Query.toDataFrame materializes back into Polars DataFrame
+        let customPredicate (p: Person) = p.Sales > 150.0
+
+        let q =
+            query {
+                for p in df.AsQueryable<Person>() do
+                    where (p.Age >= 18)
+                    select p
+            }
+
+        use filteredDf =
+            q.AsSeq()
+            |> Seq.filter customPredicate
+            |> Query.toDataFrame
+
+        Assert.Equal(1L, filteredDf.Height)
+        Assert.Equal("Charlie", filteredDf.Column("Name").ToArray<string>().[0])
+
+    [<Fact>]
+    [<Trait("LINQ", "ToSeries")>]
+    let ``FSharp Query asSeq and ToSeries with pipeline`` () =
+        use df =
+            DataFrame.create
+                [
+                    Series.create ("Name", [ "Alice"; "Bob"; "Charlie" ])
+                    Series.create ("Age", [ 25; 17; 30 ])
+                    Series.create ("Sales", [ 100.0; 50.0; 200.0 ])
+                ]
+
+        // Materialize projected sequence directly into a named Series
+        use salesSeries =
+            query {
+                for p in df.AsQueryable<Person>() do
+                    where (p.Age >= 18)
+                    select p
+            }
+            |> Query.asSeq
+            |> Seq.map (fun p -> p.Sales * 1.1)
+            |> Query.toSeriesNamed "AdjustedSales"
+
+        Assert.Equal("AdjustedSales", salesSeries.Name)
+        Assert.Equal(2L, salesSeries.Length)
+        let values = salesSeries.ToArray<float>()
+        Assert.Equal(110.0, values.[0], 1)
+        Assert.Equal(220.0, values.[1], 1)
+
+    [<Fact>]
+    [<Trait("LINQ", "ToSeries")>]
+    let ``FSharp IQueryable ToSeries native pushdown`` () =
+        use df =
+            DataFrame.create
+                [
+                    Series.create ("Name", [ "Alice"; "Bob"; "Charlie" ])
+                    Series.create ("Age", [ 25; 17; 30 ])
+                    Series.create ("Sales", [ 100.0; 50.0; 200.0 ])
+                ]
+
+        // Direct native scalar IQueryable materialization into a Series
+        let q =
+            query {
+                for p in df.AsQueryable<Person>() do
+                    where (p.Age >= 18)
+                    select p.Name
+            }
+
+        use nameSeries = q.ToSeries("AdultNames")
+
+        Assert.Equal("AdultNames", nameSeries.Name)
+        Assert.Equal(2L, nameSeries.Length)
+        Assert.Equal<string seq>([| "Alice"; "Charlie" |], nameSeries.ToArray<string>())
+

@@ -623,6 +623,80 @@ public static class LinqExtensions
     }
 
     /// <summary>
+    /// Materializes an in-memory sequence of entities into an eager DataFrame.
+    /// If the sequence is an IQueryable, native query execution and compilation is prioritized.
+    /// </summary>
+    /// <typeparam name="T">The element type.</typeparam>
+    /// <param name="source">The sequence of elements.</param>
+    /// <returns>A new DataFrame containing the elements.</returns>
+    public static DataFrame ToDataFrame<T>(this IEnumerable<T> source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        if (source is IQueryable<T> query)
+            return query.ToDataFrame();
+
+        return DataFrame.FromRows(source);
+    }
+
+    /// <summary>
+    /// Converts an in-memory sequence of entities into a LazyFrame.
+    /// If the sequence is an IQueryable, native query execution and compilation is prioritized.
+    /// </summary>
+    /// <typeparam name="T">The element type.</typeparam>
+    /// <param name="source">The sequence of elements.</param>
+    /// <returns>A new LazyFrame containing the elements.</returns>
+    public static LazyFrame ToLazyFrame<T>(this IEnumerable<T> source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        if (source is IQueryable<T> query)
+            return query.ToLazyFrame();
+
+        return DataFrame.FromRows(source).Lazy();
+    }
+
+    /// <summary>
+    /// Materializes an in-memory scalar sequence or a single-column query into a Polars Series.
+    /// </summary>
+    /// <typeparam name="T">The element type.</typeparam>
+    /// <param name="source">The sequence or query of elements.</param>
+    /// <param name="name">Optional name for the Series. Defaults to empty string.</param>
+    /// <returns>A new Series containing the materialized values.</returns>
+    public static Series ToSeries<T>(this IEnumerable<T> source, string name = "")
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        if (source is IQueryable<T> query)
+            return query.ToSeries(name);
+
+        return Series.From(name, source);
+    }
+
+    /// <summary>
+    /// Compiles a single-column LINQ query and materializes it directly into a Polars Series.
+    /// </summary>
+    /// <typeparam name="T">The scalar element type.</typeparam>
+    /// <param name="query">The single-column query.</param>
+    /// <param name="name">Optional override name for the Series. If empty, the projected column name is preserved.</param>
+    /// <returns>A new Series containing the query result.</returns>
+    public static Series ToSeries<T>(this IQueryable<T> query, string name = "")
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        using var df = query.ToDataFrame();
+        if (df.Width == 0)
+            return Series.From(name, Array.Empty<T>());
+
+        var series = df.Column(0);
+        if (!string.IsNullOrEmpty(name) && series.Name != name)
+        {
+            series.Rename(name);
+        }
+        return series;
+    }
+
+    /// <summary>
     /// Compiles the LINQ query pipeline, executes Collect, and returns the resulting eager DataFrame.
     /// </summary>
     public static DataFrame ToDataFrame<T>(this IQueryable<T> query)

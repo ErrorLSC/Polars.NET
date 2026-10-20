@@ -5,14 +5,14 @@ namespace Polars.Config.Tests;
 public class ConfigTests
 {
     [Fact]
-    [Trait("Config","ThreadPoolSize")]
+    [Trait("Config", "ThreadPoolSize")]
     public void Test_Config_ThreadPoolSize()
     {
         Pl.Config.RestoreDefaults();
         ulong threads = Pl.ThreadPoolSize();
-        Assert.True(threads>0);
+        Assert.True(threads > 0);
         Pl.Config["POLARS_MAX_THREADS"] = "8";
-        Assert.Equal(8UL,Pl.ThreadPoolSize());
+        Assert.Equal(8UL, Pl.ThreadPoolSize());
         Pl.Config.RestoreDefaults();
     }
     [Fact]
@@ -20,22 +20,22 @@ public class ConfigTests
     public void Test_Config_TableFormat()
     {
         Pl.Config.RestoreDefaults();
-        using var df = Pl.CreateSeries("nihao",["123","321"]).ToFrame();
+        using var df = Pl.CreateSeries("nihao", ["123", "321"]).ToFrame();
         Pl.Config.SetTableFormatting(TableFormatting.Nothing);
         string dfS1 = df.ToString();
         using (Pl.Config.SetTableHideDataFrameShape(true).BeginScope())
         {
             Assert.Equal("1", Pl.Config["POLARS_FMT_TABLE_HIDE_DATAFRAME_SHAPE_INFORMATION"]);
-            using var s = Pl.CreateSeries("byebye",[114514,1919810]);
+            using var s = Pl.CreateSeries("byebye", [114514, 1919810]);
             Pl.Config.SetTableFormatting(TableFormatting.AsciiFull);
-            string dfString = s.ToFrame().ToString(); 
-            Assert.DoesNotContain("shape",dfString); 
-            Assert.Contains("+",dfString); 
+            string dfString = s.ToFrame().ToString();
+            Assert.DoesNotContain("shape", dfString);
+            Assert.Contains("+", dfString);
         }
-        
-        Assert.Equal(dfS1,df.ToString());
+
+        Assert.Equal(dfS1, df.ToString());
         Pl.Config.RestoreDefaults();
-        Assert.Contains("┘",df.ToString()); 
+        Assert.Contains("┘", df.ToString());
     }
     [Fact]
     [Trait("Config", "SaveLoad")]
@@ -46,9 +46,8 @@ public class ConfigTests
         try
         {
             Pl.Config
-                .SetThousandsSeparator(true) 
+                .SetThousandsSeparator(true)
                 .SetFloatPrecision(5)
-                
                 .SetVerbose(true)
                 .SetStreamingChunkSize(65536)
                 .SetEngineAffinity(Engine.Streaming);
@@ -59,7 +58,7 @@ public class ConfigTests
             Assert.Equal("1", Pl.Config["POLARS_VERBOSE"]);
 
             string savedConfigPayload = Pl.Config.Save(ifSet: true);
-            
+
             Assert.Contains("float_precision", savedConfigPayload);
             Assert.Contains("POLARS_VERBOSE", savedConfigPayload);
 
@@ -74,7 +73,7 @@ public class ConfigTests
             Assert.Null(Pl.Config["float_precision"]);
 
             Pl.Config.Load(savedConfigPayload);
-            
+
             var restoredStatus = Pl.Config.Status(ifSet: true);
             Assert.Equal(".", restoredStatus["decimal_separator"]);
             Assert.Equal(",", restoredStatus["thousands_separator"]);
@@ -100,7 +99,7 @@ public class ConfigTests
         try
         {
             Pl.Config
-                .SetThousandsSeparator(true) 
+                .SetThousandsSeparator(true)
                 .SetFloatPrecision(7)
                 .SetVerbose(true)
                 .SetStreamingChunkSize(102400);
@@ -155,12 +154,12 @@ public class ConfigTests
         var df = DataFrame.FromColumns(new
         {
             FloatVal = new[] { 114514.1919810 },
-            IntVal   = new[] { 123456789 }
+            IntVal = new[] { 123456789 }
         });
         df.Show();
         using (Pl.Config.SetAsciiTables(true).BeginScope())
         {
-            Assert.Equal("ASCII_FULL_CONDENSED", Pl.Config["POLARS_FMT_TABLE_FORMATTING"]); 
+            Assert.Equal("ASCII_FULL_CONDENSED", Pl.Config["POLARS_FMT_TABLE_FORMATTING"]);
 
             string asciiString = df.ToString();
 
@@ -176,7 +175,7 @@ public class ConfigTests
 
             string deString = df.ToString();
 
-            Assert.Contains("114.514,", deString); 
+            Assert.Contains("114.514,", deString);
             Assert.Contains("123.456.789", deString);
         }
 
@@ -196,7 +195,7 @@ public class ConfigTests
         Assert.Equal("$", Pl.Config["decimal_separator"]);
         string weirdString = df.ToString();
         df.Show();
-        Assert.Contains("114514$19", weirdString); 
+        Assert.Contains("114514$19", weirdString);
 
         Pl.Config.RestoreDefaults();
     }
@@ -229,7 +228,7 @@ public class ConfigTests
         }
 
         var dfFloat = DataFrame.FromColumns(new { BigFloat = new[] { 123456789.123 } });
-        
+
         using (Pl.Config.SetFormatFloat(FloatFormat.Mixed).BeginScope())
         {
             var status = Pl.Config.Status(ifSet: true);
@@ -259,7 +258,7 @@ public class ConfigTests
     public void Test_Config_LengthFormatting_Coverage()
     {
         Pl.Config.RestoreDefaults();
-        
+
         string longStr = "原神启动";
         var dfStr = DataFrame.FromColumns(new { Text = new[] { longStr } });
 
@@ -269,7 +268,7 @@ public class ConfigTests
 
             string strOutput = dfStr.ToString();
             Assert.DoesNotContain(longStr, strOutput);
-            Assert.Contains("…", strOutput); 
+            Assert.Contains("…", strOutput);
         }
 
         using (Pl.Config.SetFormatStringLength(999).BeginScope())
@@ -293,7 +292,7 @@ public class ConfigTests
 
         using (Pl.Config
             .SetFormatTableCellListLength(-1)
-            .SetTableWidthChars(-1) 
+            .SetTableWidthChars(-1)
             .BeginScope())
         {
             Assert.Equal("-1", Pl.Config["POLARS_FMT_TABLE_CELL_LIST_LEN"]);
@@ -317,7 +316,7 @@ public class ConfigTests
         var df = DataFrame.FromColumns(new
         {
             TextCol = new[] { "abc" },
-            NumCol  = new[] { 123 }
+            NumCol = new[] { 123 }
         });
 
         using (Pl.Config.SetTableWidthChars(-1).BeginScope())
@@ -355,7 +354,7 @@ public class ConfigTests
 
         using (Pl.Config.SetTableWidthChars(-1).BeginScope())
         {
- 
+
             using (Pl.Config.SetTableRows(1).BeginScope())
             {
                 Assert.Equal("1", Pl.Config["POLARS_FMT_MAX_ROWS"]);
@@ -428,7 +427,7 @@ public class ConfigTests
         var df = DataFrame.FromColumns(new
         {
             Name = new[] { "a", "b", "c" },
-            Age  = new[] { 20, 25, 30 }
+            Age = new[] { 20, 25, 30 }
         });
 
         using (Pl.Config.SetTableWidthChars(-1).BeginScope())
@@ -510,16 +509,62 @@ public class ConfigTests
             using (Pl.Config.SetTableRows(3).BeginScope())
             {
                 var currentStatus = Pl.Config.Status(ifSet: true);
-                
+
                 Assert.Equal("3", currentStatus["POLARS_FMT_MAX_ROWS"]);
-                Assert.Equal("9", currentStatus["float_precision"]); 
-            } 
+                Assert.Equal("9", currentStatus["float_precision"]);
+            }
 
             var postStatus = Pl.Config.Status(ifSet: true);
 
             Assert.DoesNotContain("POLARS_FMT_MAX_ROWS", postStatus.Keys);
 
             Assert.Equal("9", Pl.Config["float_precision"]);
+        }
+        finally
+        {
+            Pl.Config.RestoreDefaults();
+        }
+    }
+
+    [Fact]
+    [Trait("Config", "ClientEvaluationPolicy")]
+    public void Test_Config_ClientEvaluationPolicy()
+    {
+        Pl.Config.RestoreDefaults();
+
+        try
+        {
+            // 1. Default should be Strict
+            Assert.Equal(Polars.NET.Core.ClientEvaluationPolicy.Strict, Pl.Config.ClientEvaluationPolicy);
+
+            // 2. Set to Warn via fluent API
+            Pl.Config.SetClientEvaluationPolicy(Polars.NET.Core.ClientEvaluationPolicy.Warn);
+            Assert.Equal(Polars.NET.Core.ClientEvaluationPolicy.Warn, Pl.Config.ClientEvaluationPolicy);
+            Assert.Equal("warn", Pl.Config["POLARS_CLIENT_EVAL"]);
+            Assert.Equal("warn", Pl.Config.Status(ifSet: true)["client_evaluation_policy"]);
+
+            // 3. Test scope isolation
+            using (Pl.Config.SetClientEvaluationPolicy(Polars.NET.Core.ClientEvaluationPolicy.Allow).BeginScope())
+            {
+                Assert.Equal(Polars.NET.Core.ClientEvaluationPolicy.Allow, Pl.Config.ClientEvaluationPolicy);
+                Assert.Equal("allow", Pl.Config["POLARS_CLIENT_EVAL"]);
+            }
+
+            // Scope exited, should revert to Warn
+            Assert.Equal(Polars.NET.Core.ClientEvaluationPolicy.Warn, Pl.Config.ClientEvaluationPolicy);
+
+            // 4. Test exception formatting
+            var ex = new Polars.NET.Core.PolarsPushdownException(
+                stage: "Where",
+                expressionText: "(x.Score + CustomFunc(x.Id)) > 100",
+                unsupportedFeature: "CustomFunc(x.Id)");
+
+            Assert.Equal("Where", ex.Stage);
+            Assert.Equal("(x.Score + CustomFunc(x.Id)) > 100", ex.ExpressionText);
+            Assert.Equal("CustomFunc(x.Id)", ex.UnsupportedFeature);
+            Assert.Contains("[PolarsPushdownException]", ex.Message);
+            Assert.Contains("Stage: Where", ex.Message);
+            Assert.Contains("Unsupported Feature: CustomFunc(x.Id)", ex.Message);
         }
         finally
         {

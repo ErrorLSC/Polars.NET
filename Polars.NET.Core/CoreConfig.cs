@@ -87,7 +87,9 @@ internal static class CoreConfig
         PrefetchBufferSizeKey,
         PolarsDeltaMaxRetryKey,
         QueryCacheCapacityKey,
-        QueryCacheEnabledKey
+        QueryCacheEnabledKey,
+        ClientEvaluationPolicyKey,
+        NetClientEvaluationPolicyKey
     ];
 
     private static readonly (string DirectKey, Func<string?> ValueGetter)[] DirectVarRules =
@@ -111,6 +113,10 @@ internal static class CoreConfig
         (
             "trim_decimal_zeros",
             () => TrimDecimalZeros?.ToFmtString()
+        ),
+        (
+            "client_evaluation_policy",
+            () => ClientEvaluationPolicy.ToString().ToLowerInvariant()
         )
     ];
 
@@ -293,6 +299,13 @@ internal static class CoreConfig
                             if (isNull) FloatFormat = null;
                             else if (Enum.TryParse<PlFloatFormat>(strValue, out var fFormat)) FloatFormat = fFormat;
                             break;
+
+                        case "client_evaluation_policy":
+                            if (isNull || string.IsNullOrEmpty(strValue))
+                                ClientEvaluationPolicy = ClientEvaluationPolicy.Strict;
+                            else if (Enum.TryParse<ClientEvaluationPolicy>(strValue, ignoreCase: true, out var pol))
+                                ClientEvaluationPolicy = pol;
+                            break;
                     }
                 }
             }
@@ -353,6 +366,7 @@ internal static class CoreConfig
         FloatPrecision = null;
         FloatFormat = null;
         TrimDecimalZeros = null;
+        ClientEvaluationPolicy = ClientEvaluationPolicy.Strict;
 
         PolarsWrapper.ReloadEnvVarAll();
     }
@@ -924,5 +938,42 @@ internal static class CoreConfig
             return envValue is "1" or "true" or "TRUE" or "True";
         }
         set => PolarsWrapper.SetEnvVar(QueryCacheEnabledKey, value.ToFmtString());
+    }
+
+    private const string ClientEvaluationPolicyKey = "POLARS_CLIENT_EVAL";
+    private const string NetClientEvaluationPolicyKey = "POLARS_NET_CLIENT_EVAL";
+
+    private static ClientEvaluationPolicy _defaultClientEvaluationPolicy = GetDefaultClientEvaluationPolicyFromEnv();
+
+    /// <summary>
+    /// Gets or sets the policy for handling operations or expressions that cannot be pushed down
+    /// to the native Polars engine and would otherwise require client-side evaluation.
+    /// Default is ClientEvaluationPolicy.Strict.
+    /// Can also be configured via environment variable POLARS_CLIENT_EVAL or POLARS_NET_CLIENT_EVAL.
+    /// </summary>
+    public static ClientEvaluationPolicy ClientEvaluationPolicy
+    {
+        get => _defaultClientEvaluationPolicy;
+        set
+        {
+            _defaultClientEvaluationPolicy = value;
+            string valStr = value.ToString().ToLowerInvariant();
+            Environment.SetEnvironmentVariable(ClientEvaluationPolicyKey, valStr);
+            PolarsWrapper.SetEnvVar(ClientEvaluationPolicyKey, valStr);
+        }
+    }
+
+    private static ClientEvaluationPolicy GetDefaultClientEvaluationPolicyFromEnv()
+    {
+        var envValue = Environment.GetEnvironmentVariable(ClientEvaluationPolicyKey)
+            ?? Environment.GetEnvironmentVariable(NetClientEvaluationPolicyKey);
+
+        if (!string.IsNullOrEmpty(envValue) &&
+            Enum.TryParse<ClientEvaluationPolicy>(envValue, ignoreCase: true, out var parsed))
+        {
+            return parsed;
+        }
+
+        return ClientEvaluationPolicy.Strict;
     }
 }

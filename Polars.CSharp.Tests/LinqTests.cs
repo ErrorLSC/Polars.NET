@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using Polars.CSharp.Linq;
+using Polars.NET.Core;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
 
@@ -269,55 +271,166 @@ public partial class LinqTests
     [Trait("LINQ", "Fallback")]
     public void Test_Linq_ClientFallback_Where_FollowedBy_TypeChanging_Select()
     {
-        using var df = DataFrame.FromColumns([
-            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
-            Series.From("Age", [25, 17, 30, 15, 28]),
-            Series.From("Salary", [5000, 3000, 7000, 2000, 6200])
-        ]);
+        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
+        {
+            using var df = DataFrame.FromColumns([
+                Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
+                Series.From("Age", [25, 17, 30, 15, 28]),
+                Series.From("Salary", [5000, 3000, 7000, 2000, 6200])
+            ]);
 
-        var query = df.AsQueryable<Employee>()
-                      .Where(e => CustomSalaryPredicate(e))
-                      .Select(e => e.Name);
+            var query = df.AsQueryable<Employee>()
+                          .Where(e => CustomSalaryPredicate(e))
+                          .Select(e => e.Name);
 
-        AssertPlan(query, HybridPushdown);
+            AssertPlan(query, HybridPushdown);
 
-        var result = query.ToList();
+            var result = query.ToList();
 
-        Assert.Equal(3, result.Count);
-        Assert.Equal("Alice", result[0]);
-        Assert.Equal("Charlie", result[1]);
-        Assert.Equal("Eve", result[2]);
+            Assert.Equal(3, result.Count);
+            Assert.Equal("Alice", result[0]);
+            Assert.Equal("Charlie", result[1]);
+            Assert.Equal("Eve", result[2]);
+        }
     }
     [Fact]
     [Trait("LINQ", "Fallback")]
     public void Test_Linq_Fallback_WithUnsupportedCSharpMethod()
     {
+        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
+        {
+            using var df = DataFrame.FromColumns([
+                Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
+                Series.From("Age", [25, 17, 30, 15, 28]),
+                Series.From("Salary", [5000, 3000, 7000, 2000, 6200])
+            ]);
+
+            // 1. Where(Age >= 18) should push down to Polars Native (Filtering Bob and David out)
+            // 2. Where(CustomMagicAudit) must gracefully fallback to client-side cursor evaluation
+            var query = df.AsQueryable<Employee>()
+                          .Where(e => e.Age >= 18)
+                          .Where(e => CheckSecurityClearance(e.Name, e.Salary));
+
+            AssertPlan(query, HybridPushdown);
+            var result = query.ToList();
+
+            // Qualified:
+            // Alice: Age 25 >= 18, in approved set, salary 5000 > 4500 -> True
+            // Charlie: Age 30 >= 18, in approved set, salary 7000 > 4500 -> True
+            // Eve: Age 28 >= 18, NOT in approved set -> False
+            Assert.Equal(2, result.Count);
+            Assert.Equal("Alice", result[0].Name);
+            Assert.Equal("Charlie", result[1].Name);
+        }
+    }
+    [Fact]
+    [Trait("LINQ", "Fallback")]
+    public void Test_Linq_Fallback_ToDataFrame_And_ToLazyFrame()
+    {
+        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
+        {
+            using var df = DataFrame.FromColumns([
+                Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
+                Series.From("Age", [25, 17, 30, 15, 28]),
+                Series.From("Salary", [5000, 3000, 7000, 2000, 6200])
+            ]);
+
+            // back into a native columnar DataFrame via DataFrameBuilder.FromRows<T>()
+            using DataFrame dfResult = df.AsQueryable<Employee>()
+                                         .Where(e => e.Age >= 18)
+                                         .Where(e => CheckSecurityClearance(e.Name, e.Salary))
+                                         .ToDataFrame();
+
+            Assert.Equal(2, dfResult.Height);
+            Assert.Equal(3, dfResult.Width);
+            Assert.True(dfResult.ColumnNames.SequenceEqual(["Name", "Age", "Salary"]));
+
+            // Verify that continuing from ToLazyFrame works natively on top of the transposed DataFrame
+            using LazyFrame lfResumed = df.AsQueryable<Employee>()
+                                          .Where(e => e.Age >= 18)
+                                          .Where(e => CheckSecurityClearance(e.Name, e.Salary))
+                                          .ToLazyFrame();
+
+            using DataFrame dfCollected = lfResumed.Collect();
+            Assert.Equal(2, dfCollected.Height);
+        }
+    }
+
+    [Fact]
+    [Trait("LINQ", "Policy")]
+    public void Test_Linq_Policy_Strict_Throws_On_Unpushed_Predicate()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 17, 30]),
+            Series.From("Salary", [5000, 3000, 7000])
+        ]);
+
+        var query = df.AsQueryable<Employee>()
+                      .Where(e => CustomSalaryPredicate(e));
+
+        // In default Strict mode, materialization must throw PolarsPushdownException
+        var ex = Assert.Throws<PolarsPushdownException>(() => query.ToList());
+        Assert.Equal("QueryExecution", ex.Stage);
+        Assert.Contains("CustomSalaryPredicate", ex.ExpressionText);
+        Assert.Contains("Remediation Options", ex.Message);
+    }
+
+    [Fact]
+    [Trait("LINQ", "Policy")]
+    public void Test_Linq_Policy_Strict_Allows_Client_Projection_With_Cursor()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 17, 30]),
+            Series.From("Salary", [5000, 3000, 7000])
+        ]);
+
+        // Terminal projection with C# method must SUCCEED in Strict mode via high-performance cursor
+        var query = df.AsQueryable<Employee>()
+                      .Where(e => e.Age >= 18) // Native pushdown
+                      .Select(e => new { UpperName = e.Name.ToLower() + "_custom", Bonus = e.Salary * 2 });
+
+        var results = query.ToList();
+        Assert.Equal(2, results.Count);
+        Assert.Equal("alice_custom", results[0].UpperName);
+        Assert.Equal(10000, results[0].Bonus);
+        Assert.Equal("charlie_custom", results[1].UpperName);
+    }
+
+    [Fact]
+    [Trait("LINQ", "AsEnumerable")]
+    public void Test_Linq_AsEnumerable_With_Client_Udf_Filter_And_ToDataFrame()
+    {
+        // Under default Strict policy, explicit .AsEnumerable() is the idiomatic way
+        // to switch from native Polars pushdown to in-memory client UDF execution.
         using var df = DataFrame.FromColumns([
             Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
             Series.From("Age", [25, 17, 30, 15, 28]),
             Series.From("Salary", [5000, 3000, 7000, 2000, 6200])
         ]);
 
-        // 1. Where(Age >= 18) should push down to Polars Native (Filtering Bob and David out)
-        // 2. Where(CustomMagicAudit) must gracefully fallback to client-side cursor evaluation
-        var query = df.AsQueryable<Employee>()
-                      .Where(e => e.Age >= 18)
-                      .Where(e => CheckSecurityClearance(e.Name, e.Salary));
+        // 1. Where(Age >= 18) executes natively in Polars (Bob and David filtered out)
+        // 2. AsEnumerable() transitions cleanly to LINQ to Objects with zero-allocation row cursor
+        // 3. Where(CustomSalaryPredicate) evaluates client-side UDF
+        // 4. ToDataFrame() materializes the filtered IEnumerable back into a native Polars DataFrame
+        using DataFrame dfResult = df.AsQueryable<Employee>()
+                                     .Where(e => e.Age >= 18)
+                                     .AsEnumerable()
+                                     .Where(e => CustomSalaryPredicate(e))
+                                     .ToDataFrame();
 
-        AssertPlan(query, HybridPushdown);
-        var result = query.ToList();
+        Assert.Equal(3, dfResult.Height);
+        Assert.Equal(3, dfResult.Width);
+        Assert.True(dfResult.ColumnNames.SequenceEqual(["Name", "Age", "Salary"]));
 
-        // Qualified:
-        // Alice: Age 25 >= 18, in approved set, salary 5000 > 4500 -> True
-        // Charlie: Age 30 >= 18, in approved set, salary 7000 > 4500 -> True
-        // Eve: Age 28 >= 18, NOT in approved set -> False
-        Assert.Equal(2, result.Count);
-        Assert.Equal("Alice", result[0].Name);
-        Assert.Equal("Charlie", result[1].Name);
+        var names = dfResult["Name"].ToArray<string>();
+        Assert.Equal(["Alice", "Charlie", "Eve"], names);
     }
+
     [Fact]
-    [Trait("LINQ", "Fallback")]
-    public void Test_Linq_Fallback_ToDataFrame_And_ToLazyFrame()
+    [Trait("LINQ", "ToSeries")]
+    public void Test_Linq_AsEnumerable_Scalar_ToSeries()
     {
         using var df = DataFrame.FromColumns([
             Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
@@ -325,24 +438,60 @@ public partial class LinqTests
             Series.From("Salary", [5000, 3000, 7000, 2000, 6200])
         ]);
 
-        // back into a native columnar DataFrame via DataFrameBuilder.FromRows<T>()
-        using DataFrame dfResult = df.AsQueryable<Employee>()
+        // Materialize client-evaluated scalar sequence into a Series
+        using Series bonusSeries = df.AsQueryable<Employee>()
                                      .Where(e => e.Age >= 18)
-                                     .Where(e => CheckSecurityClearance(e.Name, e.Salary))
-                                     .ToDataFrame();
+                                     .AsEnumerable()
+                                     .Where(e => CustomSalaryPredicate(e))
+                                     .Select(e => e.Salary * 2)
+                                     .ToSeries("DoubleSalary");
 
-        Assert.Equal(2, dfResult.Height);
-        Assert.Equal(3, dfResult.Width);
-        Assert.True(dfResult.ColumnNames.SequenceEqual(["Name", "Age", "Salary"]));
+        Assert.Equal("DoubleSalary", bonusSeries.Name);
+        Assert.Equal(3, bonusSeries.Length);
+        Assert.Equal([10000, 14000, 12400], bonusSeries.ToArray<int>());
+    }
 
-        // Verify that continuing from ToLazyFrame works natively on top of the transposed DataFrame
-        using LazyFrame lfResumed = df.AsQueryable<Employee>()
-                                      .Where(e => e.Age >= 18)
-                                      .Where(e => CheckSecurityClearance(e.Name, e.Salary))
-                                      .ToLazyFrame();
+    [Fact]
+    [Trait("LINQ", "ToSeries")]
+    public void Test_Linq_IQueryable_Scalar_ToSeries_NativePushdown()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 17, 30]),
+            Series.From("Salary", [5000, 3000, 7000])
+        ]);
 
-        using DataFrame dfCollected = lfResumed.Collect();
-        Assert.Equal(2, dfCollected.Height);
+        // Direct native scalar IQueryable materialization into a Series
+        using Series ageSeries = df.AsQueryable<Employee>()
+                                   .Where(e => e.Age >= 20)
+                                   .Select(e => e.Age)
+                                   .ToSeries("TargetAge");
+
+        Assert.Equal("TargetAge", ageSeries.Name);
+        Assert.Equal(2, ageSeries.Length);
+        Assert.Equal([25, 30], ageSeries.ToArray<int>());
+    }
+
+    [Fact]
+    [Trait("LINQ", "AsEnumerable")]
+    public void Test_Linq_AsEnumerable_ToLazyFrame_ResumesExecution()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Name", ["Alice", "Bob", "Charlie"]),
+            Series.From("Age", [25, 17, 30]),
+            Series.From("Salary", [5000, 3000, 7000])
+        ]);
+
+        // .ToLazyFrame() on an IEnumerable builds a LazyFrame for subsequent Polars pipeline operations
+        using LazyFrame lf = df.AsQueryable<Employee>()
+                               .Where(e => e.Age >= 18)
+                               .AsEnumerable()
+                               .Where(e => CheckSecurityClearance(e.Name, e.Salary))
+                               .ToLazyFrame();
+
+        using DataFrame collected = lf.Collect();
+        Assert.Equal(2, collected.Height);
+        Assert.Equal(["Alice", "Charlie"], collected["Name"].ToArray<string>());
     }
     [Fact]
     [Trait("LINQ", "Join")]
@@ -4641,13 +4790,13 @@ public partial class LinqTests
     {
         using var df = DataFrame.FromColumns([
             Series.From("Id", [1, 2]),
-            Series.From("Skills", [
-                new[] { "rust", "csharp", "fsharp" },
-                new[] { "python", "sql" }
+            Series.From<string[]>("Skills", [
+                ["rust", "csharp", "fsharp"],
+                ["python", "sql"]
             ]),
-            Series.From("DesiredSkills", [
-                new[] { "csharp", "go" },
-                new[] { "sql", "rust" }
+            Series.From<string[]>("DesiredSkills", [
+                ["csharp", "go"],
+                ["sql", "rust"]
             ])
         ]);
 
@@ -4656,7 +4805,7 @@ public partial class LinqTests
                       {
                           d.Id,
                           // 1. Sort ascending
-                          SortedSkills = d.Skills.OrderBy(s => s),
+                          SortedSkills = d.Skills.Order(),
                           // 2. Set Intersection: Skills ∩ DesiredSkills
                           MatchedSkills = d.Skills.Intersect(d.DesiredSkills),
                           // 3. Set Difference: Skills - DesiredSkills
@@ -4735,9 +4884,9 @@ public partial class LinqTests
         using var df = DataFrame.FromColumns([
             Series.From("Id", [1, 2]),
             Series.From("Name", ["Alice", "Bob"]),
-            Series.From("Scores", [
-                new[] { 95, 88, 92 },
-                new[] { 50, 59, 45 }
+            Series.From<int[]>("Scores", [
+                [95, 88, 92],
+                [50, 59, 45]
             ])
         ]);
 
@@ -4777,9 +4926,9 @@ public partial class LinqTests
         using var df = DataFrame.FromColumns([
             Series.From("Id", [1, 2]),
             Series.From("Name", ["Alice", "Bob"]),
-            Series.From("Tags", [
-                new[] { "admin", "dev" },
-                new[] { "guest" }
+            Series.From<string[]>("Tags", [
+                ["admin", "dev"],
+                ["guest"]
             ])
         ]);
 

@@ -194,6 +194,21 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                     ValueSome(Client(sourceType, combinedPred))
                 | None -> ValueSome(Client(elemType, compiledPred))
 
+    /// Helper to enforce client evaluation policy on unpushed scalar/terminal predicates (e.g. First(pred), Any(pred))
+    static member internal EnforceClientPredicatePolicy(stage: string, predLambdaOpt: LambdaExpression option) =
+        let policy = CoreConfig.ClientEvaluationPolicy
+        match policy with
+        | ClientEvaluationPolicy.Allow -> ()
+        | ClientEvaluationPolicy.Warn ->
+            let text = match predLambdaOpt with Some p -> p.ToString() | None -> "Predicate"
+            System.Diagnostics.Trace.TraceWarning(
+                sprintf "[Polars.NET Warning] Predicate in '%s' (%s) could not be pushed down and is evaluated on client." stage text
+            )
+        | ClientEvaluationPolicy.Strict
+        | _ ->
+            let text = match predLambdaOpt with Some p -> p.ToString() | None -> "Predicate"
+            raise (PolarsPushdownException(stage, text, sprintf "Predicate in '%s' could not be pushed down to native Polars engine." stage))
+
     /// Post-processes raw scalar aggregate results (handling NaN, empty collections, and F# Option/ValueOption types)
     static member private BoxScalarResult<'TResult>(rawScalar: obj, methodName: string) : 'TResult =
         let targetType = typeof<'TResult>
@@ -298,6 +313,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                     invoker.Invoke(mat, dfHandle, null) :?> 'TResult
 
         | ValueSome(Client(srcType, combinedPred)) ->
+            PolarsQueryProvider.EnforceClientPredicatePolicy(kind.ToString(), predLambdaOpt)
             let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
 
             let defaultVal =
@@ -509,6 +525,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                 Convert.ChangeType(effectiveCount, targetType) :?> 'TResult
 
             | ValueSome(Client(srcType, combinedPred)) ->
+                PolarsQueryProvider.EnforceClientPredicatePolicy("Count", predOpt)
                 // Client-side predicate: could be an un-pushable row filter OR a predicate on TElement[] itself
                 let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                 let invoker = LinqReflectionCache.GetMaterializerCountInvoker srcType
@@ -568,6 +585,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                 box (PolarsWrapper.DataFrameHeight dfHandle > 0L) :?> 'TResult
 
             | ValueSome(Client(srcType, combinedPred)) ->
+                PolarsQueryProvider.EnforceClientPredicatePolicy("Any", predOpt)
                 let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                 let invoker = LinqReflectionCache.GetMaterializerAnyInvoker srcType
                 box (invoker.Invoke(mat, dfHandle, combinedPred)) :?> 'TResult
@@ -608,6 +626,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                 box (PolarsWrapper.DataFrameHeight dfHandle = 0L) :?> 'TResult
 
             | ValueSome(Client(srcType, combinedPred)) ->
+                PolarsQueryProvider.EnforceClientPredicatePolicy("All", Some predLambda)
                 let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
                 let invoker = LinqReflectionCache.GetMaterializerAllInvoker srcType
                 box (invoker.Invoke(mat, dfHandle, combinedPred)) :?> 'TResult
@@ -1198,6 +1217,49 @@ and PolarsQuery<'T>
 
     new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer) =
         PolarsQuery<'T>(lazyFrameHandle, materializer, None)
+
+    /// Enforces the ClientEvaluationPolicy against client predicates and full fallbacks
+    static member internal EnforcePolicy
+        (stage: string)
+        (requiresClientFallback: bool)
+        (clientPredsWithAst: (Func<obj, bool> * LambdaExpression) list)
+        (expressionText: string)
+        : unit =
+        let policy = CoreConfig.ClientEvaluationPolicy
+        match policy with
+        | ClientEvaluationPolicy.Allow -> ()
+        | ClientEvaluationPolicy.Warn ->
+            if requiresClientFallback then
+                System.Diagnostics.Trace.TraceWarning(
+                    sprintf "[Polars.NET Warning] Query pipeline at stage '%s' fell back to full client-side in-memory LINQ: %s" stage expressionText
+                )
+            elif not clientPredsWithAst.IsEmpty then
+                let predTexts =
+                    clientPredsWithAst
+                    |> List.map (fun (_, l) -> l.ToString())
+                    |> String.concat "; "
+                System.Diagnostics.Trace.TraceWarning(
+                    sprintf "[Polars.NET Warning] Query predicate at stage '%s' fell back to client-side evaluation: %s" stage predTexts
+                )
+        | ClientEvaluationPolicy.Strict
+        | _ ->
+            if requiresClientFallback then
+                raise (
+                    PolarsPushdownException(
+                        stage,
+                        expressionText,
+                        "Full in-memory LINQ fallback was triggered due to unsupported query operations or transparent identifiers."
+                    )
+                )
+            elif not clientPredsWithAst.IsEmpty then
+                let firstPred = clientPredsWithAst |> List.head |> snd
+                raise (
+                    PolarsPushdownException(
+                        stage,
+                        firstPred.ToString(),
+                        sprintf "Method, member, or operator in predicate '%s' cannot be pushed down to native Polars engine." (firstPred.ToString())
+                    )
+                )
 
     /// Attempts to decorrelate subquery expressions (EXISTS/NOT EXISTS via Any, and IN/NOT IN via Contains)
     /// into native Semi/Anti Joins.
@@ -3462,6 +3524,12 @@ and PolarsQuery<'T>
         : LazyFrameHandle * (Func<obj, bool> list) * ((Type * Func<obj, obj>) option) * bool =
         let ops, clientPredsWithAst, clientProjOpt, requiresClientFallback =
             this.CompilePipeline()
+
+        PolarsQuery<'T>.EnforcePolicy
+            "QueryExecution"
+            requiresClientFallback
+            clientPredsWithAst
+            (expression.ToString())
 
         let nativeLf = PolarsQuery<'T>.ApplyNativeOps lfCloned ops
         // Extract pure Func<obj, bool> delegates for in-memory materializers

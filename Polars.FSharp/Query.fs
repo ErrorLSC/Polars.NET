@@ -250,6 +250,26 @@ module LinqExtension =
         member this.InspectPlan(?optimized: bool) : string = this.Explain(?optimized = optimized)
 
         /// <summary>
+        /// Explicitly transitions the query to a managed sequence ('T seq) for client-side evaluation,
+        /// </summary>
+        member this.AsSeq() : 'T seq = this :> 'T seq
+
+        /// <summary>
+        /// Compiles a single-column LINQ query and materializes it directly into a Polars Series.
+        /// </summary>
+        /// <param name="name">Optional name override for the Series.</param>
+        member this.ToSeries(?name: string) : Series =
+            use df = this.ToDataFrame()
+            if df.Width = 0L then
+                Series.create (defaultArg name "", Array.empty<'T>)
+            else
+                let s = df.Column(0L)
+                match name with
+                | Some n when not (String.IsNullOrEmpty n) && s.Name <> n ->
+                    s.Rename n
+                | _ -> s
+
+        /// <summary>
         /// Inspects the query plan at the current pipeline stage and invokes a custom inspector action,
         /// </summary>
         /// <param name="inspector">Action receiving the diagnostic plan string.</param>
@@ -260,3 +280,70 @@ module LinqExtension =
 
             inspector (this.Explain optimized)
             this
+
+    type IEnumerable<'T> with
+        /// <summary>
+        /// Materializes an in-memory sequence of entities into an eager DataFrame.
+        /// If the sequence is an IQueryable, native query execution is prioritized.
+        /// </summary>
+        member this.ToDataFrame(?engine: Engine) : DataFrame =
+            match box this with
+            | :? IQueryable<'T> as q -> q.ToDataFrame(?engine = engine)
+            | _ ->
+                let rows = this |> Seq.toList
+                let dfHandle = DataFrameBuilder.FromRows<'T> rows
+                new DataFrame(dfHandle)
+
+        /// <summary>
+        /// Converts an in-memory sequence into a LazyFrame.
+        /// If the sequence is an IQueryable, native query execution is prioritized.
+        /// </summary>
+        member this.ToLazyFrame() : LazyFrame =
+            match box this with
+            | :? IQueryable<'T> as q -> q.ToLazyFrame()
+            | _ ->
+                let rows = this |> Seq.toList
+                let dfHandle = DataFrameBuilder.FromRows<'T> rows
+                (new DataFrame(dfHandle)).Lazy()
+
+        /// <summary>
+        /// Materializes an in-memory sequence of scalar values or a single-column query into a Polars Series.
+        /// </summary>
+        /// <param name="name">Optional name for the Series. Defaults to empty string.</param>
+        member this.ToSeries(?name: string) : Series =
+            let colName = defaultArg name ""
+            match box this with
+            | :? IQueryable<'T> as q -> q.ToSeries(?name = name)
+            | _ -> Series.create (colName, this)
+
+[<RequireQualifiedAccess>]
+module Query =
+    /// <summary>
+    /// Explicitly transitions an IQueryable to a managed sequence ('T seq) for client-side evaluation.
+    /// </summary>
+    let inline asSeq (query: IQueryable<'T>) : 'T seq = query :> 'T seq
+
+    /// <summary>
+    /// Materializes an in-memory sequence of scalar values or a single-column query into a Polars Series.
+    /// </summary>
+    let inline toSeriesNamed (name: string) (source: 'T seq) : Series =
+        source.ToSeries(name)
+
+    /// <summary>
+    /// Materializes an in-memory sequence of scalar values or a single-column query into an unnamed Polars Series.
+    /// </summary>
+    let inline toSeries (source: 'T seq) : Series =
+        source.ToSeries()
+
+    /// <summary>
+    /// Converts a query or sequence into an eager DataFrame.
+    /// </summary>
+    let inline toDataFrame (source: 'T seq) : DataFrame =
+        source.ToDataFrame()
+
+    /// <summary>
+    /// Converts a query or sequence into a LazyFrame.
+    /// </summary>
+    let inline toLazyFrame (source: 'T seq) : LazyFrame =
+        source.ToLazyFrame()
+
