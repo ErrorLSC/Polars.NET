@@ -23,7 +23,7 @@ module internal FSharpAst =
         else
             match e1, e2 with
             | (:? ParameterExpression as p1), (:? ParameterExpression as p2) ->
-                p1 = p2 || (p1.Name = p2.Name && p1.Type = p2.Type)
+                p1 = p2 || p1.Name = p2.Name && p1.Type = p2.Type
             | (:? ConstantExpression as c1), (:? ConstantExpression as c2) ->
                 obj.Equals(c1.Value, c2.Value)
             | (:? MemberExpression as m1), (:? MemberExpression as m2) ->
@@ -60,9 +60,9 @@ module internal FSharpAst =
                 && mi1.Bindings.Count = mi2.Bindings.Count
                 && Seq.forall2 (fun (b1: MemberBinding) (b2: MemberBinding) ->
                     b1.BindingType = b2.BindingType && b1.Member = b2.Member
-                    && (match b1, b2 with
-                        | (:? MemberAssignment as ma1), (:? MemberAssignment as ma2) -> areExpressionsEqual ma1.Expression ma2.Expression
-                        | _ -> false)) mi1.Bindings mi2.Bindings
+                    && match b1, b2 with
+                       | (:? MemberAssignment as ma1), (:? MemberAssignment as ma2) -> areExpressionsEqual ma1.Expression ma2.Expression
+                       | _ -> false) mi1.Bindings mi2.Bindings
             | (:? NewArrayExpression as na1), (:? NewArrayExpression as na2) ->
                 na1.Expressions.Count = na2.Expressions.Count
                 && Seq.forall2 areExpressionsEqual na1.Expressions na2.Expressions
@@ -71,12 +71,12 @@ module internal FSharpAst =
     let rec private computeStructuralHash (e: Expression) : int =
         if isNull e then 0
         else
-            let h = int e.NodeType * 397 ^^^ (if isNull e.Type then 0 else e.Type.GetHashCode())
+            let h = int e.NodeType * 397 ^^^ if isNull e.Type then 0 else e.Type.GetHashCode()
             match e with
             | :? ParameterExpression as p ->
-                h * 31 ^^^ (if isNull p.Name then 0 else p.Name.GetHashCode())
+                h * 31 ^^^ if isNull p.Name then 0 else p.Name.GetHashCode()
             | :? ConstantExpression as c ->
-                h * 31 ^^^ (if isNull c.Value then 0 else c.Value.GetHashCode())
+                h * 31 ^^^ if isNull c.Value then 0 else c.Value.GetHashCode()
             | :? MemberExpression as m ->
                 (h * 31 ^^^ m.Member.GetHashCode()) * 31 ^^^ computeStructuralHash m.Expression
             | :? MethodCallExpression as mc ->
@@ -87,7 +87,7 @@ module internal FSharpAst =
             | :? UnaryExpression as u ->
                 h * 31 ^^^ computeStructuralHash u.Operand
             | :? NewExpression as ne ->
-                let hCtor = h * 31 ^^^ (if isNull ne.Constructor then 0 else ne.Constructor.GetHashCode())
+                let hCtor = h * 31 ^^^ if isNull ne.Constructor then 0 else ne.Constructor.GetHashCode()
                 ne.Arguments |> Seq.fold (fun acc a -> acc * 31 ^^^ computeStructuralHash a) hCtor
             | :? MemberInitExpression as mie ->
                 let hNew = computeStructuralHash mie.NewExpression

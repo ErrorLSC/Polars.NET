@@ -1696,7 +1696,7 @@ module TpchLinqTests =
                 groupValBy l 1 into g
                 select
                     {|
-                        avg_yearly = (double (g.Sum(fun x -> x.l_extendedprice))) / 7.0
+                        avg_yearly = double (g.Sum(fun x -> x.l_extendedprice)) / 7.0
                     |}
             }
 
@@ -1715,6 +1715,534 @@ module TpchLinqTests =
         let activeResults = activeQuery.ToList()
         Assert.Single(activeResults) |> ignore
         Assert.Equal(7590.6514, activeResults.[0].avg_yearly, 4)
+
+    (*
+     * TPC-H Query 18: Large Volume Customer Query
+     *
+     * SELECT
+     *     c_name,
+     *     c_custkey,
+     *     o_orderkey,
+     *     o_orderdate,
+     *     o_totalprice,
+     *     sum(l_quantity)
+     * FROM
+     *     customer,
+     *     orders,
+     *     lineitem
+     * WHERE
+     *     o_orderkey IN (
+     *         SELECT
+     *             l_orderkey
+     *         FROM
+     *             lineitem
+     *         GROUP BY
+     *             l_orderkey
+     *         HAVING
+     *             sum(l_quantity) > 300
+     *     )
+     *     AND c_custkey = o_custkey
+     *     AND o_orderkey = l_orderkey
+     * GROUP BY
+     *     c_name,
+     *     c_custkey,
+     *     o_orderkey,
+     *     o_orderdate,
+     *     o_totalprice
+     * ORDER BY
+     *     o_totalprice DESC,
+     *     o_orderdate
+     * LIMIT 100;
+     *)
+    [<Fact>]
+    [<Trait("TPCH", "Q18")>]
+    let ``Test_Q18_Large_Volume_Customer`` () =
+        use lfCustomer = TpchData.Customer()
+        use lfOrders = TpchData.Orders()
+        use lfLineItem = TpchData.LineItem()
+
+        let customerQuery = lfCustomer.AsQueryable<Customer>()
+        let ordersQuery = lfOrders.AsQueryable<Orders>()
+        let lineitemQuery = lfLineItem.AsQueryable<LineItem>()
+
+        let bigOrders =
+            query {
+                for l in lineitemQuery do
+                groupValBy l.l_quantity l.l_orderkey into g
+                where (g.Sum() > 300.0m)
+                select g.Key
+            }
+
+        assertPlan NativePushdown bigOrders
+
+        let filteredOrders =
+            query {
+                for o in ordersQuery do
+                where (bigOrders.Contains(o.o_orderkey))
+                select o
+            }
+
+        let query =
+            query {
+                for c in customerQuery do
+                join o in filteredOrders on (c.c_custkey = o.o_custkey)
+                join l in lineitemQuery on (o.o_orderkey = l.l_orderkey)
+                groupValBy l
+                    {|
+                        c_name = c.c_name
+                        c_custkey = c.c_custkey
+                        o_orderkey = o.o_orderkey
+                        o_orderdate = o.o_orderdate
+                        o_totalprice = o.o_totalprice
+                    |} into g
+                sortByDescending g.Key.o_totalprice
+                thenBy g.Key.o_orderdate
+                select
+                    {|
+                        c_name = g.Key.c_name
+                        c_custkey = g.Key.c_custkey
+                        o_orderkey = g.Key.o_orderkey
+                        o_orderdate = g.Key.o_orderdate
+                        o_totalprice = g.Key.o_totalprice
+                        sum_qty = g.Sum(fun x -> x.l_quantity)
+                    |}
+                take 100
+            }
+
+        assertPlan NativePushdown query
+
+        let results = query.ToList()
+
+        Assert.Equal(2, results.Count)
+
+        let row0 = results.[0]
+        Assert.Equal("Customer#000000667", row0.c_name)
+        Assert.Equal(667L, row0.c_custkey)
+        Assert.Equal(29158L, row0.o_orderkey)
+        Assert.Equal(DateOnly(1995, 10, 21), row0.o_orderdate)
+        Assert.Equal(439687.23m, row0.o_totalprice)
+        Assert.Equal(305.00m, row0.sum_qty)
+
+        let row1 = results.[1]
+        Assert.Equal("Customer#000000178", row1.c_name)
+        Assert.Equal(178L, row1.c_custkey)
+        Assert.Equal(6882L, row1.o_orderkey)
+        Assert.Equal(DateOnly(1997, 4, 9), row1.o_orderdate)
+        Assert.Equal(422359.65m, row1.o_totalprice)
+        Assert.Equal(303.00m, row1.sum_qty)
+
+    (*
+     * TPC-H Q19: Discounted Revenue Query
+     *
+     * SELECT
+     *     sum(l_extendedprice * (1 - l_discount)) AS revenue
+     * FROM
+     *     lineitem,
+     *     part
+     * WHERE
+     *     (
+     *         p_partkey = l_partkey
+     *         AND p_brand = 'Brand#12'
+     *         AND p_container IN ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG')
+     *         AND l_quantity >= 1 AND l_quantity <= 1 + 10
+     *         AND p_size BETWEEN 1 AND 5
+     *         AND l_shipmode IN ('AIR', 'AIR REG')
+     *         AND l_shipinstruct = 'DELIVER IN PERSON'
+     *     )
+     *     OR
+     *     (
+     *         p_partkey = l_partkey
+     *         AND p_brand = 'Brand#23'
+     *         AND p_container IN ('MED BAG', 'MED BOX', 'MED PKG', 'MED PACK')
+     *         AND l_quantity >= 10 AND l_quantity <= 10 + 10
+     *         AND p_size BETWEEN 1 AND 10
+     *         AND l_shipmode IN ('AIR', 'AIR REG')
+     *         AND l_shipinstruct = 'DELIVER IN PERSON'
+     *     )
+     *     OR
+     *     (
+     *         p_partkey = l_partkey
+     *         AND p_brand = 'Brand#34'
+     *         AND p_container IN ('LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')
+     *         AND l_quantity >= 20 AND l_quantity <= 20 + 10
+     *         AND p_size BETWEEN 1 AND 15
+     *         AND l_shipmode IN ('AIR', 'AIR REG')
+     *         AND l_shipinstruct = 'DELIVER IN PERSON'
+     *     );
+     *)
+    [<Fact>]
+    [<Trait("TPCH", "Q19")>]
+    let ``Test_Q19_Discounted_Revenue`` () =
+        use lfLineItem = TpchData.LineItem()
+        use lfPart = TpchData.Part()
+
+        let lineitemQuery = lfLineItem.AsQueryable<LineItem>()
+        let partQuery = lfPart.AsQueryable<Part>()
+
+        let smContainers = [| "SM CASE"; "SM BOX"; "SM PACK"; "SM PKG" |]
+        let medContainers = [| "MED BAG"; "MED BOX"; "MED PKG"; "MED PACK" |]
+        let lgContainers = [| "LG CASE"; "LG BOX"; "LG PACK"; "LG PKG" |]
+        let shipModes = [| "AIR"; "AIR REG" |]
+
+        let query =
+            query {
+                for l in lineitemQuery do
+                join p in partQuery on (l.l_partkey = p.p_partkey)
+                where (
+                    p.p_brand = "Brand#12"
+                    && smContainers.Contains(p.p_container)
+                    && l.l_quantity >= 1.0m && l.l_quantity <= 11.0m
+                    && p.p_size >= 1 && p.p_size <= 5
+                    && shipModes.Contains(l.l_shipmode)
+                    && l.l_shipinstruct = "DELIVER IN PERSON"
+                    ||
+                    p.p_brand = "Brand#23"
+                    && medContainers.Contains(p.p_container)
+                    && l.l_quantity >= 10.0m && l.l_quantity <= 20.0m
+                    && p.p_size >= 1 && p.p_size <= 10
+                    && shipModes.Contains(l.l_shipmode)
+                    && l.l_shipinstruct = "DELIVER IN PERSON"
+                    ||
+                    p.p_brand = "Brand#34"
+                    && lgContainers.Contains(p.p_container)
+                    && l.l_quantity >= 20.0m && l.l_quantity <= 30.0m
+                    && p.p_size >= 1 && p.p_size <= 15
+                    && shipModes.Contains(l.l_shipmode)
+                    && l.l_shipinstruct = "DELIVER IN PERSON"
+                )
+                groupValBy l 1 into g
+                select
+                    {|
+                        revenue = g.Sum(fun x -> x.l_extendedprice * (1.0m - x.l_discount))
+                    |}
+            }
+
+        assertPlan NativePushdown query
+
+        let results = query.ToList()
+
+        Assert.Single(results) |> ignore
+        Assert.Equal(22923.03m, results.[0].revenue)
+        Assert.Equal(22923.0280, double results.[0].revenue, 1)
+
+    (*
+     * TPC-H Q20: Potential Part Promotion Query
+     *
+     * SELECT
+     *     s_name,
+     *     s_address
+     * FROM
+     *     supplier,
+     *     nation
+     * WHERE
+     *     s_suppkey IN (
+     *         SELECT
+     *             ps_suppkey
+     *         FROM
+     *             partsupp
+     *         WHERE
+     *             ps_partkey IN (
+     *                 SELECT
+     *                     p_partkey
+     *                 FROM
+     *                     part
+     *                 WHERE
+     *                     p_name LIKE 'forest%'
+     *             )
+     *             AND ps_availqty > (
+     *                 SELECT
+     *                     0.5 * sum(l_quantity)
+     *                 FROM
+     *                     lineitem
+     *                 WHERE
+     *                     l_partkey = ps_partkey
+     *                     AND l_suppkey = ps_suppkey
+     *                     AND l_shipdate >= CAST('1994-01-01' AS date)
+     *                     AND l_shipdate < CAST('1995-01-01' AS date)
+     *             )
+     *     )
+     *     AND s_nationkey = n_nationkey
+     *     AND n_name = 'CANADA'
+     * ORDER BY
+     *     s_name;
+     *)
+    [<Fact>]
+    [<Trait("TPCH", "Q20")>]
+    let ``Test_Q20_Potential_Part_Promotion`` () =
+        use lfSupplier = TpchData.Supplier()
+        use lfNation = TpchData.Nation()
+        use lfPartSupp = TpchData.PartSupp()
+        use lfPart = TpchData.Part()
+        use lfLineItem = TpchData.LineItem()
+
+        let supplierQuery = lfSupplier.AsQueryable<Supplier>()
+        let nationQuery = lfNation.AsQueryable<Nation>()
+        let partsuppQuery = lfPartSupp.AsQueryable<PartSupp>()
+        let partQuery = lfPart.AsQueryable<Part>()
+        let lineitemQuery = lfLineItem.AsQueryable<LineItem>()
+
+        let startDate = DateOnly(1994, 1, 1)
+        let endDate = DateOnly(1995, 1, 1)
+
+        let forestParts =
+            query {
+                for p in partQuery do
+                where (p.p_name.StartsWith "forest")
+                select p.p_partkey
+            }
+
+        let eligiblePartSupp =
+            query {
+                for ps in partsuppQuery do
+                where (forestParts.Contains(ps.ps_partkey))
+                where (
+                    decimal ps.ps_availqty > 0.5m * lineitemQuery
+                                                        .Where(fun l ->
+                                                            l.l_partkey = ps.ps_partkey
+                                                            && l.l_suppkey = ps.ps_suppkey
+                                                            && l.l_shipdate >= startDate
+                                                            && l.l_shipdate < endDate)
+                                                        .Sum(fun l -> l.l_quantity)
+                )
+                select ps.ps_suppkey
+            }
+
+        let query =
+            query {
+                for s in supplierQuery do
+                where (eligiblePartSupp.Contains(s.s_suppkey))
+                join n in nationQuery on (s.s_nationkey = n.n_nationkey)
+                where (n.n_name = "CANADA")
+                sortBy s.s_name
+                select
+                    {|
+                        s_name = s.s_name
+                        s_address = s.s_address
+                    |}
+            }
+
+        assertPlan NativePushdown query
+
+        let results = query.ToList()
+
+        Assert.Single(results) |> ignore
+        let row0 = results.[0]
+        Assert.Equal("Supplier#000000013", row0.s_name)
+        Assert.Equal("kgTZjbt4CAa4c3SlirlBLqIL41YbCj", row0.s_address)
+
+    (*
+     * TPC-H Q21: Suppliers Who Kept Orders Waiting Query
+     *
+     * SELECT
+     *     s_name,
+     *     count(*) AS numwait
+     * FROM
+     *     supplier,
+     *     lineitem l1,
+     *     orders,
+     *     nation
+     * WHERE
+     *     s_suppkey = l1.l_suppkey
+     *     AND o_orderkey = l1.l_orderkey
+     *     AND o_orderstatus = 'F'
+     *     AND l1.l_receiptdate > l1.l_commitdate
+     *     AND EXISTS (
+     *         SELECT
+     *             *
+     *         FROM
+     *             lineitem l2
+     *         WHERE
+     *             l2.l_orderkey = l1.l_orderkey
+     *             AND l2.l_suppkey <> l1.l_suppkey
+     *     )
+     *     AND NOT EXISTS (
+     *         SELECT
+     *             *
+     *         FROM
+     *             lineitem l3
+     *         WHERE
+     *             l3.l_orderkey = l1.l_orderkey
+     *             AND l3.l_suppkey <> l1.l_suppkey
+     *             AND l3.l_receiptdate > l3.l_commitdate
+     *     )
+     *     AND s_nationkey = n_nationkey
+     *     AND n_name = 'SAUDI ARABIA'
+     * GROUP BY
+     *     s_name
+     * ORDER BY
+     *     numwait DESC,
+     *     s_name
+     * LIMIT 100;
+     *)
+    [<Fact>]
+    [<Trait("TPCH", "Q21")>]
+    let ``Test_Q21_Suppliers_Who_Kept_Orders_Waiting`` () =
+        use lfSupplier = TpchData.Supplier()
+        use lfLineItem = TpchData.LineItem()
+        use lfOrders = TpchData.Orders()
+        use lfNation = TpchData.Nation()
+
+        let supplierQuery = lfSupplier.AsQueryable<Supplier>()
+        let lineitemQuery = lfLineItem.AsQueryable<LineItem>()
+        let ordersQuery = lfOrders.AsQueryable<Orders>()
+        let nationQuery = lfNation.AsQueryable<Nation>()
+
+        // 1. Orders with more than one supplier
+        let multiSuppOrders =
+            query {
+                for l in lineitemQuery do
+                groupValBy l.l_suppkey l.l_orderkey into g
+                where (g.Distinct().Count() > 1)
+                select g.Key
+            }
+
+        // 2. Orders where exactly one supplier was late
+        let singleLateSuppOrders =
+            query {
+                for l in lineitemQuery do
+                where (l.l_receiptdate > l.l_commitdate)
+                groupValBy l.l_suppkey l.l_orderkey into g
+                where (g.Distinct().Count() = 1)
+                select
+                    {|
+                        l_orderkey = g.Key
+                        l_suppkey = g.Max()
+                    |}
+            }
+
+        let query =
+            query {
+                for l1 in lineitemQuery do
+                where (l1.l_receiptdate > l1.l_commitdate)
+                where (multiSuppOrders.Contains(l1.l_orderkey))
+                join slo in singleLateSuppOrders on (l1.l_orderkey = slo.l_orderkey)
+                where (l1.l_suppkey = slo.l_suppkey)
+                join o in ordersQuery on (l1.l_orderkey = o.o_orderkey)
+                where (o.o_orderstatus = "F")
+                join s in supplierQuery on (l1.l_suppkey = s.s_suppkey)
+                join n in nationQuery on (s.s_nationkey = n.n_nationkey)
+                where (n.n_name = "SAUDI ARABIA")
+                groupBy s.s_name into g
+                sortByDescending (g.Count())
+                thenBy g.Key
+                select
+                    {|
+                        s_name = g.Key
+                        numwait = g.Count()
+                    |}
+                take 100
+            }
+
+        assertPlan NativePushdown query
+
+        let results = query.ToList()
+
+        Assert.Single(results) |> ignore
+        let row0 = results.[0]
+        Assert.Equal("Supplier#000000074", row0.s_name)
+        Assert.Equal(9, row0.numwait)
+
+    (*
+     * TPC-H Q22: Global Sales Opportunity Query
+     *
+     * SELECT
+     *     cntrycode,
+     *     count(*) AS numcust,
+     *     sum(c_acctbal) AS totacctbal
+     * FROM
+     *     (
+     *         SELECT
+     *             substring(c_phone FROM 1 FOR 2) AS cntrycode,
+     *             c_acctbal
+     *         FROM
+     *             customer
+     *         WHERE
+     *             substring(c_phone FROM 1 FOR 2) IN
+     *                 ('13', '31', '23', '29', '30', '18', '17')
+     *             AND c_acctbal > (
+     *                 SELECT
+     *                     avg(c_acctbal)
+     *                 FROM
+     *                     customer
+     *                 WHERE
+     *                     c_acctbal > 0.00
+     *                     AND substring(c_phone FROM 1 FOR 2) IN
+     *                         ('13', '31', '23', '29', '30', '18', '17')
+     *             )
+     *             AND NOT EXISTS (
+     *                 SELECT
+     *                     *
+     *                 FROM
+     *                     orders
+     *                 WHERE
+     *                     o_custkey = c_custkey
+     *             )
+     *     ) AS custsale
+     * GROUP BY
+     *     cntrycode
+     * ORDER BY
+     *     cntrycode;
+     *)
+    [<Fact>]
+    [<Trait("TPCH", "Q22")>]
+    let ``Test_Q22_Global_Sales_Opportunity`` () =
+        use lfCustomer = TpchData.Customer()
+        use lfOrders = TpchData.Orders()
+
+        let customerQuery = lfCustomer.AsQueryable<Customer>()
+        let ordersQuery = lfOrders.AsQueryable<Orders>()
+
+        let countryCodes = [| "13"; "31"; "23"; "29"; "30"; "18"; "17" |]
+
+        let query =
+            query {
+                for c in customerQuery do
+                where (
+                    countryCodes.Contains(c.c_phone.Substring(0, 2))
+                    && c.c_acctbal > customerQuery
+                                        .Where(fun c2 ->
+                                            c2.c_acctbal > 0.0m
+                                            && countryCodes.Contains(c2.c_phone.Substring(0, 2)))
+                                        .Average(fun c2 -> c2.c_acctbal)
+                    && not (ordersQuery.Any(fun o -> o.o_custkey = c.c_custkey))
+                )
+                groupBy (c.c_phone.Substring(0, 2)) into g
+                sortBy g.Key
+                select
+                    {|
+                        cntrycode = g.Key
+                        numcust = g.Count()
+                        totacctbal = g.Sum(fun x -> x.c_acctbal)
+                    |}
+            }
+
+        assertPlan NativePushdown query
+
+        let results = query.ToList()
+
+        Assert.Equal(7, results.Count)
+
+        let expected =
+            [|
+                "13", 10, 75359.29m
+                "17", 8, 62288.98m
+                "18", 14, 111072.45m
+                "23", 5, 40458.86m
+                "29", 11, 88722.85m
+                "30", 17, 122189.33m
+                "31", 8, 66313.16m
+            |]
+
+        for i = 0 to expected.Length - 1 do
+            let expCode, expCount, expTotal = expected.[i]
+            Assert.Equal(expCode, results.[i].cntrycode)
+            Assert.Equal(expCount, results.[i].numcust)
+            Assert.Equal(expTotal, results.[i].totacctbal)
+
+
+
+
+
 
 
 

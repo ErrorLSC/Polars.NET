@@ -1645,7 +1645,31 @@ and PolarsQuery<'T>
         match keyDefinitionsOpt with
         | None -> None
         | Some keyDefs ->
-            match PolarsQuery<'T>.TryExtractMemberBindings projBody with
+            let memberBindingsOpt =
+                match PolarsQuery<'T>.TryExtractMemberBindings projBody with
+                | Some bindings -> Some bindings
+                | None ->
+                    let cleanProj = ExprTranslator.unwrap projBody
+                    let isKey =
+                        if isKeyArg cleanProj then true
+                        else
+                            match cleanProj with
+                            | MemberAccess(target, _) when isKeyArg target -> true
+                            | MemberAccess(MemberAccess(p, keyProp), _) when
+                                not (isNull p) && p.NodeType = ExpressionType.Parameter && keyProp.Name = "Key" -> true
+                            | _ -> false
+
+                    if isKey then
+                        let name =
+                            match cleanProj with
+                            | MemberAccess(_, m) when m.Name <> "Key" -> m.Name
+                            | _ ->
+                                if keyDefs.Length = 1 then fst keyDefs.[0] else "Key"
+                        Some [ (name, projBody) ]
+                    else
+                        None
+
+            match memberBindingsOpt with
             | None -> None
             | Some memberBindings ->
                 let memberNames = memberBindings |> List.map fst
@@ -1817,16 +1841,6 @@ and PolarsQuery<'T>
                 else
                     let aggs = translatedAggOpts |> List.choose id
 
-                    let groupBySpec =
-                        {
-                            Keys = keyAliasedExprs
-                            Aggs = aggs |> List.toArray
-                            Having = None
-                            MaintainOrder = false
-                        }
-
-                    let groupByOp = QueryOp.GroupBy groupBySpec
-
                     let resolveResultColName (e: Expression) : string option =
                         let cleanE = ExprTranslator.unwrap e
 
@@ -1847,56 +1861,85 @@ and PolarsQuery<'T>
                                     None)
                         | _ -> None
 
-                    let havingFilterOps =
+                    let extraHavingAggs = ResizeArray<string * ExprHandle>()
+
+                    let resolveHavingAggColName (aggCall: MethodCallExpression) : string option =
+                        match resolveResultColName aggCall with
+                        | Some colName -> Some colName
+                        | None ->
+                            let aggStr = aggCall.ToString()
+                            match extraHavingAggs |> Seq.tryFind (fun (str, _) -> str = aggStr) with
+                            | Some _ ->
+                                let idx = extraHavingAggs |> Seq.findIndex (fun (str, _) -> str = aggStr)
+                                Some (sprintf "__having_agg_%d" idx)
+                            | None ->
+                                let colName = sprintf "__having_agg_%d" extraHavingAggs.Count
+                                match tryTranslateSingleAgg colName aggCall with
+                                | Some h ->
+                                    extraHavingAggs.Add((aggStr, h))
+                                    Some colName
+                                | None -> None
+
+                    let rec translateHaving (expr: Expression) : ExprHandle option =
+                        match expr with
+                        | Binary(op, left, right) ->
+                            match translateHaving left, translateHaving right with
+                            | Some l, Some r ->
+                                try
+                                    Some(ExprTranslator.translateBinary op l r)
+                                with _ ->
+                                    None
+                            | _ -> None
+                        | Constant _ -> ExprTranslator.tryTranslateWithContext TranslationContext.Empty expr
+                        | other ->
+                            match resolveResultColName other with
+                            | Some colName -> Some(PolarsWrapper.Col colName)
+                            | None ->
+                                match ExprTranslator.unwrap other with
+                                | :? MethodCallExpression as aggCall ->
+                                    resolveHavingAggColName aggCall |> Option.map PolarsWrapper.Col
+                                | _ -> None
+
+                    let havingFilterOpt =
                         ctx.HavingPreds
-                        |> List.choose (fun havingPred ->
-                            let rec translateHaving (expr: Expression) : ExprHandle option =
-                                match expr with
-                                | Binary(op, left, right) ->
-                                    match translateHaving left, translateHaving right with
-                                    | Some l, Some r ->
-                                        try
-                                            Some(ExprTranslator.translateBinary op l r)
-                                        with _ ->
-                                            None
-                                    | _ -> None
-                                | Constant _ -> ExprTranslator.tryTranslateWithContext TranslationContext.Empty expr
-                                | other ->
-                                    match resolveResultColName other with
-                                    | Some colName -> Some(PolarsWrapper.Col colName)
-                                    | None ->
-                                        match ExprTranslator.unwrap other with
-                                        | MethodCall _ as aggCall ->
-                                            AggTranslator.tryTranslateAggWithScalarCol
-                                                havingPred.Parameters.[0].Name
-                                                scalarColOpt
-                                                wholeRowStructOpt
-                                                aggCall
-                                                ""
-                                        | _ -> None
+                        |> List.map (fun havingPred -> translateHaving havingPred.Body)
 
-                            translateHaving havingPred.Body |> Option.map QueryOp.Filter)
+                    if not (havingFilterOpt |> List.forall Option.isSome) then
+                        None
+                    else
+                        let havingFilterOps = havingFilterOpt |> List.choose id |> List.map QueryOp.Filter
+                        let allAggs = aggs @ (extraHavingAggs |> Seq.map snd |> Seq.toList)
 
-                    let sortSpecs =
-                        ctx.SortStages
-                        |> List.choose (fun (sortLambda, isDesc) ->
-                            resolveResultColName sortLambda.Body
-                            |> Option.map (fun colName ->
-                                {
-                                    Expr = PolarsWrapper.Col colName
-                                    Descending = isDesc
-                                    NullsLast = false
-                                }))
+                        let groupBySpec =
+                            {
+                                Keys = keyAliasedExprs
+                                Aggs = allAggs |> List.toArray
+                                Having = None
+                                MaintainOrder = false
+                            }
 
-                    let sortOps = if sortSpecs.IsEmpty then [] else [ QueryOp.Sort sortSpecs ]
+                        let groupByOp = QueryOp.GroupBy groupBySpec
 
-                    let finalSelectOp =
-                        let orderedColExprs =
-                            memberNames |> List.map (fun mName -> PolarsWrapper.Col mName) |> List.toArray
+                        let sortSpecs =
+                            ctx.SortStages
+                            |> List.choose (fun (sortLambda, isDesc) ->
+                                resolveResultColName sortLambda.Body
+                                |> Option.map (fun colName ->
+                                    {
+                                        Expr = PolarsWrapper.Col colName
+                                        Descending = isDesc
+                                        NullsLast = false
+                                    }))
 
-                        QueryOp.Select orderedColExprs
+                        let sortOps = if sortSpecs.IsEmpty then [] else [ QueryOp.Sort sortSpecs ]
 
-                    Some(finalSelectOp :: sortOps @ havingFilterOps @ [ groupByOp ])
+                        let finalSelectOp =
+                            let orderedColExprs =
+                                memberNames |> List.map (fun mName -> PolarsWrapper.Col mName) |> List.toArray
+
+                            QueryOp.Select orderedColExprs
+
+                        Some(finalSelectOp :: sortOps @ havingFilterOps @ [ groupByOp ])
 
     /// Recursively inspects the expression tree to detect if Shuffle() was called.
     static member private HasShuffle(e: Expression) : bool =
