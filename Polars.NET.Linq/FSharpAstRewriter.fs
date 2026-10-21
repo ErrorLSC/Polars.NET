@@ -2,7 +2,9 @@ namespace Polars.NET.Linq
 
 open System
 open System.Collections.Generic
+open System.Linq
 open System.Linq.Expressions
+open System.Reflection
 
 module internal FSharpAst =
 
@@ -38,9 +40,10 @@ module internal FSharpAst =
         not (isNull t)
         && (t.Name.StartsWith "AnonymousObject"
             || t.Name.StartsWith "Tuple"
+            || t.Name.StartsWith "ValueTuple"
             || t.Name.Contains "TransparentIdentifier")
 
-    /// 1. Beta-reduction: reduce curried F# closure .Invoke(...)
+    /// 1. Beta-reduction: reduce curried F# closure .Invoke(...), tuple operators, and structural expressions
     let rec betaReduce (expr: Expression) : Expression =
         match expr with
         | null -> null
@@ -88,6 +91,18 @@ module internal FSharpAst =
                 betaReduce substituted
             | _ -> Expression.Invoke(reducedTarget, reducedArgs |> List.toArray) :> Expression
 
+        // Normalization of Operators.Fst and Operators.Snd
+        | :? MethodCallExpression as mc when
+            not (isNull mc.Method.DeclaringType)
+            && (mc.Method.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators"
+                || mc.Method.DeclaringType.Name = "Operators")
+            && (mc.Method.Name = "Fst" || mc.Method.Name = "Snd")
+            && mc.Arguments.Count = 1 ->
+
+            let target = betaReduce mc.Arguments.[0]
+            let propName = if mc.Method.Name = "Fst" then "Item1" else "Item2"
+            Expression.PropertyOrField(target, propName) :> Expression
+
         | :? MethodCallExpression as mc ->
             let newObj = if isNull mc.Object then null else betaReduce mc.Object
             let newArgs = mc.Arguments |> Seq.map betaReduce |> Seq.toArray
@@ -118,9 +133,183 @@ module internal FSharpAst =
             else
                 Expression.MakeBinary(b.NodeType, newLeft, newRight, b.IsLiftedToNull, b.Method) :> Expression
 
+        | :? ConditionalExpression as cond ->
+            let newTest = betaReduce cond.Test
+            let newIfTrue = betaReduce cond.IfTrue
+            let newIfFalse = betaReduce cond.IfFalse
+            if newTest = cond.Test && newIfTrue = cond.IfTrue && newIfFalse = cond.IfFalse then
+                cond :> Expression
+            else
+                Expression.Condition(newTest, newIfTrue, newIfFalse) :> Expression
+
+        | :? MemberExpression as me ->
+            let newTarget = if isNull me.Expression then null else betaReduce me.Expression
+            if newTarget = me.Expression then me :> Expression
+            else Expression.MakeMemberAccess(newTarget, me.Member) :> Expression
+
+        | :? NewExpression as ne ->
+            let newArgs = ne.Arguments |> Seq.map betaReduce |> Seq.toList
+            let changed = Seq.zip ne.Arguments newArgs |> Seq.exists (fun (oldA, newA) -> oldA <> newA)
+            if not changed then
+                ne :> Expression
+            elif isNull ne.Members || ne.Members.Count = 0 then
+                Expression.New(ne.Constructor, newArgs) :> Expression
+            else
+                Expression.New(ne.Constructor, newArgs, ne.Members) :> Expression
+
+        | :? MemberInitExpression as mie ->
+            let newNew = betaReduce mie.NewExpression :?> NewExpression
+            let newBindings =
+                mie.Bindings
+                |> Seq.map (fun b ->
+                    match b with
+                    | :? MemberAssignment as ma ->
+                        let newExpr = betaReduce ma.Expression
+                        if newExpr = ma.Expression then ma :> MemberBinding
+                        else Expression.Bind(ma.Member, newExpr) :> MemberBinding
+                    | other -> other)
+                |> Seq.toList
+            Expression.MemberInit(newNew, newBindings) :> Expression
+
+        | :? NewArrayExpression as nae when nae.NodeType = ExpressionType.NewArrayInit ->
+            let newElems = nae.Expressions |> Seq.map betaReduce |> Seq.toList
+            let changed = Seq.zip nae.Expressions newElems |> Seq.exists (fun (oldA, newA) -> oldA <> newA)
+            if not changed then nae :> Expression
+            else Expression.NewArrayInit(nae.Type.GetElementType(), newElems) :> Expression
+
+        | :? TypeBinaryExpression as tbe ->
+            let newExpr = betaReduce tbe.Expression
+            if newExpr = tbe.Expression then tbe :> Expression
+            else Expression.TypeIs(newExpr, tbe.TypeOperand) :> Expression
+
         | other -> other
 
-    /// 2. StreamBindingCollector：Use ParamName and TypeName as index
+    /// Helper checking whether a lambda is an identity projection copying properties of an anonymous object or tuple
+    let private isIdentityProjection (lambda: LambdaExpression) : bool =
+        if lambda.Parameters.Count <> 1 then
+            false
+        else
+            let param = lambda.Parameters.[0]
+            let unwrapped = unwrapQuote lambda.Body
+            match unwrapped with
+            | :? ParameterExpression as p when p = param -> true
+            | :? MemberInitExpression as mie when isTupleOrAnon mie.Type && mie.Type = param.Type ->
+                mie.Bindings.Count > 0
+                && mie.Bindings
+                   |> Seq.forall (function
+                       | :? MemberAssignment as ma ->
+                           match unwrapQuote ma.Expression with
+                           | :? MemberExpression as me ->
+                               match unwrapQuote me.Expression with
+                               | :? ParameterExpression as p -> p = param && me.Member.Name = ma.Member.Name
+                               | _ -> false
+                           | _ -> false
+                       | _ -> false)
+            | :? NewExpression as ne when isTupleOrAnon ne.Type && ne.Type = param.Type && ne.Arguments.Count > 0 ->
+                let memberMap = extractMemberMap ne
+                memberMap
+                |> Map.forall (fun memberName argExpr ->
+                    match unwrapQuote argExpr with
+                    | :? MemberExpression as me ->
+                        match unwrapQuote me.Expression with
+                        | :? ParameterExpression as p -> p = param && me.Member.Name = memberName
+                        | _ -> false
+                    | _ -> false)
+            | _ -> false
+
+    /// 2. PipelineNormalizer:
+    /// - Strips redundant identity projections (e.g. .Select(_arg => new AnonymousObject(_arg.Item1, ...)))
+    /// - Flattens F# synthetic Grouping wrappers (e.g. .GroupBy(...).Select(g => new Grouping(g.Key, g.Select(...))))
+    type private PipelineNormalizer() =
+        inherit ExpressionVisitor()
+
+        override this.VisitMethodCall(mc: MethodCallExpression) =
+            let visitedMc = base.VisitMethodCall(mc) :?> MethodCallExpression
+
+            // Check if this method call is Queryable.Select or Enumerable.Select
+            if (visitedMc.Method.DeclaringType = typeof<Queryable> || visitedMc.Method.DeclaringType = typeof<Enumerable>)
+               && visitedMc.Method.Name = "Select"
+               && visitedMc.Arguments.Count = 2 then
+
+                let source = visitedMc.Arguments.[0]
+                let selArg = unwrapQuote visitedMc.Arguments.[1]
+
+                match selArg with
+                // 1. Redundant Identity Projection Stripper
+                | :? LambdaExpression as l when isIdentityProjection l ->
+                    source
+
+                // 2. F# Grouping Wrapper Flattener
+                | :? LambdaExpression as l when l.Parameters.Count = 1 ->
+                    let gParam = l.Parameters.[0]
+                    let bodyUnwrapped = unwrapQuote l.Body
+
+                    match bodyUnwrapped with
+                    | :? NewExpression as ne when
+                        not (isNull ne.Type.FullName) && ne.Type.FullName.Contains "Grouping"
+                        && ne.Arguments.Count = 2 ->
+
+                        let keyArg = unwrapQuote ne.Arguments.[0]
+                        let isKeyArgMatching =
+                            match keyArg with
+                            | :? MemberExpression as me ->
+                                match unwrapQuote me.Expression with
+                                | :? ParameterExpression as p -> p = gParam && me.Member.Name = "Key"
+                                | _ -> false
+                            | _ -> false
+
+                        if isKeyArgMatching then
+                            let elemArg = unwrapQuote ne.Arguments.[1]
+                            let sourceUnwrapped = unwrapQuote source
+
+                            match sourceUnwrapped with
+                            | :? MethodCallExpression as groupMc when
+                                (groupMc.Method.DeclaringType = typeof<Queryable> || groupMc.Method.DeclaringType = typeof<Enumerable>)
+                                && groupMc.Method.Name = "GroupBy"
+                                && groupMc.Arguments.Count = 2 ->
+
+                                let innerSource = groupMc.Arguments.[0]
+                                let keySelector = groupMc.Arguments.[1]
+
+                                match elemArg with
+                                // Case A: g.Select(v => elemProjection) -> Queryable.GroupBy(source, keySelector, elemSelector)
+                                | :? MethodCallExpression as elemMc when
+                                    elemMc.Method.Name = "Select"
+                                    && elemMc.Arguments.Count = 2
+                                    && (match unwrapQuote elemMc.Arguments.[0] with
+                                        | :? ParameterExpression as p -> p = gParam
+                                        | _ -> false) ->
+
+                                    let elemSelector = elemMc.Arguments.[1]
+                                    let tSource = groupMc.Method.GetGenericArguments().[0]
+                                    let tKey = groupMc.Method.GetGenericArguments().[1]
+                                    let tElement = elemMc.Method.GetGenericArguments().[1]
+
+                                    let gm =
+                                        typeof<Queryable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
+                                        |> Array.find (fun m ->
+                                            m.Name = "GroupBy"
+                                            && m.GetGenericArguments().Length = 3
+                                            && m.GetParameters().Length = 3)
+                                        |> fun m -> m.MakeGenericMethod(tSource, tKey, tElement)
+
+                                    Expression.Call(null, gm, innerSource, keySelector, elemSelector) :> Expression
+
+                                // Case B: second arg is just gParam (identity grouping wrapper)
+                                | :? ParameterExpression as p when p = gParam ->
+                                    sourceUnwrapped
+
+                                | _ -> visitedMc :> Expression
+                            | _ ->
+                                visitedMc :> Expression
+                        else
+                            visitedMc :> Expression
+                    | _ -> visitedMc :> Expression
+                | _ -> visitedMc :> Expression
+            else
+                visitedMc :> Expression
+
+    /// 3. StreamBindingCollector：Use ParamName and TypeName as index
     type private StreamBindingCollector(bindings: Dictionary<string, NewExpression>) =
         inherit ExpressionVisitor()
 
@@ -176,7 +365,7 @@ module internal FSharpAst =
 
             mc :> Expression
 
-    /// 3. LetInliner: Flatten tupledArg.Item8.Item1 into (tupledArg.Item1.DeptId * 100)
+    /// 4. LetInliner: Flatten tupledArg.Item8.Item1 into (tupledArg.Item1.DeptId * 100)
     type private LetInliner(bindings: Dictionary<string, NewExpression>) =
         inherit ExpressionVisitor()
 
@@ -233,12 +422,14 @@ module internal FSharpAst =
     /// Main rewrite entry point for F# LINQ expressions
     let rewrite (expr: Expression) : Expression =
         let reduced = betaReduce expr
+        let normalized = PipelineNormalizer().Visit reduced
 
         let bindings = Dictionary<string, NewExpression>()
         let collector = StreamBindingCollector bindings
-        collector.Visit reduced |> ignore
+        collector.Visit normalized |> ignore
 
         let inliner = LetInliner bindings
-        let inlined = inliner.Visit reduced
+        let inlined = inliner.Visit normalized
 
-        betaReduce inlined
+        let postReduced = betaReduce inlined
+        PipelineNormalizer().Visit postReduced
