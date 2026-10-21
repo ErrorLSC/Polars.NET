@@ -183,6 +183,14 @@ module internal ExpressionPatterns =
 
         | _ -> None
 
+    let rec internal isTransparentChain (expr: Expression) =
+        match expr with
+        | null -> false
+        | :? ParameterExpression -> true
+        | MemberAccess(target, m) when isTransparentScopeMember m || isFSharpAnonymousMember m || m.Name = "Rest" ->
+            isTransparentChain target
+        | _ -> false
+
     /// Active pattern to strip convert/quote wrappers and resolve root column names,
     /// seamlessly unwrapping F# AnonymousObject tuple chains
     let rec (|ExtractColumnName|_|) (expr: Expression) : string option =
@@ -193,8 +201,8 @@ module internal ExpressionPatterns =
         | Unary(ExpressionType.Quote, inner) -> (|ExtractColumnName|_|) inner
         // Direct member: e.Name
         | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter -> Some m.Name
-        // F# AnonymousObject nesting: tuple.Item1.Name
-        | MemberAccess(MemberAccess(p, innerM), m) when not (isNull p) && isFSharpAnonymousMember innerM -> Some m.Name
+        // Arbitrary F# AnonymousObject / Tuple nesting: tuple.Item1.Name, tuple.Item8.Item1.Name, etc.
+        | MemberAccess(target, m) when not (isNull target) && isTransparentChain target -> Some m.Name
         | _ -> None
 
     /// Evaluates expressions that resolve to values (e.g., closures, captured variables, local props, method calls)

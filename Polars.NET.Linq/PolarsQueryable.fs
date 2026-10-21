@@ -74,6 +74,7 @@ type PlanInspection =
         ClientPredicateExpressions: LambdaExpression list
         HasClientProjection: bool
         IsFullFallback: bool
+        FallbackReason: string option
     }
 
     /// Formats the inspection result into a human-readable diagnostic report.
@@ -89,6 +90,11 @@ type PlanInspection =
 
             sb.AppendLine "Warning: The query contains unsupported expressions or transparent identifiers."
             |> ignore
+
+            match this.FallbackReason with
+            | Some reason ->
+                sb.AppendLine(sprintf "   Diagnostic reason: %s" reason) |> ignore
+            | None -> ()
 
             sb.AppendLine "   The entire pipeline will be executed in managed memory via LINQ-to-Objects."
             |> ignore
@@ -123,6 +129,13 @@ type PlanInspection =
 type IPolarsExplainable =
     abstract member InspectPlan: optimized: bool -> PlanInspection
     abstract member Explain: optimized: bool -> string
+
+type internal FallbackTracker =
+    [<ThreadStatic; DefaultValue>]
+    static val mutable private diagnostic: string option
+    static member Diagnostic
+        with get () = FallbackTracker.diagnostic
+        and set (v: string option) = FallbackTracker.diagnostic <- v
 
 type internal QueryMaterializerResolver =
     /// Resolves the effective IDataFrameMaterializer using explicit instance or registered fallback
@@ -1345,17 +1358,22 @@ and PolarsQuery<'T>
             PolarsWrapper.GetSchemaFieldAt(schema, uint64 i, &name, &dtHandle)
             name, dtHandle)
 
-    /// Extracts member names and capitalizes them to PascalCase
+    /// Extracts member names matching properties or capitalizes them to PascalCase
     static member private ExtractPascalCaseMemberNames(newExpr: NewExpression) : string list =
         if not (isNull newExpr.Members) then
             newExpr.Members |> Seq.map (fun m -> m.Name) |> Seq.toList
         else
+            let t = newExpr.Type
             newExpr.Constructor.GetParameters()
             |> Seq.map (fun p ->
                 if String.IsNullOrEmpty p.Name then
                     "Col"
                 else
-                    Char.ToUpperInvariant(p.Name.[0]).ToString() + p.Name.Substring 1)
+                    match t.GetProperty(p.Name, BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.IgnoreCase) with
+                    | prop when not (isNull prop) && prop.Name = p.Name -> p.Name
+                    | prop when not (isNull prop) -> prop.Name
+                    | _ ->
+                        Char.ToUpperInvariant(p.Name.[0]).ToString() + p.Name.Substring 1)
             |> Seq.toList
 
     /// Extracts column names from a DistinctBy keySelector lambda
@@ -2635,6 +2653,7 @@ and PolarsQuery<'T>
                 PartialEvaluator.substituteExtracted cached.NormalizedExpression extraction.Parameters
 
         let stages = flatten bound []
+        FallbackTracker.Diagnostic <- None
         // eprintfn "[FLATTENED STAGES COUNT] %d" stages.Length
         // stages |> List.iteri (fun idx s -> eprintfn "  Stage[%d] = %A" idx s)
 
@@ -2883,6 +2902,7 @@ and PolarsQuery<'T>
                                 || paramType.Name.Contains "TransparentIdentifier"
                                 || clientProjOpt.IsSome
                             then
+                                FallbackTracker.Diagnostic <- Some (sprintf "Filter on transparent identifier %s: %s\nRewritten body: %s" paramType.Name (l.ToString()) (bound.ToString()))
                                 [], [], None, true
                             else
                                 // Strongly-typed Func<obj, bool> compilation without DynamicInvoke
@@ -2971,11 +2991,21 @@ and PolarsQuery<'T>
                             | Some bindings when resSel.Parameters.Count >= 2 ->
                                 let p1, p2 = resSel.Parameters.[0].Name, resSel.Parameters.[1].Name
 
-                                bindings
-                                |> List.forall (fun (_, expr) ->
-                                    match ExprTranslator.unwrap expr with
+                                let rec isTransparentArg (e: Expression) =
+                                    match ExprTranslator.unwrap e with
                                     | :? ParameterExpression as p -> p.Name = p1 || p.Name = p2
-                                    | _ -> false)
+                                    | MemberAccess(target, m) when
+                                        ExprTranslator.isNavigationMember m
+                                        || ExpressionPatterns.isTransparentScopeMember m ->
+                                        isTransparentArg target
+                                    | :? NewExpression as ne when
+                                        ne.Type.Name.StartsWith "AnonymousObject"
+                                        || ne.Type.Name.StartsWith "Tuple"
+                                        || ne.Type.Name.StartsWith "ValueTuple" ->
+                                        ne.Arguments |> Seq.forall isTransparentArg
+                                    | _ -> false
+
+                                bindings |> List.forall (fun (_, expr) -> isTransparentArg expr)
                             | _ -> false
 
                         if isTransparent then
@@ -2988,8 +3018,12 @@ and PolarsQuery<'T>
                             | Some selectOp ->
                                 // Apply Join first, then apply the result projection
                                 fuse tail (selectOp :: QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
-                            | None -> [], [], None, true
-                | None -> [], [], None, true
+                            | None ->
+                                FallbackTracker.Diagnostic <- Some (sprintf "CompileJoinResultSelector failed: %s\nLeftCols: %A\nRightCols: %A" (resSel.ToString()) leftCols rightCols)
+                                [], [], None, true
+                | None ->
+                    FallbackTracker.Diagnostic <- Some (sprintf "CompileJoin failed for inner: %s, outerKey: %s, innerKey: %s" (inner.ToString()) (outerKey.ToString()) (innerKey.ToString()))
+                    [], [], None, true
 
             | LinqStage.GroupJoin(m, inner, outerKey, innerKey, _) :: LinqStage.Explode(collSelector, _) :: tail when
                 collSelector.ToString().Contains "DefaultIfEmpty"
@@ -3537,7 +3571,10 @@ and PolarsQuery<'T>
 
             | _ :: tail -> fuse tail opsAcc clientPreds clientProjOpt
 
-        fuse stages [] [] None
+        let ops, clientPreds, clientProjOpt, requiresClientFallback = fuse stages [] [] None
+        if requiresClientFallback && FallbackTracker.Diagnostic.IsNone then
+            FallbackTracker.Diagnostic <- Some (sprintf "Stages failed to fuse. stages count: %d\nbound: %s\nstages: %A" stages.Length (bound.ToString()) stages)
+        ops, clientPreds, clientProjOpt, requiresClientFallback
 
     /// Compiles pipeline and builds the target native LazyFrameHandle alongside client predicates, projection, and fallback signal
     member private this.GetCompiledPlan
@@ -4123,6 +4160,7 @@ and PolarsQuery<'T>
             ClientPredicateExpressions = clientPreds |> List.map snd
             HasClientProjection = clientProjOpt.IsSome || chunkSizeOpt.IsSome || shouldShuffle || isGrouping
             IsFullFallback = requiresClientFallback
+            FallbackReason = FallbackTracker.Diagnostic
         }
 
     interface IPolarsExplainable with

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFrameworks>net10.0</TargetFrameworks>
@@ -29,6 +29,7 @@
     <Compile Include="ConfigTests.fs" />
     <Compile Include="DataFrameTests.fs" />
     <Compile Include="AsyncTests.fs" />
+    <Compile Include="TpchLinqTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

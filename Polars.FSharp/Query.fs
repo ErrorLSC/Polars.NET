@@ -61,7 +61,8 @@ module LinqExtension =
                                     match polarsQ with
                                     | :? IPolarsExplainable as exp -> Some exp
                                     | _ -> None
-                                with _ ->
+                                with ex ->
+                                    printfn "[DEBUG tryExtractExplainable] CreateQuery EXCEPTION: %A" ex
                                     None
                             else
                                 None

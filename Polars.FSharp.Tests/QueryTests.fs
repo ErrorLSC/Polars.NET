@@ -2080,6 +2080,74 @@ module QueryTests =
         Assert.Equal(3, asSeqList.Length)
         Assert.Equal("Alice", asSeqList.[0].Name)
 
+    [<Fact; Trait("LINQ", "FSharpAstRewriter")>]
+    let ``Test FSharpAst betaReduce handles shadowed parameter names safely`` () =
+        // Outer lambda: (x: int) => ((x: int) => x + 1)(10) + x
+        // When beta-reducing outer lambda with argument 100, outer x becomes 100,
+        // and inner lambda parameter x must not be replaced by 100!
+        let outerParam = Linq.Expressions.Expression.Parameter(typeof<int>, "x")
+        let innerParam = Linq.Expressions.Expression.Parameter(typeof<int>, "x")
+        let innerBody = Linq.Expressions.Expression.Add(innerParam, Linq.Expressions.Expression.Constant(1))
+        let innerLambda = Linq.Expressions.Expression.Lambda<Func<int, int>>(innerBody, innerParam)
+        let innerInvoke = Linq.Expressions.Expression.Invoke(innerLambda, Linq.Expressions.Expression.Constant(10))
+        let outerBody = Linq.Expressions.Expression.Add(innerInvoke, outerParam)
+        let outerLambda = Linq.Expressions.Expression.Lambda<Func<int, int>>(outerBody, outerParam)
+
+        let invokeOuter = Linq.Expressions.Expression.Invoke(outerLambda, Linq.Expressions.Expression.Constant(100))
+        let rewritten = Polars.NET.Linq.FSharpAst.betaReduce invokeOuter
+
+        // Result should be (10 + 1) + 100 = 111
+        let compiled = Linq.Expressions.Expression.Lambda<Func<int>>(rewritten).Compile()
+        Assert.Equal(111, compiled.Invoke())
+
+    [<Fact; Trait("LINQ", "FSharpAstRewriter")>]
+    let ``Test FSharpAst handles 8-tuple with Rest field in LetInliner and extraction`` () =
+        // Construct an 8-tuple NewExpression:
+        // Tuple<int, int, int, int, int, int, int, Tuple<int>>
+        let restTupleType = typeof<Tuple<int>>
+        let restNew = Linq.Expressions.Expression.New(restTupleType.GetConstructor([| typeof<int> |]), [| Linq.Expressions.Expression.Constant(800) :> Linq.Expressions.Expression |])
+
+        let tuple8Type = typeof<Tuple<int, int, int, int, int, int, int, Tuple<int>>>
+        let tuple8Ctor = tuple8Type.GetConstructors().[0]
+        let tuple8Args: Linq.Expressions.Expression[] = [|
+            Linq.Expressions.Expression.Constant(100) :> Linq.Expressions.Expression
+            Linq.Expressions.Expression.Constant(200) :> Linq.Expressions.Expression
+            Linq.Expressions.Expression.Constant(300) :> Linq.Expressions.Expression
+            Linq.Expressions.Expression.Constant(400) :> Linq.Expressions.Expression
+            Linq.Expressions.Expression.Constant(500) :> Linq.Expressions.Expression
+            Linq.Expressions.Expression.Constant(600) :> Linq.Expressions.Expression
+            Linq.Expressions.Expression.Constant(700) :> Linq.Expressions.Expression
+            restNew :> Linq.Expressions.Expression
+        |]
+        let tuple8New = Linq.Expressions.Expression.New(tuple8Ctor, tuple8Args)
+
+        // Access .Rest.Item1 from tuple8New
+        let restAccess = Linq.Expressions.Expression.Property(tuple8New, "Rest")
+        let item8Access = Linq.Expressions.Expression.Property(restAccess, "Item1")
+
+        // Inlining member access on NewExpression
+        let inlined = Polars.NET.Linq.FSharpAst.rewrite item8Access
+        Assert.True(inlined :? Linq.Expressions.ConstantExpression)
+        Assert.Equal(800, unbox<int> (inlined :?> Linq.Expressions.ConstantExpression).Value)
+
+    [<Fact; Trait("LINQ", "FSharpAstRewriter")>]
+    let ``Test FSharpAst PipelineNormalizer GroupBy reflection is cached and produces valid query`` () =
+        let emps = [
+            { Name = "Alice"; DeptId = 10; Salary = 1000.0 }
+            { Name = "Bob"; DeptId = 10; Salary = 2000.0 }
+            { Name = "Charlie"; DeptId = 20; Salary = 3000.0 }
+        ]
+        use df = DataFrame.ofRecords emps
+        let queryable =
+            query {
+                for e in df.AsQueryable<EmployeeSalary>() do
+                groupBy e.DeptId into g
+                select (g.Key, g.Count())
+            }
+        let results = queryable.ToList()
+        Assert.Equal(2, results.Count)
+
+
 
 
 
