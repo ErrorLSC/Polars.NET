@@ -7,6 +7,8 @@ using Apache.Arrow.Arrays;
 using Apache.Arrow.Types;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
+using Microsoft.FSharp.Reflection;
+using Polars.NET.Core.Helpers;
 
 namespace Polars.NET.Core.Arrow;
 
@@ -256,6 +258,103 @@ public static class ArrowReader
                     dict[kv.Key] = kv.Value(idx);
                 }
                 return dict;
+            };
+        }
+
+        // F# Record Struct Mapping
+        if (PolarsTypeHelper.IsFSharpRecord(type))
+        {
+            var fields = FSharpType.GetRecordFields(type, null);
+            var structTypeRecord = (StructType)structArray.Data.DataType;
+            var getters = new Func<int, object?>[fields.Length];
+
+            for (int i = 0; i < fields.Length; i++)
+            {
+                var field = fields[i];
+                int fieldIndex = -1;
+                for (int k = 0; k < structTypeRecord.Fields.Count; k++)
+                {
+                    if (string.Equals(structTypeRecord.Fields[k].Name, field.Name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        fieldIndex = k;
+                        break;
+                    }
+                }
+
+                if (fieldIndex != -1)
+                {
+                    var childArray = structArray.Fields[fieldIndex];
+                    getters[i] = CreateAccessor(childArray, field.PropertyType);
+                }
+                else
+                {
+                    var defaultVal = field.PropertyType.IsValueType ? Activator.CreateInstance(field.PropertyType) : null;
+                    getters[i] = _ => defaultVal;
+                }
+            }
+
+            var recordCtor = FSharpValue.PreComputeRecordConstructor(type, null);
+            return idx =>
+            {
+                if (structArray.IsNull(idx)) return null;
+                var args = new object?[fields.Length];
+                for (int i = 0; i < fields.Length; i++)
+                {
+                    args[i] = getters[i](idx);
+                }
+                return recordCtor.Invoke(args);
+            };
+        }
+
+        // C# Record or Class with primary/parameterized constructor
+        var ctors = type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        var primaryCtor = ctors
+            .Where(c => !(c.GetParameters().Length == 1 && c.GetParameters()[0].ParameterType == type))
+            .OrderByDescending(c => c.GetParameters().Length)
+            .FirstOrDefault();
+        bool hasParameterlessCtor = type.GetConstructor(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null) != null;
+
+        if (!hasParameterlessCtor && primaryCtor != null && primaryCtor.GetParameters().Length > 0)
+        {
+            var ctorParams = primaryCtor.GetParameters();
+            var structTypeCtor = (StructType)structArray.Data.DataType;
+            var getters = new Func<int, object?>[ctorParams.Length];
+
+            for (int i = 0; i < ctorParams.Length; i++)
+            {
+                var p = ctorParams[i];
+                var pName = p.Name?.TrimStart('@') ?? string.Empty;
+                int fieldIndex = -1;
+                for (int k = 0; k < structTypeCtor.Fields.Count; k++)
+                {
+                    if (string.Equals(structTypeCtor.Fields[k].Name, pName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        fieldIndex = k;
+                        break;
+                    }
+                }
+
+                if (fieldIndex != -1)
+                {
+                    var childArray = structArray.Fields[fieldIndex];
+                    getters[i] = CreateAccessor(childArray, p.ParameterType);
+                }
+                else
+                {
+                    var defaultVal = p.ParameterType.IsValueType ? Activator.CreateInstance(p.ParameterType) : null;
+                    getters[i] = _ => defaultVal;
+                }
+            }
+
+            return idx =>
+            {
+                if (structArray.IsNull(idx)) return null;
+                var args = new object?[ctorParams.Length];
+                for (int i = 0; i < ctorParams.Length; i++)
+                {
+                    args[i] = getters[i](idx);
+                }
+                return primaryCtor.Invoke(args);
             };
         }
 

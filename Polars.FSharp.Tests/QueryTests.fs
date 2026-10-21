@@ -143,6 +143,38 @@ type WideRecord =
         Col20: int
     }
 
+type Address =
+    {
+        City: string
+        Zip: int
+    }
+
+type PersonWithAddress =
+    {
+        Id: int
+        Name: string
+        Addr: Address
+    }
+
+type GeoLocation =
+    {
+        Lat: float
+        Lon: float
+    }
+
+type DetailedAddress =
+    {
+        City: string
+        Geo: GeoLocation
+    }
+
+type DeepUserRecord =
+    {
+        Id: int
+        Username: string
+        Location: DetailedAddress
+    }
+
 module QueryTests =
     [<Literal>]
     let nativePushdown = "100% Native Pushdown"
@@ -2453,6 +2485,148 @@ module QueryTests =
         Assert.Equal(3, q4.[1].Id) // ValDec1 = 300.50m
         Assert.Equal("Gamma", q4.[1].Name)
         Assert.Equal(300.50m, q4.[1].Dec)
+
+    [<Fact; Trait("LINQ", "NestedRecord")>]
+    let ``Test FSharp Query on Nested Records in Struct Column`` () =
+        let data =
+            [|
+                {
+                    Id = 1
+                    Name = "Alice"
+                    Addr = { City = "Beijing"; Zip = 100000 }
+                }
+                {
+                    Id = 2
+                    Name = "Bob"
+                    Addr = { City = "Shanghai"; Zip = 200000 }
+                }
+                {
+                    Id = 3
+                    Name = "Charlie"
+                    Addr = { City = "Beijing"; Zip = 100084 }
+                }
+            |]
+
+        use df = DataFrame.ofRecords data
+
+        // 1. Filter nested struct field
+        let q1 =
+            query {
+                for p in df.AsQueryable<PersonWithAddress>() do
+                where (p.Addr.City = "Beijing")
+                sortBy p.Id
+                select p
+            }
+            |> assertPlan nativePushdown
+            |> Seq.toArray
+
+        Assert.Equal(2, q1.Length)
+        Assert.Equal(1, q1.[0].Id)
+        Assert.Equal("Alice", q1.[0].Name)
+        Assert.Equal("Beijing", q1.[0].Addr.City)
+        Assert.Equal(100000, q1.[0].Addr.Zip)
+
+        Assert.Equal(3, q1.[1].Id)
+        Assert.Equal("Charlie", q1.[1].Name)
+        Assert.Equal("Beijing", q1.[1].Addr.City)
+        Assert.Equal(100084, q1.[1].Addr.Zip)
+
+        // 2. Project nested fields into anonymous record with conditions
+        let q2 =
+            query {
+                for p in df.AsQueryable<PersonWithAddress>() do
+                where (p.Addr.Zip > 100050)
+                sortBy p.Id
+                select {| PersonName = p.Name; City = p.Addr.City; Zip = p.Addr.Zip |}
+            }
+            |> assertPlan nativePushdown
+            |> Seq.toArray
+
+        Assert.Equal(2, q2.Length)
+        Assert.Equal("Bob", q2.[0].PersonName)
+        Assert.Equal("Shanghai", q2.[0].City)
+        Assert.Equal(200000, q2.[0].Zip)
+        Assert.Equal("Charlie", q2.[1].PersonName)
+        Assert.Equal("Beijing", q2.[1].City)
+        Assert.Equal(100084, q2.[1].Zip)
+
+        // 3. GroupBy on nested struct field
+        let q3 =
+            query {
+                for p in df.AsQueryable<PersonWithAddress>() do
+                groupBy p.Addr.City into g
+                sortBy g.Key
+                select {| City = g.Key; Count = g.Count(); MaxZip = g.Max(fun x -> x.Addr.Zip) |}
+            }
+            |> assertPlan nativePushdown
+            |> Seq.toArray
+
+        Assert.Equal(2, q3.Length)
+        Assert.Equal("Beijing", q3.[0].City)
+        Assert.Equal(2, q3.[0].Count)
+        Assert.Equal(100084, q3.[0].MaxZip)
+        Assert.Equal("Shanghai", q3.[1].City)
+        Assert.Equal(1, q3.[1].Count)
+        Assert.Equal(200000, q3.[1].MaxZip)
+
+        // 4. Multi-level deep nesting: User -> DetailedAddress -> GeoLocation
+        let deepData =
+            [|
+                {
+                    Id = 1
+                    Username = "Alice"
+                    Location =
+                        {
+                            City = "Beijing"
+                            Geo = { Lat = 39.9042; Lon = 116.4074 }
+                        }
+                }
+                {
+                    Id = 2
+                    Username = "Bob"
+                    Location =
+                        {
+                            City = "Shanghai"
+                            Geo = { Lat = 31.2304; Lon = 121.4737 }
+                        }
+                }
+                {
+                    Id = 3
+                    Username = "Charlie"
+                    Location =
+                        {
+                            City = "Tokyo"
+                            Geo = { Lat = 35.6762; Lon = 139.6503 }
+                        }
+                }
+            |]
+
+        use deepDf = DataFrame.ofRecords deepData
+
+        let qDeep =
+            query {
+                for u in deepDf.AsQueryable<DeepUserRecord>() do
+                where (u.Location.Geo.Lat > 35.0)
+                sortBy u.Id
+                select
+                    {|
+                        Username = u.Username
+                        City = u.Location.City
+                        Lat = u.Location.Geo.Lat
+                        Lon = u.Location.Geo.Lon
+                    |}
+            }
+            |> assertPlan nativePushdown
+            |> Seq.toArray
+
+        Assert.Equal(2, qDeep.Length)
+        Assert.Equal("Alice", qDeep.[0].Username)
+        Assert.Equal("Beijing", qDeep.[0].City)
+        Assert.Equal(39.9042, qDeep.[0].Lat)
+
+        Assert.Equal("Charlie", qDeep.[1].Username)
+        Assert.Equal("Tokyo", qDeep.[1].City)
+        Assert.Equal(35.6762, qDeep.[1].Lat)
 
 
 
