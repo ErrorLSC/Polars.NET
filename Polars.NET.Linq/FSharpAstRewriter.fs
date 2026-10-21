@@ -85,10 +85,79 @@ module internal FSharpAst =
                 BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static
             )
 
-    let private evalExpr (e: Expression) : obj =
+    let private convEnvInvoker: (obj -> obj) =
+        if isNull convEnvCtor then (fun _ -> null)
+        else
+            try
+                let param = Expression.Parameter(typeof<obj>, "varMap")
+                let ctorParamType = convEnvCtor.GetParameters().[0].ParameterType
+                let castParam = Expression.Convert(param, ctorParamType)
+                let newExpr = Expression.New(convEnvCtor, [| castParam :> Expression |])
+                let lambda = Expression.Lambda<Func<obj, obj>>(Expression.Convert(newExpr, typeof<obj>), [| param |])
+                let compiled = lambda.Compile()
+                fun (varMap: obj) -> compiled.Invoke(varMap)
+            with _ ->
+                fun (varMap: obj) -> convEnvCtor.Invoke [| varMap |]
+
+    let private convExprInvoker: (obj -> obj -> Expression) =
+        if isNull convExprMethod then (fun _ _ -> null)
+        else
+            try
+                let pEnv = Expression.Parameter(typeof<obj>, "env")
+                let pQ = Expression.Parameter(typeof<obj>, "q")
+                let methodParamTypes = convExprMethod.GetParameters()
+                let castEnv = Expression.Convert(pEnv, methodParamTypes.[0].ParameterType)
+                let castQ = Expression.Convert(pQ, methodParamTypes.[1].ParameterType)
+                let callExpr = Expression.Call(convExprMethod, [| castEnv :> Expression; castQ :> Expression |])
+                let lambda = Expression.Lambda<Func<obj, obj, Expression>>(callExpr, [| pEnv; pQ |])
+                let compiled = lambda.Compile()
+                fun (env: obj) (q: obj) -> compiled.Invoke(env, q)
+            with _ ->
+                fun (env: obj) (q: obj) -> convExprMethod.Invoke(null, [| env; q |]) :?> Expression
+
+    let rec private tryFastEvaluate (e: Expression) : obj option =
         match e with
-        | :? ConstantExpression as c -> c.Value
-        | _ ->
+        | null -> Some null
+        | :? ConstantExpression as c -> Some c.Value
+        | :? MemberExpression as me ->
+            if isNull me.Expression then
+                match me.Member with
+                | :? FieldInfo as fi -> Some(fi.GetValue(null))
+                | :? PropertyInfo as pi when pi.CanRead && pi.GetIndexParameters().Length = 0 -> Some(pi.GetValue(null))
+                | _ -> None
+            else
+                match tryFastEvaluate me.Expression with
+                | Some targetVal when not (isNull targetVal) ->
+                    match me.Member with
+                    | :? FieldInfo as fi -> Some(fi.GetValue(targetVal))
+                    | :? PropertyInfo as pi when pi.CanRead && pi.GetIndexParameters().Length = 0 ->
+                        Some(pi.GetValue(targetVal))
+                    | _ -> None
+                | _ -> None
+        | :? NewArrayExpression as nae when nae.NodeType = ExpressionType.NewArrayInit ->
+            let elemType = nae.Type.GetElementType()
+            let arr = Array.CreateInstance(elemType, nae.Expressions.Count)
+            let rec fill i =
+                if i >= nae.Expressions.Count then Some (box arr)
+                else
+                    match tryFastEvaluate nae.Expressions.[i] with
+                    | Some v ->
+                        arr.SetValue(v, i)
+                        fill (i + 1)
+                    | None -> None
+            fill 0
+        | :? UnaryExpression as ue when ue.NodeType = ExpressionType.Convert || ue.NodeType = ExpressionType.ConvertChecked ->
+            match tryFastEvaluate ue.Operand with
+            | Some v ->
+                try Some(Convert.ChangeType(v, ue.Type))
+                with _ -> Some v
+            | None -> None
+        | _ -> None
+
+    let private evalExpr (e: Expression) : obj =
+        match tryFastEvaluate e with
+        | Some v -> v
+        | None ->
             let lam = Expression.Lambda(e)
             lam.Compile().DynamicInvoke()
 
@@ -123,8 +192,8 @@ module internal FSharpAst =
                             |> Seq.map (fun (v, e) -> (v, e))
                             |> Map.ofSeq
 
-                        let env = convEnvCtor.Invoke [| box varMap |]
-                        let converted = convExprMethod.Invoke(null, [| env; box q |]) :?> Expression
+                        let env = convEnvInvoker (box varMap)
+                        let converted = convExprInvoker env (box q)
                         match converted with
                         | :? LambdaExpression as lam ->
                             Some (Expression.Quote lam :> Expression)
