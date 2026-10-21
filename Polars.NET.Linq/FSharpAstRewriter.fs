@@ -16,96 +16,6 @@ module internal FSharpAst =
             u.Operand
         | other -> other
 
-    let rec private areExpressionsEqual (e1: Expression) (e2: Expression) : bool =
-        if obj.ReferenceEquals(e1, e2) then true
-        elif isNull e1 || isNull e2 then false
-        elif e1.NodeType <> e2.NodeType || e1.Type <> e2.Type then false
-        else
-            match e1, e2 with
-            | (:? ParameterExpression as p1), (:? ParameterExpression as p2) ->
-                p1 = p2 || p1.Name = p2.Name && p1.Type = p2.Type
-            | (:? ConstantExpression as c1), (:? ConstantExpression as c2) ->
-                obj.Equals(c1.Value, c2.Value)
-            | (:? MemberExpression as m1), (:? MemberExpression as m2) ->
-                m1.Member = m2.Member && areExpressionsEqual m1.Expression m2.Expression
-            | (:? MethodCallExpression as mc1), (:? MethodCallExpression as mc2) ->
-                mc1.Method = mc2.Method
-                && areExpressionsEqual mc1.Object mc2.Object
-                && mc1.Arguments.Count = mc2.Arguments.Count
-                && Seq.forall2 areExpressionsEqual mc1.Arguments mc2.Arguments
-            | (:? BinaryExpression as b1), (:? BinaryExpression as b2) ->
-                b1.Method = b2.Method
-                && areExpressionsEqual b1.Left b2.Left
-                && areExpressionsEqual b1.Right b2.Right
-            | (:? UnaryExpression as u1), (:? UnaryExpression as u2) ->
-                u1.Method = u2.Method && areExpressionsEqual u1.Operand u2.Operand
-            | (:? NewExpression as n1), (:? NewExpression as n2) ->
-                n1.Constructor = n2.Constructor
-                && n1.Arguments.Count = n2.Arguments.Count
-                && Seq.forall2 areExpressionsEqual n1.Arguments n2.Arguments
-            | (:? ConditionalExpression as c1), (:? ConditionalExpression as c2) ->
-                areExpressionsEqual c1.Test c2.Test
-                && areExpressionsEqual c1.IfTrue c2.IfTrue
-                && areExpressionsEqual c1.IfFalse c2.IfFalse
-            | (:? InvocationExpression as inv1), (:? InvocationExpression as inv2) ->
-                areExpressionsEqual inv1.Expression inv2.Expression
-                && inv1.Arguments.Count = inv2.Arguments.Count
-                && Seq.forall2 areExpressionsEqual inv1.Arguments inv2.Arguments
-            | (:? LambdaExpression as l1), (:? LambdaExpression as l2) ->
-                l1.Parameters.Count = l2.Parameters.Count
-                && Seq.forall2 (fun (p1: ParameterExpression) (p2: ParameterExpression) -> p1.Type = p2.Type && p1.Name = p2.Name) l1.Parameters l2.Parameters
-                && areExpressionsEqual l1.Body l2.Body
-            | (:? MemberInitExpression as mi1), (:? MemberInitExpression as mi2) ->
-                areExpressionsEqual mi1.NewExpression mi2.NewExpression
-                && mi1.Bindings.Count = mi2.Bindings.Count
-                && Seq.forall2 (fun (b1: MemberBinding) (b2: MemberBinding) ->
-                    b1.BindingType = b2.BindingType && b1.Member = b2.Member
-                    && match b1, b2 with
-                       | (:? MemberAssignment as ma1), (:? MemberAssignment as ma2) -> areExpressionsEqual ma1.Expression ma2.Expression
-                       | _ -> false) mi1.Bindings mi2.Bindings
-            | (:? NewArrayExpression as na1), (:? NewArrayExpression as na2) ->
-                na1.Expressions.Count = na2.Expressions.Count
-                && Seq.forall2 areExpressionsEqual na1.Expressions na2.Expressions
-            | _ -> false
-
-    let rec private computeStructuralHash (e: Expression) : int =
-        if isNull e then 0
-        else
-            let h = int e.NodeType * 397 ^^^ if isNull e.Type then 0 else e.Type.GetHashCode()
-            match e with
-            | :? ParameterExpression as p ->
-                h * 31 ^^^ if isNull p.Name then 0 else p.Name.GetHashCode()
-            | :? ConstantExpression as c ->
-                h * 31 ^^^ if isNull c.Value then 0 else c.Value.GetHashCode()
-            | :? MemberExpression as m ->
-                (h * 31 ^^^ m.Member.GetHashCode()) * 31 ^^^ computeStructuralHash m.Expression
-            | :? MethodCallExpression as mc ->
-                let hMethod = (h * 31 ^^^ mc.Method.GetHashCode()) * 31 ^^^ computeStructuralHash mc.Object
-                mc.Arguments |> Seq.fold (fun acc a -> acc * 31 ^^^ computeStructuralHash a) hMethod
-            | :? BinaryExpression as b ->
-                (h * 31 ^^^ computeStructuralHash b.Left) * 31 ^^^ computeStructuralHash b.Right
-            | :? UnaryExpression as u ->
-                h * 31 ^^^ computeStructuralHash u.Operand
-            | :? NewExpression as ne ->
-                let hCtor = h * 31 ^^^ if isNull ne.Constructor then 0 else ne.Constructor.GetHashCode()
-                ne.Arguments |> Seq.fold (fun acc a -> acc * 31 ^^^ computeStructuralHash a) hCtor
-            | :? MemberInitExpression as mie ->
-                let hNew = computeStructuralHash mie.NewExpression
-                mie.Bindings |> Seq.fold (fun acc b ->
-                    match b with
-                    | :? MemberAssignment as ma -> acc * 31 ^^^ ma.Member.GetHashCode() * 31 ^^^ computeStructuralHash ma.Expression
-                    | _ -> acc * 31 ^^^ b.Member.GetHashCode()) hNew
-            | :? NewArrayExpression as nae ->
-                nae.Expressions |> Seq.fold (fun acc a -> acc * 31 ^^^ computeStructuralHash a) h
-            | _ -> h
-
-    type private ExpressionStructuralEqualityComparer() =
-        interface IEqualityComparer<Expression> with
-            member this.Equals(x, y) = areExpressionsEqual x y
-            member this.GetHashCode(obj) = computeStructuralHash obj
-
-        static member val Instance = ExpressionStructuralEqualityComparer() :> IEqualityComparer<Expression>
-
     /// Visitor that replaces parameter expressions by reference
     type private ParameterReplacer(paramMap: Dictionary<ParameterExpression, Expression>) =
         inherit ExpressionVisitor()
@@ -483,8 +393,8 @@ module internal FSharpAst =
                     | :? ParameterExpression as pe ->
                         pe = p
                         && (me.Member.Name = expectedMember
-                            || (expectedMember = "Rest" && me.Member.Name = "Item8")
-                            || (expectedMember = "Item8" && me.Member.Name = "Rest"))
+                            || expectedMember = "Rest" && me.Member.Name = "Item8"
+                            || expectedMember = "Item8" && me.Member.Name = "Rest")
                     | _ -> false
                 | :? NewExpression as innerNe when isTupleOrAnon innerNe.Type ->
                     let innerMap = extractMemberMap innerNe
@@ -498,8 +408,8 @@ module internal FSharpAst =
                                 | :? ParameterExpression as pe ->
                                     pe = p
                                     && (parentMe.Member.Name = expectedMember
-                                        || (expectedMember = "Rest" && parentMe.Member.Name = "Item8")
-                                        || (expectedMember = "Item8" && parentMe.Member.Name = "Rest"))
+                                        || expectedMember = "Rest" && parentMe.Member.Name = "Item8"
+                                        || expectedMember = "Item8" && parentMe.Member.Name = "Rest")
                                     && me.Member.Name = innerMember
                                 | _ -> false
                             | _ -> false
@@ -757,7 +667,7 @@ module internal FSharpAst =
 
                             match unwrappedChild with
                             | :? NewExpression as childNe when isTupleOrAnon childNe.Type ->
-                                let paramMap = Dictionary<Expression, Expression>(ExpressionStructuralEqualityComparer.Instance)
+                                let paramMap = Dictionary<Expression, Expression>(ExpressionEqualityComparer.Instance)
                                 let parentMap = extractMemberMap ne
 
                                 for KeyValue(itemName, itemArg) in parentMap do
@@ -796,3 +706,78 @@ module internal FSharpAst =
 
         let postReduced = betaReduce inlined
         PipelineNormalizer().Visit postReduced
+
+    /// Fast-path scanner checking if an expression contains F#-specific constructs
+    /// (e.g. Quotations, curried FSharpFunc closures, F# operators, or tuples >= 8 items).
+    let rec needsRewrite (expr: Expression) : bool =
+        match expr with
+        | null -> false
+        | :? MethodCallExpression as mc ->
+            if mc.Method.Name = "QuotationToLambdaExpression"
+               || mc.Method.Name = "Invoke"
+               || (not (isNull mc.Method.DeclaringType) && mc.Method.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators")
+               || (mc.Method.Name = "GroupBy" && mc.Method.GetGenericArguments().Length = 3) then
+                true
+            else
+                (not (isNull mc.Object) && needsRewrite mc.Object)
+                || (mc.Arguments |> Seq.exists needsRewrite)
+        | :? MemberExpression as me ->
+            if me.Member.Name = "Item8" || me.Member.Name = "Rest" then
+                true
+            else
+                not (isNull me.Expression) && needsRewrite me.Expression
+        | :? NewExpression as ne ->
+            if ne.Arguments.Count >= 8 then
+                true
+            else
+                ne.Arguments |> Seq.exists needsRewrite
+        | :? LambdaExpression as le ->
+            needsRewrite le.Body
+        | :? UnaryExpression as ue ->
+            needsRewrite ue.Operand
+        | :? BinaryExpression as be ->
+            needsRewrite be.Left || needsRewrite be.Right
+        | :? ConditionalExpression as ce ->
+            needsRewrite ce.Test || needsRewrite ce.IfTrue || needsRewrite ce.IfFalse
+        | :? InvocationExpression ->
+            true
+        | :? MemberInitExpression as mie ->
+            needsRewrite mie.NewExpression
+            || (mie.Bindings |> Seq.exists (function
+                | :? MemberAssignment as ma -> needsRewrite ma.Expression
+                | _ -> false))
+        | :? NewArrayExpression as nae ->
+            nae.Expressions |> Seq.exists needsRewrite
+        | _ -> false
+
+    /// Fast-path scanner for C# expressions:
+    /// In C#, only tuples with >= 8 elements (which use Rest/Item8) or MemberInit with Rest/Item8 require rewriting.
+    let rec needsCSharpRewrite (expr: Expression) : bool =
+        match expr with
+        | null -> false
+        | :? MemberExpression as me ->
+            me.Member.Name = "Item8"
+            || me.Member.Name = "Rest"
+            || (not (isNull me.Expression) && needsCSharpRewrite me.Expression)
+        | :? NewExpression as ne ->
+            ne.Arguments.Count >= 8
+            || (ne.Arguments |> Seq.exists needsCSharpRewrite)
+        | :? MethodCallExpression as mc ->
+            (not (isNull mc.Object) && needsCSharpRewrite mc.Object)
+            || (mc.Arguments |> Seq.exists needsCSharpRewrite)
+        | :? LambdaExpression as le ->
+            needsCSharpRewrite le.Body
+        | :? UnaryExpression as ue ->
+            needsCSharpRewrite ue.Operand
+        | :? BinaryExpression as be ->
+            needsCSharpRewrite be.Left || needsCSharpRewrite be.Right
+        | :? ConditionalExpression as ce ->
+            needsCSharpRewrite ce.Test || needsCSharpRewrite ce.IfTrue || needsCSharpRewrite ce.IfFalse
+        | :? MemberInitExpression as mie ->
+            needsCSharpRewrite mie.NewExpression
+            || (mie.Bindings |> Seq.exists (function
+                | :? MemberAssignment as ma -> needsCSharpRewrite ma.Expression
+                | _ -> false))
+        | :? NewArrayExpression as nae ->
+            nae.Expressions |> Seq.exists needsCSharpRewrite
+        | _ -> false

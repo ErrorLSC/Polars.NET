@@ -75,7 +75,7 @@ David,40,80000";
         using var lf2 = LazyFrame.ScanCsv(csv2.Path);
 
         // Diagonal Concat (Lazy)
-        // Row 0 (From LF1): A=1,    B=10,   C=null (补位)
+        // Row 0 (From LF1): A=1,    B=10,   C=null
         // Row 1 (From LF2): A=null, B=20,   C=300
         var concatLf = LazyFrame.Concat([lf1, lf2], ConcatType.Diagonal);
         

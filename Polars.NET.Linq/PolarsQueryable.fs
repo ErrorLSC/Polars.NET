@@ -2672,7 +2672,18 @@ and PolarsQuery<'T>
         let currentScalarCol =
             PolarsQueryProvider.tryGetScalarColumnName typeof<'T> lfCloned
 
-        let rewrittenExpr = expression |> FSharpAst.rewrite
+        let isCSharp = not (isNull materializer) && materializer.GetType().Name.StartsWith("CSharp")
+        let needsRewrite =
+            if isCSharp then
+                FSharpAst.needsCSharpRewrite expression
+            else
+                FSharpAst.needsRewrite expression
+
+        let rewrittenExpr =
+            if needsRewrite then
+                FSharpAst.rewrite expression
+            else
+                expression
         let extraction = PartialEvaluator.extract rewrittenExpr
         let cacheKey = QueryCacheKey.Create(typeof<'T>, extraction.NormalizedExpression)
 
@@ -2680,22 +2691,43 @@ and PolarsQuery<'T>
             QueryPlanCache.GetOrAdd(
                 cacheKey,
                 fun _ ->
+                    let normalizedStages =
+                        try
+                            let s = flatten extraction.NormalizedExpression []
+                            let hasSecondarySource =
+                                s |> List.exists (function
+                                    | LinqStage.Join _
+                                    | LinqStage.GroupJoin _
+                                    | LinqStage.CrossJoin _
+                                    | LinqStage.Zip _
+                                    | LinqStage.Zip3 _
+                                    | LinqStage.SetOp _
+                                    | LinqStage.Union _
+                                    | LinqStage.Concat _ -> true
+                                    | _ -> false)
+                            if hasSecondarySource then [] else s
+                        with _ ->
+                            []
                     {
                         Key = cacheKey
                         NormalizedExpression = extraction.NormalizedExpression
                         ParamNames = extraction.Parameters.Keys |> Seq.toArray
-                        NormalizedStages = []
+                        NormalizedStages = normalizedStages
                         LastAccessTick = Environment.TickCount64
                     }
             )
 
-        let bound =
-            if extraction.Parameters.Count = 0 then
-                rewrittenExpr
-            else
-                PartialEvaluator.substituteExtracted cached.NormalizedExpression extraction.Parameters
+        let bound = rewrittenExpr
 
-        let stages = flatten bound []
+        let stages =
+            if not cached.NormalizedStages.IsEmpty then
+                if extraction.Parameters.Count = 0 then
+                    cached.NormalizedStages
+                else
+                    cached.NormalizedStages
+                    |> List.map (QueryPlanCache.SubstituteStage extraction.Parameters)
+            else
+                flatten bound []
         FallbackTracker.Diagnostic <- None
         // eprintfn "[FLATTENED STAGES COUNT] %d" stages.Length
         // stages |> List.iteri (fun idx s -> eprintfn "  Stage[%d] = %A" idx s)

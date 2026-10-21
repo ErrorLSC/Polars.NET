@@ -44,7 +44,6 @@ internal sealed class PolarsPartitionEnumerator<TElement> : IEnumerator<TElement
 
 /// <summary>
 /// Represents a group partition backed by a sliced Polars DataFrame.
-/// Implements both IGrouping and IReadOnlyList for O(1) Count and indexed access.
 /// </summary>
 public sealed class PolarsGrouping<TKey, TElement> : IGrouping<TKey, TElement>, IReadOnlyList<TElement>
 {
@@ -121,17 +120,13 @@ public sealed class PolarsLookup<TKey, TElement> : ILookup<TKey, TElement>
     /// Strongly-typed struct enumerator that enables foreach inference to PolarsGrouping.
     /// </summary>
     public Dictionary<TKey, PolarsGrouping<TKey, TElement>>.ValueCollection.Enumerator GetEnumerator()
-    {
-        return _groups.Values.GetEnumerator();
-    }
+        => _groups.Values.GetEnumerator();
+    
 
     IEnumerator<IGrouping<TKey, TElement>> IEnumerable<IGrouping<TKey, TElement>>.GetEnumerator()
-    {
-        return _groups.Values.GetEnumerator();
-    }
+        => _groups.Values.GetEnumerator();
+    
 
     IEnumerator IEnumerable.GetEnumerator()
-    {
-        return _groups.Values.GetEnumerator();
-    }
+        => _groups.Values.GetEnumerator();
 }

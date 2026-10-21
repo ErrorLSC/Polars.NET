@@ -49,12 +49,12 @@ module LinqExtension =
                     match obj with
                     | :? IQueryable as q ->
                         match q.Expression with
-                        | :? System.Linq.Expressions.ConstantExpression as ce when
+                        | :? Expressions.ConstantExpression as ce when
                             not (isNull ce.Value || Object.ReferenceEquals(ce.Value, obj))
                             ->
                             tryExtractExplainable ce.Value
                         | _ ->
-                            if not (isNull q.Provider) && (q.Provider :? PolarsQueryProvider) then
+                            if not (isNull q.Provider) && q.Provider :? PolarsQueryProvider then
                                 try
                                     let polarsQ = q.Provider.CreateQuery q.Expression
 

@@ -130,8 +130,8 @@ public class QueryCacheKeyTests
         var brand2 = "Brand#45";
         var container2 = "SM PKG";
 
-        Expression<Func<Person, bool>> q1 = p => p.Name == brand1 && p.Age > (container1.Length);
-        Expression<Func<Person, bool>> q2 = p => p.Name == brand2 && p.Age > (container2.Length);
+        Expression<Func<Person, bool>> q1 = p => p.Name == brand1 && p.Age > container1.Length;
+        Expression<Func<Person, bool>> q2 = p => p.Name == brand2 && p.Age > container2.Length;
 
         var ext1 = PartialEvaluator.extract(q1);
         var ext2 = PartialEvaluator.extract(q2);

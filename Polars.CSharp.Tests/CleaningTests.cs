@@ -216,8 +216,8 @@ public class CleaningTests
     [Trait("Cleaning","Fill")]
     public void Test_FillNull_And_FillNan_With_Selectors()
     {
-        using var s1 = Series.From("ints", new int?[] { 1, null, 3 });
-        using var s2 = Series.From("floats", new double?[] { 1.1, double.NaN, null });
+        using var s1 = Series.From<int?>("ints", [1, null, 3]);
+        using var s2 = Series.From<double?>("floats", [1.1, double.NaN, null]);
         using var s3 = Series.From("strings", ["A", "B", "C"]); 
         
         using var df = DataFrame.FromSeries(s1, s2, s3);

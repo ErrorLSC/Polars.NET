@@ -707,7 +707,8 @@ public static class LinqExtensions
     }
 
     /// <summary>
-    /// Materializes an in-memory scalar sequence or a single-column query into a Polars Series.
+    /// Materializes an in-memory sequence of entities into a Polars Series.
+    /// Object collections(non-scalar collections) will be converted into a Struct Series. 
     /// </summary>
     /// <typeparam name="T">The element type.</typeparam>
     /// <param name="source">The sequence or query of elements.</param>
@@ -1129,11 +1130,7 @@ public static class LinqExtensions
         TOrder orderBy,
         bool descending = false)
         => throw MarkerExceptionHelper.Throw();
-
-    // =========================================================================
-    // Rank
-    // =========================================================================
-
+        
     /// <summary>
     /// Computes the rank of values using the default Average method.
     /// </summary>

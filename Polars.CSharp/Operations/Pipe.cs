@@ -1,5 +1,4 @@
 using Polars.NET.Core;
-using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
@@ -18,7 +17,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <summary>
     /// Allows to alter the lazy frame during the plan stage with the resolved schema.
     /// <para>In contrast to pipe, this method does not execute function immediately but only during the plan stage.
-    ///  This allows to use the resolved schema of the input to dynamically alter the lazy frame. 
+    ///  This allows to use the resolved schema of the input to dynamically alter the lazyframe. 
     /// This also means that any exceptions raised by function will only be emitted during the plan stage.</para>
     /// </summary>
     /// <param name="function">Callable; will receive the frame as the first parameter and the resolved schema as the second parameter.</param>

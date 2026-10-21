@@ -1780,11 +1780,11 @@ public partial class LinqTests
         [
             Series.From("Id", [1, 2]),
             Series.From("Name", ["Alice", "Bob"]),
-            Series.From("Tags", new string[][]
-            {
+            Series.From<string[]>("Tags",
+            [
                 ["Rust", "DotNet"],
                 ["Polars"]
-            })
+            ])
         ]);
 
         // 2. Execute SelectMany with ResultSelector
@@ -1936,11 +1936,11 @@ public partial class LinqTests
         [
             Series.From("Id", [1, 2]),
             Series.From("Name", ["Alice", "Bob"]),
-            Series.From("Tags", new string[][]
-            {
+            Series.From<string[]>("Tags",
+            [
                 ["Rust", "DotNet"],
                 ["Polars"]
-            })
+            ])
         ]);
 
         // Case A: Map Tags -> Tag (Single letter truncation rename)
@@ -4565,8 +4565,8 @@ public partial class LinqTests
         using var df = DataFrame.FromColumns([
             Series.From("Id", [1, 2, 3]),
             Series.From("Name", ["Alice", "Bob", "Charlie"]),
-            Series.From("Tags", [
-                new[] { "admin", "dev", "ops" },
+            Series.From<string[]>("Tags", [
+                ["admin", "dev", "ops"],
                 ["guest"],
                 ["dev", "tester"]
             ])
@@ -4625,10 +4625,10 @@ public partial class LinqTests
         using var df = DataFrame.FromColumns([
             Series.From("Id", [1, 2, 3]),
             Series.From("Name", ["Alice", "Bob", "Charlie"]),
-            Series.From("Tags", [
+            Series.From<string[]>("Tags", [
                 ["admin", "dev", "ops"],
                 ["guest"],
-                new[] { "dev", "tester" }
+                [ "dev", "tester" ]
             ])
         ]);
 
@@ -4667,9 +4667,9 @@ public partial class LinqTests
         using var df = DataFrame.FromColumns([
             Series.From("Id", [1, 2]),
             Series.From("Name", ["Alice", "Bob"]),
-            Series.From("Tags", [
+            Series.From<string[]>("Tags", [
                 ["dev", "ops", "dev", "qa"],
-                new[] { "a", "b", "c" }
+                ["a", "b", "c"]
             ])
         ]);
 
@@ -4714,9 +4714,9 @@ public partial class LinqTests
         using var df = DataFrame.FromColumns([
             Series.From("Id", [1, 2]),
             Series.From("Name", ["Alice", "Bob"]),
-            Series.From("Tags", [
-                new[] { "dev", "ops", "dev", "qa" },
-                new[] { "a", "b", "c" }
+            Series.From<string[]>("Tags", [
+                ["dev", "ops", "dev", "qa"],
+                ["a", "b", "c"]
             ])
         ]);
 
@@ -4757,9 +4757,9 @@ public partial class LinqTests
         using var df = DataFrame.FromColumns([
             Series.From("Id", [1, 2]),
             Series.From("Name", ["Alice", "Bob"]),
-            Series.From("Tags", [
+            Series.From<string[]>("Tags", [
                 ["dev", "ops", "qa", "sec"],
-                new[] { "a", "b" }
+                ["a", "b"]
             ])
         ]);
 
@@ -4836,8 +4836,8 @@ public partial class LinqTests
         using var df = DataFrame.FromColumns([
             Series.From("Id", [1, 2, 3]),
             Series.From("Name", ["Alice", "Bob", "Charlie"]),
-            Series.From("Scores", [
-                new[] { 95, 88, 92 },
+            Series.From<int[]>("Scores", [
+                [95, 88, 92],
                 [50, 59, 45],
                 []
             ])
