@@ -119,6 +119,30 @@ type LinqSensorRecord =
         Location: string
     }
 
+type WideRecord =
+    {
+        Id: int
+        Name: string
+        Category: string
+        ValFloat1: float
+        ValFloat2: float
+        ValDec1: decimal
+        ValDec2: decimal
+        ValInt64: int64
+        ValInt32: int
+        ValBool: bool
+        Col11: string
+        Col12: float
+        Col13: decimal
+        Col14: int
+        Col15: int64
+        Col16: bool
+        Col17: string
+        Col18: float
+        Col19: decimal
+        Col20: int
+    }
+
 module QueryTests =
     [<Literal>]
     let nativePushdown = "100% Native Pushdown"
@@ -2146,6 +2170,289 @@ module QueryTests =
             }
         let results = queryable.ToList()
         Assert.Equal(2, results.Count)
+
+    [<Fact; Trait("LINQ", "WideTable")>]
+    let ``Test FSharp Query on 20-Column Wide Table`` () =
+        let wideData =
+            [|
+                {
+                    Id = 1
+                    Name = "Alpha"
+                    Category = "Tech"
+                    ValFloat1 = 10.5
+                    ValFloat2 = 20.5
+                    ValDec1 = 100.25m
+                    ValDec2 = 200.75m
+                    ValInt64 = 1000L
+                    ValInt32 = 10
+                    ValBool = true
+                    Col11 = "RegionA"
+                    Col12 = 1.1
+                    Col13 = 10.1m
+                    Col14 = 100
+                    Col15 = 10000L
+                    Col16 = true
+                    Col17 = "Tag1"
+                    Col18 = 0.5
+                    Col19 = 5.5m
+                    Col20 = 50
+                }
+                {
+                    Id = 2
+                    Name = "Beta"
+                    Category = "Tech"
+                    ValFloat1 = 25.0
+                    ValFloat2 = 15.0
+                    ValDec1 = 50.00m
+                    ValDec2 = 150.00m
+                    ValInt64 = 2000L
+                    ValInt32 = 20
+                    ValBool = false
+                    Col11 = "RegionA"
+                    Col12 = 2.2
+                    Col13 = 20.2m
+                    Col14 = 200
+                    Col15 = 20000L
+                    Col16 = true
+                    Col17 = "Tag2"
+                    Col18 = 1.5
+                    Col19 = 15.5m
+                    Col20 = 60
+                }
+                {
+                    Id = 3
+                    Name = "Gamma"
+                    Category = "Finance"
+                    ValFloat1 = 30.0
+                    ValFloat2 = 40.0
+                    ValDec1 = 300.50m
+                    ValDec2 = 400.50m
+                    ValInt64 = 3000L
+                    ValInt32 = 30
+                    ValBool = true
+                    Col11 = "RegionB"
+                    Col12 = 3.3
+                    Col13 = 30.3m
+                    Col14 = 300
+                    Col15 = 30000L
+                    Col16 = false
+                    Col17 = "Tag1"
+                    Col18 = 2.5
+                    Col19 = 25.5m
+                    Col20 = 70
+                }
+                {
+                    Id = 4
+                    Name = "Delta"
+                    Category = "Tech"
+                    ValFloat1 = 15.0
+                    ValFloat2 = 35.0
+                    ValDec1 = 80.00m
+                    ValDec2 = 120.00m
+                    ValInt64 = 4000L
+                    ValInt32 = 40
+                    ValBool = true
+                    Col11 = "RegionB"
+                    Col12 = 4.4
+                    Col13 = 40.4m
+                    Col14 = 400
+                    Col15 = 40000L
+                    Col16 = true
+                    Col17 = "Tag2"
+                    Col18 = 3.5
+                    Col19 = 35.5m
+                    Col20 = 80
+                }
+                {
+                    Id = 5
+                    Name = "Epsilon"
+                    Category = "Finance"
+                    ValFloat1 = 5.0
+                    ValFloat2 = 50.0
+                    ValDec1 = 500.00m
+                    ValDec2 = 600.00m
+                    ValInt64 = 5000L
+                    ValInt32 = 50
+                    ValBool = false
+                    Col11 = "RegionB"
+                    Col12 = 5.5
+                    Col13 = 50.5m
+                    Col14 = 500
+                    Col15 = 50000L
+                    Col16 = false
+                    Col17 = "Tag3"
+                    Col18 = 4.5
+                    Col19 = 45.5m
+                    Col20 = 90
+                }
+            |]
+
+        use df = DataFrame.ofRecords wideData
+
+        // 1. Filter across wide columns and scan full 20-column records
+        let q1 =
+            query {
+                for r in df.AsQueryable<WideRecord>() do
+                where (r.ValFloat1 >= 10.0 && r.ValBool && r.ValDec1 < 200.0m && r.Col16)
+                sortBy r.Id
+                select r
+            }
+            |> assertPlan nativePushdown
+            |> Seq.toArray
+
+        Assert.Equal(2, q1.Length)
+        Assert.Equal(1, q1.[0].Id)
+        Assert.Equal("Alpha", q1.[0].Name)
+        Assert.Equal("Tech", q1.[0].Category)
+        Assert.Equal(10.5, q1.[0].ValFloat1)
+        Assert.Equal(20.5, q1.[0].ValFloat2)
+        Assert.Equal(100.25m, q1.[0].ValDec1)
+        Assert.Equal(200.75m, q1.[0].ValDec2)
+        Assert.Equal(1000L, q1.[0].ValInt64)
+        Assert.Equal(10, q1.[0].ValInt32)
+        Assert.True(q1.[0].ValBool)
+        Assert.Equal("RegionA", q1.[0].Col11)
+        Assert.Equal(1.1, q1.[0].Col12)
+        Assert.Equal(10.1m, q1.[0].Col13)
+        Assert.Equal(100, q1.[0].Col14)
+        Assert.Equal(10000L, q1.[0].Col15)
+        Assert.True(q1.[0].Col16)
+        Assert.Equal("Tag1", q1.[0].Col17)
+        Assert.Equal(0.5, q1.[0].Col18)
+        Assert.Equal(5.5m, q1.[0].Col19)
+        Assert.Equal(50, q1.[0].Col20)
+
+        Assert.Equal(4, q1.[1].Id)
+        Assert.Equal("Delta", q1.[1].Name)
+        Assert.Equal(4000L, q1.[1].ValInt64)
+        Assert.Equal(80, q1.[1].Col20)
+
+        // 2. Project 20 columns into an anonymous record with computed expressions
+        let q2 =
+            query {
+                for r in df.AsQueryable<WideRecord>() do
+                where (r.Id <= 2)
+                sortBy r.Id
+                select
+                    {|
+                        C1 = r.Id
+                        C2 = r.Name
+                        C3 = r.Category
+                        C4 = r.ValFloat1 + 1.0
+                        C5 = r.ValFloat2 * 2.0
+                        C6 = r.ValDec1 + 10.0m
+                        C7 = r.ValDec2
+                        C8 = r.ValInt64 + 100L
+                        C9 = r.ValInt32 * 2
+                        C10 = not r.ValBool
+                        C11 = r.Col11
+                        C12 = r.Col12
+                        C13 = r.Col13
+                        C14 = r.Col14 + 1
+                        C15 = r.Col15
+                        C16 = r.Col16
+                        C17 = r.Col17
+                        C18 = r.Col18
+                        C19 = r.Col19
+                        C20 = r.Col20
+                    |}
+            }
+            |> assertPlan nativePushdown
+            |> Seq.toArray
+
+        Assert.Equal(2, q2.Length)
+        Assert.Equal(1, q2.[0].C1)
+        Assert.Equal("Alpha", q2.[0].C2)
+        Assert.Equal(11.5, q2.[0].C4)
+        Assert.Equal(41.0, q2.[0].C5)
+        Assert.Equal(110.25m, q2.[0].C6)
+        Assert.Equal(1100L, q2.[0].C8)
+        Assert.Equal(20, q2.[0].C9)
+        Assert.False(q2.[0].C10)
+        Assert.Equal(101, q2.[0].C14)
+        Assert.Equal(50, q2.[0].C20)
+
+        Assert.Equal(2, q2.[1].C1)
+        Assert.Equal("Beta", q2.[1].C2)
+        Assert.True(q2.[1].C10) // not false = true
+
+        // 3. Multi-column GroupBy + Aggregations over wide table
+        let q3 =
+            query {
+                for r in df.AsQueryable<WideRecord>() do
+                groupBy
+                    {|
+                        Category = r.Category
+                        Region = r.Col11
+                    |}
+                    into g
+                where (g.Count() >= 1)
+                sortBy g.Key.Category
+                thenBy g.Key.Region
+                select
+                    {|
+                        Category = g.Key.Category
+                        Region = g.Key.Region
+                        Count = g.Count()
+                        SumFloat1 = g.Sum(fun x -> x.ValFloat1)
+                        AvgFloat2 = g.Average(fun x -> x.ValFloat2)
+                        SumDec1 = g.Sum(fun x -> x.ValDec1)
+                        MaxInt64 = g.Max(fun x -> x.ValInt64)
+                        MinInt32 = g.Min(fun x -> x.ValInt32)
+                    |}
+            }
+            |> assertPlan nativePushdown
+            |> Seq.toArray
+
+        Assert.Equal(3, q3.Length)
+
+        Assert.Equal("Finance", q3.[0].Category)
+        Assert.Equal("RegionB", q3.[0].Region)
+        Assert.Equal(2, q3.[0].Count)
+        Assert.Equal(35.0, q3.[0].SumFloat1)
+        Assert.Equal(45.0, q3.[0].AvgFloat2)
+        Assert.Equal(800.50m, q3.[0].SumDec1)
+        Assert.Equal(5000L, q3.[0].MaxInt64)
+        Assert.Equal(30, q3.[0].MinInt32)
+
+        Assert.Equal("Tech", q3.[1].Category)
+        Assert.Equal("RegionA", q3.[1].Region)
+        Assert.Equal(2, q3.[1].Count)
+        Assert.Equal(35.5, q3.[1].SumFloat1)
+        Assert.Equal(17.75, q3.[1].AvgFloat2)
+        Assert.Equal(150.25m, q3.[1].SumDec1)
+        Assert.Equal(2000L, q3.[1].MaxInt64)
+        Assert.Equal(10, q3.[1].MinInt32)
+
+        Assert.Equal("Tech", q3.[2].Category)
+        Assert.Equal("RegionB", q3.[2].Region)
+        Assert.Equal(1, q3.[2].Count)
+        Assert.Equal(15.0, q3.[2].SumFloat1)
+        Assert.Equal(35.0, q3.[2].AvgFloat2)
+        Assert.Equal(80.00m, q3.[2].SumDec1)
+        Assert.Equal(4000L, q3.[2].MaxInt64)
+        Assert.Equal(40, q3.[2].MinInt32)
+
+        // 4. Sorting & Top-K over wide table columns
+        let q4 =
+            query {
+                for r in df.AsQueryable<WideRecord>() do
+                sortByDescending r.ValDec1
+                thenBy r.ValFloat1
+                thenBy r.Id
+                take 2
+                select {| Id = r.Id; Name = r.Name; Dec = r.ValDec1; Float = r.ValFloat1 |}
+            }
+            |> assertPlan nativePushdown
+            |> Seq.toArray
+
+        Assert.Equal(2, q4.Length)
+        Assert.Equal(5, q4.[0].Id) // ValDec1 = 500.00m
+        Assert.Equal("Epsilon", q4.[0].Name)
+        Assert.Equal(500.00m, q4.[0].Dec)
+        Assert.Equal(3, q4.[1].Id) // ValDec1 = 300.50m
+        Assert.Equal("Gamma", q4.[1].Name)
+        Assert.Equal(300.50m, q4.[1].Dec)
 
 
 
