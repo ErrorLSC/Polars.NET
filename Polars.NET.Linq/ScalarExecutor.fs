@@ -605,7 +605,7 @@ module internal ScalarExecutor =
                     if PolarsTypeHelper.AcceptsNull elemType then
                         LinqReflectionCache.GetEmptyOptionalValue elemType :?> 'TResult
                     else
-                        raise (InvalidOperationException("Sequence contains no elements."))
+                        raise (InvalidOperationException "Sequence contains no elements.")
                 else
                     let invoker = LinqReflectionCache.GetMaterializerFirstInvoker elemType
                     invoker.Invoke(mat, dfHandle, null) :?> 'TResult
@@ -633,7 +633,7 @@ module internal ScalarExecutor =
         // 9. Aggregate (Fold/Reduce)
         // =========================================================================
         | MethodCall(m, null, source :: rest) when m.Name = "Aggregate" ->
-            let rawRows = provider.CreateQuery(source) :> IEnumerable
+            let rawRows = provider.CreateQuery source :> IEnumerable
             let elemType = getSequenceElementType source.Type
 
             let evalSeed (seedExpr: Expression) =

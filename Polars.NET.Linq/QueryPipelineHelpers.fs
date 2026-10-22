@@ -201,9 +201,8 @@ module internal QueryPipelineHelpers =
         | ClientEvaluationPolicy.Allow -> ()
         | ClientEvaluationPolicy.Warn ->
             let text = match predLambdaOpt with Some p -> p.ToString() | None -> "Predicate"
-            System.Diagnostics.Trace.TraceWarning(
+            System.Diagnostics.Trace.TraceWarning
                 $"[Polars.NET Warning] Predicate in '%s{stage}' (%s{text}) could not be pushed down and is evaluated on client."
-            )
         | ClientEvaluationPolicy.Strict
         | _ ->
             let text = match predLambdaOpt with Some p -> p.ToString() | None -> "Predicate"
@@ -221,17 +220,15 @@ module internal QueryPipelineHelpers =
         | ClientEvaluationPolicy.Allow -> ()
         | ClientEvaluationPolicy.Warn ->
             if requiresClientFallback then
-                System.Diagnostics.Trace.TraceWarning(
+                System.Diagnostics.Trace.TraceWarning
                     $"[Polars.NET Warning] Query pipeline at stage '%s{stage}' fell back to full client-side in-memory LINQ: %s{expressionText}"
-                )
             elif not clientPredsWithAst.IsEmpty then
                 let predTexts =
                     clientPredsWithAst
                     |> List.map (fun (_, l) -> l.ToString())
                     |> String.concat "; "
-                System.Diagnostics.Trace.TraceWarning(
+                System.Diagnostics.Trace.TraceWarning
                     $"[Polars.NET Warning] Query predicate at stage '%s{stage}' fell back to client-side evaluation: %s{predTexts}"
-                )
         | ClientEvaluationPolicy.Strict
         | _ ->
             if requiresClientFallback then
@@ -540,10 +537,10 @@ module internal QueryPipelineHelpers =
                     if node.Name = gParam.Name then
                         pInnerGroup :> Expression
                     else
-                        base.VisitParameter(node)
+                        base.VisitParameter node
             }
 
-        let newBody = replacer.Visit(projLambda.Body)
+        let newBody = replacer.Visit projLambda.Body
 
         let delegateType =
             typedefof<Func<_, _, _>>.MakeGenericType(outerType, innerSeqType, projLambda.ReturnType)
@@ -910,7 +907,7 @@ module internal QueryPipelineHelpers =
                         | :? ParameterExpression as p ->
                             isSyntheticScopeParam ctx.ContainsParam p
                         | MethodCall(_, target, args) ->
-                            (not (isNull target) && check target) || (args |> List.exists check)
+                            not (isNull target) && check target || args |> List.exists check
                         | MemberAccess(target, _) -> not (isNull target) && check target
                         | Unary(_, inner) -> check inner
                         | Binary(_, left, right) -> check left || check right
@@ -1054,9 +1051,9 @@ module internal QueryPipelineHelpers =
 
             let firstParam, secondParam, firstCols, secondCols, secondSuffix =
                 if spec.InvertSides then
-                    pRight, pLeft, rightCols, leftCols, (spec.Suffix |> Option.defaultValue "_left")
+                    pRight, pLeft, rightCols, leftCols, spec.Suffix |> Option.defaultValue "_left"
                 else
-                    pLeft, pRight, leftCols, rightCols, (spec.Suffix |> Option.defaultValue "_right")
+                    pLeft, pRight, leftCols, rightCols, spec.Suffix |> Option.defaultValue "_right"
 
             let firstColSet = Set.ofArray firstCols
             let ctx = TranslationContext.BinaryJoin(firstParam.Name, secondParam.Name, firstColSet, secondSuffix)

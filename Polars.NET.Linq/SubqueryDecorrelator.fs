@@ -988,7 +988,7 @@ module internal SubqueryDecorrelator =
                                 | AggScale.Divide m -> not (containsParameter outerName m)
 
                             if scaleOk then
-                                invertOp baseOp |> Option.map (fun invOp -> (right, aggExpr, scale, invOp))
+                                invertOp baseOp |> Option.map (fun invOp -> right, aggExpr, scale, invOp)
                             else
                                 None
                         | None -> None
@@ -1109,10 +1109,10 @@ module internal SubqueryDecorrelator =
                 |> List.fold
                     (fun (opsAcc, resAcc, decorrelatedAny) cond ->
                         match tryDecorrelateConjunct currentLf outerParam cond with
-                        | Some ops -> (List.rev ops) @ opsAcc, resAcc, true
+                        | Some ops -> List.rev ops @ opsAcc, resAcc, true
                         | None ->
                             match tryDecorrelateCorrelatedScalarAgg currentLf outerParam cond with
-                            | Some aggOps -> (List.rev aggOps) @ opsAcc, resAcc, true
+                            | Some aggOps -> List.rev aggOps @ opsAcc, resAcc, true
                             | None ->
                                 let foldedCond, changed = foldUncorrelatedSubqueries outerParam.Name cond
 

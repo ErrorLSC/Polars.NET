@@ -30,12 +30,12 @@ type QueryPlanCache private () =
 
     /// Gets or sets whether query plan caching is globally enabled.
     static member Enabled
-        with get () = CoreConfig.QueryCacheEnabled.GetValueOrDefault(true)
+        with get () = CoreConfig.QueryCacheEnabled.GetValueOrDefault true
         and set (v: bool) = CoreConfig.QueryCacheEnabled <- Nullable v
 
     /// Gets or sets the maximum number of query plans stored in the cache. Defaults to 1024.
     static member MaxCapacity
-        with get () = CoreConfig.QueryCacheCapacity.GetValueOrDefault(1024)
+        with get () = CoreConfig.QueryCacheCapacity.GetValueOrDefault 1024
         and set (v: int) = CoreConfig.QueryCacheCapacity <- Nullable v
 
     /// Gets the total number of cached query plans.
