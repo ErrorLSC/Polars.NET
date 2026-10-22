@@ -9,6 +9,10 @@ public class PolarsException : Exception
 {
     public PolarsException(string message) : base(message) { }
     public PolarsException(string message, Exception inner) : base(message, inner) { }
+
+    public PolarsException() : base()
+    {
+    }
 }
 internal static class ErrorHelper
 {

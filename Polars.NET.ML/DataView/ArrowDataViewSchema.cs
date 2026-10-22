@@ -122,7 +122,7 @@ internal static class ArrowDataViewMapper
             // ==========================================
             // Categorical (Key Types)
             // ==========================================
-            KeyDataViewType k => StringViewType.Default,
+            KeyDataViewType => StringViewType.Default,
 
             // ==========================================
             // Fallback
