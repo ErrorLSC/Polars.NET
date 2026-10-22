@@ -6,7 +6,7 @@ using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable, IPolarsSeries
+public partial class Series : IDisposable
 {
     /// <summary>
     /// Get an item at the specified index.

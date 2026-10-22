@@ -2,7 +2,7 @@ using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable, IPolarsSeries
+public partial class Series : IDisposable
 {
     /// <summary>
     /// Get the length of each individual chunk.

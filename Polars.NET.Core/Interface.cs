@@ -1,6 +1,4 @@
 using Apache.Arrow;
-using Apache.Arrow.Adbc;
-using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 
 namespace Polars.NET.Core;
@@ -9,21 +7,11 @@ public interface IPolarsDataFrame : IDisposable
 {
     long Height { get; }
     RecordBatch ToArrow();
-    void Show();
     IPolarsSchema Schema { get; }
-    UpdateResult WriteToAdbc(AdbcStatement statement);
-    IPolarsSeries Column(int index);
-    IArrowArrayStream ToArrowStream(ReadOnlySpan<int> columnIndices = default, ulong? seed = null);
+    Apache.Arrow.Ipc.IArrowArrayStream ToArrowStream(ReadOnlySpan<int> columnIndices = default, ulong? seed = null);
     IPolarsDataFrame Slice(long offset, ulong length);
 }
 
-public interface IPolarsSeries : IDisposable
-{
-    IPolarsDataFrame ToFrame();
-    IPolarsDataFrame ToDataFrame() => ToFrame();
-    IPolarsDataType DataType { get; }
-    string Name { get; set; }
-}
 public interface IPolarsDataType : IDisposable
 {
     IArrowType GetArrowType();
@@ -37,7 +25,6 @@ public interface IPolarsSqlContext : IDisposable
 {
     void Register(string tableName, IPolarsDataFrame df);
     void Register(string tableName, IPolarsLazyFrame lf);
-
     IPolarsLazyFrame Execute(string sql);
 }
 

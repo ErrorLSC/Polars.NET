@@ -18,7 +18,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     public RecordBatch ToArrow() => ArrowFfiBridge.ExportDataFrame(Handle);
 }
 
-public partial class Series : IDisposable, IPolarsSeries
+public partial class Series : IDisposable
 {
     /// <summary>
     /// Zero-copy convert to Apache Arrow Array.

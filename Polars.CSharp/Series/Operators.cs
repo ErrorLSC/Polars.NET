@@ -3,7 +3,7 @@ using Polars.NET.Core;
 
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable, IPolarsSeries
+public partial class Series : IDisposable
 {
     // ==========================================
     // Arithmetic Operators

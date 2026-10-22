@@ -209,7 +209,7 @@ public ref struct SeriesEnumerator<T>
     }
 }
 
-public partial class Series : IDisposable, IPolarsSeries
+public partial class Series : IDisposable
 {
     /// <summary>
     /// Returns a zero-allocation stack enumerator for strongly-typed iteration.

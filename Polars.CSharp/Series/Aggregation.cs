@@ -3,7 +3,7 @@ using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable, IPolarsSeries
+public partial class Series : IDisposable
 {
 
     internal T? ExtractObject<T>(Expr expr) where T : class

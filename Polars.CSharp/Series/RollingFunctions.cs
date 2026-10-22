@@ -2,7 +2,7 @@ using Polars.NET.Core;
 
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable, IPolarsSeries
+public partial class Series : IDisposable
 {
     /// <summary>  
     /// <inheritdoc cref="Expr.RollingMin(IntoDuration, int, double[], bool)" path="/summary"/>

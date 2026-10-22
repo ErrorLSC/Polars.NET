@@ -975,15 +975,6 @@ type Series(handle: SeriesHandle) =
     interface IDisposable with
         member this.Dispose() = this.Dispose()
 
-    interface IPolarsSeries with
-        member this.ToFrame() = this.ToFrame() :> IPolarsDataFrame
-
-        member this.DataType = this.DataType :> IPolarsDataType
-
-        member this.Name
-            with get () = this.Name
-            and set (value: string) = this.Rename value |> ignore
-
 // --- Frames ---
 
 /// <summary>
@@ -1432,16 +1423,10 @@ and DataFrame(handle: DataFrameHandle) =
     interface IPolarsDataFrame with
 
         member this.Height = int64 this.Height
-
         member this.Schema = this.Schema :> IPolarsSchema
-        member this.Show() : unit = this.Show()
         member this.ToArrow() = this.ToArrow()
-        member this.WriteToAdbc(statement: AdbcStatement) = this.WriteToAdbc statement
-        member this.Column(index: int) = this.Column index
-
         member this.ToArrowStream(columnIndices: ReadOnlySpan<int>, seed: Nullable<uint64>) =
             ArrowStreamInterop.ExportToStream(this.Handle, columnIndices, seed)
-
         member this.Slice(offset: int64, length: uint64) =
             let absoluteOffset = if offset < 0L then int64 this.Height + offset else offset
             if absoluteOffset < 0L || absoluteOffset >= int64 this.Height then

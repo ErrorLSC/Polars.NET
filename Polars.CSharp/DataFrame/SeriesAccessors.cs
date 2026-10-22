@@ -27,7 +27,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var h = PolarsWrapper.DataFrameGetColumnAt(Handle, index);
         return new Series(h);
     }
-    IPolarsSeries IPolarsDataFrame.Column(int index) => Column(index);
     /// <summary>
     /// Get all columns as a list of Series.
     /// Order is guaranteed to match the physical column order.

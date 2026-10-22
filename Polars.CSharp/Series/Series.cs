@@ -12,7 +12,7 @@ namespace Polars.CSharp;
 /// Operations on Series are generally performed immediately.
 /// </para>
 /// </summary>
-public partial class Series : IDisposable, IPolarsSeries, IEquatable<Series>
+public partial class Series : IDisposable, IEquatable<Series>
 {
     internal SeriesHandle Handle { get; private set; }
 
@@ -176,7 +176,6 @@ public partial class Series : IDisposable, IPolarsSeries, IEquatable<Series>
             return newInstance;
         }
     }
-    IPolarsDataType IPolarsSeries.DataType => DataType;
 
     /// <summary>
     /// Shape of this Series.
@@ -741,16 +740,12 @@ public partial class Series : IDisposable, IPolarsSeries, IEquatable<Series>
     /// </summary>
     public DataFrame ToFrame()
         => new(PolarsWrapper.SeriesToFrame(Handle));
-    IPolarsDataFrame IPolarsSeries.ToFrame()
-        => ToFrame();
 
     /// <summary>
     /// Convert this single Series into a DataFrame.
     /// Functional alias for <see cref="ToFrame"/>.
     /// </summary>
     public DataFrame ToDataFrame()
-        => ToFrame();
-    IPolarsDataFrame IPolarsSeries.ToDataFrame()
         => ToFrame();
 
     // ==========================================

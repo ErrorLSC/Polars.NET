@@ -4,7 +4,7 @@ using Polars.NET.Core.TensorInterop;
 
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable, IPolarsSeries
+public partial class Series : IDisposable
 {
     /// <summary>
     /// Generate zero-copy ReadOnlySpan from a numeric Series.

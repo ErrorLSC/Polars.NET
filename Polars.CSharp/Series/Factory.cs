@@ -5,7 +5,7 @@ using Polars.NET.Core.Helpers;
 
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable, IPolarsSeries
+public partial class Series : IDisposable
 {
     // ==========================================
     // Constructors
