@@ -216,7 +216,21 @@ module internal rec ExprTranslator =
     // 2. Column & Parameter Identifiers
     // =========================================================================
 
-    // Helper detecting Nullable<T>.Value property access
+    /// Transparently unwraps .Value on tuple components: pair.Outer.Value.DeptName
+    /// Returns Some true for Item1/Outer, Some false for Item2/Inner, None otherwise.
+    let rec private isTupleAccess (pairParam: string) (e: Expression) : bool option =
+        match unwrap e with
+        | :? MemberExpression as me ->
+            match unwrap me.Expression with
+            | :? ParameterExpression as p when p.Name = pairParam ->
+                let mName = me.Member.Name
+
+                if mName = "Item1" || mName = "Outer" then Some true
+                elif mName = "Item2" || mName = "Inner" then Some false
+                else None
+            | other -> isTupleAccess pairParam other
+        | _ -> None
+
     /// Resolves the underlying physical column name using a strongly-typed TranslationContext.
     let rec internal tryResolveColumnNameWithContext (ctx: TranslationContext) (expr: Expression) : string option =
         if not ctx.AllowsColumnMemberLookup then
@@ -268,21 +282,7 @@ module internal rec ExprTranslator =
                             None
 
                     | TranslationContext.TupleJoin(pairParam, leftCols, rightSuffix) ->
-                        // Transparently unwrap .Value on tuple components: pair.Outer.Value.DeptName
-                        let rec isTupleAccess (e: Expression) : bool option =
-                            match unwrap e with
-                            | :? MemberExpression as me ->
-                                match unwrap me.Expression with
-                                | :? ParameterExpression as p when p.Name = pairParam ->
-                                    let mName = me.Member.Name
-
-                                    if mName = "Item1" || mName = "Outer" then Some true
-                                    elif mName = "Item2" || mName = "Inner" then Some false
-                                    else None
-                                | other -> isTupleAccess other
-                            | _ -> None
-
-                        match isTupleAccess inner with
+                        match isTupleAccess pairParam inner with
                         | Some true -> Some m.Name
 
                         | Some false ->
@@ -396,31 +396,13 @@ module internal rec ExprTranslator =
                 | _ -> None
 
             // Translate Nullable<T>.HasValue directly to Polars is_not_null()
-            | MemberAccess(target, m) when
-                not (isNull target)
-                && target.Type.IsGenericType
-                && target.Type.GetGenericTypeDefinition() = typedefof<Nullable<_>>
-                && m.Name = "HasValue"
-                ->
+            | MemberAccess(target, m) when isNullableHasValue m ->
                 match tryTranslateWithContext ctx target with
                 | Some colH -> Some(PolarsWrapper.IsNotNull colH)
                 | None ->
                     match ctx with
-                    | TranslationContext.TupleJoin(pairParam, leftCols, rightSuffix) ->
-                        let rec isTupleAccess (e: Expression) : bool option =
-                            match unwrap e with
-                            | :? MemberExpression as me ->
-                                match unwrap me.Expression with
-                                | :? ParameterExpression as p when p.Name = pairParam ->
-                                    let mName = me.Member.Name
-
-                                    if mName = "Item1" || mName = "Outer" then Some true
-                                    elif mName = "Item2" || mName = "Inner" then Some false
-                                    else None
-                                | other -> isTupleAccess other
-                            | _ -> None
-
-                        match isTupleAccess target with
+                    | TranslationContext.TupleJoin(pairParam, leftCols, _) ->
+                        match isTupleAccess pairParam target with
                         | Some true ->
                             // Left side of join: picking any valid left column detects whether Outer row exists
                             leftCols
@@ -554,52 +536,31 @@ module internal rec ExprTranslator =
                 let isEmpty = PolarsWrapper.Eq(stripped, PolarsWrapper.Lit "")
                 PolarsWrapper.Or(isNull, isEmpty))
 
-        // --- Contains ---
-        | "Contains", [ arg ] ->
-            match targetH (), tryTranslateWithContext ctx arg with
-            | Some t, Some p -> Some(PolarsWrapper.StrContains(t, p, literal = true, strict = false))
-            | _ -> None
+        // --- Contains / StartsWith / EndsWith / IndexOf ---
+        | ("Contains" | "StartsWith" | "EndsWith" | "IndexOf") as opName, arg :: rest when
+            rest.IsEmpty || opName <> "Contains" || rest.Length = 1
+            ->
+            let applyOp (t: ExprHandle) (p: ExprHandle) =
+                match opName with
+                | "Contains" -> PolarsWrapper.StrContains(t, p, literal = true, strict = false)
+                | "StartsWith" -> PolarsWrapper.StrStartsWith(t, p)
+                | "EndsWith" -> PolarsWrapper.StrEndsWith(t, p)
+                | _ ->
+                    let findH = PolarsWrapper.StrFind(t, p, literal = true, strict = false)
+                    let castedH = tryTranslateCast typeof<int> findH |> Option.defaultValue findH
+                    PolarsWrapper.FillNull(castedH, PolarsWrapper.Lit -1)
 
-        | "Contains", [ arg; compExpr ] ->
-            match targetH (), tryTranslateWithContext ctx arg, tryEvaluateCaseInsensitive compExpr with
-            | Some t, Some p, Some true ->
-                let tLower = PolarsWrapper.StrToLower t
-                let pLower = PolarsWrapper.StrToLower p
-                Some(PolarsWrapper.StrContains(tLower, pLower, literal = true, strict = false))
-            | Some t, Some p, Some false -> Some(PolarsWrapper.StrContains(t, p, literal = true, strict = false))
-            | _ -> None
-
-        // --- StartsWith ---
-        | "StartsWith", [ arg ] ->
-            match targetH (), tryTranslateWithContext ctx arg with
-            | Some t, Some p -> Some(PolarsWrapper.StrStartsWith(t, p))
-            | _ -> None
-
-        | "StartsWith", [ arg; compExpr ]
-        | "StartsWith", arg :: compExpr :: _ ->
-            match targetH (), tryTranslateWithContext ctx arg, tryEvaluateCaseInsensitive compExpr with
-            | Some t, Some p, Some true ->
-                let tLower = PolarsWrapper.StrToLower t
-                let pLower = PolarsWrapper.StrToLower p
-                Some(PolarsWrapper.StrStartsWith(tLower, pLower))
-            | Some t, Some p, Some false -> Some(PolarsWrapper.StrStartsWith(t, p))
-            | _ -> None
-
-        // --- EndsWith ---
-        | "EndsWith", [ arg ] ->
-            match targetH (), tryTranslateWithContext ctx arg with
-            | Some t, Some p -> Some(PolarsWrapper.StrEndsWith(t, p))
-            | _ -> None
-
-        | "EndsWith", [ arg; compExpr ]
-        | "EndsWith", arg :: compExpr :: _ ->
-            match targetH (), tryTranslateWithContext ctx arg, tryEvaluateCaseInsensitive compExpr with
-            | Some t, Some p, Some true ->
-                let tLower = PolarsWrapper.StrToLower t
-                let pLower = PolarsWrapper.StrToLower p
-                Some(PolarsWrapper.StrEndsWith(tLower, pLower))
-            | Some t, Some p, Some false -> Some(PolarsWrapper.StrEndsWith(t, p))
-            | _ -> None
+            match rest with
+            | [] ->
+                match targetH (), tryTranslateWithContext ctx arg with
+                | Some t, Some p -> Some(applyOp t p)
+                | _ -> None
+            | compExpr :: _ ->
+                match targetH (), tryTranslateWithContext ctx arg, tryEvaluateCaseInsensitive compExpr with
+                | Some t, Some p, Some true ->
+                    Some(applyOp (PolarsWrapper.StrToLower t) (PolarsWrapper.StrToLower p))
+                | Some t, Some p, Some false -> Some(applyOp t p)
+                | _ -> None
 
         | "ToUpper", []
         | "ToUpperInvariant", [] -> targetH () |> Option.map PolarsWrapper.StrToUpper
@@ -651,71 +612,28 @@ module internal rec ExprTranslator =
                 Some(PolarsWrapper.StrSplit(t, PolarsWrapper.Lit s, inclusive = false, literal = true, strict = false))
             | _ -> None
 
-        // --- IndexOf ---
-        | "IndexOf", [ arg ] ->
-            match targetH (), tryTranslateWithContext ctx arg with
-            | Some t, Some p ->
-                let findH = PolarsWrapper.StrFind(t, p, literal = true, strict = false)
-                let castedH = tryTranslateCast typeof<int> findH |> Option.defaultValue findH
-                Some(PolarsWrapper.FillNull(castedH, PolarsWrapper.Lit -1))
+        // --- Trim / TrimStart / TrimEnd ---
+        | ("Trim" | "TrimStart" | "TrimEnd") as trimOp, ([] | [ _ ]) ->
+            let stripFn =
+                match trimOp with
+                | "TrimStart" -> PolarsWrapper.StrStripCharsStart
+                | "TrimEnd" -> PolarsWrapper.StrStripCharsEnd
+                | _ -> PolarsWrapper.StrStripChars
+
+            match args with
+            | [] -> targetH () |> Option.map (fun t -> stripFn (t, PolarsWrapper.LitNull()))
+            | [ arg ] ->
+                match unwrap arg with
+                | :? ConstantExpression as ce when isNull ce.Value ->
+                    targetH () |> Option.map (fun t -> stripFn (t, PolarsWrapper.LitNull()))
+                | :? NewArrayExpression as nae when nae.Expressions.Count = 0 ->
+                    targetH () |> Option.map (fun t -> stripFn (t, PolarsWrapper.LitNull()))
+                | _ ->
+                    match targetH (), tryTranslateWithContext ctx arg with
+                    | Some t, Some p -> Some(stripFn (t, p))
+                    | _ -> None
             | _ -> None
 
-        | "IndexOf", [ arg; compExpr ]
-        | "IndexOf", arg :: compExpr :: _ ->
-            match targetH (), tryTranslateWithContext ctx arg, tryEvaluateCaseInsensitive compExpr with
-            | Some t, Some p, Some true ->
-                let tLower = PolarsWrapper.StrToLower t
-                let pLower = PolarsWrapper.StrToLower p
-                let findH = PolarsWrapper.StrFind(tLower, pLower, literal = true, strict = false)
-                let castedH = tryTranslateCast typeof<int> findH |> Option.defaultValue findH
-                Some(PolarsWrapper.FillNull(castedH, PolarsWrapper.Lit -1))
-            | Some t, Some p, Some false ->
-                let findH = PolarsWrapper.StrFind(t, p, literal = true, strict = false)
-                let castedH = tryTranslateCast typeof<int> findH |> Option.defaultValue findH
-                Some(PolarsWrapper.FillNull(castedH, PolarsWrapper.Lit -1))
-            | _ -> None
-
-        | "Trim", [] ->
-            targetH ()
-            |> Option.map (fun t -> PolarsWrapper.StrStripChars(t, PolarsWrapper.LitNull()))
-        | "Trim", [ arg ] ->
-            match unwrap arg with
-            | :? ConstantExpression as ce when isNull ce.Value ->
-                targetH () |> Option.map (fun t -> PolarsWrapper.StrStripChars(t, PolarsWrapper.LitNull()))
-            | :? NewArrayExpression as nae when nae.Expressions.Count = 0 ->
-                targetH () |> Option.map (fun t -> PolarsWrapper.StrStripChars(t, PolarsWrapper.LitNull()))
-            | _ ->
-                match targetH (), tryTranslateWithContext ctx arg with
-                | Some t, Some p -> Some(PolarsWrapper.StrStripChars(t, p))
-                | _ -> None
-
-        | "TrimStart", [] ->
-            targetH ()
-            |> Option.map (fun t -> PolarsWrapper.StrStripCharsStart(t, PolarsWrapper.LitNull()))
-        | "TrimStart", [ arg ] ->
-            match unwrap arg with
-            | :? ConstantExpression as ce when isNull ce.Value ->
-                targetH () |> Option.map (fun t -> PolarsWrapper.StrStripCharsStart(t, PolarsWrapper.LitNull()))
-            | :? NewArrayExpression as nae when nae.Expressions.Count = 0 ->
-                targetH () |> Option.map (fun t -> PolarsWrapper.StrStripCharsStart(t, PolarsWrapper.LitNull()))
-            | _ ->
-                match targetH (), tryTranslateWithContext ctx arg with
-                | Some t, Some p -> Some(PolarsWrapper.StrStripCharsStart(t, p))
-                | _ -> None
-
-        | "TrimEnd", [] ->
-            targetH ()
-            |> Option.map (fun t -> PolarsWrapper.StrStripCharsEnd(t, PolarsWrapper.LitNull()))
-        | "TrimEnd", [ arg ] ->
-            match unwrap arg with
-            | :? ConstantExpression as ce when isNull ce.Value ->
-                targetH () |> Option.map (fun t -> PolarsWrapper.StrStripCharsEnd(t, PolarsWrapper.LitNull()))
-            | :? NewArrayExpression as nae when nae.Expressions.Count = 0 ->
-                targetH () |> Option.map (fun t -> PolarsWrapper.StrStripCharsEnd(t, PolarsWrapper.LitNull()))
-            | _ ->
-                match targetH (), tryTranslateWithContext ctx arg with
-                | Some t, Some p -> Some(PolarsWrapper.StrStripCharsEnd(t, p))
-                | _ -> None
         | _ -> None
 
     let private translateTemporalMethod
@@ -792,23 +710,17 @@ module internal rec ExprTranslator =
                     None
             | _ -> None
 
-        | "AddDays", [ daysExpr ] ->
-            match targetH (), tryEvaluate daysExpr with
-            | Some t, Some d -> Some(PolarsWrapper.DtOffsetBy(t, PolarsWrapper.Lit(sprintf "%gd" (Convert.ToDouble d))))
-            | _ -> None
-        | "AddHours", [ hoursExpr ] ->
-            match targetH (), tryEvaluate hoursExpr with
-            | Some t, Some h -> Some(PolarsWrapper.DtOffsetBy(t, PolarsWrapper.Lit(sprintf "%gh" (Convert.ToDouble h))))
-            | _ -> None
-        | "AddMinutes", [ minsExpr ] ->
-            match targetH (), tryEvaluate minsExpr with
-            | Some t, Some mVal ->
-                Some(PolarsWrapper.DtOffsetBy(t, PolarsWrapper.Lit(sprintf "%gm" (Convert.ToDouble mVal))))
-            | _ -> None
-        | "AddSeconds", [ secsExpr ] ->
-            match targetH (), tryEvaluate secsExpr with
-            | Some t, Some sVal ->
-                Some(PolarsWrapper.DtOffsetBy(t, PolarsWrapper.Lit(sprintf "%gs" (Convert.ToDouble sVal))))
+        | ("AddDays" | "AddHours" | "AddMinutes" | "AddSeconds") as addOp, [ offsetExpr ] ->
+            let unitSuffix =
+                match addOp with
+                | "AddDays" -> "d"
+                | "AddHours" -> "h"
+                | "AddMinutes" -> "m"
+                | _ -> "s"
+
+            match targetH (), tryEvaluate offsetExpr with
+            | Some t, Some v ->
+                Some(PolarsWrapper.DtOffsetBy(t, PolarsWrapper.Lit(sprintf "%g%s" (Convert.ToDouble v) unitSuffix)))
             | _ -> None
         | _ -> None
 
