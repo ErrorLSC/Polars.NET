@@ -135,6 +135,40 @@ module internal ExpressionPatterns =
         | Unary(ExpressionType.ConvertChecked, inner) -> (|CleanLambda|_|) inner
         | _ -> None
 
+    /// Checks if a Type is a compiler-generated or runtime tuple/anonymous/transparent wrapper
+    let internal isTupleOrAnonType (t: Type) =
+        not (isNull t)
+        && (t.Name.StartsWith "AnonymousObject"
+            || t.Name.StartsWith "Tuple"
+            || t.Name.StartsWith "ValueTuple"
+            || t.Name.Contains "TransparentIdentifier")
+
+    /// Checks if a ParameterExpression belongs to the active query context or a synthetic tuple/transparent scope
+    let internal isSyntheticScopeParam (ctxContainsParam: string -> bool) (p: ParameterExpression) =
+        not (isNull p)
+        && (ctxContainsParam p.Name
+            || not (isNull p.Name)
+               && (p.Name.StartsWith "_arg"
+                   || p.Name.StartsWith "tupled"
+                   || p.Name.Contains "TransparentIdentifier"
+                   || p.Name.StartsWith "<>h__")
+            || isTupleOrAnonType p.Type
+            || not (isNull p.Type) && p.Type.Name.Contains "AnonymousType")
+
+    let internal isNullableValue (m: MemberInfo) =
+        not (isNull m)
+        && m.Name = "Value"
+        && not (isNull m.DeclaringType)
+        && m.DeclaringType.IsGenericType
+        && m.DeclaringType.GetGenericTypeDefinition() = typedefof<Nullable<_>>
+
+    let internal isNullableHasValue (m: MemberInfo) =
+        not (isNull m)
+        && m.Name = "HasValue"
+        && not (isNull m.DeclaringType)
+        && m.DeclaringType.IsGenericType
+        && m.DeclaringType.GetGenericTypeDefinition() = typedefof<Nullable<_>>
+
     /// Checks if a member belongs to F#'s internal AnonymousObject tuple wrapper
     let internal isFSharpAnonymousMember (m: MemberInfo) =
         if isNull m || isNull m.DeclaringType then
@@ -149,22 +183,34 @@ module internal ExpressionPatterns =
                 name.StartsWith "Microsoft.FSharp.Linq.RuntimeHelpers.AnonymousObject"
                 || dt.IsGenericType && dt.Name.StartsWith "AnonymousObject`"
 
-    /// Helper: Checks if a property access belongs to a synthetic Zip/Join tuple wrapper or transparent scope
-    let internal isTransparentScopeMember (m: MemberInfo) =
-        if isNull m then
+    /// Unified check for whether a member access is a transparent navigation/scope wrapper
+    /// (such as Nullable<T>.Value, Roslyn TransparentIdentifier, Zip/Join tuple item,
+    /// or F#/C# anonymous scope holder) rather than a physical scalar column.
+    let internal isNavigationMember (m: MemberInfo) =
+        if isNull m || isNull m.DeclaringType then
             false
+        elif isNullableValue m then
+            true
         else
-            let name = m.Name
-            // Standard ValueTuple / Tuple properties: Item1, Item2, Item3...
-            name.StartsWith "Item"
-            ||
-            // Zip / Join custom wrappers: First, Second, Third
-            name = "First"
-            || name = "Second"
-            || name = "Third"
-            ||
-            // F# Anonymous / Transparent identifiers
-            isFSharpAnonymousMember m
+            let typeName = m.DeclaringType.Name
+            let memberName = m.Name
+            let isNonScalarMember =
+                match m with
+                | :? PropertyInfo as p -> not (PolarsTypeHelper.IsScalarType p.PropertyType)
+                | :? FieldInfo as f -> not (PolarsTypeHelper.IsScalarType f.FieldType)
+                | _ -> false
+
+            typeName.Contains "TransparentIdentifier"
+            || memberName.Contains "TransparentIdentifier"
+            || memberName.StartsWith "<>h__"
+            || (isTupleOrAnonType m.DeclaringType
+                || typeName.Contains "AnonymousType"
+                || isFSharpAnonymousMember m
+                || memberName = "First"
+                || memberName = "Second"
+                || memberName = "Third"
+                || memberName = "Rest")
+               && isNonScalarMember
 
     let (|StructFieldAccess|_|) (expr: Expression) : (Expression * string) option =
         match expr with
@@ -176,8 +222,8 @@ module internal ExpressionPatterns =
 
             // Check the target member itself
             match target with
-            | :? MemberExpression as parentMe when isTransparentScopeMember parentMe.Member ->
-                // This is a Zip / Join tuple projection (e.g. t.Item1, t.First, t.Second) -> NOT a Struct column!
+            | :? MemberExpression as parentMe when isNavigationMember parentMe.Member ->
+                // This is a Zip / Join tuple or transparent scope projection -> NOT a Struct column!
                 None
             | _ -> Some(target, m.Name)
 
@@ -187,7 +233,7 @@ module internal ExpressionPatterns =
         match expr with
         | null -> false
         | :? ParameterExpression -> true
-        | MemberAccess(target, m) when isTransparentScopeMember m || isFSharpAnonymousMember m || m.Name = "Rest" ->
+        | MemberAccess(target, m) when isNavigationMember m ->
             isTransparentChain target
         | _ -> false
 

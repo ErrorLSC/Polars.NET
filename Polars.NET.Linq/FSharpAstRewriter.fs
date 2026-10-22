@@ -299,12 +299,7 @@ module internal FSharpAst =
             |> Seq.map (fun (m, arg) -> m.Name, arg)
             |> Map.ofSeq
 
-    let private isTupleOrAnon (t: Type) =
-        not (isNull t)
-        && (t.Name.StartsWith "AnonymousObject"
-            || t.Name.StartsWith "Tuple"
-            || t.Name.StartsWith "ValueTuple"
-            || t.Name.Contains "TransparentIdentifier")
+    let private isTupleOrAnon (t: Type) = isTupleOrAnonType t
 
     /// 1. Beta-reduction: reduce curried F# closure .Invoke(...), tuple operators, and structural expressions
     let rec betaReduce (expr: Expression) : Expression =
@@ -784,12 +779,12 @@ module internal FSharpAst =
         | :? MethodCallExpression as mc ->
             if mc.Method.Name = "QuotationToLambdaExpression"
                || mc.Method.Name = "Invoke"
-               || (not (isNull mc.Method.DeclaringType) && mc.Method.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators")
-               || (mc.Method.Name = "GroupBy" && mc.Method.GetGenericArguments().Length = 3) then
+               || not (isNull mc.Method.DeclaringType) && mc.Method.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators"
+               || mc.Method.Name = "GroupBy" && mc.Method.GetGenericArguments().Length = 3 then
                 true
             else
-                (not (isNull mc.Object) && needsRewrite mc.Object)
-                || (mc.Arguments |> Seq.exists needsRewrite)
+                not (isNull mc.Object) && needsRewrite mc.Object
+                || mc.Arguments |> Seq.exists needsRewrite
         | :? MemberExpression as me ->
             if me.Member.Name = "Item8" || me.Member.Name = "Rest" then
                 true
@@ -812,41 +807,9 @@ module internal FSharpAst =
             true
         | :? MemberInitExpression as mie ->
             needsRewrite mie.NewExpression
-            || (mie.Bindings |> Seq.exists (function
-                | :? MemberAssignment as ma -> needsRewrite ma.Expression
-                | _ -> false))
+            || mie.Bindings |> Seq.exists (function
+               | :? MemberAssignment as ma -> needsRewrite ma.Expression
+               | _ -> false)
         | :? NewArrayExpression as nae ->
             nae.Expressions |> Seq.exists needsRewrite
-        | _ -> false
-
-    /// Fast-path scanner for C# expressions:
-    /// In C#, only tuples with >= 8 elements (which use Rest/Item8) or MemberInit with Rest/Item8 require rewriting.
-    let rec needsCSharpRewrite (expr: Expression) : bool =
-        match expr with
-        | null -> false
-        | :? MemberExpression as me ->
-            me.Member.Name = "Item8"
-            || me.Member.Name = "Rest"
-            || (not (isNull me.Expression) && needsCSharpRewrite me.Expression)
-        | :? NewExpression as ne ->
-            ne.Arguments.Count >= 8
-            || (ne.Arguments |> Seq.exists needsCSharpRewrite)
-        | :? MethodCallExpression as mc ->
-            (not (isNull mc.Object) && needsCSharpRewrite mc.Object)
-            || (mc.Arguments |> Seq.exists needsCSharpRewrite)
-        | :? LambdaExpression as le ->
-            needsCSharpRewrite le.Body
-        | :? UnaryExpression as ue ->
-            needsCSharpRewrite ue.Operand
-        | :? BinaryExpression as be ->
-            needsCSharpRewrite be.Left || needsCSharpRewrite be.Right
-        | :? ConditionalExpression as ce ->
-            needsCSharpRewrite ce.Test || needsCSharpRewrite ce.IfTrue || needsCSharpRewrite ce.IfFalse
-        | :? MemberInitExpression as mie ->
-            needsCSharpRewrite mie.NewExpression
-            || (mie.Bindings |> Seq.exists (function
-                | :? MemberAssignment as ma -> needsCSharpRewrite ma.Expression
-                | _ -> false))
-        | :? NewArrayExpression as nae ->
-            nae.Expressions |> Seq.exists needsCSharpRewrite
         | _ -> false

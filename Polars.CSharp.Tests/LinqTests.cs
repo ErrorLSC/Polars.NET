@@ -100,6 +100,28 @@ public record SaleRunningTotalDto(int Day, double Amount, double RunningTotal);
 public record DeptSale(int DeptId, int Day, double Amount);
 public record DeptSaleRunningTotalDto(int DeptId, int Day, double Amount, double RunningTotal, int RunningCount);
 public record SaleSlidingSumDto(int Day, double Amount, double Sliding2DaySum);
+public record WideRecord(
+    int Id,
+    string Name,
+    string Category,
+    double ValFloat1,
+    double ValFloat2,
+    decimal ValDec1,
+    decimal ValDec2,
+    long ValInt64,
+    int ValInt32,
+    bool ValBool,
+    string Col11,
+    double Col12,
+    decimal Col13,
+    int Col14,
+    long Col15,
+    bool Col16,
+    string Col17,
+    double Col18,
+    decimal Col19,
+    int Col20
+);
 public partial class LinqTests
 {
 
@@ -8396,5 +8418,199 @@ public partial class LinqTests
         var enumerated = structSeries.AsEnumerable<Employee>().ToList();
         Assert.Equal(3, enumerated.Count);
         Assert.Equal("Alice", enumerated[0].Name);
+    }
+
+    [Fact]
+    [Trait("LINQ", "WideTable")]
+    public void Test_CSharp_Query_On_20_Column_Wide_Table_And_Many_Lets()
+    {
+        var wideData = new[]
+        {
+            new WideRecord(1, "Alpha", "Tech", 10.5, 20.5, 100.25m, 200.75m, 1000L, 10, true, "RegionA", 1.1, 10.1m, 100, 10000L, true, "Tag1", 0.5, 5.5m, 50),
+            new WideRecord(2, "Beta", "Tech", 25.0, 15.0, 50.00m, 150.00m, 2000L, 20, false, "RegionA", 2.2, 20.2m, 200, 20000L, true, "Tag2", 1.5, 15.5m, 60),
+            new WideRecord(3, "Gamma", "Finance", 30.0, 40.0, 300.50m, 400.50m, 3000L, 30, true, "RegionB", 3.3, 30.3m, 300, 30000L, false, "Tag1", 2.5, 25.5m, 70),
+            new WideRecord(4, "Delta", "Tech", 15.0, 35.0, 80.00m, 120.00m, 4000L, 40, true, "RegionB", 4.4, 40.4m, 400, 40000L, true, "Tag2", 3.5, 35.5m, 80),
+            new WideRecord(5, "Epsilon", "Finance", 5.0, 50.0, 500.00m, 600.00m, 5000L, 50, false, "RegionB", 5.5, 50.5m, 500, 50000L, false, "Tag3", 4.5, 45.5m, 90)
+        };
+
+        using var df = DataFrame.FromRows(wideData);
+
+        // 1. Filter across wide columns and scan full 20-column records
+        var q1Query =
+            from r in df.AsQueryable<WideRecord>()
+            where r.ValFloat1 >= 10.0 && r.ValBool && r.ValDec1 < 200.0m && r.Col16
+            orderby r.Id
+            select r;
+
+        AssertPlan(q1Query, NativePushdown);
+        var q1 = q1Query.ToArray();
+
+        Assert.Equal(2, q1.Length);
+        Assert.Equal(1, q1[0].Id);
+        Assert.Equal("Alpha", q1[0].Name);
+        Assert.Equal("Tech", q1[0].Category);
+        Assert.Equal(10.5, q1[0].ValFloat1);
+        Assert.Equal(20.5, q1[0].ValFloat2);
+        Assert.Equal(100.25m, q1[0].ValDec1);
+        Assert.Equal(200.75m, q1[0].ValDec2);
+        Assert.Equal(1000L, q1[0].ValInt64);
+        Assert.Equal(10, q1[0].ValInt32);
+        Assert.True(q1[0].ValBool);
+        Assert.Equal("RegionA", q1[0].Col11);
+        Assert.Equal(1.1, q1[0].Col12);
+        Assert.Equal(10.1m, q1[0].Col13);
+        Assert.Equal(100, q1[0].Col14);
+        Assert.Equal(10000L, q1[0].Col15);
+        Assert.True(q1[0].Col16);
+        Assert.Equal("Tag1", q1[0].Col17);
+        Assert.Equal(0.5, q1[0].Col18);
+        Assert.Equal(5.5m, q1[0].Col19);
+        Assert.Equal(50, q1[0].Col20);
+
+        Assert.Equal(4, q1[1].Id);
+        Assert.Equal("Delta", q1[1].Name);
+        Assert.Equal(4000L, q1[1].ValInt64);
+        Assert.Equal(80, q1[1].Col20);
+
+        // 2. Project 20 columns into an anonymous object with computed expressions
+        var q2Query =
+            from r in df.AsQueryable<WideRecord>()
+            where r.Id <= 2
+            orderby r.Id
+            select new
+            {
+                C1 = r.Id,
+                C2 = r.Name,
+                C3 = r.Category,
+                C4 = r.ValFloat1 + 1.0,
+                C5 = r.ValFloat2 * 2.0,
+                C6 = r.ValDec1 + 10.0m,
+                C7 = r.ValDec2,
+                C8 = r.ValInt64 + 100L,
+                C9 = r.ValInt32 * 2,
+                C10 = !r.ValBool,
+                C11 = r.Col11,
+                C12 = r.Col12,
+                C13 = r.Col13,
+                C14 = r.Col14 + 1,
+                C15 = r.Col15,
+                C16 = r.Col16,
+                C17 = r.Col17,
+                C18 = r.Col18,
+                C19 = r.Col19,
+                C20 = r.Col20
+            };
+
+        // Roslyn compiles 20-property anonymous objects flatly without Item8/Rest nesting
+        Assert.DoesNotContain("Item8", q2Query.Expression.ToString());
+        Assert.DoesNotContain("Rest", q2Query.Expression.ToString());
+
+        AssertPlan(q2Query, NativePushdown);
+        var q2 = q2Query.ToArray();
+
+        Assert.Equal(2, q2.Length);
+        Assert.Equal(1, q2[0].C1);
+        Assert.Equal("Alpha", q2[0].C2);
+        Assert.Equal(11.5, q2[0].C4);
+        Assert.Equal(41.0, q2[0].C5);
+        Assert.Equal(110.25m, q2[0].C6);
+        Assert.Equal(1100L, q2[0].C8);
+        Assert.Equal(20, q2[0].C9);
+        Assert.False(q2[0].C10);
+        Assert.Equal(101, q2[0].C14);
+        Assert.Equal(50, q2[0].C20);
+
+        Assert.Equal(2, q2[1].C1);
+        Assert.Equal("Beta", q2[1].C2);
+        Assert.True(q2[1].C10);
+
+        // 3. Query syntax with 10 'let' bindings (which in F# triggers nested 8-tuple AnonymousObject<..., Item8>)
+        // Roslyn compiles 'let' into binary TransparentIdentifiers (<>h__TransparentIdentifier), never 8-tuples!
+        var qLetQuery =
+            from r in df.AsQueryable<WideRecord>()
+            let l1 = r.ValFloat1 + 1.0
+            let l2 = r.ValFloat2 * 2.0
+            let l3 = r.ValDec1 + 10.0m
+            let l4 = r.ValDec2 - 5.0m
+            let l5 = r.ValInt64 + 100L
+            let l6 = r.ValInt32 * 3
+            let l7 = r.Col12 + 0.5
+            let l8 = r.Col13 + 1.0m
+            let l9 = r.Col14 + 10
+            let l10 = r.Col20 * 2
+            where l1 > 10.0 && l10 >= 100
+            orderby r.Id
+            select new
+            {
+                r.Id,
+                L1 = l1,
+                L5 = l5,
+                L8 = l8,
+                L9 = l9,
+                L10 = l10
+            };
+
+        Assert.DoesNotContain("Item8", qLetQuery.Expression.ToString());
+        Assert.DoesNotContain("Rest", qLetQuery.Expression.ToString());
+
+        AssertPlan(qLetQuery, NativePushdown);
+        var qLet = qLetQuery.ToArray();
+
+        Assert.Equal(4, qLet.Length);
+        Assert.Equal(1, qLet[0].Id);
+        Assert.Equal(11.5, qLet[0].L1);
+        Assert.Equal(1100L, qLet[0].L5);
+        Assert.Equal(11.1m, qLet[0].L8);
+        Assert.Equal(110, qLet[0].L9);
+        Assert.Equal(100, qLet[0].L10);
+
+        // 4. Multi-column GroupBy + Aggregations over wide table
+        var q3Query =
+            from r in df.AsQueryable<WideRecord>()
+            group r by new { r.Category, Region = r.Col11 } into g
+            where g.Count() >= 1
+            orderby g.Key.Category, g.Key.Region
+            select new
+            {
+                g.Key.Category,
+                g.Key.Region,
+                Count = g.Count(),
+                SumFloat1 = g.Sum(x => x.ValFloat1),
+                AvgFloat2 = g.Average(x => x.ValFloat2),
+                SumDec1 = g.Sum(x => x.ValDec1),
+                MaxInt64 = g.Max(x => x.ValInt64),
+                MinInt32 = g.Min(x => x.ValInt32)
+            };
+
+        AssertPlan(q3Query, NativePushdown);
+        var q3 = q3Query.ToArray();
+
+        Assert.Equal(3, q3.Length);
+        Assert.Equal("Finance", q3[0].Category);
+        Assert.Equal("RegionB", q3[0].Region);
+        Assert.Equal(2, q3[0].Count);
+        Assert.Equal(35.0, q3[0].SumFloat1);
+        Assert.Equal(45.0, q3[0].AvgFloat2);
+        Assert.Equal(800.50m, q3[0].SumDec1);
+        Assert.Equal(5000L, q3[0].MaxInt64);
+        Assert.Equal(30, q3[0].MinInt32);
+
+        // 5. Sorting & Top-K over wide table columns
+        var q4Query =
+            (from r in df.AsQueryable<WideRecord>()
+             orderby r.ValDec1 descending, r.ValFloat1, r.Id
+             select new { r.Id, r.Name, Dec = r.ValDec1, Float = r.ValFloat1 })
+            .Take(2);
+
+        AssertPlan(q4Query, NativePushdown);
+        var q4 = q4Query.ToArray();
+
+        Assert.Equal(2, q4.Length);
+        Assert.Equal(5, q4[0].Id);
+        Assert.Equal("Epsilon", q4[0].Name);
+        Assert.Equal(500.00m, q4[0].Dec);
+        Assert.Equal(3, q4[1].Id);
+        Assert.Equal("Gamma", q4[1].Name);
+        Assert.Equal(300.50m, q4[1].Dec);
     }
 }

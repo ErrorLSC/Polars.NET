@@ -1522,7 +1522,7 @@ and PolarsQuery<'T>
 
                 match cleanExpr with
                 | :? ParameterExpression as p when p.Name = param.Name -> true
-                | MemberAccess(_, m) when ExprTranslator.isNavigationMember m -> true
+                | MemberAccess(_, m) when isNavigationMember m -> true
                 | _ -> false
 
             let navBindings, computedBindings = bindings |> List.partition isNavigationBinding
@@ -1970,15 +1970,7 @@ and PolarsQuery<'T>
                         match ExprTranslator.unwrap expr with
                         | null -> false
                         | :? ParameterExpression as p ->
-                            ctx.ContainsParam p.Name
-                            || p.Name.StartsWith "_arg"
-                            || p.Name.StartsWith "tupled"
-                            || p.Name.Contains "TransparentIdentifier"
-                            || p.Name.StartsWith "<>h__"
-                            || p.Type.Name.StartsWith "AnonymousObject"
-                            || p.Type.Name.Contains "AnonymousType"
-                            || p.Type.Name.StartsWith "Tuple"
-                            || p.Type.Name.StartsWith "ValueTuple"
+                            isSyntheticScopeParam ctx.ContainsParam p
                         | MethodCall(_, target, args) ->
                             (not (isNull target) && check target) || (args |> List.exists check)
                         | MemberAccess(target, _) -> not (isNull target) && check target
@@ -2412,11 +2404,7 @@ and PolarsQuery<'T>
                             ->
                             true
                         // 4. Transparent tuple wrappers (F# & C# ValueTuple / Tuple / AnonymousObject identity projections)
-                        | :? NewExpression as ne when
-                            ne.Type.Name.StartsWith("AnonymousObject")
-                            || ne.Type.Name.StartsWith("Tuple")
-                            || ne.Type.Name.StartsWith("ValueTuple")
-                            ->
+                        | :? NewExpression as ne when isTupleOrAnonType ne.Type ->
                             let isIdentity =
                                 ne.Arguments
                                 |> Seq.mapi (fun idx arg ->
@@ -2667,20 +2655,9 @@ and PolarsQuery<'T>
 
             | _ -> acc
 
-        // printfn "\n\x1b[1;32m================ [ORIGINAL EXPRESSION TREE] ================\x1b[0m"
-        // printfn "%s" (expression.ToString())
-        let currentScalarCol =
-            PolarsQueryProvider.tryGetScalarColumnName typeof<'T> lfCloned
-
-        let isCSharp = not (isNull materializer) && materializer.GetType().Name.StartsWith("CSharp")
-        let needsRewrite =
-            if isCSharp then
-                FSharpAst.needsCSharpRewrite expression
-            else
-                FSharpAst.needsRewrite expression
-
+        let isCSharp = not (isNull materializer) && materializer.GetType().Name.StartsWith "CSharp"
         let rewrittenExpr =
-            if needsRewrite then
+            if not isCSharp && FSharpAst.needsRewrite expression then
                 FSharpAst.rewrite expression
             else
                 expression
@@ -2729,8 +2706,6 @@ and PolarsQuery<'T>
             else
                 flatten bound []
         FallbackTracker.Diagnostic <- None
-        // eprintfn "[FLATTENED STAGES COUNT] %d" stages.Length
-        // stages |> List.iteri (fun idx s -> eprintfn "  Stage[%d] = %A" idx s)
 
         let addSort (spec: SortSpec) (ops: QueryOp list) =
             match ops with
@@ -2886,7 +2861,7 @@ and PolarsQuery<'T>
                                     let castParam = Expression.Convert(rawParam, predLambda.Parameters.[0].Type)
                                     let invoked = Expression.Invoke(predLambda, castParam)
                                     let safePred = Expression.Lambda<Func<obj, bool>>(invoked, rawParam).Compile()
-                                    (safePred, predLambda))
+                                    safePred, predLambda)
 
                             fuse [] opsAcc (clientHavingPreds @ clientPreds) clientProjOpt
                         | _ -> [], [], None, true
@@ -2980,7 +2955,7 @@ and PolarsQuery<'T>
                                 FallbackTracker.Diagnostic <- Some (sprintf "Filter on transparent identifier %s: %s\nRewritten body: %s" paramType.Name (l.ToString()) (bound.ToString()))
                                 [], [], None, true
                             else
-                                // Strongly-typed Func<obj, bool> compilation without DynamicInvoke
+                                // Strongly-typed Func<obj, bool> compilation
                                 let rawParam = Expression.Parameter(typeof<obj>, "rawItem")
 
                                 let castParam =
@@ -2991,7 +2966,6 @@ and PolarsQuery<'T>
 
                                 let invoked = Expression.Invoke(l, castParam)
                                 let safePred = Expression.Lambda<Func<obj, bool>>(invoked, rawParam).Compile()
-                                // let typedPred = Func<'T, bool>(fun (item: 'T) -> safePred.Invoke(box item))
                                 fuse tail opsAcc ((safePred, l) :: clientPreds) clientProjOpt
 
             | LinqStage.Index :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
@@ -3069,14 +3043,9 @@ and PolarsQuery<'T>
                                 let rec isTransparentArg (e: Expression) =
                                     match ExprTranslator.unwrap e with
                                     | :? ParameterExpression as p -> p.Name = p1 || p.Name = p2
-                                    | MemberAccess(target, m) when
-                                        ExprTranslator.isNavigationMember m
-                                        || ExpressionPatterns.isTransparentScopeMember m ->
+                                    | MemberAccess(target, m) when isNavigationMember m ->
                                         isTransparentArg target
-                                    | :? NewExpression as ne when
-                                        ne.Type.Name.StartsWith "AnonymousObject"
-                                        || ne.Type.Name.StartsWith "Tuple"
-                                        || ne.Type.Name.StartsWith "ValueTuple" ->
+                                    | :? NewExpression as ne when isTupleOrAnonType ne.Type ->
                                         ne.Arguments |> Seq.forall isTransparentArg
                                     | _ -> false
 
@@ -3306,7 +3275,7 @@ and PolarsQuery<'T>
                                 []
                         | _ -> []
 
-                    fuse tail (renameOps @ (explodeOp :: opsAcc)) clientPreds clientProjOpt
+                    fuse tail (renameOps @ explodeOp :: opsAcc) clientPreds clientProjOpt
                 | None -> [], [], None, true
 
             | LinqStage.CrossJoin(innerExpr, resLambdaOpt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
@@ -3672,7 +3641,12 @@ and PolarsQuery<'T>
     /// Executes the full LINQ expression pipeline in-memory via .NET EnumerableQuery LINQ-to-Objects engine
     member private this.ExecuteInMemory() : IEnumerable<'T> =
         // 1. Rewrite expression tree to eliminate F# transparent identifiers
-        let effectiveExpr = FSharpAst.rewrite expression
+        let isCSharp = not (isNull materializer) && materializer.GetType().Name.StartsWith("CSharp")
+        let effectiveExpr =
+            if not isCSharp && FSharpAst.needsRewrite expression then
+                FSharpAst.rewrite expression
+            else
+                expression
 
         // 2. Extract root queryable source
         let rec findRootQueryable (e: Expression) : (Expression * Type) option =
@@ -4111,7 +4085,7 @@ and PolarsQuery<'T>
             requiresClientFallback
             || not clientPredicates.IsEmpty
             || clientProjOpt.IsSome
-            || (isScalar && width > 1UL)
+            || isScalar && width > 1UL
             || isGrouping
 
         if not requiresClientEvaluation then

@@ -217,52 +217,11 @@ module internal rec ExprTranslator =
     // =========================================================================
 
     // Helper detecting Nullable<T>.Value property access
-    let private isNullableValue (m: MemberInfo) =
-        m.Name = "Value"
-        && not (isNull m.DeclaringType)
-        && m.DeclaringType.IsGenericType
-        && m.DeclaringType.GetGenericTypeDefinition() = typedefof<Nullable<_>>
-
-    let private isNullableHasValue (m: MemberInfo) =
-        m.Name = "HasValue"
-        && not (isNull m.DeclaringType)
-        && m.DeclaringType.IsGenericType
-        && m.DeclaringType.GetGenericTypeDefinition() = typedefof<Nullable<_>>
-
-    let internal isNavigationMember (m: MemberInfo) =
-        if isNull m || isNull m.DeclaringType then
-            false
-        // Transparent navigation unwrap for Nullable<T>.Value
-        elif isNullableValue m then
-            true
-        else
-            let typeName = m.DeclaringType.Name
-            let memberName = m.Name
-
-            typeName.Contains "TransparentIdentifier"
-            || memberName.Contains "TransparentIdentifier"
-            || memberName.StartsWith "<>h__"
-            || ((typeName.StartsWith "Tuple"
-                 || typeName.StartsWith "ValueTuple"
-                 || typeName.StartsWith "AnonymousObject"
-                 || typeName.Contains "AnonymousType")
-                && match m with
-                   | :? PropertyInfo as p -> not (PolarsTypeHelper.IsScalarType p.PropertyType)
-                   | :? FieldInfo as f -> not (PolarsTypeHelper.IsScalarType f.FieldType)
-                   | _ -> false)
-
     /// Resolves the underlying physical column name using a strongly-typed TranslationContext.
     let rec internal tryResolveColumnNameWithContext (ctx: TranslationContext) (expr: Expression) : string option =
         if not ctx.AllowsColumnMemberLookup then
             None
         else
-            // Helper detecting Nullable<T>.Value property access
-            let isNullableValueProperty (m: MemberInfo) =
-                m.Name = "Value"
-                && not (isNull m.DeclaringType)
-                && m.DeclaringType.IsGenericType
-                && m.DeclaringType.GetGenericTypeDefinition() = typedefof<Nullable<_>>
-
             match expr with
             | :? ParameterExpression as p when
                 not (isNull p.Name)
@@ -286,9 +245,7 @@ module internal rec ExprTranslator =
                         else
                             match unwrap e with
                             | :? ParameterExpression as p -> p.Name = targetName
-                            | MemberAccess(nextInner, nextM) when
-                                isNavigationMember nextM || isNullableValueProperty nextM
-                                ->
+                            | MemberAccess(nextInner, nextM) when isNavigationMember nextM ->
                                 isRootedIn targetName nextInner
                             | _ -> false
 
@@ -344,19 +301,9 @@ module internal rec ExprTranslator =
                         let rec isRootedInParamOrClosure (e: Expression) =
                             match unwrap e with
                             | :? ParameterExpression as p ->
-                                ctx.ContainsParam p.Name
-                                || p.Name.StartsWith "_arg"
-                                || p.Name.StartsWith "tupled"
-                                || p.Name.Contains "TransparentIdentifier"
-                                || p.Name.StartsWith "<>h__"
-                                || p.Type.Name.StartsWith "AnonymousObject"
-                                || p.Type.Name.Contains "AnonymousType"
-                                || p.Type.Name.StartsWith "Tuple"
-                                || p.Type.Name.StartsWith "ValueTuple"
-                            // Allow transparent navigation through Nullable<T>.Value
-                            | MemberAccess(nextInner, nextM) when
-                                isNavigationMember nextM || isNullableValueProperty nextM
-                                ->
+                                isSyntheticScopeParam ctx.ContainsParam p
+                            // Allow transparent navigation through intermediate scope / Nullable<T>.Value
+                            | MemberAccess(nextInner, nextM) when isNavigationMember nextM ->
                                 isRootedInParamOrClosure nextInner
                             | _ -> false
 
