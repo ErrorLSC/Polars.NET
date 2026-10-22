@@ -168,17 +168,7 @@ and PolarsQuery<'T>
             | QueryOp.Sort specs :: tail -> QueryOp.Sort(specs @ [ spec ]) :: tail
             | _ -> QueryOp.Sort [ spec ] :: ops
 
-        let buildRenameOps (renames: (string * string) list) : QueryOp list =
-            if renames.IsEmpty then
-                []
-            else
-                [
-                    QueryOp.Rename
-                        {
-                            ExistingNames = renames |> List.map fst |> List.toArray
-                            NewNames = renames |> List.map snd |> List.toArray
-                        }
-                ]
+        let fullFallback = [], [], None, true
 
         let rec fuse
             (remaining: LinqStage list)
@@ -186,6 +176,20 @@ and PolarsQuery<'T>
             (clientPreds: (Func<obj, bool> * LambdaExpression) list)
             (clientProjOpt: (Type * Func<obj, obj>) option)
             =
+            let canPushdown = clientPreds.IsEmpty && clientProjOpt.IsNone
+            let inline pushOp op tail = fuse tail (op :: opsAcc) clientPreds clientProjOpt
+            let inline pushOps ops tail = fuse tail (ops @ opsAcc) clientPreds clientProjOpt
+
+            let pushOpOrFallback (opOpt: QueryOp option) tail =
+                match opOpt with
+                | Some op -> pushOp op tail
+                | None -> fullFallback
+
+            let pushOpsOrFallback (opsOpt: QueryOp list option) tail =
+                match opsOpt with
+                | Some ops -> pushOps ops tail
+                | None -> fullFallback
+
             let tryDispatchGroupBy
                 (ctx: GroupFoldContext)
                 (projBody: Expression)
@@ -194,15 +198,12 @@ and PolarsQuery<'T>
                 (nextTail: LinqStage list)
                 =
                 if not clientPreds.IsEmpty then
-                    [], [], None, true
+                    fullFallback
                 else
                     match compileUnifiedGroupBy lfCloned ctx projBody groupParamName isKeyArg with
-                    | Some compiledOps -> fuse nextTail (compiledOps @ opsAcc) clientPreds clientProjOpt
-                    | None ->
-                        if isGrouping then
-                            fuse nextTail opsAcc clientPreds clientProjOpt
-                        else
-                            [], [], None, true
+                    | Some compiledOps -> pushOps compiledOps nextTail
+                    | None when isGrouping -> fuse nextTail opsAcc clientPreds clientProjOpt
+                    | None -> fullFallback
 
             let slurpPipelineGroupBy (stages: LinqStage list) (initCtx: GroupFoldContext) =
                 let rec slurp (s: LinqStage list) (ctx: GroupFoldContext) =
@@ -223,11 +224,10 @@ and PolarsQuery<'T>
                         tryDispatchGroupBy ctx projLambda.Body projLambda.Parameters.[0].Name isKeyArg next
                     | [] when isGrouping ->
                         let clientHavingPreds =
-                            ctx.HavingPreds
-                            |> List.map (fun predLambda -> compileClientPredicate predLambda, predLambda)
+                            ctx.HavingPreds |> List.map (fun p -> compileClientPredicate p, p)
 
                         fuse [] opsAcc (clientHavingPreds @ clientPreds) clientProjOpt
-                    | _ -> [], [], None, true
+                    | _ -> fullFallback
 
                 slurp stages initCtx
 
@@ -250,18 +250,22 @@ and PolarsQuery<'T>
                         SortStages = []
                     }
 
-                let resKeyParam = resLambda.Parameters.[0]
+                let resKeyParamName = resLambda.Parameters.[0].Name
 
                 let isKeyArg (e: Expression) =
                     match e with
-                    | :? ParameterExpression as p when p.Name = resKeyParam.Name -> true
-                    | MemberAccess(:? ParameterExpression as p, _) when p.Name = resKeyParam.Name -> true
+                    | :? ParameterExpression as p when p.Name = resKeyParamName -> true
+                    | MemberAccess(:? ParameterExpression as p, _) when p.Name = resKeyParamName -> true
                     | _ -> false
 
                 tryDispatchGroupBy ctx resLambda.Body resLambda.Parameters.[1].Name isKeyArg nextTail
 
             match remaining with
-            // 1. Universal Pipeline GroupBy (F# QueryBuilder / chained syntax)
+            | [] -> List.rev opsAcc, List.rev clientPreds, clientProjOpt, false
+
+            // -----------------------------------------------------------------
+            // 1. GroupBy Stages (F# Pipeline & C# 3/4-arg Overloads)
+            // -----------------------------------------------------------------
             | LinqStage.GroupByKey keyLambda :: tail ->
                 slurpPipelineGroupBy
                     tail
@@ -272,7 +276,6 @@ and PolarsQuery<'T>
                         SortStages = []
                     }
 
-            // 2. C# 3-arg GroupBy: (keySelector, resultSelector) OR (keySelector, elementSelector)
             | LinqStage.GroupByWithResult(keyLambda, secondLambda) :: tail ->
                 if secondLambda.Parameters.Count >= 2 then
                     dispatchCSharpGroupBy keyLambda None secondLambda tail
@@ -286,360 +289,51 @@ and PolarsQuery<'T>
                             SortStages = []
                         }
 
-            // 3. C# 4-arg GroupBy (keySelector, elementSelector, resultSelector)
             | LinqStage.GroupByWithElementAndResult(keyLambda, elemLambda, resLambda) :: tail ->
                 dispatchCSharpGroupBy keyLambda (Some elemLambda) resLambda tail
 
+            // -----------------------------------------------------------------
+            // 2. Filtering & Window Masking (Filter, TakeWhile, SkipWhile)
+            // -----------------------------------------------------------------
             | LinqStage.Filter l :: tail ->
-                match SubqueryDecorrelator.tryDecorrelateFilter lfCloned l with
-                | Some decorResult when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+                match if canPushdown then SubqueryDecorrelator.tryDecorrelateFilter lfCloned l else None with
+                | Some decorResult ->
                     let newOpsAcc = (decorResult.GeneratedOps |> List.rev) @ opsAcc
-
-                    match decorResult.ResidualLambda with
-                    | Some residualLam ->
-                        fuse (LinqStage.Filter residualLam :: tail) newOpsAcc clientPreds clientProjOpt
-                    | None -> fuse tail newOpsAcc clientPreds clientProjOpt
-                | _ ->
+                    let nextStages =
+                        match decorResult.ResidualLambda with
+                        | Some residualLam -> LinqStage.Filter residualLam :: tail
+                        | None -> tail
+                    fuse nextStages newOpsAcc clientPreds clientProjOpt
+                | None ->
                     let p = l.Parameters.[0]
                     let ctx = createContextForType p.Type lfCloned p.Name
 
-                    match ExprTranslator.tryTranslateWithContext ctx l.Body with
-                    | Some exprHandle when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                        fuse tail (QueryOp.Filter exprHandle :: opsAcc) clientPreds clientProjOpt
-                    | _ ->
-                        let rec tryTranslateTupleFilter (e: Expression) =
-                            let isNullConstant (expr: Expression) =
-                                match ExprTranslator.unwrap expr with
-                                | :? ConstantExpression as c -> isNull c.Value
-                                | _ -> false
-
-                            match e with
-                            | Binary(op, left, right) when op = ExpressionType.NotEqual && isNullConstant right ->
-                                tryTranslateTupleFilter left |> Option.map PolarsWrapper.IsNotNull
-                            | Binary(op, left, right) when op = ExpressionType.NotEqual && isNullConstant left ->
-                                tryTranslateTupleFilter right |> Option.map PolarsWrapper.IsNotNull
-                            | Binary(op, left, right) when op = ExpressionType.Equal && isNullConstant right ->
-                                tryTranslateTupleFilter left |> Option.map PolarsWrapper.IsNull
-                            | Binary(op, left, right) when op = ExpressionType.Equal && isNullConstant left ->
-                                tryTranslateTupleFilter right |> Option.map PolarsWrapper.IsNull
-                            | Binary(op, left, right) ->
-                                match tryTranslateTupleFilter left, tryTranslateTupleFilter right with
-                                | Some l, Some r ->
-                                    try
-                                        Some(ExprTranslator.translateBinary op l r)
-                                    with _ ->
-                                        None
-                                | _ -> None
-                            | MemberAccess _ as ma ->
-                                ExprTranslator.tryResolveColumnNameWithContext ctx ma
-                                |> Option.map PolarsWrapper.Col
-                            | Constant _ -> ExprTranslator.tryTranslateWithContext TranslationContext.Empty e
-                            | _ -> None
-
-                        match tryTranslateTupleFilter l.Body with
-                        | Some exprHandle when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                            fuse tail (QueryOp.Filter exprHandle :: opsAcc) clientPreds clientProjOpt
-                        | _ ->
-                            let paramType = l.Parameters.[0].Type
-                            if
-                                paramType.Name.StartsWith "AnonymousObject"
-                                || paramType.Name.Contains "TransparentIdentifier"
-                                || clientProjOpt.IsSome
-                            then
-                                FallbackTracker.Diagnostic <- Some (sprintf "Filter on transparent identifier %s: %s\nRewritten body: %s" paramType.Name (l.ToString()) (bound.ToString()))
-                                [], [], None, true
-                            else
-                                let safePred = compileClientPredicate l
-                                fuse tail opsAcc ((safePred, l) :: clientPreds) clientProjOpt
-
-            | LinqStage.Index :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                let indexOp = QueryOp.WithRowIndex("Index", Some 0u)
-
-                let int32Dtype =
-                    PolarsWrapper.DataTypeExprFromDataType(PolarsWrapper.NewPrimitiveType(int PlDataType.Int32))
-
-                let castIndexExpr =
-                    PolarsWrapper.Col "Index"
-                    |> fun c -> PolarsWrapper.ExprCast(c, int32Dtype, strict = false, wrapNumerical = false)
-
-                let withCastOp = QueryOp.WithColumns [| castIndexExpr |]
-                fuse tail (withCastOp :: indexOp :: opsAcc) clientPreds clientProjOpt
-
-            | LinqStage.SortDefault isDesc :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                let colNames = PolarsSchemaExtractor.GetColumnNames lfCloned
-                let targetCol = if colNames.Length > 0 then colNames.[0] else ""
-                let colExpr = PolarsWrapper.Col targetCol
-
-                let spec =
-                    {
-                        Expr = colExpr
-                        Descending = isDesc
-                        NullsLast = false
-                    }
-
-                fuse tail (addSort spec opsAcc) clientPreds clientProjOpt
-
-            | LinqStage.Sort(l, isDesc) :: tail ->
-                let param = l.Parameters.[0]
-
-                let isParamGrouping =
-                    param.Type.IsGenericType
-                    && param.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
-
-                if not isParamGrouping && clientPreds.IsEmpty && clientProjOpt.IsNone then
-                    let ctx = createContextForType param.Type lfCloned param.Name
-
-                    let sortExprOpt =
-                        match ExprTranslator.tryTranslateWithContext ctx l.Body with
-                        | Some h -> Some h
-                        | None -> tryTranslateSelectArg ctx l.Body
-
-                    match sortExprOpt with
-                    | Some exprHandle ->
-                        let spec =
-                            {
-                                Expr = exprHandle
-                                Descending = isDesc
-                                NullsLast = false
-                            }
-
-                        fuse tail (addSort spec opsAcc) clientPreds clientProjOpt
-                    | None -> fuse tail opsAcc clientPreds clientProjOpt
-                else
-                    fuse tail opsAcc clientPreds clientProjOpt
-
-            | LinqStage.Join(m, inner, outerKey, innerKey, resSelOpt) :: tail when
-                clientPreds.IsEmpty && clientProjOpt.IsNone
-                ->
-                match compileJoin lfCloned m inner outerKey innerKey with
-                | Some spec ->
-                    match resSelOpt with
-                    | None ->
-                        fuse tail (QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
-                    | Some resSel ->
-                        let isTransparent =
-                            match tryExtractMemberBindings resSel.Body with
-                            | Some bindings when resSel.Parameters.Count >= 2 ->
-                                let p1, p2 = resSel.Parameters.[0].Name, resSel.Parameters.[1].Name
-
-                                let rec isTransparentArg (e: Expression) =
-                                    match ExprTranslator.unwrap e with
-                                    | :? ParameterExpression as p -> p.Name = p1 || p.Name = p2
-                                    | MemberAccess(target, m) when isNavigationMember m ->
-                                        isTransparentArg target
-                                    | :? NewExpression as ne when isTupleOrAnonType ne.Type ->
-                                        ne.Arguments |> Seq.forall isTransparentArg
-                                    | _ -> false
-
-                                bindings |> List.forall (fun (_, expr) -> isTransparentArg expr)
-                            | _ -> false
-
-                        if isTransparent then
-                            fuse tail (QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
+                    let nativeExprOpt =
+                        if canPushdown then
+                            ExprTranslator.tryTranslateWithContext ctx l.Body
+                            |> Option.orElseWith (fun () -> tryTranslateTupleFilter ctx l.Body)
                         else
-                            let leftCols = getLazySchemaFields lfCloned |> Array.map fst
-                            let rightCols = getLazySchemaFields spec.RightLf |> Array.map fst
+                            None
 
-                            match compileJoinResultSelector leftCols rightCols spec resSel with
-                            | Some selectOp ->
-                                fuse tail (selectOp :: QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
-                            | None ->
-                                FallbackTracker.Diagnostic <- Some (sprintf "CompileJoinResultSelector failed: %s\nLeftCols: %A\nRightCols: %A" (resSel.ToString()) leftCols rightCols)
-                                [], [], None, true
-                | None ->
-                    FallbackTracker.Diagnostic <- Some (sprintf "CompileJoin failed for inner: %s, outerKey: %s, innerKey: %s" (inner.ToString()) (outerKey.ToString()) (innerKey.ToString()))
-                    [], [], None, true
-
-            | LinqStage.GroupJoin(_, inner, outerKey, innerKey, _) :: LinqStage.Explode(collSelector, _) :: tail when
-                collSelector.ToString().Contains "DefaultIfEmpty"
-                && clientPreds.IsEmpty
-                && clientProjOpt.IsNone
-                ->
-
-                match SubqueryDecorrelator.resolveSequenceLazyFrame inner with
-                | Some rightLf ->
-                    let outerParam = outerKey.Parameters.[0]
-                    let innerParam = innerKey.Parameters.[0]
-
-                    let leftCtx = createContextForType outerParam.Type lfCloned outerParam.Name
-                    let rightCtx = createContextForType innerParam.Type rightLf innerParam.Name
-
-                    match
-                        ExprTranslator.tryTranslateWithContext leftCtx outerKey.Body,
-                        ExprTranslator.tryTranslateWithContext rightCtx innerKey.Body
-                    with
-                    | Some leftKey, Some rightKey ->
-                        let joinSpec =
-                            {
-                                RightLf = rightLf
-                                LeftOn = [| leftKey |]
-                                RightOn = [| rightKey |]
-                                How = PlJoinType.Left
-                                Suffix = None
-                                InvertSides = false
-                                Coalesce = PlJoinCoalesce.KeepColumns
-                            }
-
-                        fuse tail (QueryOp.Join joinSpec :: opsAcc) clientPreds clientProjOpt
-                    | _ -> [], [], None, true
-                | None -> [], [], None, true
-
-            | LinqStage.SetOp(m, second, k1Opt, k2Opt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match compileSetOp m second k1Opt k2Opt lfCloned with
-                | Some spec -> fuse tail (QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
-                | None -> [], [], None, true
-
-            | LinqStage.Skip s :: LinqStage.Take t :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                fuse tail (QueryOp.Slice(int64 s, t) :: opsAcc) clientPreds clientProjOpt
-
-            | LinqStage.Take count :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                fuse tail (QueryOp.Slice(0L, count) :: opsAcc) clientPreds clientProjOpt
-
-            | LinqStage.Skip count :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                fuse tail (QueryOp.Slice(int64 count, UInt32.MaxValue) :: opsAcc) clientPreds clientProjOpt
-
-            | LinqStage.Distinct :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                let spec =
-                    {
-                        SubsetCols = None
-                        Keep = PlUniqueKeepStrategy.First
-                        MaintainOrder = false
-                    }
-
-                fuse tail (QueryOp.Unique spec :: opsAcc) clientPreds clientProjOpt
-
-            | LinqStage.DistinctBy keyLambda :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match extractDistinctColumns keyLambda with
-                | Some cols ->
-                    let spec =
-                        {
-                            SubsetCols = Some cols
-                            Keep = PlUniqueKeepStrategy.First
-                            MaintainOrder = false
-                        }
-
-                    fuse tail (QueryOp.Unique spec :: opsAcc) clientPreds clientProjOpt
-                | None -> [], [], None, true
-
-            | LinqStage.Concat otherExpr :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match SubqueryDecorrelator.resolveSequenceLazyFrame otherExpr with
-                | Some otherCompiledLf ->
-                    let spec =
-                        {
-                            OtherLf = otherCompiledLf
-                            Prepend = false
-                        }
-
-                    fuse tail (QueryOp.Concat spec :: opsAcc) clientPreds clientProjOpt
-                | None -> [], [], None, true
-
-            | LinqStage.Zip(secondExpr, resLambdaOpt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr with
-                | Some otherLf ->
-                    let baseCols = PolarsSchemaExtractor.GetColumnNames lfCloned |> Set.ofArray
-
-                    let safeSecondLf, _, suffixMap =
-                        disambiguateColumns baseCols otherLf "_second"
-
-                    let zipOp = QueryOp.HorizontalConcat [| safeSecondLf |]
-
-                    let renameOps =
-                        match resLambdaOpt with
-                        | Some resLambda ->
-                            extractBinaryResultRenames resLambda None
-                            |> List.map (fun (srcCol, destCol) ->
-                                match suffixMap.TryFind srcCol with
-                                | Some actualColName -> actualColName, destCol
-                                | None -> srcCol, destCol)
-                            |> buildRenameOps
-                        | None -> []
-
-                    fuse tail (renameOps @ zipOp :: opsAcc) clientPreds clientProjOpt
-                | None -> [], [], None, true
-
-            | LinqStage.Zip3(secondExpr, thirdExpr) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match
-                    SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr,
-                    SubqueryDecorrelator.resolveSequenceLazyFrame thirdExpr
-                with
-                | Some secondLf, Some thirdLf ->
-                    let baseCols = PolarsSchemaExtractor.GetColumnNames lfCloned |> Set.ofArray
-
-                    let safeSecondLf, colsAfter2, _ =
-                        disambiguateColumns baseCols secondLf "_second"
-
-                    let safeThirdLf, _, _ =
-                        disambiguateColumns colsAfter2 thirdLf "_third"
-
-                    let zip3Op =
-                        QueryOp.HorizontalConcat [| safeSecondLf; safeThirdLf |]
-
-                    fuse tail (zip3Op :: opsAcc) clientPreds clientProjOpt
-                | _ -> [], [], None, true
-
-            | LinqStage.Union(secondExpr, keyLambdaOpt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr with
-                | Some otherLf ->
-                    let concatOp = QueryOp.Concat { OtherLf = otherLf; Prepend = false }
-
-                    let subsetCols =
-                        keyLambdaOpt |> Option.bind extractDistinctColumns
-
-                    let uniqueSpec =
-                        {
-                            SubsetCols = subsetCols
-                            Keep = PlUniqueKeepStrategy.First
-                            MaintainOrder = false
-                        }
-
-                    fuse tail (QueryOp.Unique uniqueSpec :: concatOp :: opsAcc) clientPreds clientProjOpt
-                | None -> [], [], None, true
-
-            | LinqStage.Explode(colLambda, resLambdaOpt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match extractExplodeColumn colLambda with
-                | Some colName ->
-                    let explodeOp =
-                        QueryOp.Explode
-                            {
-                                ColumnNames = [| colName |]
-                                EmptyAsNull = true
-                                KeepNulls = true
-                            }
-
-                    let renameOps =
-                        match resLambdaOpt with
-                        | Some resLambda when resLambda.Parameters.Count >= 2 ->
-                            let itemParam = resLambda.Parameters.[1]
-                            extractBinaryResultRenames resLambda (Some(itemParam.Name, colName))
-                            |> buildRenameOps
-                        | _ -> []
-
-                    fuse tail (renameOps @ explodeOp :: opsAcc) clientPreds clientProjOpt
-                | None -> [], [], None, true
-
-            | LinqStage.CrossJoin(innerExpr, resLambdaOpt) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                match SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr with
-                | Some rightLf ->
-                    let joinSpec =
-                        {
-                            RightLf = rightLf
-                            LeftOn = [||]
-                            RightOn = [||]
-                            How = PlJoinType.Cross
-                            Suffix = Some "_right"
-                            InvertSides = false
-                            Coalesce = PlJoinCoalesce.KeepColumns
-                        }
-
-                    let joinOp = QueryOp.Join joinSpec
-
-                    let renameOps =
-                        match resLambdaOpt with
-                        | Some resLambda -> extractBinaryResultRenames resLambda None |> buildRenameOps
-                        | None -> []
-
-                    fuse tail (renameOps @ joinOp :: opsAcc) clientPreds clientProjOpt
-                | None -> [], [], None, true
+                    match nativeExprOpt with
+                    | Some exprHandle -> pushOp (QueryOp.Filter exprHandle) tail
+                    | None ->
+                        if
+                            p.Type.Name.StartsWith "AnonymousObject"
+                            || p.Type.Name.Contains "TransparentIdentifier"
+                            || clientProjOpt.IsSome
+                        then
+                            FallbackTracker.Diagnostic <-
+                                Some(
+                                    sprintf
+                                        "Filter on transparent identifier %s: %s\nRewritten body: %s"
+                                        p.Type.Name
+                                        (l.ToString())
+                                        (bound.ToString())
+                                )
+                            fullFallback
+                        else
+                            fuse tail opsAcc ((compileClientPredicate l, l) :: clientPreds) clientProjOpt
 
             | (LinqStage.TakeWhile l | LinqStage.SkipWhile l) as stage :: tail ->
                 let isSkip =
@@ -647,213 +341,222 @@ and PolarsQuery<'T>
                     | LinqStage.SkipWhile _ -> true
                     | _ -> false
 
-                let param = l.Parameters.[0]
-                let ctx = createContextForType targetType lfCloned param.Name
+                let ctx = createContextForType targetType lfCloned l.Parameters.[0].Name
 
-                match ExprTranslator.tryTranslateWithContext ctx l.Body with
-                | Some boolExpr when clientPreds.IsEmpty && clientProjOpt.IsNone ->
+                match if canPushdown then ExprTranslator.tryTranslateWithContext ctx l.Body else None with
+                | Some boolExpr ->
                     let maskExpr =
                         if isSkip then
                             PolarsWrapper.CumMax(PolarsWrapper.Not boolExpr, false)
                         else
                             PolarsWrapper.CumMin(boolExpr, false)
 
-                    fuse tail (QueryOp.Filter maskExpr :: opsAcc) clientPreds clientProjOpt
-                | _ ->
-                    let safePred = compileClientPredicate l
-                    fuse tail opsAcc ((safePred, l) :: clientPreds) clientProjOpt
-
-            | LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, None) :: LinqStage.Project projLambda :: tail when
-                clientPreds.IsEmpty && clientProjOpt.IsNone
-                ->
-                let outerType = outerKey.Parameters.[0].Type
-                let innerType = innerKey.Parameters.[0].Type
-
-                let desugaredResSel =
-                    desugarGroupJoinProject projLambda outerType innerType
-
-                fuse
-                    (LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, Some desugaredResSel)
-                     :: tail)
-                    opsAcc
-                    clientPreds
-                    clientProjOpt
-
-            | LinqStage.GroupJoin(_, innerExpr, outerKey, innerKey, Some resSel) :: tail when
-                clientPreds.IsEmpty && clientProjOpt.IsNone
-                ->
-                match SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr with
-                | Some rightLf ->
-                    let outerParam = outerKey.Parameters.[0]
-                    let innerParam = innerKey.Parameters.[0]
-
-                    let leftCtx = createContextForType outerParam.Type lfCloned outerParam.Name
-                    let rightCtx = createContextForType innerParam.Type rightLf innerParam.Name
-
-                    match
-                        ExprTranslator.tryTranslateWithContext leftCtx outerKey.Body,
-                        ExprTranslator.tryTranslateWithContext rightCtx innerKey.Body
-                    with
-                    | Some leftKey, Some rightKey ->
-                        let groupParam = resSel.Parameters.[1]
-
-                        let preAggRightLf, aggColOpt =
-                            match tryExtractGroupAgg groupParam.Name resSel with
-                            | Some(aggColName, aggExpr) ->
-                                let aggKeyClone = PolarsWrapper.CloneExpr rightKey
-
-                                let aggLf =
-                                    PolarsWrapper.LazyGroupByAgg(
-                                        rightLf,
-                                        [| aggKeyClone |],
-                                        [| aggExpr |],
-                                        null,
-                                        false
-                                    )
-
-                                aggLf, Some aggColName
-                            | None -> rightLf, None
-
-                        let leftKeyForJoin = PolarsWrapper.CloneExpr leftKey
-                        let rightKeyForJoin = PolarsWrapper.CloneExpr rightKey
-
-                        let joinSpec =
-                            {
-                                RightLf = preAggRightLf
-                                LeftOn = [| leftKeyForJoin |]
-                                RightOn = [| rightKeyForJoin |]
-                                How = PlJoinType.Left
-                                Suffix = Some "_right"
-                                InvertSides = false
-                                Coalesce = PlJoinCoalesce.JoinSpecific
-                            }
-
-                        let joinOp = QueryOp.Join joinSpec
-                        let renameOps = extractBinaryResultRenames resSel None |> buildRenameOps
-
-                        let fillOps =
-                            match aggColOpt with
-                            | Some aggCol ->
-                                let colExpr = PolarsWrapper.Col aggCol
-                                let zeroLit = PolarsWrapper.Lit 0u
-                                let filledExpr = PolarsWrapper.FillNull(colExpr, zeroLit)
-                                let aliased = PolarsWrapper.Alias(filledExpr, aggCol)
-                                [ QueryOp.WithColumns [| aliased |] ]
-                            | None -> []
-
-                        let nextOps = renameOps @ fillOps @ joinOp :: opsAcc
-                        fuse tail nextOps clientPreds clientProjOpt
-                    | _ -> [], [], None, true
-                | None -> [], [], None, true
-
-            | LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, None) :: tail when
-                clientPreds.IsEmpty && clientProjOpt.IsNone
-                ->
-                match compileJoin lfCloned m innerExpr outerKey innerKey with
-                | Some spec -> fuse tail (QueryOp.Join spec :: opsAcc) clientPreds clientProjOpt
-                | None -> [], [], None, true
-
-            | LinqStage.TakeLast count :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                let sliceOp = QueryOp.Slice(-int64 count, count)
-                fuse tail (sliceOp :: opsAcc) clientPreds clientProjOpt
-
-            | LinqStage.SkipLast count :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                fuse tail (QueryOp.SkipLast count :: opsAcc) clientPreds clientProjOpt
-
-            | (LinqStage.Append elemExpr | LinqStage.Prepend elemExpr) as stage :: tail when
-                clientPreds.IsEmpty && clientProjOpt.IsNone
-                ->
-                let isPrepend =
-                    match stage with
-                    | LinqStage.Prepend _ -> true
-                    | _ -> false
-
-                match tryCompileAppendOrPrepend elemExpr isPrepend with
-                | Some concatOp -> fuse tail (concatOp :: opsAcc) clientPreds clientProjOpt
-                | None -> [], [], None, true
-
-            | LinqStage.Reverse :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                fuse tail (QueryOp.Reverse :: opsAcc) clientPreds clientProjOpt
-
-            | LinqStage.DefaultIfEmpty _ :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                fuse tail opsAcc clientPreds clientProjOpt
-
-            | LinqStage.Project projLambda :: tail ->
-                let decorrelatedOpt =
-                    if clientPreds.IsEmpty && clientProjOpt.IsNone then
-                        SubqueryDecorrelator.tryDecorrelateProjection lfCloned projLambda
-                    else
-                        None
-
-                match decorrelatedOpt with
-                | Some(subqueryOps, rewrittenProjLambda) ->
-                    let newOpsAcc = (subqueryOps |> List.rev) @ opsAcc
-                    fuse (LinqStage.Project rewrittenProjLambda :: tail) newOpsAcc clientPreds None
+                    pushOp (QueryOp.Filter maskExpr) tail
                 | None ->
-                    match tryCompileTransparentLet lfCloned projLambda with
-                    | Some withColOp when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                        fuse tail (withColOp :: opsAcc) clientPreds None
-                    | _ ->
-                        match compileSelectProjection lfCloned projLambda with
-                        | Some exprs when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                            fuse tail (QueryOp.Select exprs :: opsAcc) clientPreds None
+                    fuse tail opsAcc ((compileClientPredicate l, l) :: clientPreds) clientProjOpt
 
-                        | _ ->
-                            let sourceType = projLambda.Parameters.[0].Type
-                            let currentFunc = compileToBoxedFunc projLambda
+            // -----------------------------------------------------------------
+            // 3. Projection (Select, Transparent Let, Subquery Decorrelation)
+            // -----------------------------------------------------------------
+            | LinqStage.Project projLambda :: tail ->
+                match if canPushdown then SubqueryDecorrelator.tryDecorrelateProjection lfCloned projLambda else None with
+                | Some(subqueryOps, rewrittenProjLambda) ->
+                    fuse (LinqStage.Project rewrittenProjLambda :: tail) ((subqueryOps |> List.rev) @ opsAcc) clientPreds None
+                | None ->
+                    let nativeProjOpOpt =
+                        if canPushdown then
+                            tryCompileTransparentLet lfCloned projLambda
+                            |> Option.orElseWith (fun () ->
+                                compileSelectProjection lfCloned projLambda |> Option.map QueryOp.Select)
+                        else
+                            None
 
-                            let nextProj =
-                                match clientProjOpt with
-                                | None ->
-                                    Some(sourceType, currentFunc)
-                                | Some(prevSrcType, prevFunc) ->
-                                    let composed =
-                                        Func<obj, obj>(fun rawItem ->
-                                            let mid = prevFunc.Invoke(rawItem)
-                                            currentFunc.Invoke(mid))
+                    match nativeProjOpOpt with
+                    | Some op -> fuse tail (op :: opsAcc) clientPreds None
+                    | None ->
+                        let sourceType = projLambda.Parameters.[0].Type
+                        let currentFunc = compileToBoxedFunc projLambda
 
-                                    Some(prevSrcType, composed)
+                        let nextProj =
+                            match clientProjOpt with
+                            | None -> Some(sourceType, currentFunc)
+                            | Some(prevSrcType, prevFunc) ->
+                                Some(prevSrcType, Func<obj, obj>(fun rawItem -> currentFunc.Invoke(prevFunc.Invoke rawItem)))
 
-                            fuse tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds nextProj
+                        fuse tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds nextProj
 
-            | LinqStage.Cast _ :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                fuse tail opsAcc clientPreds clientProjOpt
+            // -----------------------------------------------------------------
+            // 4. Sorting (Sort, SortDefault)
+            // -----------------------------------------------------------------
+            | LinqStage.Sort(l, isDesc) :: tail ->
+                let param = l.Parameters.[0]
 
-            | LinqStage.OfType(sourceType, targetType) :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                if targetType.IsAssignableFrom(sourceType) then
-                    fuse tail opsAcc clientPreds clientProjOpt
-                elif not (sourceType.IsAssignableFrom(targetType)) then
-                    let falseFilter = PolarsWrapper.Lit false
-                    let filterOp = QueryOp.Filter falseFilter
-                    fuse tail (filterOp :: opsAcc) clientPreds clientProjOpt
+                let isParamGrouping =
+                    param.Type.IsGenericType
+                    && param.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
+
+                if not isParamGrouping && canPushdown then
+                    let ctx = createContextForType param.Type lfCloned param.Name
+
+                    let sortExprOpt =
+                        ExprTranslator.tryTranslateWithContext ctx l.Body
+                        |> Option.orElseWith (fun () -> tryTranslateSelectArg ctx l.Body)
+
+                    match sortExprOpt with
+                    | Some exprHandle ->
+                        let spec = { Expr = exprHandle; Descending = isDesc; NullsLast = false }
+                        fuse tail (addSort spec opsAcc) clientPreds clientProjOpt
+                    | None -> fuse tail opsAcc clientPreds clientProjOpt
                 else
                     fuse tail opsAcc clientPreds clientProjOpt
 
-            | LinqStage.CountBy keyLambda :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                let keyParam = keyLambda.Parameters.[0]
-                let ctx = createContextForType typeof<'T> lfCloned keyParam.Name
+            // -----------------------------------------------------------------
+            // 5. Pure Pushdown Stages (requires canPushdown = true)
+            // -----------------------------------------------------------------
+            | _ when canPushdown ->
+                match remaining with
+                | LinqStage.Index :: tail ->
+                    let indexOp = QueryOp.WithRowIndex("Index", Some 0u)
+                    let int32Dtype =
+                        PolarsWrapper.DataTypeExprFromDataType(PolarsWrapper.NewPrimitiveType(int PlDataType.Int32))
+                    let castIndexExpr =
+                        PolarsWrapper.ExprCast(PolarsWrapper.Col "Index", int32Dtype, strict = false, wrapNumerical = false)
+                    pushOps [ QueryOp.WithColumns [| castIndexExpr |]; indexOp ] tail
 
-                match ExprTranslator.tryTranslateWithContext ctx keyLambda.Body with
-                | Some keyExpr ->
-                    let keyAliased = PolarsWrapper.Alias(keyExpr, "Key")
-                    let lenExpr = PolarsWrapper.Len()
-                    let valueAliased = PolarsWrapper.Alias(lenExpr, "Value")
+                | LinqStage.SortDefault isDesc :: tail ->
+                    let colNames = PolarsSchemaExtractor.GetColumnNames lfCloned
+                    let targetCol = if colNames.Length > 0 then colNames.[0] else ""
+                    let spec = { Expr = PolarsWrapper.Col targetCol; Descending = isDesc; NullsLast = false }
+                    fuse tail (addSort spec opsAcc) clientPreds clientProjOpt
 
-                    let spec =
-                        {
-                            Keys = [| keyAliased |]
-                            Aggs = [| valueAliased |]
-                            Having = None
-                            MaintainOrder = false
-                        }
+                // Slicing & Reordering
+                | LinqStage.Skip s :: LinqStage.Take t :: tail -> pushOp (QueryOp.Slice(int64 s, t)) tail
+                | LinqStage.Take count :: tail -> pushOp (QueryOp.Slice(0L, count)) tail
+                | LinqStage.Skip count :: tail -> pushOp (QueryOp.Slice(int64 count, UInt32.MaxValue)) tail
+                | LinqStage.TakeLast count :: tail -> pushOp (QueryOp.Slice(-int64 count, count)) tail
+                | LinqStage.SkipLast count :: tail -> pushOp (QueryOp.SkipLast count) tail
+                | LinqStage.Reverse :: tail -> pushOp QueryOp.Reverse tail
 
-                    fuse tail (QueryOp.GroupBy spec :: opsAcc) clientPreds clientProjOpt
-                | None -> [], [], None, true
+                // Deduplication & Set / Concat Operations
+                | LinqStage.Distinct :: tail ->
+                    pushOp (QueryOp.Unique { SubsetCols = None; Keep = PlUniqueKeepStrategy.First; MaintainOrder = false }) tail
 
-            | LinqStage.AggregateBy _ :: tail when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                fuse tail opsAcc clientPreds clientProjOpt
+                | LinqStage.DistinctBy keyLambda :: tail ->
+                    let opOpt =
+                        extractDistinctColumns keyLambda
+                        |> Option.map (fun cols ->
+                            QueryOp.Unique { SubsetCols = Some cols; Keep = PlUniqueKeepStrategy.First; MaintainOrder = false })
+                    pushOpOrFallback opOpt tail
 
-            | [] -> List.rev opsAcc, List.rev clientPreds, clientProjOpt, false
+                | LinqStage.SetOp(m, second, k1Opt, k2Opt) :: tail ->
+                    pushOpOrFallback (compileSetOp m second k1Opt k2Opt lfCloned |> Option.map QueryOp.Join) tail
+
+                | LinqStage.Concat otherExpr :: tail ->
+                    let opOpt =
+                        SubqueryDecorrelator.resolveSequenceLazyFrame otherExpr
+                        |> Option.map (fun otherLf -> QueryOp.Concat { OtherLf = otherLf; Prepend = false })
+                    pushOpOrFallback opOpt tail
+
+                | LinqStage.Union(secondExpr, keyLambdaOpt) :: tail ->
+                    let opsOpt =
+                        SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr
+                        |> Option.map (fun otherLf ->
+                            let concatOp = QueryOp.Concat { OtherLf = otherLf; Prepend = false }
+                            let uniqueOp =
+                                QueryOp.Unique
+                                    {
+                                        SubsetCols = keyLambdaOpt |> Option.bind extractDistinctColumns
+                                        Keep = PlUniqueKeepStrategy.First
+                                        MaintainOrder = false
+                                    }
+                            [ uniqueOp; concatOp ])
+                    pushOpsOrFallback opsOpt tail
+
+                | (LinqStage.Append elemExpr | LinqStage.Prepend elemExpr) as stage :: tail ->
+                    let isPrepend =
+                        match stage with
+                        | LinqStage.Prepend _ -> true
+                        | _ -> false
+                    pushOpOrFallback (tryCompileAppendOrPrepend elemExpr isPrepend) tail
+
+                // Joins, GroupJoin, Zip, Explode, CrossJoin
+                | LinqStage.Join(m, inner, outerKey, innerKey, resSelOpt) :: tail ->
+                    match compileJoin lfCloned m inner outerKey innerKey with
+                    | Some spec ->
+                        match resSelOpt with
+                        | None -> pushOp (QueryOp.Join spec) tail
+                        | Some resSel when isTransparentJoinResSelector resSel ->
+                            pushOp (QueryOp.Join spec) tail
+                        | Some resSel ->
+                            let leftCols = getLazySchemaFields lfCloned |> Array.map fst
+                            let rightCols = getLazySchemaFields spec.RightLf |> Array.map fst
+
+                            match compileJoinResultSelector leftCols rightCols spec resSel with
+                            | Some selectOp -> pushOps [ selectOp; QueryOp.Join spec ] tail
+                            | None ->
+                                FallbackTracker.Diagnostic <-
+                                    Some(
+                                        sprintf
+                                            "CompileJoinResultSelector failed: %s\nLeftCols: %A\nRightCols: %A"
+                                            (resSel.ToString())
+                                            leftCols
+                                            rightCols
+                                    )
+                                fullFallback
+                    | None ->
+                        FallbackTracker.Diagnostic <-
+                            Some(
+                                sprintf
+                                    "CompileJoin failed for inner: %s, outerKey: %s, innerKey: %s"
+                                    (inner.ToString())
+                                    (outerKey.ToString())
+                                    (innerKey.ToString())
+                            )
+                        fullFallback
+
+                | LinqStage.GroupJoin(_, inner, outerKey, innerKey, _) :: LinqStage.Explode(collSelector, _) :: tail when
+                    collSelector.ToString().Contains "DefaultIfEmpty"
+                    ->
+                    pushOpOrFallback (compileGroupJoinLeftOuter lfCloned inner outerKey innerKey) tail
+
+                | LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, None) :: LinqStage.Project projLambda :: tail ->
+                    let outerType, innerType = outerKey.Parameters.[0].Type, innerKey.Parameters.[0].Type
+                    let desugaredResSel = desugarGroupJoinProject projLambda outerType innerType
+                    fuse (LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, Some desugaredResSel) :: tail) opsAcc clientPreds clientProjOpt
+
+                | LinqStage.GroupJoin(_, innerExpr, outerKey, innerKey, Some resSel) :: tail ->
+                    pushOpsOrFallback (compileGroupJoinWithResult lfCloned innerExpr outerKey innerKey resSel) tail
+
+                | LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, None) :: tail ->
+                    pushOpOrFallback (compileJoin lfCloned m innerExpr outerKey innerKey |> Option.map QueryOp.Join) tail
+
+                | LinqStage.Zip(secondExpr, resLambdaOpt) :: tail ->
+                    pushOpsOrFallback (compileZip lfCloned secondExpr resLambdaOpt) tail
+
+                | LinqStage.Zip3(secondExpr, thirdExpr) :: tail ->
+                    pushOpOrFallback (compileZip3 lfCloned secondExpr thirdExpr) tail
+
+                | LinqStage.Explode(colLambda, resLambdaOpt) :: tail ->
+                    pushOpsOrFallback (compileExplode colLambda resLambdaOpt) tail
+
+                | LinqStage.CrossJoin(innerExpr, resLambdaOpt) :: tail ->
+                    pushOpsOrFallback (compileCrossJoin innerExpr resLambdaOpt) tail
+
+                // Type Filtering, CountBy & Passthrough Stages
+                | LinqStage.OfType(sourceType, targetType) :: tail ->
+                    if not (targetType.IsAssignableFrom sourceType || sourceType.IsAssignableFrom targetType) then
+                        pushOp (QueryOp.Filter(PolarsWrapper.Lit false)) tail
+                    else
+                        fuse tail opsAcc clientPreds clientProjOpt
+
+                | LinqStage.CountBy keyLambda :: tail ->
+                    pushOpOrFallback (compileCountBy typeof<'T> lfCloned keyLambda) tail
+
+                | (LinqStage.DefaultIfEmpty _ | LinqStage.Cast _ | LinqStage.AggregateBy _) :: tail ->
+                    fuse tail opsAcc clientPreds clientProjOpt
+
+                | _ :: tail -> fuse tail opsAcc clientPreds clientProjOpt
+                | [] -> List.rev opsAcc, List.rev clientPreds, clientProjOpt, false
 
             | _ :: tail -> fuse tail opsAcc clientPreds clientProjOpt
 

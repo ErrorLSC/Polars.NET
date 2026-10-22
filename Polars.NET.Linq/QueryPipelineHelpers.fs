@@ -187,7 +187,7 @@ module internal QueryPipelineHelpers =
         | None -> ValueNone
         | Some predLambda ->
             let nativeFilterOpt =
-                if not hasClientPreds && Option.isNone clientProjOpt then
+                if not hasClientPreds && clientProjOpt.IsNone then
                     let ctx = createContextForType elemType nativeLf predLambda.Parameters.[0].Name
                     ExprTranslator.tryTranslateWithContext ctx predLambda.Body
                 else
@@ -215,12 +215,12 @@ module internal QueryPipelineHelpers =
         | ClientEvaluationPolicy.Warn ->
             let text = match predLambdaOpt with Some p -> p.ToString() | None -> "Predicate"
             System.Diagnostics.Trace.TraceWarning(
-                sprintf "[Polars.NET Warning] Predicate in '%s' (%s) could not be pushed down and is evaluated on client." stage text
+                $"[Polars.NET Warning] Predicate in '%s{stage}' (%s{text}) could not be pushed down and is evaluated on client."
             )
         | ClientEvaluationPolicy.Strict
         | _ ->
             let text = match predLambdaOpt with Some p -> p.ToString() | None -> "Predicate"
-            raise (PolarsPushdownException(stage, text, sprintf "Predicate in '%s' could not be pushed down to native Polars engine." stage))
+            raise (PolarsPushdownException(stage, text, $"Predicate in '%s{stage}' could not be pushed down to native Polars engine."))
 
     /// Enforces the ClientEvaluationPolicy against client predicates and full fallbacks
     let enforcePipelinePolicy
@@ -235,7 +235,7 @@ module internal QueryPipelineHelpers =
         | ClientEvaluationPolicy.Warn ->
             if requiresClientFallback then
                 System.Diagnostics.Trace.TraceWarning(
-                    sprintf "[Polars.NET Warning] Query pipeline at stage '%s' fell back to full client-side in-memory LINQ: %s" stage expressionText
+                    $"[Polars.NET Warning] Query pipeline at stage '%s{stage}' fell back to full client-side in-memory LINQ: %s{expressionText}"
                 )
             elif not clientPredsWithAst.IsEmpty then
                 let predTexts =
@@ -243,7 +243,7 @@ module internal QueryPipelineHelpers =
                     |> List.map (fun (_, l) -> l.ToString())
                     |> String.concat "; "
                 System.Diagnostics.Trace.TraceWarning(
-                    sprintf "[Polars.NET Warning] Query predicate at stage '%s' fell back to client-side evaluation: %s" stage predTexts
+                    $"[Polars.NET Warning] Query predicate at stage '%s{stage}' fell back to client-side evaluation: %s{predTexts}"
                 )
         | ClientEvaluationPolicy.Strict
         | _ ->
@@ -1200,6 +1200,249 @@ module internal QueryPipelineHelpers =
             let otherLf = PolarsWrapper.DataFrameToLazy singleDf
             Some(QueryOp.Concat { OtherLf = otherLf; Prepend = prepend })
         | _ -> None
+
+    /// Converts a list of (sourceCol, targetCol) pairs into a single-element or empty QueryOp.Rename list
+    let buildRenameOps (renames: (string * string) list) : QueryOp list =
+        if renames.IsEmpty then
+            []
+        else
+            [
+                QueryOp.Rename
+                    {
+                        ExistingNames = renames |> List.map fst |> List.toArray
+                        NewNames = renames |> List.map snd |> List.toArray
+                    }
+            ]
+
+    /// Fallback translator for filters over tuple/transparent scopes (supporting null checks and binary comparisons)
+    let rec tryTranslateTupleFilter (ctx: TranslationContext) (e: Expression) : ExprHandle option =
+        let isNullConstant (expr: Expression) =
+            match ExprTranslator.unwrap expr with
+            | :? ConstantExpression as c -> isNull c.Value
+            | _ -> false
+
+        match e with
+        | Binary(ExpressionType.NotEqual | ExpressionType.Equal as op, left, right) when
+            isNullConstant left || isNullConstant right
+            ->
+            let target = if isNullConstant right then left else right
+            let wrap = if op = ExpressionType.NotEqual then PolarsWrapper.IsNotNull else PolarsWrapper.IsNull
+            tryTranslateTupleFilter ctx target |> Option.map wrap
+        | Binary(op, left, right) ->
+            match tryTranslateTupleFilter ctx left, tryTranslateTupleFilter ctx right with
+            | Some l, Some r ->
+                try
+                    Some(ExprTranslator.translateBinary op l r)
+                with _ ->
+                    None
+            | _ -> None
+        | MemberAccess _ as ma ->
+            ExprTranslator.tryResolveColumnNameWithContext ctx ma
+            |> Option.map PolarsWrapper.Col
+        | Constant _ -> ExprTranslator.tryTranslateWithContext TranslationContext.Empty e
+        | _ -> None
+
+    /// Checks whether a two-parameter Join result selector merely packages parameters into a transparent identifier/tuple
+    let isTransparentJoinResSelector (resSel: LambdaExpression) : bool =
+        match tryExtractMemberBindings resSel.Body with
+        | Some bindings when resSel.Parameters.Count >= 2 ->
+            let p1, p2 = resSel.Parameters.[0].Name, resSel.Parameters.[1].Name
+
+            let rec isTransparentArg (e: Expression) =
+                match ExprTranslator.unwrap e with
+                | :? ParameterExpression as p -> p.Name = p1 || p.Name = p2
+                | MemberAccess(target, m) when isNavigationMember m -> isTransparentArg target
+                | :? NewExpression as ne when isTupleOrAnonType ne.Type ->
+                    ne.Arguments |> Seq.forall isTransparentArg
+                | _ -> false
+
+            bindings |> List.forall (fun (_, expr) -> isTransparentArg expr)
+        | _ -> false
+
+    /// Compiles GroupJoin followed by SelectMany(DefaultIfEmpty) into a native Left Join
+    let compileGroupJoinLeftOuter
+        (baseLf: LazyFrameHandle)
+        (innerExpr: Expression)
+        (outerKey: LambdaExpression)
+        (innerKey: LambdaExpression)
+        : QueryOp option =
+        SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr
+        |> Option.bind (fun rightLf ->
+            let outerParam = outerKey.Parameters.[0]
+            let innerParam = innerKey.Parameters.[0]
+            let leftCtx = createContextForType outerParam.Type baseLf outerParam.Name
+            let rightCtx = createContextForType innerParam.Type rightLf innerParam.Name
+
+            match
+                ExprTranslator.tryTranslateWithContext leftCtx outerKey.Body,
+                ExprTranslator.tryTranslateWithContext rightCtx innerKey.Body
+            with
+            | Some leftKey, Some rightKey ->
+                Some(
+                    QueryOp.Join
+                        {
+                            RightLf = rightLf
+                            LeftOn = [| leftKey |]
+                            RightOn = [| rightKey |]
+                            How = PlJoinType.Left
+                            Suffix = None
+                            InvertSides = false
+                            Coalesce = PlJoinCoalesce.KeepColumns
+                        }
+                )
+            | _ -> None)
+
+    /// Compiles GroupJoin with an explicit result selector (supporting pre-aggregated group counts and null-filling)
+    let compileGroupJoinWithResult
+        (baseLf: LazyFrameHandle)
+        (innerExpr: Expression)
+        (outerKey: LambdaExpression)
+        (innerKey: LambdaExpression)
+        (resSel: LambdaExpression)
+        : QueryOp list option =
+        SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr
+        |> Option.bind (fun rightLf ->
+            let outerParam = outerKey.Parameters.[0]
+            let innerParam = innerKey.Parameters.[0]
+            let leftCtx = createContextForType outerParam.Type baseLf outerParam.Name
+            let rightCtx = createContextForType innerParam.Type rightLf innerParam.Name
+
+            match
+                ExprTranslator.tryTranslateWithContext leftCtx outerKey.Body,
+                ExprTranslator.tryTranslateWithContext rightCtx innerKey.Body
+            with
+            | Some leftKey, Some rightKey ->
+                let groupParam = resSel.Parameters.[1]
+
+                let preAggRightLf, aggColOpt =
+                    match tryExtractGroupAgg groupParam.Name resSel with
+                    | Some(aggColName, aggExpr) ->
+                        let aggKeyClone = PolarsWrapper.CloneExpr rightKey
+                        let aggLf = PolarsWrapper.LazyGroupByAgg(rightLf, [| aggKeyClone |], [| aggExpr |], null, false)
+                        aggLf, Some aggColName
+                    | None -> rightLf, None
+
+                let joinOp =
+                    QueryOp.Join
+                        {
+                            RightLf = preAggRightLf
+                            LeftOn = [| PolarsWrapper.CloneExpr leftKey |]
+                            RightOn = [| PolarsWrapper.CloneExpr rightKey |]
+                            How = PlJoinType.Left
+                            Suffix = Some "_right"
+                            InvertSides = false
+                            Coalesce = PlJoinCoalesce.JoinSpecific
+                        }
+
+                let renameOps = extractBinaryResultRenames resSel None |> buildRenameOps
+
+                let fillOps =
+                    match aggColOpt with
+                    | Some aggCol ->
+                        let filledExpr = PolarsWrapper.FillNull(PolarsWrapper.Col aggCol, PolarsWrapper.Lit 0u)
+                        [ QueryOp.WithColumns [| PolarsWrapper.Alias(filledExpr, aggCol) |] ]
+                    | None -> []
+
+                Some(renameOps @ fillOps @ [ joinOp ])
+            | _ -> None)
+
+    /// Compiles a 2-way or 3-way Zip stage into HorizontalConcat (and optional column renames)
+    let compileZip
+        (baseLf: LazyFrameHandle)
+        (secondExpr: Expression)
+        (resLambdaOpt: LambdaExpression option)
+        : QueryOp list option =
+        SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr
+        |> Option.map (fun otherLf ->
+            let baseCols = PolarsSchemaExtractor.GetColumnNames baseLf |> Set.ofArray
+            let safeSecondLf, _, suffixMap = disambiguateColumns baseCols otherLf "_second"
+            let zipOp = QueryOp.HorizontalConcat [| safeSecondLf |]
+
+            let renameOps =
+                match resLambdaOpt with
+                | Some resLambda ->
+                    extractBinaryResultRenames resLambda None
+                    |> List.map (fun (srcCol, destCol) ->
+                        suffixMap.TryFind srcCol |> Option.defaultValue srcCol, destCol)
+                    |> buildRenameOps
+                | None -> []
+
+            renameOps @ [ zipOp ])
+
+    let compileZip3 (baseLf: LazyFrameHandle) (secondExpr: Expression) (thirdExpr: Expression) : QueryOp option =
+        match
+            SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr,
+            SubqueryDecorrelator.resolveSequenceLazyFrame thirdExpr
+        with
+        | Some secondLf, Some thirdLf ->
+            let baseCols = PolarsSchemaExtractor.GetColumnNames baseLf |> Set.ofArray
+            let safeSecondLf, colsAfter2, _ = disambiguateColumns baseCols secondLf "_second"
+            let safeThirdLf, _, _ = disambiguateColumns colsAfter2 thirdLf "_third"
+            Some(QueryOp.HorizontalConcat [| safeSecondLf; safeThirdLf |])
+        | _ -> None
+
+    /// Compiles Explode (SelectMany over collection property) into QueryOp.Explode and optional renames
+    let compileExplode
+        (colLambda: LambdaExpression)
+        (resLambdaOpt: LambdaExpression option)
+        : QueryOp list option =
+        extractExplodeColumn colLambda
+        |> Option.map (fun colName ->
+            let explodeOp =
+                QueryOp.Explode
+                    {
+                        ColumnNames = [| colName |]
+                        EmptyAsNull = true
+                        KeepNulls = true
+                    }
+
+            let renameOps =
+                match resLambdaOpt with
+                | Some resLambda when resLambda.Parameters.Count >= 2 ->
+                    let itemParam = resLambda.Parameters.[1]
+                    extractBinaryResultRenames resLambda (Some(itemParam.Name, colName))
+                    |> buildRenameOps
+                | _ -> []
+
+            renameOps @ [ explodeOp ])
+
+    /// Compiles CrossJoin (uncorrelated SelectMany) into a Cross Join and optional renames
+    let compileCrossJoin (innerExpr: Expression) (resLambdaOpt: LambdaExpression option) : QueryOp list option =
+        SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr
+        |> Option.map (fun rightLf ->
+            let joinOp =
+                QueryOp.Join
+                    {
+                        RightLf = rightLf
+                        LeftOn = [||]
+                        RightOn = [||]
+                        How = PlJoinType.Cross
+                        Suffix = Some "_right"
+                        InvertSides = false
+                        Coalesce = PlJoinCoalesce.KeepColumns
+                    }
+
+            let renameOps =
+                resLambdaOpt
+                |> Option.map (fun r -> extractBinaryResultRenames r None |> buildRenameOps)
+                |> Option.defaultValue []
+
+            renameOps @ [ joinOp ])
+
+    /// Compiles CountBy into a GroupBy(Key, Len() as Value) operation
+    let compileCountBy (elemType: Type) (baseLf: LazyFrameHandle) (keyLambda: LambdaExpression) : QueryOp option =
+        let keyParam = keyLambda.Parameters.[0]
+        let ctx = createContextForType elemType baseLf keyParam.Name
+
+        ExprTranslator.tryTranslateWithContext ctx keyLambda.Body
+        |> Option.map (fun keyExpr ->
+            QueryOp.GroupBy
+                {
+                    Keys = [| PolarsWrapper.Alias(keyExpr, "Key") |]
+                    Aggs = [| PolarsWrapper.Alias(PolarsWrapper.Len(), "Value") |]
+                    Having = None
+                    MaintainOrder = false
+                })
 
     /// Unified GroupBy compiler powering both single-key and multi-key GroupBy pipelines (C# LINQ & F# QueryBuilder)
     let compileUnifiedGroupBy
