@@ -84,11 +84,23 @@ and PolarsQuery<'T>
     =
     let lfCloned = provider.RootLazyFrame
     let materializer = provider.Materializer
+    let targetType = typeof<'T>
+    let isScalar = PolarsTypeHelper.IsScalarType targetType || targetType = typeof<string>
+    let isGrouping =
+        targetType.IsGenericType
+        && targetType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
 
     let expression =
         match exprOpt with
         | Some e -> e
         | None -> Expression.Constant(this, typeof<IQueryable<'T>>) :> Expression
+
+    let getEffectiveExpr () =
+        let isCSharp = not (isNull materializer) && materializer.GetType().Name.StartsWith "CSharp"
+        if not isCSharp && FSharpAst.needsRewrite expression then
+            FSharpAst.rewrite expression
+        else
+            expression
 
     new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer, expression: Expression) =
         PolarsQuery<'T>(PolarsQueryProvider(lazyFrameHandle, materializer), Some expression)
@@ -100,12 +112,7 @@ and PolarsQuery<'T>
     member private _.CompilePipeline
         ()
         : QueryOp list * ((Func<obj, bool> * LambdaExpression) list) * ((Type * Func<obj, obj>) option) * bool =
-        let isCSharp = not (isNull materializer) && materializer.GetType().Name.StartsWith "CSharp"
-        let rewrittenExpr =
-            if not isCSharp && FSharpAst.needsRewrite expression then
-                FSharpAst.rewrite expression
-            else
-                expression
+        let rewrittenExpr = getEffectiveExpr ()
         let extraction = PartialEvaluator.extract rewrittenExpr
         let cacheKey = QueryCacheKey.Create(typeof<'T>, extraction.NormalizedExpression)
 
@@ -161,9 +168,17 @@ and PolarsQuery<'T>
             | QueryOp.Sort specs :: tail -> QueryOp.Sort(specs @ [ spec ]) :: tail
             | _ -> QueryOp.Sort [ spec ] :: ops
 
-        let isGrouping =
-            typeof<'T>.IsGenericType
-            && typeof<'T>.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
+        let buildRenameOps (renames: (string * string) list) : QueryOp list =
+            if renames.IsEmpty then
+                []
+            else
+                [
+                    QueryOp.Rename
+                        {
+                            ExistingNames = renames |> List.map fst |> List.toArray
+                            NewNames = renames |> List.map snd |> List.toArray
+                        }
+                ]
 
         let rec fuse
             (remaining: LinqStage list)
@@ -531,25 +546,12 @@ and PolarsQuery<'T>
                     let renameOps =
                         match resLambdaOpt with
                         | Some resLambda ->
-                            let renames = extractBinaryResultRenames resLambda None
-
-                            if not renames.IsEmpty then
-                                let mappedRenames =
-                                    renames
-                                    |> List.map (fun (srcCol, destCol) ->
-                                        match suffixMap.TryFind srcCol with
-                                        | Some actualColName -> actualColName, destCol
-                                        | None -> srcCol, destCol)
-
-                                [
-                                    QueryOp.Rename
-                                        {
-                                            ExistingNames = mappedRenames |> List.map fst |> List.toArray
-                                            NewNames = mappedRenames |> List.map snd |> List.toArray
-                                        }
-                                ]
-                            else
-                                []
+                            extractBinaryResultRenames resLambda None
+                            |> List.map (fun (srcCol, destCol) ->
+                                match suffixMap.TryFind srcCol with
+                                | Some actualColName -> actualColName, destCol
+                                | None -> srcCol, destCol)
+                            |> buildRenameOps
                         | None -> []
 
                     fuse tail (renameOps @ zipOp :: opsAcc) clientPreds clientProjOpt
@@ -608,20 +610,8 @@ and PolarsQuery<'T>
                         match resLambdaOpt with
                         | Some resLambda when resLambda.Parameters.Count >= 2 ->
                             let itemParam = resLambda.Parameters.[1]
-
-                            let renames =
-                                extractBinaryResultRenames resLambda (Some(itemParam.Name, colName))
-
-                            if not renames.IsEmpty then
-                                [
-                                    QueryOp.Rename
-                                        {
-                                            ExistingNames = renames |> List.map fst |> List.toArray
-                                            NewNames = renames |> List.map snd |> List.toArray
-                                        }
-                                ]
-                            else
-                                []
+                            extractBinaryResultRenames resLambda (Some(itemParam.Name, colName))
+                            |> buildRenameOps
                         | _ -> []
 
                     fuse tail (renameOps @ explodeOp :: opsAcc) clientPreds clientProjOpt
@@ -645,45 +635,30 @@ and PolarsQuery<'T>
 
                     let renameOps =
                         match resLambdaOpt with
-                        | Some resLambda ->
-                            let renames = extractBinaryResultRenames resLambda None
-
-                            if not renames.IsEmpty then
-                                [
-                                    QueryOp.Rename
-                                        {
-                                            ExistingNames = renames |> List.map fst |> List.toArray
-                                            NewNames = renames |> List.map snd |> List.toArray
-                                        }
-                                ]
-                            else
-                                []
+                        | Some resLambda -> extractBinaryResultRenames resLambda None |> buildRenameOps
                         | None -> []
 
                     fuse tail (renameOps @ joinOp :: opsAcc) clientPreds clientProjOpt
                 | None -> [], [], None, true
 
-            | LinqStage.TakeWhile l :: tail ->
+            | (LinqStage.TakeWhile l | LinqStage.SkipWhile l) as stage :: tail ->
+                let isSkip =
+                    match stage with
+                    | LinqStage.SkipWhile _ -> true
+                    | _ -> false
+
                 let param = l.Parameters.[0]
-                let ctx = createContextForType typeof<'T> lfCloned param.Name
+                let ctx = createContextForType targetType lfCloned param.Name
 
                 match ExprTranslator.tryTranslateWithContext ctx l.Body with
                 | Some boolExpr when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                    let cumMinExpr = PolarsWrapper.CumMin(boolExpr, false)
-                    fuse tail (QueryOp.Filter cumMinExpr :: opsAcc) clientPreds clientProjOpt
-                | _ ->
-                    let safePred = compileClientPredicate l
-                    fuse tail opsAcc ((safePred, l) :: clientPreds) clientProjOpt
+                    let maskExpr =
+                        if isSkip then
+                            PolarsWrapper.CumMax(PolarsWrapper.Not boolExpr, false)
+                        else
+                            PolarsWrapper.CumMin(boolExpr, false)
 
-            | LinqStage.SkipWhile l :: tail ->
-                let param = l.Parameters.[0]
-                let ctx = createContextForType typeof<'T> lfCloned param.Name
-
-                match ExprTranslator.tryTranslateWithContext ctx l.Body with
-                | Some boolExpr when clientPreds.IsEmpty && clientProjOpt.IsNone ->
-                    let notExpr = PolarsWrapper.Not boolExpr
-                    let cumMaxExpr = PolarsWrapper.CumMax(notExpr, false)
-                    fuse tail (QueryOp.Filter cumMaxExpr :: opsAcc) clientPreds clientProjOpt
+                    fuse tail (QueryOp.Filter maskExpr :: opsAcc) clientPreds clientProjOpt
                 | _ ->
                     let safePred = compileClientPredicate l
                     fuse tail opsAcc ((safePred, l) :: clientPreds) clientProjOpt
@@ -754,20 +729,7 @@ and PolarsQuery<'T>
                             }
 
                         let joinOp = QueryOp.Join joinSpec
-
-                        let renames = extractBinaryResultRenames resSel None
-
-                        let renameOps =
-                            if not renames.IsEmpty then
-                                [
-                                    QueryOp.Rename
-                                        {
-                                            ExistingNames = renames |> List.map fst |> List.toArray
-                                            NewNames = renames |> List.map snd |> List.toArray
-                                        }
-                                ]
-                            else
-                                []
+                        let renameOps = extractBinaryResultRenames resSel None |> buildRenameOps
 
                         let fillOps =
                             match aggColOpt with
@@ -917,14 +879,49 @@ and PolarsQuery<'T>
         let clientPredicates = clientPredsWithAst |> List.map fst
         nativeLf, clientPredicates, clientProjOpt, requiresClientFallback
 
+    member private _.MaterializeFlatRows
+        (dfHandle: DataFrameHandle, clientPredicates: Func<obj, bool> list, clientProjOpt: (Type * Func<obj, obj>) option)
+        : IEnumerable<'T> =
+        let mat = QueryMaterializerResolver.Resolve(Some materializer)
+
+        match clientProjOpt with
+        | Some(sourceType, func) ->
+            let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
+            let rawSourceRows = invoker.Invoke(mat, dfHandle)
+
+            seq {
+                for item in rawSourceRows do
+                    if clientPredicates.IsEmpty || clientPredicates |> List.forall (fun p -> p.Invoke item) then
+                        yield func.Invoke item :?> 'T
+            }
+        | None ->
+            let rows = mat.Materialize<'T>(dfHandle)
+
+            if clientPredicates.IsEmpty then
+                rows
+            else
+                rows
+                |> Seq.filter (fun item -> clientPredicates |> List.forall (fun p -> p.Invoke(box item)))
+
+    member private _.CanCollectNativeDirectly
+        (
+            nativeLf: LazyFrameHandle,
+            clientPredicates: Func<obj, bool> list,
+            clientProjOpt: (Type * Func<obj, obj>) option,
+            requiresClientFallback: bool
+        ) : bool =
+        let schema = PolarsWrapper.GetLazySchema nativeLf
+        let width = PolarsWrapper.GetSchemaLen schema
+
+        not requiresClientFallback
+        && clientPredicates.IsEmpty
+        && clientProjOpt.IsNone
+        && not (isScalar && width > 1UL)
+        && not isGrouping
+
     /// Executes the full LINQ expression pipeline in-memory via .NET EnumerableQuery LINQ-to-Objects engine
     member private _.ExecuteInMemory() : IEnumerable<'T> =
-        let isCSharp = not (isNull materializer) && materializer.GetType().Name.StartsWith("CSharp")
-        let effectiveExpr =
-            if not isCSharp && FSharpAst.needsRewrite expression then
-                FSharpAst.rewrite expression
-            else
-                expression
+        let effectiveExpr = getEffectiveExpr ()
 
         match tryFindRootQueryable effectiveExpr with
         | Some(rootExpr, rootType) ->
@@ -984,42 +981,16 @@ and PolarsQuery<'T>
             this.ExecuteInMemory()
         else
             let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
-            let targetType = typeof<'T>
-
-            let isGrouping =
-                targetType.IsGenericType
-                && targetType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
-
-            let shouldShuffle = hasShuffle expression
 
             let dfHandle =
-                if shouldShuffle then
+                if hasShuffle expression then
                     applyShuffle collectedDf
                 else
                     collectedDf
 
-            match clientProjOpt with
-            | Some(sourceType, func) ->
-                let mat = QueryMaterializerResolver.Resolve(Some materializer)
-                let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
-                let rawSourceRows = invoker.Invoke(mat, dfHandle)
-
-                let filteredSource =
-                    if clientPredicates.IsEmpty then
-                        rawSourceRows
-                    else
-                        seq {
-                            for item in rawSourceRows do
-                                if clientPredicates |> List.forall (fun p -> p.Invoke item) then
-                                    yield item
-                        }
-
-                seq {
-                    for item in filteredSource do
-                        yield func.Invoke item :?> 'T
-                }
-
-            | None ->
+            if clientProjOpt.IsSome then
+                this.MaterializeFlatRows(dfHandle, clientPredicates, clientProjOpt)
+            else
                 let chunkSizeOpt =
                     if targetType.IsArray then
                         tryExtractChunkSize expression
@@ -1033,6 +1004,14 @@ and PolarsQuery<'T>
                     let genericArgs = targetType.GetGenericArguments()
                     let keyType, elemType = genericArgs.[0], genericArgs.[1]
                     let mat = QueryMaterializerResolver.Resolve(Some materializer)
+
+                    let applyGroupSort (seqToSort: IEnumerable<'T>) : IEnumerable<'T> =
+                        match tryExtractSortSelector expression with
+                        | Some(sortLambda, isDesc) ->
+                            let compiled = sortLambda.Compile()
+                            let keySel (g: 'T) = compiled.DynamicInvoke([| box g |]) :?> IComparable
+                            if isDesc then Seq.sortByDescending keySel seqToSort else Seq.sortBy keySel seqToSort
+                        | None -> seqToSort
 
                     match tryExtractGroupByInfo expression with
                     | Some(keyLambda, elemLambdaOpt) ->
@@ -1081,18 +1060,7 @@ and PolarsQuery<'T>
                                 grouped
                                 |> Seq.filter (fun g -> clientPredicates |> List.forall (fun p -> p.Invoke(box g)))
 
-                        match tryExtractSortSelector expression with
-                        | Some(sortLambda, false) ->
-                            let compiled = sortLambda.Compile()
-
-                            filtered
-                            |> Seq.sortBy (fun g -> compiled.DynamicInvoke([| box g |]) :?> IComparable)
-                        | Some(sortLambda, true) ->
-                            let compiled = sortLambda.Compile()
-
-                            filtered
-                            |> Seq.sortByDescending (fun g -> compiled.DynamicInvoke([| box g |]) :?> IComparable)
-                        | None -> filtered
+                        applyGroupSort filtered
 
                     | None when hasGroupJoin expression ->
                         let innerNullableType =
@@ -1148,18 +1116,7 @@ and PolarsQuery<'T>
                             let grpInstance = ctor.Invoke [| k; typedArray |] :?> 'T
                             resultList.Add grpInstance
 
-                        match tryExtractSortSelector expression with
-                        | Some(sortLambda, false) ->
-                            let compiled = sortLambda.Compile()
-
-                            resultList
-                            |> Seq.sortBy (fun g -> compiled.DynamicInvoke [| box g |] :?> IComparable)
-                        | Some(sortLambda, true) ->
-                            let compiled = sortLambda.Compile()
-
-                            resultList
-                            |> Seq.sortByDescending (fun g -> compiled.DynamicInvoke [| box g |] :?> IComparable)
-                        | None -> resultList :> IEnumerable<'T>
+                        applyGroupSort resultList
 
                     | None -> failwith "Could not locate keySelector for GroupBy pipeline."
 
@@ -1200,31 +1157,25 @@ and PolarsQuery<'T>
 
                     let sourceDfHandle = PolarsWrapper.LazyCollect(sourceLf, PlEngine.Auto)
 
-                    match seedLambdaOpt with
-                    | Some seedLambda ->
-                        let compiledSeed = seedLambda.Compile()
+                    let res =
+                        match seedLambdaOpt with
+                        | Some seedLambda ->
+                            let invoker =
+                                LinqReflectionCache.GetMaterializerAggByFactoryInvoker(sourceElemType, keyType, accumType)
 
-                        let invoker =
-                            LinqReflectionCache.GetMaterializerAggByFactoryInvoker(sourceElemType, keyType, accumType)
+                            invoker.Invoke(mat, sourceDfHandle, compiledKey, seedLambda.Compile(), compiledFunc, comparerObj)
+                        | None ->
+                            let seedVal =
+                                match tryEvaluate seedExpr with
+                                | Some s -> s
+                                | None -> failwith "Failed to evaluate static seed for AggregateBy."
 
-                        let res =
-                            invoker.Invoke(mat, sourceDfHandle, compiledKey, compiledSeed, compiledFunc, comparerObj)
+                            let invoker =
+                                LinqReflectionCache.GetMaterializerAggBySeedInvoker(sourceElemType, keyType, accumType)
 
-                        res.Cast<'T>()
-
-                    | None ->
-                        let seedVal =
-                            match tryEvaluate seedExpr with
-                            | Some s -> s
-                            | None -> failwith "Failed to evaluate static seed for AggregateBy."
-
-                        let invoker =
-                            LinqReflectionCache.GetMaterializerAggBySeedInvoker(sourceElemType, keyType, accumType)
-
-                        let res =
                             invoker.Invoke(mat, sourceDfHandle, compiledKey, seedVal, compiledFunc, comparerObj)
 
-                        res.Cast<'T>()
+                    res.Cast<'T>()
 
                 // Case 4: Flat row materialization (standard records, anonymous types, DTOs)
                 else
@@ -1239,39 +1190,14 @@ and PolarsQuery<'T>
 
                         Seq.singleton defaultItem
                     | _ ->
-                        let mat = QueryMaterializerResolver.Resolve(Some materializer)
-                        let rows = mat.Materialize<'T>(dfHandle)
-
-                        if clientPredicates.IsEmpty then
-                            rows
-                        else
-                            rows
-                            |> Seq.filter (fun item -> clientPredicates |> List.forall (fun p -> p.Invoke(box item)))
+                        this.MaterializeFlatRows(dfHandle, clientPredicates, None)
 
     /// Compiles pipeline to LazyFrameHandle. If client fallback, predicates or projections exist, materializes and transposes back.
     member this.CompileToLazyFrameHandle() : LazyFrameHandle =
         let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback =
             this.GetCompiledPlan()
 
-        let schema = PolarsWrapper.GetLazySchema nativeLf
-        let width = PolarsWrapper.GetSchemaLen schema
-        let targetType = typeof<'T>
-
-        let isScalar =
-            PolarsTypeHelper.IsScalarType targetType || targetType = typeof<string>
-
-        let isGrouping =
-            targetType.IsGenericType
-            && targetType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
-
-        let requiresClientEvaluation =
-            requiresClientFallback
-            || not clientPredicates.IsEmpty
-            || clientProjOpt.IsSome
-            || isScalar && width > 1UL
-            || isGrouping
-
-        if not requiresClientEvaluation then
+        if this.CanCollectNativeDirectly(nativeLf, clientPredicates, clientProjOpt, requiresClientFallback) then
             nativeLf
         else
             let filteredRows = this.ExecuteQuery()
@@ -1280,9 +1206,7 @@ and PolarsQuery<'T>
 
     /// Compiles the query and materializes directly into a native DataFrameHandle
     member this.CompileToDataFrameHandle() : DataFrameHandle =
-        let chunkSizeOpt = tryExtractChunkSize expression
-
-        if chunkSizeOpt.IsSome then
+        if (tryExtractChunkSize expression).IsSome then
             raise (
                 InvalidOperationException(
                     "Cannot materialize a chunked sequence (IEnumerable<T[]>) into a single flat DataFrame. "
@@ -1294,29 +1218,10 @@ and PolarsQuery<'T>
         let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback =
             this.GetCompiledPlan()
 
-        let schema = PolarsWrapper.GetLazySchema nativeLf
-        let width = PolarsWrapper.GetSchemaLen schema
-
-        let isScalar =
-            PolarsTypeHelper.IsScalarType typeof<'T> || typeof<'T> = typeof<string>
-
-        let isGrouping =
-            typeof<'T>.IsGenericType
-            && typeof<'T>.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
-
-        let shouldShuffle = hasShuffle expression
-
-        let canDirectlyCollectNative =
-            not requiresClientFallback
-            && clientPredicates.IsEmpty
-            && clientProjOpt.IsNone
-            && not (isScalar && width > 1UL)
-            && not isGrouping
-
-        if canDirectlyCollectNative then
+        if this.CanCollectNativeDirectly(nativeLf, clientPredicates, clientProjOpt, requiresClientFallback) then
             let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
 
-            if shouldShuffle then
+            if hasShuffle expression then
                 applyShuffle collectedDf
             else
                 collectedDf
@@ -1339,7 +1244,7 @@ and PolarsQuery<'T>
             (this :> IEnumerable<'T>).GetEnumerator() :> IEnumerator
 
     interface IQueryable with
-        member _.ElementType = typeof<'T>
+        member _.ElementType = targetType
         member _.Expression = expression
         member _.Provider = provider :> IQueryProvider
 
@@ -1356,11 +1261,6 @@ and PolarsQuery<'T>
         let planStr = PolarsWrapper.Explain(nativeLf, optimized)
         let chunkSizeOpt = tryExtractChunkSize expression
         let shouldShuffle = hasShuffle expression
-
-        let isGrouping =
-            typeof<'T>.IsGenericType
-            && typeof<'T>.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
-
         let mutable postOps = []
 
         if shouldShuffle then
@@ -1407,12 +1307,6 @@ and PolarsQuery<'T>
 
             let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback =
                 this.GetCompiledPlan()
-
-            let targetType = typeof<'T>
-
-            let isGrouping =
-                targetType.IsGenericType
-                && targetType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
 
             let canStreamBatches =
                 not requiresClientFallback
@@ -1471,28 +1365,7 @@ and PolarsQuery<'T>
                 let mutable isDisposed = false
 
                 let materializeBatch (dfHandle: DataFrameHandle) : IEnumerable<'T> =
-                    let mat = QueryMaterializerResolver.Resolve(Some materializer)
-
-                    match clientProjOpt with
-                    | Some(sourceType, func) ->
-                        let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
-                        let rawSourceRows = invoker.Invoke(mat, dfHandle)
-                        seq {
-                            for item in rawSourceRows do
-                                if
-                                    clientPredicates.IsEmpty
-                                    || clientPredicates |> List.forall (fun p -> p.Invoke item)
-                                then
-                                    yield func.Invoke item :?> 'T
-                        }
-                    | None ->
-                        let rows = mat.Materialize<'T>(dfHandle)
-
-                        if clientPredicates.IsEmpty then
-                            rows
-                        else
-                            rows
-                            |> Seq.filter (fun item -> clientPredicates |> List.forall (fun p -> p.Invoke(box item)))
+                    this.MaterializeFlatRows(dfHandle, clientPredicates, clientProjOpt)
 
                 { new IAsyncEnumerator<'T> with
                     member _.Current =

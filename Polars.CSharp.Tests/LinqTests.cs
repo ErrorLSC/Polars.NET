@@ -8613,4 +8613,57 @@ public partial class LinqTests
         Assert.Equal("Gamma", q4[1].Name);
         Assert.Equal(300.50m, q4[1].Dec);
     }
+
+    [Fact]
+    [Trait("LINQ", "Reentrancy")]
+    public void Query_Reentrancy_ToList_ToDataFrame_ToList_And_Branching()
+    {
+        using var df = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3, 4, 5 },
+            Name = new[] { "Alpha", "Beta", "Gamma", "Delta", "Epsilon" },
+            Score = new[] { 10.0, 25.0, 30.0, 15.0, 50.0 }
+        });
+
+        var baseQuery = df.AsQueryable<SimpleScoreRecord>()
+            .Where(x => x.Score >= 15.0)
+            .OrderBy(x => x.Id);
+
+        // 1st execution: ToList()
+        var list1 = baseQuery.ToList();
+        Assert.Equal(4, list1.Count);
+        Assert.Equal([2, 3, 4, 5], [.. list1.Select(x => x.Id)]);
+
+        // 2nd execution on the exact same query: ToDataFrame()
+        using var resultDf = baseQuery.ToDataFrame();
+        Assert.Equal(4, resultDf.Height);
+        Assert.Equal([2, 3, 4, 5], resultDf["Id"].ToArray<int>());
+
+        // 3rd execution on the exact same query: ToList() again
+        var list2 = baseQuery.ToList();
+        Assert.Equal(4, list2.Count);
+        Assert.Equal(list1, list2);
+
+        // 4th & 5th executions: Scalar terminals on the same query
+        Assert.Equal(4, baseQuery.Count());
+        Assert.Equal(120.0, baseQuery.Sum(x => x.Score));
+        Assert.Equal(2, baseQuery.First().Id);
+
+        // 6th execution: Branching two independent sub-queries from baseQuery and executing both repeatedly
+        var highScoreBranch = baseQuery.Where(x => x.Score >= 30.0).Select(x => new { x.Id, x.Name });
+        var lowScoreBranch = baseQuery.Where(x => x.Score < 30.0).Select(x => new { x.Id, x.Score });
+
+        var high1 = highScoreBranch.ToList();
+        var low1 = lowScoreBranch.ToList();
+        using var highDf = highScoreBranch.ToDataFrame();
+        var high2 = highScoreBranch.ToList();
+
+        Assert.Equal(2, high1.Count);
+        Assert.Equal(high1, high2);
+        Assert.Equal(2, highDf.Height);
+        Assert.Equal(2, low1.Count);
+        Assert.Equal([2, 4], [.. low1.Select(x => x.Id)]);
+    }
+
+    public record SimpleScoreRecord(int Id, string Name, double Score);
 }
