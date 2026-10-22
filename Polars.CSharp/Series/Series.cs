@@ -144,7 +144,6 @@ public partial class Series : IDisposable, IEquatable<Series>
     /// Flags the Series as ‘sorted’. Enables downstream code to user fast paths for sorted arrays.
     /// </summary>
     /// <param name="descending">If the Series order is descending.</param>
-    /// <returns></returns>
     public Series SetSorted(bool descending = false) => new(PolarsWrapper.SeriesSetSortedFlag(Handle, descending));
     /// <summary>
     /// Get the string representation of the Series data type (e.g. "i64", "str", "datetime(μs)").

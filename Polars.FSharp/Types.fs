@@ -16,9 +16,6 @@ open Apache.Arrow.Ipc
 open System.ComponentModel
 open System.Runtime.CompilerServices
 
-module private TypePatterns =
-    let inline (|Is|_|)<'T> (t: Type) = if t = typeof<'T> then Some() else None
-
 /// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
@@ -85,7 +82,11 @@ type Series(handle: SeriesHandle) =
         let des = defaultArg descending false
         let nul = defaultArg nullsLast false
         PolarsWrapper.SeriesIsSorted(this.Handle, des, nul)
-
+        
+    /// <summary>
+    /// Flags the Series as ‘sorted’. Enables downstream code to user fast paths for sorted arrays.
+    /// </summary>
+    /// <param name="descending">If the Series order is descending.</param>
     member this.SetSorted(?descending) =
         let de = defaultArg descending false
         new Series(PolarsWrapper.SeriesSetSortedFlag(this.Handle, de))
