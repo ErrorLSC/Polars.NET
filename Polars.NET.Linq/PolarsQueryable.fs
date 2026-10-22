@@ -5,7 +5,6 @@ open System.Collections
 open System.Collections.Generic
 open System.Linq
 open System.Linq.Expressions
-open System.Reflection
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
 open System.Threading
@@ -15,18 +14,28 @@ open System.Threading.Tasks
 type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer) =
     let clonedLf = PolarsWrapper.LazyClone initialLazyFrame
 
+    member _.RootLazyFrame = clonedLf
+    member _.Materializer = materializer
+
     interface IQueryProvider with
-        member _.CreateQuery(expression: Expression) : IQueryable =
+        member this.CreateQuery(expression: Expression) : IQueryable =
             let elemType =
                 match PolarsTypeHelper.TryGetEnumerableElementType expression.Type with
                 | null -> typedefof<obj>
                 | t -> t
 
             let queryType = typedefof<PolarsQuery<_>>.MakeGenericType elemType
-            Activator.CreateInstance(queryType, [| box clonedLf; box materializer; box expression |]) :?> IQueryable
+            Activator.CreateInstance(
+                queryType,
+                Reflection.BindingFlags.Instance ||| Reflection.BindingFlags.NonPublic ||| Reflection.BindingFlags.Public,
+                null,
+                [| box this; box (Some expression) |],
+                null
+            )
+            :?> IQueryable
 
-        member _.CreateQuery<'TElement>(expression: Expression) : IQueryable<'TElement> =
-            PolarsQuery<'TElement>(clonedLf, materializer, expression) :> IQueryable<'TElement>
+        member this.CreateQuery<'TElement>(expression: Expression) : IQueryable<'TElement> =
+            PolarsQuery<'TElement>(this, Some expression) :> IQueryable<'TElement>
 
         member this.Execute(expression: Expression) : obj =
             let executeMethod =
@@ -71,22 +80,21 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                         failwithf "Cannot convert query sequence to requested terminal type '%s'" targetType.FullName
 
 and PolarsQuery<'T>
-    internal (lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer, exprOpt: Expression option) as this
+    internal (provider: PolarsQueryProvider, exprOpt: Expression option) as this
     =
-    let lfCloned = PolarsWrapper.LazyClone lazyFrameHandle
+    let lfCloned = provider.RootLazyFrame
+    let materializer = provider.Materializer
 
     let expression =
         match exprOpt with
         | Some e -> e
         | None -> Expression.Constant(this, typeof<IQueryable<'T>>) :> Expression
 
-    let provider = PolarsQueryProvider(lfCloned, materializer)
-
     new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer, expression: Expression) =
-        PolarsQuery<'T>(lazyFrameHandle, materializer, Some expression)
+        PolarsQuery<'T>(PolarsQueryProvider(lazyFrameHandle, materializer), Some expression)
 
     new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer) =
-        PolarsQuery<'T>(lazyFrameHandle, materializer, None)
+        PolarsQuery<'T>(PolarsQueryProvider(lazyFrameHandle, materializer), None)
 
     /// Parses the LINQ expression tree into native ops, client predicates, optional projection, and fallback signal
     member private _.CompilePipeline
@@ -518,7 +526,7 @@ and PolarsQuery<'T>
                     let safeSecondLf, _, suffixMap =
                         disambiguateColumns baseCols otherLf "_second"
 
-                    let zipOp = QueryOp.HorizontalConcat [| PolarsWrapper.LazyClone safeSecondLf |]
+                    let zipOp = QueryOp.HorizontalConcat [| safeSecondLf |]
 
                     let renameOps =
                         match resLambdaOpt with
@@ -562,8 +570,7 @@ and PolarsQuery<'T>
                         disambiguateColumns colsAfter2 thirdLf "_third"
 
                     let zip3Op =
-                        QueryOp.HorizontalConcat
-                            [| PolarsWrapper.LazyClone safeSecondLf; PolarsWrapper.LazyClone safeThirdLf |]
+                        QueryOp.HorizontalConcat [| safeSecondLf; safeThirdLf |]
 
                     fuse tail (zip3Op :: opsAcc) clientPreds clientProjOpt
                 | _ -> [], [], None, true
@@ -718,12 +725,11 @@ and PolarsQuery<'T>
                         let preAggRightLf, aggColOpt =
                             match tryExtractGroupAgg groupParam.Name resSel with
                             | Some(aggColName, aggExpr) ->
-                                let clonedRight = PolarsWrapper.LazyClone rightLf
                                 let aggKeyClone = PolarsWrapper.CloneExpr rightKey
 
                                 let aggLf =
                                     PolarsWrapper.LazyGroupByAgg(
-                                        clonedRight,
+                                        rightLf,
                                         [| aggKeyClone |],
                                         [| aggExpr |],
                                         null,
@@ -731,7 +737,7 @@ and PolarsQuery<'T>
                                     )
 
                                 aggLf, Some aggColName
-                            | None -> PolarsWrapper.LazyClone rightLf, None
+                            | None -> rightLf, None
 
                         let leftKeyForJoin = PolarsWrapper.CloneExpr leftKey
                         let rightKeyForJoin = PolarsWrapper.CloneExpr rightKey

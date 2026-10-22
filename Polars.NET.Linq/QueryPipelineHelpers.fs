@@ -347,8 +347,7 @@ module internal QueryPipelineHelpers =
 
     /// Helper to extract all column names and their corresponding DataTypeHandle from a LazyFrame schema
     let getLazySchemaFields (lf: LazyFrameHandle) : (string * DataTypeHandle) array =
-        let clonedLf = PolarsWrapper.LazyClone lf
-        let schema = PolarsWrapper.GetLazySchema clonedLf
+        let schema = PolarsWrapper.GetLazySchema lf
         let count = PolarsWrapper.GetSchemaLen schema
 
         Array.init (int count) (fun i ->

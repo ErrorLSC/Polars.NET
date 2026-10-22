@@ -7,8 +7,7 @@ public static class PolarsSchemaExtractor
     /// </summary>
     public static string[] GetColumnNames(LazyFrameHandle lfHandle)
     {
-        var clonedLf = PolarsWrapper.LazyClone(lfHandle);
-        var schema = PolarsWrapper.GetLazySchema(clonedLf);
+        var schema = PolarsWrapper.GetLazySchema(lfHandle);
         var count = PolarsWrapper.GetSchemaLen(schema);
         var names = new string[count];
 
