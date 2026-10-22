@@ -328,7 +328,7 @@ type internal LinqReflectionCache private () =
                     .Compile()
         )
 
-    static member private GetMaterializerBoolPredicateInvoker
+    static member GetMaterializerBoolPredicateInvoker
         (methodName: string, elemType: Type)
         : Func<IDataFrameMaterializer, DataFrameHandle, Delegate, bool> =
         matPredBoolCache.GetOrAdd(
@@ -490,7 +490,7 @@ type internal LinqReflectionCache private () =
                     .Compile()
         )
 
-    static member private GetMaterializerElementAtByNameInvoker
+    static member GetMaterializerElementAtByNameInvoker
         (methodName: string, elemType: Type)
         : Func<IDataFrameMaterializer, DataFrameHandle, int64, obj> =
         matElementAtCache.GetOrAdd(
@@ -623,7 +623,7 @@ type internal LinqReflectionCache private () =
                     .Compile()
         )
 
-    static member private GetMaterializerExtremumByInvoker
+    static member GetMaterializerExtremumByInvoker
         (methodName: string, sourceType: Type, keyType: Type)
         : Func<IDataFrameMaterializer, DataFrameHandle, Delegate, obj, obj> =
         matExtremumByCache.GetOrAdd(

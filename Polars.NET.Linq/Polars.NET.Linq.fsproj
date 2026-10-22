@@ -25,6 +25,7 @@
     <Compile Include="SubqueryDecorrelator.fs" />
     <Compile Include="QueryPlanCache.fs" />
     <Compile Include="QueryPipelineHelpers.fs" />
+    <Compile Include="ScalarExecutor.fs" />
     <Compile Include="PolarsQueryable.fs" />
   </ItemGroup>
 
