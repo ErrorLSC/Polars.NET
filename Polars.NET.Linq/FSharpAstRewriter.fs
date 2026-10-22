@@ -115,52 +115,6 @@ module internal FSharpAst =
             with _ ->
                 fun (env: obj) (q: obj) -> convExprMethod.Invoke(null, [| env; q |]) :?> Expression
 
-    let rec private tryFastEvaluate (e: Expression) : obj option =
-        match e with
-        | null -> Some null
-        | :? ConstantExpression as c -> Some c.Value
-        | :? MemberExpression as me ->
-            if isNull me.Expression then
-                match me.Member with
-                | :? FieldInfo as fi -> Some(fi.GetValue(null))
-                | :? PropertyInfo as pi when pi.CanRead && pi.GetIndexParameters().Length = 0 -> Some(pi.GetValue(null))
-                | _ -> None
-            else
-                match tryFastEvaluate me.Expression with
-                | Some targetVal when not (isNull targetVal) ->
-                    match me.Member with
-                    | :? FieldInfo as fi -> Some(fi.GetValue(targetVal))
-                    | :? PropertyInfo as pi when pi.CanRead && pi.GetIndexParameters().Length = 0 ->
-                        Some(pi.GetValue(targetVal))
-                    | _ -> None
-                | _ -> None
-        | :? NewArrayExpression as nae when nae.NodeType = ExpressionType.NewArrayInit ->
-            let elemType = nae.Type.GetElementType()
-            let arr = Array.CreateInstance(elemType, nae.Expressions.Count)
-            let rec fill i =
-                if i >= nae.Expressions.Count then Some (box arr)
-                else
-                    match tryFastEvaluate nae.Expressions.[i] with
-                    | Some v ->
-                        arr.SetValue(v, i)
-                        fill (i + 1)
-                    | None -> None
-            fill 0
-        | :? UnaryExpression as ue when ue.NodeType = ExpressionType.Convert || ue.NodeType = ExpressionType.ConvertChecked ->
-            match tryFastEvaluate ue.Operand with
-            | Some v ->
-                try Some(Convert.ChangeType(v, ue.Type))
-                with _ -> Some v
-            | None -> None
-        | _ -> None
-
-    let private evalExpr (e: Expression) : obj =
-        match tryFastEvaluate e with
-        | Some v -> v
-        | None ->
-            let lam = Expression.Lambda(e)
-            lam.Compile().DynamicInvoke()
-
     let private tryRewriteQuotationToLambda (mc: MethodCallExpression) : Expression option =
         if mc.Method.Name = "QuotationToLambdaExpression" && mc.Arguments.Count = 1 then
             let arg = unwrapQuote mc.Arguments.[0]
@@ -171,8 +125,8 @@ module internal FSharpAst =
                     let varsExpr = subMc.Arguments.[1]
                     let argsExpr = subMc.Arguments.[2]
 
-                    let q = evalExpr qExpr :?> Expr
-                    let vars = evalExpr varsExpr :?> Var array
+                    let q = PartialEvaluator.evaluateSubtree qExpr :?> Expr
+                    let vars = PartialEvaluator.evaluateSubtree varsExpr :?> Var array
 
                     let argExpressions: Expression list =
                         match argsExpr with

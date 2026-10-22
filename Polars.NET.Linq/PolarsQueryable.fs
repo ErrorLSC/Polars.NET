@@ -2694,7 +2694,11 @@ and PolarsQuery<'T>
                     }
             )
 
-        let bound = rewrittenExpr
+        let bound =
+            if extraction.Parameters.Count = 0 then
+                extraction.NormalizedExpression
+            else
+                PartialEvaluator.substituteExtracted extraction.NormalizedExpression extraction.Parameters
 
         let stages =
             if not cached.NormalizedStages.IsEmpty then

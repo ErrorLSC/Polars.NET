@@ -253,81 +253,46 @@ module internal ExpressionPatterns =
 
     /// Evaluates expressions that resolve to values (e.g., closures, captured variables, local props, method calls)
     let rec tryEvaluate (expr: Expression) : obj option =
-        match expr with
-        | null -> None
-        | Unary(ExpressionType.Convert, inner)
-        | Unary(ExpressionType.ConvertChecked, inner)
-        | Unary(ExpressionType.Quote, inner) -> tryEvaluate inner
-        | Constant(value, _) -> Some value
-        | MemberAccess(instanceExpr, memberInfo) ->
-            let targetObj =
-                match instanceExpr with
-                | null -> None
-                | exp -> tryEvaluate exp
+        if isNull expr then
+            None
+        else
+            match PartialEvaluator.tryFastEvaluate expr with
+            | Some v -> Some v
+            | None ->
+                match expr with
+                | Unary(ExpressionType.Convert, inner)
+                | Unary(ExpressionType.ConvertChecked, inner)
+                | Unary(ExpressionType.Quote, inner) -> tryEvaluate inner
+                | :? MethodCallExpression as mc when mc.Arguments.Count = 0 ->
+                    // Supports evaluating parameterless factory methods such as [GeneratedRegex] partial methods
+                    try
+                        let targetObj =
+                            if isNull mc.Object then
+                                null
+                            else
+                                match tryEvaluate mc.Object with
+                                | Some o -> o
+                                | None -> null
 
-            match memberInfo with
-            | :? PropertyInfo as prop ->
-                let inst =
-                    match targetObj with
-                    | Some o -> o
-                    | None -> null
-
-                Some(prop.GetValue(inst))
-            | :? FieldInfo as field ->
-                let inst =
-                    match targetObj with
-                    | Some o -> o
-                    | None -> null
-
-                Some(field.GetValue(inst))
-            | _ -> None
-        | :? MethodCallExpression as mc when mc.Arguments.Count = 0 ->
-            // Supports evaluating parameterless factory methods such as [GeneratedRegex] partial methods
-            try
-                let targetObj =
-                    if isNull mc.Object then
-                        null
-                    else
-                        match tryEvaluate mc.Object with
-                        | Some o -> o
-                        | None -> null
-
-                Some(mc.Method.Invoke(targetObj, null))
-            with _ ->
-                None
-        | :? NewArrayExpression as na when na.NodeType = ExpressionType.NewArrayInit ->
-            try
-                let elemType = na.Type.GetElementType()
-                let arr = Array.CreateInstance(elemType, na.Expressions.Count)
-                let mutable allOk = true
-                let mutable i = 0
-                while allOk && i < na.Expressions.Count do
-                    match tryEvaluate na.Expressions.[i] with
-                    | Some v ->
-                        arr.SetValue(v, i)
-                        i <- i + 1
-                    | None ->
-                        allOk <- false
-                if allOk then
-                    Some(box arr)
-                else
-                    let lambda = Expression.Lambda<Func<obj>>(Expression.Convert(na, typeof<obj>)).Compile()
-                    Some(lambda.Invoke())
-            with _ ->
-                None
-        | :? NewExpression as ne ->
-            try
-                let lambda = Expression.Lambda<Func<obj>>(Expression.Convert(ne, typeof<obj>)).Compile()
-                Some(lambda.Invoke())
-            with _ ->
-                None
-        | :? ListInitExpression as li ->
-            try
-                let lambda = Expression.Lambda<Func<obj>>(Expression.Convert(li, typeof<obj>)).Compile()
-                Some(lambda.Invoke())
-            with _ ->
-                None
-        | _ -> None
+                        Some(mc.Method.Invoke(targetObj, null))
+                    with _ ->
+                        None
+                | :? NewArrayExpression as na when na.NodeType = ExpressionType.NewArrayInit ->
+                    try
+                        Some(PartialEvaluator.evaluateSubtree na)
+                    with _ ->
+                        None
+                | :? NewExpression as ne ->
+                    try
+                        Some(PartialEvaluator.evaluateSubtree ne)
+                    with _ ->
+                        None
+                | :? ListInitExpression as li ->
+                    try
+                        Some(PartialEvaluator.evaluateSubtree li)
+                    with _ ->
+                        None
+                | _ -> None
 
     // =========================================================================
     // Regex Helpers

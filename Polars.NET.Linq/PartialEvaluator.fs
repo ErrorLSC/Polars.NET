@@ -31,15 +31,37 @@ module internal PartialEvaluator =
             false
         else
             t.IsDefined(typeof<System.Runtime.CompilerServices.CompilerGeneratedAttribute>, false)
-            || t.Name.Contains("DisplayClass")
-            || t.Name.Contains("<>c")
-            || t.Name.Contains("_Closure$__")
+            || t.Name.Contains "DisplayClass"
+            || t.Name.Contains "<>c"
+            || t.Name.Contains "_Closure$__"
 
-    /// Evaluates a member access or constant through reflection fast path without compiling a dynamic method.
-    let rec private tryFastEvaluate (expr: Expression) : obj option =
+    /// Evaluates a member access, constant, array init, or simple conversion through reflection fast path without compiling a dynamic method.
+    let rec internal tryFastEvaluate (expr: Expression) : obj option =
         match expr with
         | null -> Some null
         | :? ConstantExpression as ce -> Some ce.Value
+        | :? UnaryExpression as ue when ue.NodeType = ExpressionType.Quote ->
+            tryFastEvaluate ue.Operand
+        | :? UnaryExpression as ue when
+            (ue.NodeType = ExpressionType.Convert || ue.NodeType = ExpressionType.ConvertChecked)
+            && isNull ue.Method ->
+            match tryFastEvaluate ue.Operand with
+            | Some v when isNull v -> Some null
+            | Some v when ue.Type.IsInstanceOfType v -> Some v
+            | Some v ->
+                let targetType =
+                    match Nullable.GetUnderlyingType ue.Type with
+                    | null -> ue.Type
+                    | u -> u
+
+                try
+                    if targetType.IsEnum then
+                        Some(Enum.ToObject(targetType, v))
+                    else
+                        Some(Convert.ChangeType(v, targetType))
+                with _ ->
+                    None
+            | None -> None
         | :? MemberExpression as me ->
             if isNull me.Expression then
                 // Static member access (e.g. DateTime.Now or static config field)
@@ -56,11 +78,26 @@ module internal PartialEvaluator =
                         Some(pi.GetValue(targetVal))
                     | _ -> None
                 | _ -> None
+        | :? NewArrayExpression as nae when nae.NodeType = ExpressionType.NewArrayInit ->
+            let elemType = nae.Type.GetElementType()
+            let arr = Array.CreateInstance(elemType, nae.Expressions.Count)
+
+            let rec fill i =
+                if i >= nae.Expressions.Count then
+                    Some(box arr)
+                else
+                    match tryFastEvaluate nae.Expressions.[i] with
+                    | Some v ->
+                        arr.SetValue(v, i)
+                        fill (i + 1)
+                    | None -> None
+
+            fill 0
         | _ -> None
 
     /// Evaluates a closed expression subtree to its boxed value.
     /// Uses reflection fast-path for compiler-generated closures to avoid Expression.Compile overhead.
-    let private evaluateSubtree (expr: Expression) : obj =
+    let internal evaluateSubtree (expr: Expression) : obj =
         match tryFastEvaluate expr with
         | Some value -> value
         | None ->
