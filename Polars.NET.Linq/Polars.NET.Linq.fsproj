@@ -24,6 +24,7 @@
     <Compile Include="LinqReflectionCache.fs" />
     <Compile Include="SubqueryDecorrelator.fs" />
     <Compile Include="QueryPlanCache.fs" />
+    <Compile Include="QueryPipelineHelpers.fs" />
     <Compile Include="PolarsQueryable.fs" />
   </ItemGroup>
 
