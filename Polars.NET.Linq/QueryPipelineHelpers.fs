@@ -135,19 +135,6 @@ type internal FallbackTracker =
         with get () = FallbackTracker.diagnostic
         and set (v: string option) = FallbackTracker.diagnostic <- v
 
-type internal QueryMaterializerResolver =
-    /// Resolves the effective IDataFrameMaterializer using explicit instance or registered fallback
-    static member Resolve(matOpt: IDataFrameMaterializer option) : IDataFrameMaterializer =
-        match matOpt with
-        | Some mat when not (isNull (box mat)) -> mat
-        | _ ->
-            let defaultMat = DataFrameMaterializerRegistry.Default
-
-            if not (isNull (box defaultMat)) then
-                defaultMat
-            else
-                failwith "No DataFrameMaterializer registered. Ensure upper API layers configured a materializer."
-
 /// Shared pure helpers for LINQ expression inspection, stage flattening, operator compilation, and policy enforcement.
 [<AutoOpen>]
 module internal QueryPipelineHelpers =

@@ -586,12 +586,10 @@ and PolarsQuery<'T>
     member private _.MaterializeFlatRows
         (dfHandle: DataFrameHandle, clientPredicates: Func<obj, bool> list, clientProjOpt: (Type * Func<obj, obj>) option)
         : IEnumerable<'T> =
-        let mat = QueryMaterializerResolver.Resolve(Some materializer)
-
         match clientProjOpt with
         | Some(sourceType, func) ->
             let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
-            let rawSourceRows = invoker.Invoke(mat, dfHandle)
+            let rawSourceRows = invoker.Invoke(materializer, dfHandle)
 
             seq {
                 for item in rawSourceRows do
@@ -599,7 +597,7 @@ and PolarsQuery<'T>
                         yield func.Invoke item :?> 'T
             }
         | None ->
-            let rows = mat.Materialize<'T> dfHandle
+            let rows = materializer.Materialize<'T> dfHandle
 
             if clientPredicates.IsEmpty then
                 rows
@@ -707,7 +705,6 @@ and PolarsQuery<'T>
                 if isGrouping then
                     let genericArgs = targetType.GetGenericArguments()
                     let keyType, elemType = genericArgs.[0], genericArgs.[1]
-                    let mat = QueryMaterializerResolver.Resolve(Some materializer)
 
                     let applyGroupSort (seqToSort: IEnumerable<'T>) : IEnumerable<'T> =
                         match tryExtractSortSelector expression with
@@ -726,7 +723,7 @@ and PolarsQuery<'T>
                             | Some elemLambda ->
                                 let sourceType = elemLambda.Parameters.[0].Type
                                 let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
-                                let rawRows = invoker.Invoke(mat, dfHandle)
+                                let rawRows = invoker.Invoke(materializer, dfHandle)
                                 let compiledElemSelector = elemLambda.Compile()
 
                                 let groupByMethod =
@@ -744,7 +741,7 @@ and PolarsQuery<'T>
                                 :?> IEnumerable<'T>
                             | None ->
                                 let invoker = LinqReflectionCache.GetMaterializerInvoker elemType
-                                let rawRows = invoker.Invoke(mat, dfHandle)
+                                let rawRows = invoker.Invoke(materializer, dfHandle)
 
                                 let groupByMethod =
                                     typeof<Enumerable>.GetMethods()
@@ -777,7 +774,7 @@ and PolarsQuery<'T>
                             typedefof<ValueTuple<_, _>>.MakeGenericType(keyType, innerNullableType)
 
                         let invoker = LinqReflectionCache.GetMaterializerInvoker pairType
-                        let rawPairs = invoker.Invoke(mat, dfHandle)
+                        let rawPairs = invoker.Invoke(materializer, dfHandle)
 
                         let keyOrder = List<obj>()
                         let groupMap = Dictionary<obj, List<obj>>()
@@ -829,9 +826,8 @@ and PolarsQuery<'T>
                     let chunkSize = chunkSizeOpt.Value
                     let elemType = targetType.GetElementType()
 
-                    let mat = QueryMaterializerResolver.Resolve(Some materializer)
                     let invoker = LinqReflectionCache.GetMaterializerChunkInvoker elemType
-                    let chunkedSeq = invoker.Invoke(mat, dfHandle, chunkSize)
+                    let chunkedSeq = invoker.Invoke(materializer, dfHandle, chunkSize)
                     chunkedSeq.Cast<'T>()
 
                 // Case 3: AggregateBy (produces IEnumerable<KeyValuePair<TKey, TAccum>>)
@@ -851,7 +847,6 @@ and PolarsQuery<'T>
                         | Some ce -> tryEvaluate ce |> Option.toObj
                         | None -> null
 
-                    let mat = QueryMaterializerResolver.Resolve(Some materializer)
                     let sourceQuery = (provider :> IQueryProvider).CreateQuery sourceExpr
 
                     let sourceLf =
@@ -867,7 +862,7 @@ and PolarsQuery<'T>
                             let invoker =
                                 LinqReflectionCache.GetMaterializerAggByFactoryInvoker(sourceElemType, keyType, accumType)
 
-                            invoker.Invoke(mat, sourceDfHandle, compiledKey, seedLambda.Compile(), compiledFunc, comparerObj)
+                            invoker.Invoke(materializer, sourceDfHandle, compiledKey, seedLambda.Compile(), compiledFunc, comparerObj)
                         | None ->
                             let seedVal =
                                 match tryEvaluate seedExpr with
@@ -877,7 +872,7 @@ and PolarsQuery<'T>
                             let invoker =
                                 LinqReflectionCache.GetMaterializerAggBySeedInvoker(sourceElemType, keyType, accumType)
 
-                            invoker.Invoke(mat, sourceDfHandle, compiledKey, seedVal, compiledFunc, comparerObj)
+                            invoker.Invoke(materializer, sourceDfHandle, compiledKey, seedVal, compiledFunc, comparerObj)
 
                     res.Cast<'T>()
 

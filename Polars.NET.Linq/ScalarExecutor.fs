@@ -175,11 +175,10 @@ module internal ScalarExecutor =
     /// and extracts scalar results via IDataFrameMaterializer.
     let executeScalar<'TResult>
         (provider: IQueryProvider)
-        (materializer: IDataFrameMaterializer)
+        (mat: IDataFrameMaterializer)
         (expression: Expression)
         : 'TResult =
         let targetType = typeof<'TResult>
-        let mat = QueryMaterializerResolver.Resolve(Some materializer)
 
         let resolveQueryPlan (src: Expression) : LazyFrameHandle * bool * (Type * Func<obj, obj>) option =
             let query = provider.CreateQuery src

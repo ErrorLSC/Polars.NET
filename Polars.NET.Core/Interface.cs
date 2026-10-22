@@ -83,9 +83,3 @@ public interface IDataFrameMaterializer
     TSource MinBy<TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null);
     TSource MaxBy<TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null);
 }
-
-public static class DataFrameMaterializerRegistry
-{
-    internal static IDataFrameMaterializer? Default { get; set; }
-
-}
