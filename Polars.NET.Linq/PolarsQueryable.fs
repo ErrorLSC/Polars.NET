@@ -798,7 +798,7 @@ and PolarsQuery<'T>
                                 keyOrder.Add outerObj
 
                         let groupingType =
-                            typedefof<PolarsGrouping<_, _>>.MakeGenericType(keyType, elemType)
+                            typedefof<MaterializedGrouping<_, _>>.MakeGenericType(keyType, elemType)
 
                         let ctor = groupingType.GetConstructors().[0]
 

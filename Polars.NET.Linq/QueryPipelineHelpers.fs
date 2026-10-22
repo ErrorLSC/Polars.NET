@@ -40,8 +40,8 @@ type internal GroupFoldContext =
         SortStages: (LambdaExpression * bool) list
     }
 
-/// Strongly-typed IGrouping implementation for GroupJoin materialization.
-type internal PolarsGrouping<'TKey, 'TElement>(key: 'TKey, elements: 'TElement array) =
+/// Strongly-typed IGrouping implementation for in-memory GroupJoin materialization.
+type internal MaterializedGrouping<'TKey, 'TElement>(key: 'TKey, elements: 'TElement array) =
     // 1. Explicit base interface implementations resolving FS0363 interface diamond collision
     interface IEnumerable<'TElement> with
         member _.GetEnumerator() : IEnumerator<'TElement> =
