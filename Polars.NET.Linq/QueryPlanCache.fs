@@ -92,7 +92,7 @@ type QueryPlanCache private () =
         if not QueryPlanCache.Enabled then
             plan <- Unchecked.defaultof<CachedQueryPlan>
             false
-        else if cache.TryGetValue(key, &plan) then
+        elif cache.TryGetValue(key, &plan) then
             Volatile.Write(&plan.LastAccessTick, Environment.TickCount64)
             true
         else

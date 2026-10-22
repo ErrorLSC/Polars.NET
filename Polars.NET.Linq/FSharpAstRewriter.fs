@@ -21,9 +21,9 @@ module internal FSharpAst =
         inherit ExpressionVisitor()
 
         override this.VisitParameter(node: ParameterExpression) =
-            match paramMap.TryGetValue(node) with
+            match paramMap.TryGetValue node with
             | true, replacement -> replacement
-            | false, _ -> base.VisitParameter(node)
+            | false, _ -> base.VisitParameter node
 
     /// Visitor that replaces expressions matching keys structurally
     type private StructuralExpressionReplacer(exprMap: Dictionary<Expression, Expression>) =
@@ -33,12 +33,12 @@ module internal FSharpAst =
             if isNull node then
                 null
             else
-                match exprMap.TryGetValue(node) with
+                match exprMap.TryGetValue node with
                 | true, replacement -> replacement
                 | false, _ ->
                     let unwrapped = unwrapQuote node
                     if not (obj.ReferenceEquals(unwrapped, node)) then
-                        match exprMap.TryGetValue(unwrapped) with
+                        match exprMap.TryGetValue unwrapped with
                         | true, replacement -> replacement
                         | false, _ -> base.Visit node
                     else
@@ -86,7 +86,7 @@ module internal FSharpAst =
             )
 
     let private convEnvInvoker: (obj -> obj) =
-        if isNull convEnvCtor then (fun _ -> null)
+        if isNull convEnvCtor then fun _ -> null
         else
             try
                 let param = Expression.Parameter(typeof<obj>, "varMap")
@@ -95,12 +95,12 @@ module internal FSharpAst =
                 let newExpr = Expression.New(convEnvCtor, [| castParam :> Expression |])
                 let lambda = Expression.Lambda<Func<obj, obj>>(Expression.Convert(newExpr, typeof<obj>), [| param |])
                 let compiled = lambda.Compile()
-                fun (varMap: obj) -> compiled.Invoke(varMap)
+                fun (varMap: obj) -> compiled.Invoke varMap
             with _ ->
                 fun (varMap: obj) -> convEnvCtor.Invoke [| varMap |]
 
     let private convExprInvoker: (obj -> obj -> Expression) =
-        if isNull convExprMethod then (fun _ _ -> null)
+        if isNull convExprMethod then fun _ _ -> null
         else
             try
                 let pEnv = Expression.Parameter(typeof<obj>, "env")
@@ -195,8 +195,8 @@ module internal FSharpAst =
                 let b2 = mie.Bindings.[1]
                 match b1, b2 with
                 | (:? MemberAssignment as ma1), (:? MemberAssignment as ma2) ->
-                    (ma1.Member.Name = "Item1" && isP1 ma1.Expression && ma2.Member.Name = "Item2" && isP2 ma2.Expression)
-                    || (ma1.Member.Name = "Item2" && isP2 ma1.Expression && ma2.Member.Name = "Item1" && isP1 ma2.Expression)
+                    ma1.Member.Name = "Item1" && isP1 ma1.Expression && ma2.Member.Name = "Item2" && isP2 ma2.Expression
+                    || ma1.Member.Name = "Item2" && isP2 ma1.Expression && ma2.Member.Name = "Item1" && isP1 ma2.Expression
                 | _ -> false
             | _ -> false
 

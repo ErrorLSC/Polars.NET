@@ -393,12 +393,12 @@ module AggTranslator =
                 match op with
                 | ExpressionType.Convert
                 | ExpressionType.ConvertChecked ->
-                    ExprTranslator.tryTranslateCast cleanExpr.Type innerH
+                    tryTranslateCast cleanExpr.Type innerH
                 | _ ->
-                    ExprTranslator.translateUnary op innerH)
+                    translateUnary op innerH)
 
         | Constant(v, t) ->
-            Some(ExprTranslator.toLiteralHandle v t)
+            Some(toLiteralHandle v t)
 
         | _ -> None
 

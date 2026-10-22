@@ -155,6 +155,21 @@ module internal ExpressionEquality =
 
             | _ -> ()
 
+    let private compareMembers (a: ReadOnlyCollection<MemberInfo>) (b: ReadOnlyCollection<MemberInfo>) : bool =
+        if isNull a && isNull b then
+            true
+        elif isNull a || isNull b then
+            false
+        elif a.Count <> b.Count then
+            false
+        else
+            let rec loop i =
+                if i >= a.Count then true
+                elif a.[i] = b.[i] then loop (i + 1)
+                else false
+
+            loop 0
+
     /// Recursively checks semantic structural equality between two expression trees.
     let rec compareExpr
         (scopeA: (ParameterExpression * ParameterExpression) list)
@@ -280,21 +295,6 @@ module internal ExpressionEquality =
 
             loop 0
 
-    and compareMembers (a: ReadOnlyCollection<MemberInfo>) (b: ReadOnlyCollection<MemberInfo>) : bool =
-        if isNull a && isNull b then
-            true
-        elif isNull a || isNull b then
-            false
-        elif a.Count <> b.Count then
-            false
-        else
-            let rec loop i =
-                if i >= a.Count then true
-                elif a.[i] = b.[i] then loop (i + 1)
-                else false
-
-            loop 0
-
     and compareBindings
         (scopeA: (ParameterExpression * ParameterExpression) list)
         (a: ReadOnlyCollection<MemberBinding>)
@@ -307,8 +307,8 @@ module internal ExpressionEquality =
                 if i >= a.Count then
                     true
                 else
-                    let (ba: MemberBinding) = a.[i]
-                    let (bb: MemberBinding) = b.[i]
+                    let ba: MemberBinding = a.[i]
+                    let bb: MemberBinding = b.[i]
 
                     if ba.BindingType <> bb.BindingType || ba.Member <> bb.Member then
                         false
@@ -387,7 +387,7 @@ type internal QueryCacheKey =
         member this.CompareTo(obj: obj) =
             match obj with
             | :? QueryCacheKey as other ->
-                let c = this.HashCode.CompareTo(other.HashCode)
+                let c = this.HashCode.CompareTo other.HashCode
 
                 if c <> 0 then
                     c

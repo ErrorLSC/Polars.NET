@@ -316,9 +316,7 @@ module internal QueryPipelineHelpers =
         | "Average" -> PolarsWrapper.Mean colExpr
         | other -> failwithf "Unsupported scalar aggregate operator: %s" other
 
-    /// Compiles any lambda predicate into a type-safe boxed delegate Func<obj, bool>
-    /// to safely evaluate against raw materialized source entities without generic coupling.
-    let compileClientPredicate (lambda: LambdaExpression) : Func<obj, bool> =
+    let private invokeWithBoxedParam (lambda: LambdaExpression) : InvocationExpression * ParameterExpression =
         let paramType = lambda.Parameters.[0].Type
         let rawParam = Expression.Parameter(typeof<obj>, "rawItem")
 
@@ -328,20 +326,17 @@ module internal QueryPipelineHelpers =
             else
                 Expression.Convert(rawParam, paramType) :> Expression
 
-        let invoked = Expression.Invoke(lambda, castParam)
+        Expression.Invoke(lambda, castParam), rawParam
+
+    /// Compiles any lambda predicate into a type-safe boxed delegate Func<obj, bool>
+    /// to safely evaluate against raw materialized source entities without generic coupling.
+    let compileClientPredicate (lambda: LambdaExpression) : Func<obj, bool> =
+        let invoked, rawParam = invokeWithBoxedParam lambda
         Expression.Lambda<Func<obj, bool>>(invoked, rawParam).Compile()
 
     /// Compiles a lambda into a typed Func<obj, obj> without DynamicInvoke reflection overhead.
     let compileToBoxedFunc (lambda: LambdaExpression) : Func<obj, obj> =
-        let rawParam = Expression.Parameter(typeof<obj>, "rawItem")
-
-        let castParam =
-            if lambda.Parameters.[0].Type = typeof<obj> then
-                rawParam :> Expression
-            else
-                Expression.Convert(rawParam, lambda.Parameters.[0].Type) :> Expression
-
-        let invoked = Expression.Invoke(lambda, castParam)
+        let invoked, rawParam = invokeWithBoxedParam lambda
         let boxedResult = Expression.Convert(invoked, typeof<obj>)
         Expression.Lambda<Func<obj, obj>>(boxedResult, rawParam).Compile()
 
@@ -383,24 +378,24 @@ module internal QueryPipelineHelpers =
     // 2. AST & Member Binding Extractors
     // =========================================================================
 
+    let rec private hasStaticMethodCall (methodName: string) (e: Expression) : bool =
+        match e with
+        | null -> false
+        | MethodCall(m, null, _) when m.Name = methodName -> true
+        | MethodCall(_, null, args) -> args |> List.exists (hasStaticMethodCall methodName)
+        | _ -> false
+
     /// Recursively inspects the expression tree to locate Chunk(size) invocations.
     let rec tryExtractChunkSize (e: Expression) : int option =
         match e with
         | null -> None
         | MethodCall(m, null, [ _; sizeExpr ]) when m.Name = "Chunk" ->
-            match tryEvaluate sizeExpr with
-            | Some s -> Some(Convert.ToInt32 s)
-            | None -> None
+            tryEvaluate sizeExpr |> Option.map Convert.ToInt32
         | MethodCall(_, null, args) -> args |> List.tryPick tryExtractChunkSize
         | _ -> None
 
     /// Recursively inspects the expression tree to detect if Shuffle() was called.
-    let rec hasShuffle (e: Expression) : bool =
-        match e with
-        | null -> false
-        | MethodCall(m, null, _) when m.Name = "Shuffle" -> true
-        | MethodCall(_, null, args) -> args |> List.exists hasShuffle
-        | _ -> false
+    let hasShuffle (e: Expression) : bool = hasStaticMethodCall "Shuffle" e
 
     /// Recursively inspects the expression tree to locate AggregateBy invocations.
     let rec tryExtractAggregateBy (e: Expression) =
@@ -414,8 +409,7 @@ module internal QueryPipelineHelpers =
                 | CleanLambda s -> Some s
                 | _ -> None
 
-            let comparerExprOpt = rest |> List.tryHead
-            Some(source, k, seedExpr, seedLambdaOpt, f, comparerExprOpt)
+            Some(source, k, seedExpr, seedLambdaOpt, f, List.tryHead rest)
         | MethodCall(_, null, args) -> args |> List.tryPick tryExtractAggregateBy
         | _ -> None
 
@@ -423,9 +417,8 @@ module internal QueryPipelineHelpers =
     let rec tryExtractDefaultIfEmpty (e: Expression) : (bool * obj option) option =
         match e with
         | null -> None
-        | MethodCall(m, null, [ _ ]) when m.Name = "DefaultIfEmpty" -> Some(true, None)
-        | MethodCall(m, null, [ _; defExpr ]) when m.Name = "DefaultIfEmpty" ->
-            Some(true, tryEvaluate defExpr)
+        | MethodCall(m, null, _ :: rest) when m.Name = "DefaultIfEmpty" && rest.Length <= 1 ->
+            Some(true, rest |> List.tryHead |> Option.bind tryEvaluate)
         | MethodCall(_, null, args) -> args |> List.tryPick tryExtractDefaultIfEmpty
         | _ -> None
 
@@ -440,19 +433,14 @@ module internal QueryPipelineHelpers =
         | _ -> None
 
     /// Recursively inspects the expression tree to detect if GroupJoin() was called.
-    let rec hasGroupJoin (e: Expression) : bool =
-        match e with
-        | null -> false
-        | MethodCall(m, null, _) when m.Name = "GroupJoin" -> true
-        | MethodCall(_, null, args) -> args |> List.exists hasGroupJoin
-        | _ -> false
+    let hasGroupJoin (e: Expression) : bool = hasStaticMethodCall "GroupJoin" e
 
     /// Recursively inspects the expression tree to locate OrderBy/OrderByDescending sort selectors.
     let rec tryExtractSortSelector (e: Expression) : (LambdaExpression * bool) option =
         match e with
         | null -> None
-        | MethodCall(m, null, [ _; CleanLambda l ]) when m.Name = "OrderBy" -> Some(l, false)
-        | MethodCall(m, null, [ _; CleanLambda l ]) when m.Name = "OrderByDescending" -> Some(l, true)
+        | MethodCall(m, null, [ _; CleanLambda l ]) when m.Name = "OrderBy" || m.Name = "OrderByDescending" ->
+            Some(l, m.Name = "OrderByDescending")
         | MethodCall(_, null, args) -> args |> List.tryPick tryExtractSortSelector
         | _ -> None
 
@@ -533,22 +521,10 @@ module internal QueryPipelineHelpers =
             List.zip memberNames args
             |> List.tryPick (fun (memName, arg) ->
                 match arg with
-                | MethodCall(m, _, [ :? ParameterExpression as p ]) when
+                | MethodCall(m, _, (:? ParameterExpression as p) :: _) when
                     p.Name = groupParamName && (m.Name = "Count" || m.Name = "LongCount")
                     ->
-                    let countExpr = PolarsWrapper.Len()
-                    let aliased = PolarsWrapper.Alias(countExpr, memName)
-                    Some(memName, aliased)
-                | MethodCall(m, _, target :: _) when
-                    not (isNull target)
-                    && (match target with
-                        | :? ParameterExpression as p -> p.Name = groupParamName
-                        | _ -> false)
-                    && (m.Name = "Count" || m.Name = "LongCount")
-                    ->
-                    let countExpr = PolarsWrapper.Len()
-                    let aliased = PolarsWrapper.Alias(countExpr, memName)
-                    Some(memName, aliased)
+                    Some(memName, PolarsWrapper.Alias(PolarsWrapper.Len(), memName))
                 | _ -> None)
         | _ -> None
 
@@ -659,6 +635,11 @@ module internal QueryPipelineHelpers =
 
     /// Recursively flattens a LINQ expression tree into a linear sequence of LinqStage values.
     let rec flattenStages (e: Expression) (acc: LinqStage list) : LinqStage list =
+        let evalUInt32 opName (expr: Expression) =
+            match tryEvaluate expr with
+            | Some c -> Convert.ToUInt32 c
+            | None -> failwithf "Could not evaluate %s count argument: %A" opName expr
+
         match e with
         | null -> acc
         | MethodCall(m, null, [ source; StripQuotes(:? LambdaExpression as l) ]) when m.Name = "Select" ->
@@ -698,41 +679,66 @@ module internal QueryPipelineHelpers =
             else
                 flattenStages source (LinqStage.Project l :: acc)
 
-        | MethodCall(m, null, [ source; StripQuotes(:? LambdaExpression as l) ]) when m.Name = "Where" ->
-            flattenStages source (LinqStage.Filter l :: acc)
-
-        | MethodCall(m, null, [ source; StripQuotes(:? LambdaExpression as l) ]) when
-            m.Name = "OrderBy" || m.Name = "ThenBy"
+        // Single-lambda stages: Where, OrderBy/ThenBy, DistinctBy, GroupBy(key), TakeWhile, SkipWhile
+        | MethodCall(m,
+                     null,
+                     [ source; StripQuotes(:? LambdaExpression as l) ]) when
+            m.Name = "Where"
+            || m.Name = "OrderBy"
+            || m.Name = "ThenBy"
+            || m.Name = "OrderByDescending"
+            || m.Name = "ThenByDescending"
+            || m.Name = "DistinctBy"
+            || m.Name = "GroupBy"
+            || m.Name = "TakeWhile"
+            || m.Name = "SkipWhile"
             ->
-            flattenStages source (LinqStage.Sort(l, isDescending = false) :: acc)
+            let stage =
+                match m.Name with
+                | "Where" -> LinqStage.Filter l
+                | "OrderBy" | "ThenBy" -> LinqStage.Sort(l, isDescending = false)
+                | "OrderByDescending" | "ThenByDescending" -> LinqStage.Sort(l, isDescending = true)
+                | "DistinctBy" -> LinqStage.DistinctBy l
+                | "GroupBy" -> LinqStage.GroupByKey l
+                | "TakeWhile" -> LinqStage.TakeWhile l
+                | _ -> LinqStage.SkipWhile l
 
-        | MethodCall(m, null, [ source; StripQuotes(:? LambdaExpression as l) ]) when
-            m.Name = "OrderByDescending" || m.Name = "ThenByDescending"
+            flattenStages source (stage :: acc)
+
+        // Single-argument (source-only) stages
+        | MethodCall(m, null, [ source ]) ->
+            let stageOpt =
+                match m.Name with
+                | "Distinct" -> Some LinqStage.Distinct
+                | "Index" -> Some LinqStage.Index
+                | "Order" -> Some(LinqStage.SortDefault(isDescending = false))
+                | "OrderDescending" -> Some(LinqStage.SortDefault(isDescending = true))
+                | "Reverse" -> Some LinqStage.Reverse
+                | "Shuffle" -> Some LinqStage.Shuffle
+                | "DefaultIfEmpty" -> Some(LinqStage.DefaultIfEmpty None)
+                | "Cast" when m.IsGenericMethod -> Some(LinqStage.Cast(m.GetGenericArguments().[0]))
+                | "OfType" when m.IsGenericMethod ->
+                    Some(LinqStage.OfType(getSequenceElementType source.Type, m.GetGenericArguments().[0]))
+                | _ -> None
+
+            match stageOpt with
+            | Some stage -> flattenStages source (stage :: acc)
+            | None -> acc
+
+        // Count-based slicing stages: Take, Skip, TakeLast, SkipLast
+        | MethodCall(m, null, [ source; countExpr ]) when
+            m.Name = "Take" || m.Name = "Skip" || m.Name = "TakeLast" || m.Name = "SkipLast"
             ->
-            flattenStages source (LinqStage.Sort(l, isDescending = true) :: acc)
+            let n = evalUInt32 m.Name countExpr
 
-        | MethodCall(m, null, [ source; countExpr ]) when m.Name = "Take" ->
-            match tryEvaluate countExpr with
-            | Some c -> flattenStages source (LinqStage.Take(Convert.ToUInt32 c) :: acc)
-            | None -> failwithf "Could not evaluate Take count argument: %A" countExpr
+            let stage =
+                match m.Name with
+                | "Take" -> LinqStage.Take n
+                | "Skip" -> LinqStage.Skip n
+                | "TakeLast" -> LinqStage.TakeLast n
+                | _ -> LinqStage.SkipLast n
 
-        | MethodCall(m, null, [ source; countExpr ]) when m.Name = "Skip" ->
-            match tryEvaluate countExpr with
-            | Some c -> flattenStages source (LinqStage.Skip(Convert.ToUInt32 c) :: acc)
-            | None -> failwithf "Could not evaluate Skip count argument: %A" countExpr
-
-        | MethodCall(m, null, [ source ]) when m.Name = "Distinct" -> flattenStages source (LinqStage.Distinct :: acc)
-
-        | MethodCall(m, null, [ source ]) when m.Name = "Index" -> flattenStages source (LinqStage.Index :: acc)
-
-        | MethodCall(m, null, [ source ]) when m.Name = "Order" ->
-            flattenStages source (LinqStage.SortDefault(isDescending = false) :: acc)
-
-        | MethodCall(m, null, [ source ]) when m.Name = "OrderDescending" ->
-            flattenStages source (LinqStage.SortDefault(isDescending = true) :: acc)
-
-        | MethodCall(m, null, [ source; StripQuotes(:? LambdaExpression as keySel) ]) when m.Name = "DistinctBy" ->
-            flattenStages source (LinqStage.DistinctBy keySel :: acc)
+            flattenStages source (stage :: acc)
 
         | MethodCall(m, null, [ source; CleanLambda k; CleanLambda e; CleanLambda r ]) when m.Name = "GroupBy" ->
             flattenStages source (LinqStage.GroupByWithElementAndResult(k, e, r) :: acc)
@@ -744,28 +750,28 @@ module internal QueryPipelineHelpers =
             ->
             flattenStages source (LinqStage.GroupByWithResult(k, r) :: acc)
 
-        | MethodCall(m, null, [ source; StripQuotes(:? LambdaExpression as k) ]) when m.Name = "GroupBy" ->
-            flattenStages source (LinqStage.GroupByKey k :: acc)
-
+        // Join, LeftJoin, RightJoin, FullJoin, GroupJoin (with optional result selector)
         | MethodCall(m,
                      _,
-                     outer :: inner :: StripQuotes(:? LambdaExpression as outerKey) :: StripQuotes(:? LambdaExpression as innerKey) :: StripQuotes(:? LambdaExpression as resSel) :: _) when
+                     outer :: inner :: StripQuotes(:? LambdaExpression as outerKey) :: StripQuotes(:? LambdaExpression as innerKey) :: rest) when
             m.Name = "Join"
             || m.Name = "LeftJoin"
             || m.Name = "RightJoin"
             || m.Name = "FullJoin"
+            || m.Name = "GroupJoin"
             ->
-            flattenStages outer (LinqStage.Join(m, inner, outerKey, innerKey, Some resSel) :: acc)
+            let resSelOpt =
+                match rest with
+                | StripQuotes(:? LambdaExpression as resSel) :: _ -> Some resSel
+                | _ -> None
 
-        | MethodCall(m,
-                     _,
-                     outer :: inner :: StripQuotes(:? LambdaExpression as outerKey) :: StripQuotes(:? LambdaExpression as innerKey) :: _) when
-            m.Name = "Join"
-            || m.Name = "LeftJoin"
-            || m.Name = "RightJoin"
-            || m.Name = "FullJoin"
-            ->
-            flattenStages outer (LinqStage.Join(m, inner, outerKey, innerKey, None) :: acc)
+            let stage =
+                if m.Name = "GroupJoin" then
+                    LinqStage.GroupJoin(m, inner, outerKey, innerKey, resSelOpt)
+                else
+                    LinqStage.Join(m, inner, outerKey, innerKey, resSelOpt)
+
+            flattenStages outer (stage :: acc)
 
         | MethodCall(m, null, [ first; second ]) when m.Name = "Intersect" || m.Name = "Except" ->
             flattenStages first (LinqStage.SetOp(m, second, None, None) :: acc)
@@ -820,26 +826,6 @@ module internal QueryPipelineHelpers =
                 else
                     flattenStages source (LinqStage.CrossJoin(colSel.Body, resSelOpt) :: acc)
 
-        | MethodCall(m, null, [ source; StripQuotes(:? LambdaExpression as l) ]) when m.Name = "TakeWhile" ->
-            flattenStages source (LinqStage.TakeWhile l :: acc)
-
-        | MethodCall(m, null, [ source; StripQuotes(:? LambdaExpression as l) ]) when m.Name = "SkipWhile" ->
-            flattenStages source (LinqStage.SkipWhile l :: acc)
-
-        | MethodCall(m,
-                     null,
-                     outer :: inner :: StripQuotes(:? LambdaExpression as outerKey) :: StripQuotes(:? LambdaExpression as innerKey) :: StripQuotes(:? LambdaExpression as resSel) :: _) when
-            m.Name = "GroupJoin"
-            ->
-            flattenStages outer (LinqStage.GroupJoin(m, inner, outerKey, innerKey, Some resSel) :: acc)
-
-        | MethodCall(m,
-                     null,
-                     outer :: inner :: StripQuotes(:? LambdaExpression as outerKey) :: StripQuotes(:? LambdaExpression as innerKey) :: _) when
-            m.Name = "GroupJoin"
-            ->
-            flattenStages outer (LinqStage.GroupJoin(m, inner, outerKey, innerKey, None) :: acc)
-
         | MethodCall(m, null, [ source; second ]) when m.Name = "Zip" ->
             flattenStages source (LinqStage.Zip(second, None) :: acc)
 
@@ -860,37 +846,9 @@ module internal QueryPipelineHelpers =
                 flattenStages source (LinqStage.Chunk size :: acc)
             | None -> failwithf "Could not evaluate Chunk size argument: %A" sizeExpr
 
-        | MethodCall(m, null, [ source; countExpr ]) when m.Name = "TakeLast" ->
-            match tryEvaluate countExpr with
-            | Some c -> flattenStages source (LinqStage.TakeLast(Convert.ToUInt32 c) :: acc)
-            | None -> failwithf "Could not evaluate TakeLast count: %A" countExpr
-
-        | MethodCall(m, null, [ source; countExpr ]) when m.Name = "SkipLast" ->
-            match tryEvaluate countExpr with
-            | Some c -> flattenStages source (LinqStage.SkipLast(Convert.ToUInt32 c) :: acc)
-            | None -> failwithf "Could not evaluate SkipLast count: %A" countExpr
-
-        | MethodCall(m, null, [ source; elemExpr ]) when m.Name = "Append" ->
-            flattenStages source (LinqStage.Append elemExpr :: acc)
-
-        | MethodCall(m, null, [ source; elemExpr ]) when m.Name = "Prepend" ->
-            flattenStages source (LinqStage.Prepend elemExpr :: acc)
-
-        | MethodCall(m, null, [ source ]) when m.Name = "Reverse" -> flattenStages source (LinqStage.Reverse :: acc)
-
-        | MethodCall(m, null, [ source ]) when m.Name = "Shuffle" -> flattenStages source (LinqStage.Shuffle :: acc)
-
-        | MethodCall(m, null, [ source ]) when m.Name = "Cast" && m.IsGenericMethod ->
-            let targetType = m.GetGenericArguments().[0]
-            flattenStages source (LinqStage.Cast targetType :: acc)
-
-        | MethodCall(m, null, [ source ]) when m.Name = "OfType" && m.IsGenericMethod ->
-            let sourceType = getSequenceElementType source.Type
-            let targetType = m.GetGenericArguments().[0]
-            flattenStages source (LinqStage.OfType(sourceType, targetType) :: acc)
-
-        | MethodCall(m, null, [ source ]) when m.Name = "DefaultIfEmpty" ->
-            flattenStages source (LinqStage.DefaultIfEmpty None :: acc)
+        | MethodCall(m, null, [ source; elemExpr ]) when m.Name = "Append" || m.Name = "Prepend" ->
+            let stage = if m.Name = "Append" then LinqStage.Append elemExpr else LinqStage.Prepend elemExpr
+            flattenStages source (stage :: acc)
 
         | MethodCall(m, null, [ source; defaultExpr ]) when m.Name = "DefaultIfEmpty" ->
             flattenStages source (LinqStage.DefaultIfEmpty(Some defaultExpr) :: acc)
@@ -1440,25 +1398,25 @@ module internal QueryPipelineHelpers =
                         ExprTranslator.translateReductionOp m.Name clonedColExpr
                         |> Option.map (fun core -> PolarsWrapper.Alias(core, colName))
 
-                    | _ when (tryMatchNestedListAgg argExpr).IsSome ->
-                        let selLambda = (tryMatchNestedListAgg argExpr).Value
-                        let selParam = selLambda.Parameters.[0]
-                        let selCtx = createContextForType selParam.Type lf selParam.Name
-
-                        let colExprOpt =
-                            match ExprTranslator.tryResolveColumnNameWithContext selCtx selLambda.Body with
-                            | Some cName -> Some(PolarsWrapper.Col cName)
-                            | None -> ExprTranslator.tryTranslateWithContext selCtx selLambda.Body
-
-                        colExprOpt |> Option.map (fun cExpr -> PolarsWrapper.Alias(cExpr, colName))
-
                     | _ ->
-                        AggTranslator.tryTranslateAggWithScalarCol
-                            groupParamName
-                            scalarColOpt
-                            wholeRowStructOpt
-                            argExpr
-                            colName
+                        match tryMatchNestedListAgg argExpr with
+                        | Some selLambda ->
+                            let selParam = selLambda.Parameters.[0]
+                            let selCtx = createContextForType selParam.Type lf selParam.Name
+
+                            let colExprOpt =
+                                match ExprTranslator.tryResolveColumnNameWithContext selCtx selLambda.Body with
+                                | Some cName -> Some(PolarsWrapper.Col cName)
+                                | None -> ExprTranslator.tryTranslateWithContext selCtx selLambda.Body
+
+                            colExprOpt |> Option.map (fun cExpr -> PolarsWrapper.Alias(cExpr, colName))
+                        | None ->
+                            AggTranslator.tryTranslateAggWithScalarCol
+                                groupParamName
+                                scalarColOpt
+                                wholeRowStructOpt
+                                argExpr
+                                colName
 
                 let translatedAggOpts =
                     nonKeyArgs
