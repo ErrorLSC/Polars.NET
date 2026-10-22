@@ -7,6 +7,7 @@ open System.Linq
 open System.Linq.Expressions
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
+open System.Runtime.CompilerServices
 open System.Threading
 open System.Threading.Tasks
 
@@ -54,7 +55,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
             | _ when PolarsTypeHelper.IsScalarType targetType || targetType = typeof<string> ->
                 ScalarExecutor.executeScalar<'TResult> (this :> IQueryProvider) materializer expression
             | _ ->
-                let query = (this :> IQueryProvider).CreateQuery(expression)
+                let query = (this :> IQueryProvider).CreateQuery expression
 
                 match box query with
                 | :? 'TResult as matched -> matched
@@ -335,7 +336,7 @@ and PolarsQuery<'T>
                         else
                             fuse tail opsAcc ((compileClientPredicate l, l) :: clientPreds) clientProjOpt
 
-            | (LinqStage.TakeWhile l | LinqStage.SkipWhile l) as stage :: tail ->
+            | LinqStage.TakeWhile l | LinqStage.SkipWhile l as stage :: tail ->
                 let isSkip =
                     match stage with
                     | LinqStage.SkipWhile _ -> true
@@ -472,7 +473,7 @@ and PolarsQuery<'T>
                             [ uniqueOp; concatOp ])
                     pushOpsOrFallback opsOpt tail
 
-                | (LinqStage.Append elemExpr | LinqStage.Prepend elemExpr) as stage :: tail ->
+                | LinqStage.Append elemExpr | LinqStage.Prepend elemExpr as stage :: tail ->
                     let isPrepend =
                         match stage with
                         | LinqStage.Prepend _ -> true
@@ -598,7 +599,7 @@ and PolarsQuery<'T>
                         yield func.Invoke item :?> 'T
             }
         | None ->
-            let rows = mat.Materialize<'T>(dfHandle)
+            let rows = mat.Materialize<'T> dfHandle
 
             if clientPredicates.IsEmpty then
                 rows
@@ -782,7 +783,7 @@ and PolarsQuery<'T>
                         let groupMap = Dictionary<obj, List<obj>>()
 
                         for pairObj in rawPairs do
-                            let tuple = pairObj :?> System.Runtime.CompilerServices.ITuple
+                            let tuple = pairObj :?> ITuple
                             let outerObj = tuple.[0]
                             let innerObj = tuple.[1]
 
@@ -851,7 +852,7 @@ and PolarsQuery<'T>
                         | None -> null
 
                     let mat = QueryMaterializerResolver.Resolve(Some materializer)
-                    let sourceQuery = (provider :> IQueryProvider).CreateQuery(sourceExpr)
+                    let sourceQuery = (provider :> IQueryProvider).CreateQuery sourceExpr
 
                     let sourceLf =
                         match box sourceQuery with
@@ -904,7 +905,7 @@ and PolarsQuery<'T>
             nativeLf
         else
             let filteredRows = this.ExecuteQuery()
-            let newDfHandle = DataFrameBuilder.FromRows<'T>(filteredRows)
+            let newDfHandle = DataFrameBuilder.FromRows<'T> filteredRows
             PolarsWrapper.DataFrameToLazy newDfHandle
 
     /// Compiles the query and materializes directly into a native DataFrameHandle
@@ -1089,7 +1090,7 @@ and PolarsQuery<'T>
                                     let mutable advanced = false
                                     let mutable doneStreaming = false
 
-                                    while not advanced && not doneStreaming do
+                                    while not (advanced || doneStreaming) do
                                         if hasActiveRows && currentBatchRows.MoveNext() then
                                             advanced <- true
                                         else

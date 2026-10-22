@@ -108,6 +108,7 @@ module internal rec ExprTranslator =
         | "Variance" -> Some(PolarsWrapper.Var(targetColExpr, ddof))
         | _ -> None
 
+    [<TailCall>]
     let rec private isNullConstantExpr (e: Expression) =
         match e with
         | null -> true
@@ -165,6 +166,7 @@ module internal rec ExprTranslator =
         with _ ->
             None
 
+    [<TailCall>]
     let rec internal toLiteralHandle (value: obj) (t: Type) : ExprHandle =
         match value with
         | null -> PolarsWrapper.LitNull()
@@ -209,7 +211,7 @@ module internal rec ExprTranslator =
         else
             tryGetPolarsDataType targetType
             |> Option.map (fun dtypeHandle ->
-                let dtypeExpr = PolarsWrapper.DataTypeExprFromDataType(dtypeHandle)
+                let dtypeExpr = PolarsWrapper.DataTypeExprFromDataType dtypeHandle
                 PolarsWrapper.ExprCast(operand, dtypeExpr, strict = false, wrapNumerical = false))
 
     // =========================================================================

@@ -66,10 +66,10 @@ module internal FSharpAst =
             && m.GetParameters().Length = 6)
 
     let private leafExpressionConverterType =
-        typeof<int option>.Assembly.GetType("Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter")
+        typeof<int option>.Assembly.GetType "Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter"
 
     let private convEnvType =
-        typeof<int option>.Assembly.GetType("Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter+ConvEnv")
+        typeof<int option>.Assembly.GetType "Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter+ConvEnv"
 
     let private convEnvCtor =
         if isNull convEnvType then null
@@ -273,12 +273,12 @@ module internal FSharpAst =
 
             match unwrapLambda reducedObj with
             | Some lambda when lambda.Parameters.Count = reducedArgs.Length ->
-                let dict = Dictionary<ParameterExpression, Expression>(HashIdentity.Reference)
+                let dict = Dictionary<ParameterExpression, Expression> HashIdentity.Reference
 
                 List.zip (lambda.Parameters |> Seq.toList) reducedArgs
                 |> List.iter (fun (p, arg) -> dict.[p] <- arg)
 
-                let substituted = ParameterReplacer(dict).Visit(lambda.Body)
+                let substituted = ParameterReplacer(dict).Visit lambda.Body
                 betaReduce substituted
             | _ ->
                 let newArgs = reducedArgs |> List.toArray
@@ -299,7 +299,7 @@ module internal FSharpAst =
                 List.zip (lambda.Parameters |> Seq.toList) reducedArgs
                 |> List.iter (fun (p, arg) -> dict.[p] <- arg)
 
-                let substituted = ParameterReplacer(dict).Visit(lambda.Body)
+                let substituted = ParameterReplacer(dict).Visit lambda.Body
                 betaReduce substituted
             | _ -> Expression.Invoke(reducedTarget, reducedArgs |> List.toArray) :> Expression
 
