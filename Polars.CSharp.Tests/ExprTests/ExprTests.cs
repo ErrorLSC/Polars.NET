@@ -3786,4 +3786,43 @@ TooShort,1990-05-20,1.60";
         // Null boundary
         Assert.False(PolarsWrapper.RegexIsValid(null!));
     }
+
+    [Fact]
+    [Trait("Expr", "Reusability")]
+    public void Test_Expr_Reusability_After_Terminal_And_Transform_Ops()
+    {
+        var col = Pl.Col("val");
+        var lower = Pl.Lit(5);
+        var upper = Pl.Lit(15);
+
+        // Clip reusability
+        var c1 = col.Clip(lower, upper);
+        var c2 = col.Clip(lower, upper); // reusing col, lower, upper
+        var cMin = col.Clip(lowerBound: lower);
+        var cMax = col.Clip(upperBound: upper);
+
+        using var df = DataFrame.FromColumns([
+            Pl.CreateSeries("val", [1, 10, 20])
+        ]);
+
+        using var res = df.Select(c1.Alias("c1"), c2.Alias("c2"), cMin.Alias("cMin"), cMax.Alias("cMax"));
+        Assert.Equal([5, 10, 15], res["c1"].ToArray<int>());
+        Assert.Equal([5, 10, 15], res["c2"].ToArray<int>());
+        Assert.Equal([5, 10, 20], res["cMin"].ToArray<int>());
+        Assert.Equal([1, 10, 15], res["cMax"].ToArray<int>());
+
+        // Name ops reusability
+        var nameCol = Pl.Col("name");
+        var n1 = nameCol.Name.Prefix("pre_");
+        var n2 = nameCol.Name.Suffix("_post");
+        var n3 = nameCol.Name.ToUppercase();
+        var n4 = nameCol.Name.Map(s => s + "_mapped");
+
+        using var df2 = DataFrame.FromColumns([
+            Pl.CreateSeries("name", ["alice", "bob"])
+        ]);
+
+        using var res2 = df2.Select(n1, n2, n3, n4);
+        Assert.Equal(["pre_name", "name_post", "NAME", "name_mapped"], res2.Columns);
+    }
 }

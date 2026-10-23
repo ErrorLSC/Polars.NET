@@ -156,6 +156,10 @@ F# developers have three complementary styles that interoperate seamlessly:
 
 ## 2. Resource, Ownership & Lifecycle Rules
 - **`IDisposable` Native Handles**: `DataFrame`, `LazyFrame`, `Series`, `PolarsSchema`, and `DataType` wrap native Rust handles and implement `IDisposable`. Always use `using var` in C# and `use` in F#.
+- **`Expr` is an Immutable, Freely Reusable Expression Tree**:
+  - `Expr` in both C# and F# is immutable and non-destructive.
+  - Calling methods (`.Clip()`, `.Alias()`, `.Filter()`), applying operators, or chaining sub-namespace operations (`.Dt`, `.Str`, `.Name`, etc.) clones handles internally so the source expression is never consumed or invalidated.
+  - You can safely define an `Expr` once (e.g. `var col = Pl.Col("price");`) and reuse it across multiple selections, filters, and aggregations.
 - **`LazyFrame` is an Immutable Query Plan**:
   - Unlike Rust's moving `collect(self)`, Polars.NET's `LazyFrame` is **non-consuming and safe to reuse multiple times**!
   - Calling `.Collect()`, `.CollectAsync()`, or any `.Sink*()` method (`SinkParquet`, `SinkCsv`, etc.) clones the plan handle internally. The original `LazyFrame` remains fully valid and can be collected, branched, or inspected repeatedly.

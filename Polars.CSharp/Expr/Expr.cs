@@ -591,18 +591,18 @@ public partial class Expr : IDisposable, IEquatable<Expr>
 
         if (lowerBound is not null && upperBound is null)
         {
-            var hMin = PolarsWrapper.ClipMin(Handle, lowerBound?.Consume().Handle!);
+            var hMin = PolarsWrapper.ClipMin(CloneHandle(), lowerBound?.Consume().Handle!);
             return new Expr(hMin);
         }
 
         if (lowerBound is null && upperBound is not null)
         {
-            var hMax = PolarsWrapper.ClipMax(Handle, upperBound?.Consume().Handle!);
+            var hMax = PolarsWrapper.ClipMax(CloneHandle(), upperBound?.Consume().Handle!);
             return new Expr(hMax);
         }
 
         var hFull = PolarsWrapper.Clip(
-            Handle,
+            CloneHandle(),
             lowerBound?.Consume().Handle!,
             upperBound?.Consume().Handle!
         );

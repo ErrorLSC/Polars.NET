@@ -7,7 +7,7 @@ type MetaOps(handle: ExprHandle) =
     /// <summary>Return the output name of the expression.</summary>
     member this.OutputName() = PolarsWrapper.ExprGetOutputName handle
     /// <summary>Return the original expression.</summary>
-    member this.AsExpression() = new Expr(handle)
+    member this.AsExpression() = new Expr(PolarsWrapper.CloneExpr handle)
 
     /// <summary>Indicate if this expression is a basic (non-regex) unaliased column.</summary>
     member this.IsColumn() = PolarsWrapper.IsColumn(handle)

@@ -1773,7 +1773,7 @@ and LazyFrame(handle: LazyFrameHandle) =
         let pOldNames, pNewNames = Array.unzip arr
         let pStrict = defaultArg strict true
 
-        let handle = PolarsWrapper.LazyRename(this.Handle, pOldNames, pNewNames, pStrict)
+        let handle = PolarsWrapper.LazyRename(this.CloneHandle(), pOldNames, pNewNames, pStrict)
 
         new LazyFrame(handle)
 

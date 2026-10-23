@@ -315,7 +315,7 @@ and Expr(handle: ExprHandle) =
     /// <param name="withReplacement">Allow values to be sampled more than once.</param>
     /// <param name="shuffle">Shuffle the order of sampled data points.</param>
     /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated for each sample operation.</param>
-    member _.SampleN(?n: Expr, ?withReplacement: bool, ?shuffle: bool, ?seed: uint64) =
+    member this.SampleN(?n: Expr, ?withReplacement: bool, ?shuffle: bool, ?seed: uint64) =
         let num =
             match n with
             | Some n -> n.CloneHandle()
@@ -324,7 +324,7 @@ and Expr(handle: ExprHandle) =
         let wr = defaultArg withReplacement false
         let sh = defaultArg shuffle false
         let sd = seed |> Option.toNullable
-        new Expr(PolarsWrapper.ExprSampleN(handle, num, wr, sh, sd))
+        new Expr(PolarsWrapper.ExprSampleN(this.CloneHandle(), num, wr, sh, sd))
 
     /// <summary>
     /// Sample from this expression.
@@ -333,11 +333,11 @@ and Expr(handle: ExprHandle) =
     /// <param name="withReplacement">Allow values to be sampled more than once.</param>
     /// <param name="shuffle">Shuffle the order of sampled data points.</param>
     /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated for each sample operation.</param>
-    member _.SampleFrac(fraction: Expr, ?withReplacement: bool, ?shuffle: bool, ?seed: uint64) =
+    member this.SampleFrac(fraction: Expr, ?withReplacement: bool, ?shuffle: bool, ?seed: uint64) =
         let wr = defaultArg withReplacement false
         let sh = defaultArg shuffle false
         let sd = seed |> Option.toNullable
-        new Expr(PolarsWrapper.ExprSampleFrac(handle, fraction.CloneHandle(), wr, sh, sd))
+        new Expr(PolarsWrapper.ExprSampleFrac(this.CloneHandle(), fraction.CloneHandle(), wr, sh, sd))
 
     /// <summary>
     /// Round underlying floating point data by decimals digits.
@@ -817,17 +817,17 @@ and Expr(handle: ExprHandle) =
 
         | Some lower, None ->
             // Only lower bound is provided: ClipMin
-            let hMin = PolarsWrapper.ClipMin(this.Handle, lower.Handle)
+            let hMin = PolarsWrapper.ClipMin(this.CloneHandle(), lower.CloneHandle())
             new Expr(hMin)
 
         | None, Some upper ->
             // Only upper bound is provided: ClipMax
-            let hMax = PolarsWrapper.ClipMax(this.Handle, upper.Handle)
+            let hMax = PolarsWrapper.ClipMax(this.CloneHandle(), upper.CloneHandle())
             new Expr(hMax)
 
         | Some lower, Some upper ->
             // Both bounds are provided: Full Clip
-            let hFull = PolarsWrapper.Clip(this.Handle, lower.Handle, upper.Handle)
+            let hFull = PolarsWrapper.Clip(this.CloneHandle(), lower.CloneHandle(), upper.CloneHandle())
             new Expr(hFull)
 
     /// <summary>
@@ -851,11 +851,11 @@ and Expr(handle: ExprHandle) =
                 let handles = Array.zeroCreate totalCount
 
                 // Populate the first slot with the current expression's handle
-                handles.[0] <- this.Handle
+                handles.[0] <- this.CloneHandle()
 
                 // Extract handles from the remaining fallback expressions
                 for i = 0 to othersArr.Length - 1 do
-                    handles.[i + 1] <- othersArr.[i].Handle
+                    handles.[i + 1] <- othersArr.[i].CloneHandle()
 
                 let newHandle = PolarsWrapper.Coalesce(handles)
                 new Expr(newHandle)

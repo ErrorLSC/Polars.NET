@@ -19,7 +19,7 @@ module ExprNamespaces =
         member this.Struct = StructOps(this.CloneHandle())
 
         /// <summary> Access meta operations. </summary>
-        member this.Meta = MetaOps this.Handle
+        member this.Meta = MetaOps(this.CloneHandle())
         /// <summary> Access binary operations. </summary>
         member this.Bin = BinaryOps(this.CloneHandle())
         /// <summary> Access categorical operations. </summary>

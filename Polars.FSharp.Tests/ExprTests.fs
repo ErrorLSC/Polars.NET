@@ -868,3 +868,33 @@ type ``String Logic Tests`` () =
             |> DataFrame.select [ -pl.col("nihao").Alias("buhao") ]
 
         Assert.Equal([114514;-1919810],df.["buhao"].ToArray<int>())
+
+    [<Fact>]
+    [<Trait("Expr", "Reusability")>]
+    member _.``Expr Reusability across Clip, Coalesce and Name`` () =
+        let col = pl.col "val"
+        let lower = pl.lit 5
+        let upper = pl.lit 15
+
+        let c1 = col.Clip(lowerBound = lower, upperBound = upper)
+        let c2 = col.Clip(lowerBound = lower, upperBound = upper)
+        let cMin = col.Clip(lowerBound = lower)
+        let cMax = col.Clip(upperBound = upper)
+
+        let df =
+            [ Series.ofSeqNamed "val" [ 1; 10; 20 ] ]
+            |> pl.dataframe
+
+        use res = df.Select [| c1.Alias "c1"; c2.Alias "c2"; cMin.Alias "cMin"; cMax.Alias "cMax" |]
+        Assert.Equal<int>([ 5; 10; 15 ], res.["c1"].ToArray<int>())
+        Assert.Equal<int>([ 5; 10; 15 ], res.["c2"].ToArray<int>())
+        Assert.Equal<int>([ 5; 10; 20 ], res.["cMin"].ToArray<int>())
+        Assert.Equal<int>([ 1; 10; 15 ], res.["cMax"].ToArray<int>())
+
+        // Coalesce reusability
+        let fallback = pl.lit 99
+        let coal1 = col.Coalesce [ fallback ]
+        let coal2 = col.Coalesce [ fallback ]
+        use resCoal = df.Select [| coal1.Alias "coal1"; coal2.Alias "coal2" |]
+        Assert.Equal<int>([ 1; 10; 20 ], resCoal.["coal1"].ToArray<int>())
+        Assert.Equal<int>([ 1; 10; 20 ], resCoal.["coal2"].ToArray<int>())

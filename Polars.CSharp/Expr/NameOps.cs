@@ -56,11 +56,11 @@ public readonly struct NameOps
     /// Rename the output of an expression by mapping a function over the root name.
     /// </summary>
     /// <param name="function">Function that maps a root name to a new name.</param>
-    public Expr Map(Func<string, string> function) => new(PolarsWrapper.MapName(_expr.Handle, function));
+    public Expr Map(Func<string, string> function) => new(PolarsWrapper.MapName(_expr.CloneHandle(), function));
     /// <summary>
     /// Rename fields of a struct by mapping a function over the field name(s).
     /// </summary>
     /// <param name="function">Function that maps a field name to a new name.</param>
-    public Expr MapFields(Func<string, string> function) => new(PolarsWrapper.StructMapFields(_expr.Handle, function));
+    public Expr MapFields(Func<string, string> function) => new(PolarsWrapper.StructMapFields(_expr.CloneHandle(), function));
     
 }
