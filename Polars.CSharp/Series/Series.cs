@@ -782,6 +782,24 @@ public partial class Series : IDisposable, IEquatable<Series>
         return PolarsWrapper.SeriesToString(Handle);
     }
     /// <summary>
+    /// Generates a rich HTML table representation of the Series by delegating to a single-column DataFrame preview.
+    /// </summary>
+    /// <returns>An HTML string representing the Series preview.</returns>
+    public string ToHtml()
+    {
+        using var df = this.ToFrame();
+        return df.ToHtml();
+    }
+    /// <summary>
+    /// Custom rendering hook for LINQPad Dump().
+    /// </summary>
+    /// <returns>An object or formatting projection to display in LINQPad output window.</returns>
+    object ToDump()
+    {
+        using var df = this.ToFrame();
+        return df.ToDump();
+    }
+    /// <summary>
     /// Print the DataFrame to Console.
     /// </summary>
     public void Show() => Console.WriteLine(ToString());

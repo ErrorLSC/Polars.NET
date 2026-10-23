@@ -105,7 +105,7 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
         catch (InvalidTimeZoneException) { }
 
         string cleanTz = tz.StartsWith("UTC", StringComparison.OrdinalIgnoreCase)
-            ? tz.Substring(3).Trim()
+            ? tz[3..].Trim()
             : tz.Trim();
 
         if (TimeSpan.TryParse(cleanTz, out TimeSpan offset))
@@ -215,7 +215,7 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
                 return _categories;
             var handle = PolarsWrapper.GetCategories(Handle);
 
-            if (handle == null || handle.IsInvalid)
+            if (handle?.IsInvalid != false)
                 return null;
 
             _categories = new Categories(handle);
@@ -237,7 +237,7 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
                 return _frozenCategories;
             var handle = PolarsWrapper.GetEnumCategories(Handle);
 
-            if (handle == null || handle.IsInvalid)
+            if (handle?.IsInvalid != false)
                 return null;
 
             _frozenCategories = new FrozenCategories(handle);

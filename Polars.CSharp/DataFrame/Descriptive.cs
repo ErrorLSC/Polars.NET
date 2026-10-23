@@ -61,7 +61,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         return unit switch
         {
-            SizeUnit.Bytes     => bytes, 
+            SizeUnit.Bytes     => bytes,
             SizeUnit.Kilobytes => bytes / 1024.0,
             SizeUnit.Megabytes => bytes / Math.Pow(1024, 2),
             SizeUnit.Gigabytes => bytes / Math.Pow(1024, 3),
@@ -269,7 +269,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var s1 = Series.From("column", outColNames);
         var s2 = Series.From("dtype", outDtypes);
 
-        var s3 = Series.From("values", outValues); 
+        var s3 = Series.From("values", outValues);
 
         return DataFrame.FromSeries(s1, s2, s3);
     }
@@ -290,10 +290,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Print the DataFrame to Console.
     /// </summary>
     public void Show() => Console.WriteLine(ToString());
+
     /// <summary>
-    /// Generates an HTML representation of the DataFrame.
-    /// Useful for rendering in Jupyter/Polyglot Notebooks.
+    /// Generates a rich HTML table representation of the DataFrame for interactive environments (e.g., LINQPad, Jupyter).
     /// </summary>
+    /// <returns>An HTML string representing the preview of the DataFrame.</returns>
     public string ToHtml()
     {
         int? configRows = CoreConfig.TableMaxRows;
@@ -307,17 +308,19 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool isColTruncated = rawColCount > maxColsToShow;
         int colCount = isColTruncated ? maxColsToShow : rawColCount;
 
+        // 1. Fetch native Polars Schema
+        var schema = this.Schema;
+        var columnNames = schema.Keys.Take(colCount).ToArray();
+
         using var previewDf = this.Head(rowsToShow);
-        using var batch = ArrowFfiBridge.ExportDataFrame(previewDf.Handle);
-        var schema = batch.Schema;
 
         var sb = new StringBuilder();
 
         sb.Append(@"
 <style>
 .pl-dataframe { font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; border-collapse: collapse; border: 1px solid rgba(128, 128, 128, 0.2); }
-.pl-dataframe th { font-weight: bold; text-align: left; padding: 6px 12px; border-bottom: 2px solid rgba(128, 128, 128, 0.3); }
-.pl-dataframe td { padding: 6px 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.2); white-space: pre; }
+.pl-dataframe th { font-weight: bold; text-align: left; padding: 6px 12px; border-bottom: 2px solid rgba(128, 128, 128, 0.3); color: inherit; }
+.pl-dataframe td { padding: 6px 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.2); white-space: pre; color: inherit; }
 .pl-dataframe tr:nth-child(even) { background-color: rgba(128, 128, 128, 0.05); }
 .pl-dataframe tr:hover { background-color: rgba(128, 128, 128, 0.1); }
 .pl-dtype { font-size: 10px; color: rgba(128, 128, 128, 0.8); display: block; margin-top: 2px; font-weight: normal; }
@@ -325,20 +328,19 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 .pl-dim { font-family: sans-serif; font-size: 12px; opacity: 0.8; margin-bottom: 8px; }
 </style>");
 
-        // Dimensions Info
-        sb.Append($"<div class='pl-dim'>Polars DataFrame: <b>({Height} rows, {rawColCount} columns)</b></div>");
-
+        // 2. Dimensions metadata
+        sb.Append($"<div class='pl-dim'>Polars DataFrame: <b>({Height:N0} rows, {rawColCount} columns)</b></div>");
         sb.Append("<div style='overflow-x:auto'><table class='pl-dataframe'>");
 
-        // Header (From Arrow Schema)
+        // 3. Table Header using native Polars Schema & DataType
         sb.Append("<thead><tr>");
         for (int c = 0; c < colCount; c++)
         {
-            var field = schema.FieldsList[c];
-            var colName = System.Net.WebUtility.HtmlEncode(field.Name);
-            var colType = field.DataType.Name;
+            string colName = columnNames[c];
+            var dt = schema[colName]; // Native Polars DataType
+            string typeName = System.Net.WebUtility.HtmlEncode(dt.ToString());
 
-            sb.Append($"<th>{colName}<span class='pl-dtype'>{colType}</span></th>");
+            sb.Append($"<th>{System.Net.WebUtility.HtmlEncode(colName)}<span class='pl-dtype'>{typeName}</span></th>");
         }
         if (isColTruncated)
         {
@@ -346,62 +348,97 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         }
         sb.Append("</tr></thead>");
 
-        // Body (From Arrow Batch)
+        // 4. Table Body from sliced Series
         sb.Append("<tbody>");
-
-        int rowCount = batch.Length;
-
-        for (int r = 0; r < rowCount; r++)
+        var previewCols = new Series[colCount];
+        for (int c = 0; c < colCount; c++)
         {
-            sb.Append("<tr>");
-            for (int c = 0; c < colCount; c++)
-            {
-                var colArray = batch.Column(c);
-                var field = schema.GetFieldByIndex(c);
-
-                string valStr = colArray.FormatValue(r);
-
-                if (valStr != "null")
-                {
-                    if (field.DataType.TypeId == ArrowTypeId.Double)
-                    {
-                        if (double.TryParse(valStr, out double d)) 
-                            valStr = d.ToString("G10");
-                    }
-                    else if (field.DataType.TypeId == ArrowTypeId.Float)
-                    {
-                        if (float.TryParse(valStr, out float f)) 
-                            valStr = f.ToString("G7");
-                    }
-                }
-
-                if (valStr == "null")
-                {
-                    sb.Append("<td class='pl-null'>null</td>");
-                }
-                else
-                {
-                    if (valStr.Length > 100) valStr = valStr[..97] + "...";
-                    sb.Append($"<td>{System.Net.WebUtility.HtmlEncode(valStr)}</td>");
-                }
-            }
-            if (isColTruncated)
-            {
-                sb.Append("<td style='font-style:italic; opacity: 0.5; text-align:center'>...</td>");
-            }
-            sb.Append("</tr>");
+            previewCols[c] = previewDf[columnNames[c]];
         }
 
-        // Footer for hidden rows
+        try
+        {
+            for (int r = 0; r < rowsToShow; r++)
+            {
+                sb.Append("<tr>");
+                for (int c = 0; c < colCount; c++)
+                {
+                    var series = previewCols[c];
+                    object? val = series.Get(r);
+
+                    if (val is null)
+                    {
+                        sb.Append("<td class='pl-null'>null</td>");
+                    }
+                    else
+                    {
+                        string valStr = val switch
+                        {
+                            double d => d.ToString("G10"),
+                            float f => f.ToString("G7"),
+                            _ => val.ToString() ?? "null"
+                        };
+
+                        if (valStr.Length > 100)
+                        {
+                            valStr = $"{valStr.AsSpan(0, 97)}...";
+                        }
+
+                        sb.Append($"<td>{System.Net.WebUtility.HtmlEncode(valStr)}</td>");
+                    }
+                }
+
+                if (isColTruncated)
+                {
+                    sb.Append("<td style='font-style:italic; opacity: 0.5; text-align:center'>...</td>");
+                }
+                sb.Append("</tr>");
+            }
+        }
+        finally
+        {
+            // Clean up sliced Series handles
+            for (int c = 0; c < colCount; c++)
+            {
+                previewCols[c]?.Dispose();
+            }
+        }
+
+        // 5. Remaining rows indicator
         int finalDisplayColSpan = isColTruncated ? colCount + 1 : colCount;
         long remaining = Height - rowsToShow;
         if (remaining > 0)
         {
-             sb.Append($"<tr><td colspan='{finalDisplayColSpan}' style='text-align:center; font-style:italic; opacity: 0.6; padding: 10px'>... {remaining} more rows ...</td></tr>");
+            sb.Append($"<tr><td colspan='{finalDisplayColSpan}' style='text-align:center; font-style:italic; opacity: 0.6; padding: 10px'>... {remaining:N0} more rows ...</td></tr>");
         }
 
         sb.Append("</tbody></table></div>");
-
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Duck-typed method called automatically by LINQPad to customize Dump() rendering.
+    /// Uses reflection to wrap HTML in LINQPad.Util.RawHtml without introducing compile-time dependencies.
+    /// </summary>
+    internal object ToDump()
+    {
+        string html = ToHtml();
+
+        var utilType = Type.GetType("LINQPad.Util, LINQPad")
+                    ?? Type.GetType("LINQPad.Util, LINQPad.Runtime")
+                    ?? AppDomain.CurrentDomain.GetAssemblies()
+                        .FirstOrDefault(a => a.GetName().Name?.StartsWith("LINQPad") is true)
+                        ?.GetType("LINQPad.Util");
+
+        if (utilType != null)
+        {
+            var rawHtmlMethod = utilType.GetMethod("RawHtml", [typeof(string)]);
+            if (rawHtmlMethod != null)
+            {
+                return rawHtmlMethod.Invoke(null, [html]) ?? html;
+            }
+        }
+
+        return html;
     }
 }
