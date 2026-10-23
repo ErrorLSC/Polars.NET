@@ -1348,4 +1348,36 @@ David,40,80000";
         Assert.Equal([2, 4, 6], result["a"].ToArray<int?>());
         Assert.Equal([20.0, 40.0, 60.0], result["b"].ToArray<double?>());
     }
+
+    [Fact]
+    [Trait("LazyFrame", "Reusability")]
+    public void Test_LazyFrame_Is_Reusable_After_Collect_And_Branching()
+    {
+        using var df = Pl.CreateDataFrame(
+            ("id", new[] { 1, 2, 3, 4, 5 }),
+            ("val", new[] { 10, 20, 30, 40, 50 })
+        );
+
+        using var baseLf = df.Lazy();
+
+        // 1. Direct collect
+        using var res1 = baseLf.Collect();
+        Assert.Equal(5, res1.Height);
+
+        // 2. Branch 1: Filter on same baseLf
+        using var branch1 = baseLf.Filter(Pl.Col("id") > 2).Collect();
+        Assert.Equal(3, branch1.Height);
+        Assert.Equal(new[] { 3, 4, 5 }, branch1["id"].ToArray<int>());
+
+        // 3. Branch 2: Select + rename on same baseLf
+        using var branch2 = baseLf.Select(Pl.Col("val") * 2).Rename(["val"], ["val_doubled"]).Collect();
+        Assert.Equal(5, branch2.Height);
+        Assert.Equal("val_doubled", branch2.Columns[0]);
+        Assert.Equal(new[] { 20, 40, 60, 80, 100 }, branch2[0].ToArray<int>());
+
+        // 4. Repeated direct collect on baseLf
+        using var res2 = baseLf.Collect();
+        Assert.Equal(5, res2.Height);
+        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, res2["id"].ToArray<int>());
+    }
 }

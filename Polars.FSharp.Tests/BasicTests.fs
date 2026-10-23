@@ -879,3 +879,42 @@ type LitTests() =
         let dfEmpty = df.Select(pl.lit emptyList)
 
         Assert.Equal(0L, dfEmpty.Height)
+
+    [<Fact>]
+    [<Trait("LazyFrame", "Reusability")>]
+    member _.``LazyFrame is reusable after collect and branching``() =
+        let df =
+            [
+                Series.ofSeqNamed "id" [ 1; 2; 3; 4; 5 ]
+                Series.ofSeqNamed "val" [ 10; 20; 30; 40; 50 ]
+            ]
+            |> pl.dataframe
+
+        use baseLf = df.Lazy()
+
+        // 1. Direct collect
+        use res1 = baseLf |> LazyFrame.collect
+        Assert.Equal(5L, res1.Height)
+
+        // 2. Branch 1: Filter on same baseLf
+        use branch1 =
+            baseLf
+            |> LazyFrame.filter (pl.col "id" .> pl.lit 2)
+            |> LazyFrame.collect
+        Assert.Equal(3L, branch1.Height)
+        Assert.Equal<int>([ 3; 4; 5 ], branch1.["id"].ToArray<int>())
+
+        // 3. Branch 2: Select + rename on same baseLf
+        use branch2 =
+            baseLf
+            |> LazyFrame.select [ pl.col "val" * pl.lit 2 ]
+            |> LazyFrame.rename [ "val", "val_doubled" ]
+            |> LazyFrame.collect
+        Assert.Equal(5L, branch2.Height)
+        Assert.Equal("val_doubled", branch2.Columns.[0])
+        Assert.Equal<int>([ 20; 40; 60; 80; 100 ], branch2.["val_doubled"].ToArray<int>())
+
+        // 4. Repeated direct collect on baseLf
+        use res2 = baseLf |> LazyFrame.collect
+        Assert.Equal(5L, res2.Height)
+        Assert.Equal<int>([ 1; 2; 3; 4; 5 ], res2.["id"].ToArray<int>())
