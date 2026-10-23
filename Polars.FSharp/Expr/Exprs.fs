@@ -1,9 +1,41 @@
 namespace Polars.FSharp
 
 open System
+open System.Text
 open Polars.NET.Core
 open Apache.Arrow
 open System.ComponentModel
+
+module internal LinqPadHtmlHelper =
+    let tryWrapRawHtml (html: string) : obj option =
+        try
+            let utilType =
+                match Type.GetType("LINQPad.Util, LINQPad") with
+                | null ->
+                    match Type.GetType("LINQPad.Util, LINQPad.Runtime") with
+                    | null ->
+                        AppDomain.CurrentDomain.GetAssemblies()
+                        |> Array.tryFind (fun a ->
+                            let name = a.GetName().Name
+                            not (isNull name) && name.StartsWith("LINQPad"))
+                        |> Option.bind (fun a -> Option.ofObj (a.GetType("LINQPad.Util")))
+                        |> Option.toObj
+                    | t -> t
+                | t -> t
+
+            if not (isNull utilType) then
+                let rawHtmlMethod = utilType.GetMethod("RawHtml", [| typeof<string> |])
+
+                if not (isNull rawHtmlMethod) then
+                    match rawHtmlMethod.Invoke(null, [| box html |]) with
+                    | null -> Some(box html)
+                    | res -> Some res
+                else
+                    None
+            else
+                None
+        with _ ->
+            None
 
 /// <summary>
 /// Interface for types that can be converted to one or more Polars Expressions.
@@ -69,6 +101,66 @@ and Expr(handle: ExprHandle) =
             "Expr (Disposed)"
         else
             PolarsWrapper.ExprToString(this.Handle)
+
+    member internal this.ToHtmlInternal(schemaHandle: SchemaHandle) : string =
+        let formula = this.ToString()
+
+        let tree =
+            try
+                PolarsWrapper.FormatTree(this.Handle, false, schemaHandle)
+            with ex ->
+                $"[Failed to format expression tree: {ex.Message}]"
+
+        let sb = StringBuilder()
+
+        sb.Append(
+            """
+<style>
+.pl-expr-box { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; color: inherit; }
+.pl-expr-header { font-weight: bold; margin-bottom: 6px; }
+.pl-expr-tag { background: rgba(128, 128, 128, 0.2); padding: 2px 6px; border-radius: 4px; font-size: 11px; font-family: monospace; margin-left: 6px; }
+.pl-expr-formula { font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; font-weight: 600; padding: 6px 10px; background: rgba(128, 128, 128, 0.08); border-left: 3px solid #007acc; border-radius: 2px; margin-bottom: 8px; color: inherit; word-break: break-all; }
+.pl-expr-tree { font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; background: rgba(128, 128, 128, 0.05); border: 1px solid rgba(128, 128, 128, 0.2); border-radius: 4px; padding: 8px 12px; overflow-x: auto; white-space: pre; line-height: 1.4; color: inherit; margin: 0; }
+</style>"""
+        )
+        |> ignore
+
+        sb.Append("<div class='pl-expr-box'>") |> ignore
+        sb.Append("<div class='pl-expr-header'>Polars Expr <span class='pl-expr-tag'>AST</span></div>")
+        |> ignore
+
+        sb.Append($"<div class='pl-expr-formula'>{System.Net.WebUtility.HtmlEncode(formula)}</div>")
+        |> ignore
+
+        sb.Append("<pre class='pl-expr-tree'>") |> ignore
+        sb.Append(System.Net.WebUtility.HtmlEncode(tree)) |> ignore
+        sb.Append("</pre>") |> ignore
+        sb.Append("</div>") |> ignore
+
+        sb.ToString()
+
+    /// <summary>
+    /// Generates a rich HTML view of the expression including its compact string representation and AST tree.
+    /// </summary>
+    /// <returns>An HTML representation formatted for interactive environments.</returns>
+    member this.ToHtml() : string = this.ToHtmlInternal(null)
+
+    /// <summary>
+    /// Custom rendering hook for LINQPad Dump().
+    /// Visualizes both the concise expression string and the full AST format tree.
+    /// </summary>
+    member internal this.ToDump() : obj =
+        let html = this.ToHtml()
+
+        match LinqPadHtmlHelper.tryWrapRawHtml html with
+        | Some wrapped -> wrapped
+        | None ->
+            box
+                {|
+                    Type = "Polars.Expr"
+                    Formula = this.ToString()
+                    Tree = PolarsWrapper.FormatTree(this.Handle, false, null)
+                |}
 
     // --- Column ---
     /// <summary>

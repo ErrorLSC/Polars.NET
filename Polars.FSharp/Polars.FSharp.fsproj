@@ -39,7 +39,6 @@
     <Compile Include="Expr/ArrayOps.fs" />
     <Compile Include="Expr/NameOps.fs" />
     <Compile Include="Expr/StructOps.fs" />
-    <Compile Include="Expr/MetaOps.fs" />
     <Compile Include="Types.fs" />
     <Compile Include="Lit.fs" />
     <Compile Include="Operations/Cast.fs" />
@@ -49,6 +48,7 @@
     <Compile Include="Series/Series.Descriptive.fs" />
     <Compile Include="Series/Series.Computation.fs" />
     <Compile Include="Expr/DtOps.fs" />
+    <Compile Include="Expr/MetaOps.fs" />
     <Compile Include="Expr/ExprNamespaces.fs" />
     <Compile Include="Expr/RollingOps.fs" />
     <Compile Include="Series/Series.RollingOps.fs" />
@@ -118,6 +118,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Polars.NET.ML" />
+    <InternalsVisibleTo Include="Polars.FSharp.Tests" />
   </ItemGroup>
 
   <ItemGroup>

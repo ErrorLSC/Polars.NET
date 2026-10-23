@@ -4,6 +4,7 @@
 namespace Polars.FSharp
 
 open System
+open System.Text
 open Polars.NET.Core
 open System.Collections.Generic
 open Polars.NET.Core.Arrow
@@ -882,6 +883,48 @@ type Series(handle: SeriesHandle) =
     /// </summary>
     member this.Item<'T>(index: int) = this.GetValue<'T> index
 
+    /// <summary>
+    /// Gets a single value at the specified index as a boxed object (or null if null).
+    /// </summary>
+    member internal this.GetBoxed(index: int64) : obj =
+        if this.IsNullAt(index, uncheck = false) then
+            null
+        else
+            match this.DataType.Kind with
+            | DataTypeKind.Int8 -> box (this.ReadScalarInternal<sbyte> index)
+            | DataTypeKind.Int16 -> box (this.ReadScalarInternal<int16> index)
+            | DataTypeKind.Int32 -> box (this.ReadScalarInternal<int32> index)
+            | DataTypeKind.Int64 -> box (this.ReadScalarInternal<int64> index)
+            | DataTypeKind.Int128 -> box (this.ReadScalarInternal<Int128> index)
+            | DataTypeKind.UInt8 -> box (this.ReadScalarInternal<byte> index)
+            | DataTypeKind.UInt16 -> box (this.ReadScalarInternal<uint16> index)
+            | DataTypeKind.UInt32 -> box (this.ReadScalarInternal<uint32> index)
+            | DataTypeKind.UInt64 -> box (this.ReadScalarInternal<uint64> index)
+            | DataTypeKind.UInt128 -> box (this.ReadScalarInternal<UInt128> index)
+            | DataTypeKind.Decimal _ -> box (this.ReadScalarInternal<decimal> index)
+            | DataTypeKind.Float16 -> box (this.ReadScalarInternal<Half> index)
+            | DataTypeKind.Float32 -> box (this.ReadScalarInternal<float32> index)
+            | DataTypeKind.Float64 -> box (this.ReadScalarInternal<double> index)
+            | DataTypeKind.Boolean -> box (this.ReadScalarInternal<bool> index)
+            | DataTypeKind.String -> box (this.ReadScalarInternal<string> index)
+            | DataTypeKind.Categorical _ -> box (this.ReadScalarInternal<string> index)
+            | DataTypeKind.Enum _ -> box (this.ReadScalarInternal<string> index)
+            | DataTypeKind.Duration _ -> box (this.ReadScalarInternal<TimeSpan> index)
+            | DataTypeKind.Time -> box (this.ReadScalarInternal<TimeOnly> index)
+            | DataTypeKind.Date -> box (this.ReadScalarInternal<DateOnly> index)
+            | DataTypeKind.Datetime(_, tzOpt) ->
+                match tzOpt with
+                | None -> box (this.ReadScalarInternal<DateTime> index)
+                | Some tz when String.IsNullOrEmpty tz -> box (this.ReadScalarInternal<DateTime> index)
+                | Some _ -> box (this.ReadScalarInternal<DateTimeOffset> index)
+            | DataTypeKind.Binary -> box (this.ReadScalarInternal<byte[]> index)
+            | _ -> this.ReadScalarInternal<obj> index
+
+    /// <summary>
+    /// Gets a single value at the specified index as a boxed object (or null if null).
+    /// </summary>
+    member internal this.GetBoxed(index: int) : obj = this.GetBoxed(int64 index)
+
     // ==========================================
     // Interop
     // ==========================================
@@ -958,6 +1001,22 @@ type Series(handle: SeriesHandle) =
     /// Print the Series to Console.
     /// </summary>
     member this.Show() = printfn "%O" this
+
+    /// <summary>
+    /// Generates a rich HTML table representation of the Series by delegating to a single-column DataFrame preview.
+    /// </summary>
+    /// <returns>An HTML string representing the Series preview.</returns>
+    member this.ToHtml() : string =
+        use df = this.ToFrame()
+        df.ToHtml()
+
+    /// <summary>
+    /// Custom rendering hook for LINQPad Dump().
+    /// </summary>
+    /// <returns>An object or formatting projection to display in LINQPad output window.</returns>
+    member internal this.ToDump() : obj =
+        use df = this.ToFrame()
+        df.ToDump()
 
     interface IEquatable<Series> with
         member this.Equals(other: Series) =
@@ -1090,16 +1149,16 @@ and DataFrame(handle: DataFrameHandle) =
     /// Syntax: df.[rowIndex, "colName"]
     /// </summary>
     member this.Item(rowIndex: int, columnName: string) : obj =
-        let series = this.Column columnName
-        series.[rowIndex]
+        use series = this.Column columnName
+        series.GetBoxed rowIndex
 
     /// <summary>
     /// [Indexer] Access cell value by Row Index and Column Index.
     /// Syntax: df.[rowIndex, colIndex]
     /// </summary>
     member this.Item(rowIndex: int, columnIndex: int) : obj =
-        let series = this.Column columnIndex
-        series.[rowIndex]
+        use series = this.Column columnIndex
+        series.GetBoxed rowIndex
     // ==========================================
     // Eager Ops
     // ==========================================
@@ -1232,6 +1291,145 @@ and DataFrame(handle: DataFrameHandle) =
     /// Print the DataFrame to Console (Stdout).
     /// </summary>
     member this.Show() = printfn "%s" (this.ToString())
+
+    /// <summary>
+    /// Generates a rich HTML table representation of the DataFrame for interactive environments (e.g., LINQPad, Jupyter).
+    /// </summary>
+    /// <returns>An HTML string representing the preview of the DataFrame.</returns>
+    member this.ToHtml() : string =
+        let configRows = CoreConfig.TableMaxRows
+
+        let rowsToShowSetting =
+            if configRows.HasValue && configRows.Value > 0 then
+                configRows.Value
+            else
+                10
+
+        let rowsToShow = int (Math.Min(this.Height, int64 rowsToShowSetting))
+
+        let configCols = CoreConfig.TableMaxCols
+
+        let maxColsToShow =
+            if configCols.HasValue && configCols.Value > 0 then
+                configCols.Value
+            else
+                8
+
+        let rawColCount = int this.Width
+        let isColTruncated = rawColCount > maxColsToShow
+        let colCount = if isColTruncated then maxColsToShow else rawColCount
+
+        // 1. Fetch native Polars Schema
+        use schema = this.Schema
+        let columnNames = schema.Names |> Seq.truncate colCount |> Seq.toArray
+
+        use previewDf = this.Head rowsToShow
+
+        let sb = StringBuilder()
+
+        sb.Append(
+            """
+<style>
+.pl-dataframe { font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; border-collapse: collapse; border: 1px solid rgba(128, 128, 128, 0.2); }
+.pl-dataframe th { font-weight: bold; text-align: left; padding: 6px 12px; border-bottom: 2px solid rgba(128, 128, 128, 0.3); color: inherit; }
+.pl-dataframe td { padding: 6px 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.2); white-space: pre; color: inherit; }
+.pl-dataframe tr:nth-child(even) { background-color: rgba(128, 128, 128, 0.05); }
+.pl-dataframe tr:hover { background-color: rgba(128, 128, 128, 0.1); }
+.pl-dtype { font-size: 10px; color: rgba(128, 128, 128, 0.8); display: block; margin-top: 2px; font-weight: normal; }
+.pl-null { color: rgba(128, 128, 128, 0.5); font-style: italic; }
+.pl-dim { font-family: sans-serif; font-size: 12px; opacity: 0.8; margin-bottom: 8px; }
+</style>"""
+        )
+        |> ignore
+
+        // 2. Dimensions metadata
+        sb.Append($"<div class='pl-dim'>Polars DataFrame: <b>({this.Height:N0} rows, {rawColCount} columns)</b></div>")
+        |> ignore
+
+        sb.Append("<div style='overflow-x:auto'><table class='pl-dataframe'>") |> ignore
+
+        // 3. Table Header using native Polars Schema & DataType
+        sb.Append("<thead><tr>") |> ignore
+
+        for c = 0 to colCount - 1 do
+            let colName = columnNames.[c]
+            use dt = schema.[colName] // Native Polars DataType
+            let typeName = System.Net.WebUtility.HtmlEncode(dt.ToString())
+
+            sb.Append($"<th>{System.Net.WebUtility.HtmlEncode(colName)}<span class='pl-dtype'>{typeName}</span></th>")
+            |> ignore
+
+        if isColTruncated then
+            sb.Append("<th>...</th>") |> ignore
+
+        sb.Append("</tr></thead>") |> ignore
+
+        // 4. Table Body from sliced Series
+        sb.Append("<tbody>") |> ignore
+        let previewCols = Array.init colCount (fun c -> previewDf.[columnNames.[c]])
+
+        try
+            for r = 0 to rowsToShow - 1 do
+                sb.Append("<tr>") |> ignore
+
+                for c = 0 to colCount - 1 do
+                    let series = previewCols.[c]
+                    let valObj = series.GetBoxed r
+
+                    if isNull valObj then
+                        sb.Append("<td class='pl-null'>null</td>") |> ignore
+                    else
+                        let valStr =
+                            match valObj with
+                            | :? double as d -> d.ToString("G10")
+                            | :? float32 as f -> f.ToString("G7")
+                            | _ ->
+                                match valObj.ToString() with
+                                | null -> "null"
+                                | s -> s
+
+                        let valStr =
+                            if valStr.Length > 100 then
+                                valStr.Substring(0, 97) + "..."
+                            else
+                                valStr
+
+                        sb.Append($"<td>{System.Net.WebUtility.HtmlEncode(valStr)}</td>") |> ignore
+
+                if isColTruncated then
+                    sb.Append("<td style='font-style:italic; opacity: 0.5; text-align:center'>...</td>")
+                    |> ignore
+
+                sb.Append("</tr>") |> ignore
+        finally
+            // Clean up sliced Series handles
+            for c = 0 to colCount - 1 do
+                if not (isNull (box previewCols.[c])) then
+                    previewCols.[c].Dispose()
+
+        // 5. Remaining rows indicator
+        let finalDisplayColSpan = if isColTruncated then colCount + 1 else colCount
+        let remaining = this.Height - int64 rowsToShow
+
+        if remaining > 0L then
+            sb.Append(
+                $"<tr><td colspan='{finalDisplayColSpan}' style='text-align:center; font-style:italic; opacity: 0.6; padding: 10px'>... {remaining:N0} more rows ...</td></tr>"
+            )
+            |> ignore
+
+        sb.Append("</tbody></table></div>") |> ignore
+        sb.ToString()
+
+    /// <summary>
+    /// Duck-typed method called automatically by LINQPad to customize Dump() rendering.
+    /// Uses reflection to wrap HTML in LINQPad.Util.RawHtml without introducing compile-time dependencies.
+    /// </summary>
+    member internal this.ToDump() : obj =
+        let html = this.ToHtml()
+
+        match LinqPadHtmlHelper.tryWrapRawHtml html with
+        | Some wrapped -> wrapped
+        | None -> box html
 
     // ==========================================
     // Interops
@@ -1603,6 +1801,69 @@ and LazyFrame(handle: LazyFrameHandle) =
     /// </summary>
     member this.Show() = printfn "%s" (this.ToString())
 
+    /// <summary>
+    /// Generates an HTML visualization of the LazyFrame execution plan and schema for LINQPad.
+    /// </summary>
+    /// <param name="optimized">Whether to explain the optimized logical plan.</param>
+    /// <returns>An HTML representation formatted with monospace styling.</returns>
+    member this.ToHtml(?optimized: bool) : string =
+        let opt = defaultArg optimized true
+        let plan = this.Explain opt
+
+        use schema = this.Schema
+        let schemaSummary = schema.ToString()
+
+        let sb = StringBuilder()
+
+        sb.Append(
+            """
+<style>
+.pl-lazy-container { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; color: inherit; }
+.pl-lazy-header { font-weight: bold; margin-bottom: 6px; font-size: 13px; }
+.pl-lazy-tag { background: rgba(128, 128, 128, 0.2); padding: 2px 6px; border-radius: 4px; font-size: 11px; font-family: monospace; margin-left: 6px; }
+.pl-lazy-schema { color: rgba(128, 128, 128, 0.85); font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; margin-bottom: 10px; }
+.pl-lazy-plan { font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; background: rgba(128, 128, 128, 0.06); border: 1px solid rgba(128, 128, 128, 0.2); border-radius: 4px; padding: 10px; overflow-x: auto; white-space: pre; line-height: 1.4; color: inherit; }
+.pl-lazy-tip { font-style: italic; opacity: 0.6; font-size: 11px; margin-top: 6px; }
+</style>"""
+        )
+        |> ignore
+
+        sb.Append("<div class='pl-lazy-container'>") |> ignore
+        sb.Append("<div class='pl-lazy-header'>Polars LazyFrame <span class='pl-lazy-tag'>UNCOLLECTED</span></div>")
+        |> ignore
+
+        if not (String.IsNullOrEmpty schemaSummary) then
+            sb.Append($"<div class='pl-lazy-schema'>{System.Net.WebUtility.HtmlEncode(schemaSummary)}</div>")
+            |> ignore
+
+        sb.Append("<div class='pl-lazy-plan'>") |> ignore
+        sb.Append(System.Net.WebUtility.HtmlEncode(plan)) |> ignore
+        sb.Append("</div>") |> ignore
+        sb.Append("<div class='pl-lazy-tip'>Tip: Call .Collect() to eagerly execute this query plan.</div>")
+        |> ignore
+
+        sb.Append("</div>") |> ignore
+        sb.ToString()
+
+    /// <summary>
+    /// Duck-typed method called automatically by LINQPad to customize Dump() rendering.
+    /// Prevents eager query execution and visualizes the logical execution plan.
+    /// </summary>
+    member internal this.ToDump() : obj =
+        let html = this.ToHtml(optimized = true)
+
+        match LinqPadHtmlHelper.tryWrapRawHtml html with
+        | Some wrapped -> wrapped
+        | None ->
+            use schema = this.Schema
+
+            box
+                {|
+                    Type = "Polars.LazyFrame (Uncollected)"
+                    Schema = schema.ToString()
+                    LogicalPlan = this.Explain(optimized = true)
+                |}
+
 /// <summary>
 /// Polars Schema definition (Name -> DataType).
 /// </summary>
@@ -1720,6 +1981,80 @@ and PolarsSchema(handle: SchemaHandle) =
 
             $"""Schema: {String.concat ", " fields}"""
 
+    /// <summary>
+    /// Generates a clean HTML table representation of the Schema for interactive environments.
+    /// </summary>
+    /// <returns>An HTML formatted string representing the schema fields and types.</returns>
+    member this.ToHtml() : string =
+        if this.Handle.IsInvalid then
+            "<div class='pl-dim'>PolarsSchema: <i>(Invalid Handle)</i></div>"
+        else
+            let len = int (PolarsWrapper.GetSchemaLen this.Handle)
+
+            let sb = StringBuilder()
+
+            sb.Append(
+                """
+<style>
+.pl-schema-box { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; color: inherit; }
+.pl-schema-title { font-family: sans-serif; font-size: 12px; opacity: 0.8; margin-bottom: 6px; }
+.pl-schema-table { font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; border-collapse: collapse; border: 1px solid rgba(128, 128, 128, 0.2); }
+.pl-schema-table th { font-weight: bold; text-align: left; padding: 4px 12px; border-bottom: 2px solid rgba(128, 128, 128, 0.3); color: inherit; }
+.pl-schema-table td { padding: 4px 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.15); color: inherit; }
+.pl-schema-table tr:nth-child(even) { background-color: rgba(128, 128, 128, 0.05); }
+.pl-schema-type { color: #007acc; font-weight: 500; }
+</style>"""
+            )
+            |> ignore
+
+            sb.Append("<div class='pl-schema-box'>") |> ignore
+            sb.Append($"<div class='pl-schema-title'>Polars Schema: <b>({len} fields)</b></div>")
+            |> ignore
+
+            sb.Append("<table class='pl-schema-table'>") |> ignore
+            sb.Append("<thead><tr><th>Field</th><th>DataType</th></tr></thead>") |> ignore
+            sb.Append("<tbody>") |> ignore
+
+            for i = 0 to len - 1 do
+                let mutable name = Unchecked.defaultof<string>
+                let mutable dtHandle = Unchecked.defaultof<DataTypeHandle>
+                PolarsWrapper.GetSchemaFieldAt(this.Handle, uint64 i, &name, &dtHandle)
+                use dt = DataType.FromHandle dtHandle
+
+                sb.Append("<tr>") |> ignore
+                sb.Append($"<td>{System.Net.WebUtility.HtmlEncode(name)}</td>") |> ignore
+                sb.Append($"<td class='pl-schema-type'>{System.Net.WebUtility.HtmlEncode(dt.ToString())}</td>")
+                |> ignore
+
+                sb.Append("</tr>") |> ignore
+
+            sb.Append("</tbody></table></div>") |> ignore
+            sb.ToString()
+
+    /// <summary>
+    /// Custom rendering hook for LINQPad Dump().
+    /// </summary>
+    member internal this.ToDump() : obj =
+        let html = this.ToHtml()
+
+        match LinqPadHtmlHelper.tryWrapRawHtml html with
+        | Some wrapped -> wrapped
+        | None ->
+            if this.Handle.IsInvalid then
+                box (Dictionary<string, string>())
+            else
+                let dict = Dictionary<string, string>()
+                let len = int (PolarsWrapper.GetSchemaLen this.Handle)
+
+                for i = 0 to len - 1 do
+                    let mutable name = Unchecked.defaultof<string>
+                    let mutable dtHandle = Unchecked.defaultof<DataTypeHandle>
+                    PolarsWrapper.GetSchemaFieldAt(this.Handle, uint64 i, &name, &dtHandle)
+                    use dt = DataType.FromHandle dtHandle
+                    dict.[name] <- dt.ToString()
+
+                box dict
+
     // ==========================================
     // Equality Members
     // ==========================================
@@ -1812,6 +2147,18 @@ and PolarsSchema(handle: SchemaHandle) =
 
         member this.GetEnumerator() : IEnumerator =
             (this :> IPolarsSchema).GetEnumerator() :> IEnumerator
+
+[<AutoOpen>]
+module ExprSchemaExtensions =
+    type Expr with
+        /// <summary>
+        /// Generates a rich HTML view of the expression including its compact string representation and AST tree.
+        /// </summary>
+        /// <param name="schema">Schema context to resolve field types.</param>
+        /// <returns>An HTML representation formatted for interactive environments.</returns>
+        member this.ToHtml(schema: PolarsSchema) : string =
+            let schemaHandle = if isNull (box schema) then null else schema.Handle
+            this.ToHtmlInternal(schemaHandle)
 
 /// <summary>
 /// SQL Context for executing SQL queries on registered LazyFrames.

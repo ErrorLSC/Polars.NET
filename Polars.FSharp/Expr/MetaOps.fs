@@ -39,11 +39,16 @@ type MetaOps(handle: ExprHandle) =
     /// <summary>Get a list with the root column name(s).</summary>
     member this.RootNames() = PolarsWrapper.RootNames(handle)
 
-    // /// <summary>Format the expression as a tree (plain or Graphviz dot).</summary>
-    // member this.FormatTree(?displayAsDot: bool, ?schema: PolarsSchema) =
-    //     let displayAsDot = defaultArg displayAsDot false
-    //     let schemaHandle = schema |> Option.map (fun s -> s.Handle) |> Option.toObj
-    //     PolarsWrapper.FormatTree(handle, displayAsDot, schemaHandle)
+    /// <summary>Format the expression as a tree (plain or Graphviz dot).</summary>
+    member _.FormatTree(?displayAsDot: bool, ?schema: PolarsSchema) =
+        let displayAsDot = defaultArg displayAsDot false
+
+        let schemaHandle =
+            match schema with
+            | Some s when not (isNull (box s)) -> s.Handle
+            | _ -> null
+
+        PolarsWrapper.FormatTree(handle, displayAsDot, schemaHandle)
 
     /// <summary>Pop the latest expression and return the input(s) as an array of Expr.</summary>
     member this.Pop() =

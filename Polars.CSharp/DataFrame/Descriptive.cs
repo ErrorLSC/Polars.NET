@@ -278,7 +278,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     // ==========================================
     /// <summary>
     /// Returns the string representation of the DataFrame (ASCII table).
-    /// This allows Console.WriteLine(df) to print the table directly.
     /// </summary>
     public override string ToString()
     {
@@ -289,7 +288,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Print the DataFrame to Console.
     /// </summary>
-    public void Show() => Console.WriteLine(ToString());
+    public void Show() => Console.WriteLine(ToString()); 
 
     /// <summary>
     /// Generates a rich HTML table representation of the DataFrame for interactive environments (e.g., LINQPad, Jupyter).
