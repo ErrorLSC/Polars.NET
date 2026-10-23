@@ -132,7 +132,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             catalogName,
             schemaName,
             tableName,
-            lf.Handle,
+            lf.CloneHandle(),
             // --- Delta Options ---
             mode.ToNative(),
             canEvolve,

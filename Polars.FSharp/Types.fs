@@ -1650,7 +1650,7 @@ and LazyFrame(handle: LazyFrameHandle) =
 
     interface IPolarsLazyFrame with
         member this.Collect(engine) =
-            let dfHandle = PolarsWrapper.LazyCollect(this.Handle, engine)
+            let dfHandle = PolarsWrapper.LazyCollect(this.CloneHandle(), engine)
             new DataFrame(dfHandle) :> IPolarsDataFrame
 
     member internal this.CloneHandle() = PolarsWrapper.LazyClone handle
@@ -1659,7 +1659,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     /// <summary> Execute the plan and return a DataFrame. </summary>
     member this.Collect(?engine: Engine) =
         let eng = defaultArg engine Engine.Auto
-        let dfHandle = PolarsWrapper.LazyCollect(handle, eng.ToNative())
+        let dfHandle = PolarsWrapper.LazyCollect(this.CloneHandle(), eng.ToNative())
         new DataFrame(dfHandle)
 
     member this.CollectAsync(?engine: Engine, ?cancellationToken: CancellationToken) : Task<DataFrame> =
@@ -1669,7 +1669,7 @@ and LazyFrame(handle: LazyFrameHandle) =
         task {
             cct.ThrowIfCancellationRequested()
 
-            let! dfHandle = PolarsWrapper.LazyCollectAsync(handle, eng.ToNative(), cct)
+            let! dfHandle = PolarsWrapper.LazyCollectAsync(this.CloneHandle(), eng.ToNative(), cct)
 
             return new DataFrame(dfHandle)
         }

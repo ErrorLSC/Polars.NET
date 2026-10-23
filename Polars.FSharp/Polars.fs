@@ -980,7 +980,7 @@ module pl =
         if lfs.Length = 0 then
             [||]
         else
-            let handles = frames |> Seq.map (fun l -> l.Handle) |> Seq.toArray
+            let handles = lfs |> Array.map (fun l -> l.CloneHandle())
             let dfhandles = PolarsWrapper.LazyCollectAll(handles, engine.ToNative())
             dfhandles |> Array.map (fun e -> new DataFrame(e))
 
@@ -994,7 +994,7 @@ module pl =
             if lfs.Length = 0 then
                 return [||]
             else
-                let handles = lfs |> Array.map (fun lf -> lf.Handle)
+                let handles = lfs |> Array.map (fun lf -> lf.CloneHandle())
 
                 let! dfHandles =
                     PolarsWrapper.LazyCollectAllAsync(handles, engine.ToNative()) |> Async.AwaitTask

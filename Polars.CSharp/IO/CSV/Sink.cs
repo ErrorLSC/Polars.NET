@@ -72,7 +72,7 @@ public partial class LazyFrame : IDisposable
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
         PolarsWrapper.SinkCsv(
-            Handle,
+            CloneHandle(),
             path,
 
             // CSV Writer Options
@@ -195,7 +195,7 @@ public partial class LazyFrame : IDisposable
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
         PolarsWrapper.SinkCsvPartitioned(
-            Handle,
+            CloneHandle(),
             path,
             // --- Partition Params ---
             partitionBy.Consume().CloneHandle(),
@@ -269,7 +269,7 @@ public partial class LazyFrame : IDisposable
         bool maintainOrder = true)
     {
         return PolarsWrapper.SinkCsvMemory(
-            Handle,
+            CloneHandle(),
             includeBom,
             includeHeader,
             batchSize,

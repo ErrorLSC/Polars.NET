@@ -38,7 +38,7 @@ public partial class LazyFrame : IDisposable
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
         PolarsWrapper.SinkParquet(
-            Handle,
+            CloneHandle(),
             path,
             compression.ToNative(),
             compressionLevel,
@@ -108,7 +108,7 @@ public partial class LazyFrame : IDisposable
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
         PolarsWrapper.SinkParquetPartitioned(
-            Handle,
+            CloneHandle(),
             path,
 
             // --- Partition Params ---
@@ -158,7 +158,7 @@ public partial class LazyFrame : IDisposable
         bool maintainOrder = true)
     {
         return PolarsWrapper.SinkParquetMemory(
-            Handle,
+            CloneHandle(),
             compression.ToNative(),
             compressionLevel,
             statistics,

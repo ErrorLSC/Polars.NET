@@ -647,7 +647,7 @@ public readonly partial struct Polars
         var lfs = frames.ToArray();
         if (lfs.Length == 0) return [];
 
-        var handles = System.Array.ConvertAll(lfs, lf => lf.Handle);
+        var handles = System.Array.ConvertAll(lfs, lf => lf.CloneHandle());
 
         var dfHandles = PolarsWrapper.LazyCollectAll(handles, engine.ToNative());
 
@@ -667,7 +667,7 @@ public readonly partial struct Polars
         var lfs = frames.ToArray();
         if (lfs.Length == 0) return [];
 
-        var handles = System.Array.ConvertAll(lfs, lf => lf.Handle);
+        var handles = System.Array.ConvertAll(lfs, lf => lf.CloneHandle());
 
         var dfHandles = await PolarsWrapper.LazyCollectAllAsync(handles, engine.ToNative()).ConfigureAwait(false);
 

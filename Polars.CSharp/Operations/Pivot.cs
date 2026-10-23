@@ -78,7 +78,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         var hValues = safeValues?.Handle ?? new SelectorHandle();
 
         var h = PolarsWrapper.LazyPivot(
-            Handle,
+            CloneHandle(),
             safeOn.CloneHandle(),
             hintDf.Handle,
             hIndex,

@@ -97,7 +97,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         ArgumentNullException.ThrowIfNull(existing);
         ArgumentNullException.ThrowIfNull(newNames);
 
-        var newHandle = PolarsWrapper.LazyRename(Handle, existing, newNames, strict);
+        var newHandle = PolarsWrapper.LazyRename(CloneHandle(), existing, newNames, strict);
 
         return new LazyFrame(newHandle);
     }
@@ -164,7 +164,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Execute the query plan and return a DataFrame.
     /// </summary>
     public DataFrame Collect(Engine engine = Engine.Auto)
-        => new(PolarsWrapper.LazyCollect(Handle, engine.ToNative()));
+        => new(PolarsWrapper.LazyCollect(CloneHandle(), engine.ToNative()));
 
     IPolarsDataFrame IPolarsLazyFrame.Collect(PlEngine engine)
         => Collect((Engine)engine);
@@ -175,7 +175,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var dfHandle = await PolarsWrapper.LazyCollectAsync(Handle, engine.ToNative(), cancellationToken)
+        var dfHandle = await PolarsWrapper.LazyCollectAsync(CloneHandle(), engine.ToNative(), cancellationToken)
                                           .ConfigureAwait(false);
 
         return new(dfHandle);

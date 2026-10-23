@@ -145,7 +145,7 @@ public partial class LazyFrame : IDisposable
             CloudOptions.ParseCloudOptions(cloudOptions);
         using var partitionByH = partitionBy?.Consume().Handle;
         PolarsWrapper.SinkDelta(
-            Handle,
+            CloneHandle(),
             path,
 
             // --- Delta Options ---
