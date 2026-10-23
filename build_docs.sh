@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-echo "=== 1. Building Projects (Release) ==="
-dotnet build Polars.FSharp/Polars.FSharp.fsproj -c Release
+echo "=== 1. Building Projects (Debug) ==="
+dotnet build Polars.FSharp/Polars.FSharp.fsproj -c Debug
 
 echo "=== 2. Generating F# Markdown (Custom Script) ==="
 dotnet fsi GenerateFSharpDocs.fsx

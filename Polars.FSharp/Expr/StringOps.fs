@@ -213,7 +213,7 @@ type StringOps(handle: ExprHandle) =
     /// <param name="asciiCaseInsensitive">Whether to perform an ASCII-only case-insensitive search.</param>
     /// <param name="overlapping">Whether to allow overlapping matches.</param>
     /// <param name="leftmost">Whether to search from the left.</param>
-    /// <returns>Expression of data type List<int>.</returns>
+    /// <returns>Expression of data type List&lt;int&gt;.</returns>
     member _.FindMany(patterns: Expr, ?asciiCaseInsensitive, ?overlapping, ?leftmost) =
         let asc = defaultArg asciiCaseInsensitive false
         let ovr = defaultArg overlapping false

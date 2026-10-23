@@ -386,13 +386,13 @@ and Expr(handle: ExprHandle) =
         new Expr(PolarsWrapper.ArgWhere(this.CloneHandle()))
 
     /// <summary>
-    /// Bitwise left shift (<<).
+    /// Bitwise left shift (&lt;&lt;).
     /// </summary>
     member this.BitLeftShift(n: int) =
         new Expr(PolarsWrapper.BitLeftShift(this.CloneHandle(), n))
 
     /// <summary>
-    /// Bitwise right shift (>>).
+    /// Bitwise right shift (&gt;&gt;).
     /// </summary>
     member this.BitRightShift(n: int) =
         new Expr(PolarsWrapper.BitRightShift(this.CloneHandle(), n))
@@ -460,10 +460,10 @@ and Expr(handle: ExprHandle) =
     static member (.^)(lhs: Expr, rhs: Expr) =
         new Expr(PolarsWrapper.Xor(lhs.CloneHandle(), rhs.CloneHandle()))
 
-    /// <summary> Bitwise left shift operator (expr <<< n). </summary>
+    /// <summary> Bitwise left shift operator (expr &lt;&lt;&lt; n). </summary>
     static member (<<<)(lhs: Expr, rhs: int) = lhs.BitLeftShift rhs
 
-    /// <summary> Bitwise right shift operator (expr >>> n). </summary>
+    /// <summary> Bitwise right shift operator (expr &gt;&gt;&gt; n). </summary>
     static member (>>>)(lhs: Expr, rhs: int) = lhs.BitRightShift rhs
 
     /// <summary>
@@ -1325,8 +1325,8 @@ and Selector(handle: SelectorHandle) =
     static member (~~~)(s: Selector) =
         new Selector(PolarsWrapper.SelectorNot(s.CloneHandle()))
 
-    /// <summary> AND operator: s1 &&& s2 (Intersection) </summary>
-    /// <example> pl.cs.numeric() &&& pl.cs.matches("Val") </example>
+    /// <summary> AND operator: s1 &amp;&amp;&amp; s2 (Intersection) </summary>
+    /// <example> pl.cs.numeric() &amp;&amp;&amp; pl.cs.matches("Val") </example>
     static member (&&&)(l: Selector, r: Selector) =
         new Selector(PolarsWrapper.SelectorAnd(l.CloneHandle(), r.CloneHandle()))
 

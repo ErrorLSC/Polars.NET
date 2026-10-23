@@ -16,7 +16,7 @@ module DataReaderRead =
         /// </summary>
         /// <param name="data">The data source sequence.</param>
         /// <param name="batchSize">Rows per Arrow batch (default: 100,000).</param>
-        /// <param name="useBuffered">Choose whether disk buffer file needed (for big data) <param>
+        /// <param name="useBuffered">Choose whether disk buffer file needed (for big data)</param>
         static member ScanSeq<'T>(data: seq<'T>, ?batchSize: int, ?useBuffered: bool) : LazyFrame =
                 let size = defaultArg batchSize 100_000
                 let buffered = defaultArg useBuffered false

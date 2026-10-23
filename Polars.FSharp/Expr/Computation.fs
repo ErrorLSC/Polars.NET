@@ -31,7 +31,7 @@ module ExprComputaion =
 
         /// <summary>
         /// Compute the dot/inner product between two expressions.
-        /// <para>
+        /// </summary>
         member this.Dot(other: Expr) =
             new Expr(PolarsWrapper.Dot(this.CloneHandle(), other.CloneHandle()))
 

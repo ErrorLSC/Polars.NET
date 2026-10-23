@@ -1448,7 +1448,7 @@ module pl =
 
         /// <summary>
         /// Select columns by Generic Type.
-        /// Usage: pl.cs.byType<int option>() or pl.cs.byType<DateTime>()
+        /// Usage: pl.cs.byType&lt;int option&gt;() or pl.cs.byType&lt;DateTime&gt;()
         /// </summary>
         let inline byNetType<'T> () =
             let dtype = DataType.FromNetType<'T>()

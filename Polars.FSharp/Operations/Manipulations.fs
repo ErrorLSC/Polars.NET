@@ -475,6 +475,7 @@ module ManipulateOps =
         /// <summary>
         /// Drop one or more columns from the DataFrame.
         /// Returns a new DataFrame.
+        /// </summary>
         member this.Drop([<ParamArray>] columns: string array) : DataFrame =
             if isNull columns || columns.Length = 0 then
                 new DataFrame(PolarsWrapper.CloneDataFrame this.Handle)
