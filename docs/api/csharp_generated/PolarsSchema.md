@@ -1,13 +1,13 @@
 ---
 uid: Polars.CSharp.PolarsSchema
-title: PolarsSchema
+title: "PolarsSchema"
 ---
 
 # PolarsSchema
 
 Namespace: `Polars.CSharp`
 
-Represents a Polars Schema (Name -> DataType mapping).
+Represents a Polars Schema (Name -&gt; DataType mapping).
 
 ## Properties & Indexers
 
@@ -170,7 +170,7 @@ public Schema ToArrowSchema()
 
 ### ToDataFrame
 
-Create an empty (n=0) or n-row null-filled (n>0) copy of the DataFrame. Returns a n-row null-filled DataFrame with an identical schema. n can be greater than the current number of rows in the DataFrame.
+Create an empty (n=0) or n-row null-filled (n&gt;0) copy of the DataFrame. Returns a n-row null-filled DataFrame with an identical schema. n can be greater than the current number of rows in the DataFrame.
 
 ```csharp
 public DataFrame ToDataFrame(long length = 0)
@@ -193,6 +193,18 @@ Converts the Schema to a FrozenDictionary. Slower creation time, but blazing fas
 ```csharp
 public FrozenDictionary<string, DataType> ToFrozenDictionary()
 ```
+
+---
+
+### ToHtml
+
+Generates a clean HTML table representation of the Schema for interactive environments.
+
+```csharp
+public string ToHtml()
+```
+
+**Returns:** An HTML formatted string representing the schema fields and types.
 
 ---
 

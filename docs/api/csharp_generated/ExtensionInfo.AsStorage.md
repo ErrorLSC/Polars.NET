@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.ExtensionInfo.AsStorage
-title: ExtensionInfo.AsStorage
+title: "ExtensionInfo.AsStorage"
 ---
 
 # ExtensionInfo.AsStorage

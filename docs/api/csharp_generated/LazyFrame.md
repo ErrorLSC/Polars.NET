@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.LazyFrame
-title: LazyFrame
+title: "LazyFrame"
 ---
 
 # LazyFrame
@@ -595,7 +595,7 @@ Get the Bottom k rows according to multiple column names with a uniform reverse 
 
 Get the Bottom k rows with specific reverse directions using Tuples. Usage: lf.BottomK(5, ("Score", false), ("Age", true), (Cs.Numeric(), false))
 
-Master method: Get the Bottom k rows by multiple Expressions with optional parallel boolean arrays. Usage: lf.BottomK(10, myColumns.Select(c => Pl.Col(c)))
+Master method: Get the Bottom k rows by multiple Expressions with optional parallel boolean arrays. Usage: lf.BottomK(10, myColumns.Select(c =&gt; Pl.Col(c)))
 
 ```csharp
 public LazyFrame BottomK(int k, IntoExprColumn by, bool reverse = false)
@@ -653,7 +653,7 @@ public LazyFrame Cast(IntoSchema schemaWrapper, bool strict = true, bool wrapNum
 
 ### Clear
 
-Create an empty (n=0) or n-row null-filled (n>0) copy of the LazyFrame. Returns a n-row null-filled LazyFrame with an identical schema.
+Create an empty (n=0) or n-row null-filled (n&gt;0) copy of the LazyFrame. Returns a n-row null-filled LazyFrame with an identical schema.
 
 ```csharp
 public LazyFrame Clear(long n = 0)
@@ -1435,11 +1435,11 @@ shape: (3, 3)
 
 ### JoinWhere
 
-Join with another LazyFrame using multiple boolean expressions. Usage: lf.JoinWhere(other, [Pl.Col("start") > Pl.Col("end"), Pl.Col("id") != null], how: JoinType.Left)
+Join with another LazyFrame using multiple boolean expressions. Usage: lf.JoinWhere(other, [Pl.Col("start") &gt; Pl.Col("end"), Pl.Col("id") != null], how: JoinType.Left)
 
-Join using a single condition (Most common use case). Usage: lf.JoinWhere(other, Pl.Col("A") > Pl.Col("B"), how: JoinType.Inner)
+Join using a single condition (Most common use case). Usage: lf.JoinWhere(other, Pl.Col("A") &gt; Pl.Col("B"), how: JoinType.Inner)
 
-Usage: lf.JoinWhere(other, Pl.Col("A") > Pl.Col("B"), Pl.Col("C") > 0)
+Usage: lf.JoinWhere(other, Pl.Col("A") &gt; Pl.Col("B"), Pl.Col("C") &gt; 0)
 
 ```csharp
 public LazyFrame JoinWhere(
@@ -1655,7 +1655,7 @@ public DeltaMergeBuilder MergeCatalogRecords(
 
 ### MergeDelta
 
-Merge a LazyFrame into a Delta Lake table with full SQL MERGE semantics. Provides fine-grained control over Update, Insert, and Delete behaviors. Notice: In this method, Delete > Update > Insert > Ignore. If you need other orders, please use LazyFrame.MergeDeltaOrdered
+Merge a LazyFrame into a Delta Lake table with full SQL MERGE semantics. Provides fine-grained control over Update, Insert, and Delete behaviors. Notice: In this method, Delete &gt; Update &gt; Insert &gt; Ignore. If you need other orders, please use LazyFrame.MergeDeltaOrdered
 
 ```csharp
 public void MergeDelta(
@@ -1966,7 +1966,7 @@ Bridge overload to support C# 12 collection expressions. Usage: lf.Select(["Id",
 
 Select columns from the LazyFrame by column names.
 
-Bridge overload to support dynamic LINQ generation of Expressions. Usage: lf.Select(myColumns.Select(c => Pl.Col(c) * 2))
+Bridge overload to support dynamic LINQ generation of Expressions. Usage: lf.Select(myColumns.Select(c =&gt; Pl.Col(c) * 2))
 
 ```csharp
 public LazyFrame Select(params IntoExprColumn[] exprs)
@@ -2987,6 +2987,24 @@ public IAsyncEnumerable<DataFrame> ToBatchAsyncEnumerableWithBackpressure(
 
 ---
 
+### ToHtml
+
+Generates an HTML visualization of the LazyFrame execution plan and schema for LINQPad.
+
+```csharp
+public string ToHtml(bool optimized = true)
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| :--- | :--- | :--- |
+| `optimized` | `bool` | Whether to explain the optimized logical plan. |
+
+**Returns:** An HTML representation formatted with monospace styling.
+
+---
+
 ### TopK
 
 Get the top k rows according to a single expression, string, or selector. Usage: lf.TopK(5, "Sales") or lf.TopK(10, Pl.Col("Age") * 2, reverse: true)
@@ -2995,7 +3013,7 @@ Get the top k rows according to multiple column names with a uniform reverse set
 
 Get the top k rows with specific reverse directions using Tuples. Usage: lf.TopK(5, ("Score", false), ("Age", true), (Cs.Numeric(), false))
 
-Master method: Get the top k rows by multiple Expressions with optional parallel boolean arrays. Usage: lf.TopK(10, myColumns.Select(c => Pl.Col(c)))
+Master method: Get the top k rows by multiple Expressions with optional parallel boolean arrays. Usage: lf.TopK(10, myColumns.Select(c =&gt; Pl.Col(c)))
 
 ```csharp
 public LazyFrame TopK(int k, IntoExprColumn by, bool reverse = false)

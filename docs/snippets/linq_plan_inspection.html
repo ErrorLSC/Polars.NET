@@ -1,0 +1,12 @@
+<div class="pl-preview-card">
+  <div class="pl-preview-title">Compiled LINQ Execution Plan (.Explain())</div>
+  <div class="pl-lazy-container"><div class="pl-lazy-header">Polars.NET LINQ Plan <span class="pl-lazy-tag">100% PUSHDOWN</span></div><pre class="pl-lazy-plan">[Polars.NET Query Plan - 100% Native Pushdown]
+---------------------------------------------
+simple π 3/3 [&quot;OrderCount&quot;, &quot;Region&quot;, ... 1 other column]
+  AGGREGATE[maintain_order: false]
+    [len().alias(&quot;OrderCount&quot;), col(&quot;Revenue&quot;).sum().alias(&quot;TotalRevenue&quot;)] BY [col(&quot;Region&quot;)]
+    FROM
+    FILTER col(&quot;Revenue&quot;) &gt;= 500.0
+    FROM
+      DF [&quot;OrderId&quot;, &quot;Customer&quot;, &quot;Region&quot;, &quot;Revenue&quot;]; PROJECT[&quot;Region&quot;, &quot;Revenue&quot;] 2/4 COLUMNS</pre></div>
+</div>

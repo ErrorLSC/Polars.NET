@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Series.Cat
-title: Series.Cat (SeriesCategoricalOps)
+title: "Series.Cat (SeriesCategoricalOps)"
 ---
 
 # Series.Cat (SeriesCategoricalOps)

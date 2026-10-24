@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.SqlContext
-title: SqlContext
+title: "SqlContext"
 ---
 
 # SqlContext

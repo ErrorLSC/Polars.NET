@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Expr.Str
-title: Expr.Str (StringOps)
+title: "Expr.Str (StringOps)"
 ---
 
 # Expr.Str (StringOps)
@@ -358,7 +358,7 @@ public Expr JsonPathMatch(StringOrExpr jsonPath)
 
 Get length in bytes. 
 
-Note: Multi-byte characters (like emojis or CJK) count as > 1 byte.
+Note: Multi-byte characters (like emojis or CJK) count as &gt; 1 byte.
 
 ```csharp
 public Expr LenBytes()

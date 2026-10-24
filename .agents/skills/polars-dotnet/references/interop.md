@@ -125,30 +125,47 @@ Console.WriteLine($"Inserted {updateResult.AffectedRows} rows");
 
 For traditional relational databases (SQL Server, Oracle, MySQL, Postgres via Npgsql, SQLite via Microsoft.Data.Sqlite), Polars.NET integrates seamlessly with `IDataReader` and `IDbConnection`.
 
-### Reading Database Queries
+### Reading Database Queries into DataFrames (`ReadDatabase`)
 ```csharp
 // 1. Stream from an open IDataReader into DataFrame
+using var command = connection.CreateCommand();
+command.CommandText = "SELECT id, product, price FROM sales";
 using var reader = command.ExecuteReader();
 using var df = DataFrame.ReadDatabase(reader, batchSize: 50_000);
 
-// 2. Direct query execution via connection
-using var df2 = DataFrame.ReadDatabase(dbConnection, "SELECT * FROM sales");
-
-// 3. Lazy Database Scan (Pipeline streaming)
-using var lf = LazyFrame.ScanDatabase(dbConnection, "SELECT * FROM large_log_table");
+// 2. Lazy Database Scan (Recommended: reader factory for multi-pass probing)
+Func<IDataReader> readerFactory = () =>
+{
+    var cmd = connection.CreateCommand();
+    cmd.CommandText = "SELECT * FROM large_log_table";
+    return cmd.ExecuteReader();
+};
+using var lf = LazyFrame.ScanDatabase(readerFactory, batchSize: 50_000);
 using var res = lf.Filter(Pl.Col("level") == "ERROR").Collect();
+
+// 3. Asynchronous batch ingestion from DbDataReader:
+await foreach (DataFrame batch in dbReader.ReadDatabaseBatchesAsync(batchSize: 50_000))
+{
+    // Process batch
+}
 ```
 
-### Exporting to `IDataReader` (e.g. for `SqlBulkCopy`)
-You can expose any Polars `DataFrame` as an `IDataReader` without materializing in-memory `DataTable` or row objects:
+### Exporting & Writing to Database (`WriteTo`, `SinkTo`, `AsDataReader`)
+To write Polars DataFrames into database tables (e.g. `SqlBulkCopy`), Polars provides zero-copy streaming:
 ```csharp
-using System.Data.SqlClient; // or Microsoft.Data.SqlClient
+// Option A: WriteTo (Producer-Consumer DataReader stream)
+df.WriteTo(reader =>
+{
+    using var bulkCopy = new SqlBulkCopy(connectionString);
+    bulkCopy.DestinationTableName = "dbo.TargetTable";
+    bulkCopy.WriteToServer(reader);
+}, bufferSize: 5);
 
-using IDataReader dataReader = df.ToDataReader();
-
-using var bulkCopy = new SqlBulkCopy(connectionString);
-bulkCopy.DestinationTableName = "dbo.TargetTable";
-bulkCopy.WriteToServer(dataReader); // Streams directly from Polars!
+// Option B: AsDataReader (Obtain a live DbDataReader backed by bounded channel)
+using DbDataReader dataReader = df.AsDataReader(bufferSize: 5);
+using var bulkCopy2 = new SqlBulkCopy(connectionString);
+bulkCopy2.DestinationTableName = "dbo.TargetTable";
+bulkCopy2.WriteToServer(dataReader);
 ```
 
 ---

@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Selector
-title: Selector
+title: "Selector"
 ---
 
 # Selector
@@ -36,7 +36,7 @@ public static Expr operator +(string other, Selector s)
 
 ---
 
-### operator & (Bitwise / Logical AND)
+### operator &amp; (Bitwise / Logical AND)
 
 ```csharp
 public static Expr operator &(Selector s, bool v)
@@ -144,7 +144,7 @@ public static Selector operator ^(Selector left, Selector right)
 
 ---
 
-### operator > (Greater Than)
+### operator &gt; (Greater Than)
 
 ```csharp
 public static Expr operator >(Selector s, int other)
@@ -166,7 +166,7 @@ public static Expr operator >(float other, Selector s)
 
 ---
 
-### operator >= (Greater Or Equal)
+### operator &gt;= (Greater Or Equal)
 
 ```csharp
 public static Expr operator >=(Selector s, int other)
@@ -229,7 +229,7 @@ public static Expr operator !=(string other, Selector s)
 
 ---
 
-### operator < (Less Than)
+### operator &lt; (Less Than)
 
 ```csharp
 public static Expr operator <(Selector s, int other)
@@ -251,7 +251,7 @@ public static Expr operator <(float other, Selector s)
 
 ---
 
-### operator <= (Less Or Equal)
+### operator &lt;= (Less Or Equal)
 
 ```csharp
 public static Expr operator <=(Selector s, int other)

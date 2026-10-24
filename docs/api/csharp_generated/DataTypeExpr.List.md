@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.DataTypeExpr.List
-title: DataTypeExpr.List (ListNameSpace)
+title: "DataTypeExpr.List (ListNameSpace)"
 ---
 
 # DataTypeExpr.List (ListNameSpace)

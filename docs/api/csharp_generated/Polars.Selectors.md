@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Polars.Selectors
-title: Polars.Selectors
+title: "Polars.Selectors"
 ---
 
 # Polars.Selectors

@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.ChainedWhen
-title: ChainedWhen
+title: "ChainedWhen"
 ---
 
 # ChainedWhen

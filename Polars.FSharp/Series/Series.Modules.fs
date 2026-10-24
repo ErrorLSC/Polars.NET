@@ -142,6 +142,7 @@ module Series =
     let inline mapValueOption ([<InlineIfLambda>] mapping: 'T voption -> 'U voption) (series: Series) : Series =
         series.MapValueOption<'T, 'U> mapping
 
+    /// <summary>
     /// Builds a new Series whose elements are the results of applying the given function
     /// to each valid (non-null) element of the Series and its 0-based index.
     /// Null values in the input Series are preserved as Null in the output.

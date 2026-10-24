@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Categories
-title: Categories
+title: "Categories"
 ---
 
 # Categories

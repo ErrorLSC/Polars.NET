@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.ExtensionFactory
-title: ExtensionFactory
+title: "ExtensionFactory"
 ---
 
 # ExtensionFactory

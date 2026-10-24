@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Series.List
-title: Series.List (SeriesListOps)
+title: "Series.List (SeriesListOps)"
 ---
 
 # Series.List (SeriesListOps)
@@ -194,7 +194,7 @@ public Series Gather(ReadOnlySpan<int> indices, bool maintainOrder = false)
 | Name | Type | Description |
 | :--- | :--- | :--- |
 | `indices` | `IntoExprColumn / ReadOnlySpan<int>` | Indices to return per sublist |
-| `nullOnOob` | `bool` | Behavior if an index is out of bounds: True -> set as null False -> raise an error Note that defaulting to raising an error is much cheaper |
+| `nullOnOob` | `bool` | Behavior if an index is out of bounds: True -&gt; set as null False -&gt; raise an error Note that defaulting to raising an error is much cheaper |
 | `maintainOrder` | `bool` | - |
 
 ---

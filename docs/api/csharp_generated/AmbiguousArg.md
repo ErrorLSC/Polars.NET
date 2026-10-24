@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.AmbiguousArg
-title: AmbiguousArg
+title: "AmbiguousArg"
 ---
 
 # AmbiguousArg

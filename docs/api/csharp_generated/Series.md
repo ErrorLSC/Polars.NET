@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Series
-title: Series
+title: "Series"
 ---
 
 # Series
@@ -38,7 +38,7 @@ A Series is backed by Apache Arrow arrays and supports eager execution. Operatio
 | `Shape` | `long[]` | Shape of this Series. In Polars, a Series is always 1D, so this returns an array of length 1. |
 | `SortedFlags` | `SortStateFlags` | Gets the current metadata sortedness flags of this Series. (O(1) operation) |
 | `this[Range range]` | `Series` | Range Indexer (__getitem__ for slices) e.g. s[1..5] / s[..^1] |
-| `this[Series key]` | `object` | e.g. s[s > 5] = 10; |
+| `this[Series key]` | `object` | e.g. s[s &gt; 5] = 10; |
 | `this[int index]` | `object` | Get an item at the specified index as object (boxed). |
 | `this[int[] indices]` | `object` | e.g. s[0, 2, 5] = 99; |
 
@@ -286,7 +286,7 @@ public static Series operator ^(Series left, Series right)
 
 ---
 
-### operator > (Greater Than)
+### operator &gt; (Greater Than)
 
 Compare whether left series is greater than right series
 
@@ -305,7 +305,7 @@ public static Series operator >(IntoExpr left, Series right)
 
 ---
 
-### operator >= (Greater Or Equal)
+### operator &gt;= (Greater Or Equal)
 
 Compare whether left series is greater than or equal to right series
 
@@ -341,7 +341,7 @@ public static Series operator !=(IntoExpr left, Series right)
 
 ---
 
-### operator << (Left Shift)
+### operator &lt;&lt; (Left Shift)
 
 Bitwise left shift operation.
 
@@ -358,7 +358,7 @@ public static Series operator <<(Series left, int right)
 
 ---
 
-### operator < (Less Than)
+### operator &lt; (Less Than)
 
 Compare whether left series is less than right series
 
@@ -377,7 +377,7 @@ public static Series operator <(IntoExpr left, Series right)
 
 ---
 
-### operator <= (Less Or Equal)
+### operator &lt;= (Less Or Equal)
 
 Compare whether left series is less than or equal to right series
 
@@ -460,7 +460,7 @@ public static Series operator ~(Series booleanSeries)
 
 ---
 
-### operator >> (Right Shift)
+### operator &gt;&gt; (Right Shift)
 
 Bitwise right shift operation. 
 
@@ -1703,7 +1703,7 @@ public Series FromEpoch(EpochTimeUnit timeUnit = EpochTimeUnit.Second)
 
 Gather values by an index expression.
 
-Take elements by physical integer indices. Negative indices are not supported. All values must be >= 0.
+Take elements by physical integer indices. Negative indices are not supported. All values must be &gt;= 0.
 
 ```csharp
 public Series Gather(IntoExprColumn indices)
@@ -2154,7 +2154,7 @@ public double? Kurtosis(bool fisher = true, bool bias = true)
 
 | Name | Type | Description |
 | :--- | :--- | :--- |
-| `fisher` | `bool` | If True, Fisher’s definition is used (normal ==> 0.0). If False, Pearson’s definition is used (normal ==> 3.0). |
+| `fisher` | `bool` | If True, Fisher’s definition is used (normal ==&gt; 0.0). If False, Pearson’s definition is used (normal ==&gt; 3.0). |
 | `bias` | `bool` | If False, the calculations are corrected for statistical bias. |
 
 **Returns:** A series which length is 1
@@ -3135,7 +3135,7 @@ public Series RollingQuantileBy(
 | :--- | :--- | :--- |
 | `quantile` | `double` | Quantile between 0.0 and 1.0 (e.g., 0.5 for median). |
 | `method` | `QuantileMethod` | Interpolation method when the quantile lies between two data points. |
-| `windowSize` | `IntoDuration` | The size of the time window as a `System.TimeSpan`. <br>This will be automatically converted to a Polars duration string (e.g., `01:30:00` -> `"1h30m"`). |
+| `windowSize` | `IntoDuration` | The size of the time window as a `System.TimeSpan`. <br>This will be automatically converted to a Polars duration string (e.g., `01:30:00` -&gt; `"1h30m"`). |
 | `by` | `Expr` | The column used to define the window (the "time" axis). <br>Typically a `Date` or `DateTime` column, but can also be monotonic integers. |
 | `minPeriods` | `int` | The minimum number of observations in the window required to have a non-null result. |
 | `closed` | `ClosedInterval` | Defines how the window interval is closed. Default is `ClosedInterval.Left``[t - window, t)`. |
@@ -3692,7 +3692,7 @@ public T? Sum<T>()
 
 LINQ-like alias for Gather.
 
-Take elements by physical integer indices. Negative indices are not supported. All values must be >= 0.
+Take elements by physical integer indices. Negative indices are not supported. All values must be &gt;= 0.
 
 ```csharp
 public Series Take(IntoExprColumn indices)
@@ -3783,6 +3783,18 @@ Convert this single Series into a DataFrame.
 ```csharp
 public DataFrame ToFrame()
 ```
+
+---
+
+### ToHtml
+
+Generates a rich HTML table representation of the Series by delegating to a single-column DataFrame preview.
+
+```csharp
+public string ToHtml()
+```
+
+**Returns:** An HTML string representing the Series preview.
 
 ---
 

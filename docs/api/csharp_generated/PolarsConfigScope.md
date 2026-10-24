@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.PolarsConfigScope
-title: PolarsConfigScope
+title: "PolarsConfigScope"
 ---
 
 # PolarsConfigScope

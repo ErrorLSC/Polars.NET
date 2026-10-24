@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.AsOfTolerance
-title: AsOfTolerance
+title: "AsOfTolerance"
 ---
 
 # AsOfTolerance

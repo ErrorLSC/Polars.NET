@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Polars
-title: Polars
+title: "Polars"
 ---
 
 # Polars
@@ -1465,7 +1465,7 @@ public static DataFrame JsonNormalize(
 | Name | Type | Description |
 | :--- | :--- | :--- |
 | `data` | `object` | Deserialized JSON objects. |
-| `separator` | `string` | Nested records will generate names separated by sep. e.g., for separator=".", {"foo": {"bar": 0}} -> foo.bar. |
+| `separator` | `string` | Nested records will generate names separated by sep. e.g., for separator=".", {"foo": {"bar": 0}} -&gt; foo.bar. |
 | `maxLevel` | `int?` | Max number of levels(depth of dict) to normalize. If None, normalizes all levels. |
 | `schema` | `IntoSchema?` | Overwrite the Schema when the normalized data is passed to the DataFrame constructor. |
 | `strict` | `bool` | Whether Polars should be strict when constructing the DataFrame. |

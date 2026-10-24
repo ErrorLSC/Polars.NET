@@ -1,9 +1,9 @@
 ---
 uid: Polars.CSharp.PolarsLookup
-title: PolarsLookup<TKey, TElement>
+title: "PolarsLookup<TKey, TElement>"
 ---
 
-# PolarsLookup<TKey, TElement>
+# PolarsLookup&lt;TKey, TElement&gt;
 
 Namespace: `Polars.CSharp.Linq`
 

@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.IntOrExpr
-title: IntOrExpr
+title: "IntOrExpr"
 ---
 
 # IntOrExpr

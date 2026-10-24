@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Then
-title: Then
+title: "Then"
 ---
 
 # Then

@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Expr.List
-title: Expr.List (ListOps)
+title: "Expr.List (ListOps)"
 ---
 
 # Expr.List (ListOps)
@@ -203,7 +203,7 @@ public Expr Gather(ReadOnlySpan<int> indices, bool nullOnOob = false)
 | Name | Type | Description |
 | :--- | :--- | :--- |
 | `indices` | `IntoExprColumn / ReadOnlySpan<int>` | Indices to return per sublist |
-| `nullOnOob` | `bool` | Behavior if an index is out of bounds: True -> set as null False -> raise an error Note that defaulting to raising an error is much cheaper |
+| `nullOnOob` | `bool` | Behavior if an index is out of bounds: True -&gt; set as null False -&gt; raise an error Note that defaulting to raising an error is much cheaper |
 
 ---
 
@@ -238,7 +238,7 @@ public Expr Get(long index, bool nullOnOob = false)
 | Name | Type | Description |
 | :--- | :--- | :--- |
 | `index` | `long` | The index to retrieve (can be negative for reverse indexing). |
-| `nullOnOob` | `bool` | Behavior if an index is out of bounds: True -> set as null False -> raise an error |
+| `nullOnOob` | `bool` | Behavior if an index is out of bounds: True -&gt; set as null False -&gt; raise an error |
 
 **Example**
 

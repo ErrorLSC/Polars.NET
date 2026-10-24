@@ -175,6 +175,7 @@ F# developers have three complementary styles that interoperate seamlessly:
            Series.From("name", ["Alice", "Bob", "Charlie"])
        ];
        ```
+       > ⚠️ **Anti-Hallucination**: In C#, construct Series using `Series.From(name, data)` or `Polars.Series(name, data)`. There is **NO** `Series.Create` in C# (that is F# `Series.create` / `pl.series`).
      - **Column Iteration**: Directly enumerate columns via `foreach (Series col in df)` or in F# `for col in df do ...` / `df |> Seq.iter ...`.
    - **`PolarsSchema` implements `IReadOnlyDictionary<string, DataType>`**:
      - Direct dictionary indexing: `schema["age"]` -> `DataType.Int32`.
@@ -205,6 +206,11 @@ F# developers have three complementary styles that interoperate seamlessly:
     use df1 = baseLf |> LazyFrame.filter (pl.col "status" .== pl.lit "success") |> LazyFrame.collect
     use df2 = baseLf |> LazyFrame.filter (pl.col "status" .== pl.lit "failed") |> LazyFrame.collect
     ```
+- **Fast-Path Typed Row Iteration (`df.Rows<T>()`) & Stack Enumerators**:
+  - While untyped `foreach (var row in df.Rows())` is an anti-pattern (untyped, boxing, GC pressure), when row-by-row iteration is genuinely required, use strongly-typed `df.Rows<T>()`.
+  - In C#, `df.Rows<T>()` returns `DataFrameRowEnumerator<T>`, a stack-allocated `ref struct` with pre-compiled fast-path accessors and zero GC heap allocations.
+  - In F#, `df.Rows<'T>()` returns a `[<Struct>] RowEnumerator<'T>`. Use the `Rows` module for inlined stack-based functional combinators: `Rows.fold`, `Rows.reduce`, `Rows.scan`, `Rows.iter`, and `Rows.mapToArray`. Also supported: `df.MapRows<'TIn, 'TOut>(mapping)` and `df.IterRows<'T>(action)`.
+  - In F#, `series.As<'T>()` returns a `[<Struct>] SeriesEnumerator<'T>` for zero-allocation duck-typed `for item in series.As<int>() do ...`. Supported higher-order functions include `Series.map`, `Series.mapi`, `Series.mapOption`, `Series.iter`, `Series.iterOpt`, `Series.exists`, `Series.forall`, `Series.contains`.
 - **Asynchronous Streaming (`IAsyncEnumerable`)**:
   - `DataFrame` and `LazyFrame` stream rows as cooperative, cancellation-aware `IAsyncEnumerable<T>` via `.ToAsyncEnumerable<T>()` without thread starvation.
   - `LazyFrame.CollectBatchesAsync()` emits native DataFrame batches as soon as computed by Rust.

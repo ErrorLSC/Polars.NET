@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Series.Ext
-title: Series.Ext (SeriesExtensionOps)
+title: "Series.Ext (SeriesExtensionOps)"
 ---
 
 # Series.Ext (SeriesExtensionOps)

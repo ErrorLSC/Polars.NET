@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Expr.Ext
-title: Expr.Ext (ExtensionOps)
+title: "Expr.Ext (ExtensionOps)"
 ---
 
 # Expr.Ext (ExtensionOps)

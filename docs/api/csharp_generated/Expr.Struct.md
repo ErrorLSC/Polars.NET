@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Expr.Struct
-title: Expr.Struct (StructOps)
+title: "Expr.Struct (StructOps)"
 ---
 
 # Expr.Struct (StructOps)

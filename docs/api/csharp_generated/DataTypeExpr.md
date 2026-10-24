@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.DataTypeExpr
-title: DataTypeExpr
+title: "DataTypeExpr"
 ---
 
 # DataTypeExpr

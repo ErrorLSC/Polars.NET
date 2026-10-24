@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Delta
-title: Delta
+title: "Delta"
 ---
 
 # Delta

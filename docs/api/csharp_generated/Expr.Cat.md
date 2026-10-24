@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Expr.Cat
-title: Expr.Cat (CategoricalOps)
+title: "Expr.Cat (CategoricalOps)"
 ---
 
 # Expr.Cat (CategoricalOps)

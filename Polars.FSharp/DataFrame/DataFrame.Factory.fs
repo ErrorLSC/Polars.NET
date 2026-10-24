@@ -59,7 +59,7 @@ module DataFrameFactory =
 
         /// <summary>
         /// Creates a DataFrame from an F# anonymous record (or any SoA container) where fields are collections.
-        /// Example: DataFrame.ofColumns {| Time = [| dt1; dt2 |]; Val = [| 1.0; 2.0 |] |}
+        /// Example: <c>DataFrame.ofColumns {| Time = [| dt1; dt2 |]; Val = [| 1.0; 2.0 |] |}</c>
         /// </summary>
         static member ofColumns<'T when 'T: not struct>(columns: 'T) : DataFrame =
             if obj.ReferenceEquals(columns, null) then

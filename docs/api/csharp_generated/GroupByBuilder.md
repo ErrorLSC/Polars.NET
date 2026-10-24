@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.GroupByBuilder
-title: GroupByBuilder
+title: "GroupByBuilder"
 ---
 
 # GroupByBuilder

@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.LazyGroupBy
-title: LazyGroupBy
+title: "LazyGroupBy"
 ---
 
 # LazyGroupBy

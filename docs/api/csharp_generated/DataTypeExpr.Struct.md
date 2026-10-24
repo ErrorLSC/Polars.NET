@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.DataTypeExpr.Struct
-title: DataTypeExpr.Struct (StructNameSpace)
+title: "DataTypeExpr.Struct (StructNameSpace)"
 ---
 
 # DataTypeExpr.Struct (StructNameSpace)

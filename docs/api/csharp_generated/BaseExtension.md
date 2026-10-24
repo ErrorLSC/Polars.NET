@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.BaseExtension
-title: BaseExtension
+title: "BaseExtension"
 ---
 
 # BaseExtension

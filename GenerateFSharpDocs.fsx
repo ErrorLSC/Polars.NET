@@ -137,7 +137,7 @@ let rec xmlNodeToMarkdown (preserveWhitespace: bool) (node: XNode) : string =
     match node with
     | :? XText as text ->
         if preserveWhitespace then text.Value
-        else Regex.Replace(text.Value, @"\s+", " ")
+        else Regex.Replace(text.Value, @"\s+", " ").Replace("<", "&lt;").Replace(">", "&gt;")
     | :? XElement as el ->
         let tagName = el.Name.LocalName.ToLowerInvariant()
         match tagName with
@@ -147,7 +147,7 @@ let rec xmlNodeToMarkdown (preserveWhitespace: bool) (node: XNode) : string =
             if String.IsNullOrWhiteSpace cleaned then ""
             else sprintf "\n```fsharp\n%s\n```\n" cleaned
         | "c" ->
-            let inner = el.Nodes() |> Seq.map (xmlNodeToMarkdown false) |> String.concat ""
+            let inner = el.Nodes() |> Seq.map (xmlNodeToMarkdown true) |> String.concat ""
             sprintf "`%s`" (inner.Trim())
         | "para" ->
             let inner = el.Nodes() |> Seq.map (xmlNodeToMarkdown false) |> String.concat ""
@@ -834,10 +834,10 @@ let formatOperatorDisplayName (opName: string) =
     | "op_Division" -> "( / ) Division"
     | "op_Modulus" -> "( % ) Modulus"
     | "op_UnaryNegation" -> "( ~- ) UnaryNegation"
-    | "op_DotGreater" -> "( .> ) Greater Than"
-    | "op_DotGreaterEquals" -> "( .>= ) Greater Or Equal"
-    | "op_DotLess" -> "( .< ) Less Than"
-    | "op_DotLessEquals" -> "( .<= ) Less Or Equal"
+    | "op_DotGreater" -> "( .&gt; ) Greater Than"
+    | "op_DotGreaterEquals" -> "( .&gt;= ) Greater Or Equal"
+    | "op_DotLess" -> "( .&lt; ) Less Than"
+    | "op_DotLessEquals" -> "( .&lt;= ) Less Or Equal"
     | "op_DotEqualsEquals" -> "( .== ) Equal"
     | "op_DotBangEquals" -> "( .!= ) Not Equal"
     | "op_DotAmpAmp" -> "( .&& ) Logical AND"
@@ -1000,10 +1000,11 @@ for kvp in pagesByTypeName |> Seq.sortBy (fun k -> k.Value.PageId) do
         let sb = StringBuilder()
         sb.AppendLine "---" |> ignore
         sb.AppendLine(sprintf "uid: Polars.FSharp.%s" page.PageId) |> ignore
-        sb.AppendLine(sprintf "title: %s" page.Title) |> ignore
+        let safeYamlTitle = page.Title.Replace("\"", "\\\"")
+        sb.AppendLine(sprintf "title: \"%s\"" safeYamlTitle) |> ignore
         sb.AppendLine "---" |> ignore
         sb.AppendLine() |> ignore
-        sb.AppendLine(sprintf "# %s" page.Title) |> ignore
+        sb.AppendLine(sprintf "# %s" (page.Title.Replace("<", "&lt;").Replace(">", "&gt;"))) |> ignore
         sb.AppendLine() |> ignore
         sb.AppendLine(sprintf "Namespace: `%s`" page.PrimaryType.Namespace) |> ignore
         sb.AppendLine() |> ignore

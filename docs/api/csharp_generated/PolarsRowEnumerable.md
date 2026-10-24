@@ -1,9 +1,9 @@
 ---
 uid: Polars.CSharp.PolarsRowEnumerable
-title: PolarsRowEnumerable<T>
+title: "PolarsRowEnumerable<T>"
 ---
 
-# PolarsRowEnumerable<T>
+# PolarsRowEnumerable&lt;T&gt;
 
 Namespace: `Polars.CSharp`
 

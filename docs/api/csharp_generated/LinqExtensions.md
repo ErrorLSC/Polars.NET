@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.LinqExtensions
-title: LinqExtensions (IQueryable & Polars LINQ)
+title: "LinqExtensions (IQueryable & Polars LINQ)"
 ---
 
 # LinqExtensions (IQueryable & Polars LINQ)

@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.ExtensionInfo.AsClass
-title: ExtensionInfo.AsClass
+title: "ExtensionInfo.AsClass"
 ---
 
 # ExtensionInfo.AsClass

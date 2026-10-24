@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.StringOrExpr
-title: StringOrExpr
+title: "StringOrExpr"
 ---
 
 # StringOrExpr

@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.DurationOrExpr
-title: DurationOrExpr
+title: "DurationOrExpr"
 ---
 
 # DurationOrExpr

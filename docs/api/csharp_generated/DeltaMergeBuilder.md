@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.DeltaMergeBuilder
-title: DeltaMergeBuilder
+title: "DeltaMergeBuilder"
 ---
 
 # DeltaMergeBuilder

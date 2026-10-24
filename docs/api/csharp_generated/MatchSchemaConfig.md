@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.MatchSchemaConfig
-title: MatchSchemaConfig
+title: "MatchSchemaConfig"
 ---
 
 # MatchSchemaConfig

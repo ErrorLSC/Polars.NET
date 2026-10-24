@@ -17,7 +17,7 @@ open Apache.Arrow.Ipc
 open System.ComponentModel
 open System.Runtime.CompilerServices
 
-/// --- Series ---
+// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
 /// </summary>

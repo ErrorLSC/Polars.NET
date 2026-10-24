@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Expr.Dt
-title: Expr.Dt (DtOps)
+title: "Expr.Dt (DtOps)"
 ---
 
 # Expr.Dt (DtOps)

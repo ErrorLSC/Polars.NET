@@ -108,6 +108,7 @@ module Config =
         | ConfigScope.SetOnly -> CoreConfig.GetState(ifSet = true, envOnly = false)
         | ConfigScope.All -> CoreConfig.GetState(ifSet = false, envOnly = false)
 
+    /// <summary>
     /// Safely retrieves the current configuration value for the specified key.
     /// Matches keys in a case-insensitive manner.
     /// </summary>

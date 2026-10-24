@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Series.Dt
-title: Series.Dt (SeriesDtOps)
+title: "Series.Dt (SeriesDtOps)"
 ---
 
 # Series.Dt (SeriesDtOps)

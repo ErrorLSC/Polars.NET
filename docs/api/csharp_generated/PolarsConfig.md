@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.PolarsConfig
-title: PolarsConfig
+title: "PolarsConfig"
 ---
 
 # PolarsConfig

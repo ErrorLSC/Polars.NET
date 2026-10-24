@@ -5,9 +5,9 @@ open Polars.NET.Core
 
 [<AutoOpen>]
 module ManipulateOps =
-    /// ========================
-    /// WithColumns
-    /// ========================
+    // ========================
+    // WithColumns
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Add or replace a single column in the LazyFrame.
@@ -51,9 +51,9 @@ module ManipulateOps =
 
         member this.WithColumns(expr: Expr) : DataFrame = this.WithColumns [ expr ]
 
-    /// ========================
-    /// Cast
-    /// ========================
+    // ========================
+    // Cast
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Cast LazyFrame column(s) to the specified dtype(s) using a dictionary mapping.
@@ -95,9 +95,9 @@ module ManipulateOps =
 
             this.WithColumns castExprs
 
-    /// ========================
-    /// Concat
-    /// ========================
+    // ========================
+    // Concat
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Concatenate multiple LazyFrames.
@@ -171,9 +171,9 @@ module ManipulateOps =
         static member ConcatDiagonal(dfs: seq<DataFrame>) : DataFrame =
             DataFrame.Concat(dfs, ConcatType.Diagonal)
 
-    /// ========================
-    /// Explode & Unnest
-    /// ========================
+    // ========================
+    // Explode & Unnest
+    // ========================
     type LazyFrame with
         member this.Explode(selector: Selector, ?emptyAsNull: bool, ?keepNulls: bool) : LazyFrame =
             let lfClone = this.CloneHandle()
@@ -252,9 +252,9 @@ module ManipulateOps =
             let newHandle = PolarsWrapper.Unnest(this.Handle, cArr, sep)
             new DataFrame(newHandle)
 
-    /// ========================
-    /// Slice
-    /// ========================
+    // ========================
+    // Slice
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Slice the LazyFrame along the rows.
@@ -347,9 +347,9 @@ module ManipulateOps =
                         None)
                 0L
 
-    /// ========================
-    /// Fill
-    /// ========================
+    // ========================
+    // Fill
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Fill null values in all columns with a specified Expression.
@@ -376,9 +376,9 @@ module ManipulateOps =
         member this.FillNan(fillValue) =
             this.Lazy().FillNan(fillValue).Collect()
 
-    /// ========================
-    /// Drop
-    /// ========================
+    // ========================
+    // Drop
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Drop selected columns by selector.
@@ -556,9 +556,9 @@ module ManipulateOps =
             let droppedLf: LazyFrame = lf.DropNans exprs
             droppedLf.Collect()
 
-    /// ========================
-    /// Unique
-    /// ========================
+    // ========================
+    // Unique
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Keep unique rows (stable) based on a subset of columns defined by a Selector.
@@ -667,9 +667,9 @@ module ManipulateOps =
                 ?len = len
             )
 
-    /// ========================
-    /// TopK & BottomK
-    /// ========================
+    // ========================
+    // TopK & BottomK
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Get the top k rows based on the given columns.
@@ -741,9 +741,9 @@ module ManipulateOps =
         // [Overload] Sugar for single boolean reversing
         member this.BottomK(k: int, by: seq<#IColumnExpr>, reverse: bool) = this.BottomK(k, by, [| reverse |])
 
-    /// ========================
-    /// Reverse
-    /// ========================
+    // ========================
+    // Reverse
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Reverse the LazyFrame.
@@ -757,9 +757,9 @@ module ManipulateOps =
         /// </summary>
         member this.Reverse() : DataFrame = this.Lazy().Reverse().Collect()
 
-    /// ========================
-    /// SetSorted
-    /// ========================
+    // ========================
+    // SetSorted
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Mark one or multiple columns as sorted.
@@ -784,9 +784,9 @@ module ManipulateOps =
         member this.SetSorted(columns: Selector, ?descending, ?nullsLast) =
             this.Lazy().SetSorted(columns, ?descending = descending, ?nullsLast = nullsLast).Collect()
 
-    /// ========================
-    /// Clear
-    /// ========================
+    // ========================
+    // Clear
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Create an empty (n=0) or n-row null-filled (n>0) copy of the LazyFrame.
@@ -809,9 +809,9 @@ module ManipulateOps =
             use schema = this.Schema
             schema.ToDataFrame(?length = n)
 
-    /// ========================
-    /// Filter
-    /// ========================
+    // ========================
+    // Filter
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Filter rows based on a boolean expression.
@@ -873,9 +873,9 @@ module ManipulateOps =
         member this.Remove(predicate: Series) = this.Lazy().Remove predicate
         member this.Remove(mask: seq<bool>) = this.Lazy().Remove mask
 
-        /// ========================
-        /// Sample
-        /// ========================
+        // ========================
+        // Sample
+        // ========================
         /// <summary>
         /// Sample n rows from the DataFrame.
         /// </summary>
@@ -897,9 +897,9 @@ module ManipulateOps =
 
             new DataFrame(PolarsWrapper.SampleFrac(this.Handle, sf, replace, shuff, s))
 
-        /// ========================
-        /// Shrink
-        /// ========================
+        // ========================
+        // Shrink
+        // ========================
         /// <summary>
         /// Shrink DataFrame memory usage.This won't return a new DataFrame
         /// </summary>
@@ -915,9 +915,9 @@ module ManipulateOps =
             PolarsWrapper.DataFrameShrinkToFit(newDf.Handle)
             newDf
 
-        /// ========================
-        /// Take
-        /// ========================
+        // ========================
+        // Take
+        // ========================
         /// <summary>
         /// Take rows by physical integer indices.
         /// Note: Negative indices are not supported. All values must be >= 0.
@@ -944,9 +944,9 @@ module ManipulateOps =
                     )
                 )
 
-    /// ========================
-    /// Gather & Gather Every
-    /// ========================
+    // ========================
+    // Gather & Gather Every
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Selects rows from this LazyFrame at the given indices.
@@ -987,9 +987,9 @@ module ManipulateOps =
             let offsetD = defaultArg offset 0UL
             this.Select(Expr.All().GatherEvery(n, offsetD))
 
-    /// ========================
-    /// Interpolate
-    /// ========================
+    // ========================
+    // Interpolate
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Interpolate intermediate values. The interpolation method is linear.
@@ -1006,9 +1006,9 @@ module ManipulateOps =
         member this.Interpolate() =
             this.Select(Expr.All().Interpolate(method = InterpolationMethod.Linear))
 
-        /// ========================
-        /// Column Manipulation
-        /// ========================
+        // ========================
+        // Column Manipulation
+        // ========================
         /// <summary>
         /// Insert a column into the DataFrame at a specified index.
         /// Accepts a specific index and a Series to be inserted.
@@ -1099,9 +1099,9 @@ module ManipulateOps =
 
             this
 
-        /// ========================
-        /// Upsample and dummies
-        /// ========================
+        // ========================
+        // Upsample and dummies
+        // ========================
         /// <summary>
         /// Upsample a DataFrame at a regular frequency.
         /// </summary>
@@ -1222,9 +1222,9 @@ module ManipulateOps =
 
             new DataFrame(newHandle)
 
-    /// ========================
-    /// WithRowIndex
-    /// ========================
+    // ========================
+    // WithRowIndex
+    // ========================
     type LazyFrame with
         /// <summary>
         /// Add a column at index 0 that counts the rows.

@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.DataTypeExpr.Array
-title: DataTypeExpr.Array (ArrayNameSpace)
+title: "DataTypeExpr.Array (ArrayNameSpace)"
 ---
 
 # DataTypeExpr.Array (ArrayNameSpace)

@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Series.Array
-title: Series.Array (SeriesArrayOps)
+title: "Series.Array (SeriesArrayOps)"
 ---
 
 # Series.Array (SeriesArrayOps)

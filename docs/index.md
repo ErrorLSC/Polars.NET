@@ -8,10 +8,17 @@ hero:
   actions:
     - theme: brand
       text: Get Started
-      link: /article/quickstart
+      link: /articles/quickstart
     - theme: alt
       text: View on GitHub
       link: https://github.com/errorlsc/polars.net
+features:
+  - title: Blazing Fast & Memory Efficient
+    details: Powered by the Polars Rust core and Apache Arrow columnar format with multi-threaded SIMD, query optimization, and streaming execution.
+  - title: Idiomatic C# & F#
+    details: Fluent API, LINQ query provider, C# 12 collection expressions, alongside native F# pipeline combinators and query computation expressions.
+  - title: Deep Ecosystem Interoperability
+    details: Seamless bridges to Arrow C Data Interface, ADBC, ADO.NET DbDataReader, ML.NET IDataView, TorchSharp / System.Numerics Tensor, and IAsyncEnumerable.
 ---
 
 # Polars.NET

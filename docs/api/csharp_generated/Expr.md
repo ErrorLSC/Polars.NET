@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Expr
-title: Expr
+title: "Expr"
 ---
 
 # Expr
@@ -131,7 +131,7 @@ shape: (5, 2)
 
 ---
 
-### operator & (Bitwise / Logical AND)
+### operator &amp; (Bitwise / Logical AND)
 
 Creates an expression representing the logical AND operation.
 
@@ -263,7 +263,7 @@ public static Expr operator ^(bool left, Expr right)
 
 ---
 
-### operator > (Greater Than)
+### operator &gt; (Greater Than)
 
 Creates an expression evaluating if the left operand is greater than the right operand.
 
@@ -316,7 +316,7 @@ shape: (5, 3)
 
 ---
 
-### operator >= (Greater Or Equal)
+### operator &gt;= (Greater Or Equal)
 
 Creates an expression evaluating if the left operand is greater than or equal to the right operand.
 
@@ -381,11 +381,11 @@ public static Expr operator !=(object left, Expr right)
 
 ---
 
-### operator << (Left Shift)
+### operator &lt;&lt; (Left Shift)
 
 Bitwise left shift operation. 
 
-Equivalent to C# `<<` operator. Shifting left by N is equivalent to multiplying by 2^N.
+Equivalent to C# `&lt;&lt;` operator. Shifting left by N is equivalent to multiplying by 2^N.
 
 ```csharp
 public static Expr operator <<(Expr left, int right)
@@ -437,7 +437,7 @@ shape: (5, 5)
 
 ---
 
-### operator < (Less Than)
+### operator &lt; (Less Than)
 
 Creates an expression evaluating if the left operand is less than the right operand.
 
@@ -458,7 +458,7 @@ public static Expr operator <(object left, Expr right)
 
 ---
 
-### operator <= (Less Or Equal)
+### operator &lt;= (Less Or Equal)
 
 Creates an expression evaluating if the left operand is less than or equal to the right operand.
 
@@ -553,7 +553,7 @@ public static Expr operator ~(Expr expr)
 
 ---
 
-### operator >> (Right Shift)
+### operator &gt;&gt; (Right Shift)
 
 Bitwise right shift operation. 
 
@@ -2173,7 +2173,7 @@ public Expr Kurtosis(bool fisher = true, bool bias = true)
 
 | Name | Type | Description |
 | :--- | :--- | :--- |
-| `fisher` | `bool` | If True, Fisher’s definition is used (normal ==> 0.0). If False, Pearson’s definition is used (normal ==> 3.0). |
+| `fisher` | `bool` | If True, Fisher’s definition is used (normal ==&gt; 0.0). If False, Pearson’s definition is used (normal ==&gt; 3.0). |
 | `bias` | `bool` | If False, the calculations are corrected for statistical bias. |
 
 **Returns:** A series which length is 1
@@ -3219,7 +3219,7 @@ public Expr RollingQuantileBy(
 | :--- | :--- | :--- |
 | `quantile` | `double` | Quantile between 0.0 and 1.0 (e.g., 0.5 for median). |
 | `method` | `QuantileMethod` | Interpolation method when the quantile lies between two data points. |
-| `windowSize` | `IntoDuration` | The size of the time window as a `System.TimeSpan`. <br>This will be automatically converted to a Polars duration string (e.g., `01:30:00` -> `"1h30m"`). |
+| `windowSize` | `IntoDuration` | The size of the time window as a `System.TimeSpan`. <br>This will be automatically converted to a Polars duration string (e.g., `01:30:00` -&gt; `"1h30m"`). |
 | `by` | `Expr` | The column used to define the window (the "time" axis). <br>Typically a `Date` or `DateTime` column, but can also be monotonic integers. |
 | `minPeriods` | `int` | The minimum number of observations in the window required to have a non-null result. |
 | `closed` | `ClosedInterval` | Defines how the window interval is closed. Default is `ClosedInterval.Left``[t - window, t)`. |
@@ -3913,6 +3913,24 @@ public Expr Tan()
 ```csharp
 public Expr Tanh()
 ```
+
+---
+
+### ToHtml
+
+Generates a rich HTML view of the expression including its compact string representation and AST tree.
+
+```csharp
+public string ToHtml(PolarsSchema? schema = null)
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| :--- | :--- | :--- |
+| `schema` | `PolarsSchema?` | Optional schema context to resolve field types. |
+
+**Returns:** An HTML representation formatted for interactive environments.
 
 ---
 

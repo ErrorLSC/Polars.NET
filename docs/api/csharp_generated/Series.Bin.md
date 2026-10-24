@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Series.Bin
-title: Series.Bin (SeriesBinaryOps)
+title: "Series.Bin (SeriesBinaryOps)"
 ---
 
 # Series.Bin (SeriesBinaryOps)

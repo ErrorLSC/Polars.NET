@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.MergeSetterBuilder
-title: MergeSetterBuilder
+title: "MergeSetterBuilder"
 ---
 
 # MergeSetterBuilder

@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.MissingColumnAction
-title: MissingColumnAction
+title: "MissingColumnAction"
 ---
 
 # MissingColumnAction

@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.DataFrameMergeBuilder
-title: DataFrameMergeBuilder
+title: "DataFrameMergeBuilder"
 ---
 
 # DataFrameMergeBuilder

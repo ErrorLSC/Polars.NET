@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.DataFrame
-title: DataFrame
+title: "DataFrame"
 ---
 
 # DataFrame
@@ -31,10 +31,10 @@ DataFrame represents a 2-dimensional labeled data structure similar to a table o
 | `this[Range rowRange, string columnName]` | `Series` | e.g. df[1..10, "A"] |
 | `this[Range rowRange, string[] columnNames]` | `DataFrame` | e.g. df[1..10, ["A", "B"]] |
 | `this[Range rowRange]` | `DataFrame` | e.g. df[1..5] / df[..^1] |
-| `this[Series maskOrIndices, IntoSelector columnSelector]` | `DataFrame` | e.g. df[df["Age"] > 18, Cs.Numeric()] e.g. df[Pl.Series("index", [1, 3, 5]), Cs.Numeric()] |
-| `this[Series maskOrIndices, string columnName]` | `Series` | e.g. var adultNames = df[df["Age"] >= 18, "Name"]; e.g. var specificNames = df[Polars.Series(new[] { 1, 3, 5 }), "Name"]; |
-| `this[Series maskOrIndices, string[] columnNames]` | `DataFrame` | e.g. df[df["Age"] > 18, ["Name", "Score"]] e.g. df[Polars.Series(new[] { 1, 3, 5 }), ["Name", "Score"]] |
-| `this[Series maskOrIndices]` | `DataFrame` | e.g. df[df["Age"] > 18] |
+| `this[Series maskOrIndices, IntoSelector columnSelector]` | `DataFrame` | e.g. df[df["Age"] &gt; 18, Cs.Numeric()] e.g. df[Pl.Series("index", [1, 3, 5]), Cs.Numeric()] |
+| `this[Series maskOrIndices, string columnName]` | `Series` | e.g. var adultNames = df[df["Age"] &gt;= 18, "Name"]; e.g. var specificNames = df[Polars.Series(new[] { 1, 3, 5 }), "Name"]; |
+| `this[Series maskOrIndices, string[] columnNames]` | `DataFrame` | e.g. df[df["Age"] &gt; 18, ["Name", "Score"]] e.g. df[Polars.Series(new[] { 1, 3, 5 }), ["Name", "Score"]] |
+| `this[Series maskOrIndices]` | `DataFrame` | e.g. df[df["Age"] &gt; 18] |
 | `this[int index]` | `Series` | Indexer to get a column by position. Usage: var s = df[0]; |
 | `this[int rowIndex, int columnIndex]` | `object` | Syntax Sugar |
 | `this[int rowIndex, string colName]` | `object` | df[rowIndex, colName] = value |
@@ -1381,7 +1381,7 @@ This selects the largest values.
 
 Get the Bottom k rows according to a single expression.
 
-Master method: Get the Bottom k rows by multiple Expressions with optional parallel boolean arrays. Usage: df.BottomK(10, myColumns.Select(c => Pl.Col(c)))
+Master method: Get the Bottom k rows by multiple Expressions with optional parallel boolean arrays. Usage: df.BottomK(10, myColumns.Select(c =&gt; Pl.Col(c)))
 
 Get the Bottom k rows with specific reverse directions using Tuples. Usage: df.BottomK(5, ("Score", false), ("Age", true), (Cs.Numeric(), false))
 
@@ -1442,7 +1442,7 @@ public DataFrame Cast(IntoSchema schemaWrapper, bool strict = true, bool wrapNum
 
 ### Clear
 
-Create an empty (n=0) or n-row null-filled (n>0) copy of the DataFrame. Returns a n-row null-filled DataFrame with an identical schema.
+Create an empty (n=0) or n-row null-filled (n&gt;0) copy of the DataFrame. Returns a n-row null-filled DataFrame with an identical schema.
 
 ```csharp
 public DataFrame Clear(long n = 0)
@@ -1762,7 +1762,7 @@ public DataFrame Filter(IEnumerable<bool> mask)
 
 | Name | Type | Description |
 | :--- | :--- | :--- |
-| `expr` | `Expr` | A boolean expression to filter by (e.g., Col("a") > 5). |
+| `expr` | `Expr` | A boolean expression to filter by (e.g., Col("a") &gt; 5). |
 | `series` | `Series` | A boolean series as mask |
 | `mask` | `IEnumerable<bool>` | A boolean IEnumerable as mask |
 
@@ -2591,11 +2591,11 @@ shape: (3, 3)
 
 ### JoinWhere
 
-Join with another DataFrame using multiple boolean expressions. Usage: lf.JoinWhere(other, [Pl.Col("start") > Pl.Col("end"), Pl.Col("id") != null], how: JoinType.Left)
+Join with another DataFrame using multiple boolean expressions. Usage: lf.JoinWhere(other, [Pl.Col("start") &gt; Pl.Col("end"), Pl.Col("id") != null], how: JoinType.Left)
 
-Join using a single condition (Most common use case). Usage: lf.JoinWhere(other, Pl.Col("A") > Pl.Col("B"), how: JoinType.Inner)
+Join using a single condition (Most common use case). Usage: lf.JoinWhere(other, Pl.Col("A") &gt; Pl.Col("B"), how: JoinType.Inner)
 
-Usage: lf.JoinWhere(other, Pl.Col("A") > Pl.Col("B"), Pl.Col("C") > 0)
+Usage: lf.JoinWhere(other, Pl.Col("A") &gt; Pl.Col("B"), Pl.Col("C") &gt; 0)
 
 ```csharp
 public DataFrame JoinWhere(
@@ -2880,7 +2880,7 @@ public DeltaMergeBuilder MergeCatalogRecords(
 
 ### MergeDelta
 
-Merge a DataFrame into a Delta Lake table with full SQL MERGE semantics. Provides fine-grained control over Update, Insert, and Delete behaviors. Notice: In this method, Delete > Update > Insert > Ignore. If you need other orders, please use LazyFrame.MergeDeltaOrdered
+Merge a DataFrame into a Delta Lake table with full SQL MERGE semantics. Provides fine-grained control over Update, Insert, and Delete behaviors. Notice: In this method, Delete &gt; Update &gt; Insert &gt; Ignore. If you need other orders, please use LazyFrame.MergeDeltaOrdered
 
 ```csharp
 public void MergeDelta(
@@ -3764,11 +3764,13 @@ public DataFrame ToDummies(
 
 ### ToHtml
 
-Generates an HTML representation of the DataFrame. Useful for rendering in Jupyter/Polyglot Notebooks.
+Generates a rich HTML table representation of the DataFrame for interactive environments (e.g., LINQPad, Jupyter).
 
 ```csharp
 public string ToHtml()
 ```
+
+**Returns:** An HTML string representing the preview of the DataFrame.
 
 ---
 
@@ -3796,7 +3798,7 @@ This selects the largest values.
 
 Get the top k rows according to a single expression.
 
-Master method: Get the top k rows by multiple Expressions with optional parallel boolean arrays. Usage: df.TopK(10, myColumns.Select(c => Pl.Col(c)))
+Master method: Get the top k rows by multiple Expressions with optional parallel boolean arrays. Usage: df.TopK(10, myColumns.Select(c =&gt; Pl.Col(c)))
 
 Get the top k rows with specific reverse directions using Tuples. Usage: df.TopK(5, ("Score", false), ("Age", true), (Cs.Numeric(), false))
 

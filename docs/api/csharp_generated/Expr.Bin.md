@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Expr.Bin
-title: Expr.Bin (BinaryOps)
+title: "Expr.Bin (BinaryOps)"
 ---
 
 # Expr.Bin (BinaryOps)

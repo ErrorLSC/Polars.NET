@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.FrozenCategories
-title: FrozenCategories
+title: "FrozenCategories"
 ---
 
 # FrozenCategories

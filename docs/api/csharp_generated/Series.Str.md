@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Series.Str
-title: Series.Str (SeriesStrOps)
+title: "Series.Str (SeriesStrOps)"
 ---
 
 # Series.Str (SeriesStrOps)
@@ -368,7 +368,7 @@ public Series JsonPathMatch(StringOrExpr jsonPath)
 
 Get length in bytes. 
 
-Note: Multi-byte characters (like emojis or CJK) count as > 1 byte.
+Note: Multi-byte characters (like emojis or CJK) count as &gt; 1 byte.
 
 ```csharp
 public Series LenBytes()

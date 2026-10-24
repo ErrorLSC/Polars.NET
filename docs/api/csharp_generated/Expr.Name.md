@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Expr.Name
-title: Expr.Name (NameOps)
+title: "Expr.Name (NameOps)"
 ---
 
 # Expr.Name (NameOps)

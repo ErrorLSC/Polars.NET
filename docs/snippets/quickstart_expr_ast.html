@@ -1,0 +1,28 @@
+<div class="pl-preview-card">
+  <div class="pl-preview-title">Polars Expr AST Tree & Formula</div>
+  <div class='pl-expr-box'><div class='pl-expr-header'>Polars Expr <span class='pl-expr-tag'>AST</span></div><div class='pl-expr-formula'>[(col(&quot;Temperature&quot;)) - (col(&quot;Temperature&quot;).mean().over([col(&quot;City&quot;)]))].alias(&quot;Temp_Diff&quot;)</div><pre class='pl-expr-tree'>            0                 1                     2
+   ┌───────────────────────────────────────────────────────────
+   │
+   │  ╭───────────╮
+ 0 │  │ binary: - │
+   │  ╰─────┬┬────╯
+   │        ││
+   │        │╰──────────────────────────────────────╮
+   │        │                                       │
+   │    ╭───┴────╮                         ╭────────┴─────────╮
+ 1 │    │ window │                         │ col(Temperature) │
+   │    ╰───┬┬───╯                         ╰──────────────────╯
+   │        ││
+   │        │╰────────────────╮
+   │        │                 │
+   │  ╭─────┴─────╮        ╭──┴───╮
+ 2 │  │ col(City) │        │ mean │
+   │  ╰───────────╯        ╰──┬───╯
+   │                          │
+   │                          │
+   │                          │
+   │                 ╭────────┴─────────╮
+ 3 │                 │ col(Temperature) │
+   │                 ╰──────────────────╯
+</pre></div>
+</div>

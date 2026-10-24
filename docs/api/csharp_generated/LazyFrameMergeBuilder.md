@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.LazyFrameMergeBuilder
-title: LazyFrameMergeBuilder
+title: "LazyFrameMergeBuilder"
 ---
 
 # LazyFrameMergeBuilder

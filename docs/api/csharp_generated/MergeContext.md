@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.MergeContext
-title: MergeContext
+title: "MergeContext"
 ---
 
 # MergeContext

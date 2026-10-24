@@ -11,7 +11,6 @@ public class AsyncTests
         using var csv = new DisposableFile("id,val\n1,10\n2,20\n3,30\n", ".csv");
 
         using var df = await DataFrame.ReadCsvAsync(csv.Path);
-
         Assert.Equal(3, df.Height);
         Assert.Equal(2, df.Width);
 

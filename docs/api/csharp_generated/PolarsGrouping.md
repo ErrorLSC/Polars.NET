@@ -1,9 +1,9 @@
 ---
 uid: Polars.CSharp.PolarsGrouping
-title: PolarsGrouping<TKey, TElement>
+title: "PolarsGrouping<TKey, TElement>"
 ---
 
-# PolarsGrouping<TKey, TElement>
+# PolarsGrouping&lt;TKey, TElement&gt;
 
 Namespace: `Polars.CSharp.Linq`
 

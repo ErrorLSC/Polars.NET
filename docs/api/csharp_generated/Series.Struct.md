@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Series.Struct
-title: Series.Struct (SeriesStructOps)
+title: "Series.Struct (SeriesStructOps)"
 ---
 
 # Series.Struct (SeriesStructOps)

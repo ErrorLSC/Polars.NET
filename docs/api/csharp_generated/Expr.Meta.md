@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Expr.Meta
-title: Expr.Meta (MetaOps)
+title: "Expr.Meta (MetaOps)"
 ---
 
 # Expr.Meta (MetaOps)

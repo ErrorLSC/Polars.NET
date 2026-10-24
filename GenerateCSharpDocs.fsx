@@ -167,7 +167,7 @@ let rec xmlNodeToMarkdown (depth: int) (preserveWhitespace: bool) (parentParamNa
         match node with
         | :? XText as text ->
             if preserveWhitespace then text.Value
-            else Regex.Replace(text.Value, @"\s+", " ")
+            else Regex.Replace(text.Value, @"\s+", " ").Replace("<", "&lt;").Replace(">", "&gt;")
         | :? XElement as el ->
             let tagName = el.Name.LocalName.ToLowerInvariant()
             match tagName with
@@ -220,7 +220,7 @@ let rec xmlNodeToMarkdown (depth: int) (preserveWhitespace: bool) (parentParamNa
                 if String.IsNullOrWhiteSpace cleaned then ""
                 else sprintf "\n```csharp\n%s\n```\n" cleaned
             | "c" ->
-                let inner = el.Nodes() |> Seq.map (xmlNodeToMarkdown (depth + 1) false None) |> String.concat ""
+                let inner = el.Nodes() |> Seq.map (xmlNodeToMarkdown (depth + 1) true None) |> String.concat ""
                 sprintf "`%s`" (inner.Trim())
             | "para" ->
                 let inner = el.Nodes() |> Seq.map (xmlNodeToMarkdown (depth + 1) false None) |> String.concat ""
@@ -826,17 +826,17 @@ let formatOperatorDisplayName (opName: string) =
     | "op_UnaryNegation" -> "operator - (Unary Negation)"
     | "op_Equality" -> "operator == (Equality)"
     | "op_Inequality" -> "operator != (Inequality)"
-    | "op_GreaterThan" -> "operator > (Greater Than)"
-    | "op_GreaterThanOrEqual" -> "operator >= (Greater Or Equal)"
-    | "op_LessThan" -> "operator < (Less Than)"
-    | "op_LessThanOrEqual" -> "operator <= (Less Or Equal)"
-    | "op_BitwiseAnd" -> "operator & (Bitwise / Logical AND)"
+    | "op_GreaterThan" -> "operator &gt; (Greater Than)"
+    | "op_GreaterThanOrEqual" -> "operator &gt;= (Greater Or Equal)"
+    | "op_LessThan" -> "operator &lt; (Less Than)"
+    | "op_LessThanOrEqual" -> "operator &lt;= (Less Or Equal)"
+    | "op_BitwiseAnd" -> "operator &amp; (Bitwise / Logical AND)"
     | "op_BitwiseOr" -> "operator | (Bitwise / Logical OR)"
     | "op_ExclusiveOr" -> "operator ^ (Exclusive OR)"
     | "op_LogicalNot" -> "operator ! (Logical NOT)"
     | "op_OnesComplement" -> "operator ~ (Bitwise NOT)"
-    | "op_LeftShift" -> "operator << (Left Shift)"
-    | "op_RightShift" -> "operator >> (Right Shift)"
+    | "op_LeftShift" -> "operator &lt;&lt; (Left Shift)"
+    | "op_RightShift" -> "operator &gt;&gt; (Right Shift)"
     | "op_Implicit" -> "implicit operator"
     | "op_Explicit" -> "explicit operator"
     | _ -> opName
@@ -1018,10 +1018,11 @@ for kvp in pagesByTypeName |> Seq.sortBy (fun k -> k.Value.PageId) do
         let sb = StringBuilder()
         sb.AppendLine "---" |> ignore
         sb.AppendLine(sprintf "uid: Polars.CSharp.%s" page.PageId) |> ignore
-        sb.AppendLine(sprintf "title: %s" page.Title) |> ignore
+        let safeYamlTitle = page.Title.Replace("\"", "\\\"")
+        sb.AppendLine(sprintf "title: \"%s\"" safeYamlTitle) |> ignore
         sb.AppendLine "---" |> ignore
         sb.AppendLine() |> ignore
-        sb.AppendLine(sprintf "# %s" page.Title) |> ignore
+        sb.AppendLine(sprintf "# %s" (page.Title.Replace("<", "&lt;").Replace(">", "&gt;"))) |> ignore
         sb.AppendLine() |> ignore
         sb.AppendLine(sprintf "Namespace: `%s`" page.PrimaryType.Namespace) |> ignore
         sb.AppendLine() |> ignore

@@ -1,0 +1,9 @@
+<div class="pl-preview-card">
+  <div class="pl-preview-title">Optimized LazyFrame Logical Plan</div>
+  <div class='pl-lazy-container'><div class='pl-lazy-header'>Polars LazyFrame <span class='pl-lazy-tag'>UNCOLLECTED</span></div><div class='pl-lazy-schema'>Schema: City: str, Avg_Temp: f64</div><div class='pl-lazy-plan'>AGGREGATE[maintain_order: false]
+  [col(&quot;Temperature&quot;).mean().alias(&quot;Avg_Temp&quot;)] BY [col(&quot;City&quot;)]
+  FROM
+  FILTER col(&quot;Temperature&quot;) &gt; 10.0
+  FROM
+    DF [&quot;Date&quot;, &quot;City&quot;, &quot;Temperature&quot;, &quot;Rain&quot;]; PROJECT[&quot;City&quot;, &quot;Temperature&quot;] 2/4 COLUMNS</div><div class='pl-lazy-tip'>Tip: Call .Collect() to eagerly execute this query plan.</div></div>
+</div>

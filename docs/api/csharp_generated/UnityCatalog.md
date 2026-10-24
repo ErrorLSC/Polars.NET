@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.UnityCatalog
-title: UnityCatalog
+title: "UnityCatalog"
 ---
 
 # UnityCatalog

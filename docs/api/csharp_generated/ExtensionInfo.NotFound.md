@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.ExtensionInfo.NotFound
-title: ExtensionInfo.NotFound
+title: "ExtensionInfo.NotFound"
 ---
 
 # ExtensionInfo.NotFound

@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.Expr.Array
-title: Expr.Array (ArrayOps)
+title: "Expr.Array (ArrayOps)"
 ---
 
 # Expr.Array (ArrayOps)

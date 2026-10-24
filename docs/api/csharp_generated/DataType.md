@@ -1,6 +1,6 @@
 ---
 uid: Polars.CSharp.DataType
-title: DataType
+title: "DataType"
 ---
 
 # DataType
