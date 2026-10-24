@@ -13,9 +13,6 @@ namespace Polars.CSharp;
 public class MergeContext
 {
     private readonly string _sourceSuffix;
-
-    [Obsolete("Please use the lambda parameter (m => m.Source(...)) provided by the builder. This static context cannot protect Join Keys from suffix errors.", error: false)]
-    public static readonly MergeContext Delta = new("_src_tmp");
     internal MergeContext(string sourceSuffix)
     {
         _sourceSuffix = sourceSuffix;
