@@ -13,13 +13,14 @@ open Microsoft.FSharp.Reflection
 // ============================================================================
 // 1. Configuration (Default to Debug build to avoid slow Release builds)
 // ============================================================================
+let repoRoot = Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, ".."))
 let args = fsi.CommandLineArgs |> Array.skip 1
 let buildConfig = if args.Length > 0 && not (args.[0].StartsWith "-") then args.[0] else "Debug"
 let targetFramework = "net8.0"
 
-let dllPath = sprintf "Polars.FSharp/bin/%s/%s/Polars.FSharp.dll" buildConfig targetFramework
-let xmlPath = sprintf "Polars.FSharp/bin/%s/%s/Polars.FSharp.xml" buildConfig targetFramework
-let outputDir = "docs/api/fsharp_generated"
+let dllPath = Path.Combine(repoRoot, sprintf "Polars.FSharp/bin/%s/%s/Polars.FSharp.dll" buildConfig targetFramework)
+let xmlPath = Path.Combine(repoRoot, sprintf "Polars.FSharp/bin/%s/%s/Polars.FSharp.xml" buildConfig targetFramework)
+let outputDir = Path.Combine(repoRoot, "docs/api/fsharp_generated")
 
 if not (File.Exists dllPath) then
     eprintfn "ERROR: Assembly not found at '%s'. Run 'dotnet build Polars.FSharp/Polars.FSharp.fsproj' first." dllPath
@@ -30,7 +31,7 @@ if not (File.Exists xmlPath) then
     exit 1
 
 let binDir = Path.GetDirectoryName(Path.GetFullPath dllPath)
-let testBinDir = Path.GetFullPath(sprintf "Polars.FSharp.Tests/bin/%s/%s" buildConfig targetFramework)
+let testBinDir = Path.Combine(repoRoot, sprintf "Polars.FSharp.Tests/bin/%s/%s" buildConfig targetFramework)
 let nugetCacheDir =
     let envNuget = Environment.GetEnvironmentVariable("NUGET_PACKAGES")
     if not (String.IsNullOrWhiteSpace envNuget) then envNuget

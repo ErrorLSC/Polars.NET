@@ -2878,38 +2878,6 @@ public DeltaMergeBuilder MergeCatalogRecords(
 
 ---
 
-### MergeDelta
-
-Merge a DataFrame into a Delta Lake table with full SQL MERGE semantics. Provides fine-grained control over Update, Insert, and Delete behaviors. Notice: In this method, Delete &gt; Update &gt; Insert &gt; Ignore. If you need other orders, please use LazyFrame.MergeDeltaOrdered
-
-```csharp
-public void MergeDelta(
-    string path,
-    string[] mergeKeys,
-    Expr? matchedUpdateCond = null,
-    Expr? matchedDeleteCond = null,
-    Expr? notMatchedInsertCond = null,
-    Expr? notMatchedBySourceDeleteCond = null,
-    bool canEvolve = false,
-    CloudOptions? cloudOptions = null
-)
-```
-
-**Parameters**
-
-| Name | Type | Description |
-| :--- | :--- | :--- |
-| `path` | `string` | Uri to the Delta Lake table (local or cloud). |
-| `mergeKeys` | `string[]` | The column names to join on (must exist in both Source and Target). |
-| `matchedUpdateCond` | `Expr?` | Condition for 'WHEN MATCHED THEN UPDATE'. If null, defaults to true (always update when matched). |
-| `matchedDeleteCond` | `Expr?` | Condition for 'WHEN MATCHED THEN DELETE'. If null, defaults to false (never delete when matched). |
-| `notMatchedInsertCond` | `Expr?` | Condition for 'WHEN NOT MATCHED THEN INSERT'. If null, defaults to true (always insert new rows). |
-| `notMatchedBySourceDeleteCond` | `Expr?` | Condition for 'WHEN NOT MATCHED BY SOURCE THEN DELETE' (Target rows not in Source). If null, defaults to false (retain target-only rows). |
-| `canEvolve` | `bool` | Define whether schema evolution is allowed, default: false |
-| `cloudOptions` | `CloudOptions?` | Cloud storage credentials and configuration. |
-
----
-
 ### MergeDeltaOrdered
 
 Starts a fluent builder to merge a DataFrame into a Delta Lake table with strict, order-preserving SQL MERGE semantics. 
