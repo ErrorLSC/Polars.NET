@@ -175,28 +175,6 @@ internal partial class NativeBindings
         nuint cloud_len
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial void pl_io_delta_merge(
-        LazyFrameHandle source_lf,
-        string path,
-        string[] merge_key,
-        nuint merge_key_len,
-        IntPtr matched_update_cond,
-        IntPtr matched_delete_cond,
-        IntPtr not_matched_insert_cond,
-        IntPtr not_matched_by_source_deleted_cond,
-        [MarshalAs(UnmanagedType.U1)] bool can_evolve,
-        // Cloud Options
-        PlCloudProvider cloud_provider,
-        UIntPtr cloud_retries,
-        ulong cloud_retry_timeout_ms,
-        ulong cloud_retry_init_backoff_ms,
-        ulong cloud_retry_max_backoff_ms,
-        ulong cloud_cache_ttl,
-        string[]? cloud_keys,
-        string[]? cloud_values,
-        nuint cloud_len
-    );
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial void pl_io_delta_merge_ordered(
         LazyFrameHandle source_lf,
         string path,

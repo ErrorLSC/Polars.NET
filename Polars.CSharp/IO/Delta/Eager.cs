@@ -1,5 +1,4 @@
 using Polars.NET.Core;
-using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 
@@ -107,37 +106,6 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             mkdir,
 
             // --- Cloud Params ---
-            cloudOptions
-        );
-    }
-
-    /// <summary>
-    /// Merge a DataFrame into a Delta Lake table with full SQL MERGE semantics.
-    /// Provides fine-grained control over Update, Insert, and Delete behaviors.
-    /// Notice: In this method, Delete > Update > Insert > Ignore.
-    /// If you need other orders, please use LazyFrame.MergeDeltaOrdered
-    /// </summary>
-    /// <inheritdoc cref="LazyFrame.MergeDelta(string, string[], Expr?, Expr?, Expr?, Expr?, bool, CloudOptions?)"/>
-    [Obsolete("This method is deprecated because its execution order of matched/not-matched actions is hardcoded and may lead to silent data corruption in complex scenarios. Please use 'MergeDeltaOrdered(...)' combined with the '.WhenMatched...()' chaining methods to ensure strict SQL MERGE semantics.")]
-    public void MergeDelta(
-        string path,
-        string[] mergeKeys,
-        Expr? matchedUpdateCond = null,
-        Expr? matchedDeleteCond = null,
-        Expr? notMatchedInsertCond = null,
-        Expr? notMatchedBySourceDeleteCond = null,
-        bool canEvolve = false,
-        CloudOptions? cloudOptions = null)
-    {
-        var lf = Lazy();
-        lf.MergeDelta(
-            path,
-            mergeKeys,
-            matchedUpdateCond,
-            matchedDeleteCond,
-            notMatchedInsertCond,
-            notMatchedBySourceDeleteCond,
-            canEvolve,
             cloudOptions
         );
     }
