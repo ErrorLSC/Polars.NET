@@ -10,20 +10,20 @@ Polars.NET provides idiomatic, zero-copy bindings across multiple .NET programmi
 
 ## Core Concepts & Getting Started
 
-- [Quick Start Guide](https://errorlsc.github.io/polars.net/articles/quickstart): 5-minute introduction covering installation, ingestion, filtering, grouping, aggregations, and execution.
-- [Introduction](https://errorlsc.github.io/polars.net/articles/intro): Architecture overview, Arrow memory model, streaming engine, and .NET ecosystem positioning.
-- [Expressions & Computations](https://errorlsc.github.io/polars.net/articles/expressions): Column selection, arithmetic, Boolean logic, type casting, string transformations, temporal parsing, and list operations.
-- [LazyFrame & Query Optimization](https://errorlsc.github.io/polars.net/articles/lazy): Execution plans (`Explain()`), logical optimization, predicate & projection pushdown, common subplan elimination, and streaming out-of-core execution.
-- [Time Series & Temporal Analytics](https://errorlsc.github.io/polars.net/articles/timeseries): Temporal types (`Date`, `Datetime`, `Duration`), `Expr.Dt` namespaces, timezone conversions, rolling window aggregations, and dynamic group-by.
-- [Delta Lake & ACID Lakehouse](https://errorlsc.github.io/polars.net/articles/delta): Native `delta-rs` ACID transactions, Time Travel, metadata history, file vacuuming/compaction, CDC feed, and SQL MERGE.
+- [Quick Start Guide](https://errorlsc.github.io/Polars.NET/articles/quickstart): 5-minute introduction covering installation, ingestion, filtering, grouping, aggregations, and execution.
+- [Introduction](https://errorlsc.github.io/Polars.NET/articles/intro): Architecture overview, Arrow memory model, streaming engine, and .NET ecosystem positioning.
+- [Expressions & Computations](https://errorlsc.github.io/Polars.NET/articles/expressions): Column selection, arithmetic, Boolean logic, type casting, string transformations, temporal parsing, and list operations.
+- [LazyFrame & Query Optimization](https://errorlsc.github.io/Polars.NET/articles/lazy): Execution plans (`Explain()`), logical optimization, predicate & projection pushdown, common subplan elimination, and streaming out-of-core execution.
+- [Time Series & Temporal Analytics](https://errorlsc.github.io/Polars.NET/articles/timeseries): Temporal types (`Date`, `Datetime`, `Duration`), `Expr.Dt` namespaces, timezone conversions, rolling window aggregations, and dynamic group-by.
+- [Delta Lake & ACID Lakehouse](https://errorlsc.github.io/Polars.NET/articles/delta): Native `delta-rs` ACID transactions, Time Travel, metadata history, file vacuuming/compaction, CDC feed, and SQL MERGE.
 
 ## Language Paradigms & Idioms
 
-- [Idiomatic C# Guide](https://errorlsc.github.io/polars.net/articles/csharp-idioms): Modern C# patterns, collection expressions (`[ Col("a"), Col("b") ]`), `using static Polars.CSharp.Polars`, pattern matching, and record ingestion.
-- [Idiomatic F# Guide](https://errorlsc.github.io/polars.net/articles/fsharp-idioms): Functional pipelines (`|>`), `pl.*` expression combinators, zero-allocation struct enumerators (`SeriesEnumerator<'T>`, `RowEnumerator<'T>`), and higher-order mapping.
-- [LINQ & Query Computation Expressions](https://errorlsc.github.io/polars.net/articles/linq): Standard C# LINQ and F# `query { }` CE compiling into 100% native Rust LazyPlans without managed loop overhead.
-- [Ecosystem & Native Interop](https://errorlsc.github.io/polars.net/articles/interop): Zero-copy Apache Arrow C Data Interface, Arrow Flight, ADBC, ADO.NET DbDataReader ingestion, ML.NET `IDataView`, and TorchSharp / System.Numerics Tensor bridges.
+- [Idiomatic C# Guide](https://errorlsc.github.io/Polars.NET/articles/csharp-idioms): Modern C# patterns, collection expressions (`[ Col("a"), Col("b") ]`), `using static Polars.CSharp.Polars`, pattern matching, and record ingestion.
+- [Idiomatic F# Guide](https://errorlsc.github.io/Polars.NET/articles/fsharp-idioms): Functional pipelines (`|>`), `pl.*` expression combinators, zero-allocation struct enumerators (`SeriesEnumerator<'T>`, `RowEnumerator<'T>`), and higher-order mapping.
+- [LINQ & Query Computation Expressions](https://errorlsc.github.io/Polars.NET/articles/linq): Standard C# LINQ and F# `query { }` CE compiling into 100% native Rust LazyPlans without managed loop overhead.
+- [Ecosystem & Native Interop](https://errorlsc.github.io/Polars.NET/articles/interop): Zero-copy Apache Arrow C Data Interface, Arrow Flight, ADBC, ADO.NET DbDataReader ingestion, ML.NET `IDataView`, and TorchSharp / System.Numerics Tensor bridges.
 
 ## Complete Context & LLM Ingestion
 
-- [Full Consolidated Reference (llms-full.txt)](https://errorlsc.github.io/polars.net/llms-full.txt): Complete, concatenated documentation containing all chapters, anti-hallucination guardrails, and API cheat sheets in a single file for zero-shot LLM ingestion.
+- [Full Consolidated Reference (llms-full.txt)](https://errorlsc.github.io/Polars.NET/llms-full.txt): Complete, concatenated documentation containing all chapters, anti-hallucination guardrails, and API cheat sheets in a single file for zero-shot LLM ingestion.
