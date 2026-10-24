@@ -1,12 +1,11 @@
 <div align="center">
   <img src="assets/logo.svg" width="160" height="160" alt="Polars.NET Logo" />
   <h1>Polars.NET</h1>
-  <p><b>Blazingly Fast, Vectorized DataFrames & LINQ Engine for .NET</b></p>
-  <p><i>Powered by Rust Polars & Apache Arrow with zero-copy interoperability, native expression compilation, and full cloud lakehouse support.</i></p>
+  <p><b>Blazingly Fast DataFrames & LINQ Engine for .NET</b></p>
+  <p><i>Powered by Rust Polars & Apache Arrow</i></p>
 
   <p>
     <a href="https://www.nuget.org/packages/Polars.NET"><img src="https://img.shields.io/nuget/v/Polars.NET.svg" alt="NuGet Polars.NET" /></a>
-    <a href="https://www.nuget.org/packages/Polars.FSharp"><img src="https://img.shields.io/nuget/v/Polars.FSharp.svg" alt="NuGet Polars.FSharp" /></a>
     <a href="https://www.nuget.org/packages/Polars.NET"><img src="https://img.shields.io/nuget/dt/Polars.NET.svg" alt="NuGet Downloads" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License" /></a>
     <a href="https://errorlsc.github.io/Polars.NET/"><img src="https://img.shields.io/badge/docs-online-512BD4.svg?style=flat-square&logo=read-the-docs&logoColor=white" alt="Documentation" /></a>
@@ -25,19 +24,20 @@
 
 ---
 
+I really dreamed that we can play with DataFrames in .NET just like python, now we got a much enjoyable and funny one.
+
 ## Highlights
 
-* **100% Native Pushdown LINQ**: Translates C# `IQueryable<T>` and F# `query { }` computation expressions directly into native Rust `LazyFrame` physical plans. Zero intermediate .NET row object allocations on fully pushed down queries. Passed all TPC-H queries test for both C# and F#.
-* **Blazing Fast SIMD & Multithreading**: Vectorized query execution backed by the Rust Polars engine, delivering 10x-50x speedups over legacy .NET data processing frameworks.
-* **Truly Idiomatic .NET Experience**: Ingest collections directly via `DataFrame.FromRows(list)`, pipe database streams using `reader.AsPolarsQueryable<T>()`, perform ANSI SQL `Merge` on `List<T>`, and enumerate rows via zero-GC stack-allocated `ref struct` cursors.
-* **Seamless In-Memory Interop**: LINQ queries can directly `.Join()`, `.Concat()`, or `.Union()` an arbitrary in-memory `List<T>` against a high-volume DataFrame query with automatic native Arrow transposition.
-* **Enterprise Lakehouse & Arrow**: Zero-copy Apache Arrow C Data Interface, streaming ADO.NET `IDataReader`, Delta Lake ACID transactions with full time-travel, and cloud object store integration (Amazon S3, Azure Blob, Google Cloud Storage).
+* **Standard LINQ & Polars Extensions**: Write standard C# LINQ (`IQueryable<T>`) or F# `query { }` expressions that compile directly into native Rust `LazyPlan` nodes with zero intermediate row allocations. Includes Polars-specific extensions such as query plan inspection (`.Explain()`, `.InspectPlan()`), `.ToDataFrame()`, and seamless joins between in-memory collections and DataFrames.
+* **High Performance**: Built on the multithreaded Rust Polars engine and Apache Arrow columnar memory format. Delivers vectorized SIMD execution, query optimization (predicate and projection pushdown, common subplan elimination), and out-of-core streaming execution for larger-than-memory datasets.
+* **Deep .NET Ecosystem Integration**: First-class bridges to standard .NET abstractions, including `IAsyncEnumerable<T>` streaming, ADO.NET `IDataReader` / `DbDataReader` ingestion, ML.NET `IDataView` pipelines, and direct extraction into `System.Numerics.Tensors` (`ReadOnlyTensorSpan`) for numerical computing and model inference.
+* **Universal I/O & Storage**: Reads and writes Parquet, CSV, JSON/NDJSON, Arrow IPC, Excel, and Avro. Native integration with Arrow Database Connectivity (ADBC) and Delta Lake (ACID transactions, time travel, and SQL MERGE), targeting both local filesystems and cloud object storage (Amazon S3, Azure Blob, Google Cloud Storage).
 
 ---
 
 ## Installation
 
-Polars.NET targets **.NET 8.0+** and requires referencing both the managed API package and the matching native runtime package for your execution platform:
+Polars.NET targets **.NET 8.0** and requires referencing both the managed API package and the matching native runtime package for your execution platform:
 
 ### C# Users
 
@@ -51,9 +51,6 @@ dotnet add package Polars.NET.Native.win-x64
 # dotnet add package Polars.NET.Native.linux-arm64
 # dotnet add package Polars.NET.Native.osx-arm64
 
-# Optional: LINQ expression tree compiler
-dotnet add package Polars.NET.Linq
-
 # Optional: ML.NET integration
 dotnet add package Polars.NET.ML
 ```
@@ -66,9 +63,6 @@ dotnet add package Polars.FSharp
 
 # Platform native runtime:
 dotnet add package Polars.NET.Native.win-x64
-
-# Optional: F# Query CE & LINQ integration
-dotnet add package Polars.NET.Linq
 ```
 
 ---
@@ -80,7 +74,6 @@ dotnet add package Polars.NET.Linq
 Write standard C# LINQ queries that compile directly into Rust SIMD kernels without hydrating managed objects:
 
 ```csharp
-using Polars;
 using Polars.CSharp;
 using Polars.CSharp.Linq;
 
@@ -98,12 +91,12 @@ var query = from o in orders.AsPolarsQueryable()
                 OrderCount = g.Count()
             };
 
-// 2. Materialize directly into a Polars DataFrame (Zero heap allocations):
+// 2. Materialize directly into a Polars DataFrame:
 using DataFrame resultDf = query.ToDataFrame();
 resultDf.Show();
 
-// 3. Or inspect the compiled native plan:
-Console.WriteLine(query.Explain());
+// 3. Or inspect the execution plan:
+query.InspectPlan();
 ```
 
 ### 2. C# Vectorized Expressions (`LazyFrame` & `Pl.Col`)
@@ -154,18 +147,18 @@ let summaryQuery =
     }
 
 use resultDf = summaryQuery.ToDataFrame()
-resultDf.Show()
+resultDf |> DataFrame.show
 ```
 
 ### 4. Polars.NET Exclusive: Strongly-Typed SQL `Merge`
 
-Perform complete ANSI SQL `MERGE` upsert operations directly on DataFrames or in-memory collections:
+Perform ANSI SQL `MERGE` upsert operations directly on DataFrames or in-memory collections:
 
 ```csharp
 List<ProductItem> inMemoryTarget = GetTargetProducts();
 List<ProductItem> incomingUpdates = GetSourceProducts();
 
-// Start merge directly from an in-memory List<T>:
+// Start merge from a List<T>:
 using DataFrame mergedDf = inMemoryTarget.Merge(incomingUpdates, t => t.Id, s => s.Id)
     .WhenMatched(
         (t, s) => s.Price > t.Price,
@@ -197,38 +190,32 @@ Comprehensive documentation, architecture references, and API catalogs are avail
 
 ---
 
-## Architecture at a Glance
+## Project Architecture
 
-Polars.NET uses a modular three-tier architecture to deliver native speed without sacrificing .NET safety:
+Polars.NET uses a modular three-tier architecture to prevent upstream breaking changes:
 
 ```
+
 +-------------------------------------------------------------------+
-|                     User Application Layer                        |
-|   C# LINQ (IQueryable<T>)  |  C# Fluent DSL  |  F# Query CE / FP  |
-+-------------------------------------------------------------------+
-                                  |
-                                  v
-+-------------------------------------------------------------------+
-|               Polars.NET High-Level Managed Layer                 |
-|   - Polars.CSharp (DataFrame, LazyFrame, Series, Expr, Selectors) |
-|   - Polars.FSharp (Idiomatic modules, struct enumerators)         |
-|   - Polars.NET.Linq (Expression tree compiler & plan generator)   |
+|               Polars.NET User API Layer                           |
+|   - Polars.CSharp                                                 |
+|   - Polars.FSharp                                                 |
 +-------------------------------------------------------------------+
                                   |
                                   v
 +-------------------------------------------------------------------+
-|              Polars.NET.Core (FFI & Interop Layer)                |
-|   - SafeHandle lifetime management (Zero-leak guarantee)          |
-|   - Apache Arrow C Data Interface zero-copy bridge                |
+|              Polars.NET.Core & Polars.NET.Linq                    |
+|   - Common Infrastructure, LINQ Provider written in F#            |
+|   - Apache Arrow C Data Interface                                 |
 |   - P/Invoke bindings & NativeShim library loaders                |
 +-------------------------------------------------------------------+
                                   |
                                   v
 +-------------------------------------------------------------------+
-|                 Rust Polars Native Engine                         |
-|   - Multithreaded chunked execution engine                        |
-|   - SIMD vectorization & memory-mapped I/O                        |
-|   - Physical query planner, optimizer & streaming sink            |
+|                 Rust polars & delta-rs Engine                     |
+|   - Execution engine                                              |
+|   - Physical query planner, optimizer            |
+|   - delta-rs integration                                         |
 +-------------------------------------------------------------------+
 ```
 
@@ -245,14 +232,14 @@ Polars.NET brings the blazing performance of Rust Polars directly to the .NET ec
   </picture>
 </div>
 
-* Reproducible benchmark suite: [Polars.NET-Benchmark](https://github.com/ErrorLSC/Polars.NET-Benchmark)
-* End-to-end recipe repository: [Polars.NET-Cookbook](https://github.com/ErrorLSC/Polars.NET-Cookbook)
+* Benchmark suite: [Polars.NET-Benchmark](https://github.com/ErrorLSC/Polars.NET-Benchmark)
+* Recipe repository: [Polars.NET-Cookbook](https://github.com/ErrorLSC/Polars.NET-Cookbook)
 
 ---
 
 ## Acknowledgements
 
-Polars.NET stands on the shoulders of giants:
+Polars.NET is built on:
 * [Polars (pola.rs)](https://pola.rs/) - The lightning-fast DataFrame library developed by Ritchie Vink and the Polars team.
 * [Apache Arrow](https://arrow.apache.org/) - The columnar in-memory data standard powering zero-copy interop.
 
