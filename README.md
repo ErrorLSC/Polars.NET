@@ -42,7 +42,7 @@ Polars.NET targets **.NET 8.0** and requires referencing both the managed API pa
 ### C# Users
 
 ```bash
-# Core API package
+# C# API package
 dotnet add package Polars.NET
 
 # Platform native runtime (choose matching your deployment target):
@@ -58,7 +58,7 @@ dotnet add package Polars.NET.ML
 ### F# Users
 
 ```bash
-# F# idiomatic API package
+# F# API package
 dotnet add package Polars.FSharp
 
 # Platform native runtime:
@@ -69,9 +69,9 @@ dotnet add package Polars.NET.Native.win-x64
 
 ## Quick Tour
 
-### 1. C# LINQ Query (`IQueryable<T>`)
+### 1. C# LINQ Query
 
-Write standard C# LINQ queries that compile directly into Rust SIMD kernels without hydrating managed objects:
+Write standard C# LINQ queries then execute them natively without intermediate managed objects:
 
 ```csharp
 using Polars.CSharp;
@@ -99,16 +99,16 @@ resultDf.Show();
 query.InspectPlan();
 ```
 
-### 2. C# Vectorized Expressions (`LazyFrame` & `Pl.Col`)
+### 2. C# Fluent API
 
-Harness the full power of the Polars DSL for complex analytics, column expressions, and Selectors:
+Polars DSL for complex analytics, column expressions, and Selectors:
 
 ```csharp
 using Polars.CSharp;
 using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
 
-// Read high-throughput Parquet lazily:
+// Read Parquet lazily:
 using var lf = LazyFrame.ScanParquet("orders/*.parquet");
 
 using var summaryDf = lf
@@ -127,13 +127,13 @@ summaryDf.Show();
 
 ### 3. F# Query Computation Expression
 
-Leverage F# strong typing, anonymous records, and pipeline combinators over native queries:
+F# strong typing CE, anonymous records, and pipeline combinators over native queries:
 
 ```fsharp
 open Polars.FSharp
 open Polars.FSharp.Query
 
-// F# query { } compiles into polars API call:
+// F# query { } compiles into polars execution plan:
 let summaryQuery =
     query {
         for o in df.AsQueryable<Order>() do
@@ -207,15 +207,15 @@ Polars.NET uses a modular three-tier architecture to prevent upstream breaking c
 |              Polars.NET.Core & Polars.NET.Linq                    |
 |   - Common Infrastructure, LINQ Provider written in F#            |
 |   - Apache Arrow C Data Interface                                 |
-|   - P/Invoke bindings & NativeShim library loaders                |
+|   - P/Invoke bindings and unsafe wrappers                         |
 +-------------------------------------------------------------------+
                                   |
                                   v
 +-------------------------------------------------------------------+
 |                 Rust polars & delta-rs Engine                     |
 |   - Execution engine                                              |
-|   - Physical query planner, optimizer            |
-|   - delta-rs integration                                         |
+|   - Physical query planner, optimizer                             |
+|   - delta-rs integration                                          |
 +-------------------------------------------------------------------+
 ```
 
@@ -223,12 +223,21 @@ Polars.NET uses a modular three-tier architecture to prevent upstream breaking c
 
 ## Benchmarks
 
-Polars.NET brings the blazing performance of Rust Polars directly to the .NET ecosystem:
+### vs. Legacy .NET
 
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/benchmark_summary_dark.png">
     <img alt="Speedup Summary vs Legacy .NET" src="assets/benchmark_summary_light.png" width="750" />
+  </picture>
+</div>
+
+### vs. Python Polars
+
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/benchmark_python_dark.png">
+    <img alt="Performance vs Python Polars" src="assets/benchmark_python_light.png" width="750" />
   </picture>
 </div>
 
