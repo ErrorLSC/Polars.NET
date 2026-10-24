@@ -95,6 +95,7 @@ const articlesSidebar = [
 ];
 
 export default defineConfig({
+  base: '/Polars.NET/',
   title: 'Polars.NET',
   description: 'Blazingly Fast DataFrames for .NET',
   lang: 'en-US',
@@ -102,7 +103,7 @@ export default defineConfig({
   cleanUrls: true,
 
   head: [
-    ['link', { rel: 'icon', href: '/logo.svg' }],
+    ['link', { rel: 'icon', href: '/Polars.NET/logo.svg' }],
     ['meta', { name: 'theme-color', content: '#512BD4' }]
   ],
 

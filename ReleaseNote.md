@@ -5,7 +5,7 @@
 Polars.NET 1.0.0 now available
 
 For full architectural guides, API references, and benchmarks, please visit documentation site:
-**[Polars.NET Documentation Site](https://errorlsc.github.io/polars.net)**
+**[Polars.NET Documentation Site](https://errorlsc.github.io/Polars.NET)**
 
 ---
 

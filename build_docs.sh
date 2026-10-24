@@ -10,7 +10,7 @@ echo "  Polars.NET Documentation Pipeline (VitePress)"
 echo "=========================================================="
 
 echo "=== 1. Building .NET Projects (Debug configuration) ==="
-# NOTE: Never use --release per workspace engineering rules
+
 dotnet build Polars.CSharp/Polars.CSharp.csproj -c Debug
 dotnet build Polars.FSharp/Polars.FSharp.fsproj -c Debug
 
@@ -36,26 +36,22 @@ npm --prefix docs run docs:build
 echo "=== Documentation build complete! ==="
 echo "Static site output directory: docs/.vitepress/dist"
 
-# ==========================================================
-# 5. Deployment to GitHub Pages (gh-pages)
-# [Temporarily commented out - will be enabled after package publishing]
-# ==========================================================
-# echo "=== 5. Deploying to gh-pages ==="
-# REPO_URL=$(git config --get remote.origin.url)
-# 
-# if [ -z "$REPO_URL" ]; then
-#     echo "Error: Could not find remote origin URL. Make sure you are in a git repository."
-#     exit 1
-# fi
-# 
-# cd docs/.vitepress/dist
-# 
-# git init
-# git checkout -b gh-pages
-# git add .
-# git commit -m "docs: auto-deploy updated documentation [skip ci]"
-# 
-# echo "Pushing to $REPO_URL (gh-pages branch)..."
-# git push -f "$REPO_URL" gh-pages
-# 
-# echo "=== Done! Successfully deployed to gh-pages ==="
+echo "=== 5. Deploying to gh-pages ==="
+REPO_URL=$(git config --get remote.origin.url)
+
+if [ -z "$REPO_URL" ]; then
+    echo "Error: Could not find remote origin URL. Make sure you are in a git repository."
+    exit 1
+fi
+
+cd docs/.vitepress/dist
+
+touch .nojekyll
+git init
+git checkout -B gh-pages
+git add .
+git commit -m "docs: auto-deploy updated documentation [skip ci]"
+
+git push -f "$REPO_URL" gh-pages
+
+echo "=== Done! Successfully deployed to gh-pages ==="

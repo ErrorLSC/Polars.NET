@@ -11,7 +11,7 @@ let publicDir = Path.Combine(docsDir, "public")
 if not (Directory.Exists publicDir) then
     Directory.CreateDirectory publicDir |> ignore
 
-let baseUrl = "https://errorlsc.github.io/polars.net"
+let baseUrl = "https://errorlsc.github.io/Polars.NET"
 
 printfn "=== Generating llms.txt & llms-full.txt ==="
 
