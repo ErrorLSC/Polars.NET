@@ -10,12 +10,16 @@
     <PackageId>Polars.FSharp</PackageId>
     <Authors>ErrorLSC</Authors>
     <Description>Idiomatic F# API for Polars DataFrame library with strict type safety and pipeline support.</Description>
-    <PackageTags>polars;dataframe;fsharp;functional;data-science</PackageTags>
+    <PackageTags>polars;dataframe;fsharp;functional;data-science;linqpad-samples</PackageTags>
     <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\example\linqpad-samples\**\*" Pack="true" PackagePath="linqpad-samples" />
+  </ItemGroup>
 
   <PropertyGroup>
     <IsPackable>true</IsPackable>
