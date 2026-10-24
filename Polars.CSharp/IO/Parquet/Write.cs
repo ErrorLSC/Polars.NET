@@ -2,7 +2,8 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Write DataFrame to a Parquet file.
@@ -68,9 +69,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var lf = Lazy();
         lf.SinkParquetPartitioned(
             path,
-            
+
             // --- Partition Params ---
-            partitionBy, 
+            partitionBy,
             includeKeys,
             keysPreGrouped,
             maxRowsPerFile,
@@ -95,7 +96,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <inheritdoc cref="LazyFrame.SinkParquetMemory"/>
     public byte[] WriteParquetMemory(
         ParquetCompression compression = ParquetCompression.ZSTD,
-        int compressionLevel = 3, 
+        int compressionLevel = 3,
         bool statistics = true,
         int rowGroupSize = 0,
         int dataPageSize = 0,

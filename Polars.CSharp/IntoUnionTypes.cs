@@ -1,7 +1,7 @@
 #pragma warning disable CS1591
-using Pl = Polars.CSharp.Polars;
-using Cs = Polars.CSharp.Polars.Selectors;
 using Polars.NET.Core.Helpers;
+using Cs = Polars.CSharp.Polars.Selectors;
+using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp;
 
 /// <summary>
@@ -45,7 +45,7 @@ public readonly struct IntoExprColumn
     // public static implicit operator IntoExpr(string[] arr) => new(Pl.Lit(Pl.Series("", arr)), ownsExpr: true);
     // public static implicit operator IntoExpr(UInt128 u128) => new(Pl.Lit(u128), ownsExpr: true);
 
-    private IntoExprColumn(Expr expr, bool ownsExpr) 
+    private IntoExprColumn(Expr expr, bool ownsExpr)
     {
         ArgumentNullException.ThrowIfNull(expr);
         _expr = expr;
@@ -58,7 +58,7 @@ public readonly struct IntoExprColumn
     public Expr Consume()
     {
         if (_ownsExpr) return _expr;
-        
+
         return new(_expr.CloneHandle());
     }
     public override string ToString() => _expr.ToString();
@@ -96,7 +96,7 @@ public readonly struct IntoExpr
     public static implicit operator IntoExpr(Int128 i128) => new(Pl.Lit(i128), ownsExpr: true);
     public static implicit operator IntoExpr(bool bo) => new(Pl.Lit(bo), ownsExpr: true);
 
-    private IntoExpr(Expr expr, bool ownsExpr) 
+    private IntoExpr(Expr expr, bool ownsExpr)
     {
         ArgumentNullException.ThrowIfNull(expr);
         _expr = expr;
@@ -109,7 +109,7 @@ public readonly struct IntoExpr
     public Expr Consume()
     {
         if (_ownsExpr) return _expr;
-        
+
         return new(_expr.CloneHandle());
     }
     public override string ToString() => _expr.ToString();
@@ -129,11 +129,11 @@ public readonly struct IntoSelector
     public static implicit operator IntoSelector(string name) => new(Cs.ByName(name), ownsSelector: true);
     public static implicit operator IntoSelector(DataType dtype) => new(Cs.ByDtype(dtype), ownsSelector: true);
     public static implicit operator IntoSelector(Type type) => new(Cs.ByDtype(type), ownsSelector: true);
-    public static implicit operator IntoSelector(Expr expr) 
+    public static implicit operator IntoSelector(Expr expr)
     {
         ArgumentNullException.ThrowIfNull(expr);
 
-        if (!expr.Meta.IsColumnSelection(allowAliasing: true)) 
+        if (!expr.Meta.IsColumnSelection(allowAliasing: true))
         {
             throw new ArgumentException(
                 "Invalid conversion to Selector. A Selector must strictly be a column selection " +
@@ -149,7 +149,7 @@ public readonly struct IntoSelector
     {
         _selector = selector;
         _ownsSelector = ownsSelector;
-        
+
     }
 
     public Selector Consume()
@@ -174,14 +174,14 @@ public readonly struct IntoDuration
     public readonly string Value;
 
     public static implicit operator IntoDuration(string value) => new(value);
-    
+
     public static implicit operator IntoDuration(TimeSpan timeSpan) => new(timeSpan.ToPolarsDuration());
 
     private IntoDuration(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
             throw new ArgumentException("Duration string cannot be null or empty.", nameof(value));
-        
+
         Value = value;
     }
 }
@@ -198,7 +198,7 @@ public readonly struct IntoDateExpr
         );
     public static implicit operator IntoDateExpr(ReadOnlySpan<DateOnly> datelist)
     {
-        var series = Pl.CreateSeries("__Date__", datelist); 
+        var series = Pl.CreateSeries("__Date__", datelist);
         var expr = Pl.Lit(series).Cast(DataType.Date).Implode(true);
         return new IntoDateExpr(expr, ownsExpr: true);
     }
@@ -207,7 +207,7 @@ public readonly struct IntoDateExpr
         ArgumentNullException.ThrowIfNull(series);
 
         var innerType = series.DataType;
-        
+
         var expr = innerType switch
         {
             var t when t == DataType.Date => Pl.Lit(series).Implode(true),
@@ -233,7 +233,7 @@ public readonly struct IntoDateExpr
         return new IntoDateExpr(finalExpr, ownsExpr: false);
     }
 
-    private IntoDateExpr(Expr dateExpr,bool ownsExpr)
+    private IntoDateExpr(Expr dateExpr, bool ownsExpr)
     {
         _dateExpr = dateExpr;
         _ownsExpr = ownsExpr;
@@ -256,14 +256,14 @@ public readonly struct DurationOrExpr
     {
         if (string.IsNullOrWhiteSpace(value))
             throw new ArgumentException("Duration string cannot be null or empty.", nameof(value));
-            
+
         return new DurationOrExpr(Pl.Lit(value));
     }
 
-    public static implicit operator DurationOrExpr(TimeSpan timeSpan) 
+    public static implicit operator DurationOrExpr(TimeSpan timeSpan)
         => new(Pl.Lit(timeSpan.ToPolarsDuration()));
 
-    public static implicit operator DurationOrExpr(Expr expr) 
+    public static implicit operator DurationOrExpr(Expr expr)
         => new(expr);
 }
 
@@ -280,10 +280,10 @@ public readonly struct IntoDataTypeExpr
 
     public static implicit operator IntoDataTypeExpr(DataType dtype) => new(dtype.ToDataTypeExpr(), ownsExpr: true);
 
-    public static implicit operator IntoDataTypeExpr(Type type) 
+    public static implicit operator IntoDataTypeExpr(Type type)
     {
-        DataType dtype = type; 
-        
+        DataType dtype = type;
+
         return new(dtype.ToDataTypeExpr(), ownsExpr: true);
     }
 
@@ -299,13 +299,13 @@ public readonly struct IntoDataTypeExpr
     /// </summary>
     public DataTypeExpr Consume()
     {
-        if (_ownsExpr) 
+        if (_ownsExpr)
         {
             return _expr;
         }
-        else 
+        else
         {
-            return _expr.Clone(); 
+            return _expr.Clone();
         }
     }
 }
@@ -332,16 +332,16 @@ public readonly struct IntoSchema
     // ==========================================
     public static implicit operator IntoSchema(PolarsSchema schema) => new(schema, ownsSchema: false);
 
-    public static implicit operator IntoSchema(DataFrame df) 
+    public static implicit operator IntoSchema(DataFrame df)
     {
         ArgumentNullException.ThrowIfNull(df);
         return new(df.Schema, ownsSchema: true);
     }
 
-    public static implicit operator IntoSchema(LazyFrame lf) 
+    public static implicit operator IntoSchema(LazyFrame lf)
     {
         ArgumentNullException.ThrowIfNull(lf);
-        return new(lf.Schema, ownsSchema: true); 
+        return new(lf.Schema, ownsSchema: true);
     }
 
     // ==========================================
@@ -350,7 +350,7 @@ public readonly struct IntoSchema
     public static implicit operator IntoSchema(Dictionary<string, DataType> dict)
     {
         ArgumentNullException.ThrowIfNull(dict);
-        return new(PolarsSchema.From(dict), ownsSchema: true); 
+        return new(PolarsSchema.From(dict), ownsSchema: true);
     }
 
     // ==========================================
@@ -395,7 +395,7 @@ public readonly struct IntoSchema
         var schema = new PolarsSchema();
         foreach (var name in names)
         {
-            schema.Add(name, DataType.Unknown); 
+            schema.Add(name, DataType.Unknown);
         }
         return schema;
     }

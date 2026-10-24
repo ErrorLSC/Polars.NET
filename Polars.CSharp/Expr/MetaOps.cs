@@ -69,13 +69,13 @@ public readonly struct MetaOps
     public Expr[] Pop()
     {
         ExprHandle[] handles = PolarsWrapper.Pop(_expr.CloneHandle());
-        
+
         var result = new Expr[handles.Length];
         for (int i = 0; i < handles.Length; i++)
         {
             result[i] = new Expr(handles[i]);
         }
-        
+
         return result;
     }
 

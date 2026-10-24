@@ -33,7 +33,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Lazily join with another LazyFrame.
     /// <para>
     /// Polars will optimize the join execution order. 
-    /// Note: Both frames must be LazyFrames.
+    /// Both frames must be LazyFrames.
     /// </para>
     /// </summary>
     /// <example>
@@ -73,13 +73,13 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         ulong sliceLen = 0)
     {
         using var safeOn = on.Consume();
-        
+
         var lOn = new[] { PolarsWrapper.CloneExpr(safeOn.Handle) };
         var rOn = new[] { PolarsWrapper.CloneExpr(safeOn.Handle) };
 
         return new LazyFrame(PolarsWrapper.Join(
-            CloneHandle(), other.CloneHandle(), lOn, rOn, 
-            how.ToNative(), suffix, validation.ToNative(), coalesce.ToNative(), 
+            CloneHandle(), other.CloneHandle(), lOn, rOn,
+            how.ToNative(), suffix, validation.ToNative(), coalesce.ToNative(),
             maintainOrder.ToNative(), joinSide.ToNative(), nullsEqual, sliceOffset, sliceLen
         ));
     }
@@ -108,8 +108,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         var rOn = new[] { PolarsWrapper.CloneExpr(safeRight.Handle) };
 
         return new LazyFrame(PolarsWrapper.Join(
-            CloneHandle(), other.CloneHandle(), lOn, rOn, 
-            how.ToNative(), suffix, validation.ToNative(), coalesce.ToNative(), 
+            CloneHandle(), other.CloneHandle(), lOn, rOn,
+            how.ToNative(), suffix, validation.ToNative(), coalesce.ToNative(),
             maintainOrder.ToNative(), joinSide.ToNative(), nullsEqual, sliceOffset, sliceLen
         ));
     }
@@ -143,8 +143,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         }
 
         return new LazyFrame(PolarsWrapper.Join(
-            CloneHandle(), other.CloneHandle(), lOn, rOn, 
-            how.ToNative(), suffix, validation.ToNative(), coalesce.ToNative(), 
+            CloneHandle(), other.CloneHandle(), lOn, rOn,
+            how.ToNative(), suffix, validation.ToNative(), coalesce.ToNative(),
             maintainOrder.ToNative(), joinSide.ToNative(), nullsEqual, sliceOffset, sliceLen
         ));
     }
@@ -184,8 +184,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         }
 
         return new LazyFrame(PolarsWrapper.Join(
-            CloneHandle(), other.CloneHandle(), lOn, rOn, 
-            how.ToNative(), suffix, validation.ToNative(), coalesce.ToNative(), 
+            CloneHandle(), other.CloneHandle(), lOn, rOn,
+            how.ToNative(), suffix, validation.ToNative(), coalesce.ToNative(),
             maintainOrder.ToNative(), joinSide.ToNative(), nullsEqual, sliceOffset, sliceLen
         ));
     }
@@ -214,14 +214,14 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         for (int i = 0; i < arr.Length; i++)
         {
             using var safeExpr = arr[i].Consume();
-            
+
             lOn[i] = PolarsWrapper.CloneExpr(safeExpr.Handle);
             rOn[i] = PolarsWrapper.CloneExpr(safeExpr.Handle);
         }
 
         return new LazyFrame(PolarsWrapper.Join(
-            CloneHandle(), other.CloneHandle(), lOn, rOn, 
-            how.ToNative(), suffix, validation.ToNative(), coalesce.ToNative(), 
+            CloneHandle(), other.CloneHandle(), lOn, rOn,
+            how.ToNative(), suffix, validation.ToNative(), coalesce.ToNative(),
             maintainOrder.ToNative(), joinSide.ToNative(), nullsEqual, sliceOffset, sliceLen
         ));
     }
@@ -426,7 +426,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     {
         return JoinAsOfInternal(
             other, on, on, by, by, tolerance, strategy,
-            allowEq, checkSorted, suffix, validation, coalesce, 
+            allowEq, checkSorted, suffix, validation, coalesce,
             maintainOrder, joinSide, nullsEqual, sliceOffset, sliceLen
         );
     }
@@ -457,7 +457,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     {
         return JoinAsOfInternal(
             other, leftOn, rightOn, leftBy, rightBy, tolerance, strategy,
-            allowEq, checkSorted, suffix, validation, coalesce, 
+            allowEq, checkSorted, suffix, validation, coalesce,
             maintainOrder, joinSide, nullsEqual, sliceOffset, sliceLen
         );
     }
@@ -516,20 +516,19 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         bool nullsEqual = false)
     {
         return JoinWhere(
-            other, 
-            [predicate], 
+            other,
+            [predicate],
             how, suffix, validation, coalesce, maintainOrder, nullsEqual
         );
     }
 
     /// <summary>
-    /// Note: You cannot use optional parameters (like 'how' or 'suffix') with this overload. Use collection expressions `[...]` instead.
     /// Usage: lf.JoinWhere(other, Pl.Col("A") &gt; Pl.Col("B"), Pl.Col("C") > 0)
     /// </summary>
     public LazyFrame JoinWhere(LazyFrame other, params IntoExprColumn[] predicates)
     {
         if (predicates.Length == 0) return this;
-        
+
         return JoinWhere(other, (IEnumerable<IntoExprColumn>)predicates);
     }
     /// <summary>
@@ -543,16 +542,16 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <param name="key">Key that is sorted.</param>
     /// <param name="maintainOrder">If True, the output is guaranteed to have left-biased ordering for equal keys: 
     /// rows from the left frame appear before rows from the right frame when their keys are equal.</param>
-    public LazyFrame MergeSorted(LazyFrame other, string key,bool maintainOrder=false)
-        => new(PolarsWrapper.MergeSorted(CloneHandle(),other.CloneHandle(),[key],maintainOrder));
+    public LazyFrame MergeSorted(LazyFrame other, string key, bool maintainOrder = false)
+        => new(PolarsWrapper.MergeSorted(CloneHandle(), other.CloneHandle(), [key], maintainOrder));
 
     /// <inheritdoc cref="MergeSorted(LazyFrame,string,bool)"/>
-    public LazyFrame MergeSorted(LazyFrame other, string[] key,bool maintainOrder=false)
-        => new(PolarsWrapper.MergeSorted(CloneHandle(),other.CloneHandle(),key,maintainOrder));
+    public LazyFrame MergeSorted(LazyFrame other, string[] key, bool maintainOrder = false)
+        => new(PolarsWrapper.MergeSorted(CloneHandle(), other.CloneHandle(), key, maintainOrder));
 
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Join with another DataFrame using expression expressions.
@@ -569,7 +568,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="sliceOffset">Slice the result starting at this offset.</param>
     /// <param name="sliceLen">Length of the slice.</param>
     public DataFrame Join(
-        DataFrame other, 
+        DataFrame other,
         IntoExprColumn on,
         JoinType how = JoinType.Inner,
         string? suffix = null,
@@ -651,7 +650,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </code>
     /// </example>
     public DataFrame Join(
-        DataFrame other, 
+        DataFrame other,
         IntoExprColumn leftOn,
         IntoExprColumn rightOn,
         JoinType how = JoinType.Inner,
@@ -666,17 +665,17 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         using var right = other.Lazy();
         return Lazy().Join(
-            right, 
-            leftOn, 
-            rightOn, 
-            how, 
-            suffix, 
-            validation, 
-            coalesce, 
-            maintainOrder, 
+            right,
+            leftOn,
+            rightOn,
+            how,
+            suffix,
+            validation,
+            coalesce,
+            maintainOrder,
             joinSide,
-            nullsEqual, 
-            sliceOffset, 
+            nullsEqual,
+            sliceOffset,
             sliceLen
         ).Collect();
     }
@@ -700,17 +699,17 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         using var right = other.Lazy();
         return Lazy().Join(
-            right, 
-            leftOn, 
-            rightOn, 
-            how, 
-            suffix, 
-            validation, 
-            coalesce, 
-            maintainOrder, 
+            right,
+            leftOn,
+            rightOn,
+            how,
+            suffix,
+            validation,
+            coalesce,
+            maintainOrder,
             joinSide,
-            nullsEqual, 
-            sliceOffset, 
+            nullsEqual,
+            sliceOffset,
             sliceLen
         ).Collect();
     }
@@ -730,7 +729,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="sliceOffset">Slice the result starting at this offset.</param>
     /// <param name="sliceLen">Length of the slice.</param>
     public DataFrame Join(
-        DataFrame other, 
+        DataFrame other,
         IEnumerable<string> on,
         JoinType how = JoinType.Inner,
         string? suffix = null,
@@ -744,16 +743,16 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         using var right = other.Lazy();
         return Lazy().Join(
-            right, 
+            right,
             on,
-            how, 
-            suffix, 
-            validation, 
-            coalesce, 
-            maintainOrder, 
+            how,
+            suffix,
+            validation,
+            coalesce,
+            maintainOrder,
             joinSide,
-            nullsEqual, 
-            sliceOffset, 
+            nullsEqual,
+            sliceOffset,
             sliceLen
         ).Collect();
     }
@@ -772,16 +771,16 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         using var right = other.Lazy();
         return Lazy().Join(
-            right, 
+            right,
             on,
-            how, 
-            suffix, 
-            validation, 
-            coalesce, 
-            maintainOrder, 
+            how,
+            suffix,
+            validation,
+            coalesce,
+            maintainOrder,
             joinSide,
-            nullsEqual, 
-            sliceOffset, 
+            nullsEqual,
+            sliceOffset,
             sliceLen
         ).Collect();
     }
@@ -805,17 +804,17 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         using var right = other.Lazy();
         return Lazy().Join(
-            right, 
-            leftOn, 
-            rightOn, 
-            how, 
-            suffix, 
-            validation, 
-            coalesce, 
-            maintainOrder, 
+            right,
+            leftOn,
+            rightOn,
+            how,
+            suffix,
+            validation,
+            coalesce,
+            maintainOrder,
             joinSide,
-            nullsEqual, 
-            sliceOffset, 
+            nullsEqual,
+            sliceOffset,
             sliceLen
         ).Collect();
     }
@@ -839,16 +838,16 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         using var right = other.Lazy();
         return Lazy().Join(
-            right, 
-            on, 
-            how, 
-            suffix, 
-            validation, 
-            coalesce, 
-            maintainOrder, 
+            right,
+            on,
+            how,
+            suffix,
+            validation,
+            coalesce,
+            maintainOrder,
             joinSide,
-            nullsEqual, 
-            sliceOffset, 
+            nullsEqual,
+            sliceOffset,
             sliceLen
         ).Collect();
     }
@@ -917,7 +916,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         using var right = other.Lazy();
         return Lazy().JoinAsOf(
             right, on, tolerance, by, strategy,
-            allowEq, checkSorted, suffix, validation, coalesce, 
+            allowEq, checkSorted, suffix, validation, coalesce,
             maintainOrder, joinSide, nullsEqual, sliceOffset, sliceLen
         ).Collect();
     }
@@ -948,8 +947,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         using var right = other.Lazy();
         return Lazy().JoinAsOf(
-            right, leftOn, rightOn,tolerance, leftBy, rightBy,  strategy,
-            allowEq, checkSorted, suffix, validation, coalesce, 
+            right, leftOn, rightOn, tolerance, leftBy, rightBy, strategy,
+            allowEq, checkSorted, suffix, validation, coalesce,
             maintainOrder, joinSide, nullsEqual, sliceOffset, sliceLen
         ).Collect();
     }
@@ -969,8 +968,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         using var right = other.Lazy();
         return Lazy().JoinWhere(
-            right, predicates,how,
-            suffix, validation, coalesce, 
+            right, predicates, how,
+            suffix, validation, coalesce,
             maintainOrder, nullsEqual
         ).Collect();
     }
@@ -990,34 +989,33 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool nullsEqual = false)
     {
         return JoinWhere(
-            other, 
-            [predicate], 
+            other,
+            [predicate],
             how, suffix, validation, coalesce, maintainOrder, nullsEqual
         );
     }
 
     /// <summary>
-    /// Note: You cannot use optional parameters (like 'how' or 'suffix') with this overload. Use collection expressions `[...]` instead.
     /// Usage: lf.JoinWhere(other, Pl.Col("A") &gt; Pl.Col("B"), Pl.Col("C") > 0)
     /// </summary>
     public DataFrame JoinWhere(DataFrame other, params IntoExprColumn[] predicates)
     {
         if (predicates.Length == 0) return this;
-        
+
         return JoinWhere(other, (IEnumerable<IntoExprColumn>)predicates);
     }
     /// <inheritdoc cref="LazyFrame.MergeSorted(LazyFrame, string, bool)"/>
-    public DataFrame MergeSorted(DataFrame other, string key,bool maintainOrder=false)
+    public DataFrame MergeSorted(DataFrame other, string key, bool maintainOrder = false)
     {
-        using var right = other.Lazy();  
+        using var right = other.Lazy();
         using var left = Lazy();
-        return left.MergeSorted(right,key,maintainOrder).Collect();
+        return left.MergeSorted(right, key, maintainOrder).Collect();
     }
     /// <inheritdoc cref="LazyFrame.MergeSorted(LazyFrame, string[], bool)"/>
-    public DataFrame MergeSorted(DataFrame other, string[] key,bool maintainOrder=false)
+    public DataFrame MergeSorted(DataFrame other, string[] key, bool maintainOrder = false)
     {
-        using var right = other.Lazy();  
+        using var right = other.Lazy();
         using var left = Lazy();
-        return left.MergeSorted(right,key,maintainOrder).Collect();
+        return left.MergeSorted(right, key, maintainOrder).Collect();
     }
 }

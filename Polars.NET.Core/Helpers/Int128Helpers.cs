@@ -19,10 +19,10 @@ public static partial class ArrayHelper
         var values = GC.AllocateUninitializedArray<Int128>(len);
         int byteLen = (len + 7) >> 3;
 
-        byte[]? validity = null; 
+        byte[]? validity = null;
 
         // Cache static field to local for speed
-        bool isTypeA = IsInt128TypeA; 
+        bool isTypeA = IsInt128TypeA;
 
         fixed (Int128?* pSrc = data)
         fixed (Int128* pDstVal = values)
@@ -36,7 +36,7 @@ public static partial class ArrayHelper
                 {
                     // 1. Load 32 bytes
                     Vector256<byte> raw = Vector256.Load((byte*)pSrc + (i * 32));
-                    
+
                     byte hasValue;
 
                     // 2. Get Value and Bool
@@ -54,18 +54,18 @@ public static partial class ArrayHelper
                     }
 
                     // 3. Validity Check
-                    if (hasValue != 1) 
+                    if (hasValue != 1)
                     {
                         if (validity == null)
                         {
-                            validity = new byte[byteLen]; 
+                            validity = new byte[byteLen];
                             validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                            
+
                             // Backfill 1s
                             int bytesToFill = i >> 3;
                             if (bytesToFill > 0) Unsafe.InitBlock(ref validRef, 0xFF, (uint)bytesToFill);
                             int remainingBits = i & 7;
-                            if (remainingBits > 0) 
+                            if (remainingBits > 0)
                             {
                                 Unsafe.Add(ref validRef, bytesToFill) = (byte)((1 << remainingBits) - 1);
                             }
@@ -74,7 +74,7 @@ public static partial class ArrayHelper
 
                     if (validity != null)
                     {
-                        if (Unsafe.IsNullRef(ref validRef)) 
+                        if (Unsafe.IsNullRef(ref validRef))
                         {
                             validRef = ref MemoryMarshal.GetArrayDataReference(validity);
                         }
@@ -94,9 +94,9 @@ public static partial class ArrayHelper
             if (i < len)
             {
                 UnzipScalarLoop(
-                    ref Unsafe.AsRef<Int128?>(pSrc), 
-                    ref Unsafe.AsRef<Int128>(pDstVal), 
-                    ref validity, 
+                    ref Unsafe.AsRef<Int128?>(pSrc),
+                    ref Unsafe.AsRef<Int128>(pDstVal),
+                    ref validity,
                     i, len, defaultValue
                 );
             }

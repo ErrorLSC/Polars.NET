@@ -10,9 +10,9 @@ namespace Polars.CSharp;
 /// <summary>
 /// Represents a Polars Schema (Name -> DataType mapping).
 /// </summary>
-public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,IReadOnlyDictionary<string, DataType>, IEnumerable<Field>
+public class PolarsSchema : IDisposable, IPolarsSchema, IEquatable<PolarsSchema>, IReadOnlyDictionary<string, DataType>, IEnumerable<Field>
 {
-    internal SchemaHandle Handle { get; private set; }
+    internal SchemaHandle Handle { get; }
     private bool _disposed;
     private IReadOnlyList<Field>? _fields;
 
@@ -94,7 +94,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
     {
         ArgumentNullException.ThrowIfNull(type);
         SchemaHandle handle = PolarsWrapper.NewSchemaFromType(type);
-        return new PolarsSchema(handle);
+        return new(handle);
     }
 
     /// <summary>
@@ -182,7 +182,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
         get => this[key];
     }
     IEnumerable<IPolarsDataType> IReadOnlyDictionary<string, IPolarsDataType>.Values
-        => Values.Select(dt => (IPolarsDataType)dt);
+        => Values.Cast<IPolarsDataType>();
     bool IReadOnlyDictionary<string, IPolarsDataType>.TryGetValue(string key, out IPolarsDataType value)
     {
         bool found = TryGetValue(key, out DataType dt);
@@ -206,14 +206,14 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
     /// Returns a n-row null-filled DataFrame with an identical schema. n can be greater than the current number of rows in the DataFrame.
     /// </summary>
     /// <returns>An empty DataFrame with columns and types matching the schema.</returns>
-    public DataFrame ToDataFrame(long length=0)
+    public DataFrame ToDataFrame(long length = 0)
         => new(PolarsWrapper.DataFrameFromSchema(Handle, (uint)length));
     /// <summary>
     /// Create an empty copy of the current LazyFrame, with zero to ‘n’ rows.
     /// Returns a copy with an identical schema but no data.
     /// </summary>
     /// <returns>An empty DataFrame with columns and types matching the schema.</returns>
-    public LazyFrame ToLazyFrame(long length=0)
+    public LazyFrame ToLazyFrame(long length = 0)
     {
         using var df = new DataFrame(PolarsWrapper.DataFrameFromSchema(Handle, (uint)length));
         return df.Lazy();
@@ -242,6 +242,86 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
 
         sb.Append('}');
         return sb.ToString();
+    }
+    /// <summary>
+    /// Generates a clean HTML table representation of the Schema for interactive environments.
+    /// </summary>
+    /// <returns>An HTML formatted string representing the schema fields and types.</returns>
+    public string ToHtml()
+    {
+        if (Handle.IsInvalid)
+        {
+            return "<div class='pl-dim'>PolarsSchema: <i>(Invalid Handle)</i></div>";
+        }
+
+        ulong len = PolarsWrapper.GetSchemaLen(Handle);
+
+        var sb = new StringBuilder();
+        sb.Append(@"
+<style>
+.pl-schema-box { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; color: inherit; }
+.pl-schema-title { font-family: sans-serif; font-size: 12px; opacity: 0.8; margin-bottom: 6px; }
+.pl-schema-table { font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; border-collapse: collapse; border: 1px solid rgba(128, 128, 128, 0.2); }
+.pl-schema-table th { font-weight: bold; text-align: left; padding: 4px 12px; border-bottom: 2px solid rgba(128, 128, 128, 0.3); color: inherit; }
+.pl-schema-table td { padding: 4px 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.15); color: inherit; }
+.pl-schema-table tr:nth-child(even) { background-color: rgba(128, 128, 128, 0.05); }
+.pl-schema-type { color: #007acc; font-weight: 500; }
+</style>");
+
+        sb.Append("<div class='pl-schema-box'>");
+        sb.Append($"<div class='pl-schema-title'>Polars Schema: <b>({len} fields)</b></div>");
+        sb.Append("<table class='pl-schema-table'>");
+        sb.Append("<thead><tr><th>Field</th><th>DataType</th></tr></thead>");
+        sb.Append("<tbody>");
+
+        for (ulong i = 0; i < len; i++)
+        {
+            PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out DataTypeHandle dtHandle);
+            using var dt = DataType.CreateFromHandle(dtHandle);
+
+            sb.Append("<tr>");
+            sb.Append($"<td>{System.Net.WebUtility.HtmlEncode(name)}</td>");
+            sb.Append($"<td class='pl-schema-type'>{System.Net.WebUtility.HtmlEncode(dt.ToString())}</td>");
+            sb.Append("</tr>");
+        }
+
+        sb.Append("</tbody></table></div>");
+        return sb.ToString();
+    }
+    /// <summary>
+    /// Custom rendering hook for LINQPad Dump().
+    /// </summary>
+    object ToDump()
+    {
+        string html = ToHtml();
+
+        var utilType = Type.GetType("LINQPad.Util, LINQPad")
+                    ?? Type.GetType("LINQPad.Util, LINQPad.Runtime")
+                    ?? AppDomain.CurrentDomain.GetAssemblies()
+                        .FirstOrDefault(a => a.GetName().Name?.StartsWith("LINQPad") is true)
+                        ?.GetType("LINQPad.Util");
+
+        if (utilType != null)
+        {
+            var rawHtmlMethod = utilType.GetMethod("RawHtml", [typeof(string)]);
+            if (rawHtmlMethod != null)
+            {
+                return rawHtmlMethod.Invoke(null, [html]) ?? html;
+            }
+        }
+
+        if (Handle.IsInvalid) return new Dictionary<string, string>();
+
+        var dict = new Dictionary<string, string>();
+        ulong len = PolarsWrapper.GetSchemaLen(Handle);
+        for (ulong i = 0; i < len; i++)
+        {
+            PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out DataTypeHandle dtHandle);
+            using var dt = DataType.CreateFromHandle(dtHandle);
+            dict[name] = dt.ToString();
+        }
+
+        return dict;
     }
     /// <summary>
     /// Convert a Polars Schema to an Apache.Arrow.Schema.

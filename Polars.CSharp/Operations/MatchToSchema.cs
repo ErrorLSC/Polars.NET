@@ -22,17 +22,17 @@ public class MissingColumnAction
     /// Insert the missing column with null values.
     /// </summary>
     public static MissingColumnAction Insert() => new(PlMissingColumnsPolicyType.Insert);
-    
+
     /// <summary>
     /// Raise an error if the column is missing.
     /// </summary>
     public static MissingColumnAction Raise() => new(PlMissingColumnsPolicyType.Raise);
-    
+
     /// <summary>
     /// Insert the missing column and fill it with the evaluated expression or literal value.
     /// </summary>
     /// <param name="expr">The expression or primitive value to fill the missing column with.</param>
-    public static MissingColumnAction InsertWith(IntoExprColumn expr) 
+    public static MissingColumnAction InsertWith(IntoExprColumn expr)
         => new(PlMissingColumnsPolicyType.InsertWith, expr.Consume());
 }
 
@@ -47,25 +47,25 @@ public record MatchSchemaConfig
     /// Defaults to <see cref="MissingColumnAction.Raise"/>.
     /// </summary>
     public MissingColumnAction MissingColumns { get; init; } = MissingColumnAction.Raise();
-    
+
     /// <summary>
     /// Policy for handling missing fields within nested Struct columns.
     /// Defaults to <see cref="MissingColumnsPolicy.Raise"/>.
     /// </summary>
     public MissingColumnsPolicy MissingStructFields { get; init; } = MissingColumnsPolicy.Raise;
-    
+
     /// <summary>
     /// Policy for handling extra fields within nested Struct columns that are not in the target schema.
     /// Defaults to <see cref="ExtraColumnsPolicy.Raise"/>.
     /// </summary>
     public ExtraColumnsPolicy ExtraStructFields { get; init; } = ExtraColumnsPolicy.Raise;
-    
+
     /// <summary>
     /// Policy for handling integer type casting (e.g., allowing upcast from Int32 to Int64).
     /// Defaults to <see cref="UpcastOrForbid.Forbid"/>.
     /// </summary>
     public UpcastOrForbid IntegerCast { get; init; } = UpcastOrForbid.Forbid;
-    
+
     /// <summary>
     /// Policy for handling floating-point type casting (e.g., allowing upcast from Float32 to Float64).
     /// Defaults to <see cref="UpcastOrForbid.Forbid"/>.
@@ -81,7 +81,7 @@ public record MatchSchemaConfig
         FloatCast = (PlUpcastOrForbid)FloatCast
     };
 }
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Align the Frame's schema to the target schema.
@@ -104,7 +104,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
 
         var coreDefault = (defaultConfig ?? new MatchSchemaConfig()).ToCoreConfig();
 
-        Dictionary<string,PolarsWrapper.PlMatchToSchemaConfig>? coreOverrides = null;
+        Dictionary<string, PolarsWrapper.PlMatchToSchemaConfig>? coreOverrides = null;
         if (columnOverrides != null && columnOverrides.Count > 0)
         {
             coreOverrides = new Dictionary<string, PolarsWrapper.PlMatchToSchemaConfig>(columnOverrides.Count);
@@ -126,7 +126,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <inheritdoc cref="LazyFrame.MatchToSchema(PolarsSchema, ExtraColumnsPolicy, MatchSchemaConfig?, IReadOnlyDictionary{string, MatchSchemaConfig}?)"/>
     public DataFrame MatchToSchema(
@@ -134,5 +134,5 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         ExtraColumnsPolicy extraColumns = ExtraColumnsPolicy.Raise,
         MatchSchemaConfig? defaultConfig = null,
         IReadOnlyDictionary<string, MatchSchemaConfig>? columnOverrides = null)
-    => Lazy().MatchToSchema(schema,extraColumns,defaultConfig,columnOverrides).Collect();
+    => Lazy().MatchToSchema(schema, extraColumns, defaultConfig, columnOverrides).Collect();
 }

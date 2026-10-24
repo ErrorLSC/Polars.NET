@@ -1,6 +1,7 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
@@ -17,9 +18,9 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </code>
     /// </example>
     public static LazyFrame Concat(
-        IEnumerable<LazyFrame> lfs, 
-        ConcatType how = ConcatType.Vertical, 
-        bool rechunk = false, 
+        IEnumerable<LazyFrame> lfs,
+        ConcatType how = ConcatType.Vertical,
+        bool rechunk = false,
         bool parallel = true)
     {
         var lfClones = lfs.Select(l => l.CloneHandle()).ToArray();
@@ -28,11 +29,11 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     private static DataFrame ConcatInternal(
-        IEnumerable<DataFrame> dfs, 
-        PlConcatType how, 
+        IEnumerable<DataFrame> dfs,
+        PlConcatType how,
         bool checkDuplicates,
         bool strict = true,
         bool unitLengthAsScalar = false)
@@ -42,7 +43,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         var handles = dfList.Select(df => df.Clone().Handle).ToArray();
 
-        var h = PolarsWrapper.Concat(handles, how, checkDuplicates,strict,unitLengthAsScalar);
+        var h = PolarsWrapper.Concat(handles, how, checkDuplicates, strict, unitLengthAsScalar);
         return new DataFrame(h);
     }
     /// <summary>
@@ -99,7 +100,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </code>
     /// </example>
     public static DataFrame Concat(IEnumerable<DataFrame> dfs)
-        =>ConcatInternal(dfs, PlConcatType.Vertical, true);
+        => ConcatInternal(dfs, PlConcatType.Vertical, true);
     /// <summary>
     /// Horizontal concatenation of DataFrames.
     /// </summary>
@@ -115,7 +116,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool checkDuplicates = true,
         bool strict = true,
         bool unitLengthAsScalar = false)
-            => ConcatInternal(dfs, PlConcatType.Horizontal, checkDuplicates, strict,unitLengthAsScalar);
+            => ConcatInternal(dfs, PlConcatType.Horizontal, checkDuplicates, strict, unitLengthAsScalar);
     /// <summary>
     /// Diagonal concatenation of DataFrames.
     /// </summary>

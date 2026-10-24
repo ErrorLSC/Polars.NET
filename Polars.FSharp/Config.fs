@@ -4,8 +4,8 @@ open System
 open System.Collections.Generic
 open Polars.NET.Core
 
-[<RequireQualifiedAccess>] 
-type Active = 
+[<RequireQualifiedAccess>]
+type Active =
     | Set of bool
     | ResetToDefault
 
@@ -13,36 +13,39 @@ type Active =
         match this with
         | Set true -> Nullable true
         | Set false -> Nullable false
-        | ResetToDefault -> Nullable ()
+        | ResetToDefault -> Nullable()
 
-[<RequireQualifiedAccess>] 
-type CharSet = 
+[<RequireQualifiedAccess>]
+type CharSet =
     | Set of char
     | ResetToDefault
+
     member internal this.ToNative() =
         match this with
         | Set cr -> Nullable cr
-        | ResetToDefault -> Nullable ()
+        | ResetToDefault -> Nullable()
 
-[<RequireQualifiedAccess>] 
+[<RequireQualifiedAccess>]
 type NumSet =
     | Set of int
     | ResetToDefault
+
     member internal this.ToNative() =
         match this with
         | Set i -> Nullable i
-        | ResetToDefault -> Nullable ()
+        | ResetToDefault -> Nullable()
 
-[<RequireQualifiedAccess>] 
+[<RequireQualifiedAccess>]
 type ChunkSet =
     | Set of uint64
     | ResetToDefault
+
     member internal this.ToNative() =
         match this with
         | Set i -> Nullable i
-        | ResetToDefault -> Nullable ()
+        | ResetToDefault -> Nullable()
 
-[<RequireQualifiedAccess>] 
+[<RequireQualifiedAccess>]
 type ConfigScope =
     | SetOnly
     | All
@@ -50,35 +53,40 @@ type ConfigScope =
 /// <summary>
 /// Config for Polars.FSharp
 /// </summary>
-[<RequireQualifiedAccess>] 
+[<RequireQualifiedAccess>]
 module Config =
-    let internal setEnv (k, v) = 
+    let internal setEnv (k, v) =
         PolarsWrapper.SetEnvVar(k, v)
         PolarsWrapper.ReloadEnvVar k
-    let internal setEnvKvp (kvp: KeyValuePair<string, string>) = 
-        setEnv(kvp.Key, kvp.Value)
+
+    let internal setEnvKvp (kvp: KeyValuePair<string, string>) = setEnv (kvp.Key, kvp.Value)
     /// Inject Environment var to Rust
-    let set (key: string) (value: string) = (key,value) |> setEnv
+    let set (key: string) (value: string) = (key, value) |> setEnv
 
     /// Inject Environment vars to Rust from KeyValuePair sequence
     let setMap (variables: Map<string, string>) =
         ArgumentNullException.ThrowIfNull(variables)
         variables |> Seq.iter setEnvKvp
+
     /// Inject Environment vars to Rust from a sequence of tuples
     let setMany (variables: seq<string * string>) =
         ArgumentNullException.ThrowIfNull(variables)
         variables |> Seq.iter setEnv
+
     /// <summary>
     /// Save the current set of Config options as a JSON string.
     /// </summary>
-    let save(scope:ConfigScope) = 
+    let save (scope: ConfigScope) =
         match scope with
-        | ConfigScope.SetOnly -> CoreConfig.Save(ifSet=true)
-        | ConfigScope.All -> CoreConfig.Save(ifSet=false)
+        | ConfigScope.SetOnly -> CoreConfig.Save(ifSet = true)
+        | ConfigScope.All -> CoreConfig.Save(ifSet = false)
+
     /// <summary>
     /// Save the current set of Config options as a JSON file.
     /// </summary>
-    let saveToFile path = CoreConfig.SaveToFile(path=path,ifSet=false)
+    let saveToFile path =
+        CoreConfig.SaveToFile(path = path, ifSet = false)
+
     /// <summary>
     /// Load (and set) previously saved Config options from a JSON string.Only already set parameter will be recorded.
     /// </summary>
@@ -90,21 +98,26 @@ module Config =
     /// <summary>
     /// Reset all polars Config settings to their default state.
     /// </summary>
-    let restoreDefaults() = CoreConfig.RestoreDefaults()
+    let restoreDefaults () = CoreConfig.RestoreDefaults()
+
     /// <summary>
     /// Show the current state of all Config variables in the environment as a dict.
     /// </summary>
-    let status (scope:ConfigScope) = 
+    let status (scope: ConfigScope) =
         match scope with
-        | ConfigScope.SetOnly -> CoreConfig.GetState(ifSet=true,envOnly=false)
-        | ConfigScope.All -> CoreConfig.GetState(ifSet=false,envOnly=false)
+        | ConfigScope.SetOnly -> CoreConfig.GetState(ifSet = true, envOnly = false)
+        | ConfigScope.All -> CoreConfig.GetState(ifSet = false, envOnly = false)
+
+    /// <summary>
     /// Safely retrieves the current configuration value for the specified key.
     /// Matches keys in a case-insensitive manner.
     /// </summary>
     let tryGet (key: string) : string option =
-        if String.IsNullOrEmpty(key) then None
+        if String.IsNullOrEmpty(key) then
+            None
         else
-            let currentStatus = status ConfigScope.All 
+            let currentStatus = status ConfigScope.All
+
             match currentStatus.TryGetValue(key) with
             | true, value -> Some value
             | false, _ ->
@@ -113,7 +126,7 @@ module Config =
                 | false, _ -> None
 
     /// <summary>
-    /// Retrieves the current configuration value for the specified key, 
+    /// Retrieves the current configuration value for the specified key,
     /// or returns a default value if the key is not found.
     /// </summary>
     let getOr (defaultValue: string) (key: string) : string =
@@ -132,6 +145,7 @@ module Config =
     let withConfig (actions: list<unit -> unit>) (f: unit -> 'T) : 'T =
         ArgumentNullException.ThrowIfNull actions
         let backupPayload = CoreConfig.Save(ifSet = false)
+
         try
             actions |> List.iter (fun f -> f ())
             PolarsWrapper.ReloadEnvVarAll()
@@ -166,14 +180,14 @@ module Config =
     /// Strip trailing zeros from Decimal data type values.
     /// </summary>
     let trimDecimalZeros (active: Active) =
-        fun () -> CoreConfig.TrimDecimalZeros <- active.ToNative() 
+        fun () -> CoreConfig.TrimDecimalZeros <- active.ToNative()
 
     /// <summary>
     /// Set which engine to use by default.
     /// </summary>
     let engineAffinity (engine: Engine) =
-        fun () -> CoreConfig.EngineAffinity <- Nullable (engine.ToNative())
-                
+        fun () -> CoreConfig.EngineAffinity <- Nullable(engine.ToNative())
+
     /// <summary>
     /// Control the number of decimal places displayed for floating point values.
     /// </summary>
@@ -244,7 +258,7 @@ module Config =
     /// Print the DataFrame shape information below the data when displaying tables.
     /// </summary>
     let tableDataFrameShapeBelow (active: Active) =
-        fun () ->  CoreConfig.TableDataFrameShapeBelow <- active.ToNative()
+        fun () -> CoreConfig.TableDataFrameShapeBelow <- active.ToNative()
 
     /// <summary>
     /// Sets the text/ASCII formatting style for outputting DataFrames.
@@ -256,7 +270,7 @@ module Config =
     /// Hide table column data types (i64, f64, str etc.).
     /// </summary>
     let tableHideColumnDataTypes (active: Active) =
-        fun () ->  CoreConfig.TableHideColumnDataTypes <- active.ToNative()
+        fun () -> CoreConfig.TableHideColumnDataTypes <- active.ToNative()
 
     /// <summary>
     /// Hide table column names.
@@ -287,3 +301,21 @@ module Config =
     /// </summary>
     let deltaMaxRetries (retries: NumSet) =
         fun () -> CoreConfig.PolarsDeltaMaxRetry <- retries.ToNative()
+
+    /// <summary>
+    /// Set the maximum capacity for the LINQ Query Plan Cache.
+    /// </summary>
+    let queryCacheCapacity (capacity: NumSet) =
+        fun () -> CoreConfig.QueryCacheCapacity <- capacity.ToNative()
+
+    /// <summary>
+    /// Enable or disable the LINQ Query Plan Cache globally.
+    /// </summary>
+    let queryCacheEnabled (active: Active) =
+        fun () -> CoreConfig.QueryCacheEnabled <- active.ToNative()
+
+    /// <summary>
+    /// Sets the client-side evaluation policy for operations or expressions that cannot be pushed down to the native Polars engine.
+    /// </summary>
+    let clientEvaluationPolicy (policy: ClientEvaluationPolicy) =
+        fun () -> CoreConfig.ClientEvaluationPolicy <- policy

@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Apache.Arrow.C;
 
 namespace Polars.NET.Core.Native;
+
 unsafe internal partial class NativeBindings
 {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -9,19 +10,19 @@ unsafe internal partial class NativeBindings
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int UdfCallback(
-        CArrowArray* inArray, 
-        CArrowSchema* inSchema, 
-        CArrowArray* outArray, 
+        CArrowArray* inArray,
+        CArrowSchema* inSchema,
+        CArrowArray* outArray,
         CArrowSchema* outSchema,
         byte* msgBuf
     );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_map(
-        ExprHandle expr, 
-        UdfCallback callback, 
+        ExprHandle expr,
+        UdfCallback callback,
         DataTypeHandle returnType,
         CleanupCallback cleanup,
-        nint userData          
+        nint userData
     );
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -38,7 +39,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static unsafe partial ExprHandle pl_expr_map_many(
         ExprHandle baseExpr,
-        nint[] additionalArgs,    
+        nint[] additionalArgs,
         nuint additionalCount,
         MultiUdfCallback callback,
         DataTypeHandle outputType,

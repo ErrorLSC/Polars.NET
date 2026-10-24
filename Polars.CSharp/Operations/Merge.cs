@@ -25,7 +25,7 @@ public class MergeContext
     /// References a column from the incoming Source DataFrame.
     /// </summary>
     public Expr Source(string columnName) => Pl.Col(columnName + _sourceSuffix);
-    
+
 
     /// <summary>
     /// References a column from the existing Target DataFrame.
@@ -63,9 +63,9 @@ public class MergeSetterBuilder
     public MergeSetterBuilder Set(IntoSelector selector, Func<MergeContext, string, IntoExprColumn> valueBuilder)
     {
         using var sel = selector.Consume();
-        
+
         var cols = _target.Select(sel).Schema.Names;
-        
+
         foreach (var colName in cols)
         {
             Setters[colName] = valueBuilder(_ctx, colName);
@@ -91,9 +91,9 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
     protected readonly string _actionCol = "__ACTION";
     protected readonly MergeContext _ctx;
     protected readonly List<(
-        int ActionId, 
-        MergeActionType Type, 
-        Expr Condition, 
+        int ActionId,
+        MergeActionType Type,
+        Expr Condition,
         Dictionary<string, IntoExprColumn>? Setters
     )> _actions = [];
 
@@ -102,9 +102,9 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         _target = target;
         _source = source;
         _on = on;
-        _ctx = new MergeContext(_tmpSfx); 
+        _ctx = new MergeContext(_tmpSfx);
     }
- 
+
     /// <summary>
     /// Update the matched target row. Optionally filtered by a condition and targeting specific columns.
     /// </summary>
@@ -113,11 +113,11 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         Action<MergeSetterBuilder>? set = null)
     {
         Expr cond = condition != null ? condition(_ctx) : Pl.Lit(true);
-        
+
         Dictionary<string, IntoExprColumn>? setters = null;
         if (set != null)
         {
-            var sb = new MergeSetterBuilder(_ctx,_target);
+            var sb = new MergeSetterBuilder(_ctx, _target);
             set(sb);
             setters = sb.Setters;
         }
@@ -141,14 +141,14 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
     /// </summary>
     public TBuilder WhenNotMatchedInsert(
         Func<MergeContext, Expr>? condition = null,
-        Action<MergeSetterBuilder>? set = null) 
+        Action<MergeSetterBuilder>? set = null)
     {
         Expr cond = condition != null ? condition(_ctx) : Pl.Lit(true);
-        
+
         Dictionary<string, IntoExprColumn>? setters = null;
         if (set != null)
         {
-            var sb = new MergeSetterBuilder(_ctx,_target);
+            var sb = new MergeSetterBuilder(_ctx, _target);
             set(sb);
             setters = sb.Setters;
         }
@@ -186,7 +186,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
     public string Explain(bool optimized = true)
     {
         using var ast = BuildAst();
-        
+
         return ast.Explain(optimized);
     }
     protected void ValidateMergePhase()
@@ -198,21 +198,23 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         {
             if (!_srcSchemaCache!.TryGetValue(key, out var srcType))
                 throw new ArgumentException($"Merge Key '{key}' not found in SOURCE table schema.");
-                
+
             if (!_tgtSchemaCache!.TryGetValue(key, out var tgtType))
                 throw new ArgumentException($"Merge Key '{key}' not found in TARGET table schema.");
 
             if (srcType != tgtType)
+            {
                 throw new ArgumentException(
                     $"Merge Key Type Mismatch for column '{key}'! \n" +
                     $"Source: {srcType} \nTarget: {tgtType} \nMerge Keys must have identical types.");
+            }
         }
 
         // =========================================================
         // Data Quality Check (Nulls & Duplicates) 
         // =========================================================
         var mergeKeyExprs = _on.Select(k => (IntoExprColumn)k);
-        
+
         var hasNullExpr = Pl.AnyHorizontal(Cs.ByName(_on).ToExpr().IsNull()).Alias("has_null_key");
 
         var checkLf = _source
@@ -221,7 +223,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
                 hasNullExpr
             )
             .Filter(Pl.Col("group_count") > 1 | Pl.Col("has_null_key"))
-            .Limit(1); 
+            .Limit(1);
 
         using var checkDf = checkLf.Collect();
 
@@ -232,24 +234,24 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
             if (isNullError)
             {
                 throw new InvalidDataException(
-                    $"CRITICAL ERROR: Null values detected in Merge Keys! \n" +
+                    "CRITICAL ERROR: Null values detected in Merge Keys! \n" +
                     $"Merge Keys: [{string.Join(", ", _on)}]");
             }
             else
             {
                 using var exampleDupes = _source
-                    .GroupBy(mergeKeyExprs) 
-                    .Agg(Pl.Len().Alias("duplicate_count")) 
-                    .Filter(Pl.Col("duplicate_count") > 1) 
-                    .Sort("duplicate_count", descending: true) 
-                    .Limit(5) 
-                    .Collect(); 
+                    .GroupBy(mergeKeyExprs)
+                    .Agg(Pl.Len().Alias("duplicate_count"))
+                    .Filter(Pl.Col("duplicate_count") > 1)
+                    .Sort("duplicate_count", descending: true)
+                    .Limit(5)
+                    .Collect();
 
                 throw new InvalidDataException(
-                    $"CRITICAL ERROR: Duplicate keys detected in SOURCE table!\n" +
-                    $"Merge expects unique source keys per checking round.\n" +
+                    "CRITICAL ERROR: Duplicate keys detected in SOURCE table!\n" +
+                    "Merge expects unique source keys per checking round.\n" +
                     $"[Merge Keys]: [{string.Join(", ", _on)}]\n" +
-                    $"--- Duplicate Key Examples (Top 5) ---\n" +
+                    "--- Duplicate Key Examples (Top 5) ---\n" +
                     $"{exampleDupes}");
             }
         }
@@ -265,10 +267,10 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
 
         var allCols = _tgtSchemaCache!.Keys.Union(_srcSchemaCache!.Keys).ToList();
 
-        string tgtVal = "__TGT", srcVal = "__SRC";
-        
+        const string tgtVal = "__TGT", srcVal = "__SRC";
+
         var tgt = _target.WithColumns(Pl.Lit(true).Alias(tgtVal));
-        
+
         var src = _source.Select(
             Pl.All().Name.Suffix(_tmpSfx),
             Pl.Lit(true).Alias(srcVal)
@@ -280,9 +282,9 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         var joined = tgt.Join(
             other: src,
             leftOn: leftOn,
-            rightOn: rightOn, 
+            rightOn: rightOn,
             how: _actions.Any(a => a.Type == MergeActionType.NotMatchedInsert) ? JoinType.Outer : JoinType.Left,
-            coalesce: JoinCoalesce.KeepColumns, 
+            coalesce: JoinCoalesce.KeepColumns,
             maintainOrder: _maintainOrder);
 
         var isMatched = Pl.Col(tgtVal).IsNotNull() & Pl.Col(srcVal).IsNotNull();
@@ -291,7 +293,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
 
         // Row-level Action Arbitration
         Expr actionExpr = Pl.When(isTargetOnly).Then(0).When(isMatched).Then(0).Otherwise(-1);
-        
+
         for (int i = _actions.Count - 1; i >= 0; i--)
         {
             var action = _actions[i];
@@ -314,19 +316,19 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
             var tgtCol = _tgtSchemaCache!.ContainsKey(colName) ? Pl.Col(colName) : Pl.LitNull();
             var srcColTmp = _srcSchemaCache!.ContainsKey(colName) ? Pl.Col(colName + _tmpSfx) : Pl.LitNull();
 
-            Expr colUpdateExpr = tgtCol; 
+            Expr colUpdateExpr = tgtCol;
 
             for (int i = _actions.Count - 1; i >= 0; i--)
             {
                 var action = _actions[i];
-                
+
                 if (action.Type == MergeActionType.MatchedUpdate || action.Type == MergeActionType.NotMatchedInsert)
                 {
                     // Scenario A: Set() for rows
                     if (action.Setters != null && action.Setters.TryGetValue(colName, out var userExpr))
                     {
                         colUpdateExpr = Pl.When(Pl.Col(_actionCol) == action.ActionId)
-                                          .Then(userExpr) 
+                                          .Then(userExpr)
                                           .Otherwise(colUpdateExpr);
                     }
                     // Scenario B: Update all column
@@ -361,8 +363,8 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
 
         return joined.Drop(
             Cs.EndsWith(_tmpSfx),
-            tgtVal, 
-            srcVal, 
+            tgtVal,
+            srcVal,
             _actionCol
         );
     }
@@ -395,7 +397,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         var matchedActions = actionsToPrint
             .Where(a => a.Type == MergeActionType.MatchedUpdate || a.Type == MergeActionType.MatchedDelete)
             .ToList();
-            
+
         var notMatchedActions = actionsToPrint
             .Where(a => a.Type == MergeActionType.NotMatchedInsert || a.Type == MergeActionType.NotMatchedBySourceDelete)
             .ToList();
@@ -414,8 +416,8 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
                     _ => action.Type.ToString()
                 };
 
-                string inlineCond = action.Condition.ToString().Replace(_tmpSfx, ".Source"); 
-                bool isAlwaysTrue = inlineCond.Equals("true", StringComparison.OrdinalIgnoreCase) || 
+                string inlineCond = action.Condition.ToString().Replace(_tmpSfx, ".Source");
+                bool isAlwaysTrue = inlineCond.Equals("true", StringComparison.OrdinalIgnoreCase) ||
                                     inlineCond.Equals("Literal(true)", StringComparison.OrdinalIgnoreCase);
 
                 // --- WHERE ---
@@ -424,11 +426,11 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
                     if (verbose)
                     {
                         string tree = action.Condition.Meta.FormatTree(displayAsDot: false, schema: schema);
-                        
+
                         string replacement = ".Source".PadRight(_tmpSfx.Length);
-                        tree = tree.Replace(_tmpSfx, replacement); 
-                        
-                        string indentedTree = string.Join("\n", tree.Split('\n').Select(line => "      " + line)); 
+                        tree = tree.Replace(_tmpSfx, replacement);
+
+                        string indentedTree = string.Join("\n", tree.Split('\n').Select(line => "      " + line));
                         sb.AppendLine($"  [{i + 1}] {actionName} WHERE:");
                         sb.AppendLine(indentedTree);
                     }
@@ -445,7 +447,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
                 // --- SET ---
                 if (action.Type == MergeActionType.MatchedUpdate || action.Type == MergeActionType.NotMatchedInsert)
                 {
-                    if (action.Setters != null && action.Setters.Count > 0)
+                    if (action.Setters?.Count > 0)
                     {
                         sb.AppendLine($"      SET ({action.Setters.Count} overrides):");
                         foreach (var kvp in action.Setters)
@@ -483,7 +485,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         bool hasInsert = actionsToPrint.Any(a => a.Type == MergeActionType.NotMatchedInsert);
         string joinReason = hasInsert ? "(Upgraded to Outer to support INSERT)" : "(Left join sufficient)";
         JoinType expectedJoinType = hasInsert ? JoinType.Outer : JoinType.Left;
-        
+
         sb.AppendLine($"  Type: {expectedJoinType} {joinReason}");
         sb.AppendLine($"  MaintainOrder: {_maintainOrder}");
 
@@ -498,7 +500,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
     public TBuilder InspectPlan(bool verbose = false, Action<string>? logger = null)
     {
         string plan = ToMergePlanString(verbose);
-        
+
         string output = $"""
             ========== POLARS.NET MERGE PLAN ==========
             {plan}
@@ -518,39 +520,39 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
     }
 
     /// <summary>
-    /// Returns the high-level logical merge plan (Clean mode). 
+    /// Returns the high-level logical merge plan (Clean mode).
     /// </summary>
     public override string ToString() => ToMergePlanString(verbose: false);
 }
 
 public class DataFrameMergeBuilder : MergeBuilderBase<DataFrameMergeBuilder>
 {
-    internal DataFrameMergeBuilder(LazyFrame target, LazyFrame source, string[] on) 
+    internal DataFrameMergeBuilder(LazyFrame target, LazyFrame source, string[] on)
         : base(target, source, on) { }
 
     /// <summary>
     /// Executes the merge operation eagerly and returns a materialized DataFrame.
     /// </summary>
-    public DataFrame Execute(Engine engine=Engine.Auto,bool streaming=false)
-    {   
-         _srcSchemaCache = _source.CollectSchema().ToFrozenDictionary();
+    public DataFrame Execute(Engine engine = Engine.Auto)
+    {
+        _srcSchemaCache = _source.CollectSchema().ToFrozenDictionary();
         _tgtSchemaCache = _target.Schema.ToFrozenDictionary();
         ValidateMergePhase();
-        return BuildAst().Collect(engine,streaming);
+        return BuildAst().Collect(engine);
     }
-    
+
 }
 
 public class LazyFrameMergeBuilder : MergeBuilderBase<LazyFrameMergeBuilder>
 {
-    internal LazyFrameMergeBuilder(LazyFrame target, LazyFrame source, string[] on) 
+    internal LazyFrameMergeBuilder(LazyFrame target, LazyFrame source, string[] on)
         : base(target, source, on) { }
 
     /// <summary>
     /// Computes the merge execution plan and returns a LazyFrame.
     /// </summary>
     public LazyFrame Execute()
-    {         
+    {
         _srcSchemaCache = _source.CollectSchema().ToFrozenDictionary();
         _tgtSchemaCache = _target.Schema.ToFrozenDictionary();
         ValidateMergePhase();
@@ -570,9 +572,9 @@ public partial class LazyFrame
     public LazyFrameMergeBuilder Merge(LazyFrame source, IntoSelector on)
     {
         using var selector = on.Consume();
-        
+
         string[] resolvedOn = Cs.ExpandSelector(this, selector);
-        
+
         if (resolvedOn.Length == 0)
             throw new ArgumentException("The provided selector/expression did not match any columns in the target frame.");
         var missingInSource = resolvedOn.Except(source.Schema.ColumnNames).ToList();
@@ -586,7 +588,7 @@ public partial class LazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Initiates a Merge (Upsert) builder to apply changes from a source DataFrame.
@@ -594,14 +596,14 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="source">The source DataFrame containing updates/inserts.</param>
     /// <param name="on">The column names to merge on.</param>
     public DataFrameMergeBuilder Merge(DataFrame source, params string[] on)
-        =>new(Lazy(), source.Lazy(), on);
+        => new(Lazy(), source.Lazy(), on);
     /// <summary>
     /// Initiates an eager Merge builder using a Selector or Column Expression.
     /// </summary>
     public DataFrameMergeBuilder Merge(DataFrame source, IntoSelector on)
     {
         using var selector = on.Consume();
-        
+
         string[] resolvedOn = Cs.ExpandSelector(this, selector);
 
         if (resolvedOn.Length == 0)

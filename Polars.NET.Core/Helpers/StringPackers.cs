@@ -33,11 +33,11 @@ public static unsafe class StringPacker
     {
         int len = data.Length;
         var views = GC.AllocateUninitializedArray<ArrowStringView>(len);
-        
+
         // Lazy‑allocated temporary buffer for long strings; starts empty to avoid any heap pressure
-        byte[] rentedBuffer = []; 
+        byte[] rentedBuffer = [];
         int currentDataOffset = 0;
-        
+
         // Validity bitmap: allocated only on first null to keep the fast path allocation‑free
         byte[]? validity = null;
         int validLen = (len + 7) >> 3;
@@ -50,7 +50,7 @@ public static unsafe class StringPacker
             for (int i = 0; i < len; i++)
             {
                 string? s = data[i];
-                
+
                 // --- Handle null entry: clear the corresponding validity bit ---
                 if (s is null)
                 {
@@ -80,7 +80,7 @@ public static unsafe class StringPacker
                     while (true)
                     {
                         int remainingSpace = rentedBuffer.Length - currentDataOffset;
-                        
+
                         if (remainingSpace > 0)
                         {
                             fixed (byte* pRented = rentedBuffer)
@@ -102,12 +102,12 @@ public static unsafe class StringPacker
                             // Write succeeded – store length, copy first 4 bytes as prefix,
                             // and record the offset into the external buffer.
                             pViews[i].Length = bytesWritten;
-                            
+
                             fixed (byte* pRented = rentedBuffer)
                             {
                                 Unsafe.CopyBlock(pViews[i].Prefix, pRented + currentDataOffset, 4);
                             }
-                            
+
                             pViews[i].BufferIndex = 0;      // single buffer, index is always 0
                             pViews[i].Offset = currentDataOffset;
                             currentDataOffset += bytesWritten;
@@ -120,24 +120,24 @@ public static unsafe class StringPacker
                             // for surrogate pairs). This guarantees that after this allocation, the next
                             // write will always succeed, making the while‑loop almost never iterate twice.
                             int safetyBound = s.Length * 4;
-                            int newSize = rentedBuffer.Length == 0 
+                            int newSize = rentedBuffer.Length == 0
                                 ? Math.Max(512, safetyBound)      // first long string: start with a reasonable size
                                 : Math.Max(rentedBuffer.Length * 2, currentDataOffset + safetyBound);
-                            
+
                             byte[] newBuffer = ArrayPool<byte>.Shared.Rent(newSize);
-                            
+
                             // Preserve already written data
                             if (currentDataOffset > 0)
                             {
                                 Buffer.BlockCopy(rentedBuffer, 0, newBuffer, 0, currentDataOffset);
                             }
-                            
+
                             // Return the old buffer to the pool if it was rented
                             if (rentedBuffer.Length > 0)
                             {
                                 ArrayPool<byte>.Shared.Return(rentedBuffer);
                             }
-                            
+
                             rentedBuffer = newBuffer;
                             // Loop will retry writing with the new larger buffer
                         }
@@ -155,7 +155,7 @@ public static unsafe class StringPacker
             dataBuffer = GC.AllocateUninitializedArray<byte>(currentDataOffset);
             Buffer.BlockCopy(rentedBuffer, 0, dataBuffer, 0, currentDataOffset);
         }
-        
+
         // Return the rented buffer to the pool (if any)
         if (rentedBuffer.Length > 0)
         {

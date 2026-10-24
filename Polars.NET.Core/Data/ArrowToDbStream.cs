@@ -30,7 +30,7 @@ internal interface IBinarySpanAccessor
 public sealed class ArrowToDbStream : DbDataReader
 {
     private readonly IEnumerator<RecordBatch> _batchEnumerator;
-    private Schema? _schema; 
+    private Schema? _schema;
     private RecordBatch? _currentBatch;
     private int _currentRowIndex;
     private bool _isClosed;
@@ -69,7 +69,7 @@ public sealed class ArrowToDbStream : DbDataReader
             {
                 _schema = _currentBatch.Schema;
                 InitializeAccessors();
-                
+
 
                 for(int i=0; i<_accessors.Length; i++)
                 {
@@ -79,8 +79,8 @@ public sealed class ArrowToDbStream : DbDataReader
 
             UpdateAccessorData();
             _currentRowIndex = -1;
-            
-            if (_currentBatch.Length == 0) 
+
+            if (_currentBatch.Length == 0)
             {
                 return LoadNextBatch();
             }
@@ -111,10 +111,10 @@ public sealed class ArrowToDbStream : DbDataReader
                 var arrowType = field.DataType;
                 targetType = arrowType switch
                 {
-                    Time64Type => typeof(TimeOnly), 
-                    
+                    Time64Type => typeof(TimeOnly),
+
                     Date32Type => typeof(DateOnly),
-                    
+
                     TimestampType => typeof(DateTime),
                     _ => ArrowTypeResolver.GetNetTypeFromArrowType(arrowType)
                 };
@@ -134,7 +134,7 @@ public sealed class ArrowToDbStream : DbDataReader
 
     public override bool Read()
     {
-        if (_isClosed) 
+        if (_isClosed)
         {
             return false;
         }
@@ -157,7 +157,7 @@ public sealed class ArrowToDbStream : DbDataReader
 
         if (LoadNextBatch())
         {
-            _currentRowIndex++; 
+            _currentRowIndex++;
             return true;
         }
 
@@ -229,7 +229,7 @@ public sealed class ArrowToDbStream : DbDataReader
     // =========================================================
     // NotSupported
     // =========================================================
-    public override long GetBytes(int ordinal, long dataOffset, byte[]? buffer, int bufferOffset, int length) 
+    public override long GetBytes(int ordinal, long dataOffset, byte[]? buffer, int bufferOffset, int length)
         => throw new NotSupportedException("Polars.NET uses zero-copy memory. Byte streaming is not supported. Use GetFieldValue<byte[]>() instead.");
 
     public override long GetChars(int ordinal, long dataOffset, char[]? buffer, int bufferOffset, int length)
@@ -241,7 +241,7 @@ public sealed class ArrowToDbStream : DbDataReader
     public override object GetValue(int ordinal)
     {
         if (IsDBNull(ordinal)) return DBNull.Value;
-        return _accessors[ordinal].GetValue(_currentRowIndex)!; 
+        return _accessors[ordinal].GetValue(_currentRowIndex)!;
     }
 
     public override int GetValues(object[] values)
@@ -253,7 +253,7 @@ public sealed class ArrowToDbStream : DbDataReader
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override T GetFieldValue<T>(int ordinal)
     {
-        if (IsDBNull(ordinal)) return default!; 
+        if (IsDBNull(ordinal)) return default!;
 
         ref readonly var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
 
@@ -266,9 +266,9 @@ public sealed class ArrowToDbStream : DbDataReader
     }
 
     // --- Schema / Metadata ---
-    public override int FieldCount 
+    public override int FieldCount
     {
-        get 
+        get
         {
             EnsureSchema();
             return _schema?.FieldsList.Count ?? 0;
@@ -280,10 +280,10 @@ public sealed class ArrowToDbStream : DbDataReader
     {
         EnsureSchema();
         var type = _accessors[ordinal].TargetType;
-        
+
         return type;
     }
-    
+
     public override object this[int ordinal] => GetValue(ordinal);
     public override object this[string name] => GetValue(GetOrdinal(name));
     public override bool HasRows => EnsureSchema();
@@ -334,7 +334,7 @@ public sealed class ArrowToDbStream : DbDataReader
             var row = table.NewRow();
             row["ColumnName"] = field.Name;
             row["ColumnOrdinal"] = i;
-            row["DataType"] = GetFieldType(i); 
+            row["DataType"] = GetFieldType(i);
             row["ColumnSize"] = -1;
             row["AllowDBNull"] = field.IsNullable;
             row["IsReadOnly"] = true;
@@ -385,16 +385,16 @@ public sealed class ArrowToDbStream : DbDataReader
                 {
                     Type innerType = targetType.GetGenericArguments()[0];
                     var innerAccessor = Create(field, innerType);
-                    
+
                     Type accessorClass = isOption ? typeof(FSharpOptionAccessor<>) : typeof(FSharpValueOptionAccessor<>);
                     Type concreteAccessorType = accessorClass.MakeGenericType(innerType);
-                    
+
                     return (ColumnAccessor)Activator.CreateInstance(concreteAccessorType, innerAccessor, targetType)!;
                 }
             }
             return field.DataType switch
             {
-                
+
                 ListType or LargeListType => CreateListAccessor(field.DataType, targetType),
                 StructType => (ColumnAccessor)Activator.CreateInstance(typeof(StructAccessor<>).MakeGenericType(targetType), targetType, field.DataType)!,
                 // 1. Primitives
@@ -406,7 +406,7 @@ public sealed class ArrowToDbStream : DbDataReader
                 UInt16Type => new UInt16Accessor(),
                 UInt32Type => new UInt32Accessor(),
                 UInt64Type => new UInt64Accessor(),
-                
+
                 // 2. Int64 & Magic Types
                 Int64Type => targetType switch
                 {
@@ -427,18 +427,18 @@ public sealed class ArrowToDbStream : DbDataReader
                     { } t when t == typeof(Guid) => new BinaryToGuidAccessor(),
                     _ => new BinaryAccessor()
                 },
-                
+
 
                 // 4. Time
                 TimestampType => new TimestampAccessor(),
                 Time64Type => new Time64Accessor(),
                 DurationType => new DurationAccessor(),
-                
+
                 Date32Type => new Date32ToDateOnlyAccessor(),
                 Date64Type => new Date64Accessor(),
 
                 // 5. Decimal 
-                Decimal128Type => new DecimalAccessor(), 
+                Decimal128Type => new DecimalAccessor(),
                 Decimal256Type => new DecimalAccessor(),
                 FixedSizeBinaryType => targetType switch
                 {
@@ -455,7 +455,7 @@ public sealed class ArrowToDbStream : DbDataReader
     private static ColumnAccessor CreateListAccessor(IArrowType arrowType, Type targetType)
     {
         Type elementType;
-        if (targetType.IsArray) 
+        if (targetType.IsArray)
         {
             elementType = targetType.GetElementType()!;
         }
@@ -463,7 +463,7 @@ public sealed class ArrowToDbStream : DbDataReader
         {
             elementType = targetType.GetGenericArguments()[0];
         }
-        else 
+        else
         {
             IArrowType inner = arrowType is ListType lt ? lt.ValueDataType : ((LargeListType)arrowType).ValueDataType;
             elementType = ArrowTypeResolver.GetNetTypeFromArrowType(inner);
@@ -477,13 +477,13 @@ public sealed class ArrowToDbStream : DbDataReader
     // ==================================================================================
     internal sealed class FixedSizeBinaryToGuidAccessor : TypedColumnAccessor<Guid> {
         private FixedSizeBinaryArray? _array;
-        
+
         public override Type TargetType => typeof(Guid);
-        
+
         public override void SetBatch(IArrowArray array) {
             _array = (FixedSizeBinaryArray)array;
         }
-        
+
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -499,11 +499,11 @@ public sealed class ArrowToDbStream : DbDataReader
     // FixedSizeBinaryAccessor (byte[])
     // ============================================================
     internal sealed class FixedSizeBinaryAccessor : TypedColumnAccessor<byte[]>,
-        ITypedAccessor<byte[]>, 
+        ITypedAccessor<byte[]>,
         ITypedAccessor<Guid>, ITypedAccessor<Guid?>
     {
         private FixedSizeBinaryArray? _array;
-        
+
         public override Type TargetType => typeof(byte[]);
         public override void SetBatch(IArrowArray array) => _array = (FixedSizeBinaryArray)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
@@ -523,7 +523,7 @@ public sealed class ArrowToDbStream : DbDataReader
         ITypedAccessor<Guid>, ITypedAccessor<Guid?>
     {
         private IArrowArray? _array;
-        
+
         public override Type TargetType => typeof(Guid);
         public override void SetBatch(IArrowArray array) => _array = array;
         public override bool IsNull(int index) => _array!.IsNull(index);
@@ -567,10 +567,10 @@ public sealed class ArrowToDbStream : DbDataReader
     // ============================================================
     // Int8Accessor (sbyte)
     // ============================================================
-    internal sealed class Int8Accessor : TypedColumnAccessor<sbyte>, 
-        ITypedAccessor<byte>, 
-        ITypedAccessor<short>, 
-        ITypedAccessor<int>, 
+    internal sealed class Int8Accessor : TypedColumnAccessor<sbyte>,
+        ITypedAccessor<byte>,
+        ITypedAccessor<short>,
+        ITypedAccessor<int>,
         ITypedAccessor<long>,
         ITypedAccessor<sbyte?>,
         ITypedAccessor<byte?>,
@@ -677,7 +677,7 @@ public sealed class ArrowToDbStream : DbDataReader
     // ============================================================
     // UInt8Accessor (byte)
     // ============================================================
-    internal sealed class UInt8Accessor : 
+    internal sealed class UInt8Accessor :
         TypedColumnAccessor<byte>,
         ITypedAccessor<short>,
         ITypedAccessor<int>,
@@ -849,7 +849,7 @@ public sealed class ArrowToDbStream : DbDataReader
     // 1. StringViewAccessor (string)
     // ============================================================
     internal sealed class StringViewAccessor : TypedColumnAccessor<string>,
-        IBinarySpanAccessor 
+        IBinarySpanAccessor
     {
         private IArrowArray? _array;
         private bool _isView;
@@ -869,7 +869,7 @@ public sealed class ArrowToDbStream : DbDataReader
             if (_isView) return ((StringViewArray)_array!).GetString(index);
             if (_array is LargeStringArray lsa) return lsa.GetString(index);
             if (_array is StringArray sa) return sa.GetString(index);
-            
+
             throw new InvalidCastException($"Expected String or StringView, got {_array?.GetType()}");
         }
 
@@ -879,7 +879,7 @@ public sealed class ArrowToDbStream : DbDataReader
             if (_isView) return ((StringViewArray)_array!).GetBytes(index);
             if (_array is LargeStringArray lsa) return lsa.GetBytes(index);
             if (_array is StringArray sa) return sa.GetBytes(index);
-            
+
             throw new InvalidCastException($"Expected String or StringView, got {_array?.GetType()}");
         }
     }
@@ -904,7 +904,7 @@ public sealed class ArrowToDbStream : DbDataReader
             if (_array is BinaryArray ba) return ba.GetBytes(index);
             if (_array is LargeBinaryArray lba) return lba.GetBytes(index);
             if (_array is BinaryViewArray bv) return bv.GetBytes(index);
-            
+
             throw new InvalidCastException($"Expected BinaryArray, got {_array?.GetType()}");
         }
 
@@ -925,7 +925,7 @@ public sealed class ArrowToDbStream : DbDataReader
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public override DateTime GetTypedValue(int index) 
+        public override DateTime GetTypedValue(int index)
             => DateTime.UnixEpoch.AddMicroseconds(_array!.Values[index]);
 
         DateTime ITypedAccessor<DateTime>.GetTypedValue(int index) => GetTypedValue(index);
@@ -947,7 +947,7 @@ public sealed class ArrowToDbStream : DbDataReader
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public override TimeSpan GetTypedValue(int index) 
+        public override TimeSpan GetTypedValue(int index)
             => new(_array!.Values[index] * 10);
 
         TimeSpan ITypedAccessor<TimeSpan>.GetTypedValue(int index) => GetTypedValue(index);
@@ -960,7 +960,7 @@ public sealed class ArrowToDbStream : DbDataReader
     // TimestampAccessor
     // ============================================================
     internal sealed class TimestampAccessor : TypedColumnAccessor<DateTime>,
-        ITypedAccessor<DateTime>, ITypedAccessor<DateTime?>, 
+        ITypedAccessor<DateTime>, ITypedAccessor<DateTime?>,
         ITypedAccessor<DateTimeOffset>, ITypedAccessor<DateTimeOffset?>
     {
         private TimestampArray? _array;
@@ -969,12 +969,12 @@ public sealed class ArrowToDbStream : DbDataReader
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public override DateTime GetTypedValue(int index) 
+        public override DateTime GetTypedValue(int index)
             => _array!.GetTimestamp(index)!.Value.DateTime;
 
         DateTime ITypedAccessor<DateTime>.GetTypedValue(int index) => GetTypedValue(index);
-        
-        DateTimeOffset ITypedAccessor<DateTimeOffset>.GetTypedValue(int index) 
+
+        DateTimeOffset ITypedAccessor<DateTimeOffset>.GetTypedValue(int index)
             => _array!.GetTimestamp(index)!.Value;
 
         DateTime? ITypedAccessor<DateTime?>.GetTypedValue(int index) => GetTypedValue(index);
@@ -988,7 +988,7 @@ public sealed class ArrowToDbStream : DbDataReader
         ITypedAccessor<DateOnly?>, ITypedAccessor<DateTime?>
     {
         private Date32Array? _array;
-        private const int UnixEpochDayNumber = 719162; 
+        private const int UnixEpochDayNumber = 719162;
 
         public override Type TargetType => typeof(DateOnly);
         public override void SetBatch(IArrowArray array) => _array = (Date32Array)array;
@@ -1000,10 +1000,10 @@ public sealed class ArrowToDbStream : DbDataReader
             => DateOnly.FromDayNumber(_array!.Values[index] + UnixEpochDayNumber);
 
         DateOnly ITypedAccessor<DateOnly>.GetTypedValue(int index) => GetTypedValue(index);
-        DateTime ITypedAccessor<DateTime>.GetTypedValue(int index) 
+        DateTime ITypedAccessor<DateTime>.GetTypedValue(int index)
             => GetTypedValue(index).ToDateTime(TimeOnly.MinValue);
         DateOnly? ITypedAccessor<DateOnly?>.GetTypedValue(int index) => GetTypedValue(index);
-        DateTime? ITypedAccessor<DateTime?>.GetTypedValue(int index) 
+        DateTime? ITypedAccessor<DateTime?>.GetTypedValue(int index)
             => GetTypedValue(index).ToDateTime(TimeOnly.MinValue);
     }
 
@@ -1020,7 +1020,7 @@ public sealed class ArrowToDbStream : DbDataReader
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public override DateTime GetTypedValue(int index) 
+        public override DateTime GetTypedValue(int index)
             => _array!.GetDateTime(index)!.Value;
         DateTime ITypedAccessor<DateTime>.GetTypedValue(int index) => GetTypedValue(index);
         DateTimeOffset ITypedAccessor<DateTimeOffset>.GetTypedValue(int index) => new(GetTypedValue(index));
@@ -1039,8 +1039,8 @@ public sealed class ArrowToDbStream : DbDataReader
         private TimeUnit _unit;
 
         public override Type TargetType => typeof(TimeSpan);
-        
-        public override void SetBatch(IArrowArray array) 
+
+        public override void SetBatch(IArrowArray array)
         {
             _array = (DurationArray)array;
             _unit = ((DurationType)_array.Data.DataType).Unit;
@@ -1049,7 +1049,7 @@ public sealed class ArrowToDbStream : DbDataReader
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public override TimeSpan GetTypedValue(int index) 
+        public override TimeSpan GetTypedValue(int index)
         {
             long val = _array!.Values[index];
             long ticks = _unit switch {
@@ -1072,7 +1072,7 @@ public sealed class ArrowToDbStream : DbDataReader
     // Int64ToTimeOnlyAccessor
     // ============================================================
     internal sealed class Int64ToTimeOnlyAccessor : TypedColumnAccessor<TimeOnly>,
-        ITypedAccessor<TimeOnly>, ITypedAccessor<TimeOnly?>, 
+        ITypedAccessor<TimeOnly>, ITypedAccessor<TimeOnly?>,
         ITypedAccessor<TimeSpan>, ITypedAccessor<TimeSpan?>
     {
         private Int64Array? _array;
@@ -1081,7 +1081,7 @@ public sealed class ArrowToDbStream : DbDataReader
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public override TimeOnly GetTypedValue(int index) 
+        public override TimeOnly GetTypedValue(int index)
         {
             long ticks = _array!.Values[index] * 10;
             return new TimeOnly(ticks);
@@ -1101,10 +1101,10 @@ public sealed class ArrowToDbStream : DbDataReader
         ITypedAccessor<TimeSpan>, ITypedAccessor<TimeSpan?>
     {
         private Time64Array? _array;
-        private bool _isNanosecond; 
+        private bool _isNanosecond;
 
         public override Type TargetType => typeof(TimeOnly);
-        
+
         public override void SetBatch(IArrowArray array) {
             _array = (Time64Array)array;
             var unit = ((Time64Type)_array.Data.DataType).Unit;
@@ -1114,7 +1114,7 @@ public sealed class ArrowToDbStream : DbDataReader
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public override TimeOnly GetTypedValue(int index) 
+        public override TimeOnly GetTypedValue(int index)
         {
             long val = _array!.Values[index];
             long ticks = _isNanosecond ? (val / 100) : (val * 10);
@@ -1130,18 +1130,17 @@ public sealed class ArrowToDbStream : DbDataReader
     // ============================================================
     // ListAccessor<TElement>
     // ============================================================
-    internal sealed class ListAccessor<TElement> : TypedColumnAccessor<TElement[]>, 
-        ITypedAccessor<TElement[]>, 
+    internal sealed class ListAccessor<TElement> : TypedColumnAccessor<TElement[]>,
+        ITypedAccessor<TElement[]>,
         ITypedAccessor<List<TElement>>
     {
         private IArrowArray? _array;
-        private readonly Type _targetType;
-        private readonly ColumnAccessor _childAccessor; 
-        private readonly ITypedAccessor<TElement>? _typedChildAccessor; 
+        private readonly ColumnAccessor _childAccessor;
+        private readonly ITypedAccessor<TElement>? _typedChildAccessor;
 
-        public ListAccessor(Type targetType, IArrowType arrowType) 
+        public ListAccessor(Type targetType, IArrowType arrowType)
         {
-            _targetType = targetType;
+            TargetType = targetType;
 
             IArrowType innerArrowType = arrowType switch
             {
@@ -1152,13 +1151,13 @@ public sealed class ArrowToDbStream : DbDataReader
 
             var dummyField = new Field("item", innerArrowType, true);
             _childAccessor = ColumnAccessorFactory.Create(dummyField, typeof(TElement));
-            
+
             _typedChildAccessor = _childAccessor as ITypedAccessor<TElement>;
         }
 
-        public override Type TargetType => _targetType;
+        public override Type TargetType { get; }
 
-        public override void SetBatch(IArrowArray array) 
+        public override void SetBatch(IArrowArray array)
         {
             _array = array;
             if (_array is ListArray list) _childAccessor.SetBatch(list.Values);
@@ -1167,40 +1166,43 @@ public sealed class ArrowToDbStream : DbDataReader
 
         public override bool IsNull(int index) => _array!.IsNull(index);
 
-        public override TElement[] GetTypedValue(int index) 
+        public override TElement[] GetTypedValue(int index)
         {
             IArrowArray valuesArray;
             int offset, length;
 
-            if (_array is ListArray list) 
+            if (_array is ListArray list)
             {
                 valuesArray = list.Values;
                 offset = list.ValueOffsets[index];
                 length = list.ValueOffsets[index + 1] - offset;
-            } 
-            else if (_array is LargeListArray largeList) 
+            }
+            else if (_array is LargeListArray largeList)
             {
                 valuesArray = largeList.Values;
                 offset = (int)largeList.ValueOffsets[index];
                 length = (int)(largeList.ValueOffsets[index + 1] - largeList.ValueOffsets[index]);
-            } 
-            else throw new InvalidDataException("Invalid List Array.");
+            }
+            else
+            {
+                throw new InvalidDataException("Invalid List Array.");
+            }
 
             if (length == 0) return [];
 
             // =====================================================================
             // Fast-Path
             // =====================================================================
-            if (typeof(TElement) == typeof(int) && valuesArray is Int32Array i32) 
+            if (typeof(TElement) == typeof(int) && valuesArray is Int32Array i32)
                 return (TElement[])(object)i32.Values.Slice(offset, length).ToArray();
-            
-            if (typeof(TElement) == typeof(long) && valuesArray is Int64Array i64) 
+
+            if (typeof(TElement) == typeof(long) && valuesArray is Int64Array i64)
                 return (TElement[])(object)i64.Values.Slice(offset, length).ToArray();
-            
-            if (typeof(TElement) == typeof(double) && valuesArray is DoubleArray dbl) 
+
+            if (typeof(TElement) == typeof(double) && valuesArray is DoubleArray dbl)
                 return (TElement[])(object)dbl.Values.Slice(offset, length).ToArray();
-            
-            if (typeof(TElement) == typeof(float) && valuesArray is FloatArray flt) 
+
+            if (typeof(TElement) == typeof(float) && valuesArray is FloatArray flt)
                 return (TElement[])(object)flt.Values.Slice(offset, length).ToArray();
 
             // =====================================================================
@@ -1223,22 +1225,22 @@ public sealed class ArrowToDbStream : DbDataReader
             // Fallback
             // =====================================================================
             var result = new TElement[length];
-            
+
             if (_typedChildAccessor != null)
             {
-                for (int i = 0; i < length; i++) 
+                for (int i = 0; i < length; i++)
                 {
-                    result[i] = _childAccessor.IsNull(offset + i) 
-                        ? default! 
+                    result[i] = _childAccessor.IsNull(offset + i)
+                        ? default!
                         : _typedChildAccessor.GetTypedValue(offset + i);
                 }
             }
             else
             {
-                for (int i = 0; i < length; i++) 
+                for (int i = 0; i < length; i++)
                 {
-                    result[i] = _childAccessor.IsNull(offset + i) 
-                        ? default! 
+                    result[i] = _childAccessor.IsNull(offset + i)
+                        ? default!
                         : (TElement)_childAccessor.GetValue(offset + i)!;
                 }
             }
@@ -1246,7 +1248,7 @@ public sealed class ArrowToDbStream : DbDataReader
             return result;
         }
 
-        List<TElement> ITypedAccessor<List<TElement>>.GetTypedValue(int index) => GetTypedValue(index).ToList();
+        List<TElement> ITypedAccessor<List<TElement>>.GetTypedValue(int index) => [.. GetTypedValue(index)];
     }
 
     // ============================================================
@@ -1255,7 +1257,6 @@ public sealed class ArrowToDbStream : DbDataReader
     internal sealed class StructAccessor<T> : TypedColumnAccessor<T>, ITypedAccessor<T>
     {
         private StructArray? _array;
-        private readonly Type _targetType;
         private readonly ColumnAccessor[] _childAccessors;
         private readonly int[] _arrowFieldIndexes;
 
@@ -1263,7 +1264,7 @@ public sealed class ArrowToDbStream : DbDataReader
 
         public StructAccessor(Type targetType, IArrowType arrowType)
         {
-            _targetType = targetType;
+            TargetType = targetType;
 
             if (arrowType is not StructType structType)
                 throw new InvalidOperationException($"Expected StructType, got {arrowType.Name}");
@@ -1329,7 +1330,7 @@ public sealed class ArrowToDbStream : DbDataReader
             _rowInstantiator = Expression.Lambda<Func<int, T>>(initExpr, indexParam).Compile();
         }
 
-        public override Type TargetType => _targetType;
+        public override Type TargetType { get; }
 
         public override void SetBatch(IArrowArray array)
         {
@@ -1367,7 +1368,7 @@ public sealed class ArrowToDbStream : DbDataReader
         public override FSharpOption<T> GetTypedValue(int index)
         {
             // F# Option None is null
-            if (innerAccessor.IsNull(index)) return null!; 
+            if (innerAccessor.IsNull(index)) return null!;
 
             if (_typedInnerAccessor != null)
             {
@@ -1378,7 +1379,7 @@ public sealed class ArrowToDbStream : DbDataReader
             var boxedValue = innerAccessor.GetValue(index);
             return FSharpOption<T>.Some((T)boxedValue!);
         }
-        
+
         FSharpOption<T> ITypedAccessor<FSharpOption<T>>.GetTypedValue(int index) => GetTypedValue(index);
     }
 

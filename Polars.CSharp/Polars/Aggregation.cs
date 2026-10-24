@@ -19,7 +19,7 @@ public readonly partial struct Polars
         {
             return Col("*");
         }
-        
+
         return Col(names).All(ignoreNulls: true);
     }
     /// <summary>
@@ -35,7 +35,7 @@ public readonly partial struct Polars
         {
             return Col("*");
         }
-        
+
         return Col(names).All(ignoreNulls);
     }
     /// <summary>
@@ -43,13 +43,13 @@ public readonly partial struct Polars
     /// <para>Kleene logic is used to deal with nulls: if the column contains any null values and no True values, the output is null.</para>
     /// </summary>
     /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
-    public static Expr AllHorizontal(params IntoExprColumn[] exprs) 
+    public static Expr AllHorizontal(params IntoExprColumn[] exprs)
     {
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
         var handles = System.Array.ConvertAll(exprs, e => e.Consume().Handle);
-        
+
         return new Expr(PolarsWrapper.ExprAllHorizontal(handles));
     }
     /// <summary>
@@ -66,13 +66,13 @@ public readonly partial struct Polars
     /// <para>Kleene logic is used to deal with nulls: if the column contains any null values and no True values, the output is null.</para>
     /// </summary>
     /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
-    public static Expr AnyHorizontal(params IntoExprColumn[] exprs) 
+    public static Expr AnyHorizontal(params IntoExprColumn[] exprs)
     {
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
         var handles = System.Array.ConvertAll(exprs, e => e.Consume().Handle);
-        
+
         return new Expr(PolarsWrapper.ExprAnyHorizontal(handles));
     }
     /// <inheritdoc cref="AnyHorizontal(IntoExprColumn[])"/>
@@ -95,13 +95,13 @@ public readonly partial struct Polars
     /// Get the maximum value horizontally across columns.
     /// </summary>
     /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
-    public static Expr MaxHorizontal(params IntoExprColumn[] exprs) 
+    public static Expr MaxHorizontal(params IntoExprColumn[] exprs)
     {
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
         var handles = System.Array.ConvertAll(exprs, e => e.Consume().Handle);
-        
+
         return new Expr(PolarsWrapper.ExprMaxHorizontal(handles));
     }
     /// <summary>
@@ -114,13 +114,13 @@ public readonly partial struct Polars
     /// Get the Minimum value horizontally across columns.
     /// </summary>
     /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
-    public static Expr MinHorizontal(params IntoExprColumn[] exprs) 
+    public static Expr MinHorizontal(params IntoExprColumn[] exprs)
     {
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
         var handles = System.Array.ConvertAll(exprs, e => e.Consume().Handle);
-        
+
         return new Expr(PolarsWrapper.ExprMinHorizontal(handles));
     }
     /// <summary>
@@ -137,7 +137,7 @@ public readonly partial struct Polars
     public static Expr SumHorizontal(IEnumerable<Expr> exprs, bool ignoreNulls = true)
     {
         ArgumentNullException.ThrowIfNull(exprs);
-        
+
         var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
         if (handles.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
@@ -153,12 +153,12 @@ public readonly partial struct Polars
     public static Expr SumHorizontal(IEnumerable<IntoExprColumn> exprs, bool ignoreNulls = true)
     {
         ArgumentNullException.ThrowIfNull(exprs);
-        
+
         var handles = exprs.Select(e => e.Consume().Handle).ToArray();
         if (handles.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
-        return new Expr(PolarsWrapper.ExprSumHorizontal(handles, ignoreNulls)); 
+        return new Expr(PolarsWrapper.ExprSumHorizontal(handles, ignoreNulls));
     }
     /// <summary>
     /// Sum all values horizontally across columns. (ignore_nulls defaults to true)
@@ -196,7 +196,7 @@ public readonly partial struct Polars
     public static Expr MeanHorizontal(IEnumerable<Expr> exprs, bool ignoreNulls = true)
     {
         ArgumentNullException.ThrowIfNull(exprs);
-        
+
         var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
         if (handles.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
@@ -207,12 +207,12 @@ public readonly partial struct Polars
     public static Expr MeanHorizontal(IEnumerable<IntoExprColumn> exprs, bool ignoreNulls = true)
     {
         ArgumentNullException.ThrowIfNull(exprs);
-        
+
         var handles = exprs.Select(e => e.Consume().Handle).ToArray();
         if (handles.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
-        return new Expr(PolarsWrapper.ExprMeanHorizontal(handles, ignoreNulls)); 
+        return new Expr(PolarsWrapper.ExprMeanHorizontal(handles, ignoreNulls));
     }
     /// <inheritdoc cref="MeanHorizontal(bool,IntoExprColumn[])"/>
     public static Expr MeanHorizontal(params IntoExprColumn[] exprs)
@@ -267,7 +267,7 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="column">Name of the columns to use.</param>
     /// <param name="reverse">reverse the operation</param>
-    public static Expr CumCount(string column,bool reverse=false)
+    public static Expr CumCount(string column, bool reverse = false)
         => Col(column).CumCount(reverse);
     /// <summary>
     /// Count unique values.This function is syntactic sugar for Pl.Col(columns).NUnique().
@@ -281,15 +281,15 @@ public readonly partial struct Polars
     /// <param name="column">Column name.</param>
     /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
     /// <param name="interpolation">Interpolation method.</param>
-    public static Expr Quantile(string column,double quantile,QuantileMethod interpolation=QuantileMethod.Nearest)
-        => Col(column).Quantile(quantile,interpolation);
+    public static Expr Quantile(string column, double quantile, QuantileMethod interpolation = QuantileMethod.Nearest)
+        => Col(column).Quantile(quantile, interpolation);
     /// <summary>
     /// Get the first column or value.
     /// </summary>
     /// <param name="columns">One or more column names.</param>
     public static Expr First(params string[] columns)
-    {   
-        if (columns is null || columns.Length == 0) 
+    {
+        if (columns is null || columns.Length == 0)
             return Cs.First().ToExpr();
         else return Col(columns).First();
     }
@@ -298,8 +298,8 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="columns">One or more column names.</param>
     public static Expr Last(params string[] columns)
-    {   
-        if (columns is null || columns.Length == 0) 
+    {
+        if (columns is null || columns.Length == 0)
             return Cs.Last().ToExpr();
         else return Col(columns).Last();
     }
@@ -309,12 +309,12 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="column">Column name.</param>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
-    public static Expr Std(string column, byte ddof=1) => Col(column).Std(ddof);
+    public static Expr Std(string column, byte ddof = 1) => Col(column).Std(ddof);
     /// <summary>
     /// Get the variance.
     /// This function is syntactic sugar for Pl.Col(column).Var(ddof).
     /// </summary>
     /// <param name="column">Column name.</param>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
-    public static Expr Var(string column, byte ddof=1) => Col(column).Var(ddof);
+    public static Expr Var(string column, byte ddof = 1) => Col(column).Var(ddof);
 }

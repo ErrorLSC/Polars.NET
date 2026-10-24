@@ -9,7 +9,7 @@ namespace Polars.CSharp;
 /// <summary>
 /// A Polars Expr
 /// </summary>
-public partial class Expr : IDisposable,IEquatable<Expr>
+public partial class Expr : IDisposable, IEquatable<Expr>
 {
     internal ExprHandle Handle { get; }
 
@@ -49,11 +49,11 @@ public partial class Expr : IDisposable,IEquatable<Expr>
         uint? limit = null)
     {
         return new Expr(PolarsWrapper.Sort(
-            CloneHandle(), 
-            descending, 
-            nullsLast, 
-            multithreaded, 
-            maintainOrder, 
+            CloneHandle(),
+            descending,
+            nullsLast,
+            multithreaded,
+            maintainOrder,
             limit
         ));
     }
@@ -69,8 +69,8 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="maintainOrder">Whether the order should be maintained if elements are equal.</param>
     public Expr SortBy(
         IEnumerable<Expr> by,
-        bool[]? descending=null,
-        bool[]? nullsLast=null,
+        bool[]? descending = null,
+        bool[]? nullsLast = null,
         bool multithreaded = true,
         bool maintainOrder = false
     )
@@ -95,17 +95,17 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="maintainOrder">Whether the order should be maintained if elements are equal.</param>
     public Expr SortBy(
         IEnumerable<Expr> by,
-        bool descending=false,
+        bool descending = false,
         bool nullsLast = false,
         bool multithreaded = true,
         bool maintainOrder = false
     )
     {
         return SortBy(
-            by, 
-            [descending], 
-            [nullsLast], 
-            multithreaded, 
+            by,
+            [descending],
+            [nullsLast],
+            multithreaded,
             maintainOrder
         );
     }
@@ -137,7 +137,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     public Expr Take(IntoExprColumn indices) => Gather(indices);
     public Expr Take(ReadOnlySpan<int> indices) => Take(Pl.Lit(indices));
-    
+
     /// <summary>
     /// Take every nth value starting from an offset.
     /// </summary>
@@ -197,7 +197,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Default is <c>true</c>.
     /// </param>
     /// <returns>A new expression representing the single item.</returns>
-    public Expr Item(bool allowEmpty=true) => new(PolarsWrapper.Item(CloneHandle(),allowEmpty));
+    public Expr Item(bool allowEmpty = true) => new(PolarsWrapper.Item(CloneHandle(), allowEmpty));
     /// <summary>
     /// Calculate the lower bound.
     /// Returns a unit Series with the lowest value possible for the dtype of this expression.
@@ -219,7 +219,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Shuffle the contents of this expression.Note this is shuffled independently of any other column or Expression. If you want each row to stay the same use df.sample(shuffle=True)
     /// </summary>
     /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated each time the shuffle is called.</param>
-    public Expr Shuffle(ulong? seed=null) => new(PolarsWrapper.ExprShuffle(CloneHandle(),seed));
+    public Expr Shuffle(ulong? seed = null) => new(PolarsWrapper.ExprShuffle(CloneHandle(), seed));
     /// <summary>
     /// Sample from this expression.
     /// </summary>
@@ -227,12 +227,12 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="withReplacement">Allow values to be sampled more than once.</param>
     /// <param name="shuffle">Shuffle the order of sampled data points.</param>
     /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated for each sample operation.</param>
-    public Expr Sample(ulong n=1,bool withReplacement=false,bool? shuffle=null,ulong? seed=null) 
-        => new(PolarsWrapper.ExprSampleN(CloneHandle(),Pl.Lit(n).Handle,withReplacement,shuffle,seed));
+    public Expr Sample(ulong n = 1, bool withReplacement = false, bool? shuffle = null, ulong? seed = null)
+        => new(PolarsWrapper.ExprSampleN(CloneHandle(), Pl.Lit(n).Handle, withReplacement, shuffle, seed));
     /// <inheritdoc cref="Expr.Sample(ulong, bool, bool?, ulong?)"/>
     /// <param name="fraction">Fraction of items to return.</param>
-    public Expr Sample(double fraction,bool withReplacement=false,bool? shuffle=null,ulong? seed=null) 
-        => new(PolarsWrapper.ExprSampleFrac(CloneHandle(),Pl.Lit(fraction).Handle,withReplacement,shuffle,seed));
+    public Expr Sample(double fraction, bool withReplacement = false, bool? shuffle = null, ulong? seed = null)
+        => new(PolarsWrapper.ExprSampleFrac(CloneHandle(), Pl.Lit(fraction).Handle, withReplacement, shuffle, seed));
 
     // ==========================================
     // Rounding & Sign
@@ -244,17 +244,17 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="mode">The rounding strategy used. A “rounded value” is a value with at most decimals decimal places (e.g. integers when decimals=0, multiples of 0.1 when decimals=1, 0.01 when decimals=2, and so on).
     /// Strategies that start with half_ round all values to the nearest rounded value, only using the strategy to break ties when a value falls exactly between two rounded values (e.g. 0.5 when decimals=0, 0.05 when decimals=1). 
     /// Other rounding strategies specify explicitly which rounded value is chosen and always apply (not just for tiebreaks).</param>
-    public Expr Round(uint decimals=0,RoundMode mode=RoundMode.HalfToEven) => new(PolarsWrapper.Round(CloneHandle(), decimals,mode.ToNative()));
+    public Expr Round(uint decimals = 0, RoundMode mode = RoundMode.HalfToEven) => new(PolarsWrapper.Round(CloneHandle(), decimals, mode.ToNative()));
     /// <summary>
     /// Round to a number of significant figures.
     /// </summary>
     /// <param name="digits">Number of significant figures to round to.</param>
-    public Expr RoundSigFigs(int digits) => new(PolarsWrapper.RoundSigFigs(CloneHandle(),digits));
+    public Expr RoundSigFigs(int digits) => new(PolarsWrapper.RoundSigFigs(CloneHandle(), digits));
     /// <summary>
     /// Truncate numeric data toward zero to decimals number of decimal places.
     /// </summary>
     /// <param name="decimals">Number of decimal places to truncate to.</param>
-    public Expr Truncate(uint decimals=0) => new(PolarsWrapper.Truncate(CloneHandle(),decimals));
+    public Expr Truncate(uint decimals = 0) => new(PolarsWrapper.Truncate(CloneHandle(), decimals));
     /// <summary>Compute the element-wise sign (-1, 0, 1).</summary>
     public Expr Sign() => new(PolarsWrapper.Sign(CloneHandle()));
 
@@ -290,12 +290,12 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Fill null values with a specific strategy (Forward).
     /// </summary>
     /// <param name="limit">Max number of consecutive nulls to fill. (Default null = infinite)</param>
-    public Expr ForwardFill(uint limit = 0) => FillNull(FillNullStrategy.Forward,limit);
+    public Expr ForwardFill(uint limit = 0) => FillNull(FillNullStrategy.Forward, limit);
     /// <summary>
     /// Fill null values with a specific strategy (Backward).
     /// </summary>
     /// <param name="limit">Max number of consecutive nulls to fill. (Default null = infinite)</param>
-    public Expr BackwardFill(uint limit = 0) => FillNull(FillNullStrategy.Backward,limit);
+    public Expr BackwardFill(uint limit = 0) => FillNull(FillNullStrategy.Backward, limit);
     /// <summary>
     /// Interpolate intermediate values. The interpolation method can be configured.
     /// <para>Nulls at the beginning and end of the series remain null.</para>
@@ -315,7 +315,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
 
     /// <summary>
     /// Fill floating point NaN values with a specified value.
-    /// Note: This is different from FillNull. It only handles IEEE 754 NaN.
+    /// This is different from FillNull. It only handles IEEE 754 NaN.
     /// </summary>
     public Expr FillNan(IntoExpr value) => new(PolarsWrapper.FillNan(CloneHandle(), value.Consume().Handle));
     /// <summary>
@@ -461,7 +461,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="predicate">Boolean expression used to filter the current expression.</param>
     /// <returns>A new expression with filtered values.</returns>
     public Expr Filter(Expr predicate)
-        => new(PolarsWrapper.Filter(CloneHandle(),predicate.CloneHandle()));
+        => new(PolarsWrapper.Filter(CloneHandle(), predicate.CloneHandle()));
     /// <summary>
     /// Compress the column data using run-length encoding.
     /// Run-length encoding (RLE) encodes data by storing each run of identical values as a single value and its length.
@@ -490,8 +490,8 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="leftClosed">Set the intervals to be left-closed instead of right-closed.</param>
     /// <param name="includeBreaks">Include a column with the right endpoint of the bin each observation falls in. This will change the data type of the output from an Enum to a Struct.</param>
     /// <returns>Expression/Series of data type Enum if include_breaks is set to False (default), otherwise an expression of data type Struct.</returns>
-    public Expr Cut(ReadOnlySpan<double> breaks,string[]? labels = null,bool leftClosed=false,bool includeBreaks=false)
-        => new(PolarsWrapper.Cut(CloneHandle(),breaks,labels,leftClosed,includeBreaks));
+    public Expr Cut(ReadOnlySpan<double> breaks, string[]? labels = null, bool leftClosed = false, bool includeBreaks = false)
+        => new(PolarsWrapper.Cut(CloneHandle(), breaks, labels, leftClosed, includeBreaks));
     /// <summary>
     /// Bin continuous values into discrete categories based on their quantiles.
     /// </summary>
@@ -501,17 +501,17 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="allowDuplicates">If set to True, duplicates in the resulting quantiles are dropped, rather than raising a DuplicateError. This can happen even with unique probabilities, depending on the data.</param>
     /// <param name="includeBreaks">Include a column with the right endpoint of the bin each observation falls in. This will change the data type of the output from a Categorical to a Struct.</param>
     /// <returns>Expression/Series of data type Categorical if include_breaks is set to False (default), otherwise an expression of data type Struct.</returns>
-    public Expr QCut(ReadOnlySpan<double> quantiles,string[]? labels = null,bool leftClosed=false,bool allowDuplicates=false,bool includeBreaks =false)
-        => new(PolarsWrapper.QCut(CloneHandle(),quantiles,labels,leftClosed,allowDuplicates,includeBreaks));
+    public Expr QCut(ReadOnlySpan<double> quantiles, string[]? labels = null, bool leftClosed = false, bool allowDuplicates = false, bool includeBreaks = false)
+        => new(PolarsWrapper.QCut(CloneHandle(), quantiles, labels, leftClosed, allowDuplicates, includeBreaks));
     /// <inheritdoc cref="Expr.QCut(ReadOnlySpan{double}, string[], bool, bool, bool)"/>
-    public Expr QCut(int quantiles,string[]? labels = null,bool leftClosed=false,bool allowDuplicates=false,bool includeBreaks =false)
-        => new(PolarsWrapper.QCutUniform(CloneHandle(),(nuint)quantiles,labels,leftClosed,allowDuplicates,includeBreaks));
+    public Expr QCut(int quantiles, string[]? labels = null, bool leftClosed = false, bool allowDuplicates = false, bool includeBreaks = false)
+        => new(PolarsWrapper.QCutUniform(CloneHandle(), (nuint)quantiles, labels, leftClosed, allowDuplicates, includeBreaks));
     /// <summary>
     /// Replace the given values by different values of the same data type.
     /// </summary>
     /// <param name="old">Value or sequence of values to replace. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals.</param>
     /// <param name="newExpr">Value or sequence of values to replace by. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals.</param>
-    public Expr Replace(IntoExpr old,IntoExpr newExpr) => new(PolarsWrapper.ExprReplace(CloneHandle(),old.Consume().Handle,newExpr.Consume().Handle));
+    public Expr Replace(IntoExpr old, IntoExpr newExpr) => new(PolarsWrapper.ExprReplace(CloneHandle(), old.Consume().Handle, newExpr.Consume().Handle));
     /// <summary>
     /// Replace all values by different values.
     /// </summary>
@@ -519,26 +519,26 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="newExpr">Value or sequence of values to replace by. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals. Length must match the length of old or have length 1.</param>
     /// <param name="defaultExpr">Set values that were not replaced to this value. If no default is specified, (default), an error is raised if any values were not replaced. Accepts expression input. Non-expression inputs are parsed as literals.</param>
     /// <param name="returnDataType">The data type of the resulting expression. If set to null (default), the data type is determined automatically based on the other inputs.</param>
-    public Expr ReplaceStrict(IntoExpr old,IntoExpr newExpr,IntoExpr? defaultExpr=null,IntoDataTypeExpr? returnDataType=null)
+    public Expr ReplaceStrict(IntoExpr old, IntoExpr newExpr, IntoExpr? defaultExpr = null, IntoDataTypeExpr? returnDataType = null)
     {
         ExprHandle? realDefault = defaultExpr?.Consume().Handle;
         DataTypeExprHandle? dtype = returnDataType?.Consume().Handle;
-        return new(PolarsWrapper.ExprReplaceStrict(CloneHandle(),old.Consume().Handle,newExpr.Consume().Handle,realDefault,dtype));
+        return new(PolarsWrapper.ExprReplaceStrict(CloneHandle(), old.Consume().Handle, newExpr.Consume().Handle, realDefault, dtype));
     }
     /// <summary>
     /// Replace values using a mapping (Dictionary/IEnumerable of KeyValuePair).
     /// </summary>
     public Expr Replace<TKey, TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping)
         => Replace(mapping.Select(k => k.Key), mapping.Select(v => v.Value));
-    
+
     /// <summary>
     /// Replace values strictly using a mapping.
     /// </summary>
     public Expr ReplaceStrict<TKey, TValue>(
-        IEnumerable<KeyValuePair<TKey, TValue>> mapping, 
-        IntoExpr? defaultExpr = null, 
+        IEnumerable<KeyValuePair<TKey, TValue>> mapping,
+        IntoExpr? defaultExpr = null,
         IntoDataTypeExpr? returnDataType = null)
-        => ReplaceStrict(mapping.Select(k => k.Key), mapping.Select(v => v.Value),defaultExpr,returnDataType);
+        => ReplaceStrict(mapping.Select(k => k.Key), mapping.Select(v => v.Value), defaultExpr, returnDataType);
     /// <summary>
     /// Replace values using two sequences (IEnumerable) for old and new values.
     /// </summary>
@@ -553,9 +553,9 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Replace values strictly using two sequences (IEnumerable).
     /// </summary>
     public Expr ReplaceStrict<TOld, TNew>(
-        IEnumerable<TOld> oldValues, 
-        IEnumerable<TNew> newValues, 
-        IntoExpr? defaultExpr = null, 
+        IEnumerable<TOld> oldValues,
+        IEnumerable<TNew> newValues,
+        IntoExpr? defaultExpr = null,
         IntoDataTypeExpr? returnDataType = null)
     {
         using Series oldSeries = Pl.CreateSeries("old", oldValues);
@@ -569,14 +569,14 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="other">Expression to append.</param>
     /// <param name="upcast">Cast both Series to the same supertype.</param>
-    public Expr Append(IntoExpr other,bool upcast = true) => new(PolarsWrapper.Append(CloneHandle(),other.Consume().Handle,upcast));
+    public Expr Append(IntoExpr other, bool upcast = true) => new(PolarsWrapper.Append(CloneHandle(), other.Consume().Handle, upcast));
     /// <summary>
     /// Extremely fast method for extending the Series with ‘n’ copies of a value.
     /// </summary>
     /// <param name="value">A constant literal value or a unit expression with which to extend the expression result Series; can pass None to extend with nulls.</param>
     /// <param name="n">The number of additional values that will be added.</param>
-    public Expr ExtendConstant(IntoExpr value,Expr n)
-        => new(PolarsWrapper.ExtendConstant(CloneHandle(),value.Consume().Handle,n.CloneHandle()));
+    public Expr ExtendConstant(IntoExpr value, Expr n)
+        => new(PolarsWrapper.ExtendConstant(CloneHandle(), value.Consume().Handle, n.CloneHandle()));
     /// <summary>
     /// Set values outside the given boundaries to the boundary value.
     /// </summary>
@@ -591,22 +591,22 @@ public partial class Expr : IDisposable,IEquatable<Expr>
 
         if (lowerBound is not null && upperBound is null)
         {
-            var hMin = PolarsWrapper.ClipMin(Handle, lowerBound?.Consume().Handle!);
+            var hMin = PolarsWrapper.ClipMin(CloneHandle(), lowerBound?.Consume().Handle!);
             return new Expr(hMin);
         }
 
         if (lowerBound is null && upperBound is not null)
         {
-            var hMax = PolarsWrapper.ClipMax(Handle, upperBound?.Consume().Handle!);
+            var hMax = PolarsWrapper.ClipMax(CloneHandle(), upperBound?.Consume().Handle!);
             return new Expr(hMax);
         }
 
         var hFull = PolarsWrapper.Clip(
-            Handle, 
-            lowerBound?.Consume().Handle!, 
+            CloneHandle(),
+            lowerBound?.Consume().Handle!,
             upperBound?.Consume().Handle!
         );
-        
+
         return new Expr(hFull);
     }
     // ==========================================
@@ -632,8 +632,8 @@ public partial class Expr : IDisposable,IEquatable<Expr>
         return new Expr(h);
     }
     /// <inheritdoc cref="Cast"/>
-    public Expr Cast<T>( bool strict = true, bool wrapNumerical = false)
-        => Cast(DataType.FromNetType<T>(),strict,wrapNumerical);
+    public Expr Cast<T>(bool strict = true, bool wrapNumerical = false)
+        => Cast(DataType.FromNetType<T>(), strict, wrapNumerical);
 
     // ==========================================
     // UDF / Map
@@ -651,7 +651,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <summary>
     /// Apply a custom C# function to the expression (High-Level).
     /// </summary>
-    public Expr Map<TInput, TOutput>(Func<TInput, TOutput> function, DataType? outputType=null)
+    public Expr Map<TInput, TOutput>(Func<TInput, TOutput> function, DataType? outputType = null)
     {
         Type arrowArrayType = typeof(Apache.Arrow.IArrowArray);
         if (arrowArrayType.IsAssignableFrom(typeof(TInput)) || arrowArrayType.IsAssignableFrom(typeof(TOutput)))
@@ -660,7 +660,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
                 "Detected Arrow array types. For batch/vectorized operations on IArrowArray, please use MapArrow instead of Map.",
                 nameof(function));
         }
-        using DataType outDataType = outputType ?? DataType.FromNetType<TOutput>(); 
+        using DataType outDataType = outputType ?? DataType.FromNetType<TOutput>();
         return new(PolarsWrapper.Map(CloneHandle(), UdfUtils.Wrap(function), outDataType.Handle));
     }
     /// <summary>
@@ -683,13 +683,13 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     {
         if (additionalExprs == null || additionalExprs.Length == 0)
             throw new ArgumentException("At least one additional expression is required for MapMany.");
-        
+
         // Convert IntoExprColumn -> Expr (dealing with ownership)
         var otherExprs = additionalExprs
-            .Select(e => e.Consume())      
-            .Select(e => e.Handle)         
+            .Select(e => e.Consume())
+            .Select(e => e.Handle)
             .ToArray();
-        
+
         // this will be transferred in the wrapper
         return new(PolarsWrapper.MapMany(
             CloneHandle(),
@@ -763,23 +763,23 @@ public partial class Expr : IDisposable,IEquatable<Expr>
         IEnumerable<IntoExprColumn>? orderBy = null,
         bool descending = false,
         bool nullsLast = false,
-        bool multithreaded = true, 
-        bool maintainOrder = false, 
+        bool multithreaded = true,
+        bool maintainOrder = false,
         WindowMappingStrategy mappingStrategy = WindowMappingStrategy.GroupsToRows)
     {
         var exprArray = partitionBy?.ToArray() ?? [];
         var orderArray = orderBy?.ToArray() ?? [];
 
-        if (exprArray.Length == 0 && orderArray.Length == 0) 
+        if (exprArray.Length == 0 && orderArray.Length == 0)
         {
-            return this; 
+            return this;
         }
 
         var handles = System.Array.ConvertAll(exprArray, e => e.Consume().Handle);
         var orderHandles = System.Array.ConvertAll(orderArray, e => e.Consume().Handle);
 
         return new Expr(PolarsWrapper.Over(
-            CloneHandle(), 
+            CloneHandle(),
             handles,
             orderHandles,
             descending,
@@ -788,7 +788,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
             maintainOrder,
             mappingStrategy.ToNative()
         ));
-    }    
+    }
     /// <summary>
     /// Shift values by the given number of indices.
     /// Positive values shift downstream, negative values shift upstream.
@@ -849,7 +849,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// // df.Explode("tags").Show();
     /// </code>
     /// </example>
-    public Expr Explode(bool emptyAsNull=true,bool keepNulls=true) => new(PolarsWrapper.Explode(CloneHandle(),emptyAsNull,keepNulls));
+    public Expr Explode(bool emptyAsNull = true, bool keepNulls = true) => new(PolarsWrapper.Explode(CloneHandle(), emptyAsNull, keepNulls));
     /// <summary>
     /// Returns the first non-null value between this expression and other expressions.
     /// Syntactic sugar for <c>Pl.Coalesce(this, others)</c>.
@@ -869,8 +869,8 @@ public partial class Expr : IDisposable,IEquatable<Expr>
         if (others == null || others.Length == 0) return this;
 
         var allExprs = new IntoExprColumn[others.Length + 1];
-        allExprs[0] = this; 
-        
+        allExprs[0] = this;
+
         for (int i = 0; i < others.Length; i++)
         {
             allExprs[i + 1] = others[i];
@@ -881,10 +881,10 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     internal static Expr Ternary(Expr predicate, Expr truthy, Expr falsy)
     {
         var handle = PolarsWrapper.IfElse(
-            predicate.CloneHandle(), 
-            truthy.CloneHandle(), 
+            predicate.CloneHandle(),
+            truthy.CloneHandle(),
             falsy.CloneHandle());
-            
+
         return new Expr(handle);
     }
 
@@ -900,32 +900,32 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Reshape the column into a multi-dimensional array.
     /// </summary>
     /// <param name="dimensions">Tuple of the dimension sizes. If a -1 is used, that dimension is inferred.</param>
-    public Expr Reshape(ReadOnlySpan<long> dimensions) => new (PolarsWrapper.ExprReshape(CloneHandle(), dimensions));
+    public Expr Reshape(ReadOnlySpan<long> dimensions) => new(PolarsWrapper.ExprReshape(CloneHandle(), dimensions));
     /// <summary>
     /// Get a slice of this expression.
     /// </summary>
     /// <param name="offset">Start index. Negative indexing is supported.</param>
     /// <param name="length">Length of the slice. If set to None, all rows starting at the offset will be selected.</param>
-    public Expr Slice(long offset,ulong? length=null)
+    public Expr Slice(long offset, ulong? length = null)
     {
         ulong realLength = length ?? ulong.MaxValue;
-        return new(PolarsWrapper.ExprSlice(CloneHandle(),Pl.Lit(offset).Handle,Pl.Lit(realLength).Handle));
+        return new(PolarsWrapper.ExprSlice(CloneHandle(), Pl.Lit(offset).Handle, Pl.Lit(realLength).Handle));
     }
     /// <summary>
     /// Print the value that this expression evaluates to and pass on the value.
     /// </summary>
-    public Expr Inspect(string format="{}") => new(PolarsWrapper.ExprInspect(CloneHandle(),format));
+    public Expr Inspect(string format = "{}") => new(PolarsWrapper.ExprInspect(CloneHandle(), format));
     /// <summary>
     /// Reinterpret the underlying bits as a signed/unsigned integer.
     /// This operation is only allowed for numeric types of the same size. For lower bits numbers, you can safely use the cast operation.
     /// </summary>
     /// <param name="signed">If True, reinterpret as signed integer. Otherwise, reinterpret as unsigned integer.</param>
-    public Expr Reinterpret(bool signed=true) => new(PolarsWrapper.ExprReinterpret(CloneHandle(),signed));
+    public Expr Reinterpret(bool signed = true) => new(PolarsWrapper.ExprReinterpret(CloneHandle(), signed));
     /// <summary>
     /// Reinterpret the underlying bits as a signed/unsigned integer or float.
     /// </summary>
     /// <param name="dtype">DataType to reinterpret to.</param>
-    public Expr Reinterpret(DataType dtype) => new(PolarsWrapper.ExprReinterpret(CloneHandle(),dtype.Handle));
+    public Expr Reinterpret(DataType dtype) => new(PolarsWrapper.ExprReinterpret(CloneHandle(), dtype.Handle));
     /// <summary>
     /// Reinterpret the underlying bits as a signed/unsigned integer or float.
     /// </summary>
@@ -936,8 +936,8 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="by">Numeric column that determines how often the values will be repeated. The column will be coerced to UInt32. Give this dtype to make the coercion a no-op.</param>
     /// <returns>Expression/Series of data type List, where the inner data type is equal to the original data type.</returns>
-    public Expr RepeatBy(IntoExpr by) => new(PolarsWrapper.ExprRepeatBy(CloneHandle(),by.Consume().Handle));
-   /// <summary>
+    public Expr RepeatBy(IntoExpr by) => new(PolarsWrapper.ExprRepeatBy(CloneHandle(), by.Consume().Handle));
+    /// <summary>
     /// Apply a user-defined function to this expression, returning the result of the function.
     /// This allows encapsulating a sequence of Polars expression operations into a reusable function.
     /// </summary>
@@ -948,7 +948,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </param>
     /// <returns>The result of applying <paramref name="function"/> to this expression.</returns>
     public T Pipe<T>(Func<Expr, T> function) => function(this);
-    
+
     // ==========================================
     // Namespaces
     // ==========================================
@@ -1010,7 +1010,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     public void Dispose()
     {
         Handle?.Dispose();
-        GC.SuppressFinalize(this); 
+        GC.SuppressFinalize(this);
     }
     public override string ToString()
     {
@@ -1028,7 +1028,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
         bool result = PolarsWrapper.ExprEquals(Handle, other.Handle);
         return result;
     }
-    public override bool Equals(object? obj) 
+    public override bool Equals(object? obj)
         => Equals(obj as Expr);
     /// <summary>
     /// Get hashcode based on handles

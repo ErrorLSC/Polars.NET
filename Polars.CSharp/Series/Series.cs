@@ -1,6 +1,5 @@
-using Polars.NET.Core;
-using Polars.NET.Core.Helpers;
 using Apache.Arrow;
+using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 using Pl = Polars.CSharp.Polars;
 
@@ -13,7 +12,7 @@ namespace Polars.CSharp;
 /// Operations on Series are generally performed immediately.
 /// </para>
 /// </summary>
-public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
+public partial class Series : IDisposable, IEquatable<Series>
 {
     internal SeriesHandle Handle { get; private set; }
 
@@ -145,8 +144,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// Flags the Series as ‘sorted’. Enables downstream code to user fast paths for sorted arrays.
     /// </summary>
     /// <param name="descending">If the Series order is descending.</param>
-    /// <returns></returns>
-    public Series SetSorted(bool descending = false) => new(PolarsWrapper.SeriesSetSortedFlag(Handle,descending));
+    public Series SetSorted(bool descending = false) => new(PolarsWrapper.SeriesSetSortedFlag(Handle, descending));
     /// <summary>
     /// Get the string representation of the Series data type (e.g. "i64", "str", "datetime(μs)").
     /// </summary>
@@ -177,7 +175,6 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
             return newInstance;
         }
     }
-    IPolarsDataType IPolarsSeries.DataType => DataType;
 
     /// <summary>
     /// Shape of this Series.
@@ -207,7 +204,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     public Series Take(ReadOnlySpan<int> indices) => Gather(indices);
     /// <summary>
     /// Take elements by physical integer indices.
-    /// Note: Negative indices are not supported. All values must be >= 0.
+    /// Negative indices are not supported. All values must be >= 0.
     /// </summary>
     public Series Take(Series indices)
     {
@@ -241,8 +238,8 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
         => ApplyExpr(Pl.Col(Name).ArgSort(descending, nullsLast));
 
     /// <inheritdoc cref="Expr.IsClose"/>
-    public Series IsClose(IntoExprColumn other,double absTol = 0.0,double relTol=1e-9,bool nansEqual=false)
-        => ApplyExpr(Pl.Col(Name).IsClose(other,absTol,relTol,nansEqual));
+    public Series IsClose(IntoExprColumn other, double absTol = 0.0, double relTol = 1e-9, bool nansEqual = false)
+        => ApplyExpr(Pl.Col(Name).IsClose(other, absTol, relTol, nansEqual));
 
     // -------------------------------------------------------------------------
     // Boolean Aggregation
@@ -318,13 +315,13 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// </summary>
     public Series ToPhysical() => new(PolarsWrapper.SeriesToPhysical(Handle));
     /// <inheritdoc cref="Expr.Sample(ulong, bool, bool?, ulong?)"/>
-    public Series Sample(ulong n=1,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
-        => ApplyExpr(Pl.Col(Name).Sample(n,withReplacement,shuffle,seed));
+    public Series Sample(ulong n = 1, bool withReplacement = false, bool shuffle = false, ulong? seed = null)
+        => ApplyExpr(Pl.Col(Name).Sample(n, withReplacement, shuffle, seed));
     /// <inheritdoc cref="Expr.Sample(double, bool, bool?, ulong?)"/>
-    public Series Sample(double fraction,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
-        => ApplyExpr(Pl.Col(Name).Sample(fraction,withReplacement,shuffle,seed));
+    public Series Sample(double fraction, bool withReplacement = false, bool shuffle = false, ulong? seed = null)
+        => ApplyExpr(Pl.Col(Name).Sample(fraction, withReplacement, shuffle, seed));
     /// <inheritdoc cref="Expr.Reinterpret(bool)"/>
-    public Series Reinterpret(bool signed=true) => ApplyExpr(Pl.Col(Name).Reinterpret(signed));
+    public Series Reinterpret(bool signed = true) => ApplyExpr(Pl.Col(Name).Reinterpret(signed));
     /// <inheritdoc cref="Expr.Reinterpret(DataType)"/>
     public Series Reinterpret(DataType dtype) => ApplyExpr(Pl.Col(Name).Reinterpret(dtype));
     /// <inheritdoc cref="Expr.Reinterpret(DataType)"/>
@@ -336,7 +333,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// </summary>
     /// <param name="offset">Start index. Negative values count from the end.</param>
     /// <param name="length">Length of the slice.</param>
-    public Series Slice(long offset, ulong? length=null)
+    public Series Slice(long offset, ulong? length = null)
     {
         long absoluteOffset;
 
@@ -395,7 +392,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <param name="other">Series to append.</param>
     public Series Append(Series other)
     {
-        PolarsWrapper.SeriesAppend(Handle,other.Handle);
+        PolarsWrapper.SeriesAppend(Handle, other.Handle);
         return this;
     }
     /// <summary>
@@ -406,7 +403,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <param name="other">Series to extend the series with.</param>
     public Series Extend(Series other)
     {
-        PolarsWrapper.SeriesExtend(Handle,other.Handle);
+        PolarsWrapper.SeriesExtend(Handle, other.Handle);
         return this;
     }
     /// <summary>
@@ -414,9 +411,9 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// </summary>
     /// <param name="value">A constant literal value or a unit expression with which to extend the expression result Series; can pass None to extend with nulls.</param>
     /// <param name="n">The number of additional values that will be added.</param>
-    public Series ExtendConstant(IntoExpr value,Expr n) => ApplyExpr(Pl.Col(Name).ExtendConstant(value,n));
+    public Series ExtendConstant(IntoExpr value, Expr n) => ApplyExpr(Pl.Col(Name).ExtendConstant(value, n));
     /// <inheritdoc cref="Expr.Clip"/>
-    public Series Clip(IntoExprColumn? lowerBound=null,IntoExprColumn? upperBound=null) => ApplyExpr(Pl.Col(Name).Clip(lowerBound,upperBound));
+    public Series Clip(IntoExprColumn? lowerBound = null, IntoExprColumn? upperBound = null) => ApplyExpr(Pl.Col(Name).Clip(lowerBound, upperBound));
     /// <summary>
     /// Create an empty copy of the current Series, with zero to ‘n’ elements.
     /// The copy has an identical name/dtype, but no data.
@@ -424,12 +421,12 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <param name="n"></param>
     public Series Clear(uint n = 0)
     {
-        if (IsEmpty(ignoreNulls:false))
+        if (IsEmpty(ignoreNulls: false))
             return this.Clone();
         else if (n == 0)
             return new(PolarsWrapper.SeriesClear(Handle));
         else
-            return new Series(PolarsWrapper.SeriesClear(Handle)).ExtendConstant(Pl.LitNull(),n);
+            return new Series(PolarsWrapper.SeriesClear(Handle)).ExtendConstant(Pl.LitNull(), n);
     }
     /// <summary>
     /// Reshape this Series to a flat Series or an Array Series.
@@ -438,17 +435,17 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <returns>Tuple of the dimension sizes. If a -1 is used in any of the dimensions, that dimension is inferred.</returns>
     public Series Reshape(ReadOnlySpan<long> dimensions) => new(PolarsWrapper.SeriesReshape(Handle, dimensions));
     /// <inheritdoc cref="Expr.Replace(IntoExpr, IntoExpr)"/>
-    public Series Replace(IntoExpr old,IntoExpr newExpr) => ApplyExpr(Pl.Col(Name).Replace(old,newExpr));
+    public Series Replace(IntoExpr old, IntoExpr newExpr) => ApplyExpr(Pl.Col(Name).Replace(old, newExpr));
     /// <inheritdoc cref="Expr.Replace{TKey, TValue}(IEnumerable{KeyValuePair{TKey, TValue}})"/>
     public Series Replace<TKey, TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping) => ApplyExpr(Pl.Col(Name).Replace(mapping));
     /// <inheritdoc cref="Expr.ReplaceStrict{TOld, TNew}(IEnumerable{TOld}, IEnumerable{TNew}, IntoExpr?, IntoDataTypeExpr?)"/>
-    public Series Replace<TOld, TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues) => ApplyExpr(Pl.Col(Name).Replace(oldValues,newValues));
+    public Series Replace<TOld, TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues) => ApplyExpr(Pl.Col(Name).Replace(oldValues, newValues));
     /// <inheritdoc cref="Expr.ReplaceStrict(IntoExpr, IntoExpr,IntoExpr?,IntoDataTypeExpr?)"/>
-    public Series ReplaceStrict(IntoExpr old,IntoExpr newExpr,IntoExpr? defaultExpr = null,IntoDataTypeExpr? returnDataType=null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(old,newExpr,defaultExpr,returnDataType));
+    public Series ReplaceStrict(IntoExpr old, IntoExpr newExpr, IntoExpr? defaultExpr = null, IntoDataTypeExpr? returnDataType = null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(old, newExpr, defaultExpr, returnDataType));
     /// <inheritdoc cref="Expr.ReplaceStrict{TKey, TValue}(IEnumerable{KeyValuePair{TKey, TValue}}, IntoExpr?, IntoDataTypeExpr?)"/>
-    public Series ReplaceStrict<TKey, TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping,IntoExpr? defaultExpr = null,IntoDataTypeExpr? returnDataType=null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(mapping,defaultExpr,returnDataType));
+    public Series ReplaceStrict<TKey, TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping, IntoExpr? defaultExpr = null, IntoDataTypeExpr? returnDataType = null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(mapping, defaultExpr, returnDataType));
     /// <inheritdoc cref="Expr.ReplaceStrict{TOld, TNew}(IEnumerable{TOld}, IEnumerable{TNew}, IntoExpr?, IntoDataTypeExpr?)"/>
-    public Series ReplaceStrict<TOld, TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues,IntoExpr? defaultExpr = null,IntoDataTypeExpr? returnDataType=null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(oldValues,newValues,defaultExpr,returnDataType));
+    public Series ReplaceStrict<TOld, TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues, IntoExpr? defaultExpr = null, IntoDataTypeExpr? returnDataType = null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(oldValues, newValues, defaultExpr, returnDataType));
 
     // ==========================================
     // Null Checks & Boolean Masks
@@ -491,7 +488,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <inheritdoc cref="Expr.FillNull(IntoExpr)"/>
     public Series FillNull(IntoExpr value) => ApplyExpr(Pl.Col(Name).FillNull(value));
     /// <inheritdoc cref="Expr.FillNull(FillNullStrategy,uint?)"/>
-    public Series FillNull(FillNullStrategy strategy,uint? limit = null) => ApplyExpr(Pl.Col(Name).FillNull(strategy,limit));
+    public Series FillNull(FillNullStrategy strategy, uint? limit = null) => ApplyExpr(Pl.Col(Name).FillNull(strategy, limit));
     /// <inheritdoc cref="Expr.ForwardFill"/>
     public Series ForwardFill(uint limit = 0) => ApplyExpr(Pl.Col(Name).ForwardFill(limit));
     /// <inheritdoc cref="Expr.BackwardFill"/>
@@ -514,7 +511,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
         => ApplyBinaryExpr(by, (left, right) => left.InterpolateBy(right));
     /// <summary>
     /// Fill floating point NaN values with a specified value.
-    /// Note: This is different from FillNull. It only handles IEEE 754 NaN.
+    /// This is different from FillNull. It only handles IEEE 754 NaN.
     /// </summary>
     public Series FillNan(IntoExpr value) => ApplyExpr(Pl.Col(Name).FillNan(value));
     // ==========================================
@@ -602,7 +599,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <summary>
     /// Check if values are between lower and upper bounds.
     /// </summary>
-    public Series IsBetween(object lower, object upper, ClosedInterval closedInterval=ClosedInterval.Both)
+    public Series IsBetween(object lower, object upper, ClosedInterval closedInterval = ClosedInterval.Both)
         => ApplyExpr(Pl.Col(Name).IsBetween(Expr.MakeLit(lower), Expr.MakeLit(upper), closedInterval));
     /// <summary>
     /// Check if values are between lower and upper bounds.
@@ -629,14 +626,14 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <inheritdoc cref="Expr.PeakMin"/>
     public Series PeakMin() => ApplyExpr(Pl.Col(Name).PeakMin());
     /// <inheritdoc cref="Expr.Cut"/>
-    public Series Cut(ReadOnlySpan<double> breaks,string[]? labels = null,bool leftClosed=false,bool includeBreaks=false)
-        => ApplyExpr(Pl.Col(Name).Cut(breaks,labels,leftClosed,includeBreaks));
+    public Series Cut(ReadOnlySpan<double> breaks, string[]? labels = null, bool leftClosed = false, bool includeBreaks = false)
+        => ApplyExpr(Pl.Col(Name).Cut(breaks, labels, leftClosed, includeBreaks));
     /// <inheritdoc cref="Expr.QCut(ReadOnlySpan{double}, string[], bool, bool, bool)"/>
-    public Series QCut(ReadOnlySpan<double> quantiles,string[]? labels = null,bool leftClosed=false,bool allowDuplicates=false,bool includeBreaks =false)
-        => ApplyExpr(Pl.Col(Name).QCut(quantiles,labels,leftClosed,allowDuplicates,includeBreaks));
+    public Series QCut(ReadOnlySpan<double> quantiles, string[]? labels = null, bool leftClosed = false, bool allowDuplicates = false, bool includeBreaks = false)
+        => ApplyExpr(Pl.Col(Name).QCut(quantiles, labels, leftClosed, allowDuplicates, includeBreaks));
     /// <inheritdoc cref="Expr.QCut(ReadOnlySpan{double}, string[], bool, bool, bool)"/>
-    public Series QCut(int quantiles,string[]? labels = null,bool leftClosed=false,bool allowDuplicates=false,bool includeBreaks =false)
-        => ApplyExpr(Pl.Col(Name).QCut(quantiles,labels,leftClosed,allowDuplicates,includeBreaks));
+    public Series QCut(int quantiles, string[]? labels = null, bool leftClosed = false, bool allowDuplicates = false, bool includeBreaks = false)
+        => ApplyExpr(Pl.Col(Name).QCut(quantiles, labels, leftClosed, allowDuplicates, includeBreaks));
     // ==========================================
     // Common Ops
     // ==========================================
@@ -666,7 +663,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// Explode a list column into multiple rows.
     /// The resulting Series will be longer than the original.
     /// </summary>
-    public Series Explode(bool emptyAsNull=true,bool keepNulls=true) => ApplyExpr(Pl.Col(Name).Explode(emptyAsNull,keepNulls));
+    public Series Explode(bool emptyAsNull = true, bool keepNulls = true) => ApplyExpr(Pl.Col(Name).Explode(emptyAsNull, keepNulls));
     /// <summary>
     /// Unnest a Struct column into a DataFrame.
     /// Shortcut for <see cref="SeriesStructOps.Unnest"/>.
@@ -679,20 +676,20 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <param name="mask">Boolean Series.</param>
     /// <param name="other">Series of same type.</param>
     /// <returns>Series</returns>
-    public Series ZipWith(Series mask, Series other) => new(PolarsWrapper.SeriesZipWith(Handle,mask.Handle,other.Handle));
+    public Series ZipWith(Series mask, Series other) => new(PolarsWrapper.SeriesZipWith(Handle, mask.Handle, other.Handle));
     /// <summary>
     /// Get dummy/indicator variables.
     /// </summary>
     /// <param name="separator">Separator/delimiter used when generating column names.</param>
     /// <param name="dropFirst">Remove the first category from the variable being encoded.</param>
     /// <param name="dropNulls">If there are None values in the series, a null column is not generated. Null values in the input are represented by zero vectors.</param>
-    public DataFrame ToDummies(string? separator = "_",bool dropFirst = false, bool dropNulls = false) => new(PolarsWrapper.SeriesToDummies(Handle,separator,dropFirst,dropNulls));
+    public DataFrame ToDummies(string? separator = "_", bool dropFirst = false, bool dropNulls = false) => new(PolarsWrapper.SeriesToDummies(Handle, separator, dropFirst, dropNulls));
     /// <summary>
     /// Create a new Series filled with values from the given index.
     /// </summary>
     /// <param name="index"></param>
     /// <param name="length"></param>
-    public Series NewFromIndex(long index,long length) => new(PolarsWrapper.SeriesNewFromIndex(Handle,index,length));
+    public Series NewFromIndex(long index, long length) => new(PolarsWrapper.SeriesNewFromIndex(Handle, index, length));
     /// <summary>
     /// Parses an integer Series into a Datetime or Date Series.
     /// </summary>
@@ -742,7 +739,12 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// </summary>
     public DataFrame ToFrame()
         => new(PolarsWrapper.SeriesToFrame(Handle));
-    IPolarsDataFrame IPolarsSeries.ToFrame()
+
+    /// <summary>
+    /// Convert this single Series into a DataFrame.
+    /// Functional alias for <see cref="ToFrame"/>.
+    /// </summary>
+    public DataFrame ToDataFrame()
         => ToFrame();
 
     // ==========================================
@@ -780,6 +782,24 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
         return PolarsWrapper.SeriesToString(Handle);
     }
     /// <summary>
+    /// Generates a rich HTML table representation of the Series by delegating to a single-column DataFrame preview.
+    /// </summary>
+    /// <returns>An HTML string representing the Series preview.</returns>
+    public string ToHtml()
+    {
+        using var df = this.ToFrame();
+        return df.ToHtml();
+    }
+    /// <summary>
+    /// Custom rendering hook for LINQPad Dump().
+    /// </summary>
+    /// <returns>An object or formatting projection to display in LINQPad output window.</returns>
+    object ToDump()
+    {
+        using var df = this.ToFrame();
+        return df.ToDump();
+    }
+    /// <summary>
     /// Print the DataFrame to Console.
     /// </summary>
     public void Show() => Console.WriteLine(ToString());
@@ -791,7 +811,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
         if (ReferenceEquals(this, other)) return true;
         if (other is null) return false;
 
-        return PolarsWrapper.SeriesEquals(Handle,other.Handle);
+        return PolarsWrapper.SeriesEquals(Handle, other.Handle);
     }
     /// <inheritdoc cref="Series.Equals(Series)"/>
     public override bool Equals(object? obj) => Equals(obj as Series);

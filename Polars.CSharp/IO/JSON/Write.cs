@@ -2,7 +2,8 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Write DataFrame to a JSON file.
@@ -43,8 +44,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         var lf = Lazy();
         lf.SinkJsonPartitioned(
-            path,partitionBy,includeKeys,keysPreGrouped,maxRowsPerFile,approxBytesPerFile,
-            compression,compressionLevel,checkExtension,maintainOrder,syncOnClose,mkdir,cloudOptions
+            path, partitionBy, includeKeys, keysPreGrouped, maxRowsPerFile, approxBytesPerFile,
+            compression, compressionLevel, checkExtension, maintainOrder, syncOnClose, mkdir, cloudOptions
         );
     }
 

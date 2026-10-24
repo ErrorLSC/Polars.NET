@@ -2,7 +2,7 @@ using Polars.NET.Core;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Lazily read from a parquet file or multiple files via glob patterns.
@@ -20,7 +20,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="rowIndexOffset">Offset for the row index.</param>
     /// <param name="includePathColumn">If provided, adds a column with the source file path.</param>
     /// <param name="schema">
-    /// Manually specify the schema of the file(s). 
+    /// Manually specify the schema of the file(s).
     /// Useful if the file footer is missing or to avoid I/O overhead of reading the schema.</param>
     /// <param name="hivePartitioning">Enable Hive partitioning inference (default: false).</param>
     /// <param name="hivePartitionSchema">
@@ -39,8 +39,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool useStatistics = true,
         bool glob = true,
         bool allowMissingColumns = false,
-        bool rechunk = false, 
-        bool cache = true,    
+        bool rechunk = false,
+        bool cache = true,
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
@@ -48,7 +48,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool hivePartitioning = false,
         IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false,
-        CloudOptions? cloudOptions = null) 
+        CloudOptions? cloudOptions = null)
     {
         var schemaHandle = schema?.Consume().Handle;
         var hiveSchemaHandle = hivePartitionSchema?.Consume().Handle;
@@ -63,14 +63,14 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             useStatistics,
             glob,
             allowMissingColumns,
-            rechunk, 
-            cache,   
+            rechunk,
+            cache,
             rowIndexName,
             rowIndexOffset,
             includePathColumn,
-            schemaHandle,     
+            schemaHandle,
             hivePartitioning,
-            hiveSchemaHandle, 
+            hiveSchemaHandle,
             tryParseHiveDates,
             provider.ToNative(),
             retries,

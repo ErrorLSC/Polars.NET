@@ -3,23 +3,24 @@ using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
     /// Sort the LazyFrame by a single column name, selector, or column expression.
     /// </summary>
     public LazyFrame Sort(
-        IntoSelector by, 
-        bool descending = false, 
-        bool nullsLast = false, 
+        IntoSelector by,
+        bool descending = false,
+        bool nullsLast = false,
         bool maintainOrder = false)
     {
         using var safeSelector = by.Consume();
         using var expr = safeSelector.ToExpr();
-        
+
         var handles = new[] { PolarsWrapper.CloneExpr(expr.Handle) };
         var h = PolarsWrapper.LazyFrameSort(CloneHandle(), handles, [descending], [nullsLast], maintainOrder);
-        
+
         return new LazyFrame(h);
     }
     /// <summary>
@@ -57,9 +58,9 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </code>
     /// </example>
     public LazyFrame Sort(
-        IEnumerable<IntoSelector> by, 
-        bool[]? descending = null, 
-        bool[]? nullsLast = null, 
+        IEnumerable<IntoSelector> by,
+        bool[]? descending = null,
+        bool[]? nullsLast = null,
         bool maintainOrder = false)
     {
         var selectors = by as IntoSelector[] ?? [.. by];
@@ -89,16 +90,16 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 
         var handles = new ExprHandle[sortConfigs.Length];
         var descArray = new bool[sortConfigs.Length];
-        var nullsArray = new bool[sortConfigs.Length]; 
+        var nullsArray = new bool[sortConfigs.Length];
 
         for (int i = 0; i < sortConfigs.Length; i++)
         {
             using var sel = sortConfigs[i].By.Consume();
             using var expr = sel.ToExpr();
-            
+
             handles[i] = PolarsWrapper.CloneExpr(expr.Handle);
             descArray[i] = sortConfigs[i].Descending;
-            nullsArray[i] = false; 
+            nullsArray[i] = false;
         }
 
         var h = PolarsWrapper.LazyFrameSort(CloneHandle(), handles, descArray, nullsArray, maintainOrder: false);
@@ -106,21 +107,21 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Sort the LazyFrame by a single column name, selector, or column expression.
     /// </summary>
     public DataFrame Sort(
-        IntoSelector by, 
-        bool descending = false, 
-        bool nullsLast = false, 
+        IntoSelector by,
+        bool descending = false,
+        bool nullsLast = false,
         bool maintainOrder = false)
     {
         return Lazy().Sort(
-            by, 
-            descending, 
-            nullsLast, 
+            by,
+            descending,
+            nullsLast,
             maintainOrder
         ).Collect();
     }
@@ -128,15 +129,15 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Sort the DataFrame by multiple columns (all ascending or all descending).
     /// </summary>
     public DataFrame Sort(
-        IEnumerable<IntoSelector> by, 
-        bool[]? descending = null, 
-        bool[]? nullsLast = null, 
+        IEnumerable<IntoSelector> by,
+        bool[]? descending = null,
+        bool[]? nullsLast = null,
         bool maintainOrder = false)
     {
         return Lazy().Sort(
-            by, 
-            descending, 
-            nullsLast, 
+            by,
+            descending,
+            nullsLast,
             maintainOrder
         ).Collect();
     }

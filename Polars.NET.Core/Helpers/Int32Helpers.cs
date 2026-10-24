@@ -16,23 +16,23 @@ public static partial class ArrayHelper
         12, 13, 14, 15,  // Item 1 Value
         20, 21, 22, 23,  // Item 2 Value
         28, 29, 30, 31,  // Item 3 Value
-        // --- Output Bytes 16-19: The HasValues (4 * 1 byte) ---
+                         // --- Output Bytes 16-19: The HasValues (4 * 1 byte) ---
         0,               // Item 0 HasValue
         8,               // Item 1 HasValue
         16,              // Item 2 HasValue
         24,              // Item 3 HasValue
-        // --- Rest is padding/garbage ---
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 
+                         // --- Rest is padding/garbage ---
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255
     );
-    
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static unsafe (int[] values, byte[]? validity) UnzipInt32SIMD(ReadOnlySpan<int?> data, int defaultValue)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<int>(len);
         int byteLen = (len + 7) >> 3;
-        byte[]? validity = null; 
-        
+        byte[]? validity = null;
+
         fixed (int?* pSrc = data)
         fixed (int* pDstVal = values)
         {
@@ -56,13 +56,13 @@ public static partial class ArrayHelper
                     int v3 = shuffled.GetElement(19);
                     int validityCheck = v0 | (v1 << 8) | (v2 << 16) | (v3 << 24);
 
-                    if (validityCheck != 0x01010101) 
+                    if (validityCheck != 0x01010101)
                     {
                         if (validity == null)
                         {
                             validity = new byte[byteLen];
                             validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                            
+
                             int bytesToFill = i >> 3;
                             if (bytesToFill > 0) Unsafe.InitBlock(ref validRef, 0xFF, (uint)bytesToFill);
                             int remainingBits = i & 7;
@@ -72,7 +72,7 @@ public static partial class ArrayHelper
 
                     if (validity != null)
                     {
-                        if (Unsafe.IsNullRef(ref validRef)) 
+                        if (Unsafe.IsNullRef(ref validRef))
                         {
                             validRef = ref MemoryMarshal.GetArrayDataReference(validity);
                         }
@@ -94,9 +94,9 @@ public static partial class ArrayHelper
             {
                 // Fallback
                 UnzipScalarLoop(
-                    ref Unsafe.AsRef<int?>(pSrc), 
-                    ref Unsafe.AsRef<int>(pDstVal), 
-                    ref validity, 
+                    ref Unsafe.AsRef<int?>(pSrc),
+                    ref Unsafe.AsRef<int>(pDstVal),
+                    ref validity,
                     i, len, defaultValue
                 );
             }

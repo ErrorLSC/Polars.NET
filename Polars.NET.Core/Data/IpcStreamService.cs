@@ -39,7 +39,7 @@ public static class IpcStreamService
 
     public static string StartBufferedFileWriter<T>(IEnumerable<T> data, int batchSize = 100_000)
     {
-        string filePath = Path.GetTempFileName(); 
+        string filePath = Path.GetTempFileName();
         WriteDataToFile(filePath, data, batchSize);
         return filePath;
     }
@@ -61,12 +61,12 @@ public static class IpcStreamService
             {
                 using var downgradedBatch = DowngradeBatchForIpc(batch, ipcSchema);
                 writer.WriteRecordBatch(downgradedBatch);
-                
+
                 rowsWritten += downgradedBatch.Length;
-                
+
                 if (rowsWritten % 1_000_000 == 0)
                 {
-                    GC.Collect(0, GCCollectionMode.Optimized); 
+                    GC.Collect(0, GCCollectionMode.Optimized);
                 }
             }
             writer.WriteEnd();
@@ -92,14 +92,14 @@ public static class IpcStreamService
         {
             using var downgradedBatch = DowngradeBatchForIpc(batch, ipcSchema);
             writer.WriteRecordBatch(downgradedBatch);
-            
+
             rowsWritten += downgradedBatch.Length;
             if (rowsWritten % 1_000_000 == 0)
             {
                 GC.Collect(0, GCCollectionMode.Optimized);
             }
         }
-        writer.WriteEnd(); 
+        writer.WriteEnd();
     }
 
     private static Schema DowngradeSchemaForIpc(Schema schema)
@@ -136,7 +136,7 @@ public static class IpcStreamService
         for (int i = 0; i < batch.ColumnCount; i++)
         {
             var array = batch.Column(i);
-            
+
             if (array is StringViewArray strView)
             {
                 var builder = new StringArray.Builder();

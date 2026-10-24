@@ -12,8 +12,8 @@ public readonly partial struct PolarsWrapper
         SchemaHandle? dtypeOverride,
         bool hasHeader,
         char separator,
-        char? quoteChar,       
-        char eolChar,         
+        char? quoteChar,
+        char eolChar,
         bool ignoreErrors,
         bool tryParseDates,
         bool lowMemory,
@@ -33,8 +33,8 @@ public readonly partial struct PolarsWrapper
         ulong rowIndexOffset,
         string? includeFilePaths,
         PlCsvEncoding encoding,
-        string[]? nullValues, 
-        bool missingIsNull,   
+        string[]? nullValues,
+        bool missingIsNull,
         string? commentPrefix,
         bool decimalComma,
         bool truncateRaggedLines,
@@ -64,33 +64,33 @@ public readonly partial struct PolarsWrapper
 
             nuint csize = chunkSize.HasValue ? (nuint)chunkSize.Value : (nuint)0;
             byte quoteVal = quoteChar.HasValue ? (byte)quoteChar.Value : (byte)0;
-            
+
             SchemaHandle schemaHandle = schema ?? new SchemaHandle();
             SchemaHandle dtypeOverrideHandle = dtypeOverride ?? new SchemaHandle();
-            
+
             nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
 
             var h = NativeBindings.pl_scan_csv(
                 path,
-                
+
                 // --- Core ---
-                hasHeader, (byte)separator, quoteVal, (byte)eolChar, 
+                hasHeader, (byte)separator, quoteVal, (byte)eolChar,
                 ignoreErrors, tryParseDates, lowMemory, cache, glob, rechunk, raiseIfEmpty,
-                
+
                 // --- Sizes & Threads ---
                 (nuint)skipRows, (nuint)skipRowsAfterHeader, (nuint)skipLines,
-                pNRows, pInfer, pInferFile,pNThreads, csize,
-                
+                pNRows, pInfer, pInferFile, pNThreads, csize,
+
                 // --- Row Index & Path ---
                 rowIndexName, (nuint)rowIndexOffset, includeFilePaths,
-                
+
                 // --- Schema & Encoding ---
-                schemaHandle,dtypeOverrideHandle, encoding,
-                
+                schemaHandle, dtypeOverrideHandle, encoding,
+
                 // --- Advanced ---
-                nullValues, (nuint)(nullValues?.Length ?? 0), 
+                nullValues, (nuint)(nullValues?.Length ?? 0),
                 missingIsNull, commentPrefix, decimalComma, truncateRaggedLines,
-                
+
                 // --- Cloud ---
                 cloudProvider,
                 cloudRetries,
@@ -113,8 +113,8 @@ public readonly partial struct PolarsWrapper
         SchemaHandle? dtypeOverride,
         bool hasHeader,
         char separator,
-        char? quoteChar,       
-        char eolChar,         
+        char? quoteChar,
+        char eolChar,
         bool ignoreErrors,
         bool tryParseDates,
         bool lowMemory,
@@ -134,8 +134,8 @@ public readonly partial struct PolarsWrapper
         ulong rowIndexOffset,
         string? includeFilePaths,
         PlCsvEncoding encoding,
-        string[]? nullValues, 
-        bool missingIsNull,   
+        string[]? nullValues,
+        bool missingIsNull,
         string? commentPrefix,
         bool decimalComma,
         bool truncateRaggedLines)
@@ -159,7 +159,7 @@ public readonly partial struct PolarsWrapper
 
             nuint csize = chunkSize.HasValue ? (nuint)chunkSize.Value : (nuint)0;
             byte quoteVal = quoteChar.HasValue ? (byte)quoteChar.Value : (byte)0;
-            
+
             SchemaHandle schemaHandle = schema ?? new SchemaHandle();
             SchemaHandle dtypeOverrideHandle = dtypeOverride ?? new SchemaHandle();
 
@@ -168,23 +168,23 @@ public readonly partial struct PolarsWrapper
                 var h = NativeBindings.pl_scan_csv_mem(
                     pBuffer,
                     (UIntPtr)buffer.Length,
-                    
+
                     // --- Core ---
-                    hasHeader, (byte)separator, quoteVal, (byte)eolChar,   
+                    hasHeader, (byte)separator, quoteVal, (byte)eolChar,
                     ignoreErrors, tryParseDates, lowMemory, cache, glob, rechunk, raiseIfEmpty,
-                    
+
                     // --- Sizes & Threads ---
                     (nuint)skipRows, (nuint)skipRowsAfterHeader, (nuint)skipLines,
-                    pNRows, pInfer,pInferFile, pNThreads, csize,
-                    
+                    pNRows, pInfer, pInferFile, pNThreads, csize,
+
                     // --- Row Index & Path ---
                     rowIndexName, (nuint)rowIndexOffset, includeFilePaths,
-                    
+
                     // --- Schema & Encoding ---
-                    schemaHandle,dtypeOverrideHandle, encoding,
-                    
+                    schemaHandle, dtypeOverrideHandle, encoding,
+
                     // --- Advanced ---
-                    nullValues, (nuint)(nullValues?.Length ?? 0), 
+                    nullValues, (nuint)(nullValues?.Length ?? 0),
                     missingIsNull, commentPrefix, decimalComma, truncateRaggedLines
                 );
 
@@ -192,7 +192,7 @@ public readonly partial struct PolarsWrapper
             }
         }
     }
-    
+
     public static LazyFrameHandle ScanParquet(
         string path,
         ulong? nRows,
@@ -244,8 +244,8 @@ public readonly partial struct PolarsWrapper
                 useStatistics,
                 glob,
                 allowMissingColumns,
-                rechunk, 
-                cache,  
+                rechunk,
+                cache,
                 rowIndexName,
                 rowIndexOffset,
                 includePathColumn,
@@ -281,9 +281,9 @@ public readonly partial struct PolarsWrapper
         string? rowIndexName,
         uint rowIndexOffset,
         string? includePathColumn,
-        SchemaHandle? schema,      
+        SchemaHandle? schema,
         bool hivePartitioning,
-        SchemaHandle? hivePartitionSchema, 
+        SchemaHandle? hivePartitionSchema,
         bool tryParseHiveDates)
     {
         unsafe
@@ -305,16 +305,16 @@ public readonly partial struct PolarsWrapper
 
                 var h = NativeBindings.pl_scan_parquet_memory(
                     (IntPtr)pBuf, (UIntPtr)buffer.Length,
-                    nRowsPtr, 
-                    parallel, 
-                    lowMemory, 
-                    useStatistics, 
-                    glob, 
-                    allowMissingColumns, 
+                    nRowsPtr,
+                    parallel,
+                    lowMemory,
+                    useStatistics,
+                    glob,
+                    allowMissingColumns,
                     cache,
                     rechunk,
-                    rowIndexName, 
-                    rowIndexOffset, 
+                    rowIndexName,
+                    rowIndexOffset,
                     includePathColumn,
                     schemaPtr,
                     hivePartitioning,
@@ -333,12 +333,12 @@ public readonly partial struct PolarsWrapper
         // --- CSV Writer Options ---
         bool hasHeader,
         bool useBom,
-        int batchSize,       
-        bool checkExtension, 
+        int batchSize,
+        bool checkExtension,
 
         // --- Compression ---
-        PlExternalCompression compressionCode, 
-        int compressionLevel,                  
+        PlExternalCompression compressionCode,
+        int compressionLevel,
         // --- Serialize Options ---
         char separator,
         char quoteChar,
@@ -369,10 +369,10 @@ public readonly partial struct PolarsWrapper
     )
     {
         nuint bs = batchSize > 0 ? (nuint)batchSize : 0;
-        
+
         // Float Scientific: null->-1, false->0, true->1
         int fScientific = floatScientific switch { null => -1, false => 0, true => 1 };
-        
+
         // Float Precision: null->-1
         int fPrecision = floatPrecision ?? -1;
 
@@ -380,9 +380,9 @@ public readonly partial struct PolarsWrapper
         nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
 
         NativeBindings.pl_lazyframe_sink_csv(
-            lf, 
+            lf,
             path,
-            
+
             // CSV Writer Options
             useBom,           // include_bom
             hasHeader,        // include_header
@@ -440,12 +440,12 @@ public readonly partial struct PolarsWrapper
         // --- CSV Writer Options ---
         bool hasHeader,
         bool useBom,
-        int batchSize,       
-        bool checkExtension, 
+        int batchSize,
+        bool checkExtension,
 
         // --- Compression ---
-        PlExternalCompression compressionCode, 
-        int compressionLevel,                  
+        PlExternalCompression compressionCode,
+        int compressionLevel,
         // --- Serialize Options ---
         char separator,
         char quoteChar,
@@ -476,10 +476,10 @@ public readonly partial struct PolarsWrapper
     )
     {
         nuint bs = batchSize > 0 ? (nuint)batchSize : 0;
-        
+
         // Float Scientific: null->-1, false->0, true->1
         int fScientific = floatScientific switch { null => -1, false => 0, true => 1 };
-        
+
         // Float Precision: null->-1
         int fPrecision = floatPrecision ?? -1;
 
@@ -487,7 +487,7 @@ public readonly partial struct PolarsWrapper
         nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
 
         NativeBindings.pl_lazyframe_sink_csv_partitioned(
-            lf, 
+            lf,
             path,
             // Partition Params
             partitionBy,
@@ -605,9 +605,9 @@ public readonly partial struct PolarsWrapper
         NativeBindings.pl_dataframe_write_json(df, path, format);
         ErrorHelper.CheckVoid();
     }
-    public static byte[] WriteJsonMemory(DataFrameHandle df,PlJsonFormat format)
+    public static byte[] WriteJsonMemory(DataFrameHandle df, PlJsonFormat format)
     {
-        NativeBindings.pl_dataframe_write_json_memory(df,out var ffiBuffer,format);
+        NativeBindings.pl_dataframe_write_json_memory(df, out var ffiBuffer, format);
         ErrorHelper.CheckVoid();
         try
         {
@@ -624,7 +624,7 @@ public readonly partial struct PolarsWrapper
     }
     // Sink Parquet
     public static void SinkParquet(
-        LazyFrameHandle lf, 
+        LazyFrameHandle lf,
         string path,
         PlParquetCompression compression,
         int compressionLevel,
@@ -654,16 +654,16 @@ public readonly partial struct PolarsWrapper
         nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
 
         NativeBindings.pl_lazyframe_sink_parquet(
-            lf, 
-            path, 
-            compression, 
-            compressionLevel, 
-            statistics, 
-            rgs, 
-            dps, 
+            lf,
+            path,
+            compression,
+            compressionLevel,
+            statistics,
+            rgs,
+            dps,
             safeCompatLevel,
-            maintainOrder, 
-            syncOnClose, 
+            maintainOrder,
+            syncOnClose,
             mkdir,
             // Cloud Args
             cloudProvider,
@@ -676,14 +676,14 @@ public readonly partial struct PolarsWrapper
             cloudValues,
             cloudLen
         );
-        
+
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
     }
     public static void SinkParquetPartitioned(
         LazyFrameHandle lf,
         string path,
-        
+
         // --- Partition Params ---
         SelectorHandle partitionBy,
         bool includeKeys,
@@ -717,7 +717,7 @@ public readonly partial struct PolarsWrapper
     {
         nuint rgs = rowGroupSize > 0 ? (nuint)rowGroupSize : 0;
         nuint dps = dataPageSize > 0 ? (nuint)dataPageSize : 0;
-        
+
         int safeCompatLevel = compatLevel;
         if (safeCompatLevel < -1) safeCompatLevel = -1;
         else if (safeCompatLevel > 1) safeCompatLevel = 1;
@@ -728,7 +728,7 @@ public readonly partial struct PolarsWrapper
         NativeBindings.pl_lazyframe_sink_parquet_partitioned(
             lf,
             path,
-            
+
             // Partition Params
             partitionBy,
             includeKeys,
@@ -763,7 +763,7 @@ public readonly partial struct PolarsWrapper
 
         lf.TransferOwnership();
         partitionBy.TransferOwnership();
-        
+
         ErrorHelper.CheckVoid();
     }
     public static byte[] SinkParquetMemory(
@@ -839,11 +839,12 @@ public readonly partial struct PolarsWrapper
                 inferPtr,
                 batchPtr,
                 ignoreErrors,
-                jsonFormat 
+                jsonFormat
             );
 
             return ErrorHelper.Check(h);
-        };
+        }
+        ;
     }
 
     // ---------------------------------------------------------
@@ -885,7 +886,8 @@ public readonly partial struct PolarsWrapper
 
                 return ErrorHelper.Check(h);
             }
-        };
+        }
+        ;
     }
 
     // ---------------------------------------------------------
@@ -991,7 +993,7 @@ public readonly partial struct PolarsWrapper
                     schema != null ? new[] { schema } : null
                 );
                 IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
-                
+
                 var h = NativeBindings.pl_scan_ndjson_memory(
                     (IntPtr)pBuf, (UIntPtr)buffer.Length,
                     batchPtr,
@@ -1278,10 +1280,10 @@ public readonly partial struct PolarsWrapper
         }
     }
     public static DataFrameHandle ReadIpcStream(
-        string path, 
+        string path,
         string[]? columns,
         uint[]? projection,
-        ulong? nRows, 
+        ulong? nRows,
         string? rowIndexName,
         uint rowIndexOffset,
         bool rechunk)
@@ -1374,7 +1376,7 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     /// <summary>
-    /// Sinks the LazyFrame to an IPC file. 
+    /// Sinks the LazyFrame to an IPC file.
     /// Consumes the LazyFrame handle.
     /// </summary>
     public static void SinkIpc(
@@ -1382,7 +1384,7 @@ public readonly partial struct PolarsWrapper
         string path,
         PlIpcCompression compression,
         int compatLevel,
-        int recordBatchSize, 
+        int recordBatchSize,
         bool recordBatchStatistics,
         bool maintainOrder,
         PlSyncOnClose syncOnClose,
@@ -1426,7 +1428,7 @@ public readonly partial struct PolarsWrapper
         ErrorHelper.CheckVoid();
     }
     /// <summary>
-    /// Sinks the LazyFrame to partitioned IPC files. 
+    /// Sinks the LazyFrame to partitioned IPC files.
     /// Consumes the LazyFrame handle.
     /// </summary>
     public static void SinkIpcPartitioned(
@@ -1440,7 +1442,7 @@ public readonly partial struct PolarsWrapper
         ulong approxBytesPerFile,
         PlIpcCompression compression,
         int compatLevel,
-        int recordBatchSize, 
+        int recordBatchSize,
         bool recordBatchStatistics,
         bool maintainOrder,
         PlSyncOnClose syncOnClose,
@@ -1493,12 +1495,12 @@ public readonly partial struct PolarsWrapper
         LazyFrameHandle lf,
         PlIpcCompression compression,
         int compatLevel,
-        int recordBatchSize, 
+        int recordBatchSize,
         bool recordBatchStatistics,
         bool maintainOrder)
     {
         nuint batchSize = recordBatchSize > 0 ? (nuint)recordBatchSize : 0;
-        
+
         NativeBindings.pl_lazyframe_sink_ipc_memory(
             lf,
             out var ffiBuffer,
@@ -1509,8 +1511,8 @@ public readonly partial struct PolarsWrapper
             maintainOrder
         );
 
-        lf.TransferOwnership(); 
-        
+        lf.TransferOwnership();
+
         ErrorHelper.CheckVoid();
 
         try
@@ -1518,7 +1520,7 @@ public readonly partial struct PolarsWrapper
             unsafe
             {
                 var span = new ReadOnlySpan<byte>(ffiBuffer.Data.ToPointer(), (int)ffiBuffer.Length);
-                
+
                 return span.ToArray();
             }
         }
@@ -1528,9 +1530,9 @@ public readonly partial struct PolarsWrapper
         }
     }
     public static void WriteIpcStream(
-        DataFrameHandle df, 
-        string path, 
-        PlIpcCompression compression, 
+        DataFrameHandle df,
+        string path,
+        PlIpcCompression compression,
         int compatLevel)
     {
         NativeBindings.pl_dataframe_write_ipc_stream(
@@ -1544,8 +1546,8 @@ public readonly partial struct PolarsWrapper
     }
 
     public static byte[] WriteIpcStreamMemory(
-        DataFrameHandle df, 
-        PlIpcCompression compression, 
+        DataFrameHandle df,
+        PlIpcCompression compression,
         int compatLevel)
     {
         NativeBindings.pl_dataframe_write_ipc_stream_memory(
@@ -1567,7 +1569,7 @@ public readonly partial struct PolarsWrapper
                 }
 
                 var span = new ReadOnlySpan<byte>((void*)ffiBuffer.Data, (int)ffiBuffer.Length);
-                
+
                 return span.ToArray();
             }
         }
@@ -1582,7 +1584,7 @@ public readonly partial struct PolarsWrapper
         delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
         void* userData)
     {
-        var handle = NativeBindings.pl_lazy_frame_scan_stream(schema, callback,destroyCallback, userData);
+        var handle = NativeBindings.pl_lazy_frame_scan_stream(schema, callback, destroyCallback, userData);
         return ErrorHelper.Check(handle);
     }
     public static void ExportBatches(DataFrameHandle dfHandle, Action<RecordBatch> onBatchReceived)
@@ -1590,9 +1592,9 @@ public readonly partial struct PolarsWrapper
         var (callback, cleanup, userData) = ArrowStreamInterop.PrepareSink(onBatchReceived);
 
         NativeBindings.pl_dataframe_export_batches(
-            dfHandle, 
-            callback, 
-            cleanup, 
+            dfHandle,
+            callback,
+            cleanup,
             userData
         );
         ErrorHelper.CheckVoid();
@@ -1662,9 +1664,9 @@ public readonly partial struct PolarsWrapper
         NativeBindings.pl_write_excel(handle, path, sheetName, dateFormat, datetimeFormat);
     }
     public static DataFrameHandle ReadAvro(
-        string path, 
-        ulong? nRows, 
-        string[]? columns, 
+        string path,
+        ulong? nRows,
+        string[]? columns,
         int[]? projection)
     {
         if (!File.Exists(path)) throw new FileNotFoundException($"Avro file not found: {path}");
@@ -1675,7 +1677,7 @@ public readonly partial struct PolarsWrapper
             nint rowsPtr = nRows.HasValue ? (nint)(&rowsVal) : nint.Zero;
 
             nuint columnsLen = (nuint)(columns?.Length ?? 0);
-            
+
             nuint[]? nativeProjection = null;
             nuint projectionLen = 0;
             if (projection != null)
@@ -1697,12 +1699,12 @@ public readonly partial struct PolarsWrapper
         }
     }
     public static DataFrameHandle ReadAvro(
-        byte[] buffer, 
-        ulong? nRows, 
-        string[]? columns, 
-        int[]? projection )
+        byte[] buffer,
+        ulong? nRows,
+        string[]? columns,
+        int[]? projection)
     {
-        if (buffer == null || buffer.Length == 0) 
+        if (buffer == null || buffer.Length == 0)
             throw new ArgumentException("Buffer cannot be null or empty", nameof(buffer));
 
         unsafe
@@ -1711,7 +1713,7 @@ public readonly partial struct PolarsWrapper
             IntPtr rowsPtr = nRows.HasValue ? (IntPtr)(&rowsVal) : IntPtr.Zero;
 
             nuint columnsLen = (nuint)(columns?.Length ?? 0);
-            
+
             nuint[]? nativeProjection = null;
             nuint projectionLen = 0;
             if (projection != null)
@@ -1737,17 +1739,17 @@ public readonly partial struct PolarsWrapper
         }
     }
     public static void WriteAvro(
-        DataFrameHandle df, 
-        string path, 
-        PlAvroCompression compression, 
+        DataFrameHandle df,
+        string path,
+        PlAvroCompression compression,
         string name)
     {
         NativeBindings.pl_write_avro(df, path, compression, name ?? string.Empty);
         ErrorHelper.CheckVoid();
     }
     public static byte[] WriteAvroToMemory(
-        DataFrameHandle df, 
-        PlAvroCompression compression, 
+        DataFrameHandle df,
+        PlAvroCompression compression,
         string name)
     {
         NativeBindings.pl_write_avro_mem(
@@ -1763,7 +1765,7 @@ public readonly partial struct PolarsWrapper
             unsafe
             {
                 var span = new ReadOnlySpan<byte>(ffiBuffer.Data.ToPointer(), (int)ffiBuffer.Length);
-                
+
                 return span.ToArray();
             }
         }

@@ -5,7 +5,7 @@ using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// -----------------------------------
     /// Delta Lake
@@ -28,8 +28,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool lowMemory = false,
         bool useStatistics = true,
         bool glob = true,
-        bool rechunk = false, 
-        bool cache = true,    
+        bool rechunk = false,
+        bool cache = true,
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
@@ -58,14 +58,14 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             lowMemory,
             useStatistics,
             glob,
-            rechunk, 
-            cache,   
+            rechunk,
+            cache,
             rowIndexName,
             rowIndexOffset,
             includePathColumn,
-            schemaHandle,     
+            schemaHandle,
             hivePartitioning,
-            hiveSchemaHandle, 
+            hiveSchemaHandle,
             tryParseHiveDates,
             provider.ToNative(),
             retries,
@@ -79,7 +79,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
 
         return new LazyFrame(h);
     }
-   
+
     /// <summary>
     /// Sink the LazyFrame to a Delta Lake table with partition discovery.
     /// <para>
@@ -125,14 +125,14 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         string path,
         IntoSelector? partitionBy = null,
         DeltaSaveMode mode = DeltaSaveMode.Append,
-        bool canEvolve=false,
+        bool canEvolve = false,
         bool includeKeys = true,
         bool keysPreGrouped = false,
         int maxRowsPerFile = 0,
         long approxBytesPerFile = 0,
         ParquetCompression compression = ParquetCompression.Snappy,
         int compressionLevel = -1,
-        bool statistics = true, 
+        bool statistics = true,
         uint rowGroupSize = 0,
         uint dataPageSize = 0,
         int compatLevel = -1,
@@ -141,15 +141,15 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool mkdir = false,
         CloudOptions? cloudOptions = null)
     {
-        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = 
+        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) =
             CloudOptions.ParseCloudOptions(cloudOptions);
-        using var partitionByH = partitionBy?.Consume().Handle; 
+        using var partitionByH = partitionBy?.Consume().Handle;
         PolarsWrapper.SinkDelta(
-            Handle,
+            CloneHandle(),
             path,
-            
+
             // --- Delta Options ---
-            mode.ToNative(), 
+            mode.ToNative(),
             canEvolve,
             // --- Partition Params ---
             partitionByH,
@@ -164,7 +164,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             statistics,
             rowGroupSize > 0 ? rowGroupSize : 0,
             dataPageSize > 0 ? dataPageSize : 0,
-            compatLevel, 
+            compatLevel,
 
             // --- Unified Options ---
             maintainOrder,
@@ -172,75 +172,6 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             mkdir,
 
             // --- Cloud Params ---
-            provider.ToNative(),
-            retries,
-            retryTimeoutMs,
-            retryInitBackoffMs,
-            retryMaxBackoffMs,
-            cacheTtl,
-            keys,
-            values
-        );
-    }
-    
-    /// <summary>
-    /// Merge a LazyFrame into a Delta Lake table with full SQL MERGE semantics.
-    /// Provides fine-grained control over Update, Insert, and Delete behaviors.
-    /// Notice: In this method, Delete > Update > Insert > Ignore.
-    /// If you need other orders, please use LazyFrame.MergeDeltaOrdered
-    /// </summary>
-    /// <param name="path">Uri to the Delta Lake table (local or cloud).</param>
-    /// <param name="mergeKeys">The column names to join on (must exist in both Source and Target).</param>
-    /// <param name="matchedUpdateCond">
-    /// Condition for 'WHEN MATCHED THEN UPDATE'. 
-    /// If null, defaults to true (always update when matched).
-    /// </param>
-    /// <param name="matchedDeleteCond">
-    /// Condition for 'WHEN MATCHED THEN DELETE'. 
-    /// If null, defaults to false (never delete when matched).
-    /// </param>
-    /// <param name="notMatchedInsertCond">
-    /// Condition for 'WHEN NOT MATCHED THEN INSERT'. 
-    /// If null, defaults to true (always insert new rows).
-    /// </param>
-    /// <param name="notMatchedBySourceDeleteCond">
-    /// Condition for 'WHEN NOT MATCHED BY SOURCE THEN DELETE' (Target rows not in Source). 
-    /// If null, defaults to false (retain target-only rows).
-    /// </param>
-    /// <param name="canEvolve">Define whether schema evolution is allowed, default: false</param>
-    /// <param name="cloudOptions">Cloud storage credentials and configuration.</param>
-    [Obsolete("This method is deprecated because its execution order of matched/not-matched actions is hardcoded and may lead to silent data corruption in complex scenarios. Please use 'MergeDeltaOrdered(...)' combined with the '.WhenMatched...()' chaining methods to ensure strict SQL MERGE semantics.")]
-    public void MergeDelta(
-        string path,
-        string[] mergeKeys,
-        Expr? matchedUpdateCond = null,
-        Expr? matchedDeleteCond = null,
-        Expr? notMatchedInsertCond = null,
-        Expr? notMatchedBySourceDeleteCond = null,
-        bool canEvolve=false,
-        CloudOptions? cloudOptions = null)
-    {
-        // 1. Parse Cloud Options
-        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
-
-        // 2. Clone Handles        
-        using var clonedLf = CloneHandle();
-        
-        using var hUpdate = matchedUpdateCond?.CloneHandle();
-        using var hDelete = matchedDeleteCond?.CloneHandle();
-        using var hInsert = notMatchedInsertCond?.CloneHandle();
-        using var hSrcDelete = notMatchedBySourceDeleteCond?.CloneHandle();
-
-        // 3. Call Wrapper
-        PolarsWrapper.DeltaMerge(
-            clonedLf,
-            path,
-            mergeKeys,
-            hUpdate,
-            hDelete,
-            hInsert,
-            hSrcDelete,
-            canEvolve,
             provider.ToNative(),
             retries,
             retryTimeoutMs,
@@ -274,9 +205,9 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </code>
     /// </example>
     public DeltaMergeBuilder MergeDeltaOrdered(
-        string path, 
-        string[] mergeKeys, 
-        bool canEvolve = false, 
+        string path,
+        string[] mergeKeys,
+        bool canEvolve = false,
         CloudOptions? cloudOptions = null)
     {
         return new DeltaMergeBuilder(this, path, mergeKeys, canEvolve, cloudOptions);

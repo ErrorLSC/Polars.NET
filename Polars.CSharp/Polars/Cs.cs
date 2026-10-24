@@ -29,11 +29,11 @@ public readonly partial struct Polars
         /// <summary>
         /// Select columns by their index with strictness control.
         /// </summary>
-        public static Selector ByIndex(ReadOnlySpan<long> indices, bool strict)=> new(PolarsWrapper.SelectorByIndex(indices, strict));
+        public static Selector ByIndex(ReadOnlySpan<long> indices, bool strict) => new(PolarsWrapper.SelectorByIndex(indices, strict));
         /// <summary>
         /// Select columns by specific DataType.
         /// </summary>
-        public static Selector ByDtype(DataType type) 
+        public static Selector ByDtype(DataType type)
         {
             var typeKind = type.Kind;
             return new(PolarsWrapper.SelectorByDtype(typeKind.ToNative()));
@@ -41,7 +41,7 @@ public readonly partial struct Polars
         /// <summary>
         /// Select columns by specific DataType.
         /// </summary>
-        public static Selector ByDtype(Type type) 
+        public static Selector ByDtype(Type type)
         {
             var arrowType = ArrowTypeResolver.GetArrowTypeFromNetType(type);
             var plType = DataType.FromArrowType(arrowType);
@@ -52,7 +52,7 @@ public readonly partial struct Polars
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <returns></returns>
-        public static Selector ByDtype<T>() 
+        public static Selector ByDtype<T>()
             => ByDtype(typeof(T));
         /// <summary>
         /// Select all columns EXCEPT the specified Selectors.
@@ -77,7 +77,7 @@ public readonly partial struct Polars
         /// <summary>
         /// Select all numeric columns (Int, Float, etc.).
         /// </summary>
-        public static Selector Numeric()  => new(PolarsWrapper.SelectorNumeric());
+        public static Selector Numeric() => new(PolarsWrapper.SelectorNumeric());
         /// <summary>
         /// Select all string/utf8 columns.
         /// </summary>
@@ -110,7 +110,7 @@ public readonly partial struct Polars
         private static PlTimeUnit GetNativeTimeUnit(TimeUnit? unit)
             => unit.HasValue ? unit.Value.ToNative() : PlTimeUnit.All;
         private static Selector DatetimeInternal(TimeUnit? timeUnit, string? tzString)
-            =>new (PolarsWrapper.SelectorDatetime(GetNativeTimeUnit(timeUnit), tzString));
+            => new(PolarsWrapper.SelectorDatetime(GetNativeTimeUnit(timeUnit), tzString));
         /// <summary>
         /// Select all datetime columns (both with and without timezones).
         /// </summary>
@@ -122,11 +122,11 @@ public readonly partial struct Polars
         /// <summary>
         /// Select ONLY timezone-aware datetime columns (any timezone).
         /// </summary>
-        public static Selector DatetimeAware(TimeUnit? timeUnit = null) => DatetimeInternal(timeUnit, "*"); 
+        public static Selector DatetimeAware(TimeUnit? timeUnit = null) => DatetimeInternal(timeUnit, "*");
         /// <summary>
         /// Select datetime columns matching a specific timezone (e.g., "UTC", "Asia/Shanghai").
         /// </summary>
-        public static Selector DatetimeExact(string timeZone, TimeUnit? timeUnit = null) 
+        public static Selector DatetimeExact(string timeZone, TimeUnit? timeUnit = null)
         {
             ArgumentException.ThrowIfNullOrEmpty(timeZone);
             return DatetimeInternal(timeUnit, timeZone);
@@ -134,7 +134,7 @@ public readonly partial struct Polars
         /// <summary>
         /// Select all duration columns. Optionally match a specific TimeUnit.
         /// </summary>
-        public static Selector Duration(TimeUnit? timeUnit = null) => new (PolarsWrapper.SelectorDuration(GetNativeTimeUnit(timeUnit)));
+        public static Selector Duration(TimeUnit? timeUnit = null) => new(PolarsWrapper.SelectorDuration(GetNativeTimeUnit(timeUnit)));
         /// <summary>
         /// Select column whose name starts with given prefix.
         /// </summary>
@@ -167,7 +167,7 @@ public readonly partial struct Polars
             // asciiOnly ? [a-zA-Z] : \p{L} (Unicode characters)
             string charClass = asciiOnly ? "a-zA-Z" : @"\p{L}";
             if (ignoreSpaces) charClass += " ";
-            
+
             string pattern = $"^[{charClass}]+$";
             return Matches(pattern);
         }
@@ -182,20 +182,20 @@ public readonly partial struct Polars
         /// ※ 'chinese'는 \p{Han}을 의미하며 일본/한국 한자도 포함합니다.</para>
         /// </summary>
         public static Selector CJK(
-            bool chinese = true, 
-            bool japanese = true, 
-            bool korean = true, 
+            bool chinese = true,
+            bool japanese = true,
+            bool korean = true,
             bool ignoreSpaces = false)
         {
             if (!chinese && !japanese && !korean)
                 throw new ArgumentException("At least one CJK script must be enabled.");
 
             string charClass = "";
-            
-            if (chinese)  charClass += @"\p{Han}";
+
+            if (chinese) charClass += @"\p{Han}";
             if (japanese) charClass += @"\p{Hiragana}\p{Katakana}";
-            if (korean)   charClass += @"\p{Hangul}";
-            
+            if (korean) charClass += @"\p{Hangul}";
+
             if (ignoreSpaces) charClass += " ";
 
             string pattern = $"^[{charClass}]+$";
@@ -209,22 +209,22 @@ public readonly partial struct Polars
         /// <para>[KO] 열 이름이 CJK 문자, 숫자(\p{N}, 전각/반각) 및 영문자(전각/반각)로 구성된 열을 선택합니다.</para>
         /// </summary>
         public static Selector CJKAlphanumeric(
-            bool chinese = true, 
-            bool japanese = true, 
-            bool korean = true, 
-            bool includeLetters = true, 
+            bool chinese = true,
+            bool japanese = true,
+            bool korean = true,
+            bool includeLetters = true,
             bool ignoreSpaces = false)
         {
             if (!chinese && !japanese && !korean)
                 throw new ArgumentException("At least one CJK script must be enabled.");
 
-            string charClass = @"\p{N}"; 
-            
+            string charClass = @"\p{N}";
+
             if (includeLetters) charClass += "a-zA-ZＡ-Ｚａ-ｚ";
-            if (chinese)  charClass += @"\p{Han}";
+            if (chinese) charClass += @"\p{Han}";
             if (japanese) charClass += @"\p{Hiragana}\p{Katakana}";
-            if (korean)   charClass += @"\p{Hangul}";
-            
+            if (korean) charClass += @"\p{Hangul}";
+
             if (ignoreSpaces) charClass += " ";
 
             string pattern = $"^[{charClass}]+$";
@@ -251,10 +251,10 @@ public readonly partial struct Polars
             ArgumentNullException.ThrowIfNull(target);
             ArgumentNullException.ThrowIfNull(selector);
 
-            using var emptyDf = target.Clear(); 
-            
+            using var emptyDf = target.Clear();
+
             using var result = emptyDf.Select(selector);
-            
+
             return [.. result.Columns];
         }
 
@@ -272,6 +272,6 @@ public readonly partial struct Polars
         }
         public static string[] ExpandSelector(LazyFrame target, Selector selector)
            => [.. target.Select(selector).Schema.Names];
-        
+
     }
 }

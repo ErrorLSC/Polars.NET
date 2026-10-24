@@ -1,12 +1,12 @@
-using Polars.NET.Core;
-using Pl = Polars.CSharp.Polars;
-using Polars.NET.Core.Helpers;
-using Polars.NET.Core.Arrow;
 using System.Runtime.CompilerServices;
+using Polars.NET.Core;
+using Polars.NET.Core.Arrow;
+using Polars.NET.Core.Helpers;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable, IPolarsSeries
+public partial class Series : IDisposable
 {
     /// <summary>
     /// Get an item at the specified index.

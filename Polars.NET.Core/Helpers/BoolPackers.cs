@@ -34,15 +34,15 @@ public static class BoolPacker
                 {
                     // 1. Load 64 bytes
                     Vector512<byte> vec = Vector512.Load((byte*)pSrc + i);
-                    
+
                     // 2. Compare (0x00 or 0xFF)
                     // False(0) == Zero -> True(0xFF)
                     // True(1)  == Zero -> False(0x00)
                     Vector512<byte> cmp = Vector512.Equals(vec, zero);
-                    
+
                     // 3. Compress to 64 bits (ulong)
                     ulong mask = Vector512.ExtractMostSignificantBits(cmp);
-                    
+
                     // 4. Invert & Store
                     *(ulong*)(pDst + (i >> 3)) = ~mask;
                 }
@@ -75,7 +75,7 @@ public static class BoolPacker
                 for (; i < len; i++)
                 {
                     currentByte |= (byte)((*(byte*)(pSrc + i)) << bitOffset);
-                    
+
                     bitOffset++;
                     if (bitOffset == 8)
                     {
@@ -110,7 +110,7 @@ public static class BoolPacker
         int byteLen = (len + 7) >> 3;
 
         var valuesBits = GC.AllocateUninitializedArray<byte>(byteLen);
-        byte[]? validityBits = null; 
+        byte[]? validityBits = null;
 
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
@@ -160,7 +160,7 @@ public static class BoolPacker
                     if (validityBits != null)
                     {
                         Unsafe.WriteUnaligned(
-                            ref Unsafe.Add(ref validRef, i >> 3), 
+                            ref Unsafe.Add(ref validRef, i >> 3),
                             validMask16
                         );
                     }
@@ -174,12 +174,12 @@ public static class BoolPacker
             {
                 if (validityBits != null && Unsafe.IsNullRef(ref validRef))
                 {
-                        validRef = ref MemoryMarshal.GetArrayDataReference(validityBits);
+                    validRef = ref MemoryMarshal.GetArrayDataReference(validityBits);
                 }
 
                 int byteOffset = i >> 3;
                 byte curValByte = 0;
-                byte curValidByte = 0; 
+                byte curValidByte = 0;
                 int bitPos = 0;
 
                 ref bool? srcRef = ref Unsafe.AsRef<bool?>(pSrc);
@@ -191,7 +191,7 @@ public static class BoolPacker
                     if (v.HasValue)
                     {
                         curValidByte |= (byte)(1 << bitPos);
-                        
+
                         if (v.GetValueOrDefault())
                         {
                             curValByte |= (byte)(1 << bitPos);
@@ -203,7 +203,7 @@ public static class BoolPacker
                         {
                             validityBits = GC.AllocateUninitializedArray<byte>(byteLen);
                             validRef = ref MemoryMarshal.GetArrayDataReference(validityBits);
-                            
+
                             if (byteOffset > 0)
                             {
                                 Unsafe.InitBlock(ref validRef, 0xFF, (uint)byteOffset);
@@ -217,7 +217,7 @@ public static class BoolPacker
                     {
                         // Flush register to mem
                         pDstVal[byteOffset] = curValByte;
-                        
+
                         if (validityBits != null)
                         {
                             Unsafe.Add(ref validRef, byteOffset) = curValidByte;

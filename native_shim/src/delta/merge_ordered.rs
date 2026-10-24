@@ -11,7 +11,6 @@ use crate::delta::merge::{MergeStrategy, phase_execution, phase_execution_dv, ph
 use crate::types::{ExprContext, LazyFrameContext};
 use crate::utils::{ptr_to_str, ptr_to_vec_string};
 use crate::delta::utils::RawCloudArgs;
-use crate::delta::utils::build_delta_storage_options_map;
 use crate::delta::utils::get_runtime;
 
 // =========================================================================
@@ -259,10 +258,19 @@ pub extern "C" fn pl_io_delta_merge_ordered(
             }
         }
 
-        let delta_storage_options = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
-        let cloud_args = RawCloudArgs { provider: cloud_provider, retries: cloud_retries, retry_timeout_ms: cloud_retry_timeout_ms, retry_init_backoff_ms: cloud_retry_init_backoff_ms, retry_max_backoff_ms: cloud_retry_max_backoff_ms, cache_ttl: cloud_cache_ttl, keys: cloud_keys, values: cloud_values, len: cloud_len };
+        let cloud_args = RawCloudArgs::from_raw(
+            cloud_provider,
+            cloud_retries,
+            cloud_retry_timeout_ms,
+            cloud_retry_init_backoff_ms,
+            cloud_retry_max_backoff_ms,
+            cloud_cache_ttl,
+            cloud_keys,
+            cloud_values,
+            cloud_len,
+        );
 
-        merge_delta_internal(source_lf_ctx.inner, table_url, merge_keys, rules, can_evolve, delta_storage_options, cloud_args)?;
+        merge_delta_internal(source_lf_ctx.inner, table_url, merge_keys, rules, can_evolve, cloud_args)?;
         Ok(())
         })
     }
@@ -274,7 +282,6 @@ pub(crate) fn merge_delta_internal(
     merge_keys: Vec<String>,
     rules: Vec<MergeActionRule>,
     can_evolve: bool,
-    delta_storage_options: std::collections::HashMap<String, String>,
     cloud_args: RawCloudArgs,
 ) -> PolarsResult<()> {
     let rt = get_runtime();
@@ -285,7 +292,7 @@ pub(crate) fn merge_delta_internal(
         .unwrap_or(5);
 
     let (mut table, partition_cols, mut target_schema) = rt.block_on(
-        crate::delta::merge::phase_1_load_table(table_url.clone(), delta_storage_options)
+        crate::delta::merge::phase_1_load_table(table_url.clone(), cloud_args.storage_options())
     )?;
     
     let snapshot = table.snapshot().map_err(|e| PolarsError::ComputeError(format!("Snapshot error: {}", e).into()))?;

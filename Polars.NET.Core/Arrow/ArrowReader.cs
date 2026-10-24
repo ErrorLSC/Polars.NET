@@ -7,6 +7,8 @@ using Apache.Arrow.Arrays;
 using Apache.Arrow.Types;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
+using Microsoft.FSharp.Reflection;
+using Polars.NET.Core.Helpers;
 
 namespace Polars.NET.Core.Arrow;
 
@@ -16,7 +18,7 @@ public static class ArrowReader
 {
     public static IEnumerable<T> ReadRecordBatch<T>(RecordBatch batch)
     {
-        
+
         var targetType = typeof(T);
 
         // Scalar Mode
@@ -40,23 +42,23 @@ public static class ArrowReader
         // Object Mapping Mode (No boxing)
         // =========================================================
         int rowCount = batch.Length;
-        
+
         // Get writable prop
         var properties = targetType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                                     .Where(p => p.CanWrite).ToArray();
-        
+
         // Get strongtyped Setter closure
         var setters = new RefRowAssigner<T>[properties.Length];
 
         for (int i = 0; i < properties.Length; i++)
         {
             var prop = properties[i];
-            var col = batch.Column(prop.Name); 
+            var col = batch.Column(prop.Name);
 
-            if (col == null) 
+            if (col == null)
             {
-                setters[i] = (ref T entity, int rowIdx) => { }; // 加了 ref T
-                continue; 
+                setters[i] = (ref T __, int _) => { };
+                continue;
             }
 
             // Call FastAccessorBuilder
@@ -66,7 +68,7 @@ public static class ArrowReader
         // Setter loop
         // Preset an array with rowCount as length
         T[] batchItems = new T[rowCount];
-        
+
         // Materialize objects
         if (!targetType.IsValueType)
         {
@@ -83,7 +85,7 @@ public static class ArrowReader
 
             for (int i = 0; i < rowCount; i++)
             {
-                setter(ref batchItems[i], i); 
+                setter(ref batchItems[i], i);
             }
         }
 
@@ -108,12 +110,12 @@ public static class ArrowReader
         if (targetType.IsGenericType && targetType.GetGenericTypeDefinition() == typeof(FSharpOption<>))
         {
             var innerType = targetType.GetGenericArguments()[0];
-            
+
             // Use Generic helper to construct specialized accessor
             var method = typeof(ArrowReader)
                 .GetMethod(nameof(CreateFSharpOptionAccessor), BindingFlags.NonPublic | BindingFlags.Static)!
                 .MakeGenericMethod(innerType);
-            
+
             return (Func<int, object?>)method.Invoke(null, [array])!;
         }
 
@@ -138,7 +140,7 @@ public static class ArrowReader
         if (array is DictionaryArray dictArray)
             return CreateDictionaryAccessor(dictArray, type);
         if (array is StructArray sa) return CreateStructAccessor(sa, type);
-        
+
         if (array is ListArray || array is LargeListArray || array is FixedSizeListArray)
             return CreateListAccessor(array, type);
 
@@ -165,8 +167,6 @@ public static class ArrowReader
         if (type == typeof(uint))   return idx => (uint?)array.GetInt64Value(idx);
         if (type == typeof(ulong))  return idx => (ulong?)array.GetInt64Value(idx);
         if (type == typeof(ushort)) return idx => (ushort?)array.GetInt64Value(idx);
-        // if (type == typeof(Int128)) return idx => array.GetInt128Value(idx);
-        // if (type == typeof(UInt128)) return idx => (UInt128?)array.GetInt128Value(idx);
 
         // Floats
         if (type == typeof(double)) return idx => array.GetDoubleValue(idx);
@@ -185,28 +185,28 @@ public static class ArrowReader
         if (type == typeof(DateTime))
         {
             if (array is TimestampArray tsArr) return idx => tsArr.GetTimestamp(idx)?.DateTime;
-            
+
             if (array is Date64Array d64Arr) return idx => d64Arr.GetDateTime(idx);
-            
+
             if (array is Date32Array d32Arr) return idx => d32Arr.GetDateTime(idx);
 
-            if (array is Int64Array i64Arr) 
+            if (array is Int64Array i64Arr)
             {
-                    return idx => 
+                    return idx =>
                     {
                         long? v = i64Arr.GetValue(idx);
                         return v.HasValue ? DateTime.UnixEpoch.AddTicks(v.Value * 10) : null;
                     };
             }
 
-            return _ => throw new NotSupportedException($"Cannot read DateTime from Arrow Array type: {array.GetType().Name}");;
+            return _ => throw new NotSupportedException($"Cannot read DateTime from Arrow Array type: {array.GetType().Name}");
         }
-        
+
         if (type == typeof(DateOnly)) return idx => array.GetDateOnly(idx);
-        
+
         if (type == typeof(TimeOnly)) return idx => array.GetTimeOnly(idx);
-        
-        if (type == typeof(TimeSpan)) 
+
+        if (type == typeof(TimeSpan))
         {
             return idx => array.GetTimeSpan(idx);
         }
@@ -241,7 +241,7 @@ public static class ArrowReader
         {
             var fieldAccessors = new Dictionary<string, Func<int, object?>>();
             var fields = ((StructType)structArray.Data.DataType).Fields;
-            
+
             for (int i = 0; i < fields.Count; i++)
             {
                 var fieldName = fields[i].Name;
@@ -261,10 +261,107 @@ public static class ArrowReader
             };
         }
 
+        // F# Record Struct Mapping
+        if (PolarsTypeHelper.IsFSharpRecord(type))
+        {
+            var fields = FSharpType.GetRecordFields(type, null);
+            var structTypeRecord = (StructType)structArray.Data.DataType;
+            var getters = new Func<int, object?>[fields.Length];
+
+            for (int i = 0; i < fields.Length; i++)
+            {
+                var field = fields[i];
+                int fieldIndex = -1;
+                for (int k = 0; k < structTypeRecord.Fields.Count; k++)
+                {
+                    if (string.Equals(structTypeRecord.Fields[k].Name, field.Name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        fieldIndex = k;
+                        break;
+                    }
+                }
+
+                if (fieldIndex != -1)
+                {
+                    var childArray = structArray.Fields[fieldIndex];
+                    getters[i] = CreateAccessor(childArray, field.PropertyType);
+                }
+                else
+                {
+                    var defaultVal = field.PropertyType.IsValueType ? Activator.CreateInstance(field.PropertyType) : null;
+                    getters[i] = _ => defaultVal;
+                }
+            }
+
+            var recordCtor = FSharpValue.PreComputeRecordConstructor(type, null);
+            return idx =>
+            {
+                if (structArray.IsNull(idx)) return null;
+                var args = new object?[fields.Length];
+                for (int i = 0; i < fields.Length; i++)
+                {
+                    args[i] = getters[i](idx);
+                }
+                return recordCtor.Invoke(args);
+            };
+        }
+
+        // C# Record or Class with primary/parameterized constructor
+        var ctors = type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        var primaryCtor = ctors
+            .Where(c => !(c.GetParameters().Length == 1 && c.GetParameters()[0].ParameterType == type))
+            .OrderByDescending(c => c.GetParameters().Length)
+            .FirstOrDefault();
+        bool hasParameterlessCtor = type.GetConstructor(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null) != null;
+
+        if (!hasParameterlessCtor && primaryCtor != null && primaryCtor.GetParameters().Length > 0)
+        {
+            var ctorParams = primaryCtor.GetParameters();
+            var structTypeCtor = (StructType)structArray.Data.DataType;
+            var getters = new Func<int, object?>[ctorParams.Length];
+
+            for (int i = 0; i < ctorParams.Length; i++)
+            {
+                var p = ctorParams[i];
+                var pName = p.Name?.TrimStart('@') ?? string.Empty;
+                int fieldIndex = -1;
+                for (int k = 0; k < structTypeCtor.Fields.Count; k++)
+                {
+                    if (string.Equals(structTypeCtor.Fields[k].Name, pName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        fieldIndex = k;
+                        break;
+                    }
+                }
+
+                if (fieldIndex != -1)
+                {
+                    var childArray = structArray.Fields[fieldIndex];
+                    getters[i] = CreateAccessor(childArray, p.ParameterType);
+                }
+                else
+                {
+                    var defaultVal = p.ParameterType.IsValueType ? Activator.CreateInstance(p.ParameterType) : null;
+                    getters[i] = _ => defaultVal;
+                }
+            }
+
+            return idx =>
+            {
+                if (structArray.IsNull(idx)) return null;
+                var args = new object?[ctorParams.Length];
+                for (int i = 0; i < ctorParams.Length; i++)
+                {
+                    args[i] = getters[i](idx);
+                }
+                return primaryCtor.Invoke(args);
+            };
+        }
+
         // POCO 
         var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                         .Where(p => p.CanWrite).ToArray();
-        
+
         var structType = (StructType)structArray.Data.DataType;
         var setters = new List<Action<object, int>>();
 
@@ -274,9 +371,9 @@ public static class ArrowReader
             int fieldIndex = -1;
             for (int k = 0; k < structType.Fields.Count; k++)
             {
-                if (string.Equals(structType.Fields[k].Name, prop.Name, StringComparison.OrdinalIgnoreCase)) 
-                { 
-                    fieldIndex = k; break; 
+                if (string.Equals(structType.Fields[k].Name, prop.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    fieldIndex = k; break;
                 }
             }
             if (fieldIndex == -1) continue;
@@ -284,14 +381,14 @@ public static class ArrowReader
             var childArray = structArray.Fields[fieldIndex];
             var childGetter = CreateAccessor(childArray, prop.PropertyType);
 
-            setters.Add((obj, rowIdx) => 
+            setters.Add((obj, rowIdx) =>
             {
                 var val = childGetter(rowIdx);
                 if (val != null) prop.SetValue(obj, val);
             });
         }
 
-        return idx => 
+        return idx =>
         {
             if (structArray.IsNull(idx)) return null;
             var instance = Activator.CreateInstance(type)!;
@@ -309,7 +406,7 @@ public static class ArrowReader
         Type elementType = typeof(object);
         if (type.IsGenericType) elementType = type.GetGenericArguments()[0];
         else if (type.IsArray) elementType = type.GetElementType()!;
-        
+
         bool isFSharpList = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(FSharpList<>);
 
         // Normalize Array Access
@@ -372,14 +469,41 @@ public static class ArrowReader
                 list.CopyTo(arr, 0);
                 return arr;
             }
+
+            // Wrap as IOrderedEnumerable<T> if requested by LINQ projection
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IOrderedEnumerable<>))
+            {
+                var wrapperType = typeof(PresortedOrderedEnumerable<>).MakeGenericType(elementType);
+                return Activator.CreateInstance(wrapperType, list);
+            }
+
             return list;
         };
     }
 
+    /// <summary>
+    /// Lightweight wrapper to satisfy IOrderedEnumerable&lt;T&gt; when data is already sorted by Polars.
+    /// </summary>
+    private sealed class PresortedOrderedEnumerable<TElement>(IList<TElement> source) : IOrderedEnumerable<TElement>
+    {
+        public IOrderedEnumerable<TElement> CreateOrderedEnumerable<TKey>(
+            Func<TElement, TKey> keySelector,
+            IComparer<TKey>? comparer,
+            bool descending)
+        {
+            return descending
+                ? source.OrderByDescending(keySelector, comparer)
+                : source.OrderBy(keySelector, comparer);
+        }
+
+        public IEnumerator<TElement> GetEnumerator() => source.GetEnumerator();
+        IEnumerator IEnumerable.GetEnumerator() => source.GetEnumerator();
+    }
+
     // Specialized F# List Accessor Builder
     private static Func<int, object?> CreateFSharpListAccessor<U>(
-        Func<int, long> getOffset, 
-        Func<int, bool> isNull, 
+        Func<int, long> getOffset,
+        Func<int, bool> isNull,
         Func<int, object?> childGetter)
     {
         return idx =>
@@ -409,7 +533,7 @@ public static class ArrowReader
         var underlying = Nullable.GetUnderlyingType(t) ?? t;
         if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(FSharpOption<>)) return true;
 
-        return underlying.IsPrimitive 
+        return underlying.IsPrimitive
             || underlying == typeof(string)
             || underlying == typeof(decimal)
             || underlying == typeof(DateTime)
@@ -447,7 +571,7 @@ public static class ArrowReader
         var dictAccessor = CreateAccessor(dictionary, targetType);
 
         // Build Indices Accessor
-        
+
         Func<int, int?> indexGetter = indices switch
         {
             Int8Array   i8  => idx => i8.GetValue(idx),
@@ -464,9 +588,9 @@ public static class ArrowReader
         return idx =>
         {
             var key = indexGetter(idx);
-            
-            if (key == null) return null; 
-            
+
+            if (key == null) return null;
+
             return dictAccessor(key.Value);
         };
     }
@@ -478,11 +602,11 @@ public static class ArrowReader
     /// Try access scalar via Span (Zero-Copy)。
     /// Notice：Only return true if there is no nulls in array.
     /// </summary>
-    public static bool TryGetSpan<T>(IArrowArray array, out ReadOnlySpan<T> span) 
+    public static bool TryGetSpan<T>(IArrowArray array, out ReadOnlySpan<T> span)
         where T : struct
     {
         span = default;
-        
+
         // 0. Null Check
         if (array.NullCount != 0) return false;
 
@@ -524,7 +648,7 @@ public static class ArrowReader
         int len = array.Length;
         var accessor = CreateAccessor(array, typeof(T));
         var result = new T[len];
-        
+
         for (int i = 0; i < len; i++)
         {
             var val = accessor(i);
@@ -541,7 +665,7 @@ public static class ArrowReader
     {
         if (TryGetSpan<T>(array, out var span))
         {
-            return span.ToArray(); 
+            return span.ToArray();
         }
         return null;
     }
@@ -557,7 +681,7 @@ public static class ArrowReader
                 var method = typeof(ArrowReader)
                     .GetMethod(nameof(ReadStructInternal), BindingFlags.NonPublic | BindingFlags.Static)!
                     .MakeGenericMethod(typeof(T));
-                
+
                 Read = (Func<IArrowArray, T[]?>)Delegate.CreateDelegate(typeof(Func<IArrowArray, T[]?>), method);
             }
             else
@@ -593,19 +717,19 @@ internal static class FastAccessorBuilder
     {
         var entityParam = Expression.Parameter(typeof(TEntity).MakeByRefType(), "entity");
         var rowIdxParam = Expression.Parameter(typeof(int), "rowIdx");
-        
+
         // Get Strong Type Getter
-        Func<int, TProp> getter = CreateStrongGetter<TProp>(array); 
-        
+        Func<int, TProp> getter = CreateStrongGetter<TProp>(array);
+
         // Set this delegate to AST as constant
         var getterConst = Expression.Constant(getter, typeof(Func<int, TProp>));
-        
+
         // getter.Invoke(rowIdx)
         var valueExp = Expression.Invoke(getterConst, rowIdxParam);
 
         // entity.Property
         var propExp = Expression.Property(entityParam, prop);
-        
+
         // entity.Property = getter.Invoke(rowIdx)
         var assignExp = Expression.Assign(propExp, valueExp);
 
@@ -625,7 +749,7 @@ internal static class FastAccessorBuilder
         // =========================================================
         // String
         // =========================================================
-        if (type == typeof(string)) 
+        if (type == typeof(string))
         {
             return (Func<int, TProp>)(object)array.GetStringValue;
         }
@@ -672,7 +796,7 @@ internal static class FastAccessorBuilder
         if (underlyingType == typeof(uint)) return CastGetter<uint, TProp>(idx => (uint?)array.GetInt64Value(idx), isNullable);
         if (underlyingType == typeof(ulong)) return CastGetter<ulong, TProp>(idx => (ulong?)array.GetInt64Value(idx), isNullable);
         if (underlyingType == typeof(ushort)) return CastGetter<ushort, TProp>(idx => (ushort?)array.GetInt64Value(idx), isNullable);
-        
+
         if (underlyingType == typeof(bool)) return CastGetter<bool, TProp>(idx => ((BooleanArray)array).GetValue(idx), isNullable);
         if (underlyingType == typeof(double)) return CastGetter<double, TProp>(array.GetDoubleValue, isNullable);
         if (underlyingType == typeof(float)) return CastGetter<float, TProp>(idx => (float?)array.GetDoubleValue(idx), isNullable);
@@ -681,7 +805,7 @@ internal static class FastAccessorBuilder
         // =========================================================
         // Decimal and DateTime
         // =========================================================
-        if (underlyingType == typeof(decimal)) 
+        if (underlyingType == typeof(decimal))
         {
             decimal? decGetter(int idx)
             {
@@ -701,7 +825,7 @@ internal static class FastAccessorBuilder
             if (array is TimestampArray tsArr) return tsArr.GetTimestamp(idx)?.DateTime;
             if (array is Date64Array d64Arr) return d64Arr.GetDateTime(idx);
             if (array is Date32Array d32Arr) return d32Arr.GetDateTime(idx);
-            if (array is Int64Array i64Arr) 
+            if (array is Int64Array i64Arr)
             {
                 long? val = i64Arr.GetValue(idx);
                 return val.HasValue ? DateTime.UnixEpoch.AddTicks(val.Value * 10) : null;
@@ -713,7 +837,7 @@ internal static class FastAccessorBuilder
         if (underlyingType == typeof(DateOnly)) return CastGetter<DateOnly, TProp>(array.GetDateOnly, isNullable);
         if (underlyingType == typeof(TimeOnly)) return CastGetter<TimeOnly, TProp>(array.GetTimeOnly, isNullable);
         if (underlyingType == typeof(TimeSpan)) return CastGetter<TimeSpan, TProp>(array.GetTimeSpan, isNullable);
-        if (underlyingType == typeof(DateTimeOffset)) 
+        if (underlyingType == typeof(DateTimeOffset))
         {
             TimeZoneInfo? tzi = null;
             if (array is TimestampArray tsArr && tsArr.Data.DataType is TimestampType tsType && !string.IsNullOrEmpty(tsType.Timezone))
@@ -728,7 +852,7 @@ internal static class FastAccessorBuilder
         // =========================================================
         // Use old reader
         var oldAccessor = ArrowReader.CreateAccessor(array, type);
-        return idx => 
+        return idx =>
         {
             var val = oldAccessor(idx);
             return val == null ? default! : (TProp)val;

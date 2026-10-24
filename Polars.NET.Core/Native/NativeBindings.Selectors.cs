@@ -9,18 +9,18 @@ unsafe internal partial class NativeBindings
     // Selectors
     // =================================================================
     [LibraryImport(LibName)] public static partial void pl_selector_free(IntPtr ptr);
-    [LibraryImport(LibName)] 
+    [LibraryImport(LibName)]
     public static partial SelectorHandle pl_selector_clone(SelectorHandle sel);
     // Selectors
     [LibraryImport(LibName)] public static partial SelectorHandle pl_selector_all();
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SelectorHandle pl_selector_cols(
         string[] names,
         nuint len
     );
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] 
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SelectorHandle pl_selector_exclude(
-        SelectorHandle sel, 
+        SelectorHandle sel,
         string[] names,
         nuint len
     );
@@ -28,18 +28,18 @@ unsafe internal partial class NativeBindings
     public static partial SelectorHandle pl_selector_by_index(
         long* indices_ptr,
         nuint indices_len,
-        [MarshalAs(UnmanagedType.U1)] bool strict); 
+        [MarshalAs(UnmanagedType.U1)] bool strict);
     // String Matchers
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SelectorHandle pl_selector_starts_with(string pattern);
 
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SelectorHandle pl_selector_ends_with(string pattern);
 
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SelectorHandle pl_selector_contains(string pattern);
 
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SelectorHandle pl_selector_match(string pattern);
 
     // Type Selectors
@@ -60,9 +60,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial SelectorHandle pl_selector_temporal();
     [LibraryImport(LibName)] public static partial SelectorHandle pl_selector_list(IntPtr inner);
     [LibraryImport(LibName)] public static partial SelectorHandle pl_selector_array(IntPtr inner, nuint width);
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] 
-    public static partial SelectorHandle pl_selector_datetime(PlTimeUnit unit,string? timeZone);
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] 
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial SelectorHandle pl_selector_datetime(PlTimeUnit unit, string? timeZone);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SelectorHandle pl_selector_duration(PlTimeUnit unit);
 
     // Set Operations

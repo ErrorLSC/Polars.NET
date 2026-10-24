@@ -37,8 +37,8 @@ public class Then
     }
 
     public ChainedWhen When(IntoExprColumn condition)
-        => new (this, condition.Consume());
-    
+        => new(this, condition.Consume());
+
 
     /// <summary>
     /// Define a default for the `when-then-otherwise` expression.
@@ -74,7 +74,7 @@ public class ChainedWhen
     {
         _parent._conditions.Add(_condition);
         _parent._statements.Add(statement.Consume());
-        
+
         return _parent;
     }
 }

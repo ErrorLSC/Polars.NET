@@ -25,15 +25,22 @@ Thumbs.db
 !users.csv
 !sales.csv
 !dates.csv
+load.sql
 
 .fake
 
-# --- DocFx Data ---
+# --- DocFx Data (Legacy) ---
 docs/_site/
 docs/obj/
 docs/api/csharp/
 docs/api/fsharp/
 docs/api/fsharp_generated/
+
+# --- VitePress / Node ---
+node_modules/
+docs/node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
 
 # --- Zed Config ---
 .zed/

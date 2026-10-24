@@ -55,12 +55,13 @@ pub extern "C" fn pl_catalog_create_table(
     storage_location_ptr: *const c_char, 
 ) {
     ffi_try_void!({
-        let ctx = unsafe { &*ctx_ptr };
-        let catalog_name = ptr_to_str(catalog_name_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
-        let schema_name = ptr_to_str(schema_name_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
-        let table_name = ptr_to_str(table_name_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
-        
-        let schema = unsafe { &(*schema_ptr).schema };
+        let (ctx, catalog_name, schema_name, table_name) = crate::catalog::utils::parse_catalog_table_args(
+            ctx_ptr, catalog_name_ptr, schema_name_ptr, table_name_ptr,
+        )?;
+        let schema = unsafe {
+            if schema_ptr.is_null() { return Err(PolarsError::ComputeError("Schema pointer is null".into())); }
+            &(*schema_ptr).schema
+        };
 
         let t_type = match table_type {
             0 => TableType::Managed,
@@ -75,14 +76,12 @@ pub extern "C" fn pl_catalog_create_table(
         };
 
         let rt = crate::delta::utils::get_runtime();
-
         rt.block_on(async {
             let mut empty_props = std::iter::empty();
-            
             ctx.client.create_table(
-                &catalog_name,
-                &schema_name,
-                &table_name,
+                catalog_name,
+                schema_name,
+                table_name,
                 Some(schema), 
                 &t_type,
                 Some(&DataSourceFormat::Delta), 
@@ -91,7 +90,6 @@ pub extern "C" fn pl_catalog_create_table(
                 &mut empty_props
             ).await
             .map_err(|e| PolarsError::ComputeError(format!("Failed to create table: {}", e).into()))?;
-            
             Ok::<_, PolarsError>(())
         })?;
         Ok(())
@@ -106,15 +104,13 @@ pub extern "C" fn pl_catalog_delete_table(
     table_name_ptr: *const c_char,
 ) {
     ffi_try_void!({
-        let ctx = unsafe { &*ctx_ptr };
-        let catalog_name = ptr_to_str(catalog_name_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
-        let schema_name = ptr_to_str(schema_name_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
-        let table_name = ptr_to_str(table_name_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
+        let (ctx, catalog_name, schema_name, table_name) = crate::catalog::utils::parse_catalog_table_args(
+            ctx_ptr, catalog_name_ptr, schema_name_ptr, table_name_ptr,
+        )?;
 
         let rt = get_runtime();
-
         rt.block_on(async {
-            ctx.client.delete_table(&catalog_name, &schema_name, &table_name).await
+            ctx.client.delete_table(catalog_name, schema_name, table_name).await
                 .map_err(|e| PolarsError::ComputeError(format!("Failed to delete table: {}", e).into()))?;
             Ok::<_, PolarsError>(())
         })?;

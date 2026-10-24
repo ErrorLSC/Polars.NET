@@ -21,12 +21,13 @@ module DataFrameMappingExtensions =
             this
             |> Seq.map (fun col ->
                 let transformed = mapping col
+
                 if String.IsNullOrEmpty transformed.Name then
                     transformed.Rename col.Name
                 else
-                    transformed
-            )
+                    transformed)
             |> pl.dataframe
+
         /// <summary>
         /// Transforms DataFrame rows into a new DataFrame using a strongly-typed F# Record mapping function ('TIn -> 'TOut).
         /// Combines compiled zero-allocation row enumerator with zero-reflection columnar transposition.
@@ -45,6 +46,7 @@ module DataFrameMappingExtensions =
                 invalidArg (nameof mapping) $"Output type '{typeof<'TOut>.FullName}' is not an F# Record type."
 
             let height = this.Height
+
             if height = 0L then
                 DataFrame.ofRecords<'TOut> Array.empty
             else
@@ -52,6 +54,7 @@ module DataFrameMappingExtensions =
                 let mutable enumerator = this.Rows<'TIn>()
                 let mappedRecords = Rows.mapToArray mapping enumerator
                 DataFrame.ofRecords<'TOut> mappedRecords
+
         /// <summary>
         /// Applies the given action to each row in the DataFrame materialized as a strongly-typed F# Record or DTO.
         /// Utilizes pre-compiled expression tree hydration and hoisted Series handles for extreme throughput.
@@ -63,6 +66,7 @@ module DataFrameMappingExtensions =
 
             if this.Height > 0L then
                 let mutable enumerator = this.Rows<'T>()
+
                 while enumerator.MoveNext() do
                     action enumerator.Current
 
@@ -77,9 +81,11 @@ module DataFrameMappingExtensions =
             if this.Height > 0L then
                 let mutable enumerator = this.Rows<'T>()
                 let mutable idx = 0L
+
                 while enumerator.MoveNext() do
                     action idx enumerator.Current
                     idx <- idx + 1L
+
         /// <summary>
         /// Applies an action pairwise to strongly-typed rows from two equal-height DataFrames.
         /// </summary>

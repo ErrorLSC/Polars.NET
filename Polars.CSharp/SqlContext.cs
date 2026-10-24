@@ -21,7 +21,7 @@ namespace Polars.CSharp;
 /// var result = ctx.Execute("SELECT * FROM df WHERE val > 10").Collect();
 /// </code>
 /// </example>
-public class SqlContext : IDisposable,IPolarsSqlContext
+public class SqlContext : IDisposable, IPolarsSqlContext
 {
     internal SqlContextHandle Handle { get; }
     /// <summary>
@@ -54,14 +54,14 @@ public class SqlContext : IDisposable,IPolarsSqlContext
         Register(tableName, lf);
     }
 
-    void IPolarsSqlContext.Register(string tableName,IPolarsDataFrame df) => Register(tableName,(DataFrame)df);
-    void IPolarsSqlContext.Register(string tableName,IPolarsLazyFrame lf) => Register(tableName,(LazyFrame)lf);
-    
+    void IPolarsSqlContext.Register(string tableName, IPolarsDataFrame df) => Register(tableName, (DataFrame)df);
+    void IPolarsSqlContext.Register(string tableName, IPolarsLazyFrame lf) => Register(tableName, (LazyFrame)lf);
+
     /// <summary>
     /// UnRegister a LazyFrame as a table.
     /// </summary>
-    public void UnRegister(string tableName) => PolarsWrapper.SqlUnRegister(Handle,tableName);
-    
+    public void UnRegister(string tableName) => PolarsWrapper.SqlUnRegister(Handle, tableName);
+
     /// <summary>
     /// Execute a SQL query.
     /// </summary>
@@ -84,6 +84,6 @@ public class SqlContext : IDisposable,IPolarsSqlContext
     public void Dispose()
     {
         Handle?.Dispose();
-        GC.SuppressFinalize(this); 
+        GC.SuppressFinalize(this);
     }
 }

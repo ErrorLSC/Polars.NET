@@ -1,53 +1,72 @@
 using Apache.Arrow;
-using Apache.Arrow.Adbc;
-using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 
 namespace Polars.NET.Core;
 
 public interface IPolarsDataFrame : IDisposable
 {
-    long Height{ get; }
+    long Height { get; }
     RecordBatch ToArrow();
-    void Show();
-    IPolarsSchema Schema{get;}
-    UpdateResult WriteToAdbc(AdbcStatement statement);
-    IPolarsSeries Column(int index);
-    IArrowArrayStream ToArrowStream(ReadOnlySpan<int> columnIndices = default,ulong? seed = null);
-
+    IPolarsSchema Schema { get; }
+    Apache.Arrow.Ipc.IArrowArrayStream ToArrowStream(ReadOnlySpan<int> columnIndices = default, ulong? seed = null);
+    IPolarsDataFrame Slice(long offset, ulong length);
 }
 
-public interface IPolarsSeries : IDisposable
-{
-    IPolarsDataFrame ToFrame();
-    void Rename(string newName)
-    {
-        this.Name = newName;
-    }
-    IPolarsDataType DataType {get;}
-    string Name{get;set;}
-}
-public interface IPolarsDataType: IDisposable
+public interface IPolarsDataType : IDisposable
 {
     IArrowType GetArrowType();
 }
 public interface IPolarsLazyFrame : IDisposable
 {
-    IPolarsDataFrame Collect(PlEngine engine=PlEngine.Auto,bool useStreaming=false);
-    IPolarsSchema Schema{get;}
-    string Explain(bool optimized=true);
-    Task<IPolarsDataFrame> CollectAsync(PlEngine engine=PlEngine.Auto,bool useStreaming = false, CancellationToken cancellationToken = default);
+    IPolarsDataFrame Collect(PlEngine engine = PlEngine.Auto);
 }
 
 public interface IPolarsSqlContext : IDisposable
 {
     void Register(string tableName, IPolarsDataFrame df);
     void Register(string tableName, IPolarsLazyFrame lf);
-    
     IPolarsLazyFrame Execute(string sql);
 }
 
-public interface IPolarsSchema : IDisposable,IReadOnlyDictionary<string, IPolarsDataType>
-{
+public interface IPolarsSchema : IDisposable, IReadOnlyDictionary<string, IPolarsDataType>;
 
+public interface IDataFrameMaterializer
+{
+    IEnumerable<T> Materialize<T>(DataFrameHandle handle);
+    T MaterializeScalar<T>(DataFrameHandle handle);
+    TAccum Aggregate<TSource, TAccum>(
+        DataFrameHandle handle,
+        TAccum seed,
+        Func<TAccum, TSource, TAccum> folder);
+    IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<TSource, TKey, TAccum>(
+        DataFrameHandle handle,
+        Func<TSource, TKey> keySelector,
+        TAccum seed,
+        Func<TAccum, TSource, TAccum> folder,
+        IEqualityComparer<TKey>? comparer = null)
+        where TKey : notnull;
+    IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<TSource, TKey, TAccum>(
+        DataFrameHandle handle,
+        Func<TSource, TKey> keySelector,
+        Func<TKey, TAccum> seedSelector,
+        Func<TAccum, TSource, TAccum> folder,
+        IEqualityComparer<TKey>? comparer = null)
+        where TKey : notnull;
+    IEnumerable<T[]> Chunk<T>(DataFrameHandle handle, int chunkSize);
+    bool Any<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    bool All<TSource>(DataFrameHandle handle, Func<TSource, bool> predicate);
+    TSource First<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    TSource? FirstOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
+    TSource Last<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    TSource? LastOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
+    long Count<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    TSource Single<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    TSource? SingleOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
+    TSource ElementAt<TSource>(DataFrameHandle handle, long index);
+    TSource? ElementAtOrDefault<TSource>(DataFrameHandle handle, long index);
+    bool Contains<TSource>(DataFrameHandle handle, TSource item, IEqualityComparer<TSource>? comparer = null);
+    bool SequenceEqual<TSource>(DataFrameHandle handle1, DataFrameHandle handle2, IEqualityComparer<TSource>? comparer = null);
+    bool SequenceEqual<TSource>(DataFrameHandle handle, IEnumerable<TSource> second, IEqualityComparer<TSource>? comparer = null);
+    TSource MinBy<TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null);
+    TSource MaxBy<TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null);
 }

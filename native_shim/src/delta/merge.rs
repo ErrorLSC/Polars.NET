@@ -1,21 +1,18 @@
-use std::{collections::{HashMap, HashSet}, ffi::c_char, time::{SystemTime, UNIX_EPOCH}};
+use std::{collections::{HashMap, HashSet}, time::{SystemTime, UNIX_EPOCH}};
 
 use chrono::{DateTime, NaiveDate};
 use futures::StreamExt;
 use polars::prelude::{file_provider::HivePathProvider, *};
 use polars_buffer::Buffer;
-use rand::RngExt;
 use roaring::RoaringBitmap;
 use url::Url;
-use deltalake::{DeltaTable, Path, table::state::DeltaTableState};
+use deltalake::{DeltaTable, Path, parquet::file::metadata::ParquetMetaDataReader, table::state::DeltaTableState};
 use deltalake::kernel::{Action, Add, Remove, scalars::ScalarExt};
-use deltalake::parquet::arrow::async_reader::{AsyncFileReader, ParquetObjectReader};
 use deltalake::protocol::{DeltaOperation};
 use deltalake::logstore::object_store::ObjectStoreExt;
 use uuid::Uuid;
 
-use crate::{delta::{delete::{create_dv_descriptor, write_dv_file}, deletion_vector::{read_deletion_vector}, utils::*}, pl_io::parquet::parquet_utils::build_parquet_write_options, types::{ExprContext, LazyFrameContext}};
-use crate::pl_io::io_utils::{build_cloud_options, build_unified_sink_args};
+use crate::{delta::{delete::{create_dv_descriptor, write_dv_file}, deletion_vector::{read_deletion_vector}, utils::*}, pl_io::parquet::parquet_utils::build_parquet_write_options};
 
 const MAX_PRUNING_CANDIDATES: usize = 100_000;
 
@@ -57,18 +54,6 @@ impl MergeStrategy {
             Self::CopyOnWrite
         }
     }
-}
-
-pub(crate) struct MergeContext {
-    pub merge_keys: Vec<String>,
-    pub table_url: Url,
-    pub can_evolve: bool,
-    pub strategy: MergeStrategy,
-    // Conditions (Owned Exprs)
-    pub cond_update: Option<Expr>,     // Default: true
-    pub cond_delete: Option<Expr>,     // Default: false
-    pub cond_insert: Option<Expr>,     // Default: true
-    pub cond_src_delete: Option<Expr>, // Default: false
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -502,16 +487,12 @@ pub(crate) fn construct_target_lf(
 
     let root_trimmed = table_url.as_str().trim_end_matches('/');
     
-    let make_scan_args = || unsafe {
+    let make_scan_args = || {
         let mut args = ScanArgsParquet::default();
         args.hive_options = HiveOptions {
             enabled: Some(true), hive_start_idx: 0, schema: None, try_parse_dates: true,
         };
-        args.cloud_options = build_cloud_options(
-            cloud_args.provider, cloud_args.retries, cloud_args.retry_timeout_ms,
-            cloud_args.retry_init_backoff_ms, cloud_args.retry_max_backoff_ms, cloud_args.cache_ttl,
-            cloud_args.keys, cloud_args.values, cloud_args.len,
-        );
+        args.cloud_options = cloud_args.to_cloud_options();
 
         if is_mor {
             args.row_index = Some(RowIndex { 
@@ -584,318 +565,6 @@ pub(crate) fn construct_target_lf(
     Ok(final_lf)
 }
 
-/// Phase 3: Planning
-pub(crate) fn phase_planning(
-    ctx: &MergeContext,
-    target_lf: LazyFrame,
-    mut source_lf: LazyFrame,
-    target_schema: &Schema, 
-) -> PolarsResult<LazyFrame> {
-
-    // =========================================================
-    // 1. Rename Source Columns (Avoid Collision)
-    // =========================================================
-    let src_schema = source_lf.collect_schema()
-        .map_err(|e| PolarsError::ComputeError(format!("Source schema error: {}", e).into()))?;
-    
-    let mut rename_old = Vec::new();
-    let mut rename_new = Vec::new();
-    let mut source_cols_set = HashSet::new();
-
-    for name in src_schema.iter_names() {
-        rename_old.push(name.as_str());
-        rename_new.push(format!("{}_src_tmp", name)); 
-        source_cols_set.insert(name.to_string());
-    }
-
-    let source_renamed = source_lf.rename(rename_old, rename_new, true);
-
-    // =========================================================
-    // Execute Full Outer Join
-    // =========================================================
-    let left_on: Vec<Expr> = ctx.merge_keys.iter().map(|k| col(k)).collect();
-    let right_on: Vec<Expr> = ctx.merge_keys.iter().map(|k| col(&format!("{}_src_tmp", k))).collect();
-
-    let join_args = JoinArgs {
-        how: JoinType::Full,
-        validation: JoinValidation::ManyToMany, 
-        coalesce: JoinCoalesce::KeepColumns,    
-        maintain_order: MaintainOrderJoin::None,
-        ..Default::default()
-    };
-
-    let joined_lf = target_lf.join(source_renamed, left_on, right_on, join_args);
-
-    // =========================================================
-    // 3. Define Logic Constants & State
-    // =========================================================
-    // Action Constants
-    let act_keep   = lit(0); // Keep Target
-    let act_insert = lit(1); // Insert new value in Source 
-    let act_update = lit(2); // Update Target with Source 
-    let act_delete = lit(3); // Marked as delete
-    let act_ignore = lit(4); // Ignore
-
-    // Row State 
-    let first_key = &ctx.merge_keys[0];
-    let src_key_col = format!("{}_src_tmp", first_key);
-    
-    let src_exists = col(&src_key_col).is_not_null();
-    let tgt_exists = col(first_key).is_not_null();
-
-    // Three Status
-    let is_matched     = src_exists.clone().and(tgt_exists.clone());
-    let is_source_only = src_exists.clone().and(tgt_exists.clone().not());
-    let is_target_only = src_exists.not().and(tgt_exists);
-    let expr_update = ctx.cond_update.clone().unwrap_or(lit(true));
-    let expr_delete = ctx.cond_delete.clone().unwrap_or(lit(false));
-    let expr_insert = ctx.cond_insert.clone().unwrap_or(lit(true));
-    let expr_src_del = ctx.cond_src_delete.clone().unwrap_or(lit(false));
-    // =========================================================
-    // Calculate Action Column
-    // =========================================================
-    // Delete > Update > Insert > Ignore/Keep
-    let action_expr = when(is_matched.clone().and(expr_delete))
-        .then(act_delete.clone())
-        .when(is_matched.and(expr_update))
-        .then(act_update.clone())
-        .when(is_source_only.clone().and(expr_insert))
-        .then(act_insert.clone())
-        .when(is_source_only)
-        .then(act_ignore.clone()) 
-        .when(is_target_only.and(expr_src_del))
-        .then(act_delete.clone()) 
-        .otherwise(act_keep)      
-        .alias("_merge_action");
-
-    // =========================================================
-    // 5. Generate Column Expressions (Projection & Evolution)
-    // =========================================================
-    let mut final_exprs = Vec::new();
-
-    // Target Schema + New Source Columns
-    let mut output_cols = Vec::new();
-    let mut seen = HashSet::new();
-
-    // Add Target Columns
-    for name in target_schema.iter_names() {
-        output_cols.push(name.to_string());
-        seen.insert(name.to_string());
-    }
-    // Add Source New Column (Schema Evolution)
-    for name in src_schema.iter_names() {
-        if !seen.contains(name.as_str()) {
-            output_cols.push(name.to_string());
-        }
-    }
-
-    for col_name in output_cols {
-        let src_col_alias = format!("{}_src_tmp", col_name);
-        let has_source = source_cols_set.contains(&col_name);
-        let has_target = target_schema.get_field(&col_name).is_some();
-
-        let src_val = if has_source { col(&src_col_alias) } else { lit(NULL) };
-        let tgt_val = if has_target { col(&col_name) } else { lit(NULL) };
-
-        let col_expr = if has_source {
-            // Case 1: Source has this column (Full Update / New Data)
-            // If Insert or Update, use Source；or Target
-            when(col("_merge_action").eq(act_insert.clone())
-                .or(col("_merge_action").eq(act_update.clone())))
-            .then(src_val)
-            .otherwise(tgt_val)
-        } else {
-            // Case 2: Source does not have this column (Partial Update / Evolution Old Rows)
-            // Logic: 
-            // - Insert (new row): Null
-            // - Update (old row): Keep target
-            // - Keep: Target
-            when(col("_merge_action").eq(act_insert.clone()))
-            .then(lit(NULL))
-            .otherwise(tgt_val)
-        };
-
-        final_exprs.push(col_expr.alias(&col_name));
-    }
-
-    // =========================================================
-    // 6. Final Assemble
-    // =========================================================
-    let processed_lf = joined_lf
-        .with_column(action_expr)
-        .filter(
-            col("_merge_action").neq(act_delete.clone()) 
-            .and(col("_merge_action").neq(act_ignore))   
-        )
-        .select(final_exprs);
-
-    Ok(processed_lf)
-}
-
-/// Phase 3 (MoR): Planning
-/// Returns: 
-/// 1. new_data_lf: Rows to be written to new Parquet files (Updates' New Values + Inserts)
-/// 2. tombstones_lf: Rows to be soft-deleted (Updates Old Rows + Deletes) -> (Path, RowIndex)
-pub(crate) fn phase_planning_mor(
-    ctx: &MergeContext,
-    target_lf: LazyFrame, 
-    mut source_lf: LazyFrame,
-    target_schema: &Schema, 
-) -> PolarsResult<(LazyFrame, LazyFrame)> {
-
-    // =========================================================
-    // 1. Rename Source Columns (Standard Procedure)
-    // =========================================================
-    let src_schema = source_lf.collect_schema()
-        .map_err(|e| PolarsError::ComputeError(format!("Source schema error: {}", e).into()))?;
-    
-    let mut rename_old = Vec::new();
-    let mut rename_new = Vec::new();
-    let mut source_cols_set = HashSet::new();
-
-    for name in src_schema.iter_names() {
-        rename_old.push(name.as_str());
-        rename_new.push(format!("{}_src_tmp", name)); 
-        source_cols_set.insert(name.to_string());
-    }
-
-    let source_renamed = source_lf.rename(rename_old, rename_new, true);
-
-    // =========================================================
-    // 2. Join (Full Outer)
-    // =========================================================
-    let left_on: Vec<Expr> = ctx.merge_keys.iter().map(|k| col(k)).collect();
-    let right_on: Vec<Expr> = ctx.merge_keys.iter().map(|k| col(&format!("{}_src_tmp", k))).collect();
-
-    let join_args = JoinArgs {
-        how: JoinType::Full,
-        validation: JoinValidation::ManyToMany, 
-        coalesce: JoinCoalesce::KeepColumns,    
-        maintain_order: MaintainOrderJoin::None,
-        ..Default::default()
-    };
-
-    let joined_lf = target_lf.join(source_renamed, left_on, right_on, join_args);
-
-    // =========================================================
-    // 3. Define Logic Actions
-    // =========================================================
-    // Action Constants
-    let act_keep   = lit(0);
-    let act_insert = lit(1);
-    let act_update = lit(2);
-    let act_delete = lit(3);
-    let act_ignore = lit(4);
-
-    // Row State 
-    let first_key = &ctx.merge_keys[0];
-    let src_key_col = format!("{}_src_tmp", first_key);
-    
-    let src_exists = col(&src_key_col).is_not_null();
-    let tgt_exists = col(first_key).is_not_null();
-
-    // Three Status
-    let is_matched     = src_exists.clone().and(tgt_exists.clone());
-    let is_source_only = src_exists.clone().and(tgt_exists.clone().not());
-    let is_target_only = src_exists.not().and(tgt_exists);
-    
-    // Conditions
-    let expr_update = ctx.cond_update.clone().unwrap_or(lit(true));
-    let expr_delete = ctx.cond_delete.clone().unwrap_or(lit(false));
-    let expr_insert = ctx.cond_insert.clone().unwrap_or(lit(true));
-    let expr_src_del = ctx.cond_src_delete.clone().unwrap_or(lit(false));
-
-    // Calculate Action Column
-    let action_expr = when(is_matched.clone().and(expr_delete))
-        .then(act_delete.clone())
-        .when(is_matched.and(expr_update))
-        .then(act_update.clone())
-        .when(is_source_only.clone().and(expr_insert))
-        .then(act_insert.clone())
-        .when(is_source_only)
-        .then(act_ignore.clone()) 
-        .when(is_target_only.and(expr_src_del))
-        .then(act_delete.clone()) 
-        .otherwise(act_keep)      
-        .alias("_merge_action");
-
-    let lf_with_action = joined_lf.with_column(action_expr);
-
-    // =========================================================
-    // 4. BRANCH A: New Data Generation (Inserts + Updates)
-    // =========================================================
-    
-    let mut new_data_exprs = Vec::new();
-    let mut output_cols = Vec::new();
-    let mut seen = HashSet::new();
-
-    // Target Columns
-    for name in target_schema.iter_names() {
-        // Skip metadata cols
-        if name == "__row_index" || name == "__file_path" { continue; }
-        output_cols.push(name.to_string());
-        seen.insert(name.to_string());
-    }
-    // New Source Columns (Evolution)
-    for name in src_schema.iter_names() {
-        if !seen.contains(name.as_str()) {
-            output_cols.push(name.to_string());
-        }
-    }
-
-    for col_name in output_cols {
-        let src_col_alias = format!("{}_src_tmp", col_name);
-        let has_source = source_cols_set.contains(&col_name);
-        let has_target = target_schema.get_field(&col_name).is_some();
-
-        let src_val = if has_source { col(&src_col_alias) } else { lit(NULL) };
-        let tgt_val = if has_target { col(&col_name) } else { lit(NULL) };
-
-        // Projection Logic:
-        // - Insert: Source Value (or Null)
-        // - Update: Source Value (or Target Value if partial update)
-        let col_expr = if has_source {
-            when(col("_merge_action").eq(act_insert.clone())
-                .or(col("_merge_action").eq(act_update.clone())))
-            .then(src_val)
-            .otherwise(tgt_val) // Should be filtered out anyway, but safe fallback
-        } else {
-            // Source missing this col
-            // Insert -> Null
-            // Update -> Keep Target
-            when(col("_merge_action").eq(act_insert.clone()))
-            .then(lit(NULL))
-            .otherwise(tgt_val)
-        };
-
-        new_data_exprs.push(col_expr.alias(&col_name));
-    }
-
-    let new_data_lf = lf_with_action.clone()
-        .filter(
-            col("_merge_action").eq(act_insert.clone())
-            .or(col("_merge_action").eq(act_update.clone()))
-        )
-        .select(new_data_exprs);
-
-    // =========================================================
-    // 5. BRANCH B: Tombstones (Deletes + Updates' Old Rows)
-    // =========================================================
-    // Update = Soft Delete Old + Insert New。
-    
-    let tombstones_lf = lf_with_action
-        .filter(
-            col("_merge_action").eq(act_delete.clone())
-            .or(col("_merge_action").eq(act_update.clone()))
-        )
-        .select([
-            col("__file_path"),
-            col("__row_index"), 
-        ]);
-
-    Ok((new_data_lf, tombstones_lf))
-}
-
 // Phase 4: Execution 
 pub(crate) fn phase_execution(
     table_url: &url::Url,
@@ -947,23 +616,8 @@ pub(crate) fn phase_execution(
         -1  // compat_level: Default
     ).map_err(|e| PolarsError::ComputeError(format!("Options error: {}", e).into()))?;
 
-    // 5. Re-build Cloud Args (Unsafe FFI)
-    let unified_args = unsafe {
-        build_unified_sink_args(
-            false, // mkdir
-            false, // maintain_order: false
-            0,     // sync_on_close: Default
-            cloud_args.provider,
-            cloud_args.retries,
-            cloud_args.retry_timeout_ms,
-            cloud_args.retry_init_backoff_ms,
-            cloud_args.retry_max_backoff_ms,
-            cloud_args.cache_ttl,
-            cloud_args.keys,
-            cloud_args.values,
-            cloud_args.len,
-        )
-    };
+    // 5. Re-build Cloud Args
+    let unified_args = cloud_args.to_unified_sink_args(false, false, 0);
 
     // 6. Execute
     processed_lf
@@ -1092,17 +746,29 @@ pub async fn phase_process_staging(
 
             async move {
                 let src_path_str = meta.location.to_string();
-                let file_size = meta.size as i64;
+            // ---------------------------------------------------------
+            // A. Read Parquet Footer (IO - Small Read)
+            // ---------------------------------------------------------
+                let file_size = meta.size as usize;
+                let prefetch_size = 64 * 1024.min(file_size);
+                let start = file_size.saturating_sub(prefetch_size);
 
-                // ---------------------------------------------------------
-                // A. Read Parquet Footer (IO - Small Read)
-                // ---------------------------------------------------------
-                let mut reader = ParquetObjectReader::new(object_store.clone(), meta.location.clone())
-                    .with_file_size(meta.size as u64);
-                
-                let footer = reader.get_metadata(None).await
+                // Fetch the tail slice containing footer & metadata bytes
+                let footer_bytes = object_store
+                    .get_range(&meta.location, (start as u64)..(file_size as u64))
+                    .await
                     .map_err(|e| PolarsError::ComputeError(format!("Read parquet footer error: {}", e).into()))?;
-                
+
+                // Parse metadata using try_parse_sized with Bytes as ChunkReader
+                let mut reader = ParquetMetaDataReader::new();
+                reader
+                    .try_parse_sized(&footer_bytes, file_size as u64)
+                    .map_err(|e| PolarsError::ComputeError(format!("Parse parquet footer error: {}", e).into()))?;
+
+                let footer = reader
+                    .finish()
+                    .map_err(|e| PolarsError::ComputeError(format!("Finish parquet metadata read error: {}", e).into()))?;
+
                 // Extract Stats 
                 let (_, stats_json) = extract_delta_stats(&footer)?;
 
@@ -1132,7 +798,7 @@ pub async fn phase_process_staging(
 
                 Ok::<Action, PolarsError>(Action::Add(Add {
                     path: dest_path_str,
-                    size: file_size,
+                    size: file_size as i64,
                     partition_values,
                     modification_time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64,
                     data_change: true, 
@@ -1251,6 +917,7 @@ pub(crate) async fn phase_commit(
     let _commit_res = deltalake::kernel::transaction::CommitBuilder::default()
         .with_actions(actions)
         .with_app_metadata(crate::delta::utils::get_polars_net_metadata())
+        .with_max_retries(0)
         .build(
             Some(table.snapshot()?), 
             table.log_store().clone(),
@@ -1259,202 +926,4 @@ pub(crate) async fn phase_commit(
         .await?;
 
     Ok(())
-}
-
-pub(crate) fn merge_delta_internal_custom(
-    mut source_lf: LazyFrame,
-    table_url: url::Url,
-    merge_keys: Vec<String>,
-    cond_update: Option<Expr>,
-    cond_delete: Option<Expr>,
-    cond_insert: Option<Expr>,
-    cond_src_delete: Option<Expr>,
-    can_evolve: bool,
-    delta_storage_options: std::collections::HashMap<String, String>,
-    cloud_args: RawCloudArgs,
-) -> PolarsResult<()> {
-    let rt = crate::delta::utils::get_runtime();
-
-    let max_attempts = std::env::var("POLARS_DELTA_MAX_RETRIES")
-        .unwrap_or_else(|_| "5".to_string())
-        .parse::<u32>()
-        .unwrap_or(5);
-
-    let (mut table, partition_cols, mut target_schema) = rt.block_on(
-        crate::delta::merge::phase_1_load_table(table_url.clone(), delta_storage_options)
-    )?;
-    
-    let snapshot = table.snapshot().map_err(|e| PolarsError::ComputeError(format!("Snapshot error: {}", e).into()))?;
-    let strategy = crate::delta::merge::MergeStrategy::determine(snapshot, false);
-
-    let ctx = crate::delta::merge::MergeContext {
-        table_url, merge_keys, can_evolve, strategy,
-        cond_update, cond_delete, cond_insert, cond_src_delete,
-    };
-
-    let mut source_lf_clone = source_lf.clone();
-    crate::delta::merge::phase_validation(&ctx.merge_keys, ctx.can_evolve, &mut source_lf_clone, &target_schema)?;
-
-    for attempt in 1..=max_attempts {
-        if attempt > 1 {
-            rt.block_on(async {
-                table.update_state().await.map_err(|e| PolarsError::ComputeError(e.to_string().into()))
-            })?;
-            let polars_schema = crate::delta::utils::get_polars_schema_from_delta(&table)?;
-            target_schema = polars_schema.into();
-        }
-
-        let (src_parts, key_bounds, cands) = crate::delta::merge::phase_1_analyze_source(
-            &ctx.merge_keys, &source_lf, &target_schema, &partition_cols
-        )?;
-        let candidate_files = rt.block_on(
-            crate::delta::merge::phase_1_scan_and_prune(&table, &partition_cols, src_parts, key_bounds, cands, ctx.merge_keys.first())
-        )?;
-
-        let target_lf = crate::delta::merge::construct_target_lf(
-            &ctx.table_url, ctx.strategy, &table, &candidate_files, &target_schema, &cloud_args
-        )?;
-
-        let (new_data_lf, tombstones_lf_opt) = match ctx.strategy {
-            crate::delta::merge::MergeStrategy::CopyOnWrite => {
-                let processed = phase_planning(&ctx, target_lf, source_lf.clone(), &target_schema)?;
-                (processed, None)
-            },
-            crate::delta::merge::MergeStrategy::MergeOnRead => {
-                let (new_data, tombstones) = phase_planning_mor(&ctx, target_lf, source_lf.clone(), &target_schema)?;
-                (new_data, Some(tombstones))
-            }
-        };
-
-        let (staging_dir, write_id) = crate::delta::merge::phase_execution(&ctx.table_url, new_data_lf, &partition_cols, &cloud_args)?;
-        let staging_dir_for_commit = staging_dir.clone();
-
-        let tombstones_df_opt = match tombstones_lf_opt {
-            Some(lf) => {
-                let df = lf.group_by([col("__file_path")]).agg([col("__row_index")]).collect_with_engine(Engine::Streaming)?.unwrap_single();
-                if df.height() > 0 { Some(df) } else { None }
-            },
-            None => None,
-        };
-
-        let commit_result = rt.block_on(async {
-            let mut final_actions = crate::delta::merge::phase_process_staging(&table, &staging_dir, &partition_cols, write_id).await
-                .map_err(|e| deltalake::errors::DeltaTableError::Generic(e.to_string()))?;
-
-            match ctx.strategy {
-                crate::delta::merge::MergeStrategy::CopyOnWrite => {
-                    for add in &candidate_files {
-                        let remove = deltalake::kernel::Remove {
-                            path: add.path.clone(),
-                            deletion_timestamp: Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64),
-                            data_change: true,
-                            extended_file_metadata: Some(true),
-                            partition_values: Some(add.partition_values.clone()),
-                            size: Some(add.size),
-                            deletion_vector: add.deletion_vector.clone(),
-                            ..Default::default()
-                        };
-                        final_actions.push(deltalake::kernel::Action::Remove(remove));
-                    }
-                },
-                crate::delta::merge::MergeStrategy::MergeOnRead => {
-                    if let Some(t_df) = tombstones_df_opt {
-                        let dv_actions = crate::delta::merge::phase_execution_dv(&ctx.table_url, &table, t_df, &candidate_files).await
-                            .map_err(|e| deltalake::errors::DeltaTableError::Generic(e.to_string()))?;
-                        final_actions.extend(dv_actions);
-                    }
-                }
-            }
-
-            if !final_actions.is_empty() {
-                let src_schema = source_lf.collect_schema().unwrap();
-                let mut matched_preds = Vec::new();
-                let mut not_matched_preds = Vec::new();           
-                let mut not_matched_by_source_preds = Vec::new(); 
-                
-                if ctx.cond_delete.is_some() { matched_preds.push(deltalake::protocol::MergePredicate { predicate: Some("matched_delete_condition".into()), action_type: "DELETE".into() }); }
-                if ctx.cond_update.is_some() { matched_preds.push(deltalake::protocol::MergePredicate { predicate: Some("custom_update_condition".into()), action_type: "UPDATE".into() }); } 
-                else { matched_preds.push(deltalake::protocol::MergePredicate { predicate: None, action_type: "UPDATE".into() }); }
-                if ctx.cond_insert.is_some() { not_matched_preds.push(deltalake::protocol::MergePredicate { predicate: Some("not_matched_insert_condition".into()), action_type: "INSERT".into() }); } 
-                else { not_matched_preds.push(deltalake::protocol::MergePredicate { predicate: None, action_type: "INSERT".into() }); }
-                if ctx.cond_src_delete.is_some() { not_matched_by_source_preds.push(deltalake::protocol::MergePredicate { predicate: Some("not_matched_by_source_delete_condition".into()), action_type: "DELETE".into() }); }
-
-                crate::delta::merge::phase_commit(
-                    &mut table, final_actions, &src_schema, &target_schema,
-                    &ctx.merge_keys, ctx.can_evolve,
-                    matched_preds, not_matched_preds, not_matched_by_source_preds
-                ).await?;
-            }
-            Ok::<(), deltalake::errors::DeltaTableError>(())
-        });
-
-        match commit_result {
-            Ok(_) => return Ok(()),
-            Err(deltalake::errors::DeltaTableError::CommitValidation { .. }) 
-            | Err(deltalake::errors::DeltaTableError::VersionAlreadyExists(_)) 
-            | Err(deltalake::errors::DeltaTableError::Transaction { .. }) => {
-                if attempt < max_attempts {
-                    rt.block_on(async {
-                        let object_store = table.object_store();
-                        let _ = object_store.delete(&deltalake::Path::from(staging_dir_for_commit.as_str())).await;
-                    });
-                    
-                    let base_sleep = 50_u64.saturating_mul(2_u64.pow(attempt - 1));
-                    let capped_sleep = std::cmp::min(base_sleep, 1000);
-                    
-                    let mut rng = rand::rng();
-                    let jitter_millis = rng.random_range((capped_sleep / 2)..=(capped_sleep * 3 / 2));
-
-                    println!("[Delta-RS] Merge OCC Conflict! Backoff for {}ms (Attempt {}/{})", jitter_millis, attempt, max_attempts);
-
-                    std::thread::sleep(std::time::Duration::from_millis(jitter_millis));
-                    continue; 
-                } else {
-                    return Err(PolarsError::ComputeError(format!("Max retry attempts ({}) reached for Merge OCC conflict", max_attempts).into()));
-                }
-            },
-            Err(e) => return Err(PolarsError::ComputeError(format!("Merge Commit failed: {}", e).into())),
-        }
-    } 
-
-    Ok(())
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_io_delta_merge(
-    source_lf_ptr: *mut LazyFrameContext, 
-    target_path_ptr: *const c_char,
-    merge_keys_ptr: *const *const c_char,
-    merge_keys_len: usize,
-    
-    matched_update_cond: *mut ExprContext,        
-    matched_delete_cond: *mut ExprContext,        
-    not_matched_insert_cond: *mut ExprContext,    
-    not_matched_by_source_delete_cond: *mut ExprContext, 
-
-    can_evolve: bool, 
-    cloud_provider: u8, cloud_retries: usize, cloud_retry_timeout_ms: u64, cloud_retry_init_backoff_ms: u64, cloud_retry_max_backoff_ms: u64, cloud_cache_ttl: u64, cloud_keys: *const *const c_char, cloud_values: *const *const c_char, cloud_len: usize
-) {
-    ffi_try_void!({
-        let path_str = crate::utils::ptr_to_str(target_path_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
-        let table_url = crate::delta::utils::parse_table_url(path_str)?;
-        let merge_keys = unsafe { crate::utils::ptr_to_vec_string(merge_keys_ptr, merge_keys_len) };
-        let source_lf_ctx = unsafe { Box::from_raw(source_lf_ptr) };
-
-        let cond_update = if !matched_update_cond.is_null() { Some(unsafe { *Box::from_raw(matched_update_cond) }.inner) } else { None };
-        let cond_delete = if !matched_delete_cond.is_null() { Some(unsafe { *Box::from_raw(matched_delete_cond) }.inner) } else { None };
-        let cond_insert = if !not_matched_insert_cond.is_null() { Some(unsafe { *Box::from_raw(not_matched_insert_cond) }.inner) } else { None };
-        let cond_src_delete = if !not_matched_by_source_delete_cond.is_null() { Some(unsafe { *Box::from_raw(not_matched_by_source_delete_cond) }.inner) } else { None };
-
-        let delta_storage_options = crate::delta::utils::build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
-        let cloud_args = RawCloudArgs { provider: cloud_provider, retries: cloud_retries, retry_timeout_ms: cloud_retry_timeout_ms, retry_init_backoff_ms: cloud_retry_init_backoff_ms, retry_max_backoff_ms: cloud_retry_max_backoff_ms, cache_ttl: cloud_cache_ttl, keys: cloud_keys, values: cloud_values, len: cloud_len };
-
-        merge_delta_internal_custom(
-            source_lf_ctx.inner, table_url, merge_keys, 
-            cond_update, cond_delete, cond_insert, cond_src_delete, 
-            can_evolve, delta_storage_options, cloud_args
-        )?;
-        
-        Ok(()) 
-    })
 }

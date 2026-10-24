@@ -6,7 +6,7 @@ public class MetadataTests
     public void Test_Series_DataTypeName()
     {
         // Int64
-        using var sInt = new Series("a", new long[] { 1, 2 });
+        using var sInt = new Series("a", [ 1L, 2L ]);
         Assert.Equal("i64", sInt.DataTypeName);
 
         // Decimal 

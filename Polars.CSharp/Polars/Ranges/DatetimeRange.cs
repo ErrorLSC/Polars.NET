@@ -1,6 +1,7 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
+
 public readonly partial struct Polars
 {
     /// <summary>
@@ -13,12 +14,12 @@ public readonly partial struct Polars
     /// <param name="unit">Time unit of the resulting Datetime data type.</param>
     /// <param name="timeZone">Time zone of the resulting Datetime data type.</param>
     public static Expr DatetimeRange(
-        IntoExprColumn? start = null, 
-        IntoExprColumn? end = null, 
+        IntoExprColumn? start = null,
+        IntoExprColumn? end = null,
         IntoDuration? interval = null,
         ClosedInterval closed = ClosedInterval.Both,
-        TimeUnit unit=TimeUnit.Microseconds,
-        string? timeZone=null)
+        TimeUnit unit = TimeUnit.Microseconds,
+        string? timeZone = null)
     {
         using var realStart = start?.Consume();
         using var realEnd = end?.Consume();
@@ -37,15 +38,15 @@ public readonly partial struct Polars
     }
     /// <inheritdoc cref="DatetimeRange"/>
     public static Series DatetimeRangeAsSeries(
-        IntoExprColumn? start = null, 
-        IntoExprColumn? end = null, 
+        IntoExprColumn? start = null,
+        IntoExprColumn? end = null,
         IntoDuration? interval = null,
         ClosedInterval closed = ClosedInterval.Both,
-        TimeUnit unit=TimeUnit.Microseconds,
-        string? timeZone=null,
-        string name="datetime")
+        TimeUnit unit = TimeUnit.Microseconds,
+        string? timeZone = null,
+        string name = "datetime")
     {
-        var expr = DatetimeRange(start,end,interval,closed,unit,timeZone);
+        var expr = DatetimeRange(start, end, interval, closed, unit, timeZone);
         Series series = CreateSeries(expr);
         series.Rename(name);
         return series;
@@ -55,12 +56,12 @@ public readonly partial struct Polars
     /// </summary>
     /// <inheritdoc cref="DatetimeRange"/>
     public static Expr DatetimeRanges(
-        IntoExprColumn? start = null, 
-        IntoExprColumn? end = null, 
+        IntoExprColumn? start = null,
+        IntoExprColumn? end = null,
         IntoDuration? interval = null,
         ClosedInterval closed = ClosedInterval.Both,
-        TimeUnit unit=TimeUnit.Microseconds,
-        string? timeZone=null)
+        TimeUnit unit = TimeUnit.Microseconds,
+        string? timeZone = null)
     {
         using var realStart = start?.Consume();
         using var realEnd = end?.Consume();
@@ -79,15 +80,15 @@ public readonly partial struct Polars
     }
     /// <inheritdoc cref="DatetimeRanges"/>
     public static Series DatetimeRangesAsSeries(
-        IntoExprColumn? start = null, 
-        IntoExprColumn? end = null, 
+        IntoExprColumn? start = null,
+        IntoExprColumn? end = null,
         IntoDuration? interval = null,
         ClosedInterval closed = ClosedInterval.Both,
-        TimeUnit unit=TimeUnit.Microseconds,
-        string? timeZone=null,
-        string name="datetime")
+        TimeUnit unit = TimeUnit.Microseconds,
+        string? timeZone = null,
+        string name = "datetime")
     {
-        var expr = DatetimeRanges(start,end,interval,closed,unit,timeZone);
+        var expr = DatetimeRanges(start, end, interval, closed, unit, timeZone);
         Series series = CreateSeries(expr);
         series.Rename(name);
         return series;

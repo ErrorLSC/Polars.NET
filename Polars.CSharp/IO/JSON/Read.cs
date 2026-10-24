@@ -1,7 +1,8 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Read a JSON file into a DataFrame.
@@ -22,7 +23,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool ignoreErrors = false,
         JsonFormat jsonFormat = JsonFormat.Json)
     {
-        if (!File.Exists(path)) 
+        if (!File.Exists(path))
             throw new FileNotFoundException($"JSON file not found: {path}");
 
         var schemaHandle = schema?.Consume().Handle;
@@ -89,14 +90,14 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         using var ms = new MemoryStream();
         stream.CopyTo(ms);
-        
+
         return ReadJson(
-            ms.ToArray(), 
-            columns, 
-            schema, 
-            inferSchemaLen, 
-            batchSize, 
-            ignoreErrors, 
+            ms.ToArray(),
+            columns,
+            schema,
+            inferSchemaLen,
+            batchSize,
+            ignoreErrors,
             jsonFormat
         );
     }

@@ -2,14 +2,11 @@ using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Read a DataFrame from a CSV file.
-    /// <para>
-    /// Note: This method internally uses LazyFrame.ScanCsv and collects the result. 
-    /// For larger-than-memory datasets or better query optimization, consider using LazyFrame.ScanCsv" directly.
-    /// </para>
     /// </summary>
     /// <param name="path">Path to the CSV file.</param>
     /// <param name="columns">Columns to select. If null, select all columns.</param>
@@ -68,7 +65,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var lf = LazyFrame.ScanCsv(
             path: path,
             schema: schema,
-            dtypeOverride:dtypeOverride,
+            dtypeOverride: dtypeOverride,
             hasHeader: hasHeader,
             separator: separator,
             quoteChar: quoteChar,
@@ -76,12 +73,12 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             ignoreErrors: ignoreErrors,
             tryParseDates: tryParseDates,
             lowMemory: lowMemory,
-            rechunk:rechunk,
+            rechunk: rechunk,
             skipRows: skipRows,
             skipRowsAfterHeader: skipRowsAfterHeader,
             nRows: nRows,
             inferSchemaLength: inferSchemaLength,
-            inferSchemaFiles:inferSchemaFiles,
+            inferSchemaFiles: inferSchemaFiles,
             rowIndexName: rowIndexName,
             rowIndexOffset: rowIndexOffset,
             encoding: encoding,
@@ -159,7 +156,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var lf = LazyFrame.ScanCsv(
             buffer,
             schema: schema,
-            dtypeOverride:dtypeOverride,
+            dtypeOverride: dtypeOverride,
             hasHeader: hasHeader,
             separator: separator,
             quoteChar: quoteChar,
@@ -167,12 +164,12 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             ignoreErrors: ignoreErrors,
             tryParseDates: tryParseDates,
             lowMemory: lowMemory,
-            rechunk:rechunk,
+            rechunk: rechunk,
             skipRows: skipRows,
-            skipRowsAfterHeader:skipRowsAfterHeader,
+            skipRowsAfterHeader: skipRowsAfterHeader,
             nRows: nRows,
             inferSchemaLength: inferSchemaLength,
-            inferSchemaFiles:inferSchemaFiles,
+            inferSchemaFiles: inferSchemaFiles,
             rowIndexName: rowIndexName,
             rowIndexOffset: rowIndexOffset,
             encoding: encoding,
@@ -235,7 +232,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         ulong? inferSchemaLength = null,
         ulong? inferSchemaFiles = null,
         IntoSchema? schema = null,
-        IntoSchema? dtypeOverride = null, 
+        IntoSchema? dtypeOverride = null,
         CsvEncoding encoding = CsvEncoding.UTF8,
         string[]? nullValues = null,
         bool missingIsNull = true,
@@ -251,13 +248,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var lf = LazyFrame.ScanCsv(
             ms.ToArray(),
             schema: schema,
-            dtypeOverride:dtypeOverride,
+            dtypeOverride: dtypeOverride,
             hasHeader: hasHeader,
             separator: separator,
             quoteChar: quoteChar,
             eolChar: eolChar,
             ignoreErrors: ignoreErrors,
-            rechunk:rechunk,
+            rechunk: rechunk,
             tryParseDates: tryParseDates,
             lowMemory: lowMemory,
             skipRows: skipRows,
@@ -316,7 +313,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var lf = LazyFrame.ScanCsv(
             path: path,
             schema: schema,
-            dtypeOverride:dtypeOverride,
+            dtypeOverride: dtypeOverride,
             hasHeader: hasHeader,
             separator: separator,
             quoteChar: quoteChar,
@@ -324,12 +321,12 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             ignoreErrors: ignoreErrors,
             tryParseDates: tryParseDates,
             lowMemory: lowMemory,
-            rechunk:rechunk,
+            rechunk: rechunk,
             skipRows: skipRows,
             skipRowsAfterHeader: skipRowsAfterHeader,
             nRows: nRows,
             inferSchemaLength: inferSchemaLength,
-            inferSchemaFiles:inferSchemaFiles,
+            inferSchemaFiles: inferSchemaFiles,
             rowIndexName: rowIndexName,
             rowIndexOffset: rowIndexOffset,
             encoding: encoding,
@@ -344,7 +341,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         if (columns != null && columns.Length > 0)
         {
             var colsToSelect = new List<string>(columns);
-            
+
             if (!string.IsNullOrEmpty(rowIndexName) && !colsToSelect.Contains(rowIndexName))
             {
                 colsToSelect.Add(rowIndexName);
@@ -353,6 +350,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
-        return await lf.CollectAsync(useStreaming: true);
+        return await lf.CollectAsync();
     }
 }

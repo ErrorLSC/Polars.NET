@@ -3,7 +3,8 @@ using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Generate DataFrame from ADBC query results
@@ -75,7 +76,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="tableName">The name of the target table to ingest data into.</param>
     /// <param name="ingestMode">The ingestion mode (e.g., "adbc.ingest.mode.create" or "adbc.ingest.mode.append"). Defaults to create.</param>
     /// <returns>The UpdateResult containing the number of rows affected.</returns>
-    public UpdateResult WriteToAdbc(AdbcConnection connection, string tableName,AdbcIngestMode ingestMode = AdbcIngestMode.Create)
+    public UpdateResult WriteToAdbc(AdbcConnection connection, string tableName, AdbcIngestMode ingestMode = AdbcIngestMode.Create)
     {
         ArgumentNullException.ThrowIfNull(connection);
         if (string.IsNullOrWhiteSpace(tableName))
@@ -83,14 +84,14 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         // Let the framework handle the Statement lifecycle
         using AdbcStatement statement = connection.CreateStatement();
-        
+
         // Configure ADBC bulk ingest options automatically
         statement.SetOption("adbc.ingest.target_table", tableName);
-        
+
         string modeString = ingestMode switch
         {
-            AdbcIngestMode.Create  => "adbc.ingest.mode.create",
-            AdbcIngestMode.Append  => "adbc.ingest.mode.append",
+            AdbcIngestMode.Create => "adbc.ingest.mode.create",
+            AdbcIngestMode.Append => "adbc.ingest.mode.append",
             AdbcIngestMode.Replace => "adbc.ingest.mode.replace",
             _ => throw new ArgumentOutOfRangeException(nameof(ingestMode), $"Unsupported ingest mode: {ingestMode}")
         };

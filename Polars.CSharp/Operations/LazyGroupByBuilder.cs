@@ -29,7 +29,7 @@ public sealed class LazyGroupBy : IDisposable
 
     // --- Dynamic ---
     internal readonly string? _every;
-    internal readonly Label _label; 
+    internal readonly Label _label;
     internal readonly StartBy _startBy;
     internal readonly bool _includeBoundaries;
 
@@ -43,24 +43,24 @@ public sealed class LazyGroupBy : IDisposable
     /// Aggregate all columns into lists. 
     /// </summary>
     public LazyFrame All()
-        => Agg(Pl.All()); 
-    
+        => Agg(Pl.All());
+
     /// <summary>
     /// Aggregate the first values in the group.
     /// </summary>
     /// <param name="ignoreNulls">Ignore null values (default False). If set to True, the first non-null value for each aggregation is returned, 
     /// otherwise None is returned if no non-null value exists.</param>
     /// <returns></returns>
-    public LazyFrame First(bool ignoreNulls=false)
-        => Agg(Pl.All().First(ignoreNulls)); 
+    public LazyFrame First(bool ignoreNulls = false)
+        => Agg(Pl.All().First(ignoreNulls));
     /// <summary>
     /// Aggregate the last values in the group.
     /// </summary>
     /// <param name="ignoreNulls">Ignore null values (default False). If set to True, the last non-null value for each aggregation is returned, 
     /// otherwise None is returned if no non-null value exists.</param>
     /// <returns></returns>
-    public LazyFrame Last(bool ignoreNulls=false)
-        => Agg(Pl.All().Last(ignoreNulls)); 
+    public LazyFrame Last(bool ignoreNulls = false)
+        => Agg(Pl.All().Last(ignoreNulls));
     /// <summary>
     /// Get the first n rows of each group.
     /// </summary>
@@ -79,7 +79,7 @@ public sealed class LazyGroupBy : IDisposable
             keyNames.Add(_indexColumn);
         }
 
-        return aggregated.Explode(Cs.All().Exclude(keyNames.ToArray())); 
+        return aggregated.Explode(Cs.All().Exclude(keyNames.ToArray()));
     }
 
     /// <summary>
@@ -100,14 +100,14 @@ public sealed class LazyGroupBy : IDisposable
             keyNames.Add(_indexColumn);
         }
 
-        return aggregated.Explode(Cs.All().Exclude(keyNames.ToArray())); 
+        return aggregated.Explode(Cs.All().Exclude(keyNames.ToArray()));
     }
     /// <summary>
     /// Return the number of rows in each group.
     /// </summary>
     /// <param name="name">Assign a name to the resulting column; if unset, defaults to “len”.</param>
     /// <returns></returns>
-    public LazyFrame Len(string name="len")
+    public LazyFrame Len(string name = "len")
         => Agg(Pl.Len().Alias(name));
     /// <summary>
     /// Reduce the groups to the maximal value.
@@ -126,13 +126,13 @@ public sealed class LazyGroupBy : IDisposable
     /// </summary>
     /// <returns></returns>
     public LazyFrame Median()
-        => Agg(Pl.All().Median()); 
+        => Agg(Pl.All().Median());
     /// <summary>
     /// Reduce the groups to the mean value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Mean()
-        => Agg(Pl.All().Mean()); 
+        => Agg(Pl.All().Mean());
     /// <summary>
     /// Count the unique values per group.
     /// </summary>
@@ -144,15 +144,15 @@ public sealed class LazyGroupBy : IDisposable
     /// </summary>
     /// <returns></returns>  
     public LazyFrame Sum()
-        => Agg(Pl.All().Sum());  
+        => Agg(Pl.All().Sum());
     /// <summary>
     /// Compute the quantile per group.
     /// </summary>
     /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
     /// <param name="interpolation">Interpolation method.</param>
     /// <returns></returns>          
-    public LazyFrame Quantile(double quantile,QuantileMethod interpolation = QuantileMethod.Linear)
-        => Agg(Pl.All().Quantile(quantile,interpolation));   
+    public LazyFrame Quantile(double quantile, QuantileMethod interpolation = QuantileMethod.Linear)
+        => Agg(Pl.All().Quantile(quantile, interpolation));
     internal LazyGroupBy(LazyFrameHandle lfHandle, Expr[] keys, bool maintainOrder)
     {
         _lfHandle = lfHandle;
@@ -162,7 +162,7 @@ public sealed class LazyGroupBy : IDisposable
     }
 
     internal LazyGroupBy(
-        LazyFrameHandle lfHandle, string indexColumn, string every, string? period, string? offset, 
+        LazyFrameHandle lfHandle, string indexColumn, string every, string? period, string? offset,
         Expr[] keys, Label label, bool includeBoundaries, ClosedInterval ClosedInterval, StartBy startBy)
     {
         _lfHandle = lfHandle;
@@ -179,7 +179,7 @@ public sealed class LazyGroupBy : IDisposable
     }
 
     internal LazyGroupBy(
-        LazyFrameHandle lfHandle, string indexColumn, string? period, string? offset, 
+        LazyFrameHandle lfHandle, string indexColumn, string? period, string? offset,
         Expr[] keys, ClosedInterval ClosedInterval)
     {
         _lfHandle = lfHandle;
@@ -200,7 +200,7 @@ public sealed class LazyGroupBy : IDisposable
     public LazyGroupBy Having(Expr predicate)
     {
         _havingExpr = predicate;
-        return this; 
+        return this;
     }
     private Expr? _havingExpr = null;
 
@@ -244,10 +244,10 @@ public sealed class LazyGroupBy : IDisposable
                     k?.Dispose();
                 }
             }
-            
-            if (!_lfHandle.IsClosed) 
+
+            if (!_lfHandle.IsClosed)
             {
-                 _lfHandle.Dispose();
+                _lfHandle.Dispose();
             }
 
             _disposed = true;

@@ -30,7 +30,7 @@ public readonly struct SeriesStructOps
     /// </summary>
     public Series RenameFields(params string[] names) => Apply(e => e.Struct.RenameFields(names));
     /// <inheritdoc cref="StructOps.Drop(IEnumerable{string}, bool)"/>
-    public Series Drop(IEnumerable<string> names,bool strict=true) => Apply(e => e.Struct.Drop(names,strict));
+    public Series Drop(IEnumerable<string> names, bool strict = true) => Apply(e => e.Struct.Drop(names, strict));
 
     /// <summary>
     /// Convert struct to JSON string.

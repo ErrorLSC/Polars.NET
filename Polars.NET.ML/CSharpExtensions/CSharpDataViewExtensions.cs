@@ -15,6 +15,6 @@ public static class PolarsCSharpDataViewExtensions
     public static DataFrame ToDataFrame(this IDataView dataview,int batchSize = 64000)
     {
         var handle = DataViewToPolarsExtensions.ToPolarsDataFrameHandle(dataview, batchSize);
-        return new DataFrame(handle);
+        return new(handle);
     }
 }

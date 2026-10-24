@@ -4,7 +4,7 @@ using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable,IPolarsSeries
+public partial class Series : IDisposable
 {
     /// <summary>
     /// Calculate absolute value.
@@ -33,7 +33,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Calculate the power of the Euler's number.
     /// </summary>
-    public Series Exp() =>  ApplyExpr(Pl.Col(Name).Exp());
+    public Series Exp() => ApplyExpr(Pl.Col(Name).Exp());
     /// <inheritdoc cref="Expr.Log(Expr)"/>
     public Series Log(Expr baseVal) => ApplyExpr(Pl.Col(Name).Log(baseVal));
     public Series Ln() => Log(Math.E);
@@ -43,10 +43,10 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.Log1p"/>
     public Series Log1p() => ApplyExpr(Pl.Col(Name).Log1p());
     /// <inheritdoc cref="Expr.Entropy"/>
-    public double? Entropy(double baseVal=Math.E,bool normalize=true) => ExtractScalar<double>(Pl.Col(Name).Entropy(baseVal,normalize));
+    public double? Entropy(double baseVal = Math.E, bool normalize = true) => ExtractScalar<double>(Pl.Col(Name).Entropy(baseVal, normalize));
     /// <inheritdoc cref="Expr.Hash"/>
-    public Series Hash(ulong seed=0, ulong? seed1=null,ulong? seed2=null,ulong? seed3=null)
-        => ApplyExpr(Pl.Col(Name).Hash(seed,seed1,seed2,seed3));
+    public Series Hash(ulong seed = 0, ulong? seed1 = null, ulong? seed2 = null, ulong? seed3 = null)
+        => ApplyExpr(Pl.Col(Name).Hash(seed, seed1, seed2, seed3));
     // ==========================================
     // Linear Algebra (Dot Product)
     // ==========================================
@@ -69,11 +69,11 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns>The dot product value.</returns>
     public T? Dot<T>(Series other) => Dot(other).GetValue<T>(0);
     /// <inheritdoc cref="Expr.Round"/>
-    public Series Round(uint decimals=0,RoundMode mode = RoundMode.HalfToEven) => ApplyExpr(Pl.Col(Name).Round(decimals,mode));
+    public Series Round(uint decimals = 0, RoundMode mode = RoundMode.HalfToEven) => ApplyExpr(Pl.Col(Name).Round(decimals, mode));
     /// <inheritdoc cref="Expr.RoundSigFigs"/>
     public Series RoundSigFigs(int digits) => ApplyExpr(Pl.Col(Name).RoundSigFigs(digits));
     /// <inheritdoc cref="Expr.Truncate"/>
-    public Series Truncate(uint decimals=0) => ApplyExpr(Pl.Col(Name).Truncate(decimals));
+    public Series Truncate(uint decimals = 0) => ApplyExpr(Pl.Col(Name).Truncate(decimals));
     /// <summary>Compute the element-wise sign (-1, 0, 1).</summary>
     public Series Sign() => ApplyExpr(Pl.Col(Name).Sign());
 
@@ -166,8 +166,8 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series CumCount(bool reverse = false)
         => ApplyExpr(Pl.Col(Name).CumCount(reverse));
     /// <inheritdoc cref="Expr.CumulativeEval"/>
-    public Series CumulativeEval(Expr expr,int minSamples=1)
-        => ApplyExpr(Pl.Col(Name).CumulativeEval(expr,minSamples));
+    public Series CumulativeEval(Expr expr, int minSamples = 1)
+        => ApplyExpr(Pl.Col(Name).CumulativeEval(expr, minSamples));
     // ==========================================
     // EWM Functions
     // ==========================================
@@ -225,18 +225,18 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Get unique values of this series.
     /// </summary>
     /// <param name="maintainOrder">Maintain order of data. This requires more work.</param>
-    public Series Unique(bool maintainOrder=false)
+    public Series Unique(bool maintainOrder = false)
     {
-        if(!maintainOrder)
+        if (!maintainOrder)
             return new(PolarsWrapper.SeriesUnique(Handle));
         else
             return new(PolarsWrapper.SeriesUniqueStable(Handle));
     }
     /// <inheritdoc cref="Expr.Hist"/>
-    public DataFrame Hist(IntoExpr? bins=null,int? binCount=null,bool includeCategory=true,bool includeBreakPoint=true)
+    public DataFrame Hist(IntoExpr? bins = null, int? binCount = null, bool includeCategory = true, bool includeBreakPoint = true)
     {
-        Series res = ApplyExpr(Pl.Col(Name).Hist(bins,binCount,includeCategory,includeBreakPoint));
-        return (includeCategory | includeBreakPoint)? res.Unnest() : res.ToFrame();
+        Series res = ApplyExpr(Pl.Col(Name).Hist(bins, binCount, includeCategory, includeBreakPoint));
+        return (includeCategory | includeBreakPoint) ? res.Unnest() : res.ToFrame();
     }
     /// <inheritdoc cref="Expr.IndexOf(IntoExpr)"/>
     public int? IndexOf(IntoExpr element)
@@ -256,7 +256,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </summary>
     public int SearchSortedIndex(object? scalar, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
     {
-        Expr eleExpr = scalar is null ? Pl.LitNull(): Expr.MakeLit(scalar) ;
+        Expr eleExpr = scalar is null ? Pl.LitNull() : Expr.MakeLit(scalar);
 
         using var series = ApplyExpr(Pl.Col(Name).SearchSorted(eleExpr, side, descending));
 

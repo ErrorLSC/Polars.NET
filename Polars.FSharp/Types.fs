@@ -4,6 +4,7 @@
 namespace Polars.FSharp
 
 open System
+open System.Text
 open Polars.NET.Core
 open System.Collections.Generic
 open Polars.NET.Core.Arrow
@@ -16,17 +17,14 @@ open Apache.Arrow.Ipc
 open System.ComponentModel
 open System.Runtime.CompilerServices
 
-module private TypePatterns =
-    let inline (|Is|_|)<'T>(t: Type) =
-        if t = typeof<'T> then Some() else None
-
-/// --- Series ---
+// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
 /// </summary>
 type Series(handle: SeriesHandle) =
     let mutable disposed = 0
     let hasNulls = lazy PolarsWrapper.SeriesHasNulls(handle)
+
     let dtype =
         lazy
             let dtypeHandle = PolarsWrapper.GetSeriesDataType handle
@@ -37,7 +35,9 @@ type Series(handle: SeriesHandle) =
         if Interlocked.Exchange(&disposed, 1) = 0 then
             if dtype.IsValueCreated then
                 dtype.Value.Dispose()
+
             handle.Dispose()
+
     member _.Handle = handle
     member _.Name = PolarsWrapper.SeriesName handle
     member _.Length = PolarsWrapper.SeriesLen handle
@@ -54,50 +54,58 @@ type Series(handle: SeriesHandle) =
     /// Get the number of null values in the Series.
     /// This is an O(1) operation (metadata access).
     /// </summary>
-    member _.NullCount : int64 = PolarsWrapper.SeriesNullCount handle
+    member _.NullCount: int64 = PolarsWrapper.SeriesNullCount handle
     member internal this.CloneHandle() = PolarsWrapper.CloneSeries handle
     member this.Clone() = new Series(this.CloneHandle())
     /// <summary>
     /// Gets the number of underlying Arrow memory chunks.
     /// </summary>
-    member this.NChunks : int64 =
-        int64 (PolarsWrapper.SeriesChunkCounts handle)
+    member this.NChunks: int64 = int64 (PolarsWrapper.SeriesChunkCounts handle)
 
     /// <summary>
     /// Determines if the Series memory is physically contiguous (i.e., consists of a single chunk).
     /// </summary>
-    member this.IsContiguous : bool =
-        this.NChunks = 1
+    member this.IsContiguous: bool = this.NChunks = 1
+
     /// <summary>
     /// Gets the current sorting state flags of this series from the underlying native engine.
     /// </summary>
-    member this.SortedFlags : SortStateFlags =
+    member this.SortedFlags: SortStateFlags =
         let coreFlags = PolarsWrapper.SeriesGetSortedFlags(this.Handle)
 
         coreFlags |> box |> unbox<SortStateFlags>
+
     /// <summary>
     /// Checks if the Series is sorted according to the given rules.
     /// If the metadata flag matches, returns O(1). Otherwise, scans the data O(N).
     /// </summary>
-    member this.IsSorted(?descending,?nullsLast) =
+    member this.IsSorted(?descending, ?nullsLast) =
         let des = defaultArg descending false
         let nul = defaultArg nullsLast false
-        PolarsWrapper.SeriesIsSorted(this.Handle,des,nul)
+        PolarsWrapper.SeriesIsSorted(this.Handle, des, nul)
+        
+    /// <summary>
+    /// Flags the Series as ‘sorted’. Enables downstream code to user fast paths for sorted arrays.
+    /// </summary>
+    /// <param name="descending">If the Series order is descending.</param>
     member this.SetSorted(?descending) =
         let de = defaultArg descending false
-        new Series(PolarsWrapper.SeriesSetSortedFlag(this.Handle,de))
+        new Series(PolarsWrapper.SeriesSetSortedFlag(this.Handle, de))
+
     /// <summary>
     /// True if the Series is empty.
     /// </summary>
     member this.IsEmpty(?ignoreNulls) =
-        match defaultArg ignoreNulls false with
-        | true -> this.Length = this.NullCount
-        | false -> this.Length = 0
+        if defaultArg ignoreNulls false then
+            this.Length = this.NullCount
+        else
+            this.Length = 0
+
     /// <summary>
     /// Shape of this Series.
     /// In Polars, a Series is always 1D, so this returns an array of length 1.
     /// </summary>
-    member this.Shape = [|this.Length|]
+    member this.Shape = [| this.Length |]
 
     /// <remarks>
     /// Polars Operations like Appending or Filtering can create fragmented memory chunks.
@@ -107,14 +115,18 @@ type Series(handle: SeriesHandle) =
     /// <returns>A new Series instance backed by contiguous memory.</returns>
     member this.Rechunk() =
         new Series(PolarsWrapper.SeriesRechunk this.Handle)
+
     /// <summary> Rename the Series in-place. Returns self. </summary>
     member this.Rename(name: string) =
         PolarsWrapper.SeriesRename(this.Handle, name)
         this
+
     /// <summary>
     /// Shrink Series memory usage.This won't return a new Series
     /// </summary>
-    member this.ShrinkToFitInplace() = PolarsWrapper.SeriesShrinkToFit(this.Handle)
+    member this.ShrinkToFitInplace() =
+        PolarsWrapper.SeriesShrinkToFit this.Handle
+
     /// <summary>
     /// Shrink Series memory usage.
     /// </summary>
@@ -137,7 +149,7 @@ type Series(handle: SeriesHandle) =
         use dfHandle = PolarsWrapper.SeriesToFrame handle
         use df = new DataFrame(dfHandle)
 
-        use dfRes = df.Select [expr]
+        use dfRes = df.Select [ expr ]
 
         dfRes.[0]
     // ==========================================
@@ -168,7 +180,7 @@ type Series(handle: SeriesHandle) =
 
             let expr = op (Expr.Col leftName) (Expr.Col rightName)
 
-            use resDf = df.Select [expr]
+            use resDf = df.Select [ expr ]
 
             resDf.[0]
 
@@ -181,10 +193,12 @@ type Series(handle: SeriesHandle) =
     /// Get the string representation of the Series Data Type (e.g., "Int64", "String").
     /// </summary>
     member _.DtypeStr = PolarsWrapper.GetSeriesDtypeString handle
+
     /// <summary> Get the DataType of the Series. </summary>
-    member this.DataType : DataType =
+    member this.DataType: DataType =
         if Volatile.Read(&disposed) = 1 then
             raise (ObjectDisposedException(nameof Series, "Cannot access DataType on a disposed Series."))
+
         dtype.Value
 
     // ==========================================
@@ -219,9 +233,9 @@ type Series(handle: SeriesHandle) =
         let t = typeof<'T>
 
         let isFSharpOption =
-            t.IsGenericType &&
-            (t.GetGenericTypeDefinition() = typedefof<voption<_>> ||
-            t.GetGenericTypeDefinition() = typedefof<option<_>>)
+            t.IsGenericType
+            && (t.GetGenericTypeDefinition() = typedefof<voption<_>>
+                || t.GetGenericTypeDefinition() = typedefof<option<_>>)
 
         if isFSharpOption then
             let arr = Seq.toArray data
@@ -244,10 +258,11 @@ type Series(handle: SeriesHandle) =
     /// The resulting series will consist of multiple chunks.
     /// </summary>
     /// <param name="other">Series to append.</param>
-    member this.Append(other:Series) =
+    member this.Append(other: Series) =
         let cloned = this.Clone()
         PolarsWrapper.SeriesAppend(cloned.Handle, other.Handle)
         cloned
+
     /// <summary>
     /// Appends another Series to this one in-place, mutating the underlying chunks.
     /// Returns unit to indicate side-effects.
@@ -255,6 +270,7 @@ type Series(handle: SeriesHandle) =
     /// <param name="other">Series to append.</param>
     member this.AppendInplace(other: Series) : unit =
         PolarsWrapper.SeriesAppend(this.Handle, other.Handle)
+
     /// <summary> Modulo (remainder). </summary>
     member this.Mod(other: Series) =
         this.ApplyBinaryExpr(other, fun l r -> l.Mod r)
@@ -262,6 +278,7 @@ type Series(handle: SeriesHandle) =
     /// <summary> Modulo (scalar). </summary>
     member this.Mod(other: int) =
         this.ApplyExpr(Expr.Col(this.Name).Mod(new Expr(PolarsWrapper.Lit other)))
+
     member this.Mod(other: int64) =
         this.ApplyExpr(Expr.Col(this.Name).Mod(new Expr(PolarsWrapper.Lit other)))
 
@@ -272,181 +289,253 @@ type Series(handle: SeriesHandle) =
     /// <summary> Bitwise left shift. </summary>
     member this.BitLeftShift(n: int) =
         this.ApplyExpr(Expr.Col(this.Name).BitLeftShift n)
+
     /// <summary> Bitwise right shift. </summary>
     member this.BitRightShift(n: int) =
         this.ApplyExpr(Expr.Col(this.Name).BitRightShift n)
 
-    static member (+) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesAdd(lhs.Handle, rhs.Handle))
-    static member (-) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesSub(lhs.Handle, rhs.Handle))
-    static member (*) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesMul(lhs.Handle, rhs.Handle))
-    static member (/) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesDiv(lhs.Handle, rhs.Handle))
-    static member (%) (lhs: Series, rhs: Series) = lhs.Mod rhs
+    static member (+)(lhs: Series, rhs: Series) =
+        new Series(PolarsWrapper.SeriesAdd(lhs.Handle, rhs.Handle))
 
+    static member (-)(lhs: Series, rhs: Series) =
+        new Series(PolarsWrapper.SeriesSub(lhs.Handle, rhs.Handle))
+
+    static member (*)(lhs: Series, rhs: Series) =
+        new Series(PolarsWrapper.SeriesMul(lhs.Handle, rhs.Handle))
+
+    static member (/)(lhs: Series, rhs: Series) =
+        new Series(PolarsWrapper.SeriesDiv(lhs.Handle, rhs.Handle))
+
+    static member (%)(lhs: Series, rhs: Series) = lhs.Mod rhs
+
+    /// <summary> Add two Series. </summary>
     member this.Add(other: Series) = this + other
+
+    /// <summary> Subtract two Series. </summary>
     member this.Sub(other: Series) = this - other
+
+    /// <summary> Multiply two Series. </summary>
     member this.Mul(other: Series) = this * other
+
+    /// <summary> Divide two Series. </summary>
     member this.Div(other: Series) = this / other
 
-    // --- Operators (Comparison) ---
+    static member (.=)(lhs: Series, rhs: Series) =
+        new Series(PolarsWrapper.SeriesEq(lhs.Handle, rhs.Handle))
 
-    static member (.=) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesEq(lhs.Handle, rhs.Handle))
-    static member (!=) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesNeq(lhs.Handle, rhs.Handle))
-    static member (.>) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesGt(lhs.Handle, rhs.Handle))
-    static member (.<) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesLt(lhs.Handle, rhs.Handle))
+    static member (!=)(lhs: Series, rhs: Series) =
+        new Series(PolarsWrapper.SeriesNeq(lhs.Handle, rhs.Handle))
 
-    static member (.>=) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesGtEq(lhs.Handle, rhs.Handle))
-    static member (.<=) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesLtEq(lhs.Handle, rhs.Handle))
+    static member (.>)(lhs: Series, rhs: Series) =
+        new Series(PolarsWrapper.SeriesGt(lhs.Handle, rhs.Handle))
 
-    member this.Eq(other: Series):Series = this .= other
+    static member (.<)(lhs: Series, rhs: Series) =
+        new Series(PolarsWrapper.SeriesLt(lhs.Handle, rhs.Handle))
+
+    static member (.>=)(lhs: Series, rhs: Series) =
+        new Series(PolarsWrapper.SeriesGtEq(lhs.Handle, rhs.Handle))
+
+    static member (.<=)(lhs: Series, rhs: Series) =
+        new Series(PolarsWrapper.SeriesLtEq(lhs.Handle, rhs.Handle))
+
+    /// <summary> Compare two Series for equality. </summary>
+    member this.Eq(other: Series) : Series = this .= other
+
+    /// <summary> Compare two Series for inequality. </summary>
     member this.Neq(other: Series) = this != other
+
+    /// <summary> Check if values in the first Series are greater than the second Series. </summary>
     member this.Gt(other: Series) = this .> other
+
+    /// <summary> Check if values in the first Series are less than the second Series. </summary>
     member this.Lt(other: Series) = this .< other
+
+    /// <summary> Check if values in the first Series are greater than or equal to the second Series. </summary>
     member this.GtEq(other: Series) = this .>= other
+
+    /// <summary> Check if values in the first Series are less than or equal to the second Series. </summary>
     member this.LtEq(other: Series) = this .<= other
-    member this.EqMissing(other: Series) = new Series(PolarsWrapper.SeriesEqMissing(this.Handle, other.Handle))
-    member this.NeqMissing(other: Series) = new Series(PolarsWrapper.SeriesNeqMissing(this.Handle, other.Handle))
 
-    // --- Broadcasting Helpers (Scalar Ops) ---
-    static member (+) (lhs: Series, rhs: int) = lhs + Series.create("lit", [rhs])
-    static member (+) (lhs: Series, rhs: double) = lhs + Series.create("lit", [rhs])
-    static member (+) (lhs: Series, rhs: int64) = lhs + Series.create("lit", [rhs])
-    static member (+) (lhs: Series, rhs: single) = lhs + Series.create("lit", [rhs])
-    static member (+) (lhs: Series, rhs: string) = lhs + Series.create("lit", [rhs])
-    static member (+) (lhs: Series, rhs: TimeSpan) = lhs + Series.create("lit", [rhs])
-    static member (+) (lhs: Series, rhs: decimal) = lhs + Series.create("lit", [rhs])
-    static member (+) (lhs: Series, rhs: bool) = lhs + Series.create("lit", [rhs])
+    /// <summary> Compare two Series for equality, ignoring nulls. </summary>
+    member this.EqMissing(other: Series) =
+        new Series(PolarsWrapper.SeriesEqMissing(this.Handle, other.Handle))
 
-    static member (-) (lhs: Series, rhs: int) = lhs - Series.create("lit", [rhs])
-    static member (-) (lhs: Series, rhs: double) = lhs - Series.create("lit", [rhs])
-    static member (-) (lhs: Series, rhs: int64) = lhs - Series.create("lit", [rhs])
-    static member (-) (lhs: Series, rhs: single) = lhs - Series.create("lit", [rhs])
-    static member (-) (lhs: Series, rhs: TimeSpan) = lhs - Series.create("lit", [rhs])
-    static member (-) (lhs: Series, rhs: decimal) = lhs - Series.create("lit", [rhs])
+    /// <summary> Compare two Series for inequality, ignoring nulls. </summary>
+    member this.NeqMissing(other: Series) =
+        new Series(PolarsWrapper.SeriesNeqMissing(this.Handle, other.Handle))
 
-    static member (*) (lhs: Series, rhs: int) = lhs * Series.create("lit", [rhs])
-    static member (*) (lhs: Series, rhs: int64) = lhs * Series.create("lit", [rhs])
-    static member (*) (lhs: Series, rhs: double) = lhs * Series.create("lit", [rhs])
-    static member (*) (lhs: Series, rhs: single) = lhs * Series.create("lit", [rhs])
-    static member (*) (lhs: Series, rhs: decimal) = lhs * Series.create("lit", [rhs])
+    /// <summary> Add a scalar value to all elem    ents of the Series. </summary>
+    static member (+)(lhs: Series, rhs: int) = lhs + Series.create ("lit", [ rhs ])
 
-    static member (/) (lhs: Series, rhs: int) = lhs / Series.create("lit", [rhs])
-    static member (/) (lhs: Series, rhs: int64) = lhs / Series.create("lit", [rhs])
-    static member (/) (lhs: Series, rhs: double) = lhs / Series.create("lit", [rhs])
-    static member (/) (lhs: Series, rhs: single) = lhs / Series.create("lit", [rhs])
-    static member (/) (lhs: Series, rhs: decimal) = lhs / Series.create("lit", [rhs])
+    /// <summary> Add a scalar value to all elements of the Series. </summary>
+    static member (+)(lhs: Series, rhs: double) = lhs + Series.create ("lit", [ rhs ])
 
-    static member (%) (lhs: Series, rhs: int) = lhs.Mod rhs
-    static member (%) (lhs: Series, rhs: int64) = lhs.Mod rhs
+    /// <summary> Add a scalar value to all elements of the Series. </summary>
+    static member (+)(lhs: Series, rhs: int64) = lhs + Series.create ("lit", [ rhs ])
+
+    /// <summary> Add a scalar value to all elements of the Series. </summary>
+    static member (+)(lhs: Series, rhs: single) = lhs + Series.create ("lit", [ rhs ])
+
+    /// <summary> Add a scalar value to all elements of the Series. </summary>
+    static member (+)(lhs: Series, rhs: string) = lhs + Series.create ("lit", [ rhs ])
+    static member (+)(lhs: Series, rhs: TimeSpan) = lhs + Series.create ("lit", [ rhs ])
+    static member (+)(lhs: Series, rhs: decimal) = lhs + Series.create ("lit", [ rhs ])
+    static member (+)(lhs: Series, rhs: bool) = lhs + Series.create ("lit", [ rhs ])
+
+    static member (-)(lhs: Series, rhs: int) = lhs - Series.create ("lit", [ rhs ])
+    static member (-)(lhs: Series, rhs: double) = lhs - Series.create ("lit", [ rhs ])
+    static member (-)(lhs: Series, rhs: int64) = lhs - Series.create ("lit", [ rhs ])
+    static member (-)(lhs: Series, rhs: single) = lhs - Series.create ("lit", [ rhs ])
+    static member (-)(lhs: Series, rhs: TimeSpan) = lhs - Series.create ("lit", [ rhs ])
+    static member (-)(lhs: Series, rhs: decimal) = lhs - Series.create ("lit", [ rhs ])
+
+    static member (*)(lhs: Series, rhs: int) = lhs * Series.create ("lit", [ rhs ])
+    static member (*)(lhs: Series, rhs: int64) = lhs * Series.create ("lit", [ rhs ])
+    static member (*)(lhs: Series, rhs: double) = lhs * Series.create ("lit", [ rhs ])
+    static member (*)(lhs: Series, rhs: single) = lhs * Series.create ("lit", [ rhs ])
+    static member (*)(lhs: Series, rhs: decimal) = lhs * Series.create ("lit", [ rhs ])
+
+    static member (/)(lhs: Series, rhs: int) = lhs / Series.create ("lit", [ rhs ])
+    static member (/)(lhs: Series, rhs: int64) = lhs / Series.create ("lit", [ rhs ])
+    static member (/)(lhs: Series, rhs: double) = lhs / Series.create ("lit", [ rhs ])
+    static member (/)(lhs: Series, rhs: single) = lhs / Series.create ("lit", [ rhs ])
+    static member (/)(lhs: Series, rhs: decimal) = lhs / Series.create ("lit", [ rhs ])
+
+    static member (%)(lhs: Series, rhs: int) = lhs.Mod rhs
+    static member (%)(lhs: Series, rhs: int64) = lhs.Mod rhs
 
     /// <summary> Power with double exponent. </summary>
-    static member (.**) (lhs: Series, rhs: Series) =
+    static member (.**)(lhs: Series, rhs: Series) =
         lhs.ApplyBinaryExpr(rhs, fun l r -> l.Pow r)
+
     /// <summary> Power with single exponent. </summary>
-    static member (.**) (lhs: Series, rhs: single) =
-        lhs.ApplyExpr(Expr.Col(lhs.Name).Pow rhs)
-    /// <summary> Power with single exponent. </summary>
-    static member (.**) (lhs: Series, rhs: double) =
-        lhs.ApplyExpr(Expr.Col(lhs.Name).Pow rhs)
-    /// <summary> Power with int64 exponent. </summary>
-    static member (.**) (lhs: Series, rhs: int64) =
-        lhs.ApplyExpr(Expr.Col(lhs.Name).Pow rhs)
-    /// <summary> Power with integer exponent. </summary>
-    static member (.**) (lhs: Series, rhs: int) =
+    static member (.**)(lhs: Series, rhs: single) =
         lhs.ApplyExpr(Expr.Col(lhs.Name).Pow rhs)
 
-    static member (<<<) (lhs: Series, rhs: int) = lhs.BitLeftShift rhs
-    static member (>>>) (lhs: Series, rhs: int) = lhs.BitRightShift rhs
+    /// <summary> Power with single exponent. </summary>
+    static member (.**)(lhs: Series, rhs: double) =
+        lhs.ApplyExpr(Expr.Col(lhs.Name).Pow rhs)
+
+    /// <summary> Power with int64 exponent. </summary>
+    static member (.**)(lhs: Series, rhs: int64) =
+        lhs.ApplyExpr(Expr.Col(lhs.Name).Pow rhs)
+
+    /// <summary> Power with integer exponent. </summary>
+    static member (.**)(lhs: Series, rhs: int) =
+        lhs.ApplyExpr(Expr.Col(lhs.Name).Pow rhs)
+
+    static member (<<<)(lhs: Series, rhs: int) = lhs.BitLeftShift rhs
+    static member (>>>)(lhs: Series, rhs: int) = lhs.BitRightShift rhs
 
     // Comparison with Scalar
-    static member (.>) (lhs: Series, rhs: int) = lhs .> Series.create("lit", [rhs])
-    static member (.>) (lhs: Series, rhs: int64) = lhs .> Series.create("lit", [rhs])
-    static member (.>) (lhs: Series, rhs: double) = lhs .> Series.create("lit", [rhs])
-    static member (.>) (lhs: Series, rhs: single) = lhs .> Series.create("lit", [rhs])
-    static member (.>) (lhs: Series, rhs: DateTime) = lhs .> Series.create("lit", [rhs])
-    static member (.>) (lhs: Series, rhs: TimeOnly) = lhs .> Series.create("lit", [rhs])
-    static member (.>) (lhs: Series, rhs: DateOnly) = lhs .> Series.create("lit", [rhs])
-    static member (.>) (lhs: Series, rhs: TimeSpan) = lhs .> Series.create("lit", [rhs])
-    static member (.>) (lhs: Series, rhs: decimal) = lhs .> Series.create("lit", [rhs])
-    static member (.>) (lhs: Series, rhs: string) = lhs .> Series.create("lit", [rhs])
+    static member (.>)(lhs: Series, rhs: int) = lhs .> Series.create ("lit", [ rhs ])
+    static member (.>)(lhs: Series, rhs: int64) = lhs .> Series.create ("lit", [ rhs ])
+    static member (.>)(lhs: Series, rhs: double) = lhs .> Series.create ("lit", [ rhs ])
+    static member (.>)(lhs: Series, rhs: single) = lhs .> Series.create ("lit", [ rhs ])
+    static member (.>)(lhs: Series, rhs: DateTime) = lhs .> Series.create ("lit", [ rhs ])
+    static member (.>)(lhs: Series, rhs: TimeOnly) = lhs .> Series.create ("lit", [ rhs ])
+    static member (.>)(lhs: Series, rhs: DateOnly) = lhs .> Series.create ("lit", [ rhs ])
+    static member (.>)(lhs: Series, rhs: TimeSpan) = lhs .> Series.create ("lit", [ rhs ])
+    static member (.>)(lhs: Series, rhs: decimal) = lhs .> Series.create ("lit", [ rhs ])
+    static member (.>)(lhs: Series, rhs: string) = lhs .> Series.create ("lit", [ rhs ])
 
-    static member (.<) (lhs: Series, rhs: int) = lhs .< Series.create("lit", [rhs])
-    static member (.<) (lhs: Series, rhs: int64) = lhs .< Series.create("lit", [rhs])
-    static member (.<) (lhs: Series, rhs: double) = lhs .< Series.create("lit", [rhs])
-    static member (.<) (lhs: Series, rhs: single) = lhs .< Series.create("lit", [rhs])
-    static member (.<) (lhs: Series, rhs: DateTime) = lhs .< Series.create("lit", [rhs])
-    static member (.<) (lhs: Series, rhs: TimeOnly) = lhs .< Series.create("lit", [rhs])
-    static member (.<) (lhs: Series, rhs: DateOnly) = lhs .< Series.create("lit", [rhs])
-    static member (.<) (lhs: Series, rhs: TimeSpan) = lhs .< Series.create("lit", [rhs])
-    static member (.<) (lhs: Series, rhs: decimal) = lhs .< Series.create("lit", [rhs])
-    static member (.<) (lhs: Series, rhs: string) = lhs .< Series.create("lit", [rhs])
+    static member (.<)(lhs: Series, rhs: int) = lhs .< Series.create ("lit", [ rhs ])
+    static member (.<)(lhs: Series, rhs: int64) = lhs .< Series.create ("lit", [ rhs ])
+    static member (.<)(lhs: Series, rhs: double) = lhs .< Series.create ("lit", [ rhs ])
+    static member (.<)(lhs: Series, rhs: single) = lhs .< Series.create ("lit", [ rhs ])
+    static member (.<)(lhs: Series, rhs: DateTime) = lhs .< Series.create ("lit", [ rhs ])
+    static member (.<)(lhs: Series, rhs: TimeOnly) = lhs .< Series.create ("lit", [ rhs ])
+    static member (.<)(lhs: Series, rhs: DateOnly) = lhs .< Series.create ("lit", [ rhs ])
+    static member (.<)(lhs: Series, rhs: TimeSpan) = lhs .< Series.create ("lit", [ rhs ])
+    static member (.<)(lhs: Series, rhs: decimal) = lhs .< Series.create ("lit", [ rhs ])
+    static member (.<)(lhs: Series, rhs: string) = lhs .< Series.create ("lit", [ rhs ])
 
-    static member (.>=) (lhs: Series, rhs: int) = lhs .>= Series.create("lit", [rhs])
-    static member (.>=) (lhs: Series, rhs: int64) = lhs .>= Series.create("lit", [rhs])
-    static member (.>=) (lhs: Series, rhs: double)= lhs .>= Series.create("lit", [rhs])
-    static member (.>=) (lhs: Series, rhs: single) = lhs .>= Series.create("lit", [rhs])
-    static member (.>=) (lhs: Series, rhs: DateTime) = lhs .>= Series.create("lit", [rhs])
-    static member (.>=) (lhs: Series, rhs: TimeOnly) = lhs .>= Series.create("lit", [rhs])
-    static member (.>=) (lhs: Series, rhs: DateOnly) = lhs .>= Series.create("lit", [rhs])
-    static member (.>=) (lhs: Series, rhs: TimeSpan) = lhs .>= Series.create("lit", [rhs])
-    static member (.>=) (lhs: Series, rhs: decimal) = lhs .>= Series.create("lit", [rhs])
-    static member (.>=) (lhs: Series, rhs: string) = lhs .>= Series.create("lit", [rhs])
+    static member (.>=)(lhs: Series, rhs: int) = lhs .>= Series.create ("lit", [ rhs ])
+    static member (.>=)(lhs: Series, rhs: int64) = lhs .>= Series.create ("lit", [ rhs ])
+    static member (.>=)(lhs: Series, rhs: double) = lhs .>= Series.create ("lit", [ rhs ])
+    static member (.>=)(lhs: Series, rhs: single) = lhs .>= Series.create ("lit", [ rhs ])
+    static member (.>=)(lhs: Series, rhs: DateTime) = lhs .>= Series.create ("lit", [ rhs ])
+    static member (.>=)(lhs: Series, rhs: TimeOnly) = lhs .>= Series.create ("lit", [ rhs ])
+    static member (.>=)(lhs: Series, rhs: DateOnly) = lhs .>= Series.create ("lit", [ rhs ])
+    static member (.>=)(lhs: Series, rhs: TimeSpan) = lhs .>= Series.create ("lit", [ rhs ])
+    static member (.>=)(lhs: Series, rhs: decimal) = lhs .>= Series.create ("lit", [ rhs ])
+    static member (.>=)(lhs: Series, rhs: string) = lhs .>= Series.create ("lit", [ rhs ])
 
-    static member (.<=) (lhs: Series, rhs: int) = lhs .<= Series.create("lit", [rhs])
-    static member (.<=) (lhs: Series, rhs: int64) = lhs .<= Series.create("lit", [rhs])
-    static member (.<=) (lhs: Series, rhs: double)= lhs .<= Series.create("lit", [rhs])
-    static member (.<=) (lhs: Series, rhs: single) = lhs .<= Series.create("lit", [rhs])
-    static member (.<=) (lhs: Series, rhs: DateTime) = lhs .<= Series.create("lit", [rhs])
-    static member (.<=) (lhs: Series, rhs: TimeOnly) = lhs .<= Series.create("lit", [rhs])
-    static member (.<=) (lhs: Series, rhs: DateOnly) = lhs .<= Series.create("lit", [rhs])
-    static member (.<=) (lhs: Series, rhs: TimeSpan) = lhs .<= Series.create("lit", [rhs])
-    static member (.<=) (lhs: Series, rhs: decimal) = lhs .<= Series.create("lit", [rhs])
-    static member (.<=) (lhs: Series, rhs: string) = lhs .<= Series.create("lit", [rhs])
+    static member (.<=)(lhs: Series, rhs: int) = lhs .<= Series.create ("lit", [ rhs ])
+    static member (.<=)(lhs: Series, rhs: int64) = lhs .<= Series.create ("lit", [ rhs ])
+    static member (.<=)(lhs: Series, rhs: double) = lhs .<= Series.create ("lit", [ rhs ])
+    static member (.<=)(lhs: Series, rhs: single) = lhs .<= Series.create ("lit", [ rhs ])
+    static member (.<=)(lhs: Series, rhs: DateTime) = lhs .<= Series.create ("lit", [ rhs ])
+    static member (.<=)(lhs: Series, rhs: TimeOnly) = lhs .<= Series.create ("lit", [ rhs ])
+    static member (.<=)(lhs: Series, rhs: DateOnly) = lhs .<= Series.create ("lit", [ rhs ])
+    static member (.<=)(lhs: Series, rhs: TimeSpan) = lhs .<= Series.create ("lit", [ rhs ])
+    static member (.<=)(lhs: Series, rhs: decimal) = lhs .<= Series.create ("lit", [ rhs ])
+    static member (.<=)(lhs: Series, rhs: string) = lhs .<= Series.create ("lit", [ rhs ])
 
-    static member (.=) (lhs: Series, rhs: int) = lhs .= Series.create("lit", [rhs])
-    static member (.=) (lhs: Series, rhs: int64) = lhs .= Series.create("lit", [rhs])
-    static member (.=) (lhs: Series, rhs: double) = lhs .= Series.create("lit", [rhs])
-    static member (.=) (lhs: Series, rhs: string) = lhs .= Series.create("lit", [rhs])
-    static member (.=) (lhs: Series, rhs: single) = lhs .= Series.create("lit", [rhs])
-    static member (.=) (lhs: Series, rhs: DateTime) = lhs .= Series.create("lit", [rhs])
-    static member (.=) (lhs: Series, rhs: TimeOnly) = lhs .= Series.create("lit", [rhs])
-    static member (.=) (lhs: Series, rhs: DateOnly) = lhs .= Series.create("lit", [rhs])
-    static member (.=) (lhs: Series, rhs: TimeSpan) = lhs .= Series.create("lit", [rhs])
-    static member (.=) (lhs: Series, rhs: decimal) = lhs .= Series.create("lit", [rhs])
-    static member (.=) (lhs: Series, rhs: bool) = lhs .= Series.create("lit", [rhs])
+    static member (.=)(lhs: Series, rhs: int) = lhs .= Series.create ("lit", [ rhs ])
+    static member (.=)(lhs: Series, rhs: int64) = lhs .= Series.create ("lit", [ rhs ])
+    static member (.=)(lhs: Series, rhs: double) = lhs .= Series.create ("lit", [ rhs ])
+    static member (.=)(lhs: Series, rhs: string) = lhs .= Series.create ("lit", [ rhs ])
+    static member (.=)(lhs: Series, rhs: single) = lhs .= Series.create ("lit", [ rhs ])
+    static member (.=)(lhs: Series, rhs: DateTime) = lhs .= Series.create ("lit", [ rhs ])
+    static member (.=)(lhs: Series, rhs: TimeOnly) = lhs .= Series.create ("lit", [ rhs ])
+    static member (.=)(lhs: Series, rhs: DateOnly) = lhs .= Series.create ("lit", [ rhs ])
+    static member (.=)(lhs: Series, rhs: TimeSpan) = lhs .= Series.create ("lit", [ rhs ])
+    static member (.=)(lhs: Series, rhs: decimal) = lhs .= Series.create ("lit", [ rhs ])
+    static member (.=)(lhs: Series, rhs: bool) = lhs .= Series.create ("lit", [ rhs ])
 
-    static member (.!=) (lhs: Series, rhs: int) = lhs != Series.create("lit", [rhs])
-    static member (.!=) (lhs: Series, rhs: int64) = lhs != Series.create("lit", [rhs])
-    static member (.!=) (lhs: Series, rhs: string) = lhs != Series.create("lit", [rhs])
-    static member (.!=) (lhs: Series, rhs: double) = lhs != Series.create("lit", [rhs])
-    static member (.!=) (lhs: Series, rhs: single) = lhs != Series.create("lit", [rhs])
-    static member (.!=) (lhs: Series, rhs: DateTime) = lhs != Series.create("lit", [rhs])
-    static member (.!=) (lhs: Series, rhs: TimeOnly) = lhs != Series.create("lit", [rhs])
-    static member (.!=) (lhs: Series, rhs: DateOnly) = lhs != Series.create("lit", [rhs])
-    static member (.!=) (lhs: Series, rhs: TimeSpan) = lhs != Series.create("lit", [rhs])
-    static member (.!=) (lhs: Series, rhs: decimal) = lhs != Series.create("lit", [rhs])
-    static member (.!=) (lhs: Series, rhs: bool) = lhs != Series.create("lit", [rhs])
+    static member (.!=)(lhs: Series, rhs: int) = lhs != Series.create ("lit", [ rhs ])
+    static member (.!=)(lhs: Series, rhs: int64) = lhs != Series.create ("lit", [ rhs ])
+    static member (.!=)(lhs: Series, rhs: string) = lhs != Series.create ("lit", [ rhs ])
+    static member (.!=)(lhs: Series, rhs: double) = lhs != Series.create ("lit", [ rhs ])
+    static member (.!=)(lhs: Series, rhs: single) = lhs != Series.create ("lit", [ rhs ])
+    static member (.!=)(lhs: Series, rhs: DateTime) = lhs != Series.create ("lit", [ rhs ])
+    static member (.!=)(lhs: Series, rhs: TimeOnly) = lhs != Series.create ("lit", [ rhs ])
+    static member (.!=)(lhs: Series, rhs: DateOnly) = lhs != Series.create ("lit", [ rhs ])
+    static member (.!=)(lhs: Series, rhs: TimeSpan) = lhs != Series.create ("lit", [ rhs ])
+    static member (.!=)(lhs: Series, rhs: decimal) = lhs != Series.create ("lit", [ rhs ])
+    static member (.!=)(lhs: Series, rhs: bool) = lhs != Series.create ("lit", [ rhs ])
 
-    static member ( .@ ) (s1: Series, s2: Series) : Series = s1.Append s2
-    static member (!) (s: Series) : Series = new Series(PolarsWrapper.SeriesNot s.Handle)
-    static member (~~~) (s: Series) : Series = new Series(PolarsWrapper.SeriesNot s.Handle)
-    member this.Not() = new Series(PolarsWrapper.SeriesNot this.Handle)
+    static member (.@)(s1: Series, s2: Series) : Series = s1.Append s2
+
+    static member (!)(s: Series) : Series =
+        new Series(PolarsWrapper.SeriesNot s.Handle)
+
+    static member (~~~)(s: Series) : Series =
+        new Series(PolarsWrapper.SeriesNot s.Handle)
+
+    /// <summary>
+    /// Negate the boolean values in a Boolean Series. True becomes False, False becomes True.
+    /// </summary>
+    member this.Not() =
+        new Series(PolarsWrapper.SeriesNot this.Handle)
+
     /// <summary>
     /// Check whether indexed value is null。
     /// </summary>
-    member this.IsNullAt(index:int64,?uncheck:bool):bool =
+    member this.IsNullAt(index: int64, ?uncheck: bool) : bool =
         if not hasNulls.Value then
             false
         else
             let skipCheck = defaultArg uncheck false
+
             if not skipCheck then
                 if index < 0L || index >= this.Length then
-                    raise (ArgumentOutOfRangeException(nameof index, sprintf "Index %d is out of bounds for Series of length %d." index this.Length))
+                    raise (
+                        ArgumentOutOfRangeException(
+                            nameof index,
+                            $"Index %d{index} is out of bounds for Series of length %d{this.Length}."
+                        )
+                    )
+
             PolarsWrapper.SeriesIsNullAtFast(this.Handle, index)
-    member this.IsNullAt(index: int,?uncheck:bool) =
-        this.IsNullAt(int64 index,?uncheck=uncheck)
-    // ==========================================
-    // Unified Accessor (Fast Path + Universal Path)
-    // ==========================================
+
+    /// <summary>
+    /// Check whether indexed value is null.
+    /// </summary>
+    member this.IsNullAt(index: int, ?uncheck: bool) =
+        this.IsNullAt(int64 index, ?uncheck = uncheck)
+
     /// <summary>
     /// Internal scalar reader routing to exact fast paths, numeric coercion paths, or the universal Arrow reader.
     /// </summary>
@@ -513,18 +602,30 @@ type Series(handle: SeriesHandle) =
             Unsafe.As<bool, 'T>(&v)
 
         | t, DataTypeKind.Categorical _ when t = typeof<string> ->
-            let mutable v = PolarsWrapper.SeriesGetCatOrEnumFast(this.Handle, index, this.DataType.Categories.Physical.ToNative())
+            let mutable v =
+                PolarsWrapper.SeriesGetCatOrEnumFast(this.Handle, index, this.DataType.Categories.Physical.ToNative())
+
             Unsafe.As<string, 'T>(&v)
 
         | t, DataTypeKind.Enum _ when t = typeof<string> ->
-            let mutable v = PolarsWrapper.SeriesGetCatOrEnumFast(this.Handle, index, this.DataType.EnumCategories.Physical.ToNative())
+            let mutable v =
+                PolarsWrapper.SeriesGetCatOrEnumFast(
+                    this.Handle,
+                    index,
+                    this.DataType.EnumCategories.Physical.ToNative()
+                )
+
             Unsafe.As<string, 'T>(&v)
 
-        | t, _ when t = typeof<string> && not this.DataType.IsCategorical && not this.DataType.IsEnum ->
+        | t, _ when
+            t = typeof<string>
+            && not this.DataType.IsCategorical
+            && not this.DataType.IsEnum
+            ->
             let mutable v = PolarsWrapper.SeriesGetStringFast(this.Handle, index)
             Unsafe.As<string, 'T>(&v)
 
-        | t, DataTypeKind.Decimal (_, _) when t = typeof<decimal> ->
+        | t, DataTypeKind.Decimal(_, _) when t = typeof<decimal> ->
             let p = this.DataType.Precision
             let s = this.DataType.Scale
             let mutable v = PolarsWrapper.SeriesGetDecimalFast(this.Handle, index, s, p)
@@ -543,16 +644,19 @@ type Series(handle: SeriesHandle) =
             let mutable v = PolarsWrapper.SeriesGetDurationFast(this.Handle, index, tu)
             Unsafe.As<TimeSpan, 'T>(&v)
 
-        | t, DataTypeKind.Datetime (_, _) when t = typeof<DateTime> ->
+        | t, DataTypeKind.Datetime(_, _) when t = typeof<DateTime> ->
             let tu = this.DataType.TimeUnit.ToNative()
             let tz = this.DataType.TimeZone |> Option.defaultValue null
             let mutable v = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, tz)
             Unsafe.As<DateTime, 'T>(&v)
 
-        | t, DataTypeKind.Datetime (_, _) when t = typeof<DateTimeOffset> ->
+        | t, DataTypeKind.Datetime(_, _) when t = typeof<DateTimeOffset> ->
             let tu = this.DataType.TimeUnit.ToNative()
             let ti = this.DataType.TimeZoneInfo |> Option.defaultValue null
-            let mutable v = PolarsWrapper.SeriesGetDatetimeOffsetFast(this.Handle, index, tu, ti)
+
+            let mutable v =
+                PolarsWrapper.SeriesGetDatetimeOffsetFast(this.Handle, index, tu, ti)
+
             Unsafe.As<DateTimeOffset, 'T>(&v)
 
         | t, _ when t = typeof<Guid> ->
@@ -563,77 +667,78 @@ type Series(handle: SeriesHandle) =
             use sliced = PolarsWrapper.SeriesSlice(this.Handle, index, 1UL)
             use column = PolarsWrapper.SeriesToArrow sliced
             ArrowReader.ReadItem<'T>(column, 0)
+
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member private this.ReadAsValueOption<'T>(index: int64, innerType: Type) : 'T =
         match innerType with
         | t when t = typeof<int32> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<int32> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<int32> index)
             Unsafe.As<int32 voption, 'T>(&v)
         | t when t = typeof<int64> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<int64> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<int64> index)
             Unsafe.As<int64 voption, 'T>(&v)
         | t when t = typeof<double> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<double> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<double> index)
             Unsafe.As<double voption, 'T>(&v)
         | t when t = typeof<float32> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<float32> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<float32> index)
             Unsafe.As<float32 voption, 'T>(&v)
         | t when t = typeof<bool> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<bool> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<bool> index)
             Unsafe.As<bool voption, 'T>(&v)
         | t when t = typeof<string> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<string> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<string> index)
             Unsafe.As<string voption, 'T>(&v)
         | t when t = typeof<decimal> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<decimal> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<decimal> index)
             Unsafe.As<decimal voption, 'T>(&v)
         | t when t = typeof<Guid> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<Guid> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<Guid> index)
             Unsafe.As<Guid voption, 'T>(&v)
         | t when t = typeof<uint32> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<uint32> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<uint32> index)
             Unsafe.As<uint32 voption, 'T>(&v)
         | t when t = typeof<uint64> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<uint64> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<uint64> index)
             Unsafe.As<uint64 voption, 'T>(&v)
         | t when t = typeof<int16> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<int16> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<int16> index)
             Unsafe.As<int16 voption, 'T>(&v)
         | t when t = typeof<uint16> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<uint16> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<uint16> index)
             Unsafe.As<uint16 voption, 'T>(&v)
         | t when t = typeof<sbyte> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<sbyte> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<sbyte> index)
             Unsafe.As<sbyte voption, 'T>(&v)
         | t when t = typeof<byte> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<byte> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<byte> index)
             Unsafe.As<byte voption, 'T>(&v)
         | t when t = typeof<DateOnly> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<DateOnly> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<DateOnly> index)
             Unsafe.As<DateOnly voption, 'T>(&v)
         | t when t = typeof<TimeOnly> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<TimeOnly> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<TimeOnly> index)
             Unsafe.As<TimeOnly voption, 'T>(&v)
         | t when t = typeof<TimeSpan> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<TimeSpan> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<TimeSpan> index)
             Unsafe.As<TimeSpan voption, 'T>(&v)
         | t when t = typeof<DateTime> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<DateTime> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<DateTime> index)
             Unsafe.As<DateTime voption, 'T>(&v)
         | t when t = typeof<Half> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<Half> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<Half> index)
             Unsafe.As<Half voption, 'T>(&v)
         | t when t = typeof<Int128> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<Int128> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<Int128> index)
             Unsafe.As<Int128 voption, 'T>(&v)
         | t when t = typeof<UInt128> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<UInt128> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<UInt128> index)
             Unsafe.As<UInt128 voption, 'T>(&v)
         | t when t = typeof<Guid> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<Guid> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<Guid> index)
             Unsafe.As<Guid voption, 'T>(&v)
         | t when t = typeof<DateTimeOffset> ->
-            let mutable v = ValueSome (this.ReadScalarInternal<DateTimeOffset> index)
+            let mutable v = ValueSome(this.ReadScalarInternal<DateTimeOffset> index)
             Unsafe.As<DateTimeOffset voption, 'T>(&v)
         | _ ->
             // Complex types fallback directly to Arrow
@@ -645,78 +750,79 @@ type Series(handle: SeriesHandle) =
     member private this.ReadAsOption<'T>(index: int64, innerType: Type) : 'T =
         match innerType with
         | t when t = typeof<int32> ->
-            let mutable v = Some (this.ReadScalarInternal<int32> index)
+            let mutable v = Some(this.ReadScalarInternal<int32> index)
             Unsafe.As<int32 option, 'T>(&v)
         | t when t = typeof<int64> ->
-            let mutable v = Some (this.ReadScalarInternal<int64> index)
+            let mutable v = Some(this.ReadScalarInternal<int64> index)
             Unsafe.As<int64 option, 'T>(&v)
         | t when t = typeof<double> ->
-            let mutable v = Some (this.ReadScalarInternal<double> index)
+            let mutable v = Some(this.ReadScalarInternal<double> index)
             Unsafe.As<double option, 'T>(&v)
         | t when t = typeof<float32> ->
-            let mutable v = Some (this.ReadScalarInternal<float32> index)
+            let mutable v = Some(this.ReadScalarInternal<float32> index)
             Unsafe.As<float32 option, 'T>(&v)
         | t when t = typeof<bool> ->
-            let mutable v = Some (this.ReadScalarInternal<bool> index)
+            let mutable v = Some(this.ReadScalarInternal<bool> index)
             Unsafe.As<bool option, 'T>(&v)
         | t when t = typeof<string> ->
-            let mutable v = Some (this.ReadScalarInternal<string> index)
+            let mutable v = Some(this.ReadScalarInternal<string> index)
             Unsafe.As<string option, 'T>(&v)
         | t when t = typeof<decimal> ->
-            let mutable v = Some (this.ReadScalarInternal<decimal> index)
+            let mutable v = Some(this.ReadScalarInternal<decimal> index)
             Unsafe.As<decimal option, 'T>(&v)
         | t when t = typeof<Guid> ->
-            let mutable v = Some (this.ReadScalarInternal<Guid> index)
+            let mutable v = Some(this.ReadScalarInternal<Guid> index)
             Unsafe.As<Guid option, 'T>(&v)
         | t when t = typeof<uint32> ->
-            let mutable v = Some (this.ReadScalarInternal<uint32> index)
+            let mutable v = Some(this.ReadScalarInternal<uint32> index)
             Unsafe.As<uint32 option, 'T>(&v)
         | t when t = typeof<uint64> ->
-            let mutable v = Some (this.ReadScalarInternal<uint64> index)
+            let mutable v = Some(this.ReadScalarInternal<uint64> index)
             Unsafe.As<uint64 option, 'T>(&v)
         | t when t = typeof<int16> ->
-            let mutable v = Some (this.ReadScalarInternal<int16> index)
+            let mutable v = Some(this.ReadScalarInternal<int16> index)
             Unsafe.As<int16 option, 'T>(&v)
         | t when t = typeof<uint16> ->
-            let mutable v = Some (this.ReadScalarInternal<uint16> index)
+            let mutable v = Some(this.ReadScalarInternal<uint16> index)
             Unsafe.As<uint16 option, 'T>(&v)
         | t when t = typeof<sbyte> ->
-            let mutable v = Some (this.ReadScalarInternal<sbyte> index)
+            let mutable v = Some(this.ReadScalarInternal<sbyte> index)
             Unsafe.As<sbyte option, 'T>(&v)
         | t when t = typeof<byte> ->
-            let mutable v = Some (this.ReadScalarInternal<byte> index)
+            let mutable v = Some(this.ReadScalarInternal<byte> index)
             Unsafe.As<byte option, 'T>(&v)
         | t when t = typeof<DateOnly> ->
-            let mutable v = Some (this.ReadScalarInternal<DateOnly> index)
+            let mutable v = Some(this.ReadScalarInternal<DateOnly> index)
             Unsafe.As<DateOnly option, 'T>(&v)
         | t when t = typeof<TimeOnly> ->
-            let mutable v = Some (this.ReadScalarInternal<TimeOnly> index)
+            let mutable v = Some(this.ReadScalarInternal<TimeOnly> index)
             Unsafe.As<TimeOnly option, 'T>(&v)
         | t when t = typeof<TimeSpan> ->
-            let mutable v = Some (this.ReadScalarInternal<TimeSpan> index)
+            let mutable v = Some(this.ReadScalarInternal<TimeSpan> index)
             Unsafe.As<TimeSpan option, 'T>(&v)
         | t when t = typeof<DateTime> ->
-            let mutable v = Some (this.ReadScalarInternal<DateTime> index)
+            let mutable v = Some(this.ReadScalarInternal<DateTime> index)
             Unsafe.As<DateTime option, 'T>(&v)
         | t when t = typeof<Half> ->
-            let mutable v = Some (this.ReadScalarInternal<Half> index)
+            let mutable v = Some(this.ReadScalarInternal<Half> index)
             Unsafe.As<Half option, 'T>(&v)
         | t when t = typeof<Int128> ->
-            let mutable v = Some (this.ReadScalarInternal<Int128> index)
+            let mutable v = Some(this.ReadScalarInternal<Int128> index)
             Unsafe.As<Int128 option, 'T>(&v)
         | t when t = typeof<UInt128> ->
-            let mutable v = Some (this.ReadScalarInternal<UInt128> index)
+            let mutable v = Some(this.ReadScalarInternal<UInt128> index)
             Unsafe.As<UInt128 option, 'T>(&v)
         | t when t = typeof<Guid> ->
-            let mutable v = Some (this.ReadScalarInternal<Guid> index)
+            let mutable v = Some(this.ReadScalarInternal<Guid> index)
             Unsafe.As<Guid option, 'T>(&v)
         | t when t = typeof<DateTimeOffset> ->
-            let mutable v = Some (this.ReadScalarInternal<DateTimeOffset> index)
+            let mutable v = Some(this.ReadScalarInternal<DateTimeOffset> index)
             Unsafe.As<DateTimeOffset option, 'T>(&v)
         | _ ->
             use sliced = PolarsWrapper.SeriesSlice(this.Handle, index, 1UL)
             use column = PolarsWrapper.SeriesToArrow sliced
             ArrowReader.ReadItem<'T>(column, 0)
+
     /// <summary>
     /// Gets a single scalar value by 64-bit index.
     /// </summary>
@@ -744,14 +850,15 @@ type Series(handle: SeriesHandle) =
     /// <summary>
     /// Get scalar value with full bounds and null checks.
     /// </summary>
-    member this.GetValue<'T>(index: int64) : 'T =
-        this.GetValue<'T>(index, false)
+    member this.GetValue<'T>(index: int64) : 'T = this.GetValue<'T>(index, false)
+
     /// <summary>
     /// Get an item as an F# Option.
     /// Ideal for safe handling of nulls in Polars series.
     /// </summary>
     member this.GetValueOption<'T>(index: int64) : 'T option =
         this.GetValue<'T option>(index, uncheck = false)
+
     /// <summary>
     /// Gets the value at the specified index as a ValueOption ('T voption).
     /// </summary>
@@ -760,6 +867,7 @@ type Series(handle: SeriesHandle) =
     /// <returns>ValueSome value if valid, or ValueNone if null.</returns>
     member this.TryGetValue<'T>(index: int64) : 'T voption =
         this.GetValue<'T voption>(index, uncheck = false)
+
     /// <summary>
     /// Get a value as an F# List ('T list).
     /// Automatically handles conversion from .NET List (ResizeArray).
@@ -767,16 +875,55 @@ type Series(handle: SeriesHandle) =
     member this.GetList<'Elem>(index: int64) : 'Elem list =
         let netList = this.GetValue<ResizeArray<'Elem>> index
 
-        if isNull netList then
-            []
-        else
-            netList |> List.ofSeq
+        if isNull netList then [] else netList |> List.ofSeq
+
     /// <summary>
     /// [Indexer] Access value at specific index.
     /// Syntax: series.[index]
     /// </summary>
-    member this.Item<'T>(index: int)  =
-        this.GetValue<'T> index
+    member this.Item<'T>(index: int) = this.GetValue<'T> index
+
+    /// <summary>
+    /// Gets a single value at the specified index as a boxed object (or null if null).
+    /// </summary>
+    member internal this.GetBoxed(index: int64) : obj =
+        if this.IsNullAt(index, uncheck = false) then
+            null
+        else
+            match this.DataType.Kind with
+            | DataTypeKind.Int8 -> box (this.ReadScalarInternal<sbyte> index)
+            | DataTypeKind.Int16 -> box (this.ReadScalarInternal<int16> index)
+            | DataTypeKind.Int32 -> box (this.ReadScalarInternal<int32> index)
+            | DataTypeKind.Int64 -> box (this.ReadScalarInternal<int64> index)
+            | DataTypeKind.Int128 -> box (this.ReadScalarInternal<Int128> index)
+            | DataTypeKind.UInt8 -> box (this.ReadScalarInternal<byte> index)
+            | DataTypeKind.UInt16 -> box (this.ReadScalarInternal<uint16> index)
+            | DataTypeKind.UInt32 -> box (this.ReadScalarInternal<uint32> index)
+            | DataTypeKind.UInt64 -> box (this.ReadScalarInternal<uint64> index)
+            | DataTypeKind.UInt128 -> box (this.ReadScalarInternal<UInt128> index)
+            | DataTypeKind.Decimal _ -> box (this.ReadScalarInternal<decimal> index)
+            | DataTypeKind.Float16 -> box (this.ReadScalarInternal<Half> index)
+            | DataTypeKind.Float32 -> box (this.ReadScalarInternal<float32> index)
+            | DataTypeKind.Float64 -> box (this.ReadScalarInternal<double> index)
+            | DataTypeKind.Boolean -> box (this.ReadScalarInternal<bool> index)
+            | DataTypeKind.String -> box (this.ReadScalarInternal<string> index)
+            | DataTypeKind.Categorical _ -> box (this.ReadScalarInternal<string> index)
+            | DataTypeKind.Enum _ -> box (this.ReadScalarInternal<string> index)
+            | DataTypeKind.Duration _ -> box (this.ReadScalarInternal<TimeSpan> index)
+            | DataTypeKind.Time -> box (this.ReadScalarInternal<TimeOnly> index)
+            | DataTypeKind.Date -> box (this.ReadScalarInternal<DateOnly> index)
+            | DataTypeKind.Datetime(_, tzOpt) ->
+                match tzOpt with
+                | None -> box (this.ReadScalarInternal<DateTime> index)
+                | Some tz when String.IsNullOrEmpty tz -> box (this.ReadScalarInternal<DateTime> index)
+                | Some _ -> box (this.ReadScalarInternal<DateTimeOffset> index)
+            | DataTypeKind.Binary -> box (this.ReadScalarInternal<byte[]> index)
+            | _ -> this.ReadScalarInternal<obj> index
+
+    /// <summary>
+    /// Gets a single value at the specified index as a boxed object (or null if null).
+    /// </summary>
+    member internal this.GetBoxed(index: int) : obj = this.GetBoxed(int64 index)
 
     // ==========================================
     // Interop
@@ -787,22 +934,25 @@ type Series(handle: SeriesHandle) =
     member this.ToFrame() : DataFrame =
         let h = PolarsWrapper.SeriesToFrame handle
         new DataFrame(h)
+
     /// <summary>
     /// Converts the Series to an Arrow array.
     /// </summary>
-    member this.ToArrow() : Apache.Arrow.IArrowArray =
-        PolarsWrapper.SeriesToArrow handle
+    member this.ToArrow() : Apache.Arrow.IArrowArray = PolarsWrapper.SeriesToArrow handle
+
     /// <summary>
     /// Converts an Arrow array to a Series.
     /// </summary>
-    member this.FromArrow(name:string,arrowArray:Apache.Arrow.IArrowArray) : Series =
-        new Series(ArrowFfiBridge.ImportSeries(name,arrowArray))
+    member this.FromArrow(name: string, arrowArray: Apache.Arrow.IArrowArray) : Series =
+        new Series(ArrowFfiBridge.ImportSeries(name, arrowArray))
+
     /// <summary>
     /// Converts the Series to a managed array.
     /// </summary>
     member this.ToArray<'T>() =
         let col = this.ToArrow()
         ArrowReader.ReadColumn<'T> col
+
     /// <summary>
     /// Converts the Series to a managed array with optional null values.
     /// </summary>
@@ -813,8 +963,7 @@ type Series(handle: SeriesHandle) =
             Array.init len (fun i ->
                 match this.TryGetValue<'T> i with
                 | ValueSome value -> Some value
-                | ValueNone -> None
-            )
+                | ValueNone -> None)
 
         result
 
@@ -830,14 +979,15 @@ type Series(handle: SeriesHandle) =
             Seq.init len (fun i ->
                 match this.TryGetValue<'T> i with
                 | ValueSome value -> Some value
-                | ValueNone -> None
-            )
+                | ValueNone -> None)
 
         result
+
     /// <summary>
     /// Get values as a list (forces evaluation).
     /// </summary>
     member this.ToListOption<'T>() = this.ToSeqOption<'T>() |> Seq.toList
+
     /// <summary>
     /// Returns the string representation of the Series (ASCII table).
     /// </summary>
@@ -850,35 +1000,40 @@ type Series(handle: SeriesHandle) =
     /// <summary>
     /// Print the Series to Console.
     /// </summary>
-    member this.Show() =
-        printfn "%O" this
+    member this.Show() = printfn "%O" this
+
+    /// <summary>
+    /// Generates a rich HTML table representation of the Series by delegating to a single-column DataFrame preview.
+    /// </summary>
+    /// <returns>An HTML string representing the Series preview.</returns>
+    member this.ToHtml() : string =
+        use df = this.ToFrame()
+        df.ToHtml()
+
+    /// <summary>
+    /// Custom rendering hook for LINQPad Dump().
+    /// </summary>
+    /// <returns>An object or formatting projection to display in LINQPad output window.</returns>
+    member internal this.ToDump() : obj =
+        use df = this.ToFrame()
+        df.ToDump()
 
     interface IEquatable<Series> with
         member this.Equals(other: Series) =
             if obj.ReferenceEquals(this, other) then true
             elif obj.ReferenceEquals(other, null) then false
             else PolarsWrapper.SeriesEquals(this.Handle, other.Handle)
+
     override this.Equals(obj: obj) =
         match obj with
         | :? Series as other -> (this :> IEquatable<Series>).Equals(other)
         | _ -> false
+
     override this.GetHashCode() =
         PolarsWrapper.SeriesHash this.Handle |> int
 
     interface IDisposable with
         member this.Dispose() = this.Dispose()
-
-    interface IPolarsSeries with
-        member this.ToFrame() =
-            this.ToFrame() :> IPolarsDataFrame
-
-        member this.DataType =
-            this.DataType :> IPolarsDataType
-        member this.Name
-            with get () =
-                this.Name
-            and set (value: string) =
-                this.Rename value |> ignore
 
 // --- Frames ---
 
@@ -890,7 +1045,10 @@ type Series(handle: SeriesHandle) =
 /// </summary>
 and DataFrame(handle: DataFrameHandle) =
     let backingResources = ResizeArray<IDisposable>()
-    member this.Clone() = new DataFrame(PolarsWrapper.CloneDataFrame handle)
+
+    member this.Clone() =
+        new DataFrame(PolarsWrapper.CloneDataFrame handle)
+
     member internal this.CloneHandle() = PolarsWrapper.CloneDataFrame handle
     member _.Handle = handle
 
@@ -899,18 +1057,20 @@ and DataFrame(handle: DataFrameHandle) =
     member _.Width = PolarsWrapper.DataFrameWidth handle
     member this.IsEmpty = this.Height = 0L
     member this.IsVoid = this.Width = 0L
+
     /// <summary>
     /// Get the number of chunks used by the first Column of this DataFrame.
     /// </summary>
     member this.NChunks() =
-        if this.Width = 0 then 0L
-        else this.Column(0).NChunks
+        if this.Width = 0 then 0L else this.Column(0).NChunks
 
     /// <summary>
     /// Rechunk the data in this DataFrame to a contiguous allocation.
     /// This will make sure all subsequent operations have optimal and predictable performance.
     /// </summary>
-    member this.Rechunk() = new DataFrame(PolarsWrapper.DataFrameRechunk this.Handle)
+    member this.Rechunk() =
+        new DataFrame(PolarsWrapper.DataFrameRechunk this.Handle)
+
     /// <summary>
     /// Offers a structured way to apply a sequence of user-defined functions (UDFs).
     /// </summary>
@@ -920,39 +1080,46 @@ and DataFrame(handle: DataFrameHandle) =
     /// Typically this function wraps several Polars API calls that operate on the given expression.
     /// </param>
     /// <returns>The result of applying <paramref name="func"/> to this DataFrame.</returns>
-    member this.Pipe(func: DataFrame -> 'T) : 'T =
-        func this
+    member this.Pipe(func: DataFrame -> 'T) : 'T = func this
+
     /// <summary>
     /// Get an array containing the number of chunks for all columns in this DataFrame.
     /// </summary>
     member this.NChunksAll() =
         this |> Seq.map (fun s -> s.NChunks) |> Seq.toArray
+
     member _.ColumnNames = PolarsWrapper.GetColumnNames handle
     member _.Columns = PolarsWrapper.GetColumnNames handle
+
     member this.Column(name: string) : Series =
         let h = PolarsWrapper.DataFrameGetColumn(this.Handle, name)
         new Series(h)
-    member this.Column(index: int) : Series =
+
+    member this.Column(index: int64) : Series =
         let h = PolarsWrapper.DataFrameGetColumnAt(this.Handle, index)
         new Series(h)
+
     /// <summary>
     /// Returns all columns as a Series array.
     /// </summary>
     member this.GetColumns() : Series[] =
         let width = int this.Width
         Array.init width (fun i -> this.Column(i))
+
     /// <summary>
     /// Get the schema
     /// </summary>
     member this.Schema =
         let h = PolarsWrapper.GetDataFrameSchema this.Handle
         new PolarsSchema(h)
+
     /// <summary>
     /// Convert dataframe to lazyframe
     /// </summary>
     member this.Lazy() : LazyFrame =
         let lfHandle = PolarsWrapper.DataFrameToLazy handle
         new LazyFrame(lfHandle)
+
     /// <summary>
     /// Print schema in a readable format.
     /// </summary>
@@ -964,35 +1131,34 @@ and DataFrame(handle: DataFrameHandle) =
         sc.ToList()
         |> List.iter (fun (name, dtype) ->
 
-            printfn "%-15s | %O" name dtype
-        )
+            printfn "%-15s | %O" name dtype)
 
         printfn "------------------------"
+
     member this.DataTypes = this.Schema.DataTypes
 
     // ==========================================
     // Indexers (Syntax Sugar)
     // ==========================================
-    member this.Item (columnName: string) : Series =
-        this.Column columnName
+    member this.Item(columnName: string) : Series = this.Column columnName
 
-    member this.Item (columnIndex: int) : Series =
-        this.Column columnIndex
+    member this.Item(columnIndex: int) : Series = this.Column columnIndex
+
     /// <summary>
     /// [Indexer] Access cell value by Row Index and Column Name.
     /// Syntax: df.[rowIndex, "colName"]
     /// </summary>
-    member this.Item (rowIndex: int, columnName: string) : obj =
-        let series = this.Column columnName
-        series.[rowIndex]
+    member this.Item(rowIndex: int, columnName: string) : obj =
+        use series = this.Column columnName
+        series.GetBoxed rowIndex
 
     /// <summary>
     /// [Indexer] Access cell value by Row Index and Column Index.
     /// Syntax: df.[rowIndex, colIndex]
     /// </summary>
-    member this.Item (rowIndex: int, columnIndex: int) : obj =
-        let series = this.Column columnIndex
-        series.[rowIndex]
+    member this.Item(rowIndex: int, columnIndex: int) : obj =
+        use series = this.Column columnIndex
+        series.GetBoxed rowIndex
     // ==========================================
     // Eager Ops
     // ==========================================
@@ -1001,10 +1167,11 @@ and DataFrame(handle: DataFrameHandle) =
     /// </summary>
     member this.Rename(oldName: string, newName: string) : DataFrame =
         new DataFrame(PolarsWrapper.Rename(this.Handle, oldName, newName))
+
     /// <summary>
     /// Rename a list of columns.
     /// </summary>
-    member this.Rename(oldNames: seq<string> , newNames: seq<string> ) =
+    member this.Rename(oldNames: seq<string>, newNames: seq<string>) =
         let oldNamesArray = oldNames |> Seq.toArray
         let newNamesArray = newNames |> Seq.toArray
         new DataFrame(PolarsWrapper.Rename(this.Handle, oldNamesArray, newNamesArray))
@@ -1014,10 +1181,7 @@ and DataFrame(handle: DataFrameHandle) =
     /// Example: df.Rename [ "colA", "col1"; "colB", "col2" ]
     /// </summary>
     member this.Rename(mapping: seq<string * string>) : DataFrame =
-        let oldNamesArray, newNamesArray =
-            mapping
-            |> Seq.toArray
-            |> Array.unzip
+        let oldNamesArray, newNamesArray = mapping |> Seq.toArray |> Array.unzip
 
         new DataFrame(PolarsWrapper.Rename(this.Handle, oldNamesArray, newNamesArray))
 
@@ -1033,32 +1197,33 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Select(exprs: seq<Expr>) : DataFrame =
         let lf = this.Lazy().Select exprs
         lf.Collect()
-    member this.Select(selector:Selector) =
-        this.Select [selector.ToExpr()]
+
+    member this.Select(selector: Selector) = this.Select [ selector.ToExpr() ]
+
     /// <summary> Select columns using generic column expressions (Expr or Selectors). </summary>
     member this.Select(columns: seq<#IColumnExpr>) =
-            let exprs =
-                columns
-                |> Seq.collect (fun x -> x.ToExprs())
+        let exprs = columns |> Seq.collect (fun x -> x.ToExprs())
 
-            this.Select exprs
+        this.Select exprs
+
     /// <summary>
     /// Select a single column using an expression.
     /// Usage: df.Select(pl.col("A"))
     /// </summary>
-    member this.Select(expr: Expr) =
-        this.Select [expr]
+    member this.Select(expr: Expr) = this.Select [ expr ]
 
     /// <summary> Get the first n rows. </summary>
-    member this.Head (?rows: int) : DataFrame  =
+    member this.Head(?rows: int) : DataFrame =
         let n = defaultArg rows 5
         let h = PolarsWrapper.Head(this.Handle, uint n)
         new DataFrame(h)
+
     /// <summary> Get the last n rows. </summary>
-    member this.Tail (?n: int) : DataFrame =
+    member this.Tail(?n: int) : DataFrame =
         let rows = defaultArg n 5
         let h = PolarsWrapper.Tail(this.Handle, uint rows)
         new DataFrame(h)
+
     /// <summary>
     /// Hash and combine the rows in this DataFrame.
     /// </summary>
@@ -1074,11 +1239,8 @@ and DataFrame(handle: DataFrameHandle) =
     /// Horizontally stack columns to the DataFrame.
     /// Returns a new DataFrame with the new columns appended.
     /// </summary>
-    member this.HStack(columns: seq<Series> ) : DataFrame =
-        let handles =
-            columns
-            |> Seq.map (fun s -> s.Handle)
-            |> Seq.toArray
+    member this.HStack(columns: seq<Series>) : DataFrame =
+        let handles = columns |> Seq.map (fun s -> s.Handle) |> Seq.toArray
 
         new DataFrame(PolarsWrapper.HStack(this.Handle, handles))
 
@@ -1088,6 +1250,7 @@ and DataFrame(handle: DataFrameHandle) =
     /// </summary>
     member this.VStack(other: DataFrame) : DataFrame =
         new DataFrame(PolarsWrapper.VStack(this.Handle, other.Handle))
+
     /// <summary>
     /// Extend another DataFrame to this one.
     /// Checks that the schema matches. NChunks wont't change.
@@ -1095,14 +1258,17 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Extend(other: DataFrame) : DataFrame =
         PolarsWrapper.DataFrameExtend(this.Handle, other.Handle)
         this
+
     /// <summary>
     /// Fold over all columns (left to right) using the first column as the initial accumulator.
     /// Throws if the DataFrame is empty.
     /// </summary>
     member this.Fold(folder: Series -> Series -> Series) : Series =
         let columns = this.GetColumns()
+
         if columns.Length = 0 then
             invalidOp "Cannot fold a DataFrame with no columns."
+
         Array.fold folder columns.[0] columns.[1..]
 
     /// <summary>
@@ -1119,29 +1285,166 @@ and DataFrame(handle: DataFrameHandle) =
     /// Returns the native Polars string representation of the DataFrame.
     /// Includes shape, header, and truncated data.
     /// </summary>
-    override this.ToString() =
-        PolarsWrapper.DataFrameToString handle
+    override this.ToString() = PolarsWrapper.DataFrameToString handle
 
     /// <summary>
     /// Print the DataFrame to Console (Stdout).
     /// </summary>
-    member this.Show() =
-        printfn "%s" (this.ToString())
+    member this.Show() = printfn "%s" (this.ToString())
+
+    /// <summary>
+    /// Generates a rich HTML table representation of the DataFrame for interactive environments (e.g., LINQPad, Jupyter).
+    /// </summary>
+    /// <returns>An HTML string representing the preview of the DataFrame.</returns>
+    member this.ToHtml() : string =
+        let configRows = CoreConfig.TableMaxRows
+
+        let rowsToShowSetting =
+            if configRows.HasValue && configRows.Value > 0 then
+                configRows.Value
+            else
+                10
+
+        let rowsToShow = int (Math.Min(this.Height, int64 rowsToShowSetting))
+
+        let configCols = CoreConfig.TableMaxCols
+
+        let maxColsToShow =
+            if configCols.HasValue && configCols.Value > 0 then
+                configCols.Value
+            else
+                8
+
+        let rawColCount = int this.Width
+        let isColTruncated = rawColCount > maxColsToShow
+        let colCount = if isColTruncated then maxColsToShow else rawColCount
+
+        // 1. Fetch native Polars Schema
+        use schema = this.Schema
+        let columnNames = schema.Names |> Seq.truncate colCount |> Seq.toArray
+
+        use previewDf = this.Head rowsToShow
+
+        let sb = StringBuilder()
+
+        sb.Append(
+            """
+<style>
+.pl-dataframe { font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; border-collapse: collapse; border: 1px solid rgba(128, 128, 128, 0.2); }
+.pl-dataframe th { font-weight: bold; text-align: left; padding: 6px 12px; border-bottom: 2px solid rgba(128, 128, 128, 0.3); color: inherit; }
+.pl-dataframe td { padding: 6px 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.2); white-space: pre; color: inherit; }
+.pl-dataframe tr:nth-child(even) { background-color: rgba(128, 128, 128, 0.05); }
+.pl-dataframe tr:hover { background-color: rgba(128, 128, 128, 0.1); }
+.pl-dtype { font-size: 10px; color: rgba(128, 128, 128, 0.8); display: block; margin-top: 2px; font-weight: normal; }
+.pl-null { color: rgba(128, 128, 128, 0.5); font-style: italic; }
+.pl-dim { font-family: sans-serif; font-size: 12px; opacity: 0.8; margin-bottom: 8px; }
+</style>"""
+        )
+        |> ignore
+
+        // 2. Dimensions metadata
+        sb.Append($"<div class='pl-dim'>Polars DataFrame: <b>({this.Height:N0} rows, {rawColCount} columns)</b></div>")
+        |> ignore
+
+        sb.Append("<div style='overflow-x:auto'><table class='pl-dataframe'>") |> ignore
+
+        // 3. Table Header using native Polars Schema & DataType
+        sb.Append("<thead><tr>") |> ignore
+
+        for c = 0 to colCount - 1 do
+            let colName = columnNames.[c]
+            use dt = schema.[colName] // Native Polars DataType
+            let typeName = System.Net.WebUtility.HtmlEncode(dt.ToString())
+
+            sb.Append($"<th>{System.Net.WebUtility.HtmlEncode(colName)}<span class='pl-dtype'>{typeName}</span></th>")
+            |> ignore
+
+        if isColTruncated then
+            sb.Append("<th>...</th>") |> ignore
+
+        sb.Append("</tr></thead>") |> ignore
+
+        // 4. Table Body from sliced Series
+        sb.Append("<tbody>") |> ignore
+        let previewCols = Array.init colCount (fun c -> previewDf.[columnNames.[c]])
+
+        try
+            for r = 0 to rowsToShow - 1 do
+                sb.Append("<tr>") |> ignore
+
+                for c = 0 to colCount - 1 do
+                    let series = previewCols.[c]
+                    let valObj = series.GetBoxed r
+
+                    if isNull valObj then
+                        sb.Append("<td class='pl-null'>null</td>") |> ignore
+                    else
+                        let valStr =
+                            match valObj with
+                            | :? double as d -> d.ToString("G10")
+                            | :? float32 as f -> f.ToString("G7")
+                            | _ ->
+                                match valObj.ToString() with
+                                | null -> "null"
+                                | s -> s
+
+                        let valStr =
+                            if valStr.Length > 100 then
+                                valStr.Substring(0, 97) + "..."
+                            else
+                                valStr
+
+                        sb.Append($"<td>{System.Net.WebUtility.HtmlEncode(valStr)}</td>") |> ignore
+
+                if isColTruncated then
+                    sb.Append("<td style='font-style:italic; opacity: 0.5; text-align:center'>...</td>")
+                    |> ignore
+
+                sb.Append("</tr>") |> ignore
+        finally
+            // Clean up sliced Series handles
+            for c = 0 to colCount - 1 do
+                if not (isNull (box previewCols.[c])) then
+                    previewCols.[c].Dispose()
+
+        // 5. Remaining rows indicator
+        let finalDisplayColSpan = if isColTruncated then colCount + 1 else colCount
+        let remaining = this.Height - int64 rowsToShow
+
+        if remaining > 0L then
+            sb.Append(
+                $"<tr><td colspan='{finalDisplayColSpan}' style='text-align:center; font-style:italic; opacity: 0.6; padding: 10px'>... {remaining:N0} more rows ...</td></tr>"
+            )
+            |> ignore
+
+        sb.Append("</tbody></table></div>") |> ignore
+        sb.ToString()
+
+    /// <summary>
+    /// Duck-typed method called automatically by LINQPad to customize Dump() rendering.
+    /// Uses reflection to wrap HTML in LINQPad.Util.RawHtml without introducing compile-time dependencies.
+    /// </summary>
+    member internal this.ToDump() : obj =
+        let html = this.ToHtml()
+
+        match LinqPadHtmlHelper.tryWrapRawHtml html with
+        | Some wrapped -> wrapped
+        | None -> box html
 
     // ==========================================
     // Interops
     // ==========================================
 
     /// <summary> Create a DataFrame directly from an Apache Arrow RecordBatch. </summary>
-    static member FromArrow (batch: Apache.Arrow.RecordBatch) : DataFrame =
+    static member FromArrow(batch: Apache.Arrow.RecordBatch) : DataFrame =
         new DataFrame(ArrowFfiBridge.ImportDataFrame batch)
 
     // ---- ADBC ----
-    static member FromArrowStream(stream:IArrowArrayStream) =
+    static member FromArrowStream(stream: IArrowArrayStream) =
 
         ArgumentNullException.ThrowIfNull stream
 
-        let handle = ArrowStreamInterop.ImportForeignStream stream;
+        let handle = ArrowStreamInterop.ImportForeignStream stream
 
         let df = new DataFrame(handle)
         df.HoldResource stream
@@ -1199,7 +1502,12 @@ and DataFrame(handle: DataFrameHandle) =
     /// <param name="columnIndices">Column indices array to prune the export (Projection Pushdown).</param>
     /// <param name="seed">Optional seed for Native Global Shuffle.</param>
     member this.ToArrowStream(columnIndices: int array, ?seed: uint64) : IArrowArrayStream =
-        let span = if isNull columnIndices then ReadOnlySpan<int>.Empty else ReadOnlySpan<int> columnIndices
+        let span =
+            if isNull columnIndices then
+                ReadOnlySpan<int>.Empty
+            else
+                ReadOnlySpan<int> columnIndices
+
         let nullableSeed = Option.toNullable seed
         ArrowStreamInterop.ExportToStream(this.Handle, span, nullableSeed)
 
@@ -1217,6 +1525,7 @@ and DataFrame(handle: DataFrameHandle) =
             raise (InvalidOperationException "ADBC query executed, but returned a null Arrow stream.")
 
         DataFrame.FromArrowStream result.Stream
+
     /// <summary>
     /// Executes a SQL query directly against an ADBC connection and reads the result into a zero-copy Polars DataFrame.
     /// Pure syntactic sugar: automatically manages the creation and disposal of the underlying AdbcStatement.
@@ -1234,20 +1543,26 @@ and DataFrame(handle: DataFrameHandle) =
         statement.SqlQuery <- sqlQuery
 
         DataFrame.ReadAdbc statement
+
     member internal this.HoldResource(resource: IDisposable) =
         if not (isNull resource) then
             backingResources.Add resource
+
     member this.Dispose() =
         if not this.Handle.IsInvalid then
             this.Handle.Dispose()
+
         let targets = backingResources.ToArray()
 
         backingResources.Clear()
 
-        targets |> Array.iter (fun res ->
-            if not (isNull res) then res.Dispose())
+        targets
+        |> Array.iter (fun res ->
+            if not (isNull res) then
+                res.Dispose())
 
         GC.SuppressFinalize this
+
     /// <summary>
     /// Check if this DataFrame is strictly equal to another DataFrame.
     /// </summary>
@@ -1255,9 +1570,12 @@ and DataFrame(handle: DataFrameHandle) =
     /// <param name="nullEqual">If true, null values are considered equal to other null values. Defaults to true.</param>
     /// <returns>True if both DataFrames are structurally equal in the native engine.</returns>
     member this.Equals(other: DataFrame, ?nullEqual: bool) : bool =
-        if obj.ReferenceEquals(this, other) then true
-        elif obj.ReferenceEquals(other, null) then false
-        elif this.Handle.IsInvalid || other.Handle.IsInvalid then false
+        if obj.ReferenceEquals(this, other) then
+            true
+        elif obj.ReferenceEquals(other, null) then
+            false
+        elif this.Handle.IsInvalid || other.Handle.IsInvalid then
+            false
         else
             let nullsEqual = defaultArg nullEqual true
             PolarsWrapper.DataFrameEquals(this.Handle, other.Handle, nullsEqual)
@@ -1267,8 +1585,7 @@ and DataFrame(handle: DataFrameHandle) =
         /// Check if this DataFrame is strictly equal to another DataFrame (IEquatable implementation).
         /// Missing (null) values are considered equal to other missing values by default.
         /// </summary>
-        member this.Equals(other: DataFrame) =
-            this.Equals(other, nullEqual = true)
+        member this.Equals(other: DataFrame) = this.Equals(other, nullEqual = true)
 
     /// <summary>
     /// Object.Equals override to bridge with global .NET runtime style checks.
@@ -1283,10 +1600,14 @@ and DataFrame(handle: DataFrameHandle) =
     /// </summary>
     /// <exception cref="System.NotSupportedException">Always thrown. Do not use DataFrames as keys in collections.</exception>
     override this.GetHashCode() =
-        raise (NotSupportedException("DataFrames are large data structures and cannot be hashed directly. Do not use them as keys in collections."))
+        raise (
+            NotSupportedException(
+                "DataFrames are large data structures and cannot be hashed directly. Do not use them as keys in collections."
+            )
+        )
+
     interface IDisposable with
-        member this.Dispose() =
-            this.Dispose()
+        member this.Dispose() = this.Dispose()
 
     interface IEnumerable<Series> with
         member this.GetEnumerator() : IEnumerator<Series> =
@@ -1297,23 +1618,21 @@ and DataFrame(handle: DataFrameHandle) =
     interface IEnumerable with
         member this.GetEnumerator() : IEnumerator =
             (this :> IEnumerable<Series>).GetEnumerator() :> IEnumerator
+
     interface IPolarsDataFrame with
 
-        member this.Height =
-            int64 this.Height
-
-        member this.Schema =
-            this.Schema :> IPolarsSchema
-        member this.Show(): unit =
-            this.Show()
-        member this.ToArrow() =
-            this.ToArrow()
-        member this.WriteToAdbc(statement:AdbcStatement) =
-            this.WriteToAdbc statement
-        member this.Column(index:int) =
-            this.Column index
+        member this.Height = int64 this.Height
+        member this.Schema = this.Schema :> IPolarsSchema
+        member this.ToArrow() = this.ToArrow()
         member this.ToArrowStream(columnIndices: ReadOnlySpan<int>, seed: Nullable<uint64>) =
             ArrowStreamInterop.ExportToStream(this.Handle, columnIndices, seed)
+        member this.Slice(offset: int64, length: uint64) =
+            let absoluteOffset = if offset < 0L then int64 this.Height + offset else offset
+            if absoluteOffset < 0L || absoluteOffset >= int64 this.Height then
+                new DataFrame(PolarsWrapper.Slice(this.Handle, absoluteOffset, 0UL)) :> IPolarsDataFrame
+            else
+                new DataFrame(PolarsWrapper.Slice(this.Handle, absoluteOffset, length)) :> IPolarsDataFrame
+
 /// <summary>
 /// A LazyFrame represents a logical plan of operations that will be optimized and executed only when collected.
 /// <para>
@@ -1323,50 +1642,34 @@ and DataFrame(handle: DataFrameHandle) =
 /// </summary>
 and LazyFrame(handle: LazyFrameHandle) =
     member _.Handle = handle
-    abstract member Dispose : unit -> unit
-    default x.Dispose() =
-        handle.Dispose()
+    abstract member Dispose: unit -> unit
+    default x.Dispose() = handle.Dispose()
 
     interface IDisposable with
         member x.Dispose() = x.Dispose()
 
     interface IPolarsLazyFrame with
-        member this.Collect(engine, useStreaming) =
-            let dfHandle = PolarsWrapper.LazyCollect(this.Handle, engine, useStreaming)
+        member this.Collect(engine) =
+            let dfHandle = PolarsWrapper.LazyCollect(this.CloneHandle(), engine)
             new DataFrame(dfHandle) :> IPolarsDataFrame
 
-        member this.Schema =
-            this.Schema :> IPolarsSchema
-
-        member this.Explain(optimized: bool) =
-            this.Explain optimized
-        member this.CollectAsync(engine:PlEngine,useStreaming: bool, cancellationToken: CancellationToken) =
-            task {
-                let! dfHandle = PolarsWrapper.LazyCollectAsync(this.Handle,engine,useStreaming, cancellationToken)
-
-                return new DataFrame(dfHandle) :> IPolarsDataFrame
-            }
     member internal this.CloneHandle() = PolarsWrapper.LazyClone handle
     member this.Clone() = new LazyFrame(this.CloneHandle())
+
     /// <summary> Execute the plan and return a DataFrame. </summary>
-    member this.Collect(?engine:Engine,?streaming:bool) =
-        let stream = defaultArg streaming false
+    member this.Collect(?engine: Engine) =
         let eng = defaultArg engine Engine.Auto
-        let dfHandle = PolarsWrapper.LazyCollect(handle,eng.ToNative(),stream)
+        let dfHandle = PolarsWrapper.LazyCollect(this.CloneHandle(), eng.ToNative())
         new DataFrame(dfHandle)
-    member this.CollectAsync
-        (
-            ?engine:Engine,
-            ?useStreaming: bool,
-            ?cancellationToken: CancellationToken
-        ) : Task<DataFrame> =
-        let us = defaultArg useStreaming false
+
+    member this.CollectAsync(?engine: Engine, ?cancellationToken: CancellationToken) : Task<DataFrame> =
         let cct = defaultArg cancellationToken CancellationToken.None
         let eng = defaultArg engine Engine.Auto
+
         task {
             cct.ThrowIfCancellationRequested()
 
-            let! dfHandle = PolarsWrapper.LazyCollectAsync(handle,eng.ToNative(), us,cct)
+            let! dfHandle = PolarsWrapper.LazyCollectAsync(this.CloneHandle(), eng.ToNative(), cct)
 
             return new DataFrame(dfHandle)
         }
@@ -1378,25 +1681,27 @@ and LazyFrame(handle: LazyFrameHandle) =
     member this.Schema =
         let h = PolarsWrapper.GetLazySchema this.Handle
         new PolarsSchema(h)
+
     member this.CollectSchema() = this.Schema
+
     member this.PrintSchema() =
         printfn "--- LazyFrame Schema ---"
 
         use sc = this.Schema
 
-        sc.ToMap()
-        |> Map.iter (fun name dtype ->
-            printfn "%-15s | %O" name dtype
-        )
+        sc.ToMap() |> Map.iter (fun name dtype -> printfn "%-15s | %O" name dtype)
 
         printfn "------------------------"
+
     member this.Columns = this.Schema.Names
     member this.ColumnNames = this.Columns
     member this.DataTypes = this.Schema.DataTypes
+
     /// <summary> Print the query plan. </summary>
     member this.Explain(?optimized: bool) =
         let opt = defaultArg optimized true
         PolarsWrapper.Explain(handle, opt)
+
     /// <summary>
     /// Offers a structured way to apply a sequence of user-defined functions (UDFs).
     /// </summary>
@@ -1406,8 +1711,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     /// Typically this function wraps several Polars API calls that operate on the given expression.
     /// </param>
     /// <returns>The result of applying <paramref name="function"/> to this LazyFrame.</returns>
-    member this.Pipe(func: LazyFrame -> 'T) : 'T =
-        func this
+    member this.Pipe(func: LazyFrame -> 'T) : 'T = func this
     /// <summary>
     /// Allows to alter the lazy frame during the plan stage with the resolved schema.
     /// <para>In contrast to pipe, this method does not execute function immediately but only during the plan stage.
@@ -1415,8 +1719,8 @@ and LazyFrame(handle: LazyFrameHandle) =
     /// This also means that any exceptions raised by function will only be emitted during the plan stage.</para>
     /// </summary>
     /// <param name="func">Callable; will receive the frame as the first parameter and the resolved schema as the second parameter.</param>
-    member this.PipeWithSchema(func: LazyFrame -> PolarsSchema -> LazyFrame) : LazyFrame =
-        func this this.Schema
+    member this.PipeWithSchema(func: LazyFrame -> PolarsSchema -> LazyFrame) : LazyFrame = func this this.Schema
+
     /// <summary>
     /// Stream the query result in batches.
     /// This executes the query and calls 'onBatch' for each RecordBatch produced.
@@ -1424,37 +1728,37 @@ and LazyFrame(handle: LazyFrameHandle) =
     member this.SinkBatches(onBatch: Action<Apache.Arrow.RecordBatch>) : unit =
         let newHandle = PolarsWrapper.SinkBatches(this.CloneHandle(), onBatch)
 
-        let lfRes = new LazyFrame(newHandle)
+        use lfRes = new LazyFrame(newHandle)
         use _ = lfRes.Collect()
         ()
+
     /// <summary>
     /// Select columns from the lazyframe using a sequence of column expressions.
     /// </summary>
-    member this.Select (expr: Expr) : LazyFrame =
-        this.Select [expr]
+    member this.Select(expr: Expr) : LazyFrame = this.Select [ expr ]
     /// <summary>
     /// Select columns from the lazyframe using a selector.
     /// </summary>
-    member this.Select(selector:Selector) =
-        this.Select [selector.ToExpr()]
+    member this.Select(selector: Selector) = this.Select [ selector.ToExpr() ]
+
     /// <summary>
     /// Select columns from the lazyframe using a sequence of column expressions.
     /// </summary>
-    member this.Select (exprs: seq<Expr>) : LazyFrame =
+    member this.Select(exprs: seq<Expr>) : LazyFrame =
         let lfClone = this.CloneHandle()
         let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
 
         let h = PolarsWrapper.LazySelect(lfClone, handles)
         new LazyFrame(h)
+
     /// <summary>
     /// Select columns from the lazyframe using a sequence of column expressions.
     /// </summary>
     member this.Select(columns: seq<#IColumnExpr>) =
-        let exprs =
-            columns
-            |> Seq.collect (fun x -> x.ToExprs())
+        let exprs = columns |> Seq.collect (fun x -> x.ToExprs())
 
         this.Select exprs
+
     /// <summary>
     /// Rename the lazyframe columns using a sequence of (oldName, newName) tuples.
     /// Example: lf.Rename [ "colA", "col1"; "colB", "col2" ]
@@ -1469,13 +1773,7 @@ and LazyFrame(handle: LazyFrameHandle) =
         let pOldNames, pNewNames = Array.unzip arr
         let pStrict = defaultArg strict true
 
-        let handle =
-            PolarsWrapper.LazyRename(
-                this.Handle,
-                pOldNames,
-                pNewNames,
-                pStrict
-            )
+        let handle = PolarsWrapper.LazyRename(this.CloneHandle(), pOldNames, pNewNames, pStrict)
 
         new LazyFrame(handle)
 
@@ -1491,23 +1789,85 @@ and LazyFrame(handle: LazyFrameHandle) =
     member this.Rename(mapping: System.Collections.Generic.IReadOnlyDictionary<string, string>, ?strict: bool) =
         let pairs = mapping |> Seq.map (fun kv -> kv.Key, kv.Value)
         this.Rename(pairs, ?strict = strict)
+
     /// <summary>
     /// Returns the native Polars string representation of the LazyFrame.
     /// Includes shape, header, and truncated data.
     /// </summary>
-    override this.ToString() =
-        this.Clone().Collect().ToString()
+    override this.ToString() = this.Clone().Collect().ToString()
 
     /// <summary>
     /// Print the LazyFrame to Console (Stdout).
     /// </summary>
-    member this.Show() =
-        printfn "%s" (this.ToString())
+    member this.Show() = printfn "%s" (this.ToString())
+
+    /// <summary>
+    /// Generates an HTML visualization of the LazyFrame execution plan and schema for LINQPad.
+    /// </summary>
+    /// <param name="optimized">Whether to explain the optimized logical plan.</param>
+    /// <returns>An HTML representation formatted with monospace styling.</returns>
+    member this.ToHtml(?optimized: bool) : string =
+        let opt = defaultArg optimized true
+        let plan = this.Explain opt
+
+        use schema = this.Schema
+        let schemaSummary = schema.ToString()
+
+        let sb = StringBuilder()
+
+        sb.Append(
+            """
+<style>
+.pl-lazy-container { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; color: inherit; }
+.pl-lazy-header { font-weight: bold; margin-bottom: 6px; font-size: 13px; }
+.pl-lazy-tag { background: rgba(128, 128, 128, 0.2); padding: 2px 6px; border-radius: 4px; font-size: 11px; font-family: monospace; margin-left: 6px; }
+.pl-lazy-schema { color: rgba(128, 128, 128, 0.85); font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; margin-bottom: 10px; }
+.pl-lazy-plan { font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; background: rgba(128, 128, 128, 0.06); border: 1px solid rgba(128, 128, 128, 0.2); border-radius: 4px; padding: 10px; overflow-x: auto; white-space: pre; line-height: 1.4; color: inherit; }
+.pl-lazy-tip { font-style: italic; opacity: 0.6; font-size: 11px; margin-top: 6px; }
+</style>"""
+        )
+        |> ignore
+
+        sb.Append("<div class='pl-lazy-container'>") |> ignore
+        sb.Append("<div class='pl-lazy-header'>Polars LazyFrame <span class='pl-lazy-tag'>UNCOLLECTED</span></div>")
+        |> ignore
+
+        if not (String.IsNullOrEmpty schemaSummary) then
+            sb.Append($"<div class='pl-lazy-schema'>{System.Net.WebUtility.HtmlEncode(schemaSummary)}</div>")
+            |> ignore
+
+        sb.Append("<div class='pl-lazy-plan'>") |> ignore
+        sb.Append(System.Net.WebUtility.HtmlEncode(plan)) |> ignore
+        sb.Append("</div>") |> ignore
+        sb.Append("<div class='pl-lazy-tip'>Tip: Call .Collect() to eagerly execute this query plan.</div>")
+        |> ignore
+
+        sb.Append("</div>") |> ignore
+        sb.ToString()
+
+    /// <summary>
+    /// Duck-typed method called automatically by LINQPad to customize Dump() rendering.
+    /// Prevents eager query execution and visualizes the logical execution plan.
+    /// </summary>
+    member internal this.ToDump() : obj =
+        let html = this.ToHtml(optimized = true)
+
+        match LinqPadHtmlHelper.tryWrapRawHtml html with
+        | Some wrapped -> wrapped
+        | None ->
+            use schema = this.Schema
+
+            box
+                {|
+                    Type = "Polars.LazyFrame (Uncollected)"
+                    Schema = schema.ToString()
+                    LogicalPlan = this.Explain(optimized = true)
+                |}
 
 /// <summary>
 /// Polars Schema definition (Name -> DataType).
 /// </summary>
-and PolarsSchema (handle: SchemaHandle) =
+and PolarsSchema(handle: SchemaHandle) =
 
     // --- Property ---
     member val Handle = handle
@@ -1520,15 +1880,19 @@ and PolarsSchema (handle: SchemaHandle) =
         try
             PolarsWrapper.NewSchema(names, typeHandles)
         finally
-            for th in typeHandles do th.Dispose()
+            for th in typeHandles do
+                th.Dispose()
+
     /// <summary> Create an empty schema </summary>
-    new () = new PolarsSchema(PolarsWrapper.SchemaCreate())
-    new (fields: seq<Field>) =
+    new() = new PolarsSchema(PolarsWrapper.SchemaCreate())
+
+    new(fields: seq<Field>) =
         let tuples = fields |> Seq.map (fun f -> f.Name, f.DataType)
         new PolarsSchema(tuples)
+
     /// <summary> Create schema from field definitions </summary>
-    new (fields: seq<string * DataType>) =
-        new PolarsSchema(PolarsSchema.CreateHandleFromFields fields)
+    new(fields: seq<string * DataType>) = new PolarsSchema(PolarsSchema.CreateHandleFromFields fields)
+
     /// <summary>
     /// Create a Schema directly from a .NET type (e.g., a record or class).
     /// </summary>
@@ -1538,8 +1902,8 @@ and PolarsSchema (handle: SchemaHandle) =
         let handle = PolarsWrapper.NewSchemaFromType(typeof<'T>)
         new PolarsSchema(handle)
 
-    static member ofMap (m: Map<string, DataType>) = new PolarsSchema(m |> Map.toSeq)
-    static member ofList (fields: (string * DataType) list) = new PolarsSchema(fields)
+    static member ofMap(m: Map<string, DataType>) = new PolarsSchema(m |> Map.toSeq)
+    static member ofList(fields: (string * DataType) list) = new PolarsSchema(fields)
 
     // --- Inspection API (Alignment with C#) ---
     member this.Len() = PolarsWrapper.GetSchemaLen this.Handle
@@ -1557,9 +1921,10 @@ and PolarsSchema (handle: SchemaHandle) =
         finally
             if not typeHandle.IsInvalid then
                 typeHandle.Dispose()
+
     member this.GetFields() =
-        seq { 0UL .. this.Len() - 1UL }
-        |> Seq.map this.GetFieldAt
+        seq { 0UL .. this.Len() - 1UL } |> Seq.map this.GetFieldAt
+
     /// <summary> Get all column names </summary>
     member this.Names = this.GetFields() |> Seq.map fst |> Seq.toList
 
@@ -1574,15 +1939,16 @@ and PolarsSchema (handle: SchemaHandle) =
 
     /// <summary> Indexer: schema["col_name"] </summary>
     member this.Item
-        with get(name: string) =
+        with get (name: string) =
             let len = this.Len()
+
             let rec find i =
-                if i >= len then raise (KeyNotFoundException $"Column '{name}' not found in Schema.")
+                if i >= len then
+                    raise (KeyNotFoundException $"Column '{name}' not found in Schema.")
                 else
                     let colName, dtype = this.GetFieldAt(i)
-                    if colName = name then dtype
-                    else
-                        find (i + 1UL)
+                    if colName = name then dtype else find (i + 1UL)
+
             find 0UL
 
     /// <summary>
@@ -1590,29 +1956,104 @@ and PolarsSchema (handle: SchemaHandle) =
     /// </summary>
     member this.ToDataFrame(?length: int64) =
         let len = defaultArg length 0L
-        let dfHandle: DataFrameHandle = PolarsWrapper.DataFrameFromSchema(handle,uint len)
+        let dfHandle: DataFrameHandle = PolarsWrapper.DataFrameFromSchema(handle, uint len)
         new DataFrame(dfHandle)
 
     /// <summary>
     /// Creates an empty LazyFrame from this Schema.
     /// </summary>
     member this.ToLazyFrame(?length: int64) =
-        use emptyDf = this.ToDataFrame(?length=length)
+        use emptyDf = this.ToDataFrame(?length = length)
         emptyDf.Lazy()
 
     // --- Display ---
 
     override this.ToString() =
-        if this.Handle.IsInvalid then "Schema: {}"
+        if this.Handle.IsInvalid then
+            "Schema: {}"
         else
             let len = int (this.Len())
 
-            let fields = Array.init len (fun i ->
-                let name, dtype = this.GetFieldAt(uint64 i)
-                $"{name}: {dtype}"
-            )
+            let fields =
+                Array.init len (fun i ->
+                    let name, dtype = this.GetFieldAt(uint64 i)
+                    $"{name}: {dtype}")
 
             $"""Schema: {String.concat ", " fields}"""
+
+    /// <summary>
+    /// Generates a clean HTML table representation of the Schema for interactive environments.
+    /// </summary>
+    /// <returns>An HTML formatted string representing the schema fields and types.</returns>
+    member this.ToHtml() : string =
+        if this.Handle.IsInvalid then
+            "<div class='pl-dim'>PolarsSchema: <i>(Invalid Handle)</i></div>"
+        else
+            let len = int (PolarsWrapper.GetSchemaLen this.Handle)
+
+            let sb = StringBuilder()
+
+            sb.Append(
+                """
+<style>
+.pl-schema-box { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; color: inherit; }
+.pl-schema-title { font-family: sans-serif; font-size: 12px; opacity: 0.8; margin-bottom: 6px; }
+.pl-schema-table { font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; border-collapse: collapse; border: 1px solid rgba(128, 128, 128, 0.2); }
+.pl-schema-table th { font-weight: bold; text-align: left; padding: 4px 12px; border-bottom: 2px solid rgba(128, 128, 128, 0.3); color: inherit; }
+.pl-schema-table td { padding: 4px 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.15); color: inherit; }
+.pl-schema-table tr:nth-child(even) { background-color: rgba(128, 128, 128, 0.05); }
+.pl-schema-type { color: #007acc; font-weight: 500; }
+</style>"""
+            )
+            |> ignore
+
+            sb.Append("<div class='pl-schema-box'>") |> ignore
+            sb.Append($"<div class='pl-schema-title'>Polars Schema: <b>({len} fields)</b></div>")
+            |> ignore
+
+            sb.Append("<table class='pl-schema-table'>") |> ignore
+            sb.Append("<thead><tr><th>Field</th><th>DataType</th></tr></thead>") |> ignore
+            sb.Append("<tbody>") |> ignore
+
+            for i = 0 to len - 1 do
+                let mutable name = Unchecked.defaultof<string>
+                let mutable dtHandle = Unchecked.defaultof<DataTypeHandle>
+                PolarsWrapper.GetSchemaFieldAt(this.Handle, uint64 i, &name, &dtHandle)
+                use dt = DataType.FromHandle dtHandle
+
+                sb.Append("<tr>") |> ignore
+                sb.Append($"<td>{System.Net.WebUtility.HtmlEncode(name)}</td>") |> ignore
+                sb.Append($"<td class='pl-schema-type'>{System.Net.WebUtility.HtmlEncode(dt.ToString())}</td>")
+                |> ignore
+
+                sb.Append("</tr>") |> ignore
+
+            sb.Append("</tbody></table></div>") |> ignore
+            sb.ToString()
+
+    /// <summary>
+    /// Custom rendering hook for LINQPad Dump().
+    /// </summary>
+    member internal this.ToDump() : obj =
+        let html = this.ToHtml()
+
+        match LinqPadHtmlHelper.tryWrapRawHtml html with
+        | Some wrapped -> wrapped
+        | None ->
+            if this.Handle.IsInvalid then
+                box (Dictionary<string, string>())
+            else
+                let dict = Dictionary<string, string>()
+                let len = int (PolarsWrapper.GetSchemaLen this.Handle)
+
+                for i = 0 to len - 1 do
+                    let mutable name = Unchecked.defaultof<string>
+                    let mutable dtHandle = Unchecked.defaultof<DataTypeHandle>
+                    PolarsWrapper.GetSchemaFieldAt(this.Handle, uint64 i, &name, &dtHandle)
+                    use dt = DataType.FromHandle dtHandle
+                    dict.[name] <- dt.ToString()
+
+                box dict
 
     // ==========================================
     // Equality Members
@@ -1620,7 +2061,8 @@ and PolarsSchema (handle: SchemaHandle) =
 
     interface IEquatable<PolarsSchema> with
         member this.Equals(other: PolarsSchema) =
-            if Object.ReferenceEquals(this, other) then true
+            if Object.ReferenceEquals(this, other) then
+                true
 
             elif this.Handle.IsInvalid || other.Handle.IsInvalid || this.Len() <> other.Len() then
                 false
@@ -1633,22 +2075,25 @@ and PolarsSchema (handle: SchemaHandle) =
         | _ -> false
 
     override this.GetHashCode() =
-        if this.Handle.IsInvalid then 0
+        if this.Handle.IsInvalid then
+            0
         else
             let mutable hash = HashCode()
 
             this.GetFields()
             |> Seq.iter (fun (name, dt) ->
                 hash.Add name
-                hash.Add dt
-            )
+                hash.Add dt)
 
             hash.ToHashCode()
-    static member op_Equality (left: PolarsSchema, right: PolarsSchema) =
-        if Object.ReferenceEquals(left, null) then Object.ReferenceEquals(right, null)
-        else left.Equals right
-    static member op_Inequality (left: PolarsSchema, right: PolarsSchema) =
-        not (left = right)
+
+    static member op_Equality(left: PolarsSchema, right: PolarsSchema) =
+        if Object.ReferenceEquals(left, null) then
+            Object.ReferenceEquals(right, null)
+        else
+            left.Equals right
+
+    static member op_Inequality(left: PolarsSchema, right: PolarsSchema) = not (left = right)
 
     member private this.TryFindField(key: string, len: uint64, i: uint64, value: byref<IPolarsDataType>) : bool =
         if i >= len then
@@ -1657,6 +2102,7 @@ and PolarsSchema (handle: SchemaHandle) =
             let mutable name = null
             let mutable th = new DataTypeHandle()
             PolarsWrapper.GetSchemaFieldAt(this.Handle, i, &name, &th)
+
             try
                 if name = key then
                     value <- DataType.FromHandle th :> IPolarsDataType
@@ -1664,7 +2110,9 @@ and PolarsSchema (handle: SchemaHandle) =
                 else
                     this.TryFindField(key, len, i + 1UL, &value)
             finally
-                if not th.IsInvalid then th.Dispose()
+                if not th.IsInvalid then
+                    th.Dispose()
+
     member this.Count = int (this.Len())
 
     member this.ContainsKey(key: string) =
@@ -1676,25 +2124,41 @@ and PolarsSchema (handle: SchemaHandle) =
     // --- Interface ---
     interface IDisposable with
         member this.Dispose() =
-            if not (isNull (box this.Handle)) && not this.Handle.IsInvalid then
+            if not (isNull (box this.Handle) || this.Handle.IsInvalid) then
                 this.Handle.Dispose()
 
     interface IPolarsSchema with
-        member this.Item with get(key: string) : IPolarsDataType =
-            this.get_Item key :> IPolarsDataType
-        member this.Keys : IEnumerable<string> =
-            this.Names :> IEnumerable<string>
-        member this.Values : IEnumerable<IPolarsDataType> =
+        member this.Item
+            with get (key: string): IPolarsDataType = this.get_Item key :> IPolarsDataType
+
+        member this.Keys: IEnumerable<string> = this.Names :> IEnumerable<string>
+
+        member this.Values: IEnumerable<IPolarsDataType> =
             this.DataTypes |> Seq.map (fun dt -> dt :> IPolarsDataType)
+
         member this.Count = this.Count
         member this.ContainsKey(key) = this.ContainsKey(key)
         member this.TryGetValue(key, value) = this.TryGetValue(key, &value)
+
         member this.GetEnumerator() : IEnumerator<KeyValuePair<string, IPolarsDataType>> =
             (this.GetFields()
-             |> Seq.map (fun (n, dt) -> KeyValuePair(n, dt :> IPolarsDataType))).GetEnumerator()
+             |> Seq.map (fun (n, dt) -> KeyValuePair(n, dt :> IPolarsDataType)))
+                .GetEnumerator()
 
         member this.GetEnumerator() : IEnumerator =
             (this :> IPolarsSchema).GetEnumerator() :> IEnumerator
+
+[<AutoOpen>]
+module ExprSchemaExtensions =
+    type Expr with
+        /// <summary>
+        /// Generates a rich HTML view of the expression including its compact string representation and AST tree.
+        /// </summary>
+        /// <param name="schema">Schema context to resolve field types.</param>
+        /// <returns>An HTML representation formatted for interactive environments.</returns>
+        member this.ToHtml(schema: PolarsSchema) : string =
+            let schemaHandle = if isNull (box schema) then null else schema.Handle
+            this.ToHtmlInternal(schemaHandle)
 
 /// <summary>
 /// SQL Context for executing SQL queries on registered LazyFrames.
@@ -1712,8 +2176,7 @@ type SqlContext() as this =
         member _.Register(tableName: string, lf: IPolarsLazyFrame) =
             this.Register(tableName, lf :?> LazyFrame)
 
-        member _.Execute(sql: string) =
-            this.Execute sql :> IPolarsLazyFrame
+        member _.Execute(sql: string) = this.Execute sql :> IPolarsLazyFrame
 
     /// <summary> Register a LazyFrame as a table for SQL querying. </summary>
     member _.Register(name: string, lf: LazyFrame) =
@@ -1725,11 +2188,10 @@ type SqlContext() as this =
         PolarsWrapper.SqlRegister(handle, name, lf.Handle)
 
     member _.UnRegister(name: string) =
-        PolarsWrapper.SqlUnRegister(handle,name)
+        PolarsWrapper.SqlUnRegister(handle, name)
 
     /// <summary> Get the names of all registered tables, in sorted order. </summary>
-    member _.GetTables() =
-        PolarsWrapper.SqlGetTables(handle)
+    member _.GetTables() = PolarsWrapper.SqlGetTables(handle)
 
     /// <summary> Execute a SQL query and return a LazyFrame. </summary>
     member _.Execute(query: string) =

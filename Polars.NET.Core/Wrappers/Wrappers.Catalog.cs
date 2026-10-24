@@ -68,8 +68,8 @@ public readonly partial struct PolarsWrapper
             lowMemory,
             useStatistics,
             glob,
-            rechunk, 
-            cache,  
+            rechunk,
+            cache,
             rowIndexName,
             rowIndexOffset,
             includePathColumn,
@@ -132,7 +132,7 @@ public readonly partial struct PolarsWrapper
     {
         nuint rgs = rowGroupSize > 0 ? rowGroupSize : 0;
         nuint dps = dataPageSize > 0 ? dataPageSize : 0;
-        
+
         int safeCompatLevel = compatLevel;
         if (safeCompatLevel < -1) safeCompatLevel = -1;
         else if (safeCompatLevel > 1) safeCompatLevel = 1;
@@ -201,7 +201,7 @@ public readonly partial struct PolarsWrapper
     )
     {
         nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-        
+
         NativeBindings.pl_catalog_delete_records(
             handle,
             catalogName,
@@ -248,7 +248,7 @@ public readonly partial struct PolarsWrapper
         {
             throw new ArgumentException("Merge keys cannot be null or empty.", nameof(mergeKeys));
         }
-        
+
         if (actionTypes == null || actionExprs == null || actionTypes.Length != actionExprs.Length)
         {
             throw new ArgumentException("Action types and expressions must be non-null and of the same length.");
@@ -264,7 +264,7 @@ public readonly partial struct PolarsWrapper
             {
                 throw new ArgumentNullException(nameof(actionExprs), $"Expression at index {i} cannot be null.");
             }
-            
+
             exprPtrs[i] = actionExprs[i].TransferOwnership();
         }
 
@@ -278,11 +278,11 @@ public readonly partial struct PolarsWrapper
             sourceLf,
             mergeKeys,
             mergeKeysLen,
-            
-            actionTypes,  
-            exprPtrs,     
-            actionsCount, 
-            
+
+            actionTypes,
+            exprPtrs,
+            actionsCount,
+
             can_evolve,
             cloudProvider,
             cloudRetries,
@@ -480,7 +480,7 @@ public readonly partial struct PolarsWrapper
                 cloudLen,
                 out jsonPtr
             );
-            
+
             ErrorHelper.CheckVoid();
 
             string? json = Marshal.PtrToStringUTF8(jsonPtr);
@@ -493,5 +493,113 @@ public readonly partial struct PolarsWrapper
                 NativeBindings.pl_free_string(jsonPtr);
             }
         }
+    }
+
+    public static void CatalogAddFeature(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        string featureName,
+        bool allowProtocolIncrease,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+
+        NativeBindings.pl_catalog_delta_add_feature(
+            handle,
+            catalogName,
+            schemaName,
+            tableName,
+            featureName,
+            allowProtocolIncrease,
+            cloudKeys,
+            cloudValues,
+            cloudLen
+        );
+
+        ErrorHelper.CheckVoid();
+    }
+
+    public static LazyFrameHandle CatalogReadCdc(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        ulong startVersion,
+        ulong endVersion,
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+
+        var h = NativeBindings.pl_catalog_delta_read_cdc(
+            handle,
+            catalogName,
+            schemaName,
+            tableName,
+            startVersion,
+            endVersion,
+            cloudProvider,
+            cloudRetries,
+            cloudRetryTimeoutMs,
+            cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs,
+            cloudCacheTtl,
+            cloudKeys,
+            cloudValues,
+            cloudLen
+        );
+
+        return ErrorHelper.Check(h);
+    }
+
+    public static LazyFrameHandle CatalogReadCdcByTime(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        long startTimestampMs,
+        long endTimestampMs,
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+
+        var h = NativeBindings.pl_catalog_delta_read_cdc_by_time(
+            handle,
+            catalogName,
+            schemaName,
+            tableName,
+            startTimestampMs,
+            endTimestampMs,
+            cloudProvider,
+            cloudRetries,
+            cloudRetryTimeoutMs,
+            cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs,
+            cloudCacheTtl,
+            cloudKeys,
+            cloudValues,
+            cloudLen
+        );
+
+        return ErrorHelper.Check(h);
     }
 }

@@ -4,8 +4,8 @@
 namespace Polars.FSharp
 
 open Polars.NET.Core
-open System
 open System.Runtime.CompilerServices
+
 [<AutoOpen>]
 module DeltaWrite =
     type LazyFrame with
@@ -143,93 +143,6 @@ module DeltaWrite =
                 cKeys,
                 cVals
             )
-        /// <summary>
-        /// Merge a LazyFrame into a Delta Lake table with full SQL MERGE semantics.
-        /// Provides fine-grained control over Update, Insert, and Delete behaviors.
-        /// Notice: In this method, Delete > Update > Insert > Ignore.
-        /// If you need other orders, please use LazyFrame.MergeDeltaOrdered
-        /// </summary>
-        /// <param name="path">Uri to the Delta Lake table (local or cloud).</param>
-        /// <param name="mergeKeys">The column names to join on (must exist in both Source and Target).</param>
-        /// <param name="matchedUpdateCond">
-        /// Condition for 'WHEN MATCHED THEN UPDATE'. 
-        /// If null, defaults to true (always update when matched).
-        /// </param>
-        /// <param name="matchedDeleteCond">
-        /// Condition for 'WHEN MATCHED THEN DELETE'. 
-        /// If null, defaults to false (never delete when matched).
-        /// </param>
-        /// <param name="notMatchedInsertCond">
-        /// Condition for 'WHEN NOT MATCHED THEN INSERT'. 
-        /// If null, defaults to true (always insert new rows).
-        /// </param>
-        /// <param name="notMatchedBySourceDeleteCond">
-        /// Condition for 'WHEN NOT MATCHED BY SOURCE THEN DELETE' (Target rows not in Source). 
-        /// If null, defaults to false (retain target-only rows).
-        /// </param>
-        /// <param name="canEvolve">Allow schema evolution during the merge.</param>
-        /// <param name="cloudOptions">Cloud storage credentials and configuration.</param>
-        [<Obsolete("This method is deprecated because its execution order of matched/not-matched actions is hardcoded and may lead to silent data corruption in complex scenarios. Please use 'MergeDeltaOrdered(...)' combined with the '.WhenMatched...()' chaining methods to ensure strict SQL MERGE semantics.")>]
-        member this.MergeDelta(
-            path: string,
-            mergeKeys: seq<string>,
-            ?matchedUpdateCond: Expr,
-            ?matchedDeleteCond: Expr,
-            ?notMatchedInsertCond: Expr,
-            ?notMatchedBySourceDeleteCond: Expr,
-            ?canEvolve: bool,
-            ?cloudOptions: CloudOptions
-        ) =
-            // 1. Resolve Defaults & Sequences
-            let pEvolve = defaultArg canEvolve false
-            let keysArr = mergeKeys |> Seq.toArray
-
-            // 2. Parse Cloud Options
-            let cProv, cRet, cToMs, cInitMs, cMaxMs, cCache, cKeys, cVals = 
-                CloudOptions.ParseCloudOptions cloudOptions
-
-            // 3. Clone Handles (safely disposing them at the end of the scope)
-            use clonedLf = this.CloneHandle()
-            
-            use hUpdate = 
-                match matchedUpdateCond with
-                | Some e -> e.CloneHandle()
-                | None -> null
-                
-            use hDelete = 
-                match matchedDeleteCond with
-                | Some e -> e.CloneHandle()
-                | None -> null
-                
-            use hInsert = 
-                match notMatchedInsertCond with
-                | Some e -> e.CloneHandle()
-                | None -> null
-                
-            use hSrcDelete = 
-                match notMatchedBySourceDeleteCond with
-                | Some e -> e.CloneHandle()
-                | None -> null
-
-            // 4. Native Call
-            PolarsWrapper.DeltaMerge(
-                clonedLf,
-                path,
-                keysArr,
-                hUpdate,
-                hDelete,
-                hInsert,
-                hSrcDelete,
-                pEvolve,
-                cProv,
-                cRet,
-                cToMs,
-                cInitMs,
-                cMaxMs,
-                cCache,
-                cKeys,
-                cVals
-            )
     type DataFrame with
         /// <summary>
         /// Write the DataFrame to a Delta Lake table with partition discovery.
@@ -318,53 +231,6 @@ module DeltaWrite =
                 ?mkdir=mkdir,
                 
                 // --- Cloud Params ---
-                ?cloudOptions=cloudOptions
-            )
-        /// <summary>
-        /// Merge a DataFrame into a Delta Lake table with full SQL MERGE semantics.
-        /// Provides fine-grained control over Update, Insert, and Delete behaviors.
-        /// Notice: In this method, Delete > Update > Insert > Ignore.
-        /// If you need other orders, please use DataFrame.MergeDeltaOrdered
-        /// </summary>
-        /// <param name="path">Uri to the Delta Lake table (local or cloud).</param>
-        /// <param name="mergeKeys">The column names to join on (must exist in both Source and Target).</param>
-        /// <param name="matchedUpdateCond">
-        /// Condition for 'WHEN MATCHED THEN UPDATE'. 
-        /// If null, defaults to true (always update when matched).
-        /// </param>
-        /// <param name="matchedDeleteCond">
-        /// Condition for 'WHEN MATCHED THEN DELETE'. 
-        /// If null, defaults to false (never delete when matched).
-        /// </param>
-        /// <param name="notMatchedInsertCond">
-        /// Condition for 'WHEN NOT MATCHED THEN INSERT'. 
-        /// If null, defaults to true (always insert new rows).
-        /// </param>
-        /// <param name="notMatchedBySourceDeleteCond">
-        /// Condition for 'WHEN NOT MATCHED BY SOURCE THEN DELETE' (Target rows not in Source). 
-        /// If null, defaults to false (retain target-only rows).
-        /// </param>
-        /// <param name="canEvolve">Allow schema evolution during the merge.</param>
-        /// <param name="cloudOptions">Cloud storage credentials and configuration.</param>
-        [<Obsolete("This method is deprecated because its execution order of matched/not-matched actions is hardcoded and may lead to silent data corruption in complex scenarios. Please use 'MergeDeltaOrdered(...)' combined with the '.WhenMatched...()' chaining methods to ensure strict SQL MERGE semantics.")>]
-        member this.MergeDelta(
-            path: string,
-            mergeKeys: seq<string>,
-            ?matchedUpdateCond: Expr,
-            ?matchedDeleteCond: Expr,
-            ?notMatchedInsertCond: Expr,
-            ?notMatchedBySourceDeleteCond: Expr,
-            ?canEvolve: bool,
-            ?cloudOptions: CloudOptions
-        ) =
-            this.Lazy().MergeDelta(
-                path,
-                mergeKeys,
-                ?matchedUpdateCond=matchedUpdateCond,
-                ?matchedDeleteCond=matchedDeleteCond,
-                ?notMatchedInsertCond=notMatchedInsertCond,
-                ?notMatchedBySourceDeleteCond=notMatchedBySourceDeleteCond,
-                ?canEvolve=canEvolve,
                 ?cloudOptions=cloudOptions
             )
 

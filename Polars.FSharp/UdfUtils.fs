@@ -16,7 +16,10 @@ module internal Udf =
             let rawGetter = ArrowReader.CreateAccessor(inputArray, typeof<'T>)
 
             let tIn = typeof<'T>
-            let isNullableValueType = tIn.IsValueType && not (isNull (Nullable.GetUnderlyingType tIn))
+
+            let isNullableValueType =
+                tIn.IsValueType && not (isNull (Nullable.GetUnderlyingType tIn))
+
             let isPureValueType = tIn.IsValueType && isNull (Nullable.GetUnderlyingType tIn)
 
             if isPureValueType then
@@ -25,15 +28,15 @@ module internal Udf =
                         buffer.Add null
                     else
                         let v = rawGetter.Invoke i |> unbox<'T>
-                        buffer.Add (box (f v))
+                        buffer.Add(box (f v))
             elif isNullableValueType then
                 for i = 0 to len - 1 do
                     if inputArray.IsNull i then
                         let nullInstance = Unchecked.defaultof<'T>
-                        buffer.Add (box (f nullInstance))
+                        buffer.Add(box (f nullInstance))
                     else
                         let v = rawGetter.Invoke i |> unbox<'T>
-                        buffer.Add (box (f v))
+                        buffer.Add(box (f v))
             else
                 for i = 0 to len - 1 do
                     let inputVal =
@@ -41,7 +44,8 @@ module internal Udf =
                             Unchecked.defaultof<'T>
                         else
                             rawGetter.Invoke i |> unbox<'T>
-                    buffer.Add (box (f inputVal))
+
+                    buffer.Add(box (f inputVal))
 
             buffer.BuildArray()
 
@@ -60,11 +64,11 @@ module internal Udf =
                         None
                     else
                         let rawVal = rawGetter.Invoke i
-                        if isNull rawVal then None else Some (unbox<'T> rawVal)
+                        if isNull rawVal then None else Some(unbox<'T> rawVal)
 
                 match f inputOpt with
-                | Some v -> buffer.Add (box v)
-                | None   -> buffer.Add null
+                | Some v -> buffer.Add(box v)
+                | None -> buffer.Add null
 
             buffer.BuildArray()
 
@@ -83,10 +87,14 @@ module internal Udf =
                         ValueNone
                     else
                         let rawVal = rawGetter.Invoke i
-                        if isNull rawVal then ValueNone else ValueSome (unbox<'T> rawVal)
+
+                        if isNull rawVal then
+                            ValueNone
+                        else
+                            ValueSome(unbox<'T> rawVal)
 
                 match f inputVOpt with
-                | ValueSome v -> buffer.Add (box v)
-                | ValueNone   -> buffer.Add null
+                | ValueSome v -> buffer.Add(box v)
+                | ValueNone -> buffer.Add null
 
             buffer.BuildArray()

@@ -1,6 +1,7 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
+
 public readonly partial struct Polars
 {
     /// <summary>
@@ -12,8 +13,8 @@ public readonly partial struct Polars
     /// <param name="closed">Define which sides of the range are closed</param>
     /// <returns>Column of data type Date</returns>
     public static Expr DateRange(
-        IntoExprColumn? start = null, 
-        IntoExprColumn? end = null, 
+        IntoExprColumn? start = null,
+        IntoExprColumn? end = null,
         IntoDuration? interval = null,
         ClosedInterval closed = ClosedInterval.Both)
     {
@@ -32,13 +33,13 @@ public readonly partial struct Polars
     }
     /// <inheritdoc cref="DateRange"/>
     public static Series DateRangeAsSeries(
-        IntoExprColumn? start = null, 
-        IntoExprColumn? end = null, 
-        IntoDuration? interval = null, 
+        IntoExprColumn? start = null,
+        IntoExprColumn? end = null,
+        IntoDuration? interval = null,
         ClosedInterval closed = ClosedInterval.Both,
-        string name="date")
+        string name = "date")
     {
-        var expr = DateRange(start,end,interval,closed);
+        var expr = DateRange(start, end, interval, closed);
         Series series = CreateSeries(expr);
         series.Rename(name);
         return series;
@@ -52,8 +53,8 @@ public readonly partial struct Polars
     /// <param name="closed">Define which sides of the range are closed</param>
     /// <returns>Column of data type Date</returns>
     public static Expr DateRanges(
-        IntoExprColumn? start = null, 
-        IntoExprColumn? end = null, 
+        IntoExprColumn? start = null,
+        IntoExprColumn? end = null,
         IntoDuration? interval = null,
         ClosedInterval closed = ClosedInterval.Both)
     {
@@ -72,13 +73,13 @@ public readonly partial struct Polars
     }
     /// <inheritdoc cref="DateRanges"/>
     public static Series DateRangesAsSeries(
-        IntoExprColumn? start = null, 
-        IntoExprColumn? end = null, 
-        IntoDuration? interval = null, 
+        IntoExprColumn? start = null,
+        IntoExprColumn? end = null,
+        IntoDuration? interval = null,
         ClosedInterval closed = ClosedInterval.Both,
-        string name="date")
+        string name = "date")
     {
-        var expr = DateRanges(start,end,interval,closed);
+        var expr = DateRanges(start, end, interval, closed);
         Series series = CreateSeries(expr);
         series.Rename(name);
         return series;

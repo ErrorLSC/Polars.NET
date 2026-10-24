@@ -76,6 +76,7 @@ module AggregateOps =
         /// </summary>
         member this.Max() =
             this.Lazy().Max().Collect()
+        /// <summary>
         /// Aggregate the columns in the Frame to their minimum value.
         /// </summary>
         member this.Min() =

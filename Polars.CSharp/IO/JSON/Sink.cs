@@ -2,7 +2,7 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Sink the LazyFrame to a NDJSON (Newline Delimited JSON) file.
@@ -28,7 +28,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
         PolarsWrapper.SinkJson(
-            Handle,
+            CloneHandle(),
             path,
             compression.ToNative(),
             compressionLevel,
@@ -74,7 +74,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
         PolarsWrapper.SinkJsonPartitioned(
-            Handle,
+            CloneHandle(),
             path,
             // --- Partition Params ---
             partitionBy.Consume().CloneHandle(), 
@@ -124,7 +124,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool maintainOrder = true)
     {
         return PolarsWrapper.SinkJsonMemory(
-            Handle,
+            CloneHandle(),
             compression.ToNative(),
             compressionLevel,
             checkExtension,

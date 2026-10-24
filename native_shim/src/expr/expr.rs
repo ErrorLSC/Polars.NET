@@ -4,7 +4,6 @@ use std::{ffi::{CStr, CString}, os::raw::c_char, slice::from_raw_parts};
 use crate::{types::{DataTypeContext, DataTypeExprContext, ExprContext, SeriesContext}, utils::{parse_closed_interval, parse_closed_window, ptr_to_opt_pl_str_vec}};
 use std::ops::{Add, Sub, Mul, Div, Rem, Neg};
 use crate::utils::{consume_exprs_array, ptr_to_str};
-use polars_arrow::array::PrimitiveArray;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_free(ptr: *mut ExprContext) {
@@ -1078,20 +1077,12 @@ pub extern "C" fn pl_expr_lit_decimal(
         // Rebuild i128 (Unscaled Value)
         let v = ((high as i128) << 64) | (low as i128);
 
-        let data_type = ArrowDataType::Decimal(38, scale as usize);
-
-        let arrow_array = PrimitiveArray::new(
-            data_type,
-            vec![v].into(), 
-            None
+        let scalar = Scalar::new(
+            DataType::Decimal(38, scale as usize),
+            AnyValue::Decimal(v, 38, scale as usize),
         );
 
-        let series = Series::from_arrow(
-            "literal".into(), 
-            Box::new(arrow_array)
-        ).unwrap();
-
-        let expr = lit(series);
+        let expr = lit(scalar);
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: expr })))
     })
@@ -1192,7 +1183,8 @@ pub extern "C" fn pl_expr_round(
         let mode = match mode_code {
             0 => RoundMode::HalfAwayFromZero,
             1 => RoundMode::HalfToEven,
-            _ => RoundMode::HalfAwayFromZero
+            2 => RoundMode::ToZero,
+            _ => RoundMode::HalfToEven
         };
         let new_expr = ctx.inner.round(decimals, mode); 
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))

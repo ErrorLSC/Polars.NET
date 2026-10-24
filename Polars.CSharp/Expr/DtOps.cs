@@ -270,7 +270,7 @@ public readonly struct DtOps
     /// );
     /// </code>
     /// </example>
-    public Expr OffsetBy(DurationOrExpr by) => new(PolarsWrapper.DtOffsetBy(_expr.Handle, by.Expression.CloneHandle()));
+    public Expr OffsetBy(DurationOrExpr by) => new(PolarsWrapper.DtOffsetBy(_expr.CloneHandle(), by.Expression.CloneHandle()));
 
     // ==========================================
     // Timestamp
@@ -463,7 +463,7 @@ public readonly struct DtOps
             minuteExpr.Handle,
             secondExpr.Handle,
             microsecondExpr.Handle,
-            amExpr.Handle
+            amExpr.CloneHandle()
         ));
     }
     /// <summary>

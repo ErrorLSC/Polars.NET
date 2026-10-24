@@ -75,8 +75,8 @@ public readonly partial struct PolarsWrapper
             try
             {
                 var h = NativeBindings.pl_expr_map(expr, callback, outputType, s_cleanupDelegate, GCHandle.ToIntPtr(handle));
-                var checkedHandle = ErrorHelper.Check(h);   
-                expr.TransferOwnership();                   
+                var checkedHandle = ErrorHelper.Check(h);
+                expr.TransferOwnership();
                 return checkedHandle;
             }
             catch
@@ -121,8 +121,8 @@ public readonly partial struct PolarsWrapper
                 var h = NativeBindings.pl_expr_map_many(
                     main, argsPtrs, (nuint)argsPtrs.Length,
                     callback, outputType, s_cleanupDelegate, GCHandle.ToIntPtr(handle));
-                var checkedHandle = ErrorHelper.Check(h);  
-                main.TransferOwnership();                   
+                var checkedHandle = ErrorHelper.Check(h);
+                main.TransferOwnership();
                 return checkedHandle;
             }
             catch
@@ -131,5 +131,108 @@ public readonly partial struct PolarsWrapper
                 throw;
             }
         }
+    }
+    public static ExprHandle MapStringPredicate(ExprHandle expr, Func<string?, bool> predicate)
+    {
+        var boolDtype = NewPrimitiveType((int)PlDataType.Boolean);
+
+        return Map(expr, arrowArray =>
+        {
+            var strViewArray = (StringViewArray)arrowArray;
+            var builder = new BooleanArray.Builder();
+
+            for (int i = 0; i < strViewArray.Length; i++)
+            {
+                if (strViewArray.IsNull(i))
+                {
+                    builder.AppendNull();
+                }
+                else
+                {
+                    string val = strViewArray.GetString(i);
+                    builder.Append(predicate(val));
+                }
+            }
+
+            return builder.Build();
+        }, boolDtype);
+    }
+    public static ExprHandle MapStringTransform(ExprHandle expr, Func<string?, string?> transform)
+    {
+        var strDtype = NewPrimitiveType((int)PlDataType.String);
+
+        return Map(expr, arrowArray =>
+        {
+            var strViewArray = (StringViewArray)arrowArray;
+            var builder = new StringViewArray.Builder();
+
+            for (int i = 0; i < strViewArray.Length; i++)
+            {
+                if (strViewArray.IsNull(i))
+                {
+                    builder.AppendNull();
+                }
+                else
+                {
+                    string val = strViewArray.GetString(i);
+                    string? res = transform(val);
+                    if (res is null) builder.AppendNull();
+                    else builder.Append(res);
+                }
+            }
+
+            return builder.Build();
+        }, strDtype);
+    }
+    public static ExprHandle MapStringToList(ExprHandle expr, Func<string?, IEnumerable<string>?> func)
+    {
+        // Polars native list type representing List(String)
+        var stringDtype = NewPrimitiveType((int)PlDataType.String);
+        var listDtype = NewListType(stringDtype);
+
+        return Map(expr, arrowArray =>
+        {
+            var strViewArray = (StringViewArray)arrowArray;
+            int length = strViewArray.Length;
+
+            // Use LargeListArray.Builder with child DataType StringViewType
+            var listBuilder = new LargeListArray.Builder(Apache.Arrow.Types.StringViewType.Default);
+            var valueBuilder = (StringViewArray.Builder)listBuilder.ValueBuilder;
+
+            for (int i = 0; i < length; i++)
+            {
+                if (strViewArray.IsNull(i))
+                {
+                    listBuilder.AppendNull();
+                }
+                else
+                {
+                    string input = strViewArray.GetString(i);
+                    var matchedList = func(input);
+
+                    if (matchedList is null)
+                    {
+                        listBuilder.AppendNull();
+                    }
+                    else
+                    {
+                        listBuilder.Append();
+                        foreach (var item in matchedList)
+                        {
+                            if (item is null)
+                            {
+                                valueBuilder.AppendNull();
+                            }
+                            else
+                            {
+                                valueBuilder.Append(item);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return listBuilder.Build();
+        }, listDtype);
     }
 }

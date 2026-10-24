@@ -16,13 +16,13 @@ public static partial class ArrowTensorInterop
         int byteLength = totalElements * Unsafe.SizeOf<T>();
 
         T[] pooledArray = ArrayPool<T>.Shared.Rent(totalElements);
-        
+
         ArrowBuffer dataBuffer;
-        
+
         try
         {
             Span<T> flatSpan = pooledArray.AsSpan(0, totalElements);
-            
+
             // memcpy 1
             tensor.FlattenTo(flatSpan);
 
@@ -37,13 +37,13 @@ public static partial class ArrowTensorInterop
         }
 
         IArrowType baseArrowType = ArrowTypeResolver.GetArrowTypeFromNetType(typeof(T));
-        
+
         ArrayData currentData = new(
             dataType: baseArrowType,
             length: totalElements,
             nullCount: 0,
             offset: 0,
-            buffers: [ArrowBuffer.Empty, dataBuffer] 
+            buffers: [ArrowBuffer.Empty, dataBuffer]
         );
 
         int currentLength = totalElements;
@@ -51,10 +51,10 @@ public static partial class ArrowTensorInterop
         for (int i = tensor.Rank - 1; i > 0; i--)
         {
             int listSize = (int)tensor.Lengths[i];
-            currentLength /= listSize; 
+            currentLength /= listSize;
 
             var listType = new FixedSizeListType(
-                new Field("item", currentData.DataType, nullable: false), 
+                new Field("item", currentData.DataType, nullable: false),
                 listSize);
 
             currentData = new ArrayData(
@@ -62,8 +62,8 @@ public static partial class ArrowTensorInterop
                 length: currentLength,
                 nullCount: 0,
                 offset: 0,
-                buffers: [ArrowBuffer.Empty], 
-                children: [currentData]       
+                buffers: [ArrowBuffer.Empty],
+                children: [currentData]
             );
         }
 
@@ -76,7 +76,7 @@ public static partial class ArrowTensorInterop
         IArrowType arrowType = ArrowTypeResolver.GetArrowTypeFromNetType(typeof(T));
 
         int byteLength = span.Length * Unsafe.SizeOf<T>();
-        
+
         ArrowBuffer dataBuffer = new ArrowBuffer.Builder<byte>(byteLength)
                                     .Append(MemoryMarshal.AsBytes(span))
                                     .Build();
@@ -86,7 +86,7 @@ public static partial class ArrowTensorInterop
             length: span.Length,
             nullCount: 0,
             offset: 0,
-            buffers: [ArrowBuffer.Empty, dataBuffer] 
+            buffers: [ArrowBuffer.Empty, dataBuffer]
         );
 
         return ArrowArrayFactory.BuildArray(arrayData);

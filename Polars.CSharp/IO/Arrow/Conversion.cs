@@ -3,7 +3,8 @@ using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Create DataFrame from Apache Arrow RecordBatch.
@@ -17,7 +18,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public RecordBatch ToArrow() => ArrowFfiBridge.ExportDataFrame(Handle);
 }
 
-public partial class Series : IDisposable,IPolarsSeries
+public partial class Series : IDisposable
 {
     /// <summary>
     /// Zero-copy convert to Apache Arrow Array.

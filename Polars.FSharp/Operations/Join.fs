@@ -1,4 +1,5 @@
 namespace Polars.FSharp
+
 open Polars.NET.Core
 
 [<RequireQualifiedAccess>]
@@ -7,9 +8,11 @@ type Tolerance =
     | TimeSpan of System.TimeSpan
     | Integer of int64
     | Float of float
+
 [<AutoOpen>]
-module JoinOps = 
+module JoinOps =
     open Polars.NET.Core.Helpers
+
     type LazyFrame with
         /// <summary>
         /// Join with another LazyFrame using column names.
@@ -26,23 +29,26 @@ module JoinOps =
         /// <param name="nullsEqual">Consider nulls as equal.</param>
         /// <param name="sliceOffset">Slice the result starting at this offset.</param>
         /// <param name="sliceLen">Length of the slice.</param>
-        member this.Join(other: LazyFrame, 
-                        leftOn: Expr seq, 
-                        rightOn: Expr seq, 
-                        how: JoinType,
-                        // --- New Optional Parameters ---
-                        ?suffix: string,
-                        ?validation: JoinValidation,
-                        ?coalesce: JoinCoalesce,
-                        ?maintainOrder: JoinMaintainOrder,
-                        ?joinSide: JoinSide,
-                        ?nullsEqual: bool,
-                        ?sliceOffset: int64,
-                        ?sliceLen: uint64) : LazyFrame =
+        member this.Join
+            (
+                other: LazyFrame,
+                leftOn: Expr seq,
+                rightOn: Expr seq,
+                how: JoinType,
+                // --- New Optional Parameters ---
+                ?suffix: string,
+                ?validation: JoinValidation,
+                ?coalesce: JoinCoalesce,
+                ?maintainOrder: JoinMaintainOrder,
+                ?joinSide: JoinSide,
+                ?nullsEqual: bool,
+                ?sliceOffset: int64,
+                ?sliceLen: uint64
+            ) : LazyFrame =
 
             let lOnArr = leftOn |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
             let rOnArr = rightOn |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
-            
+
             let lHandle = this.CloneHandle()
             let rHandle = other.CloneHandle()
 
@@ -53,72 +59,92 @@ module JoinOps =
             let mo = defaultArg maintainOrder JoinMaintainOrder.NotMaintainOrder
             let ne = defaultArg nullsEqual false
             let js = defaultArg joinSide JoinSide.LetPolarsDecide
-            
+
             let so = Option.toNullable sliceOffset
             let sl = defaultArg sliceLen 0UL
 
-            let newHandle = PolarsWrapper.Join(
-                lHandle, 
-                rHandle, 
-                lOnArr, 
-                rOnArr, 
-                how.ToNative(),
-                suff,
-                valid.ToNative(),
-                coal.ToNative(),
-                mo.ToNative(),
-                js.ToNative(),
-                ne,
-                so,
-                sl
-            )
-            
+            let newHandle =
+                PolarsWrapper.Join(
+                    lHandle,
+                    rHandle,
+                    lOnArr,
+                    rOnArr,
+                    how.ToNative(),
+                    suff,
+                    valid.ToNative(),
+                    coal.ToNative(),
+                    mo.ToNative(),
+                    js.ToNative(),
+                    ne,
+                    so,
+                    sl
+                )
+
             new LazyFrame(newHandle)
-        member this.Join(other, 
-                        on: Expr seq, 
-                        how: JoinType,
-                        // --- New Optional Parameters ---
-                        ?suffix: string,
-                        ?validation: JoinValidation,
-                        ?coalesce: JoinCoalesce,
-                        ?maintainOrder: JoinMaintainOrder,
-                        ?joinSide: JoinSide,
-                        ?nullsEqual: bool,
-                        ?sliceOffset: int64,
-                        ?sliceLen: uint64) =
-            this.Join(other,leftOn=on,rightOn=on,how = how,
-                ?suffix=suffix,?validation=validation,?coalesce=coalesce,?maintainOrder=maintainOrder,
-                ?joinSide=joinSide,?nullsEqual=nullsEqual,?sliceOffset=sliceOffset,?sliceLen=sliceLen)
+
+        member this.Join
+            (
+                other,
+                on: Expr seq,
+                how: JoinType,
+                // --- New Optional Parameters ---
+                ?suffix: string,
+                ?validation: JoinValidation,
+                ?coalesce: JoinCoalesce,
+                ?maintainOrder: JoinMaintainOrder,
+                ?joinSide: JoinSide,
+                ?nullsEqual: bool,
+                ?sliceOffset: int64,
+                ?sliceLen: uint64
+            ) =
+            this.Join(
+                other,
+                leftOn = on,
+                rightOn = on,
+                how = how,
+                ?suffix = suffix,
+                ?validation = validation,
+                ?coalesce = coalesce,
+                ?maintainOrder = maintainOrder,
+                ?joinSide = joinSide,
+                ?nullsEqual = nullsEqual,
+                ?sliceOffset = sliceOffset,
+                ?sliceLen = sliceLen
+            )
+
         /// <summary>
         /// JoinAsOf with string tolerance (e.g., "2d", "1h").
         /// </summary>
-        member internal this.JoinAsOfInternal(other: LazyFrame, 
-                            leftOn: Expr, 
-                            rightOn: Expr, 
-                            // --- Optional Parameters ---
-                            ?byLeft: Expr seq, 
-                            ?byRight: Expr seq, 
-                            ?strategy: AsofStrategy, 
-                            ?tolerance: string,      // String (e.g. "2h")
-                            ?toleranceInt: int64,    // Int (e.g. timestamp)
-                            ?toleranceFloat: float,  // Float
-                            ?allowEq: bool,
-                            ?checkSorted: bool,
-                            ?suffix: string,
-                            ?validation: JoinValidation,
-                            ?coalesce: JoinCoalesce,
-                            ?maintainOrder: JoinMaintainOrder,
-                            ?joinSide: JoinSide,
-                            ?nullsEqual: bool,
-                            ?sliceOffset: int64,
-                            ?sliceLen: uint64) : LazyFrame =
-            
+        member internal this.JoinAsOfInternal
+            (
+                other: LazyFrame,
+                leftOn: Expr,
+                rightOn: Expr,
+                // --- Optional Parameters ---
+                ?byLeft: Expr seq,
+                ?byRight: Expr seq,
+                ?strategy: AsofStrategy,
+                ?tolerance: string, // String (e.g. "2h")
+                ?toleranceInt: int64, // Int (e.g. timestamp)
+                ?toleranceFloat: float, // Float
+                ?allowEq: bool,
+                ?checkSorted: bool,
+                ?suffix: string,
+                ?validation: JoinValidation,
+                ?coalesce: JoinCoalesce,
+                ?maintainOrder: JoinMaintainOrder,
+                ?joinSide: JoinSide,
+                ?nullsEqual: bool,
+                ?sliceOffset: int64,
+                ?sliceLen: uint64
+            ) : LazyFrame =
+
             // 1. Clone Handles (Mandatory)
             let lClone = this.CloneHandle()
             let rClone = other.CloneHandle()
             let lOn = leftOn.CloneHandle()
             let rOn = rightOn.CloneHandle()
-            
+
             // 2. Handle 'By' keys (Optional List -> Handle Array)
             let toHandleArr (exprs: Expr seq option) =
                 match exprs with
@@ -134,16 +160,16 @@ module JoinOps =
             let coal = defaultArg coalesce JoinCoalesce.JoinSpecific
             let mo = defaultArg maintainOrder JoinMaintainOrder.NotMaintainOrder
             let js = defaultArg joinSide JoinSide.LetPolarsDecide
-            
+
             // 4. Handle Bools & Strings
             let ae = defaultArg allowEq true
             let cs = defaultArg checkSorted true
             let ne = defaultArg nullsEqual false
             let suff = defaultArg suffix null // Rust default is "_right"
-            
+
             // 5. Handle Nullables (Tolerances & Slice)
             // Option.toObj converts string option -> string (null if None)
-            let tolStr = Option.toObj tolerance 
+            let tolStr = Option.toObj tolerance
             // Option.toNullable converts int option -> Nullable<int>
             let tolInt = Option.toNullable toleranceInt
             let tolFloat = Option.toNullable toleranceFloat
@@ -151,27 +177,32 @@ module JoinOps =
             let sLen = defaultArg sliceLen 0UL
 
             // 6. Call Wrapper
-            let h = PolarsWrapper.JoinAsOf(
-                lClone, rClone, 
-                [| lOn |], [| rOn |],
-                lByArr, rByArr,
-                strat.ToNative(),     // Enum -> PlAsofStrategy
-                tolStr,
-                tolInt,
-                tolFloat,
-                ae,
-                cs,
-                suff,
-                valid.ToNative(),
-                coal.ToNative(),
-                mo.ToNative(),
-                js.ToNative(),
-                ne,
-                sOff,
-                sLen
-            )
-            
+            let h =
+                PolarsWrapper.JoinAsOf(
+                    lClone,
+                    rClone,
+                    [| lOn |],
+                    [| rOn |],
+                    lByArr,
+                    rByArr,
+                    strat.ToNative(), // Enum -> PlAsofStrategy
+                    tolStr,
+                    tolInt,
+                    tolFloat,
+                    ae,
+                    cs,
+                    suff,
+                    valid.ToNative(),
+                    coal.ToNative(),
+                    mo.ToNative(),
+                    js.ToNative(),
+                    ne,
+                    sOff,
+                    sLen
+                )
+
             new LazyFrame(h)
+
         /// <summary>
         /// Perform an As-of join (also known as a time-series join).
         /// <para>
@@ -183,7 +214,7 @@ module JoinOps =
         /// <param name="leftOn">Join key of the left LazyFrame. Must be sorted.</param>
         /// <param name="rightOn">Join key of the right LazyFrame. Must be sorted.</param>
         /// <param name="tolerance">
-        /// Tolerance as a time duration string (e.g., "2h", "10s", "1d"), int or double or TimeSpan. 
+        /// Tolerance as a time duration string (e.g., "2h", "10s", "1d"), int or double or TimeSpan.
         /// Matches that are further away than this duration are discarded.
         /// </param>
         /// <param name="strategy">
@@ -191,18 +222,18 @@ module JoinOps =
         /// Defaults to <see cref="AsofStrategy.Backward"/>.
         /// </param>
         /// <param name="leftBy">
-        /// Columns to match exactly (equivalence join) before performing the as-of join. 
+        /// Columns to match exactly (equivalence join) before performing the as-of join.
         /// Useful for joining separate time-series per group (e.g., by "Symbol").
         /// </param>
         /// <param name="rightBy">
         /// Columns to match exactly in the right DataFrame.
         /// </param>
         /// <param name="allowEq">
-        /// If true, allow exact matches to be included in the result. 
+        /// If true, allow exact matches to be included in the result.
         /// If false, a match must be strictly unequal (e.g. less than for Backward strategy) to the key.
         /// </param>
         /// <param name="checkSorted">
-        /// Check if the join keys are sorted. 
+        /// Check if the join keys are sorted.
         /// If false, the user must ensure keys are sorted; otherwise results are undefined (but execution is faster).
         /// </param>
         /// <param name="suffix">Suffix to append to columns with name conflicts. Defaults to "_right".</param>
@@ -213,54 +244,117 @@ module JoinOps =
         /// <param name="nullsEqual">Consider nulls as equal.</param>
         /// <param name="sliceOffset">Slice the result starting at this offset (optimization).</param>
         /// <param name="sliceLen">Length of the slice to keep.</param>
-        member this.JoinAsOf(other: LazyFrame, leftOn: Expr, rightOn: Expr, tolerance: Tolerance, 
-                            ?strategy: AsofStrategy, ?byLeft: Expr seq, ?byRight: Expr seq,
-                            ?allowEq: bool,?checkSorted: bool,?suffix: string,?validation: JoinValidation,
-                            ?coalesce: JoinCoalesce,?maintainOrder: JoinMaintainOrder,
-                            ?joinSide: JoinSide,?nullsEqual: bool,
-                            ?sliceOffset: int64,?sliceLen: uint64) =
+        /// <param name="byRight"></param>
+        /// <param name="byLeft"></param>
+        member this.JoinAsOf
+            (
+                other: LazyFrame,
+                leftOn: Expr,
+                rightOn: Expr,
+                tolerance: Tolerance,
+                ?strategy: AsofStrategy,
+                ?byLeft: Expr seq,
+                ?byRight: Expr seq,
+                ?allowEq: bool,
+                ?checkSorted: bool,
+                ?suffix: string,
+                ?validation: JoinValidation,
+                ?coalesce: JoinCoalesce,
+                ?maintainOrder: JoinMaintainOrder,
+                ?joinSide: JoinSide,
+                ?nullsEqual: bool,
+                ?sliceOffset: int64,
+                ?sliceLen: uint64
+            ) =
             match tolerance with
             | Tolerance.String s ->
                 this.JoinAsOfInternal(
-                    other, leftOn, rightOn, 
-                    tolerance = s , // String
-                    ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight,
-                    ?allowEq = allowEq , ?checkSorted = checkSorted, ?suffix=suffix,?validation=validation,
-                    ?coalesce = coalesce, ?maintainOrder=maintainOrder,?joinSide=joinSide,
-                    ?nullsEqual = nullsEqual, ?sliceOffset = sliceOffset , ?sliceLen = sliceLen 
+                    other,
+                    leftOn,
+                    rightOn,
+                    tolerance = s, // String
+                    ?strategy = strategy,
+                    ?byLeft = byLeft,
+                    ?byRight = byRight,
+                    ?allowEq = allowEq,
+                    ?checkSorted = checkSorted,
+                    ?suffix = suffix,
+                    ?validation = validation,
+                    ?coalesce = coalesce,
+                    ?maintainOrder = maintainOrder,
+                    ?joinSide = joinSide,
+                    ?nullsEqual = nullsEqual,
+                    ?sliceOffset = sliceOffset,
+                    ?sliceLen = sliceLen
                 )
             | Tolerance.TimeSpan ts ->
                 let tolStr = DurationFormatter.ToPolarsString ts
+
                 this.JoinAsOfInternal(
-                    other, leftOn, rightOn, 
+                    other,
+                    leftOn,
+                    rightOn,
                     tolerance = tolStr, // Converted String
-                    ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight,
-                    ?allowEq = allowEq , ?checkSorted = checkSorted, ?suffix=suffix,?validation=validation,
-                    ?coalesce = coalesce, ?maintainOrder=maintainOrder,?joinSide=joinSide,
-                    ?nullsEqual = nullsEqual, ?sliceOffset = sliceOffset , ?sliceLen = sliceLen 
+                    ?strategy = strategy,
+                    ?byLeft = byLeft,
+                    ?byRight = byRight,
+                    ?allowEq = allowEq,
+                    ?checkSorted = checkSorted,
+                    ?suffix = suffix,
+                    ?validation = validation,
+                    ?coalesce = coalesce,
+                    ?maintainOrder = maintainOrder,
+                    ?joinSide = joinSide,
+                    ?nullsEqual = nullsEqual,
+                    ?sliceOffset = sliceOffset,
+                    ?sliceLen = sliceLen
                 )
             | Tolerance.Integer it ->
                 this.JoinAsOfInternal(
-                    other, leftOn, rightOn, 
+                    other,
+                    leftOn,
+                    rightOn,
                     toleranceInt = it, // Int64
-                    ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight,
-                    ?allowEq = allowEq , ?checkSorted = checkSorted, ?suffix=suffix,?validation=validation,
-                    ?coalesce = coalesce, ?maintainOrder=maintainOrder,?joinSide=joinSide,
-                    ?nullsEqual = nullsEqual, ?sliceOffset = sliceOffset , ?sliceLen = sliceLen 
-                ) 
-            | Tolerance.Float fl -> 
-                this.JoinAsOfInternal(
-                    other, leftOn, rightOn, 
-                    toleranceFloat = fl, // Float
-                    ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight,
-                    ?allowEq = allowEq , ?checkSorted = checkSorted, ?suffix=suffix,?validation=validation,
-                    ?coalesce = coalesce, ?maintainOrder=maintainOrder,?joinSide=joinSide,
-                    ?nullsEqual = nullsEqual, ?sliceOffset = sliceOffset , ?sliceLen = sliceLen 
+                    ?strategy = strategy,
+                    ?byLeft = byLeft,
+                    ?byRight = byRight,
+                    ?allowEq = allowEq,
+                    ?checkSorted = checkSorted,
+                    ?suffix = suffix,
+                    ?validation = validation,
+                    ?coalesce = coalesce,
+                    ?maintainOrder = maintainOrder,
+                    ?joinSide = joinSide,
+                    ?nullsEqual = nullsEqual,
+                    ?sliceOffset = sliceOffset,
+                    ?sliceLen = sliceLen
                 )
+            | Tolerance.Float fl ->
+                this.JoinAsOfInternal(
+                    other,
+                    leftOn,
+                    rightOn,
+                    toleranceFloat = fl, // Float
+                    ?strategy = strategy,
+                    ?byLeft = byLeft,
+                    ?byRight = byRight,
+                    ?allowEq = allowEq,
+                    ?checkSorted = checkSorted,
+                    ?suffix = suffix,
+                    ?validation = validation,
+                    ?coalesce = coalesce,
+                    ?maintainOrder = maintainOrder,
+                    ?joinSide = joinSide,
+                    ?nullsEqual = nullsEqual,
+                    ?sliceOffset = sliceOffset,
+                    ?sliceLen = sliceLen
+                )
+
         /// <summary>
         /// Join with another LazyFrame using multiple boolean expressions.
         /// </summary>
-        member this.JoinWhere(other:LazyFrame,predicates:seq<Expr>,?how,?suffix,?validation,?coalesce,?maintainOrder,?nullsEqual) =
+        member this.JoinWhere
+            (other: LazyFrame, predicates: seq<Expr>, ?how, ?suffix, ?validation, ?coalesce, ?maintainOrder, ?nullsEqual) =
             let pre = predicates |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
             let ho = defaultArg how JoinType.Inner |> _.ToNative()
             let suf = defaultArg suffix null
@@ -268,32 +362,36 @@ module JoinOps =
             let coa = defaultArg coalesce JoinCoalesce.JoinSpecific |> _.ToNative()
             let ma = defaultArg maintainOrder JoinMaintainOrder.NotMaintainOrder |> _.ToNative()
             let nul = defaultArg nullsEqual false
-            let h = PolarsWrapper.JoinWhere(
-                this.CloneHandle(),
-                other.CloneHandle(),
-                pre,ho,suf,va,coa,ma,nul
-            )
+
+            let h =
+                PolarsWrapper.JoinWhere(this.CloneHandle(), other.CloneHandle(), pre, ho, suf, va, coa, ma, nul)
+
             new LazyFrame(h)
+
         /// <summary>
         /// Take two sorted DataFrames and merge them by the sorted key.
-        /// The output of this operation will also be sorted. 
-        /// It is the callers responsibility that the frames are sorted in ascending order by the key, 
+        /// The output of this operation will also be sorted.
+        /// It is the callers responsibility that the frames are sorted in ascending order by the key,
         /// with null keys at the end, otherwise the order of the output will not make sense.
         /// The schemas of both LazyFrames must be equal.
         /// </summary>
         /// <param name="other">Other DataFrame that must be merged</param>
         /// <param name="key">Key that is sorted.</param>
-        /// <param name="maintainOrder">If True, the output is guaranteed to have left-biased ordering for equal keys: 
+        /// <param name="maintainOrder">If True, the output is guaranteed to have left-biased ordering for equal keys:
         /// rows from the left frame appear before rows from the right frame when their keys are equal.</param>
-        member this.MergeSorted(other:LazyFrame,key:string,?maintainOrder) =
+        member this.MergeSorted(other: LazyFrame, key: string, ?maintainOrder) =
             let ma = defaultArg maintainOrder false
-            let h = PolarsWrapper.MergeSorted(this.CloneHandle(),other.CloneHandle(),[|key|],ma)
+
+            let h =
+                PolarsWrapper.MergeSorted(this.CloneHandle(), other.CloneHandle(), [| key |], ma)
+
             new LazyFrame(h)
-        member this.MergeSorted(other:LazyFrame,key:string array,?maintainOrder) =
+
+        member this.MergeSorted(other: LazyFrame, key: string array, ?maintainOrder) =
             let ma = defaultArg maintainOrder false
-            let h = PolarsWrapper.MergeSorted(this.CloneHandle(),other.CloneHandle(),key,ma)
+            let h = PolarsWrapper.MergeSorted(this.CloneHandle(), other.CloneHandle(), key, ma)
             new LazyFrame(h)
-            
+
     type DataFrame with
         /// <summary>
         /// Join with another DataFrame.
@@ -310,20 +408,23 @@ module JoinOps =
         /// <param name="nullsEqual">Consider nulls as equal.</param>
         /// <param name="sliceOffset">Slice the result starting at this offset.</param>
         /// <param name="sliceLen">Length of the slice.</param>
-        member this.Join (other: DataFrame,
-                        leftOn: seq<Expr>,
-                        rightOn: seq<Expr>,
-                        how: JoinType,
-                        // --- New Optional Parameters ---
-                        ?suffix: string,
-                        ?validation: JoinValidation,
-                        ?coalesce: JoinCoalesce,
-                        ?maintainOrder: JoinMaintainOrder,
-                        ?joinSide: JoinSide,
-                        ?nullsEqual: bool,
-                        ?sliceOffset: int64,
-                        ?sliceLen: uint64) : DataFrame =
-            
+        member this.Join
+            (
+                other: DataFrame,
+                leftOn: seq<Expr>,
+                rightOn: seq<Expr>,
+                how: JoinType,
+                // --- New Optional Parameters ---
+                ?suffix: string,
+                ?validation: JoinValidation,
+                ?coalesce: JoinCoalesce,
+                ?maintainOrder: JoinMaintainOrder,
+                ?joinSide: JoinSide,
+                ?nullsEqual: bool,
+                ?sliceOffset: int64,
+                ?sliceLen: uint64
+            ) : DataFrame =
+
             // Handle Defaults
             let suff = defaultArg suffix null // Pass null to let Rust use default ("_right")
             let valid = defaultArg validation JoinValidation.ManyToMany
@@ -331,44 +432,60 @@ module JoinOps =
             let mo = defaultArg maintainOrder JoinMaintainOrder.NotMaintainOrder
             let js = defaultArg joinSide JoinSide.LetPolarsDecide
             let ne = defaultArg nullsEqual false
-            
-            // Slice logic
-            let so = Option.toNullable sliceOffset
-            let sl = defaultArg sliceLen 0UL
 
-            let lf = this.Lazy().Join(
-                other.Lazy(), 
-                leftOn, 
-                rightOn, 
-                how,
-                suff,
-                valid,
-                coal,
-                mo,
-                js,
-                ne,
-                ?sliceOffset=sliceOffset,
-                ?sliceLen=sliceLen
-            )
+            let lf =
+                this
+                    .Lazy()
+                    .Join(
+                        other.Lazy(),
+                        leftOn,
+                        rightOn,
+                        how,
+                        suff,
+                        valid,
+                        coal,
+                        mo,
+                        js,
+                        ne,
+                        ?sliceOffset = sliceOffset,
+                        ?sliceLen = sliceLen
+                    )
+
             lf.Collect()
+
         /// <summary>
         /// Join with another DataFrame with single on Expr.
         /// </summary>
-        member this.Join(other, 
-                        on: Expr seq, 
-                        how: JoinType,
-                        // --- New Optional Parameters ---
-                        ?suffix: string,
-                        ?validation: JoinValidation,
-                        ?coalesce: JoinCoalesce,
-                        ?maintainOrder: JoinMaintainOrder,
-                        ?joinSide: JoinSide,
-                        ?nullsEqual: bool,
-                        ?sliceOffset: int64,
-                        ?sliceLen: uint64) =
-            this.Join(other,leftOn=on,rightOn=on,how = how,
-                ?suffix=suffix,?validation=validation,?coalesce=coalesce,?maintainOrder=maintainOrder,
-                ?joinSide=joinSide,?nullsEqual=nullsEqual,?sliceOffset=sliceOffset,?sliceLen=sliceLen)
+        member this.Join
+            (
+                other,
+                on: Expr seq,
+                how: JoinType,
+                // --- New Optional Parameters ---
+                ?suffix: string,
+                ?validation: JoinValidation,
+                ?coalesce: JoinCoalesce,
+                ?maintainOrder: JoinMaintainOrder,
+                ?joinSide: JoinSide,
+                ?nullsEqual: bool,
+                ?sliceOffset: int64,
+                ?sliceLen: uint64
+            ) =
+            this.Join(
+                other,
+                leftOn = on,
+                rightOn = on,
+                how = how,
+                ?suffix = suffix,
+                ?validation = validation,
+                ?coalesce = coalesce,
+                ?maintainOrder = maintainOrder,
+                ?joinSide = joinSide,
+                ?nullsEqual = nullsEqual,
+                ?sliceOffset = sliceOffset,
+                ?sliceLen = sliceLen
+            )
+
         /// <summary>
         /// Perform an As-of join (also known as a time-series join).
         /// <para>
@@ -380,7 +497,7 @@ module JoinOps =
         /// <param name="leftOn">Join key of the left LazyFrame. Must be sorted.</param>
         /// <param name="rightOn">Join key of the right LazyFrame. Must be sorted.</param>
         /// <param name="tolerance">
-        /// Tolerance as a time duration string (e.g., "2h", "10s", "1d"), int or double or TimeSpan. 
+        /// Tolerance as a time duration string (e.g., "2h", "10s", "1d"), int or double or TimeSpan.
         /// Matches that are further away than this duration are discarded.
         /// </param>
         /// <param name="strategy">
@@ -388,18 +505,18 @@ module JoinOps =
         /// Defaults to <see cref="AsofStrategy.Backward"/>.
         /// </param>
         /// <param name="leftBy">
-        /// Columns to match exactly (equivalence join) before performing the as-of join. 
+        /// Columns to match exactly (equivalence join) before performing the as-of join.
         /// Useful for joining separate time-series per group (e.g., by "Symbol").
         /// </param>
         /// <param name="rightBy">
         /// Columns to match exactly in the right DataFrame.
         /// </param>
         /// <param name="allowEq">
-        /// If true, allow exact matches to be included in the result. 
+        /// If true, allow exact matches to be included in the result.
         /// If false, a match must be strictly unequal (e.g. less than for Backward strategy) to the key.
         /// </param>
         /// <param name="checkSorted">
-        /// Check if the join keys are sorted. 
+        /// Check if the join keys are sorted.
         /// If false, the user must ensure keys are sorted; otherwise results are undefined (but execution is faster).
         /// </param>
         /// <param name="suffix">Suffix to append to columns with name conflicts. Defaults to "_right".</param>
@@ -410,43 +527,88 @@ module JoinOps =
         /// <param name="nullsEqual">Consider nulls as equal.</param>
         /// <param name="sliceOffset">Slice the result starting at this offset (optimization).</param>
         /// <param name="sliceLen">Length of the slice to keep.</param>
-        member this.JoinAsOf(other: DataFrame, 
-                            leftOn: Expr, 
-                            rightOn: Expr, 
-                            tolerance: Tolerance,
-                            // --- Optional Parameters ---
-                            ?byLeft: Expr seq, 
-                            ?byRight: Expr seq, 
-                            ?strategy: AsofStrategy, 
-                            ?allowEq: bool,
-                            ?checkSorted: bool,
-                            ?suffix: string,
-                            ?validation: JoinValidation,
-                            ?coalesce: JoinCoalesce,
-                            ?maintainOrder: JoinMaintainOrder,
-                            ?joinSide: JoinSide,
-                            ?nullsEqual: bool,
-                            ?sliceOffset: int64,
-                            ?sliceLen: uint64) : DataFrame =
-            
+        member this.JoinAsOf
+            (
+                other: DataFrame,
+                leftOn: Expr,
+                rightOn: Expr,
+                tolerance: Tolerance,
+                // --- Optional Parameters ---
+                ?byLeft: Expr seq,
+                ?byRight: Expr seq,
+                ?strategy: AsofStrategy,
+                ?allowEq: bool,
+                ?checkSorted: bool,
+                ?suffix: string,
+                ?validation: JoinValidation,
+                ?coalesce: JoinCoalesce,
+                ?maintainOrder: JoinMaintainOrder,
+                ?joinSide: JoinSide,
+                ?nullsEqual: bool,
+                ?sliceOffset: int64,
+                ?sliceLen: uint64
+            ) : DataFrame =
+
             let lfSelf = this.Lazy()
             let lfOther = other.Lazy()
-            lfSelf.JoinAsOf(lfOther,leftOn,rightOn,tolerance,
-                    ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight,
-                    ?allowEq = allowEq , ?checkSorted = checkSorted, ?suffix=suffix,?validation=validation,
-                    ?coalesce = coalesce, ?maintainOrder=maintainOrder,?joinSide=joinSide,
-                    ?nullsEqual = nullsEqual, ?sliceOffset = sliceOffset , ?sliceLen = sliceLen 
-                ).Collect()
+
+            lfSelf
+                .JoinAsOf(
+                    lfOther,
+                    leftOn,
+                    rightOn,
+                    tolerance,
+                    ?strategy = strategy,
+                    ?byLeft = byLeft,
+                    ?byRight = byRight,
+                    ?allowEq = allowEq,
+                    ?checkSorted = checkSorted,
+                    ?suffix = suffix,
+                    ?validation = validation,
+                    ?coalesce = coalesce,
+                    ?maintainOrder = maintainOrder,
+                    ?joinSide = joinSide,
+                    ?nullsEqual = nullsEqual,
+                    ?sliceOffset = sliceOffset,
+                    ?sliceLen = sliceLen
+                )
+                .Collect()
+
         /// <summary>
         /// Join with another LazyFrame using multiple boolean expressions.
         /// </summary>
-        member this.JoinWhere(other:DataFrame,predicates:seq<Expr>,?how,?suffix,?validation,?coalesce,?maintainOrder,?nullsEqual):DataFrame =
-            this.Lazy().JoinWhere(other.Lazy(),predicates,?how=how,?suffix=suffix,?validation=validation,?coalesce=coalesce,
-            ?maintainOrder=maintainOrder,?nullsEqual=nullsEqual).Collect()
-        member this.MergeSorted(other:DataFrame,key:string,?maintainOrder):DataFrame=
-            this.Lazy().MergeSorted(other.Lazy(),key,?maintainOrder=maintainOrder).Collect()
-        member this.MergeSorted(other:DataFrame,key:string array,?maintainOrder):DataFrame=
-            this.Lazy().MergeSorted(other.Lazy(),key,?maintainOrder=maintainOrder).Collect()
-    
-        
+        member this.JoinWhere
+            (other: DataFrame, predicates: seq<Expr>, ?how, ?suffix, ?validation, ?coalesce, ?maintainOrder, ?nullsEqual) : DataFrame =
+            this
+                .Lazy()
+                .JoinWhere(
+                    other.Lazy(),
+                    predicates,
+                    ?how = how,
+                    ?suffix = suffix,
+                    ?validation = validation,
+                    ?coalesce = coalesce,
+                    ?maintainOrder = maintainOrder,
+                    ?nullsEqual = nullsEqual
+                )
+                .Collect()
 
+        /// <summary>
+        /// Take two sorted DataFrames and merge them by the sorted key.
+        /// </summary>
+        /// <param name="other">Other DataFrame that must be merged</param>
+        /// <param name="key">Key that is sorted.</param>
+        /// <param name="maintainOrder">If True, the output is guaranteed to have left-biased ordering for equal keys:
+        /// rows from the left frame appear before rows from the right frame when their keys are equal.</param>
+        member this.MergeSorted(other: DataFrame, key: string, ?maintainOrder) : DataFrame =
+            this.Lazy().MergeSorted(other.Lazy(), key, ?maintainOrder = maintainOrder).Collect()
+
+        /// <summary>
+        /// Take two sorted DataFrames and merge them by the sorted key.
+        /// </summary>
+        /// <param name="other">Other DataFrame that must be merged</param>
+        /// <param name="key">Key that is sorted.</param>
+        /// <param name="maintainOrder">If True, the output is guaranteed to have left-biased ordering for equal keys:
+        /// rows from the left frame appear before rows from the right frame when their keys are equal.</param>
+        member this.MergeSorted(other: DataFrame, key: string array, ?maintainOrder) : DataFrame =
+            this.Lazy().MergeSorted(other.Lazy(), key, ?maintainOrder = maintainOrder).Collect()

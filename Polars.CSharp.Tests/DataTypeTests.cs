@@ -239,7 +239,7 @@ public class DataTypeTests
         // Beijing: 08:00 (+8) ->  UTC 00:00
         var beijingPoint = new DateTimeOffset(2025, 1, 1, 8, 0, 0, TimeSpan.FromHours(8));
 
-        // New York: 19:00 (-5, 前一天) -> 对应 UTC 00:00
+        // New York: 19:00 (-5, Yesterday) -> UTC 00:00
         var nyPoint = new DateTimeOffset(2024, 12, 31, 19, 0, 0, TimeSpan.FromHours(-5));
 
         var data = new DateTimeOffset?[]
@@ -422,7 +422,7 @@ public class DataTypeTests
         {
             ts = new[] { dt }
         });
-
+        
         // --- ReplaceTimeZone (Naive -> Asia/Shanghai) ---
 
         using var df1 = df.Select(

@@ -1,9 +1,9 @@
 using Polars.NET.Core;
-using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
+using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp;
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Unstack a long table to a wide form without doing an aggregation.
@@ -17,7 +17,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         using var safeSelector = columns.Consume();
         string[] resolvedColumns = Cs.ExpandSelector(this, safeSelector);
-        
+
         return UnstackInternal(step, how, resolvedColumns, fillValues);
     }
 
@@ -34,8 +34,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Unstack all columns
     /// </summary>
     public DataFrame Unstack(
-        long step, 
-        UnstackDirection how = UnstackDirection.Vertical, 
+        long step,
+        UnstackDirection how = UnstackDirection.Vertical,
         object?[]? fillValues = null)
         => UnstackInternal(step, how, [], fillValues);
     private DataFrame UnstackInternal(long step, UnstackDirection how, string[] resolvedColumns, object?[]? fillValues)
@@ -78,15 +78,15 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                     fills = [.. Enumerable.Repeat(singleFill, (int)df.Width)];
                 }
 
-                var schema = df.Schema; 
+                var schema = df.Schema;
                 var extendExprs = new Expr[df.Width];
 
                 for (int i = 0; i < df.Width; i++)
                 {
                     string colName = df.Columns[i];
-                    var colType = schema[colName]; 
-                    
-                    var fillExpr = Expr.MakeLit(fills[i]!).Cast(colType); 
+                    var colType = schema[colName];
+
+                    var fillExpr = Expr.MakeLit(fills[i]!).Cast(colType);
                     var nFillExpr = Expr.MakeLit(nFill);
 
                     extendExprs[i] = Pl.Col(colName)

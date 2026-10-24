@@ -60,9 +60,9 @@ public sealed class CloudOptions
     /// <param name="bucket">Optional bucket name (usually inferred from path).</param>
     /// <param name="sessionToken">Optional session token for temporary credentials.</param>
     public static CloudOptions Aws(
-        string region, 
-        string? accessKey = null, 
-        string? secretKey = null, 
+        string region,
+        string? accessKey = null,
+        string? secretKey = null,
         string? endpoint = null,
         string? bucket = null,
         string? sessionToken = null)
@@ -97,8 +97,8 @@ public sealed class CloudOptions
     /// <param name="sasToken">Shared Access Signature (SAS) token. (Mutually exclusive with accessKey).</param>
     /// <param name="endpoint">Custom endpoint URL.</param>
     public static CloudOptions Azure(
-        string accountName, 
-        string? accessKey = null, 
+        string accountName,
+        string? accessKey = null,
         string? sasToken = null,
         string? endpoint = null)
     {
@@ -187,7 +187,7 @@ public sealed class CloudOptions
     public static CloudOptions HuggingFace(string? token = null)
     {
         var creds = new Dictionary<string, string>();
-        
+
         if (token != null)
         {
             creds["token"] = token;
@@ -219,10 +219,10 @@ public sealed class CloudOptions
         string[]? keys = null;
         string[]? values = null;
 
-        if (options.Credentials != null && options.Credentials.Count > 0)
+        if (options.Credentials?.Count > 0)
         {
-            keys = options.Credentials.Keys.ToArray();
-            values = options.Credentials.Values.ToArray();
+            keys = [.. options.Credentials.Keys];
+            values = [.. options.Credentials.Values];
         }
 
         return (

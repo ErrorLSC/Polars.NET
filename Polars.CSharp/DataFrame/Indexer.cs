@@ -13,7 +13,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     public Series this[string columnName]
     {
         get => Column(columnName);
-        set 
+        set
         {
             ArgumentNullException.ThrowIfNull(value);
             if (value.Name != columnName) value.Rename(columnName);
@@ -59,7 +59,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
             var series = this[colName];
             long height = series.Length;
             long actualIndex = rowIndex.IsFromEnd ? height - rowIndex.Value : rowIndex.Value;
-            
+
             using var clonedSeries = series.Clone();
             clonedSeries[(int)actualIndex] = value;
             ReplaceColumn(colName, clonedSeries, keepName: true);
@@ -77,8 +77,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
             {
                 return Filter(maskOrIndices);
             }
-            
-            if (maskOrIndices.DataType.IsInteger) 
+
+            if (maskOrIndices.DataType.IsInteger)
             {
                 return Take(maskOrIndices);
             }
@@ -156,7 +156,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
 
             if (columns.Length == 0)
             {
-                return []; 
+                return [];
             }
 
             using var selectedDf = Select(columns);
@@ -192,7 +192,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         set
         {
             ArgumentNullException.ThrowIfNull(value);
-            
+
             if (value.Width != columnNames.Length)
                 throw new ArgumentException($"Provided DataFrame/Collection has {value.Width} columns, but {columnNames.Length} were expected.");
 
@@ -334,7 +334,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
             }
 
             using var selectedDf = Select(columnNames);
-            
+
             return selectedDf.Slice(actualIndex, 1);
         }
     }

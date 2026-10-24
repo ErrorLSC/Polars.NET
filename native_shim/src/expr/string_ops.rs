@@ -1,5 +1,5 @@
 use polars::prelude::*;
-use std::ffi::{CStr};
+use std::ffi::{CStr, c_int};
 use std::os::raw::c_char;
 use crate::{gen_namespace_unary, impl_expr_namespace_expr_arg};
 use crate::types::{DataTypeContext, DataTypeExprContext, ExprContext};
@@ -438,5 +438,37 @@ pub extern "C" fn pl_expr_str_normalize(
     })
 }
 
+/// Validates whether a UTF-8 pattern is compatible with the Rust regex engine (e.g. no lookarounds/backreferences).
+///
+/// # Safety
+/// - `pattern_ptr` must be a valid, readable pointer to at least `pattern_len` bytes.
+/// - `out_is_valid` must be a valid, non-null pointer to a bool.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_regex_is_valid(
+    pattern_ptr: *const u8,
+    pattern_len: usize,
+    out_is_valid: *mut bool,
+) -> c_int {
+    ffi_try_c_int!({
+        if pattern_ptr.is_null() || out_is_valid.is_null() {
+            polars_bail!(ComputeError: "pattern_ptr or out_is_valid is null");
+        }
 
+        let bytes = unsafe {std::slice::from_raw_parts(pattern_ptr, pattern_len)};
+        let pattern_str = match std::str::from_utf8(bytes) {
+            Ok(s) => s,
+            Err(_) => {
+                unsafe {*out_is_valid = false};
+                return Ok(0);
+            }
+        };
+
+        // Try parsing AST/HIR via regex_syntax parser or building regex directly
+        // Regex::new enforces linear time DFA/NFA constraints and rejects lookarounds / backrefs
+        let is_valid = regex_syntax::parse(pattern_str).is_ok();
+        unsafe {*out_is_valid = is_valid;}
+
+        Ok(0)
+    })
+}
 

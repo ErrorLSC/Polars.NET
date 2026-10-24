@@ -5,7 +5,8 @@ using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Data;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Create a DataFrame directly from a <see cref="IDataReader"/>.
@@ -55,13 +56,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var batchEnumerable = reader.ToArrowBatches(batchSize).Prefetch();
 
         var handle = ArrowStreamInterop.ImportEager(batchEnumerable, schema);
-        
+
         if (handle.IsInvalid)
         {
             var emptyBatch = new RecordBatch(schema, [], 0);
             return new DataFrame(ArrowFfiBridge.ImportDataFrame(emptyBatch));
         }
-        
+
         return new DataFrame(handle);
     }
 }

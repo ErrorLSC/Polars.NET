@@ -136,7 +136,7 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="unit">Unit of time. Defaults to microseconds.</param>
     /// <param name="timeZone">Time zone string. When used to match dtypes, can set this to “*” to check for Datetime columns that have any (non-null) timezone.</param>
-    public static DataType Datetime(TimeUnit unit=TimeUnit.Microseconds,string? timeZone=null) => DataType.Datetime(unit,timeZone);
+    public static DataType Datetime(TimeUnit unit = TimeUnit.Microseconds, string? timeZone = null) => DataType.Datetime(unit, timeZone);
     /// <summary>
     /// Data type representing the time of day.
     /// <para>The underlying representation of this type is a 64-bit signed integer. The integer indicates the number of nanoseconds since midnight.</para>
@@ -148,13 +148,13 @@ public readonly partial struct Polars
     /// The integer indicates an amount of time units and can be negative to indicate negative time offsets.</para>
     /// </summary>
     /// <param name="unit">Unit of time. Defaults to microseconds.</param>
-    public static DataType Duration(TimeUnit unit=TimeUnit.Microseconds) => DataType.Duration(unit);
+    public static DataType Duration(TimeUnit unit = TimeUnit.Microseconds) => DataType.Duration(unit);
     /// <summary>
     /// Decimal 128-bit type with an optional precision and non-negative scale.
     /// </summary>
     /// <param name="precision">Maximum number of digits in each number.Max is 38.</param>
     /// <param name="scale">Number of digits to the right of the decimal point in each number.</param>
-    public static DataType Decimal(int precision=38,int scale =9) => DataType.Decimal(precision,scale);
+    public static DataType Decimal(int precision = 38, int scale = 9) => DataType.Decimal(precision, scale);
     /// <summary>
     /// 16-bit floating point type.
     /// </summary>
@@ -177,7 +177,7 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="inner">The DataType of the values within each array.</param>
     /// <param name="shape">The shape of the arrays.</param>
-    public static DataType Array(DataType inner,params uint[] shape) => DataType.Array(inner,shape);
+    public static DataType Array(DataType inner, params uint[] shape) => DataType.Array(inner, shape);
     /// <summary>
     /// Struct composite type.
     /// </summary>
@@ -191,7 +191,7 @@ public readonly partial struct Polars
     /// <param name="name">The name of the field within its parent Struct.</param>
     /// <param name="dtype">The DataType of the field’s values.</param>
     /// <returns></returns>
-    public static Field Field(string name,DataType dtype) => new(name,dtype);
+    public static Field Field(string name, DataType dtype) => new(name, dtype);
     /// <summary>
     /// A named collection of categories for Categorical.
     /// <para>Two categories are considered equal (and will use the same physical mapping of categories to strings)
@@ -202,12 +202,12 @@ public readonly partial struct Polars
     ///  If the name is empty or None indicating the global categories, the namespace must also be empty.</param>
     /// <param name="physical">The physical type used to represent the categories. Defaults to UInt32.</param>
     /// <returns></returns>
-    public static Categories Categories(string? name = null, string? nameSpace = "", CategoricalPhysical physical = CategoricalPhysical.U32) 
-        => new(name,nameSpace,physical);
+    public static Categories Categories(string? name = null, string? nameSpace = "", CategoricalPhysical physical = CategoricalPhysical.U32)
+        => new(name, nameSpace, physical);
     /// <inheritdoc cref="Polars.Categories(string?, string?, CategoricalPhysical)"/>
-    public static DataType Categorical(Categories? categories=null) => DataType.Categorical(categories); 
+    public static DataType Categorical(Categories? categories = null) => DataType.Categorical(categories);
     /// <inheritdoc cref="Polars.Categories(string?, string?, CategoricalPhysical)"/>
-    public static DataType Categorical(string categories) => DataType.Categorical(categories); 
+    public static DataType Categorical(string categories) => DataType.Categorical(categories);
     /// <summary>
     /// Binary type.
     /// </summary>
@@ -234,7 +234,7 @@ public readonly partial struct Polars
     public static DataType Unknown => DataType.Unknown;
     public static DataType SameAsInput => Unknown;
     /// <inheritdoc cref="DataType.Extension(string, DataType, string?)"/>
-    public static DataType Extension(string name, DataType inner, string? metadata = null) => DataType.Extension(name,inner,metadata);
+    public static DataType Extension(string name, DataType inner, string? metadata = null) => DataType.Extension(name, inner, metadata);
     /// <summary>
     /// Ordered mapping of column names to their data type.
     /// </summary>

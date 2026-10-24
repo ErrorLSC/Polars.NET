@@ -5,7 +5,7 @@ using Polars.NET.Core.Data;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     private static IEnumerable<RecordBatch> EnsureStreamSafety(IEnumerable<RecordBatch> source)
     {

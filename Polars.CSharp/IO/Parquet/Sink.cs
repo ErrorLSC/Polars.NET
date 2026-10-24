@@ -2,7 +2,7 @@ using Polars.NET.Core;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Sink the LazyFrame to a Parquet file.
@@ -38,7 +38,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
         PolarsWrapper.SinkParquet(
-            Handle,
+            CloneHandle(),
             path,
             compression.ToNative(),
             compressionLevel,
@@ -51,9 +51,9 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             mkdir,
             provider.ToNative(),
             retries,
-            retryTimeoutMs,      
+            retryTimeoutMs,
             retryInitBackoffMs,
-            retryMaxBackoffMs, 
+            retryMaxBackoffMs,
             cacheTtl,
             keys,
             values
@@ -108,11 +108,11 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
         PolarsWrapper.SinkParquetPartitioned(
-            Handle,
+            CloneHandle(),
             path,
-            
+
             // --- Partition Params ---
-            pby.CloneHandle(), 
+            pby.CloneHandle(),
             includeKeys,
             keysPreGrouped,
             maxRowsPerFile > 0 ? (nuint)maxRowsPerFile : 0,
@@ -150,7 +150,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </summary>
     public byte[] SinkParquetMemory(
         ParquetCompression compression = ParquetCompression.ZSTD,
-        int compressionLevel = 3, 
+        int compressionLevel = 3,
         bool statistics = true,
         int rowGroupSize = 0,
         int dataPageSize = 0,
@@ -158,7 +158,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool maintainOrder = true)
     {
         return PolarsWrapper.SinkParquetMemory(
-            Handle,
+            CloneHandle(),
             compression.ToNative(),
             compressionLevel,
             statistics,

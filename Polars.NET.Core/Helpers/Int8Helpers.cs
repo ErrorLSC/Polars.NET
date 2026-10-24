@@ -13,11 +13,11 @@ public static partial class ArrayHelper
     private static readonly Vector256<byte> Int8ShuffleMask = Vector256.Create(
         // --- Output 0-15: 16 Values  1, 3, 5...) ---
         1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31,
-        
+
         // --- Output 16-31: 16 Bools  0, 2, 4...) ---
         (byte)0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30
     );
-       // [Stride 2] Int8 / Byte
+    // [Stride 2] Int8 / Byte
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static unsafe (byte[] values, byte[]? validity) UnzipInt8SIMD(ReadOnlySpan<byte?> data, byte defaultValue)
     {
@@ -25,8 +25,8 @@ public static partial class ArrayHelper
         // 1. Allocate Values (Uninitialized)
         var values = GC.AllocateUninitializedArray<byte>(len);
         int byteLen = (len + 7) >> 3;
-        
-        byte[]? validity = null; 
+
+        byte[]? validity = null;
 
         fixed (byte?* pSrc = data)
         fixed (byte* pDstVal = values)
@@ -72,9 +72,9 @@ public static partial class ArrayHelper
                         if (validity == null)
                         {
                             validity = GC.AllocateUninitializedArray<byte>(byteLen);
-                            Array.Clear(validity, 0, byteLen); 
+                            Array.Clear(validity, 0, byteLen);
                             validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                            
+
                             int bytesToFill = i >> 3;
                             if (bytesToFill > 0)
                             {
@@ -85,14 +85,14 @@ public static partial class ArrayHelper
 
                     if (validity != null)
                     {
-                        if (Unsafe.IsNullRef(ref validRef)) 
+                        if (Unsafe.IsNullRef(ref validRef))
                         {
                             validRef = ref MemoryMarshal.GetArrayDataReference(validity);
                         }
                         ushort validMask16 = (ushort)(~nullMask);
 
                         Unsafe.WriteUnaligned(
-                            ref Unsafe.Add(ref validRef, i >> 3), 
+                            ref Unsafe.Add(ref validRef, i >> 3),
                             validMask16
                         );
 
@@ -117,11 +117,11 @@ public static partial class ArrayHelper
             if (i < len)
             {
                 UnzipScalarLoop(
-                    ref Unsafe.AsRef<byte?>(pSrc), 
-                    ref Unsafe.AsRef<byte>(pDstVal), 
-                    ref validity, 
-                    i, 
-                    len, 
+                    ref Unsafe.AsRef<byte?>(pSrc),
+                    ref Unsafe.AsRef<byte>(pDstVal),
+                    ref validity,
+                    i,
+                    len,
                     defaultValue
                 );
             }

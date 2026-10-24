@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <PackageId>Polars.NET.Linq</PackageId> 
+    <Authors>ErrorLSC</Authors>
+    <Description>LINQ Translation Engine for Polars.NET and Polars.FSharp. Write strong-typed C#/F# queries and execute them at native speed</Description>
+    <PackageTags>polars;dataframe;data-analysis;linq;ast</PackageTags>
+    <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="PartialEvaluator.fs" />
+    <Compile Include="OpsSpecs.fs" />
+    <Compile Include="QueryCacheKey.fs" />
+    <Compile Include="ExpressionPatterns.fs" />
+    <Compile Include="ExprTranslator.fs" />
+    <Compile Include="AggTranslator.fs" />
+    <Compile Include="FSharpAstRewriter.fs" />
+    <Compile Include="LinqReflectionCache.fs" />
+    <Compile Include="SubqueryDecorrelator.fs" />
+    <Compile Include="QueryPlanCache.fs" />
+    <Compile Include="QueryPipelineHelpers.fs" />
+    <Compile Include="ScalarExecutor.fs" />
+    <Compile Include="PolarsQueryable.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+      <ProjectReference Include="..\Polars.NET.Core\Polars.NET.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Polars.CSharp" />
+    <InternalsVisibleTo Include="Polars.CSharp.Tests" />
+    <InternalsVisibleTo Include="Polars.FSharp" />
+    <InternalsVisibleTo Include="Polars.FSharp.Tests" />
+  </ItemGroup>
+
+</Project>

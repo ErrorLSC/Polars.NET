@@ -1,7 +1,8 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Execute the LazyFrame and sink the result to a CSV file.
@@ -60,7 +61,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         string? timeFormat = null,
         string? datetimeFormat = null,
         bool checkExtension = true,
-        ExternalCompression compression = ExternalCompression.Uncompressed, 
+        ExternalCompression compression = ExternalCompression.Uncompressed,
         int compressionLevel = -1,
         bool maintainOrder = true,
         SyncOnClose syncOnClose = SyncOnClose.None,
@@ -71,17 +72,17 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
         PolarsWrapper.SinkCsv(
-            Handle,
+            CloneHandle(),
             path,
-            
+
             // CSV Writer Options
             includeHeader,
             includeBom,
-            batchSize,       
-            checkExtension,  
+            batchSize,
+            checkExtension,
 
             // Compression
-            compression.ToNative(), 
+            compression.ToNative(),
             compressionLevel,
 
             // Serialize Options 
@@ -99,15 +100,15 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
 
             // Unified Sink Options
             maintainOrder,
-            syncOnClose.ToNative(), 
+            syncOnClose.ToNative(),
             mkdir,
 
             // Cloud Options
             provider.ToNative(),
             retries,
-            retryTimeoutMs,      
-            retryInitBackoffMs,  
-            retryMaxBackoffMs,   
+            retryTimeoutMs,
+            retryInitBackoffMs,
+            retryMaxBackoffMs,
             cacheTtl,
             keys,
             values
@@ -183,7 +184,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         string? timeFormat = null,
         string? datetimeFormat = null,
         bool checkExtension = true,
-        ExternalCompression compression = ExternalCompression.Uncompressed, 
+        ExternalCompression compression = ExternalCompression.Uncompressed,
         int compressionLevel = -1,
         bool maintainOrder = true,
         SyncOnClose syncOnClose = SyncOnClose.None,
@@ -194,10 +195,10 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
         PolarsWrapper.SinkCsvPartitioned(
-            Handle,
+            CloneHandle(),
             path,
             // --- Partition Params ---
-            partitionBy.Consume().CloneHandle(), 
+            partitionBy.Consume().CloneHandle(),
             includeKeys,
             keysPreGrouped,
             maxRowsPerFile > 0 ? (nuint)maxRowsPerFile : 0,
@@ -205,11 +206,11 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             // CSV Writer Options
             includeHeader,
             includeBom,
-            batchSize,       
-            checkExtension,  
+            batchSize,
+            checkExtension,
 
             // Compression
-            compression.ToNative(), 
+            compression.ToNative(),
             compressionLevel,
 
             // Serialize Options 
@@ -227,15 +228,15 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
 
             // Unified Sink Options
             maintainOrder,
-            syncOnClose.ToNative(), 
+            syncOnClose.ToNative(),
             mkdir,
 
             // Cloud Options
             provider.ToNative(),
             retries,
-            retryTimeoutMs,      
-            retryInitBackoffMs,  
-            retryMaxBackoffMs,   
+            retryTimeoutMs,
+            retryInitBackoffMs,
+            retryMaxBackoffMs,
             cacheTtl,
             keys,
             values
@@ -251,8 +252,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool includeBom = false,
         bool includeHeader = true,
         int batchSize = 1024,
-        bool checkExtension = false, 
-        ExternalCompression compressionCode = 0,    
+        bool checkExtension = false,
+        ExternalCompression compressionCode = 0,
         int compressionLevel = 0,
         string? dateFormat = null,
         string? timeFormat = null,
@@ -264,11 +265,11 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         byte quoteChar = (byte)'"',
         string? nullValue = null,
         string? lineTerminator = "\n",
-        QuoteStyle quoteStyle = QuoteStyle.Necessary,         
+        QuoteStyle quoteStyle = QuoteStyle.Necessary,
         bool maintainOrder = true)
     {
         return PolarsWrapper.SinkCsvMemory(
-            Handle,
+            CloneHandle(),
             includeBom,
             includeHeader,
             batchSize,

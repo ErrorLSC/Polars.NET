@@ -3,7 +3,7 @@ using Polars.NET.Core;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Sink the LazyFrame to an IPC (Arrow) file.
@@ -34,7 +34,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
         PolarsWrapper.SinkIpc(
-            Handle,
+            CloneHandle(),
             path,
             compression.ToNative(),
             compatLevel,
@@ -82,10 +82,10 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
         PolarsWrapper.SinkIpcPartitioned(
-            Handle,
+            CloneHandle(),
             path,
             // --- Partition Params ---
-            partitionBy.Consume().CloneHandle(), 
+            partitionBy.Consume().CloneHandle(),
             includeKeys,
             keysPreGrouped,
             maxRowsPerFile > 0 ? (nuint)maxRowsPerFile : 0,
@@ -128,7 +128,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool maintainOrder = true)
     {
         return PolarsWrapper.SinkIpcMemory(
-            Handle,
+            CloneHandle(),
             compression.ToNative(),
             compatLevel,
             recordBatchSize,

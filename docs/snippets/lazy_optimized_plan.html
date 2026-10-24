@@ -1,0 +1,14 @@
+<div class="pl-preview-card">
+  <div class="pl-preview-title">Optimized Physical Execution Plan (Pushdown & CSE)</div>
+  <div class='pl-lazy-container'><div class='pl-lazy-header'>Polars LazyFrame <span class='pl-lazy-tag'>UNCOLLECTED</span></div><div class='pl-lazy-schema'>Schema: Customer: str, Total_Spend: f64, Total_Tax: f64, Tx_Count: u32</div><div class='pl-lazy-plan'>SORT BY [descending: [true]] [col(&quot;Total_Spend&quot;)]
+  AGGREGATE[maintain_order: false]
+    [col(&quot;Amount&quot;).sum().alias(&quot;Total_Spend&quot;), col(&quot;Tax&quot;).sum().alias(&quot;Total_Tax&quot;), col(&quot;TxId&quot;).count().alias(&quot;Tx_Count&quot;)] BY [col(&quot;Customer&quot;)]
+    FROM
+    simple π 4/4 [&quot;Customer&quot;, &quot;Amount&quot;, &quot;Tax&quot;, ... 1 other column]
+       WITH_COLUMNS:
+       [(col(&quot;Amount&quot;) * 0.1).alias(&quot;Tax&quot;)] 
+        simple π 3/3 [&quot;TxId&quot;, &quot;Customer&quot;, &quot;Amount&quot;]
+          FILTER (col(&quot;Amount&quot;) &gt; 50.0) &amp; (col(&quot;Category&quot;) == &quot;Tech&quot;)
+          FROM
+            DF [&quot;TxId&quot;, &quot;Customer&quot;, &quot;Category&quot;, &quot;Amount&quot;, ...]; PROJECT[&quot;TxId&quot;, &quot;Customer&quot;, &quot;Amount&quot;, &quot;Category&quot;] 4/5 COLUMNS</div><div class='pl-lazy-tip'>Tip: Call .Collect() to eagerly execute this query plan.</div></div>
+</div>

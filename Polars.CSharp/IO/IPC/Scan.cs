@@ -2,7 +2,7 @@ using Polars.NET.Core;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Lazily read an Arrow IPC (Feather v2) file, multiple files via glob patterns, or cloud storage.
@@ -13,7 +13,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </param>
     /// <param name="nRows">
     /// Limit the number of rows to scan. 
-    /// Note: In Lazy mode, this acts as a 'Pre-Slice' pushdown.
+    /// In Lazy mode, this acts as a 'Pre-Slice' pushdown.
     /// </param>
     /// <param name="rechunk">Rechunk the memory to be contiguous (default: false).</param>
     /// <param name="cache">Cache the result of the scan (default: true).</param>
@@ -40,7 +40,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool tryParseHiveDates = true,
         CloudOptions? cloudOptions = null)
     {
-        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = 
+        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) =
             CloudOptions.ParseCloudOptions(cloudOptions);
 
         var h = PolarsWrapper.ScanIpc(
@@ -131,7 +131,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     {
         using var ms = new MemoryStream();
         stream.CopyTo(ms);
-        
+
         return ScanIpc(
             ms.ToArray(),
             schema,

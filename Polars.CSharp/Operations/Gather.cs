@@ -28,10 +28,10 @@ public readonly struct IntoIndexLazyFrame
         {
             throw new ArgumentException(
                 $"The gather index Series must be of an integer data type (e.g., Int32, Int64). " +
-                $"The provided Series '{series.Name}' has an invalid data type of '{series.DataType}'.", 
+                $"The provided Series '{series.Name}' has an invalid data type of '{series.DataType}'.",
                 nameof(series));
         }
-        
+
         // Series -> DataFrame -> LazyFrame
         return new IntoIndexLazyFrame(series.ToFrame().Lazy());
     }
@@ -45,7 +45,7 @@ public readonly struct IntoIndexLazyFrame
     /// Consumes and returns the underlying LazyFrame instance.
     /// </summary>
     public LazyFrame Consume() => _lf.Clone();
-    
+
 }
 
 
@@ -56,8 +56,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </summary>
     /// <param name="index">The indices of the rows to select.</param>
     /// <param name="nullOnOob">If true when an index is out-of-bounds a null row will be generated instead of raising an error.</param>
-    public LazyFrame Gather(IntoIndexLazyFrame index,bool nullOnOob = false)
-        => new (PolarsWrapper.LazyFrameGather(CloneHandle(),index.Consume().Handle,nullOnOob));
+    public LazyFrame Gather(IntoIndexLazyFrame index, bool nullOnOob = false)
+        => new(PolarsWrapper.LazyFrameGather(CloneHandle(), index.Consume().Handle, nullOnOob));
     /// <summary>
     /// Take every nth row in the Frame and return as a new Frame.
     /// </summary>
@@ -75,14 +75,14 @@ public partial class DataFrame
     /// </summary>
     /// <param name="index">The indices of the rows to select.</param>
     /// <param name="nullOnOob">If true when an index is out-of-bounds a null row will be generated instead of raising an error.</param>
-    public DataFrame Gather(IntoIndexLazyFrame index,bool nullOnOob = false)
-        => Lazy().Gather(index,nullOnOob).Collect();
+    public DataFrame Gather(IntoIndexLazyFrame index, bool nullOnOob = false)
+        => Lazy().Gather(index, nullOnOob).Collect();
     /// <inheritdoc cref="LazyFrame.GatherEvery(int, int)"/>
     public DataFrame GatherEvery(int n, int offset = 0)
         => Select(Pl.All().GatherEvery((ulong)n, (ulong)offset));
     /// <summary>
     /// Alias for gather
     /// </summary>
-    public DataFrame Take(IntoIndexLazyFrame index,bool nullOnOob = false)
-        => Gather(index,nullOnOob);   
+    public DataFrame Take(IntoIndexLazyFrame index, bool nullOnOob = false)
+        => Gather(index, nullOnOob);
 }

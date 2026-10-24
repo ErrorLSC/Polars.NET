@@ -1,4 +1,4 @@
-use polars::error::PolarsError;
+use polars::error::{PolarsError, PolarsResult};
 use polars_io::catalog::unity::models::{TableCredentialsVariants, TableInfo};
 
 use crate::catalog::ffi::CatalogContext;
@@ -63,4 +63,49 @@ pub(crate) async fn load_catalog_table(
         .map_err(|e| PolarsError::ComputeError(format!("Failed to load table: {}", e).into()))?;
         
     Ok((table, url, options))
+}
+
+pub(crate) fn parse_catalog_table_args<'a>(
+    ctx_ptr: *mut CatalogContext,
+    catalog_ptr: *const std::ffi::c_char,
+    schema_ptr: *const std::ffi::c_char,
+    table_ptr: *const std::ffi::c_char,
+) -> PolarsResult<(&'a CatalogContext, &'a str, &'a str, &'a str)> {
+    if ctx_ptr.is_null() {
+        return Err(PolarsError::ComputeError("CatalogContext pointer is null".into()));
+    }
+    let ctx = unsafe { &*ctx_ptr };
+    let catalog = crate::utils::ptr_to_str(catalog_ptr)
+        .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+    let schema = crate::utils::ptr_to_str(schema_ptr)
+        .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+    let table = crate::utils::ptr_to_str(table_ptr)
+        .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+    Ok((ctx, catalog, schema, table))
+}
+
+pub(crate) fn load_catalog_table_sync(
+    ctx: &CatalogContext,
+    catalog: &str,
+    schema: &str,
+    table: &str,
+    needs_write: bool,
+    base_options: std::collections::HashMap<String, String>,
+) -> Result<(deltalake::DeltaTable, url::Url, std::collections::HashMap<String, String>), PolarsError> {
+    crate::delta::utils::get_runtime().block_on(async {
+        load_catalog_table(ctx, catalog, schema, table, needs_write, base_options).await
+    })
+}
+
+pub(crate) fn get_catalog_table_info_and_options_sync(
+    ctx: &CatalogContext,
+    catalog: &str,
+    schema: &str,
+    table: &str,
+    needs_write: bool,
+    base_options: std::collections::HashMap<String, String>,
+) -> Result<(TableInfo, url::Url, std::collections::HashMap<String, String>), PolarsError> {
+    crate::delta::utils::get_runtime().block_on(async {
+        get_catalog_table_info_and_options(ctx, catalog, schema, table, needs_write, base_options).await
+    })
 }

@@ -3,7 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Microsoft.FSharp.Core; 
+using Microsoft.FSharp.Core;
 using Polars.NET.Core.Helpers;
 
 namespace Polars.NET.Core.Arrow;
@@ -16,18 +16,18 @@ public static class ArrowTypeResolver
     public static Schema GetSchemaFromDataReader(IDataReader reader)
     {
         var fields = new List<Field>();
-        
+
         for (int i = 0; i < reader.FieldCount; i++)
         {
             var name = reader.GetName(i);
             var netType = reader.GetFieldType(i);
-            
+
             // 1. Resolve Arrow Type 
             var arrowType = GetArrowTypeFromNetType(netType);
-            
+
             // 2. Create Field
             var field = new Field(name, arrowType, nullable: true);
-            
+
             // 3. Add 
             fields.Add(field);
         }
@@ -50,24 +50,24 @@ public static class ArrowTypeResolver
         // Handle Nullable<T> and F# Option
         bool isFSharpOption = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(FSharpOption<>);
         Type coreType;
-        
+
         if (isFSharpOption) coreType = type.GetGenericArguments()[0];
         else coreType = Nullable.GetUnderlyingType(type) ?? type;
 
         // 1. Primitives
-        if (coreType == typeof(sbyte))  return Int8Type.Default;
-        if (coreType == typeof(short))  return Int16Type.Default;
-        if (coreType == typeof(int))    return Int32Type.Default;
-        if (coreType == typeof(long))   return Int64Type.Default;
-        if (coreType == typeof(byte))   return UInt8Type.Default;
+        if (coreType == typeof(sbyte)) return Int8Type.Default;
+        if (coreType == typeof(short)) return Int16Type.Default;
+        if (coreType == typeof(int)) return Int32Type.Default;
+        if (coreType == typeof(long)) return Int64Type.Default;
+        if (coreType == typeof(byte)) return UInt8Type.Default;
         if (coreType == typeof(ushort)) return UInt16Type.Default;
-        if (coreType == typeof(uint))   return UInt32Type.Default;
-        if (coreType == typeof(ulong))  return UInt64Type.Default;
-        if (coreType == typeof(Half))  return  HalfFloatType.Default;
-        if (coreType == typeof(float))  return FloatType.Default;
+        if (coreType == typeof(uint)) return UInt32Type.Default;
+        if (coreType == typeof(ulong)) return UInt64Type.Default;
+        if (coreType == typeof(Half)) return HalfFloatType.Default;
+        if (coreType == typeof(float)) return FloatType.Default;
         if (coreType == typeof(double)) return DoubleType.Default;
-        if (coreType == typeof(bool))   return BooleanType.Default;
-        if (coreType == typeof(decimal)) return new Decimal128Type(38, 18); 
+        if (coreType == typeof(bool)) return BooleanType.Default;
+        if (coreType == typeof(decimal)) return new Decimal128Type(38, 18);
 
         // 2. String & Binary
         if (coreType == typeof(string) || coreType == typeof(char)) return StringViewType.Default;
@@ -75,8 +75,8 @@ public static class ArrowTypeResolver
 
         // 3. Date & Time
         if (coreType == typeof(TimeOnly)) return new Time64Type(TimeUnit.Nanosecond);
-        if (coreType == typeof(TimeSpan)) return DurationType.Microsecond; 
-        
+        if (coreType == typeof(TimeSpan)) return DurationType.Microsecond;
+
         if (coreType == typeof(DateOnly)) return Date32Type.Default;
         if (coreType == typeof(DateTime)) return new TimestampType(TimeUnit.Microsecond, null as string);
         if (coreType == typeof(DateTimeOffset)) return new TimestampType(TimeUnit.Microsecond, "UTC");
@@ -93,7 +93,7 @@ public static class ArrowTypeResolver
             var args = dictInterface.GetGenericArguments();
             var keyArrowType = GetArrowTypeFromNetType(args[0]);
             var valueArrowType = GetArrowTypeFromNetType(args[1]);
-            
+
             return new MapType(keyArrowType, valueArrowType, nullable: true, keySorted: false);
         }
         // List / Array
@@ -125,13 +125,13 @@ public static class ArrowTypeResolver
     // =================================================================================
     // 3. Helpers (Reflection & Struct Support)
     // =================================================================================
-    
-    public static Field ResolveField(string name, 
+
+    public static Field ResolveField(string name,
     [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
     Type type)
     {
         bool isNullable = PolarsTypeHelper.AcceptsNull(type);
-        IArrowType arrowType = GetArrowTypeFromNetType(type); 
+        IArrowType arrowType = GetArrowTypeFromNetType(type);
 
         return new Field(name, arrowType, isNullable);
     }
@@ -173,11 +173,11 @@ public static class ArrowTypeResolver
             LargeListType largeList => GetNetTypeFromArrowType(largeList.ValueDataType).MakeArrayType(),
             FixedSizeListType fixedSizeList => GetNetTypeFromArrowType(fixedSizeList.ValueDataType).MakeArrayType(),
             DictionaryType dict => GetNetTypeFromArrowType(dict.ValueType),
-            
+
             // Map types are logical lists of struct entries (key-value pairs).
             MapType map => typeof(KeyValuePair<,>)
                             .MakeGenericType(
-                                GetNetTypeFromArrowType(map.KeyField.DataType), 
+                                GetNetTypeFromArrowType(map.KeyField.DataType),
                                 GetNetTypeFromArrowType(map.ValueField.DataType))
                             .MakeArrayType(),
 
@@ -208,7 +208,7 @@ public static class ArrowTypeResolver
             TimestampType ts => string.IsNullOrEmpty(ts.Timezone) ? typeof(DateTime) : typeof(DateTimeOffset),
             Date32Type => typeof(DateOnly),
             Date64Type => typeof(DateTime),
-            Time64Type => typeof(TimeOnly), 
+            Time64Type => typeof(TimeOnly),
             DurationType => typeof(TimeSpan),
             BinaryType => typeof(byte[]),
             LargeBinaryType => typeof(byte[]),

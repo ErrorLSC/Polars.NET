@@ -1,309 +1,264 @@
+<div align="center">
+  <img src="assets/logo.svg" width="160" height="160" alt="Polars.NET Logo" />
+  <h1>Polars.NET</h1>
+  <p><b>Blazingly Fast, Vectorized DataFrames & LINQ Engine for .NET</b></p>
+  <p><i>Powered by Rust Polars & Apache Arrow with zero-copy interoperability, native expression compilation, and full cloud lakehouse support.</i></p>
 
-# Polars.NET
+  <p>
+    <a href="https://www.nuget.org/packages/Polars.NET"><img src="https://img.shields.io/nuget/v/Polars.NET.svg" alt="NuGet Polars.NET" /></a>
+    <a href="https://www.nuget.org/packages/Polars.FSharp"><img src="https://img.shields.io/nuget/v/Polars.FSharp.svg" alt="NuGet Polars.FSharp" /></a>
+    <a href="https://www.nuget.org/packages/Polars.NET"><img src="https://img.shields.io/nuget/dt/Polars.NET.svg" alt="NuGet Downloads" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License" /></a>
+    <a href="https://errorlsc.github.io/Polars.NET/"><img src="https://img.shields.io/badge/docs-online-512BD4.svg?style=flat-square&logo=read-the-docs&logoColor=white" alt="Documentation" /></a>
+  </p>
 
-[![NuGet](https://img.shields.io/nuget/v/Polars.NET.svg)](https://www.nuget.org/packages/Polars.NET)
-[![NuGet Downloads](https://img.shields.io/nuget/dt/Polars.NET.svg)](https://www.nuget.org/packages/Polars.NET)
-[![NuGet Downloads](https://img.shields.io/nuget/dt/Polars.FSharp.svg)](https://www.nuget.org/packages/Polars.FSharp)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-online-brightgreen.svg?style=flat-square&logo=read-the-docs&logoColor=white)](https://errorlsc.github.io/Polars.NET/index.html)
+  <p>
+    <a href="https://errorlsc.github.io/Polars.NET/"><b>Documentation Website</b></a> |
+    <a href="https://errorlsc.github.io/Polars.NET/articles/quickstart"><b>Quick Start</b></a> |
+    <a href="https://errorlsc.github.io/Polars.NET/articles/linq"><b>LINQ Guide</b></a> |
+    <a href="https://errorlsc.github.io/Polars.NET/api/csharp_generated/DataFrame"><b>C# API</b></a> |
+    <a href="https://errorlsc.github.io/Polars.NET/api/fsharp_generated/pl"><b>F# API</b></a> |
+    <a href="https://errorlsc.github.io/Polars.NET/llms.txt"><b>llms.txt</b></a> |
+    <a href="https://github.com/ErrorLSC/Polars.NET-Cookbook"><b>Cookbook</b></a>
+  </p>
+</div>
 
-[![Sponsor](https://img.shields.io/badge/Sponsor-ErrorLSC-pink?style=for-the-badge&logo=github-sponsors)](https://github.com/sponsors/ErrorLSC)
+---
 
-F# & C# E2E examples repo:[Polars.NET-Cookbook](https://github.com/ErrorLSC/Polars.NET-Cookbook)
+## Highlights
 
+* **100% Native Pushdown LINQ**: Translates C# `IQueryable<T>` and F# `query { }` computation expressions directly into native Rust `LazyFrame` physical plans. Zero intermediate .NET row object allocations on fully pushed down queries. Passed all TPC-H queries test for both C# and F#.
+* **Blazing Fast SIMD & Multithreading**: Vectorized query execution backed by the Rust Polars engine, delivering 10x-50x speedups over legacy .NET data processing frameworks.
+* **Truly Idiomatic .NET Experience**: Ingest collections directly via `DataFrame.FromRows(list)`, pipe database streams using `reader.AsPolarsQueryable<T>()`, perform ANSI SQL `Merge` on `List<T>`, and enumerate rows via zero-GC stack-allocated `ref struct` cursors.
+* **Seamless In-Memory Interop**: LINQ queries can directly `.Join()`, `.Concat()`, or `.Union()` an arbitrary in-memory `List<T>` against a high-volume DataFrame query with automatic native Arrow transposition.
+* **Enterprise Lakehouse & Arrow**: Zero-copy Apache Arrow C Data Interface, streaming ADO.NET `IDataReader`, Delta Lake ACID transactions with full time-travel, and cloud object store integration (Amazon S3, Azure Blob, Google Cloud Storage).
 
-**High-Performance, DataFrame Engine for .NET, powered by Rust Polars & Apache Arrow. With cloud and deltalake features.**
-
-![icon](assets/icon_lite.png)
-
-Supported Platforms: Windows (x64), Linux (x64/ARM64, glibc/musl), macOS (ARM64).
-Cloud: AWS, Azure and GCP
-Data Lake: Delta Lake
-
-<p style="font-size:1.3em; font-weight:bold; background-color:#ffff99;">
-99% API in python Polars now is available in both Polars.NET and Polars.FSharp.<br/>
-</p>
-
-## Why Polars.NET exists
-
-This is the game I'd like to play: binding the lightning-fast Polars engine to the .NET ecosystem.
-And it brings a lot of fun.
-
-- Polars.NET vs Python Ecosystem
-
-    <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/benchmark_python_dark.png">
-    <img alt="Polars.NET vs Python" src="assets/benchmark_python_light.png">
-    </picture>
-
-- Speedup vs Legacy .NET
-
-    <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/benchmark_summary_dark.png">
-    <img alt="Speedup Summary" src="assets/benchmark_summary_light.png">
-    </picture>
-
-- Delta Lake Read
-![pic](assets/read_benchmark.png)
-
-- Delta Lake Write
-![pic](assets/write_benchmark.png)
+---
 
 ## Installation
 
-C# Users:
+Polars.NET targets **.NET 8.0+** and requires referencing both the managed API package and the matching native runtime package for your execution platform:
 
-```Bash
-dotnet add package Polars.NET 
-# And then add the native runtime for your current environment:
+### C# Users
+
+```bash
+# Core API package
+dotnet add package Polars.NET
+
+# Platform native runtime (choose matching your deployment target):
 dotnet add package Polars.NET.Native.win-x64
-# Add LINQ extension package once you need to write LINQ
+# dotnet add package Polars.NET.Native.linux-x64
+# dotnet add package Polars.NET.Native.linux-arm64
+# dotnet add package Polars.NET.Native.osx-arm64
+
+# Optional: LINQ expression tree compiler
 dotnet add package Polars.NET.Linq
-# Add ML.NET integration if needed
+
+# Optional: ML.NET integration
 dotnet add package Polars.NET.ML
 ```
 
-F# Users:
+### F# Users
 
-```Bash
+```bash
+# F# idiomatic API package
 dotnet add package Polars.FSharp
-# And then add the native runtime for your current environment:
+
+# Platform native runtime:
 dotnet add package Polars.NET.Native.win-x64
-# Add LINQ extension package once you need to write LINQ or computation expressions
+
+# Optional: F# Query CE & LINQ integration
 dotnet add package Polars.NET.Linq
-# Add ML.NET integration if needed
-dotnet add package Polars.NET.ML
 ```
 
-- Requirements: .NET 8+.
-- Hardware: CPU with AVX2 support (x86-64-v3). Roughly Intel Haswell (2013+) or AMD Excavator (2015+). If you have AVX-512 supported CPU, please try to compile Rust core on your machine use RUSTFLAGS='-C target-cpu=native'
+---
 
-## Built Specially for .NET
+## Quick Tour
 
-Bringing .NET to Polars is not enough, it is the time to bring Polars to .NET.
+### 1. C# LINQ Query (`IQueryable<T>`)
 
-- ML.NET & Tensor Interop
+Write standard C# LINQ queries that compile directly into Rust SIMD kernels without hydrating managed objects:
 
-Prepare data with polars, then train it with ML.NET & ONNX, finally analyze results back with polars.
+```csharp
+using Polars;
+using Polars.CSharp;
+using Polars.CSharp.Linq;
 
-Notice: Tensor Interop doesn't need any extra package but ML.NET integration requires **Polars.NET.ML** extension nuget package.
+public record Order(int Id, string Customer, string Region, double Revenue);
 
-```CSharp
-// ==========================================
-// Data Loading
-// ==========================================
-var hfUrl = "https://huggingface.co/datasets/scikit-learn/iris/resolve/refs%2Fconvert%2Fparquet/default/train/0000.parquet";
-var options = CloudOptions.Http(new Dictionary<string, string>
-{
-    { "User-Agent", "Polars.NET-Test" }
-});
-using var lf = LazyFrame.ScanParquet(hfUrl, cloudOptions: options);
+List<Order> orders = GetOrders();
 
-// sepal length (cm), sepal width (cm), petal length (cm), petal width (cm)     
-using var cleanlf = lf.Cast((typeof(double),typeof(float)));
-using var cleanDf = cleanlf.WithColumns(Pl.ConcatArray(Cs.Float().ToExpr().Alias("Features"))).Collect();
-// ==========================================
-// Polars -> ML.NET
-// ==========================================
-var dataView = cleanDf.AsDataView();
+// 1. Direct entry from in-memory collection, DataFrame, or ADO.NET IDataReader:
+var query = from o in orders.AsPolarsQueryable()
+            where o.Revenue >= 500.0 && o.Region != "Test"
+            group o by o.Region into g
+            select new {
+                Region = g.Key,
+                TotalRevenue = g.Sum(x => x.Revenue),
+                OrderCount = g.Count()
+            };
 
-var mlContext = new MLContext(seed: 42);
+// 2. Materialize directly into a Polars DataFrame (Zero heap allocations):
+using DataFrame resultDf = query.ToDataFrame();
+resultDf.Show();
 
-// ==========================================
-// ML.NET Pipeline
-// ==========================================
-// Form VBuffer<float> tensor
-var pipeline = mlContext.Clustering.Trainers.KMeans("Features", numberOfClusters: 3);
-var model = pipeline.Fit(dataView);
-// ==========================================
-// ML.NET Transform and Read Back
-// ==========================================
-var predictions = model.Transform(dataView);
-
-// ML.NET -> Polars
-using var resultDf = predictions.ToDataFrame();
-
-// ==========================================
-// TensorInterop
-// ==========================================
-float[,] matrix = new float[,]
-{
-    { 1.1f, 1.2f, 1.3f },
-    { 2.1f, 2.2f, 2.3f }
-};
-
-using var series = Series.From("ffi_matrix", matrix);
-
-var (ptr, shape) = series.AsDangerousUnmanagedTensor<float>();
-
-int totalElements = (int)(shape[0] * shape[1]); 
-
-float* rawFloatPtr = (float*)ptr.ToPointer();
-
-var nativeSpan = new ReadOnlySpan<float>(rawFloatPtr, totalElements);
+// 3. Or inspect the compiled native plan:
+Console.WriteLine(query.Explain());
 ```
 
-- ADO.NET
+### 2. C# Vectorized Expressions (`LazyFrame` & `Pl.Col`)
 
-Polars.NET DataReader is generic typed without boxing/unboxing on hot path.
-
-```CSharp
-// To DataReader
-using var bulkReader = df.AsDataReader(bufferSize: 100, typeOverrides: overrides);
-// From DataReader
-using var sourceReader = sourceTable.CreateDataReader();
-var df = DataFrame.ReadDatabase(sourceReader);
-```
-
-- C# LINQ & F# Computation Expression
-
-With Polars.NET.Linq Extension package(Thanks to Linq2DB), playing DataFrame/Series with LINQ/Query block is available now.
-
-```CSharp
-using var dfDepts = DataFrame.From(depts);
-using var dfEmps = DataFrame.From(emps);
-
-using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-var deptQuery = dfDepts.AsQueryable<DeptDto>(db);
-var empQuery = empQuery.AsQueryable<EmpDto>(db);
-
-var query = deptQuery
-    .LeftJoin(
-        empQuery,
-        d => d.DeptId,
-        e => e.DeptId,
-        (d, e) => new 
-        {
-            d.DeptId,
-            d.DeptName,
-            EmployeeName = e != null ? e.Name : "NO_EMPLOYEE" 
-        })
-    .OrderBy(x => x.DeptId)
-    .ThenBy(x => x.EmployeeName)
-    .Select(x => new JoinResult
-    {
-        DeptName = x.DeptName,
-        EmployeeName = x.EmployeeName
-    });
-
-var results = query.ToList();
-```
-
-```FSharp
-let queryResult = 
-    query {
-        for d in deptQuery do
-        leftOuterJoin e in empQuery on (d.DeptId = e.DeptId) into empGroup
-        for e in empGroup.DefaultIfEmpty() do
-        sortBy d.DeptId
-        thenBy e.Name
-        
-        select {|
-            DeptName = d.DeptName
-
-            EmployeeName = if box e = null then "NO_EMPLOYEE" else e.Name
-        |}
-    }
-    |> Seq.toList 
-```
-
-## Quick Start
-
-### C# Example
+Harness the full power of the Polars DSL for complex analytics, column expressions, and Selectors:
 
 ```csharp
 using Polars.CSharp;
 using Pl = Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
 
-// 1. Create a DataFrame
-var data = new[] {
-    new { Name = "Alice", Age = 25, Dept = "IT" },
-    new { Name = "Bob", Age = 30, Dept = "HR" },
-    new { Name = "Charlie", Age = 35, Dept = "IT" }
-};
-var df = DataFrame.From(data);
+// Read high-throughput Parquet lazily:
+using var lf = LazyFrame.ScanParquet("orders/*.parquet");
 
-// 2. Filter & Aggregate
-var res = df
-    .Filter(Pl.Col("Age") > 28)
-    .GroupBy("Dept")
+using var summaryDf = lf
+    .Filter(Pl.Col("order_date") >= new DateOnly(2025, 1, 1))
+    .GroupBy("region")
     .Agg(
-        Pl.Col("Age").Mean().Alias("AvgAge"),
-        Pl.Col("Name").Count().Alias("Count")
+        Pl.Col("revenue").Sum().Alias("total_revenue"),
+        Pl.Col("customer_id").NUnique().Alias("unique_customers"),
+        Cs.Numeric().Mean().Prefix("avg_")
     )
-    .Sort("AvgAge", descending: true);
+    .Sort("total_revenue", descending: true)
+    .Collect();
 
-// 3. Output
-res.Show();
-// shape: (2, 3)
-// ┌──────┬────────┬───────┐
-// │ Dept ┆ AvgAge ┆ Count │
-// │ ---  ┆ ---    ┆ ---   │
-// │ str  ┆ f64    ┆ u32   │
-// ╞══════╪════════╪═══════╡
-// │ IT   ┆ 35.0   ┆ 1     │
-// │ HR   ┆ 30.0   ┆ 1     │
-// └──────┴────────┴───────┘
+summaryDf.Show();
 ```
 
-### F# Example
+### 3. F# Query Computation Expression
+
+Leverage F# strong typing, anonymous records, and pipeline combinators over native queries:
 
 ```fsharp
-
 open Polars.FSharp
+open Polars.FSharp.Query
 
-// 1. Scan CSV (Lazy)
-let lf = LazyFrame.ScanCsv "users.csv"
+// F# query { } compiles into native Rust DAG:
+let summaryQuery =
+    query {
+        for o in df.AsQueryable<Order>() do
+        where (o.Revenue >= 500.0 && o.Region <> "Test")
+        groupValBy o o.Region into g
+        select {|
+            Region = g.Key
+            TotalRevenue = g.Sum(fun x -> x.Revenue)
+            OrderCount = g.Count()
+        |}
+    }
 
-// 2. Transform Pipeline
-let res = 
-    lf
-    |> pl.filterLazy (pl.col "age" .> pl.lit 28)
-    |> pl.groupByLazy [ pl.col "dept" ]
-    |> pl.aggLazy
-        [ 
-            pl.col("age").Mean().Alias "AvgAge" 
-            pl.col("name").Count().Alias "Count"
-        ]
-    |> pl.sortAscendingLazy [pl.col "AvgAge"]
-    |> pl.collect
-    |> pl.show
+use resultDf = summaryQuery.ToDataFrame()
+resultDf.Show()
 ```
 
-## Benchmark
+### 4. Polars.NET Exclusive: Strongly-Typed SQL `Merge`
 
-- [Benchmark Code](https://github.com/ErrorLSC/Polars.NET-Benchmark)
+Perform complete ANSI SQL `MERGE` upsert operations directly on DataFrames or in-memory collections:
 
-## Extension Nuget Package
+```csharp
+List<ProductItem> inMemoryTarget = GetTargetProducts();
+List<ProductItem> incomingUpdates = GetSourceProducts();
 
-- Polars.NET.Linq
-- Polars.NET.ML
+// Start merge directly from an in-memory List<T>:
+using DataFrame mergedDf = inMemoryTarget.Merge(incomingUpdates, t => t.Id, s => s.Id)
+    .WhenMatched(
+        (t, s) => s.Price > t.Price,
+        then => then.Update(set => set.Set(t => t.Price, (t, s) => s.Price))
+    )
+    .WhenNotMatchedByTarget(then => then.Insert())
+    .WhenNotMatchedBySource(t => t.Category == "Seasonal", then => then.Delete())
+    .ToDataFrame(); // Or materialize directly to List<ProductItem> via .ToList()
+```
 
-## Architecture
+---
 
-3-Layer Architecture ensures API stability.
+## Documentation & Guides
 
-1. Hand-written Rust C ABI layer bridging .NET and Polars. (native_shim)
-2. .NET Core layer for dirty works like unsafe ops, wrappers, LibraryImports. (Polars.NET.Core)
-3. High level C# and F# API layer here. No unsafe blocks. (Polars.CSharp & Polars.FSharp)
+Comprehensive documentation, architecture references, and API catalogs are available on our documentation portal:
 
-## Roadmap
+| Topic | Documentation Guide | Description |
+| :--- | :--- | :--- |
+| **Quick Start** | [Quick Start Guide](https://errorlsc.github.io/Polars.NET/articles/quickstart) | 5-minute setup, core operations, and data ingestion |
+| **LINQ Provider** | [LINQ & Query CE](https://errorlsc.github.io/Polars.NET/articles/linq) | 3-tier compiler, BCL mappings, and pushdown architecture |
+| **Expressions** | [Expressions & Column Ops](https://errorlsc.github.io/Polars.NET/articles/expressions) | Vectorized computations, string, date/time, and math functions |
+| **Lazy Execution** | [LazyFrame & Streaming](https://errorlsc.github.io/Polars.NET/articles/lazy) | Predicate pushdown, projection pruning, and streaming engine |
+| **Lakehouse** | [Delta Lake & ACID Storage](https://errorlsc.github.io/Polars.NET/articles/delta) | Parquet scanning, Delta ACID transactions, and time-travel |
+| **Time Series** | [Time Series & Analytics](https://errorlsc.github.io/Polars.NET/articles/timeseries) | Dynamic groupby, rolling windows, and interpolation |
+| **Ecosystem** | [Ecosystem & Native Interop](https://errorlsc.github.io/Polars.NET/articles/interop) | Apache Arrow, ADO.NET, ML.NET, Tensor, and Spans |
+| **C# Idioms** | [Idiomatic C# Practices](https://errorlsc.github.io/Polars.NET/articles/csharp-idioms) | SafeHandles, collection expressions, and fast-path row cursors |
+| **F# Idioms** | [Idiomatic F# Practices](https://errorlsc.github.io/Polars.NET/articles/fsharp-idioms) | Zero-allocation struct enumerators, modules, and pipeline operators |
+| **AI / LLMs** | [llms.txt](https://errorlsc.github.io/Polars.NET/llms.txt) | Curated context and anti-hallucination guardrails for LLM agents |
 
-- More code examples, user cases
+---
 
-- Native LINQ Provider
+## Architecture at a Glance
 
-## Contributing
+Polars.NET uses a modular three-tier architecture to deliver native speed without sacrificing .NET safety:
 
-Contributions are welcome. Whether it's adding new expression mappings, improving documentation, or optimizing the FFI layer.
+```
++-------------------------------------------------------------------+
+|                     User Application Layer                        |
+|   C# LINQ (IQueryable<T>)  |  C# Fluent DSL  |  F# Query CE / FP  |
++-------------------------------------------------------------------+
+                                  |
+                                  v
++-------------------------------------------------------------------+
+|               Polars.NET High-Level Managed Layer                 |
+|   - Polars.CSharp (DataFrame, LazyFrame, Series, Expr, Selectors) |
+|   - Polars.FSharp (Idiomatic modules, struct enumerators)         |
+|   - Polars.NET.Linq (Expression tree compiler & plan generator)   |
++-------------------------------------------------------------------+
+                                  |
+                                  v
++-------------------------------------------------------------------+
+|              Polars.NET.Core (FFI & Interop Layer)                |
+|   - SafeHandle lifetime management (Zero-leak guarantee)          |
+|   - Apache Arrow C Data Interface zero-copy bridge                |
+|   - P/Invoke bindings & NativeShim library loaders                |
++-------------------------------------------------------------------+
+                                  |
+                                  v
++-------------------------------------------------------------------+
+|                 Rust Polars Native Engine                         |
+|   - Multithreaded chunked execution engine                        |
+|   - SIMD vectorization & memory-mapped I/O                        |
+|   - Physical query planner, optimizer & streaming sink            |
++-------------------------------------------------------------------+
+```
 
-1. Fork the repo.
+---
 
-2. Create your feature branch.
+## Benchmarks
 
-3. Submit a Pull Request.
+Polars.NET brings the blazing performance of Rust Polars directly to the .NET ecosystem:
+
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/benchmark_summary_dark.png">
+    <img alt="Speedup Summary vs Legacy .NET" src="assets/benchmark_summary_light.png" width="750" />
+  </picture>
+</div>
+
+* Reproducible benchmark suite: [Polars.NET-Benchmark](https://github.com/ErrorLSC/Polars.NET-Benchmark)
+* End-to-end recipe repository: [Polars.NET-Cookbook](https://github.com/ErrorLSC/Polars.NET-Cookbook)
+
+---
+
+## Acknowledgements
+
+Polars.NET stands on the shoulders of giants:
+* [Polars (pola.rs)](https://pola.rs/) - The lightning-fast DataFrame library developed by Ritchie Vink and the Polars team.
+* [Apache Arrow](https://arrow.apache.org/) - The columnar in-memory data standard powering zero-copy interop.
+
+---
 
 ## License
 
-MIT License. See LICENSE for details.
-For Third party licenses please check THIRD_PARTY_LICENSES.html
+MIT License. See [LICENSE](LICENSE) for details.  
+Third-party licenses and notices are documented in [THIRD_PARTY_LICENSES.html](THIRD_PARTY_LICENSES.html).

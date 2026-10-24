@@ -3,6 +3,7 @@ using Polars.NET.Core.Helpers;
 using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
@@ -36,7 +37,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     public LazyGroupBy GroupBy(IEnumerable<IntoExprColumn> keys, bool maintainOrder = true)
     {
         var exprs = keys.Select(k => k.Consume()).ToArray();
-        
+
         return new LazyGroupBy(CloneHandle(), exprs, maintainOrder);
     }
     /// <summary>
@@ -59,11 +60,11 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </code>
     /// </example>
     public LazyGroupBy GroupByDynamic(
-        IntoSelector indexColumn, 
+        IntoSelector indexColumn,
         IntoDuration every,
         IntoDuration? period = null,
         IntoDuration? offset = null,
-        IEnumerable<IntoExprColumn>? groupBy = null, 
+        IEnumerable<IntoExprColumn>? groupBy = null,
         Label label = Label.Left,
         bool includeBoundaries = false,
         ClosedInterval ClosedInterval = ClosedInterval.Left,
@@ -72,7 +73,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     {
         using var idxSelector = indexColumn.Consume();
         var expandedCols = Cs.ExpandSelector(this, idxSelector);
-        
+
         if (expandedCols.Length != 1)
         {
             throw new ArgumentException(
@@ -81,9 +82,9 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
                 $"[{(expandedCols.Length > 0 ? string.Join(", ", expandedCols) : "none")}]"
             );
         }
-        
+
         string actualIndexCol = expandedCols[0];
-        
+
         string everyStr = every.Value;
         string periodStr = period?.Value ?? everyStr;
         string offsetStr = offset?.Value ?? "0s";
@@ -97,7 +98,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
             periodStr,
             offsetStr,
             keys,
-            label, 
+            label,
             includeBoundaries,
             ClosedInterval,
             startBy
@@ -107,7 +108,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Lazily group based on a time index using rolling windows.
     /// </summary>
     public LazyGroupBy Rolling(
-        IntoSelector indexColumn, 
+        IntoSelector indexColumn,
         IntoDuration period,
         IntoDuration? offset = null,
         IEnumerable<IntoExprColumn>? groupBy = null,
@@ -115,7 +116,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     {
         using var idxSelector = indexColumn.Consume();
         var expandedCols = Cs.ExpandSelector(this, idxSelector);
-        
+
         if (expandedCols.Length != 1)
         {
             throw new ArgumentException(
@@ -123,16 +124,16 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
                 $"But your selector resolved to {expandedCols.Length} column(s)."
             );
         }
-        
+
         string actualIndexCol = expandedCols[0];
-        
+
         string periodStr = period.Value;
         string actualOffset = offset?.Value ?? $"-{periodStr}";
         var keys = groupBy?.Select(k => k.Consume()).ToArray() ?? [];
 
         return new LazyGroupBy(
             CloneHandle(),
-            actualIndexCol, 
+            actualIndexCol,
             periodStr,
             actualOffset,
             keys,
@@ -141,7 +142,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Start a GroupBy operation to perform aggregations on groups of data.
@@ -198,8 +199,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public GroupByBuilder GroupBy(IEnumerable<IntoExprColumn> keys, bool maintainOrder = true)
     {
         var exprs = keys.Select(k => k.Consume()).ToArray();
-        
-        return new GroupByBuilder(this,Lazy().GroupBy(keys,maintainOrder));
+
+        return new GroupByBuilder(this, Lazy().GroupBy(keys, maintainOrder));
     }
     /// <summary>
     /// Group based on a time index using dynamic windows (Rolling/Resampling).
@@ -261,13 +262,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         IntoDuration every,
         IntoDuration? period = null,
         IntoDuration? offset = null,
-        IEnumerable<IntoExprColumn>? groupBy = null, 
+        IEnumerable<IntoExprColumn>? groupBy = null,
         Label label = Label.Left,
         bool includeBoundaries = false,
         ClosedInterval ClosedInterval = ClosedInterval.Left,
         StartBy startBy = StartBy.WindowBound
     )
-        => new(this,Lazy().GroupByDynamic(indexColumn,every,period,offset,groupBy,label,includeBoundaries,ClosedInterval,startBy));
+        => new(this, Lazy().GroupByDynamic(indexColumn, every, period, offset, groupBy, label, includeBoundaries, ClosedInterval, startBy));
     /// <summary>
     /// Group based on a time index using rolling windows.
     /// </summary>
@@ -279,11 +280,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         ClosedInterval ClosedInterval = ClosedInterval.Left)
     {
         return new GroupByBuilder(
-            this,Lazy().Rolling(
-                indexColumn, 
-                period, 
-                offset, 
-                groupBy, 
+            this, Lazy().Rolling(
+                indexColumn,
+                period,
+                offset,
+                groupBy,
                 ClosedInterval
             )
         );

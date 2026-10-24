@@ -24,7 +24,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         IEnumerable<string>? leftOn = null,
         IEnumerable<string>? rightOn = null,
         bool includeNulls = false,
-        JoinMaintainOrder maintainOrder =JoinMaintainOrder.Left)
+        JoinMaintainOrder maintainOrder = JoinMaintainOrder.Left)
     {
         // Validate the 'how' parameter
         if (how != JoinType.Left && how != JoinType.Inner && how != JoinType.Outer)
@@ -102,7 +102,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         // Prepare temporary columns and Select expressions
         string tmpSuffix = "__POLARS_RIGHT";
         var dropColumns = rightOther.Select(name => $"{name}{tmpSuffix}").ToList();
-        
+
         var otherSelectExprs = new IntoExprColumn[rightOnList.Count + rightOther.Count + (validityCol != null ? 1 : 0)];
         int selectIdx = 0;
         foreach (var col in rightOnList) otherSelectExprs[selectIdx++] = col;
@@ -119,11 +119,11 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 
         var result = leftFrame.Join(
             rightFrame.Select(otherSelectExprs),
-            leftOn: leftOnExprs,   
-            rightOn: rightOnExprs, 
+            leftOn: leftOnExprs,
+            rightOn: rightOnExprs,
             how: how,
             suffix: tmpSuffix,
-            maintainOrder:maintainOrder,
+            maintainOrder: maintainOrder,
             coalesce: JoinCoalesce.CoalesceColumns);
 
         // Coalesce/Update logic
@@ -167,7 +167,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <inheritdoc cref="LazyFrame.Update"/>
     public DataFrame Update(
@@ -177,10 +177,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         IEnumerable<string>? leftOn = null,
         IEnumerable<string>? rightOn = null,
         bool includeNulls = false,
-        JoinMaintainOrder maintainOrder =JoinMaintainOrder.Left)
+        JoinMaintainOrder maintainOrder = JoinMaintainOrder.Left)
     {
         using var right = other.Lazy();
-        return Lazy().Update(right,on,how,leftOn,rightOn,includeNulls,maintainOrder).Collect();
+        return Lazy().Update(right, on, how, leftOn, rightOn, includeNulls, maintainOrder).Collect();
     }
 }
 

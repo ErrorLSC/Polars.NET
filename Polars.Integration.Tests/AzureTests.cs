@@ -3,14 +3,9 @@ using Polars.Integration.Tests.Fixtures;
 
 namespace Polars.Integration.Tests;
 
-public class AzureTests : IClassFixture<AzuriteFixture>
+public class AzureTests(AzuriteFixture azurite) : IClassFixture<AzuriteFixture>
 {
-    private readonly AzuriteFixture _azurite;
-
-    public AzureTests(AzuriteFixture azurite)
-    {
-        _azurite = azurite;
-    }
+    private readonly AzuriteFixture _azurite = azurite;
 
     [Fact]
     public void Test_RoundTrip_Parquet_Azure_Azurite()
@@ -20,14 +15,14 @@ public class AzureTests : IClassFixture<AzuriteFixture>
         var options = CloudOptions.Azure(
             accountName: AzuriteFixture.AccountName,
             accessKey: AzuriteFixture.AccountKey,
-            endpoint: _azurite.BlobEndpoint 
+            endpoint: _azurite.BlobEndpoint
         );
 
 
         if (options.Credentials != null)
         {
             options.Credentials["azure_allow_http"] = "true";
-            options.Credentials["azure_use_emulator"] = "true"; 
+            options.Credentials["azure_use_emulator"] = "true";
         }
 
         using var df = DataFrame.FromColumns(new
@@ -35,7 +30,7 @@ public class AzureTests : IClassFixture<AzuriteFixture>
             City = new[] { "Seattle", "Redmond", "Bellevue" },
             Temp = new[] { 15.5, 16.0, 15.2 }
         });
-        
+
         // Write (Sink)
         df.Lazy().SinkParquet(azureUrl, cloudOptions: options);
 

@@ -1,0 +1,12 @@
+{
+  "name": "polars-net-root",
+  "private": true,
+  "scripts": {
+    "docs:api": "dotnet fsi tools/GenerateCSharpDocs.fsx && dotnet fsi tools/GenerateFSharpDocs.fsx",
+    "docs:previews": "dotnet fsi tools/GenerateDocPreviews.fsx",
+    "docs:dev": "npm --prefix docs run docs:dev",
+    "docs:build": "npm run docs:previews && npm --prefix docs run docs:build",
+    "docs:preview": "npm --prefix docs run docs:preview"
+  }
+}
+

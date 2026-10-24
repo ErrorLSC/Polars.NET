@@ -3,7 +3,7 @@ using Polars.NET.Core;
 
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable,IPolarsSeries
+public partial class Series : IDisposable
 {
     // ==========================================
     // Arithmetic Operators
@@ -37,7 +37,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Exponentiation Series
     /// </summary>
-    public static Series operator ^ (Series left, Series right)
+    public static Series operator ^(Series left, Series right)
         => left.Pow(right);
     // ==========================================
     // Bitwise Operators (<<, >>)
@@ -77,8 +77,8 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Compare whether two Series is not equal,This differs from the standard neq where null values are propagated.
     /// </summary>
     public Series NeqMissing(Series other) => new(PolarsWrapper.SeriesNeqMissing(Handle, other.Handle));
-    public static Series operator == (Series left, Series right) => left.Eq(right);
-    public static Series operator != (Series left, Series right) => left.Neq(right);
+    public static Series operator ==(Series left, Series right) => left.Eq(right);
+    public static Series operator !=(Series left, Series right) => left.Neq(right);
     /// <summary>
     /// Compare whether left series is greater than right series
     /// </summary>
@@ -104,9 +104,9 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Bitwise NOT operator
     /// </summary>
     public Series Not() => new(PolarsWrapper.SeriesNot(Handle));
-    public static Series operator ~ (Series booleanSeries)
+    public static Series operator ~(Series booleanSeries)
         => new(PolarsWrapper.SeriesNot(booleanSeries.Handle));
-    public static Series operator ! (Series booleanSeries)
+    public static Series operator !(Series booleanSeries)
         => new(PolarsWrapper.SeriesNot(booleanSeries.Handle));
 
     /// <summary>

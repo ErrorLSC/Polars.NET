@@ -2,6 +2,7 @@ using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
@@ -58,21 +59,21 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         {
             throw new InvalidOperationException("Can not filter by non-boolean series.");
         }
-        
-        using var expr = Pl.Lit(series); 
-        
-        return Filter(expr); 
+
+        using var expr = Pl.Lit(series);
+
+        return Filter(expr);
     }
     /// <summary>
     /// Filter rows based on a boolean array.
     /// </summary>
     /// <param name="mask"></param>
     public LazyFrame Filter(IEnumerable<bool> mask)
-        => Filter(Pl.Lit(mask)); 
+        => Filter(Pl.Lit(mask));
 
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Filter rows based on a boolean expression (predicate).
@@ -120,6 +121,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     /// <param name="mask">A boolean IEnumerable as mask</param>
     /// <returns></returns>
-    public DataFrame Filter(IEnumerable<bool> mask) => Lazy().Filter(mask).Collect(); 
+    public DataFrame Filter(IEnumerable<bool> mask) => Lazy().Filter(mask).Collect();
 
 }

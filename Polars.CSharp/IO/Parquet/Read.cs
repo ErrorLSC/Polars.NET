@@ -3,14 +3,11 @@ using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Read a DataFrame from a Parquet file or multiple files via glob patterns.
-    /// <para>
-    /// Note: This method internally uses LazyFrame.ScanParquet and collects the result. 
-    /// For larger-than-memory datasets or better query optimization, consider using LazyFrame.ScanParquet directly.
-    /// </para>
     /// </summary>
     /// <param name="path">Path to file or glob pattern (e.g. "data/*.parquet" or "s3://bucket/data.parquet").</param>
     /// <param name="columns">Columns to select. If null, select all columns. (Optimized via projection pushdown).</param>
@@ -38,8 +35,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool useStatistics = true,
         bool glob = true,
         bool allowMissingColumns = false,
-        bool rechunk = false, 
-        bool cache = true,    
+        bool rechunk = false,
+        bool cache = true,
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
@@ -69,10 +66,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             cloudOptions
         );
 
-        if (columns != null && columns.Length > 0)
+        if (columns?.Length > 0)
         {
             var colsToSelect = new List<string>(columns);
-            
+
             if (!string.IsNullOrEmpty(rowIndexName) && !colsToSelect.Contains(rowIndexName))
             {
                 colsToSelect.Add(rowIndexName);
@@ -91,9 +88,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
     /// <summary>
     /// Read Parquet from an in-memory byte array.
-    /// <para>
-    /// Note: This method internally uses LazyFrame.ScanParquet and collects the result.
-    /// </para>
     /// </summary>
     /// <param name="buffer">The byte array containing the parquet file.</param>
     /// <param name="columns">Columns to select. If null, select all columns.</param>
@@ -106,8 +100,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool lowMemory = false,
         bool useStatistics = true,
         bool allowMissingColumns = false,
-        bool rechunk = false, 
-        bool cache = true,    
+        bool rechunk = false,
+        bool cache = true,
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
@@ -134,10 +128,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             tryParseHiveDates
         );
 
-        if (columns != null && columns.Length > 0)
+        if (columns?.Length > 0)
         {
             var colsToSelect = new List<string>(columns);
-            
+
             if (!string.IsNullOrEmpty(rowIndexName) && !colsToSelect.Contains(rowIndexName))
             {
                 colsToSelect.Add(rowIndexName);
@@ -156,9 +150,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
     /// <summary>
     /// Read Parquet from a Stream.
-    /// <para>
-    /// Note: This method copies the stream to memory and then uses the Lazy execution engine.
-    /// </para>
     /// </summary>
     /// <param name="stream">The input stream containing the parquet file.</param>
     /// <param name="columns">Columns to select. If null, select all columns.</param>
@@ -171,8 +162,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool lowMemory = false,
         bool useStatistics = true,
         bool allowMissingColumns = false,
-        bool rechunk = false, 
-        bool cache = true,    
+        bool rechunk = false,
+        bool cache = true,
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
@@ -183,7 +174,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         using var ms = new MemoryStream();
         stream.CopyTo(ms);
-        
+
         return ReadParquet(
             ms.ToArray(),
             columns,
@@ -215,8 +206,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool useStatistics = true,
         bool glob = true,
         bool allowMissingColumns = false,
-        bool rechunk = false, 
-        bool cache = true,    
+        bool rechunk = false,
+        bool cache = true,
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
@@ -246,10 +237,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             cloudOptions
         );
 
-        if (columns != null && columns.Length > 0)
+        if (columns?.Length > 0)
         {
             var colsToSelect = new List<string>(columns);
-            
+
             if (!string.IsNullOrEmpty(rowIndexName) && !colsToSelect.Contains(rowIndexName))
             {
                 colsToSelect.Add(rowIndexName);
@@ -263,6 +254,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
-        return await lf.CollectAsync(useStreaming:true);
+        return await lf.CollectAsync();
     }
 }

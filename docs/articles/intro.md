@@ -84,7 +84,7 @@ Polars.NET offers two distinct APIs tailored for each language's strengths:
 
 ### 6. Performance Pitfalls
 
-1. Iterating Rows: Avoid converting a DataFrame to IEnumerable<T> or iterating rows manually unless absolutely necessary. This breaks the zero-copy advantage and incurs heavy marshalling costs.
+1. Iterating Rows: Avoid converting a DataFrame to `IEnumerable<T>` or iterating rows manually unless absolutely necessary. This breaks the zero-copy advantage and incurs heavy marshalling costs.
 
 2. Premature Collection: Don't call .Collect() in the middle of a transformation chain. Keep the chain lazy as long as possible to let the optimizer do its job.
 
@@ -97,6 +97,6 @@ df.WithColumns(Col("Country").Cast(DataType.Categorical));
 
 ### 7. Getting Help
 
-API Reference: [Link to API Docs](/api/index.html)
+API Reference: [Link to API Docs](/api/)
 
 Polars Rust Documentation: Since this is a wrapper with C ABI layer, the core logic is relatively same to the main Polars project. Concepts from the official Polars guide often apply here.

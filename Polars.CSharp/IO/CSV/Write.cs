@@ -2,7 +2,8 @@
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Write DataFrame to a comma-separated values (CSV) file.
@@ -19,11 +20,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="nullValue">The string representation for null values. Defaults to empty string.</param>
     /// <param name="lineTerminator">The character sequence used to terminate lines. Defaults to "\n".</param>
     /// <param name="floatScientific">
-    /// Whether to always use scientific notation for floats. 
+    /// Whether to always use scientific notation for floats.
     /// If null (default), formatting is automatic.
     /// </param>
     /// <param name="floatPrecision">
-    /// The number of decimal places to write for floats. 
+    /// The number of decimal places to write for floats.
     /// If null (default), uses full precision.
     /// </param>
     /// <param name="decimalComma">Whether to use a comma ',' as the decimal separator. Defaults to false.</param>
@@ -34,13 +35,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="compression">Compression method (Gzip/Zstd). Defaults to None.</param>
     /// <param name="compressionLevel">Compression level (depends on the codec). -1 for default.</param>
     /// <param name="maintainOrder">
-    /// Whether to maintain the order of the data. 
+    /// Whether to maintain the order of the data.
     /// Setting this to false can improve performance in streaming mode. Defaults to true.
     /// </param>
     /// <param name="syncOnClose">File synchronization behavior on close (e.g., flush to disk). Defaults to None.</param>
     /// <param name="mkdir">Recursively create the output directory if it does not exist. Defaults to false.</param>
     /// <param name="batchSize">
-    /// The batch size for writing rows. 
+    /// The batch size for writing rows.
     /// 0 means use the Polars default.
     /// </param>
     /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
@@ -147,7 +148,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         lf.SinkCsvPartitioned(
             path,
             // --- Partition Params ---
-            partitionBy, 
+            partitionBy,
             includeKeys,
             keysPreGrouped,
             maxRowsPerFile,
@@ -180,8 +181,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool includeBom = false,
         bool includeHeader = true,
         int batchSize = 1024,
-        bool checkExtension = false, 
-        ExternalCompression compressionCode = 0,    
+        bool checkExtension = false,
+        ExternalCompression compressionCode = 0,
         int compressionLevel = 0,
         string? dateFormat = null,
         string? timeFormat = null,
@@ -193,7 +194,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         byte quoteChar = (byte)'"',
         string? nullValue = null,
         string? lineTerminator = "\n",
-        QuoteStyle quoteStyle = QuoteStyle.Necessary,         
+        QuoteStyle quoteStyle = QuoteStyle.Necessary,
         bool maintainOrder = true)
     {
         var lf = Lazy();

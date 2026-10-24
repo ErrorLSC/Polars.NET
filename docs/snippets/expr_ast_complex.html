@@ -1,0 +1,34 @@
+<div class="pl-preview-card">
+  <div class="pl-preview-title">Complex Windowed Expression AST</div>
+  <div class='pl-expr-box'><div class='pl-expr-header'>Polars Expr <span class='pl-expr-tag'>AST</span></div><div class='pl-expr-formula'>[([(col(&quot;Price&quot;)) * ([(dyn float: 1) - (col(&quot;Discount&quot;))])].round()) - (col(&quot;Price&quot;).mean().over([col(&quot;Category&quot;)]))].alias(&quot;Discounted_Diff_From_Category_Avg&quot;)</div><pre class='pl-expr-tree'>              0                1                  2                     3                  4
+   ┌───────────────────────────────────────────────────────────────────────────────────────────────
+   │
+   │    ╭───────────╮
+ 0 │    │ binary: - │
+   │    ╰─────┬┬────╯
+   │          ││
+   │          │╰──────────────────────────────────╮
+   │          │                                   │
+   │      ╭───┴────╮                     ╭────────┴────────╮
+ 1 │      │ window │                     │ function: round │
+   │      ╰───┬┬───╯                     ╰────────┬────────╯
+   │          ││                                  │
+   │          │╰───────────────╮                  │
+   │          │                │                  │
+   │  ╭───────┴───────╮     ╭──┴───╮        ╭─────┴─────╮
+ 2 │  │ col(Category) │     │ mean │        │ binary: * │
+   │  ╰───────────────╯     ╰──┬───╯        ╰─────┬┬────╯
+   │                           │                  ││
+   │                           │                  │╰───────────────────────────────────────╮
+   │                           │                  │                                        │
+   │                     ╭─────┴──────╮     ╭─────┴─────╮                            ╭─────┴──────╮
+ 3 │                     │ col(Price) │     │ binary: - │                            │ col(Price) │
+   │                     ╰────────────╯     ╰─────┬┬────╯                            ╰────────────╯
+   │                                              ││
+   │                                              │╰────────────────────╮
+   │                                              │                     │
+   │                                      ╭───────┴───────╮   ╭─────────┴─────────╮
+ 4 │                                      │ col(Discount) │   │ lit(dyn float: 1) │
+   │                                      ╰───────────────╯   ╰───────────────────╯
+</pre></div>
+</div>

@@ -1,10 +1,20 @@
 <Project>
   <PropertyGroup>
-    <Version>0.7.0</Version>
+    <Version>1.0.0</Version>
     <Authors>ErrorLSC</Authors>
     <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.fsproj'">
+    <ParallelCompilation>true</ParallelCompilation>
+    <OtherFlags>$(OtherFlags) --parallelcompilation+</OtherFlags>
+    <NoWarn>$(NoWarn);FS0075;75</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.fsproj'">
+    <ParallelCompilation Include="true" />
+  </ItemGroup>
 
   <ItemGroup>
     <None Include="..\THIRD_PARTY_LICENSES.html" Pack="true" PackagePath="\" />

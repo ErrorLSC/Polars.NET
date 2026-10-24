@@ -90,7 +90,7 @@ public readonly struct StructOps
     {
         if (fields == null || fields.Length == 0)
         {
-            return new Expr(PolarsWrapper.StructWithFields(_expr.Handle, []));
+            return new Expr(PolarsWrapper.StructWithFields(_expr.CloneHandle(), []));
         }
 
         var handles = new ExprHandle[fields.Length];
@@ -99,7 +99,7 @@ public readonly struct StructOps
             handles[i] = fields[i].Consume().Handle; 
         }
 
-        return new Expr(PolarsWrapper.StructWithFields(_expr.Handle, handles));
+        return new Expr(PolarsWrapper.StructWithFields(_expr.CloneHandle(), handles));
     }
 
     /// <inheritdoc cref="Field(long)"/>

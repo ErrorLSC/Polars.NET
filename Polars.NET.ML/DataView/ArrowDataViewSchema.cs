@@ -1,5 +1,5 @@
 using Apache.Arrow.Types;
-using Microsoft.ML.Data; 
+using Microsoft.ML.Data;
 
 namespace Polars.NET.ML.DataView;
 
@@ -13,7 +13,7 @@ internal static class ArrowDataViewMapper
     /// </summary>
     public static DataViewType GetDataViewType(IArrowType arrowType)
     {
-        
+
         return arrowType switch
         {
             // ==========================================
@@ -30,7 +30,7 @@ internal static class ArrowDataViewMapper
             FloatType => NumberDataViewType.Single,
             DoubleType => NumberDataViewType.Double,
             BooleanType => BooleanDataViewType.Instance,
-            
+
             // ==========================================
             // String and DateTime
             // ==========================================
@@ -41,13 +41,13 @@ internal static class ArrowDataViewMapper
             // ==========================================
             // Tensors
             // ==========================================
-            
+
             FixedSizeListType fsList => new VectorDataViewType(
-                itemType: (PrimitiveDataViewType)GetDataViewType(fsList.ValueDataType), 
+                itemType: (PrimitiveDataViewType)GetDataViewType(fsList.ValueDataType),
                 size: fsList.ListSize),
-                
+
             LargeListType list => new VectorDataViewType(
-                itemType: (PrimitiveDataViewType)GetDataViewType(list.ValueDataType), 
+                itemType: (PrimitiveDataViewType)GetDataViewType(list.ValueDataType),
                 size: 0),
 
             // ==========================================
@@ -59,7 +59,7 @@ internal static class ArrowDataViewMapper
                 Int16Type or UInt16Type => new KeyDataViewType(typeof(ushort), 0),
                 Int32Type or UInt32Type => new KeyDataViewType(typeof(uint), 0),
                 Int64Type or UInt64Type => new KeyDataViewType(typeof(ulong), 0),
-                
+
                 _ => throw new NotSupportedException($"Dictionary index type '{dict.IndexType.Name}' is not supported as ML.NET KeyDataViewType.")
             },
 
@@ -67,7 +67,7 @@ internal static class ArrowDataViewMapper
                 "Dynamic Map types cannot be directly consumed by ML.NET pipelines. Please unnest, explode, or convert to Struct/List features using Polars before creating the IDataView."),
             Decimal128Type or Decimal256Type => throw new NotSupportedException(
                 "ML.NET trainers operate on float/double. Please cast your Decimal column to Float64 in Polars (e.g., df.Select(Col(\"Price\").Cast(DataType.Float64))) before exporting to IDataView."),
-            
+
             _ => throw new NotSupportedException(
                 $"Arrow type '{arrowType.Name}' is currently not supported in ML.NET DataView mapping.")
         };
@@ -111,18 +111,18 @@ internal static class ArrowDataViewMapper
 
             VectorDataViewType v when v.ItemType == NumberDataViewType.Single =>
                 v.Size > 0 
-                    ? new FixedSizeListType(FloatType.Default, v.Size) 
-                    : new LargeListType(FloatType.Default), 
-                
+                    ? new FixedSizeListType(FloatType.Default, v.Size)
+                    : new LargeListType(FloatType.Default),
+
             VectorDataViewType v when v.ItemType == NumberDataViewType.Int32 =>
                 v.Size > 0 
-                    ? new FixedSizeListType(Int32Type.Default, v.Size) 
-                    : new LargeListType(Int32Type.Default), 
+                    ? new FixedSizeListType(Int32Type.Default, v.Size)
+                    : new LargeListType(Int32Type.Default),
 
             // ==========================================
             // Categorical (Key Types)
             // ==========================================
-            KeyDataViewType k => StringViewType.Default,
+            KeyDataViewType => StringViewType.Default,
 
             // ==========================================
             // Fallback

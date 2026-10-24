@@ -9,9 +9,9 @@ public readonly partial struct Polars
     /// <typeparam name="T">The custom extension class inheriting from BaseExtension.</typeparam>
     /// <param name="extName">The registered name.</param>
     /// <param name="factory">The factory delegate to deserialize the extension type.</param>
-    public static void RegisterExtensionType<T>(string extName, ExtensionFactory factory) where T : BaseExtension 
+    public static void RegisterExtensionType<T>(string extName, ExtensionFactory factory) where T : BaseExtension
         => ExtensionRegistry.RegisterExtensionType<T>(extName, factory);
-    
+
     /// <summary>
     /// Register the extension type to be passed through purely as physical storage.
     /// </summary>
@@ -47,7 +47,7 @@ public readonly partial struct Polars
             {
                 return new ExtensionInfo.AsStorage();
             }
-            
+
             if (factory is not null)
             {
                 return new ExtensionInfo.AsClass(factory);

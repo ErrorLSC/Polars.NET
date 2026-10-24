@@ -22,12 +22,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Get a column by its positional index (0-based).
     /// </summary>
-    public Series Column(int index)
+    public Series Column(long index)
     {
         var h = PolarsWrapper.DataFrameGetColumnAt(Handle, index);
         return new Series(h);
     }
-    IPolarsSeries IPolarsDataFrame.Column(int index) => Column(index);
     /// <summary>
     /// Get all columns as a list of Series.
     /// Order is guaranteed to match the physical column order.

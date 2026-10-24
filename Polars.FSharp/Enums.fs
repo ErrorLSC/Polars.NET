@@ -4,62 +4,68 @@ open Polars.NET.Core
 open System
 
 [<RequireQualifiedAccess>]
-type TimeUnit = 
+type TimeUnit =
     | Nanoseconds
     | Microseconds
     | Milliseconds
+
     member internal this.ToNative() =
         match this with
         | Nanoseconds -> PlTimeUnit.Nanoseconds
         | Microseconds -> PlTimeUnit.Microseconds
         | Milliseconds -> PlTimeUnit.Milliseconds
-    static member internal FromNative(timeUnit:PlTimeUnit) = 
+
+    static member internal FromNative(timeUnit: PlTimeUnit) =
         match timeUnit with
         | PlTimeUnit.Nanoseconds -> TimeUnit.Nanoseconds
         | PlTimeUnit.Microseconds -> TimeUnit.Microseconds
         | PlTimeUnit.Milliseconds -> TimeUnit.Milliseconds
         | _ -> TimeUnit.Microseconds
-// [<RequireQualifiedAccess>]
-// type CorrelationMethod =
-//     | Pearson
-//     | Spearman
+
 [<RequireQualifiedAccess>]
-type EpochTimeUnit = 
+type EpochTimeUnit =
     | Nanoseconds
     | Microseconds
     | Milliseconds
     | Second
     | Day
+
 [<RequireQualifiedAccess>]
 type TransferEncoding =
     | Base64
     | Hex
+
 [<RequireQualifiedAccess>]
 type Endianness =
     | Little
     | Big
+
 [<RequireQualifiedAccess>]
 type CategoricalPhysical =
     | U32
     | U16
     | U8
+
     member internal this.ToNative() =
         match this with
         | U32 -> PlCategoricalPhysical.U32
         | U16 -> PlCategoricalPhysical.U16
         | U8 -> PlCategoricalPhysical.U8
+
 [<RequireQualifiedAccess>]
-type UniqueKeepStrategy = 
+type UniqueKeepStrategy =
     | First
     | Last
     | Any
     | NoKeep
+
     member internal this.ToNative() =
         match this with
         | First -> PlUniqueKeepStrategy.First
         | Last -> PlUniqueKeepStrategy.Last
         | Any -> PlUniqueKeepStrategy.Any
         | NoKeep -> PlUniqueKeepStrategy.None
+
 /// <summary>
 /// Represents the type of join operation to perform.
 /// </summary>
@@ -71,6 +77,7 @@ type JoinType =
     | Cross
     | Semi
     | Anti
+
     member internal this.ToNative() =
         match this with
         | Inner -> PlJoinType.Inner
@@ -79,6 +86,7 @@ type JoinType =
         | Cross -> PlJoinType.Cross
         | Semi -> PlJoinType.Semi
         | Anti -> PlJoinType.Anti
+
 [<RequireQualifiedAccess>]
 type JoinSide =
     | LetPolarsDecide
@@ -86,6 +94,7 @@ type JoinSide =
     | ForceLeft
     | PreferRight
     | ForceRight
+
     member internal this.ToNative() =
         match this with
         | LetPolarsDecide -> PlJoinSide.None
@@ -93,16 +102,18 @@ type JoinSide =
         | PreferLeft -> PlJoinSide.PreferLeft
         | ForceLeft -> PlJoinSide.ForceLeft
         | ForceRight -> PlJoinSide.ForceRight
+
 [<RequireQualifiedAccess>]
-type WindowMappingStrategy = 
+type WindowMappingStrategy =
     | GroupsToRows
     | Explode
     | Join
+
     member internal this.ToNative() =
         match this with
         | GroupsToRows -> PlWindowMapping.GroupsToRows
         | Explode -> PlWindowMapping.Explode
-        | Join -> PlWindowMapping.Join 
+        | Join -> PlWindowMapping.Join
 
 [<RequireQualifiedAccess>]
 type PivotColumnNaming =
@@ -116,6 +127,7 @@ type PivotColumnNaming =
     /// the on_columns names.
     /// </summary>
     | Combine
+
     member internal this.ToNative() =
         match this with
         | Auto -> PlPivotColumnNaming.Auto
@@ -127,8 +139,15 @@ type PivotColumnNaming =
 /// </summary>
 [<RequireQualifiedAccess>]
 type PivotAgg =
-    | First | Sum | Min | Max | Mean | Median | Count | Last
-    
+    | First
+    | Sum
+    | Min
+    | Max
+    | Mean
+    | Median
+    | Count
+    | Last
+
     member internal this.ToNative() =
         match this with
         | First -> PlPivotAgg.First
@@ -148,22 +167,25 @@ type ConcatType =
     | Vertical
     | Horizontal
     | Diagonal
-    
+
     member internal this.ToNative() =
         match this with
         | Vertical -> PlConcatType.Vertical
         | Horizontal -> PlConcatType.Horizontal
         | Diagonal -> PlConcatType.Diagonal
+
 [<RequireQualifiedAccess>]
 type Label =
-    | Left 
-    | Right 
+    | Left
+    | Right
     | DataPoint
+
     member internal this.ToNative() =
         match this with
         | Left -> PlLabel.Left
         | Right -> PlLabel.Right
-        | DataPoint -> PlLabel.DataPoint 
+        | DataPoint -> PlLabel.DataPoint
+
 [<RequireQualifiedAccess>]
 type StartBy =
     | WindowBound
@@ -175,6 +197,7 @@ type StartBy =
     | Friday
     | Saturday
     | Sunday
+
     member internal this.ToNative() =
         match this with
         | WindowBound -> PlStartBy.WindowBound
@@ -183,58 +206,68 @@ type StartBy =
         | Tuesday -> PlStartBy.Tuesday
         | Wednesday -> PlStartBy.Wednesday
         | Thursday -> PlStartBy.Thursday
-        | Friday -> PlStartBy.Friday    
+        | Friday -> PlStartBy.Friday
         | Saturday -> PlStartBy.Saturday
         | Sunday -> PlStartBy.Sunday
+
 [<RequireQualifiedAccess>]
 type ClosedInterval =
     | Left
     | Right
     | Both
     | NoWindow
+
     member internal this.ToNative() =
         match this with
         | Left -> PlClosedInterval.Left
         | Right -> PlClosedInterval.Right
         | Both -> PlClosedInterval.Both
         | NoWindow -> PlClosedInterval.None
+
 [<RequireQualifiedAccess>]
 type NonExistent =
     | Raise
     | SetNull
+
     member internal this.ToNative() =
         match this with
         | Raise -> PlNonExistent.Raise
         | SetNull -> PlNonExistent.Null
+
 [<RequireQualifiedAccess>]
 type Roll =
-    | Raise 
-    | Forward 
+    | Raise
+    | Forward
     | Backward
+
     member internal this.ToNative() =
         match this with
         | Raise -> PlRoll.Raise
         | Forward -> PlRoll.Forward
         | Backward -> PlRoll.Backward
+
 [<RequireQualifiedAccess>]
 type Engine =
     | Auto
     | InMemory
     | Gpu
     | Streaming
+
     member internal this.ToNative() =
         match this with
         | Auto -> PlEngine.Auto
         | InMemory -> PlEngine.InMemory
         | Gpu -> PlEngine.Gpu
         | Streaming -> PlEngine.Streaming
+
 [<RequireQualifiedAccess>]
 type QuantileMethod =
-    | Nearest 
-    | Higher 
+    | Nearest
+    | Higher
     | Lower
     | Midpoint
     | Linear
+
     member internal this.ToNative() =
         match this with
         | Nearest -> PlQuantileMethod.Nearest
@@ -242,33 +275,39 @@ type QuantileMethod =
         | Lower -> PlQuantileMethod.Lower
         | Midpoint -> PlQuantileMethod.Midpoint
         | Linear -> PlQuantileMethod.Linear
+
 [<RequireQualifiedAccess>]
 type RoundMode =
     | HalfAwayFromZero
     | HalfToEven
     | ToZero
+
     member internal this.ToNative() =
         match this with
         | HalfAwayFromZero -> PlRoundMode.HalfAwayFromZero
         | HalfToEven -> PlRoundMode.HalfToEven
         | ToZero -> PlRoundMode.ToZero
+
 [<RequireQualifiedAccess>]
-type NullBehavior = 
+type NullBehavior =
     | Ignore
-    | Drop 
+    | Drop
+
     member internal this.ToNative() =
         match this with
         | Ignore -> PlNullBehavior.Ignore
         | Drop -> PlNullBehavior.Drop
+
 [<RequireQualifiedAccess>]
-type FillNullStrategy = 
+type FillNullStrategy =
     | Forward
     | Backward
-    | Max 
+    | Max
     | Min
     | Mean
     | Zero
-    | One 
+    | One
+
     member internal this.ToNative() =
         match this with
         | Forward -> PlFillNullStrategy.Forward
@@ -278,14 +317,16 @@ type FillNullStrategy =
         | Mean -> PlFillNullStrategy.Mean
         | Zero -> PlFillNullStrategy.Zero
         | One -> PlFillNullStrategy.One
+
 [<RequireQualifiedAccess>]
 type RankMethod =
-    | Average 
+    | Average
     | Min
     | Max
     | Dense
     | Ordinal
     | Random
+
     member internal this.ToNative() =
         match this with
         | Average -> PlRankMethod.Average
@@ -294,13 +335,15 @@ type RankMethod =
         | Dense -> PlRankMethod.Dense
         | Ordinal -> PlRankMethod.Ordinal
         | Random -> PlRankMethod.Random
+
 [<RequireQualifiedAccess>]
 type RollingRankMethod =
-    | Average 
+    | Average
     | Min
     | Max
     | Dense
     | Random
+
     member internal this.ToNative() =
         match this with
         | Average -> PlRollingRankMethod.Average
@@ -308,28 +351,33 @@ type RollingRankMethod =
         | Max -> PlRollingRankMethod.Max
         | Dense -> PlRollingRankMethod.Dense
         | Random -> PlRollingRankMethod.Random
+
 [<RequireQualifiedAccess>]
 type JoinValidation =
     | ManyToMany
     | ManyToOne
     | OneToMany
     | OneToOne
+
     member internal this.ToNative() =
         match this with
         | ManyToMany -> PlJoinValidation.ManyToMany
         | ManyToOne -> PlJoinValidation.ManyToOne
         | OneToMany -> PlJoinValidation.OneToMany
         | OneToOne -> PlJoinValidation.OneToOne
+
 [<RequireQualifiedAccess>]
 type JoinCoalesce =
     | JoinSpecific
     | CoalesceColumns
     | KeepColumns
+
     member internal this.ToNative() =
         match this with
         | JoinSpecific -> PlJoinCoalesce.JoinSpecific
         | CoalesceColumns -> PlJoinCoalesce.CoalesceColumns
         | KeepColumns -> PlJoinCoalesce.KeepColumns
+
 [<RequireQualifiedAccess>]
 type JoinMaintainOrder =
     | NotMaintainOrder
@@ -337,6 +385,7 @@ type JoinMaintainOrder =
     | Right
     | LeftRight
     | RightLeft
+
     member internal this.ToNative() =
         match this with
         | NotMaintainOrder -> PlJoinMaintainOrder.None
@@ -344,64 +393,77 @@ type JoinMaintainOrder =
         | Right -> PlJoinMaintainOrder.Right
         | LeftRight -> PlJoinMaintainOrder.LeftRight
         | RightLeft -> PlJoinMaintainOrder.RightLeft
+
 [<RequireQualifiedAccess>]
 type AsofStrategy =
     | Backward
     | Forward
     | Nearest
+
     member internal this.ToNative() =
         match this with
         | Backward -> PlAsofStrategy.Backward
         | Forward -> PlAsofStrategy.Forward
         | Nearest -> PlAsofStrategy.Nearest
+
 [<RequireQualifiedAccess>]
 type ParallelStrategy =
     | Auto
     | Columns
     | RowGroups
     | NoParallel
+
     member internal this.ToNative() =
         match this with
         | Auto -> PlParallelStrategy.Auto
         | Columns -> PlParallelStrategy.Columns
         | RowGroups -> PlParallelStrategy.RowGroups
         | NoParallel -> PlParallelStrategy.None
+
 [<RequireQualifiedAccess>]
 type CsvEncoding =
     | UTF8
     | LossyUTF8
+
     member internal this.ToNative() =
         match this with
         | UTF8 -> PlCsvEncoding.UTF8
         | LossyUTF8 -> PlCsvEncoding.LossyUTF8
+
 [<RequireQualifiedAccess>]
 type JsonFormat =
     | Json
     | JsonLines
+
     member internal this.ToNative() =
         match this with
         | Json -> PlJsonFormat.Json
         | JsonLines -> PlJsonFormat.JsonLines
+
 [<RequireQualifiedAccess>]
 type IpcCompression =
     | NoCompression
     | LZ4
     | ZSTD
+
     member internal this.ToNative() =
         match this with
         | NoCompression -> PlIpcCompression.None
         | LZ4 -> PlIpcCompression.LZ4
         | ZSTD -> PlIpcCompression.ZSTD
+
 [<RequireQualifiedAccess>]
 type SyncOnClose =
     | NoSync
     | Data
     | All
+
     member internal this.ToNative() =
         match this with
         | NoSync -> PlSyncOnClose.None
         | Data -> PlSyncOnClose.Data
         | All -> PlSyncOnClose.All
+
 [<RequireQualifiedAccess>]
 type ParquetCompression =
     | Uncompressed
@@ -410,6 +472,7 @@ type ParquetCompression =
     | Brotli
     | Zstd
     | Lz4Raw
+
     member internal this.ToNative() =
         match this with
         | Uncompressed -> PlParquetCompression.Uncompressed
@@ -418,26 +481,31 @@ type ParquetCompression =
         | Brotli -> PlParquetCompression.Brotli
         | Zstd -> PlParquetCompression.ZSTD
         | Lz4Raw -> PlParquetCompression.Lz4Raw
+
 [<RequireQualifiedAccess>]
 type QuoteStyle =
     | Always
     | Necessary
     | Never
     | NonNumeric
+
     member internal this.ToNative() =
         match this with
         | Always -> PlQuoteStyle.Always
         | Necessary -> PlQuoteStyle.Necessary
         | Never -> PlQuoteStyle.Never
         | NonNumeric -> PlQuoteStyle.NonNumeric
+
 [<RequireQualifiedAccess>]
 type InterpolationMethod =
     | Nearest
     | Linear
+
     member internal this.ToNative() =
         match this with
         | Nearest -> PlInterpolationMethod.Nearest
         | Linear -> PlInterpolationMethod.Linear
+
 [<RequireQualifiedAccess>]
 type CloudProvider =
     | NotCloud
@@ -446,6 +514,7 @@ type CloudProvider =
     | Gcp
     | Http
     | HuggingFace
+
     member internal this.ToNative() =
         match this with
         | NotCloud -> PlCloudProvider.None
@@ -464,8 +533,9 @@ type DeltaSaveMode =
     | Overwrite
     | ErrorIfExists
     | Ignore
-    member internal this.ToNative() = 
-        match this with 
+
+    member internal this.ToNative() =
+        match this with
         | Append -> PlDeltaSaveMode.Append
         | Overwrite -> PlDeltaSaveMode.Overwrite
         | ErrorIfExists -> PlDeltaSaveMode.ErrorIfExists
@@ -476,6 +546,7 @@ type ExternalCompression =
     | Uncompressed
     | Gzip
     | ZSTD
+
     member internal this.ToNative() =
         match this with
         | Uncompressed -> PlExternalCompression.Uncompressed
@@ -487,6 +558,7 @@ type AvroCompression =
     | Uncompressed
     | Deflate
     | Snappy
+
     member internal this.ToNative() =
         match this with
         | Uncompressed -> PlAvroCompression.Uncompressed
@@ -501,6 +573,7 @@ type MergeActionType =
     | MatchedDelete
     | NotMatchedInsert
     | NotMatchedBySourceDelete
+
     member internal this.ToNative() =
         match this with
         | MatchedUpdate -> PlMergeActionType.MatchedUpdate
@@ -514,12 +587,12 @@ type MergeActionType =
 [<RequireQualifiedAccess>]
 type AdbcIngestMode =
     /// <summary>
-    /// Creates a new table and inserts the data. 
+    /// Creates a new table and inserts the data.
     /// Fails if the target table already exists. (Default behavior)
     /// </summary>
     | Create
     /// <summary>
-    /// Appends the data to an existing table. 
+    /// Appends the data to an existing table.
     /// Fails if the target table does not exist, or if the DataFrame schema doesn't match.
     /// </summary>
     | Append
@@ -531,9 +604,10 @@ type AdbcIngestMode =
 
 [<RequireQualifiedAccess>]
 type SearchSortedSide =
-    | Any 
-    | Left  
+    | Any
+    | Left
     | Right
+
     member internal this.ToNative() =
         match this with
         | Any -> PlSearchSortedSide.Any
@@ -541,9 +615,10 @@ type SearchSortedSide =
         | Right -> PlSearchSortedSide.Right
 
 [<RequireQualifiedAccess>]
-type CatalogTableType = 
+type CatalogTableType =
     | Managed
     | External
+
     member internal this.ToNative() =
         match this with
         | Managed -> PlCatalogTableType.Managed
@@ -556,21 +631,22 @@ type SizeUnit =
     | Megabytes
     | Gigabytes
     | Terabytes
-    
+
 /// <summary>
 /// Bitwise flags representing the sorting state of a Series or Column.
 /// </summary>
 [<Flags>]
 type SortStateFlags =
-    | NotSorted  = 0uy
-    | IsSorted   = 1uy   // 001
-    | Descending = 2uy   // 010
-    | NullsLast  = 4uy   // 100
+    | NotSorted = 0uy
+    | IsSorted = 1uy // 001
+    | Descending = 2uy // 010
+    | NullsLast = 4uy // 100
 
 [<RequireQualifiedAccess>]
-type MissingColumnsPolicy = 
-    | Raise  
+type MissingColumnsPolicy =
+    | Raise
     | Insert
+
     member internal this.ToNative() =
         match this with
         | Raise -> PlMissingColumnsPolicy.Raise
@@ -580,6 +656,7 @@ type MissingColumnsPolicy =
 type UpcastOrForbid =
     | Forbid
     | Upcast
+
     member internal this.ToNative() =
         match this with
         | Forbid -> PlUpcastOrForbid.Forbid
@@ -587,12 +664,14 @@ type UpcastOrForbid =
 
 [<RequireQualifiedAccess>]
 type ExtraColumnsPolicy =
-    | Raise 
-    | Ignore 
+    | Raise
+    | Ignore
+
     member internal this.ToNative() =
         match this with
         | Raise -> PlExtraColumnsPolicy.Raise
         | Ignore -> PlExtraColumnsPolicy.Ignore
+
 [<RequireQualifiedAccess>]
 type UnstackDirection =
     | Vertical
@@ -615,7 +694,8 @@ type TableFormatting =
     | Utf8HorizontalOnly
     | Nothing
     | ResetToDefault
-    member internal this.ToNative() = 
+
+    member internal this.ToNative() =
         match this with
         | AsciiFull -> Nullable PlTableFormatting.AsciiFull
         | AsciiFullCondensed -> Nullable PlTableFormatting.AsciiFullCondensed
@@ -631,7 +711,7 @@ type TableFormatting =
         | Utf8BordersOnly -> Nullable PlTableFormatting.Utf8BordersOnly
         | Utf8HorizontalOnly -> Nullable PlTableFormatting.Utf8HorizontalOnly
         | Nothing -> Nullable PlTableFormatting.Nothing
-        | ResetToDefault -> Nullable ()
+        | ResetToDefault -> Nullable()
 
 [<RequireQualifiedAccess>]
 type Alignment =
@@ -639,12 +719,13 @@ type Alignment =
     | Center
     | Right
     | ResetToDefault
-    member internal this.ToNative() = 
-       match this with
+
+    member internal this.ToNative() =
+        match this with
         | Left -> Nullable PlTableCellAlignment.Left
         | Center -> Nullable PlTableCellAlignment.Center
-        | Right -> Nullable PlTableCellAlignment.Right 
-        | ResetToDefault -> Nullable ()
+        | Right -> Nullable PlTableCellAlignment.Right
+        | ResetToDefault -> Nullable()
 
 [<RequireQualifiedAccess>]
 type FloatFormat =
@@ -656,12 +737,12 @@ type FloatFormat =
     /// <summary>
     /// Print the full precision of the floating point number.
     /// </summary>
-    | Full 
+    | Full
 
     | ResetToDefault
-    member internal this.ToNative() = 
-       match this with
+
+    member internal this.ToNative() =
+        match this with
         | Mixed -> Nullable PlFloatFormat.Mixed
         | Full -> Nullable PlFloatFormat.Full
-        | ResetToDefault -> Nullable ()
-
+        | ResetToDefault -> Nullable()

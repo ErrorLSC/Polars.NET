@@ -39,7 +39,6 @@
     <Compile Include="Expr/ArrayOps.fs" />
     <Compile Include="Expr/NameOps.fs" />
     <Compile Include="Expr/StructOps.fs" />
-    <Compile Include="Expr/MetaOps.fs" />
     <Compile Include="Types.fs" />
     <Compile Include="Lit.fs" />
     <Compile Include="Operations/Cast.fs" />
@@ -49,6 +48,7 @@
     <Compile Include="Series/Series.Descriptive.fs" />
     <Compile Include="Series/Series.Computation.fs" />
     <Compile Include="Expr/DtOps.fs" />
+    <Compile Include="Expr/MetaOps.fs" />
     <Compile Include="Expr/ExprNamespaces.fs" />
     <Compile Include="Expr/RollingOps.fs" />
     <Compile Include="Series/Series.RollingOps.fs" />
@@ -86,17 +86,19 @@
     <Compile Include="Operations/Pivot.fs" />
     <Compile Include="Operations/TensorInterops.fs" />
     <Compile Include="DataFrame/DataFrame.Factory.fs" />
-    <Compile Include="DataFrame/DataFrame.PartitionBy.fs" />
     <Compile Include="DataFrame/DataFrame.Conversions.fs" />
+    <Compile Include="DataFrame/DataFrame.PartitionBy.fs" />
     <Compile Include="DataFrame/DataFrame.Descriptive.fs" />
     <Compile Include="DataFrame/DataFrame.Transpose.fs" />
     <Compile Include="Display.fs" />
     <Compile Include="Polars.fs" />
+    <Compile Include="Query.fs" />
     <Compile Include="Expr/Manipulation.fs" />
     <Compile Include="Extensions.fs" />
     <Compile Include="DataFrame/DataFrame.Unstack.fs" />
     <Compile Include="DataFrame/DataFrame.JsonNormalize.fs" />
     <Compile Include="DataFrame/DataFrame.Mapping.fs" />
+    <Compile Include="Operations/Async.fs" />
     <Compile Include="DataFrame/DataFrame.Modules.fs" />
     <Compile Include="LazyFrame/LazyFrame.Modules.fs" />
     <Compile Include="Series/Series.Modules.fs" />
@@ -106,15 +108,17 @@
     <Compile Include="IO/Delta/Read.fs" />
     <Compile Include="IO/Delta/Write.fs" />
     <Compile Include="IO/Catalog.fs" />
+    <Compile Include="IO/ADO.NET/DataExtensions.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../Polars.NET.Core/Polars.NET.Core.csproj" />
+    <ProjectReference Include="..\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Polars.NET.ML" />
-    <InternalsVisibleTo Include="Polars.NET.Linq" />
+    <InternalsVisibleTo Include="Polars.FSharp.Tests" />
   </ItemGroup>
 
   <ItemGroup>

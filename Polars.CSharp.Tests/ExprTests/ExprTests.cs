@@ -11,7 +11,7 @@ public class ExprTests
     [Fact]
     public void Select_Inline_Style_Pythonic()
     {
-        using var csv = new DisposableFile("name,birthdate,weight,height\nQinglei,2025-11-25,70,1.80",".csv");
+        using var csv = new DisposableFile("name,birthdate,weight,height\nQinglei,2025-11-25,70,1.80", ".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
         using var res = df.Select(
@@ -37,7 +37,7 @@ public class ExprTests
     [Fact]
     public void Filter_By_Numeric_Value_Gt()
     {
-        using var csv = new DisposableFile("val\n10\n20\n30",".csv");
+        using var csv = new DisposableFile("val\n10\n20\n30", ".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
         using var res = df.Filter(Pl.Col("val") > 15);
@@ -56,7 +56,7 @@ Ben Brown,1985-02-15,72.5,1.77
 Qinglei,2025-11-25,70.0,1.80
 Zhang,2025-10-31,55,1.75";
 
-        using var csv = new DisposableFile(content,".csv");
+        using var csv = new DisposableFile(content, ".csv");
 
         using var df = DataFrame.ReadCsv(csv.Path);
 
@@ -70,7 +70,7 @@ Zhang,2025-10-31,55,1.75";
     [Fact]
     public void Filter_By_String_Value_Eq()
     {
-        using var csv = new DisposableFile("name\nAlice\nBob\nAlice",".csv");
+        using var csv = new DisposableFile("name\nAlice\nBob\nAlice", ".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
         using var res = df.Filter(Pl.Col("name") == Pl.Lit("Alice"));
@@ -81,7 +81,7 @@ Zhang,2025-10-31,55,1.75";
     [Fact]
     public void Filter_By_Double_Value_Eq()
     {
-        using var csv = new DisposableFile("value\n3.36\n4.2\n5\n3.36",".csv");
+        using var csv = new DisposableFile("value\n3.36\n4.2\n5\n3.36", ".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
         using var res = df.Filter(Pl.Col("value") == 3.36);
@@ -92,7 +92,7 @@ Zhang,2025-10-31,55,1.75";
     [Fact]
     public void Null_Handling_Works()
     {
-        using var csv = new DisposableFile("age\n10\n\n30",".csv");
+        using var csv = new DisposableFile("age\n10\n\n30", ".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
         using var filled = df
@@ -117,7 +117,7 @@ Qinglei,1990-05-20,1.80
 TooOld,1980-01-01,1.80
 TooShort,1990-05-20,1.60";
 
-        using var csv = new DisposableFile(content,".csv");
+        using var csv = new DisposableFile(content, ".csv");
 
         using var df = DataFrame.ReadCsv(csv.Path, tryParseDates: true);
 
@@ -138,7 +138,7 @@ TooShort,1990-05-20,1.60";
     [Fact]
     public void Math_Ops_BMI_Calculation_With_Pow()
     {
-        using var csv = new DisposableFile("name,height,weight\nAlice,1.65,60\nBob,1.80,80",".csv");
+        using var csv = new DisposableFile("name,height,weight\nAlice,1.65,60\nBob,1.80,80", ".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
         var bmiExpr = (Pl.Col("weight") / Pl.Col("height").Pow(2))
@@ -155,7 +155,7 @@ TooShort,1990-05-20,1.60";
         Assert.True(res.GetValue<double>(0, "sqrt_h") > 1.28 && res.GetValue<double>(0, "sqrt_h") < 1.29);
     }
     [Fact]
-    [Trait("Expr","Trigonometry")]
+    [Trait("Expr", "Trigonometry")]
     public void Test_Trigonometry_Basic()
     {
         double[] data = [0.0, Math.PI / 2.0, Math.PI];
@@ -175,16 +175,16 @@ TooShort,1990-05-20,1.60";
         // Sin(PI/2)=1, Cos(PI/2)=0 (approx)
         Assert.Equal(1.0, (double)res["sin"][1], 1e-6);
         Assert.Equal(0.0, (double)res["cos"][1], 1e-6);
-        Assert.Equal(180.0,res["degree"][2]);
+        Assert.Equal(180.0, res["degree"][2]);
     }
 
     [Fact]
-    [Trait("Expr","Trigonometry")]
+    [Trait("Expr", "Trigonometry")]
     public void Test_Trigonometry_Inverse()
     {
         double[] data = [-1.0, 0.0, 1.0];
-        double[] degrees = [180.0,90.0,360.0];
-        using var df = DataFrame.FromColumns(new { val = data,degree=degrees });
+        double[] degrees = [180.0, 90.0, 360.0];
+        using var df = DataFrame.FromColumns(new { val = data, degree = degrees });
 
         using var res = df.Select(
             Pl.Col("val").ArcSin().Alias("asin"),
@@ -195,19 +195,19 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(-Math.PI / 2, (double)res["asin"][0], 1e-6);
         // ArcCos(1) = 0
         Assert.Equal(0.0, (double)res["acos"][2], 1e-6);
-        Assert.Equal(Math.PI,res["radian"][0]);
+        Assert.Equal(Math.PI, res["radian"][0]);
     }
     [Fact]
-    [Trait("Expr","Trigonometry")]
+    [Trait("Expr", "Trigonometry")]
     public void Test_Trigonometry_Arctan2()
     {
         double c = Math.Sqrt(2) / 2;
-        double[] y = [c, -c, c,-c];
-        double[] x = [c,c,-c,-c];
-        using DataFrame df =[Series.From("y",y),Series.From("x",x)] ;
+        double[] y = [c, -c, c, -c];
+        double[] x = [c, c, -c, -c];
+        using DataFrame df = [Series.From("y", y), Series.From("x", x)];
 
-        using var res = df.WithColumns(Pl.ArcTan2("y","x").Alias("arctan2"));
-        Assert.Equal(2.356194,(double)res["arctan2"][2],5);
+        using var res = df.WithColumns(Pl.ArcTan2("y", "x").Alias("arctan2"));
+        Assert.Equal(2.356194, (double)res["arctan2"][2], 5);
     }
 
     [Fact]
@@ -239,10 +239,10 @@ TooShort,1990-05-20,1.60";
     // ==========================================
 
     [Fact]
-    [Trait("Expr","StringOps")]
+    [Trait("Expr", "StringOps")]
     public void String_Operations_Case_Slice_Replace()
     {
-        using var csv = new DisposableFile("text\nHello World\nfoo BAR",".csv");
+        using var csv = new DisposableFile("text\nHello World\nfoo BAR", ".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
         using var res = df.Select(
@@ -268,10 +268,10 @@ TooShort,1990-05-20,1.60";
     }
 
     [Fact]
-    [Trait("Expr","StringOps")]
+    [Trait("Expr", "StringOps")]
     public void String_Regex_Replace_And_Extract()
     {
-        using var csv = new DisposableFile("text\nUser: 12345\nID: 999",".csv");
+        using var csv = new DisposableFile("text\nUser: 12345\nID: 999", ".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
         using var res = df.Select(
@@ -290,7 +290,7 @@ TooShort,1990-05-20,1.60";
     // Temporal Ops (Components, Format, Cast)
     // ==========================================
     [Fact]
-    [Trait("Expr","DtOps")]
+    [Trait("Expr", "DtOps")]
     public void Temporal_Ops_Components_Format_Cast()
     {
         // var csvContent = "ts\n2023-12-25 15:30:00\n2024-01-01 00:00:00";
@@ -333,7 +333,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(0, res.GetValue<int>(1, "h"));
     }
     [Fact]
-    [Trait("Expr","DtOps")]
+    [Trait("Expr", "DtOps")]
     public void Test_Dt_Ops_Advanced()
     {
         // Row 0: 10:30:55
@@ -349,12 +349,12 @@ TooShort,1990-05-20,1.60";
             Pl.Col("ts"),
 
             // 1. Truncate "1h" -> 10:00:00
-            Pl.Col("ts").Dt.Truncate(new TimeSpan(0,1,0,0)).Alias("trunc_1h"),
+            Pl.Col("ts").Dt.Truncate(new TimeSpan(0, 1, 0, 0)).Alias("trunc_1h"),
 
             // 2. Round "30m" ->
             // 10:30:55 -> 10:30:00
             // 10:45:10 -> 10:30:00 (
-            Pl.Col("ts").Dt.Round(new TimeSpan(0,0,30,0)).Alias("round_30m"),
+            Pl.Col("ts").Dt.Round(new TimeSpan(0, 0, 30, 0)).Alias("round_30m"),
 
             // 3. OffsetBy "1d" -> +1 day
             Pl.Col("ts").Dt.OffsetBy(TimeSpan.FromDays(1)).Alias("offset_1d"),
@@ -378,7 +378,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(DataTypeKind.Int64, res.Schema["ts_ms"].Kind);
     }
     [Fact]
-    [Trait("Expr","DtOps")]
+    [Trait("Expr", "DtOps")]
     public void Test_Duration_Formatter_HighPrecision()
     {
         var us = TimeSpan.FromMicroseconds(10);
@@ -397,10 +397,10 @@ TooShort,1990-05-20,1.60";
     // Cast Ops: Int to Float, String to Int
     // ==========================================
     [Fact]
-    [Trait("Expr","Cast")]
+    [Trait("Expr", "Cast")]
     public void Cast_Ops_Int_To_Float_String_To_Int()
     {
-        using var csv = new DisposableFile("val_str,val_int\n100,10\n200,20",".csv");
+        using var csv = new DisposableFile("val_str,val_int\n100,10\n200,20", ".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
         using var res = df.Select(
@@ -426,7 +426,7 @@ TooShort,1990-05-20,1.60";
     [Fact]
     public void Control_Flow_IfElse()
     {
-        using var csv = new DisposableFile("student,score\nAlice,95\nBob,70\nCharlie,50",".csv");
+        using var csv = new DisposableFile("student,score\nAlice,95\nBob,70\nCharlie,50", ".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
         // if score >= 90 then "A"
@@ -465,7 +465,7 @@ TooShort,1990-05-20,1.60";
     [Fact]
     public void Struct_And_Advanced_List_Ops()
     {
-        using var csv = new DisposableFile("name,score1,score2\nAlice,80,90\nBob,60,70",".csv");
+        using var csv = new DisposableFile("name,score1,score2\nAlice,80,90\nBob,60,70", ".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
         // "1 5 2" -> Split -> Sort(Desc) -> First
@@ -581,7 +581,7 @@ TooShort,1990-05-20,1.60";
     }
 
     [Fact]
-    [Trait("Expr","ToDateTime")]
+    [Trait("Expr", "ToDateTime")]
     public void Test_String_To_Date_Parsing()
     {
         using var s = new Series("dates", ["2023-01-01", "2023/12/31"]);
@@ -610,7 +610,7 @@ TooShort,1990-05-20,1.60";
 
         var q = df.Lazy()
             .Select(
-                Pl.Struct(Pl.Col("A","B"))
+                Pl.Struct(Pl.Col("A", "B"))
                     .Struct.RenameFields("First", "Second")
                     .Alias("MyStruct")
             );
@@ -652,7 +652,7 @@ TooShort,1990-05-20,1.60";
         Assert.Contains("\"Age\":18", jsonStr);
     }
     [Fact]
-    [Trait("Expr","Over")]
+    [Trait("Expr", "Over")]
     public void Test_Window_Shift_Diff_Len()
     {
         var df = DataFrame.FromColumns(new
@@ -756,7 +756,7 @@ TooShort,1990-05-20,1.60";
         var df = DataFrame.FromColumns(new
         {
             Group = new[] { "A", "A", "A", "B", "B" },
-            Time = new[] { 3, 1, 2, 2, 1 }, // Note: Intentionally out of order
+            Time = new[] { 3, 1, 2, 2, 1 }, // Intentionally out of order
             Value = new[] { 10, 20, 30, 100, 200 }
         });
 
@@ -767,7 +767,7 @@ TooShort,1990-05-20,1.60";
             Pl.Col("Time"),
             Pl.Col("Value"),
             Pl.Col("Value").CumSum().Over(
-                partitionBy:  ["Group"] ,
+                partitionBy: ["Group"],
                 orderBy: ["Time"]
             ).Alias("OrderedCumSum")
         );
@@ -1100,7 +1100,7 @@ TooShort,1990-05-20,1.60";
         [Fact]
         public void Test_Array_Contains()
         {
-             // [3, 1, 2]
+            // [3, 1, 2]
             var data = new[] { new[] { 3, 1, 2 } };
             using var df = DataFrame.FromColumns(new { data })
                 .Select(Pl.Col("data").Cast(DataType.Array(DataType.Int32, 3)).Alias("arr"));
@@ -1277,7 +1277,8 @@ TooShort,1990-05-20,1.60";
     {
         // [1, 2, 3] -> Skew 0
         // [1, 1, 10] -> Skew > 0
-        using var df = DataFrame.FromColumns(new {
+        using var df = DataFrame.FromColumns(new
+        {
             sym = new[] { 1.0, 2.0, 3.0 },
             skewed = new[] { 1.0, 1.0, 10.0 }
         });
@@ -1734,8 +1735,8 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(-99.8765m, res.GetValue<decimal>(0, "d2"));
         Assert.Equal(100m, res.GetValue<decimal>(0, "d3"));
 
-        Assert.Equal(DataType.Decimal(38,2),res[0].DataType);
-        Assert.Equal(DataType.Decimal(38,4),res[1].DataType);
+        Assert.Equal(DataType.Decimal(38, 2), res[0].DataType);
+        Assert.Equal(DataType.Decimal(38, 4), res[1].DataType);
     }
     [Fact]
     public void Test_Expr_Lit_List()
@@ -1751,16 +1752,16 @@ TooShort,1990-05-20,1.60";
         Assert.False(res1.GetValue<bool>(1, "is_in_int")); // 2 in [1,3,5] -> False
 
         // string[]
-        string[] listStr =["A", "B"];
+        string[] listStr = ["A", "B"];
         var res2 = df.Select(
             Pl.Lit(listStr).Alias("lit_str_list")
         );
 
-        Assert.Equal("A",res2[0][0]);
-        Assert.Equal("B",res2[0][1]);
+        Assert.Equal("A", res2[0][0]);
+        Assert.Equal("B", res2[0][1]);
     }
     [Fact]
-    [Trait("Expr","IsIn")]
+    [Trait("Expr", "IsIn")]
     public void Test_Expr_IsIn()
     {
         using var df = DataFrame.FromColumns(new
@@ -1772,7 +1773,7 @@ TooShort,1990-05-20,1.60";
         int[] validIds = [1, 3, 5];
         string[] validNames = ["Bob", "Eve"];
 
-        Series vNS = Pl.CreateSeries("vns",validNames).Implode();
+        Series vNS = Pl.CreateSeries("vns", validNames).Implode();
 
         var res = df.Select(
             Pl.Col("id").IsIn(validIds).Alias("id_in_whitelist"),
@@ -1794,16 +1795,16 @@ TooShort,1990-05-20,1.60";
         Assert.True(res.GetValue<bool>(1, "name_in_whitelist"));
     }
     [Fact]
-    [Trait("Expr","IsEmpty")]
+    [Trait("Expr", "IsEmpty")]
     public void Test_Expr_IsEmpty()
     {
         using DataFrame df1 = [
             Pl.CreateSeries<int?>("nihao",[null,null])
         ];
-        var isEmptyIgnore = df1.WithColumns(Cs.Integer().ToExpr().IsEmpty(ignoreNulls:true));
-        var isEmpty= df1.WithColumns(Cs.Integer().ToExpr().IsEmpty(ignoreNulls:false));
-        Assert.Equal(isEmptyIgnore.Height,isEmpty.Height);
-        Assert.Equal(2L,isEmpty.Height);
+        var isEmptyIgnore = df1.WithColumns(Cs.Integer().ToExpr().IsEmpty(ignoreNulls: true));
+        var isEmpty = df1.WithColumns(Cs.Integer().ToExpr().IsEmpty(ignoreNulls: false));
+        Assert.Equal(isEmptyIgnore.Height, isEmpty.Height);
+        Assert.Equal(2L, isEmpty.Height);
         Assert.True((bool)isEmptyIgnore[0][0]);
         Assert.False((bool)isEmpty[0][0]);
 
@@ -1811,12 +1812,12 @@ TooShort,1990-05-20,1.60";
             Pl.CreateSeries<int?>("nihao",[]),
             Pl.CreateSeries<string>("byebye",[])
         ];
-        var isEmptyBlank = df2.Select(Cs.All().ToExpr().IsEmpty(ignoreNulls:true));
-        Assert.Equal(1L,isEmptyBlank.Height);
+        var isEmptyBlank = df2.Select(Cs.All().ToExpr().IsEmpty(ignoreNulls: true));
+        Assert.Equal(1L, isEmptyBlank.Height);
         Assert.True((bool)isEmptyBlank[0][0]);
     }
     [Fact]
-    [Trait("Expr","HasNulls")]
+    [Trait("Expr", "HasNulls")]
     public void Test_Expr_HasNulls()
     {
         using DataFrame df = [
@@ -1888,7 +1889,7 @@ TooShort,1990-05-20,1.60";
 
         var dtype = res.Schema["user_info"];
 
-        Assert.Equal(res.Schema["user_info"],Pl.Struct(new Dictionary<string,DataType>{{"Name",Pl.Utf8},{"Age",Pl.Int32}}));
+        Assert.Equal(res.Schema["user_info"], Pl.Struct(new Dictionary<string, DataType> { { "Name", Pl.Utf8 }, { "Age", Pl.Int32 } }));
     }
     [Fact]
     public void Test_Complex_Struct_Filter()
@@ -1898,7 +1899,7 @@ TooShort,1990-05-20,1.60";
         {
             id = new[] { 1, 2, 3, 4 },
             region = new[] { "US", "US", "EU", "EU" },
-            dept   = new[] { "Sales", "IT", "Sales", "IT" }
+            dept = new[] { "Sales", "IT", "Sales", "IT" }
         });
 
         var validCombinations = new[]
@@ -1923,7 +1924,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(1, res.GetValue<int>(0, "id"));
         Assert.Equal(4, res.GetValue<int>(1, "id"));
     }
-   [Fact]
+    [Fact]
     public void Test_The_Grand_Loop_Read_Write()
     {
         using var df = DataFrame.FromColumns(new { _ = new[] { 0 } });
@@ -1968,7 +1969,7 @@ TooShort,1990-05-20,1.60";
 
         // Row 0: Server-A, First Event is OK
         Assert.Equal("Server-A", res.GetValue<string>(0, "host"));
-        Assert.Equal("OK",       res.GetValue<string>(0, "first_msg"));
+        Assert.Equal("OK", res.GetValue<string>(0, "first_msg"));
 
         // Row 1: Server-B, First Event is Not Found
         Assert.Equal("Server-B", res.GetValue<string>(1, "host"));
@@ -2015,7 +2016,7 @@ TooShort,1990-05-20,1.60";
     }
 
     [Fact]
-    [Trait("Expr","LitNest3")]
+    [Trait("Expr", "LitNest3")]
     public void Test_Level3_The_Ultimate_Nest()
     {
         // Struct
@@ -2150,7 +2151,7 @@ TooShort,1990-05-20,1.60";
     }
 
     [Fact]
-    [Trait("Expr","DotProduct")]
+    [Trait("Expr", "DotProduct")]
     public void Test_Dot_Product_With_Nulls()
     {
         using var df = DataFrame.FromColumns(new
@@ -2226,7 +2227,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(20.0, (double)linearPos);
     }
     [Fact]
-    [Trait("Expr","SqlExpr")]
+    [Trait("Expr", "SqlExpr")]
     public void Test_SqlExpr_MixedWithNativeExpr()
     {
         using var df = DataFrame.FromColumns(new
@@ -2255,7 +2256,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(3, origArr[2]);
     }
     [Fact]
-    [Trait("Expr","Get")]
+    [Trait("Expr", "Get")]
     public void Test_Expr_Get()
     {
         // Index: 0,  1,  2,  3,  4
@@ -2277,14 +2278,14 @@ TooShort,1990-05-20,1.60";
     }
 
     [Fact]
-    [Trait("Expr","GatherTake")]
+    [Trait("Expr", "GatherTake")]
     public void Test_Expr_Gather_And_Take()
     {
 
         using var df = DataFrame.FromColumns(new
         {
             name = new string[] { "Alice", "Bob", "Charlie", "David" },
-            score = new int[]   { 85,      92,    78,        95      }
+            score = new int[] { 85, 92, 78, 95 }
         });
 
         using var dfIndices = DataFrame.FromColumns(new
@@ -2293,28 +2294,28 @@ TooShort,1990-05-20,1.60";
         });
 
         using var res = df.Select(
-            Pl.Col("name").Gather(Pl.Col("score").ArgSort(descending:true)).Alias("ranked_names"),
+            Pl.Col("name").Gather(Pl.Col("score").ArgSort(descending: true)).Alias("ranked_names"),
 
             Pl.Col("name").Take([0, 2, 0, 1]).Alias("taken_names")
         );
 
         var rankedNames = res["ranked_names"];
         Assert.Equal(4, rankedNames.Length);
-        Assert.Equal("David",   (string)rankedNames[0]);
-        Assert.Equal("Bob",     (string)rankedNames[1]);
-        Assert.Equal("Alice",   (string)rankedNames[2]);
+        Assert.Equal("David", (string)rankedNames[0]);
+        Assert.Equal("Bob", (string)rankedNames[1]);
+        Assert.Equal("Alice", (string)rankedNames[2]);
         Assert.Equal("Charlie", (string)rankedNames[3]);
 
         var takenNames = res["taken_names"];
         Assert.Equal(4, takenNames.Length);
-        Assert.Equal("Alice",   (string)takenNames[0]);
+        Assert.Equal("Alice", (string)takenNames[0]);
         Assert.Equal("Charlie", (string)takenNames[1]);
-        Assert.Equal("Alice",   (string)takenNames[2]);
-        Assert.Equal("Bob",     (string)takenNames[3]);
+        Assert.Equal("Alice", (string)takenNames[2]);
+        Assert.Equal("Bob", (string)takenNames[3]);
     }
 
     [Fact]
-    [Trait("Expr","GatherEvery")]
+    [Trait("Expr", "GatherEvery")]
     public void Test_Expr_GatherEvery()
     {
         // Index: 0,  1,  2,  3,  4,  5,  6,  7,  8
@@ -2336,7 +2337,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(80, (int)resultCol[2]);
     }
     [Fact]
-    [Trait("Expr","Arg")]
+    [Trait("Expr", "Arg")]
     public void Test_Expr_Arg_Extremes_And_Unique()
     {
         // Index: 0, 1,  2,  3, 4
@@ -2383,7 +2384,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(4u, (uint)uniqueIdx[2]);
     }
     [Fact]
-    [Trait("Expr","IndexSearch")]
+    [Trait("Expr", "IndexSearch")]
     public void Test_Expr_IndexOf_And_SearchSorted()
     {
         // Index:  0,  1,  2,  3,  4,  5
@@ -2546,13 +2547,13 @@ TooShort,1990-05-20,1.60";
     public void Test_Expr_NUnique()
     {
         var df = DataFrame.FromSeries(
-            Series.From("col1", ["Genshin","Genshin",null,null,"Chiikawa"]),
-            Series.From("col2", new int?[] {12341,432123,12341,99999,null})
+            Series.From("col1", ["Genshin", "Genshin", null, null, "Chiikawa"]),
+            Series.From("col2", new int?[] { 12341, 432123, 12341, 99999, null })
         );
 
         var result = df.Select(Pl.All().NUnique());
-        Assert.Equal(3u,result[0][0]);
-        Assert.Equal(4u,result[1][0]);
+        Assert.Equal(3u, result[0][0]);
+        Assert.Equal(4u, result[1][0]);
     }
     [Fact]
     [Trait("Expr", "Fold")]
@@ -3109,7 +3110,7 @@ TooShort,1990-05-20,1.60";
         Assert.Contains("At least one expression must be provided", exception2.Message);
     }
     [Fact]
-    [Trait("Expr","Horizontal")]
+    [Trait("Expr", "Horizontal")]
     public void Test_SumHorizontal_All_Overloads()
     {
         // Arrange
@@ -3150,7 +3151,7 @@ TooShort,1990-05-20,1.60";
     }
 
     [Fact]
-    [Trait("Expr","Horizontal")]
+    [Trait("Expr", "Horizontal")]
     public void Test_MeanHorizontal_All_Overloads()
     {
         // Arrange
@@ -3180,7 +3181,7 @@ TooShort,1990-05-20,1.60";
     }
 
     [Fact]
-    [Trait("Expr","Horizontal")]
+    [Trait("Expr", "Horizontal")]
     public void Test_MaxMinHorizontal()
     {
         // Arrange
@@ -3208,7 +3209,7 @@ TooShort,1990-05-20,1.60";
     }
 
     [Fact]
-    [Trait("Expr","Horizontal")]
+    [Trait("Expr", "Horizontal")]
     public void Test_AllAnyHorizontal_BooleanLogic()
     {
         // Arrange
@@ -3241,7 +3242,7 @@ TooShort,1990-05-20,1.60";
     }
 
     [Fact]
-    [Trait("Expr","Horizontal")]
+    [Trait("Expr", "Horizontal")]
     public void Test_Vertical_SyntacticSugar()
     {
         var df = DataFrame.FromColumns(new
@@ -3271,7 +3272,7 @@ TooShort,1990-05-20,1.60";
     }
 
     [Fact]
-    [Trait("Expr","Horizontal")]
+    [Trait("Expr", "Horizontal")]
     public void Test_Horizontal_EmptyArgs_Throws()
     {
         Assert.Throws<ArgumentException>(() => Pl.SumHorizontal());
@@ -3292,7 +3293,7 @@ TooShort,1990-05-20,1.60";
 
         using Series s1 = reshaped1["reshaped1"];
 
-        Assert.Equal(DataType.Array(typeof(int),3),s1.DataType);
+        Assert.Equal(DataType.Array(typeof(int), 3), s1.DataType);
 
         using var struct1 = s1.Array.ToStruct(["col1", "col2", "col3"]);
         using var col1_1 = struct1.Struct.Field("col1");
@@ -3348,7 +3349,7 @@ TooShort,1990-05-20,1.60";
         ];
 
         using var dfMask = df.WithColumns(
-            Pl.Col("double1").IsClose("double2", absTol:0.1).Alias("isClose"));
+            Pl.Col("double1").IsClose("double2", absTol: 0.1).Alias("isClose"));
         Assert.True((bool)dfMask["isClose"][0]);
         Assert.False((bool)dfMask["isClose"][2]);
     }
@@ -3362,12 +3363,12 @@ TooShort,1990-05-20,1.60";
         ];
 
         using var dfCounts = df.Select(
-            Pl.Col("double1").ValueCounts(sort:true,normalize:true).Struct.Unnest(),
+            Pl.Col("double1").ValueCounts(sort: true, normalize: true).Struct.Unnest(),
             Pl.Col("double2").UniqueCounts());
 
-        Assert.Contains("proportion",dfCounts.ColumnNames);
-        Assert.Equal(0.25,dfCounts["proportion"][1]);
-        Assert.Equal(2u,dfCounts["double2"][0]);
+        Assert.Contains("proportion", dfCounts.ColumnNames);
+        Assert.Equal(0.25, dfCounts["proportion"][1]);
+        Assert.Equal(2u, dfCounts["double2"][0]);
     }
     [Fact]
     [Trait("Expr", "Append")]
@@ -3381,8 +3382,8 @@ TooShort,1990-05-20,1.60";
         using DataFrame dfAppend = df.Select(
             Pl.Col("double1").Append(114514),
             Pl.Col("double2").Append(725000));
-        Assert.Equal(114514.0,dfAppend[0][4]);
-        Assert.Equal(725000.0,dfAppend[1][4]);
+        Assert.Equal(114514.0, dfAppend[0][4]);
+        Assert.Equal(725000.0, dfAppend[1][4]);
     }
     private static DataFrame CreateTestDataFrame() => Pl.CreateDataFrame(
         ("A", new[] { 1, 1, 2, 2 }),
@@ -3465,31 +3466,31 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Inspect")]
     public void Test_ExprInspect()
     {
-            using DataFrame df = Pl.CreateDataFrame(Series.From("nihao", [1, 1, 2]));
+        using DataFrame df = Pl.CreateDataFrame(Series.From("nihao", [1, 1, 2]));
 
-            using DataFrame res = df.Select(
-                Pl.Col("nihao")
-                  .CumSum()
-                  .Inspect("仙人指路：\n{}\n将五退一")
-                  .Alias("hello")
-            );
+        using DataFrame res = df.Select(
+            Pl.Col("nihao")
+              .CumSum()
+              .Inspect("仙人指路：\n{}\n将五退一")
+              .Alias("hello")
+        );
 
-            using var helloSeries = res["hello"];
-            var resultArr = helloSeries.ToArray<int>();
+        using var helloSeries = res["hello"];
+        var resultArr = helloSeries.ToArray<int>();
 
-            Assert.Equal([1, 2, 4], resultArr);
-            Assert.Equal("hello", helloSeries.Name);
+        Assert.Equal([1, 2, 4], resultArr);
+        Assert.Equal("hello", helloSeries.Name);
     }
     [Fact]
     [Trait("Expr", "ToPhysical")]
     public void Test_ExprToPhysical()
     {
-        using var sDate = Pl.DateRangeAsSeries(new DateOnly(1991,12,3),new DateOnly(1991,12,5));
-        using var sDec = Pl.CreateSeries("dec",[10.000m,12312.123m,114.514000m]);
-        using DataFrame df = [sDate,sDec];
+        using var sDate = Pl.DateRangeAsSeries(new DateOnly(1991, 12, 3), new DateOnly(1991, 12, 5));
+        using var sDec = Pl.CreateSeries("dec", [10.000m, 12312.123m, 114.514000m]);
+        using DataFrame df = [sDate, sDec];
         using var df1 = df.WithColumns(Pl.All().ToPhysical());
-        using var schema = PolarsSchema.From([("date",DataType.Int32),("dec",DataType.Int128)]);
-        Assert.Equal(schema,df1.Schema);
+        using var schema = PolarsSchema.From([("date", DataType.Int32), ("dec", DataType.Int128)]);
+        Assert.Equal(schema, df1.Schema);
     }
     [Fact]
     [Trait("Expr", "SortBy")]
@@ -3522,11 +3523,11 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Slice")]
     public void Test_ExprSlice()
     {
-        using var sDate = Pl.DateRangeAsSeries(new DateOnly(1991,12,3),new DateOnly(1991,12,5));
-        using var sDec = Pl.CreateSeries("dec",[10.000m,12312.123m,114.514000m]);
-        using DataFrame df = [sDate,sDec];
+        using var sDate = Pl.DateRangeAsSeries(new DateOnly(1991, 12, 3), new DateOnly(1991, 12, 5));
+        using var sDec = Pl.CreateSeries("dec", [10.000m, 12312.123m, 114.514000m]);
+        using DataFrame df = [sDate, sDec];
         using var df1 = df.Select(Pl.All().Slice(2));
-        Assert.Equal(1L,df1.Height);
+        Assert.Equal(1L, df1.Height);
     }
     [Fact]
     [Trait("Expr", "BusinessDayCount")]
@@ -3537,13 +3538,13 @@ TooShort,1990-05-20,1.60";
             Series.From("月初", [new DateOnly(2026, 4, 1), new DateOnly(2026, 5, 1)]),
             Series.From("月末" , [new DateOnly(2026, 4, 30), new DateOnly(2026, 5, 31)])
         ];
-        bool[] weekMask = [true,true,true,true,true,true,false];
-        var holidays = Pl.DateRangeAsSeries(new DateOnly(2026, 5, 1),new DateOnly(2026, 5, 4));
+        bool[] weekMask = [true, true, true, true, true, true, false];
+        var holidays = Pl.DateRangeAsSeries(new DateOnly(2026, 5, 1), new DateOnly(2026, 5, 4));
         using var res = df.WithColumns(
-            Pl.BusinessDayCount("月初", "月末",weekMask:weekMask,holidays:holidays).Alias("单休牛马工作日"),
-            Pl.BusinessDayCount("月初", "月末",holidays:holidays).Alias("双休打工人工作日")
+            Pl.BusinessDayCount("月初", "月末", weekMask: weekMask, holidays: holidays).Alias("单休牛马工作日"),
+            Pl.BusinessDayCount("月初", "月末", holidays: holidays).Alias("双休打工人工作日")
         ).WithColumns((Pl.Col("单休牛马工作日") - Pl.Col("双休打工人工作日")).Alias("血泪"));
-        Assert.Equal(4,res["血泪"][0]);
+        Assert.Equal(4, res["血泪"][0]);
     }
     [Fact]
     [Trait("Expr", "Covariance")]
@@ -3748,7 +3749,80 @@ TooShort,1990-05-20,1.60";
             -Pl.Col("zaijian").Alias("huilai")
         );
 
-        Assert.Equal([1,-1,3],result["buhao"].ToArray<int>());
-        Assert.Equal([-0.1,2.5,0],result["huilai"].ToArray<double>());
+        Assert.Equal([1, -1, 3], result["buhao"].ToArray<int>());
+        Assert.Equal([-0.1, 2.5, 0], result["huilai"].ToArray<double>());
+    }
+    [Fact]
+    [Trait("Expr", "ValidRegex")]
+    public void Test_Regex_Is_Valid_Supported_Patterns()
+    {
+        // Standard syntax supported by Rust regex / regex-syntax
+        Assert.True(PolarsWrapper.RegexIsValid(@"\d+"));
+        Assert.True(PolarsWrapper.RegexIsValid(@"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"));
+        Assert.True(PolarsWrapper.RegexIsValid(@"(?i)foo.*bar"));
+        Assert.True(PolarsWrapper.RegexIsValid(@"\b\w{3,5}\b"));
+        Assert.True(PolarsWrapper.RegexIsValid(@"[0-9]{4}-[0-9]{2}-[0-9]{2}"));
+        Assert.True(PolarsWrapper.RegexIsValid(@"foo|bar|baz"));
+    }
+
+    [Fact]
+    [Trait("Expr", "ValidRegex")]
+    public void Test_Regex_Is_Valid_Unsupported_And_Malformed_Patterns()
+    {
+        // Lookaround assertions (not supported by Rust regex engine)
+        Assert.False(PolarsWrapper.RegexIsValid(@"(?=.*[A-Z])"));        // Positive lookahead
+        Assert.False(PolarsWrapper.RegexIsValid(@"(?!abc)"));            // Negative lookahead
+        Assert.False(PolarsWrapper.RegexIsValid(@"(?<=foo)bar"));        // Positive lookbehind
+        Assert.False(PolarsWrapper.RegexIsValid(@"(?<!foo)bar"));        // Negative lookbehind
+
+        // Backreferences (not supported by Rust regex engine)
+        Assert.False(PolarsWrapper.RegexIsValid(@"([a-z])\1"));
+
+        // Malformed regex patterns
+        Assert.False(PolarsWrapper.RegexIsValid(@"[a-z"));               // Unclosed character class
+        Assert.False(PolarsWrapper.RegexIsValid(@"(abc"));               // Unclosed group
+        Assert.False(PolarsWrapper.RegexIsValid(@"*abc"));               // Dangling quantifier
+
+        // Null boundary
+        Assert.False(PolarsWrapper.RegexIsValid(null!));
+    }
+
+    [Fact]
+    [Trait("Expr", "Reusability")]
+    public void Test_Expr_Reusability_After_Terminal_And_Transform_Ops()
+    {
+        var col = Pl.Col("val");
+        var lower = Pl.Lit(5);
+        var upper = Pl.Lit(15);
+
+        // Clip reusability
+        var c1 = col.Clip(lower, upper);
+        var c2 = col.Clip(lower, upper); // reusing col, lower, upper
+        var cMin = col.Clip(lowerBound: lower);
+        var cMax = col.Clip(upperBound: upper);
+
+        using var df = DataFrame.FromColumns([
+            Pl.CreateSeries("val", [1, 10, 20])
+        ]);
+
+        using var res = df.Select(c1.Alias("c1"), c2.Alias("c2"), cMin.Alias("cMin"), cMax.Alias("cMax"));
+        Assert.Equal([5, 10, 15], res["c1"].ToArray<int>());
+        Assert.Equal([5, 10, 15], res["c2"].ToArray<int>());
+        Assert.Equal([5, 10, 20], res["cMin"].ToArray<int>());
+        Assert.Equal([1, 10, 15], res["cMax"].ToArray<int>());
+
+        // Name ops reusability
+        var nameCol = Pl.Col("name");
+        var n1 = nameCol.Name.Prefix("pre_");
+        var n2 = nameCol.Name.Suffix("_post");
+        var n3 = nameCol.Name.ToUppercase();
+        var n4 = nameCol.Name.Map(s => s + "_mapped");
+
+        using var df2 = DataFrame.FromColumns([
+            Pl.CreateSeries("name", ["alice", "bob"])
+        ]);
+
+        using var res2 = df2.Select(n1, n2, n3, n4);
+        Assert.Equal(["pre_name", "name_post", "NAME", "name_mapped"], res2.Columns);
     }
 }

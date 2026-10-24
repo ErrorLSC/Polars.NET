@@ -3,7 +3,7 @@ using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
-public partial class Series : IDisposable,IPolarsSeries
+public partial class Series : IDisposable
 {
 
     internal T? ExtractObject<T>(Expr expr) where T : class
@@ -25,7 +25,7 @@ public partial class Series : IDisposable,IPolarsSeries
         {
             return null;
         }
-        if (tempSeries.IsNullAt(0)) 
+        if (tempSeries.IsNullAt(0))
         {
             return null;
         }
@@ -48,17 +48,17 @@ public partial class Series : IDisposable,IPolarsSeries
     {
         if (tempSeries is null || tempSeries.Len() == 0)
         {
-            return null; 
+            return null;
         }
 
-        if (tempSeries.IsNullAt(0)) 
+        if (tempSeries.IsNullAt(0))
         {
             return null;
         }
 
         return tempSeries.GetValue<T>(0);
     }
-    
+
     /// <summary>
     /// <inheritdoc cref="Expr.First" path="/summary"/>
     /// </summary>
@@ -166,7 +166,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Compute the most occurring value(s).Can return multiple Values.
     /// </summary>
     /// <param name="maintainOrder">Maintain order of data. This requires more work.</param>
-    public Series Mode(bool maintainOrder=false) => new(PolarsWrapper.SeriesMode(Handle,maintainOrder));
+    public Series Mode(bool maintainOrder = false) => new(PolarsWrapper.SeriesMode(Handle, maintainOrder));
     /// <summary>
     /// <inheritdoc cref="Expr.Count()" path="/summary"/>
     /// </summary>
@@ -201,12 +201,12 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Perform an aggregation of bitwise ANDs across all elements.
     /// </summary>
     public T? BitwiseAnd<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).BitwiseAnd());
-    
+
     /// <summary>
     /// Perform an aggregation of bitwise ORs across all elements.
     /// </summary>
     public T? BitwiseOr<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).BitwiseOr());
-    
+
     /// <summary>
     /// Perform an aggregation of bitwise XORs across all elements.
     /// </summary>

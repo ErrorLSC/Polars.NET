@@ -121,24 +121,4 @@ public class SeriesEnumeratorTests
 
         Assert.Equal(0, count);
     }
-
-    [Fact]
-    [Trait("Series", "Enumerator")]
-    public void Test_Enumerator_Default_Object_Iteration()
-    {
-        // Tests duck-typed GetEnumerator() on Series instance (foreach (var item in series))
-        int[] original = [1, 2, 3];
-        using Series s = Pl.CreateSeries("obj_test", original);
-
-        var actual = new List<object>();
-        foreach (object item in s)
-        {
-            actual.Add(item);
-        }
-
-        Assert.Equal(3, actual.Count);
-        Assert.Equal(1, Convert.ToInt32(actual[0]));
-        Assert.Equal(2, Convert.ToInt32(actual[1]));
-        Assert.Equal(3, Convert.ToInt32(actual[2]));
-    }
 }

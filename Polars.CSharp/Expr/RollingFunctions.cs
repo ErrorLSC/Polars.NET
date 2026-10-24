@@ -18,30 +18,30 @@ public partial class Expr : IDisposable
     /// <param name="indexColumn"> Column used to group based on the time window. Often of type Date/Datetime. 
     /// This column must be sorted in ascending order. 
     /// In case of a rolling group by on indices, dtype needs to be one of {UInt32, UInt64, Int32, Int64}. 
-    /// Note that the first three get temporarily cast to Int64, so if performance matters use an Int64 column.</param>
+    /// The first three get temporarily cast to Int64, so if performance matters use an Int64 column.</param>
     /// <param name="period">Length of the window - must be non-negative.</param>
     /// <param name="offset">Offset of the window. Default is -period.</param>
     /// <param name="closed">Define which sides of the temporal interval are closed (inclusive).</param>
-    public Expr Rolling(IntoExprColumn indexColumn,IntoDuration period,IntoDuration? offset=null,ClosedInterval closed = ClosedInterval.Right)
+    public Expr Rolling(IntoExprColumn indexColumn, IntoDuration period, IntoDuration? offset = null, ClosedInterval closed = ClosedInterval.Right)
     {
         ExprHandle index = indexColumn.Consume().Handle;
         string periodStr = period.Value;
         string offsetStr = offset?.Value ?? ("-" + periodStr);
-        return new(PolarsWrapper.ExprRolling(CloneHandle(),index,periodStr,offsetStr,closed.ToNative()));
+        return new(PolarsWrapper.ExprRolling(CloneHandle(), index, periodStr, offsetStr, closed.ToNative()));
     }
 
     /// <summary>
     /// Apply a rolling min (moving min) over a window.
     /// </summary>
     /// <inheritdoc cref="RollingMean(IntoDuration,int,double[],bool)"/>
-    public Expr RollingMin(IntoDuration windowSize, int minPeriods = 1,double[]? weights = null,bool center=false)
-        => new(PolarsWrapper.RollingMin(CloneHandle(), windowSize.Value, minPeriods, weights,center));
+    public Expr RollingMin(IntoDuration windowSize, int minPeriods = 1, double[]? weights = null, bool center = false)
+        => new(PolarsWrapper.RollingMin(CloneHandle(), windowSize.Value, minPeriods, weights, center));
     /// <summary>
     /// Apply a rolling max (moving max) over a window.
     /// </summary>
     /// <inheritdoc cref="RollingMean(IntoDuration,int,double[],bool)"/>
-    public Expr RollingMax(IntoDuration windowSize, int minPeriods = 1,double[]? weights = null,bool center=false)
-        => new(PolarsWrapper.RollingMax(CloneHandle(), windowSize.Value, minPeriods,weights,center));
+    public Expr RollingMax(IntoDuration windowSize, int minPeriods = 1, double[]? weights = null, bool center = false)
+        => new(PolarsWrapper.RollingMax(CloneHandle(), windowSize.Value, minPeriods, weights, center));
     /// <summary>
     /// Apply a rolling mean (moving average) over a window.
     /// </summary>
@@ -70,19 +70,19 @@ public partial class Expr : IDisposable
     /// );
     /// </code>
     /// </example>
-    public Expr RollingMean(IntoDuration windowSize, int minPeriods = 1,double[]? weights = null,bool center=false)
-        => new(PolarsWrapper.RollingMean(CloneHandle(), windowSize.Value, minPeriods,weights,center));
+    public Expr RollingMean(IntoDuration windowSize, int minPeriods = 1, double[]? weights = null, bool center = false)
+        => new(PolarsWrapper.RollingMean(CloneHandle(), windowSize.Value, minPeriods, weights, center));
     /// <summary>
     /// Apply a rolling sum (moving sum) over a window.
     /// </summary>
     /// <inheritdoc cref="RollingMean(IntoDuration,int,double[],bool)"/>
-    public Expr RollingSum(IntoDuration windowSize, int minPeriods = 1,double[]? weights = null,bool center=false)
-        => new(PolarsWrapper.RollingSum(CloneHandle(), windowSize.Value, minPeriods, weights,center));
+    public Expr RollingSum(IntoDuration windowSize, int minPeriods = 1, double[]? weights = null, bool center = false)
+        => new(PolarsWrapper.RollingSum(CloneHandle(), windowSize.Value, minPeriods, weights, center));
     /// <summary>
     /// Apply a rolling standard deviation (moving std) over a window.
     /// </summary>
     /// <inheritdoc cref="RollingMean(IntoDuration,int,double[],bool)"/>
-    public Expr RollingStd(IntoDuration windowSize, int minPeriods = 1,double[]? weights = null,bool center=false)
+    public Expr RollingStd(IntoDuration windowSize, int minPeriods = 1, double[]? weights = null, bool center = false)
         => new(PolarsWrapper.RollingStd(CloneHandle(), windowSize.Value, minPeriods, weights, center));
     /// <summary>
     /// Apply a rolling variance (moving var) over a window.
@@ -104,26 +104,26 @@ public partial class Expr : IDisposable
     /// <inheritdoc cref="RollingMean(IntoDuration, int, double[], bool)" path="/param[@name='center']/node()"/>
     /// </param>
     /// <returns>A new expression representing the rolling variance.</returns>
-    public Expr RollingVar(IntoDuration windowSize, int minPeriods = 1,double[]? weights = null,bool center=false, byte ddof =1)
-        => new(PolarsWrapper.RollingVar(CloneHandle(), windowSize.Value, minPeriods,weights,center, ddof));
+    public Expr RollingVar(IntoDuration windowSize, int minPeriods = 1, double[]? weights = null, bool center = false, byte ddof = 1)
+        => new(PolarsWrapper.RollingVar(CloneHandle(), windowSize.Value, minPeriods, weights, center, ddof));
     /// <summary>
     /// Apply a rolling median (moving median) over a window.
     /// </summary>
     /// <inheritdoc cref="RollingMean(IntoDuration,int,double[],bool)"/>
-    public Expr RollingMedian(IntoDuration windowSize, int minPeriods = 1,double[]? weights = null,bool center=false)
-        => new(PolarsWrapper.RollingMedian(CloneHandle(), windowSize.Value, minPeriods, weights,center));
+    public Expr RollingMedian(IntoDuration windowSize, int minPeriods = 1, double[]? weights = null, bool center = false)
+        => new(PolarsWrapper.RollingMedian(CloneHandle(), windowSize.Value, minPeriods, weights, center));
     /// <summary>
     /// Apply a rolling skew (moving skew) over a window.
     /// </summary>
     /// <inheritdoc cref="RollingMean(IntoDuration,int,double[],bool)"/>
-    public Expr RollingSkew(IntoDuration windowSize, int minPeriods = 1,double[]? weights = null,bool center=false, bool bias=true)
-        => new(PolarsWrapper.RollingSkew(CloneHandle(), windowSize.Value, minPeriods, weights,center,bias));
+    public Expr RollingSkew(IntoDuration windowSize, int minPeriods = 1, double[]? weights = null, bool center = false, bool bias = true)
+        => new(PolarsWrapper.RollingSkew(CloneHandle(), windowSize.Value, minPeriods, weights, center, bias));
     /// <summary>
     /// Apply a rolling kurtosis (moving kurtosis) over a window.
     /// </summary>
     /// <inheritdoc cref="RollingMean(IntoDuration,int,double[],bool)"/>
-    public Expr RollingKurtosis(IntoDuration windowSize, int minPeriods = 1,double[]? weights = null,bool center=false, bool fisher = true,bool bias=true)
-        => new(PolarsWrapper.RollingKurtosis(CloneHandle(), windowSize.Value, minPeriods, weights,center,fisher, bias));
+    public Expr RollingKurtosis(IntoDuration windowSize, int minPeriods = 1, double[]? weights = null, bool center = false, bool fisher = true, bool bias = true)
+        => new(PolarsWrapper.RollingKurtosis(CloneHandle(), windowSize.Value, minPeriods, weights, center, fisher, bias));
     /// <summary>
     /// Apply a rolling rank (moving rank) over a window.
     /// </summary>
@@ -132,8 +132,8 @@ public partial class Expr : IDisposable
     /// The method used to assign ranks to tied elements. See <see cref="RankMethod"/> for details.
     /// Default is <see cref="RankMethod.Average"/>.</param>
     /// <param name="seed">If method="random", use this as seed.</param>
-    public Expr RollingRank(IntoDuration windowSize, int minPeriods = 1,RankMethod method=RankMethod.Average, ulong? seed=null,double[]? weights = null,bool center=false)
-        => new(PolarsWrapper.RollingRank(CloneHandle(), windowSize.Value, minPeriods,method.ToNative(),seed,weights, center));
+    public Expr RollingRank(IntoDuration windowSize, int minPeriods = 1, RankMethod method = RankMethod.Average, ulong? seed = null, double[]? weights = null, bool center = false)
+        => new(PolarsWrapper.RollingRank(CloneHandle(), windowSize.Value, minPeriods, method.ToNative(), seed, weights, center));
     /// <summary>
     /// Apply a rolling quantile over a fixed window.
     /// </summary>
@@ -156,18 +156,18 @@ public partial class Expr : IDisposable
     /// </param>
     /// <returns>A new expression representing the rolling quantile.</returns>
     public Expr RollingQuantile(
-        double quantile, 
-        QuantileMethod method, 
-        IntoDuration windowSize, 
-        int minPeriods = 1, 
+        double quantile,
+        QuantileMethod method,
+        IntoDuration windowSize,
+        int minPeriods = 1,
         double[]? weights = null,
-        bool center =false)
+        bool center = false)
     {
         return new Expr(PolarsWrapper.RollingQuantile(
-            CloneHandle(), 
+            CloneHandle(),
             quantile,
             method.ToNative(),
-            windowSize.Value, 
+            windowSize.Value,
             minPeriods,
             weights,
             center
@@ -303,7 +303,7 @@ public partial class Expr : IDisposable
     /// </param>
     /// 
     /// <returns>A new expression representing the dynamic rolling variance.</returns>
-    public Expr RollingVarBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left, byte ddof=1)
+    public Expr RollingVarBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left, byte ddof = 1)
     {
         return new Expr(PolarsWrapper.RollingVarBy(
             CloneHandle(),
@@ -356,11 +356,11 @@ public partial class Expr : IDisposable
     /// 
     /// <returns>A new expression representing the dynamic rolling rank.</returns>
     public Expr RollingRankBy(
-        IntoDuration windowSize, 
-        Expr by, 
-        RollingRankMethod method = RollingRankMethod.Average, 
+        IntoDuration windowSize,
+        Expr by,
+        RollingRankMethod method = RollingRankMethod.Average,
         ulong? seed = null,
-        int minPeriods = 1, 
+        int minPeriods = 1,
         ClosedInterval closed = ClosedInterval.Left)
     {
         return new Expr(PolarsWrapper.RollingRankBy(
@@ -378,7 +378,6 @@ public partial class Expr : IDisposable
     /// </summary>
     /// <param name="quantile">Quantile between 0.0 and 1.0 (e.g., 0.5 for median).</param>
     /// <param name="method">Interpolation method when the quantile lies between two data points.</param>
-    ///     
     /// <param name="windowSize">
     /// The size of the time window as a <see cref="TimeSpan"/>.
     /// <para>This will be automatically converted to a Polars duration string (e.g., <c>01:30:00</c> -> <c>"1h30m"</c>).</para>

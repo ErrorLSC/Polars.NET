@@ -1,17 +1,17 @@
-using Polars.CSharp;
-using Pl = Polars.CSharp.Polars;
-using Cs = Polars.CSharp.Polars.Selectors;
-using Polars.NET.ML.CSharpExtensions;
-using Polars.NET.ML.DataView;
 using Microsoft.ML;
 using Microsoft.ML.Data;
+using Polars.CSharp;
+using Polars.NET.ML.CSharpExtensions;
+using Polars.NET.ML.DataView;
+using Cs = Polars.CSharp.Polars.Selectors;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.Integration.Tests;
 
 public class DataViewConversionTests
 {
     [Fact]
-    [Trait("ML","DataView")]
+    [Trait("ML", "DataView")]
     public void PrimitiveTypes_RoundTrip_ShouldMaintainAbsoluteFidelity()
     {
 
@@ -56,7 +56,7 @@ public class DataViewConversionTests
                 nameGetter(ref name);
 
                 Assert.Equal(expectedIds[rowIndex], id);
-                
+
                 if (float.IsNaN(expectedScores[rowIndex]))
                     Assert.True(float.IsNaN(score));
                 else
@@ -67,7 +67,7 @@ public class DataViewConversionTests
 
                 rowIndex++;
             }
-            Assert.Equal(5, rowIndex); 
+            Assert.Equal(5, rowIndex);
         }
 
         // ==========================================
@@ -92,8 +92,8 @@ public class DataViewConversionTests
     public void DataView_Bidirectional_ShouldNotTriggerGarbageCollection()
     {
         int rowCount = 500_000;
-        string testString = "Zero-Allocation-GC-Probe-Test"; 
-        
+        string testString = "Zero-Allocation-GC-Probe-Test";
+
         int[] ids = new int[rowCount];
         float[] scores = new float[rowCount];
         bool[] flags = new bool[rowCount];
@@ -145,25 +145,25 @@ public class DataViewConversionTests
         Console.WriteLine($"[Gen 0 GCs] {gen0Collections}");
 
         long expectedArenaBytes = rowCount * testString.Length * 2;
-        
-        long expectedArrowBytes = (rowCount * 4) + (rowCount * testString.Length); 
 
-        Assert.True(allocGo <= expectedArenaBytes + 1_000_000, 
+        long expectedArrowBytes = (rowCount * 4) + (rowCount * testString.Length);
+
+        Assert.True(allocGo <= expectedArenaBytes + 1_000_000,
             $"Go path allocated {allocGo} bytes, exceeding physical bounds!");
 
-        Assert.True(allocReturn <= expectedArrowBytes + 80_000_000, 
+        Assert.True(allocReturn <= expectedArrowBytes + 80_000_000,
             $"Return path allocated {allocReturn} bytes, exceeding physical bounds!");
 
-        Assert.True(gen0Collections <= 20, 
+        Assert.True(gen0Collections <= 20,
             $"Gen 0 GC triggered {gen0Collections} times. Memory Leak (Object Fragmentation) detected!");
-            
+
         Assert.Equal(rowCount, finalDf.Height);
     }
 
     private static void RunCursorHotLoop(IDataView dataView)
     {
         using var cursor = dataView.GetRowCursor(dataView.Schema);
-        
+
         var idGetter = cursor.GetGetter<int>(dataView.Schema["Id"]);
         var scoreGetter = cursor.GetGetter<float>(dataView.Schema["Score"]);
         var flagGetter = cursor.GetGetter<bool>(dataView.Schema["IsActive"]);
@@ -187,7 +187,7 @@ public class DataViewConversionTests
     public void TensorTypes_RoundTrip_ShouldMaintainShapeAndValues()
     {
         int vectorSize = 4;
-        
+
         float[,] expectedFloatVectors = {
             { 1.1f, 2.2f, 3.3f, 4.4f },
             { 0.0f, -1.5f, float.NaN, 9.9f },
@@ -287,9 +287,9 @@ public class DataViewConversionTests
             { "User-Agent", "Polars.NET-Test" }
         });
         using var lf = LazyFrame.ScanParquet(hfUrl, cloudOptions: options);
-        
+
         // sepal length (cm), sepal width (cm), petal length (cm), petal width (cm)     
-        using var cleanlf = lf.Cast((typeof(double),typeof(float)));
+        using var cleanlf = lf.Cast((typeof(double), typeof(float)));
         using var cleanDf = cleanlf.WithColumns(Pl.ConcatArray(Cs.Float().ToExpr().Alias("Features"))).Collect();
 
         cleanDf.Show();
@@ -297,7 +297,7 @@ public class DataViewConversionTests
         // Polars -> ML.NET
         // ==========================================
         var dataView = cleanDf.AsDataView();
-        
+
         var mlContext = new MLContext(seed: 42);
 
         // ==========================================
@@ -317,14 +317,108 @@ public class DataViewConversionTests
         Assert.NotNull(resultDf);
         Assert.Equal(150, resultDf.Height);
         resultDf.Show();
-        
+
         var resultSchema = resultDf.Schema;
         Assert.Contains("PredictedLabel", resultSchema.ColumnNames);
         Assert.Contains("Score", resultSchema.ColumnNames);
 
         var scoreDataType = resultSchema["Score"];
-        
-        Assert.Equal(scoreDataType, DataType.Array(DataType.Float32,3));
+
+        Assert.Equal(scoreDataType, DataType.Array(DataType.Float32, 3));
+    }
+
+    [Fact]
+    [Trait("ML", "ParallelCursor")]
+    public void GetRowCursorSet_ParallelExecution_ShouldCoverAllRowsWithoutOverlap()
+    {
+        const int rowCount = 20_000;
+        var ids = Enumerable.Range(0, rowCount);
+        var scores = ids.Select(i => (float)(i * 1.5));
+
+        using var originalDf = DataFrame.FromSeries(
+            Series.From("Id", ids),
+            Series.From("Score", scores)
+        );
+
+        var dataView = originalDf.AsDataView();
+        const int requestedPartitions = 4;
+
+        var cursors = dataView.GetRowCursorSet(dataView.Schema, requestedPartitions);
+        Assert.Equal(requestedPartitions, cursors.Length);
+
+        var seenIds = new System.Collections.Concurrent.ConcurrentDictionary<int, byte>();
+        var seenRowIds = new System.Collections.Concurrent.ConcurrentDictionary<DataViewRowId, byte>();
+
+        Parallel.ForEach(cursors, cursor =>
+        {
+            using (cursor)
+            {
+                var idGetter = cursor.GetGetter<int>(dataView.Schema["Id"]);
+                var scoreGetter = cursor.GetGetter<float>(dataView.Schema["Score"]);
+                var rowIdGetter = cursor.GetIdGetter();
+
+                int id = 0;
+                float score = 0;
+                DataViewRowId rowId = default;
+
+                while (cursor.MoveNext())
+                {
+                    idGetter(ref id);
+                    scoreGetter(ref score);
+                    rowIdGetter(ref rowId);
+
+                    Assert.Equal((float)(id * 1.5), score);
+                    Assert.True(seenIds.TryAdd(id, 0), $"Duplicate Id {id} observed across parallel cursors!");
+                    Assert.True(seenRowIds.TryAdd(rowId, 0), $"Duplicate RowId {rowId} observed!");
+                }
+            }
+        });
+
+        Assert.Equal(rowCount, seenIds.Count);
+        Assert.Equal(rowCount, seenRowIds.Count);
+    }
+
+    [Fact]
+    [Trait("ML", "ParallelCursor")]
+    public void GetRowCursorSet_EdgeCases_ShouldHandleGracefully()
+    {
+        // Case 1: n = 1 returns 1 cursor
+        using var df = DataFrame.FromSeries(Series.From("Col", [1, 2, 3]));
+        var dv = df.AsDataView();
+
+        var singleSet = dv.GetRowCursorSet(dv.Schema, 1);
+        Assert.Single(singleSet);
+        singleSet[0].Dispose();
+
+        // Case 2: n > Height (n=10, Height=3) -> returns 3 cursors
+        var multiSet = dv.GetRowCursorSet(dv.Schema, 10);
+        Assert.Equal(3, multiSet.Length);
+
+        int totalRead = 0;
+        foreach (var c in multiSet)
+        {
+            using (c)
+            {
+                var getter = c.GetGetter<int>(dv.Schema["Col"]);
+                int val = 0;
+                while (c.MoveNext())
+                {
+                    getter(ref val);
+                    totalRead++;
+                }
+            }
+        }
+        Assert.Equal(3, totalRead);
+
+        // Case 3: Empty DataFrame (Height = 0)
+        using var emptyDf = DataFrame.FromSeries(Series.From("Col", Array.Empty<int>()));
+        var emptyDv = emptyDf.AsDataView();
+        var emptySet = emptyDv.GetRowCursorSet(emptyDv.Schema, 4);
+        Assert.Single(emptySet);
+        using (var c = emptySet[0])
+        {
+            Assert.False(c.MoveNext());
+        }
     }
 }
 

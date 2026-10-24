@@ -3,18 +3,20 @@ namespace Polars.FSharp
 open System
 
 [<AutoOpen>]
-module UpdateOps = 
+module UpdateOps =
     type LazyFrame with
-        member this.Update(
-            other: LazyFrame,
-            ?on: IColumnExpr,
-            ?how: JoinType,
-            ?leftOn: IColumnExpr,
-            ?rightOn: IColumnExpr,
-            ?includeNulls: bool,
-            ?maintainOrder: JoinMaintainOrder
-        ) : LazyFrame =
+        member this.Update
+            (
+                other: LazyFrame,
+                ?on: IColumnExpr,
+                ?how: JoinType,
+                ?leftOn: IColumnExpr,
+                ?rightOn: IColumnExpr,
+                ?includeNulls: bool,
+                ?maintainOrder: JoinMaintainOrder
+            ) : LazyFrame =
             let how = defaultArg how JoinType.Left
+
             if how <> JoinType.Left && how <> JoinType.Inner && how <> JoinType.Outer then
                 invalidArg (nameof how) $"'how' must be one of {{Left; Inner; Outer}}; found '{how}'"
 
@@ -24,13 +26,14 @@ module UpdateOps =
                 match on with
                 | Some onCols ->
                     let cols = other |> pl.cs.expandLf onCols
-                    if cols.Length = 0 then 
+
+                    if cols.Length = 0 then
                         raise (ArgumentException "'on' Selector hits no columns, please review 'on' argument")
+
                     this, other, cols, cols, false
                 | None ->
                     match leftOn, rightOn with
-                    | Some l, Some r ->
-                        this, other, this |> pl.cs.expandLf l, other |> pl.cs.expandLf r, false
+                    | Some l, Some r -> this, other, this |> pl.cs.expandLf l, other |> pl.cs.expandLf r, false
                     | None, None ->
                         let leftIdx = this.WithRowIndex rowIndexName
                         let rightIdx = other.WithRowIndex rowIndexName
@@ -41,17 +44,25 @@ module UpdateOps =
 
             let leftSchema = leftFrame.CollectSchema()
             let rightSchema = rightFrame.CollectSchema()
-            
-            leftOnKeys |> Array.iter (fun name ->
-                if not (leftSchema.ContainsKey name) then invalidArg "leftOn" $"Left join column '{name}' not found.")
-            rightOnKeys |> Array.iter (fun name ->
-                if not (rightSchema.ContainsKey name) then invalidArg "rightOn" $"Right join column '{name}' not found.")
+
+            leftOnKeys
+            |> Array.iter (fun name ->
+                if not (leftSchema.ContainsKey name) then
+                    invalidArg "leftOn" $"Left join column '{name}' not found.")
+
+            rightOnKeys
+            |> Array.iter (fun name ->
+                if not (rightSchema.ContainsKey name) then
+                    invalidArg "rightOn" $"Right join column '{name}' not found.")
 
             let leftCols = leftSchema.Names |> Set.ofSeq
             let rightCols = rightSchema.Names |> Set.ofSeq
 
             if how <> JoinType.Outer && rightCols.Count = rightOnKeys.Length then
-                if rowIndexUsed then leftFrame.Drop rowIndexName else leftFrame
+                if rowIndexUsed then
+                    leftFrame.Drop rowIndexName
+                else
+                    leftFrame
             else
                 let rightOther =
                     Set.intersect leftCols rightCols
@@ -67,17 +78,25 @@ module UpdateOps =
                     | None -> rightFrame
 
                 let tmpSuffix = "__POLARS_RIGHT"
-                let dropColumns = [
-                    yield! rightOther |> List.map (fun name -> $"{name}{tmpSuffix}")
-                    if validityCol.IsSome then yield validityCol.Value
-                    if rowIndexUsed then yield rowIndexName
-                ]
 
-                let rightSelectExprs = [|
-                    yield! rightOnKeys |> Array.map pl.col
-                    yield! rightOther |> Array.ofList |> Array.map pl.col
-                    if validityCol.IsSome then yield pl.col validityCol.Value
-                |]
+                let dropColumns =
+                    [
+                        yield! rightOther |> List.map (fun name -> $"{name}{tmpSuffix}")
+                        match validityCol with
+                        | Some v -> yield v
+                        | None -> ()
+                        if rowIndexUsed then
+                            yield rowIndexName
+                    ]
+
+                let rightSelectExprs =
+                    [|
+                        yield! rightOnKeys |> Array.map pl.col
+                        yield! rightOther |> Array.ofList |> Array.map pl.col
+                        match validityCol with
+                        | Some v -> yield pl.col v
+                        | None -> ()
+                    |]
 
                 let leftOnExprs = leftOnKeys |> Array.map pl.col
                 let rightOnExprs = rightOnKeys |> Array.map pl.col
@@ -97,27 +116,46 @@ module UpdateOps =
                     rightOther
                     |> List.map (fun name ->
                         let rightColName = $"{name}{tmpSuffix}"
+
                         let expr =
                             match validityCol with
-                            | Some v ->
-                                pl.when'((pl.col v).IsNull()).Then(pl.col name).Otherwise(pl.col rightColName)
-                            | None ->
-                                pl.col(rightColName).Coalesce [pl.col name]
-                        expr.Alias name
-                    )
+                            | Some v -> pl.when'((pl.col v).IsNull()).Then(pl.col name).Otherwise(pl.col rightColName)
+                            | None -> pl.col(rightColName).Coalesce [ pl.col name ]
+
+                        expr.Alias name)
 
                 joined
-                |> fun lf -> if not updateExprs.IsEmpty then lf.WithColumns(updateExprs |> List.toArray) else lf
-                |> fun lf -> if not dropColumns.IsEmpty then lf.Drop(dropColumns |> List.toArray) else lf
+                |> fun lf ->
+                    if not updateExprs.IsEmpty then
+                        lf.WithColumns(updateExprs |> List.toArray)
+                    else
+                        lf
+                |> fun lf ->
+                    if not dropColumns.IsEmpty then
+                        lf.Drop(dropColumns |> List.toArray)
+                    else
+                        lf
+
     type DataFrame with
-        member this.Update(
-            other: DataFrame,
-            ?on: IColumnExpr,
-            ?how: JoinType,
-            ?leftOn: IColumnExpr,
-            ?rightOn: IColumnExpr,
-            ?includeNulls: bool,
-            ?maintainOrder: JoinMaintainOrder
-        ) =
-            this.Lazy().Update(other.Lazy(),?on=on,?how=how,?leftOn=leftOn,?rightOn=rightOn,
-                ?includeNulls=includeNulls,?maintainOrder=maintainOrder).Collect()
+        member this.Update
+            (
+                other: DataFrame,
+                ?on: IColumnExpr,
+                ?how: JoinType,
+                ?leftOn: IColumnExpr,
+                ?rightOn: IColumnExpr,
+                ?includeNulls: bool,
+                ?maintainOrder: JoinMaintainOrder
+            ) =
+            this
+                .Lazy()
+                .Update(
+                    other.Lazy(),
+                    ?on = on,
+                    ?how = how,
+                    ?leftOn = leftOn,
+                    ?rightOn = rightOn,
+                    ?includeNulls = includeNulls,
+                    ?maintainOrder = maintainOrder
+                )
+                .Collect()

@@ -11,7 +11,7 @@ namespace Polars.CSharp;
 /// Until the query is executed, operations are just recorded in a query plan.
 /// Once executed, the data is materialized in memory.
 /// </summary>
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Scan Database to LazyFrame
@@ -22,7 +22,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     public static LazyFrame ScanDatabase(IDataReader reader, int batchSize = 50_000)
     {
         var schema = reader.GetArrowSchema();
-        
+
         var stream = reader.ToArrowBatches(batchSize).Prefetch();
 
         return ScanRecordBatches(stream, schema);
@@ -99,10 +99,10 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             using var reader = readerFactory();
             // Get stream
             var stream = reader.ToArrowBatches(batchSize);
-            
+
             stream = stream.Prefetch();
 
-            foreach (var batch in stream) 
+            foreach (var batch in stream)
                 yield return batch;
         }
 
@@ -119,8 +119,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     {
         private readonly IDisposable? _resource;
 
-        internal ScopedLazyFrame(LazyFrameHandle handle, IDisposable? resource) 
-            : base(handle) 
+        internal ScopedLazyFrame(LazyFrameHandle handle, IDisposable? resource)
+            : base(handle)
         {
             _resource = resource;
         }
@@ -130,7 +130,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         public new void Dispose()
         {
             base.Dispose();
-            
+
             _resource?.Dispose();
         }
     }
@@ -143,9 +143,9 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     {
         // DataReader cannot be reset, so we must buffer it to disk immediately
         var scope = new IpcStreamService.TempIpcScopeReader(reader, batchSize);
-        
+
         var handle = ScanIpc(scope.FilePath!).Handle;
-        
+
         return new ScopedLazyFrame(handle, scope);
     }
 

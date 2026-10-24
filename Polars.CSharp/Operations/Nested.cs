@@ -2,6 +2,7 @@ using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
@@ -24,7 +25,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     {
         var colsArray = columns as string[] ?? [.. columns];
         if (colsArray.Length == 0) return this;
-        
+
         using var selector = Cs.ByName(colsArray);
         var h = PolarsWrapper.LazyFrameUnnest(CloneHandle(), selector.CloneHandle(), separator);
         return new LazyFrame(h);
@@ -44,11 +45,11 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </summary>
     /// <param name="columns">the columns need to be exploded</param>
     /// <param name="emptyAsNull">
-    /// If <c>true</c>, empty lists are exploded into a single <c>null</c> value. 
+    /// If <c>true</c>, empty lists are exploded into a single <c>null</c> value.
     /// If <c>false</c>, rows with empty lists are removed from the result.
     /// </param>
     /// <param name="keepNulls">
-    /// If <c>true</c>, <c>null</c> values in the column are preserved as <c>null</c> in the result. 
+    /// If <c>true</c>, <c>null</c> values in the column are preserved as <c>null</c> in the result.
     /// If <c>false</c>, rows with <c>null</c> values are removed.
     /// </param>
     /// <returns></returns>
@@ -80,7 +81,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         => Explode(Cs.ByName(columns));
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Decompose a struct column into multiple columns.
@@ -90,7 +91,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     /// <param name="columns">The names of the struct columns to unnest.</param>
     /// <param name="separator">
-    /// Optional separator to append to the struct field names (e.g., "struct_col.field"). 
+    /// Optional separator to append to the struct field names (e.g., "struct_col.field").
     /// If null, the field names replace the struct column name directly.
     /// </param>
     /// <returns>A new DataFrame with the struct columns expanded.</returns>
@@ -98,7 +99,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <code>
     /// var data = new[] { new { User = new { Name = "Alice", Age = 30 } } };
     /// var df = DataFrame.From(data);
-    /// 
+    ///
     /// // Unnest with a separator to avoid name collisions
     /// // Result columns: "User_Name", "User_Age"
     /// var unnested = df.Unnest(new[] { "User" }, separator: "_");
@@ -118,10 +119,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public DataFrame Unnest(IntoSelector columns, string? separator = null)
     {
         using var safeSelector = columns.Consume();
-        
+
         string[] resolvedColumns = Cs.ExpandSelector(this, safeSelector);
 
-        if (resolvedColumns.Length == 0) return this; 
+        if (resolvedColumns.Length == 0) return this;
 
         var newHandle = PolarsWrapper.Unnest(Handle, resolvedColumns, separator);
         return new DataFrame(newHandle);
@@ -135,24 +136,24 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     /// <param name="columns">The names of the struct columns to unnest.</param>
     /// <param name="separator">
-    /// Optional separator to append to the struct field names (e.g., "struct_col.field"). 
+    /// Optional separator to append to the struct field names (e.g., "struct_col.field").
     /// If null, the field names replace the struct column name directly.
     /// </param>
     /// <returns>A new DataFrame with the struct columns expanded.</returns>
     /// <example>
     /// <code>
     /// // Create a DataFrame with a nested structure (simulating JSON)
-    /// var nestedData = new[] 
+    /// var nestedData = new[]
     /// {
     ///     new { Id = 1, User = new { Name = "Alice", City = "NY" } },
     ///     new { Id = 2, User = new { Name = "Bob",   City = "LA" } }
     /// };
-    /// 
+    ///
     /// var df = DataFrame.From(nestedData);
-    /// 
+    ///
     /// // Unnest the "User" column into "Name" and "City"
     /// var unnested = df.Unnest("User");
-    /// 
+    ///
     /// unnested.Show();
     /// /* Output:
     /// shape: (2, 3)
@@ -171,7 +172,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         var colsArray = columns as string[] ?? [.. columns];
         if (colsArray.Length == 0) return this;
-        
+
         var newHandle = PolarsWrapper.Unnest(Handle, colsArray, separator);
         return new DataFrame(newHandle);
     }
@@ -187,7 +188,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Explode list/array columns into multiple rows.
     /// <para>
     /// This un-nests list columns. If multiple columns are provided, they are exploded in parallel.
-    /// Note: The list columns being exploded must have the same length for each row.
+    /// The list columns being exploded must have the same length for each row.
     /// </para>
     /// </summary>
     /// <param name="columns">Expressions selecting the columns to explode.</param>
@@ -200,10 +201,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     ///     tags = new[] { new[] { "apple", "orange" }, new[] { "banana" } },
     ///     scores = new[] { new[] { 10, 20 }, new[] { 30 } }
     /// });
-    /// 
+    ///
     /// // Explode "tags" and "scores" columns simultaneously
     /// var exploded = df.Explode(["tags","scores"]);
-    /// 
+    ///
     /// exploded.Show();
     /// /* Output:
     /// shape: (3, 3)
@@ -222,27 +223,27 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public DataFrame Explode(params string[] columns)
     {
         if (columns.Length == 0) return this;
-        return Explode((IEnumerable<string>)columns); 
+        return Explode((IEnumerable<string>)columns);
     }
     /// <summary>
     /// Explode list/array columns into multiple rows using selector.
     /// </summary>
     /// <param name="columns">Columns need to be exploded</param>
     /// <param name="emptyAsNull">
-    /// If <c>true</c>, empty lists are exploded into a single <c>null</c> value. 
+    /// If <c>true</c>, empty lists are exploded into a single <c>null</c> value.
     /// If <c>false</c>, rows with empty lists are removed from the result.
     /// </param>
     /// <param name="keepNulls">
-    /// If <c>true</c>, <c>null</c> values in the column are preserved as <c>null</c> in the result. 
+    /// If <c>true</c>, <c>null</c> values in the column are preserved as <c>null</c> in the result.
     /// If <c>false</c>, rows with <c>null</c> values are removed.
     /// </param>
     /// <returns></returns>
     public DataFrame Explode(IntoSelector columns, bool emptyAsNull = true, bool keepNulls = true)
     {
         using var safeSelector = columns.Consume();
-        
+
         string[] resolvedColumns = Cs.ExpandSelector(this, safeSelector);
-        
+
         if (resolvedColumns.Length == 0) return this;
 
         var h = PolarsWrapper.Explode(Handle, resolvedColumns, emptyAsNull, keepNulls);
@@ -260,5 +261,5 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var h = PolarsWrapper.Explode(Handle, colsArray, emptyAsNull, keepNulls);
         return new DataFrame(h);
     }
- 
+
 }

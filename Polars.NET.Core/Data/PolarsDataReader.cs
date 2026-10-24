@@ -17,7 +17,7 @@ public sealed class PolarsDataReader(
     protected override void Dispose(bool disposing)
     {
         if (_disposed) return;
-        
+
         if (disposing)
         {
             cts.Cancel();
@@ -47,7 +47,7 @@ public sealed class PolarsDataReader(
     public override int FieldCount => innerReader.FieldCount;
 
     public override void Close() => innerReader.Close();
-    public override DataTable GetSchemaTable() => innerReader.GetSchemaTable(); 
+    public override DataTable GetSchemaTable() => innerReader.GetSchemaTable();
     public override bool NextResult() => innerReader.NextResult();
     public override bool Read() => innerReader.Read();
 

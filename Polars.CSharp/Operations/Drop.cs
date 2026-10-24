@@ -1,9 +1,10 @@
 #pragma warning disable CS1573
 using Polars.NET.Core;
-using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
@@ -22,7 +23,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 
         using var sClone = combinedSelector.CloneHandle();
         var h = PolarsWrapper.LazyFrameDrop(CloneHandle(), sClone);
-        
+
         return new LazyFrame(h);
     }
 
@@ -34,7 +35,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     {
         var colsArray = columns as string[] ?? [.. columns];
         if (colsArray.Length == 0) return this;
-        
+
         using var selector = Cs.ByName(colsArray);
         return Drop(selector);
     }
@@ -42,7 +43,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Drop rows containing one or more Null values in ALL columns.
     /// </summary>
     public LazyFrame DropNulls()
-        => new (PolarsWrapper.LazyFrameDropNulls(CloneHandle(), null));
+        => new(PolarsWrapper.LazyFrameDropNulls(CloneHandle(), null));
 
     /// <summary>
     /// Drop rows with Nulls in a specific subset of columns (Selectors, Strings, Types, Exprs).
@@ -70,9 +71,9 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     {
         var colsArray = subset as string[] ?? [.. subset];
         if (colsArray.Length == 0) return DropNulls();
-        
+
         using var selector = Cs.ByName(colsArray);
-        return DropNulls(selector); 
+        return DropNulls(selector);
     }
     /// <summary>
     /// Drop rows containing one or more NaN values.
@@ -99,17 +100,17 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         var colsArray = subset as string[] ?? [.. subset];
         if (colsArray.Length == 0) return DropNans();
         using var selector = Cs.ByName(colsArray);
-        return DropNans(selector); 
+        return DropNans(selector);
     }
     /// <summary>
     /// Drop NaN in all columns.
     /// </summary>
     public LazyFrame DropNans()
-        => new (PolarsWrapper.LazyFrameDropNans(CloneHandle(), null));
+        => new(PolarsWrapper.LazyFrameDropNans(CloneHandle(), null));
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
-{    
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+{
     /// <summary>
     /// Drop one or more columns from the DataFrame.
     /// Returns a new DataFrame.
@@ -138,7 +139,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     }
     /// <summary>
     /// Drop a column in-place and return it as a Series.
-    /// Note: This mutates the original DataFrame.
+    /// This mutates the original DataFrame.
     /// </summary>
     /// <param name="name">The name of the column to drop.</param>
     /// <returns>The dropped column as a Series.</returns>
@@ -165,7 +166,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     public DataFrame DropNulls(params IntoSelector[] subsets)
         => Lazy().DropNulls(subsets).Collect();
-    
+
     /// <summary>
     /// Drop rows containing one or more NaN values.
     /// </summary>
@@ -180,6 +181,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Drop rows with NaN by specific Expressions.
     /// </summary>
-    public DataFrame DropNans(IEnumerable<string > subsets)
+    public DataFrame DropNans(IEnumerable<string> subsets)
         => Lazy().DropNans(subsets).Collect();
 }

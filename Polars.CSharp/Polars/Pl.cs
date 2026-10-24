@@ -23,8 +23,8 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="names"></param>
     /// <returns></returns>
-    public static Expr Col(params string[] names) 
-    { 
+    public static Expr Col(params string[] names)
+    {
         using Selector sel = Cs.ByName(names);
         return sel.ToExpr();
     }
@@ -103,10 +103,10 @@ public readonly partial struct Polars
     public static Expr Lit<T>(T[] values)
     {
         using var s = CSharp.Series.From("", values);
-        
+
         return Lit(s);
     }
-    
+
     public static Expr Lit<T>(IEnumerable<T> values)
     {
         if (values is T[] arr) return Lit(arr);
@@ -124,7 +124,7 @@ public readonly partial struct Polars
     /// </summary>
     public static Expr LitBinary(byte[] value)
         => Lit(value).Implode().Cast(DataType.Binary);
-    
+
     // ==========================================
     // Calculation
     // ==========================================
@@ -134,8 +134,8 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="y">Column name or Expression.</param>
     /// <param name="x">Column name or Expression.</param>
-    public static Expr ArcTan2(IntoExprColumn y,IntoExprColumn x)
-        => new(PolarsWrapper.ArcTan2(y.Consume().Handle,x.Consume().Handle));
+    public static Expr ArcTan2(IntoExprColumn y, IntoExprColumn x)
+        => new(PolarsWrapper.ArcTan2(y.Consume().Handle, x.Consume().Handle));
     // ==========================================
     // Control Flow
     // ==========================================
@@ -180,20 +180,20 @@ public readonly partial struct Polars
     /// If set to False, null values will be propagated. if the row contains any null values, the output is null.</param>
     /// <param name="exprs">Columns to concatenate into a single string column. Accepts expression input. Strings are parsed as column names, 
     /// other non-expression inputs are parsed as literals. Non-String columns are cast to String.</param>
-    public static Expr ConcatString(string separator=",",bool ignoreNulls=false,params IntoExprColumn[] exprs)
+    public static Expr ConcatString(string separator = ",", bool ignoreNulls = false, params IntoExprColumn[] exprs)
     {
         var exprArray = exprs.Select(e => e.Consume()).ToArray();
         var handles = System.Array.ConvertAll(exprArray, e => e.Handle);
-        return new Expr(PolarsWrapper.ConcatString(handles,separator,ignoreNulls));
+        return new Expr(PolarsWrapper.ConcatString(handles, separator, ignoreNulls));
     }
     /// <summary>
     /// Format expressions as a string.
     /// </summary>
-    public static Expr Format(string format,params IntoExprColumn[] exprs)
+    public static Expr Format(string format, params IntoExprColumn[] exprs)
     {
         var exprArray = exprs.Select(e => e.Consume()).ToArray();
         var handles = System.Array.ConvertAll(exprArray, e => e.Handle);
-        return new Expr(PolarsWrapper.FormatString(format,handles));
+        return new Expr(PolarsWrapper.FormatString(format, handles));
     }
     // ==========================================
     // Concat Exprs
@@ -201,13 +201,13 @@ public readonly partial struct Polars
     /// <summary>
     /// Concat multiple expressions into a single expression.
     /// </summary>
-    public static Expr ConcatExpr(bool rechunk=false,params Expr[] exprs)
+    public static Expr ConcatExpr(bool rechunk = false, params Expr[] exprs)
     {
         var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
-        return new Expr(PolarsWrapper.ConcatExprs(handles,rechunk));
+        return new Expr(PolarsWrapper.ConcatExprs(handles, rechunk));
     }
     /// <inheritdoc cref="ConcatExpr(bool,Expr[])"/>
-    public static Expr ConcatExpr(params Expr[] exprs) => ConcatExpr(false,exprs);
+    public static Expr ConcatExpr(params Expr[] exprs) => ConcatExpr(false, exprs);
     // ==========================================
     // Struct Operations
     // ==========================================
@@ -224,7 +224,7 @@ public readonly partial struct Polars
         }
 
         var handles = exprs.Select(e => e.Consume().Handle).ToArray();
-        
+
         return new Expr(PolarsWrapper.AsStruct(handles));
     }
     /// <summary>
@@ -260,7 +260,7 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="sqls">The collection of SQL expression strings.</param>
     /// <returns>An array of Polars Expr objects.</returns>
-    public static Expr[] SqlExprs(IEnumerable<string> sqls) 
+    public static Expr[] SqlExprs(IEnumerable<string> sqls)
             => [.. sqls.Select(SqlExpr)];
 
     // ==========================================
@@ -303,12 +303,12 @@ public readonly partial struct Polars
     /// <param name="end">End dates.</param>
     /// <param name="weekMask">Which days of the week to count. The default is Monday to Friday. If you wanted to count only Monday to Thursday, you would pass (True, True, True, True, False, False, False).</param>
     /// <param name="holidays">Holidays to exclude from the count.</param>
-    public static Expr BusinessDayCount(IntoExprColumn start,IntoExprColumn end,bool[]? weekMask=null,IntoDateExpr? holidays=null)
+    public static Expr BusinessDayCount(IntoExprColumn start, IntoExprColumn end, bool[]? weekMask = null, IntoDateExpr? holidays = null)
     {
         bool[] realWeek = weekMask ?? DtOps.DefaultWeekMask;
         IntoDateExpr actualHolidays = holidays ?? IntoDateExpr.Empty;
         ExprHandle holidaysMask = actualHolidays.Consume().Handle;
-        return new(PolarsWrapper.DtBusinessDayCount(start.Consume().Handle,end.Consume().Handle,realWeek,holidaysMask));
+        return new(PolarsWrapper.DtBusinessDayCount(start.Consume().Handle, end.Consume().Handle, realWeek, holidaysMask));
     }
     // ==========================================
     // Fold & Reduce
@@ -373,11 +373,11 @@ public readonly partial struct Polars
             throw new ArgumentException("At least one expression must be provided.");
 
         var handles = new ExprHandle[exprs.Length];
-        
+
         for (int i = 0; i < exprs.Length; i++)
         {
             Expr e = exprs[i].Consume();
-            handles[i] = e.Handle; 
+            handles[i] = e.Handle;
         }
 
         return new Expr(PolarsWrapper.Coalesce(handles));
@@ -393,7 +393,7 @@ public readonly partial struct Polars
             throw new ArgumentException("At least one expression must be provided.");
 
         using var expr = Coalesce(exprs);
-        
+
         return CreateSeries(expr);
     }
     /// <summary>
@@ -405,31 +405,31 @@ public readonly partial struct Polars
     /// <param name="multithreaded">Sort using multiple threads.</param>
     /// <param name="maintainOrder">Whether the order should be maintained if elements are equal.</param>
     public static Expr ArgSortBy(
-        IntoExprColumn expr, 
-        bool descending = false, 
-        bool nullsLast = false, 
-        bool multithreaded = true, 
+        IntoExprColumn expr,
+        bool descending = false,
+        bool nullsLast = false,
+        bool multithreaded = true,
         bool maintainOrder = false)
     {
         return ArgSortBy(
-            [expr], 
-            [descending], 
-            [nullsLast], 
-            multithreaded, 
+            [expr],
+            [descending],
+            [nullsLast],
+            multithreaded,
             maintainOrder
         );
     }
     /// <inheritdoc cref="ArgSortBy(IntoExprColumn,bool,bool,bool,bool)"/>
     public static Expr ArgSortBy(
-        IEnumerable<IntoExprColumn> exprs, 
-        bool descending = false, 
-        bool nullsLast = false, 
-        bool multithreaded = true, 
+        IEnumerable<IntoExprColumn> exprs,
+        bool descending = false,
+        bool nullsLast = false,
+        bool multithreaded = true,
         bool maintainOrder = false)
     {
         var exprList = exprs.ToArray();
         var n = exprList.Length;
-        
+
         return ArgSortBy(
             exprList,
             [.. Enumerable.Repeat(descending, n)],
@@ -441,10 +441,10 @@ public readonly partial struct Polars
 
     /// <inheritdoc cref="ArgSortBy(IntoExprColumn,bool,bool,bool,bool)"/>
     public static Expr ArgSortBy(
-        IEnumerable<IntoExprColumn> exprs, 
-        IEnumerable<bool> descending, 
-        IEnumerable<bool> nullsLast, 
-        bool multithreaded = true, 
+        IEnumerable<IntoExprColumn> exprs,
+        IEnumerable<bool> descending,
+        IEnumerable<bool> nullsLast,
+        bool multithreaded = true,
         bool maintainOrder = false)
     {
         var handles = exprs.Select(e => e.Consume().Handle).ToArray();
@@ -479,11 +479,11 @@ public readonly partial struct Polars
     /// <param name="a">Column name or Expression.</param>
     /// <param name="b">Column name or Expression.</param>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
-    public static Expr Cov(IntoExprColumn a,IntoExprColumn b, byte ddof =1)
-        => new(PolarsWrapper.Cov(a.Consume().Handle,b.Consume().Handle,ddof));
+    public static Expr Cov(IntoExprColumn a, IntoExprColumn b, byte ddof = 1)
+        => new(PolarsWrapper.Cov(a.Consume().Handle, b.Consume().Handle, ddof));
     /// <inheritdoc cref="Cov"/>
-    public static Series CovAsSeries(IntoExprColumn a,IntoExprColumn b, byte ddof =1)
-        => CSharp.Series.FromExpr(Cov(a,b,ddof));
+    public static Series CovAsSeries(IntoExprColumn a, IntoExprColumn b, byte ddof = 1)
+        => CSharp.Series.FromExpr(Cov(a, b, ddof));
     /// <summary>
     /// Compute the Pearson’s or Spearman rank correlation between two columns.
     /// </summary>
@@ -491,18 +491,18 @@ public readonly partial struct Polars
     /// <param name="b">Column name or Expression.</param>
     /// <param name="method">Correlation method.</param>
     /// <param name="propagateNans">If True any NaN encountered will lead to NaN in the output. Defaults to False where NaN are regarded as larger than any finite number and thus lead to the highest rank.</param>
-    public static Expr Corr(IntoExprColumn a,IntoExprColumn b,CorrelationMethod method=CorrelationMethod.Pearson,bool propagateNans=false)
+    public static Expr Corr(IntoExprColumn a, IntoExprColumn b, CorrelationMethod method = CorrelationMethod.Pearson, bool propagateNans = false)
     {
         ExprHandle aE = a.Consume().Handle;
         ExprHandle bE = b.Consume().Handle;
         if (method == CorrelationMethod.Pearson)
-            return new(PolarsWrapper.PearsonCorr(aE,bE));
-        else 
-            return new(PolarsWrapper.SpearmanRankCorr(aE,bE,propagateNans));
+            return new(PolarsWrapper.PearsonCorr(aE, bE));
+        else
+            return new(PolarsWrapper.SpearmanRankCorr(aE, bE, propagateNans));
     }
     /// <inheritdoc cref="Corr"/>
-    public static Series CorrAsSeries(IntoExprColumn a,IntoExprColumn b,CorrelationMethod method=CorrelationMethod.Pearson,bool propagateNans=false)
-        => CSharp.Series.FromExpr(Corr(a,b,method,propagateNans));
+    public static Series CorrAsSeries(IntoExprColumn a, IntoExprColumn b, CorrelationMethod method = CorrelationMethod.Pearson, bool propagateNans = false)
+        => CSharp.Series.FromExpr(Corr(a, b, method, propagateNans));
     /// <summary>
     /// Compute the rolling correlation between two columns/ expressions.
     /// The window at a given row includes the row itself and the window_size - 1 elements before it.
@@ -511,10 +511,10 @@ public readonly partial struct Polars
     /// <param name="b">Column name or Expression.</param>
     /// <param name="windowSize">The length of the window.</param>
     /// <param name="minSamples">The number of values in the window that should be non-null before computing a result. If None, it will be set equal to window size.</param>
-    public static Expr RollingCorr(IntoExprColumn a,IntoExprColumn b,uint windowSize,uint? minSamples=null)
+    public static Expr RollingCorr(IntoExprColumn a, IntoExprColumn b, uint windowSize, uint? minSamples = null)
     {
         uint minSam = minSamples ?? windowSize;
-        return new(PolarsWrapper.RollingCorr(a.Consume().Handle,b.Consume().Handle,windowSize,minSam));
+        return new(PolarsWrapper.RollingCorr(a.Consume().Handle, b.Consume().Handle, windowSize, minSam));
     }
     /// <summary>
     /// Compute the rolling covariance between two columns/ expressions.
@@ -525,10 +525,10 @@ public readonly partial struct Polars
     /// <param name="windowSize">The length of the window.</param>
     /// <param name="minSamples">The number of values in the window that should be non-null before computing a result. If None, it will be set equal to window size.</param>
     /// <param name="ddof">Delta degrees of freedom. The divisor used in calculations is N - ddof, where N represents the number of elements.</param>
-    public static Expr RollingCov(IntoExprColumn a,IntoExprColumn b,uint windowSize,uint? minSamples=null,byte ddof=1)
+    public static Expr RollingCov(IntoExprColumn a, IntoExprColumn b, uint windowSize, uint? minSamples = null, byte ddof = 1)
     {
         uint minSam = minSamples ?? windowSize;
-        return new(PolarsWrapper.RollingCov(a.Consume().Handle,b.Consume().Handle,windowSize,minSam,ddof));
+        return new(PolarsWrapper.RollingCov(a.Consume().Handle, b.Consume().Handle, windowSize, minSam, ddof));
     }
     /// <summary>
     /// Represent all columns except for the given columns.
@@ -539,14 +539,14 @@ public readonly partial struct Polars
         => All().Exclude(columns);
     /// <inheritdoc cref="Exclude(string[])"/>
     public static Expr Exclude(params ReadOnlySpan<DataType> columns)
-        => All().Exclude(columns);  
+        => All().Exclude(columns);
     /// <summary>
     /// Aggregate all column values into a list.
     /// This function is syntactic sugar for Pl.Col(name).Implode().
     /// </summary>
     /// <param name="column">Column name</param>
     /// <param name="maintainOrder">Whether to preserve the order of elements in the list. Setting this to False can improve performance, especially within GroupBy.</param>
-    public static Expr Implode(string column,bool maintainOrder =true)
+    public static Expr Implode(string column, bool maintainOrder = true)
         => Col(column).Implode();
 
     /// <summary>
@@ -554,8 +554,8 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="indices">One or more indices representing the columns to retrieve.</param>
     /// <param name="strict">By default, all specified indices must be valid; if any index is out of bounds, an error is raised. If set to False, out-of-bounds indices are ignored.</param>
-    public static Expr Nth(ReadOnlySpan<long> indices, bool strict=true)
-        => Cs.ByIndex(indices,true).ToExpr();
+    public static Expr Nth(ReadOnlySpan<long> indices, bool strict = true)
+        => Cs.ByIndex(indices, true).ToExpr();
     /// <summary>
     /// Construct a column of length n filled with the given value.
     /// </summary>
@@ -563,37 +563,37 @@ public readonly partial struct Polars
     /// <param name="n">Length of the resulting column.</param>
     /// <param name="dtype">Data type of the resulting column. If set to None (default), data type is inferred from the given value. 
     /// Defaults to Int32 for integer values, unless Int64 is required to fit the given value. Defaults to Float64 for float values.</param>
-    public static Expr Repeat(IntoExpr? value,int n,DataType? dtype=null)
+    public static Expr Repeat(IntoExpr? value, int n, DataType? dtype = null)
     {
         Expr valExpr = value?.Consume() ?? LitNull();
         var expr = new Expr(PolarsWrapper.ExprRepeat(valExpr.Handle, Lit(n).Handle));
         return dtype is null ? expr : expr.Cast(dtype);
     }
     /// <inheritdoc cref="Repeat"/>
-    public static Series RepeatAsSeries(IntoExpr? value,int n,DataType? dtype=null)
-        => CSharp.Series.FromExpr(Repeat(value,n,dtype));
+    public static Series RepeatAsSeries(IntoExpr? value, int n, DataType? dtype = null)
+        => CSharp.Series.FromExpr(Repeat(value, n, dtype));
     /// <summary>
     /// Construct a column of length n filled with zeros.
     /// This is syntactic sugar for the repeat function.
     /// </summary>
     /// <param name="n">Length of the resulting column.</param>
     /// <param name="dtype">Data type of the resulting column. Defaults to Float64.</param>
-    public static Expr Zeros(int n, DataType? dtype=null)
-        => Repeat(0,n,dtype ?? DataType.Float64);
+    public static Expr Zeros(int n, DataType? dtype = null)
+        => Repeat(0, n, dtype ?? DataType.Float64);
     /// <inheritdoc cref="Zeros"/>
-    public static Series ZerosAsSeries(int n,DataType? dtype=null)
-        => RepeatAsSeries(0,n,dtype ?? DataType.Float64);
+    public static Series ZerosAsSeries(int n, DataType? dtype = null)
+        => RepeatAsSeries(0, n, dtype ?? DataType.Float64);
     /// <summary>
     /// Construct a column of length n filled with ones.
     /// This is syntactic sugar for the repeat function.
     /// </summary>
     /// <param name="n">Length of the resulting column.</param>
     /// <param name="dtype">Data type of the resulting column. Defaults to Float64.</param>
-    public static Expr Ones(int n, DataType? dtype=null)
-        => Repeat(1,n,dtype ?? DataType.Float64);
+    public static Expr Ones(int n, DataType? dtype = null)
+        => Repeat(1, n, dtype ?? DataType.Float64);
     /// <inheritdoc cref="Ones"/>
-    public static Series OnesAsSeries(int n,DataType? dtype=null)
-        => RepeatAsSeries(1,n,dtype ?? DataType.Float64);
+    public static Series OnesAsSeries(int n, DataType? dtype = null)
+        => RepeatAsSeries(1, n, dtype ?? DataType.Float64);
     /// <summary>
     /// Parses an integer column (seconds, milliseconds, etc.) into a Datetime or Date expression.
     /// </summary>
@@ -603,22 +603,22 @@ public readonly partial struct Polars
 
         return timeUnit switch
         {
-            EpochTimeUnit.Day => 
+            EpochTimeUnit.Day =>
                 expr.Cast(DataType.Date),
-                
-            EpochTimeUnit.Second => 
+
+            EpochTimeUnit.Second =>
                 // Multiply by Int64 literal to prevent overflow
                 (expr * 1_000_000L).Cast(DataType.Datetime(TimeUnit.Microseconds)),
-                
-            EpochTimeUnit.Milliseconds => 
+
+            EpochTimeUnit.Milliseconds =>
                 (expr * 1_000L).Cast(DataType.Datetime(TimeUnit.Microseconds)),
-                
-            EpochTimeUnit.Microseconds => 
+
+            EpochTimeUnit.Microseconds =>
                 expr.Cast(DataType.Datetime(TimeUnit.Microseconds)),
-                
-            EpochTimeUnit.Nanoseconds => 
+
+            EpochTimeUnit.Nanoseconds =>
                 expr.Cast(DataType.Datetime(TimeUnit.Nanoseconds)),
-                
+
             _ => throw new ArgumentException(
                 $"`timeUnit` must be one of Nanoseconds, Microseconds, Milliseconds, Second, Day. Got: {timeUnit}")
         };
@@ -629,7 +629,7 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="column">Column name.</param>
     /// <param name="n">Number of rows to return</param>
-    public static Expr Head(string column,int n=10)
+    public static Expr Head(string column, int n = 10)
         => Col(column).Head(n);
     /// <summary>
     /// Get the Last n rows.
@@ -637,7 +637,7 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="column">Column name.</param>
     /// <param name="n">Number of rows to return</param>
-    public static Expr Tail(string column, int n=10)
+    public static Expr Tail(string column, int n = 10)
         => Col(column).Tail(n);
     /// <summary>
     /// Collect multiple LazyFrames concurrently.
@@ -647,7 +647,7 @@ public readonly partial struct Polars
         var lfs = frames.ToArray();
         if (lfs.Length == 0) return [];
 
-        var handles = System.Array.ConvertAll(lfs, lf => lf.Handle);
+        var handles = System.Array.ConvertAll(lfs, lf => lf.CloneHandle());
 
         var dfHandles = PolarsWrapper.LazyCollectAll(handles, engine.ToNative());
 
@@ -667,7 +667,7 @@ public readonly partial struct Polars
         var lfs = frames.ToArray();
         if (lfs.Length == 0) return [];
 
-        var handles = System.Array.ConvertAll(lfs, lf => lf.Handle);
+        var handles = System.Array.ConvertAll(lfs, lf => lf.CloneHandle());
 
         var dfHandles = await PolarsWrapper.LazyCollectAllAsync(handles, engine.ToNative()).ConfigureAwait(false);
 
@@ -706,7 +706,7 @@ public readonly partial struct Polars
         if (lfs.Length == 1) return lfs;
 
         Expr[] baseAlignExprs = [.. on.Select(c => c.Consume())];
-        
+
         Expr[]? baseSelectExprs = select?.Select(c => c.Consume()).ToArray();
 
         var idxFrames = lfs.Select((lf, i) => (Index: i, Frame: lf)).ToArray();
@@ -719,12 +719,12 @@ public readonly partial struct Polars
                 how: how,
                 suffix: $":{curr.Index}",
                 nullsEqual: true,
-                coalesce: JoinCoalesce.CoalesceColumns 
+                coalesce: JoinCoalesce.CoalesceColumns
             )
         );
 
         joinedFrame = joinedFrame.Sort(
-            by: [.. baseAlignExprs.Select(e => (IntoSelector)e.Clone())], 
+            by: [.. baseAlignExprs.Select(e => (IntoSelector)e.Clone())],
             descending: [descending],
             nullsLast: null,
             maintainOrder: true
@@ -733,31 +733,31 @@ public readonly partial struct Polars
         var masterSchemaCols = joinedFrame.CollectSchema().Names.ToHashSet();
 
         LazyFrame[] alignedFrames = new LazyFrame[lfs.Length];
-        
+
         for (int i = 0; i < lfs.Length; i++)
         {
             var lf = lfs[i];
             string sfx = $":{i}";
-            List<Expr> componentCols = []; 
+            List<Expr> componentCols = [];
 
             var currentNames = lf.CollectSchema().Names;
-            
+
             foreach (var colName in currentNames)
             {
                 string suffixedCol = $"{colName}{sfx}";
-                
+
                 componentCols.Add(masterSchemaCols.Contains(suffixedCol)
                     ? Col(suffixedCol).Alias(colName)
                     : Col(colName));
             }
 
             var alignedLf = joinedFrame.Select(componentCols);
-            
+
             if (baseSelectExprs is { Length: > 0 })
-                {
-                    alignedLf = alignedLf.Select([.. baseSelectExprs.Select(e => (IntoExprColumn)e.Clone())]);
-                }
-            
+            {
+                alignedLf = alignedLf.Select([.. baseSelectExprs.Select(e => (IntoExprColumn)e.Clone())]);
+            }
+
             alignedFrames[i] = alignedLf;
         }
 
@@ -774,12 +774,12 @@ public readonly partial struct Polars
     {
         LazyFrame[] lazyFrames = [.. frames.Select(f => f.Lazy())];
         var alignedLazy = AlignFrames(lazyFrames, on, how, select, descending);
-        
+
         return CollectAll(alignedLazy);
     }
     /// <inheritdoc cref="AlignFrames(IEnumerable{LazyFrame}, IEnumerable{IntoExprColumn}, JoinType, IEnumerable{IntoExprColumn}?, bool)"/>
     public static async Task<DataFrame[]> AlignFramesAsync(
-        IEnumerable<DataFrame> frames, 
+        IEnumerable<DataFrame> frames,
         IEnumerable<IntoExprColumn> on,
         JoinType how = JoinType.Outer,
         IEnumerable<IntoExprColumn>? select = null,
@@ -787,7 +787,7 @@ public readonly partial struct Polars
     {
         LazyFrame[] lazyFrames = [.. frames.Select(f => f.Lazy())];
         var alignedLazy = AlignFrames(lazyFrames, on, how, select, descending);
-        
+
         return await CollectAllAsync(alignedLazy).ConfigureAwait(false);
     }
     /// <summary>
@@ -819,7 +819,7 @@ public readonly partial struct Polars
     public static string EscapeRegex(string s)
     {
         if (string.IsNullOrEmpty(s)) return s;
-        
+
         return Regex.Escape(s);
     }
     /// <summary>
@@ -831,44 +831,4 @@ public readonly partial struct Polars
     /// </summary>
     public static ulong ThreadPoolSize()
         => CoreConfig.ThreadPoolSize ?? (ulong)Environment.ProcessorCount;
-}
-
-internal static class InterfaceUnwrapperExtensions
-{
-    /// <summary>
-    /// Unwrap IPolarsDataFrame as DataFrame 
-    /// </summary>
-    internal static DataFrame AsDataFrame(this IPolarsDataFrame idf)
-    {
-        if (idf is DataFrame df)
-            return df;
-        
-        throw new InvalidCastException("Not Standard Polars DataFrame");
-    }
-    /// <summary>
-    /// Unwrap IPolarsLazyFrame as LazyFrame 
-    /// </summary>
-    /// <param name="ilf">A IPolarsLazyFrame</param>
-    /// <returns></returns>
-    /// <exception cref="InvalidCastException"></exception>
-    internal static LazyFrame AsLazyFrame(this IPolarsLazyFrame ilf)
-    {
-        if (ilf is LazyFrame lf)
-            return lf;
-        
-        throw new InvalidCastException("Not Standard Polars LazyFrame");
-    }
-    /// <summary>
-    /// Unwrap IPolarsLazyFrame as LazyFrame 
-    /// </summary>
-    /// <param name="iS">A IPolarsSeries</param>
-    /// <returns></returns>
-    /// <exception cref="InvalidCastException"></exception>
-    internal static Series AsSeries(this IPolarsSeries iS)
-    {
-        if (iS is Series s)
-            return s;
-        
-        throw new InvalidCastException("Not Standard Polars Series");
-    }
 }

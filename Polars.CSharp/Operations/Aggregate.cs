@@ -2,6 +2,7 @@ using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
+
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
@@ -43,13 +44,13 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Aggregate the columns in the Frame to their standard deviation value.
     /// </summary>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
-    public LazyFrame Std(byte ddof=1)
+    public LazyFrame Std(byte ddof = 1)
         => Select(Pl.All().Std(ddof));
     /// <summary>
     /// Aggregate the columns in the Frame to their variance value.
     /// </summary>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
-    public LazyFrame Var(byte ddof=1)
+    public LazyFrame Var(byte ddof = 1)
         => Select(Pl.All().Var(ddof));
     /// <summary>
     /// Aggregate the columns in the Frame to their quantile value.
@@ -57,10 +58,10 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
     /// <param name="method">['nearest’, ‘higher’, ‘lower’, ‘midpoint’, ‘linear’] Interpolation method.</param>
     public LazyFrame Quantile(double quantile, QuantileMethod method = QuantileMethod.Linear)
-        => Select(Pl.All().Quantile(quantile,method));
+        => Select(Pl.All().Quantile(quantile, method));
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <inheritdoc cref="LazyFrame.Count"/>
     public DataFrame Count()
@@ -69,7 +70,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public DataFrame Sum()
         => Lazy().Sum().Collect();
     /// <inheritdoc cref="Pl.SumHorizontal(IntoExprColumn[])"/>
-    public Series SumHorizontal(bool ignoreNulls=true) => Select(Pl.SumHorizontal(ignoreNulls,Pl.All()))[0].Rename("sum");
+    public Series SumHorizontal(bool ignoreNulls = true) => Select(Pl.SumHorizontal(ignoreNulls, Pl.All()))[0].Rename("sum");
     /// <inheritdoc cref="Pl.MaxHorizontal(IntoExprColumn[])"/>
     public Series MaxHorizontal() => Select(Pl.MaxHorizontal(Pl.All()))[0].Rename("max");
 
@@ -89,7 +90,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public DataFrame Mean()
         => Lazy().Mean().Collect();
     /// <inheritdoc cref="Pl.MeanHorizontal(IntoExprColumn[])"/>
-    public Series MeanHorizontal(bool ignoreNulls=true) => Select(Pl.MeanHorizontal(ignoreNulls,Pl.All()))[0].Rename("mean");
+    public Series MeanHorizontal(bool ignoreNulls = true) => Select(Pl.MeanHorizontal(ignoreNulls, Pl.All()))[0].Rename("mean");
 
     /// <inheritdoc cref="LazyFrame.Median"/>
     public DataFrame Median()
@@ -98,16 +99,16 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <inheritdoc cref="LazyFrame.NullCount"/>
     public DataFrame NullCount()
         => Lazy().NullCount().Collect();
-    
+
     /// <inheritdoc cref="LazyFrame.Std"/>
-    public DataFrame Std(byte ddof=1)
+    public DataFrame Std(byte ddof = 1)
         => Lazy().Std(ddof).Collect();
 
     /// <inheritdoc cref="LazyFrame.Var"/>
-    public DataFrame Var(byte ddof=1)
+    public DataFrame Var(byte ddof = 1)
         => Lazy().Var(ddof).Collect();
 
     /// <inheritdoc cref="LazyFrame.Quantile"/>
-    public DataFrame Quantile(double quantile,QuantileMethod method = QuantileMethod.Linear)
-        => Lazy().Quantile(quantile,method).Collect();
+    public DataFrame Quantile(double quantile, QuantileMethod method = QuantileMethod.Linear)
+        => Lazy().Quantile(quantile, method).Collect();
 }

@@ -11,7 +11,7 @@ namespace Polars.CSharp;
 /// Until the query is executed, operations are just recorded in a query plan.
 /// Once executed, the data is materialized in memory.
 /// </summary>
-public partial class LazyFrame : IDisposable,IPolarsLazyFrame
+public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     internal LazyFrameHandle Handle { get; }
 
@@ -26,17 +26,16 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
 
     /// <summary>
     /// Gets the Schema of the LazyFrame.
-    /// Note: The returned PolarsSchema object is IDisposable. 
+    /// The returned PolarsSchema object is IDisposable. 
     /// Usage in 'using' block is recommended if accessed frequently.
     /// </summary>
     public PolarsSchema Schema
     {
         get
-        {       
+        {
             return new PolarsSchema(PolarsWrapper.GetLazySchema(Handle));
         }
     }
-    IPolarsSchema IPolarsLazyFrame.Schema => this.Schema;
     /// <summary>
     /// Resolve the schema of this LazyFrame.
     /// </summary>
@@ -48,12 +47,12 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     public void PrintSchema()
     {
         using var schema = Schema;
-        
+
         Console.WriteLine("root");
-        
+
         foreach (var name in schema.Names)
         {
-            var type = schema[name]; 
+            var type = schema[name];
             Console.WriteLine($" |-- {name}: {type.Kind}");
         }
     }
@@ -80,7 +79,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         => new(PolarsWrapper.LazyClone(Handle));
     internal LazyFrameHandle CloneHandle()
         => PolarsWrapper.LazyClone(Handle);
-   
+
     /// <summary>
     /// Renames columns in the <see cref="LazyFrame"/>.
     /// </summary>
@@ -98,8 +97,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         ArgumentNullException.ThrowIfNull(existing);
         ArgumentNullException.ThrowIfNull(newNames);
 
-        var newHandle = PolarsWrapper.LazyRename(Handle, existing, newNames, strict);
-        
+        var newHandle = PolarsWrapper.LazyRename(CloneHandle(), existing, newNames, strict);
+
         return new LazyFrame(newHandle);
     }
 
@@ -109,7 +108,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </summary>
     /// <param name="offset">Start index. Negative values count from the end.</param>
     /// <param name="length">Number of rows to return.</param>
-    public LazyFrame Slice(long offset, uint? length=null)
+    public LazyFrame Slice(long offset, uint? length = null)
     {
         uint realLength = length ?? uint.MaxValue;
         return new(PolarsWrapper.LazySlice(CloneHandle(), offset, realLength));
@@ -122,7 +121,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <returns>A new LazyFrame.</returns>
     public LazyFrame Clear(long n = 0)
     {
-        using var schema = Schema; 
+        using var schema = Schema;
 
         return schema.ToLazyFrame(n);
     }
@@ -130,14 +129,14 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// Get the first n rows.
     /// </summary>
     /// <param name="n">Number of rows to return.</param>
-    public LazyFrame Limit(uint n=5)
-        => Slice(0,n);
+    public LazyFrame Limit(uint n = 5)
+        => Slice(0, n);
     /// <summary>
     /// Get the last n rows.
     /// </summary>
     /// <param name="n">Number of rows to return.</param>
-    public LazyFrame Tail(uint n=5)
-        => Slice(-n,n);
+    public LazyFrame Tail(uint n = 5)
+        => Slice(-n, n);
     /// <summary>
     /// Get the last row.
     /// </summary>
@@ -149,7 +148,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     public LazyFrame First()
         => Head(1);
     /// <inheritdoc cref="Limit"/>
-    public LazyFrame Head(uint n=5) => Limit(n);
+    public LazyFrame Head(uint n = 5) => Limit(n);
     /// <summary>
     /// Interpolate intermediate values. The interpolation method is linear.
     /// Nulls at the beginning and end of the series remain null.
@@ -164,26 +163,39 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <summary>
     /// Execute the query plan and return a DataFrame.
     /// </summary>
-    public DataFrame Collect(Engine engine=Engine.Auto,bool useStreaming=false)
-        => new(PolarsWrapper.LazyCollect(Handle,engine.ToNative(),useStreaming));
+    public DataFrame Collect(Engine engine = Engine.Auto)
+        => new(PolarsWrapper.LazyCollect(CloneHandle(), engine.ToNative()));
 
-    IPolarsDataFrame IPolarsLazyFrame.Collect(PlEngine engine,bool useStreaming)
-        => Collect((Engine)engine, useStreaming);
+    IPolarsDataFrame IPolarsLazyFrame.Collect(PlEngine engine)
+        => Collect((Engine)engine);
     /// <summary>
     /// Execute the query plan asynchronously and return a DataFrame.
     /// </summary>
-    public async Task<DataFrame> CollectAsync(Engine engine=Engine.Auto,bool useStreaming = false, CancellationToken cancellationToken = default)
+    public async Task<DataFrame> CollectAsync(Engine engine = Engine.Auto, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var dfHandle = await PolarsWrapper.LazyCollectAsync(Handle,engine.ToNative(), useStreaming, cancellationToken)
+        var dfHandle = await PolarsWrapper.LazyCollectAsync(CloneHandle(), engine.ToNative(), cancellationToken)
                                           .ConfigureAwait(false);
 
-        return new DataFrame(dfHandle);
+        return new(dfHandle);
     }
 
-    async Task<IPolarsDataFrame> IPolarsLazyFrame.CollectAsync(PlEngine engine,bool useStreaming, CancellationToken cancellationToken)
-        => await CollectAsync((Engine)engine, useStreaming, cancellationToken).ConfigureAwait(false);
+    /// <summary>
+    /// Streams materialized DataFrame batches asynchronously using Polars native streaming engine.
+    /// Memory consumption is bounded by the batch size O(batch).
+    /// </summary>
+    /// <param name="chunkSize">Maximum row count per native batch (0 uses Polars default batch size).</param>
+    /// <param name="engine">Execution engine selection.</param>
+    /// <param name="maintainOrder">Whether to enforce deterministic row ordering across batches.</param>
+    /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
+    /// <returns>An asynchronous stream of DataFrame batches.</returns>
+    public IAsyncEnumerable<DataFrame> CollectBatchesAsync(
+        long chunkSize = 0,
+        Engine engine = Engine.Auto,
+        bool maintainOrder = false,
+        CancellationToken cancellationToken = default)
+        => this.ToBatchAsyncEnumerable(chunkSize, engine, maintainOrder, cancellationToken);
 
     /// <summary>
     /// Dispose the LazyFrame and release native resources.
@@ -191,6 +203,6 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     public void Dispose()
     {
         Handle?.Dispose();
-        GC.SuppressFinalize(this); 
+        GC.SuppressFinalize(this);
     }
 }

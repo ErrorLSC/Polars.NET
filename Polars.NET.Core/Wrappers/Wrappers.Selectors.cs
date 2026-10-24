@@ -4,7 +4,7 @@ namespace Polars.NET.Core;
 
 public readonly partial struct PolarsWrapper
 {
-    public static SelectorHandle SelectorAll() 
+    public static SelectorHandle SelectorAll()
         => ErrorHelper.Check(NativeBindings.pl_selector_all());
     public static SelectorHandle CloneSelector(SelectorHandle sel)
         => ErrorHelper.Check(NativeBindings.pl_selector_clone(sel));
@@ -30,7 +30,7 @@ public readonly partial struct PolarsWrapper
         }
     }
     // --- String Matchers ---
-        
+
     public static SelectorHandle SelectorStartsWith(string pattern)
          => ErrorHelper.Check(NativeBindings.pl_selector_starts_with(pattern));
 
@@ -67,12 +67,12 @@ public readonly partial struct PolarsWrapper
     {
         var sePtr = selector?.TransferOwnership() ?? IntPtr.Zero;
         nuint w = width.HasValue && width.Value > 0 ? (nuint)width.Value : 0;
-        var h = NativeBindings.pl_selector_array(sePtr,w);
+        var h = NativeBindings.pl_selector_array(sePtr, w);
         return ErrorHelper.Check(h);
     }
     public static SelectorHandle SelectorDatetime(PlTimeUnit unit, string? timeZone)
     {
-        var h = NativeBindings.pl_selector_datetime(unit,timeZone);
+        var h = NativeBindings.pl_selector_datetime(unit, timeZone);
         return ErrorHelper.Check(h);
     }
     public static SelectorHandle SelectorDuration(PlTimeUnit unit)
@@ -86,10 +86,10 @@ public readonly partial struct PolarsWrapper
     public static SelectorHandle SelectorAnd(SelectorHandle left, SelectorHandle right)
     {
         var h = NativeBindings.pl_selector_and(left, right);
-        
+
         left.TransferOwnership();
         right.TransferOwnership();
-        
+
         return ErrorHelper.Check(h);
     }
 
@@ -127,7 +127,7 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle SelectorToExpr(SelectorHandle sel)
     {
         var h = NativeBindings.pl_selector_into_expr(sel);
-        sel.TransferOwnership(); 
+        sel.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static string SelectorToString(SelectorHandle sel)

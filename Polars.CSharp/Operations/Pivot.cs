@@ -29,8 +29,8 @@ public readonly struct IntoPivotHint
     public DataFrame Consume()
     {
         if (_ownsDf) return _df;
-        
-        return new DataFrame(PolarsWrapper.CloneDataFrame(_df.Handle)); 
+
+        return new DataFrame(PolarsWrapper.CloneDataFrame(_df.Handle));
     }
 }
 
@@ -57,15 +57,15 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <param name="columnNaming">How resulting column names will be constructed.</param>
     /// <returns>A new LazyFrame with the pivot operation applied.</returns>
     public LazyFrame Pivot(
-        IntoSelector on,                       
-        IntoPivotHint onColumns,            
-        IntoSelector? index = null,          
-        IntoSelector? values = null,           
-        Expr? aggregateExpr = null,            
-        PivotAgg aggregateFunction = PivotAgg.First, 
-        bool maintainOrder = false,        
+        IntoSelector on,
+        IntoPivotHint onColumns,
+        IntoSelector? index = null,
+        IntoSelector? values = null,
+        Expr? aggregateExpr = null,
+        PivotAgg aggregateFunction = PivotAgg.First,
+        bool maintainOrder = false,
         string separator = "_",
-        PivotColumnNaming columnNaming = PivotColumnNaming.Auto)               
+        PivotColumnNaming columnNaming = PivotColumnNaming.Auto)
     {
         using var safeOn = on.Consume();
         using var safeIndex = index?.Consume();
@@ -74,16 +74,16 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 
         using var hintDf = onColumns.Consume();
 
-        var hIndex = safeIndex?.Handle ?? new SelectorHandle(); 
+        var hIndex = safeIndex?.Handle ?? new SelectorHandle();
         var hValues = safeValues?.Handle ?? new SelectorHandle();
 
         var h = PolarsWrapper.LazyPivot(
-            Handle,
-            safeOn.CloneHandle(),    
-            hintDf.Handle,           
-            hIndex,                  
-            hValues,                 
-            aggExprH,                
+            CloneHandle(),
+            safeOn.CloneHandle(),
+            hintDf.Handle,
+            hIndex,
+            hValues,
+            aggExprH,
             aggregateFunction.ToNative(),
             maintainOrder,
             separator,
@@ -119,9 +119,9 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         PivotColumnNaming columnNaming = PivotColumnNaming.Auto)
     {
         var onArr = on as string[] ?? [.. on];
-        if (onArr.Length == 0) 
+        if (onArr.Length == 0)
             throw new ArgumentException("The 'on' parameter cannot be empty.", nameof(on));
-        
+
         using var onSel = Cs.ByName(onArr);
 
         var idxArr = index as string[] ?? index?.ToArray();
@@ -130,15 +130,15 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         using var valSel = (valArr != null && valArr.Length > 0) ? Cs.ByName(valArr) : null;
 
         return Pivot(
-            on: onSel, 
-            onColumns: onColumns, 
-            index: idxSel is not null ? (IntoSelector?)idxSel : null, 
-            values: valSel is not null ? (IntoSelector?)valSel : null, 
-            aggregateExpr: aggregateExpr, 
-            aggregateFunction: aggregateFunction, 
-            maintainOrder: maintainOrder, 
+            on: onSel,
+            onColumns: onColumns,
+            index: idxSel is not null ? (IntoSelector?)idxSel : null,
+            values: valSel is not null ? (IntoSelector?)valSel : null,
+            aggregateExpr: aggregateExpr,
+            aggregateFunction: aggregateFunction,
+            maintainOrder: maintainOrder,
             separator: separator,
-            columnNaming:columnNaming
+            columnNaming: columnNaming
         );
     }
     /// <summary>
@@ -147,19 +147,19 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Usage: lf.Unpivot("Date", Cs.Numeric()) or lf.Unpivot(Cs.StartsWith("id"), "Status")
     /// </summary>
     public LazyFrame Unpivot(
-        IntoSelector index, 
-        IntoSelector? on = null, 
-        string variableName = "variable", 
+        IntoSelector index,
+        IntoSelector? on = null,
+        string variableName = "variable",
         string valueName = "value")
     {
         using var safeIndex = index.Consume();
         using var safeOn = on?.Consume();
 
         var h = PolarsWrapper.LazyUnpivot(
-            CloneHandle(), 
-            safeIndex.CloneHandle(), 
-            safeOn?.CloneHandle(), 
-            variableName, 
+            CloneHandle(),
+            safeIndex.CloneHandle(),
+            safeOn?.CloneHandle(),
+            variableName,
             valueName
         );
 
@@ -171,9 +171,9 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Usage: lf.Unpivot(["Date", "Region"], ["Q1", "Q2", "Q3"])
     /// </summary>
     public LazyFrame Unpivot(
-        IEnumerable<string> index, 
-        IEnumerable<string>? on = null, 
-        string variableName = "variable", 
+        IEnumerable<string> index,
+        IEnumerable<string>? on = null,
+        string variableName = "variable",
         string valueName = "value")
     {
         var idxArr = index as string[] ?? [.. index];
@@ -186,24 +186,24 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         using var onSel = (onArr != null && onArr.Length > 0) ? Cs.ByName(onArr) : null;
 
         return Unpivot(
-            index: idxSel, 
-            on: onSel is not null ? (IntoSelector?)onSel : null, 
-            variableName: variableName, 
+            index: idxSel,
+            on: onSel is not null ? (IntoSelector?)onSel : null,
+            variableName: variableName,
             valueName: valueName
         );
     }
-    
+
     /// <inheritdoc cref="Unpivot(IntoSelector, IntoSelector?, string, string)"/>
-    public LazyFrame Melt(IntoSelector index, IntoSelector? on = null, string variableName = "variable", string valueName = "value") 
+    public LazyFrame Melt(IntoSelector index, IntoSelector? on = null, string variableName = "variable", string valueName = "value")
         => Unpivot(index, on, variableName, valueName);
 
     /// <inheritdoc cref="Unpivot(IEnumerable{string}, IEnumerable{string}?, string, string)"/>
-    public LazyFrame Melt(IEnumerable<string> index, IEnumerable<string>? on = null, string variableName = "variable", string valueName = "value") 
+    public LazyFrame Melt(IEnumerable<string> index, IEnumerable<string>? on = null, string variableName = "variable", string valueName = "value")
         => Unpivot(index, on, variableName, valueName);
- 
+
 }
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
     /// Pivot the DataFrame using Selectors for column selection. 
@@ -228,24 +228,24 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         PivotColumnNaming columnNaming = PivotColumnNaming.Auto)
     {
         using var safeOn = on.Consume();
-        
+
         string[] onCols = Cs.ExpandSelector(this, safeOn);
-        
+
         if (onCols.Length == 0)
             throw new ArgumentException("The 'on' selector did not match any columns.");
 
         using var hintDf = this.Select(onCols).Unique();
         using var onColsSelector = Cs.ByName(onCols);
         using var lf = Lazy().Pivot(
-            on: onColsSelector,              
-            onColumns: hintDf,       
+            on: onColsSelector,
+            onColumns: hintDf,
             index: index,
             values: values,
             aggregateExpr: aggregateExpr,
             aggregateFunction: aggregateFunction,
             maintainOrder: maintainOrder,
             separator: separator,
-            columnNaming:columnNaming
+            columnNaming: columnNaming
         );
 
         return lf.Collect();
@@ -309,9 +309,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         PivotColumnNaming columnNaming = PivotColumnNaming.Auto)
     {
         var onArr = on as string[] ?? [.. on];
-        if (onArr.Length == 0) 
+        if (onArr.Length == 0)
             throw new ArgumentException("The 'on' parameter cannot be empty.", nameof(on));
-        
+
         using var onSel = Cs.ByName(onArr);
 
         var idxArr = index as string[] ?? index?.ToArray();
@@ -321,14 +321,14 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         using var valSel = (valArr != null && valArr.Length > 0) ? Cs.ByName(valArr) : null;
 
         return Pivot(
-            on: onSel, 
-            index: idxSel is not null ? (IntoSelector?)idxSel : null, 
-            values: valSel is not null ? (IntoSelector?)valSel : null, 
-            aggregateExpr: aggregateExpr, 
-            aggregateFunction: aggregateFunction, 
-            maintainOrder: maintainOrder, 
+            on: onSel,
+            index: idxSel is not null ? (IntoSelector?)idxSel : null,
+            values: valSel is not null ? (IntoSelector?)valSel : null,
+            aggregateExpr: aggregateExpr,
+            aggregateFunction: aggregateFunction,
+            maintainOrder: maintainOrder,
             separator: separator,
-            columnNaming:columnNaming
+            columnNaming: columnNaming
         );
     }
     /// <summary>
@@ -371,12 +371,12 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// */
     /// </code>
     /// </example>
-    public DataFrame Unpivot(        
-        IEnumerable<string> index, 
-        IEnumerable<string>? on = null, 
-        string variableName = "variable", 
+    public DataFrame Unpivot(
+        IEnumerable<string> index,
+        IEnumerable<string>? on = null,
+        string variableName = "variable",
         string valueName = "value")
-    => Lazy().Unpivot(index,on,variableName,valueName).Collect();
+    => Lazy().Unpivot(index, on, variableName, valueName).Collect();
     /// <summary>
     /// Unpivot (Melt) the DataFrame from wide to long format.
     /// </summary>
@@ -385,19 +385,19 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="variableName"></param>
     /// <param name="valueName"></param>
     /// <returns></returns>
-    public DataFrame Unpivot(        
-        IntoSelector index, 
-        IntoSelector? on = null, 
-        string variableName = "variable", 
+    public DataFrame Unpivot(
+        IntoSelector index,
+        IntoSelector? on = null,
+        string variableName = "variable",
         string valueName = "value")
-        => Lazy().Unpivot(index,on,variableName,valueName).Collect();
-    
+        => Lazy().Unpivot(index, on, variableName, valueName).Collect();
+
     /// <inheritdoc cref="Unpivot(IntoSelector, IntoSelector?, string, string)"/>
-    public DataFrame Melt(IntoSelector index, IntoSelector? on = null, string variableName = "variable", string valueName = "value") 
+    public DataFrame Melt(IntoSelector index, IntoSelector? on = null, string variableName = "variable", string valueName = "value")
         => Unpivot(index, on, variableName, valueName);
 
     /// <inheritdoc cref="Unpivot(IEnumerable{string}, IEnumerable{string}?, string, string)"/>
-    public DataFrame Melt(IEnumerable<string> index, IEnumerable<string>? on = null, string variableName = "variable", string valueName = "value") 
+    public DataFrame Melt(IEnumerable<string> index, IEnumerable<string>? on = null, string variableName = "variable", string valueName = "value")
         => Unpivot(index, on, variableName, valueName);
 
 }

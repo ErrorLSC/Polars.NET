@@ -83,16 +83,16 @@ public static partial class ArrayHelper
         {
             // DateTime in mem is ulong (private ulong _dateData)
             long* pRawSrc = (long*)pSrc;
-            
+
             int i = 0;
-            
+
             // ---------------------------------------------------------
             // Main Loop: Unroll 8
             // ---------------------------------------------------------
             int limit = len - 8;
             for (; i <= limit; i += 8)
             {
-                pDst[i]     = ((pRawSrc[i]     & mask) - epoch) / 10;
+                pDst[i] = ((pRawSrc[i] & mask) - epoch) / 10;
                 pDst[i + 1] = ((pRawSrc[i + 1] & mask) - epoch) / 10;
                 pDst[i + 2] = ((pRawSrc[i + 2] & mask) - epoch) / 10;
                 pDst[i + 3] = ((pRawSrc[i + 3] & mask) - epoch) / 10;
@@ -122,7 +122,7 @@ public static partial class ArrayHelper
         // Alloc target mem
         var values = GC.AllocateUninitializedArray<long>(len);
         int byteLen = (len + 7) >> 3;
-        
+
         byte[]? validity = null;
         // lazy loading
         ref byte validRef = ref Unsafe.NullRef<byte>();
@@ -168,21 +168,21 @@ public static partial class ArrayHelper
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static unsafe void HandleSingleDate(
-        int i, 
+        int i,
         long* pRawSrc, // DateTime? Array
-        long* pDst, 
-        ref byte[]? validity, 
-        ref byte validRef, 
-        int byteLen, 
+        long* pDst,
+        ref byte[]? validity,
+        ref byte validRef,
+        int byteLen,
         int totalLen,
-        long mask, 
+        long mask,
         long epoch)
     {
         // DateTime? Struct：
         // Byte 0: HasValue (1=True, 0=False)
         // Byte 8-15: Ticks (ulong)
         // Stride = 16 bytes
-        
+
         // Safe ptr calc：
         byte* ptrBase = (byte*)pRawSrc + (i * 16);
         bool hasValue = *ptrBase != 0; // first byte is bool
@@ -190,7 +190,7 @@ public static partial class ArrayHelper
         if (hasValue)
         {
             long rawTicks = *(long*)(ptrBase + 8); // Offset 8 bytes to read Ticks
-            
+
             // 1. Mask Kind
             long ticks = rawTicks & mask;
             // 2. Subtract Epoch
@@ -203,7 +203,7 @@ public static partial class ArrayHelper
             {
                 // Safety check
                 if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                
+
                 ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
                 target |= (byte)(1 << (i & 7));
             }
@@ -216,15 +216,15 @@ public static partial class ArrayHelper
                 // Init Validity
                 validity = new byte[byteLen];
                 validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                
+
                 // Backfill:
                 int bytesToFill = i >> 3;
                 if (bytesToFill > 0) Unsafe.InitBlock(ref validRef, 0xFF, (uint)bytesToFill);
                 int remainingBits = i & 7;
                 if (remainingBits > 0) Unsafe.Add(ref validRef, bytesToFill) = (byte)((1 << remainingBits) - 1);
             }
-            
-            pDst[i] = 0; 
+
+            pDst[i] = 0;
         }
     }
 }

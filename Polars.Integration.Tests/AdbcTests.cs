@@ -4,11 +4,11 @@ using LinqToDB;
 using LinqToDB.Data;
 using LinqToDB.Mapping;
 using Polars.CSharp;
-using Polars.NET.Linq.CSharpExtensions;
+
 
 namespace Polars.Integration.Tests;
 
-public class AdbcLocalTests : IDisposable
+public class AdbcLocalTests
 {
     private readonly AdbcDriver _driver;
     private readonly AdbcDatabase _database;
@@ -20,7 +20,7 @@ public class AdbcLocalTests : IDisposable
     /// <exception cref="FileNotFoundException"></exception>
     public AdbcLocalTests()
     {
-        string soPath = Path.GetFullPath("libduckdb.so"); 
+        string soPath = Path.GetFullPath("libduckdb.so");
 
         if (!File.Exists(soPath))
         {
@@ -29,11 +29,11 @@ public class AdbcLocalTests : IDisposable
 
         _driver = CAdbcDriverImporter.Load(soPath, entryPoint: "duckdb_adbc_init");
 
-        _database = _driver.Open(new Dictionary<string, string> 
-        { 
-            { "path", ":memory:" } 
+        _database = _driver.Open(new Dictionary<string, string>
+        {
+            { "path", ":memory:" }
         });
-        
+
         _connection = _database.Connect(new Dictionary<string, string>());
     }
     /// <summary>
@@ -54,11 +54,11 @@ public class AdbcLocalTests : IDisposable
     //     { 
     //         { "uri", ":memory:" } 
     //     });
-        
+
     //     _connection = _database.Connect(new Dictionary<string, string>());
     // }
     [Fact]
-    [Trait("ADBC","DuckDBRead")]
+    [Trait("ADBC", "DuckDBRead")]
     public void Test_DuckDb_Adbc_To_Polars_E2E()
     {
         using var statementInsert = _connection.CreateStatement();
@@ -76,8 +76,8 @@ public class AdbcLocalTests : IDisposable
         statementInsert.ExecuteUpdate();
 
         string query = "SELECT * FROM developers ORDER BY id;";
-        
-        var df = DataFrame.ReadAdbc(_connection,query);
+
+        var df = DataFrame.ReadAdbc(_connection, query);
 
         // shape: (4, 3)
         // ┌─────┬─────────┬──────────┐
@@ -100,7 +100,7 @@ public class AdbcLocalTests : IDisposable
         Assert.Contains("name", columns);
         Assert.Contains("language", columns);
 
-        Assert.Equal("Alice",df["name"][0]);
+        Assert.Equal("Alice", df["name"][0]);
     }
     [Fact]
     [Trait("ADBC", "DuckDBE2E")]
@@ -117,7 +117,7 @@ public class AdbcLocalTests : IDisposable
         var updateResult = df.WriteToAdbc(_connection, "polars_e2e_test");
         Console.WriteLine($"[Write] -> Success! Rows: {updateResult.AffectedRows}");
 
-        DataFrame verifyDf=DataFrame.ReadAdbc(_connection,"SELECT * FROM polars_e2e_test ORDER BY id");;
+        DataFrame verifyDf = DataFrame.ReadAdbc(_connection, "SELECT * FROM polars_e2e_test ORDER BY id"); ;
 
         // Console.WriteLine("====== Read back from DuckDB ======");
         // shape: (3, 3)
@@ -153,15 +153,15 @@ public class AdbcLocalTests : IDisposable
         int chunkCount = 0;
         while (true)
         {
-            
+
             var batch = await arrowStream.ReadNextRecordBatchAsync();
-            
+
             if (batch == null)
             {
                 break;
             }
 
-            batch.Dispose(); 
+            batch.Dispose();
             chunkCount++;
         }
     }
@@ -181,15 +181,15 @@ public class AdbcLocalTests : IDisposable
         Console.WriteLine($"[Bulk Ingest] Rows affected: {ingestResult.AffectedRows} (Expected 0 or -1 due to Bulk Load)");
 
         using var updateStmt = _connection.CreateStatement();
-        
+
         updateStmt.SqlQuery = "UPDATE polars_update_test SET language = 'C#' WHERE id = 101;";
-        
+
         var updateResult = updateStmt.ExecuteUpdate();
         Console.WriteLine($"[SQL Update] Rows affected: {updateResult.AffectedRows} (Expected 0)");
 
         var newUpdates = new[] { new { id = 102, new_lang = "C# .NET 10" } };
         var updateDf = DataFrame.FromEnumerable(newUpdates);
-        
+
         updateDf.WriteToAdbc(_connection, "temp_updates");
 
         using var eltStmt = _connection.CreateStatement();
@@ -198,10 +198,10 @@ public class AdbcLocalTests : IDisposable
             SET language = temp_updates.new_lang 
             FROM temp_updates 
             WHERE polars_update_test.id = temp_updates.id;";
-            
+
         var eltResult = eltStmt.ExecuteUpdate();
         Console.WriteLine($"[ELT Update from DF] Rows affected: {eltResult.AffectedRows} (Expected 0)");
-        
+
         var finalDf = DataFrame.ReadAdbc(_connection, "SELECT * FROM polars_update_test ORDER BY id");
         // shape: (3, 3)
         // ┌─────┬────────┬────────────┐
@@ -220,27 +220,27 @@ public class AdbcLocalTests : IDisposable
     {
         var records = new[]
         {
-            new { 
-                id = 101, 
-                name = "Data 🚀",                 
-                is_active = true,                 
-                score = 99.5d,                    
-                created_at = new DateTime(2023, 1, 1, 12, 0, 0, DateTimeKind.Utc), 
-                optional_code = (int?)42          
-            },
-            new { 
-                id = 102, 
-                name = "Frame \0 Null",           
-                is_active = false,
-                score = double.NaN,             
-                created_at = new DateTime(2023, 12, 31, 23, 59, 59, DateTimeKind.Utc),
-                optional_code = (int?)null        
-            },
-            new { 
-                id = 103, 
-                name = string.Empty,              
+            new {
+                id = 101,
+                name = "Data 🚀",
                 is_active = true,
-                score = double.PositiveInfinity,  
+                score = 99.5d,
+                created_at = new DateTime(2023, 1, 1, 12, 0, 0, DateTimeKind.Utc),
+                optional_code = (int?)42
+            },
+            new {
+                id = 102,
+                name = "Frame \0 Null",
+                is_active = false,
+                score = double.NaN,
+                created_at = new DateTime(2023, 12, 31, 23, 59, 59, DateTimeKind.Utc),
+                optional_code = (int?)null
+            },
+            new {
+                id = 103,
+                name = string.Empty,
+                is_active = true,
+                score = double.PositiveInfinity,
                 created_at = DateTime.UtcNow,
                 optional_code = (int?)999
             }
@@ -277,7 +277,7 @@ public class AdbcLocalTests : IDisposable
 
         Assert.NotNull(verifyDf);
         Assert.Equal(3, verifyDf.Height);
-        Assert.Equal(6, verifyDf.Width); 
+        Assert.Equal(6, verifyDf.Width);
     }
     [Fact]
     [Trait("ADBC", "DotNetSpecific")]
@@ -287,21 +287,21 @@ public class AdbcLocalTests : IDisposable
 
         var records = new[]
         {
-            new { 
-                id = 1, 
-                money = 12345.6789m,                    
-                uuid = Guid.Parse("12345678-1234-1234-1234-1234567890ab"), 
-                birthday = new DateOnly(1990, 1, 1),    
-                alarm = new TimeOnly(8, 30, 0),        
-                duration = TimeSpan.FromDays(11456)    
+            new {
+                id = 1,
+                money = 12345.6789m,
+                uuid = Guid.Parse("12345678-1234-1234-1234-1234567890ab"),
+                birthday = new DateOnly(1990, 1, 1),
+                alarm = new TimeOnly(8, 30, 0),
+                duration = TimeSpan.FromDays(11456)
             },
-            new { 
-                id = 2, 
-                money = -999.99m, 
-                uuid = Guid.NewGuid(), 
-                birthday = new DateOnly(2026, 3, 10), 
-                alarm = new TimeOnly(23, 59, 59), 
-                duration = TimeSpan.FromMilliseconds(12345) 
+            new {
+                id = 2,
+                money = -999.99m,
+                uuid = Guid.NewGuid(),
+                birthday = new DateOnly(2026, 3, 10),
+                alarm = new TimeOnly(23, 59, 59),
+                duration = TimeSpan.FromMilliseconds(12345)
             }
         };
 
@@ -320,7 +320,7 @@ public class AdbcLocalTests : IDisposable
         // └─────┴──────────────────────────┴──────────────────────────┴────────────┴──────────┴──────────────┘
 
 
-        df.WriteToAdbc(_connection, "polars_dotnet_poison",ingestMode:AdbcIngestMode.Create);
+        df.WriteToAdbc(_connection, "polars_dotnet_poison", ingestMode: AdbcIngestMode.Create);
         var verifyDf = DataFrame.ReadAdbc(_connection, "SELECT * FROM polars_dotnet_poison ORDER BY id;");
         verifyDf.Show();
         // shape: (2, 6)
@@ -334,101 +334,5 @@ public class AdbcLocalTests : IDisposable
         // │ 2   ┆ -999.990000000000000000 ┆ b"\xf1\x9f\x82\x04\xbc ┆ 2026-03-10 ┆ 23:59:59 ┆ {0,0,12s 345ms} │
         // │     ┆                         ┆ !\x02B\x…              ┆            ┆          ┆                 │
         // └─────┴─────────────────────────┴────────────────────────┴────────────┴──────────┴─────────────────┘
-    }
-    [Table("polars_e2e_test")]
-    public class AdbcE2ERecord
-    {
-        [Column("id")] public int Id { get; set; }
-        [Column("name")] public string? Name { get; set; }
-        [Column("language")] public string? Language { get; set; }
-    }
-    [Table("stage2_pushdown_table")]
-    public class PushdownRecord
-    {
-        [Column("id")] public int Id { get; set; }
-        [Column("name")] public string? Name { get; set; }
-        [Column("upper_lang")] public string? UpperLang { get; set; }
-    }
-    [Fact]
-    [Trait("ADBC", "DuckDBE2ELINQ")]
-    public void Test_Polars_And_DuckDb_Ultimate_PingPong()
-    {
-        var options = new DataOptions().UseConnectionString(ProviderName.PostgreSQL15, "Server=Dummy;");
-
-        var records = new[]
-        {
-            new { id = 101, name = "Data", language = "C" },
-            new { id = 102, name = "Frame", language = "C++" },
-            new { id = 103, name = "Engine", language = "Rust" }
-        };
-        using var df = DataFrame.FromEnumerable(records);
-        df.WriteToAdbc(_connection, "stage1_table");
-
-        using var duckDbTranslator = new DataConnection(options); 
-
-        using var pushdownDf = duckDbTranslator.GetTable<AdbcE2ERecord>()
-            .TableName("stage1_table")
-            .Where(x => x.Id > 101) 
-            .Select(x => new 
-            {
-                x.Id,
-                x.Name,
-                UpperLang = Sql.Upper(x.Language)
-            })
-            .ToDataFrameAdbc(_connection);
-            
-        // shape: (2, 3)
-        // ┌─────┬────────┬───────────┐
-        // │ Id  ┆ Name   ┆ UpperLang │
-        // │ --- ┆ ---    ┆ ---       │
-        // │ i32 ┆ str    ┆ str       │
-        // ╞═════╪════════╪═══════════╡
-        // │ 102 ┆ Frame  ┆ C++       │
-        // │ 103 ┆ Engine ┆ RUST      │
-        // └─────┴────────┴───────────┘
-
-        using var finalPolarsDf = pushdownDf.AsQueryable<PushdownRecord>()
-            .Select(x => new 
-            {
-                FinalId = x.Id + 1000,                            
-                SuperName = x.Name + " Pro Max",                  
-                LangStatus = x.UpperLang == "RUST" ? "God" : "Mortal" 
-            })
-            .ToDataFrame(); 
-
-        // shape: (2, 3)
-        // ┌─────────┬────────────────┬────────────┐
-        // │ FinalId ┆ SuperName      ┆ LangStatus │
-        // │ ---     ┆ ---            ┆ ---        │
-        // │ i32     ┆ str            ┆ str        │
-        // ╞═════════╪════════════════╪════════════╡
-        // │ 1102    ┆ Frame Pro Max  ┆ Mortal     │
-        // │ 1103    ┆ Engine Pro Max ┆ God        │
-        // └─────────┴────────────────┴────────────┘
-
-        finalPolarsDf.WriteToAdbc(_connection, "final_destination_table");
-
-        using var verifyFinalDf = DataFrame.ReadAdbc(_connection, "SELECT * FROM final_destination_table ORDER BY FinalId");
-
-        // shape: (2, 3)
-        // ┌─────────┬────────────────┬────────────┐
-        // │ FinalId ┆ SuperName      ┆ LangStatus │
-        // │ ---     ┆ ---            ┆ ---        │
-        // │ i32     ┆ str            ┆ str        │
-        // ╞═════════╪════════════════╪════════════╡
-        // │ 1102    ┆ Frame Pro Max  ┆ Mortal     │
-        // │ 1103    ┆ Engine Pro Max ┆ God        │
-        // └─────────┴────────────────┴────────────┘
-
-        Assert.Equal(2, verifyFinalDf.Height);
-        Assert.Equal(3, verifyFinalDf.Width);
-    }
-    
-    public void Dispose()
-    {
-        _connection?.Dispose();
-        _database?.Dispose();
-        _driver?.Dispose();
-
     }
 }
