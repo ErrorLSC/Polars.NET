@@ -11,12 +11,16 @@
     <Title>Polars.NET - Blazing Fast DataFrames</Title>
     <Authors>ErrorLSC</Authors>
     <Description>A blazing fast DataFrame library for .NET, powered by the Rust Polars engine and Apache Arrow. Features multi-threaded query execution, lazy evaluation, and data extraction into modern .NET Tensors (ReadOnlyTensorSpan) for hardware-accelerated SIMD math and AI inference.</Description>
-    <PackageTags>polars;dataframe;data-analysis;apache-arrow;tensor;simd;zero-copy;rust;performance</PackageTags>
+    <PackageTags>polars;dataframe;data-analysis;apache-arrow;tensor;simd;zero-copy;rust;performance;linqpad-samples</PackageTags>
     <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
     <PackageProjectUrl>https://github.com/ErrorLSC/Polars.NET</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\example\linqpad-samples\**\*" Pack="true" PackagePath="linqpad-samples" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Polars.NET.Core\Polars.NET.Core.csproj" />
