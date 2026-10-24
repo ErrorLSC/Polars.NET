@@ -29,12 +29,14 @@ load.sql
 
 .fake
 
-# --- DocFx Data (Legacy) ---
+# --- Documentation Generated Files ---
 docs/_site/
 docs/obj/
 docs/api/csharp/
 docs/api/fsharp/
+docs/api/csharp_generated/
 docs/api/fsharp_generated/
+docs/public/llms*.txt
 
 # --- VitePress / Node ---
 node_modules/
