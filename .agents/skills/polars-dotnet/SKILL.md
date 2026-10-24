@@ -11,6 +11,10 @@ description: >-
 
 Polars.NET provides high-performance, strongly-typed C# and F# bindings and a native LINQ / F# Query provider over the Rust Polars engine with zero-copy Apache Arrow interop.
 
+> [!IMPORTANT]
+> **Native Runtime Dependency (Different from Python!)**:
+> Unlike Python (where `pip install polars` automatically bundles precompiled wheels), .NET separates managed API packages from native binaries. You **must** reference the native package matching your execution environment (e.g., `Polars.NET.Native.linux-x64`, `Polars.NET.Native.win-x64`, `Polars.NET.Native.osx-arm64`). See [references/interop.md](./references/interop.md#1-native-runtime-packages-different-from-python).
+
 ---
 
 ## 1. Entrypoint Routing (Choose by Developer Background)
@@ -44,6 +48,17 @@ using DataFrame resultDf = query.ToDataFrame();
     1. Rewrite using mapped BCL methods or native `Expr` API.
     2. Move custom formatting/constructors into the final `.Select(...)`.
     3. Insert `.AsEnumerable()` before the client-only step, or set `PolarsConfig.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow)` (or env `POLARS_CLIENT_EVAL=allow`).
+- **3-Tier Strategy for Operations Beyond Standard LINQ**:
+  1. **Standard LINQ**: Use standard clauses (`Where`, `Select`, `GroupBy`, `Join`, `OrderBy`).
+  2. **Polars LINQ Extensions**: For analytical operations not covered by standard LINQ syntax, use extensions inside `using Polars.CSharp.Linq;`:
+     - Window functions: `.Over(e => e.DeptId)` / `.Over(partitionBy, orderBy)`
+     - Time-series lag/lead: `x.Close.Shift(1)`
+     - Differencing: `x.Close.Diff(1)`
+     - Interpolation: `x.Value.Interpolate(InterpolationMethod.Linear)` / `.InterpolateBy(x.Time)`
+     - Ranking & Stats: `x.Score.Rank()`, `x.Price.PctChange()`, `x.Val.CumSum()`, `x.Val.Std()`, `x.Val.Median()`.
+  3. **Bidirectional Escape Hatch**:
+     - **LINQ -> Polars API**: If an operation cannot be expressed in LINQ (e.g. specialized regex pivots, unnesting structs, Aho-Corasick matching), call `query.ToLazyFrame()` to retrieve the underlying `LazyFrame` and continue with the raw Polars DSL.
+     - **Polars API -> LINQ**: Vice-versa, any `LazyFrame` or `DataFrame` can re-enter LINQ at any time via `lf.AsQueryable<T>()`!
 - Deep dive: [references/linq-and-query-ce.md](./references/linq-and-query-ce.md)
 
 ---
@@ -176,11 +191,22 @@ F# developers have three complementary styles that interoperate seamlessly:
     use df1 = baseLf |> LazyFrame.filter (pl.col "status" .== pl.lit "success") |> LazyFrame.collect
     use df2 = baseLf |> LazyFrame.filter (pl.col "status" .== pl.lit "failed") |> LazyFrame.collect
     ```
+- **Asynchronous Streaming (`IAsyncEnumerable`)**:
+  - `DataFrame` and `LazyFrame` stream rows as cooperative, cancellation-aware `IAsyncEnumerable<T>` via `.ToAsyncEnumerable<T>()` without thread starvation.
+  - `LazyFrame.CollectBatchesAsync()` emits native DataFrame batches as soon as computed by Rust.
+  - LINQ queries support `query.AsAsyncEnumerable()` and `IAsyncEnumerable<T>.ToDataFrameAsync()`.
+  - F# supports `df.RowsAsync<'T>()`, `lf.RowsAsync<'T>()`, and `RowsAsync.*` pipeline operators (`toList`, `fold`, `filter`, `map`).
+- **Polars.NET Exclusive: SQL MERGE / Upsert**:
+  - Full ANSI SQL `MERGE` semantics natively integrated into query planning (exclusive to Polars.NET, not in Python).
+  - C# Fluent: `targetDf.Merge(sourceDf, "Id").WhenMatchedUpdate(...).Execute()`.
+  - C# Strongly-Typed LINQ: `targetQuery.Merge(sourceQuery, t => t.Id, s => s.Id).WhenMatched((t, s) => ...).ToDataFrame()`.
+  - F# Pipeline Functions: `target.Merge(source, pl.col "id") |> Merge.whenMatchedUpdateAll |> Merge.executeEager`.
 
 ---
 
 ## 3. Detailed Reference Files
 Load these on demand depending on your task:
+- **Ecosystem Interoperability (Native Runtimes, Spans, Arrow, ADBC, ADO.NET, ML.NET DataView, Tensors)**: [references/interop.md](./references/interop.md)
 - **C# DSL, Indexers, IO, Arrow, and UDFs**: [references/csharp-idioms.md](./references/csharp-idioms.md)
 - **F# Modules, Operators, and Hybrid OOP/FP Patterns**: [references/fsharp-idioms.md](./references/fsharp-idioms.md)
 - **LINQ Provider & F# Query CE Deep Dive**: [references/linq-and-query-ce.md](./references/linq-and-query-ce.md)

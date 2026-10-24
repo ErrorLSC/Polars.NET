@@ -86,19 +86,48 @@ let vRaw: float = s1.GetValue<float>(0L)              // 10.5
 
 ---
 
-## 4. `LazyFrame` Immutability & Safe Reuse
+## 4. Pipeline Execution & Sinks
 
-In `Polars.FSharp`, terminal execution methods on `LazyFrame` (`Collect`, `CollectAsync`, `Sink*`, `LazyFrame.collect`, etc.) do **not** consume or dispose the `LazyFrame`. 
-
-`LazyFrame` represents an immutable query plan. You can safely branch multiple pipelines from the same `LazyFrame` or collect it multiple times without manual cloning:
+F# pipelines support both in-memory materialization (`LazyFrame.collect`, `.Collect()`) and direct out-of-core streaming sinks:
 ```fsharp
-use baseLf = LazyFrame.ScanParquet "events.parquet"
+use lf = LazyFrame.ScanParquet "events.parquet"
 
-// First execution:
-baseLf.SinkParquet "backup.parquet"
+// 1. In-memory execution:
+use df = lf |> LazyFrame.filter (pl.col "valid" .== pl.lit true) |> LazyFrame.collect
 
-// Second execution from the exact same baseLf:
-use df = baseLf |> LazyFrame.filter (pl.col "valid" .== pl.lit true) |> LazyFrame.collect
+// 2. Direct streaming sinks (out-of-core):
+lf.SinkParquet "backup.parquet"
 ```
-The native memory is safely disposed when `use baseLf` goes out of scope.
+
+---
+
+## 5. Polars.NET Exclusive: Merge Pipeline API
+
+In `Polars.FSharp`, SQL MERGE / Upsert operations are expressed naturally as composable pipeline functions (`Merge.*`):
+
+```fsharp
+open Polars.FSharp
+
+let target = pl.dataframe [
+    pl.series "id" [ 1; 2; 3 ]
+    pl.series "score" [ 10; 20; 30 ]
+]
+
+let source = pl.dataframe [
+    pl.series "id" [ 2; 3; 4 ]
+    pl.series "score" [ 200; 0; 40 ]
+    pl.series "is_deleted" [ false; true; false ]
+]
+
+use result =
+    target.Merge(source, pl.col "id")
+    // 1. Delete matched records based on condition
+    |> Merge.whenMatchedDelete (Some (fun ctx -> ctx.SourceCol "is_deleted" .== pl.lit true))
+    // 2. Update remaining matched records
+    |> Merge.whenMatchedUpdateAll
+    // 3. Insert new records from source
+    |> Merge.whenNotMatchedInsertAll
+    // 4. Execute eager (or Merge.executeLazy)
+    |> Merge.executeEager Engine.Auto
+```
 

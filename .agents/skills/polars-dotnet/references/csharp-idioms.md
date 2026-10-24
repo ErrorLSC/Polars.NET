@@ -126,7 +126,7 @@ using var res = df
 
 ---
 
-## 7. LazyFrame, Streaming & Reuse
+## 7. LazyFrame, Streaming & Sinks
 
 Prefer `LazyFrame` (`ScanParquet`, `ScanCsv`, `ScanNdjson`, `ScanDelta`, or `df.Lazy()`) for query optimization, predicate pushdown, and streaming execution:
 ```csharp
@@ -138,7 +138,39 @@ using var df = lf
     .Collect(engine: Engine.Streaming); // Or SinkParquet("output.parquet")
 ```
 
-> [!TIP]
-> **`LazyFrame` is Reusable & Non-Consuming**:
-> In Polars.NET, calling `.Collect()`, `.CollectAsync()`, or any `.Sink*()` method does **not** consume or invalidate the `LazyFrame`. You can freely branch from the same `LazyFrame` or call `.Collect()` multiple times (e.g. in interactive Notebooks). The underlying native handle is automatically released when the `using var lf` scope exits.
+---
+
+## 8. Polars.NET Exclusive: `Merge` Operator (SQL MERGE / Upsert)
+
+The `Merge` operator is unique to Polars.NET (not present in Python Polars). It provides complete ANSI SQL `MERGE INTO ... USING` upsert semantics with unmatched speed across in-memory DataFrames and lazy plans.
+
+### Fluent API (on `DataFrame` and `LazyFrame`)
+Matches rows using column names, composite keys, or Selectors (`Cs.*`):
+```csharp
+using var resultDf = targetDf.Merge(sourceDf, "Id") // Or composite: new[] { "TenantId", "UserId" }, or Cs.StartsWith("Id")
+    // 1. Delete matched records based on condition:
+    .WhenMatchedDelete(m => m.Source("IsBanned"))
+    // 2. Update matched records:
+    .WhenMatchedUpdate(
+        condition: null,
+        set: s => s
+            .Set(Cs.StartsWith("Stat_"), (m, colName) => m.Source(colName))
+            .Set("Score", m => m.Target("Score") + m.Source("ScoreDelta"))
+            .Set("Tag", Pl.Lit("Updated"))
+    )
+    // 3. Insert new records from source:
+    .WhenNotMatchedInsert(
+        condition: null,
+        set: s => s
+            .Set("Id", m => m.Source("Id"))
+            .Set("Name", m => m.Source("Name"))
+            .Set(Cs.StartsWith("Stat_"), (m, colName) => m.Source(colName))
+            .Set("Tag", Pl.Lit("New"))
+    )
+    // 4. Delete target records that no longer exist in source:
+    .WhenNotMatchedBySourceDelete(m => m.Target("IsTemporary"))
+    .Execute(); // Or .ToLazyFrame() for LazyFrame!
+```
+*(For strongly-typed LINQ Merge, see [linq-and-query-ce.md](./linq-and-query-ce.md#5-polarsnet-exclusive-typed-linq-merge).)*
+
 

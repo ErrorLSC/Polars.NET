@@ -88,3 +88,120 @@ When `PolarsPushdownException` is thrown:
     - F#: `Config.clientEvaluationPolicy <- ClientEvaluationPolicy.Allow`
     - Env var: `POLARS_CLIENT_EVAL=allow`
 
+---
+
+## 4. Extended LINQ Operators & The Escape Hatch Strategy
+
+Standard LINQ covers common relational operations (`Where`, `Select`, `GroupBy`, `Join`, `OrderBy`). For analytics operations beyond standard C# LINQ syntax:
+
+### Step 1: Try Polars.NET LINQ Extension Methods
+`using Polars.CSharp.Linq;` provides native query extensions that can be called directly on column expressions inside `.Select(...)`:
+
+- **Window Functions (`.Over`)**:
+  ```csharp
+  // Calculate difference from departmental average salary:
+  var query = df.AsQueryable<Employee>()
+      .Select(e => new
+      {
+          e.Name,
+          e.Salary,
+          DeptAvg = e.Salary.Average().Over(e.DepartmentId),
+          Diff = e.Salary - e.Salary.Average().Over(e.DepartmentId)
+      });
+  ```
+- **Lead / Lag Shifts (`.Shift`)**:
+  ```csharp
+  // Compare today's price with yesterday's price:
+  var query = df.AsQueryable<StockPrice>()
+      .Select(s => new
+      {
+          s.Date,
+          s.Close,
+          PrevClose = s.Close.Shift(1),
+          Diff = s.Close.Diff(1)
+      });
+  ```
+- **Time-Series Interpolation (`.Interpolate`, `.InterpolateBy`)**:
+  ```csharp
+  var query = df.AsQueryable<SensorReading>()
+      .Select(r => new
+      {
+          r.Timestamp,
+          CleanVal = r.Value.Interpolate(InterpolationMethod.Linear)
+      });
+  ```
+- **Ranking & Cumulative Aggregates**:
+  - Ranking: `e.Score.Rank()` (supports `RankMethod.Dense`, `RankMethod.Min`, etc.)
+  - Percent Change: `s.Price.PctChange(1)`
+  - Cumulative: `x.Val.CumSum()`, `x.Val.CumMax()`, `x.Val.CumMin()`, `x.Val.CumProd()`, `x.Val.CumCount()`
+  - Statistics: `x.Val.Std()`, `x.Val.Var()`, `x.Val.Median()`, `x.Val.Quantile(0.95)`
+
+### Step 2: The Bidirectional Escape Hatch
+
+When a pipeline contains operations that standard LINQ simply cannot express (e.g. specialized regex pivots, unnesting structs, Aho-Corasick multiple string replacement, or specialized IO scan configurations):
+
+1. **LINQ to Polars API (`.ToLazyFrame()`)**:
+   Compile the LINQ query pipeline directly to a native Polars `LazyFrame`, then use the full raw Polars API:
+   ```csharp
+   // 1. Build initial filtering/joining with comfortable LINQ:
+   var baseQuery = df.AsQueryable<EventLog>()
+       .Where(e => e.Level == "ERROR" && e.Timestamp >= startDate);
+
+   // 2. Escape hatch to native LazyFrame for advanced Polars-specific operations:
+   using LazyFrame lf = baseQuery.ToLazyFrame();
+   using var finalDf = lf
+       .WithColumns(Pl.Col("message").Str.ExtractAll(@"\[code:(\d+)\]").Alias("error_codes"))
+       .Collect();
+   ```
+
+2. **Polars API to LINQ (`.AsQueryable<T>()`)**:
+   Vice-versa, any Polars `LazyFrame` or `DataFrame` can be converted back into an `IQueryable<T>` at any time:
+   ```csharp
+   using var lf = LazyFrame.ScanParquet("large_data.parquet")
+       .Filter(Pl.Col("status") == "active");
+
+   // Resume querying with LINQ:
+   var linqQuery = lf.AsQueryable<UserDto>()
+       .GroupBy(u => u.Country)
+       .Select(g => new { Country = g.Key, Count = g.Count() });
+   ```
+
+---
+
+## 5. Polars.NET Exclusive: Strongly-Typed LINQ Merge (`TypedMerge`)
+
+In addition to the fluent untyped API, `Polars.CSharp.Linq` provides a fully strongly-typed `Merge` operator that works with C# expression trees and lambdas over `IQueryable<T>`:
+
+```csharp
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+var targetQuery = targetDf.AsQueryable<ProductItem>();
+var sourceQuery = sourceDf.AsQueryable<ProductItem>();
+
+// Perform strongly-typed SQL MERGE using C# expression trees
+using DataFrame resultDf = targetQuery.Merge(sourceQuery, t => t.Id, s => s.Id)
+    // 1. Matched condition -> Delete
+    .WhenMatched(
+        (t, s) => s.IsDiscontinued,
+        then => then.Delete()
+    )
+    // 2. Matched condition -> Update
+    .WhenMatched(
+        (t, s) => s.Price > t.Price,
+        then => then.Update(set => set.Set(t => t.Price, (t, s) => s.Price))
+    )
+    // 3. Not matched in target -> Insert new item from source
+    .WhenNotMatchedByTarget(
+        s => s.Price > 0.0,
+        then => then.Insert()
+    )
+    // 4. Not matched in source -> Delete target item
+    .WhenNotMatchedBySource(
+        t => t.Category == "Seasonal",
+        then => then.Delete()
+    )
+    .ToDataFrame(); // Or .ToLazyFrame(), .ToList()!
+```
+
+
