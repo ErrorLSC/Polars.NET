@@ -1,0 +1,3288 @@
+# Polars.NET Complete LLM Reference & Context Bundle
+
+> Machine-readable reference document designed for Large Language Models (LLMs) and AI Coding Agents.
+> Contains complete architectural guidelines, anti-hallucination guardrails, idioms, and full chapter documentation.
+
+## Anti-Hallucination Guardrails & Critical Rules
+
+When generating or reviewing code for Polars.NET, always adhere to these verified rules:
+
+1. **Native Runtime Dependencies**:
+   - Polars.NET is NOT a pure managed library; it wraps the high-performance Rust Polars engine.
+   - Applications must reference the appropriate native binary package (e.g. `Polars.NET.Native.linux-x64`, `Polars.NET.Native.win-x64`, `Polars.NET.Native.osx-arm64`) alongside `Polars.CSharp` or `Polars.FSharp`.
+
+2. **DataFrame Ingestion & Factory Methods**:
+   - **C#**: Use `DataFrame.FromRows(list)` (the most intuitive .NET pattern for `List<T>`, `IEnumerable<T>`, arrays, and records) or `DataFrame.FromColumns(new { ColA = new[] { 1, 2 }, ColB = new[] { "x", "y" } })`.
+   - **F#**: Use `DataFrame.ofRecords records` or `DataFrame.ofColumns [ "ColA", Series.ofValues [...] ]`.
+   - File IO: `DataFrame.ReadCsv`, `DataFrame.ReadParquet`, `DataFrame.ReadJson`, `DataFrame.ReadIpc`.
+
+3. **Expression Syntax & Imports**:
+   - In C#: `using Polars.CSharp; using static Polars.CSharp.Polars;` allows writing `Col("x") > 10` and `Lit(5)`.
+   - In F#: `open Polars.FSharp` provides the `pl` module: `pl.col("x") .> pl.lit(10)`.
+   - Column operations: `.Alias("new_name")`, `.Cast(DataType.Int64)`, `.FillNull(0)`.
+
+4. **Zero Hallucination on ADO.NET / ADBC**:
+   - **NEVER generate `ToDataReader()` on DataFrame or LazyFrame** — this method does NOT exist.
+   - To ingest from an ADO.NET `DbDataReader`: use `DataFrame.ReadDatabase(reader, batchSize)` or `DataFrame.FromDataReader(reader)`.
+   - To stream an ADO.NET reader directly into a Polars LINQ pipeline: use `reader.AsPolarsQueryable<T>(batchSize: 50_000)` from `using Polars.CSharp.Linq;`.
+   - For Apache Arrow Database Connectivity (ADBC): use `DataFrame.ReadAdbc(query, connection)` (or in F#: `DataFrame.readAdbc query connection`).
+
+5. **F# Zero-Allocation Struct Enumerators & High-Order Functions**:
+   - For fast row traversal without heap allocation: `use rows = df.Rows<'T>()` (returns `RowEnumerator<'T>` struct).
+   - For typed series traversal: `use s = series.As<'T>()` (returns `SeriesEnumerator<'T>` struct).
+   - Higher order functions: `Rows.fold`, `Rows.reduce`, `Rows.scan`, `Rows.mapToArray`, `df.MapRows`, `Series.map`, `Series.iter`, `Series.exists`, `Series.forall`.
+
+6. **LINQ & Query Computation Expressions**:
+   - Direct entrypoints:
+     * From DataFrame/LazyFrame: `df.AsQueryable<TRecord>()`.
+     * From In-Memory Collections: `collection.AsPolarsQueryable<T>()` transposes `List<T>` / `IEnumerable<T>` straight into Polars LINQ.
+     * From Database Streams: `reader.AsPolarsQueryable<T>(batchSize = 50000)` streams ADO.NET readers straight into Polars LINQ.
+   - Standard LINQ clauses (`where`, `select`, `group by`, `orderby`, `join`) compile directly to Rust `LazyPlan`.
+   - F# Query CE: `query { for r in df.AsQueryable<T>() do ... } |> Query.toDataFrame`.
+   - To retrieve the native Polars plan: `.Explain()`.
+   - To extract back to DataFrame: `.ToDataFrame()` or `.ToLazyFrame()`.
+
+7. **Delta Lake Storage**:
+   - Read: `DataFrame.ReadDelta(path, version = 2L)` or `DataFrame.ScanDelta(path)`.
+   - Write: `df.WriteDelta(path, mode = SaveMode.Append)`.
+   - Maintenance: `Delta.History(path)`, `Delta.Optimize(path)`, `Delta.Vacuum(path, retentionHours = 168.0)`.
+
+---
+
+# Chapter: Introduction & Architecture
+*Source: articles/intro.md*
+
+# Introduction to Polars.NET
+
+Welcome to Polars.NET. This guide provides practical advice and patterns to help you get the most out of the library.
+
+## Core Concepts
+
+Understanding these two modes is crucial for performance:
+
+### 1. Lazy vs. Eager
+
+* **Eager (`DataFrame`)**: Execution happens immediately. Data is loaded into memory. This is similar to `List<T>` or `DataTable`. Use this for debugging or small datasets.
+* **Lazy (`LazyFrame`)**: No execution happens until you call `Collect()`. Polars builds a "Query Plan", optimizes it (predicate pushdown, projection pushdown), and then executes.
+
+> **Rule of Thumb:** Always start with **Lazy** (`LazyFrame`). Only convert to **Eager** (`DataFrame`) when you need to inspect the final results or materialize data for the UI.
+
+### 2. Expressions (`Expr`)
+
+In Polars.NET, you don't manipulate data directly in loops. You construct `Expr` objects that tell the engine *what* to do.
+
+```csharp
+// Avoid: Traditional C# loops (Slow, data copying)
+foreach(var row in df.Rows()) { ... }
+
+// Do: Use Expressions (Fast, SIMD, Parallel)
+df.Select(
+    Col("A").Sum(),
+    Col("B").Filter(Col("A") > 10).Mean()
+);
+```
+
+## 3.Practical Advice (Best Practices)
+
+### 1. Prefer Scan over Read
+
+When dealing with files (CSV, Parquet, IPC), use the Scan methods provided by LazyFrame.
+
+ReadCsv: Loads the entire file into RAM. Prone to Out-Of-Memory (OOM) on large files.
+
+ScanCsv: Returns a LazyFrame. It only reads the headers initially. When you filter or select columns later, the reader will only read the necessary bytes from the disk.
+
+### 2. Handle "Big Data" with Streaming
+
+If your dataset is larger than your available RAM, standard execution might fail. Polars.NET supports an out-of-core streaming engine.
+
+```cs
+// This enables the streaming engine to process data in chunks
+// keeping memory usage low and stable.
+var result = lazyFrame.Collect(useStreaming:true);
+```
+
+### 3. Native Expressions > UDFs
+
+While Polars.NET supports high-performance C# User Defined Functions (UDFs), they are opaque to the optimizer.
+
+Native: Col("A") + Col("B") -> Runs in Rust, uses SIMD, multi-threaded.
+
+UDF: Col("A").Map(x => x + 1) -> Calls back into C#, no SIMD, strictly row-wise or chunk-wise.
+
+Advice: Only use Map if the logic cannot be expressed using the built-in Expr functions (e.g., calling an external API or a complex .NET library).
+
+### 4. Memory Management (using)
+
+Polars.NET objects (DataFrame, Series, LazyFrame) wrap native Rust memory handles. While we implement Finalizers, relying on GC for large data objects can cause memory pressure.
+
+For critical hot paths or huge datasets, use the using statement to deterministic release native memory:
+
+```csharp
+using var df = DataFrame.ReadCsv("data.csv");
+using var filtered = df.Filter(Col("id") > 100);
+// Native memory is freed immediately here
+```
+
+### 5. C# vs F#
+
+Polars.NET offers two distinct APIs tailored for each language's strengths:
+
+* C#: Uses a fluent, method-chaining style similar to LINQ.
+
+  * Best for: Production engineering, web services, building typed wrappers.
+
+* F#: Uses a functional, pipeline-operator (|>) style.
+
+  * Best for: Data exploration, scripting, notebooks, and complex transformations.
+
+### 6. Performance Pitfalls
+
+1. Iterating Rows: Avoid converting a DataFrame to `IEnumerable<T>` or iterating rows manually unless absolutely necessary. This breaks the zero-copy advantage and incurs heavy marshalling costs.
+
+2. Premature Collection: Don't call .Collect() in the middle of a transformation chain. Keep the chain lazy as long as possible to let the optimizer do its job.
+
+3. Strings are expensive: Operations on String columns are generally slower than numeric types. If you have categorical data (e.g., "US", "CN", "JP"), cast them to Categorical type for faster grouping and sorting.
+
+```cs
+// Cast string column to Categorical for performance 
+df.WithColumns(Col("Country").Cast(DataType.Categorical));
+```
+
+### 7. Getting Help
+
+API Reference: [Link to API Docs](/api/)
+
+Polars Rust Documentation: Since this is a wrapper with C ABI layer, the core logic is relatively same to the main Polars project. Concepts from the official Polars guide often apply here.
+
+---
+
+# Chapter: Quick Start Guide
+*Source: articles/quickstart.md*
+
+# Getting Started with Polars.NET
+
+Welcome to Polars.NET! This quickstart walks you through creating DataFrames, transforming data, computing window functions, and leveraging the Lazy engine with real-world execution plans.
+
+---
+
+## 0. Prerequisites & Native Packages
+
+Unlike Python's wheel distribution, .NET projects require the managed package **plus the native runtime package** matching your OS and architecture:
+
+
+```bash [C# (.NET CLI)]
+# Core managed package
+dotnet add package Polars.NET
+
+# Required: Native runtime package matching your deployment environment
+dotnet add package Polars.NET.runtime.linux-x64
+# Or: Polars.NET.runtime.win-x64 / Polars.NET.runtime.osx-arm64
+```
+
+```bash [F# (.NET CLI)]
+# Managed packages (includes functional extensions and pipeline helpers)
+dotnet add package Polars.NET
+dotnet add package Polars.FSharp
+
+# Required: Native runtime package
+dotnet add package Polars.NET.runtime.linux-x64
+# Or: Polars.NET.runtime.win-x64 / Polars.NET.runtime.osx-arm64
+```
+
+
+---
+
+## 1. Creating a DataFrame
+
+Polars.NET supports creating DataFrames from in-memory records, strongly-typed collections, CSV, Parquet, Arrow streams, and databases.
+
+
+```csharp [C# (Fluent API)]
+using Polars;
+using Polars.CSharp;
+using static Polars.CSharp.Polars;
+
+public record Weather(string Date, string City, double Temperature, bool Rain);
+
+// 1. Ingest directly from List<T> or any IEnumerable<T> (Most idiomatic .NET pattern)
+var weatherList = new List<Weather>
+{
+    new("2023-01-01", "London", 10.5, true),
+    new("2023-01-01", "Manchester", 9.0, true),
+    new("2023-01-02", "London", 12.1, false)
+};
+var df = DataFrame.FromRows(weatherList);
+
+// Alternatively: Create from columnar object (Structure of Arrays)
+var dfCols = DataFrame.FromColumns(new 
+{
+    Date = new[] { "2023-01-01", "2023-01-01", "2023-01-02" },
+    City = new[] { "London", "Manchester", "London" },
+    Temperature = new[] { 10.5, 9.0, 12.1 },
+    Rain = new[] { true, true, false }
+});
+
+// 2. Parse Date string to native Date32 type
+df = df.WithColumn(Col("Date").Str.ToDate("%Y-%m-%d"));
+```
+
+```fsharp [F# (Pipeline API)]
+open Polars.FSharp
+
+type Weather = { Date: string; City: string; Temperature: float; Rain: bool }
+
+let data = [
+    { Date="2023-01-01"; City="London";     Temperature=10.5; Rain=true }
+    { Date="2023-01-01"; City="Manchester"; Temperature=9.0;  Rain=true }
+    { Date="2023-01-02"; City="London";     Temperature=12.1; Rain=false }
+]
+
+let df = 
+    DataFrame.ofRecords data
+    |> DataFrame.withColumn (pl.col("Date").Str.ToDate "%Y-%m-%d")
+```
+
+```csharp [C# 12 (Collection Expression)]
+using Polars.CSharp;
+
+Series sDate = Series.From("Date", ["2023-01-01", "2023-01-01", "2023-01-02"]);
+Series sCity = Series.From("City", ["London", "Manchester", "London"]);
+Series sTemp = Series.From("Temperature", [10.5, 9.0, 12.1]);
+Series sRain = Series.From("Rain", [true, true, false]);
+
+// Construct DataFrame using C# 12 [CollectionBuilder]
+DataFrame df = [sDate, sCity, sTemp, sRain];
+```
+
+
+
+
+---
+
+## 2. Filtering & Grouped Aggregations
+
+Polars expressions (`Expr`) execute multi-threaded SIMD parallel calculations across columns.
+
+
+```csharp [C# (Fluent API)]
+var aggDf = df
+    .Filter(Col("Temperature") > 9.5)
+    .GroupBy("City")
+    .Agg(
+        Col("Temperature").Mean().Alias("Avg_Temperature"),
+        Col("Temperature").Count().Alias("Record_Count")
+    )
+    .Sort("Avg_Temperature", descending: true);
+```
+
+```fsharp [F# (Pipeline API)]
+let aggDf =
+    df
+    |> DataFrame.filter (pl.col "Temperature" .> pl.lit 9.5)
+    |> DataFrame.groupBy [ pl.col "City" ]
+    |> DataFrame.agg [
+        pl.col("Temperature").Mean().Alias "Avg_Temperature"
+        pl.col("Temperature").Count().Alias "Record_Count"
+    ]
+    |> DataFrame.sortDescending [ pl.col "Avg_Temperature" ]
+```
+
+```csharp [C# (LINQ)]
+// Strongly-typed LINQ to Polars expression
+var aggDf = (from r in df.AsQueryable()
+             where r.Temperature > 9.5
+             group r by r.City into g
+             select new {
+                 City = g.Key,
+                 Avg_Temperature = g.Average(x => x.Temperature),
+                 Record_Count = g.Count()
+             })
+             .ToDataFrame()
+             .Sort("Avg_Temperature", descending: true);
+```
+
+
+
+
+---
+
+## 3. Window Functions & Expr AST Visualization
+
+Window functions (`.Over()`) evaluate group-level metrics without reducing rows. Polars.NET provides full introspection into expression syntax trees via `.ToHtml()`.
+
+
+```csharp [C# (Fluent API)]
+// Calculate temperature deviation from the city average
+var diffExpr = (Col("Temperature") - Col("Temperature").Mean().Over("City"))
+    .Alias("Temp_Diff");
+
+var windowDf = df.WithColumn(diffExpr);
+```
+
+```fsharp [F# (Pipeline API)]
+let diffExpr = 
+    (pl.col("Temperature") - pl.col("Temperature").Mean().Over(pl.col "City"))
+        .Alias("Temp_Diff")
+
+let windowDf = df |> DataFrame.withColumn diffExpr
+```
+
+```csharp [C# (LINQ)]
+// Over() extension operator in LINQ
+var windowDf = df.AsQueryable()
+    .Select(r => new {
+        r.City,
+        r.Temperature,
+        Temp_Diff = r.Temperature - r.Temperature.Over(r.City).Average()
+    })
+    .ToDataFrame();
+```
+
+
+
+
+---
+
+## 4. The Lazy Engine & Execution Planning
+
+`LazyFrame` builds a declarative query graph without reading raw data into memory. When calling `.Collect()`, Polars optimizes the query graph via **predicate pushdown**, **projection pruning**, and **streaming chunking**.
+
+
+```csharp [C# (Fluent API)]
+var lf = df.Lazy()
+    .Filter(Col("Temperature") > 10.0)
+    .GroupBy("City")
+    .Agg(Col("Temperature").Mean().Alias("Avg_Temp"));
+
+// Inspect the optimized query plan
+Console.WriteLine(lf.Explain(optimized: true));
+
+// Execute in parallel
+var result = lf.Collect();
+```
+
+```fsharp [F# (Pipeline API)]
+let lf = 
+    df.Lazy()
+    |> LazyFrame.filter (pl.col "Temperature" .> pl.lit 10.0)
+    |> LazyFrame.groupBy [ pl.col "City" ]
+    |> LazyFrame.agg [
+        pl.col("Temperature").Mean().Alias "Avg_Temp"
+    ]
+
+printfn "%s" (lf.Explain(optimized = true))
+
+let result = lf.Collect()
+```
+
+
+
+
+---
+
+## Next Steps & Guides
+
+* [C# Idioms & Best Practices](/articles/csharp-idioms) - Fluent chaining, Selectors, Schema dictionary, and memory safety.
+* [F# Idioms & Best Practices](/articles/fsharp-idioms) - Functional pipelines, anonymous records, and typed streaming.
+* [LINQ & Query Computation Expressions](/articles/linq) - 3-tier fallback strategy, LINQ to Polars, and F# `query { ... }`.
+* [Ecosystem & Native Interoperability](/articles/interop) - Zero-copy Arrow C Data Interface, ADBC, ADO.NET, ML.NET, and Tensors.
+- API Reference: Explore the full list of available Expressions.
+
+---
+
+# Chapter: Expressions & Column Computations
+*Source: articles/expressions.md*
+
+# Expressions & Computations
+
+Expressions (`Expr`) are the computational heart of Polars.NET. Rather than manipulating row values inside procedural loops, you construct declarative expression trees that the Polars Rust engine compiles into multithreaded, SIMD-accelerated execution kernels.
+
+---
+
+## 1. The Mental Model: Why No Procedural Loops?
+
+In traditional .NET data processing, developers often iterate rows using `foreach`:
+
+```csharp
+// Anti-pattern: Untyped row iteration causes boxing, GC pressure, and zero SIMD parallelism
+foreach (var row in df.Rows()) 
+{
+    row["Score"] = (double)row["Score"] * 1.1; 
+}
+
+// If row-level traversal is genuinely required (e.g., streaming to an external API or legacy service):
+// Prefer the strongly-typed `df.Rows<T>()`. It returns a stack-allocated `ref struct DataFrameRowEnumerator<T>`
+// with pre-compiled fast-path accessors and zero GC heap allocations:
+foreach (ScoreRecord record in df.Rows<ScoreRecord>())
+{
+    SendToExternalService(record);
+}
+
+// Idiomatic Polars: Vectorized columnar compute, parallel, zero managed heap allocation
+df.WithColumns((Col("Score") * 1.1).Alias("Adjusted_Score"));
+```
+
+> [!TIP] Expressions are Immutable and Reusable
+> Every operation on an `Expr` (such as `.Alias()`, `.Clip()`, `.Filter()`, or operator overloads) clones handles natively via `CloneHandle()`. You can freely store an expression in a variable and reuse it across multiple DataFrames or branches without consumption side-effects.
+
+---
+
+## 2. Arithmetic, Comparison & Literals
+
+Expressions overload standard arithmetic and logical operators.
+
+
+```csharp [C# (Fluent API)]
+using Polars;
+using Polars.CSharp;
+using static Polars.CSharp.Polars;
+
+// Column arithmetic and scalar literals
+Expr bonus = Col("BaseSalary") * 0.15;
+Expr total = Col("BaseSalary") + bonus;
+
+// Bitwise / Logical operators: & (AND), | (OR), ~ (NOT)
+Expr filter = (Col("Age") >= 25) & (Col("Dept") == "Engineering");
+```
+
+```fsharp [F# (Pipeline API)]
+open Polars.FSharp
+
+// Overloaded arithmetic operators: +, -, *, /, %
+let bonus = pl.col "BaseSalary" * pl.lit 0.15
+let total = pl.col "BaseSalary" + bonus
+
+// F# comparison operators: .==, .!=, .>, .>=, .<, .<=
+// F# logical combinators: .&&, .||, !~
+let filter = (pl.col "Age" .>= pl.lit 25) .&& (pl.col "Dept" .== pl.lit "Engineering")
+```
+
+```csharp [C# (LINQ)]
+// Typed query expression with LINQ to Polars
+public record Employee(string Name, int Age, string Dept, double BaseSalary);
+
+var query = from r in df.AsQueryable<Employee>()
+            where r.Age >= 25 && r.Dept == "Engineering"
+            select new {
+                r.Name,
+                TotalSalary = r.BaseSalary * 1.15
+            };
+```
+
+
+> [!NOTE] Column References vs. Literals (`IntoExprColumn` vs `IntoExpr`)
+> * When passing strings into selection methods like `df.Select("a", "b")`, `"a"` represents `Col("a")`.
+> * In conditional values like `expr.FillNull("unknown")`, `"unknown"` represents literal `Lit("unknown")`.
+> * In binary comparison `Col("a") == "foo"`, `"foo"` is treated as a scalar literal value. To compare two columns, write `Col("a") == Col("b")`.
+
+---
+
+## 3. Column Selectors & Set Algebra
+
+Instead of hardcoding column name lists, Polars.NET provides type-aware **Column Selectors** (`Polars.Selectors` / `Cs` / `pl.cs`) with intuitive set algebra operators:
+
+* **Union (`|` / `+`)**: Combine selections.
+* **Difference (`-`)**: Exclude columns from a selection.
+* **Intersection (`&`)**: Keep columns matching both selectors.
+* **Inversion (`~`)**: Select everything except this pattern.
+
+
+```csharp [C# (Fluent API)]
+using Polars.CSharp;
+using Polars.CSharp.Selectors;
+
+// Select all numeric columns except the "Id" column
+var numericCols = df.Select(Cs.Numeric() - Cs.ByName("Id"));
+```
+
+```fsharp [F# (Pipeline API)]
+open Polars.FSharp
+
+// Select all numeric columns except "Id" using F# selector subtraction
+let numericCols = df.Select(pl.cs.numeric() - pl.cs.byName [ "Id" ])
+```
+
+```csharp [C# (Indexers)]
+// Direct indexer selection with Selectors
+var subset = df[Cs.Numeric() - Cs.ByName("Id")];
+```
+
+
+
+
+---
+
+## 4. Conditional Logic: When / Then / Otherwise
+
+Polars.NET provides a declarative ternary expression builder (`When-Then-Otherwise`) capable of compiling complex `if-else if-else` logic directly into native execution branches.
+
+
+```csharp [C# (Fluent API)]
+using static Polars.CSharp.Polars;
+
+var gradedDf = df.WithColumns(
+    When(Col("Price") >= 500.0).Then("Premium")
+    .When(Col("Price") >= 100.0).Then("Mid-Range")
+    .Otherwise("Budget")
+    .Alias("Price_Tier")
+);
+```
+
+```fsharp [F# (Pipeline API)]
+open Polars.FSharp
+
+let gradedDf =
+    df
+    |> DataFrame.withColumn (
+        (pl.when' (pl.col "Price" .>= pl.lit 500.0)
+            .Then(pl.lit "Premium")
+            .When(pl.col "Price" .>= pl.lit 100.0)
+            .Then(pl.lit "Mid-Range")
+            .Otherwise(pl.lit "Budget"))
+            .Alias "Price_Tier"
+    )
+```
+
+```csharp [C# (LINQ)]
+// Standard C# ternary operators translated into native Polars ternary kernels
+public record ProductItem(int Id, string Product, double Price);
+
+var gradedDf = df.AsQueryable<ProductItem>()
+    .Select(r => new {
+        r.Id,
+        r.Product,
+        r.Price,
+        Price_Tier = r.Price >= 500.0 ? "Premium" :
+                     r.Price >= 100.0 ? "Mid-Range" : "Budget"
+    })
+    .ToDataFrame();
+```
+
+
+
+
+---
+
+## 5. Domain Sub-Namespaces (`.Str`, `.Dt`, `.List`, etc.)
+
+Polars organizes domain-specific operators into dedicated namespaces hanging off `Expr` and `Series`:
+
+| Sub-namespace | Focus | Key Methods |
+| :--- | :--- | :--- |
+| **`.Str`** | String processing | `Contains`, `ReplaceAll`, `Extract`, `Split`, `StripChars`, `ToDatetime`, `JsonPathMatch` |
+| **`.Dt`** | Temporal & Calendar | `Year`, `Month`, `Day`, `Truncate`, `OffsetBy`, `ConvertTimeZone`, `TotalMilliseconds` |
+| **`.List`** | Dynamic variable-length lists | `Len`, `Get`, `Slice`, `Eval`, `Explode`, `Join`, `Contains`, `Unique`, `Sum`, `Mean` |
+| **`.Array`** | Fixed-size homogeneous arrays | `Width`, `Sum`, `Max`, `ToList`, `Get`, `Min` |
+| **`.Struct`** | Multi-field composite records | `Field`, `RenameFields`, `JsonEncode`, `Unnest` |
+| **`.Name`** | Dynamic column renaming | `Prefix`, `Suffix`, `ToLowercase`, `ToUppercase`, `Keep` |
+| **`.Meta`** | AST reflection & introspection | `FormatTree`, `OutputName`, `RootNames`, `Eq` |
+
+
+```csharp [C# (Fluent API)]
+df.Select(
+    // 1. String manipulation
+    Col("Product").Str.ToUppercase().Alias("PRODUCT_UPPER"),
+    Col("Product").Str.Contains("phone").Alias("IsPhone"),
+
+    // 2. Temporal parsing & offset
+    Col("Created").Dt.Year().Alias("Year"),
+    Col("Created").Dt.OffsetBy("1mo").Alias("NextMonth"),
+
+    // 3. Batch column prefixing
+    Col("Score").Name.Prefix("Metric_")
+);
+```
+
+```fsharp [F# (Pipeline API)]
+df
+|> DataFrame.select [
+    // 1. String manipulation
+    (pl.col("Product").Str.ToUppercase()).Alias "PRODUCT_UPPER"
+    (pl.col("Product").Str.Contains "phone").Alias "IsPhone"
+
+    // 2. Temporal parsing & offset
+    (pl.col("Created").Dt.Year()).Alias "Year"
+    (pl.col("Created").Dt.OffsetBy(Dur.String "1mo")).Alias "NextMonth"
+
+    // 3. Batch column prefixing
+    (pl.col("Score").Name.Prefix "Metric_")
+]
+```
+
+
+---
+
+## 6. Window Functions (`Over`)
+
+Window functions perform calculations within partitions without collapsing rows. This makes it straightforward to compute cumulative sums, group ranks, moving statistics, and deviations from group averages.
+
+
+```csharp [C# (Fluent API)]
+var windowDf = df.Select(
+    Col("Employee"),
+    Col("Dept"),
+    Col("Salary"),
+    // 1. Group average retained on each row
+    Col("Salary").Mean().Over("Dept").Alias("Dept_Avg"),
+    
+    // 2. Difference from department average
+    (Col("Salary") - Col("Salary").Mean().Over("Dept")).Alias("Diff_From_Dept_Avg"),
+    
+    // 3. Dense ranking within each department
+    Col("Salary").Rank().Over("Dept").Alias("Dept_Salary_Rank")
+);
+```
+
+```fsharp [F# (Pipeline API)]
+let windowDf =
+    df
+    |> DataFrame.select [
+        pl.col "Employee"
+        pl.col "Dept"
+        pl.col "Salary"
+        (pl.col("Salary").Mean().Over(pl.col "Dept")).Alias "Dept_Avg"
+        (pl.col "Salary" - pl.col("Salary").Mean().Over(pl.col "Dept")).Alias "Diff_From_Dept_Avg"
+        (pl.col("Salary").Rank().Over(pl.col "Dept")).Alias "Dept_Salary_Rank"
+    ]
+```
+
+```csharp [C# (LINQ)]
+public record EmployeeSalary(string Employee, string Dept, double Salary);
+
+var windowDf = df.AsQueryable<EmployeeSalary>()
+    .Select(r => new {
+        r.Employee,
+        r.Dept,
+        r.Salary,
+        Dept_Avg = r.Salary.Mean().Over(r.Dept),
+        Diff_From_Dept_Avg = r.Salary - r.Salary.Mean().Over(r.Dept)
+    })
+    .ToDataFrame();
+```
+
+
+
+
+---
+
+## 7. Engine Introspection: AST Visualization
+
+Every Polars expression builds a recursive Syntax Tree that is optimized before execution. You can inspect this tree anytime by calling `.ToHtml(schema)` or `.Meta.FormatTree()`:
+
+
+```csharp [C# (Console Inspection)]
+Expr complexExpr = (Col("Price") * (1.0 - Col("Discount"))).Round(2)
+                 - Col("Price").Mean().Over("Category");
+
+// Print Unicode ASCII tree to stdout
+Console.WriteLine(complexExpr.Meta.FormatTree(schema: df.Schema));
+```
+
+```fsharp [F# (FSI Inspection)]
+let complexExpr =
+    ((pl.col("Price") * (pl.lit 1.0 - pl.col("Discount"))).Round(2u)
+     - pl.col("Price").Mean().Over(pl.col "Category"))
+
+printfn "%s" (complexExpr.Meta.FormatTree(schema = df.Schema))
+```
+
+
+
+
+---
+
+## Next Steps
+
+* [LazyFrame & Streaming Execution](/articles/quickstart#4-the-lazy-engine-execution-planning) - Discover query graph optimization and out-of-core streaming.
+* [LINQ Provider Architecture](/articles/linq) - Learn the 3-tier fallback execution strategy from LINQ to native kernels.
+* [Ecosystem & Native Interop](/articles/interop) - Connect Polars expressions to Arrow, ADBC, ADO.NET, and ML.NET.
+
+---
+
+# Chapter: LazyFrame, Optimization & Streaming
+*Source: articles/lazy.md*
+
+# LazyFrame & Query Optimization
+
+Polars.NET achieves its staggering analytical performance through its **Lazy Engine**. Instead of eagerly evaluating operations row-by-row or column-by-column, the engine records your pipeline into a Directed Acyclic Graph (DAG) called a **Logical Plan**. 
+
+When you trigger materialization (`.Collect()`), the Rust query optimizer analyzes the entire pipeline, eliminating dead columns, reordering filters, and compiling an optimal physical execution plan.
+
+---
+
+## 1. The Mental Model: Eager vs. Lazy Execution
+
+| Feature | Eager (`DataFrame`) | Lazy (`LazyFrame`) |
+| :--- | :--- | :--- |
+| **Execution Timing** | Immediately on every method call | Deferred until `.Collect()` |
+| **Intermediate Memory** | Full intermediate buffers allocated per step | Zero intermediate memory allocated |
+| **Optimizer Passes** | None (runs exactly as called) | Predicate & Projection Pushdown, CSE, Limit Pushdown |
+| **Max Dataset Size** | Must fit comfortably in available RAM | Can exceed RAM via Streaming Engine |
+| **Inspection** | Inspect data directly (`.Head()`, `.Show()`) | Inspect query plan (`.Explain()`, `.ToHtml()`) |
+
+
+```csharp [C# (Eager vs Lazy)]
+using Polars;
+using Polars.CSharp;
+using static Polars.CSharp.Polars;
+
+// Eager: Allocates 3 intermediate DataFrames on heap
+DataFrame eagerResult = df
+    .Filter(Col("Category") == "Tech")      // Allocates intermediate DF 1
+    .WithColumns((Col("Amount") * 0.1).Alias("Tax")) // Allocates intermediate DF 2
+    .Sort("Total", descending: true);       // Allocates intermediate DF 3
+
+// Lazy: Builds a single optimized execution graph
+DataFrame lazyResult = df.Lazy()
+    .Filter(Col("Category") == "Tech")
+    .WithColumns((Col("Amount") * 0.1).Alias("Tax"))
+    .Sort("Total", descending: true)
+    .Collect();                             // Single optimized execution!
+```
+
+```fsharp [F# (Eager vs Lazy)]
+open Polars.FSharp
+
+// Eager: Each pipe creates a materialized intermediate DataFrame
+let eagerResult =
+    df
+    |> DataFrame.filter (pl.col "Category" .== pl.lit "Tech")
+    |> DataFrame.withColumn ((pl.col "Amount" * pl.lit 0.1).Alias "Tax")
+    |> DataFrame.sortDescending [ pl.col "Total" ]
+
+// Lazy: Zero intermediate allocation, compiled to native query graph
+let lazyResult =
+    df.Lazy()
+    |> LazyFrame.filter (pl.col "Category" .== pl.lit "Tech")
+    |> LazyFrame.withColumn ((pl.col "Amount" * pl.lit 0.1).Alias "Tax")
+    |> LazyFrame.sortDescending [ pl.col "Total" ]
+    |> LazyFrame.collect
+```
+
+```csharp [C# (LINQ)]
+// LINQ to Polars is LAZY by default!
+// AsQueryable<T>() builds an expression tree that compiles to LazyFrame
+var query = from t in df.AsQueryable<Transaction>()
+            where t.Category == "Tech"
+            orderby t.Amount descending
+            select new {
+                t.Customer,
+                t.Amount,
+                Tax = t.Amount * 0.1
+            };
+
+// Materializes only when ToDataFrame() or enumeration is invoked:
+using DataFrame result = query.ToDataFrame();
+```
+
+
+---
+
+## 2. The Lazy Query Lifecycle
+
+A typical LazyFrame pipeline follows three clear phases:
+
+<div class="pl-pipeline">
+  <div class="pl-pipeline-row">
+    <div class="pl-step">
+      <div class="pl-step-title">1. Acquisition (Zero I/O)</div>
+      <div class="pl-step-desc"><code>LazyFrame.ScanParquet()</code><br><code>LazyFrame.ScanCsv()</code><br><code>df.Lazy()</code></div>
+    </div>
+    <div class="pl-arrow">→</div>
+    <div class="pl-step">
+      <div class="pl-step-title">2. Composition (Query DAG)</div>
+      <div class="pl-step-desc"><code>.Filter()</code><br><code>.WithColumns()</code><br><code>.GroupBy() / .Agg()</code><br><code>.Join()</code></div>
+    </div>
+    <div class="pl-arrow">→</div>
+    <div class="pl-step">
+      <div class="pl-step-title">3. Optimization & Compilation</div>
+      <div class="pl-step-desc">Rust pushdown optimizers compile physical execution kernels</div>
+    </div>
+    <div class="pl-arrow">→</div>
+    <div class="pl-step">
+      <div class="pl-step-title">4. Materialization</div>
+      <div class="pl-step-desc"><code>.Collect()</code> → DataFrame<br><code>.CollectBatchesAsync()</code> → Stream</div>
+    </div>
+  </div>
+</div>
+
+### 1. Zero-Cost File Scanning (`ScanParquet` / `ScanCsv` / `ScanIpc`)
+
+Instead of loading massive files entirely into RAM with `ReadParquet` or `ReadCsv`, always prefer `ScanParquet` and `ScanCsv`. They read only the file metadata and headers:
+
+
+```csharp [C# (Fluent API)]
+using Polars;
+using Polars.CSharp;
+
+// Reads 0 data bytes from disk! Only file metadata is inspected.
+LazyFrame lf = LazyFrame.ScanParquet("large_dataset.parquet");
+```
+
+```fsharp [F# (Pipeline API)]
+open Polars.FSharp
+
+// Zero memory read at invocation
+let lf = LazyFrame.ScanParquet "large_dataset.parquet"
+```
+
+
+### 2. Immutability & Safe Query Branching
+
+In Polars.NET, a `LazyFrame` is an **immutable query description**. It is completely safe to branch, fork, or reuse a base `LazyFrame` across multiple pipelines without consuming it:
+
+
+```csharp [C# (Fluent API)]
+using var basePlan = LazyFrame.ScanParquet("sales.parquet");
+
+// Safe branching: basePlan is NEVER consumed or mutated!
+using var techSales = basePlan.Filter(Col("Category") == "Tech").Collect();
+using var bookSales = basePlan.Filter(Col("Category") == "Books").Collect();
+```
+
+```fsharp [F# (Pipeline API)]
+use basePlan = LazyFrame.ScanParquet "sales.parquet"
+
+// Both branches independently optimize and execute
+use techSales = basePlan |> LazyFrame.filter (pl.col "Category" .== pl.lit "Tech") |> LazyFrame.collect
+use bookSales = basePlan |> LazyFrame.filter (pl.col "Category" .== pl.lit "Books") |> LazyFrame.collect
+```
+
+
+---
+
+## 3. Engine Optimizations Under the Hood
+
+When you invoke `.Collect()`, the engine runs several transformative optimization passes:
+
+### 1. Predicate Pushdown (Filter Pushdown)
+Filters declared at the end of a query pipeline are pushed directly down into the file reader or before expensive operations like Joins and Window aggregations. If scanning Parquet, rows that don't match the filter are skipped directly at the storage level using Parquet page statistics (min/max).
+
+### 2. Projection Pushdown (Column Pruning)
+Columns not required by downstream expressions are pruned from the query plan. If your Parquet file contains 100 columns but your query only selects 3, **only those 3 columns are read from disk**, reducing disk I/O and memory pressure by up to 97%.
+
+### 3. Common Subplan Elimination (CSE)
+When multiple expressions share identical calculations (e.g. `Col("Price") * Col("Quantity")`), the engine identifies the common subtree and computes it exactly once.
+
+### 4. Slice / Limit Pushdown
+When `.Limit(n)` or `.Head(n)` is present, the scan operation stops decoding data as soon as the requested row count is satisfied.
+
+---
+
+## 4. Query Plan Inspection: `.Explain()` and `.ToHtml()`
+
+Polars provides full transparency into what the optimizer decides to do. You can inspect both the raw unoptimized plan and the optimized execution graph:
+
+
+```csharp [C# (Inspecting Plans)]
+var lf = df.Lazy()
+    .Filter(Col("Amount") > 50.0)
+    .WithColumns((Col("Amount") * 0.1).Alias("Tax"))
+    .Filter(Col("Category") == "Tech")
+    .GroupBy("Customer")
+    .Agg(
+        Col("Amount").Sum().Alias("Total_Spend"),
+        Col("Tax").Sum().Alias("Total_Tax"),
+        Col("TxId").Count().Alias("Tx_Count")
+    )
+    .Sort("Total_Spend", descending: true);
+
+// 1. Raw Logical Plan (Unoptimized)
+Console.WriteLine(lf.Explain(optimized: false));
+
+// 2. Physical Execution Plan (Optimized)
+Console.WriteLine(lf.Explain(optimized: true));
+```
+
+```fsharp [F# (Inspecting Plans)]
+let lf =
+    df.Lazy()
+    |> LazyFrame.filter (pl.col "Amount" .> pl.lit 50.0)
+    |> LazyFrame.withColumn ((pl.col "Amount" * pl.lit 0.1).Alias "Tax")
+    |> LazyFrame.filter (pl.col "Category" .== pl.lit "Tech")
+    |> LazyFrame.groupBy [ pl.col "Customer" ]
+    |> LazyFrame.agg [
+        pl.col("Amount").Sum().Alias "Total_Spend"
+        pl.col("Tax").Sum().Alias "Total_Tax"
+        pl.col("TxId").Count().Alias "Tx_Count"
+    ]
+    |> LazyFrame.sortDescending [ pl.col "Total_Spend" ]
+
+// 1. Raw Logical Plan (Unoptimized)
+printfn "%s" (lf.Explain(optimized = false))
+
+// 2. Physical Execution Plan (Optimized)
+printfn "%s" (lf.Explain(optimized = true))
+```
+
+
+### Real Engine Optimization in Action
+
+Observe how the Polars Rust optimizer transforms the pipeline above:
+
+#### A. Raw Logical Plan (Before Optimization)
+In the raw plan, both filters are separate, and the scan projects **all 5 columns** (`PROJECT */5 COLUMNS`) including the unused `IsFlagged` column:
+
+
+
+#### B. Physical Execution Plan (After Optimization)
+Notice the optimizer's brilliance:
+1. **Predicate Merging & Pushdown**: The two filters `Amount > 50.0` and `Category == "Tech"` are combined into a single SIMD boolean expression `(col("Amount") > 50.0) & (col("Category") == "Tech")` and pushed down **before** calculating `Tax`.
+2. **Projection Pushdown**: Column `IsFlagged` is completely eliminated from memory and I/O (`PROJECT 4/5 COLUMNS`).
+
+
+
+#### C. Collected Materialized Result
+Calling `.Collect()` materializes the cleanly aggregated result:
+
+
+
+---
+
+## 5. Streaming Engine (Out-of-Core Execution)
+
+When datasets are larger than available physical RAM, eager engines throw an `OutOfMemoryException`. Polars.NET solves this through its **Streaming Engine**:
+
+Instead of loading the entire table at once, the streaming engine breaks the query graph into discrete chunks that are streamed through the execution pipeline:
+
+<div class="pl-pipeline">
+  <div class="pl-pipeline-row">
+    <div class="pl-step">
+      <div class="pl-step-title">Dataset on Disk (100 GB)</div>
+      <div class="pl-step-desc">Cold storage Parquet/CSV files exceeding physical RAM capacity</div>
+    </div>
+    <div class="pl-arrow">→ <i>batches</i> →</div>
+    <div class="pl-step">
+      <div class="pl-step-title">Streaming Engine (RAM: ~500 MB)</div>
+      <div class="pl-step-desc">Bounded chunked execution; memory consumption stays strictly bounded</div>
+    </div>
+    <div class="pl-arrow">→</div>
+    <div class="pl-step">
+      <div class="pl-step-title">Output Sink</div>
+      <div class="pl-step-desc">Target Parquet file, Database via <code>SinkTo</code>, or streaming consumer</div>
+    </div>
+  </div>
+</div>
+
+### Activating the Streaming Engine
+
+Pass `Engine.Streaming` into `.Collect()` or use asynchronous batch iteration:
+
+
+```csharp [C# (Streaming Execution)]
+using Polars;
+using Polars.CSharp;
+
+var lf = LazyFrame.ScanParquet("giant_dataset_50gb.parquet")
+    .Filter(Col("ResponseTime") > 1000)
+    .GroupBy("Service")
+    .Agg(Col("ResponseTime").Mean().Alias("Avg_Latency"));
+
+// Collect using Polars native streaming execution:
+using DataFrame result = lf.Collect(Engine.Streaming);
+```
+
+```fsharp [F# (Streaming Execution)]
+open Polars.FSharp
+
+let lf =
+    LazyFrame.ScanParquet "giant_dataset_50gb.parquet"
+    |> LazyFrame.filter (pl.col "ResponseTime" .> pl.lit 1000)
+    |> LazyFrame.groupBy [ pl.col "Service" ]
+    |> LazyFrame.agg [ pl.col("ResponseTime").Mean().Alias "Avg_Latency" ]
+
+// Execute in streaming engine
+use result = lf.Collect(Engine.Streaming)
+```
+
+
+---
+
+## 6. Asynchronous Streaming (`IAsyncEnumerable`)
+
+Polars.NET provides first-class support for modern .NET asynchronous streams via `CollectBatchesAsync()`:
+
+
+```csharp [C# (Asynchronous Batches)]
+using Polars.CSharp;
+
+var lf = LazyFrame.ScanParquet("large_events.parquet")
+    .Filter(Col("Status") == "ERROR");
+
+// Stream materialized DataFrame batches as soon as Rust computes them:
+await foreach (DataFrame batch in lf.CollectBatchesAsync(chunkSize: 50_000))
+{
+    using (batch)
+    {
+        Console.WriteLine($"Processed batch of {batch.Height} error records.");
+        await PostToAlertSystemAsync(batch);
+    }
+}
+```
+
+```fsharp [F# (Asynchronous Batches)]
+open Polars.FSharp
+
+let lf =
+    LazyFrame.ScanParquet "large_events.parquet"
+    |> LazyFrame.filter (pl.col "Status" .== pl.lit "ERROR")
+
+// Consume asynchronous stream without blocking the main thread
+task {
+    for batch in lf.CollectBatchesAsync(chunkSize = 50_000L) do
+        use b = batch
+        printfn $"Processed batch of %d{b.Height} error records."
+        do! postToAlertSystem b
+}
+```
+
+
+---
+
+## Next Steps
+
+* [LINQ & Query Expressions](/articles/linq) - Explore how C# LINQ and F# `query { ... }` natively translate into LazyFrame execution graphs.
+* [Ecosystem & Native Interop](/articles/interop) - Stream LazyFrame results into Apache Arrow, ADBC, and ADO.NET.
+* [C# Idioms & Best Practices](/articles/csharp-idioms) - Memory management, struct enumerators, and disposal patterns.
+
+---
+
+# Chapter: Time Series & Temporal Operations
+*Source: articles/timeseries.md*
+
+# Time Series & Advanced Analytics
+
+Temporal and time series data are fundamental across quantitative finance, IoT sensor telemetry, system log analysis, and scientific computing. Polars.NET integrates the high-performance temporal query engine from Rust Polars, delivering sub-second timestamp precision, timezone-aware conversions, high-throughput dynamic rolling windows, and vectorized missing-value interpolation.
+
+---
+
+## 1. Core Temporal Types & Ingestion
+
+Polars.NET features a comprehensive, strongly-typed temporal data system:
+* `DataType.Date`: Calendar date (days since the Unix epoch 1970-01-01, stored as a 32-bit signed integer).
+* `DataType.Datetime(TimeUnit, TimeZone)`: High-precision timestamp (supports `Nanoseconds`, `Microseconds`, and `Milliseconds`, with an optional IANA timezone string like `"UTC"` or `"America/New_York"`).
+* `DataType.Time`: Time of day since midnight in nanoseconds (timezone-agnostic).
+* `DataType.Duration(TimeUnit)`: Time differences and elapsed intervals.
+
+### Parsing Strings to Dates & Timestamps
+
+When reading CSV or Parquet files, temporal parsing can be activated automatically via `tryParseDates = true`. You can also parse strings explicitly within expression pipelines using `.Str.ToDate()` or `.Str.ToDatetime()`:
+
+
+```csharp [C# (Fluent)]
+using Polars.CSharp;
+using static Polars.CSharp.Polars;
+
+var df = DataFrame.FromColumns(new
+{
+    RawDate = new[] { "2024-01-15", "2024-02-20", "2024-03-25" },
+    RawTimestamp = new[] { "2024-01-15 09:30:00", "2024-02-20 14:15:30", "2024-03-25 18:45:00" },
+    Metric = new[] { 100.5, 204.2, 189.7 }
+});
+
+var parsed = df.Select(
+    Col("RawDate").Str.ToDate("%Y-%m-%d").Alias("Date"),
+    Col("RawTimestamp").Str.ToDatetime("%Y-%m-%d %H:%M:%S").Alias("Timestamp"),
+    Col("Metric")
+);
+```
+
+```fsharp [F# (Pipeline)]
+open System
+open Polars.FSharp
+
+let df =
+    DataFrame.create [
+        pl.series "RawDate" [ "2024-01-15"; "2024-02-20"; "2024-03-25" ]
+        pl.series "RawTimestamp" [ "2024-01-15 09:30:00"; "2024-02-20 14:15:30"; "2024-03-25 18:45:00" ]
+        pl.series "Metric" [ 100.5; 204.2; 189.7 ]
+    ]
+
+let parsed =
+    df
+    |> pl.select [
+        pl.col("RawDate").Str.ToDate("%Y-%m-%d").Alias "Date"
+        pl.col("RawTimestamp").Str.ToDatetime("%Y-%m-%d %H:%M:%S").Alias "Timestamp"
+        pl.col "Metric"
+    ]
+```
+
+```csharp [C# (LINQ)]
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+// Seamlessly project typed DateTime fields in LINQ queries
+var query = from r in parsed.AsQueryable<SensorRecord>()
+            where r.Date >= new DateOnly(2024, 2, 1)
+            select new { r.Date, r.Metric };
+```
+
+
+---
+
+## 2. Calendar Component Extraction & Arithmetic (`Expr.Dt`)
+
+Polars.NET exposes temporal operations under the `Expr.Dt` sub-namespace. These operations execute directly over SIMD-vectorized columnar memory buffers without constructing intermediate managed `DateTime` instances:
+
+| Operator Category | Core Methods | Description & Output Type |
+| :--- | :--- | :--- |
+| **Calendar Units** | `Year()`, `IsoYear()`, `Quarter()`, `Month()` | Year (Int32), Quarter 1-4 (Int8), Month 1-12 (Int8) |
+| **Date Units** | `Day()`, `Weekday()`, `OrdinalDay()`, `DaysInMonth()` | Day 1-31 (Int8), Weekday 1-7 (Int8, Mon=1), Day of Year 1-366 (Int16) |
+| **Time Units** | `Hour()`, `Minute()`, `Second(fractional: false)` | Hour 0-23, Minute 0-59, Second 0-59 |
+| **Sub-second Units** | `Millisecond()`, `Microsecond()`, `Nanosecond()` | High-precision integer fractions |
+| **Calendar Alignment** | `MonthStart()`, `MonthEnd()`, `IsLeapYear()` | Rolls to first/last day of month or checks leap year status |
+
+### Temporal Truncation (`Truncate`) & Rounding (`Round`)
+
+Bucketing timestamps into fixed intervals (binning) is essential for metric aggregation:
+* `Truncate("1h")` / `Truncate("1d")`: Floors timestamps down to the nearest interval boundary.
+* `Round("1h")`: Rounds timestamps to the closest interval boundary.
+* `OffsetBy("2d")` / `OffsetBy("-1h")`: Shifts dates by a specified physical duration string.
+
+
+```csharp [C# (Fluent)]
+var features = df.Select(
+    Col("Timestamp").Dt.Year().Alias("Year"),
+    Col("Timestamp").Dt.Month().Alias("Month"),
+    Col("Timestamp").Dt.Weekday().Alias("Weekday"),
+    Col("Timestamp").Dt.Truncate("1h").Alias("HourBucket"),
+    Col("Timestamp").Dt.Round("1d").Alias("DayRounded")
+);
+```
+
+```fsharp [F# (Pipeline)]
+let features =
+    df
+    |> pl.select [
+        pl.col("Timestamp").Dt.Year().Alias "Year"
+        pl.col("Timestamp").Dt.Month().Alias "Month"
+        pl.col("Timestamp").Dt.Weekday().Alias "Weekday"
+        pl.col("Timestamp").Dt.Truncate(Dur.String "1h").Alias "HourBucket"
+        pl.col("Timestamp").Dt.Round(Dur.String "1d").Alias "DayRounded"
+    ]
+```
+
+
+---
+
+## 3. Time Zone Awareness & Conversion
+
+Polars follows modern temporal best practices by distinguishing between **Naive Datetime** (physical timestamp without timezone metadata) and **Time Zone Aware Datetime**:
+
+<div class="pl-pipeline">
+  <div class="pl-step">
+    <div class="pl-step-badge">1. Naive Wall Clock</div>
+    <div class="pl-step-name">2024-01-01 12:00:00</div>
+    <div class="pl-step-desc">Unambiguous local clock value, no timezone metadata</div>
+  </div>
+  <div class="pl-arrow">&rarr;</div>
+  <div class="pl-step">
+    <div class="pl-step-badge">2. Tag via ReplaceTimeZone</div>
+    <div class="pl-step-name">12:00:00 UTC</div>
+    <div class="pl-step-desc">Assigns timezone metadata without modifying physical bits</div>
+  </div>
+  <div class="pl-arrow">&rarr;</div>
+  <div class="pl-step">
+    <div class="pl-step-badge">3. Shift via ConvertTimeZone</div>
+    <div class="pl-step-name">20:00:00 Asia/Shanghai</div>
+    <div class="pl-step-desc">Converts physical time into target timezone (+8h)</div>
+  </div>
+</div>
+
+
+```csharp [C# (Fluent)]
+var tzDf = df.Select(
+    // 1. Tag naive timestamp as UTC
+    Col("Timestamp").Dt.ReplaceTimeZone("UTC").Alias("UTC_Time"),
+
+    // 2. Convert UTC timestamp to Asia/Shanghai (+8 hours)
+    Col("Timestamp").Dt.ReplaceTimeZone("UTC")
+        .Dt.ConvertTimeZone("Asia/Shanghai").Alias("Shanghai_Time"),
+
+    // 3. Convert UTC timestamp to America/New_York (-5 hours)
+    Col("Timestamp").Dt.ReplaceTimeZone("UTC")
+        .Dt.ConvertTimeZone("America/New_York").Alias("NY_Time")
+);
+```
+
+```fsharp [F# (Pipeline)]
+let tzDf =
+    df
+    |> pl.select [
+        pl.col("Timestamp").Dt.ReplaceTimeZone("UTC").Alias "UTC_Time"
+        pl.col("Timestamp").Dt.ReplaceTimeZone("UTC")
+            .Dt.ConvertTimeZone("Asia/Shanghai").Alias "Shanghai_Time"
+        pl.col("Timestamp").Dt.ReplaceTimeZone("UTC")
+            .Dt.ConvertTimeZone("America/New_York").Alias "NY_Time"
+    ]
+```
+
+
+---
+
+## 4. Rolling Window Functions
+
+Moving averages, rolling bounds, and moving volatilities serve as standard building blocks for indicators (such as Bollinger Bands and MACD).
+
+Polars.NET provides dual rolling window modes:
+1. **Index/Row-based windows**: `RollingMean("3i")` or `Dur.Index(3)` (fixed observation count).
+2. **Time-based windows**: `RollingMean("1h")` or `Dur.TimeSpan(...)` (variable row counts within a time interval).
+
+Supported rolling aggregations include:
+* `RollingMean`: Moving average.
+* `RollingSum`: Moving summation.
+* `RollingMin` / `RollingMax`: Moving bounds.
+* `RollingStd` / `RollingVar`: Moving standard deviation and sample variance.
+* `RollingMedian` / `RollingQuantile`: Moving median and arbitrary percentiles.
+* `RollingSkew` / `RollingKurtosis`: Rolling skewness and kurtosis.
+
+
+```csharp [C# (Fluent)]
+// Compute 2-observation moving average and 1-hour rolling sum
+var rollingDf = df.WithColumns(
+    Col("Reading").RollingMean("2i", minPeriods: 1).Alias("MA_2"),
+    Col("Reading").RollingSum("1h", minPeriods: 1).Alias("Sum_1h"),
+    Col("Reading").RollingStd("2i", minPeriods: 2).Alias("Std_2")
+);
+```
+
+```fsharp [F# (Pipeline)]
+let rollingDf =
+    df
+    |> pl.withColumns [
+        (pl.col "Reading").RollingMean(Dur.Index 2, minPeriod = 1).Alias "MA_2"
+        (pl.col "Reading").RollingSum(Dur.String "1h", minPeriod = 1).Alias "Sum_1h"
+        (pl.col "Reading").RollingStd(Dur.Index 2, minPeriod = 2).Alias "Std_2"
+    ]
+```
+
+
+### Live Execution Output: Time Series Features & Rolling Calculations
+
+
+
+---
+
+## 5. Dynamic Time Resampling (`GroupByDynamic`)
+
+Standard `GroupBy` aggregates across discrete keys. In time series analysis, queries often require: **"Group into 1-hour dynamic windows, calculate average sensor readings, and partition by device ID"**.
+
+Polars.NET provides `GroupByDynamic`:
+* `indexColumn`: Monotonically ascending temporal index column.
+* `every`: Window stride interval (e.g. `"1h"`).
+* `period`: Window duration length (defaults to `every` if omitted; setting it larger creates overlapping sliding windows).
+* `offset`: Window boundary offset.
+* `groupBy`: Optional additional discrete grouping keys (e.g. Device ID, Region).
+
+
+```csharp [C# (Fluent)]
+var dynamicAgg = df.Lazy()
+    .GroupByDynamic(
+        indexColumn: "Timestamp",
+        every: TimeSpan.FromHours(1),
+        period: TimeSpan.FromHours(1),
+        groupBy: new[] { Col("DeviceId") }
+    )
+    .Agg(
+        Col("Reading").Mean().Alias("Avg_Reading"),
+        Col("Reading").Count().Alias("Sample_Count")
+    )
+    .Collect();
+```
+
+```fsharp [F# (Pipeline)]
+let dynamicAgg =
+    df.Lazy()
+        .GroupByDynamic(
+            indexCol = "Timestamp",
+            every = Dur.TimeSpan(TimeSpan.FromHours 1.0),
+            period = Dur.TimeSpan(TimeSpan.FromHours 1.0),
+            by = [ pl.col "DeviceId" ]
+        )
+    |> LazyFrame.agg [
+        pl.col("Reading").Mean().Alias("Avg_Reading")
+        pl.col("Reading").Count().Alias("Sample_Count")
+    ]
+    |> LazyFrame.collect
+```
+
+
+### Live Execution Output: Dynamic Time-Window Aggregations
+
+
+
+---
+
+## 6. Missing Value Interpolation
+
+Sensor disconnections and network drops often introduce missing (`null`) values in time series streams. Simple replacement with `FillNull(0)` can distort trend continuity.
+
+Polars.NET provides vectorized interpolation algorithms:
+* `Interpolate(InterpolationMethod.Linear)`: Standard equidistant linear interpolation.
+* `Interpolate(InterpolationMethod.Nearest)`: Nearest neighbor interpolation.
+* `InterpolateBy(byColumn)`: Non-equidistant interpolation guided by an independent variable column (such as timestamps or spatial coordinates).
+
+
+```csharp [C# (Fluent)]
+var interpolated = df.WithColumns(
+    // 1. Uniform linear interpolation by row index
+    Col("Reading").Interpolate(InterpolationMethod.Linear).Alias("LinearInterp"),
+
+    // 2. Non-uniform interpolation weighted by exact timestamps
+    Col("Reading").InterpolateBy(Col("Timestamp")).Alias("TimeAwareInterp")
+);
+```
+
+```fsharp [F# (Pipeline)]
+let interpolated =
+    df
+    |> pl.withColumns [
+        (pl.col "Reading").Interpolate(InterpolationMethod.Linear).Alias "LinearInterp"
+        (pl.col "Reading").InterpolateBy(pl.col "Timestamp").Alias "TimeAwareInterp"
+    ]
+```
+
+```csharp [C# (LINQ)]
+// Native LINQ extension methods for interpolation
+var linqInterp = from r in df.AsQueryable<SensorPoint>()
+                 select new {
+                     Time = r.Timestamp,
+                     Reading = r.Reading.Interpolate(InterpolationMethod.Linear)
+                 };
+```
+
+
+> [!TIP] Ensure Index Column Monotonicity
+> Both `InterpolateBy` and `GroupByDynamic` require the temporal index column to be sorted in ascending order (`Sort("Timestamp")`). Polars asserts monotonicity in Debug mode and relies on sorted order for high-performance $O(N)$ single-pass evaluation in production.
+
+---
+
+# Chapter: Delta Lake & ACID Lakehouse Storage
+*Source: articles/delta.md*
+
+# Delta Lake & Modern Lakehouse Storage
+
+[Delta Lake](https://delta.io/) is an open storage format that brings **ACID transactions**, **Time Travel**, **metadata versioning**, and **high-throughput MERGE/Upsert** capabilities on top of Apache Parquet data files.
+
+Traditional .NET applications accessing Delta Lake often rely on external JVM bridges, Apache Spark clusters, or REST services. **Polars.NET integrates native Rust `delta-rs` bindings**, allowing you to read, write, time-travel, and maintain Delta Lake tables directly within a single .NET process without any JVM dependencies.
+
+---
+
+## 1. Reading, Writing & Partitioning
+
+Polars.NET supports both Eager (`DataFrame`) and Lazy (`LazyFrame`) modes for Delta Lake tables:
+* **Reading**: Automatically parses the `_delta_log` transaction protocol and pushes down partition filters.
+* **Writing**: Atomically writes Parquet files and commits ACID transactions to the Delta transaction log.
+
+<div class="pl-pipeline">
+  <div class="pl-step">
+    <div class="pl-step-badge">1. Memory Pipeline</div>
+    <div class="pl-step-name">DataFrame / LazyFrame</div>
+    <div class="pl-step-desc">Columnar batch processing</div>
+  </div>
+  <div class="pl-arrow">&rarr;</div>
+  <div class="pl-step">
+    <div class="pl-step-badge">2. Columnar Disk Write</div>
+    <div class="pl-step-name">Parquet Data Files</div>
+    <div class="pl-step-desc">Hive-style directory partitioning</div>
+  </div>
+  <div class="pl-arrow">&rarr;</div>
+  <div class="pl-step">
+    <div class="pl-step-badge">3. Atomic Commit</div>
+    <div class="pl-step-name">_delta_log/*.json</div>
+    <div class="pl-step-desc">ACID transaction commit & version bump</div>
+  </div>
+</div>
+
+
+```csharp [C# (Fluent)]
+using Polars.CSharp;
+using static Polars.CSharp.Polars;
+
+var df = DataFrame.FromColumns(new
+{
+    Id = new[] { 1, 2, 3, 4 },
+    Device = new[] { "A", "A", "B", "B" },
+    Reading = new[] { 45.2, 78.0, 22.5, 91.3 }
+});
+
+// 1. Atomically overwrite a Delta table with Hive-style directory partitioning
+df.WriteDelta(
+    path: "./lake/devices",
+    partitionBy: Col("Device"),
+    mode: DeltaSaveMode.Overwrite,
+    mkdir: true
+);
+
+// 2. Lazily scan the Delta table (with automatic partition pruning)
+var lf = LazyFrame.ScanDelta("./lake/devices");
+var collected = lf.Filter(Col("Device") == "A").Collect();
+```
+
+```fsharp [F# (Pipeline)]
+open Polars.FSharp
+
+let df =
+    DataFrame.create [
+        pl.series "Id" [ 1; 2; 3; 4 ]
+        pl.series "Device" [ "A"; "A"; "B"; "B" ]
+        pl.series "Reading" [ 45.2; 78.0; 22.5; 91.3 ]
+    ]
+
+// 1. Write partitioned Delta table
+df.WriteDelta(
+    path = "./lake/devices",
+    partitionBy = pl.col "Device",
+    mode = DeltaSaveMode.Overwrite,
+    mkdir = true
+)
+
+// 2. Scan and filter with partition pruning
+let collected =
+    LazyFrame.ScanDelta "./lake/devices"
+    |> LazyFrame.filter (pl.col "Device" .== pl.lit "A")
+    |> LazyFrame.collect
+```
+
+
+---
+
+## 2. Time Travel & Point-in-Time Auditing
+
+Every commit to a Delta table records a discrete snapshot in the transaction log. You can query any prior snapshot by **Version** or by ISO-8601 **Timestamp**:
+
+
+```csharp [C# (Fluent)]
+// 1. Query by table commit version (e.g., Version 1 snapshot)
+var v1Df = LazyFrame.ScanDelta("./lake/devices", version: 1UL).Collect();
+
+// 2. Query point-in-time snapshot by timestamp
+var snapshotDf = LazyFrame.ScanDelta(
+    "./lake/devices",
+    datetime: "2026-02-09T12:00:00Z"
+).Collect();
+```
+
+```fsharp [F# (Pipeline)]
+// 1. Query Version 1 snapshot
+let v1Df = LazyFrame.ScanDelta("./lake/devices", version = 1UL).Collect()
+
+// 2. Query point-in-time snapshot
+let snapshotDf =
+    LazyFrame.ScanDelta("./lake/devices", datetime = "2026-02-09T12:00:00Z").Collect()
+```
+
+
+### Live Execution Output: Time Travel (Version 1 Snapshot)
+
+
+
+---
+
+## 3. Transaction History & Restoration (`History` & `Restore`)
+
+Using `Delta.History(path)`, you can retrieve a DataFrame detailing table operations (`WRITE`, `MERGE`, `VACUUM`), execution modes, and engine versions.
+
+If erroneous data is committed, `Delta.Restore` rolls back the table to any valid prior state:
+
+
+```csharp [C# (Fluent)]
+// 1. Inspect audit trail and commit provenance
+var historyDf = Delta.History("./lake/devices");
+
+// 2. Roll back table to Version 1 (records a new legitimate Restore commit)
+ulong newVersion = Delta.Restore("./lake/devices", version: 1UL);
+```
+
+```fsharp [F# (Pipeline)]
+// 1. Inspect table provenance
+let historyDf = Delta.History "./lake/devices"
+
+// 2. Roll back to Version 1
+let newVersion = Delta.Restore("./lake/devices", version: 1UL)
+```
+
+
+### Live Execution Output: ACID Commit History Table (`Delta.History()`)
+
+
+
+---
+
+## 4. Compaction & File Hygiene (`Optimize` & `Vacuum`)
+
+Frequent incremental writes create many small Parquet files. This fragmentation degrades read performance.
+
+Polars.NET provides native table maintenance operations:
+* **Bin-packing**: Merges small files into target sizes (e.g. 128 MB).
+* **Z-Order Clustering**: Constructs multidimensional Space-Filling curves across high-cardinality filter columns to accelerate Parquet data skipping.
+* **Vacuum**: Purges obsolete data files older than the configured retention threshold.
+
+
+```csharp [C# (Fluent)]
+// 1. Bin-pack small files and apply Z-Order clustering on Id and Device
+long compactedFiles = Delta.Optimize(
+    path: "./lake/devices",
+    targetSizeMb: 128,
+    zOrderColumns: new[] { "Id", "Device" }
+);
+
+// 2. Purge unreferenced files older than 7 days (168 hours)
+long deletedFiles = Delta.Vacuum(
+    path: "./lake/devices",
+    retentionHours: 168,
+    enforceRetention: true
+);
+```
+
+```fsharp [F# (Pipeline)]
+// 1. Optimize layout and cluster with Z-Order
+let compactedFiles =
+    Delta.Optimize(
+        path = "./lake/devices",
+        targetSizeMb = 128L,
+        zOrderColumns = [| "Id"; "Device" |]
+    )
+
+// 2. Vacuum orphaned data files
+let deletedFiles =
+    Delta.Vacuum(
+        path = "./lake/devices",
+        retentionHours = 168,
+        enforceRetention = true
+    )
+```
+
+
+---
+
+## 5. Change Data Feed (CDC)
+
+When `DeltaTableProperties.EnableChangeDataFeed` is enabled, row-level mutations are recorded in the Delta log. Consumers can subscribe to these mutations incrementally without scanning the full table:
+
+
+```csharp [C# (Fluent)]
+// Enable Change Data Feed on the table
+Delta.SetTableProperties("./lake/devices", new Dictionary<string, string>
+{
+    [DeltaTableProperties.EnableChangeDataFeed] = "true"
+});
+
+// Stream row-level mutations between Version 2 and Version 5
+var cdcStream = Delta.ReadChangeDataFeed(
+    path: "./lake/devices",
+    startVersion: 2,
+    endVersion: 5
+);
+
+// Results include _change_type ('insert', 'update_preimage', 'update_postimage', 'delete')
+var changes = cdcStream.Collect();
+```
+
+```fsharp [F# (Pipeline)]
+// Stream incremental CDC changes
+let cdcStream =
+    Delta.ReadChangeDataFeed(
+        path = "./lake/devices",
+        startVersion = 2L,
+        endVersion = 5L
+    )
+
+let changes = cdcStream.Collect()
+```
+
+
+---
+
+## 6. Order-Preserving SQL MERGE (Upsert & Deletion Vectors)
+
+In complex ETL pipelines, out-of-order evaluations of matched and non-matched conditions can cause unexpected data overwrites.
+
+Polars.NET provides `MergeDeltaOrdered`, ensuring strict evaluation matching ANSI SQL MERGE semantics:
+
+
+```csharp [C# (Fluent)]
+var sourceBatch = DataFrame.FromColumns(new
+{
+    Id = new[] { 2, 4, 5 },
+    Device = new[] { "A", "B", "C" },
+    Reading = new[] { 85.0, 95.5, 33.1 },
+    IsDeleted = new[] { false, true, false }
+});
+
+// Chain merge actions in strict evaluation order
+sourceBatch.MergeDeltaOrdered(
+    path: "./lake/devices",
+    mergeKeys: new[] { "Id" },
+    canEvolve: true // Enable automatic schema evolution
+)
+// 1. Delete rows marked as deleted in the source
+.WhenMatchedDelete(Delta.Source("IsDeleted") == true)
+
+// 2. Update matched rows when the incoming reading is newer
+.WhenMatchedUpdate(Delta.Source("Reading") > Delta.Target("Reading"))
+
+// 3. Insert non-matching rows from the source
+.WhenNotMatchedInsert()
+
+// 4. Atomically commit the transaction
+.Execute();
+```
+
+```fsharp [F# (Pipeline)]
+let sourceBatch =
+    DataFrame.create [
+        pl.series "Id" [ 2; 4; 5 ]
+        pl.series "Device" [ "A"; "B"; "C" ]
+        pl.series "Reading" [ 85.0; 95.5; 33.1 ]
+        pl.series "IsDeleted" [ false; true; false ]
+    ]
+
+sourceBatch.MergeDeltaOrdered("./lake/devices", [| "Id" |], canEvolve = true)
+    .WhenMatchedDelete(Delta.Source("IsDeleted") .== pl.lit true)
+    .WhenMatchedUpdate(Delta.Source("Reading") .> Delta.Target("Reading"))
+    .WhenNotMatchedInsert()
+    .Execute()
+```
+
+
+### Deletion Vectors & Merge-on-Read (MoR)
+
+> [!TIP] High-Throughput Updates and Deletions
+> By default, Delta Lake uses **Copy-on-Write (CoW)**: updating or deleting a single row requires rewriting the entire containing Parquet file.
+> 
+> When Deletion Vectors are enabled via `Delta.AddFeature(path, DeltaTableFeatures.DeletionVectors)`, Polars.NET switches to **Merge-on-Read (MoR)**. Deleted rows are recorded in lightweight bitmap vector files without rewriting underlying Parquet files. During subsequent `Delta.Optimize` operations, affected partitions are compacted and rewritten cleanly in the background.
+
+---
+
+# Chapter: Idiomatic C# Patterns & Practices
+*Source: articles/csharp-idioms.md*
+
+# Polars.CSharp Idioms & Best Practices
+
+## 1. Namespace & Static Imports
+
+Two standard import idioms are used across `Polars.CSharp`:
+
+```csharp
+// Style 1: Explicit Alias (Python-like: Pl.Col, Pl.Lit, Cs.Numeric)
+using Polars.CSharp;
+using Pl = Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
+
+// Style 2: Static Import (Rust-like: Col, Lit, When, Numeric)
+using Polars.CSharp;
+using static Polars.CSharp.Polars;
+using static Polars.CSharp.Polars.Selectors;
+```
+
+---
+
+## 2. Creating DataFrames & Series
+
+```csharp
+// 1. Direct row ingestion from List<T> / IEnumerable<T> (Most idiomatic .NET pattern)
+List<Employee> employees = GetEmployees();
+using var df1 = DataFrame.FromRows(employees);
+
+// Convert back to strongly-typed records/classes using high-performance stack enumerator:
+List<Employee> list = df1.Rows<Employee>().ToList();
+
+// 2. Direct LINQ queryable pipeline from any in-memory collection:
+using Polars.CSharp.Linq;
+var topEmployees = employees.AsPolarsQueryable()
+    .Where(e => e.Score > 90.0)
+    .OrderByDescending(e => e.Score)
+    .ToDataFrame();
+
+// Seamless in-memory Join, Concat, and Union without manual conversion:
+List<Department> departments = GetDepartments();
+using var enrichedDf = employees.AsPolarsQueryable()
+    .Join(departments, e => e.DeptId, d => d.Id, (e, d) => new { e.Name, d.DeptName })
+    .ToDataFrame();
+
+// 3. From columnar anonymous object (Structure of Arrays)
+using var df2 = DataFrame.FromColumns(new
+{
+    id = new[] { 1, 2, 3 },
+    name = new[] { "Alice", "Bob", "Charlie" },
+    score = new double?[] { 95.5, null, 88.0 }
+});
+
+// 4. From Series (supports spans, arrays, nullable arrays, tensors)
+using var df3 = new DataFrame(
+    Series.From("id", [1, 2, 3]),
+    Series.From("val", [10.0, 20.0, 30.0])
+);
+
+// 4. Zero-copy Apache Arrow Interop
+using var dfArrow = DataFrame.FromArrow(recordBatch);
+using RecordBatch batch = dfArrow.ToArrow();
+
+// 5. C# 12 Collection Expressions (via [CollectionBuilder])
+using DataFrame df5 = [
+    Series.From("id", [1, 2, 3]),
+    Series.From("val", [10.0, 20.0, 30.0])
+];
+
+// 6. Direct Column Enumeration (DataFrame implements IEnumerable<Series>)
+foreach (Series col in df5)
+{
+    Console.WriteLine($"Column '{col.Name}' ({col.DataType}): {col.Len()} rows");
+}
+
+// 7. Schema Dictionary Protocols (PolarsSchema implements IReadOnlyDictionary<string, DataType>)
+PolarsSchema schema = df5.Schema;
+DataType valType = schema["val"];
+bool hasId = schema.ContainsKey("id");
+foreach (var (colName, dt) in schema)
+{
+    Console.WriteLine($"{colName}: {dt}");
+}
+```
+
+---
+
+## 3. Expressive 2D Indexers (`df[...]`)
+
+`DataFrame` supports Python/NumPy-style 1D and 2D indexing with `Range`, `Index` (`^1`), boolean mask `Series`, index `Series`, column names, and `IntoSelector` (`Cs.*`, `typeof(...)`):
+
+```csharp
+Series col = df["Age"];                                  // Single column by name
+Series col0 = df[0];                                     // Single column by index
+object? cell = df[^1, "Age"];                            // Single cell at last row
+DataFrame subCols = df[["Name", "Score"]];               // Column subset
+DataFrame numCols = df[Cs.Numeric()];                    // Selector subset
+DataFrame floatCols = df[typeof(double)];                // By .NET Type selector
+DataFrame sliced = df[1..10, Cs.Numeric()];              // Row range + Selector
+DataFrame filtered = df[df["Age"] >= 18, ["Name", "Age"]]; // Boolean Series mask + columns
+```
+
+---
+
+## 4. Expressions, Operators & Sub-namespaces
+
+### Operators on `Expr`
+- **Arithmetic**: `+`, `-`, `*`, `/`, `%` (automatically broadcasts scalars: `Pl.Col("x") * 2`)
+- **Comparisons**: `==`, `!=`, `>`, `>=`, `<`, `<=`
+  - **Note**: `Pl.Col("a") == "foo"` compares column `"a"` to literal `"foo"`. To compare two columns, use `Pl.Col("a") == Pl.Col("b")`.
+- **Logical / Bitwise**: Use single `&`, `|`, `^`, `!`, `~` on `Expr` (C# `&&` and `||` cannot be overloaded to return `Expr` directly):
+  ```csharp
+  df.Filter((Pl.Col("age") >= 18) & (Pl.Col("dept") == "IT"))
+  ```
+
+### Conditionals (`When / Then / Otherwise`)
+```csharp
+Pl.When(Pl.Col("score") >= 90).Then("A")
+  .When(Pl.Col("score") >= 60).Then("B")
+  .Otherwise("F")
+  .Alias("grade")
+```
+
+### Sub-namespaces on `Expr` and `Series`
+- `.Str` ([Expr.Str](/api/csharp_generated/Expr.Str)): `Contains`, `ContainsAny`, `ReplaceAll`, `Extract`, `Split`, `StripChars`, `ToDatetime`, `JsonPathMatch`, etc.
+- `.Dt` ([Expr.Dt](/api/csharp_generated/Expr.Dt)): `Year`, `Month`, `Day`, `Truncate`, `OffsetBy`, `ConvertTimeZone`, `TotalMilliseconds`, `AddBusinessDays`, etc.
+- `.List` ([Expr.List](/api/csharp_generated/Expr.List)): `Len`, `Get`, `Slice`, `Eval`, `Explode`, `Join`, `Contains`, `Unique`, `Sum`, `Mean`, etc.
+- `.Array` ([Expr.Array](/api/csharp_generated/Expr.Array)): fixed-size array operations (`Width`, `Sum`, `Max`, `ToList`, `Get`, etc.).
+- `.Struct` ([Expr.Struct](/api/csharp_generated/Expr.Struct)): `Field`, `RenameFields`, `JsonEncode`, `Unnest`.
+- `.Name` ([Expr.Name](/api/csharp_generated/Expr.Name)): `Prefix`, `Suffix`, `ToLowercase`, `ToUppercase`, `Keep`.
+- `.Meta` ([Expr.Meta](/api/csharp_generated/Expr.Meta)): `FormatTree`, `OutputName`, `RootNames`, `Eq`.
+
+---
+
+## 5. Selectors (`Polars.Selectors` / `Cs`)
+
+Selectors allow selecting columns by type, pattern, or set algebra (`|`, `&`, `-`, `~`):
+```csharp
+using Cs = Polars.CSharp.Polars.Selectors;
+
+// Select all numeric columns except "id", and fill nulls with 0
+df.WithColumns((Cs.Numeric() - Cs.ByName("id")).FillNull(0));
+
+// Select strings or columns matching regex
+df.Select(Cs.String() | Cs.Matches("^meta_.*"));
+```
+
+---
+
+## 6. GroupBy, Having & Sugar Aggregations
+
+`GroupByBuilder` supports both full `.Agg(...)` and direct sugar methods (`.Len()`, `.Sum()`, `.Mean()`, `.Min()`, `.Max()`, `.First()`, `.Last()`, `.Head()`, `.Tail()`), plus SQL-style `.Having(...)`:
+```csharp
+using var res = df
+    .GroupBy("dept")
+    .Having(Pl.Col("salary").Sum() > 100_000)
+    .Agg(
+        Pl.Col("salary").Sum().Alias("total_salary"),
+        Pl.Col("salary").Mean().Alias("avg_salary"),
+        Pl.Len().Alias("headcount")
+    )
+    .Sort("total_salary", descending: true);
+```
+
+---
+
+## 7. LazyFrame, Streaming & Sinks
+
+Prefer `LazyFrame` (`ScanParquet`, `ScanCsv`, `ScanNdjson`, `ScanDelta`, or `df.Lazy()`) for query optimization, predicate pushdown, and streaming execution:
+```csharp
+using var lf = LazyFrame.ScanParquet("s3://bucket/data/*.parquet", cloudOptions: CloudOptions.Aws("us-east-1"));
+using var df = lf
+    .Filter(Pl.Col("ts") >= new DateOnly(2025, 1, 1))
+    .GroupBy("region")
+    .Agg(Pl.Col("revenue").Sum())
+    .Collect(engine: Engine.Streaming); // Or SinkParquet("output.parquet")
+```
+
+---
+
+## 8. Polars.NET Exclusive: `Merge` Operator (SQL MERGE / Upsert)
+
+The `Merge` operator is unique to Polars.NET (not present in Python Polars). It provides complete ANSI SQL `MERGE INTO ... USING` upsert semantics with unmatched speed across in-memory DataFrames and lazy plans.
+
+### Fluent API (on `DataFrame` and `LazyFrame`)
+Matches rows using column names, composite keys, or Selectors (`Cs.*`):
+```csharp
+using var resultDf = targetDf.Merge(sourceDf, "Id") // Or composite: new[] { "TenantId", "UserId" }, or Cs.StartsWith("Id")
+    // 1. Delete matched records based on condition:
+    .WhenMatchedDelete(m => m.Source("IsBanned"))
+    // 2. Update matched records:
+    .WhenMatchedUpdate(
+        condition: null,
+        set: s => s
+            .Set(Cs.StartsWith("Stat_"), (m, colName) => m.Source(colName))
+            .Set("Score", m => m.Target("Score") + m.Source("ScoreDelta"))
+            .Set("Tag", Pl.Lit("Updated"))
+    )
+    // 3. Insert new records from source:
+    .WhenNotMatchedInsert(
+        condition: null,
+        set: s => s
+            .Set("Id", m => m.Source("Id"))
+            .Set("Name", m => m.Source("Name"))
+            .Set(Cs.StartsWith("Stat_"), (m, colName) => m.Source(colName))
+            .Set("Tag", Pl.Lit("New"))
+    )
+    // 4. Delete target records that no longer exist in source:
+    .WhenNotMatchedBySourceDelete(m => m.Target("IsTemporary"))
+    .Execute(); // Or .ToLazyFrame() for LazyFrame!
+```
+*(For strongly-typed LINQ Merge directly on DataFrames or in-memory `List<T>`, see [LINQ & Query CE](./linq#7-polarsnet-exclusive-strongly-typed-linq-merge-typedmerge).)*
+
+---
+
+## 9. High-Performance Typed Row Traversal (`df.Rows<T>()`)
+
+While procedural row-level loops should generally be avoided in favor of vectorized SIMD column expressions, certain workflows (such as sending individual records to legacy external services or gRPC streaming endpoints) genuinely require row iteration.
+
+Instead of untyped `df.Rows()` (which incurs boxing and GC allocations), use `df.Rows<T>()`:
+
+```csharp
+public record ScoreRecord(int Id, string Student, double Score);
+
+// Zero GC Allocation: Returns a stack-allocated `ref struct DataFrameRowEnumerator<T>`
+// with pre-compiled IL fast-path field accessors:
+foreach (ScoreRecord record in df.Rows<ScoreRecord>())
+{
+    await SendRecordToExternalServiceAsync(record);
+}
+
+// Or materialize directly into a typed List<T> without enumerator heap allocation:
+List<ScoreRecord> allScores = df.Rows<ScoreRecord>().ToList();
+```
+
+---
+
+## 10. Asynchronous Streaming (`IAsyncEnumerable`)
+
+Polars.NET integrates cooperatively with modern C# asynchronous streams to process large datasets without starving the thread pool:
+
+```csharp
+// 1. Cooperative row-level streaming:
+await foreach (ScoreRecord r in df.ToAsyncEnumerable<ScoreRecord>(chunkSize: 10_000))
+{
+    await ProcessAsync(r);
+}
+
+// 2. Out-of-core batch streaming directly from LazyFrame:
+await foreach (DataFrame batch in lf.CollectBatchesAsync(chunkSize: 50_000))
+{
+    using (batch)
+    {
+        Console.WriteLine($"Processed native batch of {batch.Height} rows.");
+    }
+}
+```
+
+---
+
+# Chapter: Idiomatic F# Patterns & Zero-Allocation Struct Enumerators
+*Source: articles/fsharp-idioms.md*
+
+# Polars.FSharp Idioms & Dual-Paradigm Guide
+
+`Polars.FSharp` is designed as a **hybrid functional + object-oriented** library:
+- **Functional Pipeline Modules** (`pl`, `DataFrame`, `LazyFrame`, `Series`, `cs`) let you chain transformations idiomatically with `|>`.
+- **PascalCase Member Methods** on `DataFrame`, `LazyFrame`, `Expr`, and `Series` provide full access to optional parameters with default values and all sub-namespaces (`.Str`, `.Dt`, `.List`, `.Array`, `.Struct`, `.Cat`, `.Bin`, `.Meta`, `.Name`).
+- **Rule of Thumb**: Start with `Polars.FSharp.Query` (`query { }`) or pipeline module functions (`DataFrame.*`, `LazyFrame.*`, `pl.*`). Whenever a specialized overload, optional parameter, or sub-namespace operation is not in the module, invoke the **member method** directly.
+
+---
+
+## 1. Custom Comparison & Logical Operators on `Expr`
+
+In F#, standard `=`, `<>`, `>`, `<`, `>=`, `<=` return `bool` and `&&` / `||` cannot be overloaded. Always use the **dot-prefixed operators** when constructing Polars expressions:
+
+| Operation | F# `Expr` Operator | Example |
+| :--- | :--- | :--- |
+| Equal | `.==` | `pl.col "dept" .== pl.lit "IT"` |
+| Not Equal | `.!=` | `pl.col "status" .!= pl.lit "closed"` |
+| Greater / GreaterOrEqual | `.>` / `.>=` | `pl.col "age" .>= pl.lit 18` |
+| Less / LessOrEqual | `.<` / `.<=` | `pl.col "price" .< pl.lit 99.9` |
+| Logical AND | `.&&` | `(pl.col "a" .> pl.lit 0) .&& (pl.col "b" .< pl.lit 10)` |
+| Logical OR | `.||` | `(pl.col "a" .== pl.lit 1) .|| (pl.col "b" .== pl.lit 2)` |
+| Arithmetic | `+`, `-`, `*`, `/`, `%` | `(pl.col "price" * pl.lit 1.08)` |
+
+> [!NOTE]
+> Because `[<AutoOpen>]` modules expose `col`, `lit`, `alias`, `when'`, etc., you can write either `pl.col "a"` or bare `col "a"`. Using `pl.col` / `pl.lit` is recommended when variables in scope might shadow `col`.
+
+---
+
+## 2. Pipeline Modules vs Member Methods
+
+### Pipeline Style (`DataFrame.*`, `LazyFrame.*`, `pl.*`)
+```fsharp
+open Polars.FSharp
+
+use df =
+    DataFrame.ReadCsv(path = "users.csv", tryParseDates = true)
+    |> DataFrame.filter (pl.col "age" .>= pl.lit 18)
+    |> DataFrame.withColumns [
+        (pl.col "weight" / (pl.col "height" * pl.col "height")) |> pl.alias "bmi"
+        (pl.col "birthdate").Dt.Year().Alias "birth_year"
+    ]
+    |> DataFrame.select [
+        pl.col "name"
+        pl.col "bmi"
+        pl.col "birth_year"
+    ]
+```
+
+### Mixing Member Methods for Sub-namespaces & Optional Parameters
+Sub-namespaces (`.Str`, `.Dt`, `.List`, `.Array`, `.Struct`, `.Cat`, `.Bin`, `.Meta`, `.Name`) and multi-option methods are called via dot notation:
+```fsharp
+let expr =
+    (pl.col "raw_ts")
+        .Str.StripChars()
+        .Str.ToDatetime("%Y-%m-%d %H:%M:%S", strict = false)
+        .Dt.Truncate("1h")
+        .Alias("hour_bucket")
+```
+
+---
+
+## 3. F# Records, Option / ValueOption & Type Safety
+
+`Polars.FSharp` natively understands F# `Record`, `Anon Record`, `'T option`, and `'T voption`:
+```fsharp
+type UserRecord = {
+    Id: int
+    Name: string
+    Score: float option      // Maps to nullable Float64 column
+    Tag: string voption      // Maps to nullable String column
+}
+
+// Create DataFrame from F# records:
+use df = DataFrame.ofRecords users
+
+// Convert DataFrame back to F# records:
+let rows: UserRecord list = df.ToRecords<UserRecord>()
+
+// Create Series from F# list/seq/array (including option lists):
+use s1 = Series.create("scores", [Some 10.5; None; Some 20.0])
+
+// Typed scalar access:
+let vOpt: float option = s1.GetValueOption<float>(1L) // None
+let vRaw: float = s1.GetValue<float>(0L)              // 10.5
+
+// Column enumeration (DataFrame implements seq<Series>):
+for col in df do
+    printfn "Column: %s (%O)" col.Name col.DataType
+
+// Schema dictionary access (PolarsSchema implements IReadOnlyDictionary<string, DataType>):
+use schema = df.Schema
+let idType = schema.["Id"]
+let hasScore = schema.ContainsKey "Score"
+for kv in schema do
+    printfn "%s -> %O" kv.Key kv.Value
+```
+
+---
+
+## 4. Zero-Allocation Stack Enumeration & Higher-Order Combinators
+
+In high-throughput F# applications, processing elements or rows through standard `IEnumerable<'T>` incurs interface dispatch, heap-allocated enumerators, and boxing overhead. `Polars.FSharp` provides **stack-allocated `[<Struct>]` enumerators** alongside functional combinator modules for both `Series` and `DataFrame`.
+
+### Stack-Allocated `SeriesEnumerator<'T>`
+
+Invoking `series.As<'T>()` returns a stack struct enumerator. Because it defines `MoveNext()` and `Current`, F#'s compiler leverages duck-typing to generate a direct `while` loop on the stack with **zero heap allocations**:
+
+```fsharp
+open Polars.FSharp
+
+let s = pl.series "values" [ 10; 20; 30; 40; 50 ]
+
+// 1. Duck-typed for-loop directly on the stack (zero GC pressure):
+for x in s.As<int>() do
+    printfn "Value: %d" x
+
+// 2. Materialize without allocating Seq wrappers:
+let arr: int array = s.As<int>().ToArray()
+let lst: int list = s.As<int>().ToList()
+let headVal: int voption = s.As<int>().TryHead()
+```
+
+### Functional `Series` Combinators
+
+The `Series` module and `Series` extensions provide functional combinators:
+
+```fsharp
+// Pure mapping (with automatic Arrow return DataType inference)
+let sDouble = s |> Series.map (fun (x: int) -> float x * 1.5)
+let sWithIdx = s |> Series.mapi (fun idx x -> sprintf "%d: %d" idx x)
+
+// Handling nulls via Option / ValueOption
+let sOpt = s |> Series.mapValueOption (fun (v: int voption) ->
+    match v with
+    | ValueSome x when x > 20 -> ValueSome (x * 2)
+    | _ -> ValueNone
+)
+
+// High-speed predicates and searches
+let hasPositive = s |> Series.exists (fun x -> x > 0)
+let allPositive = s |> Series.forall (fun x -> x > 0)
+let containsThirty = s |> Series.contains 30
+
+// Dense vs. Null-Aware side-effect iteration:
+// .Iter<'T> skips nulls automatically:
+s.Iter<int>(fun v -> printfn "Dense non-null: %d" v)
+
+// .IterOpt<'T> delivers ValueOption explicitly for every single row:
+s.IterOpt<int>(fun opt ->
+    match opt with
+    | ValueSome v -> printfn "Present: %d" v
+    | ValueNone -> printfn "Null"
+)
+
+// Pairwise iteration across two equal-length Series:
+let s2 = pl.series "weights" [ 1.0; 2.0; 3.0; 4.0; 5.0 ]
+s.Iter2<int, float>(s2, fun v1 v2 -> printfn "Point: %d * %f" v1 v2)
+```
+
+---
+
+## 5. High-Throughput Row Processing: `df.Rows<'T>()` & `Rows` Module
+
+For record-level processing, `df.Rows<'T>()` constructs a `RowEnumerator<'T>`, which uses compiled expression trees to project columnar memory directly into typed F# records.
+
+The `Rows` module exposes inlined higher-order functions (`[<InlineIfLambda>]`), eliminating lambda allocations and iterator heap overhead:
+
+```fsharp
+type SensorRecord = {
+    DeviceId: string
+    Temperature: float
+    Pressure: float
+}
+
+let df =
+    DataFrame.create [
+        pl.series "DeviceId" [ "A1"; "A1"; "B2"; "B2" ]
+        pl.series "Temperature" [ 22.4; 24.1; 19.8; 21.2 ]
+        pl.series "Pressure" [ 101.3; 101.1; 100.8; 100.9 ]
+    ]
+
+// 1. Zero-allocation loop over strongly-typed records:
+for row in df.Rows<SensorRecord>() do
+    printfn "Device %s: Temp=%f" row.DeviceId row.Temperature
+
+// 2. Rows.fold: Stack-based accumulation with inlined folder lambda
+let totalTemp =
+    df.Rows<SensorRecord>()
+    |> Rows.fold (fun acc r -> acc + r.Temperature) 0.0
+
+// 3. Rows.reduce: In-place record reduction
+let hottestSensor =
+    df.Rows<SensorRecord>()
+    |> Rows.reduce (fun r1 r2 -> if r1.Temperature > r2.Temperature then r1 else r2)
+
+// 4. Rows.mapToArray: Direct typed array projection
+let formattedNames: string array =
+    df.Rows<SensorRecord>()
+    |> Rows.mapToArray (fun r -> sprintf "%s (%.1f C)" r.DeviceId r.Temperature)
+```
+
+### DataFrame-Level Functional Transformations
+
+Beyond row-level consumption, you can transform DataFrames functionally:
+
+```fsharp
+type SummaryRow = {
+    DeviceId: string
+    IsWarning: bool
+}
+
+// MapRows: Transforms source records to target records, automatically materializing
+// a new columnar DataFrame without reflection:
+let summaryDf =
+    df.MapRows<SensorRecord, SummaryRow>(fun r -> {
+        DeviceId = r.DeviceId
+        IsWarning = r.Temperature > 23.0
+    })
+
+// Map: Transform every column Series while preserving column names
+let normalizedDf =
+    df.Map(fun (col: Series) ->
+        if col.DataType = DataType.Float64 then
+            col / 100.0
+        else
+            col
+    )
+
+// IterRows: High-throughput side effects per record
+df.IterRows<SensorRecord>(fun r ->
+    if r.Temperature > 23.0 then
+        printfn "[WARNING] Device %s temp: %f" r.DeviceId r.Temperature
+)
+```
+
+---
+
+## 6. Pipeline Execution & Sinks
+
+F# pipelines support both in-memory materialization (`LazyFrame.collect`, `.Collect()`) and direct out-of-core streaming sinks:
+```fsharp
+use lf = LazyFrame.ScanParquet "events.parquet"
+
+// 1. In-memory execution:
+use df = lf |> LazyFrame.filter (pl.col "valid" .== pl.lit true) |> LazyFrame.collect
+
+// 2. Direct streaming sinks (out-of-core):
+lf.SinkParquet "backup.parquet"
+```
+
+---
+
+## 7. Polars.NET Exclusive: Merge Pipeline API
+
+In `Polars.FSharp`, SQL MERGE / Upsert operations are expressed naturally as composable pipeline functions (`Merge.*`):
+
+```fsharp
+open Polars.FSharp
+
+let target = pl.dataframe [
+    pl.series "id" [ 1; 2; 3 ]
+    pl.series "score" [ 10; 20; 30 ]
+]
+
+let source = pl.dataframe [
+    pl.series "id" [ 2; 3; 4 ]
+    pl.series "score" [ 200; 0; 40 ]
+    pl.series "is_deleted" [ false; true; false ]
+]
+
+use result =
+    target.Merge(source, pl.col "id")
+    // 1. Delete matched records based on condition
+    |> Merge.whenMatchedDelete (Some (fun ctx -> ctx.SourceCol "is_deleted" .== pl.lit true))
+    // 2. Update remaining matched records
+    |> Merge.whenMatchedUpdateAll
+    // 3. Insert new records from source
+    |> Merge.whenNotMatchedInsertAll
+    // 4. Execute eager (or Merge.executeLazy)
+    |> Merge.executeEager Engine.Auto
+```
+
+---
+
+## 8. Asynchronous Streaming (`RowsAsync`)
+
+Polars.FSharp provides first-class support for asynchronous pipelines through the `RowsAsync` module:
+
+```fsharp
+open Polars.FSharp
+
+task {
+    // 1. Filter and drain async row streams into an F# list:
+    let! hotSensors =
+        df.RowsAsync<SensorRecord>(chunkSize = 5000)
+        |> RowsAsync.filter (fun s -> s.Temperature > 80.0)
+        |> RowsAsync.toList
+
+    // 2. Aggregate over an asynchronous stream without materializing the entire dataset in memory:
+    let! totalRevenue =
+        lf.RowsAsync<OrderRecord>(chunkSize = 10_000L, engine = Engine.Auto)
+        |> RowsAsync.fold (fun acc o -> acc + o.Revenue) 0.0
+
+    printfn $"Total revenue computed asynchronously: %f{totalRevenue}"
+}
+```
+
+---
+
+# Chapter: Native LINQ & F# Query Computation Expressions
+*Source: articles/linq.md*
+
+# LINQ Provider (`IQueryable`) & F# Query CE
+
+Polars.NET contains a production-grade LINQ expression-tree compiler (`Polars.NET.Linq`) that translates standard C# `IQueryable<T>` queries and F# `query { }` computation expressions directly into native Rust `LazyFrame` physical plans. 
+
+When a query is fully pushed down, Polars executes multithreaded SIMD kernels in Rust and directly yields a `DataFrame` **without allocating a single intermediate .NET row object**.
+
+<div class="pl-pipeline">
+  <div class="pl-pipeline-row">
+    <div class="pl-step">
+      <div class="pl-step-title">1. .NET Query Frontends</div>
+      <div class="pl-step-desc">
+        • C# LINQ Query Syntax (<code>from ... select ...</code>)<br>
+        • C# Method Syntax (<code>.Where().Select()</code>)<br>
+        • F# Query CE (<code>query { for ... select ... }</code>)
+      </div>
+    </div>
+    <div class="pl-arrow">→</div>
+    <div class="pl-step">
+      <div class="pl-step-title">2. Expression Tree Compiler</div>
+      <div class="pl-step-desc">
+        • <b>Tier 1</b>: 100% Native Pushdown (Rust DAG)<br>
+        • <b>Tier 2</b>: Hybrid (Native Pushdown + Arrow Cursor)<br>
+        • <b>Tier 3</b>: Strict Policy / Client Evaluation
+      </div>
+    </div>
+    <div class="pl-arrow">→</div>
+    <div class="pl-step">
+      <div class="pl-step-title">3. Execution & Materialization</div>
+      <div class="pl-step-desc">
+        • <code>.ToDataFrame()</code>: Zero managed heap allocations<br>
+        • <code>.ToLazyFrame()</code>: Escape to raw Polars DSL<br>
+        • <code>.ToList() / .ToArray()</code>: Typed object hydration
+      </div>
+    </div>
+  </div>
+</div>
+
+---
+
+## 1. Entrypoints & Query Materialization
+
+To query a DataFrame or LazyFrame with LINQ, call `.AsQueryable<T>()`. The query executes lazily—no computation occurs until a terminal method is called:
+
+
+```csharp [C# (Query Syntax)]
+using Polars;
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+public record OrderDto(int OrderId, string Customer, string Region, double Revenue);
+
+// 1. Enter LINQ from DataFrame or LazyFrame:
+var query = from o in df.AsQueryable<OrderDto>()
+            where o.Revenue >= 500.0 && o.Region != "Test"
+            group o by o.Region into g
+            select new {
+                Region = g.Key,
+                TotalRevenue = g.Sum(x => x.Revenue),
+                OrderCount = g.Count()
+            };
+
+// 2. Materialize directly into a Polars DataFrame (Zero .NET Object Allocation):
+using DataFrame resultDf = query.ToDataFrame();
+
+// 3. Or inspect the compiled native plan:
+Console.WriteLine(query.Explain());
+```
+
+```csharp [C# (Method Syntax)]
+using Polars;
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+public record OrderDto(int OrderId, string Customer, string Region, double Revenue);
+
+var query = df.AsQueryable<OrderDto>()
+    .Where(o => o.Revenue >= 500.0 && o.Region != "Test")
+    .GroupBy(o => o.Region)
+    .Select(g => new {
+        Region = g.Key,
+        TotalRevenue = g.Sum(x => x.Revenue),
+        OrderCount = g.Count()
+    });
+
+using DataFrame resultDf = query.ToDataFrame();
+```
+
+```fsharp [F# (Query CE)]
+open System.Linq
+open Polars.FSharp
+open Polars.FSharp.Query
+
+[<CLIMutable>]
+type OrderDto = {
+    OrderId: int
+    Customer: string
+    Region: string
+    Revenue: float
+}
+
+// 1. Enter F# query { } computation expression:
+let q =
+    query {
+        for o in df.AsQueryable<OrderDto>() do
+        where (o.Revenue >= 500.0 && o.Region <> "Test")
+        groupValBy o o.Region into g
+        select {|
+            Region = g.Key
+            TotalRevenue = g.Sum(fun x -> x.Revenue)
+            OrderCount = g.Count()
+        |}
+    }
+
+// 2. Materialize to DataFrame:
+use resultDf = q.ToDataFrame()
+
+// 3. Or inspect the compiled native plan:
+printfn "%s" (q.Explain())
+```
+
+```fsharp [F# (Pipeline API)]
+open Polars.FSharp
+open Polars.FSharp.Query
+
+// Idiomatic F# pipeline combinators over Query
+let resultDf =
+    df.AsQueryable<OrderDto>()
+    |> Query.where (fun o -> o.Revenue >= 500.0 && o.Region <> "Test")
+    |> Query.toDataFrame
+```
+
+
+### Real Engine Plan & Output
+
+Here is the exact logical execution plan and materialized DataFrame produced by Polars for the query above:
+
+#### A. 100% Native Pushdown Plan (`query.Explain()`)
+
+
+#### B. Materialized Native Output (`query.ToDataFrame()`)
+
+
+---
+
+### Direct Pipeline Entrypoints: Collections & ADO.NET Streams
+
+Instead of manually creating a `DataFrame` or `LazyFrame` first, you can enter the Polars LINQ pipeline directly from in-memory collections or database streams using `AsPolarsQueryable`:
+
+#### 1. In-Memory Collections (`IEnumerable<T>.AsPolarsQueryable()`)
+Directly transposes any `List<T>`, array, or in-memory sequence into a native Polars LazyFrame and exposes it as a Polars LINQ queryable:
+
+```csharp
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+List<OrderDto> orders = GetOrders();
+
+// Ingest in-memory list straight into native Polars Rust execution:
+using DataFrame topOrders = orders.AsPolarsQueryable()
+    .Where(o => o.Revenue >= 500.0)
+    .OrderByDescending(o => o.Revenue)
+    .Take(100)
+    .ToDataFrame();
+```
+
+#### 2. ADO.NET Database Streams (`IDataReader.AsPolarsQueryable()`)
+Streams an open `IDataReader` directly into a Polars LINQ query with configurable batch size, bypassing intermediate object allocations:
+
+```csharp
+using System.Data;
+using Microsoft.Data.SqlClient;
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+using var cmd = connection.CreateCommand();
+cmd.CommandText = "SELECT OrderId, Customer, Region, Revenue FROM Orders";
+using IDataReader reader = cmd.ExecuteReader();
+
+// Streams database rows straight into Polars LINQ engine:
+using DataFrame regionalSales = reader.AsPolarsQueryable<OrderDto>(batchSize: 50_000)
+    .Where(o => o.Revenue > 100.0)
+    .GroupBy(o => o.Region)
+    .Select(g => new {
+        Region = g.Key,
+        TotalRevenue = g.Sum(x => x.Revenue),
+        OrderCount = g.Count()
+    })
+    .ToDataFrame();
+```
+
+#### 3. Seamless In-Memory Collection Interop (Join, Concat & Union)
+
+The Polars LINQ provider seamlessly accepts arbitrary in-memory .NET collections (`List<T>`, arrays, `IEnumerable<T>`) as operands inside active queries without manual pre-conversion:
+
+* **In-Memory Join Pushdown**: Join a Polars DataFrame query directly with an in-memory lookup collection (`List<TInner>`). The provider transposes the in-memory sequence into native Arrow batches and executes a Tier-1 100% native pushdown join in Rust:
+  ```csharp
+  var inMemoryCustomers = new List<Customer>
+  {
+      new(1, "Alice"),
+      new(2, "Bob")
+  };
+
+  // query is a Polars queryable over a high-volume DataFrame or LazyFrame:
+  var enrichedQuery = ordersQuery.Join(
+      inMemoryCustomers, // Arbitrary in-memory List<T>
+      o => o.CustomerId,
+      c => c.Id,
+      (o, c) => new { o.OrderId, c.Name, o.Amount }
+  );
+
+  using DataFrame resultDf = enrichedQuery.ToDataFrame();
+  ```
+
+* **In-Memory Concat & Union Pushdown**: Append or merge in-memory rows directly into a Polars query:
+  ```csharp
+  var extraEmployees = new List<Employee>
+  {
+      new("Charlie", 35, 70000),
+      new("David", 40, 80000)
+  };
+
+  // Concatenate in-memory collection straight into the native physical plan:
+  var combinedQuery = query.Where(e => e.Age >= 25).Concat(extraEmployees);
+  using DataFrame combinedDf = combinedQuery.ToDataFrame();
+  ```
+
+> [!NOTE] Native Transposition Guarantee
+> When an in-memory collection participates in a `Join`, `Concat`, `Union`, or `Merge` operation, Polars.NET automatically transposes the managed objects into Arrow contiguous arrays, pushes execution into native Rust SIMD kernels, and preserves full query optimization.
+
+---
+
+## 2. Terminal Methods: What Can You Materialize?
+
+Polars.NET LINQ queries support diverse terminal materialization pathways depending on your scenario:
+
+| Method | Target | Performance Characteristics |
+| :--- | :--- | :--- |
+| **`.ToDataFrame()`** / **`.ToDataFrameAsync()`** | `DataFrame` | **Fastest**. 100% native Rust execution; zero .NET object hydration. |
+| **`.ToLazyFrame()`** | `LazyFrame` | Compiles the LINQ pipeline to a native `LazyFrame` for continued raw Polars DSL chaining. |
+| **`.ToSeries(name)`** | `Series` | Extracts a single column or composite struct series from a projected query. |
+| **`.ToList()`** / **`.ToArray()`** | `List<T>` / `T[]` | Materializes typed .NET objects via pre-compiled stack cursors. |
+| **`await foreach`** / **`.ToAsyncEnumerable()`** | `IAsyncEnumerable<T>` | Asynchronous non-blocking streaming without thread starvation. |
+| **`.First()`** / **`.Single()`** / **`.Count()`** | Scalar | Scalar aggregations pushed down to single-row reduction kernels. |
+
+---
+
+## 3. Supported Native BCL & C# Method Mappings
+
+The LINQ provider automatically translates standard .NET Base Class Library (BCL) calls into vectorized Polars expressions:
+
+<div class="pl-pipeline">
+  <div class="pl-pipeline-row">
+    <div class="pl-step">
+      <div class="pl-step-title">C# BCL Expressions</div>
+      <div class="pl-step-desc"><code>s.Name.ToUpper()</code><br><code>s.Created.Year</code><br><code>Math.Round(s.Price, 2)</code><br><code>Regex.IsMatch(s.Email, pattern)</code></div>
+    </div>
+    <div class="pl-arrow">→ <i>Compiled to</i> →</div>
+    <div class="pl-step">
+      <div class="pl-step-title">Rust Vectorized Kernels</div>
+      <div class="pl-step-desc"><code>col("Name").str.to_uppercase()</code><br><code>col("Created").dt.year()</code><br><code>col("Price").round(2)</code><br><code>col("Email").str.contains(pattern)</code></div>
+    </div>
+  </div>
+</div>
+
+| Category | Supported .NET Operations | Compiled Native Polars Expression |
+| :--- | :--- | :--- |
+| **Strings** | `s.Contains(x)`, `s.StartsWith(x)`, `s.EndsWith(x)`, `s.ToUpper()`, `s.ToLower()`, `s.Trim()`, `s.Substring(start, len)`, `s.Replace(a, b)`, `s.Length`, `string.IsNullOrEmpty(s)` | `.Str.Contains()`, `.Str.StartsWith()`, `.Str.ToUppercase()`, `.Str.Slice()`, `.Str.ReplaceAll()`, `.Str.LenBytes()` |
+| **Mathematics** | `Math.Abs(x)`, `Math.Round(x, n)`, `Math.Floor(x)`, `Math.Ceiling(x)`, `Math.Sqrt(x)`, `Math.Pow(x, y)`, `Math.Log(x)`, `Math.Exp(x)`, `Math.Sin(x)`, `Math.Clamp(x, min, max)` | `.Abs()`, `.Round()`, `.Floor()`, `.Ceil()`, `.Sqrt()`, `.Pow()`, `.Log()`, `.Exp()`, `.Sin()`, `.Clip()` |
+| **Date & Time** | `dt.Year`, `dt.Month`, `dt.Day`, `dt.Hour`, `dt.Minute`, `dt.Second`, `dt.DayOfWeek`, `dt.DayOfYear`, `dt.Date`, `dt.AddDays(n)` | `.Dt.Year()`, `.Dt.Month()`, `.Dt.Day()`, `.Dt.Hour()`, `.Dt.Minute()`, `.Dt.Second()`, `.Dt.Weekday()`, `.Dt.OffsetBy()` |
+| **Regular Expressions** | `Regex.IsMatch(s, pattern)` | `.Str.Contains(pattern)` using native Rust high-performance regex engine |
+| **Collections & Lists** | `item.Tags.Contains("promo")`, `item.Tags.Length`, `items.SelectMany(x => x.Tags)` | `.List.Contains()`, `.List.Len()`, Native **`.Explode()`** |
+| **Conditionals** | `x ? a : b`, `a ?? b` | Native ternary `When.Then.Otherwise` and `Coalesce` kernels |
+
+---
+
+## 4. The 3-Tier Execution Architecture
+
+When you call `query.Explain()`, Polars.NET reports one of three execution tiers:
+
+### Tier 1: `[100% Native Pushdown]`
+Every filtering, sorting, grouping, joining, and projection stage is translated into native Polars Rust expressions.
+* **Heap Impact**: Zero managed heap allocations during execution.
+* **Throughput**: Maximum SIMD vectorized throughput.
+
+### Tier 2: `[Hybrid Execution (Partial Pushdown)]`
+Filtering, sorting, and grouping run 100% in Rust. Only custom user code in the final `.Select(...)` (such as formatting or calling external helper functions) is evaluated on the client via a fast struct cursor:
+
+```csharp
+var query = df.AsQueryable<Transaction>()
+    .Where(t => t.Amount > 100)                      // Native Pushdown (Rust)
+    .OrderByDescending(t => t.Amount)               // Native Pushdown (Rust)
+    .Select(t => new {                              // Client Evaluation on final row:
+        t.Id,
+        FormattedDisplay = FormatExternal(t.Amount) // Custom C# method
+    });
+```
+
+### Tier 3: Client Evaluation Policy & `PolarsPushdownException`
+By default, Polars.NET adopts a **Strict Policy** (`ClientEvaluationPolicy.Strict`). If an unsupported custom method is used inside an *intermediate* stage (`Where`, `GroupBy`, `Join`), the provider throws `PolarsPushdownException` to prevent silent performance degradation:
+
+```csharp
+// [Error] Throws PolarsPushdownException: CustomMethod cannot be evaluated inside Rust SIMD kernel!
+var query = df.AsQueryable<Item>().Where(x => MyCustomHelper(x.Score));
+```
+
+#### How to Address Pushdown Exceptions:
+1. **Best Practice**: Replace custom methods with supported BCL functions (`string`, `Math`, `Regex`).
+2. **Hybrid Projection**: Move custom formatting into the terminal `.Select(...)` clause.
+3. **Explicit Client Evaluation**: Call `.AsEnumerable()` (C#) or `.AsSeq()` (F#) to consciously switch to in-memory LINQ:
+   ```csharp
+   // Explicitly offload to client:
+   var result = df.AsQueryable<Item>()
+       .Where(x => x.Active)               // Pushed down to Polars
+       .AsEnumerable()                     // Explicit client barrier
+       .Where(x => MyCustomHelper(x.Score)); // Evaluated on client
+   ```
+
+---
+
+## 5. Extended Analytics Operators in LINQ
+
+Standard C# LINQ syntax lacks window functions, lag/lead operators, and time-series tools. `Polars.CSharp.Linq` fills this gap by introducing extension methods usable directly inside LINQ `.Select(...)`:
+
+
+```csharp [C# (Window Functions & Shifts)]
+using Polars.CSharp.Linq;
+
+var query = df.AsQueryable<Employee>()
+    .Select(e => new
+    {
+        e.Name,
+        e.DepartmentId,
+        e.Salary,
+        // 1. Window Function: Group Average
+        DeptAvg = e.Salary.Average().Over(e.DepartmentId),
+        
+        // 2. Window Deviation
+        DiffFromAvg = e.Salary - e.Salary.Average().Over(e.DepartmentId),
+        
+        // 3. Dense Ranking within department
+        DeptRank = e.Salary.Rank(RankMethod.Dense, descending: true).Over(e.DepartmentId),
+        
+        // 4. Time-series Lead / Lag Shift
+        PrevSalary = e.Salary.Shift(1).Over(e.DepartmentId)
+    });
+```
+
+```csharp [C# (Time-Series Interpolation)]
+using Polars.CSharp.Linq;
+
+var cleanQuery = df.AsQueryable<SensorReading>()
+    .Select(r => new
+    {
+        r.Timestamp,
+        r.DeviceId,
+        // Linear interpolation over missing sensor readings partitioned by Device
+        CleanVal = r.RawValue.Interpolate(InterpolationMethod.Linear).Over(r.DeviceId)
+    });
+```
+
+
+---
+
+## 6. The Bidirectional Escape Hatch
+
+No matter how capable a LINQ provider is, advanced analytics occasionally require specialized engine-specific features (such as regex unnesting, Parquet scan tuning, or Aho-Corasick matching). Polars.NET provides a seamless **Bidirectional Escape Hatch**:
+
+<div class="pl-pipeline">
+  <div class="pl-pipeline-row">
+    <div class="pl-step" style="text-align: center;">
+      <div class="pl-step-title">IQueryable&lt;T&gt; (LINQ Provider)</div>
+      <div class="pl-step-desc">Typed C# queries and F# <code>query { }</code> with BCL expressions</div>
+    </div>
+    <div class="pl-arrow">⇄ <code>query.ToLazyFrame()</code> / <code>lf.AsQueryable&lt;T&gt;()</code> ⇄</div>
+    <div class="pl-step" style="text-align: center;">
+      <div class="pl-step-title">LazyFrame (Native Polars DSL)</div>
+      <div class="pl-step-desc">Raw Rust SIMD kernels, Selectors, and Streaming engine</div>
+    </div>
+  </div>
+</div>
+
+### Pattern 1: LINQ to Native LazyFrame (`.ToLazyFrame()`)
+Start with familiar LINQ for relational filtering and joining, then seamlessly switch to native Polars DSL for specialized operations:
+
+```csharp
+// 1. Build initial filtering using comfortable LINQ:
+var baseQuery = df.AsQueryable<LogEntry>()
+    .Where(e => e.Level == "ERROR" && e.Timestamp >= DateTime.UtcNow.AddDays(-7));
+
+// 2. Escape hatch to native LazyFrame:
+using LazyFrame lf = baseQuery.ToLazyFrame();
+
+// 3. Apply raw Polars domain operations (Regex extraction, etc.):
+using DataFrame finalDf = lf
+    .WithColumns(Pl.Col("Message").Str.ExtractAll(@"\[code:(\d+)\]").Alias("ErrorCodes"))
+    .Collect();
+```
+
+### Pattern 2: Native LazyFrame to LINQ (`.AsQueryable<T>()`)
+Conversely, start with specialized file scanning or partition pruning, and switch back to LINQ:
+
+```csharp
+// 1. Scan with specialized low-level parquet tuning:
+using LazyFrame lf = LazyFrame.ScanParquet("telemetry/*.parquet")
+    .Filter(Pl.Col("DeviceType") == "IoT");
+
+// 2. Resume querying with standard LINQ:
+var summary = from r in lf.AsQueryable<TelemetryDto>()
+              group r by r.Location into g
+              select new {
+                  Location = g.Key,
+                  AvgTemp = g.Average(x => x.Temperature)
+              };
+```
+
+---
+
+## 7. Polars.NET Exclusive: Strongly-Typed LINQ Merge (`TypedMerge`)
+
+Polars.NET brings full **ANSI SQL `MERGE`** semantics directly into the C# and F# LINQ ecosystem:
+
+
+```csharp [C# (TypedMerge)]
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+var targetQuery = targetDf.AsQueryable<ProductItem>();
+var sourceQuery = sourceDf.AsQueryable<ProductItem>();
+
+// Perform strongly-typed SQL MERGE using C# expression trees
+using DataFrame resultDf = targetQuery.Merge(sourceQuery, t => t.Id, s => s.Id)
+    // 1. Matched condition -> Delete
+    .WhenMatched(
+        (t, s) => s.IsDiscontinued,
+        then => then.Delete()
+    )
+    // 2. Matched condition -> Update modified fields
+    .WhenMatched(
+        (t, s) => s.Price != t.Price,
+        then => then.Update(set => set.Set(t => t.Price, (t, s) => s.Price))
+    )
+    // 3. Not matched in target -> Insert new item from source
+    .WhenNotMatchedByTarget(
+        s => s.Price > 0.0,
+        then => then.Insert()
+    )
+    // 4. Not matched in source -> Delete obsolete target item
+    .WhenNotMatchedBySource(
+        t => t.Category == "Seasonal",
+        then => then.Delete()
+    )
+    .ToDataFrame(); // Returns compiled DataFrame directly!
+```
+
+```fsharp [F# (Pipeline Merge)]
+open Polars.FSharp
+
+// F# functional pipeline merge
+let mergedDf =
+    targetDf.Merge(sourceDf, pl.col "Id")
+    |> Merge.whenMatched (pl.col "IsDiscontinued") Merge.delete
+    |> Merge.whenMatchedUpdateAll
+    |> Merge.whenNotMatchedInsertAll
+    |> Merge.executeEager
+```
+
+
+### Direct In-Memory Collection Merge (`List<T>.Merge(...)`)
+
+The strongly-typed `Merge` builder can also be initiated directly on standard in-memory collections (`List<T>`, arrays, `IEnumerable<T>`), merging against another in-memory list or a Polars queryable:
+
+```csharp
+List<ProductItem> inMemoryTarget = GetTargetProducts();
+List<ProductItem> incomingUpdates = GetSourceProducts();
+
+// 1. Initiate full ANSI SQL MERGE directly from an in-memory List<T>:
+using DataFrame mergedDf = inMemoryTarget.Merge(incomingUpdates, t => t.Id, s => s.Id)
+    .WhenMatched(
+        (t, s) => s.Price > t.Price,
+        then => then.Update(set => set.Set(t => t.Price, (t, s) => s.Price))
+    )
+    .WhenNotMatchedByTarget(then => then.Insert())
+    .WhenNotMatchedBySource(t => t.Category == "Seasonal", then => then.Delete())
+    .ToDataFrame();
+
+// 2. Or materialize directly back to typed entities:
+List<ProductItem> updatedList = inMemoryTarget.Merge(incomingUpdates, t => t.Id, s => s.Id)
+    .WhenMatched(then => then.Update(set => set.Set(t => t.Price, (t, s) => s.Price)))
+    .WhenNotMatchedByTarget(then => then.Insert())
+    .ToList();
+```
+
+---
+
+## Next Steps
+
+* [Ecosystem & Native Interop](/articles/interop) - Connect Polars to Apache Arrow C Data Interface, ADBC, ADO.NET, ML.NET, and Tensors.
+* [C# Idioms & Best Practices](/articles/csharp-idioms) - Dive deeper into memory management, collection expressions, and Fast-Path mappers.
+* [F# Idioms & Best Practices](/articles/fsharp-idioms) - Explore anonymous records, pipeline composition, and typed projections.
+
+---
+
+# Chapter: Ecosystem Interoperability & Zero-Copy Bridges
+*Source: articles/interop.md*
+
+# Polars.NET Ecosystem Interoperability & Platform Runtimes
+
+Polars.NET is designed as a foundational data engine for the .NET ecosystem. Beyond standalone dataframe queries, it provides zero-copy and streaming bridges to **Apache Arrow, ADBC, ADO.NET, ML.NET (IDataView), and modern .NET Tensors (`System.Numerics.Tensors`)**.
+
+---
+
+## 1. Native Runtime Packages (Different from Python!)
+
+Unlike Python Polars (which distributes platform-specific self-contained wheels via `pip`), .NET NuGet separates managed API libraries from native binary packages to avoid package bloat.
+
+### Required Package References
+In any project using Polars.NET, you **must reference both**:
+1. **The Managed API Library**: `Polars.CSharp` or `Polars.FSharp` (and optionally `Polars.NET.Linq`, `Polars.NET.ML`).
+2. **The Native Runtime Package** matching your execution environment (OS and CPU Architecture):
+
+```xml
+<ItemGroup>
+  <!-- 1. Managed API Library -->
+  <PackageReference Include="Polars.CSharp" Version="1.0.0" />
+  <PackageReference Include="Polars.NET.Linq" Version="1.0.0" />
+
+  <!-- 2. Target Platform Native Binary (Pick according to your deployment OS/Arch) -->
+  <!-- Windows x64: -->
+  <PackageReference Include="Polars.NET.Native.win-x64" Version="1.0.0" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+  <!-- Linux x64 (glibc / Ubuntu / Debian / RHEL): -->
+  <PackageReference Include="Polars.NET.Native.linux-x64" Version="1.0.0" Condition="$([MSBuild]::IsOSPlatform('Linux'))" />
+  <!-- Linux ARM64: -->
+  <!-- <PackageReference Include="Polars.NET.Native.linux-arm64" Version="1.0.0" /> -->
+  <!-- Alpine Linux (musl): -->
+  <!-- <PackageReference Include="Polars.NET.Native.linux-musl-x64" Version="1.0.0" /> -->
+  <!-- macOS Apple Silicon (M1/M2/M3/M4): -->
+  <PackageReference Include="Polars.NET.Native.osx-arm64" Version="1.0.0" Condition="$([MSBuild]::IsOSPlatform('OSX'))" />
+</ItemGroup>
+```
+
+> [!IMPORTANT]
+> If the native package is missing, you will receive `DllNotFoundException` for `libnative_shim.so`, `libnative_shim.dylib`, or `native_shim.dll` at runtime.
+
+---
+
+## 2. Managed Arrays, Spans & Collections
+
+Polars.NET supports zero-copy span access for primitive numerics and fast hydration to/from standard .NET collections.
+
+### Series to `ReadOnlySpan<T>` (Zero-Copy)
+For contiguous numeric series (int, float, double, etc.), you can obtain a `ReadOnlySpan<T>` directly over native Arrow buffer memory without allocating a managed array:
+```csharp
+using var series = Series.From("temps", [20.5f, 21.0f, 22.3f]);
+
+// Zero-copy span over native memory:
+ReadOnlySpan<float> span = series.AsReadOnlySpan<float>();
+float sum = 0f;
+foreach (float val in span) { sum += val; }
+```
+
+### DataFrames to/from Rows & POCOs
+```csharp
+// 1. Ingest strongly-typed objects / records / List<T> into DataFrame (Most idiomatic .NET row pattern)
+var records = new List<Order>
+{
+    new(1, "Widget", 19.99m),
+    new(2, "Gadget", 49.50m)
+};
+using var df = DataFrame.FromRows(records);
+
+// 2. Direct entry into the Polars native LINQ engine from any IEnumerable<T> / List<T>:
+using Polars.CSharp.Linq;
+using DataFrame topOrders = records.AsPolarsQueryable()
+    .Where(o => o.Amount > 20.0m)
+    .ToDataFrame();
+
+// Seamlessly Join or Concat in-memory List<T> directly against a Polars query:
+var extraOrders = new List<Order> { new(3, "Doohickey", 9.99m) };
+using DataFrame allOrders = topOrders.AsQueryable<Order>()
+    .Concat(extraOrders)
+    .ToDataFrame();
+
+// 3. Hydrate DataFrame back to strongly-typed sequence (or use LINQ)
+IEnumerable<Order> orders = df.AsEnumerable<Order>();
+```
+
+---
+
+## 3. Apache Arrow Integration (`Apache.Arrow`)
+
+Polars columns are physically backed by Apache Arrow contiguous arrays. Polars.NET provides direct, zero-copy interoperability with the official `Apache.Arrow` .NET package.
+
+### Zero-Copy `RecordBatch` Ingestion & Export
+
+
+```csharp [C# (Arrow RecordBatch)]
+using Apache.Arrow;
+using Apache.Arrow.Memory;
+using Polars.CSharp;
+
+// 1. Build or receive a native Apache.Arrow RecordBatch:
+var allocator = new NativeMemoryAllocator();
+var batch = new RecordBatch.Builder(allocator)
+    .Append("SensorId", false, col => col.Int32(arr => arr.AppendRange([101, 102, 103])))
+    .Append("Temperature", false, col => col.Double(arr => arr.AppendRange([24.5, 26.1, 23.8])))
+    .Build();
+
+// 2. Zero-Copy import into Polars DataFrame:
+using var df = DataFrame.FromArrow(batch);
+
+// 3. Roundtrip back to Apache.Arrow RecordBatch:
+using RecordBatch exportedBatch = df.ToArrow();
+```
+
+```fsharp [F# (Arrow RecordBatch)]
+open Apache.Arrow
+open Apache.Arrow.Memory
+open Polars.FSharp
+
+// Zero-copy ingestion from Apache.Arrow RecordBatch:
+let df = DataFrame.FromArrow(batch)
+
+// Roundtrip back to Apache.Arrow RecordBatch:
+use exportedBatch = df.ToArrow()
+```
+
+
+
+
+### Arrow-to-Arrow Vectorized UDFs
+When implementing advanced custom vector processing, use `MapArrow` to bypass row-by-row boxing and process raw `Apache.Arrow.IArrowArray`:
+
+```csharp
+var customExpr = Pl.Col("features").MapArrow(
+    arrowArray => MyCustomArrowKernel(arrowArray),
+    outputType: DataType.Float64
+);
+```
+
+---
+
+## 4. ADBC (Arrow Database Connectivity)
+
+[ADBC](https://arrow.apache.org/adbc/) is the next-generation database standard that transfers tabular data as binary Apache Arrow record batches, eliminating slow row-by-row ODBC/JDBC serialization.
+
+Polars.NET includes built-in first-class ADBC support for DuckDB, PostgreSQL, SQLite, Snowflake, and BigQuery via `Apache.Arrow.Adbc`:
+
+```csharp
+using Apache.Arrow.Adbc;
+
+// 1. Query an ADBC database directly into a zero-copy DataFrame
+using var df = DataFrame.ReadAdbc(adbcConnection, "SELECT id, amount, customer FROM orders WHERE amount > 100");
+
+// 2. Zero-Copy Bulk Ingest a DataFrame into an ADBC Database
+// Ingest modes: AdbcIngestMode.Create, AdbcIngestMode.Append, AdbcIngestMode.Replace
+var updateResult = df.WriteToAdbc(adbcConnection, "target_table", AdbcIngestMode.Append);
+Console.WriteLine($"Inserted {updateResult.AffectedRows} rows");
+```
+
+---
+
+## 5. ADO.NET (`System.Data`)
+
+For traditional relational databases (SQL Server, Oracle, MySQL, PostgreSQL via Npgsql, SQLite via Microsoft.Data.Sqlite), Polars.NET integrates directly with `IDataReader` and `DbDataReader`.
+
+### Reading Database Queries into DataFrames (`ReadDatabase` / `ReadDb`)
+
+`DataFrame.ReadDatabase` accepts any open `IDataReader` and converts rows directly into Arrow record batches with prefetching:
+
+
+```csharp [C# (ReadDatabase)]
+using System.Data;
+using Microsoft.Data.SqlClient; // Or Npgsql, SqliteConnection, etc.
+using Polars.CSharp;
+
+using var connection = new SqlConnection(connectionString);
+connection.Open();
+
+using var command = connection.CreateCommand();
+command.CommandText = "SELECT Product, Price, CreatedAt FROM Sales WHERE Price > 100";
+
+using IDataReader reader = command.ExecuteReader();
+
+// Streams from IDataReader into Arrow batches -> Materialized Polars DataFrame:
+using DataFrame df = DataFrame.ReadDatabase(reader, batchSize: 50_000);
+```
+
+```fsharp [F# (ReadDb)]
+open System.Data
+open Microsoft.Data.SqlClient
+open Polars.FSharp
+
+use connection = new SqlConnection(connectionString)
+connection.Open()
+
+use command = connection.CreateCommand()
+command.CommandText <- "SELECT Product, Price, CreatedAt FROM Sales WHERE Price > 100"
+
+use reader = command.ExecuteReader()
+
+// Stream into Polars DataFrame
+use df = DataFrame.ReadDb(reader, batchSize = 50_000)
+```
+
+
+> [!NOTE] Automatic Data Type Mappings
+> `ReadDatabase` automatically maps standard ADO.NET types to their native Polars equivalents:
+> * `decimal` -> Polars `Decimal128` (arbitrary precision without rounding loss)
+> * `DateTime` / `DateOnly` / `TimeOnly` -> Polars `Datetime` / `Date` / `Time`
+> * `Guid` / `string` -> Polars `String`
+> * `DBNull.Value` -> Polars nulls
+
+---
+
+### Lazy Database Scanning (`LazyFrame.ScanDatabase` / `ScanDb`)
+
+For pipeline queries, prefer `LazyFrame.ScanDatabase`. It supports passing either an existing `IDataReader` or a **reader factory** `Func<IDataReader>`. 
+
+> [!TIP] Why Use a Reader Factory?
+> A factory allows Polars to probe schema upfront with a quick probe query and re-execute queries if the query plan requires multiple execution passes or reuse:
+
+
+```csharp [C# (Lazy Scan with Reader Factory)]
+using System.Data;
+using Polars.CSharp;
+
+// Define a factory that returns a fresh open IDataReader on demand:
+Func<IDataReader> readerFactory = () =>
+{
+    var cmd = connection.CreateCommand();
+    cmd.CommandText = "SELECT Name, Score, Dept FROM Employees WHERE Score >= 60.0";
+    return cmd.ExecuteReader();
+};
+
+using LazyFrame lf = LazyFrame.ScanDatabase(readerFactory, batchSize: 50_000);
+
+using DataFrame result = lf
+    .Filter(Pl.Col("Dept") == "Engineering")
+    .GroupBy("Dept")
+    .Agg(Pl.Col("Score").Mean().Alias("AvgScore"))
+    .Collect();
+```
+
+```fsharp [F# (Lazy Scan with Reader Factory)]
+open System.Data
+open Polars.FSharp
+
+let readerFactory () =
+    let cmd = connection.CreateCommand()
+    cmd.CommandText <- "SELECT Name, Score, Dept FROM Employees WHERE Score >= 60.0"
+    cmd.ExecuteReader() :> IDataReader
+
+use lf = LazyFrame.ScanDb(readerFactory, batchSize = 50_000)
+
+use result =
+    lf
+    |> LazyFrame.filter (pl.col "Dept" .== pl.lit "Engineering")
+    |> LazyFrame.groupBy [ pl.col "Dept" ]
+    |> LazyFrame.agg [ pl.col("Score").Mean().Alias "AvgScore" ]
+    |> LazyFrame.collect
+```
+
+
+---
+
+### Direct LINQ Pipeline Entrypoint (`reader.AsPolarsQueryable<T>`)
+
+Instead of materializing an intermediate `DataFrame`, you can stream an open `IDataReader` directly into a Polars LINQ queryable pipeline with native Rust plan compilation:
+
+```csharp
+using System.Data;
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+using IDataReader reader = command.ExecuteReader();
+
+// Streams database cursor directly into Polars LINQ engine:
+using DataFrame summaryDf = reader.AsPolarsQueryable<SaleDto>(batchSize: 50_000)
+    .Where(s => s.Price > 100.0)
+    .GroupBy(s => s.Product)
+    .Select(g => new { Product = g.Key, TotalRevenue = g.Sum(x => x.Price) })
+    .ToDataFrame();
+```
+
+---
+
+### Asynchronous Chunk Streaming (`ReadDatabaseBatchesAsync`)
+
+When dealing with large query results, use `DbDataReader.ReadDatabaseBatchesAsync` to stream materialized DataFrame batches asynchronously without blocking the thread pool:
+
+
+```csharp [C# (Async Batch Ingestion)]
+using System.Data.Common;
+using Polars.CSharp;
+
+using DbDataReader reader = await command.ExecuteReaderAsync();
+
+// Stream database cursor records into chunks of native Polars DataFrames:
+await foreach (DataFrame batch in reader.ReadDatabaseBatchesAsync(batchSize: 50_000))
+{
+    using (batch)
+    {
+        Console.WriteLine($"Ingested {batch.Height} rows.");
+        // Process each batch or push to downstream worker
+    }
+}
+```
+
+```fsharp [F# (Async Batch Ingestion)]
+open Polars.FSharp
+
+task {
+    use! reader = command.ExecuteReaderAsync()
+    for batch in reader.ReadDatabaseBatchesAsync(batchSize = 50_000) do
+        use b = batch
+        printfn $"Ingested %d{b.Height} rows."
+}
+```
+
+
+---
+
+### Direct LINQ Pipeline Entrypoint (`reader.AsPolarsQueryable<T>`)
+
+Instead of materializing an intermediate `DataFrame`, you can stream an open `IDataReader` directly into a Polars LINQ queryable pipeline with native Rust plan compilation:
+
+```csharp
+using System.Data;
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+using IDataReader reader = command.ExecuteReader();
+
+// Streams database cursor directly into Polars LINQ engine:
+using DataFrame summaryDf = reader.AsPolarsQueryable<SaleDto>(batchSize: 50_000)
+    .Where(s => s.Price > 100.0)
+    .GroupBy(s => s.Product)
+    .Select(g => new { Product = g.Key, TotalRevenue = g.Sum(x => x.Price) })
+    .ToDataFrame();
+```
+
+---
+
+### Exporting & Writing to Databases (`WriteTo`, `SinkTo`, `AsDataReader`)
+
+To write Polars DataFrames into database tables (such as bulk insertion with `SqlBulkCopy`), Polars.NET provides two zero-memory-copy producer-consumer patterns:
+
+#### Pattern 1: `df.WriteTo(Action<IDataReader>)` & `lf.SinkTo(Action<IDataReader>)`
+`WriteTo` streams Arrow batches into an internal bounded queue and provides an active `IDataReader` to your writer callback:
+
+
+```csharp [C# (SqlBulkCopy with WriteTo)]
+using System.Data;
+using Microsoft.Data.SqlClient;
+using Polars.CSharp;
+
+// Stream rows directly from Polars DataFrame into SQL Server SqlBulkCopy:
+df.WriteTo(reader =>
+{
+    using var bulkCopy = new SqlBulkCopy(connectionString);
+    bulkCopy.DestinationTableName = "dbo.TargetSales";
+    bulkCopy.BatchSize = 10_000;
+    bulkCopy.WriteToServer(reader);
+}, bufferSize: 5);
+```
+
+```fsharp [F# (SqlBulkCopy with WriteTo)]
+open System
+open System.Data
+open Microsoft.Data.SqlClient
+open Polars.FSharp
+
+df.WriteTo(
+    Action<IDataReader>(fun reader ->
+        use bulkCopy = new SqlBulkCopy(connectionString)
+        bulkCopy.DestinationTableName <- "dbo.TargetSales"
+        bulkCopy.BatchSize <- 10_000
+        bulkCopy.WriteToServer reader
+    ),
+    bufferSize = 5
+)
+```
+
+
+#### Pattern 2: `df.AsDataReader()` (Zero-Copy `DbDataReader`)
+Alternatively, obtain a live `DbDataReader` instance directly using `df.AsDataReader()`:
+
+```csharp
+using System.Data.Common;
+using Microsoft.Data.SqlClient;
+
+// Obtain a live DbDataReader backed by a Polars bounded channel:
+using DbDataReader reader = df.AsDataReader(bufferSize: 5);
+
+using var bulkCopy = new SqlBulkCopy(connectionString);
+bulkCopy.DestinationTableName = "dbo.TargetSales";
+bulkCopy.WriteToServer(reader);
+```
+
+---
+
+## 6. Machine Learning: Microsoft.ML / ML.NET (`IDataView`)
+
+Through the `Polars.NET.ML` package, Polars.NET bridges Polars DataFrames with ML.NET's `IDataView` pipeline.
+
+```csharp
+using Microsoft.ML;
+using Polars.NET.ML.DataView;
+using Polars.NET.ML.CSharpExtensions;
+
+var mlContext = new MLContext();
+
+// 1. Convert Polars DataFrame to ML.NET IDataView (Zero-copy stream)
+IDataView dataView = df.AsDataView();
+
+// 2. Train an ML.NET pipeline directly on Polars data
+var pipeline = mlContext.Transforms.NormalizeMinMax("Features")
+    .Append(mlContext.Regression.Trainers.Sdca(labelColumnName: "Target", featureColumnName: "Features"));
+var model = pipeline.Fit(dataView);
+
+// 3. Transform predictions back to a Polars DataFrame
+IDataView predictions = model.Transform(dataView);
+using DataFrame resultDf = predictions.ToDataFrame();
+```
+
+---
+
+## 7. AI & Deep Learning: Tensors (`System.Numerics.Tensors`)
+
+Modern .NET 8 / 9+ includes `System.Numerics.Tensors.Tensor<T>` and `ReadOnlyTensorSpan<T>`. Polars.NET provides direct, native conversions for feeding models in **ONNX Runtime, TorchSharp, or native C++ inference engines**.
+
+### Series to Tensor / TensorSpan
+```csharp
+using System.Numerics.Tensors;
+
+using var embSeries = df["embeddings"]; // e.g. Array[f32, 128] or flat Series
+
+// 1. Zero-copy TensorSpan view
+ReadOnlyTensorSpan<float> tensorSpan = embSeries.AsTensorSpan<float>();
+
+// 2. Transposed view without moving bytes (zero-copy stride transposition)
+ReadOnlyTensorSpan<float> transposed = embSeries.AsTransposedTensorSpan<float>();
+
+// 3. Deep-copy into managed heap Tensor<T> (safe for async/background tasks)
+Tensor<float> managedTensor = embSeries.AsTensor<float>();
+```
+
+### DataFrame to 2D Feature Matrix Tensor
+Extract selected columns and format them into a 2D Row-Major `Tensor<T> [Rows, Columns]`:
+```csharp
+// Extracts "age", "income", "credit_score" into a 2D [N, 3] row-major tensor for ONNX
+Tensor<float> featureMatrix = df.AsTensor<float>("age", "income", "credit_score");
+```
+
+### Raw Unmanaged Memory Pointer (Zero-Copy C++ / ONNX FFI)
+```csharp
+// Direct pointer to contiguous Arrow memory for native C++ backends
+(nint ptr, long[] shape) = series.AsDangerousUnmanagedTensor<float>();
+
+try
+{
+    CallNativeCppInferenceEngine(ptr, shape);
+}
+finally
+{
+    // Prevent GC from collecting Series while native engine reads the pointer
+    GC.KeepAlive(series);
+}
+```
+
+---
+
+## 8. Asynchronous Streaming (`IAsyncEnumerable`)
+
+Polars.NET provides first-class support for C# `IAsyncEnumerable<T>` and F# async row streams, enabling cooperative, cancellation-aware asynchronous processing without thread pool starvation.
+
+### C# Row Streaming (`ToAsyncEnumerable`)
+```csharp
+using Polars.CSharp;
+
+using var df = DataFrame.ReadParquet("large.parquet");
+
+// Stream rows cooperatively (yields execution slots to avoid starving thread pool)
+await foreach (var row in df.ToAsyncEnumerable<MyRecord>(chunkSize: 10_000, cancellationToken))
+{
+    await ProcessRowAsync(row);
+}
+```
+
+### Lazy Native Batch Streaming (`CollectBatchesAsync`)
+
+Stream materialized DataFrame chunks from a `LazyFrame` as soon as they are computed by the native Rust streaming engine:
+
+
+```csharp [C# (Async Batch Streaming)]
+using Polars.CSharp;
+
+using var lf = LazyFrame.ScanParquet("huge_dataset/*.parquet");
+
+// Asynchronously stream DataFrame batches:
+await foreach (DataFrame batch in lf.CollectBatchesAsync(chunkSize: 50_000))
+{
+    using (batch)
+    {
+        Console.WriteLine($"Received streaming batch of {batch.Height} rows");
+        await ExportBatchToCloudAsync(batch);
+    }
+}
+```
+
+```fsharp [F# (Async Batch Streaming)]
+open Polars.FSharp
+
+let lf = LazyFrame.ScanParquet "huge_dataset/*.parquet"
+
+task {
+    for batch in lf.CollectBatchesAsync(chunkSize = 50_000L) do
+        use b = batch
+        printfn $"Received streaming batch of %d{b.Height} rows"
+        do! exportBatchToCloud b
+}
+```
+
+
+### LINQ & `IAsyncEnumerable` Adaptation
+```csharp
+using Polars.CSharp.Linq;
+
+// 1. Convert LINQ query directly to IAsyncEnumerable:
+IAsyncEnumerable<OrderDto> asyncStream = query.AsAsyncEnumerable();
+
+// 2. Ingest foreign IAsyncEnumerable into a Polars DataFrame asynchronously:
+IAsyncEnumerable<SensorData> externalStream = FetchDataFromGrpcAsync();
+using DataFrame df = await externalStream.ToDataFrameAsync(cancellationToken);
+```
+
+### F# Async Row Streams (`RowsAsync`)
+```fsharp
+open Polars.FSharp
+
+// Stream rows into F# list/array or functional pipeline:
+let! records =
+    df.RowsAsync<SensorRecord>(chunkSize = 5000)
+    |> RowsAsync.filter (fun s -> s.Temperature > 25.0)
+    |> RowsAsync.toList
+
+// Aggregate over async stream without materializing entire dataset:
+let! totalTemp =
+    lazyDf.RowsAsync<SensorRecord>(chunkSize = 10000L, engine = Engine.Auto)
+    |> RowsAsync.fold (fun acc s -> acc + s.Temperature) 0.0
+```
+
+---
+
