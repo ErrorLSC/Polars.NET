@@ -9,6 +9,7 @@
     <a href="https://www.nuget.org/packages/Polars.NET"><img src="https://img.shields.io/nuget/dt/Polars.NET.svg" alt="NuGet Downloads" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License" /></a>
     <a href="https://errorlsc.github.io/Polars.NET/"><img src="https://img.shields.io/badge/docs-online-512BD4.svg?style=flat-square&logo=read-the-docs&logoColor=white" alt="Documentation" /></a>
+    <a href="https://github.com/sponsors/ErrorLSC"><img src="https://img.shields.io/badge/Sponsor-GitHub-ea4aaa.svg?style=flat-square&logo=githubsponsors&logoColor=white" alt="Sponsor" /></a>
   </p>
 
   <p>
@@ -241,8 +242,23 @@ Polars.NET uses a modular three-tier architecture to prevent upstream breaking c
   </picture>
 </div>
 
+### Delta Lake Read & Write vs Python Polars & PySpark
+
+<div align="center">
+  <img alt="Delta Lake Read Benchmark" src="assets/read_benchmark.png" width="750" />
+  <br/><br/>
+  <img alt="Delta Lake Write Benchmark" src="assets/write_benchmark.png" width="750" />
+</div>
+
 * Benchmark suite: [Polars.NET-Benchmark](https://github.com/ErrorLSC/Polars.NET-Benchmark)
 * Recipe repository: [Polars.NET-Cookbook](https://github.com/ErrorLSC/Polars.NET-Cookbook)
+
+---
+
+## Sponsoring
+
+If Polars.NET is helpful to you, consider supporting the project via [GitHub Sponsors](https://github.com/sponsors/ErrorLSC)
+to buy me a cup of black tea. Sláinte!
 
 ---
 
