@@ -103,7 +103,7 @@ export default defineConfig({
 
   head: [
     ['link', { rel: 'icon', href: '/logo.svg' }],
-    ['meta', { name: 'theme-color', content: '#3eaf7c' }]
+    ['meta', { name: 'theme-color', content: '#512BD4' }]
   ],
 
   themeConfig: {
@@ -116,6 +116,7 @@ export default defineConfig({
       { text: 'F# API', link: '/api/fsharp_generated/pl', activeMatch: '/api/fsharp_generated/' },
       { text: 'LINQ', link: '/articles/linq' },
       { text: 'Interop', link: '/articles/interop' },
+      { text: 'Polars', link: 'https://pola.rs/' },
       { text: 'GitHub', link: 'https://github.com/errorlsc/polars.net' }
     ],
 
@@ -149,8 +150,8 @@ export default defineConfig({
     },
 
     footer: {
-      message: 'Released under the MIT License.',
-      copyright: 'Copyright © 2024-present Polars.NET Contributors'
+      message: 'Released under the MIT License. Powered by the Polars Rust core & Apache Arrow.',
+      copyright: 'Copyright © 2026-present Qinglei Zhang'
     }
   }
 });

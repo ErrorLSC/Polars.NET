@@ -1,40 +1,42 @@
-<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="netGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#512BD4;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#9d5eff;stop-opacity:1" />
-    </linearGradient>
-    
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
-      <feMerge>
-        <feMergeNode in="coloredBlur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-  </defs>
-
-  <rect width="512" height="512" fill="#0e0e0e" />
-  
-  <path d="M0 256 L512 256 M256 0 L256 512" stroke="#1e1e1e" stroke-width="2" />
-
-  <g transform="translate(106, 106) scale(0.6)" filter="url(#glow)">
-    <path d="M250 50 L450 150 L400 400 L250 500 L100 400 L50 150 Z" 
-          fill="none" stroke="url(#netGradient)" stroke-width="20" stroke-linejoin="round"/>
-    
-    <path d="M180 300 L250 350 L320 300 L250 200 Z" 
-          fill="#512BD4" opacity="0.8" />
-    
-    <line x1="150" y1="200" x2="180" y2="220" stroke="#00FFFF" stroke-width="15" stroke-linecap="round" />
-    <line x1="350" y1="200" x2="320" y2="220" stroke="#00FFFF" stroke-width="15" stroke-linecap="round" />
-    
-    <path d="M250 50 L250 150" stroke="#9d5eff" stroke-width="10" />
-    <path d="M50 150 L180 300" stroke="#333" stroke-width="5" />
-    <path d="M450 150 L320 300" stroke="#333" stroke-width="5" />
+    <mask id="m_round">
+      <rect width="512" height="512" fill="white" />
+      
+  <g id="sharp">
+    <!-- Horizontal Bars (slightly angled -3 deg) -->
+    <rect x="160" y="225" width="192" height="28" rx="7" transform="rotate(-3 256 239)" fill="black" />
+    <rect x="160" y="287" width="192" height="28" rx="7" transform="rotate(-3 256 301)" fill="black" />
+    <!-- Slanted Vertical Bars (angled 9 deg) -->
+    <rect x="210" y="175" width="28" height="200" rx="7" transform="rotate(9 224 275)" fill="black" />
+    <rect x="276" y="175" width="28" height="200" rx="7" transform="rotate(9 290 275)" fill="black" />
   </g>
 
-  <text x="256" y="460" font-family="Consolas, monospace" font-size="48" 
-        fill="white" text-anchor="middle" font-weight="bold" letter-spacing="4">
-    POLARS<tspan fill="#9d5eff">.NET</tspan>
-  </text>
+    </mask>
+
+    <linearGradient id="bearIce" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="70%" stop-color="#F0F9FF" />
+      <stop offset="100%" stop-color="#E0F2FE" />
+    </linearGradient>
+  </defs>
+
+  <!-- Official Microsoft .NET Brand Purple: #512BD4 (Strict 90-degree square) -->
+  <rect x="0" y="0" width="512" height="512" fill="#512BD4" />
+
+  <!-- Pure Round Chubby Bear Head (🐻 emoji silhouette: Zero chin protrusion, smooth plump curve) -->
+  <path d="M 256 125
+C 215 125, 185 110, 172 100
+C 155 85, 130 65, 105 75
+C 80 85, 70 115, 75 145
+C 78 160, 88 175, 100 185
+C 68 220, 52 265, 52 305
+C 52 390, 142 455, 256 455
+C 370 455, 460 390, 460 305
+C 460 265, 444 220, 412 185
+C 424 175, 434 160, 437 145
+C 442 115, 432 85, 407 75
+C 382 65, 357 85, 340 100
+C 327 110, 297 125, 256 125
+Z" fill="url(#bearIce)" mask="url(#m_round)" />
 </svg>

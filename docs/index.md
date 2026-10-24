@@ -12,6 +12,9 @@ hero:
     - theme: alt
       text: View on GitHub
       link: https://github.com/errorlsc/polars.net
+    - theme: alt
+      text: Polars (Upstream)
+      link: https://pola.rs/
 features:
   - title: Blazing Fast & Memory Efficient
     details: Powered by the Polars Rust core and Apache Arrow columnar format with multi-threaded SIMD, query optimization, and streaming execution.
@@ -21,78 +24,125 @@ features:
     details: Seamless bridges to Arrow C Data Interface, ADBC, ADO.NET DbDataReader, ML.NET IDataView, TorchSharp / System.Numerics Tensor, and IAsyncEnumerable.
 ---
 
-# Polars.NET
+## Unified Across Paradigms
 
-**Polars.NET** brings the [Polars](https://pola.rs/) data processing engine to the .NET ecosystem.
+Write queries in the style most natural to your project. Polars.NET executes C# Fluent calls, F# functional pipelines, C# LINQ syntax, and F# computation expressions with **identical, zero-copy native performance**:
+
+::: code-group
+
+```csharp [C# (Fluent API)]
+using Polars.CSharp;
+using static Polars.CSharp.Polars;
+
+// Ingest from strongly-typed records or anonymous objects
+var df = DataFrame.FromColumns(new
+{
+    Date = new[] { "2023-01-01", "2023-01-01", "2023-01-02" },
+    City = new[] { "London", "Manchester", "London" },
+    Temperature = new[] { 10.5, 9.0, 12.1 },
+    Rain = new[] { true, true, false }
+}).WithColumn(Col("Date").Str.ToDate("%Y-%m-%d"));
+
+// Filter, GroupBy & Aggregate with multi-threaded SIMD execution
+var result = df.Lazy()
+    .Filter(Col("Temperature") > 9.5)
+    .GroupBy("City")
+    .Agg(
+        Col("Temperature").Mean().Alias("Avg_Temperature"),
+        Col("Temperature").Count().Alias("Record_Count")
+    )
+    .Sort("Avg_Temperature", descending: true)
+    .Collect();
+```
+
+```fsharp [F# (Pipeline API)]
+open Polars.FSharp
+
+type Weather = { Date: string; City: string; Temperature: float; Rain: bool }
+
+let data = [
+    { Date="2023-01-01"; City="London";     Temperature=10.5; Rain=true }
+    { Date="2023-01-01"; City="Manchester"; Temperature=9.0;  Rain=true }
+    { Date="2023-01-02"; City="London";     Temperature=12.1; Rain=false }
+]
+
+// Idiomatic functional pipelines with pl.* combinators
+let result =
+    DataFrame.ofRecords data
+    |> DataFrame.withColumn (pl.col("Date").Str.ToDate "%Y-%m-%d")
+    |> DataFrame.filter (pl.col "Temperature" .> pl.lit 9.5)
+    |> DataFrame.groupBy [ pl.col "City" ]
+    |> DataFrame.agg [
+        pl.col("Temperature").Mean().Alias "Avg_Temperature"
+        pl.col("Temperature").Count().Alias "Record_Count"
+    ]
+    |> DataFrame.sortDescending [ pl.col "Avg_Temperature" ]
+```
+
+```csharp [C# (LINQ)]
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+// Standard C# LINQ with 100% Native Pushdown to the Rust engine
+var result = (from r in df.AsQueryable<WeatherRecord>()
+              where r.Temperature > 9.5
+              group r by r.City into g
+              select new {
+                  City = g.Key,
+                  Avg_Temperature = g.Average(x => x.Temperature),
+                  Record_Count = g.Count()
+              })
+              .ToDataFrame()
+              .Sort("Avg_Temperature", descending: true);
+```
+
+```fsharp [F# (Query CE)]
+open Polars.FSharp
+open Polars.FSharp.Query
+
+// Native F# query { } computation expression
+let result =
+    query {
+        for r in df.AsQueryable<Weather>() do
+        where (r.Temperature > 9.5)
+        groupValBy r r.City into g
+        select {|
+            City = g.Key
+            Avg_Temperature = g.Average(fun x -> x.Temperature)
+            Record_Count = g.Count()
+        |}
+    }
+    |> Query.toDataFrame
+    |> DataFrame.sortDescending [ pl.col "Avg_Temperature" ]
+```
+
+:::
+
+### Output
+
+<!--@include: ./snippets/quickstart_filter_agg.html-->
 
 ---
 
-## 1. QuickStart
+## Why Polars.NET?
 
-```csharp
-using Polars.CSharp;
-using static Polars.CSharp.Polars; // For Col(), Lit() helpers
+| Feature | Standard .NET DataFrames | Polars.NET |
+| :--- | :--- | :--- |
+| **Execution Core** | Interpreted managed loops | Multi-threaded vectorized Rust SIMD |
+| **Memory Model** | Managed object allocations (GC pressure) | Arrow columnar layout with zero-copy FFI |
+| **Query Optimization**| None (client-side execution) | Logical plan optimization, Predicate & Projection pushdown |
+| **Out-of-Core Processing** | Out of Memory (OOM) on large files | Streaming engine & Chunked memory |
+| **Language Paradigms** | Basic C# collection methods | C# Fluent API, F# Pipelines, C# LINQ, and F# Query CE |
+| **Lakehouse & Big Data** | Requires Spark / JVM wrappers | Native Delta Lake ACID storage, ADBC, & Arrow IPC |
 
-// 1. Create a DataFrame
-var data = new[] {
-    new { Name = "Alice", Age = 25, Dept = "IT" },
-    new { Name = "Bob", Age = 30, Dept = "HR" },
-    new { Name = "Charlie", Age = 35, Dept = "IT" }
-};
-var df = DataFrame.From(data);
+Ready to build blazingly fast data pipelines? Read the [Quick Start Guide](/articles/quickstart) or explore the [Core Concepts](/articles/expressions).
 
-// 2. Filter & Aggregate
-var res = df.
-    Lazy()
-    .Filter(Col("Age") > 28)
-    .GroupBy("Dept")
-    .Agg(
-        Col("Age").Mean().Alias("AvgAge"),
-        Col("Name").Count().Alias("Count")
-    )
-    .Sort("AvgAge");
+---
 
-// 3. Output
-res.CollectStreaming().Show();
-///shape: (2, 3)
-/// ┌──────┬────────┬───────┐
-/// │ Dept ┆ AvgAge ┆ Count │
-/// │ ---  ┆ ---    ┆ ---   │
-/// │ str  ┆ f64    ┆ u32   │
-/// ╞══════╪════════╪═══════╡
-/// │ HR   ┆ 30.0   ┆ 1     │
-/// │ IT   ┆ 35.0   ┆ 1     │
-/// └──────┴────────┴───────┘
-```
-## 2.F# Support 
+## Built on Polars
 
-```fsharp
-let windowDf = 
-    df
-    |> pl.select [
-        pl.col "Date"
-        pl.col "City"
-        pl.col "Temperature"
-        
-        // Over(Date): Calculate mean value by group
-        (pl.col("Temperature").Mean().Over(pl.col "Date"))
-            .Alias "Daily_Avg"
-            
-        (pl.col "Temperature" - pl.col("Temperature").Mean().Over(pl.col "Date"))
-            .Alias "Diff"
-    ]
-    |> pl.sort (pl.col "Date", false)
+Polars.NET brings the blazing speed, Arrow memory layout, and query optimization of the world-class [Polars](https://pola.rs/) DataFrame engine to the .NET ecosystem. We express our deepest gratitude to Ritchie Vink and the entire Polars open-source community for their pioneering work on high-performance columnar data processing.
 
-windowDf.Show()
-/// result
-/// shape: (3, 5)
-/// ┌────────────┬────────────┬─────────────┬───────────┬───────┐
-/// │ Date       ┆ City       ┆ Temperature ┆ Daily_Avg ┆ Diff  │
-/// │ ---        ┆ ---        ┆ ---         ┆ ---       ┆ ---   │
-/// │ date       ┆ str        ┆ f64         ┆ f64       ┆ f64   │
-/// ╞════════════╪════════════╪═════════════╪═══════════╪═══════╡
-/// │ 2023-01-01 ┆ London     ┆ 10.5        ┆ 9.75      ┆ 0.75  │
-/// │ 2023-01-01 ┆ Manchester ┆ 9.0         ┆ 9.75      ┆ -0.75 │
-/// │ 2023-01-02 ┆ London     ┆ 12.1        ┆ 12.1      ┆ 0.0   │
-/// └────────────┴────────────┴─────────────┴───────────┴───────┘
-```
+* **Official Website**: [pola.rs](https://pola.rs/)
+* **Upstream User Guide**: [docs.pola.rs](https://docs.pola.rs/)
+* **Python API Reference**: [Polars Python API Reference](https://docs.pola.rs/api/python/stable/reference/index.html)
