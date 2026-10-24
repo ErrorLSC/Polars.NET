@@ -39,6 +39,7 @@ The F# API has transitioned to a module-first architecture:
 
 * Bumped delta-rs to 1.0.0
 * Target framework now is .NET 8.0
+* Removed mimalloc for known segfault issue in async execution
 
 ## Key Highlights & New Features
 
@@ -73,6 +74,3 @@ Compile C# LINQ syntax and F# `query { ... }` directly into polars API:
 ### 6. New VitePress Documentation Site
 * Migrated documentation to VitePress static site with local search, live code preview cards, and comprehensive guides for C#, F#, LINQ, Delta Lake, Time Series, and Interop.
 * Added `llms.txt` and `llms-full.txt` support for automated LLM context ingestion.
-
-
-

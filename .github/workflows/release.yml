@@ -79,7 +79,7 @@ jobs:
             artifact_name: libnative_shim.dylib
             use_cross: false
             container: null
-            lto_type: "fat"
+            lto_type: "thin"
 
     container: ${{ matrix.container }}
 
@@ -217,7 +217,7 @@ jobs:
           dotnet pack Polars.NET.Core/Polars.NET.Core.csproj -c Release -p:BuildRustNative=false -o nupkgs
           dotnet pack Polars.CSharp/Polars.CSharp.csproj -c Release -p:BuildRustNative=false -o nupkgs
           dotnet pack Polars.FSharp/Polars.FSharp.fsproj -c Release -p:BuildRustNative=false -o nupkgs
-          dotnet pack Polars.NET.Linq/Polars.NET.Linq.csproj -c Release -p:BuildRustNative=false -o nupkgs
+          dotnet pack Polars.NET.Linq/Polars.NET.Linq.fsproj -c Release -p:BuildRustNative=false -o nupkgs
           dotnet pack Polars.NET.ML/Polars.NET.ML.csproj -c Release -p:BuildRustNative=false -o nupkgs
 
       - name: Upload NuGet Packages
