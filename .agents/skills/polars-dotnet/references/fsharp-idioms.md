@@ -82,6 +82,17 @@ use s1 = Series.create("scores", [Some 10.5; None; Some 20.0])
 // Typed scalar access:
 let vOpt: float option = s1.GetValueOption<float>(1L) // None
 let vRaw: float = s1.GetValue<float>(0L)              // 10.5
+
+// Column enumeration (DataFrame implements seq<Series>):
+for col in df do
+    printfn "Column: %s (%O)" col.Name col.DataType
+
+// Schema dictionary access (PolarsSchema implements IReadOnlyDictionary<string, DataType>):
+use schema = df.Schema
+let idType = schema.["Id"]
+let hasScore = schema.ContainsKey "Score"
+for kv in schema do
+    printfn "%s -> %O" kv.Key kv.Value
 ```
 
 ---

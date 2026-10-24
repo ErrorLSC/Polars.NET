@@ -166,6 +166,20 @@ F# developers have three complementary styles that interoperate seamlessly:
    > In `df.Select("a", "b")`, `"a"` is an `IntoExprColumn` so it means `Pl.Col("a")`.
    > In `expr.FillNull("unknown")` or `Pl.When(...).Then("yes").Otherwise("no")`, the parameter is `IntoExpr` so `"unknown"` means `Pl.Lit("unknown")`!
    > In binary operators like `Pl.Col("a") == "foo"`, `"foo"` is compared as a literal value; to compare two columns, write `Pl.Col("a") == Pl.Col("b")`.
+4. **First-Class .NET Collection Protocols**:
+   - **`DataFrame` implements `IEnumerable<Series>` (`seq<Series>`)**:
+     - **C# 12 Collection Expressions**: Directly build DataFrames using `[ ... ]` syntax (via `[CollectionBuilder]`):
+       ```csharp
+       DataFrame df = [
+           Series.From("id", [1, 2, 3]),
+           Series.From("name", ["Alice", "Bob", "Charlie"])
+       ];
+       ```
+     - **Column Iteration**: Directly enumerate columns via `foreach (Series col in df)` or in F# `for col in df do ...` / `df |> Seq.iter ...`.
+   - **`PolarsSchema` implements `IReadOnlyDictionary<string, DataType>`**:
+     - Direct dictionary indexing: `schema["age"]` -> `DataType.Int32`.
+     - Standard dictionary members: `schema.ContainsKey("name")`, `schema.Count`, `schema.Keys`, `schema.Values`.
+     - KeyValuePair enumeration: `foreach (var (name, dtype) in schema)` or F# `schema |> Seq.iter ...`.
 
 ---
 

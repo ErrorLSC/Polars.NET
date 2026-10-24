@@ -43,6 +43,27 @@ List<Employee> list = df3.ToRecords<Employee>().ToList();
 // 4. Zero-copy Apache Arrow Interop
 using var dfArrow = DataFrame.FromArrow(recordBatch);
 using RecordBatch batch = dfArrow.ToArrow();
+
+// 5. C# 12 Collection Expressions (via [CollectionBuilder])
+using DataFrame df5 = [
+    Series.From("id", [1, 2, 3]),
+    Series.From("val", [10.0, 20.0, 30.0])
+];
+
+// 6. Direct Column Enumeration (DataFrame implements IEnumerable<Series>)
+foreach (Series col in df5)
+{
+    Console.WriteLine($"Column '{col.Name}' ({col.DataType}): {col.Len()} rows");
+}
+
+// 7. Schema Dictionary Protocols (PolarsSchema implements IReadOnlyDictionary<string, DataType>)
+PolarsSchema schema = df5.Schema;
+DataType valType = schema["val"];
+bool hasId = schema.ContainsKey("id");
+foreach (var (colName, dt) in schema)
+{
+    Console.WriteLine($"{colName}: {dt}");
+}
 ```
 
 ---
