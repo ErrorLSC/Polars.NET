@@ -21,24 +21,39 @@ using static Polars.CSharp.Polars.Selectors;
 ## 2. Creating DataFrames & Series
 
 ```csharp
-// 1. From anonymous object (quickest for inline tests & prototypes)
-using var df1 = DataFrame.FromColumns(new
+// 1. Direct row ingestion from List<T> / IEnumerable<T> (Most idiomatic .NET pattern)
+List<Employee> employees = GetEmployees();
+using var df1 = DataFrame.FromRows(employees);
+
+// Convert back to strongly-typed records/classes using high-performance stack enumerator:
+List<Employee> list = df1.Rows<Employee>().ToList();
+
+// 2. Direct LINQ queryable pipeline from any in-memory collection:
+using Polars.CSharp.Linq;
+var topEmployees = employees.AsPolarsQueryable()
+    .Where(e => e.Score > 90.0)
+    .OrderByDescending(e => e.Score)
+    .ToDataFrame();
+
+// Seamless in-memory Join, Concat, and Union without manual conversion:
+List<Department> departments = GetDepartments();
+using var enrichedDf = employees.AsPolarsQueryable()
+    .Join(departments, e => e.DeptId, d => d.Id, (e, d) => new { e.Name, d.DeptName })
+    .ToDataFrame();
+
+// 3. From columnar anonymous object (Structure of Arrays)
+using var df2 = DataFrame.FromColumns(new
 {
     id = new[] { 1, 2, 3 },
     name = new[] { "Alice", "Bob", "Charlie" },
     score = new double?[] { 95.5, null, 88.0 }
 });
 
-// 2. From Series (supports spans, arrays, nullable arrays, tensors)
-using var df2 = new DataFrame(
+// 4. From Series (supports spans, arrays, nullable arrays, tensors)
+using var df3 = new DataFrame(
     Series.From("id", [1, 2, 3]),
     Series.From("val", [10.0, 20.0, 30.0])
 );
-
-// 3. From strongly-typed POCOs / records / structs
-using var df3 = DataFrame.From(employees);
-// Convert back to strongly-typed records/classes using high-performance stack enumerator:
-List<Employee> list = df3.Rows<Employee>().ToList();
 
 // 4. Zero-copy Apache Arrow Interop
 using var dfArrow = DataFrame.FromArrow(recordBatch);
@@ -192,7 +207,7 @@ using var resultDf = targetDf.Merge(sourceDf, "Id") // Or composite: new[] { "Te
     .WhenNotMatchedBySourceDelete(m => m.Target("IsTemporary"))
     .Execute(); // Or .ToLazyFrame() for LazyFrame!
 ```
-*(For strongly-typed LINQ Merge, see [LINQ & Query CE](./linq#7-polarsnet-exclusive-strongly-typed-linq-merge-typedmerge).)*
+*(For strongly-typed LINQ Merge directly on DataFrames or in-memory `List<T>`, see [LINQ & Query CE](./linq#7-polarsnet-exclusive-strongly-typed-linq-merge-typedmerge).)*
 
 ---
 

@@ -204,4 +204,18 @@ using DataFrame resultDf = targetQuery.Merge(sourceQuery, t => t.Id, s => s.Id)
     .ToDataFrame(); // Or .ToLazyFrame(), .ToList()!
 ```
 
+### In-Memory Collection Merge & Seamless Transposition
+`TypedMerge` also extends `IEnumerable<TTarget>`, enabling ANSI SQL `MERGE` directly on plain in-memory `List<T>`:
+
+```csharp
+List<ProductItem> inMemoryTarget = GetTargetProducts();
+List<ProductItem> incomingUpdates = GetSourceProducts();
+
+// Start merge directly from an in-memory List<T>:
+using DataFrame mergedDf = inMemoryTarget.Merge(incomingUpdates, t => t.Id, s => s.Id)
+    .WhenMatched(then => then.Update(set => set.Set(t => t.Price, (t, s) => s.Price)))
+    .WhenNotMatchedByTarget(then => then.Insert())
+    .ToDataFrame();
+```
+
 

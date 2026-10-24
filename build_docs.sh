@@ -21,7 +21,10 @@ dotnet fsi tools/GenerateFSharpDocs.fsx Debug
 echo "=== 3. Generating Live Execution Output Previews (.ToHtml) ==="
 dotnet fsi tools/GenerateDocPreviews.fsx
 
-echo "=== 4. Building VitePress Documentation Site ==="
+echo "=== 4. Generating llms.txt & llms-full.txt for LLM / Cyber Peers ==="
+dotnet fsi tools/GenerateLlms.fsx
+
+echo "=== 5. Building VitePress Documentation Site ==="
 # Ensure dependencies are installed in docs directory
 if [ ! -d "docs/node_modules" ]; then
     echo "Installing documentation npm dependencies..."

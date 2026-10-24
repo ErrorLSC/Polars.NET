@@ -55,15 +55,27 @@ foreach (float val in span) { sum += val; }
 
 ### DataFrames to/from Rows & POCOs
 ```csharp
-// 1. Ingest strongly-typed objects / records into DataFrame
-var records = new[]
+// 1. Ingest strongly-typed objects / records / List<T> into DataFrame (Most idiomatic .NET row pattern)
+var records = new List<Order>
 {
-    new Order(1, "Widget", 19.99m),
-    new Order(2, "Gadget", 49.50m)
+    new(1, "Widget", 19.99m),
+    new(2, "Gadget", 49.50m)
 };
 using var df = DataFrame.FromRows(records);
 
-// 2. Hydrate DataFrame back to strongly-typed sequence (or use LINQ)
+// 2. Direct entry into the Polars native LINQ engine from any IEnumerable<T> / List<T>:
+using Polars.CSharp.Linq;
+using DataFrame topOrders = records.AsPolarsQueryable()
+    .Where(o => o.Amount > 20.0m)
+    .ToDataFrame();
+
+// Seamlessly Join or Concat in-memory List<T> directly against a Polars query:
+var extraOrders = new List<Order> { new(3, "Doohickey", 9.99m) };
+using DataFrame allOrders = topOrders.AsQueryable<Order>()
+    .Concat(extraOrders)
+    .ToDataFrame();
+
+// 3. Hydrate DataFrame back to strongly-typed sequence (or use LINQ)
 IEnumerable<Order> orders = df.AsEnumerable<Order>();
 ```
 
@@ -252,6 +264,27 @@ use result =
 
 ---
 
+### Direct LINQ Pipeline Entrypoint (`reader.AsPolarsQueryable<T>`)
+
+Instead of materializing an intermediate `DataFrame`, you can stream an open `IDataReader` directly into a Polars LINQ queryable pipeline with native Rust plan compilation:
+
+```csharp
+using System.Data;
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+using IDataReader reader = command.ExecuteReader();
+
+// Streams database cursor directly into Polars LINQ engine:
+using DataFrame summaryDf = reader.AsPolarsQueryable<SaleDto>(batchSize: 50_000)
+    .Where(s => s.Price > 100.0)
+    .GroupBy(s => s.Product)
+    .Select(g => new { Product = g.Key, TotalRevenue = g.Sum(x => x.Price) })
+    .ToDataFrame();
+```
+
+---
+
 ### Asynchronous Chunk Streaming (`ReadDatabaseBatchesAsync`)
 
 When dealing with large query results, use `DbDataReader.ReadDatabaseBatchesAsync` to stream materialized DataFrame batches asynchronously without blocking the thread pool:
@@ -287,6 +320,27 @@ task {
 ```
 
 :::
+
+---
+
+### Direct LINQ Pipeline Entrypoint (`reader.AsPolarsQueryable<T>`)
+
+Instead of materializing an intermediate `DataFrame`, you can stream an open `IDataReader` directly into a Polars LINQ queryable pipeline with native Rust plan compilation:
+
+```csharp
+using System.Data;
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+using IDataReader reader = command.ExecuteReader();
+
+// Streams database cursor directly into Polars LINQ engine:
+using DataFrame summaryDf = reader.AsPolarsQueryable<SaleDto>(batchSize: 50_000)
+    .Where(s => s.Price > 100.0)
+    .GroupBy(s => s.Product)
+    .Select(g => new { Product = g.Key, TotalRevenue = g.Sum(x => x.Price) })
+    .ToDataFrame();
+```
 
 ---
 

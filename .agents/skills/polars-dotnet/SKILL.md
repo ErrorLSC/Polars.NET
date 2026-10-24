@@ -27,8 +27,20 @@ using Polars.CSharp.Linq;
 
 using var df = DataFrame.ReadParquet("orders.parquet");
 
+// 1. Direct LINQ entrypoints:
+// - From DataFrame/LazyFrame:
+var query1 = df.AsQueryable<OrderRecord>();
+
+// - From In-Memory Collections (List<T>, arrays, IEnumerable<T>):
+List<OrderRecord> orders = GetOrders();
+var query2 = orders.AsPolarsQueryable();
+
+// - From Database Streams (ADO.NET IDataReader):
+using IDataReader reader = dbCommand.ExecuteReader();
+var query3 = reader.AsPolarsQueryable<OrderRecord>(batchSize: 50_000);
+
 // Convert DataFrame or LazyFrame to IQueryable<T> (supports records, readonly record structs, POCOs, tuples)
-var query = df.AsQueryable<OrderRecord>()
+var query = query2
     .Where(o => o.Amount > 100.0 && o.CustomerName.StartsWith("A"))
     .GroupBy(o => o.CustomerName)
     .Select(g => new { Customer = g.Key, Total = g.Sum(x => x.Amount), Count = g.Count() })
@@ -41,6 +53,9 @@ Console.WriteLine(query.Explain());
 using DataFrame resultDf = query.ToDataFrame();
 ```
 - **Standard BCL Mappings**: `string.*` (`Contains`, `StartsWith`, `ToUpper`, `Trim`, `Replace`, `Substring`, etc.), `Math.*`, `DateTime` / `DateOnly` / `TimeSpan` properties and arithmetic, `Regex.IsMatch`, window functions, subqueries (`Any`, `All`, `Count`, `Sum`), and multi-key `Join` / `GroupJoin` (`DefaultIfEmpty` Left Join) are natively translated.
+- **Seamless In-Memory Collection Interop**:
+  - Arbitrary in-memory collections (`List<T>`, arrays, `IEnumerable<T>`) can be passed directly as operands into `.Join(inMemoryList, ...)`, `.Concat(inMemoryList)`, and `.Union(inMemoryList)`. The LINQ provider automatically transposes the in-memory sequence into native Arrow/LazyFrame structures on the fly and achieves Tier-1 100% native pushdown in Rust without intermediate object allocation.
+  - Strongly-typed `Merge` (`TypedMerge`) can also be initiated directly on a plain in-memory `List<T>` (`list.Merge(...)`).
 - **Handling Unsupported UDFs (`PolarsPushdownException`)**:
   - By default, `ClientEvaluationPolicy.Strict` is active.
   - **Terminal `.Select(...)` projections** automatically support custom C# logic via Polars.NET's high-performance row cursor (`Hybrid Execution`).
@@ -175,7 +190,7 @@ F# developers have three complementary styles that interoperate seamlessly:
            Series.From("name", ["Alice", "Bob", "Charlie"])
        ];
        ```
-       > ⚠️ **Anti-Hallucination**: In C#, construct Series using `Series.From(name, data)` or `Polars.Series(name, data)`. There is **NO** `Series.Create` in C# (that is F# `Series.create` / `pl.series`).
+       > [WARNING] Anti-Hallucination: In C#, construct Series using `Series.From(name, data)` or `Polars.Series(name, data)`. There is **NO** `Series.Create` in C# (that is F# `Series.create` / `pl.series`).
      - **Column Iteration**: Directly enumerate columns via `foreach (Series col in df)` or in F# `for col in df do ...` / `df |> Seq.iter ...`.
    - **`PolarsSchema` implements `IReadOnlyDictionary<string, DataType>`**:
      - Direct dictionary indexing: `schema["age"]` -> `DataType.Int32`.

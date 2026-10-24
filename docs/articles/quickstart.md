@@ -44,8 +44,19 @@ using Polars;
 using Polars.CSharp;
 using static Polars.CSharp.Polars;
 
-// 1. Create from in-memory anonymous columns
-var df = DataFrame.FromColumns(new 
+public record Weather(string Date, string City, double Temperature, bool Rain);
+
+// 1. Ingest directly from List<T> or any IEnumerable<T> (Most idiomatic .NET pattern)
+var weatherList = new List<Weather>
+{
+    new("2023-01-01", "London", 10.5, true),
+    new("2023-01-01", "Manchester", 9.0, true),
+    new("2023-01-02", "London", 12.1, false)
+};
+var df = DataFrame.FromRows(weatherList);
+
+// Alternatively: Create from columnar object (Structure of Arrays)
+var dfCols = DataFrame.FromColumns(new 
 {
     Date = new[] { "2023-01-01", "2023-01-01", "2023-01-02" },
     City = new[] { "London", "Manchester", "London" },

@@ -630,19 +630,6 @@ public static class LinqExtensions
         => series.AsQueryable<T>();
 
     /// <summary>
-    /// Converts a Series into an IQueryable LINQ query provider backed by Polars.
-    /// </summary>
-    public static IQueryable<T> AsPolarsQueryable<T>(this Series series)
-        => series.AsQueryable<T>();
-
-    /// <summary>
-    /// Converts a Series into an IQueryable LINQ query provider backed by Polars,
-    /// inferring the anonymous type or entity type directly from a sample sequence.
-    /// </summary>
-    public static IQueryable<T> AsPolarsQueryable<T>(this Series series, IEnumerable<T> source)
-        => series.AsQueryable<T>();
-
-    /// <summary>
     /// Exposes a Series as a strongly-typed IEnumerable sequence of elements.
     /// For Struct Series, elements are materialized into objects matching the struct fields.
     /// For scalar Series, elements are materialized directly.

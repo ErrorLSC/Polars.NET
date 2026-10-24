@@ -146,3 +146,4 @@ Polars.NET brings the blazing speed, Arrow memory layout, and query optimization
 * **Official Website**: [pola.rs](https://pola.rs/)
 * **Upstream User Guide**: [docs.pola.rs](https://docs.pola.rs/)
 * **Python API Reference**: [Polars Python API Reference](https://docs.pola.rs/api/python/stable/reference/index.html)
+* **AI & LLM Context**: [llms.txt](/llms.txt) (Index) &middot; [llms-full.txt](/llms-full.txt) (Full Context)

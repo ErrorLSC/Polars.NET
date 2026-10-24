@@ -144,6 +144,93 @@ Here is the exact logical execution plan and materialized DataFrame produced by 
 
 ---
 
+### Direct Pipeline Entrypoints: Collections & ADO.NET Streams
+
+Instead of manually creating a `DataFrame` or `LazyFrame` first, you can enter the Polars LINQ pipeline directly from in-memory collections or database streams using `AsPolarsQueryable`:
+
+#### 1. In-Memory Collections (`IEnumerable<T>.AsPolarsQueryable()`)
+Directly transposes any `List<T>`, array, or in-memory sequence into a native Polars LazyFrame and exposes it as a Polars LINQ queryable:
+
+```csharp
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+List<OrderDto> orders = GetOrders();
+
+// Ingest in-memory list straight into native Polars Rust execution:
+using DataFrame topOrders = orders.AsPolarsQueryable()
+    .Where(o => o.Revenue >= 500.0)
+    .OrderByDescending(o => o.Revenue)
+    .Take(100)
+    .ToDataFrame();
+```
+
+#### 2. ADO.NET Database Streams (`IDataReader.AsPolarsQueryable()`)
+Streams an open `IDataReader` directly into a Polars LINQ query with configurable batch size, bypassing intermediate object allocations:
+
+```csharp
+using System.Data;
+using Microsoft.Data.SqlClient;
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+using var cmd = connection.CreateCommand();
+cmd.CommandText = "SELECT OrderId, Customer, Region, Revenue FROM Orders";
+using IDataReader reader = cmd.ExecuteReader();
+
+// Streams database rows straight into Polars LINQ engine:
+using DataFrame regionalSales = reader.AsPolarsQueryable<OrderDto>(batchSize: 50_000)
+    .Where(o => o.Revenue > 100.0)
+    .GroupBy(o => o.Region)
+    .Select(g => new {
+        Region = g.Key,
+        TotalRevenue = g.Sum(x => x.Revenue),
+        OrderCount = g.Count()
+    })
+    .ToDataFrame();
+```
+
+#### 3. Seamless In-Memory Collection Interop (Join, Concat & Union)
+
+The Polars LINQ provider seamlessly accepts arbitrary in-memory .NET collections (`List<T>`, arrays, `IEnumerable<T>`) as operands inside active queries without manual pre-conversion:
+
+* **In-Memory Join Pushdown**: Join a Polars DataFrame query directly with an in-memory lookup collection (`List<TInner>`). The provider transposes the in-memory sequence into native Arrow batches and executes a Tier-1 100% native pushdown join in Rust:
+  ```csharp
+  var inMemoryCustomers = new List<Customer>
+  {
+      new(1, "Alice"),
+      new(2, "Bob")
+  };
+
+  // query is a Polars queryable over a high-volume DataFrame or LazyFrame:
+  var enrichedQuery = ordersQuery.Join(
+      inMemoryCustomers, // Arbitrary in-memory List<T>
+      o => o.CustomerId,
+      c => c.Id,
+      (o, c) => new { o.OrderId, c.Name, o.Amount }
+  );
+
+  using DataFrame resultDf = enrichedQuery.ToDataFrame();
+  ```
+
+* **In-Memory Concat & Union Pushdown**: Append or merge in-memory rows directly into a Polars query:
+  ```csharp
+  var extraEmployees = new List<Employee>
+  {
+      new("Charlie", 35, 70000),
+      new("David", 40, 80000)
+  };
+
+  // Concatenate in-memory collection straight into the native physical plan:
+  var combinedQuery = query.Where(e => e.Age >= 25).Concat(extraEmployees);
+  using DataFrame combinedDf = combinedQuery.ToDataFrame();
+  ```
+
+> [!NOTE] Native Transposition Guarantee
+> When an in-memory collection participates in a `Join`, `Concat`, `Union`, or `Merge` operation, Polars.NET automatically transposes the managed objects into Arrow contiguous arrays, pushes execution into native Rust SIMD kernels, and preserves full query optimization.
+
+---
+
 ## 2. Terminal Methods: What Can You Materialize?
 
 Polars.NET LINQ queries support diverse terminal materialization pathways depending on your scenario:
@@ -383,6 +470,31 @@ let mergedDf =
 ```
 
 :::
+
+### Direct In-Memory Collection Merge (`List<T>.Merge(...)`)
+
+The strongly-typed `Merge` builder can also be initiated directly on standard in-memory collections (`List<T>`, arrays, `IEnumerable<T>`), merging against another in-memory list or a Polars queryable:
+
+```csharp
+List<ProductItem> inMemoryTarget = GetTargetProducts();
+List<ProductItem> incomingUpdates = GetSourceProducts();
+
+// 1. Initiate full ANSI SQL MERGE directly from an in-memory List<T>:
+using DataFrame mergedDf = inMemoryTarget.Merge(incomingUpdates, t => t.Id, s => s.Id)
+    .WhenMatched(
+        (t, s) => s.Price > t.Price,
+        then => then.Update(set => set.Set(t => t.Price, (t, s) => s.Price))
+    )
+    .WhenNotMatchedByTarget(then => then.Insert())
+    .WhenNotMatchedBySource(t => t.Category == "Seasonal", then => then.Delete())
+    .ToDataFrame();
+
+// 2. Or materialize directly back to typed entities:
+List<ProductItem> updatedList = inMemoryTarget.Merge(incomingUpdates, t => t.Id, s => s.Id)
+    .WhenMatched(then => then.Update(set => set.Set(t => t.Price, (t, s) => s.Price)))
+    .WhenNotMatchedByTarget(then => then.Insert())
+    .ToList();
+```
 
 ---
 
