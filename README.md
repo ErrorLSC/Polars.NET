@@ -24,12 +24,12 @@
 
 ---
 
-I really dreamed that we can play with DataFrames in .NET just like python, now we got a much enjoyable and funny one.
+I really dreamed that we can play with DataFrames in .NET just like python, now we got a much more enjoyable and funny one.
 
 ## Highlights
 
-* **Standard LINQ & Polars Extensions**: Write standard C# LINQ (`IQueryable<T>`) or F# `query { }` expressions that compile directly into native Rust `LazyPlan` nodes with zero intermediate row allocations. Includes Polars-specific extensions such as query plan inspection (`.Explain()`, `.InspectPlan()`), `.ToDataFrame()`, and seamless joins between in-memory collections and DataFrames.
-* **High Performance**: Built on the multithreaded Rust Polars engine and Apache Arrow columnar memory format. Delivers vectorized SIMD execution, query optimization (predicate and projection pushdown, common subplan elimination), and out-of-core streaming execution for larger-than-memory datasets.
+* **Standard LINQ & Polars Extensions**: Write standard C# LINQ (`IQueryable<T>`) or F# `query { }` expressions then optimized and executed by rust polars engine. Includes Polars-specific extensions such as query plan inspection (`.Explain()`, `.InspectPlan()`), `.ToDataFrame()`, and seamless joins between in-memory collections and DataFrames.
+* **High Performance**: Built on the Rust Polars engine and Apache Arrow columnar memory format. Delivers vectorized SIMD execution, query optimization (predicate and projection pushdown, common subplan elimination), and out-of-core streaming execution for larger-than-memory datasets.
 * **Deep .NET Ecosystem Integration**: First-class bridges to standard .NET abstractions, including `IAsyncEnumerable<T>` streaming, ADO.NET `IDataReader` / `DbDataReader` ingestion, ML.NET `IDataView` pipelines, and direct extraction into `System.Numerics.Tensors` (`ReadOnlyTensorSpan`) for numerical computing and model inference.
 * **Universal I/O & Storage**: Reads and writes Parquet, CSV, JSON/NDJSON, Arrow IPC, Excel, and Avro. Native integration with Arrow Database Connectivity (ADBC) and Delta Lake (ACID transactions, time travel, and SQL MERGE), targeting both local filesystems and cloud object storage (Amazon S3, Azure Blob, Google Cloud Storage).
 
@@ -117,7 +117,7 @@ using var summaryDf = lf
     .Agg(
         Pl.Col("revenue").Sum().Alias("total_revenue"),
         Pl.Col("customer_id").NUnique().Alias("unique_customers"),
-        Cs.Numeric().Mean().Prefix("avg_")
+        Cs.Numeric().Mean().Name.Prefix("avg_")
     )
     .Sort("total_revenue", descending: true)
     .Collect();
@@ -133,7 +133,7 @@ Leverage F# strong typing, anonymous records, and pipeline combinators over nati
 open Polars.FSharp
 open Polars.FSharp.Query
 
-// F# query { } compiles into native Rust DAG:
+// F# query { } compiles into polars API call:
 let summaryQuery =
     query {
         for o in df.AsQueryable<Order>() do
