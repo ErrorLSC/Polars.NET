@@ -625,6 +625,16 @@ type Series(handle: SeriesHandle) =
             let mutable v = PolarsWrapper.SeriesGetStringFast(this.Handle, index)
             Unsafe.As<string, 'T>(&v)
 
+        | t, _ when t = typeof<decimal> && this.DataType.IsFloat ->
+            let d = PolarsWrapper.SeriesGetDoubleFast(this.Handle, index)
+            let mutable v = decimal d
+            Unsafe.As<decimal, 'T>(&v)
+
+        | t, _ when t = typeof<decimal> && this.DataType.IsInteger ->
+            let i = PolarsWrapper.SeriesGetInt64Fast(this.Handle, index)
+            let mutable v = decimal i
+            Unsafe.As<decimal, 'T>(&v)
+
         | t, DataTypeKind.Decimal(_, _) when t = typeof<decimal> ->
             let p = this.DataType.Precision
             let s = this.DataType.Scale

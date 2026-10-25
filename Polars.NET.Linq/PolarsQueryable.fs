@@ -13,9 +13,9 @@ open System.Threading.Tasks
 
 /// Strongly-typed IQueryProvider backed by Polars.NET.Core
 type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer) =
-    let clonedLf = PolarsWrapper.LazyClone initialLazyFrame
+    let rootTemplate = PolarsWrapper.LazyClone initialLazyFrame
 
-    member _.RootLazyFrame = clonedLf
+    member _.RootLazyFrame = PolarsWrapper.LazyClone rootTemplate
     member _.Materializer = materializer
 
     interface IQueryProvider with
@@ -83,7 +83,6 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
 and PolarsQuery<'T>
     internal (provider: PolarsQueryProvider, exprOpt: Expression option) as this
     =
-    let lfCloned = provider.RootLazyFrame
     let materializer = provider.Materializer
     let targetType = typeof<'T>
     let isScalar = PolarsTypeHelper.IsScalarType targetType || targetType = typeof<string>
@@ -113,6 +112,7 @@ and PolarsQuery<'T>
     member private _.CompilePipeline
         ()
         : LazyFrameHandle * QueryOp list * ((Func<obj, bool> * LambdaExpression) list) * ((Type * Func<obj, obj>) option) * bool =
+        let lfCloned = provider.RootLazyFrame
         let rewrittenExpr = getEffectiveExpr ()
         let extraction = PartialEvaluator.extract rewrittenExpr
         let cacheKey = QueryCacheKey.Create(typeof<'T>, extraction.NormalizedExpression)

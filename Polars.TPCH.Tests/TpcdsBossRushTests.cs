@@ -232,4 +232,139 @@ public class TpcdsBossRushTests
             Assert.True(r.NationMaxBalance >= r.NationAvgBalance);
         });
     }
+
+    [Fact, Trait("TPCDS", "BOSS5")]
+    public void Boss_05_Diamond_Cte_Self_Join_And_Branch_Reunite()
+    {
+        // =========================================================================
+        // Part A: Direct CTE Self-Join with Colliding Column Disambiguation
+        // WITH base_cte AS (
+        //     SELECT o_orderkey, o_custkey, o_totalprice, o_orderdate FROM orders
+        // )
+        // SELECT o1.o_custkey, o1.o_orderkey AS k1, o2.o_orderkey AS k2,
+        //        (o1.o_totalprice - o2.o_totalprice) AS price_diff
+        // FROM base_cte o1
+        // JOIN base_cte o2 ON o1.o_custkey = o2.o_custkey
+        // WHERE o1.o_orderkey != o2.o_orderkey AND o1.o_totalprice > o2.o_totalprice
+        // =========================================================================
+        using (var ordersSelfLf = TpchData.Orders())
+        {
+            var baseOrdersCte = from o in ordersSelfLf.AsQueryable<Orders>()
+                                select new
+                                {
+                                    o.o_orderkey,
+                                    o.o_custkey,
+                                    o.o_totalprice,
+                                    o.o_orderdate
+                                };
+
+            var selfJoinQuery = from o1 in baseOrdersCte
+                                join o2 in baseOrdersCte on o1.o_custkey equals o2.o_custkey
+                                where o1.o_orderkey != o2.o_orderkey && o1.o_totalprice > o2.o_totalprice
+                                select new
+                                {
+                                    CustKey = o1.o_custkey,
+                                    Order1 = o1.o_orderkey,
+                                    Order2 = o2.o_orderkey,
+                                    Price1 = o1.o_totalprice,
+                                    Price2 = o2.o_totalprice,
+                                    PriceDiff = o1.o_totalprice - o2.o_totalprice
+                                };
+
+            AssertPlan(selfJoinQuery, NativePushdown);
+
+            var selfResults = selfJoinQuery.Take(10).ToList();
+            Assert.NotEmpty(selfResults);
+            Assert.All(selfResults, r =>
+            {
+                Assert.True(r.CustKey > 0);
+                Assert.NotEqual(r.Order1, r.Order2);
+                Assert.True(r.Price1 > r.Price2);
+                Assert.Equal(r.PriceDiff, r.Price1 - r.Price2);
+            });
+        }
+
+        // =========================================================================
+        // Part B: Diamond Graph Reuniting with Aggregated Branch + Dimension Join
+        // Equivalent to TPC-DS Style Diamond Graph / Shared CTE Reuniting:
+        // WITH base_cte AS (
+        //     SELECT o_custkey, o_orderstatus, SUM(o_totalprice) AS total_spent, COUNT(*) AS order_cnt
+        //     FROM orders
+        //     GROUP BY o_custkey, o_orderstatus
+        // ),
+        // high_value AS (
+        //     SELECT * FROM base_cte WHERE total_spent > 1000.0
+        // ),
+        // status_stats AS (
+        //     SELECT o_orderstatus, AVG(total_spent) AS avg_spent, MAX(total_spent) AS max_spent
+        //     FROM base_cte
+        //     GROUP BY o_orderstatus
+        // )
+        // SELECT c.c_custkey, c.c_name, h.o_orderstatus, h.total_spent, s.avg_spent, s.max_spent,
+        //        (h.total_spent - s.avg_spent) AS diff_from_avg
+        // FROM high_value h
+        // JOIN status_stats s ON h.o_orderstatus = s.o_orderstatus
+        // WHERE h.total_spent > s.avg_spent
+        // JOIN customer c ON h.o_custkey = c.c_custkey
+        // =========================================================================
+
+        using var ordersLf = TpchData.Orders();
+        using var customerLf = TpchData.Customer();
+
+        // 1. Shared Base Query (Diamond Node)
+        var baseCte = from o in ordersLf.AsQueryable<Orders>()
+                      group o by new { o.o_custkey, o.o_orderstatus } into g
+                      select new
+                      {
+                          CustKey = g.Key.o_custkey,
+                          Status = g.Key.o_orderstatus,
+                          TotalSpent = g.Sum(x => x.o_totalprice),
+                          OrderCount = g.Count()
+                      };
+
+        // 2. Branch 1: Filtered detail branch
+        var branch1 = from b in baseCte
+                      where b.TotalSpent > 1000m
+                      select b;
+
+        // 3. Branch 2: Aggregate summary branch derived from same base CTE
+        var branch2 = from b in baseCte
+                      group b by b.Status into g
+                      select new
+                      {
+                          Status = g.Key,
+                          AvgSpent = g.Average(x => x.TotalSpent),
+                          MaxSpent = g.Max(x => x.TotalSpent)
+                      };
+
+        // 4. Reunite (Diamond Join) + Snowflake Join with Customer dimension
+        var query = from b1 in branch1
+                    join b2 in branch2 on b1.Status equals b2.Status
+                    where b1.TotalSpent > b2.AvgSpent
+                    join c in customerLf.AsQueryable<Customer>() on b1.CustKey equals c.c_custkey
+                    select new
+                    {
+                        CustomerKey = c.c_custkey,
+                        CustomerName = c.c_name,
+                        OrderStatus = b1.Status,
+                        TotalSpent = b1.TotalSpent,
+                        AvgSpent = b2.AvgSpent,
+                        MaxSpent = b2.MaxSpent,
+                        DiffFromAvg = b1.TotalSpent - b2.AvgSpent
+                    };
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.Take(10).ToList();
+        Assert.NotEmpty(results);
+        Assert.All(results, r =>
+        {
+            Assert.True(r.CustomerKey > 0);
+            Assert.False(string.IsNullOrWhiteSpace(r.CustomerName));
+            Assert.False(string.IsNullOrWhiteSpace(r.OrderStatus));
+            Assert.True(r.TotalSpent > r.AvgSpent);
+            Assert.True(r.MaxSpent >= r.AvgSpent);
+            Assert.True(Math.Abs(r.DiffFromAvg - (r.TotalSpent - r.AvgSpent)) < 0.01m);
+        });
+    }
 }
