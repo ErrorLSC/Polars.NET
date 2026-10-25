@@ -367,4 +367,94 @@ public class TpcdsBossRushTests
             Assert.True(Math.Abs(r.DiffFromAvg - (r.TotalSpent - r.AvgSpent)) < 0.01m);
         });
     }
+
+    [Fact, Trait("TPCDS", "BOSS6")]
+    public void Boss_06_Group_Partition_Slice_And_TopN()
+    {
+        // =========================================================================
+        // BOSS 6: Group Partition Slicing & Top-N per Group
+        //
+        // Part A: Sliced Group Aggregation & List-Agg inside GroupBy.Select
+        // Equivalent to TPC-DS / Analytical Group Slicing:
+        // SELECT o_custkey,
+        //        LIST(o_totalprice ORDER BY o_totalprice DESC LIMIT 2) AS top2_prices,
+        //        SUM(o_totalprice ORDER BY o_totalprice DESC LIMIT 2) AS top2_sum,
+        //        FIRST_VALUE(o_orderkey ORDER BY o_totalprice DESC) AS max_orderkey,
+        //        MAX(o_totalprice) AS max_price,
+        //        COUNT(*) AS total_count,
+        //        SUM(o_totalprice) AS total_sum
+        // FROM orders
+        // GROUP BY o_custkey
+        // HAVING COUNT(*) >= 2
+        // =========================================================================
+        using (var ordersLf = TpchData.Orders())
+        {
+            var groupSliceQuery = from o in ordersLf.AsQueryable<Orders>()
+                                  group o by o.o_custkey into g
+                                  where g.Count() >= 2
+                                  select new
+                                  {
+                                      CustKey = g.Key,
+                                      Top2Prices = g.OrderByDescending(x => x.o_totalprice).Take(2).Select(x => x.o_totalprice).ToList(),
+                                      Top2Sum = g.OrderByDescending(x => x.o_totalprice).Take(2).Sum(x => x.o_totalprice),
+                                      MaxOrderKey = g.OrderByDescending(x => x.o_totalprice).Select(x => x.o_orderkey).First(),
+                                      MaxPrice = g.OrderByDescending(x => x.o_totalprice).First().o_totalprice,
+                                      TotalCount = g.Count(),
+                                      TotalSum = g.Sum(x => x.o_totalprice)
+                                  };
+
+            AssertPlan(groupSliceQuery, NativePushdown);
+
+            var sliceResults = groupSliceQuery.Take(10).ToList();
+            Assert.NotEmpty(sliceResults);
+            Assert.All(sliceResults, r =>
+            {
+                Assert.True(r.CustKey > 0);
+                Assert.True(r.TotalCount >= 2);
+                Assert.Equal(2, r.Top2Prices.Count);
+                Assert.True(r.Top2Prices[0] >= r.Top2Prices[1]);
+                Assert.Equal(r.Top2Sum, r.Top2Prices[0] + r.Top2Prices[1]);
+                Assert.Equal(r.MaxPrice, r.Top2Prices[0]);
+                Assert.True(r.TotalSum >= r.Top2Sum);
+                Assert.True(r.MaxOrderKey > 0);
+            });
+        }
+
+        // =========================================================================
+        // Part B: Flattened Group Partition Slice via SelectMany (Top-2 per Group)
+        // Equivalent to SQL Window Ranking filter:
+        // WITH ranked AS (
+        //     SELECT o_custkey, o_orderkey, o_totalprice, o_orderstatus,
+        //            ROW_NUMBER() OVER (PARTITION BY o_custkey ORDER BY o_totalprice DESC) AS rn
+        //     FROM orders
+        // )
+        // SELECT o_custkey, o_orderkey, o_totalprice, o_orderstatus
+        // FROM ranked
+        // WHERE rn <= 2
+        // =========================================================================
+        using (var ordersFlatLf = TpchData.Orders())
+        {
+            var flatTopNQuery = from g in ordersFlatLf.AsQueryable<Orders>().GroupBy(o => o.o_custkey)
+                                from top in g.OrderByDescending(o => o.o_totalprice).Take(2)
+                                select new
+                                {
+                                    CustKey = g.Key,
+                                    OrderKey = top.o_orderkey,
+                                    TotalPrice = top.o_totalprice,
+                                    OrderStatus = top.o_orderstatus
+                                };
+
+            AssertPlan(flatTopNQuery, NativePushdown);
+
+            var flatResults = flatTopNQuery.Take(10).ToList();
+            Assert.NotEmpty(flatResults);
+            Assert.All(flatResults, r =>
+            {
+                Assert.True(r.CustKey > 0);
+                Assert.True(r.OrderKey > 0);
+                Assert.True(r.TotalPrice > 0m);
+                Assert.False(string.IsNullOrWhiteSpace(r.OrderStatus));
+            });
+        }
+    }
 }

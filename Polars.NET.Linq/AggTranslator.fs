@@ -57,6 +57,11 @@ module AggTranslator =
         | Where of source: GroupSeq * predicate: LambdaExpression
         | Distinct of source: GroupSeq
         | DistinctBy of source: GroupSeq * keySelector: LambdaExpression
+        | OrderBy of source: GroupSeq * keySelector: LambdaExpression * isDescending: bool
+        | ThenBy of source: GroupSeq * keySelector: LambdaExpression * isDescending: bool
+        | OrderBySelf of source: GroupSeq * isDescending: bool
+        | Take of source: GroupSeq * countExpr: Expression
+        | Skip of source: GroupSeq * countExpr: Expression
 
     /// Active pattern extracting intermediate transformation chains on the group source `g`.
     let rec private (|GroupSeqChain|_|) (groupParamName: string) (expr: Expression) : GroupSeq option =
@@ -71,6 +76,38 @@ module AggTranslator =
             match (|GroupSeqChain|_|) groupParamName sourceExpr with
             | Some s -> Some(Where(s, predicate))
             | None -> None
+        | MethodCall(m, null, sourceExpr :: CleanLambda keySelector :: _) when m.Name = "OrderBy" ->
+            match (|GroupSeqChain|_|) groupParamName sourceExpr with
+            | Some s -> Some(OrderBy(s, keySelector, false))
+            | None -> None
+        | MethodCall(m, null, sourceExpr :: CleanLambda keySelector :: _) when m.Name = "OrderByDescending" ->
+            match (|GroupSeqChain|_|) groupParamName sourceExpr with
+            | Some s -> Some(OrderBy(s, keySelector, true))
+            | None -> None
+        | MethodCall(m, null, sourceExpr :: CleanLambda keySelector :: _) when m.Name = "ThenBy" ->
+            match (|GroupSeqChain|_|) groupParamName sourceExpr with
+            | Some s -> Some(ThenBy(s, keySelector, false))
+            | None -> None
+        | MethodCall(m, null, sourceExpr :: CleanLambda keySelector :: _) when m.Name = "ThenByDescending" ->
+            match (|GroupSeqChain|_|) groupParamName sourceExpr with
+            | Some s -> Some(ThenBy(s, keySelector, true))
+            | None -> None
+        | MethodCall(m, null, [ sourceExpr ]) when m.Name = "Order" ->
+            match (|GroupSeqChain|_|) groupParamName sourceExpr with
+            | Some s -> Some(OrderBySelf(s, false))
+            | None -> None
+        | MethodCall(m, null, [ sourceExpr ]) when m.Name = "OrderDescending" ->
+            match (|GroupSeqChain|_|) groupParamName sourceExpr with
+            | Some s -> Some(OrderBySelf(s, true))
+            | None -> None
+        | MethodCall(m, null, [ sourceExpr; countExpr ]) when m.Name = "Take" ->
+            match (|GroupSeqChain|_|) groupParamName sourceExpr with
+            | Some s -> Some(Take(s, countExpr))
+            | None -> None
+        | MethodCall(m, null, [ sourceExpr; countExpr ]) when m.Name = "Skip" ->
+            match (|GroupSeqChain|_|) groupParamName sourceExpr with
+            | Some s -> Some(Skip(s, countExpr))
+            | None -> None
         | MethodCall(m, null, [ sourceExpr ]) when m.Name = "Distinct" ->
             match (|GroupSeqChain|_|) groupParamName sourceExpr with
             | Some s -> Some(Distinct s)
@@ -81,11 +118,19 @@ module AggTranslator =
             | None -> None
         | _ -> None
 
+    type private SortKey =
+        {
+            Expr: ExprHandle
+            IsDescending: bool
+        }
+
     type private ResolvedGroupSeq =
         {
             Target: ExprHandle option
             Filter: ExprHandle option
             IsDistinct: bool
+            SortKeys: SortKey list
+            Slice: (int64 option * int64 option) option
         }
 
     let rec private evalGroupSeq
@@ -106,13 +151,22 @@ module AggTranslator =
                     Target = targetOpt
                     Filter = None
                     IsDistinct = false
+                    SortKeys = []
+                    Slice = None
                 }
 
         | Select(source, selector) ->
             match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt source with
             | None -> None
             | Some prev ->
-                match resolveLambda scalarColOpt selector with
+                let currentScalar =
+                    match prev.Target with
+                    | Some h ->
+                        let name = PolarsWrapper.ExprGetOutputName h
+                        if String.IsNullOrEmpty name then scalarColOpt else Some name
+                    | None -> scalarColOpt
+
+                match resolveLambda currentScalar selector with
                 | None -> None
                 | Some selExpr -> Some { prev with Target = Some selExpr }
 
@@ -120,8 +174,15 @@ module AggTranslator =
             match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt source with
             | None -> None
             | Some prev ->
+                let currentScalar =
+                    match prev.Target with
+                    | Some h ->
+                        let name = PolarsWrapper.ExprGetOutputName h
+                        if String.IsNullOrEmpty name then scalarColOpt else Some name
+                    | None -> scalarColOpt
+
                 let p = predicate.Parameters.[0]
-                let ctx = getParamContext scalarColOpt p
+                let ctx = getParamContext currentScalar p
 
                 match tryTranslateWithContext ctx predicate.Body with
                 | None -> None
@@ -142,7 +203,14 @@ module AggTranslator =
             match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt source with
             | None -> None
             | Some prev ->
-                match resolveLambda scalarColOpt keySelector with
+                let currentScalar =
+                    match prev.Target with
+                    | Some h ->
+                        let name = PolarsWrapper.ExprGetOutputName h
+                        if String.IsNullOrEmpty name then scalarColOpt else Some name
+                    | None -> scalarColOpt
+
+                match resolveLambda currentScalar keySelector with
                 | None -> None
                 | Some keyExpr ->
                     Some
@@ -151,12 +219,135 @@ module AggTranslator =
                             IsDistinct = true
                         }
 
-    /// Combines the resolved target column expression with any sequence filter predicates.
+        | OrderBy(source, keySelector, isDesc) ->
+            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt source with
+            | None -> None
+            | Some prev ->
+                let keyExprOpt =
+                    let cleanBody = unwrap keySelector.Body
+                    if cleanBody = (keySelector.Parameters.[0] :> Expression) then
+                        prev.Target |> Option.map PolarsWrapper.CloneExpr
+                    else
+                        let currentScalar =
+                            match prev.Target with
+                            | Some h ->
+                                let name = PolarsWrapper.ExprGetOutputName h
+                                if String.IsNullOrEmpty name then scalarColOpt else Some name
+                            | None -> scalarColOpt
+                        resolveLambda currentScalar keySelector
+
+                match keyExprOpt with
+                | Some keyExpr ->
+                    Some { prev with SortKeys = [ { Expr = keyExpr; IsDescending = isDesc } ] }
+                | None -> None
+
+        | ThenBy(source, keySelector, isDesc) ->
+            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt source with
+            | None -> None
+            | Some prev ->
+                let keyExprOpt =
+                    let cleanBody = unwrap keySelector.Body
+                    if cleanBody = (keySelector.Parameters.[0] :> Expression) then
+                        prev.Target |> Option.map PolarsWrapper.CloneExpr
+                    else
+                        let currentScalar =
+                            match prev.Target with
+                            | Some h ->
+                                let name = PolarsWrapper.ExprGetOutputName h
+                                if String.IsNullOrEmpty name then scalarColOpt else Some name
+                            | None -> scalarColOpt
+                        resolveLambda currentScalar keySelector
+
+                match keyExprOpt with
+                | Some keyExpr ->
+                    Some { prev with SortKeys = prev.SortKeys @ [ { Expr = keyExpr; IsDescending = isDesc } ] }
+                | None -> None
+
+        | OrderBySelf(source, isDesc) ->
+            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt source with
+            | None -> None
+            | Some prev ->
+                match prev.Target with
+                | Some t ->
+                    Some { prev with SortKeys = [ { Expr = PolarsWrapper.CloneExpr t; IsDescending = isDesc } ] }
+                | None -> None
+
+        | Take(source, countExpr) ->
+            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt source with
+            | None -> None
+            | Some prev ->
+                match tryEvaluate countExpr with
+                | Some c ->
+                    let count = Convert.ToInt64 c
+                    let newSlice =
+                        match prev.Slice with
+                        | Some(skipOpt, _) -> Some(skipOpt, Some count)
+                        | None -> Some(None, Some count)
+                    Some { prev with Slice = newSlice }
+                | None -> None
+
+        | Skip(source, countExpr) ->
+            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt source with
+            | None -> None
+            | Some prev ->
+                match tryEvaluate countExpr with
+                | Some c ->
+                    let count = Convert.ToInt64 c
+                    let newSlice =
+                        match prev.Slice with
+                        | Some(_, takeOpt) -> Some(Some count, takeOpt)
+                        | None -> Some(Some count, None)
+                    Some { prev with Slice = newSlice }
+                | None -> None
+
+    /// Combines the resolved target column expression with any sequence filter predicates, sorting, and slicing.
     let private getFilteredTarget (resolved: ResolvedGroupSeq) : ExprHandle option =
-        match resolved.Target, resolved.Filter with
-        | Some t, Some f -> Some(PolarsWrapper.Filter(t, f))
-        | Some t, None -> Some t
-        | None, _ -> None
+        match resolved.Target with
+        | None -> None
+        | Some initialTarget ->
+            // 1. Filter
+            let targetAfterFilter, sortKeysAfterFilter =
+                match resolved.Filter with
+                | Some f ->
+                    let filteredTarget = PolarsWrapper.Filter(initialTarget, PolarsWrapper.CloneExpr f)
+                    let filteredSortKeys =
+                        resolved.SortKeys
+                        |> List.map (fun sk ->
+                            { sk with Expr = PolarsWrapper.Filter(sk.Expr, PolarsWrapper.CloneExpr f) })
+                    filteredTarget, filteredSortKeys
+                | None ->
+                    initialTarget, resolved.SortKeys
+
+            // 2. SortBy
+            let targetAfterSort =
+                if sortKeysAfterFilter.IsEmpty then
+                    targetAfterFilter
+                else
+                    let byExprs = sortKeysAfterFilter |> List.map (fun sk -> sk.Expr) |> List.toArray
+                    let desc = sortKeysAfterFilter |> List.map (fun sk -> sk.IsDescending) |> List.toArray
+                    let nullsLast = Array.create byExprs.Length false
+                    PolarsWrapper.SortBy(targetAfterFilter, byExprs, desc, nullsLast, multithreaded = true, maintainOrder = true)
+
+            // 3. Slice (Skip / Take)
+            let targetAfterSlice =
+                match resolved.Slice with
+                | Some(Some skip, Some take) ->
+                    PolarsWrapper.ExprSlice(targetAfterSort, PolarsWrapper.Lit skip, PolarsWrapper.Lit take)
+                | Some(None, Some take) ->
+                    PolarsWrapper.Head(targetAfterSort, int take)
+                | Some(Some skip, None) ->
+                    PolarsWrapper.ExprSlice(targetAfterSort, PolarsWrapper.Lit skip, PolarsWrapper.Lit Int64.MaxValue)
+                | _ ->
+                    targetAfterSort
+
+            // 4. Distinct
+            let finalTarget =
+                if resolved.IsDistinct then
+                    PolarsWrapper.ExprUnique targetAfterSlice
+                else
+                    targetAfterSlice
+
+            Some finalTarget
 
     let private tryExtractSep (sepExpr: Expression) : string option =
         match tryEvaluate sepExpr with
@@ -228,6 +419,9 @@ module AggTranslator =
             | Some resolved when resolved.IsDistinct ->
                 getFilteredTarget resolved
                 |> Option.map (fun t -> PolarsWrapper.NUnique t |> castCountExpr isLong)
+            | Some resolved when resolved.Slice.IsSome ->
+                getFilteredTarget resolved
+                |> Option.map (fun t -> PolarsWrapper.Count t |> castCountExpr isLong)
             | Some resolved when resolved.Filter.IsSome ->
                 let int64Dtype = int64DtypeExpr ()
                 let castH = PolarsWrapper.ExprCast(resolved.Filter.Value, int64Dtype, strict = false, wrapNumerical = false)
@@ -370,6 +564,35 @@ module AggTranslator =
 
                 getFilteredTarget resolved
                 |> Option.bind (translateDispersionOp m.Name ddof)
+            | _ -> None
+
+        // ---------------------------------------------------------------------
+        // Member Access on First / Last: seq.First().Prop / seq.Last().Prop
+        // ---------------------------------------------------------------------
+        | MemberAccess(MethodCall(m, null, [ GroupSeqChain groupParamName seq ]), memberInfo) when
+            m.Name = "First" || m.Name = "FirstOrDefault" || m.Name = "Last" || m.Name = "LastOrDefault"
+            ->
+            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt seq with
+            | Some resolved ->
+                let memberCol = PolarsWrapper.Col memberInfo.Name
+                let resolvedWithTarget = { resolved with Target = Some memberCol }
+                getFilteredTarget resolvedWithTarget
+                |> Option.bind (translateReductionOp m.Name)
+            | None -> None
+
+        // ---------------------------------------------------------------------
+        // ElementAt / ElementAtOrDefault: seq.ElementAt(index)
+        // ---------------------------------------------------------------------
+        | MethodCall(m, null, [ GroupSeqChain groupParamName seq; indexExpr ]) when
+            m.Name = "ElementAt" || m.Name = "ElementAtOrDefault"
+            ->
+            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt seq, tryEvaluate indexExpr with
+            | Some resolved, Some idxVal ->
+                let idx = Convert.ToInt64 idxVal
+                match getFilteredTarget resolved with
+                | Some colH ->
+                    Some(PolarsWrapper.Get(colH, PolarsWrapper.Lit idx, nullOnOob = true))
+                | None -> None
             | _ -> None
 
         // ---------------------------------------------------------------------

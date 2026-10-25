@@ -102,8 +102,10 @@ module internal rec ExprTranslator =
         | "Min" -> Some(PolarsWrapper.Min targetColExpr)
         | "Max" -> Some(PolarsWrapper.Max targetColExpr)
         | "Median" -> Some(PolarsWrapper.Median targetColExpr)
-        | "First" -> Some(PolarsWrapper.First(targetColExpr, ignoreNulls = false))
-        | "Last" -> Some(PolarsWrapper.Last(targetColExpr, ignoreNulls = false))
+        | "First"
+        | "FirstOrDefault" -> Some(PolarsWrapper.First(targetColExpr, ignoreNulls = false))
+        | "Last"
+        | "LastOrDefault" -> Some(PolarsWrapper.Last(targetColExpr, ignoreNulls = false))
         | "Std"
         | "StdDev" -> Some(PolarsWrapper.Std(targetColExpr, 1uy))
         | "Var"
