@@ -961,4 +961,168 @@ public class TpcdsBossRushTests
     }
 
     public record MultiIndexSales(string Department, string Region, double Q1, double Q2, double Q3);
+    public record EmployeeSalary(string Department, string Name, double Salary);
+
+    [Fact, Trait("TPCDS", "BOSS9")]
+    public void Boss_09_Window_Ranking_And_Analytical_Predicate_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Department", ["IT", "IT", "IT", "HR", "HR", "HR"]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve", "Frank"]),
+            Series.From("Salary", [100.0, 90.0, 80.0, 70.0, 60.0, 50.0])
+        ]);
+
+        var query =
+            from e in df.AsQueryable<EmployeeSalary>()
+            where e.Salary.Rank(true).Over(e.Department) <= 2.0
+            select e;
+
+        var plan = query.Explain();
+        AssertPlan(query, NativePushdown);
+
+        var results = query.ToList();
+        Assert.Equal(4, results.Count);
+        Assert.Contains(results, r => r.Name == "Alice" && r.Department == "IT");
+        Assert.Contains(results, r => r.Name == "Bob" && r.Department == "IT");
+        Assert.Contains(results, r => r.Name == "David" && r.Department == "HR");
+        Assert.Contains(results, r => r.Name == "Eve" && r.Department == "HR");
+        Assert.DoesNotContain(results, r => r.Name == "Charlie");
+        Assert.DoesNotContain(results, r => r.Name == "Frank");
+
+        // =========================================================================
+        // Variant 2: Let clause (Roslyn Transparent Identifier) with rank projection
+        // =========================================================================
+        var queryWithLet =
+            from e in df.AsQueryable<EmployeeSalary>()
+            let rk = e.Salary.Rank(true).Over(e.Department)
+            where rk <= 2.0
+            orderby e.Department, rk
+            select new
+            {
+                e.Department,
+                e.Name,
+                e.Salary,
+                Rank = rk
+            };
+
+        var letPlan = queryWithLet.Explain();
+        AssertPlan(queryWithLet, NativePushdown);
+
+        var letResults = queryWithLet.ToList();
+        Assert.Equal(4, letResults.Count);
+
+        // HR Rank 1 (David 70.0)
+        Assert.Equal("HR", letResults[0].Department);
+        Assert.Equal("David", letResults[0].Name);
+        Assert.Equal(1.0, letResults[0].Rank);
+
+        // HR Rank 2 (Eve 60.0)
+        Assert.Equal("HR", letResults[1].Department);
+        Assert.Equal("Eve", letResults[1].Name);
+        Assert.Equal(2.0, letResults[1].Rank);
+
+        // IT Rank 1 (Alice 100.0)
+        Assert.Equal("IT", letResults[2].Department);
+        Assert.Equal("Alice", letResults[2].Name);
+        Assert.Equal(1.0, letResults[2].Rank);
+
+        // IT Rank 2 (Bob 90.0)
+        Assert.Equal("IT", letResults[3].Department);
+        Assert.Equal("Bob", letResults[3].Name);
+        Assert.Equal(2.0, letResults[3].Rank);
+
+        // =========================================================================
+        // Variant 3: Dense Rank with tie handling (TPC-DS Q44/Q49 pattern)
+        // =========================================================================
+        using var dfTies = DataFrame.FromColumns(
+        [
+            Series.From("Department", ["IT", "IT", "IT", "IT"]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David"]),
+            Series.From("Salary", [100.0, 100.0, 80.0, 70.0])
+        ]);
+
+        var denseQuery =
+            from e in dfTies.AsQueryable<EmployeeSalary>()
+            where e.Salary.Rank(RankMethod.Dense, true).Over(e.Department) <= 2.0
+            orderby e.Salary descending
+            select e;
+
+        AssertPlan(denseQuery, NativePushdown);
+        var denseResults = denseQuery.ToList();
+        // Alice (100, dense rank 1), Bob (100, dense rank 1), Charlie (80, dense rank 2)
+        Assert.Equal(3, denseResults.Count);
+        Assert.Contains(denseResults, r => r.Name == "Alice");
+        Assert.Contains(denseResults, r => r.Name == "Bob");
+        Assert.Contains(denseResults, r => r.Name == "Charlie");
+        Assert.DoesNotContain(denseResults, r => r.Name == "David");
+
+        // =========================================================================
+        // Variant 4: Multi-Column Composite Partitioning in Over clause
+        // =========================================================================
+        using var dfRoles = DataFrame.FromColumns(
+        [
+            Series.From("Department", ["IT", "IT", "IT", "IT"]),
+            Series.From("Role", ["Dev", "Dev", "QA", "QA"]),
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David"]),
+            Series.From("Salary", [100.0, 90.0, 80.0, 70.0])
+        ]);
+
+        var multiKeyQuery =
+            from e in dfRoles.AsQueryable<EmployeeRoleSalary>()
+            where e.Salary.Rank(true).Over(new { e.Department, e.Role }) <= 1.0
+            select e;
+
+        AssertPlan(multiKeyQuery, NativePushdown);
+        var multiKeyResults = multiKeyQuery.ToList();
+        // Top 1 in Dev (Alice), Top 1 in QA (Charlie)
+        Assert.Equal(2, multiKeyResults.Count);
+        Assert.Contains(multiKeyResults, r => r.Name == "Alice" && r.Role == "Dev");
+        Assert.Contains(multiKeyResults, r => r.Name == "Charlie" && r.Role == "QA");
+        Assert.DoesNotContain(multiKeyResults, r => r.Name == "Bob");
+        Assert.DoesNotContain(multiKeyResults, r => r.Name == "David");
+
+        // =========================================================================
+        // Variant 5: Cumulative Window Functions with PartitionBy + OrderBy in Where
+        // =========================================================================
+        var cumQuery =
+            from e in dfRoles.AsQueryable<EmployeeRoleSalary>()
+            where e.Salary.CumSum().Over(e.Department, e.Salary) <= 170.0
+            orderby e.Salary
+            select e;
+
+        AssertPlan(cumQuery, NativePushdown);
+        var cumResults = cumQuery.ToList();
+        // IT department sorted by Salary ascending:
+        // David (70.0, cumsum=70.0 <= 170)
+        // Charlie (80.0, cumsum=150.0 <= 170)
+        // Bob (90.0, cumsum=240.0 > 170 - filtered)
+        // Alice (100.0, cumsum=340.0 > 170 - filtered)
+        Assert.Equal(2, cumResults.Count);
+        Assert.Equal("David", cumResults[0].Name);
+        Assert.Equal(70.0, cumResults[0].Salary);
+        Assert.Equal("Charlie", cumResults[1].Name);
+        Assert.Equal(80.0, cumResults[1].Salary);
+
+        // =========================================================================
+        // Variant 6: Filtering by Window Aggregate directly in Where!
+        // In standard SQL, window functions are strictly prohibited in WHERE clause!
+        // (SQL throws "ERROR: window functions are not allowed in WHERE").
+        // In Polars.NET, it pushes down natively!
+        // =========================================================================
+        var aboveAvgQuery =
+            from e in dfRoles.AsQueryable<EmployeeRoleSalary>()
+            where e.Salary > e.Salary.Average().Over(e.Department)
+            orderby e.Salary descending
+            select e;
+
+        AssertPlan(aboveAvgQuery, NativePushdown);
+        var aboveAvgResults = aboveAvgQuery.ToList();
+        // IT salaries: 100, 90, 80, 70 -> Avg = 85.0. Above average: Alice (100) and Bob (90)
+        Assert.Equal(2, aboveAvgResults.Count);
+        Assert.Equal("Alice", aboveAvgResults[0].Name);
+        Assert.Equal("Bob", aboveAvgResults[1].Name);
+    }
+
+    public record EmployeeRoleSalary(string Department, string Role, string Name, double Salary);
 }
