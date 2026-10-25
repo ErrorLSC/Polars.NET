@@ -1275,21 +1275,25 @@ module internal rec ExprTranslator =
         : ExprHandle option =
         let targetH () = tryTranslateWithContext ctx target
 
-        match args with
-        | [ nExpr ] ->
-            let offsetHandleOpt =
-                match tryEvaluate nExpr with
-                | Some nVal ->
-                    try
-                        let intVal = Convert.ToInt64 nVal
-                        Some(PolarsWrapper.Lit intVal)
-                    with _ ->
-                        tryTranslateWithContext ctx nExpr
-                | None -> tryTranslateWithContext ctx nExpr
+        let resolveOffset (expr: Expression) : ExprHandle option =
+            match tryEvaluate expr with
+            | Some nVal ->
+                try
+                    let intVal = Convert.ToInt64 nVal
+                    Some(PolarsWrapper.Lit intVal)
+                with _ ->
+                    tryTranslateWithContext ctx expr
+            | None ->
+                tryTranslateWithContext ctx expr
 
-            match targetH (), offsetHandleOpt with
-            | Some eH, Some nH -> Some(PolarsWrapper.Shift(eH, nH))
+        let offsetHandleOpt =
+            match args with
+            | [] -> Some(PolarsWrapper.Lit 1L)
+            | [ nExpr ] -> resolveOffset nExpr
             | _ -> None
+
+        match targetH (), offsetHandleOpt with
+        | Some eH, Some nH -> Some(PolarsWrapper.Shift(eH, nH))
         | _ -> None
 
     let private translateDiffMethod
@@ -1401,41 +1405,89 @@ module internal rec ExprTranslator =
         (args: Expression list)
         : ExprHandle option =
         match tryTranslateWithContext ctx target with
+        | None -> None
         | Some targetH ->
-            let extractPartitions (exprs: Expression list) : Expression list =
-                exprs
-                |> List.collect (fun arg ->
-                    match arg with
-                    | :? NewExpression as ne -> ne.Arguments |> Seq.toList
-                    | :? NewArrayExpression as nae -> nae.Expressions |> Seq.toList
-                    | other -> [ other ])
+            let unwrapArg (arg: Expression) : Expression =
+                match unwrap arg with
+                | null -> null
+                | other -> other
 
-            let flattenedArgs = extractPartitions args
+            let extractList (arg: Expression) : Expression list =
+                match unwrapArg arg with
+                | null -> []
+                | :? NewExpression as ne -> ne.Arguments |> Seq.toList
+                | :? NewArrayExpression as nae -> nae.Expressions |> Seq.toList
+                | :? MemberInitExpression as mie ->
+                    mie.Bindings
+                    |> Seq.choose (function :? MemberAssignment as ma -> Some ma.Expression | _ -> None)
+                    |> Seq.toList
+                | other -> [ other ]
 
-            let partitionHandles =
-                flattenedArgs
-                |> List.choose (fun arg ->
-                    match arg with
-                    | :? LambdaExpression as lam ->
-                        tryTranslateWithContext (TranslationContext.Entity lam.Parameters.[0].Name) lam.Body
-                    | other -> tryTranslateWithContext ctx other)
+            let translateList (exprs: Expression list) : ExprHandle array option =
+                if exprs.IsEmpty then
+                    Some [||]
+                else
+                    let handles =
+                        exprs
+                        |> List.choose (fun arg ->
+                            match arg with
+                            | :? LambdaExpression as lam ->
+                                tryTranslateWithContext (TranslationContext.Entity lam.Parameters.[0].Name) lam.Body
+                            | other -> tryTranslateWithContext ctx other)
+                    if handles.Length = exprs.Length then
+                        Some(Array.ofList handles)
+                    else
+                        None
 
-            if partitionHandles.Length > 0 && partitionHandles.Length = flattenedArgs.Length then
+            let rec isOrderSensitive (e: Expression) : bool =
+                match unwrap e with
+                | null -> false
+                | :? MethodCallExpression as mc ->
+                    match mc.Method.Name with
+                    | "Shift" | "Diff" | "PctChange"
+                    | "CumSum" | "CumMax" | "CumMin" | "CumProd" | "CumCount"
+                    | "Interpolate" | "InterpolateBy" -> true
+                    | _ -> false
+                | :? UnaryExpression as ue -> isOrderSensitive ue.Operand
+                | _ -> false
+
+            // Identify partitions, order by, and descending
+            let partitionExprs, orderExprs, isDescending =
+                match args with
+                | [ pArg ] ->
+                    extractList pArg, [], false
+                | [ pArg; oArg ] when oArg.Type = typeof<bool> ->
+                    let desc = match tryEvaluate oArg with Some (:? bool as b) -> b | _ -> false
+                    extractList pArg, [], desc
+                | [ pArg; oArg ] ->
+                    if isOrderSensitive target then
+                        extractList pArg, extractList oArg, false
+                    else
+                        extractList pArg @ extractList oArg, [], false
+                | pArg :: oArg :: descArg :: _ when descArg.Type = typeof<bool> ->
+                    let desc = match tryEvaluate descArg with Some (:? bool as b) -> b | _ -> false
+                    if desc || isOrderSensitive target then
+                        extractList pArg, extractList oArg, desc
+                    else
+                        extractList pArg @ extractList oArg, [], false
+                | other ->
+                    other |> List.collect extractList, [], false
+
+            match translateList partitionExprs, translateList orderExprs with
+            | Some partitionHandles, Some orderHandles when partitionHandles.Length > 0 || orderHandles.Length > 0 ->
                 Some(
                     PolarsWrapper.Over(
                         targetH,
-                        Array.ofList partitionHandles,
-                        [||],
-                        descending = false,
+                        partitionHandles,
+                        orderHandles,
+                        descending = isDescending,
                         nullsLast = false,
                         multithreaded = true,
                         maintainOrder = true,
                         mappingCode = PlWindowMapping.GroupsToRows
                     )
                 )
-            else
-                None
-        | None -> None
+            | _ -> None
 
     let private translateScalarReductionMethod
         (ctx: TranslationContext)

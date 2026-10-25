@@ -1186,6 +1186,16 @@ and Expr(handle: ExprHandle) =
     member this.Shift() = this.Shift 1L
 
     /// <summary>
+    /// Calculate the difference with given number of periods.
+    /// </summary>
+    /// <param name="n">Number of periods to shift for calculating difference. Default is 1.</param>
+    /// <param name="nullBehavior">Behavior for handling null values.</param>
+    member this.Diff(?n: int64, ?nullBehavior: NullBehavior) =
+        let periods = defaultArg n 1L
+        let nb = (defaultArg nullBehavior NullBehavior.Ignore).ToNative()
+        new Expr(PolarsWrapper.Diff(this.CloneHandle(), PolarsWrapper.Lit periods, nb))
+
+    /// <summary>
     /// Fill null values with a specific value.
     /// </summary>
     /// <param name="value">Value to fill null values with.</param>

@@ -457,4 +457,59 @@ public class TpcdsBossRushTests
             });
         }
     }
+
+    [Fact, Trait("TPCDS", "BOSS7")]
+    public void Boss_07_Period_Over_Period_Window_Shift_And_Diff()
+    {
+        // =========================================================================
+        // BOSS 7: Inter-Row Period-over-Period Window Analytics (Lead / Lag / Diff / CumSum)
+        // Equivalent to TPC-DS Time-Series Window Queries (e.g. Q77, Q80, Q94):
+        // SELECT o_custkey, o_orderkey, o_orderdate, o_totalprice,
+        //        LAG(o_totalprice, 1) OVER (PARTITION BY o_custkey ORDER BY o_orderdate) AS prev_price,
+        //        LEAD(o_totalprice, 1) OVER (PARTITION BY o_custkey ORDER BY o_orderdate) AS next_price,
+        //        DIFF(o_totalprice, 1) OVER (PARTITION BY o_custkey ORDER BY o_orderdate) AS price_diff,
+        //        SUM(o_totalprice) OVER (PARTITION BY o_custkey ORDER BY o_orderdate) AS running_total,
+        //        SUM(o_totalprice) OVER (PARTITION BY o_custkey) AS cust_total,
+        //        (o_totalprice - AVG(o_totalprice) OVER (PARTITION BY o_custkey)) AS diff_from_cust_avg
+        // FROM orders
+        // =========================================================================
+        using (var ordersLf = TpchData.Orders())
+        {
+            var windowQuery = from o in ordersLf.AsQueryable<Orders>()
+                              select new
+                              {
+                                  CustKey = o.o_custkey,
+                                  OrderKey = o.o_orderkey,
+                                  OrderDate = o.o_orderdate,
+                                  Price = o.o_totalprice,
+                                  PrevPrice = ((decimal?)o.o_totalprice).Shift(1).Over(o.o_custkey, o.o_orderdate),
+                                  NextPrice = ((decimal?)o.o_totalprice).Shift(-1).Over(o.o_custkey, o.o_orderdate),
+                                  DescNextPrice = ((decimal?)o.o_totalprice).Shift(-1).Over(o.o_custkey, o.o_orderdate, true),
+                                  PriceDiff = o.o_totalprice.Diff(1).Over(o.o_custkey, o.o_orderdate),
+                                  RunningTotal = o.o_totalprice.CumSum().Over(o.o_custkey, o.o_orderdate),
+                                  CustTotal = o.o_totalprice.Sum().Over(o.o_custkey),
+                                  DiffFromAvg = o.o_totalprice - (decimal)o.o_totalprice.Average().Over(o.o_custkey)
+                              };
+
+            AssertPlan(windowQuery, NativePushdown);
+
+            var results = windowQuery.Take(20).ToList();
+            Assert.NotEmpty(results);
+            Assert.All(results, r =>
+            {
+                Assert.True(r.CustKey > 0);
+                Assert.True(r.OrderKey > 0);
+                Assert.True(r.Price > 0m);
+                Assert.True(r.RunningTotal >= r.Price);
+                Assert.True(r.CustTotal >= r.Price);
+
+                // When previous price exists, Diff must match Price - PrevPrice
+                if (r.PrevPrice.HasValue)
+                {
+                    Assert.Equal(r.PriceDiff, r.Price - r.PrevPrice.Value);
+                    Assert.Equal(r.PrevPrice, r.DescNextPrice);
+                }
+            });
+        }
+    }
 }

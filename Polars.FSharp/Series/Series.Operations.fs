@@ -636,6 +636,13 @@ module SeriesOperationExtensions =
         /// <summary> Shift by 1. </summary>
         member this.Shift() = this.Shift(1L)
 
+        /// <summary> Calculate difference with previous value. </summary>
+        member this.Diff(?n: int64, ?nullBehavior: NullBehavior) =
+            this.ApplyExpr(Expr.Col(this.Name).Diff(?n = n, ?nullBehavior = nullBehavior))
+
+        /// <summary> Calculate difference with previous value. </summary>
+        member this.Diff(n: int) = this.Diff(int64 n)
+
         /// <summary>
         /// Fill null values with the previous non-null value.
         /// </summary>
