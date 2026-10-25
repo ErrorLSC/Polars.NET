@@ -776,6 +776,78 @@ and PolarsQuery<'T>
                 | LinqStage.Explode(colLambda, resLambdaOpt) :: tail ->
                     pushOpsOrFallback (compileExplode colLambda resLambdaOpt) tail
 
+                | LinqStage.Unpivot(colLambda, resLambdaOpt) :: tail ->
+                    let activeBaseLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
+                    let availableCols = getLazySchemaFields activeBaseLf |> Array.map fst
+                    match tryExtractUnpivotPattern colLambda resLambdaOpt with
+                    | Some pattern ->
+                        let explicitIndexCols = pattern.ExplicitIndexCols
+                        let onCols = pattern.OnCols
+                        let indexCols =
+                            if not explicitIndexCols.IsEmpty then explicitIndexCols |> List.toArray
+                            else availableCols |> Array.filter (fun c -> not (Array.contains c onCols))
+
+                        if indexCols.Length = 0 then
+                            FallbackTracker.Diagnostic <- Some "Unpivot requires at least one index column"
+                            currentLf, [], [], None, true
+                        else
+                            let spec =
+                                {
+                                    Index = indexCols
+                                    On = Some onCols
+                                    VariableName = pattern.VariableName
+                                    ValueName = pattern.ValueName
+                                }
+                            let unpivotOp = QueryOp.Unpivot spec
+                            let postUnpivotCols = Array.append indexCols [| pattern.VariableName; pattern.ValueName |]
+
+                            let leftScope = colLambda.Parameters.[0].Name
+                            let updatedScopeMap =
+                                let outerMappings = indexCols |> Array.map (fun c -> (leftScope, c), c)
+                                let innerScope =
+                                    match resLambdaOpt with
+                                    | Some resSel when resSel.Parameters.Count >= 2 -> resSel.Parameters.[1].Name
+                                    | _ -> "q"
+                                let innerMappings =
+                                    [
+                                        (innerScope, pattern.VariableName), pattern.VariableName
+                                        (innerScope, pattern.ValueName), pattern.ValueName
+                                        (innerScope, pattern.VarPropName), pattern.VariableName
+                                        (innerScope, pattern.ValPropName), pattern.ValueName
+                                        (innerScope, "Item1"), pattern.VariableName
+                                        (innerScope, "Item2"), pattern.ValueName
+                                    ]
+                                scopeMap
+                                |> Map.fold (fun m k v -> Map.add k v m) (Map.ofArray (Array.append outerMappings (List.toArray innerMappings)))
+
+                            match resLambdaOpt with
+                            | None ->
+                                if tail.IsEmpty then
+                                    fuse activeBaseLf tail [ unpivotOp ] clientPreds clientProjOpt updatedScopeMap
+                                else
+                                    let unpivotedLf = applyNativeOps activeBaseLf [ unpivotOp ]
+                                    fuse unpivotedLf tail [] clientPreds clientProjOpt updatedScopeMap
+                            | Some resSel when isTransparentJoinResSelector resSel ->
+                                if tail.IsEmpty then
+                                    fuse activeBaseLf tail [ unpivotOp ] clientPreds clientProjOpt updatedScopeMap
+                                else
+                                    let unpivotedLf = applyNativeOps activeBaseLf [ unpivotOp ]
+                                    fuse unpivotedLf tail [] clientPreds clientProjOpt updatedScopeMap
+                            | Some resSel ->
+                                match compileJoinResultSelectorWithParams postUnpivotCols [||] false None resSel updatedScopeMap with
+                                | Some selectOp ->
+                                    if tail.IsEmpty then
+                                        fuse activeBaseLf tail [ selectOp; unpivotOp ] clientPreds clientProjOpt Map.empty
+                                    else
+                                        let unpivotedLf = applyNativeOps activeBaseLf [ unpivotOp; selectOp ]
+                                        fuse unpivotedLf tail [] clientPreds clientProjOpt Map.empty
+                                | None ->
+                                    FallbackTracker.Diagnostic <- Some (sprintf "CompileUnpivotResultSelector failed: %s" (resSel.ToString()))
+                                    currentLf, [], [], None, true
+                    | None ->
+                        FallbackTracker.Diagnostic <- Some "ExtractUnpivotPattern failed"
+                        currentLf, [], [], None, true
+
                 | LinqStage.CrossJoin(innerExpr, resLambdaOpt) :: tail ->
                     pushOpsOrFallback (compileCrossJoin innerExpr resLambdaOpt) tail
 

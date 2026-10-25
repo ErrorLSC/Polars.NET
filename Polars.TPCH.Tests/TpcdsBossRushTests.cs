@@ -624,4 +624,341 @@ public class TpcdsBossRushTests
         Assert.Null(results[4].QuoteAsk);
         Assert.Null(results[4].Slippage);
     }
+
+    [Fact, Trait("TPCDS", "BOSS10")]
+    public void Boss_10_Cross_Tab_Pivot_Case_When_Matrix()
+    {
+        // =========================================================================
+        // BOSS 10: Cross-Tab / Pivot CASE-WHEN Matrix
+        // Equivalent to TPC-DS Cross-Tab / Dimension Pivot Queries (e.g. Q44, Q70, Q80, Q86):
+        // SELECT l_returnflag,
+        //        COUNT(*) AS TotalCount,
+        //        SUM(l_quantity) AS TotalQty,
+        //        SUM(l_extendedprice * (1 - l_discount)) AS TotalNetRevenue,
+        //        COUNT(CASE WHEN l_linestatus = 'O' THEN 1 END) AS StatusO_Count,
+        //        COUNT(CASE WHEN l_linestatus = 'F' THEN 1 END) AS StatusF_Count,
+        //        SUM(CASE WHEN l_linestatus = 'O' THEN l_quantity ELSE 0 END) AS StatusO_Qty,
+        //        SUM(CASE WHEN l_linestatus = 'F' THEN l_quantity ELSE 0 END) AS StatusF_Qty,
+        //        SUM(CASE WHEN l_linestatus = 'O' THEN l_extendedprice * (1 - l_discount) ELSE 0 END) AS StatusO_Revenue,
+        //        SUM(CASE WHEN l_linestatus = 'F' THEN l_extendedprice * (1 - l_discount) ELSE 0 END) AS StatusF_Revenue,
+        //        SUM(CASE WHEN l_shipmode IN ('AIR', 'REG AIR') THEN l_quantity ELSE 0 END) AS Air_Qty,
+        //        SUM(CASE WHEN l_shipmode = 'MAIL' THEN l_quantity ELSE 0 END) AS Mail_Qty,
+        //        SUM(CASE WHEN l_shipmode = 'SHIP' THEN l_quantity ELSE 0 END) AS Ship_Qty,
+        //        SUM(CASE WHEN l_shipmode = 'TRUCK' THEN l_quantity ELSE 0 END) AS Truck_Qty,
+        //        SUM(CASE WHEN l_shipmode = 'RAIL' THEN l_quantity ELSE 0 END) AS Rail_Qty,
+        //        SUM(CASE WHEN l_shipmode = 'FOB' THEN l_quantity ELSE 0 END) AS Fob_Qty,
+        //        SUM(CASE WHEN l_discount > 0.05 THEN l_extendedprice ELSE 0 END) AS HighDiscount_Revenue,
+        //        SUM(CASE WHEN l_linestatus = 'O' AND (l_shipmode = 'AIR' OR l_shipmode = 'REG AIR') THEN l_quantity ELSE 0 END) AS StatusO_Air_Qty,
+        //        AVG(CASE WHEN l_linestatus = 'F' THEN l_discount END) AS StatusF_AvgDiscount,
+        //        MAX(CASE WHEN l_linestatus = 'F' THEN l_extendedprice END) AS StatusF_MaxPrice
+        // FROM lineitem
+        // GROUP BY l_returnflag
+        // ORDER BY l_returnflag
+        // =========================================================================
+
+        using var lineitemLf = TpchData.LineItem();
+
+        var matrixQuery =
+            from l in lineitemLf.AsQueryable<LineItem>()
+            group l by l.l_returnflag into g
+            orderby g.Key
+            select new
+            {
+                ReturnFlag = g.Key,
+                TotalCount = g.Count(),
+                TotalQty = g.Sum(x => x.l_quantity),
+                TotalNetRevenue = g.Sum(x => x.l_extendedprice * (1m - x.l_discount)),
+
+                // Cross-Tab dimension 1: LineStatus ('O' vs 'F')
+                StatusO_Count = g.Count(x => x.l_linestatus == "O"),
+                StatusF_Count = g.Count(x => x.l_linestatus == "F"),
+                StatusO_Qty = g.Where(x => x.l_linestatus == "O").Sum(x => x.l_quantity),
+                StatusF_Qty = g.Where(x => x.l_linestatus == "F").Sum(x => x.l_quantity),
+                StatusO_Revenue = g.Where(x => x.l_linestatus == "O").Sum(x => x.l_extendedprice * (1m - x.l_discount)),
+                StatusF_Revenue = g.Where(x => x.l_linestatus == "F").Sum(x => x.l_extendedprice * (1m - x.l_discount)),
+
+                // Cross-Tab dimension 2: ShipMode Matrix
+                Air_Qty = g.Where(x => x.l_shipmode == "AIR" || x.l_shipmode == "REG AIR").Sum(x => x.l_quantity),
+                Mail_Qty = g.Where(x => x.l_shipmode == "MAIL").Sum(x => x.l_quantity),
+                Ship_Qty = g.Where(x => x.l_shipmode == "SHIP").Sum(x => x.l_quantity),
+                Truck_Qty = g.Where(x => x.l_shipmode == "TRUCK").Sum(x => x.l_quantity),
+                Rail_Qty = g.Where(x => x.l_shipmode == "RAIL").Sum(x => x.l_quantity),
+                Fob_Qty = g.Where(x => x.l_shipmode == "FOB").Sum(x => x.l_quantity),
+
+                // Ternary conditional aggregation
+                HighDiscount_Revenue = g.Sum(x => x.l_discount > 0.05m ? x.l_extendedprice : 0m),
+
+                // Composite multi-condition aggregation (LineStatus AND ShipMode)
+                StatusO_Air_Qty = g.Where(x => x.l_linestatus == "O" && (x.l_shipmode == "AIR" || x.l_shipmode == "REG AIR")).Sum(x => x.l_quantity),
+
+                // Conditional Statistical metrics
+                StatusF_AvgDiscount = (double)g.Where(x => x.l_linestatus == "F").Average(x => x.l_discount),
+                StatusF_MaxPrice = g.Where(x => x.l_linestatus == "F").Max(x => x.l_extendedprice),
+
+                // Derived cross-column metric calculations
+                Status_Diff_Qty = g.Where(x => x.l_linestatus == "O").Sum(x => x.l_quantity) - g.Where(x => x.l_linestatus == "F").Sum(x => x.l_quantity),
+                StatusO_Qty_Ratio = (double)g.Where(x => x.l_linestatus == "O").Sum(x => x.l_quantity) / (double)g.Sum(x => x.l_quantity)
+            };
+
+        AssertPlan(matrixQuery, NativePushdown);
+
+        var results = matrixQuery.ToList();
+        Assert.NotEmpty(results);
+
+        foreach (var r in results)
+        {
+            Assert.False(string.IsNullOrEmpty(r.ReturnFlag));
+            Assert.True(r.TotalCount > 0);
+            Assert.True(r.TotalQty > 0m);
+            Assert.True(r.TotalNetRevenue > 0m);
+
+            // Mathematical consistency invariants across the cross-tab matrix:
+            // 1. LineStatus partitions partition the entire group
+            Assert.Equal(r.TotalCount, r.StatusO_Count + r.StatusF_Count);
+            Assert.Equal(r.TotalQty, r.StatusO_Qty + r.StatusF_Qty);
+            Assert.Equal(r.TotalNetRevenue, r.StatusO_Revenue + r.StatusF_Revenue);
+
+            // 2. ShipMode partition sums match TotalQty
+            var shipModeSum = r.Air_Qty + r.Mail_Qty + r.Ship_Qty + r.Truck_Qty + r.Rail_Qty + r.Fob_Qty;
+            Assert.Equal(r.TotalQty, shipModeSum);
+
+            // 3. Composite subset invariant: StatusO_Air_Qty <= StatusO_Qty and <= Air_Qty
+            Assert.True(r.StatusO_Air_Qty <= r.StatusO_Qty);
+            Assert.True(r.StatusO_Air_Qty <= r.Air_Qty);
+
+            // 4. Conditional stats
+            Assert.True(r.StatusF_AvgDiscount >= 0.0 && r.StatusF_AvgDiscount <= 1.0);
+            if (r.StatusF_Qty > 0m)
+            {
+                Assert.True(r.StatusF_MaxPrice > 0m);
+            }
+
+            // 5. Cross-column derived metrics
+            Assert.Equal(r.Status_Diff_Qty, r.StatusO_Qty - r.StatusF_Qty);
+            Assert.True(r.StatusO_Qty_Ratio >= 0.0 && r.StatusO_Qty_Ratio <= 1.0);
+        }
+
+        // =========================================================================
+        // Verification 2: Composite Key Cross-Tab Matrix (Multi-Dimensional Pivot)
+        // Group by (l_returnflag, l_linestatus) and pivot across ShipModes
+        // =========================================================================
+        using var lf2 = TpchData.LineItem();
+        var multiKeyMatrixQuery =
+            from l in lf2.AsQueryable<LineItem>()
+            group l by new { l.l_returnflag, l.l_linestatus } into g
+            orderby g.Key.l_returnflag, g.Key.l_linestatus
+            select new
+            {
+                ReturnFlag = g.Key.l_returnflag,
+                LineStatus = g.Key.l_linestatus,
+                TotalQty = g.Sum(x => x.l_quantity),
+                TotalCount = g.Count(),
+                Air_Qty = g.Where(x => x.l_shipmode == "AIR" || x.l_shipmode == "REG AIR").Sum(x => x.l_quantity),
+                Mail_Qty = g.Where(x => x.l_shipmode == "MAIL").Sum(x => x.l_quantity),
+                Ship_Qty = g.Where(x => x.l_shipmode == "SHIP").Sum(x => x.l_quantity),
+                Truck_Qty = g.Where(x => x.l_shipmode == "TRUCK").Sum(x => x.l_quantity),
+                Rail_Qty = g.Where(x => x.l_shipmode == "RAIL").Sum(x => x.l_quantity),
+                Fob_Qty = g.Where(x => x.l_shipmode == "FOB").Sum(x => x.l_quantity)
+            };
+
+        AssertPlan(multiKeyMatrixQuery, NativePushdown);
+
+        var multiResults = multiKeyMatrixQuery.ToList();
+        Assert.NotEmpty(multiResults);
+        foreach (var r in multiResults)
+        {
+            Assert.False(string.IsNullOrEmpty(r.ReturnFlag));
+            Assert.False(string.IsNullOrEmpty(r.LineStatus));
+            Assert.True(r.TotalQty > 0m);
+            Assert.True(r.TotalCount > 0);
+
+            var shipSum = r.Air_Qty + r.Mail_Qty + r.Ship_Qty + r.Truck_Qty + r.Rail_Qty + r.Fob_Qty;
+            Assert.Equal(r.TotalQty, shipSum);
+        }
+    }
+
+    public record WideQuarterlySales(string Department, double Q1, double Q2, double Q3);
+
+    [Fact, Trait("TPCDS", "SelectManyUnpivot")]
+    public void Test_SelectMany_Unpivot_Execution_Plan()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Department", ["Electronics", "Clothing"]),
+            Series.From("Q1", [100.0, 50.0]),
+            Series.From("Q2", [120.0, 60.0]),
+            Series.From("Q3", [140.0, 70.0])
+        ]);
+
+        var query =
+            from d in df.AsQueryable<WideQuarterlySales>()
+            from q in new[]
+            {
+                new { Quarter = "Q1", Sales = d.Q1 },
+                new { Quarter = "Q2", Sales = d.Q2 },
+                new { Quarter = "Q3", Sales = d.Q3 }
+            }
+            select new
+            {
+                d.Department,
+                q.Quarter,
+                q.Sales
+            };
+
+        var plan = query.Explain();
+        AssertPlan(query, NativePushdown);
+        Assert.Contains("UNPIVOT", plan.ToUpper());
+
+        var results = query.ToList();
+        Assert.Equal(6, results.Count);
+
+        // Polars UNPIVOT concatenates unpivoted columns column-by-column:
+        // First all Q1 rows, then all Q2 rows, then all Q3 rows:
+        Assert.Equal("Electronics", results[0].Department);
+        Assert.Equal("Q1", results[0].Quarter);
+        Assert.Equal(100.0, results[0].Sales);
+
+        Assert.Equal("Clothing", results[1].Department);
+        Assert.Equal("Q1", results[1].Quarter);
+        Assert.Equal(50.0, results[1].Sales);
+
+        Assert.Equal("Electronics", results[2].Department);
+        Assert.Equal("Q2", results[2].Quarter);
+        Assert.Equal(120.0, results[2].Sales);
+
+        Assert.Equal("Clothing", results[3].Department);
+        Assert.Equal("Q2", results[3].Quarter);
+        Assert.Equal(60.0, results[3].Sales);
+
+        Assert.Equal("Electronics", results[4].Department);
+        Assert.Equal("Q3", results[4].Quarter);
+        Assert.Equal(140.0, results[4].Sales);
+
+        Assert.Equal("Clothing", results[5].Department);
+        Assert.Equal("Q3", results[5].Quarter);
+        Assert.Equal(70.0, results[5].Sales);
+
+        // =========================================================================
+        // Pattern 2: ValueTuple syntax with renaming and downstream Filter + OrderBy
+        // =========================================================================
+        using var df2 = DataFrame.FromColumns(
+        [
+            Series.From("Department", ["Electronics", "Clothing"]),
+            Series.From("Q1", [100.0, 50.0]),
+            Series.From("Q2", [120.0, 60.0]),
+            Series.From("Q3", [140.0, 70.0])
+        ]);
+
+        var tupleQuery =
+            from d in df2.AsQueryable<WideQuarterlySales>()
+            from q in new[]
+            {
+                Tuple.Create("Q1", d.Q1),
+                Tuple.Create("Q2", d.Q2),
+                Tuple.Create("Q3", d.Q3)
+            }
+            where q.Item2 > 65.0
+            orderby q.Item2 descending
+            select new
+            {
+                d.Department,
+                Quarter = q.Item1,
+                Sales = q.Item2
+            };
+
+        AssertPlan(tupleQuery, NativePushdown);
+        var tuplePlan = tupleQuery.Explain();
+        Assert.Contains("UNPIVOT", tuplePlan.ToUpper());
+
+        var tupleResults = tupleQuery.ToList();
+        // Matching rows with Sales > 65:
+        // Electronics Q3 (140.0)
+        // Electronics Q2 (120.0)
+        // Electronics Q1 (100.0)
+        // Clothing Q3 (70.0)
+        Assert.Equal(4, tupleResults.Count);
+        Assert.Equal("Electronics", tupleResults[0].Department);
+        Assert.Equal("Q3", tupleResults[0].Quarter);
+        Assert.Equal(140.0, tupleResults[0].Sales);
+
+        Assert.Equal("Electronics", tupleResults[1].Department);
+        Assert.Equal("Q2", tupleResults[1].Quarter);
+        Assert.Equal(120.0, tupleResults[1].Sales);
+
+        Assert.Equal("Electronics", tupleResults[2].Department);
+        Assert.Equal("Q1", tupleResults[2].Quarter);
+        Assert.Equal(100.0, tupleResults[2].Sales);
+
+        Assert.Equal("Clothing", tupleResults[3].Department);
+        Assert.Equal("Q3", tupleResults[3].Quarter);
+        Assert.Equal(70.0, tupleResults[3].Sales);
+
+        // =========================================================================
+        // Pattern 3: Single-Argument SelectMany with Explicit Index Column
+        // =========================================================================
+        using var df3 = DataFrame.FromColumns(
+        [
+            Series.From("Department", ["Electronics", "Clothing"]),
+            Series.From("Q1", [100.0, 50.0]),
+            Series.From("Q2", [120.0, 60.0]),
+            Series.From("Q3", [140.0, 70.0])
+        ]);
+
+        var directQuery = df3.AsQueryable<WideQuarterlySales>()
+            .SelectMany(d => new[]
+            {
+                new { d.Department, Quarter = "Q1", Sales = d.Q1 },
+                new { d.Department, Quarter = "Q2", Sales = d.Q2 },
+                new { d.Department, Quarter = "Q3", Sales = d.Q3 }
+            });
+
+        AssertPlan(directQuery, NativePushdown);
+        var directPlan = directQuery.Explain();
+        Assert.Contains("UNPIVOT", directPlan.ToUpper());
+
+        var directResults = directQuery.ToList();
+        Assert.Equal(6, directResults.Count);
+
+        // =========================================================================
+        // Pattern 4: Multi-Column Composite Index Unpivot
+        // Preserve both Department and Region while unpivoting Q1, Q2, Q3
+        // =========================================================================
+        using var df4 = DataFrame.FromColumns(
+        [
+            Series.From("Department", ["Electronics", "Clothing"]),
+            Series.From("Region", ["North", "South"]),
+            Series.From("Q1", [100.0, 50.0]),
+            Series.From("Q2", [120.0, 60.0]),
+            Series.From("Q3", [140.0, 70.0])
+        ]);
+
+        var multiIndexQuery =
+            from d in df4.AsQueryable<MultiIndexSales>()
+            from q in new[]
+            {
+                new { Quarter = "Q1", Sales = d.Q1 },
+                new { Quarter = "Q2", Sales = d.Q2 },
+                new { Quarter = "Q3", Sales = d.Q3 }
+            }
+            select new
+            {
+                d.Department,
+                d.Region,
+                q.Quarter,
+                q.Sales
+            };
+
+        AssertPlan(multiIndexQuery, NativePushdown);
+        var multiPlan = multiIndexQuery.Explain();
+        Assert.Contains("UNPIVOT", multiPlan.ToUpper());
+
+        var multiResults = multiIndexQuery.ToList();
+        Assert.Equal(6, multiResults.Count);
+        Assert.Equal("Electronics", multiResults[0].Department);
+        Assert.Equal("North", multiResults[0].Region);
+        Assert.Equal("Q1", multiResults[0].Quarter);
+        Assert.Equal(100.0, multiResults[0].Sales);
+    }
+
+    public record MultiIndexSales(string Department, string Region, double Q1, double Q2, double Q3);
 }

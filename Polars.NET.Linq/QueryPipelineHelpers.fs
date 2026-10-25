@@ -499,7 +499,180 @@ module internal QueryPipelineHelpers =
                 Some bindings
             else
                 None
+        | MethodCall(m, null, args) when m.Name = "Create" && not (isNull m.DeclaringType) && m.DeclaringType.Name = "Tuple" ->
+            let names = [ for i in 1 .. args.Length -> sprintf "Item%d" i ]
+            Some(List.zip names args)
+        | MethodCall(m, null, [ k; v ]) when m.Name = "Create" && not (isNull m.DeclaringType) && m.DeclaringType.Name = "KeyValuePair" ->
+            Some [ ("Key", k); ("Value", v) ]
+        | :? NewExpression as ne when ne.Type.Name.StartsWith "KeyValuePair" && ne.Arguments.Count = 2 ->
+            Some [ ("Key", ne.Arguments.[0]); ("Value", ne.Arguments.[1]) ]
         | _ -> None
+
+    /// Pattern structure representing an Unpivot (Melt) operation extracted from SelectMany
+    type internal UnpivotPattern =
+        {
+            ExplicitIndexCols: string list
+            VarPropName: string
+            ValPropName: string
+            VariableName: string
+            ValueName: string
+            OnCols: string array
+            LabelMappings: (string * string) list
+        }
+
+    /// Tries to recognize whether a SelectMany collection selector is unpivoting multiple columns
+    let tryExtractUnpivotPattern
+        (colLambda: LambdaExpression)
+        (resLambdaOpt: LambdaExpression option)
+        : UnpivotPattern option =
+        if colLambda.Parameters.Count <> 1 then
+            None
+        else
+            let outerParam = colLambda.Parameters.[0]
+            let cleanBody = ExprTranslator.unwrap colLambda.Body
+
+            match cleanBody with
+            | :? NewArrayExpression as nae when
+                (nae.NodeType = ExpressionType.NewArrayInit) && nae.Expressions.Count >= 1
+                ->
+                let elems = nae.Expressions |> Seq.toList
+                let elemBindingsOpt =
+                    elems
+                    |> List.choose tryExtractMemberBindings
+
+                if elemBindingsOpt.Length <> elems.Length || elems.IsEmpty then
+                    None
+                else
+                    let firstNames = elemBindingsOpt.Head |> List.map fst
+                    let allSameStructure =
+                        elemBindingsOpt
+                        |> List.forall (fun b -> List.map fst b = firstNames)
+
+                    if not allSameStructure then
+                        None
+                    else
+                        let memberColumns =
+                            firstNames
+                            |> List.map (fun name ->
+                                let exprs =
+                                    elemBindingsOpt
+                                    |> List.map (fun b ->
+                                        b
+                                        |> List.find (fun (n, _) -> n = name)
+                                        |> snd
+                                        |> ExprTranslator.unwrap)
+                                name, exprs)
+
+                        let isInvariantOuterMember (exprs: Expression list) =
+                            let names =
+                                exprs
+                                |> List.choose (function
+                                    | MemberAccess(target, m) when
+                                        match ExprTranslator.unwrap target with
+                                        | :? ParameterExpression as p -> p.Name = outerParam.Name
+                                        | _ -> false
+                                        -> Some m.Name
+                                    | _ -> None)
+                            if names.Length = exprs.Length && (names |> Set.ofList |> Set.count = 1) then
+                                Some names.Head
+                            else
+                                None
+
+                        let isConstantMember (exprs: Expression list) =
+                            let consts =
+                                exprs
+                                |> List.choose (function
+                                    | :? ConstantExpression as ce when not (isNull ce.Value) ->
+                                        Some(ce.Value.ToString())
+                                    | other ->
+                                        match tryEvaluate other with
+                                        | Some v when not (isNull v) -> Some(v.ToString())
+                                        | _ -> None)
+                            if consts.Length = exprs.Length then
+                                Some consts
+                            else
+                                None
+
+                        let isVaryingOuterMember (exprs: Expression list) =
+                            let names =
+                                exprs
+                                |> List.choose (function
+                                    | MemberAccess(target, m) when
+                                        match ExprTranslator.unwrap target with
+                                        | :? ParameterExpression as p -> p.Name = outerParam.Name
+                                        | _ -> false
+                                        -> Some m.Name
+                                    | _ -> None)
+                            if names.Length = exprs.Length then
+                                Some names
+                            else
+                                None
+
+                        let mutable explicitIndexCols = []
+                        let mutable varMemberOpt = None
+                        let mutable valMemberOpt = None
+
+                        for (name, exprs) in memberColumns do
+                            match isInvariantOuterMember exprs with
+                            | Some colName ->
+                                explicitIndexCols <- explicitIndexCols @ [ colName ]
+                            | None ->
+                                match isConstantMember exprs with
+                                | Some consts ->
+                                    varMemberOpt <- Some (name, consts)
+                                | None ->
+                                    match isVaryingOuterMember exprs with
+                                    | Some colNames ->
+                                        valMemberOpt <- Some (name, colNames)
+                                    | None -> ()
+
+                        match varMemberOpt, valMemberOpt with
+                        | Some(varPropName, consts), Some(valPropName, colNames) ->
+                            let inferredVarName, inferredValName =
+                                match resLambdaOpt with
+                                | Some resSel when resSel.Parameters.Count >= 2 ->
+                                    let pInner = resSel.Parameters.[1]
+                                    match tryExtractMemberBindings resSel.Body with
+                                    | Some bindings ->
+                                        let findAssignedName prop =
+                                            bindings
+                                            |> List.tryPick (fun (targetName, e) ->
+                                                match ExprTranslator.unwrap e with
+                                                | MemberAccess(target, m) when
+                                                    (match ExprTranslator.unwrap target with :? ParameterExpression as p -> p.Name = pInner.Name | _ -> false)
+                                                    && m.Name = prop -> Some targetName
+                                                | _ -> None)
+                                        let vName = findAssignedName varPropName |> Option.defaultValue varPropName
+                                        let valName = findAssignedName valPropName |> Option.defaultValue valPropName
+                                        vName, valName
+                                    | None -> varPropName, valPropName
+                                | _ -> varPropName, valPropName
+
+                            let finalVarName =
+                                if inferredVarName.StartsWith "Item" || inferredVarName = "Key" then "variable"
+                                else inferredVarName
+
+                            let finalValName =
+                                if inferredValName.StartsWith "Item" || inferredValName = "Value" then "value"
+                                else inferredValName
+
+                            let onCols = colNames |> List.toArray
+                            let labelMappings = List.zip colNames consts
+
+                            Some {
+                                ExplicitIndexCols = explicitIndexCols
+                                VarPropName = varPropName
+                                ValPropName = valPropName
+                                VariableName = finalVarName
+                                ValueName = finalValName
+                                OnCols = onCols
+                                LabelMappings = labelMappings
+                            }
+                        | _ -> None
+            | _ -> None
+
+    let isUnpivotPattern (colLambda: LambdaExpression) : bool =
+        tryExtractUnpivotPattern colLambda None |> Option.isSome
 
     /// Inspects GroupJoin result selector to detect group-level aggregations (e.g., g.Count())
     let tryExtractGroupAgg
@@ -945,7 +1118,9 @@ module internal QueryPipelineHelpers =
                 match nestedStagesOpt with
                 | Some innerStages -> flattenStages source (innerStages @ acc)
                 | None ->
-                    if containsParam then
+                    if isUnpivotPattern colSel then
+                        flattenStages source (LinqStage.Unpivot(colSel, resSelOpt) :: acc)
+                    elif containsParam then
                         flattenStages source (LinqStage.Explode(colSel, resSelOpt) :: acc)
                     else
                         flattenStages source (LinqStage.CrossJoin(colSel.Body, resSelOpt) :: acc)
@@ -2378,6 +2553,14 @@ module internal QueryPipelineHelpers =
                 | QueryOp.Explode spec ->
                     let selector = PolarsWrapper.SelectorCols spec.ColumnNames
                     PolarsWrapper.LazyExplode(currentLf, selector, spec.EmptyAsNull, spec.KeepNulls)
+
+                | QueryOp.Unpivot spec ->
+                    let indexSel = PolarsWrapper.SelectorCols spec.Index
+                    let onSel =
+                        match spec.On with
+                        | Some onCols when onCols.Length > 0 -> PolarsWrapper.SelectorCols onCols
+                        | _ -> null
+                    PolarsWrapper.LazyUnpivot(currentLf, indexSel, onSel, spec.VariableName, spec.ValueName)
 
                 | QueryOp.Rename spec ->
                     PolarsWrapper.LazyRename(currentLf, spec.ExistingNames, spec.NewNames, strict = false)

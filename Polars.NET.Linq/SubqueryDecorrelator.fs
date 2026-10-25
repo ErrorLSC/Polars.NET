@@ -37,6 +37,8 @@ module internal SubqueryDecorrelator =
                |> Seq.exists (function
                    | :? MemberAssignment as ma -> containsParameter paramName ma.Expression
                    | _ -> false)
+        | :? NewArrayExpression as nae ->
+            nae.Expressions |> Seq.exists (containsParameter paramName)
         | :? ConditionalExpression as cond ->
             containsParameter paramName cond.Test
             || containsParameter paramName cond.IfTrue

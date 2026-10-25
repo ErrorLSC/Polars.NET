@@ -21,6 +21,15 @@ type internal ExplodeSpec =
         KeepNulls: bool
     }
 
+/// Specification for unpivoting (melting) wide columns into rows
+type internal UnpivotSpec =
+    {
+        Index: string array
+        On: string array option
+        VariableName: string
+        ValueName: string
+    }
+
 /// Specification for column renaming pushdown
 type internal RenameSpec =
     {
@@ -106,6 +115,7 @@ type internal QueryOp =
     | Concat of ConcatSpec
     | HorizontalConcat of otherLfs: LazyFrameHandle array
     | Explode of ExplodeSpec
+    | Unpivot of UnpivotSpec
     | Rename of RenameSpec
     | Select of ExprHandle array
     | WithColumns of ExprHandle array
@@ -153,6 +163,7 @@ type internal LinqStage =
         toleranceFloat: double option *
         strategy: PlAsofStrategy
     | Explode of collectionLambda: LambdaExpression * resultLambdaOpt: LambdaExpression option
+    | Unpivot of collectionLambda: LambdaExpression * resultLambdaOpt: LambdaExpression option
     | CrossJoin of innerExpr: Expression * resultLambdaOpt: LambdaExpression option
     | SetOp of MethodInfo * Expression * LambdaExpression option * LambdaExpression option
     | GroupByKey of LambdaExpression

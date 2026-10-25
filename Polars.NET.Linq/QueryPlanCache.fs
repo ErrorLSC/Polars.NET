@@ -159,6 +159,7 @@ type QueryPlanCache private () =
                 LinqStage.GroupJoin(m, subExpr inner, subLambda ok, subLambda ik, subLambdaOpt rs)
             | LinqStage.CrossJoin(inner, rs) -> LinqStage.CrossJoin(subExpr inner, subLambdaOpt rs)
             | LinqStage.Explode(col, rs) -> LinqStage.Explode(subLambda col, subLambdaOpt rs)
+            | LinqStage.Unpivot(col, rs) -> LinqStage.Unpivot(subLambda col, subLambdaOpt rs)
             | LinqStage.Zip(sec, rs) -> LinqStage.Zip(subExpr sec, subLambdaOpt rs)
             | LinqStage.Zip3(sec, thd) -> LinqStage.Zip3(subExpr sec, subExpr thd)
             | LinqStage.SetOp(m, sec, k1, k2) -> LinqStage.SetOp(m, subExpr sec, subLambdaOpt k1, subLambdaOpt k2)
