@@ -37,8 +37,8 @@ type internal TranslationContext =
     /// Resolves pair.Outer (Item1) and pair.Inner (Item2) against physical columns in the joined LazyFrame.
     | TupleJoin of pairParam: string * leftCols: Set<string> * rightSuffix: string
 
-    /// Binary correlated subquery join context (outerParam, innerParam, leftCols, rightSuffix)
-    | CorrelatedJoin of outerParam: string * innerParam: string * leftCols: Set<string> * rightSuffix: string
+    /// Binary correlated subquery join context (outerParams, innerParam, leftCols, rightSuffix, scopeMap)
+    | CorrelatedJoin of outerParams: string list * innerParam: string * leftCols: Set<string> * rightSuffix: string * scopeMap: Map<string * string, string>
 
     /// Scoped entity context carrying known range variable / scope mappings (e.g. ("sn", "n_name") -> "n_name_right")
     /// across cascaded multi-table joins.
@@ -60,7 +60,8 @@ type internal TranslationContext =
         | TranslationContext.BinaryJoin(left, right, _, _) -> name = left || name = right
         | TranslationContext.Merge(target, source, _) -> name = target || name = source
         | TranslationContext.TupleJoin(pairParam, _, _) -> name = pairParam
-        | TranslationContext.CorrelatedJoin(outer, inner, _, _) -> name = outer || name = inner
+        | TranslationContext.CorrelatedJoin(outerParams, inner, _, _, scopeMap) ->
+            List.contains name outerParams || name = inner || (scopeMap |> Map.exists (fun (s, _) _ -> s = name))
 
     /// Attempts to resolve the parameter expression node itself to a native Polars ExprHandle.
     member this.TryResolveParameterHandle(name: string) : ExprHandle option =
@@ -325,7 +326,7 @@ module internal rec ExprTranslator =
                             Some itemProp.Name
                     | TranslationContext.TupleJoin(_, leftCols, _)
                     | TranslationContext.BinaryJoin(_, _, leftCols, _)
-                    | TranslationContext.CorrelatedJoin(_, _, leftCols, _) ->
+                    | TranslationContext.CorrelatedJoin(_, _, leftCols, _, _) ->
                         if leftCols.Contains itemProp.Name then
                             Some itemProp.Name
                         elif itemIdx >= 0 && itemIdx < leftCols.Count then
@@ -379,8 +380,7 @@ module internal rec ExprTranslator =
                         elif isRootedIn source inner then Some(m.Name + suffix)
                         else None
 
-                    | TranslationContext.BinaryJoin(leftParam, rightParam, leftCols, rightSuffix)
-                    | TranslationContext.CorrelatedJoin(leftParam, rightParam, leftCols, rightSuffix) ->
+                    | TranslationContext.BinaryJoin(leftParam, rightParam, leftCols, rightSuffix) ->
                         if isRootedIn leftParam inner then
                             Some m.Name
                         elif isRootedIn rightParam inner then
@@ -390,6 +390,34 @@ module internal rec ExprTranslator =
                                 Some m.Name
                         else
                             None
+
+                    | TranslationContext.CorrelatedJoin(outerParams, innerParam, leftCols, rightSuffix, scopeMap) ->
+                        let scopeOpt = tryExtractScopeName inner
+                        match scopeOpt with
+                        | Some s when s = innerParam ->
+                            if leftCols.Contains m.Name then
+                                Some(m.Name + rightSuffix)
+                            else
+                                Some m.Name
+                        | Some s when List.contains s outerParams || (scopeMap |> Map.exists (fun (scope, _) _ -> scope = s)) ->
+                            match scopeMap.TryFind(s, m.Name) with
+                            | Some physicalCol -> Some physicalCol
+                            | None ->
+                                if leftCols.Contains m.Name then Some m.Name
+                                else Some m.Name
+                        | _ ->
+                            if isRootedIn innerParam inner then
+                                if leftCols.Contains m.Name then Some(m.Name + rightSuffix)
+                                else Some m.Name
+                            elif outerParams |> List.exists (fun p -> isRootedIn p inner) then
+                                match scopeOpt with
+                                | Some s ->
+                                    match scopeMap.TryFind(s, m.Name) with
+                                    | Some physicalCol -> Some physicalCol
+                                    | None -> Some m.Name
+                                | None -> Some m.Name
+                            else
+                                None
 
                     | TranslationContext.TupleJoin(pairParam, leftCols, rightSuffix) ->
                         match isTupleAccess pairParam inner with

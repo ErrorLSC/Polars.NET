@@ -131,6 +131,18 @@ public partial class Series : IDisposable
         // ==============================================================
         if (underlying == typeof(decimal))
         {
+            if (DataType.IsFloat)
+            {
+                double d = PolarsWrapper.SeriesGetDoubleFast(Handle, index);
+                decimal floatVal = (decimal)d;
+                return isNullable ? (T)(object)(decimal?)floatVal : Unsafe.As<decimal, T>(ref floatVal);
+            }
+            if (DataType.IsInteger)
+            {
+                long i = PolarsWrapper.SeriesGetInt64Fast(Handle, index);
+                decimal intVal = (decimal)i;
+                return isNullable ? (T)(object)(decimal?)intVal : Unsafe.As<decimal, T>(ref intVal);
+            }
             int scale = DataType.Scale;
             int precision = DataType.Precision;
             decimal val = PolarsWrapper.SeriesGetDecimalFast(Handle, index, scale, precision);

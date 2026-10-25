@@ -307,7 +307,7 @@ and PolarsQuery<'T>
             // 2. Filtering & Window Masking (Filter, TakeWhile, SkipWhile)
             // -----------------------------------------------------------------
             | LinqStage.Filter l :: tail ->
-                match if canPushdown then SubqueryDecorrelator.tryDecorrelateFilter currentLf l else None with
+                match if canPushdown then SubqueryDecorrelator.tryDecorrelateFilter currentLf l scopeMap else None with
                 | Some decorResult ->
                     let newOpsAcc = (decorResult.GeneratedOps |> List.rev) @ opsAcc
                     let nextStages =
@@ -370,7 +370,7 @@ and PolarsQuery<'T>
             // 3. Projection (Select, Transparent Let, Subquery Decorrelation)
             // -----------------------------------------------------------------
             | LinqStage.Project projLambda :: tail ->
-                match if canPushdown then SubqueryDecorrelator.tryDecorrelateProjection currentLf projLambda else None with
+                match if canPushdown then SubqueryDecorrelator.tryDecorrelateProjection currentLf projLambda scopeMap else None with
                 | Some(subqueryOps, rewrittenProjLambda) ->
                     fuse currentLf (LinqStage.Project rewrittenProjLambda :: tail) ((subqueryOps |> List.rev) @ opsAcc) clientPreds None scopeMap
                 | None ->
@@ -552,23 +552,51 @@ and PolarsQuery<'T>
                                 let joinedLf = applyNativeOps activeBaseLf [ QueryOp.Join spec ]
                                 fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
                         | Some resSel ->
-                            match compileJoinResultSelector leftCols rightCols spec resSel updatedScopeMap with
-                            | Some selectOp ->
-                                if tail.IsEmpty then
-                                    fuse activeBaseLf tail [ selectOp; QueryOp.Join spec ] clientPreds clientProjOpt Map.empty
-                                else
-                                    let joinedLf = applyNativeOps activeBaseLf [ QueryOp.Join spec; selectOp ]
-                                    fuse joinedLf tail [] clientPreds clientProjOpt Map.empty
-                            | None ->
-                                FallbackTracker.Diagnostic <-
-                                    Some(
-                                        sprintf
-                                            "CompileJoinResultSelector failed: %s\nLeftCols: %A\nRightCols: %A"
-                                            (resSel.ToString())
-                                            leftCols
-                                            rightCols
-                                    )
-                                currentLf, [], [], None, true
+                            let hasSubquery = canPushdown && SubqueryDecorrelator.containsSubquery resSel.Body
+                            if hasSubquery then
+                                let joinedBaseLf = applyNativeOps activeBaseLf [ QueryOp.Join spec ]
+                                match SubqueryDecorrelator.tryDecorrelateProjection joinedBaseLf resSel updatedScopeMap with
+                                | Some(subqueryOps, rewrittenResSel) ->
+                                    let lfAfterSubqueries =
+                                        if subqueryOps.IsEmpty then joinedBaseLf else applyNativeOps joinedBaseLf subqueryOps
+                                    let postJoinLeftCols = getLazySchemaFields lfAfterSubqueries |> Array.map fst
+                                    match compileJoinResultSelector postJoinLeftCols rightCols spec rewrittenResSel updatedScopeMap with
+                                    | Some selectOp ->
+                                        if tail.IsEmpty then
+                                            fuse lfAfterSubqueries tail [ selectOp ] clientPreds clientProjOpt Map.empty
+                                        else
+                                            let finalLf = applyNativeOps lfAfterSubqueries [ selectOp ]
+                                            fuse finalLf tail [] clientPreds clientProjOpt Map.empty
+                                    | None ->
+                                        FallbackTracker.Diagnostic <-
+                                            Some(
+                                                sprintf
+                                                    "CompileJoinResultSelector with subquery failed: %s\nLeftCols: %A\nRightCols: %A"
+                                                    (rewrittenResSel.ToString())
+                                                    postJoinLeftCols
+                                                    rightCols
+                                            )
+                                        currentLf, [], [], None, true
+                                | None ->
+                                    currentLf, [], [], None, true
+                            else
+                                match compileJoinResultSelector leftCols rightCols spec resSel updatedScopeMap with
+                                | Some selectOp ->
+                                    if tail.IsEmpty then
+                                        fuse activeBaseLf tail [ selectOp; QueryOp.Join spec ] clientPreds clientProjOpt Map.empty
+                                    else
+                                        let joinedLf = applyNativeOps activeBaseLf [ QueryOp.Join spec; selectOp ]
+                                        fuse joinedLf tail [] clientPreds clientProjOpt Map.empty
+                                | None ->
+                                    FallbackTracker.Diagnostic <-
+                                        Some(
+                                            sprintf
+                                                "CompileJoinResultSelector failed: %s\nLeftCols: %A\nRightCols: %A"
+                                                (resSel.ToString())
+                                                leftCols
+                                                rightCols
+                                        )
+                                    currentLf, [], [], None, true
                     | None ->
                         FallbackTracker.Diagnostic <-
                             Some(

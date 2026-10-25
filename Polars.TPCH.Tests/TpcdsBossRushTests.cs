@@ -153,4 +153,83 @@ public class TpcdsBossRushTests
         Assert.NotEmpty(results);
         Assert.All(results, r => Assert.NotEqual(r.CustomerNation, r.SupplierNation));
     }
+
+    [Fact, Trait("TPCDS", "BOSS4")]
+    public void Boss_04_Correlated_Scalar_Subquery_And_Semi_Join()
+    {
+        // Equivalent to TPC-DS Query 32 / Query 92 / Query 10 pattern:
+        // Complex decorrelation combining:
+        // 1. Semi-Join via Any (EXISTS): Customer has open orders
+        // 2. Anti-Join via !Any (NOT EXISTS): Customer has no urgent orders
+        // 3. Semi-Join via Contains (IN subquery): Customer nation is in target regions
+        // 4. Multi-key correlated scalar aggregate subquery with scaling factor in WHERE:
+        //    Customer account balance > 1.2 * average account balance of customers in the same nation & segment
+        // 5. Composite condition correlated scalar aggregate subquery (equi-key + inequality theta condition in WHERE):
+        //    Customer account balance < 2.0 * average balance of peers in the same nation with balance >= current customer
+        // 6. Snowflake Dimension Joins (Customer -> Nation -> Region)
+        // 7. Correlated scalar aggregate subqueries in SELECT projection after joins:
+        //    NationAvgBalance = average balance of all customers in the same nation
+        //    NationMaxBalance = maximum balance of all customers in the same nation
+        // All with 100% Native Pushdown.
+
+        using var customerLf = TpchData.Customer();
+        using var customerAggLf = TpchData.Customer();
+        using var customerThetaLf = TpchData.Customer();
+        using var customerProjLf = TpchData.Customer();
+        using var customerProjLf2 = TpchData.Customer();
+        using var ordersLf = TpchData.Orders();
+        using var urgentOrdersLf = TpchData.Orders();
+        using var filterNationLf = TpchData.Nation();
+        using var nationLf = TpchData.Nation();
+        using var regionLf = TpchData.Region();
+
+        var query = from c in customerLf.AsQueryable<Customer>()
+                    where ordersLf.AsQueryable<Orders>()
+                        .Any(o => o.o_custkey == c.c_custkey && o.o_orderstatus == "O")
+                    where !urgentOrdersLf.AsQueryable<Orders>()
+                        .Any(o => o.o_custkey == c.c_custkey && o.o_orderpriority == "1-URGENT")
+                    where filterNationLf.AsQueryable<Nation>()
+                        .Where(fn => fn.n_regionkey >= 1)
+                        .Select(fn => fn.n_nationkey)
+                        .Contains(c.c_nationkey)
+                    where c.c_acctbal > (from c2 in customerAggLf.AsQueryable<Customer>()
+                                         where c2.c_nationkey == c.c_nationkey
+                                            && c2.c_mktsegment == c.c_mktsegment
+                                         select c2.c_acctbal).Average() * 1.2m
+                    where c.c_acctbal < (from c5 in customerThetaLf.AsQueryable<Customer>()
+                                         where c5.c_nationkey == c.c_nationkey
+                                            && c5.c_acctbal >= c.c_acctbal
+                                         select c5.c_acctbal).Average() * 2.0m
+                    join n in nationLf.AsQueryable<Nation>() on c.c_nationkey equals n.n_nationkey
+                    join r in regionLf.AsQueryable<Region>() on n.n_regionkey equals r.r_regionkey
+                    select new
+                    {
+                        CustomerKey = c.c_custkey,
+                        CustomerName = c.c_name,
+                        NationName = n.n_name,
+                        RegionName = r.r_name,
+                        AccountBalance = c.c_acctbal,
+                        NationAvgBalance = (from c3 in customerProjLf.AsQueryable<Customer>()
+                                            where c3.c_nationkey == c.c_nationkey
+                                            select c3.c_acctbal).Average(),
+                        NationMaxBalance = (from c4 in customerProjLf2.AsQueryable<Customer>()
+                                            where c4.c_nationkey == c.c_nationkey
+                                            select c4.c_acctbal).Max()
+                    };
+
+        AssertPlan(query, NativePushdown);
+
+        var results = query.Take(10).ToList();
+        Assert.NotEmpty(results);
+        Assert.All(results, r =>
+        {
+            Assert.True(r.CustomerKey > 0);
+            Assert.False(string.IsNullOrWhiteSpace(r.CustomerName));
+            Assert.False(string.IsNullOrWhiteSpace(r.NationName));
+            Assert.False(string.IsNullOrWhiteSpace(r.RegionName));
+            Assert.True(r.AccountBalance > 0m);
+            Assert.True(r.NationAvgBalance > 0m);
+            Assert.True(r.NationMaxBalance >= r.NationAvgBalance);
+        });
+    }
 }

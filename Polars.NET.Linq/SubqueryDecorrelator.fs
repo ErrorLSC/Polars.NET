@@ -266,27 +266,27 @@ module internal SubqueryDecorrelator =
             None
 
     /// Recursively folds any uncorrelated scalar subquery within an expression into an Expression.Constant.
-    let rec foldUncorrelatedSubqueries (outerParamName: string) (expr: Expression) : Expression * bool =
+    let rec foldUncorrelatedSubqueries (outerNames: Set<string>) (expr: Expression) : Expression * bool =
         match expr with
         | null -> null, false
         | _ when
             containsSubquery expr
-            && not (containsParameter outerParamName expr)
+            && not (outerNames |> Set.exists (fun name -> containsParameter name expr))
             && isScalarType expr.Type
             ->
             match tryEvaluateUncorrelatedScalar expr with
             | Some foldedConstant -> foldedConstant, true
             | None -> expr, false
         | Binary(op, left, right) ->
-            let newLeft, leftChanged = foldUncorrelatedSubqueries outerParamName left
-            let newRight, rightChanged = foldUncorrelatedSubqueries outerParamName right
+            let newLeft, leftChanged = foldUncorrelatedSubqueries outerNames left
+            let newRight, rightChanged = foldUncorrelatedSubqueries outerNames right
 
             if leftChanged || rightChanged then
                 Expression.MakeBinary(op, newLeft, newRight) :> Expression, true
             else
                 expr, false
         | Unary(op, inner) ->
-            let newInner, innerChanged = foldUncorrelatedSubqueries outerParamName inner
+            let newInner, innerChanged = foldUncorrelatedSubqueries outerNames inner
 
             if innerChanged then
                 Expression.MakeUnary(op, newInner, expr.Type) :> Expression, true
@@ -297,9 +297,9 @@ module internal SubqueryDecorrelator =
                 if isNull target then
                     null, false
                 else
-                    foldUncorrelatedSubqueries outerParamName target
+                    foldUncorrelatedSubqueries outerNames target
 
-            let newArgsWithFlags = args |> List.map (foldUncorrelatedSubqueries outerParamName)
+            let newArgsWithFlags = args |> List.map (foldUncorrelatedSubqueries outerNames)
             let anyArgChanged = newArgsWithFlags |> List.exists snd
 
             if targetChanged || anyArgChanged then
@@ -312,20 +312,20 @@ module internal SubqueryDecorrelator =
             else
                 expr, false
         | :? ConditionalExpression as condExpr ->
-            let newTest, testChanged = foldUncorrelatedSubqueries outerParamName condExpr.Test
+            let newTest, testChanged = foldUncorrelatedSubqueries outerNames condExpr.Test
 
             let newIfTrue, trueChanged =
-                foldUncorrelatedSubqueries outerParamName condExpr.IfTrue
+                foldUncorrelatedSubqueries outerNames condExpr.IfTrue
 
             let newIfFalse, falseChanged =
-                foldUncorrelatedSubqueries outerParamName condExpr.IfFalse
+                foldUncorrelatedSubqueries outerNames condExpr.IfFalse
 
             if testChanged || trueChanged || falseChanged then
                 Expression.Condition(newTest, newIfTrue, newIfFalse) :> Expression, true
             else
                 expr, false
         | MemberAccess(target, m) when not (isNull target) ->
-            let newTarget, targetChanged = foldUncorrelatedSubqueries outerParamName target
+            let newTarget, targetChanged = foldUncorrelatedSubqueries outerNames target
 
             if targetChanged then
                 Expression.MakeMemberAccess(newTarget, m) :> Expression, true
@@ -334,7 +334,7 @@ module internal SubqueryDecorrelator =
         | :? NewExpression as ne ->
             let newArgsWithFlags =
                 ne.Arguments
-                |> Seq.map (foldUncorrelatedSubqueries outerParamName)
+                |> Seq.map (foldUncorrelatedSubqueries outerNames)
                 |> Seq.toList
 
             if newArgsWithFlags |> List.exists snd then
@@ -351,13 +351,13 @@ module internal SubqueryDecorrelator =
                 expr, false
         | :? MemberInitExpression as mie ->
             let newNeExpr, neChanged =
-                foldUncorrelatedSubqueries outerParamName mie.NewExpression
+                foldUncorrelatedSubqueries outerNames mie.NewExpression
 
             let newBindingsWithFlags =
                 mie.Bindings
                 |> Seq.map (function
                     | :? MemberAssignment as ma ->
-                        let newInit, initChanged = foldUncorrelatedSubqueries outerParamName ma.Expression
+                        let newInit, initChanged = foldUncorrelatedSubqueries outerNames ma.Expression
                         (Expression.Bind(ma.Member, newInit) :> MemberBinding), initChanged
                     | other -> other, false)
                 |> Seq.toList
@@ -538,18 +538,21 @@ module internal SubqueryDecorrelator =
     /// Classifies a list of conjunct conditions into equi-join pairs (outer, inner),
     /// cross-table theta conditions (inequalities), and pure inner filters.
     let internal classifyConditions
-        (outerName: string)
+        (outerNames: Set<string>)
         (innerName: string)
         (conditions: Expression list)
         : ClassifiedConditions option =
+        let containsOuter (e: Expression) =
+            outerNames |> Set.exists (fun name -> containsParameter name e)
+
         let classify (cond: Expression) =
             match ExprTranslator.unwrap cond with
             | Binary(ExpressionType.Equal, left, right) ->
                 let cleanL = ExprTranslator.unwrap left
                 let cleanR = ExprTranslator.unwrap right
-                let lOuter = containsParameter outerName cleanL
+                let lOuter = containsOuter cleanL
                 let lInner = containsParameter innerName cleanL
-                let rOuter = containsParameter outerName cleanR
+                let rOuter = containsOuter cleanR
                 let rInner = containsParameter innerName cleanR
 
                 if lOuter && not lInner && rInner && not rOuter then
@@ -569,7 +572,7 @@ module internal SubqueryDecorrelator =
                     else
                         Choice4Of4()
             | other ->
-                let hasOuter = containsParameter outerName other
+                let hasOuter = containsOuter other
                 let hasInner = containsParameter innerName other
 
                 if not hasOuter && hasInner then Choice2Of4 other
@@ -625,10 +628,10 @@ module internal SubqueryDecorrelator =
             InnerFilters: Expression list
         }
 
-    /// Recursively unwraps Where cascades, validates decorrelation conditions against outerParamName,
+    /// Recursively unwraps Where cascades, validates decorrelation conditions against outerNames,
     /// and extracts root source, inner parameter, equi-pairs, theta conditions, and inner filters.
     let internal tryExtractCorrelatedParts
-        (outerParamName: string)
+        (outerNames: Set<string>)
         (innerSeq: Expression)
         (extraWhereLambdaOpt: LambdaExpression option)
         : CorrelatedParts option =
@@ -639,13 +642,14 @@ module internal SubqueryDecorrelator =
             | Some w -> whereLams @ [ w ]
             | None -> whereLams
 
-        if allWhereLams.IsEmpty || containsParameter outerParamName rootSource then
+        let rootHasOuter = outerNames |> Set.exists (fun name -> containsParameter name rootSource)
+        if allWhereLams.IsEmpty || rootHasOuter then
             None
         else
             let innerParam = allWhereLams.[0].Parameters.[0]
             let conditions = allWhereLams |> List.collect (fun lam -> flattenAnd lam.Body)
 
-            classifyConditions outerParamName innerParam.Name conditions
+            classifyConditions outerNames innerParam.Name conditions
             |> Option.map (fun c ->
                 {
                     RootSource = rootSource
@@ -760,8 +764,18 @@ module internal SubqueryDecorrelator =
         (currentLf: LazyFrameHandle)
         (outerParam: ParameterExpression)
         (conjunctExpr: Expression)
+        (scopeMap: Map<string * string, string>)
         : QueryOp list option =
         let outerName = outerParam.Name
+        let outerNames =
+            Set.ofSeq (outerName :: (scopeMap |> Map.toList |> List.map (fun ((s, _), _) -> s)))
+
+        let outerCols = PolarsSchemaExtractor.GetColumnNames currentLf |> Array.toList
+        let outerCtx =
+            if not scopeMap.IsEmpty then
+                TranslationContext.ScopedEntity([ outerName ], scopeMap, outerCols)
+            else
+                createContextForType outerParam.Type currentLf outerName
 
         let isNegated, coreExpr =
             match ExprTranslator.unwrap conjunctExpr with
@@ -771,10 +785,9 @@ module internal SubqueryDecorrelator =
         let tryAny () =
             option {
                 let! innerSource, innerLambdaOpt = tryMatchAny coreExpr
-                let! parts = tryExtractCorrelatedParts outerName innerSource innerLambdaOpt
+                let! parts = tryExtractCorrelatedParts outerNames innerSource innerLambdaOpt
                 let! rawRightLf = resolveSequenceLazyFrame parts.RootSource
                 let! rightLf = tryApplyInnerFilters rawRightLf parts.InnerParam parts.InnerFilters
-                let outerCtx = createContextForType outerParam.Type currentLf outerName
 
                 let innerCtx =
                     createContextForType parts.InnerParam.Type rightLf parts.InnerParam.Name
@@ -800,7 +813,7 @@ module internal SubqueryDecorrelator =
                     let originalCols = PolarsSchemaExtractor.GetColumnNames currentLf
 
                     let correlatedCtx =
-                        TranslationContext.CorrelatedJoin(outerName, parts.InnerParam.Name, leftCols, "_right")
+                        TranslationContext.CorrelatedJoin([ outerName ], parts.InnerParam.Name, leftCols, "_right", scopeMap)
 
                     let combinedThetaExpr =
                         parts.ThetaConditions
@@ -886,9 +899,8 @@ module internal SubqueryDecorrelator =
         let tryContains () =
             option {
                 let! innerSource, selLambdaOpt, outerKeyExpr = tryMatchContains coreExpr
-                do! guard (not (containsParameter outerName innerSource))
+                do! guard (not (outerNames |> Set.exists (fun name -> containsParameter name innerSource)))
                 let! rightLf = resolveSequenceLazyFrame innerSource
-                let outerCtx = createContextForType outerParam.Type currentLf outerName
                 let! leftKey = ExprTranslator.tryTranslateWithContext outerCtx outerKeyExpr
 
                 let! rightKey =
@@ -932,8 +944,18 @@ module internal SubqueryDecorrelator =
         (currentLf: LazyFrameHandle)
         (outerParam: ParameterExpression)
         (conjunctExpr: Expression)
+        (scopeMap: Map<string * string, string>)
         : QueryOp list option =
         let outerName = outerParam.Name
+        let outerNames =
+            Set.ofSeq (outerName :: (scopeMap |> Map.toList |> List.map (fun ((s, _), _) -> s)))
+
+        let outerCols = PolarsSchemaExtractor.GetColumnNames currentLf |> Array.toList
+        let outerCtx =
+            if not scopeMap.IsEmpty then
+                TranslationContext.ScopedEntity([ outerName ], scopeMap, outerCols)
+            else
+                createContextForType outerParam.Type currentLf outerName
 
         let isNegated, coreConjunct =
             match ExprTranslator.unwrap conjunctExpr with
@@ -966,6 +988,7 @@ module internal SubqueryDecorrelator =
                 let! baseOp = if isNegated then negateOp rawOp else Some rawOp
 
                 let! outerSideExpr, aggCallExpr, scale, effectiveOp =
+                    let containsOuter (m: Expression) = outerNames |> Set.exists (fun n -> containsParameter n m)
                     if not (containsSubquery left) && containsSubquery right then
                         match tryExtractScaledAgg right with
                         | Some(aggExpr, scale) ->
@@ -973,7 +996,7 @@ module internal SubqueryDecorrelator =
                                 match scale with
                                 | AggScale.Identity -> true
                                 | AggScale.Multiply m
-                                | AggScale.Divide m -> not (containsParameter outerName m)
+                                | AggScale.Divide m -> not (containsOuter m)
 
                             if scaleOk then Some(left, aggExpr, scale, baseOp) else None
                         | None -> None
@@ -984,7 +1007,7 @@ module internal SubqueryDecorrelator =
                                 match scale with
                                 | AggScale.Identity -> true
                                 | AggScale.Multiply m
-                                | AggScale.Divide m -> not (containsParameter outerName m)
+                                | AggScale.Divide m -> not (containsOuter m)
 
                             if scaleOk then
                                 invertOp baseOp |> Option.map (fun invOp -> right, aggExpr, scale, invOp)
@@ -997,97 +1020,256 @@ module internal SubqueryDecorrelator =
                 let! aggCall = tryMatchAggCall aggCallExpr
 
                 let! parts =
-                    tryExtractCorrelatedParts outerName aggCall.InnerSeq aggCall.ExtraWhereLambdaOpt
-
-                do! guard parts.ThetaConditions.IsEmpty
+                    tryExtractCorrelatedParts outerNames aggCall.InnerSeq aggCall.ExtraWhereLambdaOpt
 
                 let! rawRightLf = resolveSequenceLazyFrame parts.RootSource
                 let! rightLf = tryApplyInnerFilters rawRightLf parts.InnerParam parts.InnerFilters
 
-                let outerCtx = createContextForType outerParam.Type currentLf outerName
-
                 let innerCtx =
                     createContextForType parts.InnerParam.Type rightLf parts.InnerParam.Name
 
-                let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
-
                 let isCount = aggCall.MethodName = "Count" || aggCall.MethodName = "LongCount"
-
-                let! rawAggH =
-                    tryBuildAggHandle rightLf aggCall.MethodName isCount aggCall.SelectorLambdaOpt
-
                 let uid = Guid.NewGuid().ToString "N"
                 let aggColName = $"__subquery_agg_{uid}"
-                let aliasedAggH = PolarsWrapper.Alias(rawAggH, aggColName)
 
-                let groupedLf =
-                    PolarsWrapper.LazyGroupByAgg(rightLf, keys.InnerGroupByKeys, [| aliasedAggH |], null, false)
+                if parts.ThetaConditions.IsEmpty then
+                    let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
 
-                let! outerSideH = ExprTranslator.tryTranslateWithContext outerCtx outerSideExpr
+                    let! rawAggH =
+                        tryBuildAggHandle rightLf aggCall.MethodName isCount aggCall.SelectorLambdaOpt
 
-                let aggColBaseH =
-                    if isCount then
-                        PolarsWrapper.FillNull(PolarsWrapper.Col aggColName, PolarsWrapper.Lit 0u)
-                    else
-                        PolarsWrapper.Col aggColName
+                    let aliasedAggH = PolarsWrapper.Alias(rawAggH, aggColName)
 
-                let! scaledAggH =
-                    match scale with
-                    | AggScale.Identity -> Some aggColBaseH
-                    | AggScale.Multiply multExpr ->
-                        match tryEvaluate multExpr with
-                        | Some v when not (isNull v) ->
-                            let litH = ExprTranslator.toLiteralHandle v multExpr.Type
+                    let groupedLf =
+                        PolarsWrapper.LazyGroupByAgg(rightLf, keys.InnerGroupByKeys, [| aliasedAggH |], null, false)
 
-                            Some(PolarsWrapper.Mul(litH, aggColBaseH))
-                        | _ -> None
-                    | AggScale.Divide divExpr ->
-                        match tryEvaluate divExpr with
-                        | Some v when not (isNull v) ->
-                            let litH = ExprTranslator.toLiteralHandle v divExpr.Type
+                    let! outerSideH = ExprTranslator.tryTranslateWithContext outerCtx outerSideExpr
 
-                            Some(PolarsWrapper.Div(aggColBaseH, litH))
-                        | _ -> None
+                    let aggColBaseH =
+                        if isCount then
+                            PolarsWrapper.FillNull(PolarsWrapper.Col aggColName, PolarsWrapper.Lit 0u)
+                        else
+                            PolarsWrapper.Col aggColName
 
-                let cmpHandle =
-                    match effectiveOp with
-                    | ExpressionType.Equal -> PolarsWrapper.Eq(outerSideH, scaledAggH)
-                    | ExpressionType.NotEqual -> PolarsWrapper.Neq(outerSideH, scaledAggH)
-                    | ExpressionType.LessThan -> PolarsWrapper.Lt(outerSideH, scaledAggH)
-                    | ExpressionType.LessThanOrEqual -> PolarsWrapper.LtEq(outerSideH, scaledAggH)
-                    | ExpressionType.GreaterThan -> PolarsWrapper.Gt(outerSideH, scaledAggH)
-                    | ExpressionType.GreaterThanOrEqual -> PolarsWrapper.GtEq(outerSideH, scaledAggH)
-                    | _ -> null
+                    let! scaledAggH =
+                        match scale with
+                        | AggScale.Identity -> Some aggColBaseH
+                        | AggScale.Multiply multExpr ->
+                            match tryEvaluate multExpr with
+                            | Some v when not (isNull v) ->
+                                let litH = ExprTranslator.toLiteralHandle v multExpr.Type
 
-                do! guard (not (isNull cmpHandle))
+                                Some(PolarsWrapper.Mul(litH, aggColBaseH))
+                            | _ -> None
+                        | AggScale.Divide divExpr ->
+                            match tryEvaluate divExpr with
+                            | Some v when not (isNull v) ->
+                                let litH = ExprTranslator.toLiteralHandle v divExpr.Type
 
-                let joinOp =
-                    QueryOp.Join
-                        {
-                            RightLf = groupedLf
-                            LeftOn = keys.OuterKeys
-                            RightOn = keys.InnerJoinKeys
-                            How = PlJoinType.Left
-                            Suffix = None
-                            InvertSides = false
-                            Coalesce = PlJoinCoalesce.JoinSpecific
-                        }
+                                Some(PolarsWrapper.Div(aggColBaseH, litH))
+                            | _ -> None
 
-                let filterOp = QueryOp.Filter cmpHandle
+                    let cmpHandle =
+                        match effectiveOp with
+                        | ExpressionType.Equal -> PolarsWrapper.Eq(outerSideH, scaledAggH)
+                        | ExpressionType.NotEqual -> PolarsWrapper.Neq(outerSideH, scaledAggH)
+                        | ExpressionType.LessThan -> PolarsWrapper.Lt(outerSideH, scaledAggH)
+                        | ExpressionType.LessThanOrEqual -> PolarsWrapper.LtEq(outerSideH, scaledAggH)
+                        | ExpressionType.GreaterThan -> PolarsWrapper.Gt(outerSideH, scaledAggH)
+                        | ExpressionType.GreaterThanOrEqual -> PolarsWrapper.GtEq(outerSideH, scaledAggH)
+                        | _ -> null
 
-                let originalCols = PolarsSchemaExtractor.GetColumnNames currentLf
+                    do! guard (not (isNull cmpHandle))
 
-                let ops =
-                    if originalCols.Length > 0 then
-                        [
-                            joinOp
-                            filterOp
-                            QueryOp.Select(originalCols |> Array.map PolarsWrapper.Col)
-                        ]
-                    else
-                        [ joinOp; filterOp ]
+                    let joinOp =
+                        QueryOp.Join
+                            {
+                                RightLf = groupedLf
+                                LeftOn = keys.OuterKeys
+                                RightOn = keys.InnerJoinKeys
+                                How = PlJoinType.Left
+                                Suffix = None
+                                InvertSides = false
+                                Coalesce = PlJoinCoalesce.JoinSpecific
+                            }
 
-                return ops
+                    let filterOp = QueryOp.Filter cmpHandle
+
+                    let originalCols = PolarsSchemaExtractor.GetColumnNames currentLf
+
+                    let ops =
+                        if originalCols.Length > 0 then
+                            [
+                                joinOp
+                                filterOp
+                                QueryOp.Select(originalCols |> Array.map PolarsWrapper.Col)
+                            ]
+                        else
+                            [ joinOp; filterOp ]
+
+                    return ops
+                else
+                    // Theta conditions present (composite conditions: equi-join + inequalities/cross conditions)
+                    let leftCols = PolarsSchemaExtractor.GetColumnNames currentLf |> Set.ofArray
+                    let originalCols = PolarsSchemaExtractor.GetColumnNames currentLf
+                    let rightSuffix = "_right"
+
+                    let correlatedCtx =
+                        TranslationContext.CorrelatedJoin(
+                            [ outerName ],
+                            parts.InnerParam.Name,
+                            leftCols,
+                            rightSuffix,
+                            scopeMap
+                        )
+
+                    let combinedThetaExpr =
+                        parts.ThetaConditions
+                        |> List.reduce (fun a b -> Expression.AndAlso(a, b) :> Expression)
+
+                    let! thetaFilterH =
+                        ExprTranslator.tryTranslateWithContext correlatedCtx combinedThetaExpr
+
+                    let! outerKeys, innerKeys =
+                        if parts.EquiPairs.IsEmpty then
+                            Some([||], [||])
+                        else
+                            tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
+                            |> Option.map (fun k -> k.OuterKeys, k.InnerJoinKeys)
+
+                    let ridCol = $"__subquery_rid_{uid}"
+
+                    let outerWithRidLf =
+                        PolarsWrapper.LazyFrameWithRowIndex(
+                            PolarsWrapper.LazyClone currentLf,
+                            ridCol,
+                            Nullable 0
+                        )
+
+                    let joinedLf =
+                        if outerKeys.Length = 0 then
+                            PolarsWrapper.Join(
+                                outerWithRidLf,
+                                rightLf,
+                                [||],
+                                [||],
+                                PlJoinType.Cross,
+                                rightSuffix,
+                                PlJoinValidation.ManyToMany,
+                                PlJoinCoalesce.KeepColumns,
+                                PlJoinMaintainOrder.None,
+                                PlJoinSide.None,
+                                false,
+                                Nullable(),
+                                0UL
+                            )
+                        else
+                            PolarsWrapper.Join(
+                                outerWithRidLf,
+                                rightLf,
+                                outerKeys |> Array.map PolarsWrapper.CloneExpr,
+                                innerKeys |> Array.map PolarsWrapper.CloneExpr,
+                                PlJoinType.Inner,
+                                rightSuffix,
+                                PlJoinValidation.ManyToMany,
+                                PlJoinCoalesce.JoinSpecific,
+                                PlJoinMaintainOrder.None,
+                                PlJoinSide.None,
+                                false,
+                                Nullable(),
+                                0UL
+                            )
+
+                    let filteredLf = PolarsWrapper.LazyFilter(joinedLf, thetaFilterH)
+
+                    let! rawAggH =
+                        if isCount then
+                            Some(PolarsWrapper.Len())
+                        else
+                            match aggCall.SelectorLambdaOpt with
+                            | Some selLam ->
+                                ExprTranslator.tryTranslateWithContext correlatedCtx selLam.Body
+                                |> Option.bind (ExprTranslator.translateReductionOp aggCall.MethodName)
+                            | None ->
+                                let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
+                                if rightCols.Length > 0 then
+                                    let cName =
+                                        if leftCols.Contains rightCols.[0] then
+                                            rightCols.[0] + rightSuffix
+                                        else
+                                            rightCols.[0]
+                                    PolarsWrapper.Col cName
+                                    |> ExprTranslator.translateReductionOp aggCall.MethodName
+                                else
+                                    None
+
+                    let aliasedAggH = PolarsWrapper.Alias(rawAggH, aggColName)
+
+                    let groupedMatchesLf =
+                        PolarsWrapper.LazyGroupByAgg(
+                            filteredLf,
+                            [| PolarsWrapper.Col ridCol |],
+                            [| aliasedAggH |],
+                            null,
+                            false
+                        )
+
+                    let withRowIndexOp = QueryOp.WithRowIndex(ridCol, Some 0u)
+
+                    let joinOp =
+                        QueryOp.Join
+                            {
+                                RightLf = groupedMatchesLf
+                                LeftOn = [| PolarsWrapper.Col ridCol |]
+                                RightOn = [| PolarsWrapper.Col ridCol |]
+                                How = PlJoinType.Left
+                                Suffix = None
+                                InvertSides = false
+                                Coalesce = PlJoinCoalesce.JoinSpecific
+                            }
+
+                    let! outerSideH = ExprTranslator.tryTranslateWithContext outerCtx outerSideExpr
+
+                    let aggColBaseH =
+                        if isCount then
+                            PolarsWrapper.FillNull(PolarsWrapper.Col aggColName, PolarsWrapper.Lit 0u)
+                        else
+                            PolarsWrapper.Col aggColName
+
+                    let! scaledAggH =
+                        match scale with
+                        | AggScale.Identity -> Some aggColBaseH
+                        | AggScale.Multiply multExpr ->
+                            match tryEvaluate multExpr with
+                            | Some v when not (isNull v) ->
+                                let litH = ExprTranslator.toLiteralHandle v multExpr.Type
+
+                                Some(PolarsWrapper.Mul(litH, aggColBaseH))
+                            | _ -> None
+                        | AggScale.Divide divExpr ->
+                            match tryEvaluate divExpr with
+                            | Some v when not (isNull v) ->
+                                let litH = ExprTranslator.toLiteralHandle v divExpr.Type
+
+                                Some(PolarsWrapper.Div(aggColBaseH, litH))
+                            | _ -> None
+
+                    let cmpHandle =
+                        match effectiveOp with
+                        | ExpressionType.Equal -> PolarsWrapper.Eq(outerSideH, scaledAggH)
+                        | ExpressionType.NotEqual -> PolarsWrapper.Neq(outerSideH, scaledAggH)
+                        | ExpressionType.LessThan -> PolarsWrapper.Lt(outerSideH, scaledAggH)
+                        | ExpressionType.LessThanOrEqual -> PolarsWrapper.LtEq(outerSideH, scaledAggH)
+                        | ExpressionType.GreaterThan -> PolarsWrapper.Gt(outerSideH, scaledAggH)
+                        | ExpressionType.GreaterThanOrEqual -> PolarsWrapper.GtEq(outerSideH, scaledAggH)
+                        | _ -> null
+
+                    do! guard (not (isNull cmpHandle))
+
+                    let filterOp = QueryOp.Filter cmpHandle
+                    let restoreSchemaOp = QueryOp.Select(originalCols |> Array.map PolarsWrapper.Col)
+
+                    return [ withRowIndexOp; joinOp; filterOp; restoreSchemaOp ]
             }
         | _ -> None
 
@@ -1096,24 +1278,27 @@ module internal SubqueryDecorrelator =
     let tryDecorrelateFilter
         (currentLf: LazyFrameHandle)
         (filterLambda: LambdaExpression)
+        (scopeMap: Map<string * string, string>)
         : DecorrelationResult option =
         if filterLambda.Parameters.Count <> 1 then
             None
         else
             let outerParam = filterLambda.Parameters.[0]
+            let outerNames =
+                Set.ofSeq (outerParam.Name :: (scopeMap |> Map.toList |> List.map (fun ((s, _), _) -> s)))
             let conjuncts = flattenAnd filterLambda.Body
 
             let generatedOpsRev, residualConjunctsRev, wasDecorrelated =
                 conjuncts
                 |> List.fold
                     (fun (opsAcc, resAcc, decorrelatedAny) cond ->
-                        match tryDecorrelateConjunct currentLf outerParam cond with
+                        match tryDecorrelateConjunct currentLf outerParam cond scopeMap with
                         | Some ops -> List.rev ops @ opsAcc, resAcc, true
                         | None ->
-                            match tryDecorrelateCorrelatedScalarAgg currentLf outerParam cond with
+                            match tryDecorrelateCorrelatedScalarAgg currentLf outerParam cond scopeMap with
                             | Some aggOps -> List.rev aggOps @ opsAcc, resAcc, true
                             | None ->
-                                let foldedCond, changed = foldUncorrelatedSubqueries outerParam.Name cond
+                                let foldedCond, changed = foldUncorrelatedSubqueries outerNames cond
 
                                 if changed then
                                     opsAcc, foldedCond :: resAcc, true
@@ -1179,7 +1364,7 @@ module internal SubqueryDecorrelator =
                 | None -> base.Visit node
 
     let private tryExtractProjectionCandidate
-        (outerParamName: string)
+        (outerNames: Set<string>)
         (expr: Expression)
         : ProjectionSubqueryCandidate option =
         let matchedOpt =
@@ -1200,7 +1385,7 @@ module internal SubqueryDecorrelator =
         match matchedOpt with
         | None -> None
         | Some(innerSeq, methodName, selectorLambdaOpt, extraWhereLambdaOpt, isAny) ->
-            tryExtractCorrelatedParts outerParamName innerSeq extraWhereLambdaOpt
+            tryExtractCorrelatedParts outerNames innerSeq extraWhereLambdaOpt
             |> Option.map (fun parts ->
                 {
                     OriginalExpr = expr
@@ -1216,29 +1401,29 @@ module internal SubqueryDecorrelator =
                 })
 
     let rec private collectProjectionSubqueries
-        (outerParamName: string)
+        (outerNames: Set<string>)
         (expr: Expression)
         : ProjectionSubqueryCandidate list =
         if
             isNull expr
             || not (containsSubquery expr)
-            || not (containsParameter outerParamName expr)
+            || not (outerNames |> Set.exists (fun name -> containsParameter name expr))
         then
             []
         else
-            match tryExtractProjectionCandidate outerParamName expr with
+            match tryExtractProjectionCandidate outerNames expr with
             | Some cand -> [ cand ]
             | None ->
                 match expr with
                 | :? NewExpression as ne ->
                     ne.Arguments
                     |> Seq.toList
-                    |> List.collect (collectProjectionSubqueries outerParamName)
+                    |> List.collect (collectProjectionSubqueries outerNames)
                 | :? MemberInitExpression as mie ->
                     let initArgs =
                         mie.NewExpression.Arguments
                         |> Seq.toList
-                        |> List.collect (collectProjectionSubqueries outerParamName)
+                        |> List.collect (collectProjectionSubqueries outerNames)
 
                     let bindingArgs =
                         mie.Bindings
@@ -1246,7 +1431,7 @@ module internal SubqueryDecorrelator =
                             | :? MemberAssignment as ma -> Some ma.Expression
                             | _ -> None)
                         |> Seq.toList
-                        |> List.collect (collectProjectionSubqueries outerParamName)
+                        |> List.collect (collectProjectionSubqueries outerNames)
 
                     initArgs @ bindingArgs
                 | MethodCall(_, target, args) ->
@@ -1254,30 +1439,30 @@ module internal SubqueryDecorrelator =
                         if isNull target then
                             []
                         else
-                            collectProjectionSubqueries outerParamName target
+                            collectProjectionSubqueries outerNames target
 
-                    let argSubs = args |> List.collect (collectProjectionSubqueries outerParamName)
+                    let argSubs = args |> List.collect (collectProjectionSubqueries outerNames)
                     targetSubs @ argSubs
                 | Binary(_, left, right) ->
-                    collectProjectionSubqueries outerParamName left
-                    @ collectProjectionSubqueries outerParamName right
-                | Unary(_, inner) -> collectProjectionSubqueries outerParamName inner
+                    collectProjectionSubqueries outerNames left
+                    @ collectProjectionSubqueries outerNames right
+                | Unary(_, inner) -> collectProjectionSubqueries outerNames inner
                 | :? ConditionalExpression as cond ->
-                    collectProjectionSubqueries outerParamName cond.Test
-                    @ collectProjectionSubqueries outerParamName cond.IfTrue
-                    @ collectProjectionSubqueries outerParamName cond.IfFalse
+                    collectProjectionSubqueries outerNames cond.Test
+                    @ collectProjectionSubqueries outerNames cond.IfTrue
+                    @ collectProjectionSubqueries outerNames cond.IfFalse
                 | MemberAccess(target, _) ->
                     if isNull target then
                         []
                     else
-                        collectProjectionSubqueries outerParamName target
+                        collectProjectionSubqueries outerNames target
                 | :? InvocationExpression as inv ->
-                    let exprSubs = collectProjectionSubqueries outerParamName inv.Expression
+                    let exprSubs = collectProjectionSubqueries outerNames inv.Expression
 
                     let argSubs =
                         inv.Arguments
                         |> Seq.toList
-                        |> List.collect (collectProjectionSubqueries outerParamName)
+                        |> List.collect (collectProjectionSubqueries outerNames)
 
                     exprSubs @ argSubs
                 | _ -> []
@@ -1340,19 +1525,22 @@ module internal SubqueryDecorrelator =
     let tryDecorrelateProjection
         (currentLf: LazyFrameHandle)
         (projLambda: LambdaExpression)
+        (scopeMap: Map<string * string, string>)
         : (QueryOp list * LambdaExpression) option =
-        if projLambda.Parameters.Count <> 1 then
+        if projLambda.Parameters.Count < 1 then
             None
         elif not (containsSubquery projLambda.Body) then
             None
         else
-            let outerParam = projLambda.Parameters.[0]
-            let outerParamName = outerParam.Name
+            let outerParams = projLambda.Parameters |> Seq.toList
+            let outerParamNames = outerParams |> List.map (fun p -> p.Name) |> Set.ofList
+            let allOuterNames =
+                Set.union outerParamNames (scopeMap |> Map.toList |> List.map (fun ((s, _), _) -> s) |> Set.ofList)
 
             let foldedBody, hasFolded =
-                foldUncorrelatedSubqueries outerParamName projLambda.Body
+                foldUncorrelatedSubqueries allOuterNames projLambda.Body
 
-            let candidates = collectProjectionSubqueries outerParamName foldedBody
+            let candidates = collectProjectionSubqueries allOuterNames foldedBody
 
             if candidates.IsEmpty then
                 if hasFolded then
@@ -1361,7 +1549,14 @@ module internal SubqueryDecorrelator =
                     None
             else
                 let groups = groupCandidates candidates
-                let outerCtx = createContextForType outerParam.Type currentLf outerParamName
+                let colNames = PolarsSchemaExtractor.GetColumnNames currentLf |> Array.toList
+                let outerCtx =
+                    if not scopeMap.IsEmpty then
+                        TranslationContext.ScopedEntity(outerParamNames |> Set.toList, scopeMap, colNames)
+                    elif projLambda.Parameters.Count = 1 then
+                        createContextForType projLambda.Parameters.[0].Type currentLf projLambda.Parameters.[0].Name
+                    else
+                        TranslationContext.ScopedEntity(outerParamNames |> Set.toList, Map.empty, colNames)
 
                 let compileGroup (grpIdx: int) (grp: ProjectionSubqueryCandidate list) =
                     let head = grp.Head
@@ -1495,10 +1690,11 @@ module internal SubqueryDecorrelator =
 
                             let correlatedCtx =
                                 TranslationContext.CorrelatedJoin(
-                                    outerParamName,
+                                    outerParamNames |> Set.toList,
                                     head.InnerParam.Name,
                                     leftCols,
-                                    rightSuffix
+                                    rightSuffix,
+                                    scopeMap
                                 )
 
                             let combinedThetaExpr =

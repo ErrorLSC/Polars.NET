@@ -875,7 +875,7 @@ module internal QueryPipelineHelpers =
         (currentLf: LazyFrameHandle)
         (filterLambda: LambdaExpression)
         : JoinSpec option =
-        match SubqueryDecorrelator.tryDecorrelateFilter currentLf filterLambda with
+        match SubqueryDecorrelator.tryDecorrelateFilter currentLf filterLambda Map.empty with
         | Some {
                    GeneratedOps = [ QueryOp.Join spec ]
                    ResidualLambda = None
