@@ -623,6 +623,7 @@ module internal FSharpAst =
                         || mc.Method.Name = "LeftJoin"
                         || mc.Method.Name = "RightJoin"
                         || mc.Method.Name = "FullJoin"
+                        || mc.Method.Name = "JoinAsOf"
 
                     match findNestedNewExpr bodyUnwrapped with
                     | Some newNe when not isJoinMethod ->

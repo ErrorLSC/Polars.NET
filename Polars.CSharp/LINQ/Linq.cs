@@ -1,5 +1,6 @@
 using System.Data;
 using System.Linq.Expressions;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.FSharp.Core;
@@ -1066,6 +1067,111 @@ public static class LinqExtensions
         inspector(source.Explain(optimized));
         return source;
     }
+
+    private static Expression GetSourceExpression<T>(IEnumerable<T> source)
+    {
+        return source is IQueryable queryable
+            ? queryable.Expression
+            : Expression.Constant(source, typeof(IEnumerable<T>));
+    }
+
+    /// <summary>
+    /// Performs an AsOf (time-series tolerance) join on the specified key columns.
+    /// </summary>
+    public static IQueryable<TResult> JoinAsOf<TOuter, TInner, TKey, TResult>(
+        this IQueryable<TOuter> outer,
+        IEnumerable<TInner> inner,
+        Expression<Func<TOuter, TKey>> outerKeySelector,
+        Expression<Func<TInner, TKey>> innerKeySelector,
+        Expression<Func<TOuter, TInner, TResult>> resultSelector,
+        AsOfTolerance? tolerance = null,
+        AsofStrategy strategy = AsofStrategy.Backward)
+    {
+        ArgumentNullException.ThrowIfNull(outer);
+        ArgumentNullException.ThrowIfNull(inner);
+        ArgumentNullException.ThrowIfNull(outerKeySelector);
+        ArgumentNullException.ThrowIfNull(innerKeySelector);
+        ArgumentNullException.ThrowIfNull(resultSelector);
+
+        return outer.Provider.CreateQuery<TResult>(
+            Expression.Call(
+                null,
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TOuter), typeof(TInner), typeof(TKey), typeof(TResult)),
+                outer.Expression,
+                GetSourceExpression(inner),
+                Expression.Quote(outerKeySelector),
+                Expression.Quote(innerKeySelector),
+                Expression.Quote(resultSelector),
+                Expression.Constant(tolerance, typeof(AsOfTolerance?)),
+                Expression.Constant(strategy, typeof(AsofStrategy))
+            )
+        );
+    }
+
+    /// <summary>
+    /// Performs an AsOf (time-series tolerance) join on the specified key columns, partitioned by group keys.
+    /// </summary>
+    public static IQueryable<TResult> JoinAsOf<TOuter, TInner, TKey, TBy, TResult>(
+        this IQueryable<TOuter> outer,
+        IEnumerable<TInner> inner,
+        Expression<Func<TOuter, TKey>> outerKeySelector,
+        Expression<Func<TInner, TKey>> innerKeySelector,
+        Expression<Func<TOuter, TBy>> outerBySelector,
+        Expression<Func<TInner, TBy>> innerBySelector,
+        Expression<Func<TOuter, TInner, TResult>> resultSelector,
+        AsOfTolerance? tolerance = null,
+        AsofStrategy strategy = AsofStrategy.Backward)
+    {
+        ArgumentNullException.ThrowIfNull(outer);
+        ArgumentNullException.ThrowIfNull(inner);
+        ArgumentNullException.ThrowIfNull(outerKeySelector);
+        ArgumentNullException.ThrowIfNull(innerKeySelector);
+        ArgumentNullException.ThrowIfNull(outerBySelector);
+        ArgumentNullException.ThrowIfNull(innerBySelector);
+        ArgumentNullException.ThrowIfNull(resultSelector);
+
+        return outer.Provider.CreateQuery<TResult>(
+            Expression.Call(
+                null,
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TOuter), typeof(TInner), typeof(TKey), typeof(TBy), typeof(TResult)),
+                outer.Expression,
+                GetSourceExpression(inner),
+                Expression.Quote(outerKeySelector),
+                Expression.Quote(innerKeySelector),
+                Expression.Quote(outerBySelector),
+                Expression.Quote(innerBySelector),
+                Expression.Quote(resultSelector),
+                Expression.Constant(tolerance, typeof(AsOfTolerance?)),
+                Expression.Constant(strategy, typeof(AsofStrategy))
+            )
+        );
+    }
+
+    /// <summary>
+    /// Performs an AsOf (time-series tolerance) join on the specified key columns, pairing outer and inner rows into a ValueTuple.
+    /// </summary>
+    public static IQueryable<(TOuter Outer, TInner Inner)> JoinAsOf<TOuter, TInner, TKey>(
+        this IQueryable<TOuter> outer,
+        IEnumerable<TInner> inner,
+        Expression<Func<TOuter, TKey>> outerKeySelector,
+        Expression<Func<TInner, TKey>> innerKeySelector,
+        AsOfTolerance? tolerance = null,
+        AsofStrategy strategy = AsofStrategy.Backward)
+        => outer.JoinAsOf(inner, outerKeySelector, innerKeySelector, (o, i) => ValueTuple.Create(o, i), tolerance, strategy);
+
+    /// <summary>
+    /// Performs an AsOf (time-series tolerance) join on the specified key columns partitioned by group keys, pairing outer and inner rows into a ValueTuple.
+    /// </summary>
+    public static IQueryable<(TOuter Outer, TInner Inner)> JoinAsOf<TOuter, TInner, TKey, TBy>(
+        this IQueryable<TOuter> outer,
+        IEnumerable<TInner> inner,
+        Expression<Func<TOuter, TKey>> outerKeySelector,
+        Expression<Func<TInner, TKey>> innerKeySelector,
+        Expression<Func<TOuter, TBy>> outerBySelector,
+        Expression<Func<TInner, TBy>> innerBySelector,
+        AsOfTolerance? tolerance = null,
+        AsofStrategy strategy = AsofStrategy.Backward)
+        => outer.JoinAsOf(inner, outerKeySelector, innerKeySelector, outerBySelector, innerBySelector, (o, i) => ValueTuple.Create(o, i), tolerance, strategy);
     /// <summary>
     /// Shifts the values in a column by a specified offset, introducing nulls for the shifted positions.
     /// </summary>

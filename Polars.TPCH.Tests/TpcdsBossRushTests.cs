@@ -432,30 +432,28 @@ public class TpcdsBossRushTests
         // FROM ranked
         // WHERE rn <= 2
         // =========================================================================
-        using (var ordersFlatLf = TpchData.Orders())
+        using var ordersFlatLf = TpchData.Orders();
+        var flatTopNQuery = from g in ordersFlatLf.AsQueryable<Orders>().GroupBy(o => o.o_custkey)
+                            from top in g.OrderByDescending(o => o.o_totalprice).Take(2)
+                            select new
+                            {
+                                CustKey = g.Key,
+                                OrderKey = top.o_orderkey,
+                                TotalPrice = top.o_totalprice,
+                                OrderStatus = top.o_orderstatus
+                            };
+
+        AssertPlan(flatTopNQuery, NativePushdown);
+
+        var flatResults = flatTopNQuery.Take(10).ToList();
+        Assert.NotEmpty(flatResults);
+        Assert.All(flatResults, r =>
         {
-            var flatTopNQuery = from g in ordersFlatLf.AsQueryable<Orders>().GroupBy(o => o.o_custkey)
-                                from top in g.OrderByDescending(o => o.o_totalprice).Take(2)
-                                select new
-                                {
-                                    CustKey = g.Key,
-                                    OrderKey = top.o_orderkey,
-                                    TotalPrice = top.o_totalprice,
-                                    OrderStatus = top.o_orderstatus
-                                };
-
-            AssertPlan(flatTopNQuery, NativePushdown);
-
-            var flatResults = flatTopNQuery.Take(10).ToList();
-            Assert.NotEmpty(flatResults);
-            Assert.All(flatResults, r =>
-            {
-                Assert.True(r.CustKey > 0);
-                Assert.True(r.OrderKey > 0);
-                Assert.True(r.TotalPrice > 0m);
-                Assert.False(string.IsNullOrWhiteSpace(r.OrderStatus));
-            });
-        }
+            Assert.True(r.CustKey > 0);
+            Assert.True(r.OrderKey > 0);
+            Assert.True(r.TotalPrice > 0m);
+            Assert.False(string.IsNullOrWhiteSpace(r.OrderStatus));
+        });
     }
 
     [Fact, Trait("TPCDS", "BOSS7")]
@@ -473,43 +471,157 @@ public class TpcdsBossRushTests
         //        (o_totalprice - AVG(o_totalprice) OVER (PARTITION BY o_custkey)) AS diff_from_cust_avg
         // FROM orders
         // =========================================================================
-        using (var ordersLf = TpchData.Orders())
+        using var ordersLf = TpchData.Orders();
+        var windowQuery = from o in ordersLf.AsQueryable<Orders>()
+                          select new
+                          {
+                              CustKey = o.o_custkey,
+                              OrderKey = o.o_orderkey,
+                              OrderDate = o.o_orderdate,
+                              Price = o.o_totalprice,
+                              PrevPrice = ((decimal?)o.o_totalprice).Shift(1).Over(o.o_custkey, o.o_orderdate),
+                              NextPrice = ((decimal?)o.o_totalprice).Shift(-1).Over(o.o_custkey, o.o_orderdate),
+                              DescNextPrice = ((decimal?)o.o_totalprice).Shift(-1).Over(o.o_custkey, o.o_orderdate, true),
+                              PriceDiff = o.o_totalprice.Diff(1).Over(o.o_custkey, o.o_orderdate),
+                              RunningTotal = o.o_totalprice.CumSum().Over(o.o_custkey, o.o_orderdate),
+                              CustTotal = o.o_totalprice.Sum().Over(o.o_custkey),
+                              DiffFromAvg = o.o_totalprice - (decimal)o.o_totalprice.Average().Over(o.o_custkey)
+                          };
+
+        AssertPlan(windowQuery, NativePushdown);
+
+        var results = windowQuery.Take(20).ToList();
+        Assert.NotEmpty(results);
+        Assert.All(results, r =>
         {
-            var windowQuery = from o in ordersLf.AsQueryable<Orders>()
-                              select new
-                              {
-                                  CustKey = o.o_custkey,
-                                  OrderKey = o.o_orderkey,
-                                  OrderDate = o.o_orderdate,
-                                  Price = o.o_totalprice,
-                                  PrevPrice = ((decimal?)o.o_totalprice).Shift(1).Over(o.o_custkey, o.o_orderdate),
-                                  NextPrice = ((decimal?)o.o_totalprice).Shift(-1).Over(o.o_custkey, o.o_orderdate),
-                                  DescNextPrice = ((decimal?)o.o_totalprice).Shift(-1).Over(o.o_custkey, o.o_orderdate, true),
-                                  PriceDiff = o.o_totalprice.Diff(1).Over(o.o_custkey, o.o_orderdate),
-                                  RunningTotal = o.o_totalprice.CumSum().Over(o.o_custkey, o.o_orderdate),
-                                  CustTotal = o.o_totalprice.Sum().Over(o.o_custkey),
-                                  DiffFromAvg = o.o_totalprice - (decimal)o.o_totalprice.Average().Over(o.o_custkey)
-                              };
+            Assert.True(r.CustKey > 0);
+            Assert.True(r.OrderKey > 0);
+            Assert.True(r.Price > 0m);
+            Assert.True(r.RunningTotal >= r.Price);
+            Assert.True(r.CustTotal >= r.Price);
 
-            AssertPlan(windowQuery, NativePushdown);
-
-            var results = windowQuery.Take(20).ToList();
-            Assert.NotEmpty(results);
-            Assert.All(results, r =>
+            // When previous price exists, Diff must match Price - PrevPrice
+            if (r.PrevPrice.HasValue)
             {
-                Assert.True(r.CustKey > 0);
-                Assert.True(r.OrderKey > 0);
-                Assert.True(r.Price > 0m);
-                Assert.True(r.RunningTotal >= r.Price);
-                Assert.True(r.CustTotal >= r.Price);
+                Assert.Equal(r.PriceDiff, r.Price - r.PrevPrice.Value);
+                Assert.Equal(r.PrevPrice, r.DescNextPrice);
+            }
+        });
+    }
 
-                // When previous price exists, Diff must match Price - PrevPrice
-                if (r.PrevPrice.HasValue)
+    public record Boss8Trade(DateTime Time, string Ticker, double Price, long Volume);
+    public record Boss8Quote(DateTime Time, string Ticker, double Bid, double Ask);
+
+    [Fact, Trait("TPCDS", "BOSS8")]
+    public void Boss_08_AsOf_Time_Series_Tolerance_Join()
+    {
+        // =========================================================================
+        // BOSS 8: High-Frequency Financial Time-Series Join (AsOf Join with By and Tolerance)
+        // Equivalent to kdb+ / q style asof join / Polars join_asof:
+        // SELECT t.Time, t.Ticker, t.Price, t.Volume, q.Bid, q.Ask,
+        //        (t.Price - q.Ask) AS Slippage
+        // FROM trades t
+        // ASOF JOIN quotes q
+        //   ON t.Time = q.Time
+        //   BY t.Ticker = q.Ticker
+        //   TOLERANCE '2m'
+        //   STRATEGY 'backward'
+        // WHERE t.Price > 100.0
+        // ORDER BY t.Time
+        // =========================================================================
+
+        var tradesData = new
+        {
+            Time = new[]
+            {
+                new DateTime(2024, 1, 1, 10, 0, 0),
+                new DateTime(2024, 1, 1, 10, 1, 0),
+                new DateTime(2024, 1, 1, 10, 2, 0),
+                new DateTime(2024, 1, 1, 10, 5, 0),
+                new DateTime(2024, 1, 1, 10, 6, 0)
+            },
+            Ticker = new[] { "AAPL", "MSFT", "AAPL", "AAPL", "MSFT" },
+            Price = new[] { 150.25, 380.50, 151.30, 152.00, 382.10 },
+            Volume = new long[] { 100, 300, 200, 150, 250 }
+        };
+
+        var quotesData = new
+        {
+            Time = new[]
+            {
+                new DateTime(2024, 1, 1, 9, 59, 0),
+                new DateTime(2024, 1, 1, 10, 0, 30),
+                new DateTime(2024, 1, 1, 10, 1, 0),
+                new DateTime(2024, 1, 1, 10, 3, 0),
+                new DateTime(2024, 1, 1, 10, 6, 0)
+            },
+            Ticker = new[] { "AAPL", "MSFT", "AAPL", "MSFT", "AAPL" },
+            Bid = new[] { 150.00, 380.00, 151.00, 381.50, 152.50 },
+            Ask = new[] { 150.50, 380.80, 151.50, 382.00, 153.00 }
+        };
+
+        using var dfTrades = DataFrame.FromColumns(tradesData);
+        using var dfQuotes = DataFrame.FromColumns(quotesData);
+
+        var asofQuery = dfTrades.AsQueryable<Boss8Trade>()
+            .JoinAsOf(
+                dfQuotes.AsQueryable<Boss8Quote>(),
+                t => t.Time,
+                q => q.Time,
+                t => t.Ticker,
+                q => q.Ticker,
+                static (t, q) => new
                 {
-                    Assert.Equal(r.PriceDiff, r.Price - r.PrevPrice.Value);
-                    Assert.Equal(r.PrevPrice, r.DescNextPrice);
-                }
-            });
-        }
+                    t.Time,
+                    t.Ticker,
+                    t.Price,
+                    t.Volume,
+                    QuoteBid = (double?)q.Bid,
+                    QuoteAsk = (double?)q.Ask,
+                    Slippage = t.Price - (double?)q.Ask
+                },
+                tolerance: TimeSpan.FromMinutes(2),
+                strategy: AsofStrategy.Backward
+            )
+            .Where(x => x.Price > 100.0)
+            .OrderBy(x => x.Time);
+
+        AssertPlan(asofQuery, NativePushdown);
+
+        var results = asofQuery.ToList();
+        Assert.Equal(5, results.Count);
+
+        // Row 0: AAPL 10:00 -> Quote AAPL 09:59 (diff 1m <= 2m) -> Matched
+        Assert.Equal("AAPL", results[0].Ticker);
+        Assert.Equal(150.25, results[0].Price);
+        Assert.Equal(150.00, results[0].QuoteBid);
+        Assert.Equal(150.50, results[0].QuoteAsk);
+        Assert.True(Math.Abs(results[0].Slippage!.Value - (150.25 - 150.50)) < 1e-6);
+
+        // Row 1: MSFT 10:01 -> Quote MSFT 10:00:30 (diff 30s <= 2m) -> Matched
+        Assert.Equal("MSFT", results[1].Ticker);
+        Assert.Equal(380.50, results[1].Price);
+        Assert.Equal(380.00, results[1].QuoteBid);
+        Assert.Equal(380.80, results[1].QuoteAsk);
+
+        // Row 2: AAPL 10:02 -> Quote AAPL 10:01 (diff 1m <= 2m) -> Matched
+        Assert.Equal("AAPL", results[2].Ticker);
+        Assert.Equal(151.30, results[2].Price);
+        Assert.Equal(151.00, results[2].QuoteBid);
+        Assert.Equal(151.50, results[2].QuoteAsk);
+
+        // Row 3: AAPL 10:05 -> Quote AAPL 10:01 (diff 4m > 2m) -> Unmatched (null)
+        Assert.Equal("AAPL", results[3].Ticker);
+        Assert.Equal(152.00, results[3].Price);
+        Assert.Null(results[3].QuoteBid);
+        Assert.Null(results[3].QuoteAsk);
+        Assert.Null(results[3].Slippage);
+
+        // Row 4: MSFT 10:06 -> Quote MSFT 10:03 (diff 3m > 2m) -> Unmatched (null)
+        Assert.Equal("MSFT", results[4].Ticker);
+        Assert.Equal(382.10, results[4].Price);
+        Assert.Null(results[4].QuoteBid);
+        Assert.Null(results[4].QuoteAsk);
+        Assert.Null(results[4].Slippage);
     }
 }

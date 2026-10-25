@@ -127,6 +127,7 @@ and PolarsQuery<'T>
                             let hasSecondarySource =
                                 s |> List.exists (function
                                     | LinqStage.Join _
+                                    | LinqStage.JoinAsOf _
                                     | LinqStage.GroupJoin _
                                     | LinqStage.CrossJoin _
                                     | LinqStage.Zip _
@@ -602,6 +603,124 @@ and PolarsQuery<'T>
                             Some(
                                 sprintf
                                     "CompileJoin failed for inner: %s, outerKey: %s, innerKey: %s"
+                                    (inner.ToString())
+                                    (outerKey.ToString())
+                                    (innerKey.ToString())
+                            )
+                        currentLf, [], [], None, true
+
+                | LinqStage.JoinAsOf(methodInfo, inner, outerKey, innerKey, outerByOpt, innerByOpt, resSelOpt, tolStr, tolInt, tolFloat, strategy) :: tail ->
+                    let activeBaseLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
+                    match compileJoinAsOf activeBaseLf methodInfo inner outerKey innerKey outerByOpt innerByOpt tolStr tolInt tolFloat strategy scopeMap with
+                    | Some spec ->
+                        let leftCols = getLazySchemaFields activeBaseLf |> Array.map fst
+                        let rightCols = getLazySchemaFields spec.RightLf |> Array.map fst
+                        let leftColSet = Set.ofArray leftCols
+                        let suffix = spec.Suffix |> Option.defaultValue "_right"
+                        let leftScope = outerKey.Parameters.[0].Name
+                        let rightScope = innerKey.Parameters.[0].Name
+
+                        let extractColNames (lambda: LambdaExpression) : string list =
+                            match tryExtractMemberBindings lambda.Body with
+                            | Some bindings -> bindings |> List.map fst
+                            | None ->
+                                match ExprTranslator.unwrap lambda.Body with
+                                | MemberAccess(_, m) -> [ m.Name ]
+                                | _ -> []
+
+                        let rightKeyCols =
+                            extractColNames innerKey
+                            @ (innerByOpt |> Option.map extractColNames |> Option.defaultValue [])
+                            |> Set.ofList
+
+                        let initialLeftMap =
+                            if scopeMap.IsEmpty then
+                                leftCols |> Array.fold (fun m col -> Map.add (leftScope, col) col m) scopeMap
+                            else
+                                scopeMap
+
+                        let updatedScopeMap =
+                            rightCols
+                            |> Array.fold (fun m col ->
+                                let physicalCol =
+                                    if rightKeyCols.Contains col then col
+                                    elif leftColSet.Contains col then col + suffix
+                                    else col
+                                Map.add (rightScope, col) physicalCol m) initialLeftMap
+
+                        let availableCols =
+                            let rightAddedCols =
+                                rightCols
+                                |> Array.choose (fun c ->
+                                    if rightKeyCols.Contains c then None
+                                    elif leftColSet.Contains c then Some(c + suffix)
+                                    else Some c)
+                            Array.append leftCols rightAddedCols
+
+                        match resSelOpt with
+                        | None ->
+                            if tail.IsEmpty then
+                                fuse activeBaseLf tail [ QueryOp.JoinAsOf spec ] clientPreds clientProjOpt updatedScopeMap
+                            else
+                                let joinedLf = applyNativeOps activeBaseLf [ QueryOp.JoinAsOf spec ]
+                                fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
+                        | Some resSel when isTransparentJoinResSelector resSel ->
+                            if tail.IsEmpty then
+                                fuse activeBaseLf tail [ QueryOp.JoinAsOf spec ] clientPreds clientProjOpt updatedScopeMap
+                            else
+                                let joinedLf = applyNativeOps activeBaseLf [ QueryOp.JoinAsOf spec ]
+                                fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
+                        | Some resSel ->
+                            let hasSubquery = canPushdown && SubqueryDecorrelator.containsSubquery resSel.Body
+                            if hasSubquery then
+                                let joinedBaseLf = applyNativeOps activeBaseLf [ QueryOp.JoinAsOf spec ]
+                                match SubqueryDecorrelator.tryDecorrelateProjection joinedBaseLf resSel updatedScopeMap with
+                                | Some(subqueryOps, rewrittenResSel) ->
+                                    let lfAfterSubqueries =
+                                        if subqueryOps.IsEmpty then joinedBaseLf else applyNativeOps joinedBaseLf subqueryOps
+                                    let postSubqueryCols = getLazySchemaFields lfAfterSubqueries |> Array.map fst
+                                    match compileJoinResultSelectorWithParams postSubqueryCols rightCols false spec.Suffix rewrittenResSel updatedScopeMap with
+                                    | Some selectOp ->
+                                        if tail.IsEmpty then
+                                            fuse lfAfterSubqueries tail [ selectOp ] clientPreds clientProjOpt Map.empty
+                                        else
+                                            let finalLf = applyNativeOps lfAfterSubqueries [ selectOp ]
+                                            fuse finalLf tail [] clientPreds clientProjOpt Map.empty
+                                    | None ->
+                                        FallbackTracker.Diagnostic <-
+                                            Some(
+                                                sprintf
+                                                    "CompileJoinAsOfResultSelector with subquery failed: %s\nPostSubqueryCols: %A\nRightCols: %A"
+                                                    (rewrittenResSel.ToString())
+                                                    postSubqueryCols
+                                                    rightCols
+                                            )
+                                        currentLf, [], [], None, true
+                                | None ->
+                                    currentLf, [], [], None, true
+                            else
+                                match compileJoinResultSelectorWithParams availableCols rightCols false spec.Suffix resSel updatedScopeMap with
+                                | Some selectOp ->
+                                    if tail.IsEmpty then
+                                        fuse activeBaseLf tail [ selectOp; QueryOp.JoinAsOf spec ] clientPreds clientProjOpt Map.empty
+                                    else
+                                        let joinedLf = applyNativeOps activeBaseLf [ QueryOp.JoinAsOf spec; selectOp ]
+                                        fuse joinedLf tail [] clientPreds clientProjOpt Map.empty
+                                | None ->
+                                    FallbackTracker.Diagnostic <-
+                                        Some(
+                                            sprintf
+                                                "CompileJoinAsOfResultSelector failed: %s\nAvailableCols: %A\nRightCols: %A"
+                                                (resSel.ToString())
+                                                availableCols
+                                                rightCols
+                                        )
+                                    currentLf, [], [], None, true
+                    | None ->
+                        FallbackTracker.Diagnostic <-
+                            Some(
+                                sprintf
+                                    "CompileJoinAsOf failed for inner: %s, outerKey: %s, innerKey: %s"
                                     (inner.ToString())
                                     (outerKey.ToString())
                                     (innerKey.ToString())

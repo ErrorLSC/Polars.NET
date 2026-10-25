@@ -323,6 +323,7 @@ David,40,80000";
 
         using var df = joinedLf.Collect(engine:Engine.Gpu);
         
+        Assert.Equal("", string.Join(",", df.ColumnNames));
         Assert.Equal(3, df.Height);
 
         // Row 0: Trade 10:00 -> Quote 09:59 (Diff: 1m <= 2m) -> Match

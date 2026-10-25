@@ -153,6 +153,8 @@ type QueryPlanCache private () =
             | LinqStage.Project l -> LinqStage.Project(subLambda l)
             | LinqStage.Join(m, inner, ok, ik, rs) ->
                 LinqStage.Join(m, subExpr inner, subLambda ok, subLambda ik, subLambdaOpt rs)
+            | LinqStage.JoinAsOf(m, inner, ok, ik, obOpt, ibOpt, rsOpt, ts, ti, tf, strat) ->
+                LinqStage.JoinAsOf(m, subExpr inner, subLambda ok, subLambda ik, subLambdaOpt obOpt, subLambdaOpt ibOpt, subLambdaOpt rsOpt, ts, ti, tf, strat)
             | LinqStage.GroupJoin(m, inner, ok, ik, rs) ->
                 LinqStage.GroupJoin(m, subExpr inner, subLambda ok, subLambda ik, subLambdaOpt rs)
             | LinqStage.CrossJoin(inner, rs) -> LinqStage.CrossJoin(subExpr inner, subLambdaOpt rs)

@@ -626,6 +626,57 @@ module internal QueryPipelineHelpers =
     // 3. LINQ Expression Stage Flattener
     // =========================================================================
 
+    let internal extractTolerance (objVal: obj) : string option * int64 option * double option =
+        if isNull objVal then
+            (None, None, None)
+        else
+            let t = objVal.GetType()
+            if t = typeof<string> then
+                (Some(objVal :?> string), None, None)
+            elif t = typeof<TimeSpan> then
+                let ts = objVal :?> TimeSpan
+                (Some(DurationFormatter.ToPolarsString ts), None, None)
+            elif t = typeof<int64> then
+                (None, Some(objVal :?> int64), None)
+            elif t = typeof<int> then
+                (None, Some(int64 (objVal :?> int)), None)
+            elif t = typeof<double> then
+                (None, None, Some(objVal :?> double))
+            elif t.Name = "AsOfTolerance" || (t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<Nullable<_>> && t.GetGenericArguments().[0].Name = "AsOfTolerance") then
+                let actualObj =
+                    if t.IsGenericType then
+                        let hasValueProp = t.GetProperty("HasValue")
+                        let valueProp = t.GetProperty("Value")
+                        if not (hasValueProp.GetValue(objVal) :?> bool) then null
+                        else valueProp.GetValue(objVal)
+                    else objVal
+                if isNull actualObj then
+                    (None, None, None)
+                else
+                    let actualType = actualObj.GetType()
+                    let sField = actualType.GetField("StringVal", BindingFlags.Instance ||| BindingFlags.NonPublic ||| BindingFlags.Public)
+                    let iField = actualType.GetField("IntVal", BindingFlags.Instance ||| BindingFlags.NonPublic ||| BindingFlags.Public)
+                    let dField = actualType.GetField("FloatVal", BindingFlags.Instance ||| BindingFlags.NonPublic ||| BindingFlags.Public)
+                    let sVal = if isNull sField then null else sField.GetValue(actualObj) :?> string
+                    let iVal = if isNull iField then Nullable<int64>() else iField.GetValue(actualObj) :?> Nullable<int64>
+                    let dVal = if isNull dField then Nullable<double>() else dField.GetValue(actualObj) :?> Nullable<double>
+                    (Option.ofObj sVal, (if iVal.HasValue then Some iVal.Value else None), (if dVal.HasValue then Some dVal.Value else None))
+            else
+                (None, None, None)
+
+    let internal extractStrategy (objVal: obj) : PlAsofStrategy =
+        if isNull objVal then
+            PlAsofStrategy.Backward
+        else
+            try
+                let byteVal = Convert.ToByte(objVal)
+                match byteVal with
+                | 0uy -> PlAsofStrategy.Backward
+                | 1uy -> PlAsofStrategy.Forward
+                | 2uy -> PlAsofStrategy.Nearest
+                | _ -> PlAsofStrategy.Backward
+            with _ -> PlAsofStrategy.Backward
+
     /// Recursively flattens a LINQ expression tree into a linear sequence of LinqStage values.
     let rec flattenStages (e: Expression) (acc: LinqStage list) : LinqStage list =
         let evalUInt32 opName (expr: Expression) =
@@ -763,6 +814,72 @@ module internal QueryPipelineHelpers =
                     LinqStage.GroupJoin(m, inner, outerKey, innerKey, resSelOpt)
                 else
                     LinqStage.Join(m, inner, outerKey, innerKey, resSelOpt)
+
+            flattenStages outer (stage :: acc)
+
+        // JoinAsOf (time-series asof join with optional By partition, tolerance, and strategy)
+        | MethodCall(m,
+                     _,
+                     outer :: inner :: StripQuotes(:? LambdaExpression as outerKey) :: StripQuotes(:? LambdaExpression as innerKey) :: rest) when
+            m.Name = "JoinAsOf"
+            ->
+            let outerByOpt, innerByOpt, resSelOpt, tolExprOpt, stratExprOpt =
+                match rest with
+                | StripQuotes(:? LambdaExpression as ob) :: StripQuotes(:? LambdaExpression as ib) :: StripQuotes(:? LambdaExpression as rs) :: tail ->
+                    let tol = tail |> List.tryItem 0
+                    let strat = tail |> List.tryItem 1
+                    Some ob, Some ib, Some rs, tol, strat
+                | StripQuotes(:? LambdaExpression as ob) :: StripQuotes(:? LambdaExpression as ib) :: tail ->
+                    let tol = tail |> List.tryItem 0
+                    let strat = tail |> List.tryItem 1
+                    Some ob, Some ib, None, tol, strat
+                | StripQuotes(:? LambdaExpression as rs) :: tail ->
+                    let tol = tail |> List.tryItem 0
+                    let strat = tail |> List.tryItem 1
+                    None, None, Some rs, tol, strat
+                | tail ->
+                    let tol = tail |> List.tryItem 0
+                    let strat = tail |> List.tryItem 1
+                    None, None, None, tol, strat
+
+            let tolStr, tolInt, tolFloat =
+                match tolExprOpt with
+                | Some expr ->
+                    let objVal =
+                        match expr with
+                        | :? ConstantExpression as ce -> ce.Value
+                        | _ ->
+                            try Expression.Lambda(expr).Compile().DynamicInvoke()
+                            with _ -> null
+                    extractTolerance objVal
+                | None -> None, None, None
+
+            let strat =
+                match stratExprOpt with
+                | Some expr ->
+                    let objVal =
+                        match expr with
+                        | :? ConstantExpression as ce -> ce.Value
+                        | _ ->
+                            try Expression.Lambda(expr).Compile().DynamicInvoke()
+                            with _ -> null
+                    extractStrategy objVal
+                | None -> PlAsofStrategy.Backward
+
+            let stage =
+                LinqStage.JoinAsOf(
+                    m,
+                    inner,
+                    outerKey,
+                    innerKey,
+                    outerByOpt,
+                    innerByOpt,
+                    resSelOpt,
+                    tolStr,
+                    tolInt,
+                    tolFloat,
+                    strat
+                )
 
             flattenStages outer (stage :: acc)
 
@@ -1062,11 +1179,99 @@ module internal QueryPipelineHelpers =
             | _ -> None
         | None -> None
 
-    /// Compiles a two-parameter Join/LeftJoin/RightJoin result selector into a native Select projection operation
-    let compileJoinResultSelector
+    /// Compiles a JoinAsOf stage into a native AsOfJoinSpec
+    let compileJoinAsOf
+        (baseLf: LazyFrameHandle)
+        (methodInfo: MethodInfo)
+        (innerExpr: Expression)
+        (outerKey: LambdaExpression)
+        (innerKey: LambdaExpression)
+        (outerByOpt: LambdaExpression option)
+        (innerByOpt: LambdaExpression option)
+        (tolStr: string option)
+        (tolInt: int64 option)
+        (tolFloat: double option)
+        (strategy: PlAsofStrategy)
+        (scopeMap: Map<string * string, string>)
+        : AsOfJoinSpec option =
+        let extractKeyExprs (ctx: TranslationContext) (keyLambda: LambdaExpression) : ExprHandle array option =
+            match tryExtractMemberBindings keyLambda.Body with
+            | Some bindings ->
+                let exprs =
+                    bindings
+                    |> List.choose (fun (_, e) -> ExprTranslator.tryTranslateWithContext ctx e)
+
+                if exprs.Length = bindings.Length then
+                    Some(List.toArray exprs)
+                else
+                    None
+            | None ->
+                ExprTranslator.tryTranslateWithContext ctx keyLambda.Body
+                |> Option.map (fun h -> [| h |])
+
+        match SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr with
+        | Some rightLf ->
+            let outerParam = outerKey.Parameters.[0]
+            let innerParam = innerKey.Parameters.[0]
+
+            let leftCtx = createContextWithScope scopeMap outerParam.Type baseLf outerParam.Name
+            let rightCtx = createContextForType innerParam.Type rightLf innerParam.Name
+
+            match extractKeyExprs leftCtx outerKey, extractKeyExprs rightCtx innerKey with
+            | Some leftKeys, Some rightKeys when leftKeys.Length = rightKeys.Length ->
+                let leftByHandlesOpt =
+                    match outerByOpt with
+                    | Some ob -> extractKeyExprs leftCtx ob
+                    | None -> None
+
+                let rightByHandlesOpt =
+                    match innerByOpt with
+                    | Some ib -> extractKeyExprs rightCtx ib
+                    | None -> None
+
+                let byValid =
+                    match outerByOpt, innerByOpt with
+                    | Some _, Some _ ->
+                        leftByHandlesOpt.IsSome
+                        && rightByHandlesOpt.IsSome
+                        && leftByHandlesOpt.Value.Length = rightByHandlesOpt.Value.Length
+                    | None, None -> true
+                    | _ -> false
+
+                if byValid then
+                    Some
+                        {
+                            RightLf = rightLf
+                            LeftOn = leftKeys
+                            RightOn = rightKeys
+                            LeftBy = leftByHandlesOpt
+                            RightBy = rightByHandlesOpt
+                            Strategy = strategy
+                            ToleranceStr = tolStr
+                            ToleranceInt = tolInt
+                            ToleranceFloat = tolFloat
+                            AllowEq = true
+                            CheckSorted = true
+                            Suffix = Some "_right"
+                            Validation = PlJoinValidation.ManyToMany
+                            Coalesce = PlJoinCoalesce.JoinSpecific
+                            MaintainOrder = PlJoinMaintainOrder.None
+                            JoinSide = PlJoinSide.None
+                            NullsEqual = false
+                            SliceOffset = None
+                            SliceLen = 0UL
+                        }
+                else
+                    None
+            | _ -> None
+        | None -> None
+
+    /// Compiles a two-parameter Join/LeftJoin/RightJoin/JoinAsOf result selector into a native Select projection operation
+    let compileJoinResultSelectorWithParams
         (leftCols: string array)
         (rightCols: string array)
-        (spec: JoinSpec)
+        (invertSides: bool)
+        (suffixOpt: string option)
         (resLambda: LambdaExpression)
         (scopeMap: Map<string * string, string>)
         : QueryOp option =
@@ -1077,10 +1282,10 @@ module internal QueryPipelineHelpers =
             let pRight = resLambda.Parameters.[1]
 
             let firstParam, secondParam, firstCols, secondCols, secondSuffix =
-                if spec.InvertSides then
-                    pRight, pLeft, rightCols, leftCols, spec.Suffix |> Option.defaultValue "_left"
+                if invertSides then
+                    pRight, pLeft, rightCols, leftCols, suffixOpt |> Option.defaultValue "_left"
                 else
-                    pLeft, pRight, leftCols, rightCols, spec.Suffix |> Option.defaultValue "_right"
+                    pLeft, pRight, leftCols, rightCols, suffixOpt |> Option.defaultValue "_right"
 
             let firstColSet = Set.ofArray firstCols
             let ctx =
@@ -1127,6 +1332,15 @@ module internal QueryPipelineHelpers =
                     | _ ->
                         ExprTranslator.tryTranslateWithContext ctx unwrappedBody
                         |> Option.map (fun h -> QueryOp.Select [| h |])
+
+    let compileJoinResultSelector
+        (leftCols: string array)
+        (rightCols: string array)
+        (spec: JoinSpec)
+        (resLambda: LambdaExpression)
+        (scopeMap: Map<string * string, string>)
+        : QueryOp option =
+        compileJoinResultSelectorWithParams leftCols rightCols spec.InvertSides spec.Suffix resLambda scopeMap
 
     /// Compiles Intersect/Except/IntersectBy/ExceptBy stages into a native JoinSpec (Semi/Anti Join)
     let compileSetOp
@@ -2077,6 +2291,30 @@ module internal QueryPipelineHelpers =
                         false,
                         Nullable(),
                         0UL
+                    )
+
+                | QueryOp.JoinAsOf spec ->
+                    PolarsWrapper.JoinAsOf(
+                        currentLf,
+                        spec.RightLf,
+                        spec.LeftOn,
+                        spec.RightOn,
+                        Option.toObj spec.LeftBy,
+                        Option.toObj spec.RightBy,
+                        spec.Strategy,
+                        Option.toObj spec.ToleranceStr,
+                        Option.toNullable spec.ToleranceInt,
+                        Option.toNullable spec.ToleranceFloat,
+                        spec.AllowEq,
+                        spec.CheckSorted,
+                        Option.toObj spec.Suffix,
+                        spec.Validation,
+                        spec.Coalesce,
+                        spec.MaintainOrder,
+                        spec.JoinSide,
+                        spec.NullsEqual,
+                        Option.toNullable spec.SliceOffset,
+                        spec.SliceLen
                     )
 
                 | QueryOp.GroupBy spec ->

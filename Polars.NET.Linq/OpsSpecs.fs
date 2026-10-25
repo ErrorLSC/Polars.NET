@@ -40,6 +40,30 @@ type internal JoinSpec =
         Coalesce: PlJoinCoalesce
     }
 
+/// Specification for native AsOf join pushdown
+type internal AsOfJoinSpec =
+    {
+        RightLf: LazyFrameHandle
+        LeftOn: ExprHandle array
+        RightOn: ExprHandle array
+        LeftBy: ExprHandle array option
+        RightBy: ExprHandle array option
+        Strategy: PlAsofStrategy
+        ToleranceStr: string option
+        ToleranceInt: int64 option
+        ToleranceFloat: double option
+        AllowEq: bool
+        CheckSorted: bool
+        Suffix: string option
+        Validation: PlJoinValidation
+        Coalesce: PlJoinCoalesce
+        MaintainOrder: PlJoinMaintainOrder
+        JoinSide: PlJoinSide
+        NullsEqual: bool
+        SliceOffset: int64 option
+        SliceLen: uint64
+    }
+
 /// Specification for native GroupBy aggregation pushdown
 type internal GroupBySpec =
     {
@@ -76,6 +100,7 @@ type internal QueryOp =
     | SkipLast of count: uint32
     | Sort of SortSpec list
     | Join of JoinSpec
+    | JoinAsOf of AsOfJoinSpec
     | GroupBy of GroupBySpec
     | Unique of UniqueSpec
     | Concat of ConcatSpec
@@ -115,6 +140,18 @@ type internal LinqStage =
     | Prepend of Expression
     | Union of Expression * keyLambdaOpt: LambdaExpression option
     | Join of MethodInfo * Expression * LambdaExpression * LambdaExpression * LambdaExpression option
+    | JoinAsOf of
+        methodInfo: MethodInfo *
+        inner: Expression *
+        outerKey: LambdaExpression *
+        innerKey: LambdaExpression *
+        outerByOpt: LambdaExpression option *
+        innerByOpt: LambdaExpression option *
+        resSelOpt: LambdaExpression option *
+        toleranceStr: string option *
+        toleranceInt: int64 option *
+        toleranceFloat: double option *
+        strategy: PlAsofStrategy
     | Explode of collectionLambda: LambdaExpression * resultLambdaOpt: LambdaExpression option
     | CrossJoin of innerExpr: Expression * resultLambdaOpt: LambdaExpression option
     | SetOp of MethodInfo * Expression * LambdaExpression option * LambdaExpression option
