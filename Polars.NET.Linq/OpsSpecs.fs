@@ -119,6 +119,10 @@ type internal LinqStage =
     | CrossJoin of innerExpr: Expression * resultLambdaOpt: LambdaExpression option
     | SetOp of MethodInfo * Expression * LambdaExpression option * LambdaExpression option
     | GroupByKey of LambdaExpression
+    | GroupPartitionSlice of
+        keySelector: LambdaExpression *
+        innerStages: LinqStage list *
+        resSelectorOpt: LambdaExpression option
     | GroupByWithResult of LambdaExpression * LambdaExpression
     | GroupByWithElementAndResult of
         keySelector: LambdaExpression *

@@ -40,12 +40,22 @@ type internal TranslationContext =
     /// Binary correlated subquery join context (outerParam, innerParam, leftCols, rightSuffix)
     | CorrelatedJoin of outerParam: string * innerParam: string * leftCols: Set<string> * rightSuffix: string
 
+    /// Scoped entity context carrying known range variable / scope mappings (e.g. ("sn", "n_name") -> "n_name_right")
+    /// across cascaded multi-table joins.
+    | ScopedEntity of paramNames: string list * scopeMap: Map<string * string, string> * fallbackCols: string list
+
+    /// List element placeholder context for row-level ListEval (pl.element()).
+    | ListElement of paramName: string
+
     /// Determines whether the given parameter name matches any parameter active in the current scope.
     member this.ContainsParam(name: string) : bool =
         match this with
         | TranslationContext.Empty -> false
         | TranslationContext.Entity p -> p = name
         | TranslationContext.EntityWithCols(p, _) -> p = name
+        | TranslationContext.ScopedEntity(paramsList, scopeMap, _) ->
+            List.contains name paramsList || (scopeMap |> Map.exists (fun (scope, _) _ -> scope = name))
+        | TranslationContext.ListElement p -> p = name
         | TranslationContext.Scalar(p, _) -> p = name
         | TranslationContext.BinaryJoin(left, right, _, _) -> name = left || name = right
         | TranslationContext.Merge(target, source, _) -> name = target || name = source
@@ -57,10 +67,7 @@ type internal TranslationContext =
         match this with
         | TranslationContext.Scalar(p, physicalCol) when p = name && not (String.IsNullOrEmpty physicalCol) ->
             Some(PolarsWrapper.Col physicalCol)
-        | TranslationContext.Entity p when p = name ->
-            // Entity placeholder within expressions (e.g. list_eval inner element placeholder)
-            Some(PolarsWrapper.Col "")
-        | TranslationContext.EntityWithCols(p, _) when p = name ->
+        | TranslationContext.ListElement p when p = name ->
             Some(PolarsWrapper.Col "")
         | _ -> None
 
@@ -257,6 +264,24 @@ module internal rec ExprTranslator =
             tryExtractGroupingCarrierMember inner
         | _ -> None
 
+    let rec internal tryExtractScopeName (expr: Expression) : string option =
+        match unwrap expr with
+        | :? ParameterExpression as p ->
+            let name = p.Name
+            if not (isNull name) && not (name.StartsWith "<>") && not (name.Contains "TransparentIdentifier") && not (name.StartsWith "_arg") && not (name.StartsWith "tupled") then
+                Some name
+            else
+                None
+        | MemberAccess(target, m) ->
+            let name = m.Name
+            if not (name.StartsWith "<>") && not (name.Contains "TransparentIdentifier") && not (name.StartsWith "Item") && name <> "Fst" && name <> "Snd" then
+                Some name
+            else
+                tryExtractScopeName target
+        | MethodCall(m, _, [ arg ]) when m.Name = "Fst" || m.Name = "Snd" || m.Name = "fst" || m.Name = "snd" ->
+            tryExtractScopeName arg
+        | _ -> None
+
     /// Resolves the underlying physical column name using a strongly-typed TranslationContext.
     let rec internal tryResolveColumnNameWithContext (ctx: TranslationContext) (expr: Expression) : string option =
         if not ctx.AllowsColumnMemberLookup then
@@ -290,7 +315,8 @@ module internal rec ExprTranslator =
                         else -1
 
                     match ctx with
-                    | TranslationContext.EntityWithCols(_, cols) ->
+                    | TranslationContext.EntityWithCols(_, cols)
+                    | TranslationContext.ScopedEntity(_, _, cols) ->
                         if itemIdx >= 0 && itemIdx < cols.Length then
                             Some cols.[itemIdx]
                         elif cols |> List.contains itemProp.Name then
@@ -321,7 +347,8 @@ module internal rec ExprTranslator =
 
                 if isRootedInParam inner then
                     match ctx with
-                    | TranslationContext.EntityWithCols(_, cols) when not cols.IsEmpty ->
+                    | TranslationContext.EntityWithCols(_, cols)
+                    | TranslationContext.ScopedEntity(_, _, cols) when not cols.IsEmpty ->
                         Some cols.[0]
                     | _ ->
                         tryExtractGroupingCarrierMember inner
@@ -379,6 +406,39 @@ module internal rec ExprTranslator =
                                 Some m.Name
                             else
                                 Some(m.Name + rightSuffix)
+
+                    | TranslationContext.ScopedEntity(_, scopeMap, fallbackCols) ->
+                        let rec isRootedInParamOrClosure (e: Expression) =
+                            match unwrap e with
+                            | :? ParameterExpression as p ->
+                                isSyntheticScopeParam ctx.ContainsParam p
+                            // Allow transparent navigation through intermediate scope / Nullable<T>.Value
+                            | MemberAccess(nextInner, nextM) when isNavigationMember nextM ->
+                                isRootedInParamOrClosure nextInner
+                            | _ -> false
+
+                        if isRootedInParamOrClosure inner then
+                            let scopeOpt = tryExtractScopeName inner
+                            match scopeOpt with
+                            | Some scope ->
+                                match scopeMap.TryFind(scope, m.Name) with
+                                | Some physicalCol -> Some physicalCol
+                                | None ->
+                                    if List.contains m.Name fallbackCols then
+                                        Some m.Name
+                                    else
+                                        fallbackCols
+                                        |> List.tryFind (fun c -> String.Equals(c, m.Name, StringComparison.OrdinalIgnoreCase))
+                                        |> Option.orElse (Some m.Name)
+                            | None ->
+                                if List.contains m.Name fallbackCols then
+                                    Some m.Name
+                                else
+                                    fallbackCols
+                                    |> List.tryFind (fun c -> String.Equals(c, m.Name, StringComparison.OrdinalIgnoreCase))
+                                    |> Option.orElse (Some m.Name)
+                        else
+                            None
 
                     | TranslationContext.EntityWithCols(_, cols) ->
                         let rec isRootedInParamOrClosure (e: Expression) =
@@ -1744,7 +1804,7 @@ module internal rec ExprTranslator =
         | ListAny(target, Some lam) when lam.Parameters.Count = 1 ->
             match t1 target with
             | Some t ->
-                let innerCtx = TranslationContext.Entity lam.Parameters.[0].Name
+                let innerCtx = TranslationContext.ListElement lam.Parameters.[0].Name
 
                 tryTranslateWithContext innerCtx lam.Body
                 |> Option.map (fun innerCond ->
@@ -1758,7 +1818,7 @@ module internal rec ExprTranslator =
         | ListAll(target, lam) when lam.Parameters.Count = 1 ->
             match t1 target with
             | Some t ->
-                let innerCtx = TranslationContext.Entity lam.Parameters.[0].Name
+                let innerCtx = TranslationContext.ListElement lam.Parameters.[0].Name
 
                 tryTranslateWithContext innerCtx lam.Body
                 |> Option.map (fun innerCond ->
@@ -1771,7 +1831,7 @@ module internal rec ExprTranslator =
         | ListSelect(target, lam) when lam.Parameters.Count = 1 ->
             match t1 target with
             | Some t ->
-                let innerCtx = TranslationContext.Entity lam.Parameters.[0].Name
+                let innerCtx = TranslationContext.ListElement lam.Parameters.[0].Name
 
                 tryTranslateWithContext innerCtx lam.Body
                 |> Option.map (fun mapperExpr -> PolarsWrapper.ListEval(t, mapperExpr))

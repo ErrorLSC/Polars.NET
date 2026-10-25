@@ -148,6 +148,15 @@ module internal QueryPipelineHelpers =
     let createContextForType (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
         SubqueryDecorrelator.createContextForType elemType lf paramName
 
+    /// Creates a TranslationContext that prioritizes registered scope mappings (for deep multi-table joins)
+    /// before falling back to default schema extraction.
+    let createContextWithScope (scopeMap: Map<string * string, string>) (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
+        if scopeMap.IsEmpty then
+            createContextForType elemType lf paramName
+        else
+            let cols = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
+            TranslationContext.ScopedEntity([ paramName ], scopeMap, cols)
+
     /// Extracts the underlying sequence element type from generic collections/arrays
     let getSequenceElementType (t: Type) : Type =
         if t.IsGenericType then t.GetGenericArguments().[0]
@@ -792,23 +801,37 @@ module internal QueryPipelineHelpers =
             let paramName = colSel.Parameters.[0].Name
             let containsParam = SubqueryDecorrelator.containsParameter paramName colSel.Body
 
-            let nestedStagesOpt =
-                if containsParam then
-                    match ExprTranslator.unwrap colSel.Body with
-                    | :? MethodCallExpression as innerMc when innerMc.Method.Name <> "DefaultIfEmpty" ->
-                        let innerStages = flattenStages innerMc []
-                        if not innerStages.IsEmpty then Some innerStages else None
-                    | _ -> None
-                else
-                    None
+            let isGroupSource, groupKeySelOpt, baseGroupSource =
+                match source with
+                | MethodCall(gm, null, gs :: StripQuotes(:? LambdaExpression as ks) :: _) when gm.Name = "GroupBy" ->
+                    true, Some ks, gs
+                | _ -> false, None, source
 
-            match nestedStagesOpt with
-            | Some innerStages -> flattenStages source (innerStages @ acc)
-            | None ->
-                if containsParam then
-                    flattenStages source (LinqStage.Explode(colSel, resSelOpt) :: acc)
-                else
-                    flattenStages source (LinqStage.CrossJoin(colSel.Body, resSelOpt) :: acc)
+            if isGroupSource && containsParam then
+                let innerStages =
+                    match ExprTranslator.unwrap colSel.Body with
+                    | :? MethodCallExpression as innerMc -> flattenStages innerMc []
+                    | _ -> []
+                let stage = LinqStage.GroupPartitionSlice(groupKeySelOpt.Value, innerStages, resSelOpt)
+                flattenStages baseGroupSource (stage :: acc)
+            else
+                let nestedStagesOpt =
+                    if containsParam then
+                        match ExprTranslator.unwrap colSel.Body with
+                        | :? MethodCallExpression as innerMc when innerMc.Method.Name <> "DefaultIfEmpty" ->
+                            let innerStages = flattenStages innerMc []
+                            if not innerStages.IsEmpty then Some innerStages else None
+                        | _ -> None
+                    else
+                        None
+
+                match nestedStagesOpt with
+                | Some innerStages -> flattenStages source (innerStages @ acc)
+                | None ->
+                    if containsParam then
+                        flattenStages source (LinqStage.Explode(colSel, resSelOpt) :: acc)
+                    else
+                        flattenStages source (LinqStage.CrossJoin(colSel.Body, resSelOpt) :: acc)
 
         | MethodCall(m, null, [ source; second ]) when m.Name = "Zip" ->
             flattenStages source (LinqStage.Zip(second, None) :: acc)
@@ -864,9 +887,10 @@ module internal QueryPipelineHelpers =
     let tryCompileTransparentLet
         (lf: LazyFrameHandle)
         (projLambda: LambdaExpression)
+        (scopeMap: Map<string * string, string>)
         : QueryOp option =
         let param = projLambda.Parameters.[0]
-        let ctx = createContextForType param.Type lf param.Name
+        let ctx = createContextWithScope scopeMap param.Type lf param.Name
 
         match tryExtractMemberBindings projLambda.Body with
         | Some bindings ->
@@ -958,9 +982,10 @@ module internal QueryPipelineHelpers =
     let compileSelectProjection
         (lf: LazyFrameHandle)
         (projLambda: LambdaExpression)
+        (scopeMap: Map<string * string, string>)
         : ExprHandle array option =
         let param = projLambda.Parameters.[0]
-        let ctx = createContextForType param.Type lf param.Name
+        let ctx = createContextWithScope scopeMap param.Type lf param.Name
 
         match tryExtractMemberBindings projLambda.Body with
         | Some bindings ->
@@ -987,6 +1012,7 @@ module internal QueryPipelineHelpers =
         (innerExpr: Expression)
         (outerKey: LambdaExpression)
         (innerKey: LambdaExpression)
+        (scopeMap: Map<string * string, string>)
         : JoinSpec option =
         let isRightJoin = methodInfo.Name = "RightJoin"
 
@@ -1018,7 +1044,7 @@ module internal QueryPipelineHelpers =
             let outerParam = outerKey.Parameters.[0]
             let innerParam = innerKey.Parameters.[0]
 
-            let leftCtx = createContextForType outerParam.Type baseLf outerParam.Name
+            let leftCtx = createContextWithScope scopeMap outerParam.Type baseLf outerParam.Name
             let rightCtx = createContextForType innerParam.Type rightLf innerParam.Name
 
             match extractKeyExprs leftCtx outerKey, extractKeyExprs rightCtx innerKey with
@@ -1042,6 +1068,7 @@ module internal QueryPipelineHelpers =
         (rightCols: string array)
         (spec: JoinSpec)
         (resLambda: LambdaExpression)
+        (scopeMap: Map<string * string, string>)
         : QueryOp option =
         if resLambda.Parameters.Count < 2 then
             None
@@ -1056,7 +1083,11 @@ module internal QueryPipelineHelpers =
                     pLeft, pRight, leftCols, rightCols, spec.Suffix |> Option.defaultValue "_right"
 
             let firstColSet = Set.ofArray firstCols
-            let ctx = TranslationContext.BinaryJoin(firstParam.Name, secondParam.Name, firstColSet, secondSuffix)
+            let ctx =
+                if not scopeMap.IsEmpty then
+                    TranslationContext.ScopedEntity([ firstParam.Name; secondParam.Name ], scopeMap, Array.toList firstCols @ Array.toList secondCols)
+                else
+                    TranslationContext.BinaryJoin(firstParam.Name, secondParam.Name, firstColSet, secondSuffix)
 
             let unwrappedBody = ExprTranslator.unwrap resLambda.Body
             match unwrappedBody with
@@ -1249,12 +1280,13 @@ module internal QueryPipelineHelpers =
         (innerExpr: Expression)
         (outerKey: LambdaExpression)
         (innerKey: LambdaExpression)
+        (scopeMap: Map<string * string, string>)
         : QueryOp option =
         SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr
         |> Option.bind (fun rightLf ->
             let outerParam = outerKey.Parameters.[0]
             let innerParam = innerKey.Parameters.[0]
-            let leftCtx = createContextForType outerParam.Type baseLf outerParam.Name
+            let leftCtx = createContextWithScope scopeMap outerParam.Type baseLf outerParam.Name
             let rightCtx = createContextForType innerParam.Type rightLf innerParam.Name
 
             match
@@ -1364,6 +1396,190 @@ module internal QueryPipelineHelpers =
             let safeThirdLf, _, _ = disambiguateColumns colsAfter2 thirdLf "_third"
             Some(QueryOp.HorizontalConcat [| safeSecondLf; safeThirdLf |])
         | _ -> None
+
+    /// Compiles group-scoped partition operations (e.g. from g in source.GroupBy(k) from top in g.OrderBy(s).Take(n) select ...)
+    /// into native window ranking filters and projections.
+    let compileGroupPartitionSlice
+        (lf: LazyFrameHandle)
+        (keySelector: LambdaExpression)
+        (innerStages: LinqStage list)
+        (resSelOpt: LambdaExpression option)
+        : QueryOp list option =
+
+        let keyParam = keySelector.Parameters.[0]
+        let keyCtx = createContextForType keyParam.Type lf keyParam.Name
+
+        let partitionKeysOpt =
+            match tryExtractMemberBindings keySelector.Body with
+            | Some bindings ->
+                let exprs =
+                    bindings
+                    |> List.choose (fun (_, e) -> ExprTranslator.tryTranslateWithContext keyCtx e)
+                if exprs.Length = bindings.Length then Some(List.toArray exprs) else None
+            | None ->
+                ExprTranslator.tryTranslateWithContext keyCtx keySelector.Body
+                |> Option.map (fun h -> [| h |])
+
+        match partitionKeysOpt with
+        | None -> None
+        | Some partitionKeys ->
+            let innerFilters =
+                innerStages
+                |> List.choose (function
+                    | LinqStage.Filter l ->
+                        let ctx = createContextForType l.Parameters.[0].Type lf l.Parameters.[0].Name
+                        ExprTranslator.tryTranslateWithContext ctx l.Body
+                        |> Option.map QueryOp.Filter
+                    | _ -> None)
+
+            let sortInfoOpt =
+                innerStages
+                |> List.tryPick (function
+                    | LinqStage.Sort(l, isDesc) ->
+                        let ctx = createContextForType l.Parameters.[0].Type lf l.Parameters.[0].Name
+                        ExprTranslator.tryTranslateWithContext ctx l.Body
+                        |> Option.map (fun h -> h, isDesc)
+                    | _ -> None)
+
+            let takeOpt =
+                innerStages
+                |> List.tryPick (function
+                    | LinqStage.Take n -> Some(int64 n)
+                    | _ -> None)
+
+            let skipOpt =
+                innerStages
+                |> List.tryPick (function
+                    | LinqStage.Skip n -> Some(int64 n)
+                    | _ -> None)
+
+            let rankExprOpt =
+                match sortInfoOpt with
+                | Some(sortH, isDesc) ->
+                    let rankH = PolarsWrapper.Rank(sortH, PlRankMethod.Ordinal, isDesc, System.Nullable())
+                    Some(
+                        PolarsWrapper.Over(
+                            rankH,
+                            partitionKeys,
+                            [||],
+                            descending = false,
+                            nullsLast = false,
+                            multithreaded = true,
+                            maintainOrder = true,
+                            mappingCode = PlWindowMapping.GroupsToRows
+                        )
+                    )
+                | None when takeOpt.IsSome || skipOpt.IsSome ->
+                    let colNames = PolarsSchemaExtractor.GetColumnNames lf
+                    if colNames.Length > 0 then
+                        let col0 = PolarsWrapper.Col colNames.[0]
+                        let cumCountH = PolarsWrapper.CumCount(col0, false)
+                        Some(
+                            PolarsWrapper.Over(
+                                cumCountH,
+                                partitionKeys,
+                                [||],
+                                descending = false,
+                                nullsLast = false,
+                                multithreaded = true,
+                                maintainOrder = true,
+                                mappingCode = PlWindowMapping.GroupsToRows
+                            )
+                        )
+                    else
+                        None
+                | _ -> None
+
+            let sliceFilterOpOpt =
+                rankExprOpt
+                |> Option.map (fun rankH ->
+                    let cond =
+                        match skipOpt, takeOpt with
+                        | Some skip, Some take ->
+                            PolarsWrapper.And(
+                                PolarsWrapper.Gt(PolarsWrapper.CloneExpr rankH, PolarsWrapper.Lit skip),
+                                PolarsWrapper.LtEq(rankH, PolarsWrapper.Lit(skip + take))
+                            )
+                        | None, Some take ->
+                            PolarsWrapper.LtEq(rankH, PolarsWrapper.Lit take)
+                        | Some skip, None ->
+                            PolarsWrapper.Gt(rankH, PolarsWrapper.Lit skip)
+                        | None, None -> PolarsWrapper.Lit true
+
+                    QueryOp.Filter cond)
+
+            let singleKeyColOpt =
+                match keySelector.Body with
+                | ExtractColumnName col -> Some col
+                | MemberAccess(_, m) -> Some m.Name
+                | _ -> None
+
+            let keyColBindings =
+                match tryExtractMemberBindings keySelector.Body with
+                | Some bindings ->
+                    bindings
+                    |> List.choose (fun (propName, expr) ->
+                        match ExprTranslator.unwrap expr with
+                        | ExtractColumnName col -> Some(propName, col)
+                        | MemberAccess(_, m) -> Some(propName, m.Name)
+                        | _ -> None)
+                | None -> []
+
+            let keyColMap = Map.ofList keyColBindings
+
+            let selectOpOpt =
+                match resSelOpt with
+                | Some resSel when resSel.Parameters.Count >= 2 ->
+                    let gParam = resSel.Parameters.[0]
+                    let topParam = resSel.Parameters.[1]
+                    let baseCtx = createContextForType topParam.Type lf topParam.Name
+
+                    let translateArg (arg: Expression) : ExprHandle option =
+                        let cleanArg = ExprTranslator.unwrap arg
+                        match cleanArg with
+                        | MemberAccess(p, m) when p.NodeType = ExpressionType.Parameter && p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>> && m.Name = "Key" ->
+                            singleKeyColOpt |> Option.map PolarsWrapper.Col
+                        | MemberAccess(MemberAccess(p, k), m) when p.NodeType = ExpressionType.Parameter && k.Name = "Key" ->
+                            let colName =
+                                if (m.Name = "Item1" || m.Name = "Fst") && keyColBindings.Length > 0 then
+                                    snd keyColBindings.[0]
+                                elif (m.Name = "Item2" || m.Name = "Snd") && keyColBindings.Length > 1 then
+                                    snd keyColBindings.[1]
+                                else
+                                    keyColMap.TryFind m.Name |> Option.defaultValue m.Name
+                            Some(PolarsWrapper.Col colName)
+                        | MethodCall(m, _, [ MemberAccess(p, k) ]) when (m.Name = "Fst" || m.Name = "fst") && k.Name = "Key" && keyColBindings.Length > 0 ->
+                            Some(PolarsWrapper.Col(snd keyColBindings.[0]))
+                        | MethodCall(m, _, [ MemberAccess(p, k) ]) when (m.Name = "Snd" || m.Name = "snd") && k.Name = "Key" && keyColBindings.Length > 1 ->
+                            Some(PolarsWrapper.Col(snd keyColBindings.[1]))
+                        | MemberAccess(p, m) when p.NodeType = ExpressionType.Parameter && (match p with :? ParameterExpression as pe -> pe.Name = topParam.Name | _ -> false) ->
+                            Some(PolarsWrapper.Col m.Name)
+                        | _ ->
+                            ExprTranslator.tryTranslateWithContext baseCtx cleanArg
+
+                    match tryExtractMemberBindings resSel.Body with
+                    | Some bindings ->
+                        let exprOpts =
+                            bindings
+                            |> List.choose (fun (name, argExpr) ->
+                                translateArg argExpr
+                                |> Option.map (fun h -> PolarsWrapper.Alias(h, name)))
+                        if exprOpts.Length = bindings.Length then
+                            Some(QueryOp.Select(List.toArray exprOpts))
+                        else
+                            None
+                    | None -> None
+                | _ -> None
+
+            let sliceOps =
+                match sliceFilterOpOpt with
+                | Some f -> [ f ]
+                | None -> []
+
+            match selectOpOpt with
+            | Some selOp -> Some(selOp :: sliceOps @ innerFilters)
+            | None when not sliceOps.IsEmpty -> Some(sliceOps @ innerFilters)
+            | _ -> None
 
     /// Compiles Explode (SelectMany over collection property) into QueryOp.Explode and optional renames
     let compileExplode
@@ -1560,6 +1776,7 @@ module internal QueryPipelineHelpers =
                                     else None
                                 | MemberAccess(p, m) when isKeyArg p ->
                                     if m.Name = origKeyName then Some memName
+                                    elif m.Name = "Key" && keyDefs.Length = 1 then Some memName
                                     elif m.Name = sprintf "Item%d" (keyIdx + 1) || (m.Name = "Fst" && keyIdx = 0) || (m.Name = "Snd" && keyIdx = 1) then Some memName
                                     else None
                                 | _ when isKeyArg arg && keyDefs.Length = 1 -> Some memName

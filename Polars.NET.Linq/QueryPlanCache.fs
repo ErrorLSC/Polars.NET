@@ -169,6 +169,8 @@ type QueryPlanCache private () =
             | LinqStage.DistinctBy l -> LinqStage.DistinctBy(subLambda l)
             | LinqStage.CountBy l -> LinqStage.CountBy(subLambda l)
             | LinqStage.GroupByKey l -> LinqStage.GroupByKey(subLambda l)
+            | LinqStage.GroupPartitionSlice(kl, inner, resOpt) ->
+                LinqStage.GroupPartitionSlice(subLambda kl, inner |> List.map (QueryPlanCache.SubstituteStage paramsDict), subLambdaOpt resOpt)
             | LinqStage.GroupByWithResult(kl, rl) -> LinqStage.GroupByWithResult(subLambda kl, subLambda rl)
             | LinqStage.GroupByWithElementAndResult(kl, el, rl) ->
                 LinqStage.GroupByWithElementAndResult(subLambda kl, subLambda el, subLambda rl)
