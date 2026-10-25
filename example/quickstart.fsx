@@ -2,8 +2,8 @@
 // Polars.NET F# Quick Start Script
 // ==========================================
 
-#r "nuget: Polars.FSharp, 0.7.0"
-#r "nuget: Polars.NET.Native.linux-x64, 0.7.0"
+#r "nuget: Polars.FSharp, 1.0.0"
+#r "nuget: Polars.NET.Native.linux-x64, 1.0.0"
 
 open System
 open Polars.FSharp
@@ -41,7 +41,7 @@ let data = [
 
 let df =
     DataFrame.ofRecords data
-    |> pl.withColumn (pl.col("Date").Str.ToDate "%Y-%m-%d")
+    |> DataFrame.withColumn (pl.col("Date").Str.ToDate "%Y-%m-%d")
     |> printHeader "Creating DataFrame from Records (Idiomatic F#)"
 
 // ==========================================
@@ -49,7 +49,7 @@ let df =
 // ==========================================
 
 df
-|> pl.filter (pl.col "City" .== pl.lit "London")
+|> DataFrame.filter (pl.col "City" .== pl.lit "London")
 |> printHeader "Filtering: London Only"
 
 // ==========================================
@@ -63,8 +63,8 @@ Config.tableFormatting (TableFormatting.AsciiFull,Active.ResetToDefault)()
 // ==========================================
 
 df
-|> pl.groupBy [pl.col "City"]
-|> pl.agg [
+|> DataFrame.groupBy [pl.col "City"]
+|> DataFrame.agg [
     pl.col("Temperature").Mean().Alias "Avg_Temp"
     pl.col("Temperature").Max().Alias "Max_Temp"
     pl.col("Rain").Sum().Alias "Rainy_Days" // bool sum -> count of true
@@ -77,7 +77,7 @@ df
 // ==========================================
 
 df
-|> pl.select [
+|> DataFrame.select [
     pl.col "Date"
     pl.col "City"
     pl.col "Temperature"
@@ -89,7 +89,7 @@ df
     pl.col "Temperature" - pl.col("Temperature").Mean().Over(pl.col "Date")
         |> pl.alias "Diff"
 ]
-|> pl.sortAscending [pl.col "Date"]
+|> DataFrame.sortAscending [pl.col "Date"]
 |> printHeader "Window: Diff from Daily Average"
 
 // ==========================================
@@ -100,15 +100,15 @@ df
 let lf =
     df
     |> pl.asLazy
-    |> pl.filterLazy(pl.col "Temperature" .> pl.lit 10.0)
-    |> pl.groupByLazy [pl.col "City"]
-    |> pl.aggLazy [pl.col("Temperature").Mean() |> pl.alias "Lazy_Avg_Temp"]
+    |> LazyFrame.filter(pl.col "Temperature" .> pl.lit 10.0)
+    |> LazyFrame.groupBy [pl.col "City"]
+    |> LazyFrame.agg [pl.col("Temperature").Mean() |> pl.alias "Lazy_Avg_Temp"]
 
 // Print Exection Optimized Plan
-printHeaderWithString "Lazy Execution & Query Plan" (lf |> pl.explain)
+printHeaderWithString "Lazy Execution & Query Plan" (lf |> LazyFrame.explain)
 
 // Execuate after Collect
-lf |> pl.collect |> printHeader "Lazy Execution Result"
+lf |> LazyFrame.collect |> printHeader "Lazy Execution Result"
 
 // ==========================================
 // 6. SQL MERGE
@@ -137,6 +137,6 @@ printHeaderWithString "MERGE Plan" (plan |> Merge.toPlanString)
 
 plan
 |> Merge.execute
-|> pl.sortAscendingLazy [pl.col "Id"]
-|> pl.collect
+|> LazyFrame.sortAscending [pl.col "Id"]
+|> LazyFrame.collect
 |> printHeader "MERGE Execution Result"

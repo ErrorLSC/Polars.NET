@@ -1,5 +1,5 @@
-#r "nuget: Polars.FSharp, 0.6.0"
-#r "nuget: Polars.NET.Native.linux-x64, 0.6.0"
+#r "nuget: Polars.FSharp, 1.0.0"
+#r "nuget: Polars.NET.Native.linux-x64, 1.0.0"
 #r "nuget: FSharp.Data"
 
 open FSharp.Data
@@ -21,4 +21,4 @@ type Data = CsvProvider<path,UseOriginalNames=true>
 let schema = Unchecked.defaultof<Data.Row>
 
 DataFrame.ReadCsv path 
-    |> pl.select [pl.col (nameof schema.byebye)] |> pl.show 
+    |> DataFrame.select [pl.col (nameof schema.byebye)] |> DataFrame.show 
