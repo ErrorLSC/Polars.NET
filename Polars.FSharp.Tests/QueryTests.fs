@@ -77,6 +77,30 @@ type StockPrice =
         Price: float
     }
 
+type AthleteRecord = {
+    ID: int64
+    Name: string
+    Sex: string
+    Age: int option
+    Height: float option
+    Weight: float option
+    Team: string
+    NOC: string
+    Games: string
+    Year: int
+    Season: string
+    City: string
+    Sport: string
+    Event: string
+    Medal: string
+}
+
+type NOCRegion = {
+    NOC: string
+    region: string
+    notes: string
+}
+
 type StaffRecord =
     {
         name: string
@@ -658,6 +682,46 @@ module QueryTests =
 
         let hasDept3 = results |> Seq.exists (fun r -> r.DeptId = 3)
         Assert.False hasDept3
+
+    [<Fact; Trait("LINQ", "GroupBy")>]
+    let ``Test Polars Linq FSharp Query with Let After GroupBy and Round Pushdown`` () =
+        let data =
+            [|
+                {| ID = 1L; Name = "A"; Sex = "F"; NOC = "USA" |}
+                {| ID = 2L; Name = "B"; Sex = "M"; NOC = "USA" |}
+                {| ID = 3L; Name = "C"; Sex = "F"; NOC = "CHN" |}
+            |]
+
+        use df = DataFrame.ofRecords data
+        let q =
+            query {
+                for row in df.AsQueryable data do
+                groupBy row.NOC into g
+                let total = g.Count()
+                let female = g.Count(fun r -> r.Sex = "F")
+                let ratio = Math.Round(float female / float total * 100.0, 2)
+                sortByDescending ratio
+                take 10
+                select {|
+                    NOC = g.Key
+                    FemaleCount = female
+                    TotalCount = total
+                    FemaleRatio = ratio
+                |}
+            }
+            |> assertPlan nativePushdown
+
+        let results = q.ToList()
+        Assert.Equal(2, results.Count)
+        Assert.Equal("CHN", results.[0].NOC)
+        Assert.Equal(100.0, results.[0].FemaleRatio)
+        Assert.Equal(1, results.[0].FemaleCount)
+        Assert.Equal(1, results.[0].TotalCount)
+
+        Assert.Equal("USA", results.[1].NOC)
+        Assert.Equal(50.0, results.[1].FemaleRatio)
+        Assert.Equal(1, results.[1].FemaleCount)
+        Assert.Equal(2, results.[1].TotalCount)
 
     [<Fact; Trait("LINQ", "ScalarAndFirst")>]
     let ``Test Polars Linq Scalar And First`` () =
@@ -2627,6 +2691,58 @@ module QueryTests =
         Assert.Equal("Charlie", qDeep.[1].Username)
         Assert.Equal("Tokyo", qDeep.[1].City)
         Assert.Equal(35.6762, qDeep.[1].Lat)
+
+    [<Fact>]
+    let ``AthleteCrossSportStars 100% native pushdown test`` () =
+        let athleteData = [
+            { ID = 1L; Name = "Bob"; Sex = "M"; Age = Some 25; Height = None; Weight = None; Team = "USA"; NOC = "USA"; Games = "2000"; Year = 2000; Season = "Summer"; City = "Sydney"; Sport = "Athletics"; Event = "100m"; Medal = "Gold" }
+            { ID = 2L; Name = "Bob"; Sex = "M"; Age = Some 25; Height = None; Weight = None; Team = "USA"; NOC = "USA"; Games = "2000"; Year = 2000; Season = "Summer"; City = "Sydney"; Sport = "Bobsleigh"; Event = "Two-Man"; Medal = "Silver" }
+            { ID = 3L; Name = "Bob"; Sex = "M"; Age = Some 25; Height = None; Weight = None; Team = "USA"; NOC = "USA"; Games = "2000"; Year = 2000; Season = "Summer"; City = "Sydney"; Sport = "Sailing"; Event = "Finn"; Medal = "Bronze" }
+        ]
+        let regionData = [
+            { NOC = "USA"; region = "United States"; notes = "" }
+        ]
+
+        use athleteDf = DataFrame.ofRecords athleteData
+        use regionDf = DataFrame.ofRecords regionData
+
+        let athleteCrossSportStars =
+            query {
+                for a in athleteDf.AsQueryable<AthleteRecord>() do
+                where (not (String.IsNullOrEmpty a.Medal))
+                groupBy (a.Name, a.NOC) into g
+
+                let uniqueSportsCount = 
+                    query {
+                        for r in g do
+                        select r.Sport
+                        distinct
+                        count
+                    }
+                    
+                where (uniqueSportsCount >= 3)
+
+                leftOuterJoin reg in regionDf.AsQueryable<NOCRegion>() 
+                    on (snd g.Key = reg.NOC) into joinedRegions
+
+                for reg in joinedRegions.DefaultIfEmpty() do
+                
+                sortByDescending uniqueSportsCount
+                
+                select {|
+                    Name = fst g.Key
+                    Region = reg.region
+                    UniqueSportsCount = uniqueSportsCount
+                |}
+            }
+            |> assertPlan nativePushdown
+            |> Seq.toArray
+
+        Assert.Equal(1, athleteCrossSportStars.Length)
+        Assert.Equal("Bob", athleteCrossSportStars.[0].Name)
+        Assert.Equal("United States", athleteCrossSportStars.[0].Region)
+        Assert.Equal(3, athleteCrossSportStars.[0].UniqueSportsCount)
+
 
 
 

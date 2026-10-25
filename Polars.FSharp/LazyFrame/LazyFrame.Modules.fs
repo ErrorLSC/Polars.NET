@@ -52,7 +52,7 @@ module LazyFrame =
     /// Get the head of the LazyFrame.
     let head (n: int) (lazyFrame: LazyFrame) : LazyFrame = lazyFrame.Head(uint n)
     /// Get the tail of the LazyFrame.
-    let tail (n: uint) (lazyFrame: LazyFrame) : LazyFrame = lazyFrame.Tail(n)
+    let tail (n: int) (lazyFrame: LazyFrame) : LazyFrame = lazyFrame.Tail(uint n)
     /// <summary> Slice rows starting at offset with length. </summary>
     let slice (offset: int64) (length: uint32) (lf: LazyFrame) : LazyFrame = lf.Slice(offset, length)
     /// <summary> Get the schema of the LazyFrame. </summary>
@@ -132,6 +132,8 @@ module LazyFrame =
 
     /// <summary> Drop columns from the LazyFrame. </summary>
     let drop (columns: #IColumnExpr) (lf: LazyFrame) : LazyFrame = lf.Drop(columns.ToSelector())
+    /// <summary> Drop multiple columns from the LazyFrame. </summary>
+    let dropMany (columns: seq<Expr>) (lf: LazyFrame) : LazyFrame = lf.Drop columns
     /// <summary> Drop null values from the LazyFrame. </summary>
     let dropNulls (lf: LazyFrame) : LazyFrame = lf.DropNulls()
     /// <summary> Drop null values from the LazyFrame with specific subset. </summary>

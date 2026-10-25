@@ -1471,15 +1471,29 @@ module internal QueryPipelineHelpers =
                 | _ -> None
 
         let keyPairsOpt: (string * Expression) list option =
-            match tryExtractMemberBindings ctx.KeyLambda.Body with
-            | Some pairs -> Some pairs
-            | None ->
-                let name =
-                    match ctx.KeyLambda.Body with
-                    | ExtractColumnName col -> col
-                    | _ -> "Key"
+            match ExprTranslator.unwrap ctx.KeyLambda.Body with
+            | :? NewExpression as ne when
+                ne.Type.IsGenericType && (ne.Type.Name.StartsWith "Tuple`" || ne.Type.Name.StartsWith "ValueTuple`") ->
+                let names =
+                    ne.Arguments
+                    |> Seq.mapi (fun i arg ->
+                        match ExprTranslator.unwrap arg with
+                        | ExtractColumnName col -> col
+                        | MemberAccess(_, m) -> m.Name
+                        | _ -> sprintf "Item%d" (i + 1))
+                    |> Seq.toList
+                let args = ne.Arguments |> Seq.toList
+                Some(List.zip names args)
+            | _ ->
+                match tryExtractMemberBindings ctx.KeyLambda.Body with
+                | Some pairs -> Some pairs
+                | None ->
+                    let name =
+                        match ctx.KeyLambda.Body with
+                        | ExtractColumnName col -> col
+                        | _ -> "Key"
 
-                Some [ (name, ctx.KeyLambda.Body) ]
+                    Some [ (name, ctx.KeyLambda.Body) ]
 
         let keyDefinitionsOpt: (string * ExprHandle) list option =
             keyPairsOpt
@@ -1533,16 +1547,21 @@ module internal QueryPipelineHelpers =
 
                 let keyNameToOutputAliasMap =
                     keyDefs
-                    |> List.map (fun (origKeyName, _) ->
+                    |> List.mapi (fun keyIdx (origKeyName, _) ->
                         let outputColName =
                             List.zip memberNames args
                             |> List.tryPick (fun (memName, rawArg) ->
                                 let arg = ExprTranslator.unwrap rawArg
 
                                 match arg with
-                                | MemberAccess(MemberAccess(_, k), m) when k.Name = "Key" && m.Name = origKeyName ->
-                                    Some memName
-                                | MemberAccess(p, m) when isKeyArg p && m.Name = origKeyName -> Some memName
+                                | MemberAccess(MemberAccess(_, k), m) when k.Name = "Key" ->
+                                    if m.Name = origKeyName then Some memName
+                                    elif m.Name = sprintf "Item%d" (keyIdx + 1) || (m.Name = "Fst" && keyIdx = 0) || (m.Name = "Snd" && keyIdx = 1) then Some memName
+                                    else None
+                                | MemberAccess(p, m) when isKeyArg p ->
+                                    if m.Name = origKeyName then Some memName
+                                    elif m.Name = sprintf "Item%d" (keyIdx + 1) || (m.Name = "Fst" && keyIdx = 0) || (m.Name = "Snd" && keyIdx = 1) then Some memName
+                                    else None
                                 | _ when isKeyArg arg && keyDefs.Length = 1 -> Some memName
                                 | _ -> None)
                             |> Option.defaultValue origKeyName
@@ -1661,9 +1680,35 @@ module internal QueryPipelineHelpers =
                         | MemberAccess(_, m) when m.Name = "Key" && keyDefs.Length = 1 ->
                             Some keyNameToOutputAliasMap.[fst keyDefs.[0]]
                         | MemberAccess(MemberAccess(_, k), m) when k.Name = "Key" ->
-                            keyNameToOutputAliasMap.TryFind m.Name |> Option.orElse (Some m.Name)
+                            let idxOpt =
+                                if m.Name = "Item1" || m.Name = "Fst" then Some 0
+                                elif m.Name = "Item2" || m.Name = "Snd" then Some 1
+                                elif m.Name.StartsWith "Item" then
+                                    match Int32.TryParse(m.Name.Substring 4) with
+                                    | true, i -> Some(i - 1)
+                                    | _ -> None
+                                else None
+
+                            match idxOpt with
+                            | Some idx when idx >= 0 && idx < keyDefs.Length ->
+                                Some keyNameToOutputAliasMap.[fst keyDefs.[idx]]
+                            | _ ->
+                                keyNameToOutputAliasMap.TryFind m.Name |> Option.orElse (Some m.Name)
                         | MemberAccess(p, m) when isKeyArg p ->
-                            keyNameToOutputAliasMap.TryFind m.Name |> Option.orElse (Some m.Name)
+                            let idxOpt =
+                                if m.Name = "Item1" || m.Name = "Fst" then Some 0
+                                elif m.Name = "Item2" || m.Name = "Snd" then Some 1
+                                elif m.Name.StartsWith "Item" then
+                                    match Int32.TryParse(m.Name.Substring 4) with
+                                    | true, i -> Some(i - 1)
+                                    | _ -> None
+                                else None
+
+                            match idxOpt with
+                            | Some idx when idx >= 0 && idx < keyDefs.Length ->
+                                Some keyNameToOutputAliasMap.[fst keyDefs.[idx]]
+                            | _ ->
+                                keyNameToOutputAliasMap.TryFind m.Name |> Option.orElse (Some m.Name)
                         | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter -> Some m.Name
                         | MethodCall _ as aggCall ->
                             List.zip memberNames args
@@ -1746,7 +1791,17 @@ module internal QueryPipelineHelpers =
 
                         let finalSelectOp =
                             let orderedColExprs =
-                                memberNames |> List.map PolarsWrapper.Col |> List.toArray
+                                List.zip memberNames args
+                                |> List.collect (fun (memName, rawArg) ->
+                                    let arg = ExprTranslator.unwrap rawArg
+                                    if isKeyArg arg then
+                                        if keyDefs.Length = 1 then
+                                            [ PolarsWrapper.Col keyNameToOutputAliasMap.[fst keyDefs.[0]] ]
+                                        else
+                                            keyDefs |> List.map (fun (kName, _) -> PolarsWrapper.Col keyNameToOutputAliasMap.[kName])
+                                    else
+                                        [ PolarsWrapper.Col memName ])
+                                |> List.toArray
 
                             QueryOp.Select orderedColExprs
 

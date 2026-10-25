@@ -112,7 +112,7 @@ and PolarsQuery<'T>
     /// Parses the LINQ expression tree into native ops, client predicates, optional projection, and fallback signal
     member private _.CompilePipeline
         ()
-        : QueryOp list * ((Func<obj, bool> * LambdaExpression) list) * ((Type * Func<obj, obj>) option) * bool =
+        : LazyFrameHandle * QueryOp list * ((Func<obj, bool> * LambdaExpression) list) * ((Type * Func<obj, obj>) option) * bool =
         let rewrittenExpr = getEffectiveExpr ()
         let extraction = PartialEvaluator.extract rewrittenExpr
         let cacheKey = QueryCacheKey.Create(typeof<'T>, extraction.NormalizedExpression)
@@ -169,27 +169,28 @@ and PolarsQuery<'T>
             | QueryOp.Sort specs :: tail -> QueryOp.Sort(specs @ [ spec ]) :: tail
             | _ -> QueryOp.Sort [ spec ] :: ops
 
-        let fullFallback = [], [], None, true
+        let fullFallback = lfCloned, [], [], None, true
 
         let rec fuse
+            (currentLf: LazyFrameHandle)
             (remaining: LinqStage list)
             (opsAcc: QueryOp list)
             (clientPreds: (Func<obj, bool> * LambdaExpression) list)
             (clientProjOpt: (Type * Func<obj, obj>) option)
-            =
+            : LazyFrameHandle * QueryOp list * (Func<obj, bool> * LambdaExpression) list * (Type * Func<obj, obj>) option * bool =
             let canPushdown = clientPreds.IsEmpty && clientProjOpt.IsNone
-            let inline pushOp op tail = fuse tail (op :: opsAcc) clientPreds clientProjOpt
-            let inline pushOps ops tail = fuse tail (ops @ opsAcc) clientPreds clientProjOpt
+            let inline pushOp op tail = fuse currentLf tail (op :: opsAcc) clientPreds clientProjOpt
+            let inline pushOps ops tail = fuse currentLf tail (ops @ opsAcc) clientPreds clientProjOpt
 
             let pushOpOrFallback (opOpt: QueryOp option) tail =
                 match opOpt with
                 | Some op -> pushOp op tail
-                | None -> fullFallback
+                | None -> currentLf, [], [], None, true
 
             let pushOpsOrFallback (opsOpt: QueryOp list option) tail =
                 match opsOpt with
                 | Some ops -> pushOps ops tail
-                | None -> fullFallback
+                | None -> currentLf, [], [], None, true
 
             let tryDispatchGroupBy
                 (ctx: GroupFoldContext)
@@ -199,12 +200,18 @@ and PolarsQuery<'T>
                 (nextTail: LinqStage list)
                 =
                 if not clientPreds.IsEmpty then
-                    fullFallback
+                    currentLf, [], [], None, true
                 else
-                    match compileUnifiedGroupBy lfCloned ctx projBody groupParamName isKeyArg with
-                    | Some compiledOps -> pushOps compiledOps nextTail
-                    | None when isGrouping -> fuse nextTail opsAcc clientPreds clientProjOpt
-                    | None -> fullFallback
+                    let activeLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
+                    match compileUnifiedGroupBy activeLf ctx projBody groupParamName isKeyArg with
+                    | Some compiledOps ->
+                        if nextTail.IsEmpty then
+                            fuse activeLf nextTail (compiledOps @ []) clientPreds clientProjOpt
+                        else
+                            let groupedLf = applyNativeOps activeLf (List.rev compiledOps)
+                            fuse groupedLf nextTail [] clientPreds clientProjOpt
+                    | None when isGrouping -> fuse currentLf nextTail opsAcc clientPreds clientProjOpt
+                    | None -> currentLf, [], [], None, true
 
             let slurpPipelineGroupBy (stages: LinqStage list) (initCtx: GroupFoldContext) =
                 let rec slurp (s: LinqStage list) (ctx: GroupFoldContext) =
@@ -220,6 +227,8 @@ and PolarsQuery<'T>
                                 not (isNull p) && p.NodeType = ExpressionType.Parameter && m.Name = "Key"
                                 ->
                                 true
+                            | :? ParameterExpression as p when p.Name = projLambda.Parameters.[0].Name ->
+                                true
                             | _ -> false
 
                         tryDispatchGroupBy ctx projLambda.Body projLambda.Parameters.[0].Name isKeyArg next
@@ -227,8 +236,8 @@ and PolarsQuery<'T>
                         let clientHavingPreds =
                             ctx.HavingPreds |> List.map (fun p -> compileClientPredicate p, p)
 
-                        fuse [] opsAcc (clientHavingPreds @ clientPreds) clientProjOpt
-                    | _ -> fullFallback
+                        fuse currentLf [] opsAcc (clientHavingPreds @ clientPreds) clientProjOpt
+                    | _ -> currentLf, [], [], None, true
 
                 slurp stages initCtx
 
@@ -262,7 +271,7 @@ and PolarsQuery<'T>
                 tryDispatchGroupBy ctx resLambda.Body resLambda.Parameters.[1].Name isKeyArg nextTail
 
             match remaining with
-            | [] -> List.rev opsAcc, List.rev clientPreds, clientProjOpt, false
+            | [] -> currentLf, List.rev opsAcc, List.rev clientPreds, clientProjOpt, false
 
             // -----------------------------------------------------------------
             // 1. GroupBy Stages (F# Pipeline & C# 3/4-arg Overloads)
@@ -297,17 +306,17 @@ and PolarsQuery<'T>
             // 2. Filtering & Window Masking (Filter, TakeWhile, SkipWhile)
             // -----------------------------------------------------------------
             | LinqStage.Filter l :: tail ->
-                match if canPushdown then SubqueryDecorrelator.tryDecorrelateFilter lfCloned l else None with
+                match if canPushdown then SubqueryDecorrelator.tryDecorrelateFilter currentLf l else None with
                 | Some decorResult ->
                     let newOpsAcc = (decorResult.GeneratedOps |> List.rev) @ opsAcc
                     let nextStages =
                         match decorResult.ResidualLambda with
                         | Some residualLam -> LinqStage.Filter residualLam :: tail
                         | None -> tail
-                    fuse nextStages newOpsAcc clientPreds clientProjOpt
+                    fuse currentLf nextStages newOpsAcc clientPreds clientProjOpt
                 | None ->
                     let p = l.Parameters.[0]
-                    let ctx = createContextForType p.Type lfCloned p.Name
+                    let ctx = createContextForType p.Type currentLf p.Name
 
                     let nativeExprOpt =
                         if canPushdown then
@@ -332,9 +341,9 @@ and PolarsQuery<'T>
                                         (l.ToString())
                                         (bound.ToString())
                                 )
-                            fullFallback
+                            currentLf, [], [], None, true
                         else
-                            fuse tail opsAcc ((compileClientPredicate l, l) :: clientPreds) clientProjOpt
+                            fuse currentLf tail opsAcc ((compileClientPredicate l, l) :: clientPreds) clientProjOpt
 
             | LinqStage.TakeWhile l | LinqStage.SkipWhile l as stage :: tail ->
                 let isSkip =
@@ -342,7 +351,7 @@ and PolarsQuery<'T>
                     | LinqStage.SkipWhile _ -> true
                     | _ -> false
 
-                let ctx = createContextForType targetType lfCloned l.Parameters.[0].Name
+                let ctx = createContextForType targetType currentLf l.Parameters.[0].Name
 
                 match if canPushdown then ExprTranslator.tryTranslateWithContext ctx l.Body else None with
                 | Some boolExpr ->
@@ -354,26 +363,31 @@ and PolarsQuery<'T>
 
                     pushOp (QueryOp.Filter maskExpr) tail
                 | None ->
-                    fuse tail opsAcc ((compileClientPredicate l, l) :: clientPreds) clientProjOpt
+                    fuse currentLf tail opsAcc ((compileClientPredicate l, l) :: clientPreds) clientProjOpt
 
             // -----------------------------------------------------------------
             // 3. Projection (Select, Transparent Let, Subquery Decorrelation)
             // -----------------------------------------------------------------
             | LinqStage.Project projLambda :: tail ->
-                match if canPushdown then SubqueryDecorrelator.tryDecorrelateProjection lfCloned projLambda else None with
+                match if canPushdown then SubqueryDecorrelator.tryDecorrelateProjection currentLf projLambda else None with
                 | Some(subqueryOps, rewrittenProjLambda) ->
-                    fuse (LinqStage.Project rewrittenProjLambda :: tail) ((subqueryOps |> List.rev) @ opsAcc) clientPreds None
+                    fuse currentLf (LinqStage.Project rewrittenProjLambda :: tail) ((subqueryOps |> List.rev) @ opsAcc) clientPreds None
                 | None ->
                     let nativeProjOpOpt =
                         if canPushdown then
-                            tryCompileTransparentLet lfCloned projLambda
+                            tryCompileTransparentLet currentLf projLambda
                             |> Option.orElseWith (fun () ->
-                                compileSelectProjection lfCloned projLambda |> Option.map QueryOp.Select)
+                                compileSelectProjection currentLf projLambda |> Option.map QueryOp.Select)
                         else
                             None
 
                     match nativeProjOpOpt with
-                    | Some op -> fuse tail (op :: opsAcc) clientPreds None
+                    | Some op ->
+                        if tail.IsEmpty then
+                            fuse currentLf tail (op :: opsAcc) clientPreds None
+                        else
+                            let activeLf = applyNativeOps currentLf (List.rev (op :: opsAcc))
+                            fuse activeLf tail [] clientPreds None
                     | None ->
                         let sourceType = projLambda.Parameters.[0].Type
                         let currentFunc = compileToBoxedFunc projLambda
@@ -384,7 +398,7 @@ and PolarsQuery<'T>
                             | Some(prevSrcType, prevFunc) ->
                                 Some(prevSrcType, Func<obj, obj>(fun rawItem -> currentFunc.Invoke(prevFunc.Invoke rawItem)))
 
-                        fuse tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds nextProj
+                        fuse currentLf tail (QueryOp.SelectPassthrough :: opsAcc) clientPreds nextProj
 
             // -----------------------------------------------------------------
             // 4. Sorting (Sort, SortDefault)
@@ -397,7 +411,7 @@ and PolarsQuery<'T>
                     && param.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
 
                 if not isParamGrouping && canPushdown then
-                    let ctx = createContextForType param.Type lfCloned param.Name
+                    let ctx = createContextForType param.Type currentLf param.Name
 
                     let sortExprOpt =
                         ExprTranslator.tryTranslateWithContext ctx l.Body
@@ -406,10 +420,10 @@ and PolarsQuery<'T>
                     match sortExprOpt with
                     | Some exprHandle ->
                         let spec = { Expr = exprHandle; Descending = isDesc; NullsLast = false }
-                        fuse tail (addSort spec opsAcc) clientPreds clientProjOpt
-                    | None -> fuse tail opsAcc clientPreds clientProjOpt
+                        fuse currentLf tail (addSort spec opsAcc) clientPreds clientProjOpt
+                    | None -> fuse currentLf tail opsAcc clientPreds clientProjOpt
                 else
-                    fuse tail opsAcc clientPreds clientProjOpt
+                    fuse currentLf tail opsAcc clientPreds clientProjOpt
 
             // -----------------------------------------------------------------
             // 5. Pure Pushdown Stages (requires canPushdown = true)
@@ -425,10 +439,10 @@ and PolarsQuery<'T>
                     pushOps [ QueryOp.WithColumns [| castIndexExpr |]; indexOp ] tail
 
                 | LinqStage.SortDefault isDesc :: tail ->
-                    let colNames = PolarsSchemaExtractor.GetColumnNames lfCloned
+                    let colNames = PolarsSchemaExtractor.GetColumnNames currentLf
                     let targetCol = if colNames.Length > 0 then colNames.[0] else ""
                     let spec = { Expr = PolarsWrapper.Col targetCol; Descending = isDesc; NullsLast = false }
-                    fuse tail (addSort spec opsAcc) clientPreds clientProjOpt
+                    fuse currentLf tail (addSort spec opsAcc) clientPreds clientProjOpt
 
                 // Slicing & Reordering
                 | LinqStage.Skip s :: LinqStage.Take t :: tail -> pushOp (QueryOp.Slice(int64 s, t)) tail
@@ -450,7 +464,8 @@ and PolarsQuery<'T>
                     pushOpOrFallback opOpt tail
 
                 | LinqStage.SetOp(m, second, k1Opt, k2Opt) :: tail ->
-                    pushOpOrFallback (compileSetOp m second k1Opt k2Opt lfCloned |> Option.map QueryOp.Join) tail
+                    let activeBaseLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
+                    pushOpOrFallback (compileSetOp m second k1Opt k2Opt activeBaseLf |> Option.map QueryOp.Join) tail
 
                 | LinqStage.Concat otherExpr :: tail ->
                     let opOpt =
@@ -482,18 +497,33 @@ and PolarsQuery<'T>
 
                 // Joins, GroupJoin, Zip, Explode, CrossJoin
                 | LinqStage.Join(m, inner, outerKey, innerKey, resSelOpt) :: tail ->
-                    match compileJoin lfCloned m inner outerKey innerKey with
+                    let activeBaseLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
+                    match compileJoin activeBaseLf m inner outerKey innerKey with
                     | Some spec ->
                         match resSelOpt with
-                        | None -> pushOp (QueryOp.Join spec) tail
+                        | None ->
+                            if tail.IsEmpty then
+                                fuse activeBaseLf tail [ QueryOp.Join spec ] clientPreds clientProjOpt
+                            else
+                                let joinedLf = applyNativeOps activeBaseLf [ QueryOp.Join spec ]
+                                fuse joinedLf tail [] clientPreds clientProjOpt
                         | Some resSel when isTransparentJoinResSelector resSel ->
-                            pushOp (QueryOp.Join spec) tail
+                            if tail.IsEmpty then
+                                fuse activeBaseLf tail [ QueryOp.Join spec ] clientPreds clientProjOpt
+                            else
+                                let joinedLf = applyNativeOps activeBaseLf [ QueryOp.Join spec ]
+                                fuse joinedLf tail [] clientPreds clientProjOpt
                         | Some resSel ->
-                            let leftCols = getLazySchemaFields lfCloned |> Array.map fst
+                            let leftCols = getLazySchemaFields activeBaseLf |> Array.map fst
                             let rightCols = getLazySchemaFields spec.RightLf |> Array.map fst
 
                             match compileJoinResultSelector leftCols rightCols spec resSel with
-                            | Some selectOp -> pushOps [ selectOp; QueryOp.Join spec ] tail
+                            | Some selectOp ->
+                                if tail.IsEmpty then
+                                    fuse activeBaseLf tail [ selectOp; QueryOp.Join spec ] clientPreds clientProjOpt
+                                else
+                                    let joinedLf = applyNativeOps activeBaseLf [ QueryOp.Join spec; selectOp ]
+                                    fuse joinedLf tail [] clientPreds clientProjOpt
                             | None ->
                                 FallbackTracker.Diagnostic <-
                                     Some(
@@ -503,7 +533,7 @@ and PolarsQuery<'T>
                                             leftCols
                                             rightCols
                                     )
-                                fullFallback
+                                currentLf, [], [], None, true
                     | None ->
                         FallbackTracker.Diagnostic <-
                             Some(
@@ -513,29 +543,53 @@ and PolarsQuery<'T>
                                     (outerKey.ToString())
                                     (innerKey.ToString())
                             )
-                        fullFallback
+                        currentLf, [], [], None, true
 
                 | LinqStage.GroupJoin(_, inner, outerKey, innerKey, _) :: LinqStage.Explode(collSelector, _) :: tail when
                     collSelector.ToString().Contains "DefaultIfEmpty"
                     ->
-                    pushOpOrFallback (compileGroupJoinLeftOuter lfCloned inner outerKey innerKey) tail
+                    let activeBaseLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
+                    match compileGroupJoinLeftOuter activeBaseLf inner outerKey innerKey with
+                    | Some joinOp ->
+                        if tail.IsEmpty then
+                            fuse activeBaseLf tail [ joinOp ] clientPreds clientProjOpt
+                        else
+                            let joinedLf = applyNativeOps activeBaseLf [ joinOp ]
+                            fuse joinedLf tail [] clientPreds clientProjOpt
+                    | None -> currentLf, [], [], None, true
 
                 | LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, None) :: LinqStage.Project projLambda :: tail ->
                     let outerType, innerType = outerKey.Parameters.[0].Type, innerKey.Parameters.[0].Type
                     let desugaredResSel = desugarGroupJoinProject projLambda outerType innerType
-                    fuse (LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, Some desugaredResSel) :: tail) opsAcc clientPreds clientProjOpt
+                    fuse currentLf (LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, Some desugaredResSel) :: tail) opsAcc clientPreds clientProjOpt
 
                 | LinqStage.GroupJoin(_, innerExpr, outerKey, innerKey, Some resSel) :: tail ->
-                    pushOpsOrFallback (compileGroupJoinWithResult lfCloned innerExpr outerKey innerKey resSel) tail
+                    let activeBaseLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
+                    match compileGroupJoinWithResult activeBaseLf innerExpr outerKey innerKey resSel with
+                    | Some joinOps ->
+                        if tail.IsEmpty then
+                            fuse activeBaseLf tail joinOps clientPreds clientProjOpt
+                        else
+                            let joinedLf = applyNativeOps activeBaseLf (List.rev joinOps)
+                            fuse joinedLf tail [] clientPreds clientProjOpt
+                    | None -> currentLf, [], [], None, true
 
                 | LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, None) :: tail ->
-                    pushOpOrFallback (compileJoin lfCloned m innerExpr outerKey innerKey |> Option.map QueryOp.Join) tail
+                    let activeBaseLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
+                    match compileJoin activeBaseLf m innerExpr outerKey innerKey |> Option.map QueryOp.Join with
+                    | Some joinOp ->
+                        if tail.IsEmpty then
+                            fuse activeBaseLf tail [ joinOp ] clientPreds clientProjOpt
+                        else
+                            let joinedLf = applyNativeOps activeBaseLf [ joinOp ]
+                            fuse joinedLf tail [] clientPreds clientProjOpt
+                    | None -> currentLf, [], [], None, true
 
                 | LinqStage.Zip(secondExpr, resLambdaOpt) :: tail ->
-                    pushOpsOrFallback (compileZip lfCloned secondExpr resLambdaOpt) tail
+                    pushOpsOrFallback (compileZip currentLf secondExpr resLambdaOpt) tail
 
                 | LinqStage.Zip3(secondExpr, thirdExpr) :: tail ->
-                    pushOpOrFallback (compileZip3 lfCloned secondExpr thirdExpr) tail
+                    pushOpOrFallback (compileZip3 currentLf secondExpr thirdExpr) tail
 
                 | LinqStage.Explode(colLambda, resLambdaOpt) :: tail ->
                     pushOpsOrFallback (compileExplode colLambda resLambdaOpt) tail
@@ -548,29 +602,29 @@ and PolarsQuery<'T>
                     if not (targetType.IsAssignableFrom sourceType || sourceType.IsAssignableFrom targetType) then
                         pushOp (QueryOp.Filter(PolarsWrapper.Lit false)) tail
                     else
-                        fuse tail opsAcc clientPreds clientProjOpt
+                        fuse currentLf tail opsAcc clientPreds clientProjOpt
 
                 | LinqStage.CountBy keyLambda :: tail ->
-                    pushOpOrFallback (compileCountBy typeof<'T> lfCloned keyLambda) tail
+                    pushOpOrFallback (compileCountBy typeof<'T> currentLf keyLambda) tail
 
                 | (LinqStage.DefaultIfEmpty _ | LinqStage.Cast _ | LinqStage.AggregateBy _) :: tail ->
-                    fuse tail opsAcc clientPreds clientProjOpt
+                    fuse currentLf tail opsAcc clientPreds clientProjOpt
 
-                | _ :: tail -> fuse tail opsAcc clientPreds clientProjOpt
-                | [] -> List.rev opsAcc, List.rev clientPreds, clientProjOpt, false
+                | _ :: tail -> fuse currentLf tail opsAcc clientPreds clientProjOpt
+                | [] -> currentLf, List.rev opsAcc, List.rev clientPreds, clientProjOpt, false
 
-            | _ :: tail -> fuse tail opsAcc clientPreds clientProjOpt
+            | _ :: tail -> fuse currentLf tail opsAcc clientPreds clientProjOpt
 
-        let ops, clientPreds, clientProjOpt, requiresClientFallback = fuse stages [] [] None
+        let finalLf, ops, clientPreds, clientProjOpt, requiresClientFallback = fuse lfCloned stages [] [] None
         if requiresClientFallback && FallbackTracker.Diagnostic.IsNone then
             FallbackTracker.Diagnostic <- Some (sprintf "Stages failed to fuse. stages count: %d\nbound: %s\nstages: %A" stages.Length (bound.ToString()) stages)
-        ops, clientPreds, clientProjOpt, requiresClientFallback
+        finalLf, ops, clientPreds, clientProjOpt, requiresClientFallback
 
     /// Compiles pipeline and builds the target native LazyFrameHandle alongside client predicates, projection, and fallback signal
     member private this.GetCompiledPlan
         ()
         : LazyFrameHandle * (Func<obj, bool> list) * ((Type * Func<obj, obj>) option) * bool =
-        let ops, clientPredsWithAst, clientProjOpt, requiresClientFallback =
+        let baseLf, ops, clientPredsWithAst, clientProjOpt, requiresClientFallback =
             this.CompilePipeline()
 
         enforcePipelinePolicy
@@ -579,7 +633,7 @@ and PolarsQuery<'T>
             clientPredsWithAst
             (expression.ToString())
 
-        let nativeLf = applyNativeOps lfCloned ops
+        let nativeLf = applyNativeOps baseLf ops
         let clientPredicates = clientPredsWithAst |> List.map fst
         nativeLf, clientPredicates, clientProjOpt, requiresClientFallback
 
@@ -955,8 +1009,8 @@ and PolarsQuery<'T>
         member this.GetCompiledLazyFrameHandle() = this.CompileToLazyFrameHandle()
 
     member this.GetPlanInspection(optimized: bool) : PlanInspection =
-        let ops, clientPreds, clientProjOpt, requiresClientFallback = this.CompilePipeline()
-        let nativeLf = applyNativeOps lfCloned ops
+        let baseLf, ops, clientPreds, clientProjOpt, requiresClientFallback = this.CompilePipeline()
+        let nativeLf = applyNativeOps baseLf ops
         let planStr = PolarsWrapper.Explain(nativeLf, optimized)
         let chunkSizeOpt = tryExtractChunkSize expression
         let shouldShuffle = hasShuffle expression

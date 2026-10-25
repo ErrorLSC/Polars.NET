@@ -3,6 +3,7 @@ namespace Polars.NET.Linq
 open Polars.NET.Core
 open Polars.NET.Core.Arrow
 open System
+open System.Linq
 open System.Reflection
 open System.Linq.Expressions
 open System.Text.RegularExpressions
@@ -17,6 +18,9 @@ type internal TranslationContext =
 
     /// Standard single-entity row context (e.g. e => e.Age), where member accesses resolve to DataFrame columns.
     | Entity of paramName: string
+
+    /// Entity row context carrying known column names for precise tuple key and carrier member resolution.
+    | EntityWithCols of paramName: string * cols: string list
 
     /// Scalar sequence element context (e.g. x => x.Length or x => x > 10).
     /// The parameter node itself resolves to physicalCol, while member accesses on it represent scalar operations.
@@ -41,6 +45,7 @@ type internal TranslationContext =
         match this with
         | TranslationContext.Empty -> false
         | TranslationContext.Entity p -> p = name
+        | TranslationContext.EntityWithCols(p, _) -> p = name
         | TranslationContext.Scalar(p, _) -> p = name
         | TranslationContext.BinaryJoin(left, right, _, _) -> name = left || name = right
         | TranslationContext.Merge(target, source, _) -> name = target || name = source
@@ -54,6 +59,8 @@ type internal TranslationContext =
             Some(PolarsWrapper.Col physicalCol)
         | TranslationContext.Entity p when p = name ->
             // Entity placeholder within expressions (e.g. list_eval inner element placeholder)
+            Some(PolarsWrapper.Col "")
+        | TranslationContext.EntityWithCols(p, _) when p = name ->
             Some(PolarsWrapper.Col "")
         | _ -> None
 
@@ -233,6 +240,23 @@ module internal rec ExprTranslator =
             | other -> isTupleAccess pairParam other
         | _ -> None
 
+    let rec private tryExtractGroupingCarrierMember (e: Expression) : string option =
+        match unwrap e with
+        | :? ParameterExpression as p when
+            p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>> ->
+            Some p.Name
+        | MemberAccess(_, m) when
+            (match m with
+             | :? PropertyInfo as p ->
+                 p.PropertyType.IsGenericType && p.PropertyType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
+             | :? FieldInfo as f ->
+                 f.FieldType.IsGenericType && f.FieldType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
+             | _ -> false) ->
+            Some m.Name
+        | MemberAccess(inner, nextM) when isNavigationMember nextM ->
+            tryExtractGroupingCarrierMember inner
+        | _ -> None
+
     /// Resolves the underlying physical column name using a strongly-typed TranslationContext.
     let rec internal tryResolveColumnNameWithContext (ctx: TranslationContext) (expr: Expression) : string option =
         if not ctx.AllowsColumnMemberLookup then
@@ -246,6 +270,63 @@ module internal rec ExprTranslator =
                 Some p.Name
 
             | MemberAccess(_, m) when isNavigationMember m || isNullableHasValue m -> None
+
+            | MemberAccess(MemberAccess(inner, k), itemProp) when
+                k.Name = "Key" && (tryExtractGroupingCarrierMember inner).IsSome ->
+                let rec isRootedInParam (e: Expression) =
+                    match unwrap e with
+                    | :? ParameterExpression as p -> isSyntheticScopeParam ctx.ContainsParam p
+                    | MemberAccess(nextInner, _) -> isRootedInParam nextInner
+                    | _ -> false
+
+                if isRootedInParam inner then
+                    let itemIdx =
+                        if itemProp.Name = "Item1" || itemProp.Name = "Fst" then 0
+                        elif itemProp.Name = "Item2" || itemProp.Name = "Snd" then 1
+                        elif itemProp.Name.StartsWith "Item" then
+                            match Int32.TryParse(itemProp.Name.Substring 4) with
+                            | true, i -> i - 1
+                            | _ -> -1
+                        else -1
+
+                    match ctx with
+                    | TranslationContext.EntityWithCols(_, cols) ->
+                        if itemIdx >= 0 && itemIdx < cols.Length then
+                            Some cols.[itemIdx]
+                        elif cols |> List.contains itemProp.Name then
+                            Some itemProp.Name
+                        else
+                            Some itemProp.Name
+                    | TranslationContext.TupleJoin(_, leftCols, _)
+                    | TranslationContext.BinaryJoin(_, _, leftCols, _)
+                    | TranslationContext.CorrelatedJoin(_, _, leftCols, _) ->
+                        if leftCols.Contains itemProp.Name then
+                            Some itemProp.Name
+                        elif itemIdx >= 0 && itemIdx < leftCols.Count then
+                            let sorted = leftCols |> Set.toList
+                            Some sorted.[itemIdx]
+                        else
+                            Some itemProp.Name
+                    | _ ->
+                        Some itemProp.Name
+                else
+                    None
+
+            | MemberAccess(inner, m) when m.Name = "Key" && (tryExtractGroupingCarrierMember inner).IsSome ->
+                let rec isRootedInParam (e: Expression) =
+                    match unwrap e with
+                    | :? ParameterExpression as p -> isSyntheticScopeParam ctx.ContainsParam p
+                    | MemberAccess(nextInner, _) -> isRootedInParam nextInner
+                    | _ -> false
+
+                if isRootedInParam inner then
+                    match ctx with
+                    | TranslationContext.EntityWithCols(_, cols) when not cols.IsEmpty ->
+                        Some cols.[0]
+                    | _ ->
+                        tryExtractGroupingCarrierMember inner
+                else
+                    None
 
             | MemberAccess(inner, m) ->
                 if
@@ -298,6 +379,37 @@ module internal rec ExprTranslator =
                                 Some m.Name
                             else
                                 Some(m.Name + rightSuffix)
+
+                    | TranslationContext.EntityWithCols(_, cols) ->
+                        let rec isRootedInParamOrClosure (e: Expression) =
+                            match unwrap e with
+                            | :? ParameterExpression as p ->
+                                isSyntheticScopeParam ctx.ContainsParam p
+                            // Allow transparent navigation through intermediate scope / Nullable<T>.Value
+                            | MemberAccess(nextInner, nextM) when isNavigationMember nextM ->
+                                isRootedInParamOrClosure nextInner
+                            | _ -> false
+
+                        if isRootedInParamOrClosure inner then
+                            if not cols.IsEmpty && List.contains m.Name cols then
+                                Some m.Name
+                            else
+                                let itemIdx =
+                                    if m.Name = "Item1" || m.Name = "Fst" then 0
+                                    elif m.Name = "Item2" || m.Name = "Snd" then 1
+                                    elif m.Name.StartsWith "Item" then
+                                        match Int32.TryParse(m.Name.Substring 4) with
+                                        | true, i -> i - 1
+                                        | _ -> -1
+                                    else -1
+
+                                if itemIdx >= 0 && itemIdx < cols.Length then
+                                    Some cols.[itemIdx]
+                                else
+                                    cols |> List.tryFind (fun c -> String.Equals(c, m.Name, StringComparison.OrdinalIgnoreCase))
+                                    |> Option.orElse (Some m.Name)
+                        else
+                            None
 
                     | _ ->
                         let rec isRootedInParamOrClosure (e: Expression) =
@@ -737,21 +849,22 @@ module internal rec ExprTranslator =
         | MidpointRounding.ToZero -> Some PlRoundMode.ToZero
         | _ -> None
 
-    let private isNumericDeclaringType (t: Type) =
-        t = typeof<Math>
-        || t = typeof<MathF>
-        || t = typeof<decimal>
-        || t = typeof<System.Numerics.BitOperations>
+    let internal isNumericDeclaringType (t: Type) =
+        not (isNull t)
+        && (t = typeof<Math>
+            || t = typeof<MathF>
+            || t = typeof<decimal>
+            || t = typeof<System.Numerics.BitOperations>)
 
-    let private translateNumericMethod
-        (ctx: TranslationContext)
+    let internal translateNumericMethodWithTranslator
+        (translateExpr: Expression -> ExprHandle option)
         (m: MethodInfo)
         (args: Expression list)
         : ExprHandle option =
-        let t1 expr = tryTranslateWithContext ctx expr
+        let t1 expr = translateExpr expr
 
         let t2 e1 e2 =
-            match tryTranslateWithContext ctx e1, tryTranslateWithContext ctx e2 with
+            match translateExpr e1, translateExpr e2 with
             | Some l, Some r -> Some(l, r)
             | _ -> None
 
@@ -764,7 +877,7 @@ module internal rec ExprTranslator =
 
         | "Round", [ x ] -> t1 x |> Option.map (fun h -> PolarsWrapper.Round(h, 0u, PlRoundMode.HalfToEven))
 
-        | "Round", [ x; digitsExpr ] when digitsExpr.Type = typeof<int> ->
+        | "Round", [ x; digitsExpr ] when digitsExpr.Type = typeof<int> || digitsExpr.Type = typeof<uint32> ->
             match t1 x, tryEvaluate digitsExpr with
             | Some h, Some d ->
                 let decimals = uint32 (Convert.ToInt32 d)
@@ -846,6 +959,13 @@ module internal rec ExprTranslator =
         | "TrailingZeroCount", [ x ] -> t1 x |> Option.map PolarsWrapper.BitwiseTrailingZeros
 
         | _ -> None
+
+    let private translateNumericMethod
+        (ctx: TranslationContext)
+        (m: MethodInfo)
+        (args: Expression list)
+        : ExprHandle option =
+        translateNumericMethodWithTranslator (tryTranslateWithContext ctx) m args
 
     // =========================================================================
     // 6. Regex Dispatcher (Native Inline Flag Pushdown & UDF Fallback)

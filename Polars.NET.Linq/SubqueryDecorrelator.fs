@@ -105,13 +105,12 @@ module internal SubqueryDecorrelator =
     /// Creates an appropriate TranslationContext based on whether the sequence element type
     /// is a scalar/primitive (bound to the underlying single physical column) or a composite entity.
     let createContextForType (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
+        let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
         if PolarsTypeHelper.IsScalarType elemType || elemType = typeof<string> then
-            let colNames = PolarsSchemaExtractor.GetColumnNames lf
-
             if colNames.Length = 1 then
                 TranslationContext.Scalar(paramName, colNames.[0])
             else
-                TranslationContext.Entity paramName
+                TranslationContext.EntityWithCols(paramName, colNames)
         elif
             elemType.IsGenericType
             && (elemType.Name.StartsWith "ValueTuple`2"
@@ -145,11 +144,11 @@ module internal SubqueryDecorrelator =
                     Array.append props fields |> Set.ofArray
 
             let typeCols = getLeftMemberNames tOuter
-            let lfCols = PolarsSchemaExtractor.GetColumnNames lf |> Set.ofArray
+            let lfCols = colNames |> Set.ofList
             let leftCols = Set.union typeCols lfCols
             TranslationContext.TupleJoin(paramName, leftCols, "_right")
         else
-            TranslationContext.Entity paramName
+            TranslationContext.EntityWithCols(paramName, colNames)
 
     /// Uniformly extracts a LazyFrameHandle from an Expression.
     let resolveToLazyFrameHandle (expr: Expression) : LazyFrameHandle option =

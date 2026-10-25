@@ -187,6 +187,12 @@ module AggTranslator =
     // 4. Core Recursive Aggregation Translator
     // =========================================================================
 
+    let rec private unwrapQuoteOnly (e: Expression) =
+        match e with
+        | null -> null
+        | Unary(ExpressionType.Quote, inner) -> unwrapQuoteOnly inner
+        | other -> other
+
     let rec private tryTranslateAggCore
         (groupParamName: string)
         (scalarColOpt: string option)
@@ -194,7 +200,7 @@ module AggTranslator =
         (expr: Expression)
         : ExprHandle option =
 
-        let cleanExpr = unwrap expr
+        let cleanExpr = unwrapQuoteOnly expr
 
         match cleanExpr with
         // ---------------------------------------------------------------------
@@ -377,8 +383,24 @@ module AggTranslator =
             | None -> None
 
         // ---------------------------------------------------------------------
-        // Composite Expressions: Binary, Unary, Constant
+        // Composite Expressions: Binary, Unary, Constant, Conditional, MethodCall
         // ---------------------------------------------------------------------
+        | MethodCall(m, target, args) when isNumericDeclaringType m.DeclaringType && isNull target ->
+            translateNumericMethodWithTranslator
+                (tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt)
+                m
+                args
+
+        | :? ConditionalExpression as cond ->
+            match
+                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt cond.Test,
+                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt cond.IfTrue,
+                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt cond.IfFalse
+            with
+            | Some testH, Some trueH, Some falseH ->
+                Some(PolarsWrapper.IfElse(testH, trueH, falseH))
+            | _ -> None
+
         | Binary(op, left, right) ->
             match
                 tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt left,

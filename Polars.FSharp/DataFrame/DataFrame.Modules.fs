@@ -60,6 +60,8 @@ module DataFrame =
     let unnestColumns (columns: seq<string>) (df: DataFrame) : DataFrame = df.UnnestColumns columns
     /// <summary> Drop columns from the DataFrame. </summary>
     let drop (columns: #IColumnExpr) (df: DataFrame) : DataFrame = df.Drop columns
+    /// <summary> Drop multiple columns from the DataFrame. </summary>
+    let dropMany (columns: seq<Expr>) (df: DataFrame) : DataFrame = df.Drop columns
     /// <summary> Drop null values from the DataFrame. </summary>
     let dropNulls (df: DataFrame) : DataFrame = df.DropNulls()
     /// <summary> Drop null values from the DataFrame with specific subset. </summary>
