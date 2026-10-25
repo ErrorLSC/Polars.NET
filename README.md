@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.svg" width="160" height="160" alt="Polars.NET Logo" />
+  <img src="assets/logo.svg" width="120" height="120" alt="Polars.NET Logo" />
   <h1>Polars.NET</h1>
   <p><b>Blazingly Fast DataFrames & LINQ Engine for .NET</b></p>
   <p><i>Powered by Rust Polars & Apache Arrow</i></p>
@@ -21,6 +21,9 @@
     <a href="https://errorlsc.github.io/Polars.NET/llms.txt"><b>llms.txt</b></a> |
     <a href="https://github.com/ErrorLSC/Polars.NET-Cookbook"><b>Cookbook</b></a>
   </p>
+
+  <br />
+  <img src="assets/comic.jpg" alt="Polars.NET: Rust Polars + .NET LINQ" width="800" />
 </div>
 
 ---
@@ -29,7 +32,7 @@ I really dreamed that we can play with DataFrames in .NET just like python, now 
 
 ## Highlights
 
-* **Native Pushdown LINQ**: Compiles C# LINQ and F# query { } directly into Rust Polars physical plans then be optimized & executed natively. Verified with all 22 TPC-H benchmark queries implemented in native LINQ without client-side fallback. Includes .Explain(), .ToDataFrame(), and joins between in-memory collections and DataFrames..
+* **Native Pushdown LINQ**: Compiles C# LINQ and F# query { } directly into Rust Polars physical plans then be optimized & executed natively. Verified with all 22 TPC-H benchmark queries implemented in native LINQ without client-side fallback. Includes .Explain(), .ToDataFrame(), and joins between in-memory collections and DataFrames.
 * **High Performance**: Built on the Rust Polars engine and Apache Arrow columnar memory format. Delivers vectorized SIMD execution, query optimization (predicate and projection pushdown, common subplan elimination), and out-of-core streaming execution for larger-than-memory datasets.
 * **Deep .NET Ecosystem Integration**: First-class bridges to standard .NET abstractions, including `IAsyncEnumerable<T>` streaming, ADO.NET `IDataReader` / `DbDataReader` ingestion, ML.NET `IDataView` pipelines, and direct extraction into `System.Numerics.Tensors` (`ReadOnlyTensorSpan`) for numerical computing and model inference.
 * **Universal I/O & Storage**: Reads and writes Parquet, CSV, JSON/NDJSON, Arrow IPC, Excel, and Avro. Native integration with Arrow Database Connectivity (ADBC) and Delta Lake (ACID transactions, time travel, and SQL MERGE), targeting both local filesystems and cloud object storage (Amazon S3, Azure Blob, Google Cloud Storage).
