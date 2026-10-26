@@ -216,8 +216,13 @@ public partial class Series : IDisposable
     {
         get
         {
+            if (this.IsNullAt(index, uncheck: false))
+                return null;
+
             return DataType.Kind switch
             {
+                DataTypeKind.Null => null,
+
                 // Integer
                 DataTypeKind.Int8 => GetValue<sbyte?>(index),
                 DataTypeKind.Int16 => GetValue<short?>(index),
@@ -239,7 +244,7 @@ public partial class Series : IDisposable
                 // bool
                 DataTypeKind.Boolean => GetValue<bool?>(index),
 
-                // stirng
+                // string
                 DataTypeKind.String => GetValue<string>(index),
 
                 // Duration
@@ -257,9 +262,12 @@ public partial class Series : IDisposable
                 // Binary
                 DataTypeKind.Binary => GetValue<byte[]>(index),
 
+                // Categorical & Enum
+                DataTypeKind.Categorical => GetValue<string>(index),
+                DataTypeKind.Enum => GetValue<string>(index),
+
                 // Complex Types
                 DataTypeKind.List => GetValue<object>(index),
-                DataTypeKind.Categorical => GetValue<object>(index),
                 DataTypeKind.Struct => GetValue<object>(index),
                 DataTypeKind.Array => GetValue<object>(index),
 

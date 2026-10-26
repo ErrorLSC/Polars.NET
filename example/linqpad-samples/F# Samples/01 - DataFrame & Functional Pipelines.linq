@@ -1,7 +1,9 @@
-<Query Kind="FSharpProgram">
-  <NuGetReference>Polars.FSharp</NuGetReference>
+<Query Kind="Program">
+  <NuGetReference>Polars.NET</NuGetReference>
   <NuGetReference>Polars.NET.Native.win-x64</NuGetReference>
-  <Namespace>Polars.FSharp</Namespace>
+  <Namespace>Polars.CSharp</Namespace>
+  <Namespace>Polars.CSharp.Linq</Namespace>
+  <Namespace>static Polars.CSharp.Polars</Namespace>
 </Query>
 
 // ============================================================================
@@ -14,7 +16,7 @@ open System
 open Polars.FSharp
 
 // 1. Create a DataFrame using F# collections & pl.series
-use df =
+let df =
     DataFrame.create [
         pl.series "Employee" [ "Alice"; "Bob"; "Charlie"; "David"; "Eva" ]
         pl.series "Department" [ "Engineering"; "HR"; "Engineering"; "Marketing"; "Engineering" ]
@@ -23,26 +25,26 @@ use df =
     ]
 
 // Dump Polars's styled HTML table directly into LINQPad's output window
-df.ToHtml() |> Util.RawHtml |> fun h -> h.Dump("Original DataFrame")
+df.Dump("Original DataFrame")
 
 // 2. Functional pipeline: Filter -> WithColumn -> Sort
-use processed =
+let processed =
     df
-    |> DataFrame.filter (pl.col("Salary") .> pl.lit(70000.0) .&& pl.col("Department") .== pl.lit("Engineering"))
-    |> DataFrame.withColumn (pl.col("Salary") * 0.10 |> pl.alias "Bonus")
-    |> DataFrame.sort "Salary" true // descending = true
+    |> DataFrame.filter (pl.col("Salary") .> pl.lit(70000.0) .&& (pl.col("Department") .== pl.lit("Engineering")))
+    |> DataFrame.withColumn (pl.col("Salary") * pl.lit 0.10 |> pl.alias "Bonus")
+    |> DataFrame.sortAscending [pl.col "Salary"]
 
-processed.ToHtml() |> Util.RawHtml |> fun h -> h.Dump("Processed Engineers (Salary > 70k, Sorted)")
+processed.Dump("Processed Engineers (Salary > 70k, Sorted)")
 
 // 3. GroupBy and Aggregations
-use deptStats =
+let deptStats =
     df
-    |> DataFrame.groupBy [ "Department" ]
+    |> DataFrame.groupBy [ pl.col "Department" ]
     |> DataFrame.agg [
         pl.col("Salary").Sum() |> pl.alias "TotalBudget"
         pl.col("Salary").Mean() |> pl.alias "AvgSalary"
         pl.col("Salary").Max() |> pl.alias "MaxSalary"
-        pl.count() |> pl.alias "Headcount"
+        pl.count(["Employee"]) |> pl.alias "Headcount"
     ]
 
-deptStats.ToHtml() |> Util.RawHtml |> fun h -> h.Dump("Department Summary Aggregations")
+deptStats.Dump("Department Summary Aggregations")

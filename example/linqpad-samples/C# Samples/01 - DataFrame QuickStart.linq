@@ -1,4 +1,4 @@
-<Query Kind="Statements">
+<Query Kind="Program">
   <NuGetReference>Polars.NET</NuGetReference>
   <NuGetReference>Polars.NET.Native.win-x64</NuGetReference>
   <Namespace>Polars.CSharp</Namespace>
@@ -24,21 +24,21 @@ using var df = DataFrame.FromColumns([
 ]);
 
 // LINQPad's Util.RawHtml renders Polars's beautiful built-in styled HTML table
-Util.RawHtml(df.ToHtml()).Dump("Original DataFrame");
+df.Dump("Original DataFrame");
 
 // 2. High-performance filtering with Col expressions
 using var filtered = df.Filter(Col("Salary") > 70000.0 & Col("Department") == "Engineering");
-Util.RawHtml(filtered.ToHtml()).Dump("Engineers with Salary > 70k");
+filtered.Dump("Engineers with Salary > 70k");
 
 // 3. Adding computed columns
-using var withBonus = df.WithColumn(
+using var withBonus = df.WithColumns(
     (Col("Salary") * 0.1).Alias("Bonus")
 );
-Util.RawHtml(withBonus.ToHtml()).Dump("With Computed Bonus Column");
+withBonus.Dump("With Computed Bonus Column");
 
 // 4. Quick schema & shape inspection
 new {
-    Shape = $"{df.Shape.Height} rows × {df.Shape.Width} cols",
+    Shape = $"{df.Height} rows × {df.Shape.Width} cols",
     Columns = df.ColumnNames,
     Schema = df.Schema.ToString()
 }.Dump("DataFrame Metadata");

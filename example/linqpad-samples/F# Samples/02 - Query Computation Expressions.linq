@@ -3,6 +3,7 @@
   <NuGetReference>Polars.NET.Native.win-x64</NuGetReference>
   <Namespace>Polars.FSharp</Namespace>
   <Namespace>Polars.FSharp.Query</Namespace>
+  <Namespace>System.Linq</Namespace>
 </Query>
 
 // ============================================================================
@@ -12,14 +13,13 @@
 // into native Rust Polars LazyPlans without managed iteration overhead!
 
 open System
+open System.Linq
 open Polars.FSharp
 open Polars.FSharp.Query
 
 // Strongly typed domain records
-[<CLIMutable>]
 type Customer = { Id: int; Name: string; Region: string }
 
-[<CLIMutable>]
 type Order = { OrderId: int; CustomerId: int; Product: string; Amount: float; Quantity: int }
 
 let customers = [|
@@ -51,15 +51,21 @@ let joinedQuery =
         join c in customerQuery on (o.CustomerId = c.Id)
         where (o.Amount >= 50.0)
         sortByDescending o.Amount
-        select (o.OrderId, c.Name, c.Region, o.Product, o.Amount * float o.Quantity)
+        select
+            {|
+                OrderId = o.OrderId
+                Customer = c.Name
+                Region = c.Region
+                Product = o.Product
+                Total = o.Amount * float o.Quantity
+            |}
     }
 
 // Inspect the compiled native Rust LazyPlan
 joinedQuery.Explain().Dump("F# query { join ... } -> Compiled Rust LazyPlan")
 
-// Materialize results into an array
-let joinResults = joinedQuery.ToArray()
-joinResults.Dump("Relational Join Results (Amount >= $50)")
+// Materialize results into DataFrame
+joinedQuery.ToDataFrame().Dump("Relational Join Results (Amount >= $50)")
 
 // ----------------------------------------------------------------------------
 // 2. F# GroupBy & Aggregations
@@ -68,10 +74,16 @@ let groupQuery =
     query {
         for o in orderQuery do
         join c in customerQuery on (o.CustomerId = c.Id)
-        groupBy c.Region into g
+        groupValBy o c.Region into g
         sortByDescending (g.Sum(fun x -> x.Amount * float x.Quantity))
-        select (g.Key, g.Sum(fun x -> x.Amount * float x.Quantity), g.Average(fun x -> x.Amount), g.Count())
+        select
+            {|
+                Region = g.Key
+                TotalRevenue = g.Sum(fun x -> x.Amount * float x.Quantity)
+                AverageOrderValue = g.Average(fun x -> x.Amount)
+                OrderCount = g.Count()
+            |}
     }
 
 groupQuery.Explain().Dump("F# query { groupBy ... } -> Compiled Rust LazyPlan")
-groupQuery.ToArray().Dump("Regional Sales Summary")
+groupQuery.ToDataFrame().Dump("Regional Sales Summary")

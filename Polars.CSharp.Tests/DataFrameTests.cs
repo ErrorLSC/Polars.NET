@@ -1,4 +1,4 @@
-﻿#pragma warning disable CS8632
+#pragma warning disable CS8632
 using System.Numerics.Tensors;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
@@ -3228,5 +3228,31 @@ public class DataFrameTests
         Assert.Contains("Metric", dfA.Columns);
         Assert.Equal(10, dfA["Metric"].GetValue<int>(0));
         Assert.Equal(30, dfA["Metric"].GetValue<int>(1));
+    }
+
+    [Fact]
+    [Trait("DataFrame", "ToHtml")]
+    public void Test_DataFrame_ToHtml_CellRendering()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Name", ["Alice", "Bob", (string?)null]),
+            Series.From("Department", ["Engineering", "HR", "Engineering"]),
+            Series.From("Salary", [95000.0, 62000.0, 70000.0]),
+            Series.From("Age", [29, 34, 42])
+        ]);
+
+        string html = df.ToHtml();
+
+        // Must contain scalar string representations
+        Assert.Contains("<td>Alice</td>", html);
+        Assert.Contains("<td>Bob</td>", html);
+        Assert.Contains("<td class='pl-null'>null</td>", html);
+        Assert.Contains("<td>Engineering</td>", html);
+        Assert.Contains("<td>29</td>", html);
+        Assert.Contains("<td>95000</td>", html);
+
+        // Crucial: Must NOT contain serialized Series headers
+        Assert.DoesNotContain("shape: (1,)", html);
+        Assert.DoesNotContain("Series: ", html);
     }
 }

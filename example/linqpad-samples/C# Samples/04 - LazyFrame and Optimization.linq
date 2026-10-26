@@ -16,11 +16,11 @@
 // - Common Subplan Elimination
 
 using var rawDf = DataFrame.FromColumns([
-    Series.From("Id", Enumerable.Range(1, 1000).ToArray()),
-    Series.From("Department", Enumerable.Range(1, 1000).Select(i => i % 3 == 0 ? "IT" : i % 3 == 1 ? "Sales" : "Finance").ToArray()),
-    Series.From("Score", Enumerable.Range(1, 1000).Select(i => (double)(i * 17 % 100)).ToArray()),
-    Series.From("UnusedCol1", Enumerable.Range(1, 1000).Select(i => $"Data_{i}").ToArray()),
-    Series.From("UnusedCol2", Enumerable.Range(1, 1000).Select(i => i * 2).ToArray())
+    Series.From("Id", Enumerable.Range(1, 1000)),
+    Series.From("Department", Enumerable.Range(1, 1000).Select(i => i % 3 == 0 ? "IT" : i % 3 == 1 ? "Sales" : "Finance")),
+    Series.From("Score", Enumerable.Range(1, 1000).Select(i => (double)(i * 17 % 100))),
+    Series.From("UnusedCol1", Enumerable.Range(1, 1000).Select(i => $"Data_{i}")),
+    Series.From("UnusedCol2", Enumerable.Range(1, 1000).Select(i => i * 2))
 ]);
 
 // 1. Build a Lazy Pipeline
@@ -39,4 +39,4 @@ lf.Explain(optimized: true).Dump("Optimized Rust Execution Plan (Pushdowns Appli
 
 // 3. Materialize results with .Collect()
 using var result = lf.Collect();
-Util.RawHtml(result.ToHtml()).Dump("Optimized Query Result");
+result.Dump("Optimized Query Result");

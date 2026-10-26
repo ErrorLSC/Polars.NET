@@ -1,4 +1,4 @@
-<Query Kind="Statements">
+<Query Kind="Program">
   <NuGetReference>Polars.NET</NuGetReference>
   <NuGetReference>Polars.NET.Native.win-x64</NuGetReference>
   <Namespace>Polars.CSharp</Namespace>
@@ -21,26 +21,26 @@ using var sales = DataFrame.FromColumns([
 
 // 1. Normalizing text with .Str namespace
 using var cleaned = sales.WithColumns(
-    Col("Product").Str.ToUpper().Alias("ProductClean"),
+    Col("Product").Str.ToUppercase().Alias("ProductClean"),
     Col("Date").Str.ToDate("%Y-%m-%d").Alias("ParsedDate")
 );
 
-Util.RawHtml(cleaned.ToHtml()).Dump("Cleaned Data with Normalized Strings & Dates");
+cleaned.Dump("Cleaned Data with Normalized Strings & Dates");
 
 // 2. GroupBy Aggregations with multiple metrics
 using var categoryStats = cleaned.GroupBy("Category").Agg(
     Col("Revenue").Sum().Alias("TotalRevenue"),
     Col("Revenue").Mean().Alias("AvgRevenue"),
     Col("Revenue").Max().Alias("MaxRevenue"),
-    Count().Alias("TransactionCount")
+    Len().Alias("TransactionCount")
 );
 
-Util.RawHtml(categoryStats.ToHtml()).Dump("Category Summary Aggregations");
+categoryStats.Dump("Category Summary Aggregations");
 
 // 3. Window functions using .Over()
 // Calculate each transaction's deviation from its category average without separate joins
-using var windowed = cleaned.WithColumn(
+using var windowed = cleaned.WithColumns(
     (Col("Revenue") - Col("Revenue").Mean().Over("Category")).Alias("CategoryDeviation")
 );
 
-Util.RawHtml(windowed.ToHtml()).Dump("Windowed Calculation (.Over(\"Category\"))");
+windowed.Dump("Windowed Calculation (.Over(\"Category\"))");

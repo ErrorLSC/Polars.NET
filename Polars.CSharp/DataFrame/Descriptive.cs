@@ -363,7 +363,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                 for (int c = 0; c < colCount; c++)
                 {
                     var series = previewCols[c];
-                    object? val = series.Get(r);
+                    object? val = series[r];
 
                     if (val is null)
                     {

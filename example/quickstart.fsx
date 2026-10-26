@@ -7,6 +7,9 @@
 
 open System
 open Polars.FSharp
+open Polars.FSharp.Query
+open System.Linq
+
 let printHeader (title: string) (data: DataFrame) =
     Console.ForegroundColor <- ConsoleColor.Cyan
     printfn "\n>>> %s" title
@@ -140,3 +143,73 @@ plan
 |> LazyFrame.sortAscending [pl.col "Id"]
 |> LazyFrame.collect
 |> printHeader "MERGE Execution Result"
+
+type Customer = { Id: int; Name: string; Region: string }
+
+type Order = { OrderId: int; CustomerId: int; Product: string; Amount: float; Quantity: int }
+
+let customers = [|
+    { Id = 1; Name = "Alice"; Region = "North" }
+    { Id = 2; Name = "Bob"; Region = "South" }
+    { Id = 3; Name = "Charlie"; Region = "North" }
+    { Id = 4; Name = "David"; Region = "East" }
+|]
+
+let orders = [|
+    { OrderId = 101; CustomerId = 1; Product = "Laptop"; Amount = 1200.0; Quantity = 1 }
+    { OrderId = 102; CustomerId = 1; Product = "Mouse"; Amount = 45.0; Quantity = 2 }
+    { OrderId = 103; CustomerId = 2; Product = "Monitor"; Amount = 350.0; Quantity = 2 }
+    { OrderId = 104; CustomerId = 3; Product = "Keyboard"; Amount = 120.0; Quantity = 1 }
+    { OrderId = 105; CustomerId = 3; Product = "Desk Chair"; Amount = 280.0; Quantity = 1 }
+    { OrderId = 106; CustomerId = 4; Product = "Headphones"; Amount = 150.0; Quantity = 1 }
+    { OrderId = 107; CustomerId = 1; Product = "USB Cable"; Amount = 25.0; Quantity = 3 }
+|]
+
+// ----------------------------------------------------------------------------
+// 1. Relational JOIN using F# query { ... } computation expression
+// ----------------------------------------------------------------------------
+let orderQuery = orders.AsPolarsQueryable()
+let customerQuery = customers.AsPolarsQueryable()
+
+let joinedQuery =
+    query {
+        for o in orderQuery do
+        join c in customerQuery on (o.CustomerId = c.Id)
+        where (o.Amount >= 50.0)
+        sortByDescending o.Amount
+        select
+            {|
+                OrderId = o.OrderId
+                Customer = c.Name
+                Region = c.Region
+                Product = o.Product
+                Total = o.Amount * float o.Quantity
+            |}
+    }
+
+// Inspect the compiled native Rust LazyPlan
+printfn "%s" (joinedQuery.Explain())
+
+// Materialize results into DataFrame
+joinedQuery.ToDataFrame().Show()
+
+// ----------------------------------------------------------------------------
+// 2. F# GroupBy & Aggregations
+// ----------------------------------------------------------------------------
+let groupQuery =
+    query {
+        for o in orderQuery do
+        join c in customerQuery on (o.CustomerId = c.Id)
+        groupValBy o c.Region into g
+        sortByDescending (g.Sum(fun x -> x.Amount * float x.Quantity))
+        select
+            {|
+                Region = g.Key
+                TotalRevenue = g.Sum(fun x -> x.Amount * float x.Quantity)
+                AverageOrderValue = g.Average(fun x -> x.Amount)
+                OrderCount = g.Count()
+            |}
+    }
+
+printfn "%s" (groupQuery.Explain())
+groupQuery.ToDataFrame().Show()
