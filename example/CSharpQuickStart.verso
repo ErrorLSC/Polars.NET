@@ -12,17 +12,14 @@
       "id": "268a9594-eaa7-493e-ac66-e5bd99d2547a",
       "type": "code",
       "language": "csharp",
-      "source": "#r \"nuget: Polars.NET, 1.0.0\"\n#r \"nuget: Polars.NET.Native.linux-x64, 1.0.0\"\n#r \"nuget: Microsoft.DotNet.Interactive.Formatting, 1.0.0-beta.26120.1\"\n\nusing Microsoft.DotNet.Interactive.Formatting;\nusing Polars.CSharp;\nusing Pl = Polars.CSharp.Polars;\n\nFormatter.Register<DataFrame>((df,writer)=>\n{\n    writer.Write(df.ToHtml());\n}, \"text/html\");",
+      "source": "#r \"nuget: Polars.NET, 1.0.1\"\n#r \"nuget: Polars.NET.Native.linux-x64, 1.0.1\"\n#r \"nuget: Microsoft.DotNet.Interactive.Formatting, 1.0.0-beta.26120.1\"\n\nusing Microsoft.DotNet.Interactive.Formatting;\nusing Polars.CSharp;\nusing Pl = Polars.CSharp.Polars;\n\nFormatter.Register<DataFrame>((df,writer)=>\n{\n    writer.Write(df.ToHtml());\n}, \"text/html\");",
       "outputs": [
         {
-          "mimeType": "text/html",
-          "content": "<div><b>已安装的包</b><ul><li><span>Polars.NET.Native.linux-x64, 1.0.0</span></li><li><span>Microsoft.DotNet.Interactive.Formatting, 1.0.0-beta.26120.1</span></li></ul><details><summary>Transitive dependencies (7)</summary><ul><li><span>Microsoft.AspNetCore.Html.Abstractions, 2.3.0</span></li><li><span>Microsoft.Bcl.AsyncInterfaces, 10.0.0</span></li><li><span>Microsoft.CSharp, 4.7.0</span></li><li><span>System.IO.Pipelines, 10.0.0</span></li><li><span>System.Memory, 4.6.3</span></li><li><span>System.Text.Encodings.Web, 8.0.0</span></li><li><span>System.Text.Json, 10.0.0</span></li></ul></details></div>"
-        },
-        {
           "mimeType": "text/plain",
-          "content": "(1,1): error CS0006: 未能找到元数据文件“../Polars.NET/Polars.CSharp/bin/Debug/net8.0/Polars.CSharp.dll”\n(7,12): error CS0246: 未能找到类型或命名空间名“Polars”(是否缺少 using 指令或程序集引用?)\n(6,7): error CS0246: 未能找到类型或命名空间名“Polars”(是否缺少 using 指令或程序集引用?)\n(9,20): error CS0246: 未能找到类型或命名空间名“DataFrame”(是否缺少 using 指令或程序集引用?)",
+          "content": "System.InvalidOperationException: Package 'Polars.NET.Linq' v1.0.1 was not found on any configured source. Sources tried: https://api.nuget.org/v3/index.json",
           "isError": true,
-          "errorName": "CompilationError"
+          "errorName": "InvalidOperationException",
+          "errorStackTrace": "   at Verso.Kernels.NuGetPackageResolver.DownloadSinglePackageAsync(String packageId, String version, Int32 resolution, CancellationToken ct) in /home/runner/work/Verso/Verso/src/Verso/Kernels/NuGetPackageResolver.cs:line 366\n   at Verso.Kernels.NuGetPackageResolver.ResolveWithDependenciesAsync(String packageId, String version, List`1 allPaths, List`1 resolvedPackages, Int32 resolution, CancellationToken ct) in /home/runner/work/Verso/Verso/src/Verso/Kernels/NuGetPackageResolver.cs:line 277\n   at Verso.Kernels.NuGetPackageResolver.ResolvePackageAsync(String packageId, String version, CancellationToken ct) in /home/runner/work/Verso/Verso/src/Verso/Kernels/NuGetPackageResolver.cs:line 205\n   at Verso.Kernels.CSharpKernel.ProcessNuGetReferencesAsync(String code, IExecutionContext context, CancellationToken ct) in /home/runner/work/Verso/Verso/src/Verso/Kernels/CSharpKernel.cs:line 463\n   at Verso.Kernels.CSharpKernel.ExecuteAsync(String code, IExecutionContext context) in /home/runner/work/Verso/Verso/src/Verso/Kernels/CSharpKernel.cs:line 148"
         }
       ]
     },

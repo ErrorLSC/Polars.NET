@@ -2,8 +2,9 @@
 // Polars.NET F# Quick Start Script
 // ==========================================
 
-#r "nuget: Polars.FSharp, 1.0.0"
-#r "nuget: Polars.NET.Native.linux-x64, 1.0.0"
+#r "nuget: Polars.FSharp, 1.0.1"
+#r "nuget: Polars.NET.Native.linux-x64, 1.0.1"
+#r "nuget: Polars.NET.Native.win-x64, 1.0.1"
 
 open System
 open Polars.FSharp

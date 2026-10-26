@@ -1,5 +1,6 @@
-#r "nuget: Polars.FSharp, 1.0.0"
-#r "nuget: Polars.NET.Native.linux-x64, 1.0.0"
+#r "nuget: Polars.FSharp, 1.0.1"
+#r "nuget: Polars.NET.Native.linux-x64, 1.0.1"
+#r "nuget: Polars.NET.Native.win-x64, 1.0.1"
 #r "nuget: FSharp.Data"
 
 open FSharp.Data
