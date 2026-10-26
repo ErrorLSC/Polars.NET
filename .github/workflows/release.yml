@@ -11,6 +11,12 @@ on:
       - 'docs/**'     
       - 'icon.png'      
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish packages to NuGet.org'
+        required: true
+        type: boolean
+        default: true
 
 jobs:
   # ===================================================
@@ -302,3 +308,44 @@ jobs:
           EOF
           
           dotnet run
+
+  # ===================================================
+  # Publish to NuGet.org (Trusted Publishing via OIDC)
+  # ===================================================
+  publish-nuget:
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    name: Publish to NuGet.org
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Download NuGet Packages
+        uses: actions/download-artifact@v5
+        with:
+          name: polars-net-nugets
+          path: nupkgs
+
+      - name: Inspect Packages
+        run: ls -la nupkgs/
+
+      - name: NuGet Login (OIDC Trusted Publishing)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER || 'ErrorLSC' }}
+
+      - name: Push to NuGet
+        shell: bash
+        run: |
+          dotnet nuget push "nupkgs/*.nupkg" \
+            --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
+            --source "https://api.nuget.org/v3/index.json" \
+            --skip-duplicate

@@ -166,7 +166,7 @@ let orders = [|
 |]
 
 // ----------------------------------------------------------------------------
-// 1. Relational JOIN using F# query { ... } computation expression
+// 7. Relational JOIN using F# query { ... } computation expression
 // ----------------------------------------------------------------------------
 let orderQuery = orders.AsPolarsQueryable()
 let customerQuery = customers.AsPolarsQueryable()
@@ -194,7 +194,7 @@ printfn "%s" (joinedQuery.Explain())
 joinedQuery.ToDataFrame().Show()
 
 // ----------------------------------------------------------------------------
-// 2. F# GroupBy & Aggregations
+// 8. F# GroupBy & Aggregations
 // ----------------------------------------------------------------------------
 let groupQuery =
     query {
