@@ -1,6 +1,6 @@
 [package]
 name = "native_shim"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 license = "MIT"
 
@@ -24,19 +24,19 @@ polars-async = {version="0.55.2"}
 polars-config = {version="0.55.2"}
 flate2 = { version = "1.1.8", features = ["rust_backend"] }
 serde_json = "*"
-calamine = { version = "0.36.1", features = ["dates","chrono"] }
-chrono = "0.4.41"
-rust_xlsxwriter = { version = "0.95", features = ["chrono"] }
+calamine = { version = "0.37.0", features = ["dates","chrono"] }
+chrono = "*"
+rust_xlsxwriter = { version = "0.101.0", features = ["chrono"] }
 deltalake = { version = "1.0.0", default-features = false, features = ["s3", "azure", "gcs", "rustls"] }
-tokio = { version = "1.49.0"}
-url = "2.5.8"
-uuid = {version="1.20.0", features=["v4"]}
-futures = "0.3.31"
-urlencoding = "2.1.3"
-rand = "0.10.0"
-roaring = "0.11.3"
-z85 = "3.0.7"
-regex-syntax = "0.8.11"
+tokio = { version = "1.52.3"}
+url = "*"
+uuid = {version="*", features=["v4"]}
+futures = "*"
+urlencoding = "*"
+rand = "*"
+roaring = "*"
+z85 = "*"
+regex-syntax = "*"
 [lib]
 crate-type = ["cdylib"]
 

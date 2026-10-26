@@ -259,6 +259,7 @@ David,40,80000";
         Assert.Contains("salary", headDf.ColumnNames); 
     }
     [Fact]
+    [Trait("LazyFrame","JoinAsOf")]
     public void Test_Lazy_Unpivot_With_Explain()
     {
         var content = @"date,apple,banana
@@ -321,9 +322,9 @@ David,40,80000";
             strategy: AsofStrategy.Backward 
         );
 
-        using var df = joinedLf.Collect(engine:Engine.Gpu);
-        
-        Assert.Equal("", string.Join(",", df.ColumnNames));
+        using var df = joinedLf.Collect();
+
+        Assert.Equal("time,sym,qty,bid", string.Join(",", df.ColumnNames));
         Assert.Equal(3, df.Height);
 
         // Row 0: Trade 10:00 -> Quote 09:59 (Diff: 1m <= 2m) -> Match
@@ -335,6 +336,7 @@ David,40,80000";
         // Row 2: Trade 10:05 -> Quote 10:01 (Diff: 4m > 2m) -> No Match
         Assert.Null(df.Column("bid").GetValue<long?>(2));
     }
+
     [Fact]
     [Trait("LazyFrame", "JoinWhere")]
     public void Test_LazyFrame_JoinWhere_Multiple_Conditions()
