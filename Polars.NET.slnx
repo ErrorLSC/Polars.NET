@@ -9,4 +9,5 @@
   <Project Path="Polars.NET.Linq/Polars.NET.Linq.fsproj" />
   <Project Path="Polars.NET.ML/Polars.NET.ML.csproj" />
   <Project Path="Polars.TPCH.Tests/Polars.TPCH.Tests.csproj" />
+  <Project Path="Polars.Tpcds.Tests/Polars.Tpcds.Tests.csproj" />
 </Solution>

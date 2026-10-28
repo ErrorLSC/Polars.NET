@@ -1341,13 +1341,23 @@ module internal QueryPipelineHelpers =
 
             match extractKeyExprs leftCtx outerKey, extractKeyExprs rightCtx innerKey with
             | Some leftKeys, Some rightKeys when leftKeys.Length = rightKeys.Length ->
+                let leftCols = PolarsSchemaExtractor.GetColumnNames baseLf
+                let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
+                let leftColSet = Set.ofArray leftCols
+                let baseSuffix = if isRightJoin then "_left" else "_right"
+                let rec findUniqueSuffix (cnt: int) =
+                    let candidate = if cnt = 1 then baseSuffix else sprintf "%s%d" baseSuffix cnt
+                    let hasConflict = rightCols |> Array.exists (fun rc -> leftColSet.Contains (rc + candidate))
+                    if not hasConflict then candidate
+                    else findUniqueSuffix (cnt + 1)
+                let uniqueSuffix = findUniqueSuffix 1
                 Some
                     {
                         RightLf = rightLf
                         LeftOn = leftKeys
                         RightOn = rightKeys
                         How = how
-                        Suffix = if isRightJoin then Some "_left" else Some "_right"
+                        Suffix = Some uniqueSuffix
                         InvertSides = isRightJoin
                         Coalesce = PlJoinCoalesce.KeepColumns
                     }
