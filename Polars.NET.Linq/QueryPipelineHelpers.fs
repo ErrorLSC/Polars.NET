@@ -1582,8 +1582,12 @@ module internal QueryPipelineHelpers =
                         else
                             None)
                 | None, None ->
-                    let colNames = PolarsSchemaExtractor.GetColumnNames baseLf
-                    Some(colNames |> Array.map PolarsWrapper.Col, colNames |> Array.map PolarsWrapper.Col)
+                    let leftCols = PolarsSchemaExtractor.GetColumnNames baseLf
+                    let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
+                    if leftCols.Length = rightCols.Length && leftCols.Length > 0 then
+                        Some(leftCols |> Array.map PolarsWrapper.Col, rightCols |> Array.map PolarsWrapper.Col)
+                    else
+                        Some(leftCols |> Array.map PolarsWrapper.Col, leftCols |> Array.map PolarsWrapper.Col)
                 | _ -> None
 
             keysOpt
@@ -2562,6 +2566,19 @@ module internal QueryPipelineHelpers =
                                         colExpr)
 
                             PolarsWrapper.LazySelect(targetLf, reorderedAndCastedExprs)
+                        elif baseFields.Length = targetFields.Length then
+                            let projectedExprs =
+                                Array.zip baseFields targetFields
+                                |> Array.map (fun ((baseName, baseDt), (targetName, targetDt)) ->
+                                    let colExpr = PolarsWrapper.Col targetName
+                                    let castedExpr =
+                                        if not (PolarsWrapper.DataTypeEq(baseDt, targetDt)) then
+                                            let dtExpr = PolarsWrapper.DataTypeExprFromDataType baseDt
+                                            PolarsWrapper.ExprCast(colExpr, dtExpr, strict = false, wrapNumerical = false)
+                                        else
+                                            colExpr
+                                    PolarsWrapper.Alias(castedExpr, baseName))
+                            PolarsWrapper.LazySelect(targetLf, projectedExprs)
                         else
                             targetLf
 

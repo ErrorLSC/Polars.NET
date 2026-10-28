@@ -2056,4 +2056,274 @@ public class TpcdsQuery01To10Tests
         Assert.Equal(d.bucket4, p.bucket4!.Value, 4);
         Assert.Equal(d.bucket5, p.bucket5!.Value, 4);
     }
+
+    private static readonly string[] Q10TargetCounties = [
+        "Rush County", "Toole County", "Jefferson County", "Dona Ana County", "La Porte County"
+    ];
+
+    /*
+     * TPC-DS Query 10
+     *
+     * SELECT cd_gender,
+     *        cd_marital_status,
+     *        cd_education_status,
+     *        count(*) cnt1,
+     *        cd_purchase_estimate,
+     *        count(*) cnt2,
+     *        cd_credit_rating,
+     *        count(*) cnt3,
+     *        cd_dep_count,
+     *        count(*) cnt4,
+     *        cd_dep_employed_count,
+     *        count(*) cnt5,
+     *        cd_dep_college_count,
+     *        count(*) cnt6
+     * FROM customer c,
+     *      customer_address ca,
+     *      customer_demographics
+     * WHERE c.c_current_addr_sk = ca.ca_address_sk
+     *   AND ca_county IN ('Rush County', 'Toole County', 'Jefferson County', 'Dona Ana County', 'La Porte County')
+     *   AND cd_demo_sk = c.c_current_cdemo_sk
+     *   AND EXISTS
+     *     (SELECT *
+     *      FROM store_sales,
+     *           date_dim
+     *      WHERE c.c_customer_sk = ss_customer_sk
+     *        AND ss_sold_date_sk = d_date_sk
+     *        AND d_year = 2002
+     *        AND d_moy BETWEEN 1 AND 1+3)
+     *   AND (EXISTS
+     *          (SELECT *
+     *           FROM web_sales,
+     *                date_dim
+     *           WHERE c.c_customer_sk = ws_bill_customer_sk
+     *             AND ws_sold_date_sk = d_date_sk
+     *             AND d_year = 2002
+     *             AND d_moy BETWEEN 1 AND 1+3)
+     *        OR EXISTS
+     *          (SELECT *
+     *           FROM catalog_sales,
+     *                date_dim
+     *           WHERE c.c_customer_sk = cs_ship_customer_sk
+     *             AND cs_sold_date_sk = d_date_sk
+     *             AND d_year = 2002
+     *             AND d_moy BETWEEN 1 AND 1+3))
+     * GROUP BY cd_gender,
+     *          cd_marital_status,
+     *          cd_education_status,
+     *          cd_purchase_estimate,
+     *          cd_credit_rating,
+     *          cd_dep_count,
+     *          cd_dep_employed_count,
+     *          cd_dep_college_count
+     * ORDER BY cd_gender,
+     *          cd_marital_status,
+     *          cd_education_status,
+     *          cd_purchase_estimate,
+     *          cd_credit_rating,
+     *          cd_dep_count,
+     *          cd_dep_employed_count,
+     *          cd_dep_college_count
+     * LIMIT 100;
+     */
+    [Fact]
+    [Trait("TPCDS", "Q10")]
+    public void Test_Q10()
+    {
+        using var lfCustomer = TpcdsData.Customer();
+        using var lfCustomerAddress = TpcdsData.CustomerAddress();
+        using var lfCustomerDemographics = TpcdsData.CustomerDemographics();
+        using var lfStoreSales = TpcdsData.StoreSales();
+        using var lfWebSales = TpcdsData.WebSales();
+        using var lfCatalogSales = TpcdsData.CatalogSales();
+        using var lfDateDim = TpcdsData.DateDim();
+
+        var customerQuery = lfCustomer.AsQueryable<Customer>();
+        var customerAddressQuery = lfCustomerAddress.AsQueryable<CustomerAddress>();
+        var customerDemographicsQuery = lfCustomerDemographics.AsQueryable<CustomerDemographics>();
+        var storeSalesQuery = lfStoreSales.AsQueryable<StoreSales>();
+        var webSalesQuery = lfWebSales.AsQueryable<WebSales>();
+        var catalogSalesQuery = lfCatalogSales.AsQueryable<CatalogSales>();
+        var dateDimQuery = lfDateDim.AsQueryable<DateDim>();
+
+        var storeCust = (from ss in storeSalesQuery
+                         join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
+                         where d.d_year == 2002 && d.d_moy >= 1 && d.d_moy <= 4
+                         select ss.ss_customer_sk).Distinct();
+
+        var webCust = from ws in webSalesQuery
+                      join d in dateDimQuery on ws.ws_sold_date_sk equals d.d_date_sk
+                      where d.d_year == 2002 && d.d_moy >= 1 && d.d_moy <= 4
+                      select ws.ws_bill_customer_sk;
+
+        var catCust = from cs in catalogSalesQuery
+                      join d in dateDimQuery on cs.cs_sold_date_sk equals d.d_date_sk
+                      where d.d_year == 2002 && d.d_moy >= 1 && d.d_moy <= 4
+                      select cs.cs_ship_customer_sk;
+
+        var otherCust = webCust.Union(catCust);
+        var activeCust = storeCust.Intersect(otherCust);
+
+        var q10 = (from c in customerQuery
+                   join ca in customerAddressQuery on c.c_current_addr_sk equals ca.ca_address_sk
+                   join cd in customerDemographicsQuery on c.c_current_cdemo_sk equals cd.cd_demo_sk
+                   join custId in activeCust on c.c_customer_sk equals custId
+                   where Q10TargetCounties.Contains(ca.ca_county)
+                   group cd by new
+                   {
+                       cd.cd_gender,
+                       cd.cd_marital_status,
+                       cd.cd_education_status,
+                       cd.cd_purchase_estimate,
+                       cd.cd_credit_rating,
+                       cd.cd_dep_count,
+                       cd.cd_dep_employed_count,
+                       cd.cd_dep_college_count,
+                   } into g
+                   orderby g.Key.cd_gender,
+                           g.Key.cd_marital_status,
+                           g.Key.cd_education_status,
+                           g.Key.cd_purchase_estimate,
+                           g.Key.cd_credit_rating,
+                           g.Key.cd_dep_count,
+                           g.Key.cd_dep_employed_count,
+                           g.Key.cd_dep_college_count
+                   select new
+                   {
+                       cd_gender = g.Key.cd_gender,
+                       cd_marital_status = g.Key.cd_marital_status,
+                       cd_education_status = g.Key.cd_education_status,
+                       cnt1 = g.LongCount(),
+                       cd_purchase_estimate = g.Key.cd_purchase_estimate,
+                       cnt2 = g.LongCount(),
+                       cd_credit_rating = g.Key.cd_credit_rating,
+                       cnt3 = g.LongCount(),
+                       cd_dep_count = g.Key.cd_dep_count,
+                       cnt4 = g.LongCount(),
+                       cd_dep_employed_count = g.Key.cd_dep_employed_count,
+                       cnt5 = g.LongCount(),
+                       cd_dep_college_count = g.Key.cd_dep_college_count,
+                       cnt6 = g.LongCount(),
+                   }).Take(100);
+
+        Console.WriteLine(q10.Explain());
+        AssertPlan(q10, NativePushdown);
+
+        var polarsResult = q10.ToList();
+
+        // DuckDB Cross-Validation
+        var duckDbSql = $@"
+            SELECT 
+                cd_gender, 
+                cd_marital_status, 
+                cd_education_status, 
+                COUNT(*) AS cnt1, 
+                cd_purchase_estimate, 
+                COUNT(*) AS cnt2, 
+                cd_credit_rating, 
+                COUNT(*) AS cnt3, 
+                cd_dep_count, 
+                COUNT(*) AS cnt4, 
+                cd_dep_employed_count, 
+                COUNT(*) AS cnt5, 
+                cd_dep_college_count, 
+                COUNT(*) AS cnt6 
+            FROM 
+                read_parquet('{TpcdsData.CustomerPath}') c, 
+                read_parquet('{TpcdsData.CustomerAddressPath}') ca, 
+                read_parquet('{TpcdsData.CustomerDemographicsPath}') cd
+            WHERE 
+                c.c_current_addr_sk = ca.ca_address_sk 
+                AND ca_county IN ('Rush County', 'Toole County', 'Jefferson County', 'Dona Ana County', 'La Porte County') 
+                AND cd.cd_demo_sk = c.c_current_cdemo_sk 
+                AND EXISTS (
+                    SELECT * 
+                    FROM read_parquet('{TpcdsData.StoreSalesPath}') ss, 
+                         read_parquet('{TpcdsData.DateDimPath}') d 
+                    WHERE c.c_customer_sk = ss.ss_customer_sk 
+                      AND ss.ss_sold_date_sk = d.d_date_sk 
+                      AND d.d_year = 2002 
+                      AND d.d_moy BETWEEN 1 AND 1 + 3
+                ) 
+                AND (
+                    EXISTS (
+                        SELECT * 
+                        FROM read_parquet('{TpcdsData.WebSalesPath}') ws, 
+                             read_parquet('{TpcdsData.DateDimPath}') d 
+                        WHERE c.c_customer_sk = ws.ws_bill_customer_sk 
+                          AND ws.ws_sold_date_sk = d.d_date_sk 
+                          AND d.d_year = 2002 
+                          AND d.d_moy BETWEEN 1 AND 1 + 3
+                    ) 
+                    OR EXISTS (
+                        SELECT * 
+                        FROM read_parquet('{TpcdsData.CatalogSalesPath}') cs, 
+                             read_parquet('{TpcdsData.DateDimPath}') d 
+                        WHERE c.c_customer_sk = cs.cs_ship_customer_sk 
+                          AND cs_sold_date_sk = d.d_date_sk 
+                          AND d.d_year = 2002 
+                          AND d.d_moy BETWEEN 1 AND 1 + 3
+                    )
+                ) 
+            GROUP BY 
+                cd_gender, 
+                cd_marital_status, 
+                cd_education_status, 
+                cd_purchase_estimate, 
+                cd_credit_rating, 
+                cd_dep_count, 
+                cd_dep_employed_count, 
+                cd_dep_college_count 
+            ORDER BY 
+                cd_gender, 
+                cd_marital_status, 
+                cd_education_status, 
+                cd_purchase_estimate, 
+                cd_credit_rating, 
+                cd_dep_count, 
+                cd_dep_employed_count, 
+                cd_dep_college_count 
+            LIMIT 100;
+        ";
+
+        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
+        {
+            cd_gender = r.IsDBNull(0) ? null : r.GetString(0),
+            cd_marital_status = r.IsDBNull(1) ? null : r.GetString(1),
+            cd_education_status = r.IsDBNull(2) ? null : r.GetString(2),
+            cnt1 = r.GetInt64(3),
+            cd_purchase_estimate = r.IsDBNull(4) ? null : (long?)r.GetInt64(4),
+            cnt2 = r.GetInt64(5),
+            cd_credit_rating = r.IsDBNull(6) ? null : r.GetString(6),
+            cnt3 = r.GetInt64(7),
+            cd_dep_count = r.IsDBNull(8) ? null : (long?)r.GetInt64(8),
+            cnt4 = r.GetInt64(9),
+            cd_dep_employed_count = r.IsDBNull(10) ? null : (long?)r.GetInt64(10),
+            cnt5 = r.GetInt64(11),
+            cd_dep_college_count = r.IsDBNull(12) ? null : (int?)r.GetInt32(12),
+            cnt6 = r.GetInt64(13),
+        });
+
+        Assert.Equal(duckDbResults.Count, polarsResult.Count);
+        for (int i = 0; i < duckDbResults.Count; i++)
+        {
+            var d = duckDbResults[i];
+            var p = polarsResult[i];
+
+            Assert.Equal(d.cd_gender, (string?)p.cd_gender);
+            Assert.Equal(d.cd_marital_status, (string?)p.cd_marital_status);
+            Assert.Equal(d.cd_education_status, (string?)p.cd_education_status);
+            Assert.Equal(d.cnt1, p.cnt1);
+            Assert.Equal(d.cd_purchase_estimate, p.cd_purchase_estimate);
+            Assert.Equal(d.cnt2, p.cnt2);
+            Assert.Equal(d.cd_credit_rating, (string?)p.cd_credit_rating);
+            Assert.Equal(d.cnt3, p.cnt3);
+            Assert.Equal(d.cd_dep_count, p.cd_dep_count);
+            Assert.Equal(d.cnt4, p.cnt4);
+            Assert.Equal(d.cd_dep_employed_count, p.cd_dep_employed_count);
+            Assert.Equal(d.cnt5, p.cnt5);
+            Assert.Equal(d.cd_dep_college_count, p.cd_dep_college_count);
+            Assert.Equal(d.cnt6, p.cnt6);
+        }
+    }
 }
