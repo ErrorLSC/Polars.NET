@@ -1297,6 +1297,21 @@ module internal QueryPipelineHelpers =
             | ExtractColumnName colName -> Some [| PolarsWrapper.Col colName |]
             | expr -> ExprTranslator.tryTranslateWithContext ctx expr |> Option.map (fun h -> [| h |])
 
+    let internal extractKeyExprs (ctx: TranslationContext) (keyLambda: LambdaExpression) : ExprHandle array option =
+        match tryExtractMemberBindings keyLambda.Body with
+        | Some bindings ->
+            let exprs =
+                bindings
+                |> List.choose (fun (_, e) -> ExprTranslator.tryTranslateWithContext ctx e)
+
+            if exprs.Length = bindings.Length then
+                Some(List.toArray exprs)
+            else
+                None
+        | None ->
+            ExprTranslator.tryTranslateWithContext ctx keyLambda.Body
+            |> Option.map (fun h -> [| h |])
+
     /// Compiles a Join stage into a native JoinSpec (supporting single-column and multi-column keys across Inner, Left, Right, Full)
     let compileJoin
         (baseLf: LazyFrameHandle)
@@ -1315,21 +1330,6 @@ module internal QueryPipelineHelpers =
             | "GroupJoin" -> PlJoinType.Left
             | "FullJoin" -> PlJoinType.Outer
             | _ -> PlJoinType.Inner
-
-        let extractKeyExprs (ctx: TranslationContext) (keyLambda: LambdaExpression) : ExprHandle array option =
-            match tryExtractMemberBindings keyLambda.Body with
-            | Some bindings ->
-                let exprs =
-                    bindings
-                    |> List.choose (fun (_, e) -> ExprTranslator.tryTranslateWithContext ctx e)
-
-                if exprs.Length = bindings.Length then
-                    Some(List.toArray exprs)
-                else
-                    None
-            | None ->
-                ExprTranslator.tryTranslateWithContext ctx keyLambda.Body
-                |> Option.map (fun h -> [| h |])
 
         match SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr with
         | Some rightLf ->
@@ -1688,19 +1688,26 @@ module internal QueryPipelineHelpers =
             let leftCtx = createContextWithScope scopeMap outerParam.Type baseLf outerParam.Name
             let rightCtx = createContextForType innerParam.Type rightLf innerParam.Name
 
-            match
-                ExprTranslator.tryTranslateWithContext leftCtx outerKey.Body,
-                ExprTranslator.tryTranslateWithContext rightCtx innerKey.Body
-            with
-            | Some leftKey, Some rightKey ->
+            match extractKeyExprs leftCtx outerKey, extractKeyExprs rightCtx innerKey with
+            | Some leftKeys, Some rightKeys when leftKeys.Length = rightKeys.Length ->
+                let leftCols = PolarsSchemaExtractor.GetColumnNames baseLf
+                let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
+                let leftColSet = Set.ofArray leftCols
+                let baseSuffix = "_right"
+                let rec findUniqueSuffix (cnt: int) =
+                    let candidate = if cnt = 1 then baseSuffix else sprintf "%s%d" baseSuffix cnt
+                    let hasConflict = rightCols |> Array.exists (fun rc -> leftColSet.Contains (rc + candidate))
+                    if not hasConflict then candidate
+                    else findUniqueSuffix (cnt + 1)
+                let uniqueSuffix = findUniqueSuffix 1
                 Some(
                     QueryOp.Join
                         {
                             RightLf = rightLf
-                            LeftOn = [| leftKey |]
-                            RightOn = [| rightKey |]
+                            LeftOn = leftKeys
+                            RightOn = rightKeys
                             How = PlJoinType.Left
-                            Suffix = None
+                            Suffix = Some uniqueSuffix
                             InvertSides = false
                             Coalesce = PlJoinCoalesce.KeepColumns
                         }

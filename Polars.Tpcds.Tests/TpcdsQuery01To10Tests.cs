@@ -865,4 +865,478 @@ public class TpcdsQuery01To10Tests
 
         Assert.Equal(duckDbResults.Count, polarsResult.Count);
     }
+
+    /*
+     * TPC-DS Query 5
+     *
+     * WITH ssr AS
+     *   (SELECT s_store_id,
+     *           sum(sales_price) AS sales,
+     *           sum(profit) AS profit,
+     *           sum(return_amt) AS returns_,
+     *           sum(net_loss) AS profit_loss
+     *    FROM
+     *      (SELECT ss_store_sk AS store_sk,
+     *              ss_sold_date_sk AS date_sk,
+     *              ss_ext_sales_price AS sales_price,
+     *              ss_net_profit AS profit,
+     *              cast(0 AS decimal(7,2)) AS return_amt,
+     *              cast(0 AS decimal(7,2)) AS net_loss
+     *       FROM store_sales
+     *       UNION ALL SELECT sr_store_sk AS store_sk,
+     *                        sr_returned_date_sk AS date_sk,
+     *                        cast(0 AS decimal(7,2)) AS sales_price,
+     *                        cast(0 AS decimal(7,2)) AS profit,
+     *                        sr_return_amt AS return_amt,
+     *                        sr_net_loss AS net_loss
+     *       FROM store_returns ) salesreturns,
+     *         date_dim,
+     *         store
+     *    WHERE date_sk = d_date_sk
+     *      AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-06' AS date)
+     *      AND store_sk = s_store_sk
+     *    GROUP BY s_store_id) ,
+     *      csr AS
+     *   (SELECT cp_catalog_page_id,
+     *           sum(sales_price) AS sales,
+     *           sum(profit) AS profit,
+     *           sum(return_amt) AS returns_,
+     *           sum(net_loss) AS profit_loss
+     *    FROM
+     *      (SELECT cs_catalog_page_sk AS page_sk,
+     *              cs_sold_date_sk AS date_sk,
+     *              cs_ext_sales_price AS sales_price,
+     *              cs_net_profit AS profit,
+     *              cast(0 AS decimal(7,2)) AS return_amt,
+     *              cast(0 AS decimal(7,2)) AS net_loss
+     *       FROM catalog_sales
+     *       UNION ALL SELECT cr_catalog_page_sk AS page_sk,
+     *                        cr_returned_date_sk AS date_sk,
+     *                        cast(0 AS decimal(7,2)) AS sales_price,
+     *                        cast(0 AS decimal(7,2)) AS profit,
+     *                        cr_return_amount AS return_amt,
+     *                        cr_net_loss AS net_loss
+     *       FROM catalog_returns ) salesreturns,
+     *         date_dim,
+     *         catalog_page
+     *    WHERE date_sk = d_date_sk
+     *      AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-06' AS date)
+     *      AND page_sk = cp_catalog_page_sk
+     *    GROUP BY cp_catalog_page_id) ,
+     *      wsr AS
+     *   (SELECT web_site_id,
+     *           sum(sales_price) AS sales,
+     *           sum(profit) AS profit,
+     *           sum(return_amt) AS returns_,
+     *           sum(net_loss) AS profit_loss
+     *    FROM
+     *      (SELECT ws_web_site_sk AS wsr_web_site_sk,
+     *              ws_sold_date_sk AS date_sk,
+     *              ws_ext_sales_price AS sales_price,
+     *              ws_net_profit AS profit,
+     *              cast(0 AS decimal(7,2)) AS return_amt,
+     *              cast(0 AS decimal(7,2)) AS net_loss
+     *       FROM web_sales
+     *       UNION ALL SELECT ws_web_site_sk AS wsr_web_site_sk,
+     *                        wr_returned_date_sk AS date_sk,
+     *                        cast(0 AS decimal(7,2)) AS sales_price,
+     *                        cast(0 AS decimal(7,2)) AS profit,
+     *                        wr_return_amt AS return_amt,
+     *                        wr_net_loss AS net_loss
+     *       FROM web_returns
+     *       LEFT OUTER JOIN web_sales ON (wr_item_sk = ws_item_sk
+     *                                     AND wr_order_number = ws_order_number) ) salesreturns,
+     *         date_dim,
+     *         web_site
+     *    WHERE date_sk = d_date_sk
+     *      AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-06' AS date)
+     *      AND wsr_web_site_sk = web_site_sk
+     *    GROUP BY web_site_id)
+     * SELECT channel ,
+     *        id ,
+     *        sum(sales) AS sales ,
+     *        sum(returns_) AS returns_ ,
+     *        sum(profit) AS profit
+     * FROM
+     *   (SELECT 'store channel' AS channel ,
+     *           concat('store', s_store_id) AS id ,
+     *           sales ,
+     *           returns_ ,
+     *           (profit - profit_loss) AS profit
+     *    FROM ssr
+     *    UNION ALL SELECT 'catalog channel' AS channel ,
+     *                     concat('catalog_page', cp_catalog_page_id) AS id ,
+     *                     sales ,
+     *                     returns_ ,
+     *                     (profit - profit_loss) AS profit
+     *    FROM csr
+     *    UNION ALL SELECT 'web channel' AS channel ,
+     *                     concat('web_site', web_site_id) AS id ,
+     *                     sales ,
+     *                     returns_ ,
+     *                     (profit - profit_loss) AS profit
+     *    FROM wsr ) x
+     * GROUP BY ROLLUP (channel,
+     *                  id)
+     * ORDER BY channel NULLS FIRST,
+     *          id NULLS FIRST
+     * LIMIT 100;
+     */
+    [Fact]
+    [Trait("TPCDS", "Q5")]
+    public void Test_Q5()
+    {
+        using var lfStoreSales = TpcdsData.StoreSales();
+        using var lfStoreReturns = TpcdsData.StoreReturns();
+        using var lfCatalogSales = TpcdsData.CatalogSales();
+        using var lfCatalogReturns = TpcdsData.CatalogReturns();
+        using var lfWebSales = TpcdsData.WebSales();
+        using var lfWebReturns = TpcdsData.WebReturns();
+        using var lfDateDim = TpcdsData.DateDim();
+        using var lfStore = TpcdsData.Store();
+        using var lfCatalogPage = TpcdsData.CatalogPage();
+        using var lfWebSite = TpcdsData.WebSite();
+
+        var storeSalesQuery = lfStoreSales.AsQueryable<StoreSales>();
+        var storeReturnsQuery = lfStoreReturns.AsQueryable<StoreReturns>();
+        var catalogSalesQuery = lfCatalogSales.AsQueryable<CatalogSales>();
+        var catalogReturnsQuery = lfCatalogReturns.AsQueryable<CatalogReturns>();
+        var webSalesQuery = lfWebSales.AsQueryable<WebSales>();
+        var webReturnsQuery = lfWebReturns.AsQueryable<WebReturns>();
+        var dateDimQuery = lfDateDim.AsQueryable<DateDim>();
+        var storeQuery = lfStore.AsQueryable<Store>();
+        var catalogPageQuery = lfCatalogPage.AsQueryable<CatalogPage>();
+        var webSiteQuery = lfWebSite.AsQueryable<WebSite>();
+
+        var minDate = new DateOnly(2000, 8, 23);
+        var maxDate = new DateOnly(2000, 9, 6);
+        var filteredDates = dateDimQuery.Where(d => d.d_date >= minDate && d.d_date <= maxDate);
+
+        // 1. Store Channel
+        var ssUnion = storeSalesQuery.Select(ss => new
+        {
+            store_sk = ss.ss_store_sk,
+            date_sk = ss.ss_sold_date_sk,
+            sales_price = ss.ss_ext_sales_price,
+            profit = ss.ss_net_profit,
+            return_amt = (decimal?)0.00m,
+            net_loss = (decimal?)0.00m
+        }).Concat(storeReturnsQuery.Select(sr => new
+        {
+            store_sk = sr.sr_store_sk,
+            date_sk = sr.sr_returned_date_sk,
+            sales_price = (decimal?)0.00m,
+            profit = (decimal?)0.00m,
+            return_amt = sr.sr_return_amt,
+            net_loss = sr.sr_net_loss
+        }));
+
+        var ssrGroup = from sr in ssUnion
+                       join d in filteredDates on sr.date_sk equals d.d_date_sk
+                       join s in storeQuery on sr.store_sk equals s.s_store_sk
+                       group sr by s.s_store_id into g
+                       select new
+                       {
+                           s_store_id = g.Key,
+                           sales = g.Sum(x => x.sales_price),
+                           profit = g.Sum(x => x.profit),
+                           returns_ = g.Sum(x => x.return_amt),
+                           profit_loss = g.Sum(x => x.net_loss)
+                       };
+
+        var ssr = from r in ssrGroup
+                  select new
+                  {
+                      channel = "store channel",
+                      id = "store" + r.s_store_id,
+                      sales = r.sales,
+                      returns_ = r.returns_,
+                      profit = r.profit - r.profit_loss
+                  };
+
+        // 2. Catalog Channel
+        var csUnion = catalogSalesQuery.Select(cs => new
+        {
+            page_sk = cs.cs_catalog_page_sk,
+            date_sk = cs.cs_sold_date_sk,
+            sales_price = cs.cs_ext_sales_price,
+            profit = cs.cs_net_profit,
+            return_amt = (decimal?)0.00m,
+            net_loss = (decimal?)0.00m
+        }).Concat(catalogReturnsQuery.Select(cr => new
+        {
+            page_sk = cr.cr_catalog_page_sk,
+            date_sk = cr.cr_returned_date_sk,
+            sales_price = (decimal?)0.00m,
+            profit = (decimal?)0.00m,
+            return_amt = cr.cr_return_amount,
+            net_loss = cr.cr_net_loss
+        }));
+
+        var csrGroup = from cr in csUnion
+                       join d in filteredDates on cr.date_sk equals d.d_date_sk
+                       join cp in catalogPageQuery on cr.page_sk equals cp.cp_catalog_page_sk
+                       group cr by cp.cp_catalog_page_id into g
+                       select new
+                       {
+                           cp_catalog_page_id = g.Key,
+                           sales = g.Sum(x => x.sales_price),
+                           profit = g.Sum(x => x.profit),
+                           returns_ = g.Sum(x => x.return_amt),
+                           profit_loss = g.Sum(x => x.net_loss)
+                       };
+
+        var csr = from r in csrGroup
+                  select new
+                  {
+                      channel = "catalog channel",
+                      id = "catalog_page" + r.cp_catalog_page_id,
+                      sales = r.sales,
+                      returns_ = r.returns_,
+                      profit = r.profit - r.profit_loss
+                  };
+
+        // 3. Web Channel
+        var wsPart = webSalesQuery.Select(ws => new
+        {
+            wsr_web_site_sk = ws.ws_web_site_sk,
+            date_sk = ws.ws_sold_date_sk,
+            sales_price = ws.ws_ext_sales_price,
+            profit = ws.ws_net_profit,
+            return_amt = (decimal?)0.00m,
+            net_loss = (decimal?)0.00m
+        });
+
+        var wrJoined = from wr in webReturnsQuery
+                       join ws in webSalesQuery on new { item_sk = wr.wr_item_sk, order_num = wr.wr_order_number }
+                                            equals new { item_sk = ws.ws_item_sk, order_num = ws.ws_order_number }
+                       select new
+                       {
+                           wsr_web_site_sk = ws.ws_web_site_sk,
+                           date_sk = wr.wr_returned_date_sk,
+                           sales_price = (decimal?)0.00m,
+                           profit = (decimal?)0.00m,
+                           return_amt = wr.wr_return_amt,
+                           net_loss = wr.wr_net_loss
+                       };
+
+        var wsUnion = wsPart.Concat(wrJoined);
+
+        var wsrGroup = from w in wsUnion
+                       join d in filteredDates on w.date_sk equals d.d_date_sk
+                       join ws in webSiteQuery on w.wsr_web_site_sk equals ws.web_site_sk
+                       group w by ws.web_site_id into g
+                       select new
+                       {
+                           web_site_id = g.Key,
+                           sales = g.Sum(x => x.sales_price),
+                           profit = g.Sum(x => x.profit),
+                           returns_ = g.Sum(x => x.return_amt),
+                           profit_loss = g.Sum(x => x.net_loss)
+                       };
+
+        var wsr = from r in wsrGroup
+                  select new
+                  {
+                      channel = "web channel",
+                      id = "web_site" + r.web_site_id,
+                      sales = r.sales,
+                      returns_ = r.returns_,
+                      profit = r.profit - r.profit_loss
+                  };
+
+        // Combined stream x
+        var x = ssr.Concat(csr).Concat(wsr);
+
+        // 3-Level ROLLUP:
+        // Level 1: By (channel, id)
+        var rollupLevel1 = from r in x
+                           group r by new { r.channel, r.id } into g
+                           select new
+                           {
+                               channel = (string?)g.Key.channel,
+                               id = (string?)g.Key.id,
+                               sales = g.Sum(v => v.sales),
+                               returns_ = g.Sum(v => v.returns_),
+                               profit = g.Sum(v => v.profit)
+                           };
+
+        // Level 2: By channel (id = null)
+        var rollupLevel2 = from r in x
+                           group r by r.channel into g
+                           select new
+                           {
+                               channel = (string?)g.Key,
+                               id = (string?)null,
+                               sales = g.Sum(v => v.sales),
+                               returns_ = g.Sum(v => v.returns_),
+                               profit = g.Sum(v => v.profit)
+                           };
+
+        // Level 3: Grand Total (channel = null, id = null)
+        var rollupLevel3 = from r in x
+                           group r by 1 into g
+                           select new
+                           {
+                               channel = (string?)null,
+                               id = (string?)null,
+                               sales = g.Sum(v => v.sales),
+                               returns_ = g.Sum(v => v.returns_),
+                               profit = g.Sum(v => v.profit)
+                           };
+
+        var q5 = (from r in rollupLevel1.Concat(rollupLevel2).Concat(rollupLevel3)
+                  orderby r.channel, r.id
+                  select r).Take(100);
+
+        AssertPlan(ssr, NativePushdown);
+        AssertPlan(csr, NativePushdown);
+        AssertPlan(wsr, NativePushdown);
+        AssertPlan(x, NativePushdown);
+        AssertPlan(rollupLevel1, NativePushdown);
+        AssertPlan(rollupLevel2, NativePushdown);
+        AssertPlan(rollupLevel3, NativePushdown);
+
+        AssertPlan(q5, NativePushdown);
+
+        var polarsResult = q5.ToList();
+        Assert.NotEmpty(polarsResult);
+
+        // DuckDB Ground Truth Cross-Validation
+        var duckDbSql = $@"
+            WITH ssr AS
+              (SELECT s_store_id,
+                      sum(sales_price) AS sales,
+                      sum(profit) AS profit,
+                      sum(return_amt) AS returns_,
+                      sum(net_loss) AS profit_loss
+               FROM
+                 (SELECT ss_store_sk AS store_sk,
+                         ss_sold_date_sk AS date_sk,
+                         ss_ext_sales_price AS sales_price,
+                         ss_net_profit AS profit,
+                         cast(0 AS decimal(7,2)) AS return_amt,
+                         cast(0 AS decimal(7,2)) AS net_loss
+                  FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                  UNION ALL SELECT sr_store_sk AS store_sk,
+                                   sr_returned_date_sk AS date_sk,
+                                   cast(0 AS decimal(7,2)) AS sales_price,
+                                   cast(0 AS decimal(7,2)) AS profit,
+                                   sr_return_amt AS return_amt,
+                                   sr_net_loss AS net_loss
+                  FROM read_parquet('{TpcdsData.StoreReturnsPath}') ) salesreturns,
+                    read_parquet('{TpcdsData.DateDimPath}') date_dim,
+                    read_parquet('{TpcdsData.StorePath}') store
+               WHERE date_sk = d_date_sk
+                 AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-06' AS date)
+                 AND store_sk = s_store_sk
+               GROUP BY s_store_id) ,
+                 csr AS
+              (SELECT cp_catalog_page_id,
+                      sum(sales_price) AS sales,
+                      sum(profit) AS profit,
+                      sum(return_amt) AS returns_,
+                      sum(net_loss) AS profit_loss
+               FROM
+                 (SELECT cs_catalog_page_sk AS page_sk,
+                         cs_sold_date_sk AS date_sk,
+                         cs_ext_sales_price AS sales_price,
+                         cs_net_profit AS profit,
+                         cast(0 AS decimal(7,2)) AS return_amt,
+                         cast(0 AS decimal(7,2)) AS net_loss
+                  FROM read_parquet('{TpcdsData.CatalogSalesPath}')
+                  UNION ALL SELECT cr_catalog_page_sk AS page_sk,
+                                   cr_returned_date_sk AS date_sk,
+                                   cast(0 AS decimal(7,2)) AS sales_price,
+                                   cast(0 AS decimal(7,2)) AS profit,
+                                   cr_return_amount AS return_amt,
+                                   cr_net_loss AS net_loss
+                  FROM read_parquet('{TpcdsData.CatalogReturnsPath}') ) salesreturns,
+                    read_parquet('{TpcdsData.DateDimPath}') date_dim,
+                    read_parquet('{TpcdsData.CatalogPagePath}') catalog_page
+               WHERE date_sk = d_date_sk
+                 AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-06' AS date)
+                 AND page_sk = cp_catalog_page_sk
+               GROUP BY cp_catalog_page_id) ,
+                 wsr AS
+              (SELECT web_site_id,
+                      sum(sales_price) AS sales,
+                      sum(profit) AS profit,
+                      sum(return_amt) AS returns_,
+                      sum(net_loss) AS profit_loss
+               FROM
+                 (SELECT ws_web_site_sk AS wsr_web_site_sk,
+                         ws_sold_date_sk AS date_sk,
+                         ws_ext_sales_price AS sales_price,
+                         ws_net_profit AS profit,
+                         cast(0 AS decimal(7,2)) AS return_amt,
+                         cast(0 AS decimal(7,2)) AS net_loss
+                  FROM read_parquet('{TpcdsData.WebSalesPath}')
+                  UNION ALL SELECT ws_web_site_sk AS wsr_web_site_sk,
+                                   wr_returned_date_sk AS date_sk,
+                                   cast(0 AS decimal(7,2)) AS sales_price,
+                                   cast(0 AS decimal(7,2)) AS profit,
+                                   wr_return_amt AS return_amt,
+                                   wr_net_loss AS net_loss
+                  FROM read_parquet('{TpcdsData.WebReturnsPath}') web_returns
+                  LEFT OUTER JOIN read_parquet('{TpcdsData.WebSalesPath}') web_sales ON (wr_item_sk = ws_item_sk
+                                                AND wr_order_number = ws_order_number) ) salesreturns,
+                    read_parquet('{TpcdsData.DateDimPath}') date_dim,
+                    read_parquet('{TpcdsData.WebSitePath}') web_site
+               WHERE date_sk = d_date_sk
+                 AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-06' AS date)
+                 AND wsr_web_site_sk = web_site_sk
+               GROUP BY web_site_id)
+            SELECT channel ,
+                   id ,
+                   sum(sales) AS sales ,
+                   sum(returns_) AS returns_ ,
+                   sum(profit) AS profit
+            FROM
+              (SELECT 'store channel' AS channel ,
+                      concat('store', s_store_id) AS id ,
+                      sales ,
+                      returns_ ,
+                      (profit - profit_loss) AS profit
+               FROM ssr
+               UNION ALL SELECT 'catalog channel' AS channel ,
+                                concat('catalog_page', cp_catalog_page_id) AS id ,
+                                sales ,
+                                returns_ ,
+                                (profit - profit_loss) AS profit
+               FROM csr
+               UNION ALL SELECT 'web channel' AS channel ,
+                                concat('web_site', web_site_id) AS id ,
+                                sales ,
+                                returns_ ,
+                                (profit - profit_loss) AS profit
+               FROM wsr ) x
+            GROUP BY ROLLUP (channel,
+                             id)
+            ORDER BY channel NULLS FIRST,
+                     id NULLS FIRST
+            LIMIT 100;
+        ";
+
+        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
+        {
+            channel = r.IsDBNull(0) ? (string?)null : r.GetString(0),
+            id = r.IsDBNull(1) ? (string?)null : r.GetString(1),
+            sales = r.IsDBNull(2) ? (decimal?)null : r.GetDecimal(2),
+            returns_ = r.IsDBNull(3) ? (decimal?)null : r.GetDecimal(3),
+            profit = r.IsDBNull(4) ? (decimal?)null : r.GetDecimal(4),
+        });
+
+        Assert.Equal(duckDbResults.Count, polarsResult.Count);
+        for (int i = 0; i < duckDbResults.Count; i++)
+        {
+            var d = duckDbResults[i];
+            var p = polarsResult[i];
+            Assert.Equal(d.channel, (string?)p.channel);
+            Assert.Equal(d.id, (string?)p.id);
+            Assert.Equal(d.sales ?? 0m, (decimal?)p.sales ?? 0m);
+            Assert.Equal(d.returns_ ?? 0m, (decimal?)p.returns_ ?? 0m);
+            Assert.Equal(d.profit ?? 0m, (decimal?)p.profit ?? 0m);
+        }
+    }
 }
