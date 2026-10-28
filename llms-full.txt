@@ -199,7 +199,6 @@ Polars.NET supports creating DataFrames from in-memory records, strongly-typed c
 
 
 ```csharp [C# (Fluent API)]
-using Polars;
 using Polars.CSharp;
 using static Polars.CSharp.Polars;
 
@@ -434,7 +433,6 @@ Expressions overload standard arithmetic and logical operators.
 
 
 ```csharp [C# (Fluent API)]
-using Polars;
 using Polars.CSharp;
 using static Polars.CSharp.Polars;
 
@@ -723,7 +721,6 @@ When you trigger materialization (`.Collect()`), the Rust query optimizer analyz
 
 
 ```csharp [C# (Eager vs Lazy)]
-using Polars;
 using Polars.CSharp;
 using static Polars.CSharp.Polars;
 
@@ -813,7 +810,6 @@ Instead of loading massive files entirely into RAM with `ReadParquet` or `ReadCs
 
 
 ```csharp [C# (Fluent API)]
-using Polars;
 using Polars.CSharp;
 
 // Reads 0 data bytes from disk! Only file metadata is inspected.
@@ -971,7 +967,6 @@ Pass `Engine.Streaming` into `.Collect()` or use asynchronous batch iteration:
 
 
 ```csharp [C# (Streaming Execution)]
-using Polars;
 using Polars.CSharp;
 
 var lf = LazyFrame.ScanParquet("giant_dataset_50gb.parquet")
@@ -2277,7 +2272,6 @@ To query a DataFrame or LazyFrame with LINQ, call `.AsQueryable<T>()`. The query
 
 
 ```csharp [C# (Query Syntax)]
-using Polars;
 using Polars.CSharp;
 using Polars.CSharp.Linq;
 
@@ -2301,7 +2295,6 @@ Console.WriteLine(query.Explain());
 ```
 
 ```csharp [C# (Method Syntax)]
-using Polars;
 using Polars.CSharp;
 using Polars.CSharp.Linq;
 
