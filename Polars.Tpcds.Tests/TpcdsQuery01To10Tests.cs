@@ -1640,4 +1640,420 @@ public class TpcdsQuery01To10Tests
             if (d.agg4 == null) Assert.Null(p.agg4); else Assert.Equal(d.agg4.Value, (double)p.agg4!, 4);
         }
     }
+
+    private static readonly string[] Q8TargetZips = [
+        "24128", "76232", "65084", "87816", "83926", "77556", "20548", "26231", "43848", "15126",
+        "91137", "61265", "98294", "25782", "17920", "18426", "98235", "40081", "84093", "28577",
+        "55565", "17183", "54601", "67897", "22752", "86284", "18376", "38607", "45200", "21756",
+        "29741", "96765", "23932", "89360", "29839", "25989", "28898", "91068", "72550", "10390",
+        "18845", "47770", "82636", "41367", "76638", "86198", "81312", "37126", "39192", "88424",
+        "72175", "81426", "53672", "10445", "42666", "66864", "66708", "41248", "48583", "82276",
+        "18842", "78890", "49448", "14089", "38122", "34425", "79077", "19849", "43285", "39861",
+        "66162", "77610", "13695", "99543", "83444", "83041", "12305", "57665", "68341", "25003",
+        "57834", "62878", "49130", "81096", "18840", "27700", "23470", "50412", "21195", "16021",
+        "76107", "71954", "68309", "18119", "98359", "64544", "10336", "86379", "27068", "39736",
+        "98569", "28915", "24208", "56529", "57647", "54940", "91631", "43844", "21270", "96494",
+        "57195", "52775", "16994", "82626", "51235", "36918", "83698", "64501", "28294", "43254",
+        "46875", "20188", "39939", "23102", "39473", "32426", "74005", "66123", "19869", "24284",
+        "65520", "70370", "85643", "40214", "79699", "58051", "70281", "73315", "23105", "76110",
+        "50508", "71866", "53971", "66081", "67308", "42359", "29465", "94576", "24107", "97389",
+        "75005", "10740", "33725", "27549", "22367", "66682", "55845", "10363", "38324", "42962",
+        "35442", "54246", "38125", "44810", "43535", "82762", "90772", "99849", "92183", "98895",
+        "76586", "74586", "78340", "58749", "67980", "11388", "70946", "60453", "42085", "57768",
+        "66108", "44641", "39626", "61348", "28394", "19551", "10980", "43560", "37435", "30282",
+        "94042", "27760", "77915", "51200", "51222", "85781", "47747", "45519", "43962", "50192",
+        "73428", "32126", "76140", "61310", "12066", "76635", "86376", "85683", "37869", "42397",
+        "39061", "36395", "85913", "53365", "37876", "39805", "63708", "40984", "60063", "15672",
+        "40858", "98982", "68349", "84360", "22432", "18483", "63772", "39809", "49439", "92789",
+        "42581", "46926", "59033", "59416", "82003", "27660", "11624", "85625", "84961", "35961",
+        "80593", "17258", "55131", "92058", "72183", "81111", "52692", "15339", "77638", "15366",
+        "78589", "59275", "76903", "24718", "13025", "37933", "83462", "78404", "68323", "36915",
+        "16773", "95662", "42689", "83782", "77905", "67224", "97984", "51148", "16029", "17954",
+        "52925", "30141", "80140", "91243", "78272", "52057", "57877", "42838", "21114", "83962",
+        "56651", "57126", "10397", "10476", "32270", "43633", "76000", "93173", "89848", "47256",
+        "25377", "62373", "47583", "31500", "40277", "20257", "64582", "67768", "85034", "87140",
+        "54648", "78138", "53708", "30934", "13193", "60218", "65673", "92081", "12065", "83891",
+        "90457", "16450", "45539", "20601", "10093", "20008", "85397", "27363", "47305", "99307",
+        "92987", "52972", "80469", "44052", "41747", "93707", "29380", "69124", "47669", "65344",
+        "58120", "47541", "56101", "92636", "13377", "32779", "44061", "73570", "71231", "81335",
+        "64872", "66872", "25368", "79805", "44524", "21671", "37736", "42233", "52232", "52719",
+        "61626", "88805", "25876", "49601", "48763", "98683", "22478", "35769", "73905", "83765",
+        "67865", "76359", "73019", "28455", "81215", "57833", "20738", "61804", "42940", "28724",
+        "48089", "71863", "58735", "52631", "79358", "74170", "20654", "46643", "18734", "89915",
+        "41317", "63954", "21753", "46587", "54207", "26524", "17764", "88255", "39968", "70320",
+        "87534", "13054", "77274", "60666", "96554", "46049", "17776", "41247", "44851", "95877",
+        "61166", "30605", "54608", "26780", "99009", "20372", "53268", "59858", "60913", "89533",
+        "28616", "71101", "18984", "66160", "78052", "86976", "49269", "83886", "52437", "70578",
+        "88321", "50061", "73145", "37691", "41991", "74773", "53426", "35680", "75466", "12246",
+        "30066", "64720", "38867", "48481", "21193", "46228", "47244", "89508", "74494", "64818",
+        "23075", "50416", "25733", "50863", "94324", "14458", "20100", "21900", "13417", "55791",
+        "28655", "20106", "26536", "86199", "71618", "37511", "98730", "14871", "51961", "92186",
+        "76676", "92557", "28603", "84352", "88050", "18139", "70288", "40921", "31858", "21177",
+        "82425", "73140", "66218", "49939", "88168", "50163", "84098", "66649", "60125", "12461",
+        "44977", "66301", "25584", "59673", "17761", "17373", "30050", "61387", "51607", "26508",
+        "53131", "98083", "63322", "40996", "55777", "25913", "55409", "27859", "72555", "66512",
+        "45451", "13494", "42405", "49673", "80841", "67398", "62745", "35701", "70187", "53910",
+        "65881", "44022", "40164", "12970", "70920", "87784", "10811", "82640", "36368", "39723",
+        "67009", "52263", "71948", "43656", "37877", "25538", "25276", "31272", "40857", "26545",
+        "64324", "88758", "85382", "95050", "77105", "67871", "39920", "78465", "54602", "10653",
+        "79580", "65813", "31071", "74161", "81708", "44550", "21790", "33534", "59845", "78933",
+        "57419", "17510", "71668", "63792", "31589", "53524", "30802", "17406", "49101", "70272",
+        "54409", "59897", "10008", "43149", "19239", "78270", "96445", "22469", "20539", "12692",
+        "96840", "25097", "32982", "71504", "20589", "81269", "49221", "79703", "70837", "35160",
+        "54589", "87097", "27197", "16715", "10643", "43805", "67020", "61394", "45701", "68725",
+        "27422", "24626", "22608", "65659", "37400", "44529", "46081", "72228", "60769", "40520",
+        "53341", "35265", "28698", "12044", "95543", "69770", "83286", "83849", "68908", "26689",
+        "96451", "38193", "46820", "88885", "84935", "69035", "83144", "47537", "56616", "94983",
+        "48033", "69952", "25486", "61547", "27385", "61860", "58048", "56910", "16807", "17871",
+        "35258", "31387", "35458", "35576"
+    ];
+
+    /*
+     * TPC-DS Query 8
+     *
+     * SELECT s_store_name,
+     *        sum(ss_net_profit)
+     * FROM store_sales,
+     *      date_dim,
+     *      store,
+     *   (SELECT ca_zip
+     *    FROM
+     *      (SELECT SUBSTRING(ca_zip, 1, 5) ca_zip
+     *       FROM customer_address
+     *       WHERE SUBSTRING(ca_zip, 1, 5) IN (<400 zip codes>)
+     *       INTERSECT
+     *       SELECT ca_zip
+     *       FROM
+     *         (SELECT SUBSTRING(ca_zip, 1, 5) ca_zip,
+     *                 count(*) cnt
+     *          FROM customer_address,
+     *               customer
+     *          WHERE ca_address_sk = c_current_addr_sk
+     *            AND c_preferred_cust_flag='Y'
+     *          GROUP BY ca_zip
+     *          HAVING count(*) > 10)A1)A2) V1
+     * WHERE ss_store_sk = s_store_sk
+     *   AND ss_sold_date_sk = d_date_sk
+     *   AND d_qoy = 2
+     *   AND d_year = 1998
+     *   AND (SUBSTRING(s_zip, 1, 2) = SUBSTRING(V1.ca_zip, 1, 2))
+     * GROUP BY s_store_name
+     * ORDER BY s_store_name
+     * LIMIT 100;
+     */
+    [Fact]
+    [Trait("TPCDS", "Q8")]
+    public void Test_Q8()
+    {
+        IQueryable<dynamic> BuildQuery(string[] targetZips, long minCount)
+        {
+            var lfStoreSales = TpcdsData.StoreSales();
+            var lfDateDim = TpcdsData.DateDim();
+            var lfStore = TpcdsData.Store();
+            var lfAddress1 = TpcdsData.CustomerAddress();
+            var lfAddress2 = TpcdsData.CustomerAddress();
+            var lfCustomer = TpcdsData.Customer();
+
+            var storeSalesQuery = lfStoreSales.AsQueryable<StoreSales>();
+            var dateDimQuery = lfDateDim.AsQueryable<DateDim>();
+            var storeQuery = lfStore.AsQueryable<Store>();
+            var addressQuery1 = lfAddress1.AsQueryable<CustomerAddress>();
+            var addressQuery2 = lfAddress2.AsQueryable<CustomerAddress>();
+            var customerQuery = lfCustomer.AsQueryable<Customer>();
+
+            // V1: ca_zip set intersection
+            var z1 = (from ca in addressQuery1
+                      where ca.ca_zip != null && targetZips.Contains(ca.ca_zip.Substring(0, 5))
+                      select new { ca_zip = ca.ca_zip!.Substring(0, 5) }).Distinct();
+
+            var z2 = from ca in addressQuery2
+                     join c in customerQuery on ca.ca_address_sk equals c.c_current_addr_sk
+                     where c.c_preferred_cust_flag == "Y" && ca.ca_zip != null
+                     group ca by ca.ca_zip!.Substring(0, 5) into g
+                     where g.Count() > minCount
+                     select new { ca_zip = g.Key };
+
+            var v1 = z1.Intersect(z2);
+
+            var filteredDates = dateDimQuery.Where(d => d.d_qoy == 2 && d.d_year == 1998);
+
+            var query = (from ss in storeSalesQuery
+                         join d in filteredDates on ss.ss_sold_date_sk equals d.d_date_sk
+                         join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
+                         join v in v1 on s.s_zip!.Substring(0, 2) equals v.ca_zip.Substring(0, 2)
+                         group ss by s.s_store_name into g
+                         select new
+                         {
+                             s_store_name = g.Key,
+                             net_profit = g.Sum(x => x.ss_net_profit)
+                         } into r
+                         orderby r.s_store_name
+                         select r).Take(100);
+
+            return query;
+        }
+
+        // 1. Standard parameter (400 zip codes, minCount = 10, yields 0 rows on SF=0.01)
+        var standardQuery = BuildQuery(Q8TargetZips, 10);
+        AssertPlan(standardQuery, NativePushdown);
+
+        var standardResult = standardQuery.ToList();
+        Assert.Empty(standardResult);
+
+        // 2. Active parameter with data on SF=0.01 (active zips starting with '31', minCount = 0)
+        string[] activeZips = ["31289", "31749"];
+        var activeQuery = BuildQuery(activeZips, 0);
+        AssertPlan(activeQuery, NativePushdown);
+
+        var activeResult = activeQuery.ToList();
+        Assert.NotEmpty(activeResult);
+
+        // DuckDB Cross-Validation for active parameter
+        var duckDbSql = $@"
+            WITH v1 AS (
+              SELECT ca_zip
+               FROM
+                 (SELECT SUBSTRING(ca_zip, 1, 5) ca_zip
+                  FROM read_parquet('{TpcdsData.CustomerAddressPath}')
+                  WHERE SUBSTRING(ca_zip, 1, 5) IN ('31289', '31749')
+                  INTERSECT
+                  SELECT ca_zip
+                  FROM
+                    (SELECT SUBSTRING(ca_zip, 1, 5) ca_zip,
+                            count(*) cnt
+                     FROM read_parquet('{TpcdsData.CustomerAddressPath}'),
+                          read_parquet('{TpcdsData.CustomerPath}')
+                     WHERE ca_address_sk = c_current_addr_sk
+                       AND c_preferred_cust_flag='Y'
+                     GROUP BY ca_zip
+                     HAVING count(*) > 0)A1)A2)
+            SELECT s_store_name,
+                   sum(ss_net_profit)
+            FROM read_parquet('{TpcdsData.StoreSalesPath}'),
+                 read_parquet('{TpcdsData.DateDimPath}'),
+                 read_parquet('{TpcdsData.StorePath}'),
+                 v1
+            WHERE ss_store_sk = s_store_sk
+              AND ss_sold_date_sk = d_date_sk
+              AND d_qoy = 2
+              AND d_year = 1998
+              AND (SUBSTRING(s_zip, 1, 2) = SUBSTRING(v1.ca_zip, 1, 2))
+            GROUP BY s_store_name
+            ORDER BY s_store_name
+            LIMIT 100;
+        ";
+
+        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
+        {
+            s_store_name = r.GetString(0),
+            net_profit = r.GetDecimal(1)
+        });
+
+        Assert.Equal(duckDbResults.Count, activeResult.Count);
+        for (int idx = 0; idx < duckDbResults.Count; idx++)
+        {
+            var d = duckDbResults[idx];
+            var p = activeResult[idx];
+            Assert.Equal(d.s_store_name, (string)p.s_store_name);
+            Assert.Equal(d.net_profit, (decimal)p.net_profit);
+        }
+    }
+
+    /*
+     * TPC-DS Query 9
+     *
+     * SELECT CASE
+     *            WHEN
+     *                   (SELECT count(*)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 1 AND 20) > 74129 THEN
+     *                   (SELECT avg(ss_ext_discount_amt)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 1 AND 20)
+     *            ELSE
+     *                   (SELECT avg(ss_net_paid)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 1 AND 20)
+     *        END bucket1,
+     *        CASE
+     *            WHEN
+     *                   (SELECT count(*)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 21 AND 40) > 122840 THEN
+     *                   (SELECT avg(ss_ext_discount_amt)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 21 AND 40)
+     *            ELSE
+     *                   (SELECT avg(ss_net_paid)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 21 AND 40)
+     *        END bucket2,
+     *        CASE
+     *            WHEN
+     *                   (SELECT count(*)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 41 AND 60) > 56580 THEN
+     *                   (SELECT avg(ss_ext_discount_amt)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 41 AND 60)
+     *            ELSE
+     *                   (SELECT avg(ss_net_paid)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 41 AND 60)
+     *        END bucket3,
+     *        CASE
+     *            WHEN
+     *                   (SELECT count(*)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 61 AND 80) > 10097 THEN
+     *                   (SELECT avg(ss_ext_discount_amt)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 61 AND 80)
+     *            ELSE
+     *                   (SELECT avg(ss_net_paid)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 61 AND 80)
+     *        END bucket4,
+     *        CASE
+     *            WHEN
+     *                   (SELECT count(*)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 81 AND 100) > 165306 THEN
+     *                   (SELECT avg(ss_ext_discount_amt)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 81 AND 100)
+     *            ELSE
+     *                   (SELECT avg(ss_net_paid)
+     *                    FROM store_sales
+     *                    WHERE ss_quantity BETWEEN 81 AND 100)
+     *        END bucket5
+     * FROM reason
+     * WHERE r_reason_sk = 1;
+     */
+    [Fact]
+    [Trait("TPCDS", "Q9")]
+    public void Test_Q9()
+    {
+        using var lfReason = TpcdsData.Reason();
+        using var lfStoreSales = TpcdsData.StoreSales();
+
+        var reasonQuery = lfReason.AsQueryable<Reason>();
+        var storeSalesQuery = lfStoreSales.AsQueryable<StoreSales>();
+
+        var q9 = from r in reasonQuery.Where(r => r.r_reason_sk == 1)
+                 select new
+                 {
+                     bucket1 = (storeSalesQuery.Where(ss => ss.ss_quantity >= 1 && ss.ss_quantity <= 20).LongCount() > 74129)
+                         ? storeSalesQuery.Where(ss => ss.ss_quantity >= 1 && ss.ss_quantity <= 20).Average(ss => (double?)ss.ss_ext_discount_amt)
+                         : storeSalesQuery.Where(ss => ss.ss_quantity >= 1 && ss.ss_quantity <= 20).Average(ss => (double?)ss.ss_net_paid),
+                     bucket2 = (storeSalesQuery.Where(ss => ss.ss_quantity >= 21 && ss.ss_quantity <= 40).LongCount() > 122840)
+                         ? storeSalesQuery.Where(ss => ss.ss_quantity >= 21 && ss.ss_quantity <= 40).Average(ss => (double?)ss.ss_ext_discount_amt)
+                         : storeSalesQuery.Where(ss => ss.ss_quantity >= 21 && ss.ss_quantity <= 40).Average(ss => (double?)ss.ss_net_paid),
+                     bucket3 = (storeSalesQuery.Where(ss => ss.ss_quantity >= 41 && ss.ss_quantity <= 60).LongCount() > 56580)
+                         ? storeSalesQuery.Where(ss => ss.ss_quantity >= 41 && ss.ss_quantity <= 60).Average(ss => (double?)ss.ss_ext_discount_amt)
+                         : storeSalesQuery.Where(ss => ss.ss_quantity >= 41 && ss.ss_quantity <= 60).Average(ss => (double?)ss.ss_net_paid),
+                     bucket4 = (storeSalesQuery.Where(ss => ss.ss_quantity >= 61 && ss.ss_quantity <= 80).LongCount() > 10097)
+                         ? storeSalesQuery.Where(ss => ss.ss_quantity >= 61 && ss.ss_quantity <= 80).Average(ss => (double?)ss.ss_ext_discount_amt)
+                         : storeSalesQuery.Where(ss => ss.ss_quantity >= 61 && ss.ss_quantity <= 80).Average(ss => (double?)ss.ss_net_paid),
+                     bucket5 = (storeSalesQuery.Where(ss => ss.ss_quantity >= 81 && ss.ss_quantity <= 100).LongCount() > 165306)
+                         ? storeSalesQuery.Where(ss => ss.ss_quantity >= 81 && ss.ss_quantity <= 100).Average(ss => (double?)ss.ss_ext_discount_amt)
+                         : storeSalesQuery.Where(ss => ss.ss_quantity >= 81 && ss.ss_quantity <= 100).Average(ss => (double?)ss.ss_net_paid),
+                 };
+
+        Console.WriteLine(q9.Explain());
+        AssertPlan(q9, NativePushdown);
+
+        var polarsResult = q9.ToList();
+        Assert.Single(polarsResult);
+
+        // DuckDB Cross-Validation
+        var duckDbSql = $@"
+            SELECT CASE
+                       WHEN
+                              (SELECT count(*)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 1 AND 20) > 74129 THEN
+                              (SELECT avg(ss_ext_discount_amt)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 1 AND 20)
+                       ELSE
+                              (SELECT avg(ss_net_paid)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 1 AND 20)
+                   END bucket1,
+                   CASE
+                       WHEN
+                              (SELECT count(*)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 21 AND 40) > 122840 THEN
+                              (SELECT avg(ss_ext_discount_amt)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 21 AND 40)
+                       ELSE
+                              (SELECT avg(ss_net_paid)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 21 AND 40)
+                   END bucket2,
+                   CASE
+                       WHEN
+                              (SELECT count(*)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 41 AND 60) > 56580 THEN
+                              (SELECT avg(ss_ext_discount_amt)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 41 AND 60)
+                       ELSE
+                              (SELECT avg(ss_net_paid)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 41 AND 60)
+                   END bucket3,
+                   CASE
+                       WHEN
+                              (SELECT count(*)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 61 AND 80) > 10097 THEN
+                              (SELECT avg(ss_ext_discount_amt)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 61 AND 80)
+                       ELSE
+                              (SELECT avg(ss_net_paid)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 61 AND 80)
+                   END bucket4,
+                   CASE
+                       WHEN
+                              (SELECT count(*)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 81 AND 100) > 165306 THEN
+                              (SELECT avg(ss_ext_discount_amt)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 81 AND 100)
+                       ELSE
+                              (SELECT avg(ss_net_paid)
+                               FROM read_parquet('{TpcdsData.StoreSalesPath}')
+                               WHERE ss_quantity BETWEEN 81 AND 100)
+                   END bucket5
+            FROM read_parquet('{TpcdsData.ReasonPath}')
+            WHERE r_reason_sk = 1;
+        ";
+
+        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
+        {
+            bucket1 = r.GetDouble(0),
+            bucket2 = r.GetDouble(1),
+            bucket3 = r.GetDouble(2),
+            bucket4 = r.GetDouble(3),
+            bucket5 = r.GetDouble(4),
+        });
+
+        Assert.Single(duckDbResults);
+        var d = duckDbResults[0];
+        var p = polarsResult[0];
+
+        Assert.Equal(d.bucket1, p.bucket1!.Value, 4);
+        Assert.Equal(d.bucket2, p.bucket2!.Value, 4);
+        Assert.Equal(d.bucket3, p.bucket3!.Value, 4);
+        Assert.Equal(d.bucket4, p.bucket4!.Value, 4);
+        Assert.Equal(d.bucket5, p.bucket5!.Value, 4);
+    }
 }

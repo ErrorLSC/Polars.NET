@@ -52,16 +52,12 @@ module internal SubqueryDecorrelator =
         | Lambda(_, body) -> containsParameter paramName body
         | _ -> false
 
-    /// Determines if a type represents a scalar/primitive/string rather than a sequence/collection.
+    /// Determines if a type represents a scalar/primitive/string rather than a sequence/collection or composite type.
     let isScalarType (t: Type) : bool =
         if isNull t then
             false
-        elif t = typeof<string> then
-            true
-        elif typeof<System.Collections.IEnumerable>.IsAssignableFrom t then
-            false
         else
-            true
+            PolarsTypeHelper.IsScalarType t || t = typeof<string> || t.IsEnum
 
     /// Checks whether an expression contains a queryable source or LINQ reduction call.
     let rec containsSubquery (expr: Expression) : bool =

@@ -298,6 +298,8 @@ module internal QueryPipelineHelpers =
                     Convert.ChangeType(rawScalar, PolarsTypeHelper.GetUnderlyingOrSelf targetType)
 
                 vSomeMethod.Invoke(null, [| converted |]) :?> 'TResult
+            | OptionalKind.Nullable ->
+                Convert.ChangeType(rawScalar, PolarsTypeHelper.GetUnderlyingOrSelf targetType) :?> 'TResult
             | _ -> Convert.ChangeType(rawScalar, targetType) :?> 'TResult
 
     /// Maps standard reduction method names to Polars aggregate expressions
@@ -506,6 +508,16 @@ module internal QueryPipelineHelpers =
             Some [ ("Key", k); ("Value", v) ]
         | :? NewExpression as ne when ne.Type.Name.StartsWith "KeyValuePair" && ne.Arguments.Count = 2 ->
             Some [ ("Key", ne.Arguments.[0]); ("Value", ne.Arguments.[1]) ]
+        | :? ConstantExpression as ce when not (isNull ce.Value) && not (PolarsTypeHelper.IsScalarType ce.Type || ce.Type = typeof<string>) ->
+            let props = ce.Type.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+            if props.Length > 0 then
+                let bindings =
+                    props
+                    |> Array.map (fun p -> p.Name, Expression.Constant(p.GetValue(ce.Value), p.PropertyType) :> Expression)
+                    |> Array.toList
+                Some bindings
+            else
+                None
         | _ -> None
 
     /// Pattern structure representing an Unpivot (Melt) operation extracted from SelectMany
