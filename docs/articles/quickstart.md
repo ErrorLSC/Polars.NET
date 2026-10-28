@@ -40,7 +40,6 @@ Polars.NET supports creating DataFrames from in-memory records, strongly-typed c
 ::: code-group
 
 ```csharp [C# (Fluent API)]
-using Polars;
 using Polars.CSharp;
 using static Polars.CSharp.Polars;
 

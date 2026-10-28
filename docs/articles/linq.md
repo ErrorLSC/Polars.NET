@@ -44,7 +44,6 @@ To query a DataFrame or LazyFrame with LINQ, call `.AsQueryable<T>()`. The query
 ::: code-group
 
 ```csharp [C# (Query Syntax)]
-using Polars;
 using Polars.CSharp;
 using Polars.CSharp.Linq;
 
@@ -68,7 +67,6 @@ Console.WriteLine(query.Explain());
 ```
 
 ```csharp [C# (Method Syntax)]
-using Polars;
 using Polars.CSharp;
 using Polars.CSharp.Linq;
 

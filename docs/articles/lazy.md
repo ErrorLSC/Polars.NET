@@ -19,7 +19,6 @@ When you trigger materialization (`.Collect()`), the Rust query optimizer analyz
 ::: code-group
 
 ```csharp [C# (Eager vs Lazy)]
-using Polars;
 using Polars.CSharp;
 using static Polars.CSharp.Polars;
 
@@ -111,7 +110,6 @@ Instead of loading massive files entirely into RAM with `ReadParquet` or `ReadCs
 ::: code-group
 
 ```csharp [C# (Fluent API)]
-using Polars;
 using Polars.CSharp;
 
 // Reads 0 data bytes from disk! Only file metadata is inspected.
@@ -275,7 +273,6 @@ Pass `Engine.Streaming` into `.Collect()` or use asynchronous batch iteration:
 ::: code-group
 
 ```csharp [C# (Streaming Execution)]
-using Polars;
 using Polars.CSharp;
 
 var lf = LazyFrame.ScanParquet("giant_dataset_50gb.parquet")

@@ -39,7 +39,6 @@ Expressions overload standard arithmetic and logical operators.
 ::: code-group
 
 ```csharp [C# (Fluent API)]
-using Polars;
 using Polars.CSharp;
 using static Polars.CSharp.Polars;
 
