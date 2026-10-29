@@ -526,7 +526,7 @@ public class TpcdsQuery41To50Tests
                           select new
                           {
                               item_sk = g.Key,
-                              rank_col = rank_col
+                              rank_col
                           };
 
         var ascQuery = from b in baseGrouped
@@ -840,9 +840,9 @@ public class TpcdsQuery41To50Tests
         var customerAddressQuery = TpcdsData.CustomerAddressQuery();
         var customerQuery = TpcdsData.CustomerQuery();
 
-        var dowList = new long[] { 6, 0 };
-        var yearList = new long[] { 1999, 2000, 2001 };
-        var cityList = new[] { "Fairview", "Midway" };
+        long[] dowList = [ 6, 0 ];
+        long[] yearList = [ 1999, 2000, 2001 ];
+        string[] cityList = [ "Fairview", "Midway" ];
 
         var dn = from ss in storeSalesQuery
                  join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
@@ -872,7 +872,7 @@ public class TpcdsQuery41To50Tests
                    {
                        c.c_last_name,
                        c.c_first_name,
-                       ca_city = current_addr.ca_city,
+                       current_addr.ca_city,
                        d.bought_city,
                        d.ss_ticket_number,
                        d.amt,
