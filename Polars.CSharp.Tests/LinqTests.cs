@@ -1,10 +1,23 @@
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Polars.CSharp.Linq;
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
+
+public readonly record struct JsonOpsTestRecord(
+    int Id,
+    string RawJson,
+    string Extra
+);
+public class JsonMetaDto
+{
+    public int Id { get; set; }
+    public string Tag { get; set; } = string.Empty;
+}
 
 public record Employee(string Name, int Age, int Salary);
 public readonly record struct EmployeeDept(string Name, string Department, int Age, int Salary);
@@ -4054,8 +4067,7 @@ public partial class LinqTests
                           LowerChar = char.ToLower(r.B[0])
                       });
 
-        var plan = query.Explain();
-        Assert.Contains(NativePushdown, plan);
+        AssertPlan(query, NativePushdown);
         var results = query.ToList();
 
         Assert.Equal(2, results.Count);
@@ -4197,6 +4209,142 @@ public partial class LinqTests
         Assert.Equal("CA", results[2].Country);
         Assert.Equal("BC", results[2].Region);
         Assert.Equal("YVR", results[2].Airport);
+    }
+
+    [Fact]
+    [Trait("LINQ", "JsonVectorized")]
+    public void Test_Linq_SystemTextJson_Pushdown()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("RawJson", [
+                """{"user": "alice", "age": 25, "geo": {"city": "Seattle"}, "scores": [100, 95], "active": true}""",
+                """{"user": "bob", "age": 30, "geo": {"city": "Portland"}, "scores": [80, 85], "active": false}""",
+                """{"user": "charlie", "age": 35, "geo": {"city": "Vancouver"}, "scores": [90, 70], "active": true}"""
+            ]),
+            Series.From("Extra", ["info1", "info2", "info3"])
+        ]);
+
+        // 1. Where filter + Select projection combining JsonNode and JsonDocument
+        var query = df.AsQueryable<JsonOpsTestRecord>()
+                      .Where(r => (int)JsonNode.Parse(r.RawJson)["age"] >= 30)
+                      .Select(r => new
+                      {
+                          r.Id,
+                          // JsonNode indexer + casts
+                          UserFromNode = (string)JsonNode.Parse(r.RawJson)["user"],
+                          AgeFromNode = (int)JsonNode.Parse(r.RawJson)["age"],
+                          FirstScoreFromNode = (int)JsonNode.Parse(r.RawJson)["scores"][0],
+                          ActiveFromNode = (bool)JsonNode.Parse(r.RawJson)["active"],
+
+                          // JsonDocument + JsonElement property chains
+                          CityFromDoc = JsonDocument.Parse(r.RawJson).RootElement.GetProperty("geo").GetProperty("city").GetString(),
+                          SecondScoreFromDoc = JsonDocument.Parse(r.RawJson).RootElement.GetProperty("scores")[1].GetInt32(),
+
+                          // JsonNode method variants
+                          UserViaToString = JsonNode.Parse(r.RawJson)["user"].ToString(),
+                          AgeViaGetValue = JsonNode.Parse(r.RawJson)["age"].GetValue<int>(),
+
+                          // JsonSerializer.Serialize over anonymous object (AsStruct + StructJsonEncode)
+                          SerializedMeta = JsonSerializer.Serialize(new { r.Id, r.Extra })
+                      });
+
+        AssertPlan(query, NativePushdown);
+        var results = query.ToList();
+
+        // Bob (Id=2, Age=30) and Charlie (Id=3, Age=35)
+        Assert.Equal(2, results.Count);
+
+        // Bob
+        Assert.Equal(2, results[0].Id);
+        Assert.Equal("bob", results[0].UserFromNode);
+        Assert.Equal(30, results[0].AgeFromNode);
+        Assert.Equal(80, results[0].FirstScoreFromNode);
+        Assert.False(results[0].ActiveFromNode);
+        Assert.Equal("Portland", results[0].CityFromDoc);
+        Assert.Equal(85, results[0].SecondScoreFromDoc);
+        Assert.Equal("bob", results[0].UserViaToString);
+        Assert.Equal(30, results[0].AgeViaGetValue);
+        Assert.Contains("\"Id\":2", results[0].SerializedMeta);
+        Assert.Contains("\"Extra\":\"info2\"", results[0].SerializedMeta);
+
+        // Charlie
+        Assert.Equal(3, results[1].Id);
+        Assert.Equal("charlie", results[1].UserFromNode);
+        Assert.Equal(35, results[1].AgeFromNode);
+        Assert.Equal(90, results[1].FirstScoreFromNode);
+        Assert.True(results[1].ActiveFromNode);
+        Assert.Equal("Vancouver", results[1].CityFromDoc);
+        Assert.Equal(70, results[1].SecondScoreFromDoc);
+        Assert.Equal("charlie", results[1].UserViaToString);
+        Assert.Equal(35, results[1].AgeViaGetValue);
+        Assert.Contains("\"Id\":3", results[1].SerializedMeta);
+        Assert.Contains("\"Extra\":\"info3\"", results[1].SerializedMeta);
+    }
+
+    [Fact]
+    [Trait("LINQ", "JsonVectorized")]
+    public void Test_Linq_SystemTextJson_JsonDocument_Filter()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("RawJson", [
+                """{"status": "OK", "count": 10}""",
+                """{"status": "ERROR", "count": 50}""",
+                """{"status": "OK", "count": 20}"""
+            ]),
+            Series.From("Extra", ["e1", "e2", "e3"])
+        ]);
+
+        var query = df.AsQueryable<JsonOpsTestRecord>()
+                      .Where(r => JsonDocument.Parse(r.RawJson).RootElement.GetProperty("status").GetString() == "OK"
+                               && JsonDocument.Parse(r.RawJson).RootElement.GetProperty("count").GetInt32() > 15)
+                      .Select(r => new
+                      {
+                          r.Id,
+                          Status = JsonDocument.Parse(r.RawJson).RootElement.GetProperty("status").GetString()
+                      });
+
+        AssertPlan(query, NativePushdown);
+        var results = query.ToList();
+
+        Assert.Single(results);
+        Assert.Equal(3, results[0].Id);
+        Assert.Equal("OK", results[0].Status);
+    }
+
+    [Fact]
+    [Trait("LINQ", "JsonVectorized")]
+    public void Test_Linq_SystemTextJson_MemberInit_Serialize()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [10, 20]),
+            Series.From("RawJson", [
+                """{"name": "dev"}""",
+                """{"name": "prod"}"""
+            ]),
+            Series.From("Extra", ["tag1", "tag2"])
+        ]);
+
+        var query = df.AsQueryable<JsonOpsTestRecord>()
+                      .Select(r => new
+                      {
+                          r.Id,
+                          Name = (string)JsonNode.Parse(r.RawJson)["name"],
+                          DtoJson = JsonSerializer.Serialize(new JsonMetaDto { Id = r.Id, Tag = r.Extra })
+                      });
+
+        AssertPlan(query, NativePushdown);
+        var results = query.ToList();
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal("dev", results[0].Name);
+        Assert.Contains("\"Id\":10", results[0].DtoJson);
+        Assert.Contains("\"Tag\":\"tag1\"", results[0].DtoJson);
+
+        Assert.Equal("prod", results[1].Name);
+        Assert.Contains("\"Id\":20", results[1].DtoJson);
+        Assert.Contains("\"Tag\":\"tag2\"", results[1].DtoJson);
     }
 
     [Fact]

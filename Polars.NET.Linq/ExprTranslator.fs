@@ -10,6 +10,8 @@ open System.Linq.Expressions
 open System.Text.RegularExpressions
 open Polars.NET.Core.Helpers
 open Apache.Arrow.Types
+open System.Text.Json
+open System.Text.Json.Nodes
 
 /// Represents the semantic parameter context for LINQ expression tree translation.
 [<RequireQualifiedAccess>]
@@ -2399,6 +2401,76 @@ module internal rec ExprTranslator =
         | ListSelect _ -> None
 
     // =========================================================================
+    // 8b. JSON Operations (System.Text.Json)
+    // =========================================================================
+
+    let private translateJsonInvocation (ctx: TranslationContext) (invocation: JsonInvocation) : ExprHandle option =
+        match invocation with
+        | JsonPathMatch(target, path, targetType) ->
+            tryTranslateWithContext ctx target
+            |> Option.bind (fun t ->
+                let pathH = PolarsWrapper.Lit path
+                let matchH = PolarsWrapper.StrJsonPathMatch(t, pathH)
+                if targetType = typeof<string> || targetType = typeof<obj> then
+                    Some matchH
+                elif targetType = typeof<bool> || targetType = typeof<Nullable<bool>> then
+                    let lowerH = PolarsWrapper.StrToLower matchH
+                    Some(PolarsWrapper.Eq(lowerH, PolarsWrapper.Lit "true"))
+                else
+                    tryTranslateCast targetType matchH)
+
+        | JsonSerialize target ->
+            let unwrappedTarget = unwrap target
+            match unwrappedTarget with
+            | :? NewExpression as ne ->
+                let memberNames =
+                    if not (isNull ne.Members) && ne.Members.Count = ne.Arguments.Count then
+                        ne.Members |> Seq.map (fun m -> m.Name) |> Seq.toArray
+                    elif not (isNull ne.Constructor) then
+                        let ctorParams = ne.Constructor.GetParameters()
+                        ctorParams |> Array.map (fun p -> p.Name)
+                    else
+                        [||]
+
+                let argHandles =
+                    ne.Arguments
+                    |> Seq.mapi (fun i argExpr ->
+                        match tryTranslateWithContext ctx argExpr with
+                        | Some h ->
+                            let fieldName = if i < memberNames.Length then memberNames.[i] else sprintf "field_%d" i
+                            Some(PolarsWrapper.Alias(h, fieldName))
+                        | None -> None)
+                    |> Seq.toList
+
+                if argHandles |> List.forall Option.isSome then
+                    let handlesArray = argHandles |> List.map Option.get |> List.toArray
+                    let structH = PolarsWrapper.AsStruct handlesArray
+                    Some(PolarsWrapper.StructJsonEncode structH)
+                else
+                    None
+
+            | :? MemberInitExpression as mie ->
+                let bindings =
+                    mie.Bindings
+                    |> Seq.choose (fun b ->
+                        match b with
+                        | :? MemberAssignment as ma ->
+                            match tryTranslateWithContext ctx ma.Expression with
+                            | Some h -> Some(PolarsWrapper.Alias(h, ma.Member.Name))
+                            | None -> None
+                        | _ -> None)
+                    |> Seq.toArray
+                if bindings.Length = mie.Bindings.Count then
+                    let structH = PolarsWrapper.AsStruct bindings
+                    Some(PolarsWrapper.StructJsonEncode structH)
+                else
+                    None
+
+            | other ->
+                tryTranslateWithContext ctx other
+                |> Option.map (fun h -> PolarsWrapper.StructJsonEncode h)
+
+    // =========================================================================
     // 9. Operators & Casts
     // =========================================================================
 
@@ -2525,6 +2597,9 @@ module internal rec ExprTranslator =
 
             // 2. List / Array operations
             | ListInvocation listInv -> translateListInvocation ctx listInv
+
+            // 2b. JSON operations (System.Text.Json)
+            | JsonInvocation jsonInv -> translateJsonInvocation ctx jsonInv
 
             // 3. Struct field pushdown (only when expression does NOT resolve to a top-level column or Nullable<T>.HasValue)
             | StructFieldAccess(parentExpr, fieldName) when

@@ -7,6 +7,8 @@ open System.Collections
 open System
 open System.Linq
 open Polars.NET.Core.Helpers
+open System.Text.Json
+open System.Text.Json.Nodes
 
 [<AutoOpen>]
 module internal OptionComputationExpression =
@@ -88,6 +90,11 @@ module internal ExpressionPatterns =
         | ListAll of target: Expression * predicateLambda: LambdaExpression
 
         | ListSelect of target: Expression * mapperLambda: LambdaExpression
+
+    /// Represents extracted components of JSON operations (System.Text.Json)
+    type internal JsonInvocation =
+        | JsonPathMatch of target: Expression * path: string * targetType: Type
+        | JsonSerialize of target: Expression
 
     /// Active pattern for MethodCallExpression
     let (|MethodCall|_|) (expr: Expression) =
@@ -627,3 +634,150 @@ module internal ExpressionPatterns =
             | _ -> None
 
         | _ -> None
+
+    // =========================================================================
+    // JSON Operations (System.Text.Json)
+    // =========================================================================
+
+    [<TailCall>]
+    let rec private tryUnrollJsonSegmentsAcc (expr: Expression) (acc: string list) : (Expression * string list) option =
+        match expr with
+        | null -> None
+
+        // 1. Root: JsonNode.Parse(target) / JsonDocument.Parse(target) / JsonObject.Parse(target) / JsonArray.Parse(target)
+        | MethodCall(m, null, target :: _) when
+            not (isNull m.DeclaringType)
+            && (m.DeclaringType = typeof<JsonNode>
+                || m.DeclaringType = typeof<JsonObject>
+                || m.DeclaringType = typeof<JsonArray>
+                || m.DeclaringType = typeof<JsonDocument>)
+            && m.Name = "Parse"
+            && (unwrapSpanOrArray target).Type = typeof<string>
+            ->
+            Some(unwrapSpanOrArray target, acc)
+
+        // 2. MemberAccess: doc.RootElement
+        | MemberAccess(inner, prop) when
+            not (isNull inner)
+            && typeof<JsonDocument>.IsAssignableFrom inner.Type
+            && prop.Name = "RootElement"
+            ->
+            tryUnrollJsonSegmentsAcc inner acc
+
+        // 3. MethodCall: element.GetProperty("foo")
+        | MethodCall(m, inner, [ arg ]) when
+            not (isNull inner)
+            && typeof<JsonElement>.IsAssignableFrom inner.Type
+            && m.Name = "GetProperty"
+            ->
+            match tryEvaluate arg with
+            | Some(:? string as propName) ->
+                tryUnrollJsonSegmentsAcc inner ("." + propName :: acc)
+            | _ -> None
+
+        // 4. Indexer on JsonNode / JsonObject / JsonArray / JsonElement: node["foo"] or node[0]
+        | MethodCall(m, inner, [ arg ]) when
+            not (isNull inner)
+            && (typeof<JsonNode>.IsAssignableFrom inner.Type
+                || typeof<JsonElement>.IsAssignableFrom inner.Type)
+            && (m.Name = "get_Item" || m.Name = "GetItem")
+            ->
+            let segmentOpt =
+                match tryEvaluate arg with
+                | Some(:? string as propName) -> Some("." + propName)
+                | Some(:? int as idx) -> Some("[" + string idx + "]")
+                | _ -> None
+            match segmentOpt with
+            | Some seg -> tryUnrollJsonSegmentsAcc inner (seg :: acc)
+            | None -> None
+
+        // 5. IndexExpression (node["foo"] or node[0])
+        | :? IndexExpression as idx when
+            not (isNull idx.Object)
+            && idx.Arguments.Count = 1
+            && (typeof<JsonNode>.IsAssignableFrom idx.Object.Type
+                || typeof<JsonElement>.IsAssignableFrom idx.Object.Type)
+            ->
+            let segmentOpt =
+                match tryEvaluate idx.Arguments.[0] with
+                | Some(:? string as propName) -> Some("." + propName)
+                | Some(:? int as i) -> Some("[" + string i + "]")
+                | _ -> None
+            match segmentOpt with
+            | Some seg -> tryUnrollJsonSegmentsAcc idx.Object (seg :: acc)
+            | None -> None
+
+        | _ -> None
+
+    let private tryUnrollJsonSegments (expr: Expression) : (Expression * string list) option =
+        tryUnrollJsonSegmentsAcc expr []
+
+    let (|JsonInvocation|_|) (expr: Expression) : JsonInvocation option =
+        match expr with
+        // 1. Explicit Cast / Convert on JsonNode / JsonElement: (int)node["age"], (string)node["name"], etc.
+        | :? UnaryExpression as u when
+            (u.NodeType = ExpressionType.Convert || u.NodeType = ExpressionType.ConvertChecked)
+            && (not (isNull u.Method) && u.Method.Name = "op_Explicit"
+                || typeof<JsonNode>.IsAssignableFrom u.Operand.Type
+                || typeof<JsonElement>.IsAssignableFrom u.Operand.Type)
+            ->
+            tryUnrollJsonSegments u.Operand
+            |> Option.map (fun (target, segs) ->
+                let path = "$" + String.concat "" segs
+                JsonPathMatch(target, path, u.Type))
+
+        // 2. Extractor methods on JsonElement: element.GetString(), element.GetInt32(), etc.
+        | MethodCall(m, inner, []) when
+            not (isNull inner)
+            && typeof<JsonElement>.IsAssignableFrom inner.Type
+            && (m.Name.StartsWith "Get" || m.Name = "ToString")
+            ->
+            let targetTypeOpt =
+                match m.Name with
+                | "GetString" -> Some typeof<string>
+                | "GetInt32" -> Some typeof<int>
+                | "GetInt64" -> Some typeof<int64>
+                | "GetDouble" -> Some typeof<double>
+                | "GetSingle" -> Some typeof<float32>
+                | "GetBoolean" -> Some typeof<bool>
+                | "GetDecimal" -> Some typeof<decimal>
+                | "GetInt16" -> Some typeof<int16>
+                | "GetByte" -> Some typeof<byte>
+                | "ToString" -> Some typeof<string>
+                | _ -> None
+            match targetTypeOpt with
+            | Some targetType ->
+                tryUnrollJsonSegments inner
+                |> Option.map (fun (target, segs) ->
+                    let path = "$" + String.concat "" segs
+                    JsonPathMatch(target, path, targetType))
+            | None -> None
+
+        // 3. node.GetValue<T>() or node.ToString()
+        | MethodCall(m, inner, []) when
+            not (isNull inner)
+            && typeof<JsonNode>.IsAssignableFrom inner.Type
+            && (m.Name = "GetValue" || m.Name = "ToString")
+            ->
+            let targetType = if m.Name = "GetValue" && m.IsGenericMethod then m.GetGenericArguments().[0] else typeof<string>
+            tryUnrollJsonSegments inner
+            |> Option.map (fun (target, segs) ->
+                let path = "$" + String.concat "" segs
+                JsonPathMatch(target, path, targetType))
+
+        // 4. Raw JsonNode/JsonElement indexing in an expression where no explicit conversion was specified
+        | _ ->
+            match tryUnrollJsonSegments expr with
+            | Some(target, segs) when not segs.IsEmpty ->
+                let path = "$" + String.concat "" segs
+                Some(JsonPathMatch(target, path, typeof<string>))
+            | _ ->
+                // 5. JsonSerializer.Serialize(...)
+                match expr with
+                | MethodCall(m, null, target :: _) when
+                    not (isNull m.DeclaringType)
+                    && m.DeclaringType = typeof<JsonSerializer>
+                    && m.Name = "Serialize"
+                    ->
+                    Some(JsonSerialize target)
+                | _ -> None
