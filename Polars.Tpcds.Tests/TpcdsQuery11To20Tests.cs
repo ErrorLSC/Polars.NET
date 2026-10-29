@@ -1046,4 +1046,237 @@ public class TpcdsQuery11To20Tests
             Assert.Equal(d.sum_number_sales, p.sum_number_sales);
         }
     }
+
+    /**
+     * TPC-DS Query 15
+     *
+     * select  ca_zip
+     *        ,sum(cs_sales_price)
+     * from catalog_sales
+     *      ,customer
+     *      ,customer_address
+     *      ,date_dim
+     * where cs_bill_customer_sk = c_customer_sk
+     *   and c_current_addr_sk = ca_address_sk
+     *   and ( substr(ca_zip,1,5) in ('85669', '86197', '88274', '83405', '86475', '85392', '85460', '80348', '81792')
+     *         or ca_state in ('CA','WA','GA')
+     *         or cs_sales_price > 500)
+     *   and cs_sold_date_sk = d_date_sk
+     *   and d_qoy = 2
+     *   and d_year = 2002
+     * group by ca_zip
+     * order by ca_zip
+     * limit 100;
+     */
+    [Fact]
+    [Trait("TPCDS", "Q15")]
+    public void Test_Q15()
+    {
+        var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
+        var customerQuery = TpcdsData.CustomerQuery();
+        var customerAddressQuery = TpcdsData.CustomerAddressQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
+
+        string[] targetZips = ["85669", "86197", "88274", "83405", "86475", "85392", "85460", "80348", "81792"];
+        string[] targetStates = ["CA", "WA", "GA"];
+
+        var filteredDates = dateDimQuery.Where(d => d.d_qoy == 2 && d.d_year == 2002);
+
+        var q15 = (from cs in catalogSalesQuery
+                   join d in filteredDates on cs.cs_sold_date_sk equals d.d_date_sk
+                   join c in customerQuery on cs.cs_bill_customer_sk equals c.c_customer_sk
+                   join ca in customerAddressQuery on c.c_current_addr_sk equals ca.ca_address_sk
+                   where targetZips.Contains(ca.ca_zip!.Substring(0, 5)) ||
+                         targetStates.Contains(ca.ca_state!) ||
+                         cs.cs_sales_price > 500m
+                   group cs by ca.ca_zip into g
+                   orderby g.Key
+                   select new
+                   {
+                       ca_zip = g.Key,
+                       sum_sales_price = g.Sum(x => x.cs_sales_price)
+                   }).Take(100);
+
+        AssertPlan(q15, NativePushdown);
+
+        var polarsResult = q15.ToList();
+
+        // DuckDB Cross Validation
+        var duckDbSql = $@"
+            SELECT ca_zip,
+                   sum(cs_sales_price)
+            FROM read_parquet('{TpcdsData.CatalogSalesPath}') cs,
+                 read_parquet('{TpcdsData.CustomerPath}') c,
+                 read_parquet('{TpcdsData.CustomerAddressPath}') ca,
+                 read_parquet('{TpcdsData.DateDimPath}') d
+            WHERE cs.cs_bill_customer_sk = c.c_customer_sk
+              AND c.c_current_addr_sk = ca.ca_address_sk
+              AND ( substr(ca_zip,1,5) IN ('85669', '86197', '88274', '83405', '86475', '85392', '85460', '80348', '81792')
+                    OR ca_state IN ('CA','WA','GA')
+                    OR cs_sales_price > 500)
+              AND cs.cs_sold_date_sk = d.d_date_sk
+              AND d.d_qoy = 2
+              AND d.d_year = 2002
+            GROUP BY ca_zip
+            ORDER BY ca_zip
+            LIMIT 100;
+        ";
+
+        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
+        {
+            ca_zip = r.IsDBNull(0) ? null : r.GetString(0),
+            sum_sales_price = r.IsDBNull(1) ? null : (decimal?)r.GetDecimal(1)
+        });
+
+        Assert.Equal(duckDbResults.Count, polarsResult.Count);
+        for (int i = 0; i < duckDbResults.Count; i++)
+        {
+            var d = duckDbResults[i];
+            var p = polarsResult[i];
+
+            Assert.Equal(d.ca_zip, p.ca_zip);
+            Assert.Equal(d.sum_sales_price, p.sum_sales_price);
+        }
+    }
+
+    /**
+     * TPC-DS Query 16
+     *
+     * SELECT count(DISTINCT cs_order_number) AS "order count",
+     *        sum(cs_ext_ship_cost) AS "total shipping cost",
+     *        sum(cs_net_profit) AS "total net profit"
+     * FROM catalog_sales cs1,
+     *      date_dim,
+     *      customer_address,
+     *      call_center
+     * WHERE d_date BETWEEN '2002-02-01' AND cast('2002-04-02' AS date)
+     *   AND cs1.cs_ship_date_sk = d_date_sk
+     *   AND cs1.cs_ship_addr_sk = ca_address_sk
+     *   AND ca_state = 'GA'
+     *   AND cs1.cs_call_center_sk = cc_call_center_sk
+     *   AND cc_county = 'Williamson County'
+     *   AND EXISTS
+     *     (SELECT *
+     *      FROM catalog_sales cs2
+     *      WHERE cs1.cs_order_number = cs2.cs_order_number
+     *        AND cs1.cs_warehouse_sk <> cs2.cs_warehouse_sk)
+     *   AND NOT EXISTS
+     *     (SELECT *
+     *      FROM catalog_returns cr1
+     *      WHERE cs1.cs_order_number = cr1.cr_order_number)
+     * ORDER BY count(DISTINCT cs_order_number)
+     * LIMIT 100;
+     */
+    [Fact]
+    [Trait("TPCDS", "Q16")]
+    public void Test_Q16()
+    {
+        var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
+        var customerAddressQuery = TpcdsData.CustomerAddressQuery();
+        var callCenterQuery = TpcdsData.CallCenterQuery();
+        var catalogReturnsQuery = TpcdsData.CatalogReturnsQuery();
+
+        var minDate = new DateOnly(2002, 2, 1);
+        var maxDate = new DateOnly(2002, 4, 2);
+
+        var filteredDates = dateDimQuery.Where(d => d.d_date >= minDate && d.d_date <= maxDate);
+        var filteredAddr = customerAddressQuery.Where(ca => ca.ca_state == "GA");
+        var filteredCallCenter = callCenterQuery.Where(cc => cc.cc_county == "Williamson County");
+
+        var multiWarehouseOrders = (from cs1 in catalogSalesQuery
+                                    join cs2 in catalogSalesQuery on cs1.cs_order_number equals cs2.cs_order_number
+                                    where cs1.cs_warehouse_sk != cs2.cs_warehouse_sk
+                                    select cs1.cs_order_number).Distinct();
+
+        var returnedOrders = catalogReturnsQuery.Select(cr => cr.cr_order_number);
+
+        var baseSales = from cs in catalogSalesQuery
+                        join d in filteredDates on cs.cs_ship_date_sk equals d.d_date_sk
+                        join ca in filteredAddr on cs.cs_ship_addr_sk equals ca.ca_address_sk
+                        join cc in filteredCallCenter on cs.cs_call_center_sk equals cc.cc_call_center_sk
+                        select cs;
+
+        var eligibleSales = (from cs in baseSales
+                             join o in multiWarehouseOrders on cs.cs_order_number equals o
+                             select cs).ExceptBy(returnedOrders, cs => cs.cs_order_number);
+
+        var q16 = from cs in eligibleSales
+                  group cs by 1 into g
+                  select new
+                  {
+                      order_count = g.Select(x => x.cs_order_number).Distinct().LongCount(),
+                      total_shipping_cost = g.Sum(x => x.cs_ext_ship_cost),
+                      total_net_profit = g.Sum(x => x.cs_net_profit)
+                  };
+
+        AssertPlan(baseSales, NativePushdown);
+        AssertPlan(multiWarehouseOrders, NativePushdown);
+        AssertPlan(eligibleSales, NativePushdown);
+        AssertPlan(q16, NativePushdown);
+
+        var polarsResult = q16.ToList();
+
+        // DuckDB Cross Validation
+        var duckDbSql = $@"
+            SELECT count(DISTINCT cs1.cs_order_number) AS ""order count"",
+                   sum(cs1.cs_ext_ship_cost) AS ""total shipping cost"",
+                   sum(cs1.cs_net_profit) AS ""total net profit""
+            FROM read_parquet('{TpcdsData.CatalogSalesPath}') cs1,
+                 read_parquet('{TpcdsData.DateDimPath}') d,
+                 read_parquet('{TpcdsData.CustomerAddressPath}') ca,
+                 read_parquet('{TpcdsData.CallCenterPath}') cc
+            WHERE d.d_date BETWEEN '2002-02-01' AND cast('2002-04-02' AS date)
+              AND cs1.cs_ship_date_sk = d.d_date_sk
+              AND cs1.cs_ship_addr_sk = ca.ca_address_sk
+              AND ca.ca_state = 'GA'
+              AND cs1.cs_call_center_sk = cc.cc_call_center_sk
+              AND cc.cc_county = 'Williamson County'
+              AND EXISTS
+                (SELECT *
+                 FROM read_parquet('{TpcdsData.CatalogSalesPath}') cs2
+                 WHERE cs1.cs_order_number = cs2.cs_order_number
+                   AND cs1.cs_warehouse_sk <> cs2.cs_warehouse_sk)
+              AND NOT EXISTS
+                (SELECT *
+                 FROM read_parquet('{TpcdsData.CatalogReturnsPath}') cr1
+                 WHERE cs1.cs_order_number = cr1.cr_order_number)
+            ORDER BY count(DISTINCT cs1.cs_order_number)
+            LIMIT 100;
+        ";
+
+        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
+        {
+            order_count = r.IsDBNull(0) ? 0 : r.GetInt64(0),
+            total_shipping_cost = r.IsDBNull(1) ? null : (decimal?)r.GetDecimal(1),
+            total_net_profit = r.IsDBNull(2) ? null : (decimal?)r.GetDecimal(2)
+        });
+
+        Assert.Equal(duckDbResults.Count, polarsResult.Count);
+        for (int i = 0; i < duckDbResults.Count; i++)
+        {
+            var d = duckDbResults[i];
+            var p = polarsResult[i];
+
+            Assert.Equal(d.order_count, p.order_count);
+
+            if (d.total_shipping_cost == null && p.total_shipping_cost == 0m)
+            {
+                // In Polars, sum on an empty group produces 0, whereas SQL produces NULL
+            }
+            else
+            {
+                Assert.Equal(d.total_shipping_cost, p.total_shipping_cost);
+            }
+
+            if (d.total_net_profit == null && p.total_net_profit == 0m)
+            {
+                // In Polars, sum on an empty group produces 0, whereas SQL produces NULL
+            }
+            else
+            {
+                Assert.Equal(d.total_net_profit, p.total_net_profit);
+            }
+        }
+    }
 }

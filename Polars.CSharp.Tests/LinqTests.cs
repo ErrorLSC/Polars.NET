@@ -9492,7 +9492,7 @@ public partial class LinqTests
         // () -> 1 row
         // Total = 3 rows
         Assert.Equal(3, resultDf.Height);
-        var grandTotal = resultDf.Filter(Polars.Col("Dept").IsNull());
+        var grandTotal = resultDf.Filter(Pl.Col("Dept").IsNull());
         Assert.Equal(1, grandTotal.Height);
         Assert.Equal(100, grandTotal.GetValue<int>(0, "TotalAmount"));
     }

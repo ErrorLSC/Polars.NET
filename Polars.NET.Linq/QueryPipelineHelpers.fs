@@ -1535,6 +1535,27 @@ module internal QueryPipelineHelpers =
                             PolarsWrapper.Col c)
                 Some(QueryOp.Select selectExprs)
 
+            | MemberAccess _ as ma when not (PolarsTypeHelper.IsScalarType ma.Type || ma.Type = typeof<string>) ->
+                let entityProps = ma.Type.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                let matchedCols = entityProps |> Array.map (fun p -> p.Name) |> Array.filter firstColSet.Contains
+                if matchedCols.Length > 0 then
+                    let selectExprs = matchedCols |> Array.map PolarsWrapper.Col
+                    Some(QueryOp.Select selectExprs)
+                else
+                    let secondColSet = Set.ofArray secondCols
+                    let matchedSecond = entityProps |> Array.map (fun p -> p.Name) |> Array.filter secondColSet.Contains
+                    if matchedSecond.Length > 0 then
+                        let selectExprs =
+                            matchedSecond
+                            |> Array.map (fun c ->
+                                if firstColSet.Contains c then
+                                    PolarsWrapper.Alias(PolarsWrapper.Col(c + secondSuffix), c)
+                                else
+                                    PolarsWrapper.Col c)
+                        Some(QueryOp.Select selectExprs)
+                    else
+                        None
+
             | _ ->
                 match tryExtractMemberBindings unwrappedBody with
                 | Some bindings ->

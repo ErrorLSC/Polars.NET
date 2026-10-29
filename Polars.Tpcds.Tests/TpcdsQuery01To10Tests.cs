@@ -1059,8 +1059,8 @@ public class TpcdsQuery01To10Tests
                   {
                       channel = "catalog channel",
                       id = "catalog_page" + r.cp_catalog_page_id,
-                      sales = r.sales,
-                      returns_ = r.returns_,
+                      r.sales,
+                      r.returns_,
                       profit = r.profit - r.profit_loss
                   };
 
