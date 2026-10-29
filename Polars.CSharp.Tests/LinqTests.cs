@@ -78,6 +78,11 @@ public readonly record struct StringConversionTestRecord(
     string Base64Str,
     string Text
 );
+public readonly record struct StringPairTestRecord(
+    int Id,
+    string A,
+    string B
+);
 public class StockPrice
 {
     public string Symbol { get; set; } = string.Empty;
@@ -4020,6 +4025,61 @@ public partial class LinqTests
         Assert.Equal("polars", results[0].Tail);
         Assert.Equal("sralop_dlrow_olleh", results[0].Reversed);
         Assert.Equal("hello-world_polars", results[0].SingleReplaced);
+    }
+
+    [Fact]
+    [Trait("LINQ", "StringVectorized")]
+    public void Test_Linq_String_Equals_CompareTo_Remove_Join_Ops()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2]),
+            Series.From("A", ["hello_world", "foo_bar"]),
+            Series.From("B", ["HELLO_WORLD", "baz_qux"])
+        ]);
+
+        var query = df.AsQueryable<StringPairTestRecord>()
+                      .Where(r => string.Equals(r.A, r.B, StringComparison.OrdinalIgnoreCase)
+                                  || r.A.CompareTo(r.B) > 0)
+                      .Select(r => new
+                      {
+                          r.Id,
+                          IsExactEqual = r.A.Equals(r.B),
+                          IsIgnoreCaseEqual = r.A.Equals(r.B, StringComparison.OrdinalIgnoreCase),
+                          StaticIgnoreCase = string.Equals(r.A, r.B, StringComparison.OrdinalIgnoreCase),
+                          Cmp = r.A.CompareTo("g"),
+                          RemovedTail = r.A.Remove(5),
+                          RemovedMiddle = r.A.Remove(5, 1),
+                          Joined = string.Join("--", new[] { r.A, r.B }),
+                          UpperChar = char.ToUpper(r.A[0]),
+                          LowerChar = char.ToLower(r.B[0])
+                      });
+
+        var plan = query.Explain();
+        Assert.Contains(NativePushdown, plan);
+        var results = query.ToList();
+
+        Assert.Equal(2, results.Count);
+
+        // Record 1: A = "hello_world", B = "HELLO_WORLD"
+        Assert.False(results[0].IsExactEqual);
+        Assert.True(results[0].IsIgnoreCaseEqual);
+        Assert.True(results[0].StaticIgnoreCase);
+        Assert.True(results[0].Cmp > 0);
+        Assert.Equal("hello", results[0].RemovedTail);
+        Assert.Equal("helloworld", results[0].RemovedMiddle);
+        Assert.Equal("hello_world--HELLO_WORLD", results[0].Joined);
+        Assert.Equal('H', results[0].UpperChar);
+        Assert.Equal('h', results[0].LowerChar);
+
+        // Record 2: A = "foo_bar", B = "baz_qux"
+        Assert.False(results[1].IsExactEqual);
+        Assert.False(results[1].IsIgnoreCaseEqual);
+        Assert.True(results[1].Cmp < 0);
+        Assert.Equal("foo_b", results[1].RemovedTail);
+        Assert.Equal("foo_br", results[1].RemovedMiddle);
+        Assert.Equal("foo_bar--baz_qux", results[1].Joined);
+        Assert.Equal('F', results[1].UpperChar);
+        Assert.Equal('b', results[1].LowerChar);
     }
 
     [Fact]

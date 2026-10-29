@@ -288,7 +288,6 @@ public class TpcdsQuery01To10Tests
                           ? (double?)null
                           : Math.Round((double)yItem.sat_sales1 / (double)zItem.sat_sales2, 2),
                  };
-        q2.InspectPlan();
         AssertPlan(q2, NativePushdown);
 
         var polarsResult = q2.ToList();
@@ -1960,7 +1959,6 @@ public class TpcdsQuery01To10Tests
                          : storeSalesQuery.Where(ss => ss.ss_quantity >= 81 && ss.ss_quantity <= 100).Average(ss => (double?)ss.ss_net_paid),
                  };
 
-        Console.WriteLine(q9.Explain());
         AssertPlan(q9, NativePushdown);
 
         var polarsResult = q9.ToList();
@@ -2206,7 +2204,6 @@ public class TpcdsQuery01To10Tests
                        cnt6 = g.LongCount(),
                    }).Take(100);
 
-        Console.WriteLine(q10.Explain());
         AssertPlan(q10, NativePushdown);
 
         var polarsResult = q10.ToList();

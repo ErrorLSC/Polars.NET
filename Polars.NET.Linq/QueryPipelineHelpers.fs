@@ -120,6 +120,9 @@ type PlanInspection =
             if this.HasClientProjection then
                 sb.AppendLine " Client-side Projection: Expression could not be translated natively."
                 |> ignore
+                match this.FallbackReason with
+                | Some r -> sb.AppendLine(sprintf "   Reason: %s" r) |> ignore
+                | None -> ()
 
         sb.ToString().TrimEnd()
 
@@ -1295,13 +1298,15 @@ module internal QueryPipelineHelpers =
         | Some bindings ->
             let exprOpts =
                 bindings
-                |> List.choose (fun (name, argExpr) ->
-                    tryTranslateSelectArg ctx argExpr
-                    |> Option.map (fun h -> PolarsWrapper.Alias(h, name)))
+                |> List.map (fun (name, argExpr) ->
+                    name, argExpr, tryTranslateSelectArg ctx argExpr)
 
-            if exprOpts.Length = bindings.Length then
-                Some(List.toArray exprOpts)
+            let failed = exprOpts |> List.filter (fun (_, _, opt) -> opt.IsNone)
+            if failed.IsEmpty then
+                Some(exprOpts |> List.map (fun (name, _, opt) -> PolarsWrapper.Alias(opt.Value, name)) |> List.toArray)
             else
+                let reasons = failed |> List.map (fun (n, e, _) -> sprintf "%s = %s (%s)" n (e.ToString()) (e.GetType().Name))
+                FallbackTracker.Diagnostic <- Some(sprintf "Failed projection bindings: %s" (String.concat "; " reasons))
                 None
 
         | None ->

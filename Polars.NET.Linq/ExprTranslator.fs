@@ -660,8 +660,11 @@ module internal rec ExprTranslator =
         | "Concat", _ when isNull target ->
             let flatArgs =
                 match args with
-                | [ :? NewArrayExpression as nae ] when nae.NodeType = ExpressionType.NewArrayInit ->
-                    nae.Expressions |> Seq.toList
+                | [ single ] ->
+                    match unwrap single with
+                    | :? NewArrayExpression as nae when nae.NodeType = ExpressionType.NewArrayInit ->
+                        nae.Expressions |> Seq.toList
+                    | _ -> args
                 | other -> other
 
             if flatArgs.IsEmpty then
@@ -676,6 +679,32 @@ module internal rec ExprTranslator =
                     Some(PolarsWrapper.FormatString(rustFmt, List.toArray argHandles))
                 else
                     None
+
+        // --- 1b. String.Join (Static string.Join with multiple arguments) ---
+        | "Join", sepExpr :: rawItems when isNull target && not rawItems.IsEmpty ->
+            let flatItems =
+                match rawItems with
+                | [ single ] ->
+                    match unwrap single with
+                    | :? NewArrayExpression as nae when nae.NodeType = ExpressionType.NewArrayInit ->
+                        nae.Expressions |> Seq.toList
+                    | _ -> [ single ]
+                | other -> other
+
+            let sepStrOpt =
+                match tryEvaluate sepExpr with
+                | Some(:? string as sep) -> Some sep
+                | Some(:? char as sep) -> Some(string sep)
+                | _ -> None
+
+            match sepStrOpt with
+            | Some sep ->
+                let itemHandles = flatItems |> List.choose (tryTranslateWithContext ctx)
+                if itemHandles.Length = flatItems.Length && not itemHandles.IsEmpty then
+                    Some(PolarsWrapper.ConcatString(List.toArray itemHandles, sep, ignoreNulls = false))
+                else
+                    None
+            | None -> None
 
         // --- 2. String.Format & Interpolated Strings ($"{a} - {b}") ---
         | "Format", _ when isNull target ->
@@ -910,6 +939,62 @@ module internal rec ExprTranslator =
                     match targetH (), charsOpt with
                     | Some t, Some p -> Some(stripFn (t, p))
                     | _ -> None
+            | _ -> None
+
+        // --- Equals (Static & Instance) ---
+        | "Equals", [ aExpr; bExpr ] when isNull target ->
+            match tryTranslateWithContext ctx aExpr, tryTranslateWithContext ctx bExpr with
+            | Some a, Some b -> Some(PolarsWrapper.Eq(a, b))
+            | _ -> None
+
+        | "Equals", [ aExpr; bExpr; compExpr ] when isNull target ->
+            match tryTranslateWithContext ctx aExpr, tryTranslateWithContext ctx bExpr, tryEvaluateCaseInsensitive compExpr with
+            | Some a, Some b, Some true ->
+                Some(PolarsWrapper.Eq(PolarsWrapper.StrToLower a, PolarsWrapper.StrToLower b))
+            | Some a, Some b, Some false ->
+                Some(PolarsWrapper.Eq(a, b))
+            | _ -> None
+
+        | "Equals", [ otherExpr ] ->
+            match targetH (), tryTranslateWithContext ctx otherExpr with
+            | Some t, Some o -> Some(PolarsWrapper.Eq(t, o))
+            | _ -> None
+
+        | "Equals", [ otherExpr; compExpr ] ->
+            match targetH (), tryTranslateWithContext ctx otherExpr, tryEvaluateCaseInsensitive compExpr with
+            | Some t, Some o, Some true ->
+                Some(PolarsWrapper.Eq(PolarsWrapper.StrToLower t, PolarsWrapper.StrToLower o))
+            | Some t, Some o, Some false ->
+                Some(PolarsWrapper.Eq(t, o))
+            | _ -> None
+
+        // --- CompareTo ---
+        | "CompareTo", [ otherExpr ] ->
+            match targetH (), tryTranslateWithContext ctx otherExpr with
+            | Some t, Some o ->
+                let tClone1 = PolarsWrapper.CloneExpr t
+                let oClone1 = PolarsWrapper.CloneExpr o
+                let gtCond = PolarsWrapper.Gt(t, o)
+                let ltCond = PolarsWrapper.Lt(tClone1, oClone1)
+                Some(PolarsWrapper.IfElse(gtCond, PolarsWrapper.Lit 1, PolarsWrapper.IfElse(ltCond, PolarsWrapper.Lit -1, PolarsWrapper.Lit 0)))
+            | _ -> None
+
+        // --- Remove ---
+        | "Remove", [ startExpr ] ->
+            match targetH (), tryTranslateWithContext ctx startExpr with
+            | Some t, Some startH ->
+                Some(PolarsWrapper.StrSlice(t, PolarsWrapper.Lit 0, startH))
+            | _ -> None
+
+        | "Remove", [ startExpr; countExpr ] ->
+            match targetH (), tryTranslateWithContext ctx startExpr, tryTranslateWithContext ctx countExpr with
+            | Some t, Some startH, Some countH ->
+                let tClone = PolarsWrapper.CloneExpr t
+                let startClone = PolarsWrapper.CloneExpr startH
+                let prefix = PolarsWrapper.StrSlice(t, PolarsWrapper.Lit 0, startH)
+                let suffixOffset = PolarsWrapper.Add(startClone, countH)
+                let suffix = PolarsWrapper.StrSlice(tClone, suffixOffset, PolarsWrapper.LitNull())
+                Some(PolarsWrapper.FormatString("{}{}", [| prefix; suffix |]))
             | _ -> None
 
         | _ -> None
@@ -1974,6 +2059,15 @@ module internal rec ExprTranslator =
         elif m.Name = "StrReverse" && isNull target && args.Length = 1 && args.[0].Type = typeof<string> then
             tryTranslateWithContext ctx args.[0] |> Option.map PolarsWrapper.StrReverse
 
+        // char.ToUpper(c) / char.ToLower(c)
+        elif m.DeclaringType = typeof<char> && isNull target then
+            match m.Name, args with
+            | ("ToUpper" | "ToUpperInvariant"), [ charExpr ] ->
+                tryTranslateWithContext ctx charExpr |> Option.map PolarsWrapper.StrToUpper
+            | ("ToLower" | "ToLowerInvariant"), [ charExpr ] ->
+                tryTranslateWithContext ctx charExpr |> Option.map PolarsWrapper.StrToLower
+            | _ -> None
+
         // 2. String methods (Static & Instance)
         elif
             m.DeclaringType = typeof<string>
@@ -2126,9 +2220,21 @@ module internal rec ExprTranslator =
                 | Some(:? char as sep) -> Some(string sep)
                 | _ -> None
 
-            match t1 target, sepOpt with
-            | Some t, Some sep -> Some(PolarsWrapper.ListJoin(t, sep, ignoreNulls = true))
-            | _ -> None
+            match unwrap target with
+            | :? NewArrayExpression as nae when nae.NodeType = ExpressionType.NewArrayInit ->
+                match sepOpt with
+                | Some sep ->
+                    let items = nae.Expressions |> Seq.toList
+                    let itemHandles = items |> List.choose (tryTranslateWithContext ctx)
+                    if itemHandles.Length = items.Length && not itemHandles.IsEmpty then
+                        Some(PolarsWrapper.ConcatString(List.toArray itemHandles, sep, ignoreNulls = false))
+                    else
+                        None
+                | None -> None
+            | _ ->
+                match t1 target, sepOpt with
+                | Some t, Some sep -> Some(PolarsWrapper.ListJoin(t, sep, ignoreNulls = true))
+                | _ -> None
 
         | ListHead(target, countExpr) -> t2 target countExpr |> Option.map PolarsWrapper.ListHead
         | ListTail(target, countExpr) -> t2 target countExpr |> Option.map PolarsWrapper.ListTail
