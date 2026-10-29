@@ -287,4 +287,22 @@ public static class PolarsTypeHelper
         // 5. Must be an F# record, class, or custom struct
         return IsFSharpRecord(core) || core.IsClass || (core.IsValueType && !core.IsPrimitive && !core.IsEnum);
     }
+
+    /// <summary>
+    /// Resolves the serialized column/field name for a member, checking [JsonPropertyName].
+    /// </summary>
+    public static string GetSerializedName(MemberInfo member)
+    {
+        var attr = member.GetCustomAttribute<System.Text.Json.Serialization.JsonPropertyNameAttribute>();
+        return (!string.IsNullOrEmpty(attr?.Name)) ? attr.Name : member.Name;
+    }
+
+    /// <summary>
+    /// Resolves the serialized column/field name for a parameter, checking [JsonPropertyName].
+    /// </summary>
+    public static string GetSerializedName(ParameterInfo parameter)
+    {
+        var attr = parameter.GetCustomAttribute<System.Text.Json.Serialization.JsonPropertyNameAttribute>();
+        return (!string.IsNullOrEmpty(attr?.Name)) ? attr.Name : (parameter.Name?.TrimStart('@') ?? string.Empty);
+    }
 }

@@ -53,7 +53,8 @@ public static class ArrowReader
         for (int i = 0; i < properties.Length; i++)
         {
             var prop = properties[i];
-            var col = batch.Column(prop.Name);
+            var serializedName = PolarsTypeHelper.GetSerializedName(prop);
+            var col = batch.Column(prop.Name) ?? batch.Column(serializedName);
 
             if (col == null)
             {
@@ -272,10 +273,13 @@ public static class ArrowReader
             for (int i = 0; i < fields.Length; i++)
             {
                 var field = fields[i];
+                var serializedName = PolarsTypeHelper.GetSerializedName(field);
                 int fieldIndex = -1;
                 for (int k = 0; k < structTypeRecord.Fields.Count; k++)
                 {
-                    if (string.Equals(structTypeRecord.Fields[k].Name, field.Name, StringComparison.OrdinalIgnoreCase))
+                    var fName = structTypeRecord.Fields[k].Name;
+                    if (string.Equals(fName, field.Name, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(fName, serializedName, StringComparison.OrdinalIgnoreCase))
                     {
                         fieldIndex = k;
                         break;
@@ -325,10 +329,13 @@ public static class ArrowReader
             {
                 var p = ctorParams[i];
                 var pName = p.Name?.TrimStart('@') ?? string.Empty;
+                var serializedName = PolarsTypeHelper.GetSerializedName(p);
                 int fieldIndex = -1;
                 for (int k = 0; k < structTypeCtor.Fields.Count; k++)
                 {
-                    if (string.Equals(structTypeCtor.Fields[k].Name, pName, StringComparison.OrdinalIgnoreCase))
+                    var fName = structTypeCtor.Fields[k].Name;
+                    if (string.Equals(fName, pName, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(fName, serializedName, StringComparison.OrdinalIgnoreCase))
                     {
                         fieldIndex = k;
                         break;
@@ -368,11 +375,14 @@ public static class ArrowReader
 
         foreach (var prop in props)
         {
+            var serializedName = PolarsTypeHelper.GetSerializedName(prop);
             // Find Field Index
             int fieldIndex = -1;
             for (int k = 0; k < structType.Fields.Count; k++)
             {
-                if (string.Equals(structType.Fields[k].Name, prop.Name, StringComparison.OrdinalIgnoreCase))
+                var fName = structType.Fields[k].Name;
+                if (string.Equals(fName, prop.Name, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(fName, serializedName, StringComparison.OrdinalIgnoreCase))
                 {
                     fieldIndex = k; break;
                 }

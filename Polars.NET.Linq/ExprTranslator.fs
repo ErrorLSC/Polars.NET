@@ -141,48 +141,10 @@ module internal rec ExprTranslator =
             isNullConstantExpr u.Operand
         | _ -> false
 
-    let private timeUnitMap (unit: TimeUnit) : byte =
-        match unit with
-        | TimeUnit.Second -> PlTimeUnit.Second |> byte
-        | TimeUnit.Millisecond -> PlTimeUnit.Milliseconds |> byte
-        | TimeUnit.Microsecond -> PlTimeUnit.Microseconds |> byte
-        | TimeUnit.Nanosecond -> PlTimeUnit.Nanoseconds |> byte
-        | _ -> invalidArg (nameof unit) "Unknown TimeUnit"
-
-    let private arrowTypeToPolarsDataType (arrowType: IArrowType) : DataTypeHandle option =
-        match arrowType with
-        | :? BooleanType -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.Boolean))
-        | :? Int8Type -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.Int8))
-        | :? UInt8Type -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.UInt8))
-        | :? Int16Type -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.Int16))
-        | :? UInt16Type -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.UInt16))
-        | :? Int32Type -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.Int32))
-        | :? UInt32Type -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.UInt32))
-        | :? Int64Type -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.Int64))
-        | :? UInt64Type -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.UInt64))
-        | :? HalfFloatType -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.Float16))
-        | :? FloatType -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.Float32))
-        | :? DoubleType -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.Float64))
-        | :? StringType
-        | :? StringViewType
-        | :? LargeStringType -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.String))
-        | :? Date32Type -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.Date))
-        | :? Time64Type -> Some(PolarsWrapper.NewPrimitiveType(int PlDataType.Time))
-        | :? DurationType as du -> Some(PolarsWrapper.NewDurationType(timeUnitMap du.Unit))
-        | :? TimestampType as ts ->
-            let tz =
-                if String.IsNullOrEmpty ts.Timezone then
-                    null
-                else
-                    ts.Timezone
-
-            Some(PolarsWrapper.NewDateTimeType(timeUnitMap ts.Unit, tz))
-        | :? Decimal128Type as dec -> Some(PolarsWrapper.NewDecimalType(int dec.Precision, int dec.Scale))
-        | _ -> None
-
     let private tryGetPolarsDataType (t: Type) : DataTypeHandle option =
         try
-            (ArrowTypeResolver.GetArrowTypeFromNetType >> arrowTypeToPolarsDataType) t
+            let arrowType = ArrowTypeResolver.GetArrowTypeFromNetType t
+            Some(PolarsWrapper.MapArrowToDataTypeHandle arrowType)
         with _ ->
             None
 
@@ -2469,6 +2431,61 @@ module internal rec ExprTranslator =
             | other ->
                 tryTranslateWithContext ctx other
                 |> Option.map (fun h -> PolarsWrapper.StructJsonEncode h)
+
+        | JsonDeserialize(target, dtoType, steps) ->
+            match JsonTypeInference.inferPolarsJsonDataType dtoType with
+            | None -> None
+            | Some dtypeHandle ->
+                use _dtypeScope = dtypeHandle
+                let dtypeExpr = PolarsWrapper.DataTypeExprFromDataType dtypeHandle
+
+                match tryTranslateWithContext ctx target with
+                | None ->
+                    dtypeExpr.Dispose()
+                    None
+                | Some targetH ->
+                    let decodedH = PolarsWrapper.StrJsonDecode(targetH, dtypeExpr)
+
+                    let rec traverseSteps (currentH: ExprHandle) (currType: Type) (remainingSteps: JsonAccessStep list) : ExprHandle option =
+                        match remainingSteps with
+                        | [] -> Some currentH
+
+                        | PropertyStep m :: rest when
+                            (m.Name = "Length" || m.Name = "Count")
+                            && not (isNull (PolarsTypeHelper.TryGetEnumerableElementType currType)) ->
+                            let lenH = PolarsWrapper.ListLen currentH
+                            traverseSteps lenH typeof<int> rest
+
+                        | PropertyStep m :: rest ->
+                            let memberType =
+                                match m with
+                                | :? PropertyInfo as p -> p.PropertyType
+                                | :? FieldInfo as f -> f.FieldType
+                                | _ -> typeof<obj>
+
+                            match JsonTypeInference.tryResolveJsonFieldName currType m.Name with
+                            | Some jsonFieldName ->
+                                let fieldH = PolarsWrapper.StructFieldByName(currentH, [| jsonFieldName |])
+                                traverseSteps fieldH memberType rest
+                            | None ->
+                                let fieldH = PolarsWrapper.StructFieldByName(currentH, [| m.Name |])
+                                traverseSteps fieldH memberType rest
+
+                        | IndexStep indexExpr :: rest ->
+                            let elemType =
+                                let elemOpt = PolarsTypeHelper.TryGetEnumerableElementType currType
+                                if not (isNull elemOpt) then elemOpt
+                                elif currType.IsArray then currType.GetElementType()
+                                elif currType.IsGenericType then currType.GetGenericArguments().[0]
+                                else typeof<obj>
+
+                            match tryTranslateWithContext ctx indexExpr with
+                            | Some idxH ->
+                                let itemH = PolarsWrapper.ListGet(currentH, idxH, nullOnOob = true)
+                                traverseSteps itemH elemType rest
+                            | None -> None
+
+                    traverseSteps decodedH dtoType steps
 
     // =========================================================================
     // 9. Operators & Casts

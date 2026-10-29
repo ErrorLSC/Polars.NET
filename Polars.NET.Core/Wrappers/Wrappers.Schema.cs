@@ -101,7 +101,7 @@ public readonly partial struct PolarsWrapper
     /// <summary>
     /// Maps an Apache Arrow IArrowType directly to a native Polars DataTypeHandle.
     /// </summary>
-    private static DataTypeHandle MapArrowToDataTypeHandle(IArrowType arrowType)
+    public static DataTypeHandle MapArrowToDataTypeHandle(IArrowType arrowType)
     {
         return arrowType switch
         {

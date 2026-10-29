@@ -17,6 +17,7 @@
     <Compile Include="PartialEvaluator.fs" />
     <Compile Include="OpsSpecs.fs" />
     <Compile Include="QueryCacheKey.fs" />
+    <Compile Include="JsonTypeInference.fs" />
     <Compile Include="ExpressionPatterns.fs" />
     <Compile Include="ExprTranslator.fs" />
     <Compile Include="AggTranslator.fs" />

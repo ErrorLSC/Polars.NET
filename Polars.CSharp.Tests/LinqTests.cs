@@ -1,9 +1,11 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Polars.CSharp.Linq;
 using Polars.NET.Core;
+using Polars.NET.Linq;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
@@ -18,6 +20,34 @@ public class JsonMetaDto
     public int Id { get; set; }
     public string Tag { get; set; } = string.Empty;
 }
+public class JsonSubAddress
+{
+    [JsonPropertyName("city_name")]
+    public string City { get; set; } = string.Empty;
+
+    public string State { get; set; } = string.Empty;
+}
+public class JsonUserTestDto
+{
+    [JsonPropertyName("user_id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("user_name")]
+    public string Name { get; set; } = string.Empty;
+
+    public double Score { get; set; }
+
+    public bool IsActive { get; set; }
+
+    public string[] Tags { get; set; } = [];
+
+    public JsonSubAddress Address { get; set; } = new();
+
+    [JsonIgnore]
+    public string SecretPassword { get; set; } = string.Empty;
+}
+
+public record RawJsonUserRecord(int RowId, string UserJson);
 
 public record Employee(string Name, int Age, int Salary);
 public readonly record struct EmployeeDept(string Name, string Department, int Age, int Salary);
@@ -4345,6 +4375,163 @@ public partial class LinqTests
         Assert.Equal("prod", results[1].Name);
         Assert.Contains("\"Id\":20", results[1].DtoJson);
         Assert.Contains("\"Tag\":\"tag2\"", results[1].DtoJson);
+    }
+
+    [Fact]
+    [Trait("LINQ", "JsonVectorized")]
+    public void Test_Linq_SystemTextJson_TypeInference()
+    {
+        // 1. Primitive types
+        var intDtypeOpt = JsonTypeInference.inferPolarsJsonDataType(typeof(int));
+        Assert.True(Microsoft.FSharp.Core.OptionModule.IsSome(intDtypeOpt));
+        using var intDtype = intDtypeOpt.Value;
+        Assert.Equal(PlDataType.Int32, PolarsWrapper.GetDataTypeKind(intDtype));
+
+        var strDtypeOpt = JsonTypeInference.inferPolarsJsonDataType(typeof(string));
+        Assert.True(Microsoft.FSharp.Core.OptionModule.IsSome(strDtypeOpt));
+        using var strDtype = strDtypeOpt.Value;
+        Assert.Equal(PlDataType.String, PolarsWrapper.GetDataTypeKind(strDtype));
+
+        // 2. Collection types (List)
+        var listDtypeOpt = JsonTypeInference.inferPolarsJsonDataType(typeof(List<string>));
+        Assert.True(Microsoft.FSharp.Core.OptionModule.IsSome(listDtypeOpt));
+        using var listDtype = listDtypeOpt.Value;
+        Assert.Equal(PlDataType.List, PolarsWrapper.GetDataTypeKind(listDtype));
+
+        // 3. Complex DTO with [JsonPropertyName], [JsonIgnore], and nested record
+        var dtoDtypeOpt = JsonTypeInference.inferPolarsJsonDataType(typeof(JsonUserTestDto));
+        Assert.True(Microsoft.FSharp.Core.OptionModule.IsSome(dtoDtypeOpt));
+        using var dtoDtype = dtoDtypeOpt.Value;
+        Assert.Equal(PlDataType.Struct, PolarsWrapper.GetDataTypeKind(dtoDtype));
+
+        // 4. Verify field metadata & custom property names
+        var metaOpt = JsonTypeInference.tryGetStructMeta(typeof(JsonUserTestDto));
+        Assert.True(Microsoft.FSharp.Core.OptionModule.IsSome(metaOpt));
+        var fields = metaOpt.Value.Fields;
+
+        // Total 6 fields (SecretPassword is [JsonIgnore] so excluded!)
+        Assert.Equal(6, fields.Length);
+
+        // [JsonPropertyName] checks:
+        Assert.Equal("user_id", JsonTypeInference.tryResolveJsonFieldName(typeof(JsonUserTestDto), "Id").Value);
+        Assert.Equal("user_name", JsonTypeInference.tryResolveJsonFieldName(typeof(JsonUserTestDto), "Name").Value);
+        Assert.Equal("Score", JsonTypeInference.tryResolveJsonFieldName(typeof(JsonUserTestDto), "Score").Value);
+        Assert.Equal("IsActive", JsonTypeInference.tryResolveJsonFieldName(typeof(JsonUserTestDto), "IsActive").Value);
+        Assert.Equal("Tags", JsonTypeInference.tryResolveJsonFieldName(typeof(JsonUserTestDto), "Tags").Value);
+        Assert.Equal("Address", JsonTypeInference.tryResolveJsonFieldName(typeof(JsonUserTestDto), "Address").Value);
+
+        // Case-insensitive resolution check (e.g. "score" -> "Score", "NAME" -> "user_name")
+        Assert.Equal("Score", JsonTypeInference.tryResolveJsonFieldName(typeof(JsonUserTestDto), "score").Value);
+        Assert.Equal("user_name", JsonTypeInference.tryResolveJsonFieldName(typeof(JsonUserTestDto), "NAME").Value);
+
+        // Nested sub-object resolution check
+        Assert.Equal("city_name", JsonTypeInference.tryResolveJsonFieldName(typeof(JsonSubAddress), "City").Value);
+        Assert.Equal("State", JsonTypeInference.tryResolveJsonFieldName(typeof(JsonSubAddress), "State").Value);
+
+        // Ignored property returns None
+        Assert.True(Microsoft.FSharp.Core.OptionModule.IsNone(JsonTypeInference.tryResolveJsonFieldName(typeof(JsonUserTestDto), "SecretPassword")));
+    }
+
+    [Fact]
+    [Trait("LINQ", "JsonVectorized")]
+    public void Test_Linq_SystemTextJson_Deserialize_Pushdown()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("RowId", [1, 2, 3]),
+            Series.From("UserJson", [
+                """{"user_id": 101, "user_name": "Alice", "Score": 95.5, "IsActive": true, "Tags": ["admin", "dev"], "Address": {"city_name": "Tokyo", "State": "Kanto"}, "SecretPassword": "p1"}""",
+                """{"user_id": 102, "user_name": "Bob", "Score": 72.0, "IsActive": false, "Tags": ["user"], "Address": {"city_name": "Osaka", "State": "Kansai"}, "SecretPassword": "p2"}""",
+                """{"user_id": 103, "user_name": "Charlie", "Score": 88.5, "IsActive": true, "Tags": ["dev"], "Address": {"city_name": "Kyoto", "State": "Kansai"}, "SecretPassword": "p3"}"""
+            ])
+        ]);
+
+        var query = df.AsQueryable<RawJsonUserRecord>()
+                      .Where(r => JsonSerializer.Deserialize<JsonUserTestDto>(r.UserJson)!.Score > 80.0)
+                      .Select(r => new
+                      {
+                          r.RowId,
+                          UserId = JsonSerializer.Deserialize<JsonUserTestDto>(r.UserJson)!.Id,
+                          UserName = JsonSerializer.Deserialize<JsonUserTestDto>(r.UserJson)!.Name,
+                          JsonSerializer.Deserialize<JsonUserTestDto>(r.UserJson)!.Address.City,
+                          JsonSerializer.Deserialize<JsonUserTestDto>(r.UserJson)!.IsActive
+                      });
+
+        AssertPlan(query, NativePushdown);
+        var results = query.ToList();
+
+        Assert.Equal(2, results.Count);
+
+        Assert.Equal(1, results[0].RowId);
+        Assert.Equal(101, results[0].UserId);
+        Assert.Equal("Alice", results[0].UserName);
+        Assert.Equal("Tokyo", results[0].City);
+        Assert.True(results[0].IsActive);
+
+        Assert.Equal(3, results[1].RowId);
+        Assert.Equal(103, results[1].UserId);
+        Assert.Equal("Charlie", results[1].UserName);
+        Assert.Equal("Kyoto", results[1].City);
+        Assert.True(results[1].IsActive);
+    }
+
+    [Fact]
+    [Trait("LINQ", "JsonVectorized")]
+    public void Test_Linq_SystemTextJson_Deserialize_Arrays_And_WholeStruct()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("RowId", [1, 2, 3]),
+            Series.From("UserJson", [
+                """{"user_id": 101, "user_name": "Alice", "Score": 95.5, "IsActive": true, "Tags": ["admin", "dev"], "Address": {"city_name": "Tokyo", "State": "Kanto"}, "SecretPassword": "p1"}""",
+                """{"user_id": 102, "user_name": "Bob", "Score": 72.0, "IsActive": false, "Tags": ["tester"], "Address": {"city_name": "Osaka", "State": "Kansai"}, "SecretPassword": "p2"}""",
+                """{"user_id": 103, "user_name": "Charlie", "Score": 88.5, "IsActive": true, "Tags": ["dev", "lead", "architect"], "Address": {"city_name": "Kyoto", "State": "Kansai"}, "SecretPassword": "p3"}"""
+            ])
+        ]);
+
+        // 1. Array index, Length, and First/Last pushdown
+        var arrayQuery = df.AsQueryable<RawJsonUserRecord>()
+                           .Where(r => JsonSerializer.Deserialize<JsonUserTestDto>(r.UserJson)!.Tags.Length >= 2)
+                           .Select(r => new
+                           {
+                               r.RowId,
+                               FirstTag = JsonSerializer.Deserialize<JsonUserTestDto>(r.UserJson)!.Tags[0],
+                               LastTag = JsonSerializer.Deserialize<JsonUserTestDto>(r.UserJson)!.Tags.Last(),
+                               TagCount = JsonSerializer.Deserialize<JsonUserTestDto>(r.UserJson)!.Tags.Length
+                           });
+
+        AssertPlan(arrayQuery, NativePushdown);
+        var arrayResults = arrayQuery.ToList();
+
+        Assert.Equal(2, arrayResults.Count);
+        Assert.Equal(1, arrayResults[0].RowId);
+        Assert.Equal("admin", arrayResults[0].FirstTag);
+        Assert.Equal("dev", arrayResults[0].LastTag);
+        Assert.Equal(2, arrayResults[0].TagCount);
+
+        Assert.Equal(3, arrayResults[1].RowId);
+        Assert.Equal("dev", arrayResults[1].FirstTag);
+        Assert.Equal("architect", arrayResults[1].LastTag);
+        Assert.Equal(3, arrayResults[1].TagCount);
+
+        // 2. Whole Struct Column Materialization
+        var structQuery = df.AsQueryable<RawJsonUserRecord>()
+                            .Where(r => r.RowId == 1)
+                            .Select(r => new
+                            {
+                                r.RowId,
+                                User = JsonSerializer.Deserialize<JsonUserTestDto>(r.UserJson)
+                            });
+
+        AssertPlan(structQuery, NativePushdown);
+        var structResults = structQuery.ToList();
+
+        Assert.Single(structResults);
+        Assert.Equal(1, structResults[0].RowId);
+        Assert.NotNull(structResults[0].User);
+        Assert.Equal(101, structResults[0].User!.Id);
+        Assert.Equal("Alice", structResults[0].User!.Name);
+        Assert.Equal(95.5, structResults[0].User!.Score);
+        Assert.True(structResults[0].User!.IsActive);
+        Assert.Equal("Tokyo", structResults[0].User!.Address.City);
     }
 
     [Fact]

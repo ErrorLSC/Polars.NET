@@ -91,10 +91,15 @@ module internal ExpressionPatterns =
 
         | ListSelect of target: Expression * mapperLambda: LambdaExpression
 
+    type internal JsonAccessStep =
+        | PropertyStep of MemberInfo
+        | IndexStep of Expression
+
     /// Represents extracted components of JSON operations (System.Text.Json)
     type internal JsonInvocation =
         | JsonPathMatch of target: Expression * path: string * targetType: Type
         | JsonSerialize of target: Expression
+        | JsonDeserialize of target: Expression * targetType: Type * steps: JsonAccessStep list
 
     /// Active pattern for MethodCallExpression
     let (|MethodCall|_|) (expr: Expression) =
@@ -712,6 +717,68 @@ module internal ExpressionPatterns =
     let private tryUnrollJsonSegments (expr: Expression) : (Expression * string list) option =
         tryUnrollJsonSegmentsAcc expr []
 
+    let rec private tryUnrollDeserializeMembers (expr: Expression) (acc: JsonAccessStep list) : (Expression * Type * JsonAccessStep list) option =
+        match expr with
+        | MemberAccess(target, m) when not (isNull target) ->
+            tryUnrollDeserializeMembers target (PropertyStep m :: acc)
+
+        | ArrayIndexOp(target, indexExpr) ->
+            tryUnrollDeserializeMembers target (IndexStep indexExpr :: acc)
+
+        | MethodCall(m, target, [ indexExpr ]) when
+            not (isNull target)
+            && (m.Name = "get_Item" || m.Name = "ElementAt")
+            ->
+            tryUnrollDeserializeMembers target (IndexStep indexExpr :: acc)
+
+        | MethodCall(m, null, [ target; indexExpr ]) when
+            not (isNull m.DeclaringType)
+            && m.DeclaringType = typeof<Enumerable>
+            && m.Name = "ElementAt"
+            ->
+            tryUnrollDeserializeMembers target (IndexStep indexExpr :: acc)
+
+        | MethodCall(m, null, [ target ]) when
+            not (isNull m.DeclaringType)
+            && m.DeclaringType = typeof<Enumerable>
+            && m.Name = "First"
+            ->
+            tryUnrollDeserializeMembers target (IndexStep (Expression.Constant(0)) :: acc)
+
+        | MethodCall(m, null, [ target ]) when
+            not (isNull m.DeclaringType)
+            && m.DeclaringType = typeof<Enumerable>
+            && m.Name = "Last"
+            ->
+            tryUnrollDeserializeMembers target (IndexStep (Expression.Constant(-1)) :: acc)
+
+        | Unary(ExpressionType.Convert, inner)
+        | Unary(ExpressionType.ConvertChecked, inner) when
+            not (isNull inner) &&
+            match inner with
+            | MethodCall(m, null, _) when not (isNull m.DeclaringType) && m.DeclaringType = typeof<JsonSerializer> && m.Name = "Deserialize" -> true
+            | _ -> false
+            ->
+            tryUnrollDeserializeMembers inner acc
+
+        | MethodCall(m, null, args) when
+            not (isNull m.DeclaringType)
+            && m.DeclaringType = typeof<JsonSerializer>
+            && m.Name = "Deserialize"
+            && not args.IsEmpty
+            ->
+            let target = args.Head
+            if m.IsGenericMethod then
+                let dtoType = m.GetGenericArguments().[0]
+                Some(target, dtoType, acc)
+            elif args.Length >= 2 && m.GetParameters().[1].ParameterType = typeof<Type> then
+                match tryEvaluate args.[1] with
+                | Some(:? Type as dtoType) -> Some(target, dtoType, acc)
+                | _ -> None
+            else
+                None
+        | _ -> None
+
     let (|JsonInvocation|_|) (expr: Expression) : JsonInvocation option =
         match expr with
         // 1. Explicit Cast / Convert on JsonNode / JsonElement: (int)node["age"], (string)node["name"], etc.
@@ -772,12 +839,17 @@ module internal ExpressionPatterns =
                 let path = "$" + String.concat "" segs
                 Some(JsonPathMatch(target, path, typeof<string>))
             | _ ->
-                // 5. JsonSerializer.Serialize(...)
-                match expr with
-                | MethodCall(m, null, target :: _) when
-                    not (isNull m.DeclaringType)
-                    && m.DeclaringType = typeof<JsonSerializer>
-                    && m.Name = "Serialize"
-                    ->
-                    Some(JsonSerialize target)
-                | _ -> None
+                // 5. JsonSerializer.Deserialize<T>(target)...
+                match tryUnrollDeserializeMembers expr [] with
+                | Some(target, dtoType, memberPath) ->
+                    Some(JsonDeserialize(target, dtoType, memberPath))
+                | None ->
+                    // 6. JsonSerializer.Serialize(...)
+                    match expr with
+                    | MethodCall(m, null, target :: _) when
+                        not (isNull m.DeclaringType)
+                        && m.DeclaringType = typeof<JsonSerializer>
+                        && m.Name = "Serialize"
+                        ->
+                        Some(JsonSerialize target)
+                    | _ -> None
