@@ -1279,4 +1279,414 @@ public class TpcdsQuery11To20Tests
             }
         }
     }
+
+    /**
+     * TPC-DS Query 17
+     *
+     * SELECT i_item_id,
+     *        i_item_desc,
+     *        s_state,
+     *        count(ss_quantity) AS store_sales_quantitycount,
+     *        avg(ss_quantity) AS store_sales_quantityave,
+     *        stddev_samp(ss_quantity) AS store_sales_quantitystdev,
+     *        stddev_samp(ss_quantity)/avg(ss_quantity) AS store_sales_quantitycov,
+     *        count(sr_return_quantity) AS store_returns_quantitycount,
+     *        avg(sr_return_quantity) AS store_returns_quantityave,
+     *        stddev_samp(sr_return_quantity) AS store_returns_quantitystdev,
+     *        stddev_samp(sr_return_quantity)/avg(sr_return_quantity) AS store_returns_quantitycov,
+     *        count(cs_quantity) AS catalog_sales_quantitycount,
+     *        avg(cs_quantity) AS catalog_sales_quantityave,
+     *        stddev_samp(cs_quantity) AS catalog_sales_quantitystdev,
+     *        stddev_samp(cs_quantity)/avg(cs_quantity) AS catalog_sales_quantitycov
+     * FROM store_sales,
+     *      store_returns,
+     *      catalog_sales,
+     *      date_dim d1,
+     *      date_dim d2,
+     *      date_dim d3,
+     *      store,
+     *      item
+     * WHERE d1.d_quarter_name = '2001Q1'
+     *   AND d1.d_date_sk = ss_sold_date_sk
+     *   AND i_item_sk = ss_item_sk
+     *   AND s_store_sk = ss_store_sk
+     *   AND ss_customer_sk = sr_customer_sk
+     *   AND ss_item_sk = sr_item_sk
+     *   AND ss_ticket_number = sr_ticket_number
+     *   AND sr_returned_date_sk = d2.d_date_sk
+     *   AND d2.d_quarter_name IN ('2001Q1', '2001Q2', '2001Q3')
+     *   AND sr_customer_sk = cs_bill_customer_sk
+     *   AND sr_item_sk = cs_item_sk
+     *   AND cs_sold_date_sk = d3.d_date_sk
+     *   AND d3.d_quarter_name IN ('2001Q1', '2001Q2', '2001Q3')
+     * GROUP BY i_item_id,
+     *          i_item_desc,
+     *          s_state
+     * ORDER BY i_item_id NULLS FIRST,
+     *          i_item_desc NULLS FIRST,
+     *          s_state NULLS FIRST
+     * LIMIT 100;
+     */
+    [Fact]
+    [Trait("TPCDS", "Q17")]
+    public void Test_Q17()
+    {
+        var storeSalesQuery = TpcdsData.StoreSalesQuery();
+        var storeReturnsQuery = TpcdsData.StoreReturnsQuery();
+        var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
+        var storeQuery = TpcdsData.StoreQuery();
+        var itemQuery = TpcdsData.ItemQuery();
+        var dateDimQuery1 = TpcdsData.DateDimQuery();
+        var dateDimQuery2 = TpcdsData.DateDimQuery();
+        var dateDimQuery3 = TpcdsData.DateDimQuery();
+
+        string[] targetQuarters = ["2001Q1", "2001Q2", "2001Q3"];
+
+        var filteredDates1 = dateDimQuery1.Where(d => d.d_quarter_name == "2001Q1");
+        var filteredDates2 = dateDimQuery2.Where(d => targetQuarters.Contains(d.d_quarter_name!));
+        var filteredDates3 = dateDimQuery3.Where(d => targetQuarters.Contains(d.d_quarter_name!));
+
+        var joined = from ss in storeSalesQuery
+                     join d1 in filteredDates1 on ss.ss_sold_date_sk equals d1.d_date_sk
+                     join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
+                     join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
+                     join sr in storeReturnsQuery on new { customer_sk = ss.ss_customer_sk, item_sk = ss.ss_item_sk, ticket_number = ss.ss_ticket_number }
+                                              equals new { customer_sk = sr.sr_customer_sk, item_sk = sr.sr_item_sk, ticket_number = sr.sr_ticket_number }
+                     join d2 in filteredDates2 on sr.sr_returned_date_sk equals d2.d_date_sk
+                     join cs in catalogSalesQuery on new { customer_sk = sr.sr_customer_sk, item_sk = sr.sr_item_sk }
+                                              equals new { customer_sk = cs.cs_bill_customer_sk, item_sk = cs.cs_item_sk }
+                     join d3 in filteredDates3 on cs.cs_sold_date_sk equals d3.d_date_sk
+                     select new
+                     {
+                         i.i_item_id,
+                         i.i_item_desc,
+                         s.s_state,
+                         ss.ss_quantity,
+                         sr.sr_return_quantity,
+                         cs.cs_quantity
+                     };
+
+        var q17 = (from r in joined
+                   group r by new { r.i_item_id, r.i_item_desc, r.s_state } into g
+                   orderby g.Key.i_item_id, g.Key.i_item_desc, g.Key.s_state
+                   select new
+                   {
+                       g.Key.i_item_id,
+                       g.Key.i_item_desc,
+                       g.Key.s_state,
+                       store_sales_quantitycount = g.Select(x => x.ss_quantity).Count(),
+                       store_sales_quantityave = g.Average(x => (double?)x.ss_quantity),
+                       store_sales_quantitystdev = g.Std(x => (double?)x.ss_quantity),
+                       store_sales_quantitycov = g.Std(x => (double?)x.ss_quantity) / g.Average(x => (double?)x.ss_quantity),
+                       store_returns_quantitycount = g.Select(x => x.sr_return_quantity).Count(),
+                       store_returns_quantityave = g.Average(x => (double?)x.sr_return_quantity),
+                       store_returns_quantitystdev = g.Std(x => (double?)x.sr_return_quantity),
+                       store_returns_quantitycov = g.Std(x => (double?)x.sr_return_quantity) / g.Average(x => (double?)x.sr_return_quantity),
+                       catalog_sales_quantitycount = g.Select(x => x.cs_quantity).Count(),
+                       catalog_sales_quantityave = g.Average(x => (double?)x.cs_quantity),
+                       catalog_sales_quantitystdev = g.Std(x => (double?)x.cs_quantity),
+                       catalog_sales_quantitycov = g.Std(x => (double?)x.cs_quantity) / g.Average(x => (double?)x.cs_quantity),
+                   }).Take(100);
+
+        AssertPlan(q17, NativePushdown);
+
+        var polarsResult = q17.ToList();
+
+        // DuckDB Cross Validation
+        var duckDbSql = $@"
+            SELECT i_item_id,
+                   i_item_desc,
+                   s_state,
+                   count(ss_quantity) AS store_sales_quantitycount,
+                   avg(ss_quantity) AS store_sales_quantityave,
+                   stddev_samp(ss_quantity) AS store_sales_quantitystdev,
+                   stddev_samp(ss_quantity)/avg(ss_quantity) AS store_sales_quantitycov,
+                   count(sr_return_quantity) AS store_returns_quantitycount,
+                   avg(sr_return_quantity) AS store_returns_quantityave,
+                   stddev_samp(sr_return_quantity) AS store_returns_quantitystdev,
+                   stddev_samp(sr_return_quantity)/avg(sr_return_quantity) AS store_returns_quantitycov,
+                   count(cs_quantity) AS catalog_sales_quantitycount,
+                   avg(cs_quantity) AS catalog_sales_quantityave,
+                   stddev_samp(cs_quantity) AS catalog_sales_quantitystdev,
+                   stddev_samp(cs_quantity)/avg(cs_quantity) AS catalog_sales_quantitycov
+            FROM read_parquet('{TpcdsData.StoreSalesPath}'),
+                 read_parquet('{TpcdsData.StoreReturnsPath}'),
+                 read_parquet('{TpcdsData.CatalogSalesPath}'),
+                 read_parquet('{TpcdsData.DateDimPath}') d1,
+                 read_parquet('{TpcdsData.DateDimPath}') d2,
+                 read_parquet('{TpcdsData.DateDimPath}') d3,
+                 read_parquet('{TpcdsData.StorePath}'),
+                 read_parquet('{TpcdsData.ItemPath}')
+            WHERE d1.d_quarter_name = '2001Q1'
+              AND d1.d_date_sk = ss_sold_date_sk
+              AND i_item_sk = ss_item_sk
+              AND s_store_sk = ss_store_sk
+              AND ss_customer_sk = sr_customer_sk
+              AND ss_item_sk = sr_item_sk
+              AND ss_ticket_number = sr_ticket_number
+              AND sr_returned_date_sk = d2.d_date_sk
+              AND d2.d_quarter_name IN ('2001Q1', '2001Q2', '2001Q3')
+              AND sr_customer_sk = cs_bill_customer_sk
+              AND sr_item_sk = cs_item_sk
+              AND cs_sold_date_sk = d3.d_date_sk
+              AND d3.d_quarter_name IN ('2001Q1', '2001Q2', '2001Q3')
+            GROUP BY i_item_id,
+                     i_item_desc,
+                     s_state
+            ORDER BY i_item_id NULLS FIRST,
+                     i_item_desc NULLS FIRST,
+                     s_state NULLS FIRST
+            LIMIT 100;
+        ";
+
+        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
+        {
+            i_item_id = r.IsDBNull(0) ? null : r.GetString(0),
+            i_item_desc = r.IsDBNull(1) ? null : r.GetString(1),
+            s_state = r.IsDBNull(2) ? null : r.GetString(2),
+            store_sales_quantitycount = r.GetInt64(3),
+            store_sales_quantityave = r.IsDBNull(4) ? null : (double?)r.GetDouble(4),
+            store_sales_quantitystdev = r.IsDBNull(5) ? null : (double?)r.GetDouble(5),
+            store_sales_quantitycov = r.IsDBNull(6) ? null : (double?)r.GetDouble(6),
+            store_returns_quantitycount = r.GetInt64(7),
+            store_returns_quantityave = r.IsDBNull(8) ? null : (double?)r.GetDouble(8),
+            store_returns_quantitystdev = r.IsDBNull(9) ? null : (double?)r.GetDouble(9),
+            store_returns_quantitycov = r.IsDBNull(10) ? null : (double?)r.GetDouble(10),
+            catalog_sales_quantitycount = r.GetInt64(11),
+            catalog_sales_quantityave = r.IsDBNull(12) ? null : (double?)r.GetDouble(12),
+            catalog_sales_quantitystdev = r.IsDBNull(13) ? null : (double?)r.GetDouble(13),
+            catalog_sales_quantitycov = r.IsDBNull(14) ? null : (double?)r.GetDouble(14),
+        });
+
+        Assert.Equal(duckDbResults.Count, polarsResult.Count);
+        for (int i = 0; i < duckDbResults.Count; i++)
+        {
+            var d = duckDbResults[i];
+            var p = polarsResult[i];
+
+            Assert.Equal(d.i_item_id, p.i_item_id);
+            Assert.Equal(d.i_item_desc, p.i_item_desc);
+            Assert.Equal(d.s_state, p.s_state);
+
+            Assert.Equal(d.store_sales_quantitycount, p.store_sales_quantitycount);
+            AssertNullableDouble(d.store_sales_quantityave, p.store_sales_quantityave);
+            AssertNullableDouble(d.store_sales_quantitystdev, p.store_sales_quantitystdev);
+            AssertNullableDouble(d.store_sales_quantitycov, p.store_sales_quantitycov);
+
+            Assert.Equal(d.store_returns_quantitycount, p.store_returns_quantitycount);
+            AssertNullableDouble(d.store_returns_quantityave, p.store_returns_quantityave);
+            AssertNullableDouble(d.store_returns_quantitystdev, p.store_returns_quantitystdev);
+            AssertNullableDouble(d.store_returns_quantitycov, p.store_returns_quantitycov);
+
+            Assert.Equal(d.catalog_sales_quantitycount, p.catalog_sales_quantitycount);
+            AssertNullableDouble(d.catalog_sales_quantityave, p.catalog_sales_quantityave);
+            AssertNullableDouble(d.catalog_sales_quantitystdev, p.catalog_sales_quantitystdev);
+            AssertNullableDouble(d.catalog_sales_quantitycov, p.catalog_sales_quantitycov);
+        }
+    }
+
+    /**
+     * TPC-DS Query 18
+     *
+     * SELECT i_item_id,
+     *        ca_country,
+     *        ca_state,
+     *        ca_county,
+     *        avg(cast(cs_quantity AS decimal(12, 2)))      agg1,
+     *        avg(cast(cs_list_price AS decimal(12, 2)))    agg2,
+     *        avg(cast(cs_coupon_amt AS decimal(12, 2)))    agg3,
+     *        avg(cast(cs_sales_price AS decimal(12, 2)))   agg4,
+     *        avg(cast(cs_net_profit AS decimal(12, 2)))    agg5,
+     *        avg(cast(c_birth_year AS decimal(12, 2)))     agg6,
+     *        avg(cast(cd1.cd_dep_count AS decimal(12, 2))) agg7
+     * FROM catalog_sales,
+     *      customer_demographics cd1,
+     *      customer_demographics cd2,
+     *      customer,
+     *      customer_address,
+     *      date_dim,
+     *      item
+     * WHERE cs_sold_date_sk = d_date_sk
+     *   AND cs_item_sk = i_item_sk
+     *   AND cs_bill_cdemo_sk = cd1.cd_demo_sk
+     *   AND cs_bill_customer_sk = c_customer_sk
+     *   AND cd1.cd_gender = 'F'
+     *   AND cd1.cd_education_status = 'Unknown'
+     *   AND c_current_cdemo_sk = cd2.cd_demo_sk
+     *   AND c_current_addr_sk = ca_address_sk
+     *   AND c_birth_month IN (1, 6, 8, 9, 12, 2)
+     *   AND d_year = 1998
+     *   AND ca_state IN ('MS', 'IN', 'ND', 'OK', 'NM', 'VA', 'MS')
+     * GROUP BY ROLLUP (i_item_id,
+     *     ca_country,
+     *     ca_state,
+     *     ca_county)
+     * ORDER BY ca_country NULLS FIRST,
+     *     ca_state NULLS FIRST,
+     *     ca_county NULLS FIRST,
+     *     i_item_id NULLS FIRST
+     * LIMIT 100;
+     */
+    [Fact]
+    [Trait("TPCDS", "Q18")]
+    public void Test_Q18()
+    {
+        var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
+        var customerDemographicsQuery1 = TpcdsData.CustomerDemographicsQuery();
+        var customerDemographicsQuery2 = TpcdsData.CustomerDemographicsQuery();
+        var customerQuery = TpcdsData.CustomerQuery();
+        var customerAddressQuery = TpcdsData.CustomerAddressQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
+        var itemQuery = TpcdsData.ItemQuery();
+
+        var filteredDates = dateDimQuery.Where(d => d.d_year == 1998);
+        var filteredCD1 = customerDemographicsQuery1.Where(cd1 => cd1.cd_gender == "F" && cd1.cd_education_status == "Unknown");
+
+        long[] birthMonths = [1, 6, 8, 9, 12, 2];
+        var filteredCustomers = customerQuery.Where(c => birthMonths.Contains(c.c_birth_month!.Value));
+
+        string[] targetStates = ["MS", "IN", "ND", "OK", "NM", "VA"];
+        var filteredAddresses = customerAddressQuery.Where(ca => targetStates.Contains(ca.ca_state!));
+
+        var joined = from cs in catalogSalesQuery
+                     join d in filteredDates on cs.cs_sold_date_sk equals d.d_date_sk
+                     join i in itemQuery on cs.cs_item_sk equals i.i_item_sk
+                     join cd1 in filteredCD1 on cs.cs_bill_cdemo_sk equals cd1.cd_demo_sk
+                     join c in filteredCustomers on cs.cs_bill_customer_sk equals c.c_customer_sk
+                     join cd2 in customerDemographicsQuery2 on c.c_current_cdemo_sk equals cd2.cd_demo_sk
+                     join ca in filteredAddresses on c.c_current_addr_sk equals ca.ca_address_sk
+                     select new
+                     {
+                         i.i_item_id,
+                         ca.ca_country,
+                         ca.ca_state,
+                         ca.ca_county,
+                         cs.cs_quantity,
+                         cs.cs_list_price,
+                         cs.cs_coupon_amt,
+                         cs.cs_sales_price,
+                         cs.cs_net_profit,
+                         c.c_birth_year,
+                         cd1.cd_dep_count
+                     };
+
+        var q18 = joined
+            .GroupByRollup(
+                x => new { x.i_item_id, x.ca_country, x.ca_state, x.ca_county },
+                (key, g) => new
+                {
+                    key.i_item_id,
+                    key.ca_country,
+                    key.ca_state,
+                    key.ca_county,
+                    agg1 = g.Average(x => (double?)x.cs_quantity),
+                    agg2 = g.Average(x => (double?)x.cs_list_price),
+                    agg3 = g.Average(x => (double?)x.cs_coupon_amt),
+                    agg4 = g.Average(x => (double?)x.cs_sales_price),
+                    agg5 = g.Average(x => (double?)x.cs_net_profit),
+                    agg6 = g.Average(x => (double?)x.c_birth_year),
+                    agg7 = g.Average(x => (double?)x.cd_dep_count)
+                }
+            )
+            .OrderBy(x => x.ca_country)
+            .ThenBy(x => x.ca_state)
+            .ThenBy(x => x.ca_county)
+            .ThenBy(x => x.i_item_id)
+            .Take(100);
+
+        AssertPlan(q18, NativePushdown);
+
+        var polarsResult = q18.ToList();
+
+        // DuckDB Cross Validation
+        var duckDbSql = $@"
+            SELECT i_item_id,
+                   ca_country,
+                   ca_state,
+                   ca_county,
+                   avg(cast(cs_quantity AS decimal(12, 2)))      agg1,
+                   avg(cast(cs_list_price AS decimal(12, 2)))    agg2,
+                   avg(cast(cs_coupon_amt AS decimal(12, 2)))    agg3,
+                   avg(cast(cs_sales_price AS decimal(12, 2)))   agg4,
+                   avg(cast(cs_net_profit AS decimal(12, 2)))    agg5,
+                   avg(cast(c_birth_year AS decimal(12, 2)))     agg6,
+                   avg(cast(cd1.cd_dep_count AS decimal(12, 2))) agg7
+            FROM read_parquet('{TpcdsData.CatalogSalesPath}') cs,
+                 read_parquet('{TpcdsData.CustomerDemographicsPath}') cd1,
+                 read_parquet('{TpcdsData.CustomerDemographicsPath}') cd2,
+                 read_parquet('{TpcdsData.CustomerPath}') c,
+                 read_parquet('{TpcdsData.CustomerAddressPath}') ca,
+                 read_parquet('{TpcdsData.DateDimPath}') d,
+                 read_parquet('{TpcdsData.ItemPath}') i
+            WHERE cs_sold_date_sk = d_date_sk
+              AND cs_item_sk = i_item_sk
+              AND cs_bill_cdemo_sk = cd1.cd_demo_sk
+              AND cs_bill_customer_sk = c_customer_sk
+              AND cd1.cd_gender = 'F'
+              AND cd1.cd_education_status = 'Unknown'
+              AND c_current_cdemo_sk = cd2.cd_demo_sk
+              AND c_current_addr_sk = ca_address_sk
+              AND c_birth_month IN (1, 6, 8, 9, 12, 2)
+              AND d_year = 1998
+              AND ca_state IN ('MS', 'IN', 'ND', 'OK', 'NM', 'VA', 'MS')
+            GROUP BY ROLLUP (i_item_id,
+                ca_country,
+                ca_state,
+                ca_county)
+            ORDER BY ca_country NULLS FIRST,
+                ca_state NULLS FIRST,
+                ca_county NULLS FIRST,
+                i_item_id NULLS FIRST
+            LIMIT 100;
+        ";
+
+        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
+        {
+            i_item_id = r.IsDBNull(0) ? null : r.GetString(0),
+            ca_country = r.IsDBNull(1) ? null : r.GetString(1),
+            ca_state = r.IsDBNull(2) ? null : r.GetString(2),
+            ca_county = r.IsDBNull(3) ? null : r.GetString(3),
+            agg1 = r.IsDBNull(4) ? null : (double?)r.GetDouble(4),
+            agg2 = r.IsDBNull(5) ? null : (double?)r.GetDouble(5),
+            agg3 = r.IsDBNull(6) ? null : (double?)r.GetDouble(6),
+            agg4 = r.IsDBNull(7) ? null : (double?)r.GetDouble(7),
+            agg5 = r.IsDBNull(8) ? null : (double?)r.GetDouble(8),
+            agg6 = r.IsDBNull(9) ? null : (double?)r.GetDouble(9),
+            agg7 = r.IsDBNull(10) ? null : (double?)r.GetDouble(10),
+        });
+
+        Assert.Equal(duckDbResults.Count, polarsResult.Count);
+        for (int i = 0; i < duckDbResults.Count; i++)
+        {
+            var d = duckDbResults[i];
+            var p = polarsResult[i];
+
+            Assert.Equal(d.i_item_id, p.i_item_id);
+            Assert.Equal(d.ca_country, p.ca_country);
+            Assert.Equal(d.ca_state, p.ca_state);
+            Assert.Equal(d.ca_county, p.ca_county);
+
+            AssertNullableDouble(d.agg1, p.agg1);
+            AssertNullableDouble(d.agg2, p.agg2);
+            AssertNullableDouble(d.agg3, p.agg3);
+            AssertNullableDouble(d.agg4, p.agg4);
+            AssertNullableDouble(d.agg5, p.agg5);
+            AssertNullableDouble(d.agg6, p.agg6);
+            AssertNullableDouble(d.agg7, p.agg7);
+        }
+    }
+
+    private static void AssertNullableDouble(double? expected, double? actual, double tolerance = 0.001)
+    {
+        if (expected == null)
+        {
+            // In SQL stddev_samp/cov on a group of size 1 returns NULL, whereas Polars returns 0.0 or NaN
+            Assert.True(actual == null || double.IsNaN(actual.Value) || actual.Value == 0.0, $"Expected null or 0.0 but got {actual}");
+        }
+        else
+        {
+            Assert.NotNull(actual);
+            Assert.Equal(expected.Value, actual.Value, tolerance);
+        }
+    }
 }

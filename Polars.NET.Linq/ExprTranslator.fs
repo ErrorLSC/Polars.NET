@@ -259,6 +259,9 @@ module internal rec ExprTranslator =
                 ->
                 Some p.Name
 
+            | MemberAccess(inner, m) when isNullableValue m ->
+                tryResolveColumnNameWithContext ctx inner
+
             | MemberAccess(_, m) when isNavigationMember m || isNullableHasValue m -> None
 
             | MemberAccess(MemberAccess(inner, k), itemProp) when
@@ -492,6 +495,9 @@ module internal rec ExprTranslator =
         | Some actualCol -> Some(PolarsWrapper.Col actualCol)
         | None ->
             match memberExpr with
+            | MemberAccess(inner, m) when isNullableValue m ->
+                tryTranslateWithContext ctx inner
+
             | MemberAccess(null, m) when m.DeclaringType = typeof<Math> || m.DeclaringType = typeof<MathF> ->
                 match m.Name with
                 | "PI" -> Some(PolarsWrapper.Lit Math.PI)
