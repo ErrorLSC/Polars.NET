@@ -647,6 +647,31 @@ module internal rec ExprTranslator =
                 None
         | None -> None
 
+    let private tryExtractCharSet (expr: Expression) : char array option =
+        match unwrap expr with
+        | :? NewArrayExpression as nae when nae.NodeType = ExpressionType.NewArrayInit ->
+            let chars =
+                nae.Expressions
+                |> Seq.choose (fun e ->
+                    match tryEvaluate e with
+                    | Some(:? char as c) -> Some c
+                    | Some(:? string as s) when s.Length = 1 -> Some s.[0]
+                    | _ -> None)
+                |> Seq.toArray
+            if chars.Length = nae.Expressions.Count then Some chars else None
+        | other ->
+            match tryEvaluate other with
+            | Some(:? (char array) as ca) -> Some ca
+            | Some(:? string as s) -> Some(s.ToCharArray())
+            | Some(:? (string array) as sa) ->
+                let chars = sa |> Array.choose (fun s -> if s.Length = 1 then Some s.[0] else None)
+                if chars.Length = sa.Length then Some chars else None
+            | _ -> None
+
+    let private buildCharClassRegex (chars: char array) : string =
+        let escaped = chars |> Array.map (fun c -> Regex.Escape(string c))
+        sprintf "(%s)" (String.concat "|" escaped)
+
     let private translateStringMethod
         (ctx: TranslationContext)
         (m: MethodInfo)
@@ -797,6 +822,51 @@ module internal rec ExprTranslator =
                     Some(applyOp (PolarsWrapper.StrToLower t) (PolarsWrapper.StrToLower p))
                 | Some t, Some p, Some false -> Some(applyOp t p)
                 | _ -> None
+
+        // --- IndexOfAny ---
+        | "IndexOfAny", anyOfExpr :: rest ->
+            match tryExtractCharSet anyOfExpr with
+            | Some chars when chars.Length = 0 ->
+                Some(PolarsWrapper.Lit -1)
+            | Some chars ->
+                let regexPat = buildCharClassRegex chars
+                let patH () = PolarsWrapper.Lit regexPat
+
+                match rest with
+                | [] ->
+                    targetH ()
+                    |> Option.map (fun t ->
+                        let findH = PolarsWrapper.StrFind(t, patH (), literal = false, strict = false)
+                        let castedH = tryTranslateCast typeof<int> findH |> Option.defaultValue findH
+                        PolarsWrapper.FillNull(castedH, PolarsWrapper.Lit -1))
+
+                | [ startExpr ] ->
+                    match targetH (), tryTranslateWithContext ctx startExpr with
+                    | Some t, Some startH ->
+                        let startHInt = tryTranslateCast typeof<int> startH |> Option.defaultValue startH
+                        let startClone = PolarsWrapper.CloneExpr startHInt
+                        let sliced = PolarsWrapper.StrSlice(t, startHInt, PolarsWrapper.LitNull())
+                        let findH = PolarsWrapper.StrFind(sliced, patH (), literal = false, strict = false)
+                        let castedH = tryTranslateCast typeof<int> findH |> Option.defaultValue findH
+                        let fullIdx = PolarsWrapper.Add(startClone, castedH)
+                        Some(PolarsWrapper.FillNull(fullIdx, PolarsWrapper.Lit -1))
+                    | _ -> None
+
+                | [ startExpr; countExpr ] ->
+                    match targetH (), tryTranslateWithContext ctx startExpr, tryTranslateWithContext ctx countExpr with
+                    | Some t, Some startH, Some countH ->
+                        let startHInt = tryTranslateCast typeof<int> startH |> Option.defaultValue startH
+                        let startClone = PolarsWrapper.CloneExpr startHInt
+                        let countHInt = tryTranslateCast typeof<int> countH |> Option.defaultValue countH
+                        let sliced = PolarsWrapper.StrSlice(t, startHInt, countHInt)
+                        let findH = PolarsWrapper.StrFind(sliced, patH (), literal = false, strict = false)
+                        let castedH = tryTranslateCast typeof<int> findH |> Option.defaultValue findH
+                        let fullIdx = PolarsWrapper.Add(startClone, castedH)
+                        Some(PolarsWrapper.FillNull(fullIdx, PolarsWrapper.Lit -1))
+                    | _ -> None
+
+                | _ -> None
+            | None -> None
 
         | "ToUpper", []
         | "ToUpperInvariant", [] -> targetH () |> Option.map PolarsWrapper.StrToUpper

@@ -4083,6 +4083,65 @@ public partial class LinqTests
     }
 
     [Fact]
+    [Trait("LINQ", "StringVectorized")]
+    public void Test_Linq_String_IndexOfAny_Ops()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Text", ["alpha,beta;gamma", "plain_text", "foo-bar.baz"]),
+            Series.From("Code", ["c1", "c2", "c3"]),
+            Series.From("DateStr", ["2026-01-01", "2026-01-02", "2026-01-03"]),
+            Series.From("TimeStr", ["10:00:00", "11:00:00", "12:00:00"])
+        ]);
+
+        char[] delims = [',', ';'];
+
+        var query = df.AsQueryable<StringOpsTestRecord>()
+                      .Where(r => r.Text.IndexOfAny(delims) >= 0 || r.Text.IndexOfAny(new[] { '.', '-' }) >= 0)
+                      .Select(r => new
+                      {
+                          r.Id,
+                          // 1-arg: IndexOfAny(char[])
+                          FirstDelim = r.Text.IndexOfAny(delims),
+                          InlineDelim = r.Text.IndexOfAny(new[] { '.', '-' }),
+                          EmptyDelim = r.Text.IndexOfAny(Array.Empty<char>()),
+                          NotFound = r.Text.IndexOfAny(new[] { 'q', 'x' }),
+
+                          // 2-arg: IndexOfAny(char[], startIndex)
+                          SecondDelim = r.Text.IndexOfAny(delims, 6),
+
+                          // 3-arg: IndexOfAny(char[], startIndex, count)
+                          BoundedFound = r.Text.IndexOfAny(delims, 0, 6),
+                          BoundedNotFound = r.Text.IndexOfAny(delims, 6, 2)
+                      });
+
+        AssertPlan(query, NativePushdown);
+        var results = query.ToList();
+
+        Assert.Equal(2, results.Count);
+
+        // Record 1: "alpha,beta;gamma"
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal(5, results[0].FirstDelim);
+        Assert.Equal(-1, results[0].InlineDelim);
+        Assert.Equal(-1, results[0].EmptyDelim);
+        Assert.Equal(-1, results[0].NotFound);
+        Assert.Equal(10, results[0].SecondDelim);
+        Assert.Equal(5, results[0].BoundedFound);
+        Assert.Equal(-1, results[0].BoundedNotFound);
+
+        // Record 2: "foo-bar.baz"
+        Assert.Equal(3, results[1].Id);
+        Assert.Equal(-1, results[1].FirstDelim);
+        Assert.Equal(3, results[1].InlineDelim);
+        Assert.Equal(-1, results[1].EmptyDelim);
+        Assert.Equal(-1, results[1].NotFound);
+        Assert.Equal(-1, results[1].SecondDelim);
+        Assert.Equal(-1, results[1].BoundedFound);
+        Assert.Equal(-1, results[1].BoundedNotFound);
+    }
+
+    [Fact]
     [Trait("LINQ", "DateTimeVectorized")]
     public void Test_Linq_DateTime_Vectorized_Ops()
     {
