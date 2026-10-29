@@ -271,6 +271,7 @@ public class TpcdsQuery11To20Tests
     }
 
     private static readonly string[] Q12TargetCategories = ["Sports", "Books", "Home"];
+    private static readonly string[] Q20TargetCategories = ["Children", "Sports", "Music"];
 
     /*
      * TPC-DS Query 12
@@ -1673,6 +1674,302 @@ public class TpcdsQuery11To20Tests
             AssertNullableDouble(d.agg5, p.agg5);
             AssertNullableDouble(d.agg6, p.agg6);
             AssertNullableDouble(d.agg7, p.agg7);
+        }
+    }
+
+    /*
+     * TPC-DS Query 19
+     *
+     * SELECT i_brand_id brand_id,
+     *        i_brand brand,
+     *        i_manufact_id,
+     *        i_manufact,
+     *        sum(ss_ext_sales_price) ext_price
+     * FROM date_dim,
+     *      store_sales,
+     *      item,
+     *      customer,
+     *      customer_address,
+     *      store
+     * WHERE d_date_sk = ss_sold_date_sk
+     *   AND ss_item_sk = i_item_sk
+     *   AND i_manager_id = 8
+     *   AND d_moy = 11
+     *   AND d_year = 1998
+     *   AND ss_customer_sk = c_customer_sk
+     *   AND c_current_addr_sk = ca_address_sk
+     *   AND substr(ca_zip, 1, 5) <> substr(s_zip, 1, 5)
+     *   AND ss_store_sk = s_store_sk
+     * GROUP BY i_brand,
+     *          i_brand_id,
+     *          i_manufact_id,
+     *          i_manufact
+     * ORDER BY ext_price DESC,
+     *          brand,
+     *          brand_id,
+     *          i_manufact_id,
+     *          i_manufact
+     * LIMIT 100;
+     */
+    [Fact]
+    [Trait("TPCDS", "Q19")]
+    public void Test_Q19()
+    {
+        var storeSalesQuery = TpcdsData.StoreSalesQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
+        var itemQuery = TpcdsData.ItemQuery();
+        var customerQuery = TpcdsData.CustomerQuery();
+        var customerAddressQuery = TpcdsData.CustomerAddressQuery();
+        var storeQuery = TpcdsData.StoreQuery();
+
+        var filteredDates = dateDimQuery.Where(d => d.d_year == 1998 && d.d_moy == 11);
+        var filteredItems = itemQuery.Where(i => i.i_manager_id == 8);
+
+        var joined = from ss in storeSalesQuery
+                     join d in filteredDates on ss.ss_sold_date_sk equals d.d_date_sk
+                     join i in filteredItems on ss.ss_item_sk equals i.i_item_sk
+                     join c in customerQuery on ss.ss_customer_sk equals c.c_customer_sk
+                     join ca in customerAddressQuery on c.c_current_addr_sk equals ca.ca_address_sk
+                     join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
+                     where ca.ca_zip!.Substring(0, 5) != s.s_zip!.Substring(0, 5)
+                     select new
+                     {
+                         i.i_brand_id,
+                         i.i_brand,
+                         i.i_manufact_id,
+                         i.i_manufact,
+                         ss.ss_ext_sales_price
+                     };
+
+        var q19 = from x in joined
+                  group x by new
+                  {
+                      x.i_brand,
+                      x.i_brand_id,
+                      x.i_manufact_id,
+                      x.i_manufact
+                  } into g
+                  select new
+                  {
+                      brand_id = g.Key.i_brand_id,
+                      brand = g.Key.i_brand,
+                      g.Key.i_manufact_id,
+                      g.Key.i_manufact,
+                      ext_price = g.Sum(x => x.ss_ext_sales_price)
+                  } into res
+                  orderby res.ext_price descending,
+                          res.brand,
+                          res.brand_id,
+                          res.i_manufact_id,
+                          res.i_manufact
+                  select res;
+
+        var limitedQ19 = q19.Take(100);
+
+        AssertPlan(limitedQ19, NativePushdown);
+
+        var polarsResult = limitedQ19.ToList();
+
+        // DuckDB Cross Validation
+        var duckDbSql = $@"
+            SELECT i_brand_id brand_id,
+                   i_brand brand,
+                   i_manufact_id,
+                   i_manufact,
+                   sum(ss_ext_sales_price) ext_price
+            FROM read_parquet('{TpcdsData.DateDimPath}'),
+                 read_parquet('{TpcdsData.StoreSalesPath}'),
+                 read_parquet('{TpcdsData.ItemPath}'),
+                 read_parquet('{TpcdsData.CustomerPath}'),
+                 read_parquet('{TpcdsData.CustomerAddressPath}'),
+                 read_parquet('{TpcdsData.StorePath}')
+            WHERE d_date_sk = ss_sold_date_sk
+              AND ss_item_sk = i_item_sk
+              AND i_manager_id = 8
+              AND d_moy = 11
+              AND d_year = 1998
+              AND ss_customer_sk = c_customer_sk
+              AND c_current_addr_sk = ca_address_sk
+              AND substr(ca_zip, 1, 5) <> substr(s_zip, 1, 5)
+              AND ss_store_sk = s_store_sk
+            GROUP BY i_brand,
+                     i_brand_id,
+                     i_manufact_id,
+                     i_manufact
+            ORDER BY ext_price DESC,
+                     brand,
+                     brand_id,
+                     i_manufact_id,
+                     i_manufact
+            LIMIT 100;
+        ";
+
+        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
+        {
+            brand_id = r.IsDBNull(0) ? null : (long?)Convert.ToInt64(r.GetValue(0)),
+            brand = r.IsDBNull(1) ? null : r.GetString(1),
+            i_manufact_id = r.IsDBNull(2) ? null : (long?)Convert.ToInt64(r.GetValue(2)),
+            i_manufact = r.IsDBNull(3) ? null : r.GetString(3),
+            ext_price = r.IsDBNull(4) ? null : (decimal?)Convert.ToDecimal(r.GetValue(4)),
+        });
+
+        Assert.Equal(duckDbResults.Count, polarsResult.Count);
+        for (int i = 0; i < duckDbResults.Count; i++)
+        {
+            var d = duckDbResults[i];
+            var p = polarsResult[i];
+
+            Assert.Equal(d.brand_id, p.brand_id);
+            Assert.Equal(d.brand, p.brand);
+            Assert.Equal(d.i_manufact_id, p.i_manufact_id);
+            Assert.Equal(d.i_manufact, p.i_manufact);
+            Assert.Equal(d.ext_price, p.ext_price);
+        }
+    }
+
+    /*
+     * TPC-DS Query 20
+     *
+     * SELECT i_item_id,
+     *        i_item_desc,
+     *        i_category,
+     *        i_class,
+     *        i_current_price,
+     *        sum(cs_ext_sales_price) AS itemrevenue,
+     *        sum(cs_ext_sales_price)*100.0000/sum(sum(cs_ext_sales_price)) OVER (PARTITION BY i_class) AS revenueratio
+     * FROM catalog_sales,
+     *      item,
+     *      date_dim
+     * WHERE cs_item_sk = i_item_sk
+     *   AND i_category IN ('Children',
+     *                      'Sports',
+     *                      'Music')
+     *   AND cs_sold_date_sk = d_date_sk
+     *   AND d_date BETWEEN cast('2002-04-01' AS date) AND (cast('2002-04-01' AS date) + interval 30 day)
+     * GROUP BY i_item_id,
+     *          i_item_desc,
+     *          i_category,
+     *          i_class,
+     *          i_current_price
+     * ORDER BY i_category,
+     *          i_class,
+     *          i_item_id,
+     *          i_item_desc,
+     *          revenueratio
+     * LIMIT 100;
+     */
+    [Fact]
+    [Trait("TPCDS", "Q20")]
+    public void Test_Q20()
+    {
+        var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
+        var itemQuery = TpcdsData.ItemQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
+
+        var minDate = new DateOnly(2002, 4, 1);
+        var maxDate = new DateOnly(2002, 5, 1);
+
+        var filteredDates = dateDimQuery.Where(d => d.d_date >= minDate && d.d_date <= maxDate);
+        var filteredItems = itemQuery.Where(i => Q20TargetCategories.Contains(i.i_category));
+
+        var baseGroup = from cs in catalogSalesQuery
+                        join d in filteredDates on cs.cs_sold_date_sk equals d.d_date_sk
+                        join i in filteredItems on cs.cs_item_sk equals i.i_item_sk
+                        group cs by new
+                        {
+                            i.i_item_id,
+                            i.i_item_desc,
+                            i.i_category,
+                            i.i_class,
+                            i.i_current_price
+                        } into g
+                        select new
+                        {
+                            g.Key.i_item_id,
+                            g.Key.i_item_desc,
+                            g.Key.i_category,
+                            g.Key.i_class,
+                            g.Key.i_current_price,
+                            itemrevenue = g.Sum(x => x.cs_ext_sales_price),
+                        };
+
+        var withRatio = from r in baseGroup
+                        select new
+                        {
+                            r.i_item_id,
+                            r.i_item_desc,
+                            r.i_category,
+                            r.i_class,
+                            r.i_current_price,
+                            r.itemrevenue,
+                            revenueratio = (double?)(r.itemrevenue * 100.0m) / (double?)r.itemrevenue.Sum().Over(r.i_class)
+                        };
+
+        var q20 = from r in withRatio
+                  orderby r.i_category, r.i_class, r.i_item_id, r.i_item_desc, r.revenueratio
+                  select r;
+
+        var limitedQ20 = q20.Take(100);
+
+        AssertPlan(limitedQ20, NativePushdown);
+
+        var polarsResult = limitedQ20.ToList();
+
+        // DuckDB Cross Validation
+        var duckDbSql = $@"
+            SELECT i_item_id,
+                   i_item_desc,
+                   i_category,
+                   i_class,
+                   i_current_price,
+                   sum(cs_ext_sales_price) AS itemrevenue,
+                   sum(cs_ext_sales_price)*100.0000/sum(sum(cs_ext_sales_price)) OVER (PARTITION BY i_class) AS revenueratio
+            FROM read_parquet('{TpcdsData.CatalogSalesPath}'),
+                 read_parquet('{TpcdsData.ItemPath}'),
+                 read_parquet('{TpcdsData.DateDimPath}')
+            WHERE cs_item_sk = i_item_sk
+              AND i_category IN ('Children',
+                                 'Sports',
+                                 'Music')
+              AND cs_sold_date_sk = d_date_sk
+              AND d_date BETWEEN cast('2002-04-01' AS date) AND (cast('2002-04-01' AS date) + interval 30 day)
+            GROUP BY i_item_id,
+                     i_item_desc,
+                     i_category,
+                     i_class,
+                     i_current_price
+            ORDER BY i_category,
+                     i_class,
+                     i_item_id,
+                     i_item_desc,
+                     revenueratio
+            LIMIT 100;
+        ";
+
+        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
+        {
+            i_item_id = r.GetString(0),
+            i_item_desc = r.IsDBNull(1) ? null : r.GetString(1),
+            i_category = r.IsDBNull(2) ? null : r.GetString(2),
+            i_class = r.IsDBNull(3) ? null : r.GetString(3),
+            i_current_price = r.IsDBNull(4) ? null : (decimal?)r.GetDecimal(4),
+            itemrevenue = r.IsDBNull(5) ? null : (decimal?)r.GetDecimal(5),
+            revenueratio = r.IsDBNull(6) ? null : (double?)r.GetDouble(6),
+        });
+
+        Assert.Equal(duckDbResults.Count, polarsResult.Count);
+        for (int i = 0; i < duckDbResults.Count; i++)
+        {
+            var d = duckDbResults[i];
+            var p = polarsResult[i];
+
+            Assert.Equal(d.i_item_id, p.i_item_id);
+            Assert.Equal(d.i_item_desc, (string?)p.i_item_desc);
+            Assert.Equal(d.i_category, (string?)p.i_category);
+            Assert.Equal(d.i_class, (string?)p.i_class);
+            Assert.Equal(d.i_current_price, p.i_current_price);
+            Assert.Equal(d.itemrevenue, p.itemrevenue);
+            Assert.Equal(d.revenueratio!.Value, p.revenueratio!.Value, 4);
         }
     }
 
