@@ -184,6 +184,9 @@ type internal LinqStage =
         keySelector: LambdaExpression *
         elemSelector: LambdaExpression *
         resSelector: LambdaExpression
+    | GroupByRollup of keySelector: LambdaExpression * resSelector: LambdaExpression
+    | GroupByCube of keySelector: LambdaExpression * resSelector: LambdaExpression
+    | GroupByGroupingSets of keySelector: LambdaExpression * setsExpr: Expression * resSelector: LambdaExpression
     | GroupJoin of
         methodInfo: MethodInfo *
         inner: Expression *

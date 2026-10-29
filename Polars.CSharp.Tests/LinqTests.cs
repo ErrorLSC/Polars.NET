@@ -9382,5 +9382,122 @@ public partial class LinqTests
         Assert.Equal([2, 4], [.. low1.Select(x => x.Id)]);
     }
 
+    [Fact]
+    [Trait("LINQ", "GroupByRollup")]
+    public void Test_Linq_GroupByRollup_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Dept", ["Sales", "Sales", "Eng", "Eng"]),
+            Series.From("Team", ["A", "B", "A", "B"]),
+            Series.From("Amount", [10, 20, 30, 40])
+        ]);
+
+        var query = df.AsQueryable<SalesRecord>()
+            .GroupByRollup(
+                x => new { x.Dept, x.Team },
+                (key, g) => new
+                {
+                    key.Dept,
+                    key.Team,
+                    TotalAmount = g.Sum(x => x.Amount),
+                    Count = g.Count()
+                }
+            );
+
+        AssertPlan(query, NativePushdown);
+        using var resultDf = query.ToDataFrame();
+
+        // Rollup over (Dept, Team) produces 3 levels:
+        // Level 0: (Dept, Team) -> 4 rows
+        // Level 1: (Dept, null) -> 2 rows (Sales: 30, Eng: 70)
+        // Level 2: (null, null) -> 1 row (Grand Total: 100)
+        // Total rows = 7
+        Assert.Equal(7, resultDf.Height);
+
+        // Check grand total row where Dept is null and Team is null
+        var grandTotal = resultDf.Filter(Polars.Col("Dept").IsNull() & Polars.Col("Team").IsNull());
+        Assert.Equal(1, grandTotal.Height);
+        Assert.Equal(100, grandTotal.GetValue<int>(0, "TotalAmount"));
+        Assert.Equal(4, grandTotal.GetValue<int>(0, "Count"));
+    }
+
+    [Fact]
+    [Trait("LINQ", "GroupByCube")]
+    public void Test_Linq_GroupByCube_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Dept", ["Sales", "Sales", "Eng", "Eng"]),
+            Series.From("Team", ["A", "B", "A", "B"]),
+            Series.From("Amount", [10, 20, 30, 40])
+        ]);
+
+        var query = df.AsQueryable<SalesRecord>()
+            .GroupByCube(
+                x => new { x.Dept, x.Team },
+                (key, g) => new
+                {
+                    key.Dept,
+                    key.Team,
+                    TotalAmount = g.Sum(x => x.Amount)
+                }
+            );
+
+        AssertPlan(query, NativePushdown);
+        using var resultDf = query.ToDataFrame();
+
+        // Cube over 2 dimensions produces 2^2 = 4 subsets:
+        // (Dept, Team) -> 4 rows
+        // (Dept, null) -> 2 rows
+        // (null, Team) -> 2 rows
+        // (null, null) -> 1 row
+        // Total = 9 rows
+        Assert.Equal(9, resultDf.Height);
+    }
+
+    [Fact]
+    [Trait("LINQ", "GroupByGroupingSets")]
+    public void Test_Linq_GroupByGroupingSets_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Dept", ["Sales", "Sales", "Eng", "Eng"]),
+            Series.From("Team", ["A", "B", "A", "B"]),
+            Series.From("Amount", [10, 20, 30, 40])
+        ]);
+
+        var sets = new string[][]
+        {
+            ["Dept"],
+            []
+        };
+
+        var query = df.AsQueryable<SalesRecord>()
+            .GroupByGroupingSets(
+                x => new { x.Dept, x.Team },
+                sets,
+                (key, g) => new
+                {
+                    key.Dept,
+                    key.Team,
+                    TotalAmount = g.Sum(x => x.Amount)
+                }
+            );
+
+        AssertPlan(query, NativePushdown);
+        using var resultDf = query.ToDataFrame();
+
+        // (Dept) -> 2 rows
+        // () -> 1 row
+        // Total = 3 rows
+        Assert.Equal(3, resultDf.Height);
+        var grandTotal = resultDf.Filter(Polars.Col("Dept").IsNull());
+        Assert.Equal(1, grandTotal.Height);
+        Assert.Equal(100, grandTotal.GetValue<int>(0, "TotalAmount"));
+    }
+
+    public record SalesRecord(string Dept, string Team, int Amount);
+
     public record SimpleScoreRecord(int Id, string Name, double Score);
 }

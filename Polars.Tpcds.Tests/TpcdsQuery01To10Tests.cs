@@ -1,5 +1,3 @@
-using DuckDB.NET.Data;
-
 namespace Polars.Tpcds.Tests;
 
 public class TpcdsQuery01To10Tests
@@ -43,15 +41,10 @@ public class TpcdsQuery01To10Tests
     [Trait("TPCDS", "Q1")]
     public void Test_Q1()
     {
-        using var lfStoreReturns = TpcdsData.StoreReturns();
-        using var lfDateDim = TpcdsData.DateDim();
-        using var lfStore = TpcdsData.Store();
-        using var lfCustomer = TpcdsData.Customer();
-
-        var returnsQuery = lfStoreReturns.AsQueryable<StoreReturns>();
-        var dateDimQuery = lfDateDim.AsQueryable<DateDim>();
-        var storeQuery = lfStore.AsQueryable<Store>();
-        var customerQuery = lfCustomer.AsQueryable<Customer>();
+        var returnsQuery = TpcdsData.StoreReturnsQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
+        var storeQuery = TpcdsData.StoreQuery();
+        var customerQuery = TpcdsData.CustomerQuery();
 
         // Step 1: customer_total_return CTE
         var ctr = from sr in returnsQuery
@@ -201,13 +194,9 @@ public class TpcdsQuery01To10Tests
     [Trait("TPCDS", "Q2")]
     public void Test_Q2()
     {
-        using var lfWebSales = TpcdsData.WebSales();
-        using var lfCatalogSales = TpcdsData.CatalogSales();
-        using var lfDateDim = TpcdsData.DateDim();
-
-        var webSalesQuery = lfWebSales.AsQueryable<WebSales>();
-        var catalogSalesQuery = lfCatalogSales.AsQueryable<CatalogSales>();
-        var dateDimQuery = lfDateDim.AsQueryable<DateDim>();
+        var webSalesQuery = TpcdsData.WebSalesQuery();
+        var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
 
         // 1. wscs: UNION ALL
         var ws = webSalesQuery.Select(w => new { sold_date_sk = w.ws_sold_date_sk, sales_price = w.ws_ext_sales_price });
@@ -430,13 +419,10 @@ public class TpcdsQuery01To10Tests
     [Trait("TPCDS", "Q3")]
     public void Test_Q3()
     {
-        using var lfDateDim = TpcdsData.DateDim();
-        using var lfStoreSales = TpcdsData.StoreSales();
-        using var lfItem = TpcdsData.Item();
 
-        var dateDimQuery = lfDateDim.AsQueryable<DateDim>();
-        var storeSalesQuery = lfStoreSales.AsQueryable<StoreSales>();
-        var itemQuery = lfItem.AsQueryable<Item>();
+        var dateDimQuery = TpcdsData.DateDimQuery();
+        var storeSalesQuery = TpcdsData.StoreSalesQuery();
+        var itemQuery = TpcdsData.ItemQuery();
 
         IQueryable<dynamic> BuildQuery(long manufactId)
         {
@@ -640,17 +626,11 @@ public class TpcdsQuery01To10Tests
     [Trait("TPCDS", "Q4")]
     public void Test_Q4()
     {
-        using var lfCustomer = TpcdsData.Customer();
-        using var lfStoreSales = TpcdsData.StoreSales();
-        using var lfCatalogSales = TpcdsData.CatalogSales();
-        using var lfWebSales = TpcdsData.WebSales();
-        using var lfDateDim = TpcdsData.DateDim();
-
-        var customerQuery = lfCustomer.AsQueryable<Customer>();
-        var storeSalesQuery = lfStoreSales.AsQueryable<StoreSales>();
-        var catalogSalesQuery = lfCatalogSales.AsQueryable<CatalogSales>();
-        var webSalesQuery = lfWebSales.AsQueryable<WebSales>();
-        var dateDimQuery = lfDateDim.AsQueryable<DateDim>();
+        var customerQuery = TpcdsData.CustomerQuery();
+        var storeSalesQuery = TpcdsData.StoreSalesQuery();
+        var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
+        var webSalesQuery = TpcdsData.WebSalesQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
 
         // 1. Channel streams grouped by customer & year
         var storeYear = from c in customerQuery
@@ -985,27 +965,16 @@ public class TpcdsQuery01To10Tests
     [Trait("TPCDS", "Q5")]
     public void Test_Q5()
     {
-        using var lfStoreSales = TpcdsData.StoreSales();
-        using var lfStoreReturns = TpcdsData.StoreReturns();
-        using var lfCatalogSales = TpcdsData.CatalogSales();
-        using var lfCatalogReturns = TpcdsData.CatalogReturns();
-        using var lfWebSales = TpcdsData.WebSales();
-        using var lfWebReturns = TpcdsData.WebReturns();
-        using var lfDateDim = TpcdsData.DateDim();
-        using var lfStore = TpcdsData.Store();
-        using var lfCatalogPage = TpcdsData.CatalogPage();
-        using var lfWebSite = TpcdsData.WebSite();
-
-        var storeSalesQuery = lfStoreSales.AsQueryable<StoreSales>();
-        var storeReturnsQuery = lfStoreReturns.AsQueryable<StoreReturns>();
-        var catalogSalesQuery = lfCatalogSales.AsQueryable<CatalogSales>();
-        var catalogReturnsQuery = lfCatalogReturns.AsQueryable<CatalogReturns>();
-        var webSalesQuery = lfWebSales.AsQueryable<WebSales>();
-        var webReturnsQuery = lfWebReturns.AsQueryable<WebReturns>();
-        var dateDimQuery = lfDateDim.AsQueryable<DateDim>();
-        var storeQuery = lfStore.AsQueryable<Store>();
-        var catalogPageQuery = lfCatalogPage.AsQueryable<CatalogPage>();
-        var webSiteQuery = lfWebSite.AsQueryable<WebSite>();
+        var storeSalesQuery = TpcdsData.StoreSalesQuery();
+        var storeReturnsQuery = TpcdsData.StoreReturnsQuery();
+        var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
+        var catalogReturnsQuery = TpcdsData.CatalogReturnsQuery();
+        var webSalesQuery = TpcdsData.WebSalesQuery();
+        var webReturnsQuery = TpcdsData.WebReturnsQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
+        var storeQuery = TpcdsData.StoreQuery();
+        var catalogPageQuery = TpcdsData.CatalogPageQuery();
+        var webSiteQuery = TpcdsData.WebSiteQuery();
 
         var minDate = new DateOnly(2000, 8, 23);
         var maxDate = new DateOnly(2000, 9, 6);
@@ -1147,55 +1116,27 @@ public class TpcdsQuery01To10Tests
         // Combined stream x
         var x = ssr.Concat(csr).Concat(wsr);
 
-        // 3-Level ROLLUP:
-        // Level 1: By (channel, id)
-        var rollupLevel1 = from r in x
-                           group r by new { r.channel, r.id } into g
-                           select new
-                           {
-                               channel = (string?)g.Key.channel,
-                               id = (string?)g.Key.id,
-                               sales = g.Sum(v => v.sales),
-                               returns_ = g.Sum(v => v.returns_),
-                               profit = g.Sum(v => v.profit)
-                           };
-
-        // Level 2: By channel (id = null)
-        var rollupLevel2 = from r in x
-                           group r by r.channel into g
-                           select new
-                           {
-                               channel = (string?)g.Key,
-                               id = (string?)null,
-                               sales = g.Sum(v => v.sales),
-                               returns_ = g.Sum(v => v.returns_),
-                               profit = g.Sum(v => v.profit)
-                           };
-
-        // Level 3: Grand Total (channel = null, id = null)
-        var rollupLevel3 = from r in x
-                           group r by 1 into g
-                           select new
-                           {
-                               channel = (string?)null,
-                               id = (string?)null,
-                               sales = g.Sum(v => v.sales),
-                               returns_ = g.Sum(v => v.returns_),
-                               profit = g.Sum(v => v.profit)
-                           };
-
-        var q5 = (from r in rollupLevel1.Concat(rollupLevel2).Concat(rollupLevel3)
-                  orderby r.channel, r.id
-                  select r).Take(100);
+        // 3-Level ROLLUP via fluent GroupByRollup
+        var q5 = x
+            .GroupByRollup(
+                r => new { r.channel, r.id },
+                (key, g) => new
+                {
+                    channel = (string?)key.channel,
+                    id = (string?)key.id,
+                    sales = g.Sum(v => v.sales),
+                    returns_ = g.Sum(v => v.returns_),
+                    profit = g.Sum(v => v.profit)
+                }
+            )
+            .OrderBy(r => r.channel)
+            .ThenBy(r => r.id)
+            .Take(100);
 
         AssertPlan(ssr, NativePushdown);
         AssertPlan(csr, NativePushdown);
         AssertPlan(wsr, NativePushdown);
         AssertPlan(x, NativePushdown);
-        AssertPlan(rollupLevel1, NativePushdown);
-        AssertPlan(rollupLevel2, NativePushdown);
-        AssertPlan(rollupLevel3, NativePushdown);
-
         AssertPlan(q5, NativePushdown);
 
         var polarsResult = q5.ToList();
@@ -1372,19 +1313,12 @@ public class TpcdsQuery01To10Tests
     [Trait("TPCDS", "Q6")]
     public void Test_Q6()
     {
-        using var lfAddress = TpcdsData.CustomerAddress();
-        using var lfCustomer = TpcdsData.Customer();
-        using var lfStoreSales = TpcdsData.StoreSales();
-        using var lfDateDim = TpcdsData.DateDim();
-        using var lfDateDimSub = TpcdsData.DateDim();
-        using var lfItem = TpcdsData.Item();
-
-        var addressQuery = lfAddress.AsQueryable<CustomerAddress>();
-        var customerQuery = lfCustomer.AsQueryable<Customer>();
-        var storeSalesQuery = lfStoreSales.AsQueryable<StoreSales>();
-        var dateDimQuery = lfDateDim.AsQueryable<DateDim>();
-        var dateDimSubQuery = lfDateDimSub.AsQueryable<DateDim>();
-        var itemQuery = lfItem.AsQueryable<Item>();
+        var addressQuery = TpcdsData.CustomerAddressQuery();
+        var customerQuery = TpcdsData.CustomerQuery();
+        var storeSalesQuery = TpcdsData.StoreSalesQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
+        var dateDimSubQuery = TpcdsData.DateDimQuery();
+        var itemQuery = TpcdsData.ItemQuery();
 
         // 1. Month sequence subquery
         var targetMonths = (from d in dateDimSubQuery
@@ -1549,17 +1483,12 @@ public class TpcdsQuery01To10Tests
     [Trait("TPCDS", "Q7")]
     public void Test_Q7()
     {
-        using var lfStoreSales = TpcdsData.StoreSales();
-        using var lfCustomerDemographics = TpcdsData.CustomerDemographics();
-        using var lfDateDim = TpcdsData.DateDim();
-        using var lfItem = TpcdsData.Item();
-        using var lfPromotion = TpcdsData.Promotion();
 
-        var storeSalesQuery = lfStoreSales.AsQueryable<StoreSales>();
-        var customerDemographicsQuery = lfCustomerDemographics.AsQueryable<CustomerDemographics>();
-        var dateDimQuery = lfDateDim.AsQueryable<DateDim>();
-        var itemQuery = lfItem.AsQueryable<Item>();
-        var promotionQuery = lfPromotion.AsQueryable<Promotion>();
+        var storeSalesQuery = TpcdsData.StoreSalesQuery();
+        var customerDemographicsQuery = TpcdsData.CustomerDemographicsQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
+        var itemQuery = TpcdsData.ItemQuery();
+        var promotionQuery = TpcdsData.PromotionQuery();
 
         var filteredCd = customerDemographicsQuery.Where(cd => cd.cd_gender == "M"
                                                             && cd.cd_marital_status == "S"
@@ -1746,19 +1675,12 @@ public class TpcdsQuery01To10Tests
     {
         IQueryable<dynamic> BuildQuery(string[] targetZips, long minCount)
         {
-            var lfStoreSales = TpcdsData.StoreSales();
-            var lfDateDim = TpcdsData.DateDim();
-            var lfStore = TpcdsData.Store();
-            var lfAddress1 = TpcdsData.CustomerAddress();
-            var lfAddress2 = TpcdsData.CustomerAddress();
-            var lfCustomer = TpcdsData.Customer();
-
-            var storeSalesQuery = lfStoreSales.AsQueryable<StoreSales>();
-            var dateDimQuery = lfDateDim.AsQueryable<DateDim>();
-            var storeQuery = lfStore.AsQueryable<Store>();
-            var addressQuery1 = lfAddress1.AsQueryable<CustomerAddress>();
-            var addressQuery2 = lfAddress2.AsQueryable<CustomerAddress>();
-            var customerQuery = lfCustomer.AsQueryable<Customer>();
+            var storeSalesQuery = TpcdsData.StoreSalesQuery();
+            var dateDimQuery = TpcdsData.DateDimQuery();
+            var storeQuery = TpcdsData.StoreQuery();
+            var addressQuery1 = TpcdsData.CustomerAddressQuery();
+            var addressQuery2 = TpcdsData.CustomerAddressQuery();
+            var customerQuery = TpcdsData.CustomerQuery();
 
             // V1: ca_zip set intersection
             var z1 = (from ca in addressQuery1
@@ -1933,11 +1855,8 @@ public class TpcdsQuery01To10Tests
     [Trait("TPCDS", "Q9")]
     public void Test_Q9()
     {
-        using var lfReason = TpcdsData.Reason();
-        using var lfStoreSales = TpcdsData.StoreSales();
-
-        var reasonQuery = lfReason.AsQueryable<Reason>();
-        var storeSalesQuery = lfStoreSales.AsQueryable<StoreSales>();
+        var reasonQuery = TpcdsData.ReasonQuery();
+        var storeSalesQuery = TpcdsData.StoreSalesQuery();
 
         var q9 = from r in reasonQuery.Where(r => r.r_reason_sk == 1)
                  select new
@@ -2128,21 +2047,13 @@ public class TpcdsQuery01To10Tests
     [Trait("TPCDS", "Q10")]
     public void Test_Q10()
     {
-        using var lfCustomer = TpcdsData.Customer();
-        using var lfCustomerAddress = TpcdsData.CustomerAddress();
-        using var lfCustomerDemographics = TpcdsData.CustomerDemographics();
-        using var lfStoreSales = TpcdsData.StoreSales();
-        using var lfWebSales = TpcdsData.WebSales();
-        using var lfCatalogSales = TpcdsData.CatalogSales();
-        using var lfDateDim = TpcdsData.DateDim();
-
-        var customerQuery = lfCustomer.AsQueryable<Customer>();
-        var customerAddressQuery = lfCustomerAddress.AsQueryable<CustomerAddress>();
-        var customerDemographicsQuery = lfCustomerDemographics.AsQueryable<CustomerDemographics>();
-        var storeSalesQuery = lfStoreSales.AsQueryable<StoreSales>();
-        var webSalesQuery = lfWebSales.AsQueryable<WebSales>();
-        var catalogSalesQuery = lfCatalogSales.AsQueryable<CatalogSales>();
-        var dateDimQuery = lfDateDim.AsQueryable<DateDim>();
+        var customerQuery = TpcdsData.CustomerQuery();
+        var customerAddressQuery = TpcdsData.CustomerAddressQuery();
+        var customerDemographicsQuery = TpcdsData.CustomerDemographicsQuery();
+        var storeSalesQuery = TpcdsData.StoreSalesQuery();
+        var webSalesQuery = TpcdsData.WebSalesQuery();
+        var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
 
         var storeCust = (from ss in storeSalesQuery
                          join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk

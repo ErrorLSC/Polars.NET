@@ -982,6 +982,15 @@ module internal QueryPipelineHelpers =
             ->
             flattenStages source (LinqStage.GroupByWithResult(k, r) :: acc)
 
+        | MethodCall(m, null, [ source; CleanLambda k; CleanLambda r ]) when m.Name = "GroupByRollup" ->
+            flattenStages source (LinqStage.GroupByRollup(k, r) :: acc)
+
+        | MethodCall(m, null, [ source; CleanLambda k; CleanLambda r ]) when m.Name = "GroupByCube" ->
+            flattenStages source (LinqStage.GroupByCube(k, r) :: acc)
+
+        | MethodCall(m, null, [ source; CleanLambda k; setsExpr; CleanLambda r ]) when m.Name = "GroupByGroupingSets" ->
+            flattenStages source (LinqStage.GroupByGroupingSets(k, setsExpr, r) :: acc)
+
         // Join, LeftJoin, RightJoin, FullJoin, GroupJoin (with optional result selector)
         | MethodCall(m,
                      _,
@@ -2085,6 +2094,88 @@ module internal QueryPipelineHelpers =
                     MaintainOrder = false
                 })
 
+    /// Helper to translate a single group-by reduction/aggregation into an ExprHandle
+    let tryTranslateGroupByAgg
+        (groupParamName: string)
+        (targetColExprOpt: ExprHandle option)
+        (scalarColOpt: string option)
+        (wholeRowStructOpt: ExprHandle option)
+        (lf: LazyFrameHandle)
+        (colName: string)
+        (rawArgExpr: Expression)
+        : ExprHandle option =
+
+        let argExpr = ExprTranslator.unwrap rawArgExpr
+
+        let isGroupParam (e: Expression) =
+            match ExprTranslator.unwrap e with
+            | :? ParameterExpression as p -> p.Name = groupParamName
+            | _ -> false
+
+        let isGroupReductionCall (targetObj: Expression) (callArgs: Expression list) =
+            isNull targetObj && callArgs.Length = 1 && isGroupParam callArgs.Head
+            || not (isNull targetObj) && callArgs.IsEmpty && isGroupParam targetObj
+
+        let isGroupCountCall (m: MethodInfo) (targetObj: Expression) (callArgs: Expression list) =
+            (m.Name = "Count" || m.Name = "LongCount") && isGroupReductionCall targetObj callArgs
+
+        let tryMatchNestedListAgg (e: Expression) =
+            match e with
+            | MethodCall(mList, null, [ MethodCall(mSel, null, [ gArg; CleanLambda selLambda ]) ])
+            | MethodCall(mList, MethodCall(mSel, null, [ gArg; CleanLambda selLambda ]), [])
+            | MethodCall(mList, MethodCall(mSel, gArg, [ CleanLambda selLambda ]), []) when
+                (mList.Name = "ToList" || mList.Name = "ToArray")
+                && mSel.Name = "Select"
+                && isGroupParam gArg
+                ->
+                Some selLambda
+            | _ -> None
+
+        match argExpr with
+        | MethodCall(m, target, callArgs) when isGroupCountCall m target callArgs ->
+            let core =
+                if m.Name = "LongCount" then
+                    let len = PolarsWrapper.Len()
+
+                    let int64Dtype =
+                        PolarsWrapper.DataTypeExprFromDataType(
+                            PolarsWrapper.NewPrimitiveType(int PlDataType.Int64)
+                        )
+
+                    PolarsWrapper.ExprCast(len, int64Dtype, strict = false, wrapNumerical = false)
+                else
+                    PolarsWrapper.Len()
+
+            Some(PolarsWrapper.Alias(core, colName))
+
+        | MethodCall(m, target, callArgs) when
+            isGroupReductionCall target callArgs && targetColExprOpt.IsSome
+            ->
+            let clonedColExpr = PolarsWrapper.CloneExpr targetColExprOpt.Value
+
+            ExprTranslator.translateReductionOp m.Name clonedColExpr
+            |> Option.map (fun core -> PolarsWrapper.Alias(core, colName))
+
+        | _ ->
+            match tryMatchNestedListAgg argExpr with
+            | Some selLambda ->
+                let selParam = selLambda.Parameters.[0]
+                let selCtx = createContextForType selParam.Type lf selParam.Name
+
+                let colExprOpt =
+                    match ExprTranslator.tryResolveColumnNameWithContext selCtx selLambda.Body with
+                    | Some cName -> Some(PolarsWrapper.Col cName)
+                    | None -> ExprTranslator.tryTranslateWithContext selCtx selLambda.Body
+
+                colExprOpt |> Option.map (fun cExpr -> PolarsWrapper.Alias(cExpr, colName))
+            | None ->
+                AggTranslator.tryTranslateAggWithScalarCol
+                    groupParamName
+                    scalarColOpt
+                    wholeRowStructOpt
+                    argExpr
+                    colName
+
     /// Unified GroupBy compiler powering both single-key and multi-key GroupBy pipelines (C# LINQ & F# QueryBuilder)
     let compileUnifiedGroupBy
         (lf: LazyFrameHandle)
@@ -2251,76 +2342,14 @@ module internal QueryPipelineHelpers =
                     elemExprOpt |> Option.orElse (scalarColOpt |> Option.map PolarsWrapper.Col)
 
                 let tryTranslateSingleAgg (colName: string) (rawArgExpr: Expression) : ExprHandle option =
-                    let argExpr = ExprTranslator.unwrap rawArgExpr
-
-                    let isGroupParam (e: Expression) =
-                        match ExprTranslator.unwrap e with
-                        | :? ParameterExpression as p -> p.Name = groupParamName
-                        | _ -> false
-
-                    let isGroupReductionCall ( targetObj: Expression) (callArgs: Expression list) =
-                        isNull targetObj && callArgs.Length = 1 && isGroupParam callArgs.Head
-                        || not (isNull targetObj) && callArgs.IsEmpty && isGroupParam targetObj
-
-                    let isGroupCountCall (m: MethodInfo) (targetObj: Expression) (callArgs: Expression list) =
-                        (m.Name = "Count" || m.Name = "LongCount") && isGroupReductionCall targetObj callArgs
-
-                    let tryMatchNestedListAgg (e: Expression) =
-                        match e with
-                        | MethodCall(mList, null, [ MethodCall(mSel, null, [ gArg; CleanLambda selLambda ]) ])
-                        | MethodCall(mList, MethodCall(mSel, null, [ gArg; CleanLambda selLambda ]), [])
-                        | MethodCall(mList, MethodCall(mSel, gArg, [ CleanLambda selLambda ]), []) when
-                            (mList.Name = "ToList" || mList.Name = "ToArray")
-                            && mSel.Name = "Select"
-                            && isGroupParam gArg
-                            ->
-                            Some selLambda
-                        | _ -> None
-
-                    match argExpr with
-                    | MethodCall(m, target, callArgs) when isGroupCountCall m target callArgs ->
-                        let core =
-                            if m.Name = "LongCount" then
-                                let len = PolarsWrapper.Len()
-
-                                let int64Dtype =
-                                    PolarsWrapper.DataTypeExprFromDataType(
-                                        PolarsWrapper.NewPrimitiveType(int PlDataType.Int64)
-                                    )
-
-                                PolarsWrapper.ExprCast(len, int64Dtype, strict = false, wrapNumerical = false)
-                            else
-                                PolarsWrapper.Len()
-
-                        Some(PolarsWrapper.Alias(core, colName))
-
-                    | MethodCall(m, target, callArgs) when
-                        isGroupReductionCall target callArgs && targetColExprOpt.IsSome
-                        ->
-                        let clonedColExpr = PolarsWrapper.CloneExpr targetColExprOpt.Value
-
-                        ExprTranslator.translateReductionOp m.Name clonedColExpr
-                        |> Option.map (fun core -> PolarsWrapper.Alias(core, colName))
-
-                    | _ ->
-                        match tryMatchNestedListAgg argExpr with
-                        | Some selLambda ->
-                            let selParam = selLambda.Parameters.[0]
-                            let selCtx = createContextForType selParam.Type lf selParam.Name
-
-                            let colExprOpt =
-                                match ExprTranslator.tryResolveColumnNameWithContext selCtx selLambda.Body with
-                                | Some cName -> Some(PolarsWrapper.Col cName)
-                                | None -> ExprTranslator.tryTranslateWithContext selCtx selLambda.Body
-
-                            colExprOpt |> Option.map (fun cExpr -> PolarsWrapper.Alias(cExpr, colName))
-                        | None ->
-                            AggTranslator.tryTranslateAggWithScalarCol
-                                groupParamName
-                                scalarColOpt
-                                wholeRowStructOpt
-                                argExpr
-                                colName
+                    tryTranslateGroupByAgg
+                        groupParamName
+                        targetColExprOpt
+                        scalarColOpt
+                        wholeRowStructOpt
+                        lf
+                        colName
+                        rawArgExpr
 
                 let translatedAggOpts =
                     nonKeyArgs
@@ -2649,3 +2678,295 @@ module internal QueryPipelineHelpers =
                 | QueryOp.SelectPassthrough -> currentLf)
             (PolarsWrapper.LazyClone sourceLf)
 
+    [<RequireQualifiedAccess>]
+    type internal GroupingKind =
+        | Rollup
+        | Cube
+        | GroupingSets of Expression
+
+    /// Unified compiler for multi-dimensional grouping sets (ROLLUP, CUBE, GROUPING SETS)
+    let compileUnifiedGroupingSets
+        (activeLf: LazyFrameHandle)
+        (kind: GroupingKind)
+        (keyLambda: LambdaExpression)
+        (resLambda: LambdaExpression)
+        : LazyFrameHandle option =
+
+        let keyParam = keyLambda.Parameters.[0]
+        let keyCtx = createContextForType keyParam.Type activeLf keyParam.Name
+
+        let elemType = keyParam.Type
+
+        let wholeRowStructOpt: ExprHandle option =
+            try
+                let props = elemType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+
+                if props.Length > 0 then
+                    let colExprs = props |> Array.map (fun p -> PolarsWrapper.Col p.Name)
+                    Some(PolarsWrapper.AsStruct colExprs)
+                else
+                    None
+            with _ ->
+                None
+
+        let translateKeyPart (e: Expression) : ExprHandle option =
+            match ExprTranslator.tryTranslateWithContext keyCtx e with
+            | Some h -> Some h
+            | None ->
+                match e with
+                | MemberAccess(:? ParameterExpression as p, mem) when p.Name = keyParam.Name ->
+                    Some(PolarsWrapper.Col mem.Name)
+                | _ -> None
+
+        let keyPairsOpt: (string * Expression) list option =
+            match ExprTranslator.unwrap keyLambda.Body with
+            | :? NewExpression as ne when
+                ne.Type.IsGenericType && (ne.Type.Name.StartsWith "Tuple`" || ne.Type.Name.StartsWith "ValueTuple`") ->
+                let names =
+                    ne.Arguments
+                    |> Seq.mapi (fun i arg ->
+                        match ExprTranslator.unwrap arg with
+                        | ExtractColumnName col -> col
+                        | MemberAccess(_, m) -> m.Name
+                        | _ -> sprintf "Item%d" (i + 1))
+                    |> Seq.toList
+                let args = ne.Arguments |> Seq.toList
+                Some(List.zip names args)
+            | _ ->
+                match tryExtractMemberBindings keyLambda.Body with
+                | Some pairs -> Some pairs
+                | None ->
+                    let name =
+                        match keyLambda.Body with
+                        | ExtractColumnName col -> col
+                        | _ -> "Key"
+
+                    Some [ (name, keyLambda.Body) ]
+
+        let keyDefinitionsOpt: (string * ExprHandle) list option =
+            keyPairsOpt
+            |> Option.bind (fun pairs ->
+                let translated =
+                    pairs
+                    |> List.choose (fun (name, expr) -> translateKeyPart expr |> Option.map (fun h -> (name, h)))
+
+                if translated.Length = pairs.Length then
+                    Some translated
+                else
+                    None)
+
+        match keyDefinitionsOpt with
+        | None -> None
+        | Some keyDefs ->
+            let numKeys = keyDefs.Length
+            let isTwoParam = resLambda.Parameters.Count >= 2
+            let groupParamName =
+                if isTwoParam then resLambda.Parameters.[1].Name else resLambda.Parameters.[0].Name
+
+            let isKeyArg (e: Expression) =
+                let cleanE = ExprTranslator.unwrap e
+                if isTwoParam then
+                    let keyParamName = resLambda.Parameters.[0].Name
+                    match cleanE with
+                    | :? ParameterExpression as p when p.Name = keyParamName -> true
+                    | MemberAccess(:? ParameterExpression as p, _) when p.Name = keyParamName -> true
+                    | _ -> false
+                else
+                    let gParamName = resLambda.Parameters.[0].Name
+                    match cleanE with
+                    | MemberAccess(:? ParameterExpression as p, m) when p.Name = gParamName && m.Name = "Key" -> true
+                    | MemberAccess(MemberAccess(:? ParameterExpression as p, k), _) when p.Name = gParamName && k.Name = "Key" -> true
+                    | _ -> false
+
+            let isKeyExpression (e: Expression) : bool =
+                let cleanE = ExprTranslator.unwrap e
+                if isKeyArg cleanE then
+                    true
+                else
+                    match cleanE with
+                    | MemberAccess(target, _) when isKeyArg target -> true
+                    | MemberAccess(MemberAccess(p, keyProp), _) when
+                        not (isNull p) && p.NodeType = ExpressionType.Parameter && keyProp.Name = "Key" ->
+                        true
+                    | _ -> false
+
+            let memberBindingsOpt =
+                match tryExtractMemberBindings resLambda.Body with
+                | Some bindings -> Some bindings
+                | None ->
+                    let cleanProj = ExprTranslator.unwrap resLambda.Body
+                    if isKeyExpression cleanProj then
+                        let name =
+                            match cleanProj with
+                            | MemberAccess(_, m) when m.Name <> "Key" -> m.Name
+                            | _ -> if keyDefs.Length = 1 then fst keyDefs.[0] else "Key"
+                        Some [ (name, resLambda.Body) ]
+                    else
+                        None
+
+            match memberBindingsOpt with
+            | None -> None
+            | Some memberBindings ->
+                let memberNames = memberBindings |> List.map fst
+                let args = memberBindings |> List.map snd
+
+                let keyNameToOutputAliasMap =
+                    keyDefs
+                    |> List.mapi (fun keyIdx (origKeyName, _) ->
+                        let outputColName =
+                            List.zip memberNames args
+                            |> List.tryPick (fun (memName, rawArg) ->
+                                let arg = ExprTranslator.unwrap rawArg
+
+                                match arg with
+                                | MemberAccess(MemberAccess(_, k), m) when k.Name = "Key" ->
+                                    if m.Name = origKeyName then Some memName
+                                    elif m.Name = sprintf "Item%d" (keyIdx + 1) || (m.Name = "Fst" && keyIdx = 0) || (m.Name = "Snd" && keyIdx = 1) then Some memName
+                                    else None
+                                | MemberAccess(p, m) when isKeyArg p ->
+                                    if m.Name = origKeyName then Some memName
+                                    elif m.Name = "Key" && keyDefs.Length = 1 then Some memName
+                                    elif m.Name = sprintf "Item%d" (keyIdx + 1) || (m.Name = "Fst" && keyIdx = 0) || (m.Name = "Snd" && keyIdx = 1) then Some memName
+                                    else None
+                                | _ when isKeyArg arg && keyDefs.Length = 1 -> Some memName
+                                | _ -> None)
+                            |> Option.defaultValue origKeyName
+
+                        origKeyName, outputColName)
+                    |> Map.ofList
+
+                let outputAliasToKeyIdx =
+                    keyDefs
+                    |> List.mapi (fun idx (origKeyName, _) -> keyNameToOutputAliasMap.[origKeyName], idx)
+                    |> Map.ofList
+
+                let keyAliasedExprs =
+                    keyDefs
+                    |> List.map (fun (origKeyName, rawKeyExpr) ->
+                        let outputColName = keyNameToOutputAliasMap.[origKeyName]
+                        PolarsWrapper.Alias(rawKeyExpr, outputColName))
+                    |> List.toArray
+
+                let nonKeyArgs =
+                    List.zip memberNames args
+                    |> List.filter (fun (_, argExpr) -> not (isKeyExpression argExpr))
+
+                let scalarColOpt = tryGetScalarColumnName keyParam.Type activeLf
+                let targetColExprOpt = scalarColOpt |> Option.map PolarsWrapper.Col
+
+                let translatedAggOpts =
+                    nonKeyArgs
+                    |> List.map (fun (colName, argExpr) ->
+                        tryTranslateGroupByAgg
+                            groupParamName
+                            targetColExprOpt
+                            scalarColOpt
+                            wholeRowStructOpt
+                            activeLf
+                            colName
+                            argExpr)
+
+                if not (translatedAggOpts |> List.forall Option.isSome) then
+                    None
+                else
+                    let aggs = translatedAggOpts |> List.choose id
+
+                    // Generate subsets of key indices
+                    let subsets: int list list =
+                        match kind with
+                        | GroupingKind.Rollup ->
+                            [ for len in numKeys .. -1 .. 0 -> [ 0 .. len - 1 ] ]
+                        | GroupingKind.Cube ->
+                            [ for mask in (1 <<< numKeys) - 1 .. -1 .. 0 ->
+                                [ for i in 0 .. numKeys - 1 do
+                                    if (mask &&& (1 <<< (numKeys - 1 - i))) <> 0 then yield i ] ]
+                        | GroupingKind.GroupingSets setsExpr ->
+                            let extractedSetsOpt =
+                                match ExprTranslator.unwrap setsExpr with
+                                | :? ConstantExpression as c when not (isNull c.Value) && c.Type = typeof<string[][]> ->
+                                    let arr = c.Value :?> string[][]
+                                    Some (arr |> Array.map (fun set ->
+                                        set |> Array.choose (fun name ->
+                                            keyDefs |> List.tryFindIndex (fun (k, _) -> k = name || keyNameToOutputAliasMap.[k] = name)
+                                        ) |> Array.toList
+                                    ) |> Array.toList)
+                                | :? NewArrayExpression as nae ->
+                                    let sets =
+                                        nae.Expressions
+                                        |> Seq.choose (fun elem ->
+                                            match ExprTranslator.unwrap elem with
+                                            | :? ConstantExpression as ce when not (isNull ce.Value) && ce.Type = typeof<string[]> ->
+                                                Some(ce.Value :?> string[])
+                                            | :? NewArrayExpression as innerNae ->
+                                                let strs =
+                                                    innerNae.Expressions
+                                                    |> Seq.choose (fun sExpr ->
+                                                        match ExprTranslator.unwrap sExpr with
+                                                        | :? ConstantExpression as sc when sc.Type = typeof<string> ->
+                                                            Some(sc.Value :?> string)
+                                                        | _ -> None)
+                                                    |> Seq.toArray
+                                                Some strs
+                                            | _ -> None)
+                                        |> Seq.toArray
+                                    Some (sets |> Array.map (fun set ->
+                                        set |> Array.choose (fun name ->
+                                            keyDefs |> List.tryFindIndex (fun (k, _) -> k = name || keyNameToOutputAliasMap.[k] = name)
+                                        ) |> Array.toList
+                                    ) |> Array.toList)
+                                | _ -> None
+                            extractedSetsOpt |> Option.defaultValue [ [ 0 .. numKeys - 1 ] ]
+
+                    // Compile Level 0 (all keys) to capture schema and types
+                    let level0Keys = keyAliasedExprs |> Array.map PolarsWrapper.CloneExpr
+                    let level0Aggs = aggs |> List.map PolarsWrapper.CloneExpr |> List.toArray
+                    let level0GroupOp = QueryOp.GroupBy { Keys = level0Keys; Aggs = level0Aggs; Having = None; MaintainOrder = false }
+                    let level0GroupedLf = applyNativeOps (PolarsWrapper.LazyClone activeLf) [ level0GroupOp ]
+                    let level0SelectExprs =
+                        memberNames
+                        |> List.map (fun name -> PolarsWrapper.Col name)
+                        |> List.toArray
+                    let level0Lf = PolarsWrapper.LazySelect(level0GroupedLf, level0SelectExprs)
+
+                    let level0Fields = getLazySchemaFields level0Lf
+                    let colTypeMap = level0Fields |> Map.ofArray
+
+                    let compileLevel (subsetIndices: int list) : LazyFrameHandle =
+                        if subsetIndices.Length = numKeys then
+                            PolarsWrapper.LazyClone level0Lf
+                        else
+                            let groupedLf =
+                                if subsetIndices.IsEmpty then
+                                    let dummyKey = PolarsWrapper.Alias(PolarsWrapper.Lit 1, "__dummy_rollup_key__")
+                                    let levelAggs = aggs |> List.map PolarsWrapper.CloneExpr |> List.toArray
+                                    let groupByOp = QueryOp.GroupBy { Keys = [| dummyKey |]; Aggs = levelAggs; Having = None; MaintainOrder = false }
+                                    applyNativeOps (PolarsWrapper.LazyClone activeLf) [ groupByOp ]
+                                else
+                                    let levelKeys = [| for i in subsetIndices -> PolarsWrapper.CloneExpr keyAliasedExprs.[i] |]
+                                    let levelAggs = aggs |> List.map PolarsWrapper.CloneExpr |> List.toArray
+                                    let groupByOp = QueryOp.GroupBy { Keys = levelKeys; Aggs = levelAggs; Having = None; MaintainOrder = false }
+                                    applyNativeOps (PolarsWrapper.LazyClone activeLf) [ groupByOp ]
+
+                            let subsetSet = Set.ofList subsetIndices
+                            let projectedExprs =
+                                memberNames
+                                |> List.map (fun name ->
+                                    match outputAliasToKeyIdx.TryFind name with
+                                    | Some keyIdx ->
+                                        if subsetSet.Contains keyIdx then
+                                            PolarsWrapper.Col name
+                                        else
+                                            let dt = colTypeMap.[name]
+                                            let dtExpr = PolarsWrapper.DataTypeExprFromDataType dt
+                                            let nullExpr = PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), dtExpr, strict = false, wrapNumerical = false)
+                                            PolarsWrapper.Alias(nullExpr, name)
+                                    | None ->
+                                        // Aggregation column
+                                        PolarsWrapper.Col name)
+                                |> List.toArray
+
+                            PolarsWrapper.LazySelect(groupedLf, projectedExprs)
+
+                    let levelLfs = subsets |> List.map compileLevel |> List.toArray
+                    let concatLf = PolarsWrapper.LazyConcat(levelLfs, PlConcatType.Vertical, false, true)
+                    Some concatLf

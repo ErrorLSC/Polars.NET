@@ -1172,6 +1172,156 @@ public static class LinqExtensions
         AsOfTolerance? tolerance = null,
         AsofStrategy strategy = AsofStrategy.Backward)
         => outer.JoinAsOf(inner, outerKeySelector, innerKeySelector, outerBySelector, innerBySelector, (o, i) => ValueTuple.Create(o, i), tolerance, strategy);
+
+    /// <summary>
+    /// Groups the elements of a sequence according to a specified key selector function,
+    /// generating hierarchical subtotal and grand total groupings (ROLLUP) across key dimensions.
+    /// </summary>
+    public static IQueryable<TResult> GroupByRollup<TSource, TKey, TResult>(
+        this IQueryable<TSource> source,
+        Expression<Func<TSource, TKey>> keySelector,
+        Expression<Func<TKey, IEnumerable<TSource>, TResult>> resultSelector)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(keySelector);
+        ArgumentNullException.ThrowIfNull(resultSelector);
+
+        return source.Provider.CreateQuery<TResult>(
+            Expression.Call(
+                null,
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TSource), typeof(TKey), typeof(TResult)),
+                source.Expression,
+                Expression.Quote(keySelector),
+                Expression.Quote(resultSelector)
+            )
+        );
+    }
+
+    /// <summary>
+    /// Groups the elements of a sequence according to a specified key selector function,
+    /// generating hierarchical subtotal and grand total groupings (ROLLUP) across key dimensions.
+    /// </summary>
+    public static IQueryable<TResult> GroupByRollup<TSource, TKey, TResult>(
+        this IQueryable<TSource> source,
+        Expression<Func<TSource, TKey>> keySelector,
+        Expression<Func<IGrouping<TKey, TSource>, TResult>> resultSelector)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(keySelector);
+        ArgumentNullException.ThrowIfNull(resultSelector);
+
+        return source.Provider.CreateQuery<TResult>(
+            Expression.Call(
+                null,
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TSource), typeof(TKey), typeof(TResult)),
+                source.Expression,
+                Expression.Quote(keySelector),
+                Expression.Quote(resultSelector)
+            )
+        );
+    }
+
+    /// <summary>
+    /// Groups the elements of a sequence according to a specified key selector function,
+    /// generating all 2^N dimensional cross-tabulation groupings (CUBE) across key dimensions.
+    /// </summary>
+    public static IQueryable<TResult> GroupByCube<TSource, TKey, TResult>(
+        this IQueryable<TSource> source,
+        Expression<Func<TSource, TKey>> keySelector,
+        Expression<Func<TKey, IEnumerable<TSource>, TResult>> resultSelector)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(keySelector);
+        ArgumentNullException.ThrowIfNull(resultSelector);
+
+        return source.Provider.CreateQuery<TResult>(
+            Expression.Call(
+                null,
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TSource), typeof(TKey), typeof(TResult)),
+                source.Expression,
+                Expression.Quote(keySelector),
+                Expression.Quote(resultSelector)
+            )
+        );
+    }
+
+    /// <summary>
+    /// Groups the elements of a sequence according to a specified key selector function,
+    /// generating all 2^N dimensional cross-tabulation groupings (CUBE) across key dimensions.
+    /// </summary>
+    public static IQueryable<TResult> GroupByCube<TSource, TKey, TResult>(
+        this IQueryable<TSource> source,
+        Expression<Func<TSource, TKey>> keySelector,
+        Expression<Func<IGrouping<TKey, TSource>, TResult>> resultSelector)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(keySelector);
+        ArgumentNullException.ThrowIfNull(resultSelector);
+
+        return source.Provider.CreateQuery<TResult>(
+            Expression.Call(
+                null,
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TSource), typeof(TKey), typeof(TResult)),
+                source.Expression,
+                Expression.Quote(keySelector),
+                Expression.Quote(resultSelector)
+            )
+        );
+    }
+
+    /// <summary>
+    /// Groups the elements of a sequence according to a specified key selector function,
+    /// generating custom multidimensional groupings (GROUPING SETS) for specified subsets of keys.
+    /// </summary>
+    public static IQueryable<TResult> GroupByGroupingSets<TSource, TKey, TResult>(
+        this IQueryable<TSource> source,
+        Expression<Func<TSource, TKey>> keySelector,
+        string[][] sets,
+        Expression<Func<TKey, IEnumerable<TSource>, TResult>> resultSelector)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(keySelector);
+        ArgumentNullException.ThrowIfNull(sets);
+        ArgumentNullException.ThrowIfNull(resultSelector);
+
+        return source.Provider.CreateQuery<TResult>(
+            Expression.Call(
+                null,
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TSource), typeof(TKey), typeof(TResult)),
+                source.Expression,
+                Expression.Quote(keySelector),
+                Expression.Constant(sets, typeof(string[][])),
+                Expression.Quote(resultSelector)
+            )
+        );
+    }
+
+    /// <summary>
+    /// Groups the elements of a sequence according to a specified key selector function,
+    /// generating custom multidimensional groupings (GROUPING SETS) for specified subsets of keys.
+    /// </summary>
+    public static IQueryable<TResult> GroupByGroupingSets<TSource, TKey, TResult>(
+        this IQueryable<TSource> source,
+        Expression<Func<TSource, TKey>> keySelector,
+        string[][] sets,
+        Expression<Func<IGrouping<TKey, TSource>, TResult>> resultSelector)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(keySelector);
+        ArgumentNullException.ThrowIfNull(sets);
+        ArgumentNullException.ThrowIfNull(resultSelector);
+
+        return source.Provider.CreateQuery<TResult>(
+            Expression.Call(
+                null,
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TSource), typeof(TKey), typeof(TResult)),
+                source.Expression,
+                Expression.Quote(keySelector),
+                Expression.Constant(sets, typeof(string[][])),
+                Expression.Quote(resultSelector)
+            )
+        );
+    }
     /// <summary>
     /// Shifts the values in a column by a specified offset, introducing nulls for the shifted positions.
     /// </summary>

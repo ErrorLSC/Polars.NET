@@ -177,6 +177,9 @@ type QueryPlanCache private () =
             | LinqStage.GroupByWithResult(kl, rl) -> LinqStage.GroupByWithResult(subLambda kl, subLambda rl)
             | LinqStage.GroupByWithElementAndResult(kl, el, rl) ->
                 LinqStage.GroupByWithElementAndResult(subLambda kl, subLambda el, subLambda rl)
+            | LinqStage.GroupByRollup(kl, rl) -> LinqStage.GroupByRollup(subLambda kl, subLambda rl)
+            | LinqStage.GroupByCube(kl, rl) -> LinqStage.GroupByCube(subLambda kl, subLambda rl)
+            | LinqStage.GroupByGroupingSets(kl, se, rl) -> LinqStage.GroupByGroupingSets(subLambda kl, subExpr se, subLambda rl)
             | LinqStage.AggregateBy(kl, seed, factoryOpt, f) ->
                 LinqStage.AggregateBy(subLambda kl, subExpr seed, subLambdaOpt factoryOpt, subLambda f)
             | LinqStage.DefaultIfEmpty defOpt -> LinqStage.DefaultIfEmpty(subExprOpt defOpt)

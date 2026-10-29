@@ -304,6 +304,36 @@ and PolarsQuery<'T>
             | LinqStage.GroupByWithElementAndResult(keyLambda, elemLambda, resLambda) :: tail ->
                 dispatchCSharpGroupBy keyLambda (Some elemLambda) resLambda tail
 
+            | LinqStage.GroupByRollup(keyLambda, resLambda) :: tail ->
+                if not clientPreds.IsEmpty then
+                    currentLf, [], [], None, true
+                else
+                    let activeLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
+                    match compileUnifiedGroupingSets activeLf GroupingKind.Rollup keyLambda resLambda with
+                    | Some groupedLf ->
+                        fuse groupedLf tail [] clientPreds clientProjOpt Map.empty
+                    | None -> currentLf, [], [], None, true
+
+            | LinqStage.GroupByCube(keyLambda, resLambda) :: tail ->
+                if not clientPreds.IsEmpty then
+                    currentLf, [], [], None, true
+                else
+                    let activeLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
+                    match compileUnifiedGroupingSets activeLf GroupingKind.Cube keyLambda resLambda with
+                    | Some groupedLf ->
+                        fuse groupedLf tail [] clientPreds clientProjOpt Map.empty
+                    | None -> currentLf, [], [], None, true
+
+            | LinqStage.GroupByGroupingSets(keyLambda, setsExpr, resLambda) :: tail ->
+                if not clientPreds.IsEmpty then
+                    currentLf, [], [], None, true
+                else
+                    let activeLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
+                    match compileUnifiedGroupingSets activeLf (GroupingKind.GroupingSets setsExpr) keyLambda resLambda with
+                    | Some groupedLf ->
+                        fuse groupedLf tail [] clientPreds clientProjOpt Map.empty
+                    | None -> currentLf, [], [], None, true
+
             // -----------------------------------------------------------------
             // 2. Filtering & Window Masking (Filter, TakeWhile, SkipWhile)
             // -----------------------------------------------------------------

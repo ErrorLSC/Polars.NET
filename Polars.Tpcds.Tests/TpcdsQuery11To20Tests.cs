@@ -1,0 +1,1049 @@
+namespace Polars.Tpcds.Tests;
+
+public class TpcdsQuery11To20Tests
+{
+    private const string NativePushdown = "100% Native Pushdown";
+
+    private static void AssertPlan<T>(IQueryable<T> query, string expectedPlan)
+    {
+        var actualPlan = query.Explain();
+        Assert.Contains(expectedPlan, actualPlan);
+    }
+
+    /*
+     * TPC-DS Query 11
+     *
+     * WITH year_total AS
+     *   (SELECT c_customer_id customer_id,
+     *           c_first_name customer_first_name,
+     *           c_last_name customer_last_name,
+     *           c_preferred_cust_flag customer_preferred_cust_flag,
+     *           c_birth_country customer_birth_country,
+     *           c_login customer_login,
+     *           c_email_address customer_email_address,
+     *           d_year dyear,
+     *           sum(ss_ext_list_price-ss_ext_discount_amt) year_total,
+     *           's' sale_type
+     *    FROM customer,
+     *         store_sales,
+     *         date_dim
+     *    WHERE c_customer_sk = ss_customer_sk
+     *      AND ss_sold_date_sk = d_date_sk
+     *    GROUP BY c_customer_id,
+     *             c_first_name,
+     *             c_last_name,
+     *             c_preferred_cust_flag,
+     *             c_birth_country,
+     *             c_login,
+     *             c_email_address,
+     *             d_year
+     *    UNION ALL SELECT c_customer_id customer_id,
+     *                     c_first_name customer_first_name,
+     *                     c_last_name customer_last_name,
+     *                     c_preferred_cust_flag customer_preferred_cust_flag,
+     *                     c_birth_country customer_birth_country,
+     *                     c_login customer_login,
+     *                     c_email_address customer_email_address,
+     *                     d_year dyear,
+     *                     sum(ws_ext_list_price-ws_ext_discount_amt) year_total,
+     *                     'w' sale_type
+     *    FROM customer,
+     *         web_sales,
+     *         date_dim
+     *    WHERE c_customer_sk = ws_bill_customer_sk
+     *      AND ws_sold_date_sk = d_date_sk
+     *    GROUP BY c_customer_id,
+     *             c_first_name,
+     *             c_last_name,
+     *             c_preferred_cust_flag,
+     *             c_birth_country,
+     *             c_login,
+     *             c_email_address,
+     *             d_year)
+     * SELECT t_s_secyear.customer_id,
+     *        t_s_secyear.customer_first_name,
+     *        t_s_secyear.customer_last_name,
+     *        t_s_secyear.customer_preferred_cust_flag
+     * FROM year_total t_s_firstyear,
+     *      year_total t_s_secyear,
+     *      year_total t_w_firstyear,
+     *      year_total t_w_secyear
+     * WHERE t_s_secyear.customer_id = t_s_firstyear.customer_id
+     *   AND t_s_firstyear.customer_id = t_w_secyear.customer_id
+     *   AND t_s_firstyear.customer_id = t_w_firstyear.customer_id
+     *   AND t_s_firstyear.sale_type = 's'
+     *   AND t_w_firstyear.sale_type = 'w'
+     *   AND t_s_secyear.sale_type = 's'
+     *   AND t_w_secyear.sale_type = 'w'
+     *   AND t_s_firstyear.dyear = 2001
+     *   AND t_s_secyear.dyear = 2001+1
+     *   AND t_w_firstyear.dyear = 2001
+     *   AND t_w_secyear.dyear = 2001+1
+     *   AND t_s_firstyear.year_total > 0
+     *   AND t_w_firstyear.year_total > 0
+     *   AND CASE
+     *           WHEN t_w_firstyear.year_total > 0 THEN (t_w_secyear.year_total*1.0000) / t_w_firstyear.year_total
+     *           ELSE 0.0
+     *       END > CASE
+     *                 WHEN t_s_firstyear.year_total > 0 THEN (t_s_secyear.year_total*1.0000) / t_s_firstyear.year_total
+     *                 ELSE 0.0
+     *             END
+     * ORDER BY t_s_secyear.customer_id NULLS FIRST,
+     *          t_s_secyear.customer_first_name NULLS FIRST,
+     *          t_s_secyear.customer_last_name NULLS FIRST,
+     *          t_s_secyear.customer_preferred_cust_flag NULLS FIRST
+     * LIMIT 100;
+     */
+    [Fact]
+    [Trait("TPCDS", "Q11")]
+    public void Test_Q11()
+    {
+        var customerQuery = TpcdsData.CustomerQuery();
+        var storeSalesQuery = TpcdsData.StoreSalesQuery();
+        var webSalesQuery = TpcdsData.WebSalesQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
+
+        // 1. Channel streams grouped by customer & year
+        var storeYear = from c in customerQuery
+                        join ss in storeSalesQuery on c.c_customer_sk equals ss.ss_customer_sk
+                        join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
+                        where d.d_year == 2001 || d.d_year == 2002
+                        group new { c, ss, d } by new
+                        {
+                            c.c_customer_id,
+                            c.c_first_name,
+                            c.c_last_name,
+                            c.c_preferred_cust_flag,
+                            d.d_year
+                        } into g
+                        select new
+                        {
+                            customer_id = g.Key.c_customer_id,
+                            customer_first_name = g.Key.c_first_name,
+                            customer_last_name = g.Key.c_last_name,
+                            customer_preferred_cust_flag = g.Key.c_preferred_cust_flag,
+                            dyear = g.Key.d_year,
+                            year_total = g.Sum(x => x.ss.ss_ext_list_price - x.ss.ss_ext_discount_amt),
+                        };
+
+        var webYear = from c in customerQuery
+                      join ws in webSalesQuery on c.c_customer_sk equals ws.ws_bill_customer_sk
+                      join d in dateDimQuery on ws.ws_sold_date_sk equals d.d_date_sk
+                      where d.d_year == 2001 || d.d_year == 2002
+                      group new { c, ws, d } by new { c.c_customer_id, d.d_year } into g
+                      select new
+                      {
+                          customer_id = g.Key.c_customer_id,
+                          dyear = g.Key.d_year,
+                          year_total = g.Sum(x => x.ws.ws_ext_list_price - x.ws.ws_ext_discount_amt),
+                      };
+
+        // 2. Filter year and positive sales
+        var ts1 = storeYear.Where(x => x.dyear == 2001 && x.year_total > 0m);
+        var ts2 = storeYear.Where(x => x.dyear == 2002);
+        var tw1 = webYear.Where(x => x.dyear == 2001 && x.year_total > 0m);
+        var tw2 = webYear.Where(x => x.dyear == 2002);
+
+        // 3. Multi-channel customer self-join and relative growth filter
+        var q11 = from s1 in ts1
+                  join s2 in ts2 on s1.customer_id equals s2.customer_id
+                  join w1 in tw1 on s1.customer_id equals w1.customer_id
+                  join w2 in tw2 on s1.customer_id equals w2.customer_id
+                  where (double)w2.year_total! / (double)w1.year_total! > (double)s2.year_total! / (double)s1.year_total!
+                  orderby s2.customer_id, s2.customer_first_name, s2.customer_last_name, s2.customer_preferred_cust_flag
+                  select new
+                  {
+                      s2.customer_id,
+                      s2.customer_first_name,
+                      s2.customer_last_name,
+                      s2.customer_preferred_cust_flag
+                  };
+
+        var limitedQ11 = q11.Take(100);
+
+        AssertPlan(limitedQ11, NativePushdown);
+
+        var polarsResult = limitedQ11.ToList();
+
+        // DuckDB Cross Validation
+        var duckDbSql = $@"
+            WITH year_total AS
+              (SELECT c_customer_id customer_id,
+                      c_first_name customer_first_name,
+                      c_last_name customer_last_name,
+                      c_preferred_cust_flag customer_preferred_cust_flag,
+                      c_birth_country customer_birth_country,
+                      c_login customer_login,
+                      c_email_address customer_email_address,
+                      d_year dyear,
+                      sum(ss_ext_list_price-ss_ext_discount_amt) year_total,
+                      's' sale_type
+               FROM read_parquet('{TpcdsData.CustomerPath}'),
+                    read_parquet('{TpcdsData.StoreSalesPath}'),
+                    read_parquet('{TpcdsData.DateDimPath}')
+               WHERE c_customer_sk = ss_customer_sk
+                 AND ss_sold_date_sk = d_date_sk
+               GROUP BY c_customer_id,
+                        c_first_name,
+                        c_last_name,
+                        c_preferred_cust_flag,
+                        c_birth_country,
+                        c_login,
+                        c_email_address,
+                        d_year
+               UNION ALL SELECT c_customer_id customer_id,
+                                c_first_name customer_first_name,
+                                c_last_name customer_last_name,
+                                c_preferred_cust_flag customer_preferred_cust_flag,
+                                c_birth_country customer_birth_country,
+                                c_login customer_login,
+                                c_email_address customer_email_address,
+                                d_year dyear,
+                                sum(ws_ext_list_price-ws_ext_discount_amt) year_total,
+                                'w' sale_type
+               FROM read_parquet('{TpcdsData.CustomerPath}'),
+                    read_parquet('{TpcdsData.WebSalesPath}'),
+                    read_parquet('{TpcdsData.DateDimPath}')
+               WHERE c_customer_sk = ws_bill_customer_sk
+                 AND ws_sold_date_sk = d_date_sk
+               GROUP BY c_customer_id,
+                        c_first_name,
+                        c_last_name,
+                        c_preferred_cust_flag,
+                        c_birth_country,
+                        c_login,
+                        c_email_address,
+                        d_year)
+            SELECT t_s_secyear.customer_id,
+                   t_s_secyear.customer_first_name,
+                   t_s_secyear.customer_last_name,
+                   t_s_secyear.customer_preferred_cust_flag
+            FROM year_total t_s_firstyear,
+                 year_total t_s_secyear,
+                 year_total t_w_firstyear,
+                 year_total t_w_secyear
+            WHERE t_s_secyear.customer_id = t_s_firstyear.customer_id
+              AND t_s_firstyear.customer_id = t_w_secyear.customer_id
+              AND t_s_firstyear.customer_id = t_w_firstyear.customer_id
+              AND t_s_firstyear.sale_type = 's'
+              AND t_w_firstyear.sale_type = 'w'
+              AND t_s_secyear.sale_type = 's'
+              AND t_w_secyear.sale_type = 'w'
+              AND t_s_firstyear.dyear = 2001
+              AND t_s_secyear.dyear = 2001+1
+              AND t_w_firstyear.dyear = 2001
+              AND t_w_secyear.dyear = 2001+1
+              AND t_s_firstyear.year_total > 0
+              AND t_w_firstyear.year_total > 0
+              AND CASE
+                      WHEN t_w_firstyear.year_total > 0 THEN (t_w_secyear.year_total*1.0000) / t_w_firstyear.year_total
+                      ELSE 0.0
+                  END > CASE
+                            WHEN t_s_firstyear.year_total > 0 THEN (t_s_secyear.year_total*1.0000) / t_s_firstyear.year_total
+                            ELSE 0.0
+                        END
+            ORDER BY t_s_secyear.customer_id NULLS FIRST,
+                     t_s_secyear.customer_first_name NULLS FIRST,
+                     t_s_secyear.customer_last_name NULLS FIRST,
+                     t_s_secyear.customer_preferred_cust_flag NULLS FIRST
+            LIMIT 100;
+        ";
+
+        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
+        {
+            customer_id = r.GetString(0),
+            customer_first_name = r.IsDBNull(1) ? null : r.GetString(1),
+            customer_last_name = r.IsDBNull(2) ? null : r.GetString(2),
+            customer_preferred_cust_flag = r.IsDBNull(3) ? null : r.GetString(3),
+        });
+
+        Assert.Equal(duckDbResults.Count, polarsResult.Count);
+        for (int i = 0; i < duckDbResults.Count; i++)
+        {
+            var d = duckDbResults[i];
+            var p = polarsResult[i];
+
+            Assert.Equal(d.customer_id, p.customer_id);
+            Assert.Equal(d.customer_first_name, (string?)p.customer_first_name);
+            Assert.Equal(d.customer_last_name, (string?)p.customer_last_name);
+            Assert.Equal(d.customer_preferred_cust_flag, (string?)p.customer_preferred_cust_flag);
+        }
+    }
+
+    private static readonly string[] Q12TargetCategories = ["Sports", "Books", "Home"];
+
+    /*
+     * TPC-DS Query 12
+     *
+     * SELECT i_item_id,
+     *        i_item_desc,
+     *        i_category,
+     *        i_class,
+     *        i_current_price,
+     *        sum(ws_ext_sales_price) AS itemrevenue,
+     *        sum(ws_ext_sales_price)*100.0000/sum(sum(ws_ext_sales_price)) OVER (PARTITION BY i_class) AS revenueratio
+     * FROM web_sales,
+     *      item,
+     *      date_dim
+     * WHERE ws_item_sk = i_item_sk
+     *   AND i_category IN ('Sports',
+     *                      'Books',
+     *                      'Home')
+     *   AND ws_sold_date_sk = d_date_sk
+     *   AND d_date BETWEEN cast('1999-02-22' AS date) AND cast('1999-03-24' AS date)
+     * GROUP BY i_item_id,
+     *          i_item_desc,
+     *          i_category,
+     *          i_class,
+     *          i_current_price
+     * ORDER BY i_category,
+     *          i_class,
+     *          i_item_id,
+     *          i_item_desc,
+     *          revenueratio
+     * LIMIT 100;
+     */
+    [Fact]
+    [Trait("TPCDS", "Q12")]
+    public void Test_Q12()
+    {
+        var webSalesQuery = TpcdsData.WebSalesQuery();
+        var itemQuery = TpcdsData.ItemQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
+
+        var minDate = new DateOnly(1999, 2, 22);
+        var maxDate = new DateOnly(1999, 3, 24);
+
+        var filteredDates = dateDimQuery.Where(d => d.d_date >= minDate && d.d_date <= maxDate);
+        var filteredItems = itemQuery.Where(i => Q12TargetCategories.Contains(i.i_category));
+
+        var baseGroup = from ws in webSalesQuery
+                        join d in filteredDates on ws.ws_sold_date_sk equals d.d_date_sk
+                        join i in filteredItems on ws.ws_item_sk equals i.i_item_sk
+                        group ws by new
+                        {
+                            i.i_item_id,
+                            i.i_item_desc,
+                            i.i_category,
+                            i.i_class,
+                            i.i_current_price
+                        } into g
+                        select new
+                        {
+                            g.Key.i_item_id,
+                            g.Key.i_item_desc,
+                            g.Key.i_category,
+                            g.Key.i_class,
+                            g.Key.i_current_price,
+                            itemrevenue = g.Sum(x => x.ws_ext_sales_price),
+                        };
+
+        var withRatio = from r in baseGroup
+                        select new
+                        {
+                            r.i_item_id,
+                            r.i_item_desc,
+                            r.i_category,
+                            r.i_class,
+                            r.i_current_price,
+                            r.itemrevenue,
+                            revenueratio = (double?)(r.itemrevenue * 100.0m) / (double?)r.itemrevenue.Sum().Over(r.i_class)
+                        };
+
+        var q12 = from r in withRatio
+                  orderby r.i_category, r.i_class, r.i_item_id, r.i_item_desc, r.revenueratio
+                  select r;
+
+        var limitedQ12 = q12.Take(100);
+
+        AssertPlan(limitedQ12, NativePushdown);
+
+        var polarsResult = limitedQ12.ToList();
+        Assert.NotEmpty(polarsResult);
+
+        // Ground-truth cross validation with DuckDB
+        var duckDbSql = $@"
+            SELECT i_item_id,
+                   i_item_desc,
+                   i_category,
+                   i_class,
+                   i_current_price,
+                   sum(ws_ext_sales_price) AS itemrevenue,
+                   sum(ws_ext_sales_price)*100.0000/sum(sum(ws_ext_sales_price)) OVER (PARTITION BY i_class) AS revenueratio
+            FROM read_parquet('{TpcdsData.WebSalesPath}'),
+                 read_parquet('{TpcdsData.ItemPath}'),
+                 read_parquet('{TpcdsData.DateDimPath}')
+            WHERE ws_item_sk = i_item_sk
+              AND i_category IN ('Sports',
+                                 'Books',
+                                 'Home')
+              AND ws_sold_date_sk = d_date_sk
+              AND d_date BETWEEN cast('1999-02-22' AS date) AND cast('1999-03-24' AS date)
+            GROUP BY i_item_id,
+                     i_item_desc,
+                     i_category,
+                     i_class,
+                     i_current_price
+            ORDER BY i_category,
+                     i_class,
+                     i_item_id,
+                     i_item_desc,
+                     revenueratio
+            LIMIT 100;
+        ";
+
+        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
+        {
+            i_item_id = r.GetString(0),
+            i_item_desc = r.IsDBNull(1) ? null : r.GetString(1),
+            i_category = r.IsDBNull(2) ? null : r.GetString(2),
+            i_class = r.IsDBNull(3) ? null : r.GetString(3),
+            i_current_price = r.IsDBNull(4) ? null : (decimal?)r.GetDecimal(4),
+            itemrevenue = r.IsDBNull(5) ? null : (decimal?)r.GetDecimal(5),
+            revenueratio = r.IsDBNull(6) ? null : (double?)r.GetDouble(6),
+        });
+
+        Assert.Equal(duckDbResults.Count, polarsResult.Count);
+        for (int i = 0; i < duckDbResults.Count; i++)
+        {
+            var d = duckDbResults[i];
+            var p = polarsResult[i];
+
+            Assert.Equal(d.i_item_id, p.i_item_id);
+            Assert.Equal(d.i_item_desc, (string?)p.i_item_desc);
+            Assert.Equal(d.i_category, (string?)p.i_category);
+            Assert.Equal(d.i_class, (string?)p.i_class);
+            Assert.Equal(d.i_current_price, p.i_current_price);
+            Assert.Equal(d.itemrevenue, p.itemrevenue);
+            Assert.Equal(d.revenueratio!.Value, p.revenueratio!.Value, 4);
+        }
+    }
+
+    /*
+     * TPC-DS Query 13
+     *
+     * SELECT avg(ss_quantity) avg1,
+     *        avg(ss_ext_sales_price) avg2,
+     *        avg(ss_ext_wholesale_cost) avg3,
+     *        sum(ss_ext_wholesale_cost)
+     * FROM store_sales ,
+     *      store ,
+     *      customer_demographics ,
+     *      household_demographics ,
+     *      customer_address ,
+     *      date_dim
+     * WHERE s_store_sk = ss_store_sk
+     *   AND ss_sold_date_sk = d_date_sk
+     *   AND d_year = 2001
+     *   AND (
+     *         (ss_hdemo_sk = hd_demo_sk
+     *          AND cd_demo_sk = ss_cdemo_sk
+     *          AND cd_marital_status = 'M'
+     *          AND cd_education_status = 'Advanced Degree'
+     *          AND ss_sales_price BETWEEN 100.00 AND 150.00
+     *          AND hd_dep_count = 3)
+     *      OR (ss_hdemo_sk = hd_demo_sk
+     *          AND cd_demo_sk = ss_cdemo_sk
+     *          AND cd_marital_status = 'S'
+     *          AND cd_education_status = 'College'
+     *          AND ss_sales_price BETWEEN 50.00 AND 100.00
+     *          AND hd_dep_count = 1)
+     *      OR (ss_hdemo_sk = hd_demo_sk
+     *          AND cd_demo_sk = ss_cdemo_sk
+     *          AND cd_marital_status = 'W'
+     *          AND cd_education_status = '2 yr Degree'
+     *          AND ss_sales_price BETWEEN 150.00 AND 200.00
+     *          AND hd_dep_count = 1)
+     *   )
+     *   AND (
+     *         (ss_addr_sk = ca_address_sk
+     *          AND ca_country = 'United States'
+     *          AND ca_state IN ('TX', 'OH', 'TX')
+     *          AND ss_net_profit BETWEEN 100 AND 200)
+     *      OR (ss_addr_sk = ca_address_sk
+     *          AND ca_country = 'United States'
+     *          AND ca_state IN ('OR', 'NM', 'KY')
+     *          AND ss_net_profit BETWEEN 150 AND 300)
+     *      OR (ss_addr_sk = ca_address_sk
+     *          AND ca_country = 'United States'
+     *          AND ca_state IN ('VA', 'TX', 'MS')
+     *          AND ss_net_profit BETWEEN 50 AND 250)
+     *   );
+     */
+    [Fact]
+    [Trait("TPCDS", "Q13")]
+    public void Test_Q13()
+    {
+        var storeSalesQuery = TpcdsData.StoreSalesQuery();
+        var storeQuery = TpcdsData.StoreQuery();
+        var customerDemographicsQuery = TpcdsData.CustomerDemographicsQuery();
+        var householdDemographicsQuery = TpcdsData.HouseholdDemographicsQuery();
+        var customerAddressQuery = TpcdsData.CustomerAddressQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
+
+        var q13 = from ss in storeSalesQuery
+                  join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
+                  join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
+                  join cd in customerDemographicsQuery on ss.ss_cdemo_sk equals cd.cd_demo_sk
+                  join hd in householdDemographicsQuery on ss.ss_hdemo_sk equals hd.hd_demo_sk
+                  join ca in customerAddressQuery on ss.ss_addr_sk equals ca.ca_address_sk
+                  where d.d_year == 2001
+                     && ca.ca_country == "United States"
+                     && (
+                            (cd.cd_marital_status == "M" && cd.cd_education_status == "Advanced Degree" && ss.ss_sales_price >= 100.00m && ss.ss_sales_price <= 150.00m && hd.hd_dep_count == 3)
+                         || (cd.cd_marital_status == "S" && cd.cd_education_status == "College" && ss.ss_sales_price >= 50.00m && ss.ss_sales_price <= 100.00m && hd.hd_dep_count == 1)
+                         || (cd.cd_marital_status == "W" && cd.cd_education_status == "2 yr Degree" && ss.ss_sales_price >= 150.00m && ss.ss_sales_price <= 200.00m && hd.hd_dep_count == 1)
+                     )
+                     && (
+                            ((ca.ca_state == "TX" || ca.ca_state == "OH") && ss.ss_net_profit >= 100m && ss.ss_net_profit <= 200m)
+                         || ((ca.ca_state == "OR" || ca.ca_state == "NM" || ca.ca_state == "KY") && ss.ss_net_profit >= 150m && ss.ss_net_profit <= 300m)
+                         || ((ca.ca_state == "VA" || ca.ca_state == "TX" || ca.ca_state == "MS") && ss.ss_net_profit >= 50m && ss.ss_net_profit <= 250m)
+                     )
+                  group ss by 1 into g
+                  select new
+                  {
+                      avg1 = g.Average(x => (double?)x.ss_quantity),
+                      avg2 = g.Average(x => (double?)x.ss_ext_sales_price),
+                      avg3 = g.Average(x => (double?)x.ss_ext_wholesale_cost),
+                      sum4 = g.Sum(x => x.ss_ext_wholesale_cost)
+                  };
+
+        AssertPlan(q13, NativePushdown);
+
+        var polarsResult = q13.ToList();
+
+        // DuckDB Cross Validation
+        var duckDbSql = $@"
+            SELECT avg(ss_quantity) avg1,
+                   avg(ss_ext_sales_price) avg2,
+                   avg(ss_ext_wholesale_cost) avg3,
+                   sum(ss_ext_wholesale_cost)
+            FROM read_parquet('{TpcdsData.StoreSalesPath}'),
+                 read_parquet('{TpcdsData.StorePath}'),
+                 read_parquet('{TpcdsData.CustomerDemographicsPath}'),
+                 read_parquet('{TpcdsData.HouseholdDemographicsPath}'),
+                 read_parquet('{TpcdsData.CustomerAddressPath}'),
+                 read_parquet('{TpcdsData.DateDimPath}')
+            WHERE s_store_sk = ss_store_sk
+              AND ss_sold_date_sk = d_date_sk
+              AND d_year = 2001 and((ss_hdemo_sk=hd_demo_sk
+                                     AND cd_demo_sk = ss_cdemo_sk
+                                     AND cd_marital_status = 'M'
+                                     AND cd_education_status = 'Advanced Degree'
+                                     AND ss_sales_price BETWEEN 100.00 AND 150.00
+                                     AND hd_dep_count = 3)
+                                    OR (ss_hdemo_sk=hd_demo_sk
+                                        AND cd_demo_sk = ss_cdemo_sk
+                                        AND cd_marital_status = 'S'
+                                        AND cd_education_status = 'College'
+                                        AND ss_sales_price BETWEEN 50.00 AND 100.00
+                                        AND hd_dep_count = 1 )
+                                    OR (ss_hdemo_sk=hd_demo_sk
+                                        AND cd_demo_sk = ss_cdemo_sk
+                                        AND cd_marital_status = 'W'
+                                        AND cd_education_status = '2 yr Degree'
+                                        AND ss_sales_price BETWEEN 150.00 AND 200.00
+                                        AND hd_dep_count = 1)) and((ss_addr_sk = ca_address_sk
+                                                                    AND ca_country = 'United States'
+                                                                    AND ca_state IN ('TX', 'OH', 'TX')
+                                                                    AND ss_net_profit BETWEEN 100 AND 200)
+                                                                   OR (ss_addr_sk = ca_address_sk
+                                                                       AND ca_country = 'United States'
+                                                                       AND ca_state IN ('OR', 'NM', 'KY')
+                                                                       AND ss_net_profit BETWEEN 150 AND 300)
+                                                                   OR (ss_addr_sk = ca_address_sk
+                                                                       AND ca_country = 'United States'
+                                                                       AND ca_state IN ('VA', 'TX', 'MS')
+                                                                       AND ss_net_profit BETWEEN 50 AND 250)) ;
+        ";
+
+        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
+        {
+            avg1 = r.IsDBNull(0) ? null : (double?)r.GetDouble(0),
+            avg2 = r.IsDBNull(1) ? null : (double?)r.GetDouble(1),
+            avg3 = r.IsDBNull(2) ? null : (double?)r.GetDouble(2),
+            sum4 = r.IsDBNull(3) ? null : (decimal?)r.GetDecimal(3),
+        });
+
+        Assert.Equal(duckDbResults.Count, polarsResult.Count);
+        for (int i = 0; i < duckDbResults.Count; i++)
+        {
+            var d = duckDbResults[i];
+            var p = polarsResult[i];
+
+            Assert.Equal(d.avg1, p.avg1);
+            Assert.Equal(d.avg2, p.avg2);
+            Assert.Equal(d.avg3, p.avg3);
+            if (d.sum4 == null && p.sum4 == 0m)
+            {
+                // In Polars, sum on an empty group produces 0, whereas SQL produces NULL
+            }
+            else
+            {
+                Assert.Equal(d.sum4, p.sum4);
+            }
+        }
+    }
+
+    /*
+     * TPC-DS Query 14
+     *
+     * WITH cross_items AS
+     *   (SELECT i_item_sk ss_item_sk
+     *    FROM item,
+     *      (SELECT iss.i_brand_id brand_id,
+     *              iss.i_class_id class_id,
+     *              iss.i_category_id category_id
+     *       FROM store_sales,
+     *            item iss,
+     *            date_dim d1
+     *       WHERE ss_item_sk = iss.i_item_sk
+     *         AND ss_sold_date_sk = d1.d_date_sk
+     *         AND d1.d_year BETWEEN 1999 AND 1999 + 2 INTERSECT
+     *         SELECT ics.i_brand_id,
+     *                ics.i_class_id,
+     *                ics.i_category_id
+     *         FROM catalog_sales,
+     *              item ics,
+     *              date_dim d2 WHERE cs_item_sk = ics.i_item_sk
+     *         AND cs_sold_date_sk = d2.d_date_sk
+     *         AND d2.d_year BETWEEN 1999 AND 1999 + 2 INTERSECT
+     *         SELECT iws.i_brand_id,
+     *                iws.i_class_id,
+     *                iws.i_category_id
+     *         FROM web_sales,
+     *              item iws,
+     *              date_dim d3 WHERE ws_item_sk = iws.i_item_sk
+     *         AND ws_sold_date_sk = d3.d_date_sk
+     *         AND d3.d_year BETWEEN 1999 AND 1999 + 2) sq1
+     *    WHERE i_brand_id = brand_id
+     *      AND i_class_id = class_id
+     *      AND i_category_id = category_id ),
+     *      avg_sales AS
+     *   (SELECT avg(quantity*list_price) average_sales
+     *    FROM
+     *      (SELECT ss_quantity quantity,
+     *              ss_list_price list_price
+     *       FROM store_sales,
+     *            date_dim
+     *       WHERE ss_sold_date_sk = d_date_sk
+     *         AND d_year BETWEEN 1999 AND 1999 + 2
+     *       UNION ALL SELECT cs_quantity quantity,
+     *                        cs_list_price list_price
+     *       FROM catalog_sales,
+     *            date_dim
+     *       WHERE cs_sold_date_sk = d_date_sk
+     *         AND d_year BETWEEN 1999 AND 1999 + 2
+     *       UNION ALL SELECT ws_quantity quantity,
+     *                        ws_list_price list_price
+     *       FROM web_sales,
+     *            date_dim
+     *       WHERE ws_sold_date_sk = d_date_sk
+     *         AND d_year BETWEEN 1999 AND 1999 + 2) sq2)
+     * SELECT channel,
+     *        i_brand_id,
+     *        i_class_id,
+     *        i_category_id,
+     *        sum(sales) AS sum_sales,
+     *        sum(number_sales) AS sum_number_sales
+     * FROM
+     *   (SELECT 'store' channel,
+     *                   i_brand_id,
+     *                   i_class_id,
+     *                   i_category_id,
+     *                   sum(ss_quantity*ss_list_price) sales,
+     *                   count(*) number_sales
+     *    FROM store_sales,
+     *         item,
+     *         date_dim
+     *    WHERE ss_item_sk IN
+     *        (SELECT ss_item_sk
+     *         FROM cross_items)
+     *      AND ss_item_sk = i_item_sk
+     *      AND ss_sold_date_sk = d_date_sk
+     *      AND d_year = 1999+2
+     *      AND d_moy = 11
+     *    GROUP BY i_brand_id,
+     *             i_class_id,
+     *             i_category_id
+     *    HAVING sum(ss_quantity*ss_list_price) >
+     *      (SELECT average_sales
+     *       FROM avg_sales)
+     *    UNION ALL SELECT 'catalog' channel,
+     *                               i_brand_id,
+     *                               i_class_id,
+     *                               i_category_id,
+     *                               sum(cs_quantity*cs_list_price) sales,
+     *                               count(*) number_sales
+     *    FROM catalog_sales,
+     *         item,
+     *         date_dim
+     *    WHERE cs_item_sk IN
+     *        (SELECT ss_item_sk
+     *         FROM cross_items)
+     *      AND cs_item_sk = i_item_sk
+     *      AND cs_sold_date_sk = d_date_sk
+     *      AND d_year = 1999+2
+     *      AND d_moy = 11
+     *    GROUP BY i_brand_id,
+     *             i_class_id,
+     *             i_category_id
+     *    HAVING sum(cs_quantity*cs_list_price) >
+     *      (SELECT average_sales
+     *       FROM avg_sales)
+     *    UNION ALL SELECT 'web' channel,
+     *                           i_brand_id,
+     *                           i_class_id,
+     *                           i_category_id,
+     *                           sum(ws_quantity*ws_list_price) sales,
+     *                           count(*) number_sales
+     *    FROM web_sales,
+     *         item,
+     *         date_dim
+     *    WHERE ws_item_sk IN
+     *        (SELECT ss_item_sk
+     *         FROM cross_items)
+     *      AND ws_item_sk = i_item_sk
+     *      AND ws_sold_date_sk = d_date_sk
+     *      AND d_year = 1999+2
+     *      AND d_moy = 11
+     *    GROUP BY i_brand_id,
+     *             i_class_id,
+     *             i_category_id
+     *    HAVING sum(ws_quantity*ws_list_price) >
+     *      (SELECT average_sales
+     *       FROM avg_sales)) y
+     * GROUP BY ROLLUP (channel,
+     *                  i_brand_id,
+     *                  i_class_id,
+     *                  i_category_id)
+     * ORDER BY channel NULLS FIRST,
+     *          i_brand_id NULLS FIRST,
+     *          i_class_id NULLS FIRST,
+     *          i_category_id NULLS FIRST
+     * LIMIT 100;
+     */
+    [Fact]
+    [Trait("TPCDS", "Q14")]
+    public void Test_Q14()
+    {
+        var storeSalesQuery = TpcdsData.StoreSalesQuery();
+        var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
+        var webSalesQuery = TpcdsData.WebSalesQuery();
+        var itemQuery = TpcdsData.ItemQuery();
+        var dateDimQuery = TpcdsData.DateDimQuery();
+
+        var dates3Years = dateDimQuery.Where(d => d.d_year >= 1999 && d.d_year <= 2001);
+
+        // 1. cross_items CTE: items whose (brand, class, category) exist in all 3 sales channels
+        var storeBCC = (from ss in storeSalesQuery
+                        join iss in itemQuery on ss.ss_item_sk equals iss.i_item_sk
+                        join d1 in dates3Years on ss.ss_sold_date_sk equals d1.d_date_sk
+                        select new
+                        {
+                            brand_id = iss.i_brand_id,
+                            class_id = iss.i_class_id,
+                            category_id = iss.i_category_id
+                        }).Distinct();
+
+        var catalogBCC = (from cs in catalogSalesQuery
+                          join ics in itemQuery on cs.cs_item_sk equals ics.i_item_sk
+                          join d2 in dates3Years on cs.cs_sold_date_sk equals d2.d_date_sk
+                          select new
+                          {
+                              brand_id = ics.i_brand_id,
+                              class_id = ics.i_class_id,
+                              category_id = ics.i_category_id
+                          }).Distinct();
+
+        var webBCC = (from ws in webSalesQuery
+                      join iws in itemQuery on ws.ws_item_sk equals iws.i_item_sk
+                      join d3 in dates3Years on ws.ws_sold_date_sk equals d3.d_date_sk
+                      select new
+                      {
+                          brand_id = iws.i_brand_id,
+                          class_id = iws.i_class_id,
+                          category_id = iws.i_category_id
+                      }).Distinct();
+
+        var crossBCC = storeBCC.Intersect(catalogBCC).Intersect(webBCC);
+
+        var crossItems = from i in itemQuery
+                         join sq in crossBCC on new { brand_id = i.i_brand_id, class_id = i.i_class_id, category_id = i.i_category_id }
+                                         equals new { sq.brand_id, sq.class_id, sq.category_id }
+                         select new
+                         {
+                             i.i_item_sk,
+                             i.i_brand_id,
+                             i.i_class_id,
+                             i.i_category_id
+                         };
+
+        // 2. avg_sales CTE: average sales across all 3 channels in 1999-2001
+        var ssSales = from ss in storeSalesQuery
+                      join d in dates3Years on ss.ss_sold_date_sk equals d.d_date_sk
+                      select new { sales = (double?)(ss.ss_quantity * ss.ss_list_price) };
+
+        var csSales = from cs in catalogSalesQuery
+                      join d in dates3Years on cs.cs_sold_date_sk equals d.d_date_sk
+                      select new { sales = (double?)(cs.cs_quantity * cs.cs_list_price) };
+
+        var wsSales = from ws in webSalesQuery
+                      join d in dates3Years on ws.ws_sold_date_sk equals d.d_date_sk
+                      select new { sales = (double?)(ws.ws_quantity * ws.ws_list_price) };
+
+        var avgSales = ssSales.Concat(csSales).Concat(wsSales).Average(x => x.sales);
+
+        // 3. Channel streams in year 2001, month 11 with having filter > avgSales
+        var targetDates = dateDimQuery.Where(d => d.d_year == 2001 && d.d_moy == 11);
+
+        var storeStream = from ss in storeSalesQuery
+                          join i in crossItems on ss.ss_item_sk equals i.i_item_sk
+                          join d in targetDates on ss.ss_sold_date_sk equals d.d_date_sk
+                          group ss by new
+                          {
+                              i.i_brand_id,
+                              i.i_class_id,
+                              i.i_category_id
+                          } into g
+                          where g.Sum(x => x.ss_quantity * x.ss_list_price) > (decimal?)avgSales
+                          select new
+                          {
+                              channel = "store",
+                              g.Key.i_brand_id,
+                              g.Key.i_class_id,
+                              g.Key.i_category_id,
+                              sales = g.Sum(x => x.ss_quantity * x.ss_list_price),
+                              number_sales = g.LongCount()
+                          };
+
+        var catalogStream = from cs in catalogSalesQuery
+                            join i in crossItems on cs.cs_item_sk equals i.i_item_sk
+                            join d in targetDates on cs.cs_sold_date_sk equals d.d_date_sk
+                            group cs by new
+                            {
+                                i.i_brand_id,
+                                i.i_class_id,
+                                i.i_category_id
+                            } into g
+                            where g.Sum(x => x.cs_quantity * x.cs_list_price) > (decimal?)avgSales
+                            select new
+                            {
+                                channel = "catalog",
+                                g.Key.i_brand_id,
+                                g.Key.i_class_id,
+                                g.Key.i_category_id,
+                                sales = g.Sum(x => x.cs_quantity * x.cs_list_price),
+                                number_sales = g.LongCount()
+                            };
+
+        var webStream = from ws in webSalesQuery
+                        join i in crossItems on ws.ws_item_sk equals i.i_item_sk
+                        join d in targetDates on ws.ws_sold_date_sk equals d.d_date_sk
+                        group ws by new
+                        {
+                            i.i_brand_id,
+                            i.i_class_id,
+                            i.i_category_id
+                        } into g
+                        where g.Sum(x => x.ws_quantity * x.ws_list_price) > (decimal?)avgSales
+                        select new
+                        {
+                            channel = "web",
+                            g.Key.i_brand_id,
+                            g.Key.i_class_id,
+                            g.Key.i_category_id,
+                            sales = g.Sum(x => x.ws_quantity * x.ws_list_price),
+                            number_sales = g.LongCount()
+                        };
+
+        var y = storeStream.Concat(catalogStream).Concat(webStream);
+
+        // 4. 5-Level ROLLUP (channel, i_brand_id, i_class_id, i_category_id) via fluent GroupByRollup
+        var q14 = y
+            .GroupByRollup(
+                r => new { r.channel, r.i_brand_id, r.i_class_id, r.i_category_id },
+                (key, g) => new
+                {
+                    channel = (string?)key.channel,
+                    i_brand_id = (long?)key.i_brand_id,
+                    i_class_id = (long?)key.i_class_id,
+                    i_category_id = (long?)key.i_category_id,
+                    sum_sales = g.Sum(x => x.sales),
+                    sum_number_sales = g.Sum(x => x.number_sales)
+                }
+            )
+            .OrderBy(r => r.channel)
+            .ThenBy(r => r.i_brand_id)
+            .ThenBy(r => r.i_class_id)
+            .ThenBy(r => r.i_category_id)
+            .Take(100);
+
+        AssertPlan(q14, NativePushdown);
+
+        var polarsResult = q14.ToList();
+        Assert.NotEmpty(polarsResult);
+
+        // Ground-truth cross validation with DuckDB
+        var duckDbSql = $@"
+            WITH cross_items AS
+              (SELECT i_item_sk ss_item_sk
+               FROM read_parquet('{TpcdsData.ItemPath}'),
+                 (SELECT iss.i_brand_id brand_id,
+                         iss.i_class_id class_id,
+                         iss.i_category_id category_id
+                  FROM read_parquet('{TpcdsData.StoreSalesPath}'),
+                       read_parquet('{TpcdsData.ItemPath}') iss,
+                       read_parquet('{TpcdsData.DateDimPath}') d1
+                  WHERE ss_item_sk = iss.i_item_sk
+                    AND ss_sold_date_sk = d1.d_date_sk
+                    AND d1.d_year BETWEEN 1999 AND 1999 + 2 INTERSECT
+                    SELECT ics.i_brand_id,
+                           ics.i_class_id,
+                           ics.i_category_id
+                    FROM read_parquet('{TpcdsData.CatalogSalesPath}'),
+                         read_parquet('{TpcdsData.ItemPath}') ics,
+                         read_parquet('{TpcdsData.DateDimPath}') d2 WHERE cs_item_sk = ics.i_item_sk
+                    AND cs_sold_date_sk = d2.d_date_sk
+                    AND d2.d_year BETWEEN 1999 AND 1999 + 2 INTERSECT
+                    SELECT iws.i_brand_id,
+                           iws.i_class_id,
+                           iws.i_category_id
+                    FROM read_parquet('{TpcdsData.WebSalesPath}'),
+                         read_parquet('{TpcdsData.ItemPath}') iws,
+                         read_parquet('{TpcdsData.DateDimPath}') d3 WHERE ws_item_sk = iws.i_item_sk
+                    AND ws_sold_date_sk = d3.d_date_sk
+                    AND d3.d_year BETWEEN 1999 AND 1999 + 2) sq1
+               WHERE i_brand_id = brand_id
+                 AND i_class_id = class_id
+                 AND i_category_id = category_id ),
+                 avg_sales AS
+              (SELECT avg(quantity*list_price) average_sales
+               FROM
+                 (SELECT ss_quantity quantity,
+                         ss_list_price list_price
+                  FROM read_parquet('{TpcdsData.StoreSalesPath}'),
+                       read_parquet('{TpcdsData.DateDimPath}')
+                  WHERE ss_sold_date_sk = d_date_sk
+                    AND d_year BETWEEN 1999 AND 1999 + 2
+                  UNION ALL SELECT cs_quantity quantity,
+                                   cs_list_price list_price
+                  FROM read_parquet('{TpcdsData.CatalogSalesPath}'),
+                       read_parquet('{TpcdsData.DateDimPath}')
+                  WHERE cs_sold_date_sk = d_date_sk
+                    AND d_year BETWEEN 1999 AND 1999 + 2
+                  UNION ALL SELECT ws_quantity quantity,
+                                   ws_list_price list_price
+                  FROM read_parquet('{TpcdsData.WebSalesPath}'),
+                       read_parquet('{TpcdsData.DateDimPath}')
+                  WHERE ws_sold_date_sk = d_date_sk
+                    AND d_year BETWEEN 1999 AND 1999 + 2) sq2)
+            SELECT channel,
+                   i_brand_id,
+                   i_class_id,
+                   i_category_id,
+                   sum(sales) AS sum_sales,
+                   sum(number_sales) AS sum_number_sales
+            FROM
+              (SELECT 'store' channel,
+                              i_brand_id,
+                              i_class_id,
+                              i_category_id,
+                              sum(ss_quantity*ss_list_price) sales,
+                              count(*) number_sales
+               FROM read_parquet('{TpcdsData.StoreSalesPath}'),
+                    read_parquet('{TpcdsData.ItemPath}'),
+                    read_parquet('{TpcdsData.DateDimPath}')
+               WHERE ss_item_sk IN
+                   (SELECT ss_item_sk
+                    FROM cross_items)
+                 AND ss_item_sk = i_item_sk
+                 AND ss_sold_date_sk = d_date_sk
+                 AND d_year = 1999+2
+                 AND d_moy = 11
+               GROUP BY i_brand_id,
+                        i_class_id,
+                        i_category_id
+               HAVING sum(ss_quantity*ss_list_price) >
+                 (SELECT average_sales
+                  FROM avg_sales)
+               UNION ALL SELECT 'catalog' channel,
+                                          i_brand_id,
+                                          i_class_id,
+                                          i_category_id,
+                                          sum(cs_quantity*cs_list_price) sales,
+                                          count(*) number_sales
+               FROM read_parquet('{TpcdsData.CatalogSalesPath}'),
+                    read_parquet('{TpcdsData.ItemPath}'),
+                    read_parquet('{TpcdsData.DateDimPath}')
+               WHERE cs_item_sk IN
+                   (SELECT ss_item_sk
+                    FROM cross_items)
+                 AND cs_item_sk = i_item_sk
+                 AND cs_sold_date_sk = d_date_sk
+                 AND d_year = 1999+2
+                 AND d_moy = 11
+               GROUP BY i_brand_id,
+                        i_class_id,
+                        i_category_id
+               HAVING sum(cs_quantity*cs_list_price) >
+                 (SELECT average_sales
+                  FROM avg_sales)
+               UNION ALL SELECT 'web' channel,
+                                      i_brand_id,
+                                      i_class_id,
+                                      i_category_id,
+                                      sum(ws_quantity*ws_list_price) sales,
+                                      count(*) number_sales
+               FROM read_parquet('{TpcdsData.WebSalesPath}'),
+                    read_parquet('{TpcdsData.ItemPath}'),
+                    read_parquet('{TpcdsData.DateDimPath}')
+               WHERE ws_item_sk IN
+                   (SELECT ss_item_sk
+                    FROM cross_items)
+                 AND ws_item_sk = i_item_sk
+                 AND ws_sold_date_sk = d_date_sk
+                 AND d_year = 1999+2
+                 AND d_moy = 11
+               GROUP BY i_brand_id,
+                        i_class_id,
+                        i_category_id
+               HAVING sum(ws_quantity*ws_list_price) >
+                 (SELECT average_sales
+                  FROM avg_sales)) y
+            GROUP BY ROLLUP (channel,
+                             i_brand_id,
+                             i_class_id,
+                             i_category_id)
+            ORDER BY channel NULLS FIRST,
+                     i_brand_id NULLS FIRST,
+                     i_class_id NULLS FIRST,
+                     i_category_id NULLS FIRST
+            LIMIT 100;
+        ";
+
+        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
+        {
+            channel = r.IsDBNull(0) ? null : r.GetString(0),
+            i_brand_id = r.IsDBNull(1) ? null : (long?)r.GetInt64(1),
+            i_class_id = r.IsDBNull(2) ? null : (long?)r.GetInt64(2),
+            i_category_id = r.IsDBNull(3) ? null : (long?)r.GetInt64(3),
+            sum_sales = r.IsDBNull(4) ? null : (decimal?)r.GetDecimal(4),
+            sum_number_sales = r.IsDBNull(5) ? null : (long?)r.GetInt64(5),
+        });
+
+        Assert.Equal(duckDbResults.Count, polarsResult.Count);
+        for (int i = 0; i < duckDbResults.Count; i++)
+        {
+            var d = duckDbResults[i];
+            var p = polarsResult[i];
+
+            Assert.Equal(d.channel, (string?)p.channel);
+            Assert.Equal(d.i_brand_id, (long?)p.i_brand_id);
+            Assert.Equal(d.i_class_id, (long?)p.i_class_id);
+            Assert.Equal(d.i_category_id, (long?)p.i_category_id);
+            Assert.Equal(d.sum_sales, p.sum_sales);
+            Assert.Equal(d.sum_number_sales, p.sum_number_sales);
+        }
+    }
+}
