@@ -4142,6 +4142,64 @@ public partial class LinqTests
     }
 
     [Fact]
+    [Trait("LINQ", "StringVectorized")]
+    public void Test_Linq_String_ExtractGroups_SplitExact_Ops()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Text", ["Seattle, WA", "Portland, OR", "NoCommaHere"]),
+            Series.From("Code", ["US-WA-SEA", "US-OR-PDX", "CA-BC-YVR"]),
+            Series.From("DateStr", ["2026-01-01", "2026-02-02", "2026-03-03"]),
+            Series.From("TimeStr", ["10:00:00", "11:00:00", "12:00:00"])
+        ]);
+
+        var rx = new Regex(@"(?<City>[A-Za-z]+),\s*(?<State>[A-Z]{2})");
+
+        var query = df.AsQueryable<StringOpsTestRecord>()
+                      .Select(r => new
+                      {
+                          r.Id,
+                          // 1. Regex named capture groups pushdown (StrExtractGroups + StructFieldByName)
+                          City = rx.Match(r.Text).Groups["City"].Value,
+                          State = rx.Match(r.Text).Groups["State"].Value,
+
+                          // 2. String split exact index pushdown (StrSplitExact + StructFieldByIndex)
+                          Country = r.Code.Split('-')[0],
+                          Region = r.Code.Split('-')[1],
+                          Airport = r.Code.Split('-')[2]
+                      });
+
+        AssertPlan(query, NativePushdown);
+        var results = query.ToList();
+
+        Assert.Equal(3, results.Count);
+
+        // Record 1: "Seattle, WA", "US-WA-SEA"
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal("Seattle", results[0].City);
+        Assert.Equal("WA", results[0].State);
+        Assert.Equal("US", results[0].Country);
+        Assert.Equal("WA", results[0].Region);
+        Assert.Equal("SEA", results[0].Airport);
+
+        // Record 2: "Portland, OR", "US-OR-PDX"
+        Assert.Equal(2, results[1].Id);
+        Assert.Equal("Portland", results[1].City);
+        Assert.Equal("OR", results[1].State);
+        Assert.Equal("US", results[1].Country);
+        Assert.Equal("OR", results[1].Region);
+        Assert.Equal("PDX", results[1].Airport);
+
+        // Record 3: "NoCommaHere", "CA-BC-YVR"
+        Assert.Equal(3, results[2].Id);
+        Assert.Equal("", results[2].City);
+        Assert.Equal("", results[2].State);
+        Assert.Equal("CA", results[2].Country);
+        Assert.Equal("BC", results[2].Region);
+        Assert.Equal("YVR", results[2].Airport);
+    }
+
+    [Fact]
     [Trait("LINQ", "DateTimeVectorized")]
     public void Test_Linq_DateTime_Vectorized_Ops()
     {

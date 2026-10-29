@@ -45,6 +45,7 @@ module internal ExpressionPatterns =
             evaluator: MatchEvaluator *
             instanceOpt: Regex option
         | MatchValue of target: Expression * pattern: string * groupIndex: int * instanceOpt: Regex option
+        | MatchGroupNamed of target: Expression * pattern: string * groupName: string * instanceOpt: Regex option
         | MatchesAll of target: Expression * pattern: string * instanceOpt: Regex option
         | MatchesCount of target: Expression * pattern: string * instanceOpt: Regex option
         | Split of target: Expression * pattern: string * instanceOpt: Regex option
@@ -450,8 +451,12 @@ module internal ExpressionPatterns =
             && valueProp.Name = "Value"
             && indexer.Name = "get_Item"
             ->
-            tryResolveGroupIndex groupIdxExpr pat rxOpt
-            |> Option.map (fun idx -> MatchValue(target, pat, idx, rxOpt))
+            match tryEvaluate groupIdxExpr with
+            | Some(:? string as groupName) ->
+                Some(MatchGroupNamed(target, pat, groupName, rxOpt))
+            | _ ->
+                tryResolveGroupIndex groupIdxExpr pat rxOpt
+                |> Option.map (fun idx -> MatchValue(target, pat, idx, rxOpt))
 
         // 5. Matches(...).Select(m => m.Value) (with or without .ToList() / .ToArray())
         | MethodCall(collMethod, null, [ MethodCall(selMethod, null, [ RegexCall("Matches", target, pat, rxOpt); _ ]) ]) when
@@ -516,6 +521,36 @@ module internal ExpressionPatterns =
             Some(m.Object, m.Arguments.[0])
         | :? IndexExpression as idx when idx.Arguments.Count = 1 && isListContainer idx.Object.Type ->
             Some(idx.Object, idx.Arguments.[0])
+        | _ -> None
+
+    /// Pattern matching indexed string split: target.Split(sep)[idx]
+    let (|SplitIndexAccess|_|) (expr: Expression) : (Expression * string * int) option =
+        match expr with
+        | ArrayIndexOp(target, indexExpr) ->
+            match unwrapSpanOrArray target with
+            | MethodCall(m, strTarget, sepExpr :: _) when
+                m.DeclaringType = typeof<string>
+                && m.Name = "Split"
+                && not (isNull strTarget)
+                && strTarget.Type = typeof<string>
+                ->
+                let sepOpt =
+                    match tryEvaluate sepExpr with
+                    | Some(:? char as c) -> Some(string c)
+                    | Some(:? string as s) -> Some s
+                    | Some(:? (char array) as ca) when ca.Length = 1 -> Some(string ca.[0])
+                    | Some(:? (string array) as sa) when sa.Length = 1 -> Some sa.[0]
+                    | _ -> None
+
+                let idxOpt =
+                    match tryEvaluate indexExpr with
+                    | Some(:? int as i) when i >= 0 -> Some i
+                    | _ -> None
+
+                match sepOpt, idxOpt with
+                | Some sep, Some idx -> Some(strTarget, sep, idx)
+                | _ -> None
+            | _ -> None
         | _ -> None
 
     let (|ListInvocation|_|) (expr: Expression) : ListInvocation option =

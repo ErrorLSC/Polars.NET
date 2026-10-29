@@ -1456,6 +1456,31 @@ module internal rec ExprTranslator =
                                     "")
                     ))
 
+        // --- 4b. MatchGroupNamed (Regex.Match().Groups["name"].Value -> StrExtractGroups) ---
+        | MatchGroupNamed(target, pat, groupName, rxOpt) ->
+            tryTranslateWithContext ctx target
+            |> Option.map (fun t ->
+                let options = getOptions rxOpt
+                let rx = getRegex rxOpt pat
+
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    let tCloned = PolarsWrapper.CloneExpr t
+                    let structH = PolarsWrapper.StrExtractGroups(t, validPat)
+                    let fieldH = PolarsWrapper.StructFieldByName(structH, [| groupName |])
+                    let nonNullExtracted = PolarsWrapper.Coalesce [| fieldH; PolarsWrapper.Lit "" |]
+                    let isTargetNull = PolarsWrapper.IsNull tCloned
+                    PolarsWrapper.IfElse(isTargetNull, PolarsWrapper.LitNull(), nonNullExtracted)
+                | None ->
+                    PolarsWrapper.MapStringTransform(
+                        t,
+                        Func<string, string>(fun s ->
+                            if isNull s then null
+                            else
+                                let m = rx.Match s
+                                if m.Success then m.Groups.[groupName].Value else "")
+                    ))
+
         // --- 5. MatchesAll ---
         | MatchesAll(target, pat, rxOpt) ->
             tryTranslateWithContext ctx target
@@ -2473,6 +2498,22 @@ module internal rec ExprTranslator =
     let tryTranslateWithContext (ctx: TranslationContext) (expr: Expression) : ExprHandle option =
         try
             match expr with
+            // 0. Row-level String Split exact index access: s.Split(sep)[idx] -> StrSplitExact + StructFieldByIndex
+            | SplitIndexAccess(target, sep, idx) ->
+                let n =
+                    match SplitOptContext.Current with
+                    | Some map ->
+                        match map.TryFind(target.ToString(), sep) with
+                        | Some maxIdx -> maxIdx
+                        | None -> idx
+                    | None -> idx
+
+                match tryTranslateWithContext ctx target with
+                | Some t ->
+                    let splitH = PolarsWrapper.StrSplitExact(t, PolarsWrapper.Lit sep, n, inclusive = false)
+                    Some(PolarsWrapper.StructFieldByIndex(splitH, int64 idx))
+                | _ -> None
+
             // 1. Row-level List / Array operations
             | ArrayIndexOp(target, indexExpr) ->
                 match tryTranslateWithContext ctx target, tryTranslateWithContext ctx indexExpr with

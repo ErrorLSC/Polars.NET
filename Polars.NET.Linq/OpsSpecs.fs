@@ -30,6 +30,14 @@ type internal UnpivotSpec =
         ValueName: string
     }
 
+/// Optimization context for coordinating max split indices across multiple bindings in a projection
+type internal SplitOptContext =
+    [<ThreadStatic; DefaultValue>]
+    static val mutable private maxMap: Map<string * string, int> option
+    static member Current
+        with get () = SplitOptContext.maxMap
+        and set (v) = SplitOptContext.maxMap <- v
+
 /// Specification for column renaming pushdown
 type internal RenameSpec =
     {

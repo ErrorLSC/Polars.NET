@@ -1296,18 +1296,32 @@ module internal QueryPipelineHelpers =
 
         match tryExtractMemberBindings projLambda.Body with
         | Some bindings ->
-            let exprOpts =
+            let splitMaxMap =
                 bindings
-                |> List.map (fun (name, argExpr) ->
-                    name, argExpr, tryTranslateSelectArg ctx argExpr)
+                |> List.choose (fun (_, argExpr) ->
+                    match argExpr with
+                    | SplitIndexAccess(target, sep, idx) -> Some((target.ToString(), sep), idx)
+                    | _ -> None)
+                |> List.groupBy fst
+                |> List.map (fun (k, g) -> k, g |> List.map snd |> List.max)
+                |> Map.ofList
 
-            let failed = exprOpts |> List.filter (fun (_, _, opt) -> opt.IsNone)
-            if failed.IsEmpty then
-                Some(exprOpts |> List.map (fun (name, _, opt) -> PolarsWrapper.Alias(opt.Value, name)) |> List.toArray)
-            else
-                let reasons = failed |> List.map (fun (n, e, _) -> sprintf "%s = %s (%s)" n (e.ToString()) (e.GetType().Name))
-                FallbackTracker.Diagnostic <- Some(sprintf "Failed projection bindings: %s" (String.concat "; " reasons))
-                None
+            SplitOptContext.Current <- if splitMaxMap.IsEmpty then None else Some splitMaxMap
+            try
+                let exprOpts =
+                    bindings
+                    |> List.map (fun (name, argExpr) ->
+                        name, argExpr, tryTranslateSelectArg ctx argExpr)
+
+                let failed = exprOpts |> List.filter (fun (_, _, opt) -> opt.IsNone)
+                if failed.IsEmpty then
+                    Some(exprOpts |> List.map (fun (name, _, opt) -> PolarsWrapper.Alias(opt.Value, name)) |> List.toArray)
+                else
+                    let reasons = failed |> List.map (fun (n, e, _) -> sprintf "%s = %s (%s)" n (e.ToString()) (e.GetType().Name))
+                    FallbackTracker.Diagnostic <- Some(sprintf "Failed projection bindings: %s" (String.concat "; " reasons))
+                    None
+            finally
+                SplitOptContext.Current <- None
 
         | None ->
             match projLambda.Body with
