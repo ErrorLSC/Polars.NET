@@ -65,6 +65,16 @@ type ``Series Tests`` () =
         Assert.Equal(1L, dfNew.Width)
         Assert.Equal(2L, dfNew.Height)
         Assert.Equal("age", dfNew.ColumnNames.[0])
+
+    [<Fact>]
+    member _.``Series: GetValue char and char option`` () =
+        use s = Series.create("chars", [ "a"; "b"; null ])
+        Assert.Equal('a', s.GetValue<char>(0L, uncheck = false))
+        Assert.Equal('b', s.GetValue<char>(1L, uncheck = false))
+        Assert.Equal(Some 'a', s.GetValue<char option>(0L, uncheck = false))
+        Assert.Equal(None, s.GetValue<char option>(2L, uncheck = false))
+        Assert.Equal(ValueSome 'a', s.GetValue<char voption>(0L, uncheck = false))
+        Assert.Equal(ValueNone, s.GetValue<char voption>(2L, uncheck = false))
     [<Fact>]
     member _.``Series: Cast to Categorical`` () =
         let data = ["apple"; "banana"; "apple"; "apple"; "banana"]

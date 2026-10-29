@@ -63,6 +63,21 @@ public readonly record struct OrderRecord(
     DateTime OrderDate,
     double Amount
 );
+public readonly record struct StringOpsTestRecord(
+    int Id,
+    string Code,
+    string Text,
+    string DateStr,
+    string TimeStr
+);
+public readonly record struct StringConversionTestRecord(
+    int Id,
+    string NumStr,
+    string HexStr,
+    string DecStr,
+    string Base64Str,
+    string Text
+);
 public class StockPrice
 {
     public string Symbol { get; set; } = string.Empty;
@@ -3891,6 +3906,120 @@ public partial class LinqTests
         Assert.Equal(2, results.Count);
         Assert.Equal("alice smith", results[0].CleanName);
         Assert.Equal("charlie", results[1].CleanName);
+    }
+
+    [Fact]
+    [Trait("LINQ", "StringVectorized")]
+    public void Test_Linq_String_Pad_Normalize_Index_Split_Escape_Ops()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2, 3]),
+            Series.From("Code", ["a_1", "bb_22", "ccc_333"]),
+            Series.From("Text", ["  foo  ", "bar", "é"]),
+            Series.From("DateStr", ["2026-05-12", "2025-11-20", "2024-01-01"]),
+            Series.From("TimeStr", ["14:30:00", "09:15:30", "23:59:59"])
+        ]);
+
+        var query = df.AsQueryable<StringOpsTestRecord>()
+                      .Where(r => r.Code.PadLeft(8, '0').StartsWith("0") && Regex.Escape(r.Text).Length > 0)
+                      .Select(r => new
+                      {
+                          r.Id,
+                          PaddedLeft = r.Code.PadLeft(8),
+                          PaddedLeftZero = r.Code.PadLeft(8, '0'),
+                          PaddedRight = r.Code.PadRight(8),
+                          PaddedRightStar = r.Code.PadRight(8, '*'),
+                          Normalized = r.Text.Normalize(),
+                          NormalizedD = r.Text.Normalize(NormalizationForm.FormD),
+                          FirstChar = r.Code[0],
+                          Escaped = Regex.Escape(r.Code),
+                          TrimmedChars = r.Text.Trim(' '),
+                          SplitPart = r.Code.Split('_', 2),
+                          ParsedDate = DateOnly.Parse(r.DateStr),
+                          ParsedTime = TimeOnly.Parse(r.TimeStr)
+                      });
+
+        AssertPlan(query, NativePushdown);
+        var results = query.ToList();
+
+        Assert.Equal(3, results.Count);
+
+        // Record 1: Code = "a_1"
+        Assert.Equal("     a_1", results[0].PaddedLeft);
+        Assert.Equal("00000a_1", results[0].PaddedLeftZero);
+        Assert.Equal("a_1     ", results[0].PaddedRight);
+        Assert.Equal("a_1*****", results[0].PaddedRightStar);
+        Assert.Equal('a', results[0].FirstChar);
+        Assert.Equal("a_1", results[0].Escaped);
+        Assert.Equal("foo", results[0].TrimmedChars);
+        Assert.Equal(new DateOnly(2026, 5, 12), results[0].ParsedDate);
+        Assert.Equal(new TimeOnly(14, 30, 0), results[0].ParsedTime);
+
+        // Check Regex.Count vectorized
+        var countQuery = df.AsQueryable<StringOpsTestRecord>()
+                           .Select(r => new
+                           {
+                               UnderscoreCount = Regex.Count(r.Code, "_")
+                           });
+        AssertPlan(countQuery, NativePushdown);
+        var countResults = countQuery.ToList();
+        Assert.Equal(1, countResults[0].UnderscoreCount);
+        Assert.Equal(1, countResults[1].UnderscoreCount);
+        Assert.Equal(1, countResults[2].UnderscoreCount);
+    }
+
+    [Fact]
+    [Trait("LINQ", "StringVectorized")]
+    public void Test_Linq_String_Conversions_And_Extended_Ops()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("Id", [1, 2]),
+            Series.From("NumStr", ["123", "456"]),
+            Series.From("HexStr", ["1a", "ff"]),
+            Series.From("DecStr", ["12.3400", "56.7800"]),
+            Series.From("Base64Str", ["aGVsbG8=", "d29ybGQ="]),
+            Series.From("Text", ["hello_world_polars", "foo_bar_baz"])
+        ]);
+
+        var rxUnder = new Regex("_");
+
+        var query = df.AsQueryable<StringConversionTestRecord>()
+                      .Where(r => int.Parse(r.NumStr) > 100 && Convert.ToInt32(r.HexStr, 16) >= 26)
+                      .Select(r => new
+                      {
+                          r.Id,
+                          ParsedInt = int.Parse(r.NumStr),
+                          ParsedLong = Convert.ToInt64(r.NumStr),
+                          HexVal = Convert.ToInt32(r.HexStr, 16),
+                          ParsedDec = decimal.Parse(r.DecStr),
+                          HexBytes = Convert.FromHexString(r.HexStr),
+                          Base64Bytes = Convert.FromBase64String(r.Base64Str),
+                          Utf8Len = Encoding.UTF8.GetByteCount(r.Text),
+                          TitleCased = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(r.Text),
+                          Head = string.Concat(r.Text.Take(5)),
+                          Tail = string.Concat(r.Text.TakeLast(6)),
+                          Reversed = string.Concat(Enumerable.Reverse(r.Text)),
+                          SingleReplaced = rxUnder.Replace(r.Text, "-", 1)
+                      });
+
+        AssertPlan(query, NativePushdown);
+        var results = query.ToList();
+
+        Assert.Equal(2, results.Count);
+
+        // Record 1
+        Assert.Equal(123, results[0].ParsedInt);
+        Assert.Equal(123L, results[0].ParsedLong);
+        Assert.Equal(26, results[0].HexVal);
+        Assert.Equal(12.3400m, results[0].ParsedDec);
+        Assert.Equal(new byte[] { 0x1a }, results[0].HexBytes);
+        Assert.Equal(Encoding.UTF8.GetBytes("hello"), results[0].Base64Bytes);
+        Assert.Equal(18, results[0].Utf8Len);
+        Assert.Equal("Hello_World_Polars", results[0].TitleCased);
+        Assert.Equal("hello", results[0].Head);
+        Assert.Equal("polars", results[0].Tail);
+        Assert.Equal("sralop_dlrow_olleh", results[0].Reversed);
+        Assert.Equal("hello-world_polars", results[0].SingleReplaced);
     }
 
     [Fact]

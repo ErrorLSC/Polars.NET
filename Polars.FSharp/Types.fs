@@ -618,12 +618,17 @@ type Series(handle: SeriesHandle) =
             Unsafe.As<string, 'T>(&v)
 
         | t, _ when
-            t = typeof<string>
+            (t = typeof<string> || t = typeof<IEnumerable<char>>)
             && not this.DataType.IsCategorical
             && not this.DataType.IsEnum
             ->
             let mutable v = PolarsWrapper.SeriesGetStringFast(this.Handle, index)
             Unsafe.As<string, 'T>(&v)
+
+        | t, _ when t = typeof<char> ->
+            let s = PolarsWrapper.SeriesGetStringFast(this.Handle, index)
+            let mutable v = if String.IsNullOrEmpty s then '\000' else s.[0]
+            Unsafe.As<char, 'T>(&v)
 
         | t, _ when t = typeof<decimal> && this.DataType.IsFloat ->
             let d = PolarsWrapper.SeriesGetDoubleFast(this.Handle, index)
@@ -699,6 +704,9 @@ type Series(handle: SeriesHandle) =
         | t when t = typeof<string> ->
             let mutable v = ValueSome(this.ReadScalarInternal<string> index)
             Unsafe.As<string voption, 'T>(&v)
+        | t when t = typeof<char> ->
+            let mutable v = ValueSome(this.ReadScalarInternal<char> index)
+            Unsafe.As<char voption, 'T>(&v)
         | t when t = typeof<decimal> ->
             let mutable v = ValueSome(this.ReadScalarInternal<decimal> index)
             Unsafe.As<decimal voption, 'T>(&v)
@@ -777,6 +785,9 @@ type Series(handle: SeriesHandle) =
         | t when t = typeof<string> ->
             let mutable v = Some(this.ReadScalarInternal<string> index)
             Unsafe.As<string option, 'T>(&v)
+        | t when t = typeof<char> ->
+            let mutable v = Some(this.ReadScalarInternal<char> index)
+            Unsafe.As<char option, 'T>(&v)
         | t when t = typeof<decimal> ->
             let mutable v = Some(this.ReadScalarInternal<decimal> index)
             Unsafe.As<decimal option, 'T>(&v)

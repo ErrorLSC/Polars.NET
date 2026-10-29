@@ -33,6 +33,12 @@ module internal ExpressionPatterns =
     type internal RegexInvocation =
         | IsMatch of target: Expression * pattern: string * instanceOpt: Regex option
         | ReplaceLiteral of target: Expression * pattern: string * replacement: string * instanceOpt: Regex option
+        | ReplaceLiteralN of
+            target: Expression *
+            pattern: string *
+            replacement: string *
+            count: int *
+            instanceOpt: Regex option
         | ReplaceEvaluator of
             target: Expression *
             pattern: string *
@@ -415,6 +421,16 @@ module internal ExpressionPatterns =
             ->
             match tryEvaluate rxExpr with
             | Some(:? Regex as rx) -> tryBuildReplace target (rx.ToString()) repExpr (Some rx)
+            | _ -> None
+
+        | MethodCall(m, rxExpr, [ target; repExpr; countExpr ]) when
+            not (isNull rxExpr)
+            && typeof<Regex>.IsAssignableFrom rxExpr.Type
+            && m.Name = "Replace"
+            ->
+            match tryEvaluate rxExpr, tryEvaluate repExpr, tryEvaluate countExpr with
+            | Some(:? Regex as rx), Some(:? string as rep), Some(:? int as count) ->
+                Some(ReplaceLiteralN(target, rx.ToString(), rep, count, Some rx))
             | _ -> None
 
         // 3. Match(...).Success / Match(...).Value / Matches(...).Count property chaining

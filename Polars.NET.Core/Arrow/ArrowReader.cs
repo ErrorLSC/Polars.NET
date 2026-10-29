@@ -225,6 +225,7 @@ public static class ArrowReader
         // Binary
         if (type == typeof(byte[]))
         {
+                if (array is BinaryViewArray bv) return idx => bv.GetBytes(idx).ToArray();
                 if (array is BinaryArray ba) return idx => ba.GetBytes(idx).ToArray();
                 if (array is LargeBinaryArray lba) return idx => lba.GetBytes(idx).ToArray();
                 if (array is FixedSizeBinaryArray fba) return idx => fba.GetBytes(idx).ToArray();
@@ -747,11 +748,21 @@ internal static class FastAccessorBuilder
         bool isNullable = Nullable.GetUnderlyingType(type) != null || !type.IsValueType;
 
         // =========================================================
-        // String
+        // String and Char
         // =========================================================
-        if (type == typeof(string))
+        if (type == typeof(string) || type == typeof(IEnumerable<char>))
         {
             return (Func<int, TProp>)(object)array.GetStringValue;
+        }
+
+        if (underlyingType == typeof(char))
+        {
+            char? charGetter(int idx)
+            {
+                var s = array.GetStringValue(idx);
+                return string.IsNullOrEmpty(s) ? null : s[0];
+            }
+            return CastGetter<char, TProp>(charGetter, isNullable);
         }
 
         // =========================================================

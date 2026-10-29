@@ -120,10 +120,16 @@ public partial class Series : IDisposable
             string? strVal = PolarsWrapper.SeriesGetCatOrEnumFast(Handle, index, (PlCategoricalPhysical)DataType.EnumCategories!.Physical());
             return Unsafe.As<string?, T>(ref strVal);
         }
-        if (underlying == typeof(string) && !DataType.IsCategorical && !DataType.IsEnum)
+        if ((underlying == typeof(string) || underlying == typeof(IEnumerable<char>)) && !DataType.IsCategorical && !DataType.IsEnum)
         {
             string? strVal = PolarsWrapper.SeriesGetStringFast(Handle, index);
             return Unsafe.As<string?, T>(ref strVal);
+        }
+        if (underlying == typeof(char))
+        {
+            string? s = PolarsWrapper.SeriesGetStringFast(Handle, index);
+            char val = string.IsNullOrEmpty(s) ? '\0' : s[0];
+            return isNullable ? (T)(object)(char?)val : Unsafe.As<char, T>(ref val);
         }
 
         // ==============================================================

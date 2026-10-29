@@ -3,6 +3,7 @@ namespace Polars.NET.Linq
 open Polars.NET.Core
 open Polars.NET.Core.Arrow
 open System
+open System.Text
 open System.Linq
 open System.Reflection
 open System.Linq.Expressions
@@ -665,6 +666,8 @@ module internal rec ExprTranslator =
 
             if flatArgs.IsEmpty then
                 Some(PolarsWrapper.Lit "")
+            elif flatArgs.Length = 1 then
+                tryTranslateWithContext ctx flatArgs.Head
             else
                 let argHandles = flatArgs |> List.choose (tryTranslateWithContext ctx)
 
@@ -799,21 +802,85 @@ module internal rec ExprTranslator =
                 | _ -> None
             | _ -> None
 
+        // --- PadLeft / PadRight ---
+        | "PadLeft", [ widthExpr ] ->
+            match targetH (), tryTranslateWithContext ctx widthExpr with
+            | Some t, Some w -> Some(PolarsWrapper.StrPadStart(t, w, " "))
+            | _ -> None
+
+        | "PadLeft", [ widthExpr; padCharExpr ] ->
+            match targetH (), tryTranslateWithContext ctx widthExpr with
+            | Some t, Some w ->
+                match tryEvaluate padCharExpr with
+                | Some(:? char as c) -> Some(PolarsWrapper.StrPadStart(t, w, string c))
+                | Some(:? string as s) -> Some(PolarsWrapper.StrPadStart(t, w, s))
+                | _ -> None
+            | _ -> None
+
+        | "PadRight", [ widthExpr ] ->
+            match targetH (), tryTranslateWithContext ctx widthExpr with
+            | Some t, Some w -> Some(PolarsWrapper.StrPadEnd(t, w, " "))
+            | _ -> None
+
+        | "PadRight", [ widthExpr; padCharExpr ] ->
+            match targetH (), tryTranslateWithContext ctx widthExpr with
+            | Some t, Some w ->
+                match tryEvaluate padCharExpr with
+                | Some(:? char as c) -> Some(PolarsWrapper.StrPadEnd(t, w, string c))
+                | Some(:? string as s) -> Some(PolarsWrapper.StrPadEnd(t, w, s))
+                | _ -> None
+            | _ -> None
+
+        // --- Normalize ---
+        | "Normalize", [] ->
+            targetH () |> Option.map (fun t -> PolarsWrapper.StrNormalize(t, NormalizationForm.FormC))
+
+        | "Normalize", [ formExpr ] ->
+            match targetH (), tryEvaluate formExpr with
+            | Some t, Some(:? NormalizationForm as form) ->
+                Some(PolarsWrapper.StrNormalize(t, form))
+            | _ -> None
+
+        // --- Indexer: s[i] (get_Chars) ---
+        | "get_Chars", [ idxExpr ] ->
+            match targetH (), tryTranslateWithContext ctx idxExpr with
+            | Some t, Some idxH ->
+                Some(PolarsWrapper.StrSlice(t, idxH, PolarsWrapper.Lit 1))
+            | _ -> None
+
         // --- Split (Literal string.Split) ---
         | "Split", [ sepExpr ] ->
-            match targetH (), tryEvaluate sepExpr with
-            | Some t, Some(:? char as c) ->
-                Some(
-                    PolarsWrapper.StrSplit(
-                        t,
-                        PolarsWrapper.Lit(string c),
-                        inclusive = false,
-                        literal = true,
-                        strict = false
-                    )
-                )
-            | Some t, Some(:? string as s) ->
+            let sepOpt =
+                match tryEvaluate sepExpr with
+                | Some(:? char as c) -> Some(string c)
+                | Some(:? string as s) -> Some s
+                | Some(:? (char array) as ca) when ca.Length = 1 -> Some(string ca.[0])
+                | Some(:? (string array) as sa) when sa.Length = 1 -> Some sa.[0]
+                | _ -> None
+
+            match targetH (), sepOpt with
+            | Some t, Some s ->
                 Some(PolarsWrapper.StrSplit(t, PolarsWrapper.Lit s, inclusive = false, literal = true, strict = false))
+            | _ -> None
+
+        | "Split", [ sepExpr; countExpr ]
+        | "Split", sepExpr :: countExpr :: _ when args.Length <= 3 ->
+            let sepOpt =
+                match tryEvaluate sepExpr with
+                | Some(:? char as c) -> Some(string c)
+                | Some(:? string as s) -> Some s
+                | Some(:? (char array) as ca) when ca.Length = 1 -> Some(string ca.[0])
+                | Some(:? (string array) as sa) when sa.Length = 1 -> Some sa.[0]
+                | _ -> None
+
+            let countOpt =
+                match tryEvaluate countExpr with
+                | Some(:? int as n) -> Some n
+                | _ -> None
+
+            match targetH (), sepOpt, countOpt with
+            | Some t, Some s, Some n ->
+                Some(PolarsWrapper.StrSplitN(t, PolarsWrapper.Lit s, n))
             | _ -> None
 
         // --- Trim / TrimStart / TrimEnd ---
@@ -832,8 +899,15 @@ module internal rec ExprTranslator =
                     targetH () |> Option.map (fun t -> stripFn (t, PolarsWrapper.LitNull()))
                 | :? NewArrayExpression as nae when nae.Expressions.Count = 0 ->
                     targetH () |> Option.map (fun t -> stripFn (t, PolarsWrapper.LitNull()))
-                | _ ->
-                    match targetH (), tryTranslateWithContext ctx arg with
+                | other ->
+                    let charsOpt =
+                        match tryEvaluate other with
+                        | Some(:? (char array) as chars) -> Some(PolarsWrapper.Lit(String(chars)))
+                        | Some(:? char as c) -> Some(PolarsWrapper.Lit(string c))
+                        | Some(:? string as s) -> Some(PolarsWrapper.Lit s)
+                        | _ -> tryTranslateWithContext ctx other
+
+                    match targetH (), charsOpt with
                     | Some t, Some p -> Some(stripFn (t, p))
                     | _ -> None
             | _ -> None
@@ -892,6 +966,25 @@ module internal rec ExprTranslator =
                 let chronoFormat = DateTimeFormatHelper.ToChronoFormat netFormat
                 Some(PolarsWrapper.StrToDate(strH, chronoFormat, strict = false, exact = true, cache = true))
             | _ -> None
+
+        | "Parse", [ strExpr ]
+        | "Parse", strExpr :: _ when isNull target && m.DeclaringType = typeof<DateOnly> ->
+            tryTranslateWithContext ctx strExpr
+            |> Option.map (fun strH ->
+                PolarsWrapper.StrToDate(strH, format = null, strict = false, exact = false, cache = true))
+
+        | "ParseExact", strExpr :: formatExpr :: _ when isNull target && m.DeclaringType = typeof<TimeOnly> ->
+            match tryTranslateWithContext ctx strExpr, tryEvaluate formatExpr with
+            | Some strH, Some(:? string as netFormat) ->
+                let chronoFormat = DateTimeFormatHelper.ToChronoFormat netFormat
+                Some(PolarsWrapper.StrToTime(strH, chronoFormat, strict = false, exact = true, cache = true))
+            | _ -> None
+
+        | "Parse", [ strExpr ]
+        | "Parse", strExpr :: _ when isNull target && m.DeclaringType = typeof<TimeOnly> ->
+            tryTranslateWithContext ctx strExpr
+            |> Option.map (fun strH ->
+                PolarsWrapper.StrToTime(strH, format = null, strict = false, exact = true, cache = true))
 
         | "IsLeapYear", [ yearExpr ] when isNull target && m.DeclaringType = typeof<DateTime> ->
             tryTranslateWithContext ctx yearExpr
@@ -1141,6 +1234,29 @@ module internal rec ExprTranslator =
                         Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep))
                     ))
 
+        // --- 2b. ReplaceLiteralN (With count limit) ---
+        | ReplaceLiteralN(target, pat, rep, count, rxOpt) ->
+            tryTranslateWithContext ctx target
+            |> Option.map (fun t ->
+                let options = getOptions rxOpt
+
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    PolarsWrapper.StrReplace(
+                        t,
+                        PolarsWrapper.Lit validPat,
+                        PolarsWrapper.Lit rep,
+                        literal = false,
+                        n = int64 count
+                    )
+                | None ->
+                    let rx = getRegex rxOpt pat
+
+                    PolarsWrapper.MapStringTransform(
+                        t,
+                        Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep, count))
+                    ))
+
         // --- 3. ReplaceEvaluator (Managed delegate: always UDF) ---
         | ReplaceEvaluator(target, pat, eval, rxOpt) ->
             tryTranslateWithContext ctx target
@@ -1219,8 +1335,7 @@ module internal rec ExprTranslator =
 
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    let listExpr = PolarsWrapper.StrExtractAll(t, PolarsWrapper.Lit validPat)
-                    PolarsWrapper.ListLen listExpr
+                    PolarsWrapper.StrCountMatches(t, PolarsWrapper.Lit validPat, literal = false)
                 | None ->
                     let rx = getRegex rxOpt pat
                     let intDtype = PolarsWrapper.NewPrimitiveType(int PlDataType.Int32)
@@ -1644,6 +1759,110 @@ module internal rec ExprTranslator =
 
         | _ -> None
 
+    let private isIntegerType (t: Type) =
+        t = typeof<int>
+        || t = typeof<int64>
+        || t = typeof<int16>
+        || t = typeof<sbyte>
+        || t = typeof<byte>
+        || t = typeof<uint32>
+        || t = typeof<uint64>
+        || t = typeof<uint16>
+
+    let private translateConversionOrParseMethod
+        (ctx: TranslationContext)
+        (m: MethodInfo)
+        (target: Expression)
+        (args: Expression list)
+        : ExprHandle option =
+        let targetType = m.DeclaringType
+
+        // 1. Static Parse on numeric types (int.Parse(s), long.Parse(s), decimal.Parse(s), double.Parse(s), etc.)
+        if isNull target && (m.Name = "Parse" || m.Name = "TryParse") then
+            match args with
+            | strExpr :: _ when strExpr.Type = typeof<string> ->
+                match tryTranslateWithContext ctx strExpr with
+                | Some strH ->
+                    if isIntegerType targetType then
+                        tryGetPolarsDataType targetType
+                        |> Option.map (fun dtype ->
+                            PolarsWrapper.StrToInteger(strH, PolarsWrapper.Lit 10, dtype, strict = false))
+                    elif targetType = typeof<decimal> then
+                        Some(PolarsWrapper.StrToDecimal(strH, 4))
+                    elif targetType = typeof<double> || targetType = typeof<float> || targetType = typeof<bool> then
+                        tryTranslateCast targetType strH
+                    else
+                        None
+                | None -> None
+            | _ -> None
+
+        // 2. Convert.* (Convert.ToInt32, Convert.ToHexString, Convert.FromHexString, etc.)
+        elif isNull target && targetType = typeof<Convert> then
+            match m.Name, args with
+            | "FromHexString", [ strExpr ] ->
+                tryTranslateWithContext ctx strExpr
+                |> Option.map (fun strH -> PolarsWrapper.StrHexDecode(strH, strict = false))
+
+            | "FromBase64String", [ strExpr ] ->
+                tryTranslateWithContext ctx strExpr
+                |> Option.map (fun strH -> PolarsWrapper.StrBase64Decode(strH, strict = false))
+
+            | "ToHexString", [ strExpr ] ->
+                tryTranslateWithContext ctx strExpr
+                |> Option.map PolarsWrapper.StrHexEncode
+
+            | "ToBase64String", [ strExpr ] ->
+                tryTranslateWithContext ctx strExpr
+                |> Option.map PolarsWrapper.StrBase64Encode
+
+            // Convert.ToInt32(s), Convert.ToInt64(s), etc.
+            | ("ToInt32" | "ToInt64" | "ToInt16" | "ToByte" | "ToSByte" | "ToUInt32" | "ToUInt64" | "ToUInt16") as convName, [ strExpr ] when strExpr.Type = typeof<string> ->
+                let intType =
+                    match convName with
+                    | "ToInt32" -> typeof<int>
+                    | "ToInt64" -> typeof<int64>
+                    | "ToInt16" -> typeof<int16>
+                    | "ToByte" -> typeof<byte>
+                    | "ToSByte" -> typeof<sbyte>
+                    | "ToUInt32" -> typeof<uint32>
+                    | "ToUInt64" -> typeof<uint64>
+                    | "ToUInt16" -> typeof<uint16>
+                    | _ -> typeof<int>
+
+                match tryTranslateWithContext ctx strExpr, tryGetPolarsDataType intType with
+                | Some strH, Some dtype ->
+                    Some(PolarsWrapper.StrToInteger(strH, PolarsWrapper.Lit 10, dtype, strict = false))
+                | _ -> None
+
+            // Convert.ToInt32(s, fromBase), Convert.ToInt64(s, fromBase)
+            | ("ToInt32" | "ToInt64") as convName, [ strExpr; baseExpr ] when strExpr.Type = typeof<string> ->
+                let intType = if convName = "ToInt32" then typeof<int> else typeof<int64>
+                match tryTranslateWithContext ctx strExpr, tryTranslateWithContext ctx baseExpr, tryGetPolarsDataType intType with
+                | Some strH, Some baseH, Some dtype ->
+                    Some(PolarsWrapper.StrToInteger(strH, baseH, dtype, strict = false))
+                | _ -> None
+
+            | "ToDecimal", [ strExpr ] when strExpr.Type = typeof<string> ->
+                tryTranslateWithContext ctx strExpr
+                |> Option.map (fun strH -> PolarsWrapper.StrToDecimal(strH, 4))
+
+            | "ToDouble", [ strExpr ] when strExpr.Type = typeof<string> ->
+                tryTranslateWithContext ctx strExpr
+                |> Option.bind (tryTranslateCast typeof<double>)
+
+            | "ToSingle", [ strExpr ] when strExpr.Type = typeof<string> ->
+                tryTranslateWithContext ctx strExpr
+                |> Option.bind (tryTranslateCast typeof<float>)
+
+            | "ToBoolean", [ strExpr ] when strExpr.Type = typeof<string> ->
+                tryTranslateWithContext ctx strExpr
+                |> Option.bind (tryTranslateCast typeof<bool>)
+
+            | _ -> None
+
+        else
+            None
+
     let private translateMethodCall
         (ctx: TranslationContext)
         (m: MethodInfo)
@@ -1699,7 +1918,63 @@ module internal rec ExprTranslator =
                 || m.Name = "CumCount")
         then
             translateCumulativeMethod ctx m effectiveTarget effectiveArgs
-        // 1. String methods (Static & Instance)
+        // Regex.Escape(str)
+        elif m.DeclaringType = typeof<Regex> && isNull target && m.Name = "Escape" then
+            match args with
+            | [ strExpr ] ->
+                tryTranslateWithContext ctx strExpr |> Option.map PolarsWrapper.StrEscapeRegex
+            | _ -> None
+
+        // 1. Conversion or Parse methods (int.Parse, Convert.ToInt32, Convert.FromHexString, etc.)
+        elif
+            m.DeclaringType = typeof<Convert>
+            || (isNull target && (m.Name = "Parse" || m.Name = "TryParse"))
+        then
+            match translateConversionOrParseMethod ctx m target args with
+            | Some h -> Some h
+            | None ->
+                if m.DeclaringType = typeof<DateTime> || m.DeclaringType = typeof<DateOnly> || m.DeclaringType = typeof<TimeOnly> then
+                    translateTemporalMethod ctx m target args
+                else
+                    None
+
+        // TextInfo.ToTitleCase(s)
+        elif m.Name = "ToTitleCase" && args.Length >= 1 then
+            match args |> List.tryFind (fun a -> a.Type = typeof<string>) with
+            | Some strExpr ->
+                tryTranslateWithContext ctx strExpr |> Option.map PolarsWrapper.StrToTitlecase
+            | None -> None
+
+        // Encoding.UTF8.GetByteCount(s)
+        elif not (isNull m.DeclaringType) && typeof<Encoding>.IsAssignableFrom m.DeclaringType && m.Name = "GetByteCount" then
+            match args with
+            | [ strExpr ] when strExpr.Type = typeof<string> ->
+                tryTranslateWithContext ctx strExpr |> Option.map PolarsWrapper.StrLenBytes
+            | _ -> None
+
+        // Enumerable string extensions: s.Take(n), s.TakeLast(n), s.Reverse()
+        elif m.DeclaringType = typeof<Enumerable> && isNull target then
+            match m.Name, args with
+            | "Take", [ strExpr; countExpr ] when strExpr.Type = typeof<string> ->
+                match tryTranslateWithContext ctx strExpr, tryTranslateWithContext ctx countExpr with
+                | Some strH, Some countH -> Some(PolarsWrapper.StrHead(strH, countH))
+                | _ -> None
+
+            | "TakeLast", [ strExpr; countExpr ] when strExpr.Type = typeof<string> ->
+                match tryTranslateWithContext ctx strExpr, tryTranslateWithContext ctx countExpr with
+                | Some strH, Some countH -> Some(PolarsWrapper.StrTail(strH, countH))
+                | _ -> None
+
+            | "Reverse", [ strExpr ] when strExpr.Type = typeof<string> ->
+                tryTranslateWithContext ctx strExpr |> Option.map PolarsWrapper.StrReverse
+
+            | _ -> None
+
+        // Microsoft.VisualBasic.Strings.StrReverse(s) or similar
+        elif m.Name = "StrReverse" && isNull target && args.Length = 1 && args.[0].Type = typeof<string> then
+            tryTranslateWithContext ctx args.[0] |> Option.map PolarsWrapper.StrReverse
+
+        // 2. String methods (Static & Instance)
         elif
             m.DeclaringType = typeof<string>
             || not (isNull target) && target.Type = typeof<string>
@@ -1709,6 +1984,8 @@ module internal rec ExprTranslator =
         // 2. Temporal methods (DateTime / DateOnly / TimeOnly)
         elif
             m.DeclaringType = typeof<DateTime>
+            || m.DeclaringType = typeof<DateOnly>
+            || m.DeclaringType = typeof<TimeOnly>
             || not (isNull target) && isTemporalType target.Type
         then
             translateTemporalMethod ctx m target args

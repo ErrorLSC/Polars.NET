@@ -248,6 +248,7 @@ public static class PolarsTypeHelper
         return underlying.IsPrimitive
             || underlying.IsEnum
             || underlying == typeof(string)
+            || underlying == typeof(IEnumerable<char>)
             || underlying == typeof(decimal)
             || underlying == typeof(DateTime)
             || underlying == typeof(DateTimeOffset)
