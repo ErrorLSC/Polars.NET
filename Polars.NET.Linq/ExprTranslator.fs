@@ -9,9 +9,6 @@ open System.Reflection
 open System.Linq.Expressions
 open System.Text.RegularExpressions
 open Polars.NET.Core.Helpers
-open Apache.Arrow.Types
-open System.Text.Json
-open System.Text.Json.Nodes
 
 /// Represents the semantic parameter context for LINQ expression tree translation.
 [<RequireQualifiedAccess>]

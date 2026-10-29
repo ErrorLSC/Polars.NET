@@ -4535,6 +4535,82 @@ public partial class LinqTests
     }
 
     [Fact]
+    [Trait("LINQ", "JsonVectorized")]
+    public void Test_Linq_SystemTextJson_Mutation_Add_Update_Delete()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("RowId", [1, 2]),
+            Series.From("UserJson", [
+                """{"user_id": 101, "user_name": "Alice", "Score": 90.0, "IsActive": true, "Tags": ["admin"], "Address": {"city_name": "Tokyo", "State": "Kanto"}, "SecretPassword": "p1"}""",
+                """{"user_id": 102, "user_name": "Bob", "Score": 70.0, "IsActive": false, "Tags": ["user"], "Address": {"city_name": "Osaka", "State": "Kansai"}, "SecretPassword": "p2"}"""
+            ])
+        ]);
+
+        // Transform JSON in place:
+        // - "改" (Update): Score = Score + 5.5
+        // - "增" (Add): Status = "VIP", Processed = true
+        // - "删" (Delete/Sanitize): Exclude SecretPassword entirely
+        var query = df.AsQueryable<RawJsonUserRecord>()
+                      .Select(r => new
+                      {
+                          r.RowId,
+                          TransformedJson = JsonSerializer.Serialize(new
+                          {
+                              UserId = JsonSerializer.Deserialize<JsonUserTestDto>(r.UserJson)!.Id,
+                              UserName = JsonSerializer.Deserialize<JsonUserTestDto>(r.UserJson)!.Name,
+                              Score = JsonSerializer.Deserialize<JsonUserTestDto>(r.UserJson)!.Score + 5.5,
+                              Status = "VIP",
+                              Processed = true
+                          })
+                      });
+
+        AssertPlan(query, NativePushdown);
+        var results = query.ToList();
+
+        Assert.Equal(2, results.Count);
+
+        // Row 1
+        Assert.Equal(1, results[0].RowId);
+        Assert.Contains("\"UserId\":101", results[0].TransformedJson);
+        Assert.Contains("\"UserName\":\"Alice\"", results[0].TransformedJson);
+        Assert.Contains("\"Score\":95.5", results[0].TransformedJson);
+        Assert.Contains("\"Status\":\"VIP\"", results[0].TransformedJson);
+        Assert.Contains("\"Processed\":true", results[0].TransformedJson);
+        Assert.DoesNotContain("SecretPassword", results[0].TransformedJson);
+        Assert.DoesNotContain("p1", results[0].TransformedJson);
+
+        // Row 2
+        Assert.Equal(2, results[1].RowId);
+        Assert.Contains("\"UserId\":102", results[1].TransformedJson);
+        Assert.Contains("\"UserName\":\"Bob\"", results[1].TransformedJson);
+        Assert.Contains("\"Score\":75.5", results[1].TransformedJson);
+        Assert.Contains("\"Status\":\"VIP\"", results[1].TransformedJson);
+        Assert.Contains("\"Processed\":true", results[1].TransformedJson);
+        Assert.DoesNotContain("SecretPassword", results[1].TransformedJson);
+        Assert.DoesNotContain("p2", results[1].TransformedJson);
+
+        // Also test nesting whole deserialized struct + adding metadata
+        var nestedQuery = df.AsQueryable<RawJsonUserRecord>()
+                            .Select(r => new
+                            {
+                                r.RowId,
+                                EnrichedJson = JsonSerializer.Serialize(new
+                                {
+                                    User = JsonSerializer.Deserialize<JsonUserTestDto>(r.UserJson),
+                                    AuditTag = "AUDIT_OK"
+                                })
+                            });
+
+        AssertPlan(nestedQuery, NativePushdown);
+        var nestedResults = nestedQuery.ToList();
+
+        Assert.Equal(2, nestedResults.Count);
+        Assert.Contains("\"AuditTag\":\"AUDIT_OK\"", nestedResults[0].EnrichedJson);
+        Assert.Contains("\"user_id\":101", nestedResults[0].EnrichedJson);
+        Assert.Contains("\"city_name\":\"Tokyo\"", nestedResults[0].EnrichedJson);
+    }
+
+    [Fact]
     [Trait("LINQ", "DateTimeVectorized")]
     public void Test_Linq_DateTime_Vectorized_Ops()
     {
