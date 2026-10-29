@@ -2306,7 +2306,11 @@ module internal QueryPipelineHelpers =
                                 if keyDefs.Length = 1 then fst keyDefs.[0] else "Key"
                         Some [ (name, projBody) ]
                     else
-                        None
+                        let defaultName =
+                            match cleanProj with
+                            | MethodCall(m, _, _) -> m.Name
+                            | _ -> "Value"
+                        Some [ (defaultName, projBody) ]
 
             match memberBindingsOpt with
             | None -> None
