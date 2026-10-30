@@ -917,9 +917,9 @@ public class TpcdsQuery81To90Tests
         var level0 = from r in baseSales
                      select new
                      {
-                         total_sum = r.total_sum,
-                         i_category = r.i_category,
-                         i_class = r.i_class,
+                         r.total_sum,
+                         r.i_category,
+                         r.i_class,
                          t_class = 0,
                          lochierarchy = 0
                      };

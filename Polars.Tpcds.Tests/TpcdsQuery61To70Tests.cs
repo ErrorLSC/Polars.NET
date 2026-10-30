@@ -373,13 +373,13 @@ public class TpcdsQuery61To70Tests
         var dateDimQuery = TpcdsData.DateDimQuery();
         var storeQuery = TpcdsData.StoreQuery();
 
-        var cat1 = new[] { "Books", "Children", "Electronics" };
-        var class1 = new[] { "personal", "portable", "reference", "self-help" };
-        var brand1 = new[] { "scholaramalgamalg #14", "scholaramalgamalg #7", "exportiunivamalg #9", "scholaramalgamalg #9" };
+        string[] cat1 = [ "Books", "Children", "Electronics" ];
+        string[] class1 = ["personal", "portable", "reference", "self-help"];
+        string[] brand1 = ["scholaramalgamalg #14", "scholaramalgamalg #7", "exportiunivamalg #9", "scholaramalgamalg #9"];
 
-        var cat2 = new[] { "Women", "Music", "Men" };
-        var class2 = new[] { "accessories", "classical", "fragrances", "pants" };
-        var brand2 = new[] { "amalgimporto #1", "edu packscholar #1", "exportiimporto #1", "importoamalg #1" };
+        string[] cat2 = ["Women", "Music", "Men"];
+        string[] class2 = ["accessories", "classical", "fragrances", "pants"];
+        string[] brand2 = ["amalgimporto #1", "edu packscholar #1", "exportiimporto #1", "importoamalg #1"];
 
         var q63 = (from ss in storeSalesQuery
                    join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
@@ -561,7 +561,7 @@ public class TpcdsQuery61To70Tests
         var incomeBandQuery = TpcdsData.IncomeBandQuery();
         var itemQuery = TpcdsData.ItemQuery();
 
-        var colors = new[] { "purple", "burlywood", "indian", "spring", "floral", "medium" };
+        IReadOnlyList<string> colors = [ "purple", "burlywood", "indian", "spring", "floral", "medium" ];
 
         var csUiBase = from cs in catalogSalesQuery
                        join cr in catalogReturnsQuery on new { item_sk = cs.cs_item_sk, order_number = cs.cs_order_number }
@@ -995,7 +995,7 @@ public class TpcdsQuery61To70Tests
         var timeDimQuery = TpcdsData.TimeDimQuery();
         var shipModeQuery = TpcdsData.ShipModeQuery();
 
-        var carriers = new[] { "DHL", "BARIAN" };
+        string[] carriers = [ "DHL", "BARIAN" ];
 
         var webPart = from ws in webSalesQuery
                       join w in warehouseQuery on ws.ws_warehouse_sk equals w.w_warehouse_sk
@@ -1827,7 +1827,7 @@ public class TpcdsQuery61To70Tests
         var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
         var dateDimQuery = TpcdsData.DateDimQuery();
 
-        var states = new[] { "KY", "GA", "NM" };
+        string[] states = [ "KY", "GA", "NM" ];
         var targetDates = dateDimQuery.Where(d => d.d_year == 2001 && d.d_moy >= 4 && d.d_moy <= 6);
 
         var storeSalesInPeriod = from ss in storeSalesQuery

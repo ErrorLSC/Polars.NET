@@ -64,6 +64,35 @@ Polars.NET includes a full expression-tree compiler (`Polars.NET.Linq`) that tra
 4. **GroupBy, Having, Window Functions & Correlated Subqueries**:
    - `GroupBy` followed by `.Where(g => g.Sum(...) > X)` (compiled to native Polars `Having`), `.Select(...)` with `Count`, `LongCount`, `Sum`, `Average`, `Min`, `Max`, `First`, `Last`, `MinBy`, `MaxBy`, `.ToList()` / `.ToArray()` (compiled to native Polars `Implode` list aggregation!).
    - Correlated subqueries inside `Select` or `Where` (e.g. `orders.Where(o => o.CustomerId == c.Id).Sum(o => o.Amount)`) are automatically decorrelated into native Polars joins!
+5. **Zero-Compromise Pushdown Patterns**:
+   - **Left Outer Join & Anti-Join (`where r == null`)**:
+     In Left Joins (`group ... join ... into g from r in g.DefaultIfEmpty()`), write natural entity null checks:
+     ```csharp
+     // Idiomatic anti-join (fully supported natively, 0 warnings):
+     var antiJoin = from s in sales
+                    join r in returns on s.OrderId equals r.OrderId into rGroup
+                    from r in rGroup.DefaultIfEmpty()
+                    where r == null
+                    select s;
+     ```
+     The engine automatically resolves `r == null` to physical column `is_null()` checks. Never cast non-nullable properties to nullable (e.g. `(long?)r.OrderId == null`), which triggers Roslyn CS0472 warnings.
+   - **Post-GroupBy Window Calculations (`let` Over Aggregates)**:
+     Chain window functions directly over grouping aggregates in a single comprehension:
+     ```csharp
+     var query = from s in sales
+                 group s by new { s.Category, s.Year, s.Month } into g
+                 let sum_sales = g.Sum(x => x.Price)
+                 let avg_monthly = sum_sales.Average().Over(new { g.Key.Category, g.Key.Year })
+                 let prev_month = sum_sales.Shift(1).Over(g.Key.Category)
+                 select new { g.Key.Category, sum_sales, avg_monthly, prev_month };
+     ```
+   - **Inline Subquery Comparisons**:
+     Write inline scalar subqueries directly without manual in-memory pre-computation:
+     ```csharp
+     var query = from s in sales
+                 where s.Amount > 0.9 * benchmarkSales.Average(x => (double?)x.Amount)
+                 select s;
+     ```
 
 ---
 

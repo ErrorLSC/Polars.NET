@@ -278,7 +278,7 @@ public class TpcdsQuery51To60Tests
                        g.Key.d_year,
                        brand_id = g.Key.i_brand_id,
                        brand = g.Key.i_brand,
-                       ext_price = ext_price
+                       ext_price
                    })
                   .Take(100);
 
@@ -371,13 +371,13 @@ public class TpcdsQuery51To60Tests
         var dateDimQuery = TpcdsData.DateDimQuery();
         var storeQuery = TpcdsData.StoreQuery();
 
-        var cat1 = new[] { "Books", "Children", "Electronics" };
-        var class1 = new[] { "personal", "portable", "reference", "self-help" };
-        var brand1 = new[] { "scholaramalgamalg #14", "scholaramalgamalg #7", "exportiunivamalg #9", "scholaramalgamalg #9" };
+        string[] cat1 = ["Books", "Children", "Electronics"];
+        string[] class1 = ["personal", "portable", "reference", "self-help"];
+        string[] brand1 = ["scholaramalgamalg #14", "scholaramalgamalg #7", "exportiunivamalg #9", "scholaramalgamalg #9"];
 
-        var cat2 = new[] { "Women", "Music", "Men" };
-        var class2 = new[] { "accessories", "classical", "fragrances", "pants" };
-        var brand2 = new[] { "amalgimporto #1", "edu packscholar #1", "exportiimporto #1", "importoamalg #1" };
+        string[] cat2 = ["Women", "Music", "Men"];
+        string[] class2 = ["accessories", "classical", "fragrances", "pants"];
+        string[] brand2 = ["amalgimporto #1", "edu packscholar #1", "exportiimporto #1", "importoamalg #1"];
 
         var q53 = (from ss in storeSalesQuery
                    join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
@@ -736,7 +736,7 @@ public class TpcdsQuery51To60Tests
                    {
                        brand_id = g.Key.i_brand_id,
                        brand = g.Key.i_brand,
-                       ext_price = ext_price
+                       ext_price
                    })
                   .Take(100);
 
@@ -870,7 +870,7 @@ public class TpcdsQuery51To60Tests
         var customerAddressQuery = TpcdsData.CustomerAddressQuery();
         var itemQuery = TpcdsData.ItemQuery();
 
-        var colors = new[] { "slate", "blanched", "burnished" };
+        string[] colors = ["slate", "blanched", "burnished"];
         var colorItemIds = itemQuery
             .Where(i => colors.Contains(i.i_color))
             .Select(i => new { i.i_item_id })
@@ -923,7 +923,7 @@ public class TpcdsQuery51To60Tests
                    select new
                    {
                        i_item_id = g.Key,
-                       total_sales = total_sales
+                       total_sales
                    })
                   .Take(100);
 
@@ -1909,7 +1909,7 @@ public class TpcdsQuery51To60Tests
                    select new
                    {
                        i_item_id = g.Key,
-                       total_sales = total_sales
+                       total_sales
                    })
                   .Take(100);
 

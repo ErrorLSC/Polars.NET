@@ -1447,8 +1447,8 @@ public class TpcdsQuery71To80Tests
                           {
                               channel = "catalog channel",
                               id = s.cs_call_center_sk,
-                              sales = s.sales,
-                              returns_ = r.returns_,
+                              s.sales,
+                              r.returns_,
                               profit = s.profit - r.profit_loss
                           };
 
@@ -1481,7 +1481,7 @@ public class TpcdsQuery71To80Tests
                       {
                           channel = "web channel",
                           id = s.wp_web_page_sk,
-                          sales = s.sales,
+                          s.sales,
                           returns_ = (decimal?)(r.returns_ ?? 0.00m),
                           profit = s.profit - (r.profit_loss ?? 0.00m)
                       };
@@ -1766,7 +1766,7 @@ public class TpcdsQuery71To80Tests
                  {
                      ss_sold_year = g.Key.d_year,
                      ss_item_sk = (long?)g.Key.ss_item_sk,
-                     ss_customer_sk = g.Key.ss_customer_sk,
+                     g.Key.ss_customer_sk,
                      ss_qty = g.Sum(x => x.ss_quantity),
                      ss_wc = g.Sum(x => x.ss_wholesale_cost),
                      ss_sp = g.Sum(x => x.ss_sales_price)

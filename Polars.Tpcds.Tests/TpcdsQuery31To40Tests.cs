@@ -133,10 +133,10 @@ public class TpcdsQuery31To40Tests
                   join w1 in ws1 on s1.ca_county equals w1.ca_county
                   join w2 in ws2 on s1.ca_county equals w2.ca_county
                   join w3 in ws3 on s1.ca_county equals w3.ca_county
-                  where (w1.web_sales > 0m && s1.store_sales > 0m &&
-                         (double)w2.web_sales! / (double)w1.web_sales! > (double)s2.store_sales! / (double)s1.store_sales!)
-                     && (w2.web_sales > 0m && s2.store_sales > 0m &&
-                         (double)w3.web_sales! / (double)w2.web_sales! > (double)s3.store_sales! / (double)s2.store_sales!)
+                  where w1.web_sales > 0m && s1.store_sales > 0m &&
+                         (double)w2.web_sales! / (double)w1.web_sales! > (double)s2.store_sales! / (double)s1.store_sales!
+                     && w2.web_sales > 0m && s2.store_sales > 0m &&
+                         (double)w3.web_sales! / (double)w2.web_sales! > (double)s3.store_sales! / (double)s2.store_sales!
                   orderby s1.ca_county
                   select new
                   {
@@ -647,7 +647,7 @@ public class TpcdsQuery31To40Tests
         var customerQuery = TpcdsData.CustomerQuery();
 
         var filteredDates = dateDimQuery.Where(d => ((d.d_dom >= 1 && d.d_dom <= 3) || (d.d_dom >= 25 && d.d_dom <= 28))
-                                                 && (d.d_year >= 1999 && d.d_year <= 2001));
+                                                 && d.d_year >= 1999 && d.d_year <= 2001);
 
         var filteredStores = storeQuery.Where(s => s.s_county == "Williamson County");
 
@@ -1111,9 +1111,9 @@ public class TpcdsQuery31To40Tests
         var level0 = from r in results
                      select new
                      {
-                         gross_margin = r.gross_margin,
-                         i_category = r.i_category,
-                         i_class = r.i_class,
+                         r.gross_margin,
+                         r.i_category,
+                         r.i_class,
                          t_category = 0,
                          t_class = 0,
                          lochierarchy = 0
@@ -1574,8 +1574,8 @@ public class TpcdsQuery31To40Tests
         var inv2 = invCte.Where(x => x.d_moy == 2);
 
         var q39 = from i1 in inv1
-                  join i2 in inv2 on new { i_item_sk = i1.i_item_sk, w_warehouse_sk = i1.w_warehouse_sk }
-                              equals new { i_item_sk = i2.i_item_sk, w_warehouse_sk = i2.w_warehouse_sk }
+                  join i2 in inv2 on new { i1.i_item_sk, i1.w_warehouse_sk }
+                              equals new { i2.i_item_sk, i2.w_warehouse_sk }
                   orderby i1.w_warehouse_sk,
                           i1.i_item_sk,
                           i1.d_moy,

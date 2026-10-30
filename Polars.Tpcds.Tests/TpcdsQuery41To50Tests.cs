@@ -1256,9 +1256,9 @@ public class TpcdsQuery41To50Tests
         var caQuery = TpcdsData.CustomerAddressQuery();
         var dateDimQuery = TpcdsData.DateDimQuery();
 
-        var stateList1 = new[] { "CO", "OH", "TX" };
-        var stateList2 = new[] { "OR", "MN", "KY" };
-        var stateList3 = new[] { "VA", "CA", "MS" };
+        string[] stateList1 = ["CO", "OH", "TX"];
+        string[] stateList2 = ["OR", "MN", "KY"];
+        string[] stateList3 = ["VA", "CA", "MS"];
 
         var q48 = from ss in storeSalesQuery
                   join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
