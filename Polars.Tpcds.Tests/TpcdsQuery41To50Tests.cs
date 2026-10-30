@@ -81,6 +81,7 @@ public class TpcdsQuery41To50Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q41")]
     public void Test_Q41()
     {
         var itemQuery = TpcdsData.ItemQuery();
@@ -214,6 +215,7 @@ public class TpcdsQuery41To50Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q42")]
     public void Test_Q42()
     {
         var dateDimQuery = TpcdsData.DateDimQuery();
@@ -336,6 +338,7 @@ public class TpcdsQuery41To50Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q43")]
     public void Test_Q43()
     {
         var dateDimQuery = TpcdsData.DateDimQuery();
@@ -509,6 +512,7 @@ public class TpcdsQuery41To50Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q44")]
     public void Test_Q44()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -675,6 +679,7 @@ public class TpcdsQuery41To50Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q45")]
     public void Test_Q45()
     {
         var webSalesQuery = TpcdsData.WebSalesQuery();
@@ -683,8 +688,8 @@ public class TpcdsQuery41To50Tests
         var dateDimQuery = TpcdsData.DateDimQuery();
         var itemQuery = TpcdsData.ItemQuery();
 
-        var zipList = new[] { "85669", "86197", "88274", "83405", "86475", "85392", "85460", "80348", "81792" };
-        var itemSkList = new long[] { 2, 3, 5, 7, 11, 13, 17, 19, 23, 29 };
+        string[] zipList = ["85669", "86197", "88274", "83405", "86475", "85392", "85460", "80348", "81792"];
+        long[] itemSkList = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29];
 
         var targetItemIds = itemQuery
             .Where(i => itemSkList.Contains(i.i_item_sk))
@@ -825,6 +830,7 @@ public class TpcdsQuery41To50Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q46")]
     public void Test_Q46()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -1030,6 +1036,7 @@ public class TpcdsQuery41To50Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q47")]
     public void Test_Q47()
     {
         var itemQuery = TpcdsData.ItemQuery();
@@ -1240,6 +1247,7 @@ public class TpcdsQuery41To50Tests
      *            AND ss_net_profit BETWEEN 50 AND 25000)) ;
      */
     [Fact]
+    [Trait("TPCDS","Q48")]
     public void Test_Q48()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -1424,6 +1432,7 @@ public class TpcdsQuery41To50Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q49")]
     public void Test_Q49()
     {
         var webSalesQuery = TpcdsData.WebSalesQuery();
@@ -1704,6 +1713,7 @@ public class TpcdsQuery41To50Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q50")]
     public void Test_Q50()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();

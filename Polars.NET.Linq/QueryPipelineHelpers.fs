@@ -2275,7 +2275,22 @@ module internal QueryPipelineHelpers =
                         |> List.fold (fun m (propName, colName) ->
                             m |> Map.add ("", propName) colName |> Map.add (elParam.Name, propName) colName) updatedFromEntities
                     Some combined
-                | None -> None)
+                | None ->
+                    let subScopeOpt =
+                        match ExprTranslator.unwrap el.Body with
+                        | :? ParameterExpression as p -> Some p.Name
+                        | MemberAccess(_, m) -> Some m.Name
+                        | _ -> None
+                    match subScopeOpt with
+                    | Some s ->
+                        let updated =
+                            scopeMap
+                            |> Map.fold (fun acc (kScope, kCol) physCol ->
+                                if kScope = s then
+                                    acc |> Map.add (elParam.Name, kCol) physCol |> Map.add ("", kCol) physCol
+                                else acc) scopeMap
+                        Some updated
+                    | None -> None)
 
         let effectiveScopeMap = elemScoreMapOpt |> Option.defaultValue scopeMap
 

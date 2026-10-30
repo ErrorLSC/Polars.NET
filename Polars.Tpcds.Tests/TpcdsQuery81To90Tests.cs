@@ -73,6 +73,7 @@ public class TpcdsQuery81To90Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q81")]
     public void Test_Q81()
     {
         var catalogReturnsQuery = TpcdsData.CatalogReturnsQuery();
@@ -266,6 +267,7 @@ public class TpcdsQuery81To90Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q82")]
     public void Test_Q82()
     {
         var itemQuery = TpcdsData.ItemQuery();
@@ -416,6 +418,7 @@ public class TpcdsQuery81To90Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q83")]
     public void Test_Q83()
     {
         var storeReturnsQuery = TpcdsData.StoreReturnsQuery();
@@ -606,6 +609,7 @@ public class TpcdsQuery81To90Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q84")]
     public void Test_Q84()
     {
         var customerQuery = TpcdsData.CustomerQuery();
@@ -733,6 +737,7 @@ public class TpcdsQuery81To90Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q85")]
     public void Test_Q85()
     {
         var webSalesQuery = TpcdsData.WebSalesQuery();
@@ -889,6 +894,7 @@ public class TpcdsQuery81To90Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q86")]
     public void Test_Q86()
     {
         var webSalesQuery = TpcdsData.WebSalesQuery();
@@ -1041,6 +1047,7 @@ public class TpcdsQuery81To90Tests
      *            AND d_month_seq BETWEEN 1200 AND 1200+11)) cool_cust ;
      */
     [Fact]
+    [Trait("TPCDS","Q87")]
     public void Test_Q87()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -1120,6 +1127,7 @@ public class TpcdsQuery81To90Tests
      *   (SELECT count(*) h12_to_12_30 ... ) s8 ;
      */
     [Fact]
+    [Trait("TPCDS","Q88")]
     public void Test_Q88()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -1351,6 +1359,7 @@ public class TpcdsQuery81To90Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q89")]
     public void Test_Q89()
     {
         var itemQuery = TpcdsData.ItemQuery();
@@ -1503,6 +1512,7 @@ public class TpcdsQuery81To90Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q90")]
     public void Test_Q90()
     {
         var webSalesQuery = TpcdsData.WebSalesQuery();

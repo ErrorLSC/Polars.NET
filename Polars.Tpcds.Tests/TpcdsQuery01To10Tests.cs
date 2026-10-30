@@ -2068,19 +2068,19 @@ public class TpcdsQuery01To10Tests
                            g.Key.cd_dep_college_count
                    select new
                    {
-                       cd_gender = g.Key.cd_gender,
-                       cd_marital_status = g.Key.cd_marital_status,
-                       cd_education_status = g.Key.cd_education_status,
+                       g.Key.cd_gender,
+                       g.Key.cd_marital_status,
+                       g.Key.cd_education_status,
                        cnt1 = g.LongCount(),
-                       cd_purchase_estimate = g.Key.cd_purchase_estimate,
+                       g.Key.cd_purchase_estimate,
                        cnt2 = g.LongCount(),
-                       cd_credit_rating = g.Key.cd_credit_rating,
+                       g.Key.cd_credit_rating,
                        cnt3 = g.LongCount(),
-                       cd_dep_count = g.Key.cd_dep_count,
+                       g.Key.cd_dep_count,
                        cnt4 = g.LongCount(),
-                       cd_dep_employed_count = g.Key.cd_dep_employed_count,
+                       g.Key.cd_dep_employed_count,
                        cnt5 = g.LongCount(),
-                       cd_dep_college_count = g.Key.cd_dep_college_count,
+                       g.Key.cd_dep_college_count,
                        cnt6 = g.LongCount(),
                    }).Take(100);
 

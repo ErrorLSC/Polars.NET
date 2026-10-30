@@ -19,6 +19,7 @@ public class TpcdsQuery91To99Tests
     }
 
     [Fact]
+    [Trait("TPCDS","Q91")]
     public void Test_Q91()
     {
         var callCenterQuery = TpcdsData.CallCenterQuery();
@@ -114,6 +115,7 @@ ORDER BY sum(cr_net_loss) DESC, cc_call_center_id NULLS FIRST;
     }
 
     [Fact]
+    [Trait("TPCDS","Q92")]
     public void Test_Q92()
     {
         var webSalesQuery = TpcdsData.WebSalesQuery();
@@ -191,6 +193,7 @@ limit 100;
     }
 
     [Fact]
+    [Trait("TPCDS","Q93")]
     public void Test_Q93()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -255,6 +258,7 @@ LIMIT 100;
     }
 
     [Fact]
+    [Trait("TPCDS","Q94")]
     public void Test_Q94()
     {
         var webSalesQuery = TpcdsData.WebSalesQuery();
@@ -347,6 +351,7 @@ limit 100;
     }
 
     [Fact]
+    [Trait("TPCDS","Q95")]
     public void Test_Q95()
     {
         var webSalesQuery = TpcdsData.WebSalesQuery();
@@ -434,6 +439,7 @@ limit 100;
     }
 
     [Fact]
+    [Trait("TPCDS","Q96")]
     public void Test_Q96()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -478,6 +484,7 @@ limit 100;
     }
 
     [Fact]
+    [Trait("TPCDS","Q97")]
     public void Test_Q97()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -580,6 +587,7 @@ limit 100;
     }
 
     [Fact]
+    [Trait("TPCDS","Q98")]
     public void Test_Q98()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -681,6 +689,7 @@ ORDER BY
     }
 
     [Fact]
+    [Trait("TPCDS","Q99")]
     public void Test_Q99()
     {
         var catalogSalesQuery = TpcdsData.CatalogSalesQuery();

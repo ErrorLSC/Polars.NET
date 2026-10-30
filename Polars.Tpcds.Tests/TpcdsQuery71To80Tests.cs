@@ -63,6 +63,7 @@ public class TpcdsQuery71To80Tests
      *          t_hour NULLS FIRST;
      */
     [Fact]
+    [Trait("TPCDS","Q71")]
     public void Test_Q71()
     {
         var itemQuery = TpcdsData.ItemQuery();
@@ -239,6 +240,7 @@ public class TpcdsQuery71To80Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q72")]
     public void Test_Q72()
     {
         var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
@@ -280,7 +282,6 @@ public class TpcdsQuery71To80Tests
                       && cd.cd_marital_status == "D"
                       && inv.inv_quantity_on_hand < cs.cs_quantity
                       && d3.d_date > d1.d_date!.Value.AddDays(5)
-#pragma warning disable CS0472
                    group p by new { i.i_item_desc, inv.w_warehouse_name, d1.d_week_seq } into g
                    orderby g.LongCount() descending, g.Key.i_item_desc, g.Key.w_warehouse_name, g.Key.d_week_seq
                    select new
@@ -288,11 +289,10 @@ public class TpcdsQuery71To80Tests
                        g.Key.i_item_desc,
                        g.Key.w_warehouse_name,
                        g.Key.d_week_seq,
-                       no_promo = g.Sum(x => (long?)x.p_promo_sk == null ? 1L : 0L),
-                       promo = g.Sum(x => (long?)x.p_promo_sk != null ? 1L : 0L),
+                       no_promo = g.Sum(x => x == null ? 1L : 0L),
+                       promo = g.Sum(x => x != null ? 1L : 0L),
                        total_cnt = g.LongCount()
                    }).Take(100);
-#pragma warning restore CS0472
 
         AssertPlan(q72, NativePushdown);
 
@@ -405,6 +405,7 @@ public class TpcdsQuery71To80Tests
      *          c_last_name ASC;
      */
     [Fact]
+    [Trait("TPCDS","Q73")]
     public void Test_Q73()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -586,6 +587,7 @@ public class TpcdsQuery71To80Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q74")]
     public void Test_Q74()
     {
         var customerQuery = TpcdsData.CustomerQuery();
@@ -814,6 +816,7 @@ public class TpcdsQuery71To80Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q75")]
     public void Test_Q75()
     {
         var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
@@ -1105,6 +1108,7 @@ public class TpcdsQuery71To80Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q76")]
     public void Test_Q76()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -1364,6 +1368,7 @@ public class TpcdsQuery71To80Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q77")]
     public void Test_Q77()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -1703,6 +1708,7 @@ public class TpcdsQuery71To80Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q78")]
     public void Test_Q78()
     {
         var webSalesQuery = TpcdsData.WebSalesQuery();
@@ -1715,13 +1721,12 @@ public class TpcdsQuery71To80Tests
 
         var dates2000 = dateDimQuery.Where(d => d.d_year == 2000);
 
-#pragma warning disable CS0472
         var ws = from w in webSalesQuery
                  join r in webReturnsQuery on new { order_number = (long?)w.ws_order_number, item_sk = (long?)w.ws_item_sk }
                                        equals new { order_number = (long?)r.wr_order_number, item_sk = (long?)r.wr_item_sk } into rGroup
                  from r in rGroup.DefaultIfEmpty()
                  join d in dates2000 on w.ws_sold_date_sk equals d.d_date_sk
-                 where (long?)r.wr_order_number == null
+                 where r == null
                  group w by new { d.d_year, w.ws_item_sk, w.ws_bill_customer_sk } into g
                  select new
                  {
@@ -1738,7 +1743,7 @@ public class TpcdsQuery71To80Tests
                                            equals new { order_number = (long?)r.cr_order_number, item_sk = (long?)r.cr_item_sk } into rGroup
                  from r in rGroup.DefaultIfEmpty()
                  join d in dates2000 on c.cs_sold_date_sk equals d.d_date_sk
-                 where (long?)r.cr_order_number == null
+                 where r == null
                  group c by new { d.d_year, c.cs_item_sk, c.cs_bill_customer_sk } into g
                  select new
                  {
@@ -1755,7 +1760,7 @@ public class TpcdsQuery71To80Tests
                                          equals new { ticket_number = (long?)r.sr_ticket_number, item_sk = (long?)r.sr_item_sk } into rGroup
                  from r in rGroup.DefaultIfEmpty()
                  join d in dates2000 on s.ss_sold_date_sk equals d.d_date_sk
-                 where (long?)r.sr_ticket_number == null
+                 where r == null
                  group s by new { d.d_year, s.ss_item_sk, s.ss_customer_sk } into g
                  select new
                  {
@@ -1766,7 +1771,6 @@ public class TpcdsQuery71To80Tests
                      ss_wc = g.Sum(x => x.ss_wholesale_cost),
                      ss_sp = g.Sum(x => x.ss_sales_price)
                  };
-#pragma warning restore CS0472
 
         var joined = from s in ss
                      join w in ws on new { year = s.ss_sold_year, item = s.ss_item_sk, cust = s.ss_customer_sk }
@@ -1959,6 +1963,7 @@ public class TpcdsQuery71To80Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q79")]
     public void Test_Q79()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -2166,6 +2171,7 @@ public class TpcdsQuery71To80Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q80")]
     public void Test_Q80()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();

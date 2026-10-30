@@ -2535,20 +2535,69 @@ module internal rec ExprTranslator =
         | ExpressionType.UnaryPlus -> Some operand
         | _ -> None
 
+    let internal tryResolveEntityNullTarget (ctx: TranslationContext) (expr: Expression) : ExprHandle option =
+        let cleanE = unwrap expr
+        let scopeOpt = tryExtractScopeName cleanE
+        match scopeOpt with
+        | Some scope ->
+            let findColInScopeMap (scopeMap: Map<string * string, string>) =
+                let nonNullablePropCol =
+                    if not (isNull cleanE.Type) && not (PolarsTypeHelper.IsScalarType cleanE.Type || cleanE.Type = typeof<string>) then
+                        cleanE.Type.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                        |> Array.tryPick (fun prop ->
+                            if prop.PropertyType.IsValueType && isNull (Nullable.GetUnderlyingType prop.PropertyType) then
+                                scopeMap.TryFind(scope, prop.Name)
+                                |> Option.orElseWith (fun () -> scopeMap.TryFind("", prop.Name))
+                                |> Option.orElseWith (fun () ->
+                                    scopeMap
+                                    |> Map.tryPick (fun (_, c) pCol -> if c = prop.Name then Some pCol else None))
+                            else
+                                None)
+                    else
+                        None
+                match nonNullablePropCol with
+                | Some col -> Some(PolarsWrapper.Col col)
+                | None ->
+                    scopeMap
+                    |> Map.toList
+                    |> List.tryPick (fun ((s, _), physicalCol) ->
+                        if s = scope then Some(PolarsWrapper.Col physicalCol) else None)
+
+            match ctx with
+            | TranslationContext.ScopedEntity(_, scopeMap, _)
+            | TranslationContext.CorrelatedJoin(_, _, _, _, scopeMap) ->
+                findColInScopeMap scopeMap
+            | TranslationContext.BinaryJoin(leftParam, rightParam, leftCols, rightSuffix) ->
+                if scope = leftParam then
+                    leftCols |> Seq.tryHead |> Option.map PolarsWrapper.Col
+                elif scope = rightParam then
+                    leftCols |> Seq.tryHead |> Option.map (fun c -> PolarsWrapper.Col(c + rightSuffix))
+                else None
+            | TranslationContext.Merge(target, source, suffix) ->
+                if scope = target then Some(PolarsWrapper.Col "")
+                elif scope = source then Some(PolarsWrapper.Col suffix)
+                else None
+            | _ -> None
+        | None -> None
+
     let private translateBinaryExpr
         (ctx: TranslationContext)
         (op: ExpressionType)
         (left: Expression)
         (right: Expression)
         : ExprHandle option =
+        let translateNullCheckTarget targetExpr =
+            tryTranslateWithContext ctx targetExpr
+            |> Option.orElseWith (fun () -> tryResolveEntityNullTarget ctx targetExpr)
+
         if op = ExpressionType.NotEqual && isNullConstantExpr right then
-            tryTranslateWithContext ctx left |> Option.map PolarsWrapper.IsNotNull
+            translateNullCheckTarget left |> Option.map PolarsWrapper.IsNotNull
         elif op = ExpressionType.NotEqual && isNullConstantExpr left then
-            tryTranslateWithContext ctx right |> Option.map PolarsWrapper.IsNotNull
+            translateNullCheckTarget right |> Option.map PolarsWrapper.IsNotNull
         elif op = ExpressionType.Equal && isNullConstantExpr right then
-            tryTranslateWithContext ctx left |> Option.map PolarsWrapper.IsNull
+            translateNullCheckTarget left |> Option.map PolarsWrapper.IsNull
         elif op = ExpressionType.Equal && isNullConstantExpr left then
-            tryTranslateWithContext ctx right |> Option.map PolarsWrapper.IsNull
+            translateNullCheckTarget right |> Option.map PolarsWrapper.IsNull
         elif op = ExpressionType.LeftShift then
             match tryTranslateWithContext ctx left, tryEvaluate right with
             | Some leftH, Some nVal ->

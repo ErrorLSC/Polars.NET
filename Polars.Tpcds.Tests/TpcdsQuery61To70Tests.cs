@@ -61,6 +61,7 @@ public class TpcdsQuery61To70Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q61")]
     public void Test_Q61()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -218,6 +219,7 @@ public class TpcdsQuery61To70Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q62")]
     public void Test_Q62()
     {
         var webSalesQuery = TpcdsData.WebSalesQuery();
@@ -363,6 +365,7 @@ public class TpcdsQuery61To70Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q63")]
     public void Test_Q63()
     {
         var itemQuery = TpcdsData.ItemQuery();
@@ -541,6 +544,7 @@ public class TpcdsQuery61To70Tests
      *          cs2.s1;
      */
     [Fact]
+    [Trait("TPCDS","Q64")]
     public void Test_Q64()
     {
         var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
@@ -853,6 +857,7 @@ public class TpcdsQuery61To70Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q65")]
     public void Test_Q65()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -980,6 +985,7 @@ public class TpcdsQuery61To70Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q66")]
     public void Test_Q66()
     {
         var webSalesQuery = TpcdsData.WebSalesQuery();
@@ -1409,6 +1415,7 @@ public class TpcdsQuery61To70Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q67")]
     public void Test_Q67()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -1616,6 +1623,7 @@ public class TpcdsQuery61To70Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q68")]
     public void Test_Q68()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
@@ -1808,6 +1816,7 @@ public class TpcdsQuery61To70Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q69")]
     public void Test_Q69()
     {
         var customerQuery = TpcdsData.CustomerQuery();
@@ -1995,6 +2004,7 @@ public class TpcdsQuery61To70Tests
      * LIMIT 100;
      */
     [Fact]
+    [Trait("TPCDS","Q70")]
     public void Test_Q70()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
