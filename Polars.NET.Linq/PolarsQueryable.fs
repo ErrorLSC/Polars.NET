@@ -757,17 +757,59 @@ and PolarsQuery<'T>
                             )
                         currentLf, [], [], None, true
 
-                | LinqStage.GroupJoin(_, inner, outerKey, innerKey, _) :: LinqStage.Explode(collSelector, _) :: tail when
+                | LinqStage.GroupJoin(_, inner, outerKey, innerKey, _) :: LinqStage.Explode(collSelector, resSelOpt) :: tail when
                     collSelector.ToString().Contains "DefaultIfEmpty"
                     ->
                     let activeBaseLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
-                    match compileGroupJoinLeftOuter activeBaseLf inner outerKey innerKey scopeMap with
-                    | Some joinOp ->
-                        if tail.IsEmpty then
-                            fuse activeBaseLf tail [ joinOp ] clientPreds clientProjOpt scopeMap
-                        else
-                            let joinedLf = applyNativeOps activeBaseLf [ joinOp ]
-                            fuse joinedLf tail [] clientPreds clientProjOpt scopeMap
+                    match compileGroupJoinLeftOuterSpec activeBaseLf inner outerKey innerKey scopeMap with
+                    | Some spec ->
+                        let joinOp = QueryOp.Join spec
+                        let leftCols = getLazySchemaFields activeBaseLf |> Array.map fst
+                        let rightCols = getLazySchemaFields spec.RightLf |> Array.map fst
+                        let suffix = spec.Suffix |> Option.defaultValue "_right"
+                        let leftScope = outerKey.Parameters.[0].Name
+                        let rightScope =
+                            match resSelOpt with
+                            | Some resSel when resSel.Parameters.Count >= 2 -> resSel.Parameters.[1].Name
+                            | _ -> innerKey.Parameters.[0].Name
+
+                        let leftColSet = Set.ofArray leftCols
+                        let initialLeftMap =
+                            if scopeMap.IsEmpty then
+                                leftCols |> Array.fold (fun m col -> Map.add (leftScope, col) col m) scopeMap
+                            else
+                                scopeMap
+
+                        let updatedScopeMap =
+                            rightCols
+                            |> Array.fold (fun m col ->
+                                let physicalCol = if leftColSet.Contains col then col + suffix else col
+                                Map.add (rightScope, col) physicalCol m) initialLeftMap
+
+                        match resSelOpt with
+                        | None ->
+                            if tail.IsEmpty then
+                                fuse activeBaseLf tail [ joinOp ] clientPreds clientProjOpt updatedScopeMap
+                            else
+                                let joinedLf = applyNativeOps activeBaseLf [ joinOp ]
+                                fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
+                        | Some resSel when isTransparentJoinResSelector resSel ->
+                            if tail.IsEmpty then
+                                fuse activeBaseLf tail [ joinOp ] clientPreds clientProjOpt updatedScopeMap
+                            else
+                                let joinedLf = applyNativeOps activeBaseLf [ joinOp ]
+                                fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
+                        | Some resSel ->
+                            match compileJoinResultSelector leftCols rightCols spec resSel updatedScopeMap with
+                            | Some selectOp ->
+                                if tail.IsEmpty then
+                                    fuse activeBaseLf tail [ selectOp; joinOp ] clientPreds clientProjOpt Map.empty
+                                else
+                                    let joinedLf = applyNativeOps activeBaseLf [ joinOp; selectOp ]
+                                    fuse joinedLf tail [] clientPreds clientProjOpt Map.empty
+                            | None ->
+                                let joinedLf = applyNativeOps activeBaseLf [ joinOp ]
+                                fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
                     | None -> currentLf, [], [], None, true
 
                 | LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, None) :: LinqStage.Project projLambda :: tail ->

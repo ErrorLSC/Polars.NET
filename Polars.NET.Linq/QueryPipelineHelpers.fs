@@ -1738,14 +1738,14 @@ module internal QueryPipelineHelpers =
             bindings |> List.forall (fun (_, expr) -> isTransparentArg expr)
         | _ -> false
 
-    /// Compiles GroupJoin followed by SelectMany(DefaultIfEmpty) into a native Left Join
-    let compileGroupJoinLeftOuter
+    /// Compiles GroupJoin followed by SelectMany(DefaultIfEmpty) into a native Left JoinSpec
+    let compileGroupJoinLeftOuterSpec
         (baseLf: LazyFrameHandle)
         (innerExpr: Expression)
         (outerKey: LambdaExpression)
         (innerKey: LambdaExpression)
         (scopeMap: Map<string * string, string>)
-        : QueryOp option =
+        : JoinSpec option =
         SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr
         |> Option.bind (fun rightLf ->
             let outerParam = outerKey.Parameters.[0]
@@ -1765,19 +1765,27 @@ module internal QueryPipelineHelpers =
                     if not hasConflict then candidate
                     else findUniqueSuffix (cnt + 1)
                 let uniqueSuffix = findUniqueSuffix 1
-                Some(
-                    QueryOp.Join
-                        {
-                            RightLf = rightLf
-                            LeftOn = leftKeys
-                            RightOn = rightKeys
-                            How = PlJoinType.Left
-                            Suffix = Some uniqueSuffix
-                            InvertSides = false
-                            Coalesce = PlJoinCoalesce.KeepColumns
-                        }
-                )
+                Some
+                    {
+                        RightLf = rightLf
+                        LeftOn = leftKeys
+                        RightOn = rightKeys
+                        How = PlJoinType.Left
+                        Suffix = Some uniqueSuffix
+                        InvertSides = false
+                        Coalesce = PlJoinCoalesce.KeepColumns
+                    }
             | _ -> None)
+
+    let compileGroupJoinLeftOuter
+        (baseLf: LazyFrameHandle)
+        (innerExpr: Expression)
+        (outerKey: LambdaExpression)
+        (innerKey: LambdaExpression)
+        (scopeMap: Map<string * string, string>)
+        : QueryOp option =
+        compileGroupJoinLeftOuterSpec baseLf innerExpr outerKey innerKey scopeMap
+        |> Option.map QueryOp.Join
 
     /// Compiles GroupJoin with an explicit result selector (supporting pre-aggregated group counts and null-filling)
     let compileGroupJoinWithResult
