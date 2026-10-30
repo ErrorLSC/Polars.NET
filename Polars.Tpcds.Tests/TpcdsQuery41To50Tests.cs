@@ -514,35 +514,31 @@ public class TpcdsQuery41To50Tests
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
         var itemQuery = TpcdsData.ItemQuery();
 
-        var avgProfitThreshold = 0.9 * (storeSalesQuery
-            .Where(ss => ss.ss_store_sk == 4 && ss.ss_addr_sk == null)
-            .Average(ss => (double?)ss.ss_net_profit) ?? 0.0);
+        var storeBenchmark = storeSalesQuery
+            .Where(ss => ss.ss_store_sk == 4 && ss.ss_addr_sk == null);
 
-        var baseGrouped = from ss in storeSalesQuery
-                          where ss.ss_store_sk == 4
-                          group ss by ss.ss_item_sk into g
-                          let rank_col = g.Average(x => (double?)x.ss_net_profit)
-                          where rank_col > avgProfitThreshold
-                          select new
-                          {
-                              item_sk = g.Key,
-                              rank_col
-                          };
-
-        var ascQuery = from b in baseGrouped
+        var ascQuery = from ss in storeSalesQuery
+                       where ss.ss_store_sk == 4
+                       group ss by ss.ss_item_sk into g
+                       let rank_col = g.Average(x => (double?)x.ss_net_profit)
+                       where rank_col > 0.9 * storeBenchmark.Average(ss => (double?)ss.ss_net_profit)
                        select new
                        {
-                           b.item_sk,
-                           rnk = (long)b.rank_col.Rank(RankMethod.Min, false)
+                           item_sk = g.Key,
+                           rnk = (long)rank_col.Rank(RankMethod.Min, false)
                        } into a
                        where a.rnk < 11
                        select a;
 
-        var descQuery = from b in baseGrouped
+        var descQuery = from ss in storeSalesQuery
+                        where ss.ss_store_sk == 4
+                        group ss by ss.ss_item_sk into g
+                        let rank_col = g.Average(x => (double?)x.ss_net_profit)
+                        where rank_col > 0.9 * storeBenchmark.Average(ss => (double?)ss.ss_net_profit)
                         select new
                         {
-                            b.item_sk,
-                            rnk = (long)b.rank_col.Rank(RankMethod.Min, true)
+                            item_sk = g.Key,
+                            rnk = (long)rank_col.Rank(RankMethod.Min, true)
                         } into d
                         where d.rnk < 11
                         select d;
@@ -692,9 +688,7 @@ public class TpcdsQuery41To50Tests
 
         var targetItemIds = itemQuery
             .Where(i => itemSkList.Contains(i.i_item_sk))
-            .Select(i => i.i_item_id)
-            .Distinct()
-            .ToList();
+            .Select(i => i.i_item_id);
 
         var q45 = (from ws in webSalesQuery
                    join c in customerQuery on ws.ws_bill_customer_sk equals c.c_customer_sk
@@ -1043,45 +1037,34 @@ public class TpcdsQuery41To50Tests
         var dateDimQuery = TpcdsData.DateDimQuery();
         var storeQuery = TpcdsData.StoreQuery();
 
-        var v1Base = from ss in storeSalesQuery
-                     join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
-                     join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
-                     join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
-                     where d.d_year == 1999 || (d.d_year == 1998 && d.d_moy == 12) || (d.d_year == 2000 && d.d_moy == 1)
-                     group ss by new
-                     {
-                         i.i_category,
-                         i.i_brand,
-                         s.s_store_name,
-                         s.s_company_name,
-                         d.d_year,
-                         d.d_moy
-                     } into g
-                     select new
-                     {
-                         g.Key.i_category,
-                         g.Key.i_brand,
-                         g.Key.s_store_name,
-                         g.Key.s_company_name,
-                         g.Key.d_year,
-                         g.Key.d_moy,
-                         sum_sales = g.Sum(x => x.ss_sales_price)
-                     };
-
-        var v1 = from v in v1Base
-                 orderby v.d_year, v.d_moy
+        var v1 = from ss in storeSalesQuery
+                 join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
+                 join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
+                 join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
+                 where d.d_year == 1999 || (d.d_year == 1998 && d.d_moy == 12) || (d.d_year == 2000 && d.d_moy == 1)
+                 group ss by new
+                 {
+                     i.i_category,
+                     i.i_brand,
+                     s.s_store_name,
+                     s.s_company_name,
+                     d.d_year,
+                     d.d_moy
+                 } into g
+                 orderby g.Key.d_year, g.Key.d_moy
+                 let sum_sales = g.Sum(x => x.ss_sales_price)
                  select new
                  {
-                     v.i_category,
-                     v.i_brand,
-                     v.s_store_name,
-                     v.s_company_name,
-                     v.d_year,
-                     v.d_moy,
-                     avg_monthly_sales = v.sum_sales.Average().Over(new { v.i_category, v.i_brand, v.s_store_name, v.s_company_name, v.d_year }),
-                     v.sum_sales,
-                     psum = v.sum_sales.Shift(1).Over(new { v.i_category, v.i_brand, v.s_store_name, v.s_company_name }),
-                     nsum = v.sum_sales.Shift(-1).Over(new { v.i_category, v.i_brand, v.s_store_name, v.s_company_name })
+                     g.Key.i_category,
+                     g.Key.i_brand,
+                     g.Key.s_store_name,
+                     g.Key.s_company_name,
+                     g.Key.d_year,
+                     g.Key.d_moy,
+                     avg_monthly_sales = sum_sales.Average().Over(new { g.Key.i_category, g.Key.i_brand, g.Key.s_store_name, g.Key.s_company_name, g.Key.d_year }),
+                     sum_sales,
+                     psum = sum_sales.Shift(1).Over(new { g.Key.i_category, g.Key.i_brand, g.Key.s_store_name, g.Key.s_company_name }),
+                     nsum = sum_sales.Shift(-1).Over(new { g.Key.i_category, g.Key.i_brand, g.Key.s_store_name, g.Key.s_company_name })
                  };
 
         var q47 = (from x in v1
@@ -1454,79 +1437,61 @@ public class TpcdsQuery41To50Tests
         var datesDec2001 = dateDimQuery.Where(d => d.d_year == 2001 && d.d_moy == 12);
 
         // Web
-        var inWeb = from ws in webSalesQuery
-                    join wr in webReturnsQuery on new { order_number = ws.ws_order_number, item_sk = ws.ws_item_sk }
-                                           equals new { order_number = wr.wr_order_number, item_sk = wr.wr_item_sk }
-                    join d in datesDec2001 on ws.ws_sold_date_sk equals d.d_date_sk
-                    where wr.wr_return_amt > 10000m && ws.ws_net_profit > 1m && ws.ws_net_paid > 0m && ws.ws_quantity > 0
-                    group new { ws, wr } by ws.ws_item_sk into g
-                    select new
-                    {
-                        item = g.Key,
-                        return_ratio = (double)g.Sum(x => x.wr.wr_return_quantity)! / (double)g.Sum(x => x.ws.ws_quantity)!,
-                        currency_ratio = (double)g.Sum(x => x.wr.wr_return_amt)! / (double)g.Sum(x => x.ws.ws_net_paid)!
-                    };
-
-        var webRanked = from w in inWeb
+        var webRanked = from ws in webSalesQuery
+                        join wr in webReturnsQuery on new { order_number = ws.ws_order_number, item_sk = ws.ws_item_sk }
+                                               equals new { order_number = wr.wr_order_number, item_sk = wr.wr_item_sk }
+                        join d in datesDec2001 on ws.ws_sold_date_sk equals d.d_date_sk
+                        where wr.wr_return_amt > 10000m && ws.ws_net_profit > 1m && ws.ws_net_paid > 0m && ws.ws_quantity > 0
+                        group new { ws, wr } by ws.ws_item_sk into g
+                        let return_ratio = (double)g.Sum(x => x.wr.wr_return_quantity)! / (double)g.Sum(x => x.ws.ws_quantity)!
+                        let currency_ratio = (double)g.Sum(x => x.wr.wr_return_amt)! / (double)g.Sum(x => x.ws.ws_net_paid)!
                         select new
                         {
                             channel = "web",
-                            w.item,
-                            w.return_ratio,
-                            return_rank = (long)w.return_ratio.Rank(RankMethod.Min, false),
-                            currency_rank = (long)w.currency_ratio.Rank(RankMethod.Min, false)
+                            item = g.Key,
+                            return_ratio,
+                            return_rank = (long)return_ratio.Rank(RankMethod.Min, false),
+                            currency_rank = (long)currency_ratio.Rank(RankMethod.Min, false)
                         } into res
                         where res.return_rank <= 10 || res.currency_rank <= 10
                         select res;
 
         // Catalog
-        var inCat = from cs in catalogSalesQuery
-                    join cr in catalogReturnsQuery on new { order_number = cs.cs_order_number, item_sk = cs.cs_item_sk }
-                                           equals new { order_number = cr.cr_order_number, item_sk = cr.cr_item_sk }
-                    join d in datesDec2001 on cs.cs_sold_date_sk equals d.d_date_sk
-                    where cr.cr_return_amount > 10000m && cs.cs_net_profit > 1m && cs.cs_net_paid > 0m && cs.cs_quantity > 0
-                    group new { cs, cr } by cs.cs_item_sk into g
-                    select new
-                    {
-                        item = g.Key,
-                        return_ratio = (double)g.Sum(x => x.cr.cr_return_quantity)! / (double)g.Sum(x => x.cs.cs_quantity)!,
-                        currency_ratio = (double)g.Sum(x => x.cr.cr_return_amount)! / (double)g.Sum(x => x.cs.cs_net_paid)!
-                    };
-
-        var catRanked = from c in inCat
+        var catRanked = from cs in catalogSalesQuery
+                        join cr in catalogReturnsQuery on new { order_number = cs.cs_order_number, item_sk = cs.cs_item_sk }
+                                               equals new { order_number = cr.cr_order_number, item_sk = cr.cr_item_sk }
+                        join d in datesDec2001 on cs.cs_sold_date_sk equals d.d_date_sk
+                        where cr.cr_return_amount > 10000m && cs.cs_net_profit > 1m && cs.cs_net_paid > 0m && cs.cs_quantity > 0
+                        group new { cs, cr } by cs.cs_item_sk into g
+                        let return_ratio = (double)g.Sum(x => x.cr.cr_return_quantity)! / (double)g.Sum(x => x.cs.cs_quantity)!
+                        let currency_ratio = (double)g.Sum(x => x.cr.cr_return_amount)! / (double)g.Sum(x => x.cs.cs_net_paid)!
                         select new
                         {
                             channel = "catalog",
-                            c.item,
-                            c.return_ratio,
-                            return_rank = (long)c.return_ratio.Rank(RankMethod.Min, false),
-                            currency_rank = (long)c.currency_ratio.Rank(RankMethod.Min, false)
+                            item = g.Key,
+                            return_ratio,
+                            return_rank = (long)return_ratio.Rank(RankMethod.Min, false),
+                            currency_rank = (long)currency_ratio.Rank(RankMethod.Min, false)
                         } into res
                         where res.return_rank <= 10 || res.currency_rank <= 10
                         select res;
 
         // Store
-        var inStore = from sts in storeSalesQuery
-                      join sr in storeReturnsQuery on new { ticket_number = sts.ss_ticket_number, item_sk = sts.ss_item_sk }
-                                             equals new { ticket_number = sr.sr_ticket_number, item_sk = sr.sr_item_sk }
-                      join d in datesDec2001 on sts.ss_sold_date_sk equals d.d_date_sk
-                      where sr.sr_return_amt > 10000m && sts.ss_net_profit > 1m && sts.ss_net_paid > 0m && sts.ss_quantity > 0
-                      group new { sts, sr } by sts.ss_item_sk into g
-                      select new
-                      {
-                          item = g.Key,
-                          return_ratio = (double)g.Sum(x => x.sr.sr_return_quantity)! / (double)g.Sum(x => x.sts.ss_quantity)!,
-                          currency_ratio = (double)g.Sum(x => x.sr.sr_return_amt)! / (double)g.Sum(x => x.sts.ss_net_paid)!
-                      };
-
-        var storeRanked = from s in inStore
+        var storeRanked = from sts in storeSalesQuery
+                          join sr in storeReturnsQuery on new { ticket_number = sts.ss_ticket_number, item_sk = sts.ss_item_sk }
+                                                 equals new { ticket_number = sr.sr_ticket_number, item_sk = sr.sr_item_sk }
+                          join d in datesDec2001 on sts.ss_sold_date_sk equals d.d_date_sk
+                          where sr.sr_return_amt > 10000m && sts.ss_net_profit > 1m && sts.ss_net_paid > 0m && sts.ss_quantity > 0
+                          group new { sts, sr } by sts.ss_item_sk into g
+                          let return_ratio = (double)g.Sum(x => x.sr.sr_return_quantity)! / (double)g.Sum(x => x.sts.ss_quantity)!
+                          let currency_ratio = (double)g.Sum(x => x.sr.sr_return_amt)! / (double)g.Sum(x => x.sts.ss_net_paid)!
                           select new
                           {
                               channel = "store",
-                              s.item,
-                              s.return_ratio,
-                              return_rank = (long)s.return_ratio.Rank(RankMethod.Min, false),
-                              currency_rank = (long)s.currency_ratio.Rank(RankMethod.Min, false)
+                              item = g.Key,
+                              return_ratio,
+                              return_rank = (long)return_ratio.Rank(RankMethod.Min, false),
+                              currency_rank = (long)currency_ratio.Rank(RankMethod.Min, false)
                           } into res
                           where res.return_rank <= 10 || res.currency_rank <= 10
                           select res;

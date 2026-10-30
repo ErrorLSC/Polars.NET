@@ -409,6 +409,12 @@ module internal SubqueryDecorrelator =
         | MethodCall(mWhere, src, [ CleanLambda lam ]) when mWhere.Name = "Where" ->
             let rootSrc, lams = unwrapWhere src
             rootSrc, lams @ [ lam ]
+        | MethodCall(mSel, null, [ src; CleanLambda selLam ]) when mSel.Name = "Select" ->
+            let rootSrc, lams = unwrapWhere src
+            if not lams.IsEmpty then rootSrc, lams else seqExpr, []
+        | MethodCall(mSel, src, [ CleanLambda selLam ]) when mSel.Name = "Select" ->
+            let rootSrc, lams = unwrapWhere src
+            if not lams.IsEmpty then rootSrc, lams else seqExpr, []
         | other -> other, []
 
     // Pattern 1: Any(innerSeq, [predicate]) or innerSeq.Where(predicate).Any()
@@ -930,7 +936,68 @@ module internal SubqueryDecorrelator =
                     ]
             }
 
-        tryAny () |> Option.orElseWith tryContains
+        let rec tryDisjunctiveAny (disjExpr: Expression) : QueryOp list option =
+            match ExprTranslator.unwrap disjExpr with
+            | Binary((ExpressionType.OrElse | ExpressionType.Or), left, right) ->
+                let rec flattenOr (e: Expression) =
+                    match ExprTranslator.unwrap e with
+                    | Binary((ExpressionType.OrElse | ExpressionType.Or), l, r) -> flattenOr l @ flattenOr r
+                    | other -> [ other ]
+                let branches = flattenOr left @ flattenOr right
+                let extractBranchMatchedLf (branch: Expression) : LazyFrameHandle option =
+                    option {
+                        let! innerSource, innerLambdaOpt = tryMatchAny (ExprTranslator.unwrap branch)
+                        let! parts = tryExtractCorrelatedParts outerNames innerSource innerLambdaOpt
+                        do! guard (parts.ThetaConditions.IsEmpty && parts.EquiPairs.Length = 1)
+                        let! rawRightLf = resolveSequenceLazyFrame parts.RootSource
+                        let! rightLf = tryApplyInnerFilters rawRightLf parts.InnerParam parts.InnerFilters
+                        let innerCtx = createContextForType parts.InnerParam.Type rightLf parts.InnerParam.Name
+                        let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
+                        let outerKeyExpr, _ = parts.EquiPairs.[0]
+                        let keyAlias = "__disj_any_key__"
+                        let projectedLf = PolarsWrapper.LazySelect(rightLf, [| PolarsWrapper.Alias(keys.InnerJoinKeys.[0], keyAlias) |])
+                        return projectedLf
+                    }
+                let extractBranchOuterKey (branch: Expression) : ExprHandle option =
+                    option {
+                        let! innerSource, innerLambdaOpt = tryMatchAny (ExprTranslator.unwrap branch)
+                        let! parts = tryExtractCorrelatedParts outerNames innerSource innerLambdaOpt
+                        do! guard (parts.ThetaConditions.IsEmpty && parts.EquiPairs.Length = 1)
+                        let outerKeyExpr, _ = parts.EquiPairs.[0]
+                        return! ExprTranslator.tryTranslateWithContext outerCtx outerKeyExpr
+                    }
+                let branchLfs = branches |> List.choose extractBranchMatchedLf
+                let branchOuterKeys = branches |> List.choose extractBranchOuterKey
+                if branchLfs.Length = branches.Length && branchOuterKeys.Length = branches.Length then
+                    let firstOuterKeyStr = (fst (tryExtractCorrelatedParts outerNames (fst (tryMatchAny (ExprTranslator.unwrap branches.[0])).Value) (snd (tryMatchAny (ExprTranslator.unwrap branches.[0])).Value)).Value.EquiPairs.[0]).ToString()
+                    let allSameOuterKey =
+                        branches
+                        |> List.forall (fun b ->
+                            let s, l = (tryMatchAny (ExprTranslator.unwrap b)).Value
+                            let p = (tryExtractCorrelatedParts outerNames s l).Value
+                            (fst p.EquiPairs.[0]).ToString() = firstOuterKeyStr)
+                    if allSameOuterKey then
+                        let concatLf = PolarsWrapper.LazyConcat(branchLfs |> List.toArray, PlConcatType.Vertical, false, true)
+                        Some
+                            [
+                                QueryOp.Join
+                                    {
+                                        RightLf = concatLf
+                                        LeftOn = [| branchOuterKeys.[0] |]
+                                        RightOn = [| PolarsWrapper.Col "__disj_any_key__" |]
+                                        How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
+                                        Suffix = None
+                                        InvertSides = false
+                                        Coalesce = PlJoinCoalesce.JoinSpecific
+                                    }
+                            ]
+                    else
+                        None
+                else
+                    None
+            | _ -> None
+
+        tryAny () |> Option.orElseWith tryContains |> Option.orElseWith (fun () -> tryDisjunctiveAny coreExpr)
 
     // =========================================================================
     // 5. Correlated Scalar Aggregate Filter Decorrelation (Step 3)

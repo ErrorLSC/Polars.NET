@@ -747,52 +747,37 @@ public class TpcdsQuery81To90Tests
         string[] states2 = ["WI", "CT", "KY"];
         string[] states3 = ["LA", "IA", "AR"];
 
-        var baseQuery = from ws in webSalesQuery
-                        join wr in webReturnsQuery on new { item_sk = ws.ws_item_sk, order_number = ws.ws_order_number }
-                                               equals new { item_sk = wr.wr_item_sk, order_number = wr.wr_order_number }
-                        join wp in webPageQuery on ws.ws_web_page_sk equals wp.wp_web_page_sk
-                        join d in dateDimQuery on ws.ws_sold_date_sk equals d.d_date_sk
-                        join cd1 in cdemoQuery on wr.wr_refunded_cdemo_sk equals cd1.cd_demo_sk
-                        join cd2 in cdemoQuery on wr.wr_returning_cdemo_sk equals cd2.cd_demo_sk
-                        join ca in customerAddressQuery on wr.wr_refunded_addr_sk equals ca.ca_address_sk
-                        join r in reasonQuery on wr.wr_reason_sk equals r.r_reason_sk
-                        where d.d_year == 2000
-                           && cd1.cd_marital_status == cd2.cd_marital_status
-                           && cd1.cd_education_status == cd2.cd_education_status
-                           && ((cd1.cd_marital_status == "M" && cd1.cd_education_status == "Advanced Degree" && ws.ws_sales_price >= 100.00m && ws.ws_sales_price <= 150.00m)
-                               || (cd1.cd_marital_status == "S" && cd1.cd_education_status == "College" && ws.ws_sales_price >= 50.00m && ws.ws_sales_price <= 100.00m)
-                               || (cd1.cd_marital_status == "W" && cd1.cd_education_status == "2 yr Degree" && ws.ws_sales_price >= 150.00m && ws.ws_sales_price <= 200.00m))
-                           && ca.ca_country == "United States"
-                           && ((states1.Contains(ca.ca_state!) && ws.ws_net_profit >= 100m && ws.ws_net_profit <= 200m)
-                               || (states2.Contains(ca.ca_state!) && ws.ws_net_profit >= 150m && ws.ws_net_profit <= 300m)
-                               || (states3.Contains(ca.ca_state!) && ws.ws_net_profit >= 50m && ws.ws_net_profit <= 250m))
-                        select new
-                        {
-                            r.r_reason_desc,
-                            ws.ws_quantity,
-                            wr.wr_refunded_cash,
-                            wr.wr_fee
-                        };
-
-        var grouped = from x in baseQuery
-                      group x by x.r_reason_desc into g
-                      select new
-                      {
-                          r_reason_desc = g.Key,
-                          avg1 = g.Average(x => (double?)x.ws_quantity),
-                          avg2 = g.Average(x => (double?)x.wr_refunded_cash),
-                          avg3 = g.Average(x => (double?)x.wr_fee)
-                      };
-
-        var q85 = (from g in grouped
-                   let sub_reason = g.r_reason_desc!.Substring(0, 20)
-                   orderby sub_reason, g.avg1, g.avg2, g.avg3
+        var q85 = (from ws in webSalesQuery
+                   join wr in webReturnsQuery on new { item_sk = ws.ws_item_sk, order_number = ws.ws_order_number }
+                                          equals new { item_sk = wr.wr_item_sk, order_number = wr.wr_order_number }
+                   join wp in webPageQuery on ws.ws_web_page_sk equals wp.wp_web_page_sk
+                   join d in dateDimQuery on ws.ws_sold_date_sk equals d.d_date_sk
+                   join cd1 in cdemoQuery on wr.wr_refunded_cdemo_sk equals cd1.cd_demo_sk
+                   join cd2 in cdemoQuery on wr.wr_returning_cdemo_sk equals cd2.cd_demo_sk
+                   join ca in customerAddressQuery on wr.wr_refunded_addr_sk equals ca.ca_address_sk
+                   join r in reasonQuery on wr.wr_reason_sk equals r.r_reason_sk
+                   where d.d_year == 2000
+                      && cd1.cd_marital_status == cd2.cd_marital_status
+                      && cd1.cd_education_status == cd2.cd_education_status
+                      && ((cd1.cd_marital_status == "M" && cd1.cd_education_status == "Advanced Degree" && ws.ws_sales_price >= 100.00m && ws.ws_sales_price <= 150.00m)
+                          || (cd1.cd_marital_status == "S" && cd1.cd_education_status == "College" && ws.ws_sales_price >= 50.00m && ws.ws_sales_price <= 100.00m)
+                          || (cd1.cd_marital_status == "W" && cd1.cd_education_status == "2 yr Degree" && ws.ws_sales_price >= 150.00m && ws.ws_sales_price <= 200.00m))
+                      && ca.ca_country == "United States"
+                      && ((states1.Contains(ca.ca_state!) && ws.ws_net_profit >= 100m && ws.ws_net_profit <= 200m)
+                          || (states2.Contains(ca.ca_state!) && ws.ws_net_profit >= 150m && ws.ws_net_profit <= 300m)
+                          || (states3.Contains(ca.ca_state!) && ws.ws_net_profit >= 50m && ws.ws_net_profit <= 250m))
+                   group new { ws, wr } by r.r_reason_desc into g
+                   let sub_reason = g.Key!.Substring(0, 20)
+                   let avg1 = g.Average(x => (double?)x.ws.ws_quantity)
+                   let avg2 = g.Average(x => (double?)x.wr.wr_refunded_cash)
+                   let avg3 = g.Average(x => (double?)x.wr.wr_fee)
+                   orderby sub_reason, avg1, avg2, avg3
                    select new
                    {
                        sub_reason,
-                       g.avg1,
-                       g.avg2,
-                       g.avg3
+                       avg1,
+                       avg2,
+                       avg3
                    }).Take(100);
 
         AssertPlan(q85, NativePushdown);
@@ -1142,22 +1127,15 @@ public class TpcdsQuery81To90Tests
         var timeDimQuery = TpcdsData.TimeDimQuery();
         var storeQuery = TpcdsData.StoreQuery();
 
-        var baseSales = from ss in storeSalesQuery
-                        join hd in hdemoQuery on ss.ss_hdemo_sk equals hd.hd_demo_sk
-                        join t in timeDimQuery on ss.ss_sold_time_sk equals t.t_time_sk
-                        join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
-                        where s.s_store_name == "ese"
-                           && ((hd.hd_dep_count == 4 && hd.hd_vehicle_count <= 6)
-                               || (hd.hd_dep_count == 2 && hd.hd_vehicle_count <= 4)
-                               || (hd.hd_dep_count == 0 && hd.hd_vehicle_count <= 2))
-                        select new
-                        {
-                            t.t_hour,
-                            t.t_minute
-                        };
-
-        var q88 = from x in baseSales
-                  group x by 1 into g
+        var q88 = from ss in storeSalesQuery
+                  join hd in hdemoQuery on ss.ss_hdemo_sk equals hd.hd_demo_sk
+                  join t in timeDimQuery on ss.ss_sold_time_sk equals t.t_time_sk
+                  join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
+                  where s.s_store_name == "ese"
+                     && ((hd.hd_dep_count == 4 && hd.hd_vehicle_count <= 6)
+                         || (hd.hd_dep_count == 2 && hd.hd_vehicle_count <= 4)
+                         || (hd.hd_dep_count == 0 && hd.hd_vehicle_count <= 2))
+                  group t by 1 into g
                   select new
                   {
                       h8_30_to_9 = g.Sum(x => x.t_hour == 8 && x.t_minute >= 30 ? 1L : 0L),
@@ -1385,65 +1363,52 @@ public class TpcdsQuery81To90Tests
         string[] cat2 = ["Men", "Jewelry", "Women"];
         string[] class2 = ["shirts", "birdal", "dresses"];
 
-        var grouped = from ss in storeSalesQuery
-                      join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
-                      join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
-                      join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
-                      where d.d_year == 1999
-                         && ((cat1.Contains(i.i_category!) && class1.Contains(i.i_class!))
-                             || (cat2.Contains(i.i_category!) && class2.Contains(i.i_class!)))
-                      group ss by new
-                      {
-                          i.i_category,
-                          i.i_class,
-                          i.i_brand,
-                          s.s_store_name,
-                          s.s_company_name,
-                          d.d_moy
-                      } into g
-                      select new
-                      {
-                          g.Key.i_category,
-                          g.Key.i_class,
-                          g.Key.i_brand,
-                          g.Key.s_store_name,
-                          g.Key.s_company_name,
-                          g.Key.d_moy,
-                          sum_sales = g.Sum(x => x.ss_sales_price)
-                      };
-
-        var tmp1 = from g in grouped
+        var q89 = (from ss in storeSalesQuery
+                   join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
+                   join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
+                   join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
+                   where d.d_year == 1999
+                      && ((cat1.Contains(i.i_category!) && class1.Contains(i.i_class!))
+                          || (cat2.Contains(i.i_category!) && class2.Contains(i.i_class!)))
+                   group ss by new
+                   {
+                       i.i_category,
+                       i.i_class,
+                       i.i_brand,
+                       s.s_store_name,
+                       s.s_company_name,
+                       d.d_moy
+                   } into g
+                   let sum_sales = g.Sum(x => x.ss_sales_price)
+                   let avg_monthly_sales = sum_sales.Average().Over(new
+                   {
+                       g.Key.i_category,
+                       g.Key.i_brand,
+                       g.Key.s_store_name,
+                       g.Key.s_company_name
+                   })
+                   where avg_monthly_sales != 0.0
+                      && (Math.Abs((double)sum_sales! - avg_monthly_sales) / avg_monthly_sales > 0.1)
+                   orderby (double)sum_sales! - avg_monthly_sales,
+                           g.Key.s_store_name,
+                           g.Key.i_category,
+                           g.Key.i_class,
+                           g.Key.i_brand,
+                           g.Key.s_company_name,
+                           g.Key.d_moy,
+                           sum_sales,
+                           avg_monthly_sales
                    select new
                    {
-                       g.i_category,
-                       g.i_class,
-                       g.i_brand,
-                       g.s_store_name,
-                       g.s_company_name,
-                       g.d_moy,
-                       g.sum_sales,
-                       avg_monthly_sales = g.sum_sales.Average().Over(new
-                       {
-                           g.i_category,
-                           g.i_brand,
-                           g.s_store_name,
-                           g.s_company_name
-                       })
-                   };
-
-        var q89 = (from t in tmp1
-                   where t.avg_monthly_sales != 0.0
-                      && (Math.Abs((double)t.sum_sales! - t.avg_monthly_sales) / t.avg_monthly_sales > 0.1)
-                   orderby (double)t.sum_sales! - t.avg_monthly_sales,
-                           t.s_store_name,
-                           t.i_category,
-                           t.i_class,
-                           t.i_brand,
-                           t.s_company_name,
-                           t.d_moy,
-                           t.sum_sales,
-                           t.avg_monthly_sales
-                   select t).Take(100);
+                       g.Key.i_category,
+                       g.Key.i_class,
+                       g.Key.i_brand,
+                       g.Key.s_store_name,
+                       g.Key.s_company_name,
+                       g.Key.d_moy,
+                       sum_sales,
+                       avg_monthly_sales
+                   }).Take(100);
 
         AssertPlan(q89, NativePushdown);
 

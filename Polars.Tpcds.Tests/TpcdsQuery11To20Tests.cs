@@ -318,42 +318,30 @@ public class TpcdsQuery11To20Tests
         var filteredDates = dateDimQuery.Where(d => d.d_date >= minDate && d.d_date <= maxDate);
         var filteredItems = itemQuery.Where(i => Q12TargetCategories.Contains(i.i_category));
 
-        var baseGroup = from ws in webSalesQuery
-                        join d in filteredDates on ws.ws_sold_date_sk equals d.d_date_sk
-                        join i in filteredItems on ws.ws_item_sk equals i.i_item_sk
-                        group ws by new
-                        {
-                            i.i_item_id,
-                            i.i_item_desc,
-                            i.i_category,
-                            i.i_class,
-                            i.i_current_price
-                        } into g
-                        select new
-                        {
-                            g.Key.i_item_id,
-                            g.Key.i_item_desc,
-                            g.Key.i_category,
-                            g.Key.i_class,
-                            g.Key.i_current_price,
-                            itemrevenue = g.Sum(x => x.ws_ext_sales_price),
-                        };
-
-        var withRatio = from r in baseGroup
-                        select new
-                        {
-                            r.i_item_id,
-                            r.i_item_desc,
-                            r.i_category,
-                            r.i_class,
-                            r.i_current_price,
-                            r.itemrevenue,
-                            revenueratio = (double?)(r.itemrevenue * 100.0m) / (double?)r.itemrevenue.Sum().Over(r.i_class)
-                        };
-
-        var q12 = from r in withRatio
-                  orderby r.i_category, r.i_class, r.i_item_id, r.i_item_desc, r.revenueratio
-                  select r;
+        var q12 = from ws in webSalesQuery
+                  join d in filteredDates on ws.ws_sold_date_sk equals d.d_date_sk
+                  join i in filteredItems on ws.ws_item_sk equals i.i_item_sk
+                  group ws by new
+                  {
+                      i.i_item_id,
+                      i.i_item_desc,
+                      i.i_category,
+                      i.i_class,
+                      i.i_current_price
+                  } into g
+                  let itemrevenue = g.Sum(x => x.ws_ext_sales_price)
+                  let revenueratio = (double?)(itemrevenue * 100.0m) / (double?)itemrevenue.Sum().Over(g.Key.i_class)
+                  orderby g.Key.i_category, g.Key.i_class, g.Key.i_item_id, g.Key.i_item_desc, revenueratio
+                  select new
+                  {
+                      g.Key.i_item_id,
+                      g.Key.i_item_desc,
+                      g.Key.i_category,
+                      g.Key.i_class,
+                      g.Key.i_current_price,
+                      itemrevenue,
+                      revenueratio
+                  };
 
         var limitedQ12 = q12.Take(100);
 
@@ -793,7 +781,7 @@ public class TpcdsQuery11To20Tests
                       join d in dates3Years on ws.ws_sold_date_sk equals d.d_date_sk
                       select new { sales = (double?)(ws.ws_quantity * ws.ws_list_price) };
 
-        var avgSales = ssSales.Concat(csSales).Concat(wsSales).Average(x => x.sales);
+        var allSales = ssSales.Concat(csSales).Concat(wsSales);
 
         // 3. Channel streams in year 2001, month 11 with having filter > avgSales
         var targetDates = dateDimQuery.Where(d => d.d_year == 2001 && d.d_moy == 11);
@@ -807,7 +795,7 @@ public class TpcdsQuery11To20Tests
                               i.i_class_id,
                               i.i_category_id
                           } into g
-                          where g.Sum(x => x.ss_quantity * x.ss_list_price) > (decimal?)avgSales
+                          where g.Sum(x => x.ss_quantity * x.ss_list_price) > (decimal?)allSales.Average(x => x.sales)
                           select new
                           {
                               channel = "store",
@@ -827,7 +815,7 @@ public class TpcdsQuery11To20Tests
                                 i.i_class_id,
                                 i.i_category_id
                             } into g
-                            where g.Sum(x => x.cs_quantity * x.cs_list_price) > (decimal?)avgSales
+                            where g.Sum(x => x.cs_quantity * x.cs_list_price) > (decimal?)allSales.Average(x => x.sales)
                             select new
                             {
                                 channel = "catalog",
@@ -847,7 +835,7 @@ public class TpcdsQuery11To20Tests
                             i.i_class_id,
                             i.i_category_id
                         } into g
-                        where g.Sum(x => x.ws_quantity * x.ws_list_price) > (decimal?)avgSales
+                        where g.Sum(x => x.ws_quantity * x.ws_list_price) > (decimal?)allSales.Average(x => x.sales)
                         select new
                         {
                             channel = "web",
@@ -1347,46 +1335,35 @@ public class TpcdsQuery11To20Tests
         var filteredDates2 = dateDimQuery2.Where(d => targetQuarters.Contains(d.d_quarter_name!));
         var filteredDates3 = dateDimQuery3.Where(d => targetQuarters.Contains(d.d_quarter_name!));
 
-        var joined = from ss in storeSalesQuery
-                     join d1 in filteredDates1 on ss.ss_sold_date_sk equals d1.d_date_sk
-                     join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
-                     join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
-                     join sr in storeReturnsQuery on new { customer_sk = ss.ss_customer_sk, item_sk = ss.ss_item_sk, ticket_number = ss.ss_ticket_number }
-                                              equals new { customer_sk = sr.sr_customer_sk, item_sk = sr.sr_item_sk, ticket_number = sr.sr_ticket_number }
-                     join d2 in filteredDates2 on sr.sr_returned_date_sk equals d2.d_date_sk
-                     join cs in catalogSalesQuery on new { customer_sk = sr.sr_customer_sk, item_sk = sr.sr_item_sk }
-                                              equals new { customer_sk = cs.cs_bill_customer_sk, item_sk = cs.cs_item_sk }
-                     join d3 in filteredDates3 on cs.cs_sold_date_sk equals d3.d_date_sk
-                     select new
-                     {
-                         i.i_item_id,
-                         i.i_item_desc,
-                         s.s_state,
-                         ss.ss_quantity,
-                         sr.sr_return_quantity,
-                         cs.cs_quantity
-                     };
-
-        var q17 = (from r in joined
-                   group r by new { r.i_item_id, r.i_item_desc, r.s_state } into g
+        var q17 = (from ss in storeSalesQuery
+                   join d1 in filteredDates1 on ss.ss_sold_date_sk equals d1.d_date_sk
+                   join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
+                   join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
+                   join sr in storeReturnsQuery on new { customer_sk = ss.ss_customer_sk, item_sk = ss.ss_item_sk, ticket_number = ss.ss_ticket_number }
+                                            equals new { customer_sk = sr.sr_customer_sk, item_sk = sr.sr_item_sk, ticket_number = sr.sr_ticket_number }
+                   join d2 in filteredDates2 on sr.sr_returned_date_sk equals d2.d_date_sk
+                   join cs in catalogSalesQuery on new { customer_sk = sr.sr_customer_sk, item_sk = sr.sr_item_sk }
+                                            equals new { customer_sk = cs.cs_bill_customer_sk, item_sk = cs.cs_item_sk }
+                   join d3 in filteredDates3 on cs.cs_sold_date_sk equals d3.d_date_sk
+                   group new { ss, sr, cs } by new { i.i_item_id, i.i_item_desc, s.s_state } into g
                    orderby g.Key.i_item_id, g.Key.i_item_desc, g.Key.s_state
                    select new
                    {
                        g.Key.i_item_id,
                        g.Key.i_item_desc,
                        g.Key.s_state,
-                       store_sales_quantitycount = g.Select(x => x.ss_quantity).Count(),
-                       store_sales_quantityave = g.Average(x => (double?)x.ss_quantity),
-                       store_sales_quantitystdev = g.Std(x => (double?)x.ss_quantity),
-                       store_sales_quantitycov = g.Std(x => (double?)x.ss_quantity) / g.Average(x => (double?)x.ss_quantity),
-                       store_returns_quantitycount = g.Select(x => x.sr_return_quantity).Count(),
-                       store_returns_quantityave = g.Average(x => (double?)x.sr_return_quantity),
-                       store_returns_quantitystdev = g.Std(x => (double?)x.sr_return_quantity),
-                       store_returns_quantitycov = g.Std(x => (double?)x.sr_return_quantity) / g.Average(x => (double?)x.sr_return_quantity),
-                       catalog_sales_quantitycount = g.Select(x => x.cs_quantity).Count(),
-                       catalog_sales_quantityave = g.Average(x => (double?)x.cs_quantity),
-                       catalog_sales_quantitystdev = g.Std(x => (double?)x.cs_quantity),
-                       catalog_sales_quantitycov = g.Std(x => (double?)x.cs_quantity) / g.Average(x => (double?)x.cs_quantity),
+                       store_sales_quantitycount = g.Select(x => x.ss.ss_quantity).Count(),
+                       store_sales_quantityave = g.Average(x => (double?)x.ss.ss_quantity),
+                       store_sales_quantitystdev = g.Std(x => (double?)x.ss.ss_quantity),
+                       store_sales_quantitycov = g.Std(x => (double?)x.ss.ss_quantity) / g.Average(x => (double?)x.ss.ss_quantity),
+                       store_returns_quantitycount = g.Select(x => x.sr.sr_return_quantity).Count(),
+                       store_returns_quantityave = g.Average(x => (double?)x.sr.sr_return_quantity),
+                       store_returns_quantitystdev = g.Std(x => (double?)x.sr.sr_return_quantity),
+                       store_returns_quantitycov = g.Std(x => (double?)x.sr.sr_return_quantity) / g.Average(x => (double?)x.sr.sr_return_quantity),
+                       catalog_sales_quantitycount = g.Select(x => x.cs.cs_quantity).Count(),
+                       catalog_sales_quantityave = g.Average(x => (double?)x.cs.cs_quantity),
+                       catalog_sales_quantitystdev = g.Std(x => (double?)x.cs.cs_quantity),
+                       catalog_sales_quantitycov = g.Std(x => (double?)x.cs.cs_quantity) / g.Average(x => (double?)x.cs.cs_quantity),
                    }).Take(100);
 
         AssertPlan(q17, NativePushdown);
@@ -1725,44 +1702,34 @@ public class TpcdsQuery11To20Tests
         var filteredDates = dateDimQuery.Where(d => d.d_year == 1998 && d.d_moy == 11);
         var filteredItems = itemQuery.Where(i => i.i_manager_id == 8);
 
-        var joined = from ss in storeSalesQuery
-                     join d in filteredDates on ss.ss_sold_date_sk equals d.d_date_sk
-                     join i in filteredItems on ss.ss_item_sk equals i.i_item_sk
-                     join c in customerQuery on ss.ss_customer_sk equals c.c_customer_sk
-                     join ca in customerAddressQuery on c.c_current_addr_sk equals ca.ca_address_sk
-                     join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
-                     where ca.ca_zip!.Substring(0, 5) != s.s_zip!.Substring(0, 5)
-                     select new
-                     {
-                         i.i_brand_id,
-                         i.i_brand,
-                         i.i_manufact_id,
-                         i.i_manufact,
-                         ss.ss_ext_sales_price
-                     };
-
-        var q19 = from x in joined
-                  group x by new
+        var q19 = from ss in storeSalesQuery
+                  join d in filteredDates on ss.ss_sold_date_sk equals d.d_date_sk
+                  join i in filteredItems on ss.ss_item_sk equals i.i_item_sk
+                  join c in customerQuery on ss.ss_customer_sk equals c.c_customer_sk
+                  join ca in customerAddressQuery on c.c_current_addr_sk equals ca.ca_address_sk
+                  join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
+                  where ca.ca_zip!.Substring(0, 5) != s.s_zip!.Substring(0, 5)
+                  group ss by new
                   {
-                      x.i_brand,
-                      x.i_brand_id,
-                      x.i_manufact_id,
-                      x.i_manufact
+                      i.i_brand,
+                      i.i_brand_id,
+                      i.i_manufact_id,
+                      i.i_manufact
                   } into g
+                  let ext_price = g.Sum(x => x.ss_ext_sales_price)
+                  orderby ext_price descending,
+                          g.Key.i_brand,
+                          g.Key.i_brand_id,
+                          g.Key.i_manufact_id,
+                          g.Key.i_manufact
                   select new
                   {
                       brand_id = g.Key.i_brand_id,
                       brand = g.Key.i_brand,
                       g.Key.i_manufact_id,
                       g.Key.i_manufact,
-                      ext_price = g.Sum(x => x.ss_ext_sales_price)
-                  } into res
-                  orderby res.ext_price descending,
-                          res.brand,
-                          res.brand_id,
-                          res.i_manufact_id,
-                          res.i_manufact
-                  select res;
+                      ext_price
+                  };
 
         var limitedQ19 = q19.Take(100);
 
@@ -1872,42 +1839,30 @@ public class TpcdsQuery11To20Tests
         var filteredDates = dateDimQuery.Where(d => d.d_date >= minDate && d.d_date <= maxDate);
         var filteredItems = itemQuery.Where(i => Q20TargetCategories.Contains(i.i_category));
 
-        var baseGroup = from cs in catalogSalesQuery
-                        join d in filteredDates on cs.cs_sold_date_sk equals d.d_date_sk
-                        join i in filteredItems on cs.cs_item_sk equals i.i_item_sk
-                        group cs by new
-                        {
-                            i.i_item_id,
-                            i.i_item_desc,
-                            i.i_category,
-                            i.i_class,
-                            i.i_current_price
-                        } into g
-                        select new
-                        {
-                            g.Key.i_item_id,
-                            g.Key.i_item_desc,
-                            g.Key.i_category,
-                            g.Key.i_class,
-                            g.Key.i_current_price,
-                            itemrevenue = g.Sum(x => x.cs_ext_sales_price),
-                        };
-
-        var withRatio = from r in baseGroup
-                        select new
-                        {
-                            r.i_item_id,
-                            r.i_item_desc,
-                            r.i_category,
-                            r.i_class,
-                            r.i_current_price,
-                            r.itemrevenue,
-                            revenueratio = (double?)(r.itemrevenue * 100.0m) / (double?)r.itemrevenue.Sum().Over(r.i_class)
-                        };
-
-        var q20 = from r in withRatio
-                  orderby r.i_category, r.i_class, r.i_item_id, r.i_item_desc, r.revenueratio
-                  select r;
+        var q20 = from cs in catalogSalesQuery
+                  join d in filteredDates on cs.cs_sold_date_sk equals d.d_date_sk
+                  join i in filteredItems on cs.cs_item_sk equals i.i_item_sk
+                  group cs by new
+                  {
+                      i.i_item_id,
+                      i.i_item_desc,
+                      i.i_category,
+                      i.i_class,
+                      i.i_current_price
+                  } into g
+                  let itemrevenue = g.Sum(x => x.cs_ext_sales_price)
+                  let revenueratio = (double?)(itemrevenue * 100.0m) / (double?)itemrevenue.Sum().Over(g.Key.i_class)
+                  orderby g.Key.i_category, g.Key.i_class, g.Key.i_item_id, g.Key.i_item_desc, revenueratio
+                  select new
+                  {
+                      g.Key.i_item_id,
+                      g.Key.i_item_desc,
+                      g.Key.i_category,
+                      g.Key.i_class,
+                      g.Key.i_current_price,
+                      itemrevenue,
+                      revenueratio
+                  };
 
         var limitedQ20 = q20.Take(100);
 

@@ -601,9 +601,10 @@ module internal ExpressionPatterns =
             ->
             Some(ListJoin(target, sepExpr))
 
-        // 4. Enumerable Static Extension Methods (1 & 2 args)
+        // 4. Enumerable / Queryable Static Extension Methods (1 & 2 args)
         | MethodCall(m, null, target :: args) when
-            m.DeclaringType = typeof<Enumerable> && isListContainer target.Type
+            (m.DeclaringType = typeof<Enumerable> || (m.DeclaringType = typeof<Queryable> && m.Name = "Contains"))
+            && isListContainer target.Type
             ->
             match m.Name, args with
             // 1-arg operations

@@ -259,6 +259,11 @@ module internal rec ExprTranslator =
                 ->
                 Some p.Name
 
+            | :? ParameterExpression as p when
+                not (isNull p.Name) && p.Name.StartsWith "__key_col_"
+                ->
+                Some(p.Name.Substring 10)
+
             | MemberAccess(inner, m) when isNullableValue m ->
                 tryResolveColumnNameWithContext ctx inner
 
@@ -419,19 +424,25 @@ module internal rec ExprTranslator =
                                 match scopeMap.TryFind(scope, m.Name) with
                                 | Some physicalCol -> Some physicalCol
                                 | None ->
+                                    match scopeMap.TryFind("", m.Name) with
+                                    | Some physicalCol -> Some physicalCol
+                                    | None ->
+                                        if List.contains m.Name fallbackCols then
+                                            Some m.Name
+                                        else
+                                            fallbackCols
+                                            |> List.tryFind (fun c -> String.Equals(c, m.Name, StringComparison.OrdinalIgnoreCase))
+                                            |> Option.orElse (Some m.Name)
+                            | None ->
+                                match scopeMap.TryFind("", m.Name) with
+                                | Some physicalCol -> Some physicalCol
+                                | None ->
                                     if List.contains m.Name fallbackCols then
                                         Some m.Name
                                     else
                                         fallbackCols
                                         |> List.tryFind (fun c -> String.Equals(c, m.Name, StringComparison.OrdinalIgnoreCase))
                                         |> Option.orElse (Some m.Name)
-                            | None ->
-                                if List.contains m.Name fallbackCols then
-                                    Some m.Name
-                                else
-                                    fallbackCols
-                                    |> List.tryFind (fun c -> String.Equals(c, m.Name, StringComparison.OrdinalIgnoreCase))
-                                    |> Option.orElse (Some m.Name)
                         else
                             None
 
@@ -2663,6 +2674,8 @@ module internal rec ExprTranslator =
                     && (p.Name.StartsWith "__subquery_agg_" || p.Name.StartsWith "__subquery_col_")
                 then
                     Some(PolarsWrapper.Col p.Name)
+                elif not (isNull p.Name) && p.Name.StartsWith "__key_col_" then
+                    Some(PolarsWrapper.Col(p.Name.Substring 10))
                 else
                     ctx.TryResolveParameterHandle p.Name
 

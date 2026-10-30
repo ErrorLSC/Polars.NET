@@ -1333,7 +1333,23 @@ module internal QueryPipelineHelpers =
                 SplitOptContext.Current <- None
 
         | None ->
-            match projLambda.Body with
+            let unwrappedBody = ExprTranslator.unwrap projLambda.Body
+            match unwrappedBody with
+            | MemberAccess _ as ma when not (PolarsTypeHelper.IsScalarType ma.Type || ma.Type = typeof<string>) && (ExprTranslator.tryResolveColumnNameWithContext ctx ma).IsNone ->
+                let lfCols = PolarsSchemaExtractor.GetColumnNames lf |> Set.ofArray
+                let entityProps = ma.Type.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                let matchedExprs =
+                    entityProps
+                    |> Array.choose (fun prop ->
+                        let propAccess = Expression.Property(ma, prop) :> Expression
+                        match ExprTranslator.tryResolveColumnNameWithContext ctx propAccess with
+                        | Some physCol -> Some(PolarsWrapper.Alias(PolarsWrapper.Col physCol, prop.Name))
+                        | None when lfCols.Contains prop.Name -> Some(PolarsWrapper.Col prop.Name)
+                        | None -> None)
+                if matchedExprs.Length > 0 then
+                    Some matchedExprs
+                else
+                    None
             | ExtractColumnName colName -> Some [| PolarsWrapper.Col colName |]
             | expr -> ExprTranslator.tryTranslateWithContext ctx expr |> Option.map (fun h -> [| h |])
 
@@ -2129,6 +2145,7 @@ module internal QueryPipelineHelpers =
         (targetColExprOpt: ExprHandle option)
         (scalarColOpt: string option)
         (wholeRowStructOpt: ExprHandle option)
+        (scopeMap: Map<string * string, string>)
         (lf: LazyFrameHandle)
         (colName: string)
         (rawArgExpr: Expression)
@@ -2189,7 +2206,7 @@ module internal QueryPipelineHelpers =
             match tryMatchNestedListAgg argExpr with
             | Some selLambda ->
                 let selParam = selLambda.Parameters.[0]
-                let selCtx = createContextForType selParam.Type lf selParam.Name
+                let selCtx = createContextWithScope scopeMap selParam.Type lf selParam.Name
 
                 let colExprOpt =
                     match ExprTranslator.tryResolveColumnNameWithContext selCtx selLambda.Body with
@@ -2198,10 +2215,11 @@ module internal QueryPipelineHelpers =
 
                 colExprOpt |> Option.map (fun cExpr -> PolarsWrapper.Alias(cExpr, colName))
             | None ->
-                AggTranslator.tryTranslateAggWithScalarCol
+                AggTranslator.tryTranslateAggWithScalarColAndScope
                     groupParamName
                     scalarColOpt
                     wholeRowStructOpt
+                    scopeMap
                     argExpr
                     colName
 
@@ -2212,17 +2230,54 @@ module internal QueryPipelineHelpers =
         (projBody: Expression)
         (groupParamName: string)
         (isKeyArg: Expression -> bool)
+        (scopeMap: Map<string * string, string>)
         : QueryOp list option =
 
         let keyParam = ctx.KeyLambda.Parameters.[0]
-        let keyCtx = createContextForType keyParam.Type lf keyParam.Name
+        let keyCtx = createContextWithScope scopeMap keyParam.Type lf keyParam.Name
 
         let elemExprOpt =
             ctx.ElemLambdaOpt
             |> Option.bind (fun el ->
                 let elParam = el.Parameters.[0]
-                let elCtx = createContextForType elParam.Type lf elParam.Name
+                let elCtx = createContextWithScope scopeMap elParam.Type lf elParam.Name
                 ExprTranslator.tryTranslateWithContext elCtx el.Body)
+
+        let elemScoreMapOpt =
+            ctx.ElemLambdaOpt
+            |> Option.bind (fun el ->
+                let elParam = el.Parameters.[0]
+                match tryExtractMemberBindings el.Body with
+                | Some bindings ->
+                    let elCtx = createContextWithScope scopeMap elParam.Type lf elParam.Name
+                    let resolvedBindings =
+                        bindings
+                        |> List.choose (fun (propName, expr) ->
+                            match ExprTranslator.tryResolveColumnNameWithContext elCtx expr with
+                            | Some cName -> Some((propName, cName))
+                            | None -> None)
+                    let updatedFromEntities =
+                        bindings
+                        |> List.fold (fun m (propName, expr) ->
+                            let subScopeOpt =
+                                match ExprTranslator.unwrap expr with
+                                | :? ParameterExpression as p -> Some p.Name
+                                | MemberAccess(_, m) -> Some m.Name
+                                | _ -> None
+                            match subScopeOpt with
+                            | Some s when s <> propName ->
+                                scopeMap
+                                |> Map.fold (fun acc (kScope, kCol) physCol ->
+                                    if kScope = s then Map.add (propName, kCol) physCol acc else acc) m
+                            | _ -> m) scopeMap
+                    let combined =
+                        resolvedBindings
+                        |> List.fold (fun m (propName, colName) ->
+                            m |> Map.add ("", propName) colName |> Map.add (elParam.Name, propName) colName) updatedFromEntities
+                    Some combined
+                | None -> None)
+
+        let effectiveScopeMap = elemScoreMapOpt |> Option.defaultValue scopeMap
 
         let elemType = keyParam.Type
 
@@ -2230,7 +2285,7 @@ module internal QueryPipelineHelpers =
             try
                 let props = elemType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
 
-                if props.Length > 0 then
+                if props.Length > 0 && not (isTupleOrAnonType elemType) then
                     let colExprs = props |> Array.map (fun p -> PolarsWrapper.Col p.Name)
                     Some(PolarsWrapper.AsStruct colExprs)
                 else
@@ -2374,70 +2429,187 @@ module internal QueryPipelineHelpers =
                 let targetColExprOpt =
                     elemExprOpt |> Option.orElse (scalarColOpt |> Option.map PolarsWrapper.Col)
 
+                let tryResolveKeyPropertyCol (e: Expression) : string option =
+                    let cleanE = ExprTranslator.unwrap e
+                    match cleanE with
+                    | MemberAccess(_, m) when m.Name = "Key" && keyDefs.Length = 1 ->
+                        Some keyNameToOutputAliasMap.[fst keyDefs.[0]]
+                    | MemberAccess(MemberAccess(_, k), m) when k.Name = "Key" ->
+                        let idxOpt =
+                            if m.Name = "Item1" || m.Name = "Fst" then Some 0
+                            elif m.Name = "Item2" || m.Name = "Snd" then Some 1
+                            elif m.Name.StartsWith "Item" then
+                                match Int32.TryParse(m.Name.Substring 4) with
+                                | true, i -> Some(i - 1)
+                                | _ -> None
+                            else None
+
+                        match idxOpt with
+                        | Some idx when idx >= 0 && idx < keyDefs.Length ->
+                            Some keyNameToOutputAliasMap.[fst keyDefs.[idx]]
+                        | _ ->
+                            keyNameToOutputAliasMap.TryFind m.Name |> Option.orElse (Some m.Name)
+                    | MemberAccess(p, m) when isKeyArg p ->
+                        let idxOpt =
+                            if m.Name = "Item1" || m.Name = "Fst" then Some 0
+                            elif m.Name = "Item2" || m.Name = "Snd" then Some 1
+                            elif m.Name.StartsWith "Item" then
+                                match Int32.TryParse(m.Name.Substring 4) with
+                                | true, i -> Some(i - 1)
+                                | _ -> None
+                            else None
+
+                        match idxOpt with
+                        | Some idx when idx >= 0 && idx < keyDefs.Length ->
+                            Some keyNameToOutputAliasMap.[fst keyDefs.[idx]]
+                        | _ ->
+                            keyNameToOutputAliasMap.TryFind m.Name |> Option.orElse (Some m.Name)
+                    | _ when isKeyArg cleanE && keyDefs.Length = 1 ->
+                        Some keyNameToOutputAliasMap.[fst keyDefs.[0]]
+                    | _ -> None
+
+                let tryTranslateDerivedKeyExpr (rawArgExpr: Expression) : ExprHandle option =
+                    let rewritten =
+                        { new ExpressionVisitor() with
+                            override _.VisitMember(node: MemberExpression) =
+                                match tryResolveKeyPropertyCol node with
+                                | Some colName ->
+                                    Expression.Parameter(node.Type, sprintf "__key_col_%s" colName) :> Expression
+                                | None -> base.VisitMember node
+                            override _.VisitParameter(node: ParameterExpression) =
+                                match tryResolveKeyPropertyCol node with
+                                | Some colName ->
+                                    Expression.Parameter(node.Type, sprintf "__key_col_%s" colName) :> Expression
+                                | None -> base.VisitParameter node
+                        }.Visit(rawArgExpr)
+                    ExprTranslator.tryTranslateWithContext (TranslationContext.Entity groupParamName) rewritten
+
                 let tryTranslateSingleAgg (colName: string) (rawArgExpr: Expression) : ExprHandle option =
                     tryTranslateGroupByAgg
                         groupParamName
                         targetColExprOpt
                         scalarColOpt
                         wholeRowStructOpt
+                        effectiveScopeMap
                         lf
                         colName
                         rawArgExpr
 
-                let translatedAggOpts =
-                    nonKeyArgs
-                    |> List.map (fun (colName, argExpr) -> tryTranslateSingleAgg colName argExpr)
+                let windowAggs = ResizeArray<string * string * ExprHandle>()
 
-                if not (translatedAggOpts |> List.forall Option.isSome) then
+                let findOrAddWindowAgg (node: Expression) : string option =
+                    let nodeStr = (ExprTranslator.unwrap node).ToString()
+                    let existingProjectedColOpt =
+                        List.zip memberNames args
+                        |> List.tryPick (fun (colName, argExpr) ->
+                            if (ExprTranslator.unwrap argExpr).ToString() = nodeStr then
+                                Some colName
+                            else
+                                None)
+                    match existingProjectedColOpt with
+                    | Some colName when (tryTranslateSingleAgg colName node).IsSome ->
+                        Some colName
+                    | _ ->
+                        match windowAggs |> Seq.tryPick (fun (s, c, _) -> if s = nodeStr then Some c else None) with
+                        | Some c -> Some c
+                        | None ->
+                            let colName = sprintf "__win_agg_%d" windowAggs.Count
+                            match tryTranslateSingleAgg colName node with
+                            | Some aggH ->
+                                windowAggs.Add((nodeStr, colName, aggH))
+                                Some colName
+                            | None -> None
+
+                let isGroupAggCall (node: MethodCallExpression) =
+                    let targetOpt =
+                        if not (isNull node.Object) then Some node.Object
+                        elif node.Arguments.Count > 0 then Some node.Arguments.[0]
+                        else None
+                    match targetOpt with
+                    | Some target ->
+                        let unwrapped = ExprTranslator.unwrap target
+                        let t = unwrapped.Type
+                        (not (isNull t) && t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>)
+                        || (match unwrapped with
+                            | :? ParameterExpression as p -> p.Name = groupParamName
+                            | _ -> false)
+                    | None -> false
+
+                let rec rewriteWindowExpr (expr: Expression) : Expression =
+                    { new ExpressionVisitor() with
+                        override _.VisitMethodCall(node: MethodCallExpression) =
+                            if isGroupAggCall node then
+                                match findOrAddWindowAgg node with
+                                | Some colName ->
+                                    Expression.Parameter(node.Type, sprintf "__key_col_%s" colName) :> Expression
+                                | None ->
+                                    base.VisitMethodCall node
+                            else
+                                base.VisitMethodCall node
+                        override _.VisitMember(node: MemberExpression) =
+                            match tryResolveKeyPropertyCol node with
+                            | Some colName ->
+                                Expression.Parameter(node.Type, sprintf "__key_col_%s" colName) :> Expression
+                            | None ->
+                                match findOrAddWindowAgg node with
+                                | Some colName ->
+                                    Expression.Parameter(node.Type, sprintf "__key_col_%s" colName) :> Expression
+                                | None ->
+                                    base.VisitMember node
+                        override _.VisitParameter(node: ParameterExpression) =
+                            match tryResolveKeyPropertyCol node with
+                            | Some colName ->
+                                Expression.Parameter(node.Type, sprintf "__key_col_%s" colName) :> Expression
+                            | None -> base.VisitParameter node
+                    }.Visit(expr)
+
+                let tryTranslatePostGroupExpr (rawArgExpr: Expression) : ExprHandle option =
+                    let beforeCount = windowAggs.Count
+                    let rewritten = rewriteWindowExpr rawArgExpr
+                    match ExprTranslator.tryTranslateWithContext (TranslationContext.Entity groupParamName) rewritten with
+                    | Some h -> Some h
+                    | None ->
+                        while windowAggs.Count > beforeCount do
+                            windowAggs.RemoveAt(windowAggs.Count - 1)
+                        None
+
+                let classifiedNonKeyArgs =
+                    nonKeyArgs
+                    |> List.map (fun (colName, argExpr) ->
+                        match tryTranslateSingleAgg colName argExpr with
+                        | Some aggH -> Choice1Of3(colName, aggH)
+                        | None ->
+                            match tryTranslatePostGroupExpr argExpr with
+                            | Some derivedH -> Choice2Of3(colName, PolarsWrapper.Alias(derivedH, colName))
+                            | None -> Choice3Of3 colName)
+
+                if classifiedNonKeyArgs |> List.exists (function Choice3Of3 _ -> true | _ -> false) then
                     None
                 else
-                    let aggs = translatedAggOpts |> List.choose id
+                    let aggs =
+                        (classifiedNonKeyArgs |> List.choose (function Choice1Of3(_, h) -> Some h | _ -> None))
+                        @ (windowAggs |> Seq.map (fun (_, _, h) -> h) |> Seq.toList)
+                    let derivedKeyColMap =
+                        classifiedNonKeyArgs
+                        |> List.choose (function Choice2Of3(c, h) -> Some(c, h) | _ -> None)
+                        |> Map.ofList
 
                     let resolveResultColName (e: Expression) : string option =
                         let cleanE = ExprTranslator.unwrap e
 
-                        match cleanE with
-                        | MemberAccess(_, m) when m.Name = "Key" && keyDefs.Length = 1 ->
-                            Some keyNameToOutputAliasMap.[fst keyDefs.[0]]
-                        | MemberAccess(MemberAccess(_, k), m) when k.Name = "Key" ->
-                            let idxOpt =
-                                if m.Name = "Item1" || m.Name = "Fst" then Some 0
-                                elif m.Name = "Item2" || m.Name = "Snd" then Some 1
-                                elif m.Name.StartsWith "Item" then
-                                    match Int32.TryParse(m.Name.Substring 4) with
-                                    | true, i -> Some(i - 1)
-                                    | _ -> None
-                                else None
-
-                            match idxOpt with
-                            | Some idx when idx >= 0 && idx < keyDefs.Length ->
-                                Some keyNameToOutputAliasMap.[fst keyDefs.[idx]]
-                            | _ ->
-                                keyNameToOutputAliasMap.TryFind m.Name |> Option.orElse (Some m.Name)
-                        | MemberAccess(p, m) when isKeyArg p ->
-                            let idxOpt =
-                                if m.Name = "Item1" || m.Name = "Fst" then Some 0
-                                elif m.Name = "Item2" || m.Name = "Snd" then Some 1
-                                elif m.Name.StartsWith "Item" then
-                                    match Int32.TryParse(m.Name.Substring 4) with
-                                    | true, i -> Some(i - 1)
-                                    | _ -> None
-                                else None
-
-                            match idxOpt with
-                            | Some idx when idx >= 0 && idx < keyDefs.Length ->
-                                Some keyNameToOutputAliasMap.[fst keyDefs.[idx]]
-                            | _ ->
-                                keyNameToOutputAliasMap.TryFind m.Name |> Option.orElse (Some m.Name)
-                        | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter -> Some m.Name
-                        | MethodCall _ as aggCall ->
-                            List.zip memberNames args
-                            |> List.tryPick (fun (colName, argExpr) ->
-                                if (ExprTranslator.unwrap argExpr).ToString() = aggCall.ToString() then
-                                    Some colName
-                                else
-                                    None)
-                        | _ -> None
+                        match tryResolveKeyPropertyCol cleanE with
+                        | Some colName -> Some colName
+                        | None ->
+                            match cleanE with
+                            | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter -> Some m.Name
+                            | MethodCall _ as aggCall ->
+                                List.zip memberNames args
+                                |> List.tryPick (fun (colName, argExpr) ->
+                                    if (ExprTranslator.unwrap argExpr).ToString() = aggCall.ToString() then
+                                        Some colName
+                                    else
+                                        None)
+                            | _ -> None
 
                     let extraHavingAggs = ResizeArray<string * ExprHandle>()
 
@@ -2457,7 +2629,12 @@ module internal QueryPipelineHelpers =
                                 | None -> None
 
                     let rec translateHaving (expr: Expression) : ExprHandle option =
-                        match expr with
+                        let foldedExpr, _ =
+                            if SubqueryDecorrelator.containsSubquery expr then
+                                SubqueryDecorrelator.foldUncorrelatedSubqueries (Set.ofList [ groupParamName ]) expr
+                            else
+                                expr, false
+                        match foldedExpr with
                         | Binary(op, left, right) ->
                             match translateHaving left, translateHaving right with
                             | Some l, Some r ->
@@ -2465,16 +2642,31 @@ module internal QueryPipelineHelpers =
                                     Some(ExprTranslator.translateBinary op l r)
                                 with _ ->
                                     None
-                            | _ -> None
-                        | Constant _ -> ExprTranslator.tryTranslateWithContext TranslationContext.Empty expr
+                            | _ ->
+                                tryTranslatePostGroupExpr foldedExpr
+                        | Unary(op, inner) when op = ExpressionType.Convert || op = ExpressionType.ConvertChecked ->
+                            match translateHaving inner with
+                            | Some innerH ->
+                                match ExprTranslator.tryTranslateCast (match foldedExpr with :? UnaryExpression as u -> u.Type | _ -> typeof<obj>) innerH with
+                                | Some castH -> Some castH
+                                | None -> Some innerH
+                            | None -> tryTranslatePostGroupExpr foldedExpr
+                        | Unary(op, inner) ->
+                            match translateHaving inner with
+                            | Some innerH -> ExprTranslator.translateUnary op innerH
+                            | None -> tryTranslatePostGroupExpr foldedExpr
+                        | Constant _ -> ExprTranslator.tryTranslateWithContext TranslationContext.Empty foldedExpr
                         | other ->
                             match resolveResultColName other with
                             | Some colName -> Some(PolarsWrapper.Col colName)
                             | None ->
                                 match ExprTranslator.unwrap other with
                                 | :? MethodCallExpression as aggCall ->
-                                    resolveHavingAggColName aggCall |> Option.map PolarsWrapper.Col
-                                | _ -> None
+                                    match resolveHavingAggColName aggCall with
+                                    | Some c -> Some(PolarsWrapper.Col c)
+                                    | None -> tryTranslatePostGroupExpr foldedExpr
+                                | _ ->
+                                    tryTranslatePostGroupExpr foldedExpr
 
                     let havingFilterOpt =
                         ctx.HavingPreds
@@ -2484,7 +2676,10 @@ module internal QueryPipelineHelpers =
                         None
                     else
                         let havingFilterOps = havingFilterOpt |> List.choose id |> List.map QueryOp.Filter
-                        let allAggs = aggs @ (extraHavingAggs |> Seq.map snd |> Seq.toList)
+                        let allAggs =
+                            (classifiedNonKeyArgs |> List.choose (function Choice1Of3(_, h) -> Some h | _ -> None))
+                            @ (windowAggs |> Seq.map (fun (_, _, h) -> h) |> Seq.toList)
+                            @ (extraHavingAggs |> Seq.map snd |> Seq.toList)
 
                         let groupBySpec =
                             {
@@ -2496,18 +2691,73 @@ module internal QueryPipelineHelpers =
 
                         let groupByOp = QueryOp.GroupBy groupBySpec
 
-                        let sortSpecs =
+                        let hasLateSort =
+                            ctx.SortStages
+                            |> List.exists (fun (sortLambda, _) ->
+                                match resolveResultColName sortLambda.Body with
+                                | Some colName when derivedKeyColMap.ContainsKey colName -> true
+                                | None ->
+                                    match tryTranslateDerivedKeyExpr sortLambda.Body with
+                                    | Some _ -> false
+                                    | None -> true
+                                | _ -> false)
+
+                        let allSortSpecs =
                             ctx.SortStages
                             |> List.choose (fun (sortLambda, isDesc) ->
-                                resolveResultColName sortLambda.Body
-                                |> Option.map (fun colName ->
-                                    {
-                                        Expr = PolarsWrapper.Col colName
-                                        Descending = isDesc
-                                        NullsLast = false
-                                    }))
+                                match resolveResultColName sortLambda.Body with
+                                | Some colName ->
+                                    Some
+                                        {
+                                            Expr = PolarsWrapper.Col colName
+                                            Descending = isDesc
+                                            NullsLast = false
+                                        }
+                                | None ->
+                                    tryTranslateDerivedKeyExpr sortLambda.Body
+                                    |> Option.orElseWith (fun () -> tryTranslatePostGroupExpr sortLambda.Body)
+                                    |> Option.map (fun exprH ->
+                                        {
+                                            Expr = exprH
+                                            Descending = isDesc
+                                            NullsLast = false
+                                        }))
 
-                        let sortOps = if sortSpecs.IsEmpty then [] else [ QueryOp.Sort sortSpecs ]
+                        let earlySortSpecs =
+                            if hasLateSort then
+                                ctx.SortStages
+                                |> List.choose (fun (sortLambda, isDesc) ->
+                                    match resolveResultColName sortLambda.Body with
+                                    | Some colName when not (derivedKeyColMap.ContainsKey colName) ->
+                                        Some
+                                            {
+                                                Expr = PolarsWrapper.Col colName
+                                                Descending = isDesc
+                                                NullsLast = false
+                                            }
+                                    | None ->
+                                        tryTranslateDerivedKeyExpr sortLambda.Body
+                                        |> Option.map (fun exprH ->
+                                            {
+                                                Expr = exprH
+                                                Descending = isDesc
+                                                NullsLast = false
+                                            })
+                                    | _ -> None)
+                            else
+                                allSortSpecs
+
+                        let lateSortSpecs = if hasLateSort then allSortSpecs else []
+
+                        let earlySortOps = if earlySortSpecs.IsEmpty then [] else [ QueryOp.Sort earlySortSpecs ]
+                        let lateSortOps = if lateSortSpecs.IsEmpty then [] else [ QueryOp.Sort lateSortSpecs ]
+
+                        let preSelectWithColsOps =
+                            if not derivedKeyColMap.IsEmpty then
+                                let derivedCols = derivedKeyColMap |> Map.toList |> List.map (fun (_, h) -> PolarsWrapper.CloneExpr h) |> List.toArray
+                                [ QueryOp.WithColumns derivedCols ]
+                            else
+                                []
 
                         let finalSelectOp =
                             let orderedColExprs =
@@ -2525,7 +2775,7 @@ module internal QueryPipelineHelpers =
 
                             QueryOp.Select orderedColExprs
 
-                        Some(finalSelectOp :: sortOps @ havingFilterOps @ [ groupByOp ])
+                        Some(finalSelectOp :: lateSortOps @ havingFilterOps @ preSelectWithColsOps @ earlySortOps @ [ groupByOp ])
 
     /// Applies a list of QueryOp to a target LazyFrameHandle in forward order.
     let applyNativeOps (sourceLf: LazyFrameHandle) (ops: QueryOp list) : LazyFrameHandle =
@@ -2723,10 +2973,11 @@ module internal QueryPipelineHelpers =
         (kind: GroupingKind)
         (keyLambda: LambdaExpression)
         (resLambda: LambdaExpression)
+        (scopeMap: Map<string * string, string>)
         : LazyFrameHandle option =
 
         let keyParam = keyLambda.Parameters.[0]
-        let keyCtx = createContextForType keyParam.Type activeLf keyParam.Name
+        let keyCtx = createContextWithScope scopeMap keyParam.Type activeLf keyParam.Name
 
         let elemType = keyParam.Type
 
@@ -2895,6 +3146,7 @@ module internal QueryPipelineHelpers =
                             targetColExprOpt
                             scalarColOpt
                             wholeRowStructOpt
+                            scopeMap
                             activeLf
                             colName
                             argExpr)

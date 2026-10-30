@@ -378,33 +378,25 @@ public class TpcdsQuery61To70Tests
         var class2 = new[] { "accessories", "classical", "fragrances", "pants" };
         var brand2 = new[] { "amalgimporto #1", "edu packscholar #1", "exportiimporto #1", "importoamalg #1" };
 
-        var grouped = from ss in storeSalesQuery
-                      join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
-                      join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
-                      join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
-                      where d.d_month_seq >= 1200 && d.d_month_seq <= 1211
-                         && ((cat1.Contains(i.i_category) && class1.Contains(i.i_class) && brand1.Contains(i.i_brand))
-                             || (cat2.Contains(i.i_category) && class2.Contains(i.i_class) && brand2.Contains(i.i_brand)))
-                      group ss by new { i.i_manager_id, d.d_moy } into g
-                      select new
-                      {
-                          g.Key.i_manager_id,
-                          sum_sales = g.Sum(x => x.ss_sales_price)
-                      };
-
-        var tmp1 = from g in grouped
+        var q63 = (from ss in storeSalesQuery
+                   join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
+                   join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
+                   join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
+                   where d.d_month_seq >= 1200 && d.d_month_seq <= 1211
+                      && ((cat1.Contains(i.i_category) && class1.Contains(i.i_class) && brand1.Contains(i.i_brand))
+                          || (cat2.Contains(i.i_category) && class2.Contains(i.i_class) && brand2.Contains(i.i_brand)))
+                   group ss by new { i.i_manager_id, d.d_moy } into g
+                   let sum_sales = g.Sum(x => x.ss_sales_price)
+                   let avg_monthly_sales = sum_sales.Average().Over(g.Key.i_manager_id)
+                   where avg_monthly_sales > 0.0
+                      && (Math.Abs((double)sum_sales! - avg_monthly_sales) / avg_monthly_sales > 0.1)
+                   orderby g.Key.i_manager_id, avg_monthly_sales, sum_sales
                    select new
                    {
-                       g.i_manager_id,
-                       g.sum_sales,
-                       avg_monthly_sales = g.sum_sales.Average().Over(g.i_manager_id)
-                   };
-
-        var q63 = (from t in tmp1
-                   where t.avg_monthly_sales > 0.0
-                      && (Math.Abs((double)t.sum_sales! - t.avg_monthly_sales) / t.avg_monthly_sales > 0.1)
-                   orderby t.i_manager_id, t.avg_monthly_sales, t.sum_sales
-                   select t)
+                       g.Key.i_manager_id,
+                       sum_sales,
+                       avg_monthly_sales
+                   })
                   .Take(100);
 
         AssertPlan(q63, NativePushdown);
@@ -1829,25 +1821,25 @@ public class TpcdsQuery61To70Tests
         var states = new[] { "KY", "GA", "NM" };
         var targetDates = dateDimQuery.Where(d => d.d_year == 2001 && d.d_moy >= 4 && d.d_moy <= 6);
 
-        var storeCust = (from ss in storeSalesQuery
-                         join d in targetDates on ss.ss_sold_date_sk equals d.d_date_sk
-                         select ss.ss_customer_sk).Distinct();
+        var storeSalesInPeriod = from ss in storeSalesQuery
+                                 join d in targetDates on ss.ss_sold_date_sk equals d.d_date_sk
+                                 select ss;
 
-        var webCust = from ws in webSalesQuery
-                      join d in targetDates on ws.ws_sold_date_sk equals d.d_date_sk
-                      select ws.ws_bill_customer_sk;
+        var webSalesInPeriod = from ws in webSalesQuery
+                               join d in targetDates on ws.ws_sold_date_sk equals d.d_date_sk
+                               select ws;
 
-        var catCust = from cs in catalogSalesQuery
-                      join d in targetDates on cs.cs_sold_date_sk equals d.d_date_sk
-                      select cs.cs_ship_customer_sk;
-
-        var activeCust = storeCust.Except(webCust).Except(catCust);
+        var catSalesInPeriod = from cs in catalogSalesQuery
+                               join d in targetDates on cs.cs_sold_date_sk equals d.d_date_sk
+                               select cs;
 
         var q69 = (from c in customerQuery
                    join ca in customerAddressQuery on c.c_current_addr_sk equals ca.ca_address_sk
                    where states.Contains(ca.ca_state)
                    join cd in customerDemographicsQuery on c.c_current_cdemo_sk equals cd.cd_demo_sk
-                   join custSk in activeCust on c.c_customer_sk equals custSk
+                   where storeSalesInPeriod.Any(ss => ss.ss_customer_sk == c.c_customer_sk)
+                      && !webSalesInPeriod.Any(ws => ws.ws_bill_customer_sk == c.c_customer_sk)
+                      && !catSalesInPeriod.Any(cs => cs.cs_ship_customer_sk == c.c_customer_sk)
                    group c by new
                    {
                        cd.cd_gender,
@@ -2011,24 +2003,14 @@ public class TpcdsQuery61To70Tests
 
         var filteredDates = dateDimQuery.Where(d => d.d_month_seq >= 1200 && d.d_month_seq <= 1211);
 
-        var stateGroups = from ss in storeSalesQuery
-                          join d in filteredDates on ss.ss_sold_date_sk equals d.d_date_sk
-                          join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
-                          group ss by s.s_state into g
-                          select new
-                          {
-                              s_state = g.Key,
-                              net_profit = g.Sum(x => x.ss_net_profit)
-                          };
+        var topStates = from ss in storeSalesQuery
+                        join d in filteredDates on ss.ss_sold_date_sk equals d.d_date_sk
+                        join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
+                        group ss by s.s_state into g
+                        let ranking = (long)g.Sum(x => x.ss_net_profit).Rank(RankMethod.Min, true).Over(g.Key)
+                        where ranking <= 5
+                        select new { s_state = g.Key };
 
-        var topStates = from sg in stateGroups
-                        select new
-                        {
-                            sg.s_state,
-                            ranking = (long)sg.net_profit.Rank(RankMethod.Min, true).Over(sg.s_state)
-                        } into tmp1
-                        where tmp1.ranking <= 5
-                        select new { tmp1.s_state };
 
         var baseSales = from ss in storeSalesQuery
                         join d in filteredDates on ss.ss_sold_date_sk equals d.d_date_sk

@@ -837,47 +837,32 @@ public class TpcdsQuery31To40Tests
 
         var targetDates = dateDimQuery.Where(d => d.d_year == 2002 && d.d_qoy < 4);
 
-        var storeCustomers = (from ss in storeSalesQuery
-                              join d in targetDates on ss.ss_sold_date_sk equals d.d_date_sk
-                              select ss.ss_customer_sk).Distinct();
+        var storeSalesInPeriod = from ss in storeSalesQuery
+                                 join d in targetDates on ss.ss_sold_date_sk equals d.d_date_sk
+                                 select ss;
 
-        var webCustomers = (from ws in webSalesQuery
-                            join d in targetDates on ws.ws_sold_date_sk equals d.d_date_sk
-                            select ws.ws_bill_customer_sk).Distinct();
+        var webSalesInPeriod = from ws in webSalesQuery
+                               join d in targetDates on ws.ws_sold_date_sk equals d.d_date_sk
+                               select ws;
 
-        var catalogCustomers = (from cs in catalogSalesQuery
-                                join d in targetDates on cs.cs_sold_date_sk equals d.d_date_sk
-                                select cs.cs_ship_customer_sk).Distinct();
+        var catalogSalesInPeriod = from cs in catalogSalesQuery
+                                   join d in targetDates on cs.cs_sold_date_sk equals d.d_date_sk
+                                   select cs;
 
-        var nonStoreCustomers = (from c in webCustomers.Concat(catalogCustomers) select c).Distinct();
-
-        var eligibleCustomers = (from sc in storeCustomers
-                                 join nsc in nonStoreCustomers on sc equals nsc
-                                 select sc).Distinct();
-
-        var eligible = from c in customerQuery
-                       join ec in eligibleCustomers on c.c_customer_sk equals ec
-                       join ca in customerAddressQuery on c.c_current_addr_sk equals ca.ca_address_sk
-                       join cd in customerDemographicsQuery on c.c_current_cdemo_sk equals cd.cd_demo_sk
-                       select new
-                       {
-                           ca.ca_state,
-                           cd.cd_gender,
-                           cd.cd_marital_status,
-                           cd.cd_dep_count,
-                           cd.cd_dep_employed_count,
-                           cd.cd_dep_college_count
-                       };
-
-        var q35 = (from x in eligible
-                   group x by new
+        var q35 = (from c in customerQuery
+                   join ca in customerAddressQuery on c.c_current_addr_sk equals ca.ca_address_sk
+                   join cd in customerDemographicsQuery on c.c_current_cdemo_sk equals cd.cd_demo_sk
+                   where storeSalesInPeriod.Any(ss => ss.ss_customer_sk == c.c_customer_sk) &&
+                         (webSalesInPeriod.Any(ws => ws.ws_bill_customer_sk == c.c_customer_sk) ||
+                          catalogSalesInPeriod.Any(cs => cs.cs_ship_customer_sk == c.c_customer_sk))
+                   group cd by new
                    {
-                       x.ca_state,
-                       x.cd_gender,
-                       x.cd_marital_status,
-                       x.cd_dep_count,
-                       x.cd_dep_employed_count,
-                       x.cd_dep_college_count
+                       ca.ca_state,
+                       cd.cd_gender,
+                       cd.cd_marital_status,
+                       cd.cd_dep_count,
+                       cd.cd_dep_employed_count,
+                       cd.cd_dep_college_count
                    } into g
                    orderby g.Key.ca_state,
                            g.Key.cd_gender,
@@ -1560,48 +1545,29 @@ public class TpcdsQuery31To40Tests
 
         var filteredDates = dateDimQuery.Where(d => d.d_year == 2001);
 
-        var baseInv = from inv in inventoryQuery
-                      join i in itemQuery on inv.inv_item_sk equals i.i_item_sk
-                      join w in warehouseQuery on inv.inv_warehouse_sk equals w.w_warehouse_sk
-                      join d in filteredDates on inv.inv_date_sk equals d.d_date_sk
-                      select new
-                      {
-                          w.w_warehouse_name,
-                          w.w_warehouse_sk,
-                          i.i_item_sk,
-                          d.d_moy,
-                          inv.inv_quantity_on_hand
-                      };
-
-        var foo = from x in baseInv
-                  group x by new
-                  {
-                      x.w_warehouse_name,
-                      x.w_warehouse_sk,
-                      x.i_item_sk,
-                      x.d_moy
-                  } into g
-                  select new
-                  {
-                      g.Key.w_warehouse_name,
-                      g.Key.w_warehouse_sk,
-                      g.Key.i_item_sk,
-                      g.Key.d_moy,
-                      stdev = g.Std(x => (double?)x.inv_quantity_on_hand),
-                      mean = g.Average(x => (double?)x.inv_quantity_on_hand)
-                  };
-
-        var invCte = from f in foo
-                     where f.mean != 0.0 && f.stdev / f.mean > 1.0
+        var invCte = from inv in inventoryQuery
+                     join i in itemQuery on inv.inv_item_sk equals i.i_item_sk
+                     join w in warehouseQuery on inv.inv_warehouse_sk equals w.w_warehouse_sk
+                     join d in filteredDates on inv.inv_date_sk equals d.d_date_sk
+                     group inv by new
+                     {
+                         w.w_warehouse_name,
+                         w.w_warehouse_sk,
+                         i.i_item_sk,
+                         d.d_moy
+                     } into g
+                     let stdev = g.Std(x => (double?)x.inv_quantity_on_hand)
+                     let mean = g.Average(x => (double?)x.inv_quantity_on_hand)
+                     where mean != 0.0 && stdev / mean > 1.0
                      select new
                      {
-                         f.w_warehouse_name,
-                         f.w_warehouse_sk,
-                         f.i_item_sk,
-                         f.d_moy,
-                         f.stdev,
-                         f.mean,
-                         cov = f.stdev / f.mean
+                         g.Key.w_warehouse_name,
+                         g.Key.w_warehouse_sk,
+                         g.Key.i_item_sk,
+                         g.Key.d_moy,
+                         stdev,
+                         mean,
+                         cov = stdev / mean
                      };
 
         var inv1 = invCte.Where(x => x.d_moy == 1);
@@ -1779,31 +1745,21 @@ public class TpcdsQuery31To40Tests
         var filteredItems = itemQuery.Where(i => i.i_current_price >= 0.99m && i.i_current_price <= 1.49m);
         var filteredDates = dateDimQuery.Where(d => d.d_date >= minDate && d.d_date <= maxDate);
 
-        var joined = from cs in catalogSalesQuery
-                     join cr in catalogReturnsQuery on new { order_number = cs.cs_order_number, item_sk = cs.cs_item_sk }
-                                                equals new { order_number = cr.cr_order_number, item_sk = cr.cr_item_sk } into crGroup
-                     from cr in crGroup.DefaultIfEmpty()
-                     join w in warehouseQuery on cs.cs_warehouse_sk equals w.w_warehouse_sk
-                     join i in filteredItems on cs.cs_item_sk equals i.i_item_sk
-                     join d in filteredDates on cs.cs_sold_date_sk equals d.d_date_sk
-                     select new
-                     {
-                         w.w_state,
-                         i.i_item_id,
-                         cs.cs_sales_price,
-                         cr.cr_refunded_cash,
-                         d.d_date
-                     };
-
-        var q40 = (from x in joined
-                   group x by new { x.w_state, x.i_item_id } into g
+        var q40 = (from cs in catalogSalesQuery
+                   join cr in catalogReturnsQuery on new { order_number = cs.cs_order_number, item_sk = cs.cs_item_sk }
+                                              equals new { order_number = cr.cr_order_number, item_sk = cr.cr_item_sk } into crGroup
+                   from cr in crGroup.DefaultIfEmpty()
+                   join w in warehouseQuery on cs.cs_warehouse_sk equals w.w_warehouse_sk
+                   join i in filteredItems on cs.cs_item_sk equals i.i_item_sk
+                   join d in filteredDates on cs.cs_sold_date_sk equals d.d_date_sk
+                   group new { cs, cr, d } by new { w.w_state, i.i_item_id } into g
                    orderby g.Key.w_state, g.Key.i_item_id
                    select new
                    {
                        g.Key.w_state,
                        g.Key.i_item_id,
-                       sales_before = g.Sum(x => x.d_date < pivotDate ? x.cs_sales_price - (x.cr_refunded_cash ?? 0m) : 0m),
-                       sales_after = g.Sum(x => x.d_date >= pivotDate ? x.cs_sales_price - (x.cr_refunded_cash ?? 0m) : 0m)
+                       sales_before = g.Sum(x => x.d.d_date < pivotDate ? x.cs.cs_sales_price - (x.cr.cr_refunded_cash ?? 0m) : 0m),
+                       sales_after = g.Sum(x => x.d.d_date >= pivotDate ? x.cs.cs_sales_price - (x.cr.cr_refunded_cash ?? 0m) : 0m)
                    }).Take(100);
 
         AssertPlan(q40, NativePushdown);

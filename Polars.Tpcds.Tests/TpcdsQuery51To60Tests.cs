@@ -376,29 +376,22 @@ public class TpcdsQuery51To60Tests
         var class2 = new[] { "accessories", "classical", "fragrances", "pants" };
         var brand2 = new[] { "amalgimporto #1", "edu packscholar #1", "exportiimporto #1", "importoamalg #1" };
 
-        var grouped = from ss in storeSalesQuery
-                      join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
-                      join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
-                      join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
-                      where d.d_month_seq >= 1200 && d.d_month_seq <= 1211
-                         && ((cat1.Contains(i.i_category) && class1.Contains(i.i_class) && brand1.Contains(i.i_brand))
-                             || (cat2.Contains(i.i_category) && class2.Contains(i.i_class) && brand2.Contains(i.i_brand)))
-                      group ss by new { i.i_manufact_id, d.d_qoy } into g
-                      select new
-                      {
-                          g.Key.i_manufact_id,
-                          sum_sales = g.Sum(x => x.ss_sales_price)
-                      };
-
-        var tmp1 = from g in grouped
+        var q53 = (from ss in storeSalesQuery
+                   join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
+                   join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
+                   join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
+                   where d.d_month_seq >= 1200 && d.d_month_seq <= 1211
+                      && ((cat1.Contains(i.i_category) && class1.Contains(i.i_class) && brand1.Contains(i.i_brand))
+                          || (cat2.Contains(i.i_category) && class2.Contains(i.i_class) && brand2.Contains(i.i_brand)))
+                   group ss by new { i.i_manufact_id, d.d_qoy } into g
+                   let sum_sales = g.Sum(x => x.ss_sales_price)
+                   let avg_quarterly_sales = sum_sales.Average().Over(g.Key.i_manufact_id)
                    select new
                    {
-                       g.i_manufact_id,
-                       g.sum_sales,
-                       avg_quarterly_sales = g.sum_sales.Average().Over(g.i_manufact_id)
-                   };
-
-        var q53 = (from t in tmp1
+                       g.Key.i_manufact_id,
+                       sum_sales,
+                       avg_quarterly_sales
+                   } into t
                    where t.avg_quarterly_sales > 0.0
                       && (Math.Abs((double)t.sum_sales! - t.avg_quarterly_sales) / t.avg_quarterly_sales > 0.1)
                    orderby t.avg_quarterly_sales, t.sum_sales, t.i_manufact_id
@@ -1101,42 +1094,32 @@ public class TpcdsQuery51To60Tests
         var dateDimQuery = TpcdsData.DateDimQuery();
         var callCenterQuery = TpcdsData.CallCenterQuery();
 
-        var v1Base = from cs in catalogSalesQuery
-                     join i in itemQuery on cs.cs_item_sk equals i.i_item_sk
-                     join d in dateDimQuery on cs.cs_sold_date_sk equals d.d_date_sk
-                     join cc in callCenterQuery on cs.cs_call_center_sk equals cc.cc_call_center_sk
-                     where d.d_year == 1999 || (d.d_year == 1998 && d.d_moy == 12) || (d.d_year == 2000 && d.d_moy == 1)
-                     group cs by new
-                     {
-                         i.i_category,
-                         i.i_brand,
-                         cc.cc_name,
-                         d.d_year,
-                         d.d_moy
-                     } into g
-                     select new
-                     {
-                         g.Key.i_category,
-                         g.Key.i_brand,
-                         g.Key.cc_name,
-                         g.Key.d_year,
-                         g.Key.d_moy,
-                         sum_sales = g.Sum(x => x.cs_sales_price)
-                     };
-
-        var v1 = from v in v1Base
-                 orderby v.d_year, v.d_moy
+        var v1 = from cs in catalogSalesQuery
+                 join i in itemQuery on cs.cs_item_sk equals i.i_item_sk
+                 join d in dateDimQuery on cs.cs_sold_date_sk equals d.d_date_sk
+                 join cc in callCenterQuery on cs.cs_call_center_sk equals cc.cc_call_center_sk
+                 where d.d_year == 1999 || (d.d_year == 1998 && d.d_moy == 12) || (d.d_year == 2000 && d.d_moy == 1)
+                 group cs by new
+                 {
+                     i.i_category,
+                     i.i_brand,
+                     cc.cc_name,
+                     d.d_year,
+                     d.d_moy
+                 } into g
+                 orderby g.Key.d_year, g.Key.d_moy
+                 let sum_sales = g.Sum(x => x.cs_sales_price)
                  select new
                  {
-                     v.i_category,
-                     v.i_brand,
-                     v.cc_name,
-                     v.d_year,
-                     v.d_moy,
-                     avg_monthly_sales = v.sum_sales.Average().Over(new { v.i_category, v.i_brand, v.cc_name, v.d_year }),
-                     v.sum_sales,
-                     psum = v.sum_sales.Shift(1).Over(new { v.i_category, v.i_brand, v.cc_name }),
-                     nsum = v.sum_sales.Shift(-1).Over(new { v.i_category, v.i_brand, v.cc_name })
+                     g.Key.i_category,
+                     g.Key.i_brand,
+                     g.Key.cc_name,
+                     g.Key.d_year,
+                     g.Key.d_moy,
+                     avg_monthly_sales = sum_sales.Average().Over(new { g.Key.i_category, g.Key.i_brand, g.Key.cc_name, g.Key.d_year }),
+                     sum_sales,
+                     psum = sum_sales.Shift(1).Over(new { g.Key.i_category, g.Key.i_brand, g.Key.cc_name }),
+                     nsum = sum_sales.Shift(-1).Over(new { g.Key.i_category, g.Key.i_brand, g.Key.cc_name })
                  };
 
         var q57 = (from x in v1
@@ -1629,7 +1612,6 @@ public class TpcdsQuery51To60Tests
                 {
                     s_store_name2 = s.s_store_name,
                     d_week_seq2 = w.d_week_seq,
-                    d_week_seq2_minus_52 = w.d_week_seq - 52,
                     s_store_id2 = s.s_store_id,
                     sun_sales2 = w.sun_sales,
                     mon_sales2 = w.mon_sales,
@@ -1642,7 +1624,7 @@ public class TpcdsQuery51To60Tests
 
         var q59 = (from yRow in y
                    join xRow in x on new { store_id = yRow.s_store_id1, week_seq = yRow.d_week_seq1 }
-                              equals new { store_id = xRow.s_store_id2, week_seq = xRow.d_week_seq2_minus_52 }
+                              equals new { store_id = xRow.s_store_id2, week_seq = (long?)(xRow.d_week_seq2 - 52) }
                    orderby yRow.s_store_name1, yRow.s_store_id1, yRow.d_week_seq1
                    select new
                    {

@@ -999,27 +999,17 @@ public class TpcdsQuery01To10Tests
             net_loss = sr.sr_net_loss
         }));
 
-        var ssrGroup = from sr in ssUnion
-                       join d in filteredDates on sr.date_sk equals d.d_date_sk
-                       join s in storeQuery on sr.store_sk equals s.s_store_sk
-                       group sr by s.s_store_id into g
-                       select new
-                       {
-                           s_store_id = g.Key,
-                           sales = g.Sum(x => x.sales_price),
-                           profit = g.Sum(x => x.profit),
-                           returns_ = g.Sum(x => x.return_amt),
-                           profit_loss = g.Sum(x => x.net_loss)
-                       };
-
-        var ssr = from r in ssrGroup
+        var ssr = from sr in ssUnion
+                  join d in filteredDates on sr.date_sk equals d.d_date_sk
+                  join s in storeQuery on sr.store_sk equals s.s_store_sk
+                  group sr by s.s_store_id into g
                   select new
                   {
                       channel = "store channel",
-                      id = "store" + r.s_store_id,
-                      sales = r.sales,
-                      returns_ = r.returns_,
-                      profit = r.profit - r.profit_loss
+                      id = "store" + g.Key,
+                      sales = g.Sum(x => x.sales_price),
+                      returns_ = g.Sum(x => x.return_amt),
+                      profit = g.Sum(x => x.profit) - g.Sum(x => x.net_loss)
                   };
 
         // 2. Catalog Channel
@@ -1041,27 +1031,17 @@ public class TpcdsQuery01To10Tests
             net_loss = cr.cr_net_loss
         }));
 
-        var csrGroup = from cr in csUnion
-                       join d in filteredDates on cr.date_sk equals d.d_date_sk
-                       join cp in catalogPageQuery on cr.page_sk equals cp.cp_catalog_page_sk
-                       group cr by cp.cp_catalog_page_id into g
-                       select new
-                       {
-                           cp_catalog_page_id = g.Key,
-                           sales = g.Sum(x => x.sales_price),
-                           profit = g.Sum(x => x.profit),
-                           returns_ = g.Sum(x => x.return_amt),
-                           profit_loss = g.Sum(x => x.net_loss)
-                       };
-
-        var csr = from r in csrGroup
+        var csr = from cr in csUnion
+                  join d in filteredDates on cr.date_sk equals d.d_date_sk
+                  join cp in catalogPageQuery on cr.page_sk equals cp.cp_catalog_page_sk
+                  group cr by cp.cp_catalog_page_id into g
                   select new
                   {
                       channel = "catalog channel",
-                      id = "catalog_page" + r.cp_catalog_page_id,
-                      r.sales,
-                      r.returns_,
-                      profit = r.profit - r.profit_loss
+                      id = "catalog_page" + g.Key,
+                      sales = g.Sum(x => x.sales_price),
+                      returns_ = g.Sum(x => x.return_amt),
+                      profit = g.Sum(x => x.profit) - g.Sum(x => x.net_loss)
                   };
 
         // 3. Web Channel
@@ -1090,27 +1070,17 @@ public class TpcdsQuery01To10Tests
 
         var wsUnion = wsPart.Concat(wrJoined);
 
-        var wsrGroup = from w in wsUnion
-                       join d in filteredDates on w.date_sk equals d.d_date_sk
-                       join ws in webSiteQuery on w.wsr_web_site_sk equals ws.web_site_sk
-                       group w by ws.web_site_id into g
-                       select new
-                       {
-                           web_site_id = g.Key,
-                           sales = g.Sum(x => x.sales_price),
-                           profit = g.Sum(x => x.profit),
-                           returns_ = g.Sum(x => x.return_amt),
-                           profit_loss = g.Sum(x => x.net_loss)
-                       };
-
-        var wsr = from r in wsrGroup
+        var wsr = from w in wsUnion
+                  join d in filteredDates on w.date_sk equals d.d_date_sk
+                  join ws in webSiteQuery on w.wsr_web_site_sk equals ws.web_site_sk
+                  group w by ws.web_site_id into g
                   select new
                   {
                       channel = "web channel",
-                      id = "web_site" + r.web_site_id,
-                      sales = r.sales,
-                      returns_ = r.returns_,
-                      profit = r.profit - r.profit_loss
+                      id = "web_site" + g.Key,
+                      sales = g.Sum(x => x.sales_price),
+                      returns_ = g.Sum(x => x.return_amt),
+                      profit = g.Sum(x => x.profit) - g.Sum(x => x.net_loss)
                   };
 
         // Combined stream x
@@ -2055,29 +2025,28 @@ public class TpcdsQuery01To10Tests
         var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
         var dateDimQuery = TpcdsData.DateDimQuery();
 
-        var storeCust = (from ss in storeSalesQuery
-                         join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
-                         where d.d_year == 2002 && d.d_moy >= 1 && d.d_moy <= 4
-                         select ss.ss_customer_sk).Distinct();
+        var storeSalesInPeriod = from ss in storeSalesQuery
+                                 join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
+                                 where d.d_year == 2002 && d.d_moy >= 1 && d.d_moy <= 4
+                                 select ss;
 
-        var webCust = from ws in webSalesQuery
-                      join d in dateDimQuery on ws.ws_sold_date_sk equals d.d_date_sk
-                      where d.d_year == 2002 && d.d_moy >= 1 && d.d_moy <= 4
-                      select ws.ws_bill_customer_sk;
+        var webSalesInPeriod = from ws in webSalesQuery
+                               join d in dateDimQuery on ws.ws_sold_date_sk equals d.d_date_sk
+                               where d.d_year == 2002 && d.d_moy >= 1 && d.d_moy <= 4
+                               select ws;
 
-        var catCust = from cs in catalogSalesQuery
-                      join d in dateDimQuery on cs.cs_sold_date_sk equals d.d_date_sk
-                      where d.d_year == 2002 && d.d_moy >= 1 && d.d_moy <= 4
-                      select cs.cs_ship_customer_sk;
-
-        var otherCust = webCust.Union(catCust);
-        var activeCust = storeCust.Intersect(otherCust);
+        var catSalesInPeriod = from cs in catalogSalesQuery
+                               join d in dateDimQuery on cs.cs_sold_date_sk equals d.d_date_sk
+                               where d.d_year == 2002 && d.d_moy >= 1 && d.d_moy <= 4
+                               select cs;
 
         var q10 = (from c in customerQuery
                    join ca in customerAddressQuery on c.c_current_addr_sk equals ca.ca_address_sk
                    join cd in customerDemographicsQuery on c.c_current_cdemo_sk equals cd.cd_demo_sk
-                   join custId in activeCust on c.c_customer_sk equals custId
-                   where Q10TargetCounties.Contains(ca.ca_county)
+                   where Q10TargetCounties.Contains(ca.ca_county) &&
+                         storeSalesInPeriod.Any(ss => ss.ss_customer_sk == c.c_customer_sk) &&
+                         (webSalesInPeriod.Any(ws => ws.ws_bill_customer_sk == c.c_customer_sk) ||
+                          catSalesInPeriod.Any(cs => cs.cs_ship_customer_sk == c.c_customer_sk))
                    group cd by new
                    {
                        cd.cd_gender,

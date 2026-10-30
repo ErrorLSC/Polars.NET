@@ -205,7 +205,7 @@ and PolarsQuery<'T>
                     currentLf, [], [], None, true
                 else
                     let activeLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
-                    match compileUnifiedGroupBy activeLf ctx projBody groupParamName isKeyArg with
+                    match compileUnifiedGroupBy activeLf ctx projBody groupParamName isKeyArg scopeMap with
                     | Some compiledOps ->
                         if nextTail.IsEmpty then
                             fuse activeLf nextTail (compiledOps @ []) clientPreds clientProjOpt Map.empty
@@ -216,24 +216,112 @@ and PolarsQuery<'T>
                     | None -> currentLf, [], [], None, true
 
             let slurpPipelineGroupBy (stages: LinqStage list) (initCtx: GroupFoldContext) =
-                let rec slurp (s: LinqStage list) (ctx: GroupFoldContext) =
+                let rec slurp (s: LinqStage list) (ctx: GroupFoldContext) (letBindings: Map<string, Expression>) =
+                    let substituteLet (expr: Expression) =
+                        if letBindings.IsEmpty then expr
+                        else
+                            { new ExpressionVisitor() with
+                                override self.VisitMember(node: MemberExpression) =
+                                    let visitedInner = self.Visit(node.Expression)
+                                    let rec isTransparentTarget (e: Expression) =
+                                        match ExprTranslator.unwrap e with
+                                        | :? ParameterExpression as p ->
+                                            p.Type.Name.Contains "TransparentIdentifier" || p.Type.Name.Contains "AnonymousType"
+                                        | :? MemberExpression as me when me.Member.Name.Contains "TransparentIdentifier" ->
+                                            isTransparentTarget me.Expression
+                                        | _ -> false
+                                    if isTransparentTarget visitedInner then
+                                        match letBindings.TryFind node.Member.Name with
+                                        | Some boundExpr -> boundExpr
+                                        | None -> node.Update(visitedInner) :> Expression
+                                    else
+                                        node.Update(visitedInner) :> Expression
+                            }.Visit(expr)
+
                     match s with
                     | LinqStage.Filter pred :: next ->
-                        slurp next { ctx with HavingPreds = ctx.HavingPreds @ [ pred ] }
+                        let newBody = substituteLet pred.Body
+                        let newPred = Expression.Lambda(newBody, pred.Parameters)
+                        slurp next { ctx with HavingPreds = ctx.HavingPreds @ [ newPred ] } letBindings
                     | LinqStage.Sort(sortLambda, isDesc) :: next ->
-                        slurp next { ctx with SortStages = ctx.SortStages @ [ (sortLambda, isDesc) ] }
+                        let newBody = substituteLet sortLambda.Body
+                        let newSort = Expression.Lambda(newBody, sortLambda.Parameters)
+                        slurp next { ctx with SortStages = ctx.SortStages @ [ (newSort, isDesc) ] } letBindings
                     | LinqStage.Project projLambda :: next ->
-                        let isKeyArg (e: Expression) =
-                            match ExprTranslator.unwrap e with
-                            | MemberAccess(p, m) when
-                                not (isNull p) && p.NodeType = ExpressionType.Parameter && m.Name = "Key"
-                                ->
-                                true
-                            | :? ParameterExpression as p when p.Name = projLambda.Parameters.[0].Name ->
-                                true
-                            | _ -> false
+                        let param = projLambda.Parameters.[0]
+                        let isTransparentGroupLet =
+                            if not (isNull projLambda.Body.Type) && not (isNull projLambda.Body.Type.FullName) && projLambda.Body.Type.FullName.StartsWith "Microsoft.FSharp." then
+                                None
+                            else
+                                match tryExtractMemberBindings projLambda.Body with
+                                | Some bindings when not next.IsEmpty ->
+                                    let hasGroupingNav =
+                                        bindings
+                                        |> List.exists (fun (propName, expr) ->
+                                            if propName.Contains "TransparentIdentifier" then
+                                                true
+                                            else
+                                                match ExprTranslator.unwrap expr with
+                                                | :? ParameterExpression as p when
+                                                    (p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>)
+                                                    || p.Type.Name.Contains "TransparentIdentifier"
+                                                    || p.Name.Contains "TransparentIdentifier" ->
+                                                    true
+                                                | MemberAccess(target, m) when m.Name.Contains "TransparentIdentifier" ->
+                                                    true
+                                                | _ -> false)
+                                    if hasGroupingNav then
+                                        Some bindings
+                                    else
+                                        None
+                                | _ -> None
 
-                        tryDispatchGroupBy ctx projLambda.Body projLambda.Parameters.[0].Name isKeyArg next
+                        match isTransparentGroupLet with
+                        | Some bindings ->
+                            let gParamOpt =
+                                bindings
+                                |> List.tryPick (fun (name, expr) ->
+                                    match ExprTranslator.unwrap expr with
+                                    | :? ParameterExpression as p when p.Name = param.Name && p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>> ->
+                                        Some(name, p :> Expression)
+                                    | _ -> None)
+                            let updatedBindings =
+                                bindings
+                                |> List.fold (fun m (name, expr) ->
+                                    let subExpr = substituteLet expr
+                                    let normalizedExpr =
+                                        match gParamOpt with
+                                        | Some(gPropName, gParamExpr) ->
+                                            { new ExpressionVisitor() with
+                                                override _.VisitParameter(p: ParameterExpression) =
+                                                    if p.Name = param.Name then gParamExpr
+                                                    else base.VisitParameter p
+                                            }.Visit(subExpr)
+                                        | None -> subExpr
+                                    match ExprTranslator.unwrap normalizedExpr with
+                                    | :? ParameterExpression as p when p.Name = param.Name && (p.Type.Name.Contains "TransparentIdentifier" || p.Type.Name.Contains "AnonymousType") ->
+                                        m
+                                    | _ ->
+                                        Map.add name normalizedExpr m) letBindings
+                            slurp next ctx updatedBindings
+                        | None ->
+                            let finalProjBody = substituteLet projLambda.Body
+                            let isKeyArg (e: Expression) =
+                                match ExprTranslator.unwrap e with
+                                | MemberAccess(p, m) when
+                                    not (isNull p) && (p.NodeType = ExpressionType.Parameter || isNavigationMember (match p with :? MemberExpression as me -> me.Member | _ -> null)) && m.Name = "Key"
+                                    ->
+                                    true
+                                | :? ParameterExpression as p when p.Name = projLambda.Parameters.[0].Name ->
+                                    true
+                                | _ -> false
+
+                            let gParamName =
+                                match letBindings |> Map.tryPick (fun _ v -> match ExprTranslator.unwrap v with :? ParameterExpression as p when p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>> -> Some p.Name | _ -> None) with
+                                | Some name -> name
+                                | None -> projLambda.Parameters.[0].Name
+
+                            tryDispatchGroupBy ctx finalProjBody gParamName isKeyArg next
                     | [] when isGrouping ->
                         let clientHavingPreds =
                             ctx.HavingPreds |> List.map (fun p -> compileClientPredicate p, p)
@@ -241,7 +329,7 @@ and PolarsQuery<'T>
                         fuse currentLf [] opsAcc (clientHavingPreds @ clientPreds) clientProjOpt scopeMap
                     | _ -> currentLf, [], [], None, true
 
-                slurp stages initCtx
+                slurp stages initCtx Map.empty
 
             let dispatchCSharpGroupBy
                 (keyLambda: LambdaExpression)
@@ -309,7 +397,7 @@ and PolarsQuery<'T>
                     currentLf, [], [], None, true
                 else
                     let activeLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
-                    match compileUnifiedGroupingSets activeLf GroupingKind.Rollup keyLambda resLambda with
+                    match compileUnifiedGroupingSets activeLf GroupingKind.Rollup keyLambda resLambda scopeMap with
                     | Some groupedLf ->
                         fuse groupedLf tail [] clientPreds clientProjOpt Map.empty
                     | None -> currentLf, [], [], None, true
@@ -319,7 +407,7 @@ and PolarsQuery<'T>
                     currentLf, [], [], None, true
                 else
                     let activeLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
-                    match compileUnifiedGroupingSets activeLf GroupingKind.Cube keyLambda resLambda with
+                    match compileUnifiedGroupingSets activeLf GroupingKind.Cube keyLambda resLambda scopeMap with
                     | Some groupedLf ->
                         fuse groupedLf tail [] clientPreds clientProjOpt Map.empty
                     | None -> currentLf, [], [], None, true
@@ -329,7 +417,7 @@ and PolarsQuery<'T>
                     currentLf, [], [], None, true
                 else
                     let activeLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
-                    match compileUnifiedGroupingSets activeLf (GroupingKind.GroupingSets setsExpr) keyLambda resLambda with
+                    match compileUnifiedGroupingSets activeLf (GroupingKind.GroupingSets setsExpr) keyLambda resLambda scopeMap with
                     | Some groupedLf ->
                         fuse groupedLf tail [] clientPreds clientProjOpt Map.empty
                     | None -> currentLf, [], [], None, true
@@ -414,6 +502,12 @@ and PolarsQuery<'T>
                             None
 
                     match nativeProjOpOpt with
+                    | Some(QueryOp.WithColumns _ as op) ->
+                        if tail.IsEmpty then
+                            fuse currentLf tail (op :: opsAcc) clientPreds None scopeMap
+                        else
+                            let activeLf = applyNativeOps currentLf (List.rev (op :: opsAcc))
+                            fuse activeLf tail [] clientPreds None scopeMap
                     | Some op ->
                         if tail.IsEmpty then
                             fuse currentLf tail (op :: opsAcc) clientPreds None Map.empty
@@ -543,7 +637,10 @@ and PolarsQuery<'T>
                         let rightCols = getLazySchemaFields spec.RightLf |> Array.map fst
                         let suffix = spec.Suffix |> Option.defaultValue (if spec.InvertSides then "_left" else "_right")
                         let leftScope = outerKey.Parameters.[0].Name
-                        let rightScope = innerKey.Parameters.[0].Name
+                        let rightScope =
+                            match resSelOpt with
+                            | Some resSel when resSel.Parameters.Count >= 2 -> resSel.Parameters.[1].Name
+                            | _ -> innerKey.Parameters.[0].Name
 
                         let updatedScopeMap =
                             if spec.InvertSides then
@@ -648,7 +745,10 @@ and PolarsQuery<'T>
                         let leftColSet = Set.ofArray leftCols
                         let suffix = spec.Suffix |> Option.defaultValue "_right"
                         let leftScope = outerKey.Parameters.[0].Name
-                        let rightScope = innerKey.Parameters.[0].Name
+                        let rightScope =
+                            match resSelOpt with
+                            | Some resSel when resSel.Parameters.Count >= 2 -> resSel.Parameters.[1].Name
+                            | _ -> innerKey.Parameters.[0].Name
 
                         let extractColNames (lambda: LambdaExpression) : string list =
                             match tryExtractMemberBindings lambda.Body with

@@ -205,21 +205,16 @@ limit 100;
                    from sr in srGroup.DefaultIfEmpty()
                    join r in reasonQuery on sr.sr_reason_sk equals r.r_reason_sk
                    where r.r_reason_desc == "reason 28"
+                   group new { ss, sr } by ss.ss_customer_sk into g
+                   let sumsales = g.Sum(x => x.sr.sr_return_quantity != null
+                       ? (decimal?)(x.ss.ss_quantity - x.sr.sr_return_quantity) * x.ss.ss_sales_price
+                       : (decimal?)x.ss.ss_quantity * x.ss.ss_sales_price)
+                   orderby sumsales, g.Key
                    select new
                    {
-                       ss.ss_customer_sk,
-                       act_sales = sr.sr_return_quantity != null
-                           ? (decimal?)(ss.ss_quantity - sr.sr_return_quantity) * ss.ss_sales_price
-                           : (decimal?)ss.ss_quantity * ss.ss_sales_price
+                       ss_customer_sk = g.Key,
+                       sumsales
                    })
-                  .GroupBy(x => x.ss_customer_sk)
-                  .Select(g => new
-                  {
-                      ss_customer_sk = g.Key,
-                      sumsales = g.Sum(x => x.act_sales)
-                  })
-                  .OrderBy(x => x.sumsales)
-                  .ThenBy(x => x.ss_customer_sk)
                   .Take(100);
 
         AssertPlan(q93, NativePushdown);
@@ -595,39 +590,28 @@ limit 100;
         var endDate = new DateOnly(1999, 3, 24);
         var categories = new[] { "Sports", "Books", "Home" };
 
-        var grouped = from ss in storeSalesQuery
-                      join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
-                      join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
-                      where categories.Contains(i.i_category)
-                         && d.d_date >= startDate && d.d_date <= endDate
-                      group ss by new
-                      {
-                          i.i_item_id,
-                          i.i_item_desc,
-                          i.i_category,
-                          i.i_class,
-                          i.i_current_price
-                      } into g
-                      select new
-                      {
-                          g.Key.i_item_id,
-                          g.Key.i_item_desc,
-                          g.Key.i_category,
-                          g.Key.i_class,
-                          g.Key.i_current_price,
-                          itemrevenue = g.Sum(x => x.ss_ext_sales_price)
-                      };
-
-        var q98 = (from x in grouped
+        var q98 = (from ss in storeSalesQuery
+                   join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
+                   join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
+                   where categories.Contains(i.i_category)
+                      && d.d_date >= startDate && d.d_date <= endDate
+                   group ss by new
+                   {
+                       i.i_item_id,
+                       i.i_item_desc,
+                       i.i_category,
+                       i.i_class,
+                       i.i_current_price
+                   } into g
                    select new
                    {
-                       x.i_item_id,
-                       x.i_item_desc,
-                       x.i_category,
-                       x.i_class,
-                       x.i_current_price,
-                       x.itemrevenue,
-                       revenueratio = (double)x.itemrevenue! * 100.0 / (double)x.itemrevenue.Sum().Over(x.i_class)!
+                       g.Key.i_item_id,
+                       g.Key.i_item_desc,
+                       g.Key.i_category,
+                       g.Key.i_class,
+                       g.Key.i_current_price,
+                       itemrevenue = g.Sum(x => x.ss_ext_sales_price),
+                       revenueratio = (double)g.Sum(x => x.ss_ext_sales_price)! * 100.0 / (double)g.Sum(x => x.ss_ext_sales_price).Sum().Over(g.Key.i_class)!
                    })
                   .OrderBy(x => x.i_category)
                   .ThenBy(x => x.i_class)
@@ -705,27 +689,36 @@ ORDER BY
         var callCenterQuery = TpcdsData.CallCenterQuery();
         var dateDimQuery = TpcdsData.DateDimQuery();
 
-        var q99 = (from cs in catalogSalesQuery
-                   join d in dateDimQuery on cs.cs_ship_date_sk equals d.d_date_sk
-                   join w in warehouseQuery on cs.cs_warehouse_sk equals w.w_warehouse_sk
-                   join sm in shipModeQuery on cs.cs_ship_mode_sk equals sm.sm_ship_mode_sk
-                   join cc in callCenterQuery on cs.cs_call_center_sk equals cc.cc_call_center_sk
-                   where d.d_month_seq >= 1200 && d.d_month_seq <= 1211
-                   let w_substr = w.w_warehouse_name!.Substring(0, 20)
-                   let cc_name_lower = cc.cc_name!.ToLower()
-                   group cs by new { w_substr, sm.sm_type, cc_name_lower } into g
-                   orderby g.Key.w_substr, g.Key.sm_type, g.Key.cc_name_lower
+        var joined = from cs in catalogSalesQuery
+                     join d in dateDimQuery on cs.cs_ship_date_sk equals d.d_date_sk
+                     join w in warehouseQuery on cs.cs_warehouse_sk equals w.w_warehouse_sk
+                     join sm in shipModeQuery on cs.cs_ship_mode_sk equals sm.sm_ship_mode_sk
+                     join cc in callCenterQuery on cs.cs_call_center_sk equals cc.cc_call_center_sk
+                     where d.d_month_seq >= 1200 && d.d_month_seq <= 1211
+                     select new
+                     {
+                         w_substr = w.w_warehouse_name!.Substring(0, 20),
+                         sm.sm_type,
+                         cc.cc_name,
+                         diff = cs.cs_ship_date_sk - cs.cs_sold_date_sk
+                     };
+
+        var q99 = (from x in joined
+                   group x by new { x.w_substr, x.sm_type, x.cc_name } into g
                    select new
                    {
                        g.Key.w_substr,
                        g.Key.sm_type,
-                       g.Key.cc_name_lower,
-                       d30 = g.Sum(x => x.cs_ship_date_sk - x.cs_sold_date_sk <= 30 ? 1L : 0L),
-                       d60 = g.Sum(x => x.cs_ship_date_sk - x.cs_sold_date_sk > 30 && x.cs_ship_date_sk - x.cs_sold_date_sk <= 60 ? 1L : 0L),
-                       d90 = g.Sum(x => x.cs_ship_date_sk - x.cs_sold_date_sk > 60 && x.cs_ship_date_sk - x.cs_sold_date_sk <= 90 ? 1L : 0L),
-                       d120 = g.Sum(x => x.cs_ship_date_sk - x.cs_sold_date_sk > 90 && x.cs_ship_date_sk - x.cs_sold_date_sk <= 120 ? 1L : 0L),
-                       dmore = g.Sum(x => x.cs_ship_date_sk - x.cs_sold_date_sk > 120 ? 1L : 0L)
+                       cc_name_lower = g.Key.cc_name!.ToLower(),
+                       d30 = g.Sum(x => x.diff <= 30 ? 1L : 0L),
+                       d60 = g.Sum(x => x.diff > 30 && x.diff <= 60 ? 1L : 0L),
+                       d90 = g.Sum(x => x.diff > 60 && x.diff <= 90 ? 1L : 0L),
+                       d120 = g.Sum(x => x.diff > 90 && x.diff <= 120 ? 1L : 0L),
+                       dmore = g.Sum(x => x.diff > 120 ? 1L : 0L)
                    })
+                  .OrderBy(x => x.w_substr)
+                  .ThenBy(x => x.sm_type)
+                  .ThenBy(x => x.cc_name_lower)
                   .Take(100);
 
         AssertPlan(q99, NativePushdown);

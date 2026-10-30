@@ -262,44 +262,37 @@ public class TpcdsQuery71To80Tests
                               d2.d_week_seq
                           };
 
-        var joined = from cs in catalogSalesQuery
-                     join d1 in dateDimQuery on cs.cs_sold_date_sk equals d1.d_date_sk
-                     join d3 in dateDimQuery on cs.cs_ship_date_sk equals d3.d_date_sk
-                     join cd in cdemoQuery on cs.cs_bill_cdemo_sk equals cd.cd_demo_sk
-                     join hd in hdemoQuery on cs.cs_bill_hdemo_sk equals hd.hd_demo_sk
-                     join i in itemQuery on cs.cs_item_sk equals i.i_item_sk
-                     join inv in invWithWeek on new { item_sk = cs.cs_item_sk, week_seq = d1.d_week_seq }
-                                         equals new { item_sk = inv.inv_item_sk, week_seq = inv.d_week_seq }
-                     join p in promotionQuery on cs.cs_promo_sk equals p.p_promo_sk into pGroup
-                     from p in pGroup.DefaultIfEmpty()
-                     join cr in catalogReturnsQuery on new { item_sk = cs.cs_item_sk, order_number = cs.cs_order_number }
-                                                equals new { item_sk = cr.cr_item_sk, order_number = cr.cr_order_number } into crGroup
-                     from cr in crGroup.DefaultIfEmpty()
-                     where d1.d_year == 1999
-                        && hd.hd_buy_potential == ">10000"
-                        && cd.cd_marital_status == "D"
-                        && inv.inv_quantity_on_hand < cs.cs_quantity
-                        && d3.d_date > d1.d_date!.Value.AddDays(5)
-                     select new
-                     {
-                         i.i_item_desc,
-                         inv.w_warehouse_name,
-                         d1.d_week_seq,
-                         p_promo_sk = (long?)p.p_promo_sk
-                     };
-
-        var q72 = (from x in joined
-                   group x by new { x.i_item_desc, x.w_warehouse_name, x.d_week_seq } into g
+        var q72 = (from cs in catalogSalesQuery
+                   join d1 in dateDimQuery on cs.cs_sold_date_sk equals d1.d_date_sk
+                   join d3 in dateDimQuery on cs.cs_ship_date_sk equals d3.d_date_sk
+                   join cd in cdemoQuery on cs.cs_bill_cdemo_sk equals cd.cd_demo_sk
+                   join hd in hdemoQuery on cs.cs_bill_hdemo_sk equals hd.hd_demo_sk
+                   join i in itemQuery on cs.cs_item_sk equals i.i_item_sk
+                   join inv in invWithWeek on new { item_sk = cs.cs_item_sk, week_seq = d1.d_week_seq }
+                                       equals new { item_sk = inv.inv_item_sk, week_seq = inv.d_week_seq }
+                   join p in promotionQuery on cs.cs_promo_sk equals p.p_promo_sk into pGroup
+                   from p in pGroup.DefaultIfEmpty()
+                   join cr in catalogReturnsQuery on new { item_sk = cs.cs_item_sk, order_number = cs.cs_order_number }
+                                              equals new { item_sk = cr.cr_item_sk, order_number = cr.cr_order_number } into crGroup
+                   from cr in crGroup.DefaultIfEmpty()
+                   where d1.d_year == 1999
+                      && hd.hd_buy_potential == ">10000"
+                      && cd.cd_marital_status == "D"
+                      && inv.inv_quantity_on_hand < cs.cs_quantity
+                      && d3.d_date > d1.d_date!.Value.AddDays(5)
+#pragma warning disable CS0472
+                   group p by new { i.i_item_desc, inv.w_warehouse_name, d1.d_week_seq } into g
                    orderby g.LongCount() descending, g.Key.i_item_desc, g.Key.w_warehouse_name, g.Key.d_week_seq
                    select new
                    {
                        g.Key.i_item_desc,
                        g.Key.w_warehouse_name,
                        g.Key.d_week_seq,
-                       no_promo = g.Sum(x => x.p_promo_sk == null ? 1L : 0L),
-                       promo = g.Sum(x => x.p_promo_sk != null ? 1L : 0L),
+                       no_promo = g.Sum(x => (long?)x.p_promo_sk == null ? 1L : 0L),
+                       promo = g.Sum(x => (long?)x.p_promo_sk != null ? 1L : 0L),
                        total_cnt = g.LongCount()
                    }).Take(100);
+#pragma warning restore CS0472
 
         AssertPlan(q72, NativePushdown);
 
@@ -1722,25 +1715,14 @@ public class TpcdsQuery71To80Tests
 
         var dates2000 = dateDimQuery.Where(d => d.d_year == 2000);
 
-        var wsJoined = from w in webSalesQuery
-                       join r in webReturnsQuery on new { order_number = (long?)w.ws_order_number, item_sk = (long?)w.ws_item_sk }
-                                             equals new { order_number = (long?)r.wr_order_number, item_sk = (long?)r.wr_item_sk } into rGroup
-                       from r in rGroup.DefaultIfEmpty()
-                       join d in dates2000 on w.ws_sold_date_sk equals d.d_date_sk
-                       select new
-                       {
-                           d.d_year,
-                           w.ws_item_sk,
-                           w.ws_bill_customer_sk,
-                           w.ws_quantity,
-                           w.ws_wholesale_cost,
-                           w.ws_sales_price,
-                           wr_order_number = (long?)r.wr_order_number
-                       };
-
-        var ws = from x in wsJoined
-                 where x.wr_order_number == null
-                 group x by new { x.d_year, x.ws_item_sk, x.ws_bill_customer_sk } into g
+#pragma warning disable CS0472
+        var ws = from w in webSalesQuery
+                 join r in webReturnsQuery on new { order_number = (long?)w.ws_order_number, item_sk = (long?)w.ws_item_sk }
+                                       equals new { order_number = (long?)r.wr_order_number, item_sk = (long?)r.wr_item_sk } into rGroup
+                 from r in rGroup.DefaultIfEmpty()
+                 join d in dates2000 on w.ws_sold_date_sk equals d.d_date_sk
+                 where (long?)r.wr_order_number == null
+                 group w by new { d.d_year, w.ws_item_sk, w.ws_bill_customer_sk } into g
                  select new
                  {
                      ws_sold_year = g.Key.d_year,
@@ -1751,25 +1733,13 @@ public class TpcdsQuery71To80Tests
                      ws_sp = g.Sum(x => x.ws_sales_price)
                  };
 
-        var csJoined = from c in catalogSalesQuery
-                       join r in catalogReturnsQuery on new { order_number = (long?)c.cs_order_number, item_sk = (long?)c.cs_item_sk }
-                                                 equals new { order_number = (long?)r.cr_order_number, item_sk = (long?)r.cr_item_sk } into rGroup
-                       from r in rGroup.DefaultIfEmpty()
-                       join d in dates2000 on c.cs_sold_date_sk equals d.d_date_sk
-                       select new
-                       {
-                           d.d_year,
-                           c.cs_item_sk,
-                           c.cs_bill_customer_sk,
-                           c.cs_quantity,
-                           c.cs_wholesale_cost,
-                           c.cs_sales_price,
-                           cr_order_number = (long?)r.cr_order_number
-                       };
-
-        var cs = from x in csJoined
-                 where x.cr_order_number == null
-                 group x by new { x.d_year, x.cs_item_sk, x.cs_bill_customer_sk } into g
+        var cs = from c in catalogSalesQuery
+                 join r in catalogReturnsQuery on new { order_number = (long?)c.cs_order_number, item_sk = (long?)c.cs_item_sk }
+                                           equals new { order_number = (long?)r.cr_order_number, item_sk = (long?)r.cr_item_sk } into rGroup
+                 from r in rGroup.DefaultIfEmpty()
+                 join d in dates2000 on c.cs_sold_date_sk equals d.d_date_sk
+                 where (long?)r.cr_order_number == null
+                 group c by new { d.d_year, c.cs_item_sk, c.cs_bill_customer_sk } into g
                  select new
                  {
                      cs_sold_year = g.Key.d_year,
@@ -1780,25 +1750,13 @@ public class TpcdsQuery71To80Tests
                      cs_sp = g.Sum(x => x.cs_sales_price)
                  };
 
-        var ssJoined = from s in storeSalesQuery
-                       join r in storeReturnsQuery on new { ticket_number = (long?)s.ss_ticket_number, item_sk = (long?)s.ss_item_sk }
-                                               equals new { ticket_number = (long?)r.sr_ticket_number, item_sk = (long?)r.sr_item_sk } into rGroup
-                       from r in rGroup.DefaultIfEmpty()
-                       join d in dates2000 on s.ss_sold_date_sk equals d.d_date_sk
-                       select new
-                       {
-                           d.d_year,
-                           s.ss_item_sk,
-                           s.ss_customer_sk,
-                           s.ss_quantity,
-                           s.ss_wholesale_cost,
-                           s.ss_sales_price,
-                           sr_ticket_number = (long?)r.sr_ticket_number
-                       };
-
-        var ss = from x in ssJoined
-                 where x.sr_ticket_number == null
-                 group x by new { x.d_year, x.ss_item_sk, x.ss_customer_sk } into g
+        var ss = from s in storeSalesQuery
+                 join r in storeReturnsQuery on new { ticket_number = (long?)s.ss_ticket_number, item_sk = (long?)s.ss_item_sk }
+                                         equals new { ticket_number = (long?)r.sr_ticket_number, item_sk = (long?)r.sr_item_sk } into rGroup
+                 from r in rGroup.DefaultIfEmpty()
+                 join d in dates2000 on s.ss_sold_date_sk equals d.d_date_sk
+                 where (long?)r.sr_ticket_number == null
+                 group s by new { d.d_year, s.ss_item_sk, s.ss_customer_sk } into g
                  select new
                  {
                      ss_sold_year = g.Key.d_year,
@@ -1808,6 +1766,7 @@ public class TpcdsQuery71To80Tests
                      ss_wc = g.Sum(x => x.ss_wholesale_cost),
                      ss_sp = g.Sum(x => x.ss_sales_price)
                  };
+#pragma warning restore CS0472
 
         var joined = from s in ss
                      join w in ws on new { year = s.ss_sold_year, item = s.ss_item_sk, cust = s.ss_customer_sk }
@@ -2228,115 +2187,58 @@ public class TpcdsQuery71To80Tests
         var filteredItems = itemQuery.Where(i => i.i_current_price > 50m);
         var filteredPromos = promotionQuery.Where(p => p.p_channel_tv == "N");
 
-        var ssJoined = from ss in storeSalesQuery
-                       join sr in storeReturnsQuery on new { item_sk = (long?)ss.ss_item_sk, ticket_number = (long?)ss.ss_ticket_number }
-                                                equals new { item_sk = (long?)sr.sr_item_sk, ticket_number = (long?)sr.sr_ticket_number } into srGroup
-                       from sr in srGroup.DefaultIfEmpty()
-                       join d in filteredDates on ss.ss_sold_date_sk equals d.d_date_sk
-                       join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
-                       join i in filteredItems on ss.ss_item_sk equals i.i_item_sk
-                       join p in filteredPromos on ss.ss_promo_sk equals p.p_promo_sk
-                       select new
-                       {
-                           s.s_store_id,
-                           ss.ss_ext_sales_price,
-                           sr.sr_return_amt,
-                           ss.ss_net_profit,
-                           sr.sr_net_loss
-                       };
-
-        var ssrGroup = from x in ssJoined
-                       group x by x.s_store_id into g
-                       select new
-                       {
-                           store_id = g.Key,
-                           sales = g.Sum(x => x.ss_ext_sales_price),
-                           returns_ = g.Sum(x => (decimal?)(x.sr_return_amt ?? 0.00m)),
-                           profit = g.Sum(x => x.ss_net_profit - (x.sr_net_loss ?? 0.00m))
-                       };
-
-        var ssr = from r in ssrGroup
+        var ssr = from ss in storeSalesQuery
+                  join sr in storeReturnsQuery on new { item_sk = (long?)ss.ss_item_sk, ticket_number = (long?)ss.ss_ticket_number }
+                                           equals new { item_sk = (long?)sr.sr_item_sk, ticket_number = (long?)sr.sr_ticket_number } into srGroup
+                  from sr in srGroup.DefaultIfEmpty()
+                  join d in filteredDates on ss.ss_sold_date_sk equals d.d_date_sk
+                  join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
+                  join i in filteredItems on ss.ss_item_sk equals i.i_item_sk
+                  join p in filteredPromos on ss.ss_promo_sk equals p.p_promo_sk
+                  group new { ss, sr } by s.s_store_id into g
                   select new
                   {
                       channel = "store channel",
-                      id = "store" + r.store_id,
-                      r.sales,
-                      r.returns_,
-                      r.profit
+                      id = "store" + g.Key,
+                      sales = g.Sum(x => x.ss.ss_ext_sales_price),
+                      returns_ = g.Sum(x => (decimal?)(x.sr.sr_return_amt ?? 0.00m)),
+                      profit = g.Sum(x => x.ss.ss_net_profit - (x.sr.sr_net_loss ?? 0.00m))
                   };
 
-        var csJoined = from cs in catalogSalesQuery
-                       join cr in catalogReturnsQuery on new { item_sk = (long?)cs.cs_item_sk, order_number = (long?)cs.cs_order_number }
-                                                  equals new { item_sk = (long?)cr.cr_item_sk, order_number = (long?)cr.cr_order_number } into crGroup
-                       from cr in crGroup.DefaultIfEmpty()
-                       join d in filteredDates on cs.cs_sold_date_sk equals d.d_date_sk
-                       join cp in catalogPageQuery on cs.cs_catalog_page_sk equals cp.cp_catalog_page_sk
-                       join i in filteredItems on cs.cs_item_sk equals i.i_item_sk
-                       join p in filteredPromos on cs.cs_promo_sk equals p.p_promo_sk
-                       select new
-                       {
-                           cp.cp_catalog_page_id,
-                           cs.cs_ext_sales_price,
-                           cr.cr_return_amount,
-                           cs.cs_net_profit,
-                           cr.cr_net_loss
-                       };
-
-        var csrGroup = from x in csJoined
-                       group x by x.cp_catalog_page_id into g
-                       select new
-                       {
-                           catalog_page_id = g.Key,
-                           sales = g.Sum(x => x.cs_ext_sales_price),
-                           returns_ = g.Sum(x => (decimal?)(x.cr_return_amount ?? 0.00m)),
-                           profit = g.Sum(x => x.cs_net_profit - (x.cr_net_loss ?? 0.00m))
-                       };
-
-        var csr = from r in csrGroup
+        var csr = from cs in catalogSalesQuery
+                  join cr in catalogReturnsQuery on new { item_sk = (long?)cs.cs_item_sk, order_number = (long?)cs.cs_order_number }
+                                             equals new { item_sk = (long?)cr.cr_item_sk, order_number = (long?)cr.cr_order_number } into crGroup
+                  from cr in crGroup.DefaultIfEmpty()
+                  join d in filteredDates on cs.cs_sold_date_sk equals d.d_date_sk
+                  join cp in catalogPageQuery on cs.cs_catalog_page_sk equals cp.cp_catalog_page_sk
+                  join i in filteredItems on cs.cs_item_sk equals i.i_item_sk
+                  join p in filteredPromos on cs.cs_promo_sk equals p.p_promo_sk
+                  group new { cs, cr } by cp.cp_catalog_page_id into g
                   select new
                   {
                       channel = "catalog channel",
-                      id = "catalog_page" + r.catalog_page_id,
-                      r.sales,
-                      r.returns_,
-                      r.profit
+                      id = "catalog_page" + g.Key,
+                      sales = g.Sum(x => x.cs.cs_ext_sales_price),
+                      returns_ = g.Sum(x => (decimal?)(x.cr.cr_return_amount ?? 0.00m)),
+                      profit = g.Sum(x => x.cs.cs_net_profit - (x.cr.cr_net_loss ?? 0.00m))
                   };
 
-        var wsJoined = from ws in webSalesQuery
-                       join wr in webReturnsQuery on new { item_sk = (long?)ws.ws_item_sk, order_number = (long?)ws.ws_order_number }
-                                              equals new { item_sk = (long?)wr.wr_item_sk, order_number = (long?)wr.wr_order_number } into wrGroup
-                       from wr in wrGroup.DefaultIfEmpty()
-                       join d in filteredDates on ws.ws_sold_date_sk equals d.d_date_sk
-                       join w in webSiteQuery on ws.ws_web_site_sk equals w.web_site_sk
-                       join i in filteredItems on ws.ws_item_sk equals i.i_item_sk
-                       join p in filteredPromos on ws.ws_promo_sk equals p.p_promo_sk
-                       select new
-                       {
-                           w.web_site_id,
-                           ws.ws_ext_sales_price,
-                           wr.wr_return_amt,
-                           ws.ws_net_profit,
-                           wr.wr_net_loss
-                       };
-
-        var wsrGroup = from x in wsJoined
-                       group x by x.web_site_id into g
-                       select new
-                       {
-                           web_site_id = g.Key,
-                           sales = g.Sum(x => x.ws_ext_sales_price),
-                           returns_ = g.Sum(x => (decimal?)(x.wr_return_amt ?? 0.00m)),
-                           profit = g.Sum(x => x.ws_net_profit - (x.wr_net_loss ?? 0.00m))
-                       };
-
-        var wsr = from r in wsrGroup
+        var wsr = from ws in webSalesQuery
+                  join wr in webReturnsQuery on new { item_sk = (long?)ws.ws_item_sk, order_number = (long?)ws.ws_order_number }
+                                         equals new { item_sk = (long?)wr.wr_item_sk, order_number = (long?)wr.wr_order_number } into wrGroup
+                  from wr in wrGroup.DefaultIfEmpty()
+                  join d in filteredDates on ws.ws_sold_date_sk equals d.d_date_sk
+                  join w in webSiteQuery on ws.ws_web_site_sk equals w.web_site_sk
+                  join i in filteredItems on ws.ws_item_sk equals i.i_item_sk
+                  join p in filteredPromos on ws.ws_promo_sk equals p.p_promo_sk
+                  group new { ws, wr } by w.web_site_id into g
                   select new
                   {
                       channel = "web channel",
-                      id = "web_site" + r.web_site_id,
-                      r.sales,
-                      r.returns_,
-                      r.profit
+                      id = "web_site" + g.Key,
+                      sales = g.Sum(x => x.ws.ws_ext_sales_price),
+                      returns_ = g.Sum(x => (decimal?)(x.wr.wr_return_amt ?? 0.00m)),
+                      profit = g.Sum(x => x.ws.ws_net_profit - (x.wr.wr_net_loss ?? 0.00m))
                   };
 
         var allChan = ssr.Concat(csr).Concat(wsr);
