@@ -83,7 +83,7 @@ type FSharpExcelTests() =
                 dateFormat="dd-mm-yyyy"
             )
 
-            use schema = PolarsSchema.ofList ["BigId", DataType.String]
+            use schema = PolarsSchema.ofList [("BigId", DataType.String)]
 
             use dfRead = DataFrame.ReadExcel(tempFile, schema=schema)
             Assert.Equal(DataType.String, dfRead.Schema.["BigId"])

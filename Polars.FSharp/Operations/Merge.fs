@@ -629,7 +629,7 @@ module Set =
             specs
             |> List.collect (fun spec ->
                 match spec with
-                | Exact(name, fn) -> [ name, fn ctx ]
+                | Exact(name, fn) -> [ (name, fn ctx) ]
                 | Select(sel, fn) ->
                     let colNames = pl.cs.expandLf sel ctx.TargetFrame
                     colNames |> Array.map (fun n -> n, fn n ctx) |> Array.toList)

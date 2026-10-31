@@ -221,7 +221,7 @@ Charlie,35,true"""
             // =================================================================
             // File Mode
             // =================================================================
-            use schema = new PolarsSchema(["val", DataType.Int32])
+            use schema = new PolarsSchema([("val", DataType.Int32)])
 
             let testFileMode () =
                 use lf = LazyFrame.ScanNdjson(path, schema=schema, nRows=3UL)

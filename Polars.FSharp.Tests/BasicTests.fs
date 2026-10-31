@@ -908,7 +908,7 @@ type LitTests() =
         use branch2 =
             baseLf
             |> LazyFrame.select [ pl.col "val" * pl.lit 2 ]
-            |> LazyFrame.rename [ "val", "val_doubled" ]
+            |> LazyFrame.rename [ ("val", "val_doubled") ]
             |> LazyFrame.collect
         Assert.Equal(5L, branch2.Height)
         Assert.Equal("val_doubled", branch2.Columns.[0])

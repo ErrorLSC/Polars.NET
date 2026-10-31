@@ -94,7 +94,7 @@ type CloudOptions =
         (accountName: string, ?accessKey: string, ?container: string, ?endpoint: string, ?allowHttp: bool)
         =
 
-        let mutable creds = [ "azure_storage_account_name", accountName ] |> Map.ofList
+        let mutable creds = [ ("azure_storage_account_name", accountName) ] |> Map.ofList
 
         match accessKey with
         | Some v -> creds <- creds.Add("azure_storage_access_key", v)

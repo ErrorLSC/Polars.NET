@@ -733,7 +733,7 @@ type DataFrameTests() =
     [<Fact>]
     [<Trait("DataFrame", "ToRecords")>]
     member _.``DataFrame: ToRecords<'T> rejects non-Record types`` () =
-        use df = DataFrame.ofMaps [ Map ["Id", box 1] ]
+        use df = DataFrame.ofMaps [ Map [("Id", box 1)] ]
 
         let ex = Assert.Throws<ArgumentException>(fun () ->
             df.ToRecords<Tuple<int, string>>() |> Seq.toArray |> ignore

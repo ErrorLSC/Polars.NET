@@ -571,7 +571,7 @@ type ``Complex Query Tests`` () =
         let targetTable = new DataTable()
 
         let schemaContract = dict [
-            "OrderDate", typeof<DateTime>
+            ("OrderDate", typeof<DateTime>)
         ]
 
         printfn "[ETL] Starting Pipeline..."
