@@ -571,4 +571,44 @@ public class ConfigTests
             Pl.Config.RestoreDefaults();
         }
     }
+
+    [Fact]
+    [Trait("Config", "AotSafeReflectionDisabled")]
+    public void Test_Config_ReflectionDisabled_InstantiatesAndSavesWithoutException()
+    {
+        AppContext.SetSwitch("System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault", false);
+        try
+        {
+            var config = new PolarsConfig();
+            Assert.NotNull(config);
+
+            string saved = config.Save(ifSet: false);
+            Assert.NotEmpty(saved);
+
+            config.Load(saved);
+
+            using (config.SetTableRows(42).BeginScope())
+            {
+                Assert.Equal("42", config["POLARS_FMT_MAX_ROWS"]);
+            }
+        }
+        finally
+        {
+            AppContext.SetSwitch("System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault", true);
+            Pl.Config.RestoreDefaults();
+        }
+    }
+
+    [Fact]
+    [Trait("Config", "PolarsJsonHelper")]
+    public void Test_PolarsJsonHelper_SerializeDictionary()
+    {
+        var dict = new Dictionary<string, string>
+        {
+            ["key1"] = "val1",
+            ["key2"] = "val2"
+        };
+        string json = Polars.NET.Core.Helpers.PolarsJsonHelper.SerializeDictionary(dict);
+        Assert.Equal("{\"key1\":\"val1\",\"key2\":\"val2\"}", json);
+    }
 }

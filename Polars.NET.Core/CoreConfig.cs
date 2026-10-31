@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 
 namespace Polars.NET.Core;
@@ -149,11 +151,6 @@ internal static class CoreConfig
 
         return state;
     }
-    private static readonly JsonSerializerOptions SaveOptionsCache = new()
-    {
-        WriteIndented = false,
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
-    };
     /// <summary>
     /// Saves the current Polars.NET configuration states into a compact JSON string.
     /// </summary>
@@ -174,13 +171,43 @@ internal static class CoreConfig
             }
         }
 
-        var optionsPayload = new
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
         {
-            environment = environmentVars,
-            direct = directVars
-        };
+            writer.WriteStartObject();
 
-        return JsonSerializer.Serialize(optionsPayload, SaveOptionsCache);
+            writer.WriteStartObject("environment");
+            foreach (var kvp in environmentVars)
+            {
+                if (kvp.Value is null)
+                {
+                    writer.WriteNull(kvp.Key);
+                }
+                else
+                {
+                    writer.WriteString(kvp.Key, kvp.Value);
+                }
+            }
+            writer.WriteEndObject();
+
+            writer.WriteStartObject("direct");
+            foreach (var kvp in directVars)
+            {
+                if (kvp.Value is null)
+                {
+                    writer.WriteNull(kvp.Key);
+                }
+                else
+                {
+                    writer.WriteString(kvp.Key, kvp.Value);
+                }
+            }
+            writer.WriteEndObject();
+
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
     /// <summary>
     /// Saves the current configuration states into a JSON file.

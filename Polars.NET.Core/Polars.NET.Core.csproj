@@ -72,6 +72,7 @@
     <InternalsVisibleTo Include="Polars.CSharp" />
     <InternalsVisibleTo Include="Polars.FSharp" />
     <InternalsVisibleTo Include="Polars.NET.Linq" />
+    <InternalsVisibleTo Include="Polars.Config.Tests" />
   </ItemGroup>
 
   <ItemGroup>

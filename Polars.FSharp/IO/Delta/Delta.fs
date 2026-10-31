@@ -1,6 +1,7 @@
 namespace Polars.FSharp
 
 open Polars.NET.Core
+open Polars.NET.Core.Helpers
 open System
 
 /// <summary>
@@ -367,7 +368,7 @@ type Delta =
             match partitionFilters with
             | Some filters -> 
                 let d = dict filters // Convert F# seq to IDictionary
-                if d.Count > 0 then System.Text.Json.JsonSerializer.Serialize(d) else null
+                if d.Count > 0 then PolarsJsonHelper.SerializeDictionary(d) else null
             | None -> null
 
         let zOrderColsArr = 
@@ -938,7 +939,7 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
         let filterJson = 
             match partitionFilters with
             | Some filters when not filters.IsEmpty -> 
-                System.Text.Json.JsonSerializer.Serialize(filters |> Map.toSeq |> dict)
+                PolarsJsonHelper.SerializeDictionary(filters)
             | _ -> null
 
         let zOrderColsArr =
