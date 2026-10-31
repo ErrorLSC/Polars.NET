@@ -205,18 +205,18 @@ type ``Basic Functionality Tests`` () =
         use df = DataFrame.create [s1; s2]
 
         // Drop
-        let dfDrop = df.Drop "a"
+        let dfDrop = df |> DataFrame.drop (pl.cs.integer())
         Assert.Equal(1L, dfDrop.Width)
         Assert.Equal<string seq>(["b"], dfDrop.ColumnNames)
         Assert.Equal(2L, df.Width) |> ignore
         Assert.Equal<string seq>(["a"; "b"], df.ColumnNames)
 
         // Rename
-        let dfRenamed = df.Rename("b", "b_new")
+        let dfRenamed = df |> DataFrame.rename [("b", "b_new")]
         Assert.Equal<string seq>(["a"; "b_new"], dfRenamed.ColumnNames)
 
         // DropNulls
-        let dfClean = df.DropNulls()
+        let dfClean = df |> DataFrame.dropNulls
         Assert.Equal(2L, dfClean.Height)
         Assert.Equal(Some 1L, dfClean.["a"].GetValueOption<int64>(0))
         Assert.Equal(Some 2L, dfClean.["a"].GetValueOption<int64>(1))

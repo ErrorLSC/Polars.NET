@@ -59,7 +59,7 @@ module DataFrame =
     /// <summary> Decompose multiple struct columns. </summary>
     let unnestColumns (columns: seq<string>) (df: DataFrame) : DataFrame = df.UnnestColumns columns
     /// <summary> Drop columns from the DataFrame. </summary>
-    let drop (columns: #IColumnExpr) (df: DataFrame) : DataFrame = df.Drop columns
+    let drop (columns: #IColumnExpr) (df: DataFrame) : DataFrame = df.Drop (columns.ToExprs())
     /// <summary> Drop multiple columns from the DataFrame. </summary>
     let dropMany (columns: seq<Expr>) (df: DataFrame) : DataFrame = df.Drop columns
     /// <summary> Drop null values from the DataFrame. </summary>
