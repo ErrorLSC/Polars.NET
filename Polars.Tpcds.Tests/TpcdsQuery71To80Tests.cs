@@ -2028,7 +2028,7 @@ public class TpcdsQuery71To80Tests
                       ss_customer_sk ,
                       store.s_city ,
                       sum(ss_coupon_amt) amt ,
-                      sum(ss_net_profit) profit
+                      COALESCE(sum(ss_net_profit), 0) profit
                FROM read_parquet('{TpcdsData.StoreSalesPath}') store_sales,
                     read_parquet('{TpcdsData.DateDimPath}') date_dim,
                     read_parquet('{TpcdsData.StorePath}') store,

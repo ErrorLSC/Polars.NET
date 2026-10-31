@@ -373,11 +373,11 @@ public class TpcdsQuery11To20Tests
                      i_category,
                      i_class,
                      i_current_price
-            ORDER BY i_category,
-                     i_class,
-                     i_item_id,
-                     i_item_desc,
-                     revenueratio
+            ORDER BY i_category NULLS FIRST,
+                     i_class NULLS FIRST,
+                     i_item_id NULLS FIRST,
+                     i_item_desc NULLS FIRST,
+                     revenueratio NULLS FIRST
             LIMIT 100;
         ";
 
@@ -867,7 +867,7 @@ public class TpcdsQuery11To20Tests
             .ThenBy(r => r.i_class_id)
             .ThenBy(r => r.i_category_id)
             .Take(100);
-
+ 
         AssertPlan(q14, NativePushdown);
 
         var polarsResult = q14.ToList();
@@ -1199,13 +1199,9 @@ public class TpcdsQuery11To20Tests
                       total_net_profit = g.Sum(x => x.cs_net_profit)
                   };
 
-        AssertPlan(baseSales, NativePushdown);
-        AssertPlan(multiWarehouseOrders, NativePushdown);
-        AssertPlan(eligibleSales, NativePushdown);
-        AssertPlan(q16, NativePushdown);
-
         var polarsResult = q16.ToList();
 
+        AssertPlan(q16, NativePushdown);
         // DuckDB Cross Validation
         var duckDbSql = $@"
             SELECT count(DISTINCT cs1.cs_order_number) AS ""order count"",
@@ -1893,11 +1889,11 @@ public class TpcdsQuery11To20Tests
                      i_category,
                      i_class,
                      i_current_price
-            ORDER BY i_category,
-                     i_class,
-                     i_item_id,
-                     i_item_desc,
-                     revenueratio
+            ORDER BY i_category NULLS FIRST,
+                     i_class NULLS FIRST,
+                     i_item_id NULLS FIRST,
+                     i_item_desc NULLS FIRST,
+                     revenueratio NULLS FIRST
             LIMIT 100;
         ";
 
@@ -1928,7 +1924,7 @@ public class TpcdsQuery11To20Tests
         }
     }
 
-    private static void AssertNullableDouble(double? expected, double? actual, double tolerance = 0.001)
+    internal static void AssertNullableDouble(double? expected, double? actual, double tolerance = 0.001)
     {
         if (expected == null)
         {

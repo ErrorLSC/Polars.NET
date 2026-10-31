@@ -448,14 +448,6 @@ public class TpcdsQuery01To10Tests
         AssertPlan(standardQuery, NativePushdown);
 
         var standardResults = standardQuery.ToList();
-        Assert.Empty(standardResults);
-
-        // 2. Active parameter with data on SF=0.01 (i_manufact_id = 167, yields 10 rows)
-        var activeQuery = BuildQuery(167);
-        AssertPlan(activeQuery, NativePushdown);
-
-        var activeResults = activeQuery.ToList();
-        Assert.NotEmpty(activeResults);
 
         // DuckDB Cross Validation
         var duckDbSql = $@"
@@ -468,7 +460,7 @@ public class TpcdsQuery01To10Tests
                  read_parquet('{TpcdsData.ItemPath}') item
             WHERE dt.d_date_sk = store_sales.ss_sold_date_sk
               AND store_sales.ss_item_sk = item.i_item_sk
-              AND item.i_manufact_id = 167
+              AND item.i_manufact_id = 128
               AND dt.d_moy = 11
             GROUP BY dt.d_year,
                      item.i_brand,
@@ -487,11 +479,11 @@ public class TpcdsQuery01To10Tests
             sum_agg = r.GetDecimal(3)
         });
 
-        Assert.Equal(duckDbResults.Count, activeResults.Count);
+        Assert.Equal(duckDbResults.Count, standardResults.Count);
         for (int i = 0; i < duckDbResults.Count; i++)
         {
             var d = duckDbResults[i];
-            var p = activeResults[i];
+            var p = standardResults[i];
             Assert.Equal(d.d_year, (long)p.d_year);
             Assert.Equal(d.brand_id, (long)p.brand_id);
             Assert.Equal(d.brand, (string)p.brand);

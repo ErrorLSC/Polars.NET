@@ -1420,12 +1420,9 @@ public class TpcdsQuery31To40Tests
                          join c in customerQuery on ws.ws_bill_customer_sk equals c.c_customer_sk
                          select new { c.c_last_name, c.c_first_name, d.d_date }).Distinct();
 
-        var hotCust = from s in storeStream
-                      join c in catalogStream on new { s.c_last_name, s.c_first_name, s.d_date }
-                                          equals new { c.c_last_name, c.c_first_name, c.d_date }
-                      join w in webStream on new { s.c_last_name, s.c_first_name, s.d_date }
-                                      equals new { w.c_last_name, w.c_first_name, w.d_date }
-                      select s;
+        var hotCust = storeStream
+            .Intersect(catalogStream)
+            .Intersect(webStream);
 
         AssertPlan(hotCust, NativePushdown);
 

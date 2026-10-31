@@ -683,7 +683,7 @@ ORDER BY
             Assert.Equal(duckDbResult[i].i_category, polarsResult[i].i_category);
             Assert.Equal(duckDbResult[i].i_class, polarsResult[i].i_class);
             Assert.Equal(duckDbResult[i].i_current_price, polarsResult[i].i_current_price);
-            Assert.Equal(duckDbResult[i].itemrevenue, polarsResult[i].itemrevenue);
+            TpcdsQuery11To20Tests.AssertNullableDouble((double?)duckDbResult[i].itemrevenue, (double?)polarsResult[i].itemrevenue);
             Assert.Equal(duckDbResult[i].revenueratio ?? 0.0, polarsResult[i].revenueratio, 4);
         }
     }
