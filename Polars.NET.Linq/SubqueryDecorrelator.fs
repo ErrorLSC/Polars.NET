@@ -144,19 +144,12 @@ module internal SubqueryDecorrelator =
             let typeCols = getLeftMemberNames tOuter
             let lfCols = colNames |> Set.ofList
             let leftCols = Set.union typeCols lfCols
-            TranslationContext.TupleJoin(paramName, leftCols, "_right")
+            TranslationContext.TupleJoin(paramName, leftCols, LinqConstants.DefaultRightSuffix)
         else
             TranslationContext.EntityWithCols(paramName, colNames)
 
     /// Uniformly extracts a LazyFrameHandle from an Expression.
     let resolveToLazyFrameHandle (expr: Expression) : LazyFrameHandle option =
-        let rec unwrap (e: Expression) =
-            match e with
-            | Unary(ExpressionType.Convert, inner)
-            | Unary(ExpressionType.ConvertChecked, inner)
-            | Unary(ExpressionType.Quote, inner) -> unwrap inner
-            | other -> other
-
         let cleanExpr = unwrap expr
 
         let rawObjOpt =
@@ -848,7 +841,7 @@ module internal SubqueryDecorrelator =
                                 [||],
                                 [||],
                                 PlJoinType.Cross,
-                                "_right",
+                                LinqConstants.DefaultRightSuffix,
                                 PlJoinValidation.ManyToMany,
                                 PlJoinCoalesce.KeepColumns,
                                 PlJoinMaintainOrder.None,
@@ -864,7 +857,7 @@ module internal SubqueryDecorrelator =
                                 outerKeys |> Array.map PolarsWrapper.CloneExpr,
                                 innerKeys |> Array.map PolarsWrapper.CloneExpr,
                                 PlJoinType.Inner,
-                                "_right",
+                                LinqConstants.DefaultRightSuffix,
                                 PlJoinValidation.ManyToMany,
                                 PlJoinCoalesce.JoinSpecific,
                                 PlJoinMaintainOrder.None,
@@ -972,13 +965,16 @@ module internal SubqueryDecorrelator =
                 let branchLfs = branches |> List.choose extractBranchMatchedLf
                 let branchOuterKeys = branches |> List.choose extractBranchOuterKey
                 if branchLfs.Length = branches.Length && branchOuterKeys.Length = branches.Length then
-                    let firstOuterKeyStr = (fst (tryExtractCorrelatedParts outerNames (fst (tryMatchAny (ExprTranslator.unwrap branches.[0])).Value) (snd (tryMatchAny (ExprTranslator.unwrap branches.[0])).Value)).Value.EquiPairs.[0]).ToString()
+                    let firstOuterKeyExpr =
+                        let s, l = (tryMatchAny (ExprTranslator.unwrap branches.[0])).Value
+                        let p = (tryExtractCorrelatedParts outerNames s l).Value
+                        fst p.EquiPairs.[0]
                     let allSameOuterKey =
                         branches
                         |> List.forall (fun b ->
                             let s, l = (tryMatchAny (ExprTranslator.unwrap b)).Value
                             let p = (tryExtractCorrelatedParts outerNames s l).Value
-                            (fst p.EquiPairs.[0]).ToString() = firstOuterKeyStr)
+                            ExpressionEqualityComparer.Instance.Equals(fst p.EquiPairs.[0], firstOuterKeyExpr))
                     if allSameOuterKey then
                         let concatLf = PolarsWrapper.LazyConcat(branchLfs |> List.toArray, PlConcatType.Vertical, false, true)
                         Some
@@ -1182,7 +1178,7 @@ module internal SubqueryDecorrelator =
                     // Theta conditions present (composite conditions: equi-join + inequalities/cross conditions)
                     let leftCols = PolarsSchemaExtractor.GetColumnNames currentLf |> Set.ofArray
                     let originalCols = PolarsSchemaExtractor.GetColumnNames currentLf
-                    let rightSuffix = "_right"
+                    let rightSuffix = LinqConstants.DefaultRightSuffix
 
                     let correlatedCtx =
                         TranslationContext.CorrelatedJoin(
@@ -1541,27 +1537,28 @@ module internal SubqueryDecorrelator =
     let private canCoalesce (c1: ProjectionSubqueryCandidate) (c2: ProjectionSubqueryCandidate) : bool =
         let sameSource =
             obj.ReferenceEquals(c1.RootSource, c2.RootSource)
-            || c1.RootSource.ToString() = c2.RootSource.ToString()
+            || ExpressionEqualityComparer.Instance.Equals(c1.RootSource, c2.RootSource)
 
         let sameKeys =
             c1.EquiPairs.Length = c2.EquiPairs.Length
             && List.forall2
                 (fun (o1: Expression, i1: Expression) (o2: Expression, i2: Expression) ->
-                    o1.ToString() = o2.ToString() && i1.ToString() = i2.ToString())
+                    ExpressionEqualityComparer.Instance.Equals(o1, o2)
+                    && ExpressionEqualityComparer.Instance.Equals(i1, i2))
                 c1.EquiPairs
                 c2.EquiPairs
 
         let sameThetas =
             c1.ThetaConditions.Length = c2.ThetaConditions.Length
             && List.forall2
-                (fun (t1: Expression) (t2: Expression) -> t1.ToString() = t2.ToString())
+                (fun (t1: Expression) (t2: Expression) -> ExpressionEqualityComparer.Instance.Equals(t1, t2))
                 c1.ThetaConditions
                 c2.ThetaConditions
 
         let sameFilters =
             c1.InnerFilters.Length = c2.InnerFilters.Length
             && List.forall2
-                (fun (f1: Expression) (f2: Expression) -> f1.ToString() = f2.ToString())
+                (fun (f1: Expression) (f2: Expression) -> ExpressionEqualityComparer.Instance.Equals(f1, f2))
                 c1.InnerFilters
                 c2.InnerFilters
 
@@ -1637,7 +1634,7 @@ module internal SubqueryDecorrelator =
                         && c1.IsAny = c2.IsAny
                         && match c1.SelectorLambdaOpt, c2.SelectorLambdaOpt with
                            | None, None -> true
-                           | Some s1, Some s2 -> s1.ToString() = s2.ToString()
+                           | Some s1, Some s2 -> ExpressionEqualityComparer.Instance.Equals(s1, s2)
                            | _ -> false
 
                     let rec assignAggCols buildAgg remaining assigned =
@@ -1758,7 +1755,7 @@ module internal SubqueryDecorrelator =
                             return joinOp :: fillNullOps, replacements
                         else
                             let leftCols = PolarsSchemaExtractor.GetColumnNames currentLf |> Set.ofArray
-                            let rightSuffix = "_right"
+                            let rightSuffix = LinqConstants.DefaultRightSuffix
 
                             let correlatedCtx =
                                 TranslationContext.CorrelatedJoin(

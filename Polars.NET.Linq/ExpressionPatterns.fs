@@ -154,6 +154,15 @@ module internal ExpressionPatterns =
         | Unary(ExpressionType.ConvertChecked, inner) -> (|CleanLambda|_|) inner
         | _ -> None
 
+    /// Recursively strips Quote, Convert, and ConvertChecked unary wrappers from an Expression.
+    let rec internal unwrap (expr: Expression) : Expression =
+        match expr with
+        | null -> null
+        | Unary(ExpressionType.Convert, inner)
+        | Unary(ExpressionType.ConvertChecked, inner)
+        | Unary(ExpressionType.Quote, inner) -> unwrap inner
+        | other -> other
+
     /// Checks if a Type is a compiler-generated or runtime tuple/anonymous/transparent wrapper
     let internal isTupleOrAnonType (t: Type) =
         not (isNull t)

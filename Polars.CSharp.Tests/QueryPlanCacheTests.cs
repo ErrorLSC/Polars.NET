@@ -96,8 +96,8 @@ public class QueryPlanCacheTests
     [Trait("LINQ", "QueryPlanCache")]
     public void CacheDisabled_BypassesCache()
     {
-        QueryPlanCache.Clear();
         QueryPlanCache.Enabled = false;
+        QueryPlanCache.Clear();
 
         try
         {

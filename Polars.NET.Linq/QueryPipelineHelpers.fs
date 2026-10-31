@@ -1179,6 +1179,12 @@ module internal QueryPipelineHelpers =
         | MethodCall(m, null, source :: CleanLambda keyLambda :: _) when m.Name = "CountBy" ->
             flattenStages source (LinqStage.CountBy keyLambda :: acc)
 
+        | MethodCall(m, null, source :: CleanLambda k :: CleanLambda seedFactory :: CleanLambda f :: _) when m.Name = "AggregateBy" ->
+            flattenStages source (LinqStage.AggregateBy(k, null, Some seedFactory, f) :: acc)
+
+        | MethodCall(m, null, source :: CleanLambda k :: seedExpr :: CleanLambda f :: _) when m.Name = "AggregateBy" ->
+            flattenStages source (LinqStage.AggregateBy(k, seedExpr, None, f) :: acc)
+
         | _ -> acc
 
     // =========================================================================
@@ -1400,7 +1406,7 @@ module internal QueryPipelineHelpers =
                 let leftCols = PolarsSchemaExtractor.GetColumnNames baseLf
                 let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
                 let leftColSet = Set.ofArray leftCols
-                let baseSuffix = if isRightJoin then "_left" else "_right"
+                let baseSuffix = if isRightJoin then LinqConstants.DefaultLeftSuffix else LinqConstants.DefaultRightSuffix
                 let rec findUniqueSuffix (cnt: int) =
                     let candidate = if cnt = 1 then baseSuffix else sprintf "%s%d" baseSuffix cnt
                     let hasConflict = rightCols |> Array.exists (fun rc -> leftColSet.Contains (rc + candidate))
@@ -1494,7 +1500,7 @@ module internal QueryPipelineHelpers =
                             ToleranceFloat = tolFloat
                             AllowEq = true
                             CheckSorted = true
-                            Suffix = Some "_right"
+                            Suffix = Some LinqConstants.DefaultRightSuffix
                             Validation = PlJoinValidation.ManyToMany
                             Coalesce = PlJoinCoalesce.JoinSpecific
                             MaintainOrder = PlJoinMaintainOrder.None
@@ -1525,9 +1531,9 @@ module internal QueryPipelineHelpers =
 
             let firstParam, secondParam, firstCols, secondCols, secondSuffix =
                 if invertSides then
-                    pRight, pLeft, rightCols, leftCols, suffixOpt |> Option.defaultValue "_left"
+                    pRight, pLeft, rightCols, leftCols, suffixOpt |> Option.defaultValue LinqConstants.DefaultLeftSuffix
                 else
-                    pLeft, pRight, leftCols, rightCols, suffixOpt |> Option.defaultValue "_right"
+                    pLeft, pRight, leftCols, rightCols, suffixOpt |> Option.defaultValue LinqConstants.DefaultRightSuffix
 
             let firstColSet = Set.ofArray firstCols
             let ctx =
@@ -1776,7 +1782,7 @@ module internal QueryPipelineHelpers =
                 let leftCols = PolarsSchemaExtractor.GetColumnNames baseLf
                 let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
                 let leftColSet = Set.ofArray leftCols
-                let baseSuffix = "_right"
+                let baseSuffix = LinqConstants.DefaultRightSuffix
                 let rec findUniqueSuffix (cnt: int) =
                     let candidate = if cnt = 1 then baseSuffix else sprintf "%s%d" baseSuffix cnt
                     let hasConflict = rightCols |> Array.exists (fun rc -> leftColSet.Contains (rc + candidate))
@@ -1843,7 +1849,7 @@ module internal QueryPipelineHelpers =
                             LeftOn = [| PolarsWrapper.CloneExpr leftKey |]
                             RightOn = [| PolarsWrapper.CloneExpr rightKey |]
                             How = PlJoinType.Left
-                            Suffix = Some "_right"
+                            Suffix = Some LinqConstants.DefaultRightSuffix
                             InvertSides = false
                             Coalesce = PlJoinCoalesce.JoinSpecific
                             NullsEqual = false
@@ -2116,7 +2122,7 @@ module internal QueryPipelineHelpers =
                         LeftOn = [||]
                         RightOn = [||]
                         How = PlJoinType.Cross
-                        Suffix = Some "_right"
+                        Suffix = Some LinqConstants.DefaultRightSuffix
                         InvertSides = false
                         Coalesce = PlJoinCoalesce.KeepColumns
                         NullsEqual = false
@@ -2515,14 +2521,14 @@ module internal QueryPipelineHelpers =
                         colName
                         rawArgExpr
 
-                let windowAggs = ResizeArray<string * string * ExprHandle>()
+                let windowAggs = ResizeArray<Expression * string * ExprHandle>()
 
                 let findOrAddWindowAgg (node: Expression) : string option =
-                    let nodeStr = (ExprTranslator.unwrap node).ToString()
+                    let unwrappedNode = ExprTranslator.unwrap node
                     let existingProjectedColOpt =
                         List.zip memberNames args
                         |> List.tryPick (fun (colName, argExpr) ->
-                            if (ExprTranslator.unwrap argExpr).ToString() = nodeStr then
+                            if ExpressionEqualityComparer.Instance.Equals(ExprTranslator.unwrap argExpr, unwrappedNode) then
                                 Some colName
                             else
                                 None)
@@ -2530,13 +2536,13 @@ module internal QueryPipelineHelpers =
                     | Some colName when (tryTranslateSingleAgg colName node).IsSome ->
                         Some colName
                     | _ ->
-                        match windowAggs |> Seq.tryPick (fun (s, c, _) -> if s = nodeStr then Some c else None) with
+                        match windowAggs |> Seq.tryPick (fun (expr, c, _) -> if ExpressionEqualityComparer.Instance.Equals(expr, unwrappedNode) then Some c else None) with
                         | Some c -> Some c
                         | None ->
                             let colName = sprintf "__win_agg_%d" windowAggs.Count
                             match tryTranslateSingleAgg colName node with
                             | Some aggH ->
-                                windowAggs.Add((nodeStr, colName, aggH))
+                                windowAggs.Add((unwrappedNode, colName, aggH))
                                 Some colName
                             | None -> None
 
@@ -2562,11 +2568,11 @@ module internal QueryPipelineHelpers =
                             else
                                 match derivedColsOpt with
                                 | Some derivedMap ->
-                                    let nodeStr = (ExprTranslator.unwrap node).ToString()
+                                    let unwrappedNode = ExprTranslator.unwrap node
                                     let matchingColOpt =
                                         List.zip memberNames args
                                         |> List.tryPick (fun (colName, argExpr) ->
-                                            if derivedMap.ContainsKey colName && (ExprTranslator.unwrap argExpr).ToString() = nodeStr then
+                                            if derivedMap.ContainsKey colName && ExpressionEqualityComparer.Instance.Equals(ExprTranslator.unwrap argExpr, unwrappedNode) then
                                                 Some colName
                                             else
                                                 None)
@@ -2643,28 +2649,29 @@ module internal QueryPipelineHelpers =
                             match cleanE with
                             | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter -> Some m.Name
                             | MethodCall _ as aggCall ->
+                                let unwrappedAgg = ExprTranslator.unwrap aggCall
                                 List.zip memberNames args
                                 |> List.tryPick (fun (colName, argExpr) ->
-                                    if (ExprTranslator.unwrap argExpr).ToString() = aggCall.ToString() then
+                                    if ExpressionEqualityComparer.Instance.Equals(ExprTranslator.unwrap argExpr, unwrappedAgg) then
                                         Some colName
                                     else
                                         None)
                             | _ -> None
 
-                    let extraHavingAggs = ResizeArray<string * ExprHandle>()
+                    let extraHavingAggs = ResizeArray<Expression * ExprHandle>()
 
                     let resolveHavingAggColName (aggCall: MethodCallExpression) : string option =
                         match resolveResultColName aggCall with
                         | Some colName -> Some colName
                         | None ->
-                            let aggStr = aggCall.ToString()
-                            match extraHavingAggs |> Seq.tryFindIndex (fun (str, _) -> str = aggStr) with
+                            let unwrappedAgg = ExprTranslator.unwrap aggCall
+                            match extraHavingAggs |> Seq.tryFindIndex (fun (expr, _) -> ExpressionEqualityComparer.Instance.Equals(expr, unwrappedAgg)) with
                             | Some idx -> Some (sprintf "__having_agg_%d" idx)
                             | None ->
                                 let colName = sprintf "__having_agg_%d" extraHavingAggs.Count
                                 match tryTranslateSingleAgg colName aggCall with
                                 | Some h ->
-                                    extraHavingAggs.Add((aggStr, h))
+                                    extraHavingAggs.Add((unwrappedAgg, h))
                                     Some colName
                                 | None -> None
 
@@ -2852,7 +2859,7 @@ module internal QueryPipelineHelpers =
                             currentLf,
                             spec.RightOn,
                             spec.LeftOn,
-                            Option.toObj (spec.Suffix |> Option.orElse (Some "_left"))
+                            Option.toObj (spec.Suffix |> Option.orElse (Some LinqConstants.DefaultLeftSuffix))
                         else
                             currentLf, spec.RightLf, spec.LeftOn, spec.RightOn, Option.toObj spec.Suffix
 

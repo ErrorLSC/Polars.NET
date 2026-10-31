@@ -5,6 +5,14 @@ open System.Linq.Expressions
 open System.Reflection
 open System
 
+/// Canonical constants used across Polars LINQ engine
+[<RequireQualifiedAccess>]
+module internal LinqConstants =
+    [<Literal>]
+    let DefaultRightSuffix = "_right"
+    [<Literal>]
+    let DefaultLeftSuffix = "_left"
+
 /// Specification for multi-column sorting pushdown
 type internal SortSpec =
     {

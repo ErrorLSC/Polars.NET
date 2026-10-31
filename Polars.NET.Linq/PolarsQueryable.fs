@@ -108,10 +108,10 @@ and PolarsQuery<'T>
     new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer) =
         PolarsQuery<'T>(PolarsQueryProvider(lazyFrameHandle, materializer), None)
 
-    /// Parses the LINQ expression tree into native ops, client predicates, optional projection, and fallback signal
+    /// Parses the LINQ expression tree into native ops, client predicates, optional projection, fallback signal, and normalized stages
     member private _.CompilePipeline
         ()
-        : LazyFrameHandle * QueryOp list * ((Func<obj, bool> * LambdaExpression) list) * ((Type * Func<obj, obj>) option) * bool =
+        : LazyFrameHandle * QueryOp list * ((Func<obj, bool> * LambdaExpression) list) * ((Type * Func<obj, obj>) option) * bool * LinqStage list =
         let lfCloned = provider.RootLazyFrame
         let rewrittenExpr = getEffectiveExpr ()
         let extraction = PartialEvaluator.extract rewrittenExpr
@@ -635,7 +635,7 @@ and PolarsQuery<'T>
                     | Some spec ->
                         let leftCols = getLazySchemaFields activeBaseLf |> Array.map fst
                         let rightCols = getLazySchemaFields spec.RightLf |> Array.map fst
-                        let suffix = spec.Suffix |> Option.defaultValue (if spec.InvertSides then "_left" else "_right")
+                        let suffix = spec.Suffix |> Option.defaultValue (if spec.InvertSides then LinqConstants.DefaultLeftSuffix else LinqConstants.DefaultRightSuffix)
                         let leftScope = outerKey.Parameters.[0].Name
                         let rightScope =
                             match resSelOpt with
@@ -743,7 +743,7 @@ and PolarsQuery<'T>
                         let leftCols = getLazySchemaFields activeBaseLf |> Array.map fst
                         let rightCols = getLazySchemaFields spec.RightLf |> Array.map fst
                         let leftColSet = Set.ofArray leftCols
-                        let suffix = spec.Suffix |> Option.defaultValue "_right"
+                        let suffix = spec.Suffix |> Option.defaultValue LinqConstants.DefaultRightSuffix
                         let leftScope = outerKey.Parameters.[0].Name
                         let rightScope =
                             match resSelOpt with
@@ -858,7 +858,7 @@ and PolarsQuery<'T>
                         currentLf, [], [], None, true
 
                 | LinqStage.GroupJoin(_, inner, outerKey, innerKey, _) :: LinqStage.Explode(collSelector, resSelOpt) :: tail when
-                    collSelector.ToString().Contains "DefaultIfEmpty"
+                    (tryExtractDefaultIfEmpty collSelector.Body).IsSome
                     ->
                     let activeBaseLf = if opsAcc.IsEmpty then currentLf else applyNativeOps currentLf (List.rev opsAcc)
                     match compileGroupJoinLeftOuterSpec activeBaseLf inner outerKey innerKey scopeMap with
@@ -866,7 +866,7 @@ and PolarsQuery<'T>
                         let joinOp = QueryOp.Join spec
                         let leftCols = getLazySchemaFields activeBaseLf |> Array.map fst
                         let rightCols = getLazySchemaFields spec.RightLf |> Array.map fst
-                        let suffix = spec.Suffix |> Option.defaultValue "_right"
+                        let suffix = spec.Suffix |> Option.defaultValue LinqConstants.DefaultRightSuffix
                         let leftScope = outerKey.Parameters.[0].Name
                         let rightScope =
                             match resSelOpt with
@@ -1055,13 +1055,13 @@ and PolarsQuery<'T>
         let finalLf, ops, clientPreds, clientProjOpt, requiresClientFallback = fuse lfCloned stages [] [] None Map.empty
         if requiresClientFallback && FallbackTracker.Diagnostic.IsNone then
             FallbackTracker.Diagnostic <- Some (sprintf "Stages failed to fuse. stages count: %d\nbound: %s\nstages: %A" stages.Length (bound.ToString()) stages)
-        finalLf, ops, clientPreds, clientProjOpt, requiresClientFallback
+        finalLf, ops, clientPreds, clientProjOpt, requiresClientFallback, stages
 
-    /// Compiles pipeline and builds the target native LazyFrameHandle alongside client predicates, projection, and fallback signal
+    /// Compiles pipeline and builds the target native LazyFrameHandle alongside client predicates, projection, fallback signal, and normalized stages
     member private this.GetCompiledPlan
         ()
-        : LazyFrameHandle * (Func<obj, bool> list) * ((Type * Func<obj, obj>) option) * bool =
-        let baseLf, ops, clientPredsWithAst, clientProjOpt, requiresClientFallback =
+        : LazyFrameHandle * (Func<obj, bool> list) * ((Type * Func<obj, obj>) option) * bool * LinqStage list =
+        let baseLf, ops, clientPredsWithAst, clientProjOpt, requiresClientFallback, stages =
             this.CompilePipeline()
 
         enforcePipelinePolicy
@@ -1072,7 +1072,7 @@ and PolarsQuery<'T>
 
         let nativeLf = applyNativeOps baseLf ops
         let clientPredicates = clientPredsWithAst |> List.map fst
-        nativeLf, clientPredicates, clientProjOpt, requiresClientFallback
+        nativeLf, clientPredicates, clientProjOpt, requiresClientFallback, stages
 
     member private _.MaterializeFlatRows
         (dfHandle: DataFrameHandle, clientPredicates: Func<obj, bool> list, clientProjOpt: (Type * Func<obj, obj>) option)
@@ -1167,7 +1167,7 @@ and PolarsQuery<'T>
 
     /// Evaluates the complete pipeline, executing native plan first, then materializing
     member private this.ExecuteQuery() : IEnumerable<'T> =
-        let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback =
+        let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback, stages =
             this.GetCompiledPlan()
 
         if requiresClientFallback then
@@ -1176,7 +1176,7 @@ and PolarsQuery<'T>
             let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
 
             let dfHandle =
-                if hasShuffle expression then
+                if stages |> List.exists (function LinqStage.Shuffle -> true | _ -> false) then
                     applyShuffle collectedDf
                 else
                     collectedDf
@@ -1186,11 +1186,12 @@ and PolarsQuery<'T>
             else
                 let chunkSizeOpt =
                     if targetType.IsArray then
-                        tryExtractChunkSize expression
+                        stages |> List.tryPick (function LinqStage.Chunk s -> Some s | _ -> None)
                     else
                         None
 
-                let aggByInfoOpt = tryExtractAggregateBy expression
+                let aggByInfoOpt =
+                    stages |> List.tryPick (function LinqStage.AggregateBy(k, seed, sf, f) -> Some(k, seed, sf, f) | _ -> None)
 
                 // Case 1: GroupBy & GroupJoin materialization (produces IEnumerable<IGrouping<TKey, TElement>>)
                 if isGrouping then
@@ -1198,14 +1199,23 @@ and PolarsQuery<'T>
                     let keyType, elemType = genericArgs.[0], genericArgs.[1]
 
                     let applyGroupSort (seqToSort: IEnumerable<'T>) : IEnumerable<'T> =
-                        match tryExtractSortSelector expression with
+                        match stages |> List.tryPick (function LinqStage.Sort(sortLambda, isDesc) -> Some(sortLambda, isDesc) | _ -> None) with
                         | Some(sortLambda, isDesc) ->
                             let compiled = sortLambda.Compile()
                             let keySel (g: 'T) = compiled.DynamicInvoke([| box g |]) :?> IComparable
                             if isDesc then Seq.sortByDescending keySel seqToSort else Seq.sortBy keySel seqToSort
                         | None -> seqToSort
 
-                    match tryExtractGroupByInfo expression with
+                    let groupByInfoOpt =
+                        stages |> List.tryPick (function
+                            | LinqStage.GroupByKey k -> Some(k, None)
+                            | LinqStage.GroupByWithResult(k, r) when r.Parameters.Count < 2 -> Some(k, Some r)
+                            | LinqStage.GroupByWithElementAndResult(k, e, _) -> Some(k, Some e)
+                            | _ -> None)
+
+                    let hasGroupJoin = stages |> List.exists (function LinqStage.GroupJoin _ -> true | _ -> false)
+
+                    match groupByInfoOpt with
                     | Some(keyLambda, elemLambdaOpt) ->
                         let compiledKeySelector = keyLambda.Compile()
 
@@ -1254,7 +1264,7 @@ and PolarsQuery<'T>
 
                         applyGroupSort filtered
 
-                    | None when hasGroupJoin expression ->
+                    | None when hasGroupJoin ->
                         let innerNullableType =
                             if elemType.IsValueType then
                                 typedefof<Nullable<_>>.MakeGenericType elemType
@@ -1323,8 +1333,7 @@ and PolarsQuery<'T>
 
                 // Case 3: AggregateBy (produces IEnumerable<KeyValuePair<TKey, TAccum>>)
                 elif aggByInfoOpt.IsSome then
-                    let sourceExpr, keyLambda, seedExpr, seedLambdaOpt, funcLambda, comparerExprOpt =
-                        aggByInfoOpt.Value
+                    let keyLambda, seedExpr, seedLambdaOpt, funcLambda = aggByInfoOpt.Value
 
                     let genericArgs = targetType.GetGenericArguments()
                     let keyType, accumType = genericArgs.[0], genericArgs.[1]
@@ -1333,27 +1342,13 @@ and PolarsQuery<'T>
                     let compiledKey = keyLambda.Compile()
                     let compiledFunc = funcLambda.Compile()
 
-                    let comparerObj =
-                        match comparerExprOpt with
-                        | Some ce -> tryEvaluate ce |> Option.toObj
-                        | None -> null
-
-                    let sourceQuery = (provider :> IQueryProvider).CreateQuery sourceExpr
-
-                    let sourceLf =
-                        match box sourceQuery with
-                        | :? IPolarsPlanSource as ps -> ps.GetCompiledLazyFrameHandle()
-                        | _ -> nativeLf
-
-                    let sourceDfHandle = PolarsWrapper.LazyCollect(sourceLf, PlEngine.Auto)
-
                     let res =
                         match seedLambdaOpt with
                         | Some seedLambda ->
                             let invoker =
                                 LinqReflectionCache.GetMaterializerAggByFactoryInvoker(sourceElemType, keyType, accumType)
 
-                            invoker.Invoke(materializer, sourceDfHandle, compiledKey, seedLambda.Compile(), compiledFunc, comparerObj)
+                            invoker.Invoke(materializer, dfHandle, compiledKey, seedLambda.Compile(), compiledFunc, null)
                         | None ->
                             let seedVal =
                                 match tryEvaluate seedExpr with
@@ -1363,20 +1358,24 @@ and PolarsQuery<'T>
                             let invoker =
                                 LinqReflectionCache.GetMaterializerAggBySeedInvoker(sourceElemType, keyType, accumType)
 
-                            invoker.Invoke(materializer, sourceDfHandle, compiledKey, seedVal, compiledFunc, comparerObj)
+                            invoker.Invoke(materializer, dfHandle, compiledKey, seedVal, compiledFunc, null)
 
                     res.Cast<'T>()
 
                 // Case 4: Flat row materialization (standard records, anonymous types, DTOs)
                 else
                     let height = PolarsWrapper.DataFrameHeight dfHandle
+                    let defaultIfEmptyOpt = stages |> List.tryPick (function LinqStage.DefaultIfEmpty d -> Some d | _ -> None)
 
-                    match tryExtractDefaultIfEmpty expression with
-                    | Some(true, customDefaultOpt) when height = 0L ->
+                    match defaultIfEmptyOpt with
+                    | Some customDefaultOpt when height = 0L ->
                         let defaultItem =
                             match customDefaultOpt with
-                            | Some v when not (isNull v) -> v :?> 'T
-                            | _ -> Unchecked.defaultof<'T>
+                            | Some expr ->
+                                match tryEvaluate expr with
+                                | Some v when not (isNull v) -> v :?> 'T
+                                | _ -> Unchecked.defaultof<'T>
+                            | None -> Unchecked.defaultof<'T>
 
                         Seq.singleton defaultItem
                     | _ ->
@@ -1384,7 +1383,7 @@ and PolarsQuery<'T>
 
     /// Compiles pipeline to LazyFrameHandle. If client fallback, predicates or projections exist, materializes and transposes back.
     member this.CompileToLazyFrameHandle() : LazyFrameHandle =
-        let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback =
+        let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback, _ =
             this.GetCompiledPlan()
 
         if this.CanCollectNativeDirectly(nativeLf, clientPredicates, clientProjOpt, requiresClientFallback) then
@@ -1396,7 +1395,10 @@ and PolarsQuery<'T>
 
     /// Compiles the query and materializes directly into a native DataFrameHandle
     member this.CompileToDataFrameHandle() : DataFrameHandle =
-        if (tryExtractChunkSize expression).IsSome then
+        let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback, stages =
+            this.GetCompiledPlan()
+
+        if stages |> List.exists (function LinqStage.Chunk _ -> true | _ -> false) then
             raise (
                 InvalidOperationException(
                     "Cannot materialize a chunked sequence (IEnumerable<T[]>) into a single flat DataFrame. "
@@ -1405,13 +1407,10 @@ and PolarsQuery<'T>
                 )
             )
 
-        let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback =
-            this.GetCompiledPlan()
-
         if this.CanCollectNativeDirectly(nativeLf, clientPredicates, clientProjOpt, requiresClientFallback) then
             let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
 
-            if hasShuffle expression then
+            if stages |> List.exists (function LinqStage.Shuffle -> true | _ -> false) then
                 applyShuffle collectedDf
             else
                 collectedDf
@@ -1421,7 +1420,7 @@ and PolarsQuery<'T>
 
     interface IInternalPlanSource with
         member this.GetPlanInfo() =
-            let nativeLf, clientPreds, clientProjOpt, requiresClientFallback =
+            let nativeLf, clientPreds, clientProjOpt, requiresClientFallback, _ =
                 this.GetCompiledPlan()
 
             nativeLf, requiresClientFallback || not clientPreds.IsEmpty, clientProjOpt
@@ -1446,11 +1445,13 @@ and PolarsQuery<'T>
         member this.GetCompiledLazyFrameHandle() = this.CompileToLazyFrameHandle()
 
     member this.GetPlanInspection(optimized: bool) : PlanInspection =
-        let baseLf, ops, clientPreds, clientProjOpt, requiresClientFallback = this.CompilePipeline()
+        let baseLf, ops, clientPreds, clientProjOpt, requiresClientFallback, stages =
+            this.CompilePipeline()
+
         let nativeLf = applyNativeOps baseLf ops
         let planStr = PolarsWrapper.Explain(nativeLf, optimized)
-        let chunkSizeOpt = tryExtractChunkSize expression
-        let shouldShuffle = hasShuffle expression
+        let chunkSizeOpt = stages |> List.tryPick (function LinqStage.Chunk s -> Some s | _ -> None)
+        let shouldShuffle = stages |> List.exists (function LinqStage.Shuffle -> true | _ -> false)
         let mutable postOps = []
 
         if shouldShuffle then
@@ -1495,16 +1496,13 @@ and PolarsQuery<'T>
         member this.GetAsyncEnumerator(cancellationToken: CancellationToken) : IAsyncEnumerator<'T> =
             cancellationToken.ThrowIfCancellationRequested()
 
-            let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback =
+            let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback, stages =
                 this.GetCompiledPlan()
 
             let canStreamBatches =
                 not requiresClientFallback
-                && not (hasShuffle expression)
                 && not isGrouping
-                && (tryExtractDefaultIfEmpty expression).IsNone
-                && (tryExtractChunkSize expression).IsNone
-                && (tryExtractAggregateBy expression).IsNone
+                && not (stages |> List.exists (function LinqStage.Shuffle | LinqStage.DefaultIfEmpty _ | LinqStage.Chunk _ | LinqStage.AggregateBy _ -> true | _ -> false))
 
             if not canStreamBatches then
                 let enumeratorRef = ref (None: IEnumerator<'T> option)

@@ -82,13 +82,7 @@ type internal TranslationContext =
 module internal rec ExprTranslator =
 
     /// Strips Unary wraps like Convert or Quote recursively
-    let rec internal unwrap (e: Expression) =
-        match e with
-        | null -> null
-        | Unary(ExpressionType.Convert, inner)
-        | Unary(ExpressionType.ConvertChecked, inner)
-        | Unary(ExpressionType.Quote, inner) -> unwrap inner
-        | other -> other
+    let inline internal unwrap (e: Expression) = ExpressionPatterns.unwrap e
 
     // =========================================================================
     // 1. Type & Literal Mapping Helpers
