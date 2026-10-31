@@ -1416,6 +1416,7 @@ module internal QueryPipelineHelpers =
                         Suffix = Some uniqueSuffix
                         InvertSides = isRightJoin
                         Coalesce = PlJoinCoalesce.KeepColumns
+                        NullsEqual = false
                     }
             | _ -> None
         | None -> None
@@ -1665,6 +1666,7 @@ module internal QueryPipelineHelpers =
                     Suffix = None
                     InvertSides = false
                     Coalesce = PlJoinCoalesce.JoinSpecific
+                    NullsEqual = true
                 }))
 
     /// Compiles an Append or Prepend stage into a native QueryOp.Concat
@@ -1790,6 +1792,7 @@ module internal QueryPipelineHelpers =
                         Suffix = Some uniqueSuffix
                         InvertSides = false
                         Coalesce = PlJoinCoalesce.KeepColumns
+                        NullsEqual = false
                     }
             | _ -> None)
 
@@ -1843,6 +1846,7 @@ module internal QueryPipelineHelpers =
                             Suffix = Some "_right"
                             InvertSides = false
                             Coalesce = PlJoinCoalesce.JoinSpecific
+                            NullsEqual = false
                         }
 
                 let renameOps = extractBinaryResultRenames resSel None |> buildRenameOps
@@ -2115,6 +2119,7 @@ module internal QueryPipelineHelpers =
                         Suffix = Some "_right"
                         InvertSides = false
                         Coalesce = PlJoinCoalesce.KeepColumns
+                        NullsEqual = false
                     }
 
             let renameOps =
@@ -2550,8 +2555,28 @@ module internal QueryPipelineHelpers =
                             | _ -> false)
                     | None -> false
 
-                let rec rewriteWindowExpr (expr: Expression) : Expression =
+                let rec rewriteWindowExpr (derivedColsOpt: Map<string, ExprHandle> option) (expr: Expression) : Expression =
                     { new ExpressionVisitor() with
+                        override self.Visit(node: Expression) =
+                            if isNull node then null
+                            else
+                                match derivedColsOpt with
+                                | Some derivedMap ->
+                                    let nodeStr = (ExprTranslator.unwrap node).ToString()
+                                    let matchingColOpt =
+                                        List.zip memberNames args
+                                        |> List.tryPick (fun (colName, argExpr) ->
+                                            if derivedMap.ContainsKey colName && (ExprTranslator.unwrap argExpr).ToString() = nodeStr then
+                                                Some colName
+                                            else
+                                                None)
+                                    match matchingColOpt with
+                                    | Some colName ->
+                                        Expression.Parameter(node.Type, sprintf "__key_col_%s" colName) :> Expression
+                                    | None ->
+                                        base.Visit node
+                                | None ->
+                                    base.Visit node
                         override _.VisitMethodCall(node: MethodCallExpression) =
                             if isGroupAggCall node then
                                 match findOrAddWindowAgg node with
@@ -2578,9 +2603,9 @@ module internal QueryPipelineHelpers =
                             | None -> base.VisitParameter node
                     }.Visit(expr)
 
-                let tryTranslatePostGroupExpr (rawArgExpr: Expression) : ExprHandle option =
+                let tryTranslatePostGroupExpr (derivedColsOpt: Map<string, ExprHandle> option) (rawArgExpr: Expression) : ExprHandle option =
                     let beforeCount = windowAggs.Count
-                    let rewritten = rewriteWindowExpr rawArgExpr
+                    let rewritten = rewriteWindowExpr derivedColsOpt rawArgExpr
                     match ExprTranslator.tryTranslateWithContext (TranslationContext.Entity groupParamName) rewritten with
                     | Some h -> Some h
                     | None ->
@@ -2594,7 +2619,7 @@ module internal QueryPipelineHelpers =
                         match tryTranslateSingleAgg colName argExpr with
                         | Some aggH -> Choice1Of3(colName, aggH)
                         | None ->
-                            match tryTranslatePostGroupExpr argExpr with
+                            match tryTranslatePostGroupExpr None argExpr with
                             | Some derivedH -> Choice2Of3(colName, PolarsWrapper.Alias(derivedH, colName))
                             | None -> Choice3Of3 colName)
 
@@ -2658,18 +2683,18 @@ module internal QueryPipelineHelpers =
                                 with _ ->
                                     None
                             | _ ->
-                                tryTranslatePostGroupExpr foldedExpr
+                                tryTranslatePostGroupExpr (Some derivedKeyColMap) foldedExpr
                         | Unary(op, inner) when op = ExpressionType.Convert || op = ExpressionType.ConvertChecked ->
                             match translateHaving inner with
                             | Some innerH ->
                                 match ExprTranslator.tryTranslateCast (match foldedExpr with :? UnaryExpression as u -> u.Type | _ -> typeof<obj>) innerH with
                                 | Some castH -> Some castH
                                 | None -> Some innerH
-                            | None -> tryTranslatePostGroupExpr foldedExpr
+                            | None -> tryTranslatePostGroupExpr (Some derivedKeyColMap) foldedExpr
                         | Unary(op, inner) ->
                             match translateHaving inner with
                             | Some innerH -> ExprTranslator.translateUnary op innerH
-                            | None -> tryTranslatePostGroupExpr foldedExpr
+                            | None -> tryTranslatePostGroupExpr (Some derivedKeyColMap) foldedExpr
                         | Constant _ -> ExprTranslator.tryTranslateWithContext TranslationContext.Empty foldedExpr
                         | other ->
                             match resolveResultColName other with
@@ -2679,9 +2704,9 @@ module internal QueryPipelineHelpers =
                                 | :? MethodCallExpression as aggCall ->
                                     match resolveHavingAggColName aggCall with
                                     | Some c -> Some(PolarsWrapper.Col c)
-                                    | None -> tryTranslatePostGroupExpr foldedExpr
+                                    | None -> tryTranslatePostGroupExpr (Some derivedKeyColMap) foldedExpr
                                 | _ ->
-                                    tryTranslatePostGroupExpr foldedExpr
+                                    tryTranslatePostGroupExpr (Some derivedKeyColMap) foldedExpr
 
                     let havingFilterOpt =
                         ctx.HavingPreds
@@ -2730,7 +2755,7 @@ module internal QueryPipelineHelpers =
                                         }
                                 | None ->
                                     tryTranslateDerivedKeyExpr sortLambda.Body
-                                    |> Option.orElseWith (fun () -> tryTranslatePostGroupExpr sortLambda.Body)
+                                    |> Option.orElseWith (fun () -> tryTranslatePostGroupExpr (Some derivedKeyColMap) sortLambda.Body)
                                     |> Option.map (fun exprH ->
                                         {
                                             Expr = exprH
@@ -2842,7 +2867,7 @@ module internal QueryPipelineHelpers =
                         spec.Coalesce,
                         PlJoinMaintainOrder.None,
                         PlJoinSide.None,
-                        false,
+                        spec.NullsEqual,
                         Nullable(),
                         0UL
                     )

@@ -55,6 +55,7 @@ type internal JoinSpec =
         Suffix: string option
         InvertSides: bool
         Coalesce: PlJoinCoalesce
+        NullsEqual: bool
     }
 
 /// Specification for native AsOf join pushdown

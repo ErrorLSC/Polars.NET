@@ -810,6 +810,7 @@ module internal SubqueryDecorrelator =
                                     Suffix = None
                                     InvertSides = false
                                     Coalesce = PlJoinCoalesce.JoinSpecific
+                                    NullsEqual = false
                                 }
                         ]
                 else
@@ -893,6 +894,7 @@ module internal SubqueryDecorrelator =
                                 Suffix = None
                                 InvertSides = false
                                 Coalesce = PlJoinCoalesce.JoinSpecific
+                                NullsEqual = false
                             }
 
                     let restoreSchemaOp = QueryOp.Select(originalCols |> Array.map PolarsWrapper.Col)
@@ -932,6 +934,7 @@ module internal SubqueryDecorrelator =
                                 Suffix = None
                                 InvertSides = false
                                 Coalesce = PlJoinCoalesce.JoinSpecific
+                                NullsEqual = false
                             }
                     ]
             }
@@ -989,6 +992,7 @@ module internal SubqueryDecorrelator =
                                         Suffix = None
                                         InvertSides = false
                                         Coalesce = PlJoinCoalesce.JoinSpecific
+                                        NullsEqual = false
                                     }
                             ]
                     else
@@ -1156,6 +1160,7 @@ module internal SubqueryDecorrelator =
                                 Suffix = None
                                 InvertSides = false
                                 Coalesce = PlJoinCoalesce.JoinSpecific
+                                NullsEqual = false
                             }
 
                     let filterOp = QueryOp.Filter cmpHandle
@@ -1291,6 +1296,7 @@ module internal SubqueryDecorrelator =
                                 Suffix = None
                                 InvertSides = false
                                 Coalesce = PlJoinCoalesce.JoinSpecific
+                                NullsEqual = false
                             }
 
                     let! outerSideH = ExprTranslator.tryTranslateWithContext outerCtx outerSideExpr
@@ -1744,6 +1750,7 @@ module internal SubqueryDecorrelator =
                                         Suffix = None
                                         InvertSides = false
                                         Coalesce = PlJoinCoalesce.JoinSpecific
+                                        NullsEqual = false
                                     }
 
                             let fillNullOps = buildFillNullOps assignments
@@ -1889,6 +1896,7 @@ module internal SubqueryDecorrelator =
                                         Suffix = None
                                         InvertSides = false
                                         Coalesce = PlJoinCoalesce.JoinSpecific
+                                        NullsEqual = false
                                     }
 
                             let fillNullOps = buildFillNullOps assignments
