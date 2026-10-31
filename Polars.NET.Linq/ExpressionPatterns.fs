@@ -863,3 +863,111 @@ module internal ExpressionPatterns =
                         ->
                         Some(JsonSerialize target)
                     | _ -> None
+
+    /// Canonical classification of null-checking predicate expressions for sort fusion
+    [<RequireQualifiedAccess>]
+    type internal NullCheckKind =
+        | IsNull of target: Expression      // true when target is null
+        | IsNotNull of target: Expression   // true when target is not null
+
+    /// Extracts whether an expression is a null check (x == null, x != null, !x.HasValue, etc.)
+    let internal tryExtractNullCheck (expr: Expression) : NullCheckKind option =
+        let isNullConst (e: Expression) =
+            match unwrap e with
+            | :? ConstantExpression as c when isNull c.Value -> true
+            | _ -> false
+
+        let isOneOrTrue (e: Expression) =
+            match unwrap e with
+            | :? ConstantExpression as c when not (isNull c.Value) ->
+                match c.Value with
+                | :? bool as b -> b
+                | :? int as i -> i = 1
+                | :? int64 as i -> i = 1L
+                | _ -> false
+            | _ -> false
+
+        let isZeroOrFalse (e: Expression) =
+            match unwrap e with
+            | :? ConstantExpression as c when not (isNull c.Value) ->
+                match c.Value with
+                | :? bool as b -> not b
+                | :? int as i -> i = 0
+                | :? int64 as i -> i = 0L
+                | _ -> false
+            | _ -> false
+
+        let rec analyze (e: Expression) : NullCheckKind option =
+            let u = unwrap e
+            match u with
+            | :? BinaryExpression as b when b.NodeType = ExpressionType.Equal ->
+                if isNullConst b.Right then Some(NullCheckKind.IsNull(unwrap b.Left))
+                elif isNullConst b.Left then Some(NullCheckKind.IsNull(unwrap b.Right))
+                else None
+            | :? BinaryExpression as b when b.NodeType = ExpressionType.NotEqual ->
+                if isNullConst b.Right then Some(NullCheckKind.IsNotNull(unwrap b.Left))
+                elif isNullConst b.Left then Some(NullCheckKind.IsNotNull(unwrap b.Right))
+                else None
+            | :? UnaryExpression as u when u.NodeType = ExpressionType.Not ->
+                match analyze u.Operand with
+                | Some(NullCheckKind.IsNull t) -> Some(NullCheckKind.IsNotNull t)
+                | Some(NullCheckKind.IsNotNull t) -> Some(NullCheckKind.IsNull t)
+                | None -> None
+            | MemberAccess(target, m) when isNullableHasValue m ->
+                Some(NullCheckKind.IsNotNull(unwrap target))
+            | :? ConditionalExpression as cond ->
+                if isOneOrTrue cond.IfTrue && isZeroOrFalse cond.IfFalse then
+                    analyze cond.Test
+                elif isZeroOrFalse cond.IfTrue && isOneOrTrue cond.IfFalse then
+                    match analyze cond.Test with
+                    | Some(NullCheckKind.IsNull t) -> Some(NullCheckKind.IsNotNull t)
+                    | Some(NullCheckKind.IsNotNull t) -> Some(NullCheckKind.IsNull t)
+                    | None -> None
+                else
+                    None
+            | _ -> None
+
+        analyze expr
+
+    /// Attempts to fuse an adjacent pair of sort stages (e.g. OrderBy(x => x.Score == null).ThenBy(x => x.Score))
+    /// into a single Sort stage with the appropriate native Polars NullsLast setting.
+    let internal tryFuseNullSortPair
+        (l1: LambdaExpression)
+        (isDesc1: bool)
+        (l2: LambdaExpression)
+        (isDesc2: bool)
+        : (LambdaExpression * bool * bool) option =
+        match tryExtractNullCheck l1.Body with
+        | Some checkKind ->
+            let target1 =
+                match checkKind with
+                | NullCheckKind.IsNull t -> t
+                | NullCheckKind.IsNotNull t -> t
+
+            let target2 =
+                let u2 = unwrap l2.Body
+                match u2 with
+                | MemberAccess(inner, m) when isNullableValue m -> unwrap inner
+                | _ -> u2
+
+            let lambda1 = Expression.Lambda(target1, l1.Parameters)
+            let lambda2 = Expression.Lambda(target2, l2.Parameters)
+
+            if ExpressionEqualityComparer.Instance.Equals(lambda1, lambda2) then
+                let nullsLast =
+                    match checkKind with
+                    | NullCheckKind.IsNull _ ->
+                        // l1 is target == null
+                        // isDesc1 = false (ASC): false(0) then true(1) => non-null first, null last => nullsLast = true
+                        // isDesc1 = true (DESC): true(1) then false(0) => null first, non-null last => nullsLast = false
+                        if not isDesc1 then true else false
+                    | NullCheckKind.IsNotNull _ ->
+                        // l1 is target != null
+                        // isDesc1 = false (ASC): false(0) then true(1) => null first, non-null last => nullsLast = false
+                        // isDesc1 = true (DESC): true(1) then false(0) => non-null first, null last => nullsLast = true
+                        if not isDesc1 then false else true
+
+                Some(l2, isDesc2, nullsLast)
+            else
+                None
+        | None -> None

@@ -3247,6 +3247,20 @@ public partial class LinqTests
         // 4. Assert
         Assert.Equal([10, 20, 30, 40], ascResults);
         Assert.Equal([40, 30, 20, 10], descResults);
+
+        // 5. Act: Test .NET 7 Order() and OrderDescending() on nullable data with nulls
+        using var dfNullable = DataFrame.FromColumns(
+        [
+            Series.From("Id", new int?[] { 40, null, 10, 30, null, 20 })
+        ]);
+
+        var ascNullableQuery = dfNullable.AsQueryable<int?>().Order();
+        AssertPlan(ascNullableQuery, NativePushdown);
+        Assert.Equal([null, null, 10, 20, 30, 40], ascNullableQuery.ToList());
+
+        var descNullableQuery = dfNullable.AsQueryable<int?>().OrderDescending();
+        AssertPlan(descNullableQuery, NativePushdown);
+        Assert.Equal([40, 30, 20, 10, null, null], descNullableQuery.ToList());
     }
 
     [Fact]
@@ -9467,11 +9481,11 @@ public partial class LinqTests
             Series.From("Amount", [10, 20, 30, 40])
         ]);
 
-        var sets = new string[][]
-        {
+        string[][] sets = 
+        [
             ["Dept"],
             []
-        };
+        ];
 
         var query = df.AsQueryable<SalesRecord>()
             .GroupByGroupingSets(
@@ -9496,6 +9510,60 @@ public partial class LinqTests
         Assert.Equal(1, grandTotal.Height);
         Assert.Equal(100, grandTotal.GetValue<int>(0, "TotalAmount"));
     }
+
+    [Fact]
+    [Trait("LINQ", "Order")]
+    public void Test_Linq_OrderBy_NullsFirst_And_NullsLast_Fusion()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
+            Series.From("Score", new int?[] { 85, null, 92, null, 70 })
+        ]);
+
+        var queryable = df.AsQueryable<NullableScoreRecord>();
+
+        // 1. Standard OrderBy (ASC): BCL semantics are NULLS FIRST
+        var ascDefault = queryable.OrderBy(x => x.Score);
+        AssertPlan(ascDefault, NativePushdown);
+        var ascDefaultRes = ascDefault.Select(x => x.Score).ToList();
+        Assert.Equal([null, null, 70, 85, 92], ascDefaultRes);
+
+        // 2. Standard OrderByDescending (DESC): BCL semantics are NULLS LAST
+        var descDefault = queryable.OrderByDescending(x => x.Score);
+        AssertPlan(descDefault, NativePushdown);
+        var descDefaultRes = descDefault.Select(x => x.Score).ToList();
+        Assert.Equal([92, 85, 70, null, null], descDefaultRes);
+
+        // 3. Idiomatic C# ASC NULLS LAST: OrderBy(x => x.Score == null).ThenBy(x => x.Score)
+        // Should fuse into single Sort with descending=false, nulls_last=true
+        var ascNullsLast = queryable.OrderBy(x => x.Score == null).ThenBy(x => x.Score);
+        AssertPlan(ascNullsLast, NativePushdown);
+        var ascNullsLastRes = ascNullsLast.Select(x => x.Score).ToList();
+        Assert.Equal([70, 85, 92, null, null], ascNullsLastRes);
+
+        // 4. Query syntax ASC NULLS LAST: orderby x.Score == null, x.Score
+        var ascNullsLastQuerySyntax = from x in queryable
+                                      orderby x.Score == null, x.Score
+                                      select x.Score;
+        AssertPlan(ascNullsLastQuerySyntax, NativePushdown);
+        Assert.Equal([70, 85, 92, null, null], ascNullsLastQuerySyntax.ToList());
+
+        // 5. Idiomatic C# DESC NULLS FIRST: OrderBy(x => x.Score != null).ThenByDescending(x => x.Score)
+        // Should fuse into single Sort with descending=true, nulls_last=false
+        var descNullsFirst1 = queryable.OrderBy(x => x.Score != null).ThenByDescending(x => x.Score);
+        AssertPlan(descNullsFirst1, NativePushdown);
+        var descNullsFirstRes1 = descNullsFirst1.Select(x => x.Score).ToList();
+        Assert.Equal([null, null, 92, 85, 70], descNullsFirstRes1);
+
+        // 6. Alternative C# DESC NULLS FIRST: OrderByDescending(x => x.Score == null).ThenByDescending(x => x.Score)
+        var descNullsFirst2 = queryable.OrderByDescending(x => x.Score == null).ThenByDescending(x => x.Score);
+        AssertPlan(descNullsFirst2, NativePushdown);
+        var descNullsFirstRes2 = descNullsFirst2.Select(x => x.Score).ToList();
+        Assert.Equal([null, null, 92, 85, 70], descNullsFirstRes2);
+    }
+
+    public record NullableScoreRecord(string Name, int? Score);
 
     public record SalesRecord(string Dept, string Team, int Amount);
 

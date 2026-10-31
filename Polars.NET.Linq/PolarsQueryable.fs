@@ -243,10 +243,10 @@ and PolarsQuery<'T>
                         let newBody = substituteLet pred.Body
                         let newPred = Expression.Lambda(newBody, pred.Parameters)
                         slurp next { ctx with HavingPreds = ctx.HavingPreds @ [ newPred ] } letBindings
-                    | LinqStage.Sort(sortLambda, isDesc) :: next ->
+                    | LinqStage.Sort(sortLambda, isDesc, nullsLast) :: next ->
                         let newBody = substituteLet sortLambda.Body
                         let newSort = Expression.Lambda(newBody, sortLambda.Parameters)
-                        slurp next { ctx with SortStages = ctx.SortStages @ [ (newSort, isDesc) ] } letBindings
+                        slurp next { ctx with SortStages = ctx.SortStages @ [ (newSort, isDesc, nullsLast) ] } letBindings
                     | LinqStage.Project projLambda :: next ->
                         let param = projLambda.Parameters.[0]
                         let isTransparentGroupLet =
@@ -529,7 +529,7 @@ and PolarsQuery<'T>
             // -----------------------------------------------------------------
             // 4. Sorting (Sort, SortDefault)
             // -----------------------------------------------------------------
-            | LinqStage.Sort(l, isDesc) :: tail ->
+            | LinqStage.Sort(l, isDesc, nullsLast) :: tail ->
                 let param = l.Parameters.[0]
 
                 let isParamGrouping =
@@ -545,7 +545,7 @@ and PolarsQuery<'T>
 
                     match sortExprOpt with
                     | Some exprHandle ->
-                        let spec = { Expr = exprHandle; Descending = isDesc; NullsLast = false }
+                        let spec = { Expr = exprHandle; Descending = isDesc; NullsLast = nullsLast }
                         fuse currentLf tail (addSort spec opsAcc) clientPreds clientProjOpt scopeMap
                     | None -> fuse currentLf tail opsAcc clientPreds clientProjOpt scopeMap
                 else
@@ -564,10 +564,10 @@ and PolarsQuery<'T>
                         PolarsWrapper.ExprCast(PolarsWrapper.Col "Index", int32Dtype, strict = false, wrapNumerical = false)
                     pushOps [ QueryOp.WithColumns [| castIndexExpr |]; indexOp ] tail
 
-                | LinqStage.SortDefault isDesc :: tail ->
+                | LinqStage.SortDefault(isDesc, nullsLast) :: tail ->
                     let colNames = PolarsSchemaExtractor.GetColumnNames currentLf
                     let targetCol = if colNames.Length > 0 then colNames.[0] else ""
-                    let spec = { Expr = PolarsWrapper.Col targetCol; Descending = isDesc; NullsLast = false }
+                    let spec = { Expr = PolarsWrapper.Col targetCol; Descending = isDesc; NullsLast = nullsLast }
                     fuse currentLf tail (addSort spec opsAcc) clientPreds clientProjOpt scopeMap
 
                 // Slicing & Reordering
@@ -1199,7 +1199,7 @@ and PolarsQuery<'T>
                     let keyType, elemType = genericArgs.[0], genericArgs.[1]
 
                     let applyGroupSort (seqToSort: IEnumerable<'T>) : IEnumerable<'T> =
-                        match stages |> List.tryPick (function LinqStage.Sort(sortLambda, isDesc) -> Some(sortLambda, isDesc) | _ -> None) with
+                        match stages |> List.tryPick (function LinqStage.Sort(sortLambda, isDesc, _) -> Some(sortLambda, isDesc) | _ -> None) with
                         | Some(sortLambda, isDesc) ->
                             let compiled = sortLambda.Compile()
                             let keySel (g: 'T) = compiled.DynamicInvoke([| box g |]) :?> IComparable

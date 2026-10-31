@@ -37,7 +37,7 @@ type internal GroupFoldContext =
         KeyLambda: LambdaExpression
         ElemLambdaOpt: LambdaExpression option
         HavingPreds: LambdaExpression list
-        SortStages: (LambdaExpression * bool) list
+        SortStages: (LambdaExpression * bool * bool) list
     }
 
 /// Strongly-typed IGrouping implementation for in-memory GroupJoin materialization.
@@ -865,6 +865,30 @@ module internal QueryPipelineHelpers =
                 | _ -> PlAsofStrategy.Backward
             with _ -> PlAsofStrategy.Backward
 
+    /// Fuses adjacent sort stages that represent null-handling idioms (e.g. OrderBy(x => x.Score == null).ThenBy(x => x.Score))
+    let rec fuseSortStages (stages: LinqStage list) : LinqStage list =
+        match stages with
+        | LinqStage.Sort(l1, isDesc1, _) :: LinqStage.Sort(l2, isDesc2, _) :: tail ->
+            match tryFuseNullSortPair l1 isDesc1 l2 isDesc2 with
+            | Some (fusedLambda, fusedDesc, fusedNullsLast) ->
+                fuseSortStages (LinqStage.Sort(fusedLambda, fusedDesc, fusedNullsLast) :: tail)
+            | None ->
+                LinqStage.Sort(l1, isDesc1, (if isDesc1 then true else false)) :: fuseSortStages (LinqStage.Sort(l2, isDesc2, (if isDesc2 then true else false)) :: tail)
+        | head :: tail -> head :: fuseSortStages tail
+        | [] -> []
+
+    /// Fuses adjacent sort pairs within GroupFoldContext
+    let rec fuseSortPairs (pairs: (LambdaExpression * bool * bool) list) : (LambdaExpression * bool * bool) list =
+        match pairs with
+        | (l1, isDesc1, _) :: (l2, isDesc2, _) :: tail ->
+            match tryFuseNullSortPair l1 isDesc1 l2 isDesc2 with
+            | Some (fusedLambda, fusedDesc, fusedNullsLast) ->
+                fuseSortPairs ((fusedLambda, fusedDesc, fusedNullsLast) :: tail)
+            | None ->
+                (l1, isDesc1, (if isDesc1 then true else false)) :: fuseSortPairs ((l2, isDesc2, (if isDesc2 then true else false)) :: tail)
+        | head :: tail -> head :: fuseSortPairs tail
+        | [] -> []
+
     /// Recursively flattens a LINQ expression tree into a linear sequence of LinqStage values.
     let rec flattenStages (e: Expression) (acc: LinqStage list) : LinqStage list =
         let evalUInt32 opName (expr: Expression) =
@@ -873,7 +897,7 @@ module internal QueryPipelineHelpers =
             | None -> failwithf "Could not evaluate %s count argument: %A" opName expr
 
         match e with
-        | null -> acc
+        | null -> fuseSortStages acc
         | MethodCall(m, null, [ source; StripQuotes(:? LambdaExpression as l) ]) when m.Name = "Select" ->
             let isPassthrough (body: Expression) =
                 let p = l.Parameters.[0]
@@ -928,8 +952,8 @@ module internal QueryPipelineHelpers =
             let stage =
                 match m.Name with
                 | "Where" -> LinqStage.Filter l
-                | "OrderBy" | "ThenBy" -> LinqStage.Sort(l, isDescending = false)
-                | "OrderByDescending" | "ThenByDescending" -> LinqStage.Sort(l, isDescending = true)
+                | "OrderBy" | "ThenBy" -> LinqStage.Sort(l, isDescending = false, nullsLast = false)
+                | "OrderByDescending" | "ThenByDescending" -> LinqStage.Sort(l, isDescending = true, nullsLast = true)
                 | "DistinctBy" -> LinqStage.DistinctBy l
                 | "GroupBy" -> LinqStage.GroupByKey l
                 | "TakeWhile" -> LinqStage.TakeWhile l
@@ -943,8 +967,8 @@ module internal QueryPipelineHelpers =
                 match m.Name with
                 | "Distinct" -> Some LinqStage.Distinct
                 | "Index" -> Some LinqStage.Index
-                | "Order" -> Some(LinqStage.SortDefault(isDescending = false))
-                | "OrderDescending" -> Some(LinqStage.SortDefault(isDescending = true))
+                | "Order" -> Some(LinqStage.SortDefault(isDescending = false, nullsLast = false))
+                | "OrderDescending" -> Some(LinqStage.SortDefault(isDescending = true, nullsLast = true))
                 | "Reverse" -> Some LinqStage.Reverse
                 | "Shuffle" -> Some LinqStage.Shuffle
                 | "DefaultIfEmpty" -> Some(LinqStage.DefaultIfEmpty None)
@@ -955,7 +979,7 @@ module internal QueryPipelineHelpers =
 
             match stageOpt with
             | Some stage -> flattenStages source (stage :: acc)
-            | None -> acc
+            | None -> fuseSortStages acc
 
         // Count-based slicing stages: Take, Skip, TakeLast, SkipLast
         | MethodCall(m, null, [ source; countExpr ]) when
@@ -1185,7 +1209,7 @@ module internal QueryPipelineHelpers =
         | MethodCall(m, null, source :: CleanLambda k :: seedExpr :: CleanLambda f :: _) when m.Name = "AggregateBy" ->
             flattenStages source (LinqStage.AggregateBy(k, seedExpr, None, f) :: acc)
 
-        | _ -> acc
+        | _ -> fuseSortStages acc
 
     // =========================================================================
     // 4. Stage-to-QueryOp Compilers & Native Plan Builder
@@ -1940,7 +1964,7 @@ module internal QueryPipelineHelpers =
             let sortInfoOpt =
                 innerStages
                 |> List.tryPick (function
-                    | LinqStage.Sort(l, isDesc) ->
+                    | LinqStage.Sort(l, isDesc, _) ->
                         let ctx = createContextForType l.Parameters.[0].Type lf l.Parameters.[0].Name
                         ExprTranslator.tryTranslateWithContext ctx l.Body
                         |> Option.map (fun h -> h, isDesc)
@@ -2738,9 +2762,11 @@ module internal QueryPipelineHelpers =
 
                         let groupByOp = QueryOp.GroupBy groupBySpec
 
+                        let sortStages = fuseSortPairs ctx.SortStages
+
                         let hasLateSort =
-                            ctx.SortStages
-                            |> List.exists (fun (sortLambda, _) ->
+                            sortStages
+                            |> List.exists (fun (sortLambda, _, _) ->
                                 match resolveResultColName sortLambda.Body with
                                 | Some colName when derivedKeyColMap.ContainsKey colName -> true
                                 | None ->
@@ -2750,15 +2776,15 @@ module internal QueryPipelineHelpers =
                                 | _ -> false)
 
                         let allSortSpecs =
-                            ctx.SortStages
-                            |> List.choose (fun (sortLambda, isDesc) ->
+                            sortStages
+                            |> List.choose (fun (sortLambda, isDesc, nullsLast) ->
                                 match resolveResultColName sortLambda.Body with
                                 | Some colName ->
                                     Some
                                         {
                                             Expr = PolarsWrapper.Col colName
                                             Descending = isDesc
-                                            NullsLast = false
+                                            NullsLast = nullsLast
                                         }
                                 | None ->
                                     tryTranslateDerivedKeyExpr sortLambda.Body
@@ -2767,20 +2793,20 @@ module internal QueryPipelineHelpers =
                                         {
                                             Expr = exprH
                                             Descending = isDesc
-                                            NullsLast = false
+                                            NullsLast = nullsLast
                                         }))
 
                         let earlySortSpecs =
                             if hasLateSort then
-                                ctx.SortStages
-                                |> List.choose (fun (sortLambda, isDesc) ->
+                                sortStages
+                                |> List.choose (fun (sortLambda, isDesc, nullsLast) ->
                                     match resolveResultColName sortLambda.Body with
                                     | Some colName when not (derivedKeyColMap.ContainsKey colName) ->
                                         Some
                                             {
                                                 Expr = PolarsWrapper.Col colName
                                                 Descending = isDesc
-                                                NullsLast = false
+                                                NullsLast = nullsLast
                                             }
                                     | None ->
                                         tryTranslateDerivedKeyExpr sortLambda.Body
@@ -2788,7 +2814,7 @@ module internal QueryPipelineHelpers =
                                             {
                                                 Expr = exprH
                                                 Descending = isDesc
-                                                NullsLast = false
+                                                NullsLast = nullsLast
                                             })
                                     | _ -> None)
                             else

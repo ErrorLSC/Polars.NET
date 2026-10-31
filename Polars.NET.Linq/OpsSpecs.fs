@@ -144,8 +144,8 @@ type internal QueryOp =
 [<RequireQualifiedAccess>]
 type internal LinqStage =
     | Filter of LambdaExpression
-    | Sort of LambdaExpression * isDescending: bool
-    | SortDefault of isDescending: bool // For .NET 7 Order() / OrderDescending()
+    | Sort of LambdaExpression * isDescending: bool * nullsLast: bool
+    | SortDefault of isDescending: bool * nullsLast: bool // For .NET 7 Order() / OrderDescending()
     | Index // For .NET 9 Index()
     | TakeWhile of LambdaExpression
     | SkipWhile of LambdaExpression

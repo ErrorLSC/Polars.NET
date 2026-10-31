@@ -149,7 +149,7 @@ type QueryPlanCache private () =
 
             match stage with
             | LinqStage.Filter l -> LinqStage.Filter(subLambda l)
-            | LinqStage.Sort(l, desc) -> LinqStage.Sort(subLambda l, desc)
+            | LinqStage.Sort(l, desc, nullsLast) -> LinqStage.Sort(subLambda l, desc, nullsLast)
             | LinqStage.Project l -> LinqStage.Project(subLambda l)
             | LinqStage.Join(m, inner, ok, ik, rs) ->
                 LinqStage.Join(m, subExpr inner, subLambda ok, subLambda ik, subLambdaOpt rs)
