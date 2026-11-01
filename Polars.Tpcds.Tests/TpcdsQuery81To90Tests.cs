@@ -906,47 +906,25 @@ public class TpcdsQuery81To90Tests
         var baseSales = from ws in webSalesQuery
                         join d in filteredDates on ws.ws_sold_date_sk equals d.d_date_sk
                         join i in itemQuery on ws.ws_item_sk equals i.i_item_sk
-                        group ws by new { i.i_category, i.i_class } into g
                         select new
                         {
-                            g.Key.i_category,
-                            g.Key.i_class,
-                            total_sum = g.Sum(x => x.ws_net_paid)
+                            i.i_category,
+                            i.i_class,
+                            ws.ws_net_paid
                         };
 
-        var level0 = from r in baseSales
-                     select new
-                     {
-                         r.total_sum,
-                         r.i_category,
-                         r.i_class,
-                         t_class = 0,
-                         lochierarchy = 0
-                     };
-
-        var level1 = from r in baseSales
-                     group r by r.i_category into g
-                     select new
-                     {
-                         total_sum = g.Sum(x => x.total_sum),
-                         i_category = g.Key,
-                         i_class = (string?)null,
-                         t_class = 1,
-                         lochierarchy = 1
-                     };
-
-        var level2 = from r in baseSales
-                     group r by 1 into g
-                     select new
-                     {
-                         total_sum = g.Sum(x => x.total_sum),
-                         i_category = (string?)null,
-                         i_class = (string?)null,
-                         t_class = 1,
-                         lochierarchy = 2
-                     };
-
-        var rollup = level0.Concat(level1).Concat(level2);
+        var rollup = baseSales
+            .GroupBy(x => new { x.i_category, x.i_class })
+            .RollUp(
+                (key, g) => new
+                {
+                    total_sum = g.Sum(x => x.ws_net_paid),
+                    key.i_category,
+                    key.i_class,
+                    t_class = key.i_class.Grouping(),
+                    lochierarchy = key.i_category.Grouping() + key.i_class.Grouping()
+                }
+            );
 
         var q86 = (from r in rollup
                    select new

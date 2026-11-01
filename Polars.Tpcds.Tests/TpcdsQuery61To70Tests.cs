@@ -2034,40 +2034,18 @@ public class TpcdsQuery61To70Tests
                             ss.ss_net_profit
                         };
 
-        var level0 = from x in baseSales
-                     group x by new { x.s_state, x.s_county } into g
-                     select new
-                     {
-                         total_sum = g.Sum(x => x.ss_net_profit),
-                         g.Key.s_state,
-                         g.Key.s_county,
-                         g_county = 0,
-                         lochierarchy = 0
-                     };
-
-        var level1 = from x in baseSales
-                     group x by x.s_state into g
-                     select new
-                     {
-                         total_sum = g.Sum(x => x.ss_net_profit),
-                         s_state = g.Key,
-                         s_county = (string?)null,
-                         g_county = 1,
-                         lochierarchy = 1
-                     };
-
-        var level2 = from x in baseSales
-                     group x by 1 into g
-                     select new
-                     {
-                         total_sum = g.Sum(x => x.ss_net_profit),
-                         s_state = (string?)null,
-                         s_county = (string?)null,
-                         g_county = 1,
-                         lochierarchy = 2
-                     };
-
-        var rollup = level0.Concat(level1).Concat(level2);
+        var rollup = baseSales
+            .GroupBy(x => new { x.s_state, x.s_county })
+            .RollUp(
+                (key, g) => new
+                {
+                    total_sum = g.Sum(x => x.ss_net_profit),
+                    key.s_state,
+                    key.s_county,
+                    g_county = key.s_county.Grouping(),
+                    lochierarchy = key.s_state.Grouping() + key.s_county.Grouping()
+                }
+            );
 
         var q70 = (from r in rollup
                    select new

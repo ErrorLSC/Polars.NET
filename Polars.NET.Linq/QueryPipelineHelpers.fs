@@ -3245,11 +3245,10 @@ module internal QueryPipelineHelpers =
                         PolarsWrapper.Alias(rawKeyExpr, outputColName))
                     |> List.toArray
 
-                let (|GroupingCallInfo|_|) (expr: Expression) : (string * Type) option =
-                    let cleanE = ExprTranslator.unwrap expr
-                    let targetOpt =
-                        match cleanE with
-                        | MethodCall(m, _, [ propExpr ]) when m.Name = "Grouping" ->
+                let (|GroupingCall|_|) (expr: Expression) : (string * Type) option =
+                    match expr with
+                    | MethodCall(m, _, [ propExpr ]) when m.Name = "Grouping" ->
+                        let targetKeyNameOpt =
                             match ExprTranslator.unwrap propExpr with
                             | MemberAccess(_, mem) ->
                                 if mem.Name = "Key" && keyDefs.Length = 1 then Some (fst keyDefs.[0])
@@ -3257,31 +3256,77 @@ module internal QueryPipelineHelpers =
                             | ExtractColumnName col -> Some col
                             | p when isKeyArg p && keyDefs.Length = 1 -> Some (fst keyDefs.[0])
                             | _ -> None
-                        | MethodCall(m, _, [ _; CleanLambda lam ]) when m.Name = "Grouping" ->
+                        targetKeyNameOpt |> Option.map (fun name -> name, m.ReturnType)
+                    | MethodCall(m, _, [ _; CleanLambda lam ]) when m.Name = "Grouping" ->
+                        let targetKeyNameOpt =
                             match ExprTranslator.unwrap lam.Body with
                             | MemberAccess(_, mem) -> Some mem.Name
                             | ExtractColumnName col -> Some col
-                            | p when (ExprTranslator.unwrap p).NodeType = ExpressionType.Parameter && keyDefs.Length = 1 -> Some (fst keyDefs.[0])
+                            | p when (ExprTranslator.unwrap p).NodeType = ExpressionType.Parameter && keyDefs.Length = 1 ->
+                                Some (fst keyDefs.[0])
                             | _ -> None
-                        | _ -> None
+                        targetKeyNameOpt |> Option.map (fun name -> name, m.ReturnType)
+                    | _ -> None
 
-                    targetOpt |> Option.map (fun col -> (col, expr.Type))
+                let containsGroupingCall (e: Expression) : bool =
+                    let mutable found = false
+                    let visitor =
+                        { new ExpressionVisitor() with
+                            override _.Visit(node) =
+                                if found || isNull node then node
+                                else
+                                    match node with
+                                    | GroupingCall _ ->
+                                        found <- true
+                                        node
+                                    | _ -> base.Visit node }
+                    visitor.Visit e |> ignore
+                    found
 
-                let groupingColMap: Map<string, int * Type> =
+                let rewriteGrouping (subsetSet: Set<int>) (e: Expression) : Expression =
+                    let visitor =
+                        { new ExpressionVisitor() with
+                            override this.Visit(node) =
+                                match node with
+                                | GroupingCall(targetKeyName, retType) ->
+                                    let keyIdxOpt =
+                                        keyDefs
+                                        |> List.tryFindIndex (fun (k, _) -> k = targetKeyName || keyNameToOutputAliasMap.[k] = targetKeyName)
+                                    match keyIdxOpt with
+                                    | Some keyIdx ->
+                                        let isRolledUp = not (subsetSet.Contains keyIdx)
+                                        let valInt = if isRolledUp then 1 else 0
+                                        if retType = typeof<byte> then
+                                            Expression.Constant(byte valInt, typeof<byte>) :> Expression
+                                        elif retType = typeof<int64> then
+                                            Expression.Constant(int64 valInt, typeof<int64>) :> Expression
+                                        else
+                                            Expression.Constant(valInt, typeof<int>) :> Expression
+                                    | None -> base.Visit node
+                                | _ -> base.Visit node }
+                    visitor.Visit e
+
+                let objToPolarsLit (v: obj) (targetType: Type) (dtOpt: DataTypeHandle option) : ExprHandle =
+                    match v, dtOpt with
+                    | null, Some dt ->
+                        let dtExpr = PolarsWrapper.DataTypeExprFromDataType dt
+                        PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), dtExpr, strict = false, wrapNumerical = false)
+                    | _ ->
+                        ExprTranslator.toLiteralHandle v targetType
+
+                let groupingExprMap: Map<string, Expression> =
                     List.zip memberNames args
                     |> List.choose (fun (memName, rawArg) ->
-                        match rawArg with
-                        | GroupingCallInfo(targetKeyName, targetType) ->
-                            keyDefs
-                            |> List.tryFindIndex (fun (k, _) -> k = targetKeyName || keyNameToOutputAliasMap.[k] = targetKeyName)
-                            |> Option.map (fun idx -> memName, (idx, targetType))
-                        | _ -> None)
+                        if containsGroupingCall rawArg then
+                            Some (memName, rawArg)
+                        else
+                            None)
                     |> Map.ofList
 
                 let nonKeyArgs =
                     List.zip memberNames args
                     |> List.filter (fun (memName, argExpr) ->
-                        not (isKeyExpression argExpr) && not (groupingColMap.ContainsKey memName))
+                        not (isKeyExpression argExpr) && not (groupingExprMap.ContainsKey memName))
 
                 let scalarColOpt = tryGetScalarColumnName keyParam.Type activeLf
                 let targetColExprOpt = scalarColOpt |> Option.map PolarsWrapper.Col
@@ -3403,14 +3448,6 @@ module internal QueryPipelineHelpers =
                                 | _ -> None
                             extractedSetsOpt |> Option.defaultValue [ [ 0 .. numKeys - 1 ] ]
 
-                    let makeLitGroupingVal (targetType: Type) (isRolledUp: bool) =
-                        if targetType = typeof<int64> then
-                            PolarsWrapper.Lit (if isRolledUp then 1L else 0L)
-                        elif targetType = typeof<byte> then
-                            PolarsWrapper.Lit (if isRolledUp then 1uy else 0uy)
-                        else
-                            PolarsWrapper.Lit (if isRolledUp then 1 else 0)
-
                     // Compile Level 0 (all keys) to capture schema and types
                     let level0Keys = keyAliasedExprs |> Array.map PolarsWrapper.CloneExpr
                     let level0Aggs = aggs |> List.map PolarsWrapper.CloneExpr |> List.toArray
@@ -3419,9 +3456,11 @@ module internal QueryPipelineHelpers =
                     let level0SelectExprs =
                         memberNames
                         |> List.map (fun name ->
-                            match groupingColMap.TryFind name with
-                            | Some (_, targetType) ->
-                                PolarsWrapper.Alias(makeLitGroupingVal targetType false, name)
+                            match groupingExprMap.TryFind name with
+                            | Some expr ->
+                                let levelExpr = rewriteGrouping (Set.ofList [ 0 .. numKeys - 1 ]) expr
+                                let evaluated = PartialEvaluator.evaluateSubtree levelExpr
+                                PolarsWrapper.Alias(objToPolarsLit evaluated expr.Type None, name)
                             | None ->
                                 PolarsWrapper.Col name)
                         |> List.toArray
@@ -3450,10 +3489,11 @@ module internal QueryPipelineHelpers =
                             let projectedExprs =
                                 memberNames
                                 |> List.map (fun name ->
-                                    match groupingColMap.TryFind name with
-                                    | Some (keyIdx, targetType) ->
-                                        let isRolledUp = not (subsetSet.Contains keyIdx)
-                                        PolarsWrapper.Alias(makeLitGroupingVal targetType isRolledUp, name)
+                                    match groupingExprMap.TryFind name with
+                                    | Some expr ->
+                                        let levelExpr = rewriteGrouping subsetSet expr
+                                        let evaluated = PartialEvaluator.evaluateSubtree levelExpr
+                                        PolarsWrapper.Alias(objToPolarsLit evaluated expr.Type (colTypeMap.TryFind name), name)
                                     | None ->
                                         match outputAliasToKeyIdx.TryFind name with
                                         | Some keyIdx ->
