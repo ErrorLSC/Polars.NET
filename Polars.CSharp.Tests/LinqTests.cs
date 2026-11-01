@@ -9613,6 +9613,145 @@ public partial class LinqTests
     }
 
     [Fact]
+    [Trait("LINQ", "Grouping")]
+    public void Test_Linq_GroupBy_GroupingFunction_Pushdown()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Dept", ["Sales", "Sales", "Eng", "Eng"]),
+            Series.From("Team", ["A", "B", "A", "B"]),
+            Series.From("Amount", [10, 20, 30, 40])
+        ]);
+
+        // 1. Scheme A: Property-level .Grouping() and selector .Grouping(k => k.Prop) in RollUp
+        var queryA = df.AsQueryable<SalesRecord>()
+            .GroupBy(x => new { x.Dept, x.Team })
+            .RollUp(
+                (key, g) => new
+                {
+                    key.Dept,
+                    key.Team,
+                    TotalAmount = g.Sum(x => x.Amount),
+                    G_Dept = key.Dept.Grouping(),
+                    G_Team = key.Grouping(k => k.Team)
+                }
+            );
+
+        AssertPlan(queryA, NativePushdown);
+        var rowsA = queryA.ToList();
+        Assert.Equal(7, rowsA.Count);
+
+        // Level 0: (Dept, Team) -> G_Dept = 0, G_Team = 0
+        var level0A = rowsA.Where(r => r.Dept != null && r.Team != null).ToList();
+        Assert.Equal(4, level0A.Count);
+        Assert.All(level0A, r =>
+        {
+            Assert.Equal(0, r.G_Dept);
+            Assert.Equal(0, r.G_Team);
+        });
+
+        // Level 1: (Dept, null) -> G_Dept = 0, G_Team = 1
+        var level1A = rowsA.Where(r => r.Dept != null && r.Team == null).ToList();
+        Assert.Equal(2, level1A.Count);
+        Assert.All(level1A, r =>
+        {
+            Assert.Equal(0, r.G_Dept);
+            Assert.Equal(1, r.G_Team);
+        });
+
+        // Level 2: (null, null) -> G_Dept = 1, G_Team = 1
+        var level2A = rowsA.Where(r => r.Dept == null && r.Team == null).ToList();
+        Assert.Single(level2A);
+        Assert.Equal(1, level2A[0].G_Dept);
+        Assert.Equal(1, level2A[0].G_Team);
+        Assert.Equal(100, level2A[0].TotalAmount);
+
+        // 2. Scheme B: g.Key.Dept.Grouping() and g.Key.Grouping(k => k.Team) in Cube
+        var queryB = df.AsQueryable<SalesRecord>()
+            .GroupBy(x => new { x.Dept, x.Team })
+            .Cube()
+            .Select(g => new
+            {
+                g.Key.Dept,
+                g.Key.Team,
+                TotalAmount = g.Sum(x => x.Amount),
+                G_Dept = g.Key.Dept.Grouping(),
+                G_Team = g.Key.Grouping(k => k.Team)
+            });
+
+        AssertPlan(queryB, NativePushdown);
+        var rowsB = queryB.ToList();
+        Assert.Equal(9, rowsB.Count);
+
+        // In Cube: (Dept, Team), (Dept, null), (null, Team), (null, null)
+        var nullBoth = rowsB.Where(r => r.Dept == null && r.Team == null).ToList();
+        Assert.Single(nullBoth);
+        Assert.Equal(1, nullBoth[0].G_Dept);
+        Assert.Equal(1, nullBoth[0].G_Team);
+
+        var nullDept = rowsB.Where(r => r.Dept == null && r.Team != null).ToList();
+        Assert.Equal(2, nullDept.Count);
+        Assert.All(nullDept, r =>
+        {
+            Assert.Equal(1, r.G_Dept);
+            Assert.Equal(0, r.G_Team);
+        });
+
+        // 3. Strongly-Typed GroupingSets with Grouping()
+        var queryC = df.AsQueryable<SalesRecord>()
+            .GroupBy(x => new { x.Dept, x.Team })
+            .GroupingSets(
+                [
+                    k => new { k.Dept },
+                    k => new { }
+                ],
+                (key, g) => new
+                {
+                    key.Dept,
+                    key.Team,
+                    G_Dept = key.Dept.Grouping(),
+                    G_Team = key.Grouping(k => k.Team)
+                }
+            );
+
+        AssertPlan(queryC, NativePushdown);
+        var rowsC = queryC.ToList();
+        Assert.Equal(3, rowsC.Count);
+
+        var subtotalDept = rowsC.Where(r => r.Dept != null).ToList();
+        Assert.Equal(2, subtotalDept.Count);
+        Assert.All(subtotalDept, r =>
+        {
+            Assert.Equal(0, r.G_Dept);
+            Assert.Equal(1, r.G_Team);
+        });
+
+        var grandTotal = rowsC.Where(r => r.Dept == null).ToList();
+        Assert.Single(grandTotal);
+        Assert.Equal(1, grandTotal[0].G_Dept);
+        Assert.Equal(1, grandTotal[0].G_Team);
+
+        // 4. Scalar key: Dept.Grouping() in Scheme A and Scheme B
+        var queryScalar = df.AsQueryable<SalesRecord>()
+            .GroupBy(x => x.Dept)
+            .RollUp((dept, g) => new
+            {
+                Dept = dept,
+                G_Dept = dept.Grouping()
+            });
+
+        AssertPlan(queryScalar, NativePushdown);
+        var rowsScalar = queryScalar.ToList();
+        Assert.Equal(3, rowsScalar.Count);
+        var activeRows = rowsScalar.Where(r => r.Dept != null).ToList();
+        Assert.Equal(2, activeRows.Count);
+        Assert.All(activeRows, r => Assert.Equal(0, r.G_Dept));
+        var rolledRow = rowsScalar.Where(r => r.Dept == null).ToList();
+        Assert.Single(rolledRow);
+        Assert.Equal(1, rolledRow[0].G_Dept);
+    }
+
+    [Fact]
     [Trait("LINQ", "Order")]
     public void Test_Linq_OrderBy_NullsFirst_And_NullsLast_Fusion()
     {

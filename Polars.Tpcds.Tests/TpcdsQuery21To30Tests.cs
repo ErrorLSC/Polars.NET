@@ -1071,22 +1071,13 @@ public class TpcdsQuery21To30Tests
                 {
                     key.i_item_id,
                     key.s_state,
+                    g_state = key.s_state.Grouping(),
                     agg1 = g.Average(x => (double?)x.agg1),
                     agg2 = g.Average(x => (double?)x.agg2),
                     agg3 = g.Average(x => (double?)x.agg3),
                     agg4 = g.Average(x => (double?)x.agg4)
                 }
             )
-            .Select(x => new
-            {
-                x.i_item_id,
-                x.s_state,
-                g_state = x.s_state == null ? 1 : 0,
-                x.agg1,
-                x.agg2,
-                x.agg3,
-                x.agg4
-            })
             .OrderBy(x => x.i_item_id)
             .ThenBy(x => x.s_state)
             .Take(100);

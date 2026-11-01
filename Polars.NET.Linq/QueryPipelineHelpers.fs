@@ -3245,9 +3245,43 @@ module internal QueryPipelineHelpers =
                         PolarsWrapper.Alias(rawKeyExpr, outputColName))
                     |> List.toArray
 
+                let (|GroupingCallInfo|_|) (expr: Expression) : (string * Type) option =
+                    let cleanE = ExprTranslator.unwrap expr
+                    let targetOpt =
+                        match cleanE with
+                        | MethodCall(m, _, [ propExpr ]) when m.Name = "Grouping" ->
+                            match ExprTranslator.unwrap propExpr with
+                            | MemberAccess(_, mem) ->
+                                if mem.Name = "Key" && keyDefs.Length = 1 then Some (fst keyDefs.[0])
+                                else Some mem.Name
+                            | ExtractColumnName col -> Some col
+                            | p when isKeyArg p && keyDefs.Length = 1 -> Some (fst keyDefs.[0])
+                            | _ -> None
+                        | MethodCall(m, _, [ _; CleanLambda lam ]) when m.Name = "Grouping" ->
+                            match ExprTranslator.unwrap lam.Body with
+                            | MemberAccess(_, mem) -> Some mem.Name
+                            | ExtractColumnName col -> Some col
+                            | p when (ExprTranslator.unwrap p).NodeType = ExpressionType.Parameter && keyDefs.Length = 1 -> Some (fst keyDefs.[0])
+                            | _ -> None
+                        | _ -> None
+
+                    targetOpt |> Option.map (fun col -> (col, expr.Type))
+
+                let groupingColMap: Map<string, int * Type> =
+                    List.zip memberNames args
+                    |> List.choose (fun (memName, rawArg) ->
+                        match rawArg with
+                        | GroupingCallInfo(targetKeyName, targetType) ->
+                            keyDefs
+                            |> List.tryFindIndex (fun (k, _) -> k = targetKeyName || keyNameToOutputAliasMap.[k] = targetKeyName)
+                            |> Option.map (fun idx -> memName, (idx, targetType))
+                        | _ -> None)
+                    |> Map.ofList
+
                 let nonKeyArgs =
                     List.zip memberNames args
-                    |> List.filter (fun (_, argExpr) -> not (isKeyExpression argExpr))
+                    |> List.filter (fun (memName, argExpr) ->
+                        not (isKeyExpression argExpr) && not (groupingColMap.ContainsKey memName))
 
                 let scalarColOpt = tryGetScalarColumnName keyParam.Type activeLf
                 let targetColExprOpt = scalarColOpt |> Option.map PolarsWrapper.Col
@@ -3369,6 +3403,14 @@ module internal QueryPipelineHelpers =
                                 | _ -> None
                             extractedSetsOpt |> Option.defaultValue [ [ 0 .. numKeys - 1 ] ]
 
+                    let makeLitGroupingVal (targetType: Type) (isRolledUp: bool) =
+                        if targetType = typeof<int64> then
+                            PolarsWrapper.Lit (if isRolledUp then 1L else 0L)
+                        elif targetType = typeof<byte> then
+                            PolarsWrapper.Lit (if isRolledUp then 1uy else 0uy)
+                        else
+                            PolarsWrapper.Lit (if isRolledUp then 1 else 0)
+
                     // Compile Level 0 (all keys) to capture schema and types
                     let level0Keys = keyAliasedExprs |> Array.map PolarsWrapper.CloneExpr
                     let level0Aggs = aggs |> List.map PolarsWrapper.CloneExpr |> List.toArray
@@ -3376,7 +3418,12 @@ module internal QueryPipelineHelpers =
                     let level0GroupedLf = applyNativeOps (PolarsWrapper.LazyClone activeLf) [ level0GroupOp ]
                     let level0SelectExprs =
                         memberNames
-                        |> List.map (fun name -> PolarsWrapper.Col name)
+                        |> List.map (fun name ->
+                            match groupingColMap.TryFind name with
+                            | Some (_, targetType) ->
+                                PolarsWrapper.Alias(makeLitGroupingVal targetType false, name)
+                            | None ->
+                                PolarsWrapper.Col name)
                         |> List.toArray
                     let level0Lf = PolarsWrapper.LazySelect(level0GroupedLf, level0SelectExprs)
 
@@ -3403,18 +3450,23 @@ module internal QueryPipelineHelpers =
                             let projectedExprs =
                                 memberNames
                                 |> List.map (fun name ->
-                                    match outputAliasToKeyIdx.TryFind name with
-                                    | Some keyIdx ->
-                                        if subsetSet.Contains keyIdx then
-                                            PolarsWrapper.Col name
-                                        else
-                                            let dt = colTypeMap.[name]
-                                            let dtExpr = PolarsWrapper.DataTypeExprFromDataType dt
-                                            let nullExpr = PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), dtExpr, strict = false, wrapNumerical = false)
-                                            PolarsWrapper.Alias(nullExpr, name)
+                                    match groupingColMap.TryFind name with
+                                    | Some (keyIdx, targetType) ->
+                                        let isRolledUp = not (subsetSet.Contains keyIdx)
+                                        PolarsWrapper.Alias(makeLitGroupingVal targetType isRolledUp, name)
                                     | None ->
-                                        // Aggregation column
-                                        PolarsWrapper.Col name)
+                                        match outputAliasToKeyIdx.TryFind name with
+                                        | Some keyIdx ->
+                                            if subsetSet.Contains keyIdx then
+                                                PolarsWrapper.Col name
+                                            else
+                                                let dt = colTypeMap.[name]
+                                                let dtExpr = PolarsWrapper.DataTypeExprFromDataType dt
+                                                let nullExpr = PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), dtExpr, strict = false, wrapNumerical = false)
+                                                PolarsWrapper.Alias(nullExpr, name)
+                                        | None ->
+                                            // Aggregation column
+                                            PolarsWrapper.Col name)
                                 |> List.toArray
 
                             PolarsWrapper.LazySelect(groupedLf, projectedExprs)

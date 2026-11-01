@@ -1467,6 +1467,31 @@ public static class LinqExtensions
             )
         );
     }
+
+    /// <summary>
+    /// Maps to the SQL-99 standard GROUPING(col) function.
+    /// Returns 1 when the specified column is aggregated/collapsed (subtotal/grand total row) in a ROLLUP, CUBE, or GROUPING SETS query; otherwise returns 0.
+    /// Can only be used inside the result/projection selector of GroupingSets, RollUp, or Cube.
+    /// </summary>
+    /// <typeparam name="TProp">The type of the grouping key property.</typeparam>
+    /// <param name="property">The grouping key property.</param>
+    /// <returns>1 if the column is collapsed in the current subtotal level; otherwise 0.</returns>
+    public static int Grouping<TProp>(this TProp property)
+        => throw MarkerExceptionHelper.Throw();
+
+    /// <summary>
+    /// Maps to the SQL-99 standard GROUPING(col) function using a strongly-typed key property selector.
+    /// Returns 1 when the specified column is aggregated/collapsed (subtotal/grand total row) in a ROLLUP, CUBE, or GROUPING SETS query; otherwise returns 0.
+    /// Can only be used inside the result/projection selector of GroupingSets, RollUp, or Cube.
+    /// </summary>
+    /// <typeparam name="TKey">The type of the grouping key.</typeparam>
+    /// <typeparam name="TProp">The type of the grouping key property.</typeparam>
+    /// <param name="key">The grouping key.</param>
+    /// <param name="propertySelector">A selector selecting the key property.</param>
+    /// <returns>1 if the column is collapsed in the current subtotal level; otherwise 0.</returns>
+    public static int Grouping<TKey, TProp>(this TKey key, Expression<Func<TKey, TProp>> propertySelector)
+        => throw MarkerExceptionHelper.Throw();
+
     /// <summary>
     /// Shifts the values in a column by a specified offset, introducing nulls for the shifted positions.
     /// </summary>
