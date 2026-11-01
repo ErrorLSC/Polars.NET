@@ -3280,8 +3280,59 @@ module internal QueryPipelineHelpers =
                                 [ for i in 0 .. numKeys - 1 do
                                     if (mask &&& (1 <<< (numKeys - 1 - i))) <> 0 then yield i ] ]
                         | GroupingKind.GroupingSets setsExpr ->
+                            let extractColsFromLambda (lam: LambdaExpression) : string list option =
+                                match ExprTranslator.unwrap lam.Body with
+                                | :? NewExpression as ne ->
+                                    if not (isNull ne.Members) && ne.Members.Count > 0 then
+                                        Some (ne.Members |> Seq.map (fun m -> m.Name) |> Seq.toList)
+                                    else
+                                        let cols =
+                                            ne.Arguments
+                                            |> Seq.choose (fun arg ->
+                                                match ExprTranslator.unwrap arg with
+                                                | ExtractColumnName col -> Some col
+                                                | MemberAccess(_, m) -> Some m.Name
+                                                | _ -> None)
+                                            |> Seq.toList
+                                        Some cols
+                                | MemberAccess(_, m) ->
+                                    Some [ m.Name ]
+                                | _ ->
+                                    None
+
+                            let mapColNamesToIndices (cols: string list) : int list =
+                                cols
+                                |> List.choose (fun name ->
+                                    keyDefs |> List.tryFindIndex (fun (k, _) -> k = name || keyNameToOutputAliasMap.[k] = name))
+
                             let extractedSetsOpt =
                                 match ExprTranslator.unwrap setsExpr with
+                                // 1. Strongly-typed Lambdas (Constant array: Expression<Func<TKey, object>>[])
+                                | :? ConstantExpression as c when not (isNull c.Value) && (c.Value :? System.Array) && (let elemType = c.Value.GetType().GetElementType() in not (isNull elemType) && typeof<LambdaExpression>.IsAssignableFrom elemType) ->
+                                    let arr = c.Value :?> System.Array
+                                    let sets =
+                                        [ for i in 0 .. arr.Length - 1 do
+                                            match arr.GetValue i with
+                                            | :? LambdaExpression as lam ->
+                                                match extractColsFromLambda lam with
+                                                | Some cols -> yield mapColNamesToIndices cols
+                                                | None -> ()
+                                            | _ -> () ]
+                                    Some sets
+
+                                // 2. Strongly-typed Lambdas (NewArrayExpression of lambdas)
+                                | :? NewArrayExpression as nae when nae.Expressions |> Seq.exists (fun elem -> match ExprTranslator.unwrap elem with CleanLambda _ -> true | _ -> false) ->
+                                    let sets =
+                                        nae.Expressions
+                                        |> Seq.choose (fun elem ->
+                                            match ExprTranslator.unwrap elem with
+                                            | CleanLambda lam ->
+                                                extractColsFromLambda lam |> Option.map mapColNamesToIndices
+                                            | _ -> None)
+                                        |> Seq.toList
+                                    Some sets
+
+                                // 3. Untyped string[][] (Constant)
                                 | :? ConstantExpression as c when not (isNull c.Value) && c.Type = typeof<string[][]> ->
                                     let arr = c.Value :?> string[][]
                                     Some (arr |> Array.map (fun set ->
@@ -3289,6 +3340,8 @@ module internal QueryPipelineHelpers =
                                             keyDefs |> List.tryFindIndex (fun (k, _) -> k = name || keyNameToOutputAliasMap.[k] = name)
                                         ) |> Array.toList
                                     ) |> Array.toList)
+
+                                // 4. Untyped string[][] (NewArrayExpression of strings)
                                 | :? NewArrayExpression as nae ->
                                     let sets =
                                         nae.Expressions

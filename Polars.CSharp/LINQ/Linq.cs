@@ -1349,6 +1349,28 @@ public static class LinqExtensions
     }
 
     /// <summary>
+    /// Modifies a grouped sequence to generate custom multidimensional groupings (GROUPING SETS) for specified subsets of keys using strongly-typed key selectors.
+    /// Use <c>k => new { k.A, k.B }</c> for composite subsets, or <c>k => new { }</c> for the grand-total empty set ().
+    /// Follow with <c>.Select(...)</c> to specify projections and aggregations.
+    /// </summary>
+    public static IQueryable<IGrouping<TKey, TSource>> GroupingSets<TKey, TSource>(
+        this IQueryable<IGrouping<TKey, TSource>> source,
+        params Expression<Func<TKey, object>>[] setSelectors)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(setSelectors);
+
+        return source.Provider.CreateQuery<IGrouping<TKey, TSource>>(
+            Expression.Call(
+                null,
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource)),
+                source.Expression,
+                Expression.Constant(setSelectors, typeof(Expression<Func<TKey, object>>[]))
+            )
+        );
+    }
+
+    /// <summary>
     /// Modifies a grouped sequence to generate custom multidimensional groupings (GROUPING SETS) for specified subsets of keys,
     /// projecting each group into a result element using a result selector function with separate key and group parameters.
     /// </summary>
@@ -1373,6 +1395,31 @@ public static class LinqExtensions
     }
 
     /// <summary>
+    /// Modifies a grouped sequence to generate custom multidimensional groupings (GROUPING SETS) for specified subsets of keys using strongly-typed key selectors,
+    /// projecting each group into a result element using a result selector function with separate key and group parameters.
+    /// Use <c>k => new { k.A, k.B }</c> for composite subsets, or <c>k => new { }</c> for the grand-total empty set ().
+    /// </summary>
+    public static IQueryable<TResult> GroupingSets<TKey, TSource, TResult>(
+        this IQueryable<IGrouping<TKey, TSource>> source,
+        Expression<Func<TKey, object>>[] setSelectors,
+        Expression<Func<TKey, IEnumerable<TSource>, TResult>> resultSelector)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(setSelectors);
+        ArgumentNullException.ThrowIfNull(resultSelector);
+
+        return source.Provider.CreateQuery<TResult>(
+            Expression.Call(
+                null,
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
+                source.Expression,
+                Expression.Constant(setSelectors, typeof(Expression<Func<TKey, object>>[])),
+                Expression.Quote(resultSelector)
+            )
+        );
+    }
+
+    /// <summary>
     /// Modifies a grouped sequence to generate custom multidimensional groupings (GROUPING SETS) for specified subsets of keys,
     /// projecting each group into a result element using a result selector function.
     /// </summary>
@@ -1391,6 +1438,31 @@ public static class LinqExtensions
                 ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
                 source.Expression,
                 Expression.Constant(sets, typeof(string[][])),
+                Expression.Quote(resultSelector)
+            )
+        );
+    }
+
+    /// <summary>
+    /// Modifies a grouped sequence to generate custom multidimensional groupings (GROUPING SETS) for specified subsets of keys using strongly-typed key selectors,
+    /// projecting each group into a result element using a result selector function.
+    /// Use <c>k => new { k.A, k.B }</c> for composite subsets, or <c>k => new { }</c> for the grand-total empty set ().
+    /// </summary>
+    public static IQueryable<TResult> GroupingSets<TKey, TSource, TResult>(
+        this IQueryable<IGrouping<TKey, TSource>> source,
+        Expression<Func<TKey, object>>[] setSelectors,
+        Expression<Func<IGrouping<TKey, TSource>, TResult>> resultSelector)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(setSelectors);
+        ArgumentNullException.ThrowIfNull(resultSelector);
+
+        return source.Provider.CreateQuery<TResult>(
+            Expression.Call(
+                null,
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
+                source.Expression,
+                Expression.Constant(setSelectors, typeof(Expression<Func<TKey, object>>[])),
                 Expression.Quote(resultSelector)
             )
         );

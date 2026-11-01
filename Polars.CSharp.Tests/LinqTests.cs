@@ -9566,6 +9566,50 @@ public partial class LinqTests
         var grandTotalB = resultDfB.Filter(Pl.Col("Dept").IsNull());
         Assert.Equal(1, grandTotalB.Height);
         Assert.Equal(100, grandTotalB.GetValue<int>(0, "TotalAmount"));
+
+        // Strongly-Typed Scheme A: GroupBy followed by GroupingSets with lambda selectors and result selector
+        var queryTypedA = df.AsQueryable<SalesRecord>()
+            .GroupBy(x => new { x.Dept, x.Team })
+            .GroupingSets(
+                [
+                    k => new { k.Dept },
+                    k => new { }
+                ],
+                (key, g) => new
+                {
+                    key.Dept,
+                    key.Team,
+                    TotalAmount = g.Sum(x => x.Amount)
+                }
+            );
+
+        AssertPlan(queryTypedA, NativePushdown);
+        using var resultDfTypedA = queryTypedA.ToDataFrame();
+        Assert.Equal(3, resultDfTypedA.Height);
+        var grandTotalTypedA = resultDfTypedA.Filter(Pl.Col("Dept").IsNull());
+        Assert.Equal(1, grandTotalTypedA.Height);
+        Assert.Equal(100, grandTotalTypedA.GetValue<int>(0, "TotalAmount"));
+
+        // Strongly-Typed Scheme B: GroupBy followed by GroupingSets(params lambdas) and standard Select
+        var queryTypedB = df.AsQueryable<SalesRecord>()
+            .GroupBy(x => new { x.Dept, x.Team })
+            .GroupingSets(
+                k => new { k.Dept },
+                k => new { }
+            )
+            .Select(g => new
+            {
+                g.Key.Dept,
+                g.Key.Team,
+                TotalAmount = g.Sum(x => x.Amount)
+            });
+
+        AssertPlan(queryTypedB, NativePushdown);
+        using var resultDfTypedB = queryTypedB.ToDataFrame();
+        Assert.Equal(3, resultDfTypedB.Height);
+        var grandTotalTypedB = resultDfTypedB.Filter(Pl.Col("Dept").IsNull());
+        Assert.Equal(1, grandTotalTypedB.Height);
+        Assert.Equal(100, grandTotalTypedB.GetValue<int>(0, "TotalAmount"));
     }
 
     [Fact]
