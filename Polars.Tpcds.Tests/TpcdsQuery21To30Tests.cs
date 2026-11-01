@@ -170,8 +170,8 @@ public class TpcdsQuery21To30Tests
                    join d in filteredDates on inv.inv_date_sk equals d.d_date_sk
                    join i in itemQuery on inv.inv_item_sk equals i.i_item_sk
                    select new { inv, i })
-            .GroupByRollup(
-                x => new { x.i.i_product_name, x.i.i_brand, x.i.i_class, x.i.i_category },
+            .GroupBy(x => new { x.i.i_product_name, x.i.i_brand, x.i.i_class, x.i.i_category })
+            .RollUp(
                 (key, g) => new
                 {
                     key.i_product_name,
@@ -1065,8 +1065,8 @@ public class TpcdsQuery21To30Tests
                       };
 
         var q27 = results
-            .GroupByRollup(
-                r => new { r.i_item_id, r.s_state },
+            .GroupBy(r => new { r.i_item_id, r.s_state })
+            .RollUp(
                 (key, g) => new
                 {
                     key.i_item_id,

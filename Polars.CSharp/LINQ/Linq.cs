@@ -1173,123 +1173,199 @@ public static class LinqExtensions
         AsofStrategy strategy = AsofStrategy.Backward)
         => outer.JoinAsOf(inner, outerKeySelector, innerKeySelector, outerBySelector, innerBySelector, (o, i) => ValueTuple.Create(o, i), tolerance, strategy);
 
+    // =========================================================================
+    // Multidimensional Grouping Extensions (ROLLUP, CUBE, GROUPING SETS)
+    // Extended on IQueryable<IGrouping<TKey, TSource>>
+    // =========================================================================
+
+    // -------------------------------------------------------------------------
+    // ROLLUP
+    // -------------------------------------------------------------------------
+
     /// <summary>
-    /// Groups the elements of a sequence according to a specified key selector function,
-    /// generating hierarchical subtotal and grand total groupings (ROLLUP) across key dimensions.
+    /// Modifies a grouped sequence to generate hierarchical subtotal and grand total groupings (ROLLUP) across key dimensions.
+    /// Follow with <c>.Select(...)</c> to specify projections and aggregations.
     /// </summary>
-    public static IQueryable<TResult> GroupByRollup<TSource, TKey, TResult>(
-        this IQueryable<TSource> source,
-        Expression<Func<TSource, TKey>> keySelector,
+    public static IQueryable<IGrouping<TKey, TSource>> RollUp<TKey, TSource>(
+        this IQueryable<IGrouping<TKey, TSource>> source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        return source.Provider.CreateQuery<IGrouping<TKey, TSource>>(
+            Expression.Call(
+                null,
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource)),
+                source.Expression
+            )
+        );
+    }
+
+    /// <inheritdoc cref="RollUp{TKey, TSource}(IQueryable{IGrouping{TKey, TSource}})"/>
+    public static IQueryable<IGrouping<TKey, TSource>> Rollup<TKey, TSource>(
+        this IQueryable<IGrouping<TKey, TSource>> source)
+        => source.RollUp();
+
+    /// <summary>
+    /// Modifies a grouped sequence to generate hierarchical subtotal and grand total groupings (ROLLUP) across key dimensions,
+    /// projecting each group into a result element using a result selector function with separate key and group parameters.
+    /// </summary>
+    public static IQueryable<TResult> RollUp<TKey, TSource, TResult>(
+        this IQueryable<IGrouping<TKey, TSource>> source,
         Expression<Func<TKey, IEnumerable<TSource>, TResult>> resultSelector)
     {
         ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(keySelector);
         ArgumentNullException.ThrowIfNull(resultSelector);
 
         return source.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TSource), typeof(TKey), typeof(TResult)),
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
                 source.Expression,
-                Expression.Quote(keySelector),
                 Expression.Quote(resultSelector)
             )
         );
     }
 
+    /// <inheritdoc cref="RollUp{TKey, TSource, TResult}(IQueryable{IGrouping{TKey, TSource}}, Expression{Func{TKey, IEnumerable{TSource}, TResult}})"/>
+    public static IQueryable<TResult> Rollup<TKey, TSource, TResult>(
+        this IQueryable<IGrouping<TKey, TSource>> source,
+        Expression<Func<TKey, IEnumerable<TSource>, TResult>> resultSelector)
+        => source.RollUp(resultSelector);
+
     /// <summary>
-    /// Groups the elements of a sequence according to a specified key selector function,
-    /// generating hierarchical subtotal and grand total groupings (ROLLUP) across key dimensions.
+    /// Modifies a grouped sequence to generate hierarchical subtotal and grand total groupings (ROLLUP) across key dimensions,
+    /// projecting each group into a result element using a result selector function.
     /// </summary>
-    public static IQueryable<TResult> GroupByRollup<TSource, TKey, TResult>(
-        this IQueryable<TSource> source,
-        Expression<Func<TSource, TKey>> keySelector,
+    public static IQueryable<TResult> RollUp<TKey, TSource, TResult>(
+        this IQueryable<IGrouping<TKey, TSource>> source,
         Expression<Func<IGrouping<TKey, TSource>, TResult>> resultSelector)
     {
         ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(keySelector);
         ArgumentNullException.ThrowIfNull(resultSelector);
 
         return source.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TSource), typeof(TKey), typeof(TResult)),
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
                 source.Expression,
-                Expression.Quote(keySelector),
                 Expression.Quote(resultSelector)
             )
         );
     }
 
+    /// <inheritdoc cref="RollUp{TKey, TSource, TResult}(IQueryable{IGrouping{TKey, TSource}}, Expression{Func{IGrouping{TKey, TSource}, TResult}})"/>
+    public static IQueryable<TResult> Rollup<TKey, TSource, TResult>(
+        this IQueryable<IGrouping<TKey, TSource>> source,
+        Expression<Func<IGrouping<TKey, TSource>, TResult>> resultSelector)
+        => source.RollUp(resultSelector);
+
+    // -------------------------------------------------------------------------
+    // CUBE
+    // -------------------------------------------------------------------------
+
     /// <summary>
-    /// Groups the elements of a sequence according to a specified key selector function,
-    /// generating all 2^N dimensional cross-tabulation groupings (CUBE) across key dimensions.
+    /// Modifies a grouped sequence to generate all 2^N dimensional cross-tabulation groupings (CUBE) across key dimensions.
+    /// Follow with <c>.Select(...)</c> to specify projections and aggregations.
     /// </summary>
-    public static IQueryable<TResult> GroupByCube<TSource, TKey, TResult>(
-        this IQueryable<TSource> source,
-        Expression<Func<TSource, TKey>> keySelector,
+    public static IQueryable<IGrouping<TKey, TSource>> Cube<TKey, TSource>(
+        this IQueryable<IGrouping<TKey, TSource>> source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        return source.Provider.CreateQuery<IGrouping<TKey, TSource>>(
+            Expression.Call(
+                null,
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource)),
+                source.Expression
+            )
+        );
+    }
+
+    /// <summary>
+    /// Modifies a grouped sequence to generate all 2^N dimensional cross-tabulation groupings (CUBE) across key dimensions,
+    /// projecting each group into a result element using a result selector function with separate key and group parameters.
+    /// </summary>
+    public static IQueryable<TResult> Cube<TKey, TSource, TResult>(
+        this IQueryable<IGrouping<TKey, TSource>> source,
         Expression<Func<TKey, IEnumerable<TSource>, TResult>> resultSelector)
     {
         ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(keySelector);
         ArgumentNullException.ThrowIfNull(resultSelector);
 
         return source.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TSource), typeof(TKey), typeof(TResult)),
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
                 source.Expression,
-                Expression.Quote(keySelector),
                 Expression.Quote(resultSelector)
             )
         );
     }
 
     /// <summary>
-    /// Groups the elements of a sequence according to a specified key selector function,
-    /// generating all 2^N dimensional cross-tabulation groupings (CUBE) across key dimensions.
+    /// Modifies a grouped sequence to generate all 2^N dimensional cross-tabulation groupings (CUBE) across key dimensions,
+    /// projecting each group into a result element using a result selector function.
     /// </summary>
-    public static IQueryable<TResult> GroupByCube<TSource, TKey, TResult>(
-        this IQueryable<TSource> source,
-        Expression<Func<TSource, TKey>> keySelector,
+    public static IQueryable<TResult> Cube<TKey, TSource, TResult>(
+        this IQueryable<IGrouping<TKey, TSource>> source,
         Expression<Func<IGrouping<TKey, TSource>, TResult>> resultSelector)
     {
         ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(keySelector);
         ArgumentNullException.ThrowIfNull(resultSelector);
 
         return source.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TSource), typeof(TKey), typeof(TResult)),
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
                 source.Expression,
-                Expression.Quote(keySelector),
                 Expression.Quote(resultSelector)
             )
         );
     }
 
+    // -------------------------------------------------------------------------
+    // GROUPING SETS
+    // -------------------------------------------------------------------------
+
     /// <summary>
-    /// Groups the elements of a sequence according to a specified key selector function,
-    /// generating custom multidimensional groupings (GROUPING SETS) for specified subsets of keys.
+    /// Modifies a grouped sequence to generate custom multidimensional groupings (GROUPING SETS) for specified subsets of keys.
+    /// Follow with <c>.Select(...)</c> to specify projections and aggregations.
     /// </summary>
-    public static IQueryable<TResult> GroupByGroupingSets<TSource, TKey, TResult>(
-        this IQueryable<TSource> source,
-        Expression<Func<TSource, TKey>> keySelector,
+    public static IQueryable<IGrouping<TKey, TSource>> GroupingSets<TKey, TSource>(
+        this IQueryable<IGrouping<TKey, TSource>> source,
+        string[][] sets)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(sets);
+
+        return source.Provider.CreateQuery<IGrouping<TKey, TSource>>(
+            Expression.Call(
+                null,
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource)),
+                source.Expression,
+                Expression.Constant(sets, typeof(string[][]))
+            )
+        );
+    }
+
+    /// <summary>
+    /// Modifies a grouped sequence to generate custom multidimensional groupings (GROUPING SETS) for specified subsets of keys,
+    /// projecting each group into a result element using a result selector function with separate key and group parameters.
+    /// </summary>
+    public static IQueryable<TResult> GroupingSets<TKey, TSource, TResult>(
+        this IQueryable<IGrouping<TKey, TSource>> source,
         string[][] sets,
         Expression<Func<TKey, IEnumerable<TSource>, TResult>> resultSelector)
     {
         ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(keySelector);
         ArgumentNullException.ThrowIfNull(sets);
         ArgumentNullException.ThrowIfNull(resultSelector);
 
         return source.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TSource), typeof(TKey), typeof(TResult)),
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
                 source.Expression,
-                Expression.Quote(keySelector),
                 Expression.Constant(sets, typeof(string[][])),
                 Expression.Quote(resultSelector)
             )
@@ -1297,26 +1373,23 @@ public static class LinqExtensions
     }
 
     /// <summary>
-    /// Groups the elements of a sequence according to a specified key selector function,
-    /// generating custom multidimensional groupings (GROUPING SETS) for specified subsets of keys.
+    /// Modifies a grouped sequence to generate custom multidimensional groupings (GROUPING SETS) for specified subsets of keys,
+    /// projecting each group into a result element using a result selector function.
     /// </summary>
-    public static IQueryable<TResult> GroupByGroupingSets<TSource, TKey, TResult>(
-        this IQueryable<TSource> source,
-        Expression<Func<TSource, TKey>> keySelector,
+    public static IQueryable<TResult> GroupingSets<TKey, TSource, TResult>(
+        this IQueryable<IGrouping<TKey, TSource>> source,
         string[][] sets,
         Expression<Func<IGrouping<TKey, TSource>, TResult>> resultSelector)
     {
         ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(keySelector);
         ArgumentNullException.ThrowIfNull(sets);
         ArgumentNullException.ThrowIfNull(resultSelector);
 
         return source.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TSource), typeof(TKey), typeof(TResult)),
+                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
                 source.Expression,
-                Expression.Quote(keySelector),
                 Expression.Constant(sets, typeof(string[][])),
                 Expression.Quote(resultSelector)
             )

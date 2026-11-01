@@ -1078,10 +1078,10 @@ public class TpcdsQuery01To10Tests
         // Combined stream x
         var x = ssr.Concat(csr).Concat(wsr);
 
-        // 3-Level ROLLUP via fluent GroupByRollup
+        // 3-Level ROLLUP via fluent GroupBy followed by RollUp
         var q5 = x
-            .GroupByRollup(
-                r => new { r.channel, r.id },
+            .GroupBy(r => new { r.channel, r.id })
+            .RollUp(
                 (key, g) => new
                 {
                     channel = (string?)key.channel,

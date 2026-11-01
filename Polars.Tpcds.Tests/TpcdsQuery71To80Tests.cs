@@ -1489,8 +1489,8 @@ public class TpcdsQuery71To80Tests
         var x = storeChan.Concat(catalogChan).Concat(webChan);
 
         var q77 = x
-            .GroupByRollup(
-                r => new { r.channel, r.id },
+            .GroupBy(r => new { r.channel, r.id })
+            .RollUp(
                 (key, g) => new
                 {
                     channel = (string?)key.channel,
@@ -2250,8 +2250,8 @@ public class TpcdsQuery71To80Tests
         var allChan = ssr.Concat(csr).Concat(wsr);
 
         var q80 = allChan
-            .GroupByRollup(
-                r => new { r.channel, r.id },
+            .GroupBy(r => new { r.channel, r.id })
+            .RollUp(
                 (key, g) => new
                 {
                     channel = (string?)key.channel,

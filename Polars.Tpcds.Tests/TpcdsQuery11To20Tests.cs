@@ -848,10 +848,10 @@ public class TpcdsQuery11To20Tests
 
         var y = storeStream.Concat(catalogStream).Concat(webStream);
 
-        // 4. 5-Level ROLLUP (channel, i_brand_id, i_class_id, i_category_id) via fluent GroupByRollup
+        // 4. 5-Level ROLLUP (channel, i_brand_id, i_class_id, i_category_id) via fluent GroupBy followed by RollUp
         var q14 = y
-            .GroupByRollup(
-                r => new { r.channel, r.i_brand_id, r.i_class_id, r.i_category_id },
+            .GroupBy(r => new { r.channel, r.i_brand_id, r.i_class_id, r.i_category_id })
+            .RollUp(
                 (key, g) => new
                 {
                     channel = (string?)key.channel,
@@ -1545,8 +1545,8 @@ public class TpcdsQuery11To20Tests
                      };
 
         var q18 = joined
-            .GroupByRollup(
-                x => new { x.i_item_id, x.ca_country, x.ca_state, x.ca_county },
+            .GroupBy(x => new { x.i_item_id, x.ca_country, x.ca_state, x.ca_county })
+            .RollUp(
                 (key, g) => new
                 {
                     key.i_item_id,

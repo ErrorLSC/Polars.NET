@@ -1441,8 +1441,8 @@ public class TpcdsQuery61To70Tests
                          line_sales = (ss.ss_sales_price * ss.ss_quantity) ?? 0.00m
                      };
 
-        var dw1 = joined.GroupByRollup(
-            x => new
+        var dw1 = joined
+            .GroupBy(x => new
             {
                 x.i_category,
                 x.i_class,
@@ -1452,8 +1452,9 @@ public class TpcdsQuery61To70Tests
                 x.d_qoy,
                 x.d_moy,
                 x.s_store_id
-            },
-            (key, g) => new
+            })
+            .RollUp(
+                (key, g) => new
             {
                 key.i_category,
                 key.i_class,

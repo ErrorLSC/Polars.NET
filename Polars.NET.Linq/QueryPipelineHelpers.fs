@@ -889,6 +889,23 @@ module internal QueryPipelineHelpers =
         | head :: tail -> head :: fuseSortPairs tail
         | [] -> []
 
+    let rec (|GroupByCall|_|) (expr: Expression) =
+        match ExprTranslator.unwrap expr with
+        | MethodCall(m, _, [ source; CleanLambda k ]) when m.Name = "GroupBy" ->
+            Some(source, k)
+        | MethodCall(m, _, [ source; CleanLambda k; CleanLambda _ ]) when m.Name = "GroupBy" ->
+            Some(source, k)
+        | _ -> None
+
+    let rec extractProject (stages: LinqStage list) =
+        match stages with
+        | LinqStage.Project r :: rest -> Some(r, rest)
+        | other :: rest ->
+            match extractProject rest with
+            | Some(r, remaining) -> Some(r, other :: remaining)
+            | None -> None
+        | [] -> None
+
     /// Recursively flattens a LINQ expression tree into a linear sequence of LinqStage values.
     let rec flattenStages (e: Expression) (acc: LinqStage list) : LinqStage list =
         let evalUInt32 opName (expr: Expression) =
@@ -961,6 +978,39 @@ module internal QueryPipelineHelpers =
 
             flattenStages source (stage :: acc)
 
+        // Multidimensional Groupings (Scheme A & Scheme B)
+        // Scheme A: RollUp / Cube / GroupingSets with result selector
+        | MethodCall(m, _, [ GroupByCall(source, k); CleanLambda r ]) when m.Name = "RollUp" || m.Name = "Rollup" ->
+            flattenStages source (LinqStage.GroupByRollup(k, r) :: acc)
+
+        | MethodCall(m, _, [ GroupByCall(source, k); CleanLambda r ]) when m.Name = "Cube" ->
+            flattenStages source (LinqStage.GroupByCube(k, r) :: acc)
+
+        | MethodCall(m, _, [ GroupByCall(source, k); setsExpr; CleanLambda r ]) when m.Name = "GroupingSets" ->
+            flattenStages source (LinqStage.GroupByGroupingSets(k, setsExpr, r) :: acc)
+
+        // Scheme B: RollUp / Cube / GroupingSets without result selector, followed by Select (Project)
+        | MethodCall(m, _, [ GroupByCall(source, k) ]) when m.Name = "RollUp" || m.Name = "Rollup" ->
+            match extractProject acc with
+            | Some(r, remaining) ->
+                flattenStages source (LinqStage.GroupByRollup(k, r) :: remaining)
+            | None ->
+                flattenStages source acc
+
+        | MethodCall(m, _, [ GroupByCall(source, k) ]) when m.Name = "Cube" ->
+            match extractProject acc with
+            | Some(r, remaining) ->
+                flattenStages source (LinqStage.GroupByCube(k, r) :: remaining)
+            | None ->
+                flattenStages source acc
+
+        | MethodCall(m, _, [ GroupByCall(source, k); setsExpr ]) when m.Name = "GroupingSets" ->
+            match extractProject acc with
+            | Some(r, remaining) ->
+                flattenStages source (LinqStage.GroupByGroupingSets(k, setsExpr, r) :: remaining)
+            | None ->
+                flattenStages source acc
+
         // Single-argument (source-only) stages
         | MethodCall(m, null, [ source ]) ->
             let stageOpt =
@@ -1005,15 +1055,6 @@ module internal QueryPipelineHelpers =
             m.Name = "GroupBy"
             ->
             flattenStages source (LinqStage.GroupByWithResult(k, r) :: acc)
-
-        | MethodCall(m, null, [ source; CleanLambda k; CleanLambda r ]) when m.Name = "GroupByRollup" ->
-            flattenStages source (LinqStage.GroupByRollup(k, r) :: acc)
-
-        | MethodCall(m, null, [ source; CleanLambda k; CleanLambda r ]) when m.Name = "GroupByCube" ->
-            flattenStages source (LinqStage.GroupByCube(k, r) :: acc)
-
-        | MethodCall(m, null, [ source; CleanLambda k; setsExpr; CleanLambda r ]) when m.Name = "GroupByGroupingSets" ->
-            flattenStages source (LinqStage.GroupByGroupingSets(k, setsExpr, r) :: acc)
 
         // Join, LeftJoin, RightJoin, FullJoin, GroupJoin (with optional result selector)
         | MethodCall(m,
