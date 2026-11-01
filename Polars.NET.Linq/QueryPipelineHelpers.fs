@@ -3146,7 +3146,7 @@ module internal QueryPipelineHelpers =
             |> Option.bind (fun pairs ->
                 let translated =
                     pairs
-                    |> List.choose (fun (name, expr) -> translateKeyPart expr |> Option.map (fun h -> (name, h)))
+                    |> List.choose (fun (name, expr) -> translateKeyPart expr |> Option.map (fun h -> name, h))
 
                 if translated.Length = pairs.Length then
                     Some translated
@@ -3219,12 +3219,12 @@ module internal QueryPipelineHelpers =
                                 match arg with
                                 | MemberAccess(MemberAccess(_, k), m) when k.Name = "Key" ->
                                     if m.Name = origKeyName then Some memName
-                                    elif m.Name = sprintf "Item%d" (keyIdx + 1) || (m.Name = "Fst" && keyIdx = 0) || (m.Name = "Snd" && keyIdx = 1) then Some memName
+                                    elif m.Name = sprintf "Item%d" (keyIdx + 1) || m.Name = "Fst" && keyIdx = 0 || m.Name = "Snd" && keyIdx = 1 then Some memName
                                     else None
                                 | MemberAccess(p, m) when isKeyArg p ->
                                     if m.Name = origKeyName then Some memName
                                     elif m.Name = "Key" && keyDefs.Length = 1 then Some memName
-                                    elif m.Name = sprintf "Item%d" (keyIdx + 1) || (m.Name = "Fst" && keyIdx = 0) || (m.Name = "Snd" && keyIdx = 1) then Some memName
+                                    elif m.Name = sprintf "Item%d" (keyIdx + 1) || m.Name = "Fst" && keyIdx = 0 || m.Name = "Snd" && keyIdx = 1 then Some memName
                                     else None
                                 | _ when isKeyArg arg && keyDefs.Length = 1 -> Some memName
                                 | _ -> None)
@@ -3357,7 +3357,7 @@ module internal QueryPipelineHelpers =
                         | GroupingKind.Cube ->
                             [ for mask in (1 <<< numKeys) - 1 .. -1 .. 0 ->
                                 [ for i in 0 .. numKeys - 1 do
-                                    if (mask &&& (1 <<< (numKeys - 1 - i))) <> 0 then yield i ] ]
+                                    if mask &&& (1 <<< numKeys - 1 - i) <> 0 then yield i ] ]
                         | GroupingKind.GroupingSets setsExpr ->
                             let extractColsFromLambda (lam: LambdaExpression) : string list option =
                                 match ExprTranslator.unwrap lam.Body with
