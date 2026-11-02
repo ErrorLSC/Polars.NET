@@ -2,6 +2,7 @@
 using System.Collections.Frozen;
 using System.Text;
 using Polars.NET.Core;
+using Polars.NET.Core.Helpers;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
 
@@ -504,13 +505,14 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
             ===========================================
             """;
 
+        string sanitized = TerminalDisplayHelpers.SanitizeForDisplay(output);
         if (logger != null)
         {
-            logger(output);
+            logger(sanitized);
         }
         else
         {
-            Console.WriteLine(output);
+            Console.WriteLine(sanitized);
         }
 
         return (TBuilder)this;

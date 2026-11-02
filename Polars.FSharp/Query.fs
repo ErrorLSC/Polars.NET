@@ -280,7 +280,7 @@ module LinqExtension =
         /// Inspects the query plan using the default inspector (<see cref="DefaultInspector"/>)
         /// </summary>
         /// <param name="optimized">Whether to display the optimized plan. Defaults to true.</param>
-        member this.InspectPlan(?optimized: bool) : string = this.Explain(?optimized = optimized)
+        member this.InspectPlan(?optimized: bool) : string = TerminalDisplayHelpers.SanitizeForDisplay(this.Explain(?optimized = optimized))
 
         /// <summary>
         /// Explicitly transitions the query to a managed sequence ('T seq) for client-side evaluation,
@@ -315,7 +315,7 @@ module LinqExtension =
             let optimized = defaultArg optimized true
             let inspector = defaultArg inspector this.DefaultInspector
 
-            inspector (this.Explain optimized)
+            inspector (TerminalDisplayHelpers.SanitizeForDisplay (this.Explain optimized))
             this
 
     type IEnumerable<'T> with

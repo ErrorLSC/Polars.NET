@@ -1021,7 +1021,7 @@ type Series(handle: SeriesHandle) =
     /// <summary>
     /// Print the Series to Console.
     /// </summary>
-    member this.Show() = printfn "%O" this
+    member this.Show() = printfn "%s" (TerminalDisplayHelpers.SanitizeForDisplay(this.ToString()))
 
     /// <summary>
     /// Generates a rich HTML table representation of the Series by delegating to a single-column DataFrame preview.
@@ -1311,7 +1311,7 @@ and DataFrame(handle: DataFrameHandle) =
     /// <summary>
     /// Print the DataFrame to Console (Stdout).
     /// </summary>
-    member this.Show() = printfn "%s" (this.ToString())
+    member this.Show() = printfn "%s" (TerminalDisplayHelpers.SanitizeForDisplay(this.ToString()))
 
     /// <summary>
     /// Generates a rich HTML table representation of the DataFrame for interactive environments (e.g., LINQPad, Jupyter).
@@ -1820,7 +1820,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     /// <summary>
     /// Print the LazyFrame to Console (Stdout).
     /// </summary>
-    member this.Show() = printfn "%s" (this.ToString())
+    member this.Show() = printfn "%s" (TerminalDisplayHelpers.SanitizeForDisplay(this.ToString()))
 
     /// <summary>
     /// Generates an HTML visualization of the LazyFrame execution plan and schema for LINQPad.

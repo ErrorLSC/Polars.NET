@@ -1,6 +1,7 @@
 using Apache.Arrow;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
+using Polars.NET.Core.Helpers;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
@@ -802,7 +803,7 @@ public partial class Series : IDisposable, IEquatable<Series>
     /// <summary>
     /// Print the DataFrame to Console.
     /// </summary>
-    public void Show() => Console.WriteLine(ToString());
+    public void Show() => Console.WriteLine(TerminalDisplayHelpers.SanitizeForDisplay(ToString()));
     /// <summary>
     /// Check whether two series is equal to each other.
     /// </summary>

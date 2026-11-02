@@ -1064,7 +1064,7 @@ public static class LinqExtensions
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(inspector);
 
-        inspector(source.Explain(optimized));
+        inspector(TerminalDisplayHelpers.SanitizeForDisplay(source.Explain(optimized)));
         return source;
     }
 

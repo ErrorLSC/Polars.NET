@@ -175,7 +175,7 @@ public class AdbcLocalTests
             new { id = 102, name = "Frame", language = "C++" },
             new { id = 103, name = "Engine", language = "Rust" }
         };
-        var df = DataFrame.FromEnumerable(records);
+        var df = DataFrame.FromRows(records);
 
         var ingestResult = df.WriteToAdbc(_connection, "polars_update_test");
         Console.WriteLine($"[Bulk Ingest] Rows affected: {ingestResult.AffectedRows} (Expected 0 or -1 due to Bulk Load)");
@@ -188,7 +188,7 @@ public class AdbcLocalTests
         Console.WriteLine($"[SQL Update] Rows affected: {updateResult.AffectedRows} (Expected 0)");
 
         var newUpdates = new[] { new { id = 102, new_lang = "C# .NET 10" } };
-        var updateDf = DataFrame.FromEnumerable(newUpdates);
+        var updateDf = DataFrame.FromRows(newUpdates);
 
         updateDf.WriteToAdbc(_connection, "temp_updates");
 
@@ -230,7 +230,7 @@ public class AdbcLocalTests
             },
             new {
                 id = 102,
-                name = "Frame \0 Null",
+                name = "Frame \0 \n \b \r Null",
                 is_active = false,
                 score = double.NaN,
                 created_at = new DateTime(2023, 12, 31, 23, 59, 59, DateTimeKind.Utc),
@@ -245,7 +245,7 @@ public class AdbcLocalTests
                 optional_code = (int?)999
             }
         };
-        var df = DataFrame.FromEnumerable(records);
+        var df = DataFrame.FromRows(records);
 
         // df.Show();
         // shape: (3, 6)
@@ -274,7 +274,7 @@ public class AdbcLocalTests
         // │ 102 ┆ Frame ␀ Null ┆ false     ┆ NaN   ┆ 2023-12-31 23:59:59        ┆ null          │
         // │ 103 ┆              ┆ true      ┆ inf   ┆ 2026-03-20 04:40:46.531433 ┆ 999           │
         // └─────┴──────────────┴───────────┴───────┴────────────────────────────┴───────────────┘
-
+        verifyDf.Show();
         Assert.NotNull(verifyDf);
         Assert.Equal(3, verifyDf.Height);
         Assert.Equal(6, verifyDf.Width);
@@ -305,7 +305,7 @@ public class AdbcLocalTests
             }
         };
 
-        var df = DataFrame.FromEnumerable(records);
+        var df = DataFrame.FromRows(records);
 
         // shape: (2, 6)
         // ┌─────┬──────────────────────────┬──────────────────────────┬────────────┬──────────┬──────────────┐
@@ -322,7 +322,7 @@ public class AdbcLocalTests
 
         df.WriteToAdbc(_connection, "polars_dotnet_poison", ingestMode: AdbcIngestMode.Create);
         var verifyDf = DataFrame.ReadAdbc(_connection, "SELECT * FROM polars_dotnet_poison ORDER BY id;");
-        verifyDf.Show();
+
         // shape: (2, 6)
         // ┌─────┬─────────────────────────┬────────────────────────┬────────────┬──────────┬─────────────────┐
         // │ id  ┆ money                   ┆ uuid                   ┆ birthday   ┆ alarm    ┆ duration        │

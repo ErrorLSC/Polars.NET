@@ -1,6 +1,7 @@
 
 using System.Text;
 using Polars.NET.Core;
+using Polars.NET.Core.Helpers;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
@@ -57,7 +58,7 @@ public partial class LazyFrame : IDisposable
     /// <summary>
     /// Print the LazyFrame to Console.
     /// </summary>
-    public void Show() => Console.WriteLine(ToString());
+    public void Show() => Console.WriteLine(TerminalDisplayHelpers.SanitizeForDisplay(ToString()));
 
     /// <summary>
     /// Generates an HTML visualization of the LazyFrame execution plan and schema for LINQPad.

@@ -1,5 +1,6 @@
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
+using Polars.NET.Core.Helpers;
 using System.Text;
 using Apache.Arrow.Types;
 using Pl = Polars.CSharp.Polars;
@@ -288,7 +289,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Print the DataFrame to Console.
     /// </summary>
-    public void Show() => Console.WriteLine(ToString()); 
+    public void Show() => Console.WriteLine(TerminalDisplayHelpers.SanitizeForDisplay(ToString())); 
 
     /// <summary>
     /// Generates a rich HTML table representation of the DataFrame for interactive environments (e.g., LINQPad, Jupyter).
