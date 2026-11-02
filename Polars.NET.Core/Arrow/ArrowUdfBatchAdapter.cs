@@ -174,7 +174,7 @@ public static class ArrowUdfBatchAdapter
         }
 
         Type elementType = PolarsTypeHelper.TryGetEnumerableElementType(targetType) ?? typeof(object);
-        System.Array materializedArray = ConvertToArray(array, elementType);
+        System.Array materializedArray = GetArrayReader(elementType)(array);
 
         if (targetType.IsArray ||
             targetType == typeof(IEnumerable<>) ||
@@ -212,9 +212,6 @@ public static class ArrowUdfBatchAdapter
         public IEnumerator<TElement> GetEnumerator() => elements.GetEnumerator();
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => elements.GetEnumerator();
     }
-
-    private static System.Array ConvertToArray(IArrowArray array, Type elementType)
-        => GetArrayReader(elementType)(array);
 
     /// <summary>
     /// Adapts a single-parameter delegate (object? -> object?) into an Arrow group aggregation function.

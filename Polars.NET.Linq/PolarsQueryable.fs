@@ -164,6 +164,7 @@ and PolarsQuery<'T>
             else
                 flattenStages bound []
         FallbackTracker.Diagnostic <- None
+        UdfTracker.Reset()
 
         let addSort (spec: SortSpec) (ops: QueryOp list) =
             match ops with
@@ -1477,6 +1478,8 @@ and PolarsQuery<'T>
             else
                 planStr + "\n" + String.concat "\n" (List.rev postOps)
 
+        let detectedUdfs = UdfTracker.DetectedUdfs
+
         {
             NativePlan = planWithPostOps
             HasClientPredicates = not clientPreds.IsEmpty
@@ -1484,6 +1487,8 @@ and PolarsQuery<'T>
             HasClientProjection = clientProjOpt.IsSome || chunkSizeOpt.IsSome || shouldShuffle || isGrouping
             IsFullFallback = requiresClientFallback
             FallbackReason = FallbackTracker.Diagnostic
+            HasUdf = not detectedUdfs.IsEmpty
+            UdfExpressions = detectedUdfs
         }
 
     interface IPolarsExplainable with

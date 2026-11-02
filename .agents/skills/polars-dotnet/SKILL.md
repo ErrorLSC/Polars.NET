@@ -53,19 +53,31 @@ Console.WriteLine(query.Explain());
 using DataFrame resultDf = query.ToDataFrame();
 ```
 - **Standard BCL Mappings**: `string.*` (`Contains`, `StartsWith`, `ToUpper`, `Trim`, `Replace`, `Substring`, etc.), `Math.*`, `DateTime` / `DateOnly` / `TimeSpan` properties and arithmetic, `Regex.IsMatch`, window functions, subqueries (`Any`, `All`, `Count`, `Sum`), and multi-key `Join` / `GroupJoin` (`DefaultIfEmpty` Left Join) are natively translated.
+- **Native Managed UDF Pushdown (Where, Select, GroupBy, Multidimensional Grouping & TypedMerge)**:
+  - Custom C# static/instance methods, lambdas, and extension methods are natively pushed down to Rust Polars via zero-copy Arrow batch callbacks (`ArrowUdfBatchAdapter`).
+  - **Filter & Projection UDFs**: Supported in `.Where(...)` and `.Select(...)` for both single-column and multi-column signatures (e.g. `where CheckSecurity(e.Name, e.Salary)`).
+  - **Group-Level Aggregation UDFs**: Supported inside `.GroupBy(...)`, `.RollUp(...)`, `.Cube(...)`, and `.GroupingSets(...)` over sequences, arrays, or lists (e.g. `Spread = g.Select(x => x.Salary).CustomSpread()`, `WeightedAvg = MyStats.WeightedAverage(g.Select(x => x.Salary), g.Select(x => x.Age))`, `AggSum = g.Select(x => x.Salary).Aggregate(...)`, or whole group `TotalPayroll(g)`).
+  - **TypedMerge UDFs**: Fully supported in `WhenMatched` / `WhenNotMatchedByTarget` / `WhenNotMatchedBySource` conditions and `Update` / `Insert` value setters.
+  - **Diagnostic Report**: `query.Explain()` explicitly marks `[Polars.NET Query Plan - 100% Native Pushdown (with C# UDF Callback)]` and enumerates all pushed-down UDF signatures.
+- **Multidimensional Grouping Extensions (ROLLUP, CUBE, GROUPING SETS)**:
+  - Natively compiles hierarchical subtotals and grand totals across key dimensions into unified Rust LazyFrame execution plans:
+    - `.RollUp(...)` / `.Rollup(...)`: Hierarchical rollup across dimensions.
+    - `.Cube(...)`: Power-set combinations across all dimensions.
+    - `.GroupingSets(...)`: Explicit list of grouping dimension sets.
+  - Supports both **Scheme A** (result selector: `.RollUp((key, g) => new { ... })`) and **Scheme B** (modifier followed by standard projection: `.RollUp().Select(g => new { ... })`).
+  - Use `.Grouping()` (e.g. `key.Dept.Grouping()` or `key.Grouping(k => k.Dept)`) to identify aggregated/subtotal rows (returns `1` if collapsed/subtotal, `0` otherwise).
+  - Fully supports mixing native aggregations (`Sum`, `Count`, `Average`) and custom C# UDF aggregations at every rollup level with 100% Native Pushdown.
 - **Seamless In-Memory Collection Interop**:
   - Arbitrary in-memory collections (`List<T>`, arrays, `IEnumerable<T>`) can be passed directly as operands into `.Join(inMemoryList, ...)`, `.Concat(inMemoryList)`, and `.Union(inMemoryList)`. The LINQ provider automatically transposes the in-memory sequence into native Arrow/LazyFrame structures on the fly and achieves Tier-1 100% native pushdown in Rust without intermediate object allocation.
   - Strongly-typed `Merge` (`TypedMerge`) can also be initiated directly on a plain in-memory `List<T>` (`list.Merge(...)`).
-- **Handling Unsupported UDFs (`PolarsPushdownException`)**:
+- **Client Fallback & Policy (`PolarsPushdownException`)**:
   - By default, `ClientEvaluationPolicy.Strict` is active.
-  - **Terminal `.Select(...)` projections** automatically support custom C# logic via Polars.NET's high-performance row cursor (`Hybrid Execution`).
-  - If an **intermediate stage** (`Where`, `GroupBy`, `Join`, `OrderBy`) contains an untranslatable C# method/UDF, Polars.NET throws `PolarsPushdownException` with actionable remediation hints:
-    1. Rewrite using mapped BCL methods or native `Expr` API.
-    2. Move custom formatting/constructors into the final `.Select(...)`.
-    3. Insert `.AsEnumerable()` before the client-only step, or set `PolarsConfig.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow)` (or env `POLARS_CLIENT_EVAL=allow`).
+  - Custom C# methods in `Where`, `Select`, and `GroupBy` are pushed down via native Arrow UDF callbacks automatically.
+  - If an expression contains an untranslatable blackbox operation (e.g. opaque whole-entity client references) or if UDF pushdown is explicitly blocked via `PolarsConfig.SetDisallowUdfPushdown(true)`, Polars.NET throws `PolarsPushdownException` under Strict policy, or falls back to client evaluation (`Hybrid Execution`) under `ClientEvaluationPolicy.Allow`.
 - **3-Tier Strategy for Operations Beyond Standard LINQ**:
   1. **Standard LINQ**: Use standard clauses (`Where`, `Select`, `GroupBy`, `Join`, `OrderBy`).
   2. **Polars LINQ Extensions**: For analytical operations not covered by standard LINQ syntax, use extensions inside `using Polars.CSharp.Linq;`:
+     - Multidimensional Grouping: `.RollUp()`, `.Cube()`, `.GroupingSets()`, and `.Grouping()`
      - Window functions: `.Over(e => e.DeptId)` / `.Over(partitionBy, orderBy)`
      - Time-series lag/lead: `x.Close.Shift(1)`
      - Differencing: `x.Close.Diff(1)`

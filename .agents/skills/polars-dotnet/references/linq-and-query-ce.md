@@ -96,22 +96,63 @@ Polars.NET includes a full expression-tree compiler (`Polars.NET.Linq`) that tra
 
 ---
 
+### Native Managed UDF Pushdown (Where, Select, GroupBy & Group Aggregations)
+
+Polars.NET LINQ bridges custom C# methods and lambdas directly into native Polars execution graphs via zero-copy Apache Arrow chunk adapters (`ArrowUdfBatchAdapter`). Instead of aborting pushdown or falling back to client evaluation:
+
+1. **Filter & Projection UDFs (`.Where(...)` & `.Select(...)`)**:
+   - Single-column and multi-column methods are compiled into `Expr.map()` / `Expr.map_many()`:
+   ```csharp
+   // Pushes down CheckSecurity as a native vectorized arrow callback:
+   var query = df.AsQueryable<Employee>()
+       .Where(e => SecurityService.CheckSecurity(e.Name, e.Salary))
+       .Select(e => new { e.Name, Score = CustomMath.ComputeScore(e.Age, e.Salary) });
+   ```
+2. **Group-Level Aggregation UDFs (`.GroupBy(...)`)**:
+   - Custom reduction logic over group sequences, arrays, or lists compiles into native `Expr.apply()` / `Expr.apply_many()` with `FunctionOptions::groupwise()`:
+   ```csharp
+   var query = df.AsQueryable<Employee>()
+       .GroupBy(e => e.Department)
+       .Select(g => new
+       {
+           Dept = g.Key,
+           // Custom reduction over IEnumerable<T>:
+           Spread = g.Select(x => x.Salary).CustomSpread(),
+           // Custom multi-column weighted aggregation:
+           WeightedAvg = Stats.WeightedAverage(g.Select(x => x.Salary), g.Select(x => x.Age)),
+           // Array / List aggregations:
+           Peak = Stats.PeakToTrough(g.Select(x => x.Salary).ToArray()),
+           Median = Stats.Median(g.Select(x => x.Salary).ToList()),
+           // LINQ Aggregate folding:
+           Total = g.Select(x => x.Salary).Aggregate((acc, x) => acc + x),
+           // Whole group object UDF:
+           Payroll = PayrollService.TotalPayroll(g)
+       });
+   ```
+   - Group UDFs can be freely composed with standard aggregations (`Count()`, `Sum()`, etc.) and arithmetic expressions (e.g. `CustomAgg(...) * 1.5 + 100`).
+
+---
+
 ## 3. Execution Modes & Troubleshooting `PolarsPushdownException`
 
-When you call `query.Explain()`, Polars.NET classifies the plan into one of three modes:
+When you call `query.Explain()`, Polars.NET classifies the plan into one of the following modes:
 1. **`[Polars.NET Query Plan - 100% Native Pushdown]`**: Every stage runs inside Rust Polars. Calling `.ToDataFrame()` never allocates a single `.NET` row object.
+   - **`[Polars.NET Query Plan - 100% Native Pushdown (with C# UDF Callback)]`**: When custom C# methods/delegates are present, the plan maintains 100% native pushdown in Rust while explicitly documenting the pushed-down Arrow UDF callbacks.
 2. **`[Polars.NET Query Plan - Hybrid Execution (Partial Pushdown)]`**: All filtering/joining/grouping runs in Rust Polars, and only the final `.Select(...)` projection invokes custom `.NET` code over the high-performance Arrow row cursor.
 3. **`[Polars.NET Query Plan - Full Fallback to In-Memory LINQ]`**: Fallback to LINQ-to-Objects.
 
 ### Default Strict Policy (`ClientEvaluationPolicy.Strict`)
-By default, Polars.NET **allows** client evaluation in the final `.Select(...)` (`Hybrid Execution`), but **throws `PolarsPushdownException`** if an intermediate stage (`Where`, `GroupBy`, `Join`, `OrderBy`) contains an unpushed custom method/UDF.
+By default, Polars.NET **allows** custom UDFs in `Where`, `Select`, and `GroupBy` via native Arrow callbacks, and supports custom client projection in final `.Select(...)` (`Hybrid Execution`).
+It **throws `PolarsPushdownException`** only when:
+- An intermediate stage contains an untranslatable blackbox operation (e.g. an opaque entity reference that cannot be decomposed into columns).
+- UDF pushdown is globally disabled via `PolarsConfig.SetDisallowUdfPushdown(true)`.
 
 When `PolarsPushdownException` is thrown:
-- **Option 1 (Best Performance)**: Replace the custom helper in `Where`/`GroupBy` with standard BCL methods (`string.*`, `Math.*`, `Regex.IsMatch`) so Polars can push it down natively.
-- **Option 2 (Hybrid Projection)**: Keep `Where`/`GroupBy` pure and move custom C#/F# formatting or method calls into the final `.Select(...)` / `select ...` clause.
+- **Option 1 (Best Performance)**: Rewrite using mapped BCL methods (`string.*`, `Math.*`, `Regex.IsMatch`) or column-based UDF signatures.
+- **Option 2 (Hybrid Projection)**: Move custom formatting/constructors into the final `.Select(...)` clause.
 - **Option 3 (Explicit Client Evaluation)**:
-  - In C#: insert `.AsEnumerable()` right before the client-only `.Where(x => MyCustomUdf(x))`.
-  - In F#: insert `.AsSeq()` or `|> Query.asSeq` before `Seq.filter`.
+  - In C#: insert `.AsEnumerable()` right before the client-only step.
+  - In F#: insert `.AsSeq()` or `|> Query.asSeq` before `Seq.*`.
   - Or relax the policy globally:
     - C#: `PolarsConfig.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow);` (or `Warn`)
     - F#: `Config.clientEvaluationPolicy <- ClientEvaluationPolicy.Allow`
@@ -124,7 +165,44 @@ When `PolarsPushdownException` is thrown:
 Standard LINQ covers common relational operations (`Where`, `Select`, `GroupBy`, `Join`, `OrderBy`). For analytics operations beyond standard C# LINQ syntax:
 
 ### Step 1: Try Polars.NET LINQ Extension Methods
-`using Polars.CSharp.Linq;` provides native query extensions that can be called directly on column expressions inside `.Select(...)`:
+`using Polars.CSharp.Linq;` provides native query extensions that can be called directly on queries and column expressions:
+
+- **Multidimensional Grouping (`.RollUp()`, `.Cube()`, `.GroupingSets()`) & `.Grouping()`**:
+  Generates hierarchical subtotals and grand totals across grouped dimensions natively in Rust Polars without in-memory grouping:
+  - `.RollUp(...)` / `.Rollup(...)`: Hierarchical rollup across dimensions (e.g. `(A, B) -> (A, null) -> (null, null)`).
+  - `.Cube(...)`: Full power-set combinations across all dimensions (e.g. `(A, B) -> (A, null) -> (null, B) -> (null, null)`).
+  - `.GroupingSets(sets, ...)`: Explicit grouping sets across dimensions.
+  
+  Both **Scheme A** (direct result selector) and **Scheme B** (modifier followed by `.Select(...)`) are supported:
+  ```csharp
+  // Scheme A (Direct Result Selector):
+  var rollupQuery = df.AsQueryable<SalesRecord>()
+      .GroupBy(x => new { x.Dept, x.Team })
+      .RollUp((key, g) => new
+      {
+          key.Dept,
+          key.Team,
+          TotalAmount = g.Sum(x => x.Amount),
+          Spread = g.Select(x => x.Amount).CustomSpread(), // Custom UDF supported!
+          Count = g.Count(),
+          // Use .Grouping() to detect aggregated/subtotal levels (1 = aggregated, 0 = detailed):
+          G_Dept = key.Dept.Grouping(),
+          G_Team = key.Grouping(k => k.Team)
+      });
+
+  // Scheme B (Modifier followed by Select):
+  var cubeQuery = df.AsQueryable<SalesRecord>()
+      .GroupBy(x => new { x.Dept, x.Team })
+      .Cube()
+      .Select(g => new
+      {
+          g.Key.Dept,
+          g.Key.Team,
+          TotalAmount = g.Sum(x => x.Amount),
+          Spread = TestUdfMethods.CalculateRange(g.Select(x => x.Amount)),
+          G_Dept = g.Key.Dept.Grouping()
+      });
+  ```
 
 - **Window Functions (`.Over`)**:
   ```csharp
@@ -232,6 +310,12 @@ using DataFrame resultDf = targetQuery.Merge(sourceQuery, t => t.Id, s => s.Id)
     )
     .ToDataFrame(); // Or .ToLazyFrame(), .ToList()!
 ```
+
+### Full UDF Pushdown Support in `TypedMerge`
+`TypedMerge` natively pushes down custom C# methods and delegates directly into the Polars execution plan:
+- **Match Conditions**: Custom UDFs can be used in `WhenMatched((t, s) => ShouldUpdate(t.Price, s.Price))`, `WhenNotMatchedByTarget(s => IsEligible(s.Category, s.Price))`, and `WhenNotMatchedBySource(t => ShouldRetire(t.Category))`.
+- **Value Setters**: Custom UDFs can calculate updated values `set.Set(t => t.Price, (t, s) => BlendPrice(t.Price, s.Price))` or inserted values `set.Set(t => t.Price, s => DiscountPrice(s.Price))` without full table materialization.
+- **Re-entering LINQ**: Calling `.AsQueryable()` on `TypedMergeBuilder` seamlessly compiles the merge into an `IQueryable<T>` for further LINQ pipelines (`.Where(...)`, `.OrderBy(...)`, `.Select(...)`).
 
 ### In-Memory Collection Merge & Seamless Transposition
 `TypedMerge` also extends `IEnumerable<TTarget>`, enabling ANSI SQL `MERGE` directly on plain in-memory `List<T>`:

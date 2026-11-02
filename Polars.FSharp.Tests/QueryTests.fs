@@ -2267,11 +2267,6 @@ module QueryTests =
         let results = queryable.ToList()
         Assert.Equal(2, results.Count)
 
-    type CustomFSharpStats =
-        static member CalculateRange(values: System.Collections.Generic.IEnumerable<int>) : double =
-            let l = values |> Seq.toList
-            double (List.max l - List.min l)
-
     [<Fact; Trait("LINQ", "UDF")>]
     let ``Test FSharp Query GroupBy Custom UDF Aggregation Pushdown`` () =
         let emps = [
@@ -2281,13 +2276,19 @@ module QueryTests =
             { Name = "David"; DeptId = 20; Salary = 7000.0 }
         ]
         use df = DataFrame.ofRecords emps
+
+        let calculateRange(values: IEnumerable<int>) : double =
+            let l = values |> Seq.toList
+            double (List.max l - List.min l)
+
         let queryable =
             query {
                 for e in df.AsQueryable<EmployeeSalary>() do
                 groupBy e.DeptId into g
                 sortBy g.Key
-                select (g.Key, CustomFSharpStats.CalculateRange(g.Select(fun x -> int x.Salary)))
+                select (g.Key, calculateRange(g.Select(fun x -> int x.Salary)))
             }
+            
         let results = queryable.ToList()
         Assert.Equal(2, results.Count)
         Assert.Equal(10, fst results.[0])

@@ -824,6 +824,7 @@ module AggTranslator =
 
                                 let arrowCallback = ArrowUdfBatchAdapter.CreateGroupAggregationSingle(userFunc, argExpr.Type, expr.Type)
                                 ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
+                                UdfTracker.Record(sprintf "%s: %s" methodName (expr.ToString()))
                                 Some(PolarsWrapper.Apply(handle, arrowCallback, outDataType, returnsScalar = returnsScalar))
 
                             elif dynCount > 1 then
@@ -846,6 +847,7 @@ module AggTranslator =
                                 let otherHandles = dynArgs |> List.tail |> List.map snd |> List.toArray
 
                                 ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
+                                UdfTracker.Record(sprintf "%s: %s" methodName (expr.ToString()))
                                 Some(PolarsWrapper.ApplyMany(mainHandle, otherHandles, arrowCallback, outDataType, returnsScalar = returnsScalar))
                             else
                                 None

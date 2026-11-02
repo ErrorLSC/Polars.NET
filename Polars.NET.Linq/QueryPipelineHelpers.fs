@@ -73,6 +73,8 @@ type PlanInspection =
         HasClientProjection: bool
         IsFullFallback: bool
         FallbackReason: string option
+        HasUdf: bool
+        UdfExpressions: string list
     }
 
     /// Formats the inspection result into a human-readable diagnostic report.
@@ -97,9 +99,26 @@ type PlanInspection =
             sb.AppendLine "   The entire pipeline will be executed in managed memory via LINQ-to-Objects."
             |> ignore
         elif not this.HasClientPredicates && not this.HasClientProjection then
-            sb.AppendLine "[Polars.NET Query Plan - 100% Native Pushdown]" |> ignore
-            sb.AppendLine "---------------------------------------------" |> ignore
-            sb.AppendLine this.NativePlan |> ignore
+            if this.HasUdf then
+                sb.AppendLine "[Polars.NET Query Plan - 100% Native Pushdown (with C# UDF Callback)]"
+                |> ignore
+
+                sb.AppendLine "---------------------------------------------------------------------"
+                |> ignore
+
+                sb.AppendLine "Note: Native plan delegates execution to managed C# UDF callback via Arrow batch interop."
+                |> ignore
+
+                if not this.UdfExpressions.IsEmpty then
+                    sb.AppendLine " Pushed-down C# UDF Callbacks:" |> ignore
+                    for udf in this.UdfExpressions do
+                        sb.AppendFormat("     • {0}\n", udf) |> ignore
+
+                sb.AppendLine this.NativePlan |> ignore
+            else
+                sb.AppendLine "[Polars.NET Query Plan - 100% Native Pushdown]" |> ignore
+                sb.AppendLine "---------------------------------------------" |> ignore
+                sb.AppendLine this.NativePlan |> ignore
         else
             sb.AppendLine "[Polars.NET Query Plan - Hybrid Execution (Partial Pushdown)]"
             |> ignore
@@ -109,6 +128,12 @@ type PlanInspection =
 
             sb.AppendLine "Phase 1: Native Polars Pushdown Plan:" |> ignore
             sb.AppendLine this.NativePlan |> ignore
+
+            if this.HasUdf then
+                sb.AppendLine " Native C# UDF Callbacks (Executed inside Polars):" |> ignore
+                for udf in this.UdfExpressions do
+                    sb.AppendFormat("     • {0}\n", udf) |> ignore
+
             sb.AppendLine "Phase 2: Managed Client Fallback:" |> ignore
 
             if this.HasClientPredicates then

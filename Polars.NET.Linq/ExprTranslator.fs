@@ -2785,6 +2785,7 @@ module internal rec ExprTranslator =
 
                                 let arrowCallback = ArrowUdfBatchAdapter.CreateSingle(userFunc, argExpr.Type, expr.Type)
                                 ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
+                                UdfTracker.Record(sprintf "%s: %s" methodName (expr.ToString()))
                                 Some(PolarsWrapper.Map(handle, arrowCallback, outDataType))
 
                             elif dynCount > 1 then
@@ -2807,6 +2808,7 @@ module internal rec ExprTranslator =
                                 let otherHandles = dynArgs |> List.tail |> List.map snd |> List.toArray
 
                                 ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
+                                UdfTracker.Record(sprintf "%s: %s" methodName (expr.ToString()))
                                 Some(PolarsWrapper.MapMany(mainHandle, otherHandles, arrowCallback, outDataType))
                             else
                                 None
