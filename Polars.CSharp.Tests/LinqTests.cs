@@ -319,6 +319,7 @@ public partial class LinqTests
         // Polars expr cannot execute an in-memory HashSet.Contains or arbitrary C# control flow
         return ApprovedStaffRegistry.Contains(name) && salary > 4500;
     }
+    private static bool CheckSecurityClearance(Employee e) => CheckSecurityClearance(e.Name, e.Salary);
 
     [Fact]
     [Trait("LINQ", "Skip")]
@@ -394,7 +395,7 @@ public partial class LinqTests
             // 2. Where(CustomMagicAudit) must gracefully fallback to client-side cursor evaluation
             var query = df.AsQueryable<Employee>()
                           .Where(e => e.Age >= 18)
-                          .Where(e => CheckSecurityClearance(e.Name, e.Salary));
+                          .Where(e => CheckSecurityClearance(e));
 
             AssertPlan(query, HybridPushdown);
             var result = query.ToList();
@@ -423,7 +424,7 @@ public partial class LinqTests
             // back into a native columnar DataFrame via DataFrameBuilder.FromRows<T>()
             using DataFrame dfResult = df.AsQueryable<Employee>()
                                          .Where(e => e.Age >= 18)
-                                         .Where(e => CheckSecurityClearance(e.Name, e.Salary))
+                                         .Where(e => CheckSecurityClearance(e))
                                          .ToDataFrame();
 
             Assert.Equal(2, dfResult.Height);
@@ -433,7 +434,7 @@ public partial class LinqTests
             // Verify that continuing from ToLazyFrame works natively on top of the transposed DataFrame
             using LazyFrame lfResumed = df.AsQueryable<Employee>()
                                           .Where(e => e.Age >= 18)
-                                          .Where(e => CheckSecurityClearance(e.Name, e.Salary))
+                                          .Where(e => CheckSecurityClearance(e))
                                           .ToLazyFrame();
 
             using DataFrame dfCollected = lfResumed.Collect();

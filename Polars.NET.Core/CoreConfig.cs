@@ -91,7 +91,8 @@ internal static class CoreConfig
         QueryCacheCapacityKey,
         QueryCacheEnabledKey,
         ClientEvaluationPolicyKey,
-        NetClientEvaluationPolicyKey
+        NetClientEvaluationPolicyKey,
+        DisallowUdfPushdownKey
     ];
 
     private static readonly (string DirectKey, Func<string?> ValueGetter)[] DirectVarRules =
@@ -119,6 +120,10 @@ internal static class CoreConfig
         (
             "client_evaluation_policy",
             () => ClientEvaluationPolicy.ToString().ToLowerInvariant()
+        ),
+        (
+            "disallow_udf_pushdown",
+            () => DisallowUdfPushdown.ToFmtString()
         )
     ];
 
@@ -333,6 +338,10 @@ internal static class CoreConfig
                             else if (Enum.TryParse<ClientEvaluationPolicy>(strValue, ignoreCase: true, out var pol))
                                 ClientEvaluationPolicy = pol;
                             break;
+
+                        case "disallow_udf_pushdown":
+                            DisallowUdfPushdown = strValue is "1" or "true" or "TRUE" or "True";
+                            break;
                     }
                 }
             }
@@ -394,6 +403,7 @@ internal static class CoreConfig
         FloatFormat = null;
         TrimDecimalZeros = null;
         ClientEvaluationPolicy = ClientEvaluationPolicy.Strict;
+        DisallowUdfPushdown = false;
 
         PolarsWrapper.ReloadEnvVarAll();
     }
@@ -1002,5 +1012,33 @@ internal static class CoreConfig
         }
 
         return ClientEvaluationPolicy.Strict;
+    }
+
+    private const string DisallowUdfPushdownKey = "POLARS_DISALLOW_UDF_PUSHDOWN";
+    private static bool _disallowUdfPushdown = GetDefaultDisallowUdfPushdownFromEnv();
+
+    /// <summary>
+    /// Gets or sets whether to disallow pushing down managed UDF callbacks (single/multi-column and regex UDFs)
+    /// to the native Polars engine.
+    /// Default is false (UDF pushdown is allowed).
+    /// When set to true, any expression that would otherwise require a managed UDF callback
+    /// is treated as untranslatable, triggering client evaluation policy (e.g. throwing PolarsPushdownException in Strict mode).
+    /// </summary>
+    public static bool DisallowUdfPushdown
+    {
+        get => _disallowUdfPushdown;
+        set
+        {
+            _disallowUdfPushdown = value;
+            string valStr = value ? "1" : "0";
+            Environment.SetEnvironmentVariable(DisallowUdfPushdownKey, valStr);
+            PolarsWrapper.SetEnvVar(DisallowUdfPushdownKey, valStr);
+        }
+    }
+
+    private static bool GetDefaultDisallowUdfPushdownFromEnv()
+    {
+        var envValue = Environment.GetEnvironmentVariable(DisallowUdfPushdownKey);
+        return envValue is "1" or "true" or "TRUE" or "True";
     }
 }

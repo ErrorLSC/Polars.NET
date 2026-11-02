@@ -1334,71 +1334,87 @@ module internal rec ExprTranslator =
         // --- 1. IsMatch ---
         | IsMatch(target, pat, rxOpt) ->
             tryTranslateWithContext ctx target
-            |> Option.map (fun t ->
+            |> Option.bind (fun t ->
                 let options = getOptions rxOpt
 
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    PolarsWrapper.StrContains(t, PolarsWrapper.Lit validPat, literal = false, strict = false)
+                    Some(PolarsWrapper.StrContains(t, PolarsWrapper.Lit validPat, literal = false, strict = false))
                 | None ->
-                    let rx = getRegex rxOpt pat
-                    PolarsWrapper.MapStringPredicate(t, Func<string, bool>(rx.IsMatch)))
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        let rx = getRegex rxOpt pat
+                        Some(PolarsWrapper.MapStringPredicate(t, Func<string, bool>(rx.IsMatch))))
 
         // --- 2. ReplaceLiteral ---
         | ReplaceLiteral(target, pat, rep, rxOpt) ->
             tryTranslateWithContext ctx target
-            |> Option.map (fun t ->
+            |> Option.bind (fun t ->
                 let options = getOptions rxOpt
 
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    PolarsWrapper.StrReplaceAll(t, PolarsWrapper.Lit validPat, PolarsWrapper.Lit rep, literal = false)
+                    Some(PolarsWrapper.StrReplaceAll(t, PolarsWrapper.Lit validPat, PolarsWrapper.Lit rep, literal = false))
                 | None ->
-                    let rx = getRegex rxOpt pat
-
-                    PolarsWrapper.MapStringTransform(
-                        t,
-                        Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep))
-                    ))
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        let rx = getRegex rxOpt pat
+                        Some(
+                            PolarsWrapper.MapStringTransform(
+                                t,
+                                Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep))
+                            )
+                        ))
 
         // --- 2b. ReplaceLiteralN (With count limit) ---
         | ReplaceLiteralN(target, pat, rep, count, rxOpt) ->
             tryTranslateWithContext ctx target
-            |> Option.map (fun t ->
+            |> Option.bind (fun t ->
                 let options = getOptions rxOpt
 
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    PolarsWrapper.StrReplace(
-                        t,
-                        PolarsWrapper.Lit validPat,
-                        PolarsWrapper.Lit rep,
-                        literal = false,
-                        n = int64 count
+                    Some(
+                        PolarsWrapper.StrReplace(
+                            t,
+                            PolarsWrapper.Lit validPat,
+                            PolarsWrapper.Lit rep,
+                            literal = false,
+                            n = int64 count
+                        )
                     )
                 | None ->
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        let rx = getRegex rxOpt pat
+                        Some(
+                            PolarsWrapper.MapStringTransform(
+                                t,
+                                Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep, count))
+                            )
+                        ))
+
+        // --- 3. ReplaceEvaluator (Managed delegate: always UDF) ---
+        | ReplaceEvaluator(target, pat, eval, rxOpt) ->
+            if CoreConfig.DisallowUdfPushdown then
+                None
+            else
+                tryTranslateWithContext ctx target
+                |> Option.map (fun t ->
                     let rx = getRegex rxOpt pat
 
                     PolarsWrapper.MapStringTransform(
                         t,
-                        Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep, count))
+                        Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, eval))
                     ))
-
-        // --- 3. ReplaceEvaluator (Managed delegate: always UDF) ---
-        | ReplaceEvaluator(target, pat, eval, rxOpt) ->
-            tryTranslateWithContext ctx target
-            |> Option.map (fun t ->
-                let rx = getRegex rxOpt pat
-
-                PolarsWrapper.MapStringTransform(
-                    t,
-                    Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, eval))
-                ))
 
         // --- 4. MatchValue & Groups[i].Value ---
         | MatchValue(target, pat, groupIndex, rxOpt) ->
             tryTranslateWithContext ctx target
-            |> Option.map (fun t ->
+            |> Option.bind (fun t ->
                 let options = getOptions rxOpt
                 let rx = getRegex rxOpt pat
 
@@ -1411,27 +1427,32 @@ module internal rec ExprTranslator =
                     let extracted = PolarsWrapper.StrExtract(t, PolarsWrapper.Lit validPat, groupIndex)
                     let nonNullExtracted = PolarsWrapper.Coalesce [| extracted; PolarsWrapper.Lit "" |]
                     let isTargetNull = PolarsWrapper.IsNull tCloned
-                    PolarsWrapper.IfElse(isTargetNull, PolarsWrapper.LitNull(), nonNullExtracted)
+                    Some(PolarsWrapper.IfElse(isTargetNull, PolarsWrapper.LitNull(), nonNullExtracted))
                 | None ->
-                    // Managed Arrow UDF fallback
-                    PolarsWrapper.MapStringTransform(
-                        t,
-                        Func<string, string>(fun s ->
-                            if isNull s then
-                                null
-                            else
-                                let m = rx.Match(s)
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        // Managed Arrow UDF fallback
+                        Some(
+                            PolarsWrapper.MapStringTransform(
+                                t,
+                                Func<string, string>(fun s ->
+                                    if isNull s then
+                                        null
+                                    else
+                                        let m = rx.Match(s)
 
-                                if m.Success && groupIndex < m.Groups.Count then
-                                    m.Groups.[groupIndex].Value
-                                else
-                                    "")
-                    ))
+                                        if m.Success && groupIndex < m.Groups.Count then
+                                            m.Groups.[groupIndex].Value
+                                        else
+                                            "")
+                            )
+                        ))
 
         // --- 4b. MatchGroupNamed (Regex.Match().Groups["name"].Value -> StrExtractGroups) ---
         | MatchGroupNamed(target, pat, groupName, rxOpt) ->
             tryTranslateWithContext ctx target
-            |> Option.map (fun t ->
+            |> Option.bind (fun t ->
                 let options = getOptions rxOpt
                 let rx = getRegex rxOpt pat
 
@@ -1442,71 +1463,85 @@ module internal rec ExprTranslator =
                     let fieldH = PolarsWrapper.StructFieldByName(structH, [| groupName |])
                     let nonNullExtracted = PolarsWrapper.Coalesce [| fieldH; PolarsWrapper.Lit "" |]
                     let isTargetNull = PolarsWrapper.IsNull tCloned
-                    PolarsWrapper.IfElse(isTargetNull, PolarsWrapper.LitNull(), nonNullExtracted)
+                    Some(PolarsWrapper.IfElse(isTargetNull, PolarsWrapper.LitNull(), nonNullExtracted))
                 | None ->
-                    PolarsWrapper.MapStringTransform(
-                        t,
-                        Func<string, string>(fun s ->
-                            if isNull s then null
-                            else
-                                let m = rx.Match s
-                                if m.Success then m.Groups.[groupName].Value else "")
-                    ))
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        Some(
+                            PolarsWrapper.MapStringTransform(
+                                t,
+                                Func<string, string>(fun s ->
+                                    if isNull s then null
+                                    else
+                                        let m = rx.Match s
+                                        if m.Success then m.Groups.[groupName].Value else "")
+                            )
+                        ))
 
         // --- 5. MatchesAll ---
         | MatchesAll(target, pat, rxOpt) ->
             tryTranslateWithContext ctx target
-            |> Option.map (fun t ->
+            |> Option.bind (fun t ->
                 let options = getOptions rxOpt
 
                 match tryBuildRustRegexPattern pat options with
-                | Some validPat -> PolarsWrapper.StrExtractAll(t, PolarsWrapper.Lit validPat)
+                | Some validPat -> Some(PolarsWrapper.StrExtractAll(t, PolarsWrapper.Lit validPat))
                 | None ->
-                    let rx = getRegex rxOpt pat
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        let rx = getRegex rxOpt pat
+                        Some(
+                            PolarsWrapper.MapStringToList(
+                                t,
+                                Func<string, Collections.Generic.IEnumerable<string>>(fun s ->
+                                    if isNull s then
+                                        null
+                                    else
+                                        let matches = rx.Matches(s)
+                                        let list = Collections.Generic.List<string>(matches.Count)
 
-                    PolarsWrapper.MapStringToList(
-                        t,
-                        Func<string, Collections.Generic.IEnumerable<string>>(fun s ->
-                            if isNull s then
-                                null
-                            else
-                                let matches = rx.Matches(s)
-                                let list = Collections.Generic.List<string>(matches.Count)
+                                        for m in matches do
+                                            list.Add(m.Value)
 
-                                for m in matches do
-                                    list.Add(m.Value)
-
-                                list :> Collections.Generic.IEnumerable<string>)
-                    ))
+                                        list :> Collections.Generic.IEnumerable<string>)
+                            )
+                        ))
 
         // --- 6. MatchesCount / Regex.Count (.NET 7+) ---
         | MatchesCount(target, pat, rxOpt) ->
             tryTranslateWithContext ctx target
-            |> Option.map (fun t ->
+            |> Option.bind (fun t ->
                 let options = getOptions rxOpt
 
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    PolarsWrapper.StrCountMatches(t, PolarsWrapper.Lit validPat, literal = false)
+                    Some(PolarsWrapper.StrCountMatches(t, PolarsWrapper.Lit validPat, literal = false))
                 | None ->
-                    let rx = getRegex rxOpt pat
-                    let intDtype = PolarsWrapper.NewPrimitiveType(int PlDataType.Int32)
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        let rx = getRegex rxOpt pat
+                        let intDtype = PolarsWrapper.NewPrimitiveType(int PlDataType.Int32)
 
-                    PolarsWrapper.Map(
-                        t,
-                        Func<Apache.Arrow.IArrowArray, Apache.Arrow.IArrowArray>(fun arr ->
-                            let strViewArr = arr :?> Apache.Arrow.StringViewArray
-                            let builder = Apache.Arrow.Int32Array.Builder()
+                        Some(
+                            PolarsWrapper.Map(
+                                t,
+                                Func<Apache.Arrow.IArrowArray, Apache.Arrow.IArrowArray>(fun arr ->
+                                    let strViewArr = arr :?> Apache.Arrow.StringViewArray
+                                    let builder = Apache.Arrow.Int32Array.Builder()
 
-                            for i in 0 .. strViewArr.Length - 1 do
-                                if strViewArr.IsNull(i) then
-                                    builder.AppendNull() |> ignore
-                                else
-                                    builder.Append(rx.Matches(strViewArr.GetString(i)).Count) |> ignore
+                                    for i in 0 .. strViewArr.Length - 1 do
+                                        if strViewArr.IsNull(i) then
+                                            builder.AppendNull() |> ignore
+                                        else
+                                            builder.Append(rx.Matches(strViewArr.GetString(i)).Count) |> ignore
 
-                            builder.Build() :> Apache.Arrow.IArrowArray),
-                        intDtype
-                    ))
+                                    builder.Build() :> Apache.Arrow.IArrowArray),
+                                intDtype
+                            )
+                        ))
 
         // --- 7. Split ---
         | Split(target, pat, rxOpt) ->
@@ -2637,6 +2672,148 @@ module internal rec ExprTranslator =
         | _ -> tryTranslateWithContext ctx operand |> Option.bind (translateUnary op)
 
     // =========================================================================
+    // 9b. Managed UDF Callback Translation (Tier 2 Pushdown)
+    // =========================================================================
+
+    let rec internal exprDependsOnContext (ctx: TranslationContext) (e: Expression) : bool =
+        match e with
+        | null -> false
+        | :? ParameterExpression as p ->
+            if isNull p.Name then false
+            else ctx.ContainsParam p.Name
+        | :? MemberExpression as m -> exprDependsOnContext ctx m.Expression
+        | :? MethodCallExpression as mc ->
+            (not (isNull mc.Object) && exprDependsOnContext ctx mc.Object)
+            || (mc.Arguments |> Seq.exists (exprDependsOnContext ctx))
+        | :? BinaryExpression as b ->
+            exprDependsOnContext ctx b.Left || exprDependsOnContext ctx b.Right
+        | :? UnaryExpression as u -> exprDependsOnContext ctx u.Operand
+        | :? ConditionalExpression as c ->
+            exprDependsOnContext ctx c.Test || exprDependsOnContext ctx c.IfTrue || exprDependsOnContext ctx c.IfFalse
+        | :? InvocationExpression as inv ->
+            exprDependsOnContext ctx inv.Expression || (inv.Arguments |> Seq.exists (exprDependsOnContext ctx))
+        | :? ConstantExpression -> false
+        | _ -> false
+
+    let private replaceSubtrees (replacements: (Expression * Expression) list) (root: Expression) : Expression =
+        let visitor =
+            { new ExpressionVisitor() with
+                override this.Visit(node: Expression) =
+                    match replacements |> List.tryFind (fun (orig, _) -> Object.ReferenceEquals(orig, node)) with
+                    | Some(_, repl) -> repl
+                    | None -> base.Visit(node) }
+        visitor.Visit(root)
+
+    let private isInternalOrLinqMethod (m: MethodInfo) =
+        if isNull m then false
+        else
+            let decl = m.DeclaringType
+            if isNull decl then false
+            else
+                decl = typeof<System.Linq.Queryable>
+                || decl = typeof<System.Linq.Enumerable>
+                || decl.Assembly = typeof<ExprHandle>.Assembly
+                || (not (isNull decl.FullName) && (decl.FullName = "Polars.CSharp.Expr" || decl.FullName = "Polars.CSharp.Series" || decl.FullName = "Polars.CSharp.DataFrame" || decl.FullName = "Polars.CSharp.LazyFrame" || decl.FullName = "Polars.CSharp.Polars"))
+
+    let internal tryTranslateUdfInvocation (ctx: TranslationContext) (expr: Expression) : ExprHandle option =
+        try
+            if CoreConfig.DisallowUdfPushdown || isNull expr || expr.Type = typeof<System.Void> then
+                None
+            else
+                let methodInfoOpt, rawArgs =
+                    match expr with
+                    | :? MethodCallExpression as mc ->
+                        if isInternalOrLinqMethod mc.Method then
+                            None, []
+                        else
+                            let args =
+                                if isNull mc.Object then
+                                    mc.Arguments |> Seq.toList
+                                else
+                                    mc.Object :: (mc.Arguments |> Seq.toList)
+                            Some mc.Method, args
+                    | :? InvocationExpression as inv ->
+                        let args = inv.Arguments |> Seq.toList
+                        None, args
+                    | _ -> None, []
+
+                let methodName =
+                    match methodInfoOpt with
+                    | Some m -> m.Name
+                    | None -> "Invoke"
+
+                if rawArgs.IsEmpty || not (rawArgs |> List.exists (exprDependsOnContext ctx)) then
+                    None
+                else
+                    // Collect all argument expressions that depend on the row context
+                    let dependentArgs =
+                        rawArgs
+                        |> List.filter (exprDependsOnContext ctx)
+
+                    // Every dependent argument must be translatable to a Polars ExprHandle
+                    let translatedDependentArgs =
+                        dependentArgs
+                        |> List.map (fun a ->
+                            match tryTranslateWithContext ctx a with
+                            | Some h -> Some(a, h)
+                            | None -> None)
+
+                    if translatedDependentArgs |> List.exists Option.isNone then
+                        None
+                    else
+                        let outDataTypeOpt =
+                            try
+                                let h = ArrowUdfBatchAdapter.GetDataTypeHandle(expr.Type)
+                                if isNull h || h.IsInvalid then None else Some h
+                            with _ ->
+                                None
+
+                        match outDataTypeOpt with
+                        | None -> None
+                        | Some outDataType ->
+                            let dynArgs = translatedDependentArgs |> List.choose id
+                            let dynCount = dynArgs.Length
+
+                            if dynCount = 1 then
+                                let argExpr, handle = dynArgs.[0]
+                                let inParam = Expression.Parameter(typeof<obj>, "input")
+                                let typedIn = Expression.Convert(inParam, argExpr.Type)
+                                let bodyWithParam = replaceSubtrees [ (argExpr, typedIn :> Expression) ] expr
+                                let boxedBody = Expression.Convert(bodyWithParam, typeof<obj>)
+                                let lambda = Expression.Lambda<Func<obj, obj>>(boxedBody, inParam)
+                                let userFunc = lambda.Compile()
+
+                                let arrowCallback = ArrowUdfBatchAdapter.CreateSingle(userFunc, argExpr.Type, expr.Type)
+                                ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
+                                Some(PolarsWrapper.Map(handle, arrowCallback, outDataType))
+
+                            elif dynCount > 1 then
+                                let inArrayParam = Expression.Parameter(typeof<obj[]>, "inputs")
+                                let replacements =
+                                    dynArgs
+                                    |> List.mapi (fun i (argExpr, _) ->
+                                        let arrayIdx = Expression.ArrayIndex(inArrayParam, Expression.Constant(i))
+                                        let typedIn = Expression.Convert(arrayIdx, argExpr.Type)
+                                        (argExpr, typedIn :> Expression))
+
+                                let bodyWithParams = replaceSubtrees replacements expr
+                                let boxedBody = Expression.Convert(bodyWithParams, typeof<obj>)
+                                let lambda = Expression.Lambda<Func<obj[], obj>>(boxedBody, inArrayParam)
+                                let userFunc = lambda.Compile()
+
+                                let inputTypes = dynArgs |> List.map (fun (a, _) -> a.Type) |> List.toArray
+                                let arrowCallback = ArrowUdfBatchAdapter.CreateMulti(userFunc, inputTypes, expr.Type)
+                                let mainHandle = snd dynArgs.[0]
+                                let otherHandles = dynArgs |> List.tail |> List.map snd |> List.toArray
+
+                                ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
+                                Some(PolarsWrapper.MapMany(mainHandle, otherHandles, arrowCallback, outDataType))
+                            else
+                                None
+        with _ ->
+            None
+
+    // =========================================================================
     // 10. Main Entrypoint Dispatcher
     // =========================================================================
 
@@ -2689,7 +2866,13 @@ module internal rec ExprTranslator =
             | MemberAccess _ as memberExpr -> translateMemberAccess ctx memberExpr
 
             // 5. Method Calls (Strings, DateTime, Math, etc.)
-            | MethodCall(m, target, args) -> translateMethodCall ctx m target args
+            | MethodCall(m, target, args) ->
+                match translateMethodCall ctx m target args with
+                | Some h -> Some h
+                | None -> tryTranslateUdfInvocation ctx expr
+
+            // 5b. Delegate Invocations (e.g. myFunc(x.A, x.B))
+            | :? InvocationExpression -> tryTranslateUdfInvocation ctx expr
 
             // 6. Binary operations
             | Binary(op, left, right) -> translateBinaryExpr ctx op left right

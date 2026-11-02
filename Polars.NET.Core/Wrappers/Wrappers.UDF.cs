@@ -123,6 +123,7 @@ public readonly partial struct PolarsWrapper
                     callback, outputType, s_cleanupDelegate, GCHandle.ToIntPtr(handle));
                 var checkedHandle = ErrorHelper.Check(h);
                 main.TransferOwnership();
+                foreach (var other in others) other.TransferOwnership();
                 return checkedHandle;
             }
             catch

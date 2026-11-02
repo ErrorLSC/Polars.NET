@@ -157,6 +157,9 @@ public sealed class PolarsConfig
                             else if (Enum.TryParse<ClientEvaluationPolicy>(value, ignoreCase: true, out var pol))
                                 CoreConfig.ClientEvaluationPolicy = pol;
                             break;
+                        case "disallow_udf_pushdown":
+                            CoreConfig.DisallowUdfPushdown = value is "1" or "true" or "TRUE" or "True";
+                            break;
                     }
                 }
                 else
@@ -166,6 +169,12 @@ public sealed class PolarsConfig
             });
         }
     }
+
+    /// <summary>
+    /// Gets whether pushing down managed UDF callbacks is disallowed.
+    /// Default is false (UDF pushdown is allowed).
+    /// </summary>
+    public bool DisallowUdfPushdown => CoreConfig.DisallowUdfPushdown;
 
     /// <summary>
     /// Gets the current client-side evaluation policy.
@@ -473,6 +482,17 @@ public sealed class PolarsConfig
     public PolarsConfig SetClientEvaluationPolicy(ClientEvaluationPolicy policy = ClientEvaluationPolicy.Strict)
     {
         Apply(() => CoreConfig.ClientEvaluationPolicy = policy);
+        return this;
+    }
+
+    /// <summary>
+    /// Sets whether to disallow pushing down managed UDF callbacks (single/multi-column and regex UDFs)
+    /// to the native Polars engine.
+    /// Default is false (UDF pushdown is allowed).
+    /// </summary>
+    public PolarsConfig SetDisallowUdfPushdown(bool disallow = true)
+    {
+        Apply(() => CoreConfig.DisallowUdfPushdown = disallow);
         return this;
     }
 }

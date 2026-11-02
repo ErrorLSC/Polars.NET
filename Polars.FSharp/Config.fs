@@ -319,3 +319,10 @@ module Config =
     /// </summary>
     let clientEvaluationPolicy (policy: ClientEvaluationPolicy) =
         fun () -> CoreConfig.ClientEvaluationPolicy <- policy
+
+    /// <summary>
+    /// Sets whether to disallow pushing down managed UDF callbacks to the native Polars engine.
+    /// Default is false.
+    /// </summary>
+    let disallowUdfPushdown (disallow: bool) =
+        fun () -> CoreConfig.DisallowUdfPushdown <- disallow
