@@ -2695,7 +2695,7 @@ module internal rec ExprTranslator =
         | :? ConstantExpression -> false
         | _ -> false
 
-    let private replaceSubtrees (replacements: (Expression * Expression) list) (root: Expression) : Expression =
+    let internal replaceSubtrees (replacements: (Expression * Expression) list) (root: Expression) : Expression =
         let visitor =
             { new ExpressionVisitor() with
                 override this.Visit(node: Expression) =

@@ -3,8 +3,12 @@ namespace Polars.NET.Core.Arrow;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Reflection;
 using Apache.Arrow;
 using Polars.NET.Core.Data;
+using Polars.NET.Core.Helpers;
 
 /// <summary>
 /// Vectorized Arrow batch adapter for managed UDF callbacks invoked from Polars native engine.
@@ -139,6 +143,130 @@ public static class ArrowUdfBatchAdapter
                 }
             }
 
+            return buffer.BuildArray();
+        };
+    }
+
+    private static readonly ConcurrentDictionary<Type, Func<IArrowArray, System.Array>> s_readColumnDelegates = new();
+
+    private static Func<IArrowArray, System.Array> GetArrayReader(Type elementType)
+    {
+        return s_readColumnDelegates.GetOrAdd(elementType, static type =>
+        {
+            var method = typeof(ArrowReader)
+                .GetMethod(nameof(ArrowReader.ReadColumn), BindingFlags.Public | BindingFlags.Static)!
+                .MakeGenericMethod(type);
+            var param = Expression.Parameter(typeof(IArrowArray), "array");
+            var call = Expression.Call(method, param);
+            var cast = Expression.Convert(call, typeof(System.Array));
+            return Expression.Lambda<Func<IArrowArray, System.Array>>(cast, param).Compile();
+        });
+    }
+
+    /// <summary>
+    /// Converts an Arrow array to an instance of the target sequence type (e.g. T[], List&lt;T&gt;, IEnumerable&lt;T&gt;, etc.).
+    /// </summary>
+    public static object? ConvertArrowToArgument(IArrowArray array, Type targetType)
+    {
+        if (targetType == typeof(IArrowArray) || typeof(IArrowArray).IsAssignableFrom(targetType))
+        {
+            return array;
+        }
+
+        Type elementType = PolarsTypeHelper.TryGetEnumerableElementType(targetType) ?? typeof(object);
+        System.Array materializedArray = ConvertToArray(array, elementType);
+
+        if (targetType.IsArray ||
+            targetType == typeof(IEnumerable<>) ||
+            targetType.IsAssignableFrom(materializedArray.GetType()))
+        {
+            return materializedArray;
+        }
+
+        if (targetType.IsGenericType && targetType.GetGenericTypeDefinition() == typeof(List<>))
+        {
+            var listType = typeof(List<>).MakeGenericType(elementType);
+            return Activator.CreateInstance(listType, materializedArray);
+        }
+
+        if (targetType.IsGenericType && targetType.GetGenericTypeDefinition() == typeof(HashSet<>))
+        {
+            var setType = typeof(HashSet<>).MakeGenericType(elementType);
+            return Activator.CreateInstance(setType, materializedArray);
+        }
+
+        if (targetType.IsGenericType && targetType.GetGenericTypeDefinition() == typeof(IGrouping<,>))
+        {
+            var keyType = targetType.GetGenericArguments()[0];
+            var groupingType = typeof(ArrowGrouping<,>).MakeGenericType(keyType, elementType);
+            object? defaultKey = keyType.IsValueType ? Activator.CreateInstance(keyType) : null;
+            return Activator.CreateInstance(groupingType, defaultKey, materializedArray);
+        }
+
+        return materializedArray;
+    }
+
+    private sealed class ArrowGrouping<TKey, TElement>(TKey key, IEnumerable<TElement> elements) : IGrouping<TKey, TElement>
+    {
+        public TKey Key => key;
+        public IEnumerator<TElement> GetEnumerator() => elements.GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => elements.GetEnumerator();
+    }
+
+    private static System.Array ConvertToArray(IArrowArray array, Type elementType)
+        => GetArrayReader(elementType)(array);
+
+    /// <summary>
+    /// Adapts a single-parameter delegate (object? -> object?) into an Arrow group aggregation function.
+    /// Receives an Arrow array representing group elements and returns a 1-element Arrow array containing the scalar result.
+    /// </summary>
+    public static Func<IArrowArray, IArrowArray> CreateGroupAggregationSingle(
+        Func<object?, object?> userFunc,
+        Type inputArgType,
+        Type outputType)
+    {
+        return inputArray =>
+        {
+            object? arg = ConvertArrowToArgument(inputArray, inputArgType);
+            object? result = userFunc(arg);
+            if (result is IArrowArray arrowArr)
+            {
+                return arrowArr;
+            }
+            var buffer = ArrowColumnBufferFactory.Create(outputType, 1);
+            buffer.Add(result);
+            return buffer.BuildArray();
+        };
+    }
+
+    /// <summary>
+    /// Adapts a multi-parameter delegate (object?[] -> object?) into a multi-column Arrow group aggregation function.
+    /// Receives Arrow arrays representing group elements for each column and returns a 1-element Arrow array containing the scalar result.
+    /// </summary>
+    public static Func<IReadOnlyList<IArrowArray>, IArrowArray> CreateGroupAggregationMulti(
+        Func<object?[], object?> userFunc,
+        Type[] inputArgTypes,
+        Type outputType)
+    {
+        int colCount = inputArgTypes.Length;
+        return arrays =>
+        {
+            if (arrays.Count == 0)
+                throw new ArgumentException("At least one input array is required for multi-column group aggregation UDF.", nameof(arrays));
+
+            var rowArgs = new object?[colCount];
+            for (int c = 0; c < colCount; c++)
+            {
+                rowArgs[c] = ConvertArrowToArgument(arrays[c], inputArgTypes[c]);
+            }
+
+            object? result = userFunc(rowArgs);
+            if (result is IArrowArray arrowArr)
+            {
+                return arrowArr;
+            }
+            var buffer = ArrowColumnBufferFactory.Create(outputType, 1);
+            buffer.Add(result);
             return buffer.BuildArray();
         };
     }

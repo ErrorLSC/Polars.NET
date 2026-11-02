@@ -301,3 +301,41 @@ module DataFramePartitionBy =
 
                     Some(PartitionKey compositeKey, partDf))
             |> Map.ofArray
+
+    type GroupBy with
+        /// <summary>
+        /// Apply a custom function to each group as an isolated sub-DataFrame and concatenate the results.
+        /// Corresponds to Polars group_by().map_groups(func).
+        /// </summary>
+        member this.MapGroups(f: DataFrame -> DataFrame) : DataFrame =
+            let keyNames = this.GetExcludedKeyNames()
+            let partitioned = this.DataFrame.PartitionBy(keyNames)
+            let mapped =
+                partitioned
+                |> Array.choose (fun subDf ->
+                    use g = subDf
+                    let res = f g
+                    if isNull (box res) || res.Height = 0L then None
+                    else Some res)
+            if mapped.Length = 0 then this.DataFrame.Slice(0L, 0UL)
+            else
+                let res = DataFrame.ConcatVertical(mapped)
+                mapped |> Array.iter (fun d -> (d :> IDisposable).Dispose())
+                res
+
+    type LazyGroupBy with
+        /// <summary>
+        /// Apply a custom function to each group as an isolated sub-DataFrame and concatenate the results into a LazyFrame.
+        /// Corresponds to Polars lazy_frame.group_by().map_groups(func).
+        /// </summary>
+        member this.MapGroups(f: DataFrame -> DataFrame) : LazyFrame =
+            use collected = (new LazyFrame(PolarsWrapper.LazyClone this.Handle)).Collect()
+            let safeKeys = this.GetKeys()
+            use gb = new GroupBy(collected, this.GroupByType, safeKeys)
+            let finalGb =
+                match this.HavingExpr with
+                | Some h -> gb.Having(h)
+                | None -> gb
+            use resDf = finalGb.MapGroups(f)
+            safeKeys |> Array.iter (fun k -> (k :> IDisposable).Dispose())
+            resDf.Lazy()

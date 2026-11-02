@@ -86,6 +86,44 @@ public readonly partial struct PolarsWrapper
             }
         }
     }
+
+    public static ExprHandle Apply(ExprHandle expr, Func<IArrowArray, IArrowArray> func, DataTypeHandle outputType, bool returnsScalar = true)
+    {
+        unsafe
+        {
+            NativeBindings.UdfCallback callback = (inArr, inSch, outArr, outSch, msgBuf) =>
+            {
+                try
+                {
+                    var array = ImportSingle(inArr, inSch);
+                    var result = func(array);
+                    ExportResult(result, outArr, outSch);
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteErrorToBuffer(msgBuf, 1024, ex);
+                    *outArr = default;
+                    *outSch = default;
+                    return 1;
+                }
+            };
+
+            var handle = GCHandle.Alloc(callback);
+            try
+            {
+                var h = NativeBindings.pl_expr_apply(expr, callback, outputType, s_cleanupDelegate, GCHandle.ToIntPtr(handle), returnsScalar);
+                var checkedHandle = ErrorHelper.Check(h);
+                expr.TransferOwnership();
+                return checkedHandle;
+            }
+            catch
+            {
+                if (handle.IsAllocated) handle.Free();
+                throw;
+            }
+        }
+    }
     public static ExprHandle MapMany(
         ExprHandle main,
         ExprHandle[] others,
@@ -121,6 +159,55 @@ public readonly partial struct PolarsWrapper
                 var h = NativeBindings.pl_expr_map_many(
                     main, argsPtrs, (nuint)argsPtrs.Length,
                     callback, outputType, s_cleanupDelegate, GCHandle.ToIntPtr(handle));
+                var checkedHandle = ErrorHelper.Check(h);
+                main.TransferOwnership();
+                foreach (var other in others) other.TransferOwnership();
+                return checkedHandle;
+            }
+            catch
+            {
+                if (handle.IsAllocated) handle.Free();
+                throw;
+            }
+        }
+    }
+
+    public static ExprHandle ApplyMany(
+        ExprHandle main,
+        ExprHandle[] others,
+        Func<IReadOnlyList<IArrowArray>, IArrowArray> function,
+        DataTypeHandle outputType,
+        bool returnsScalar = true)
+    {
+        unsafe
+        {
+            NativeBindings.MultiUdfCallback callback = (n, arrs, schs, outArr, outSch, _, errorBuf, errorBufLen) =>
+            {
+                try
+                {
+                    var inputs = new List<IArrowArray>((int)n);
+                    for (int i = 0; i < n; i++)
+                        inputs.Add(ImportSingle(arrs[i], schs[i]));
+                    var result = function(inputs);
+                    ExportResult(result, outArr, outSch);
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteErrorToBuffer(errorBuf, (int)errorBufLen, ex);
+                    *outArr = default;
+                    *outSch = default;
+                    return 1;
+                }
+            };
+
+            var handle = GCHandle.Alloc(callback);
+            try
+            {
+                var argsPtrs = HandlesToPtrs(others);
+                var h = NativeBindings.pl_expr_apply_many(
+                    main, argsPtrs, (nuint)argsPtrs.Length,
+                    callback, outputType, s_cleanupDelegate, GCHandle.ToIntPtr(handle), returnsScalar);
                 var checkedHandle = ErrorHelper.Check(h);
                 main.TransferOwnership();
                 foreach (var other in others) other.TransferOwnership();

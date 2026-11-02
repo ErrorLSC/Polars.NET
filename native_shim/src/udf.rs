@@ -1,5 +1,6 @@
 use polars::prelude::*;
 use polars_arrow::ffi;
+use polars_plan::prelude::{FunctionFlags, FunctionOptions};
 use crate::{types::{ DataTypeContext, ExprContext}, utils::consume_exprs_array};
 use std::{sync::Arc};
 use polars_arrow::datatypes::Field as ArrowField;
@@ -102,6 +103,56 @@ pub extern "C" fn pl_expr_map(
             }, 
             output_map
         );
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_apply(
+    expr_ptr: *mut ExprContext,
+    callback: UdfCallback,
+    output_type_ptr: *mut DataTypeContext,
+    cleanup: CleanupCallback,
+    user_data: *mut c_void,
+    returns_scalar: bool,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let udf = Arc::new(CSharpUdf { callback, cleanup, user_data });
+        let target_dtype = unsafe { &(*output_type_ptr).dtype };
+        let target_dtype_owned = target_dtype.clone();
+
+        let output_map = move |_input_schema: &Schema, input_field: &Field| -> PolarsResult<Field> {
+            match &target_dtype_owned {
+                // Unknown means keep Identity
+                DataType::Unknown(_) => Ok(input_field.clone()),
+                
+                known_dtype => Ok(Field::new(input_field.name().clone(), known_dtype.clone())),
+            }
+        };
+
+        let options = FunctionOptions::groupwise().with_flags(|mut f| {
+            f.set(FunctionFlags::RETURNS_SCALAR, returns_scalar);
+            f
+        });
+
+        let f = BaseColumnUdf::new(
+            move |c: &mut [Column]| {
+                let s = c[0].as_materialized_series().clone();
+                let res_series_opt = udf.call(s)?;
+                let out_s = res_series_opt.expect("C# UDF returned None");
+                Ok(out_s.into_column())
+            },
+            move |schema: &Schema, fields: &[Field]| output_map(schema, &fields[0]),
+        );
+
+        let new_expr = Expr::AnonymousFunction {
+            input: vec![ctx.inner],
+            function: new_column_udf(f),
+            options,
+            fmt_str: Box::new(PlSmallStr::EMPTY),
+        };
 
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
@@ -246,6 +297,60 @@ pub extern "C" fn pl_expr_map_many(
                 }
             }
         );
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_apply_many(
+    base_expr_ptr: *mut ExprContext,
+    args_ptr: *const *mut ExprContext,
+    args_len: usize,
+    callback: MultiUdfCallback,
+    output_type_ptr: *mut DataTypeContext,
+    cleanup: CleanupCallback,
+    user_data: *mut c_void,
+    returns_scalar: bool,
+) -> *mut ExprContext {
+    ffi_try!({
+        // Consume base Expr
+        let base_ctx = unsafe { Box::from_raw(base_expr_ptr) };
+        // Consume additional arguments
+        let args = unsafe { consume_exprs_array(args_ptr, args_len) };
+        
+        let udf = Arc::new(CSharpMultiUdf { callback, cleanup, user_data });
+        
+        // Clone output dtype for the schema closure
+        let target_dtype_owned = unsafe { (*output_type_ptr).dtype.clone() };
+
+        let mut input = vec![base_ctx.inner];
+        input.extend(args);
+
+        let options = FunctionOptions::groupwise().with_flags(|mut f| {
+            f.set(FunctionFlags::RETURNS_SCALAR, returns_scalar);
+            f
+        });
+
+        let function = BaseColumnUdf::new(
+            move |cols: &mut [Column]| -> PolarsResult<Column> {
+                udf.call(cols)
+            },
+            move |_schema: &Schema, _fields: &[Field]| -> PolarsResult<Field> {
+                // Return schema definition for optimizer
+                match &target_dtype_owned {
+                    DataType::Unknown(_) => Ok(Field::new("output".into(), DataType::Unknown(Default::default()))),
+                    known => Ok(Field::new("output".into(), known.clone()))
+                }
+            }
+        );
+
+        let new_expr = Expr::AnonymousFunction {
+            input,
+            function: new_column_udf(function),
+            options,
+            fmt_str: Box::new(PlSmallStr::EMPTY),
+        };
 
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })

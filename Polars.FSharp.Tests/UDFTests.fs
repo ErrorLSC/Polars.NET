@@ -47,7 +47,7 @@ type ``UDF Tests`` () =
         let df =
             lf
             |> LazyFrame.withColumn (
-                pl.col("num").MapArrow udf
+                pl.col("num").MapBatchesArrow udf
                 |> pl.alias "desc"
             )
             |> LazyFrame.select [ pl.col "desc" ]
@@ -69,7 +69,7 @@ type ``UDF Tests`` () =
         let ex = Assert.Throws<PolarsException>(fun () ->
             lf
             |> LazyFrame.withColumn (
-                pl.col("num").MapArrow(udf, DataType.SameAsInput)
+                pl.col("num").MapBatchesArrow(udf, DataType.SameAsInput)
             )
             |> LazyFrame.collect
             |> ignore
@@ -88,7 +88,7 @@ type ``UDF Tests`` () =
         let df =
             lf
             |> LazyFrame.withColumn (
-                pl.col("num").Map myLogic
+                pl.col("num").MapBatches myLogic
                 |> pl.alias "res"
             )
             |> LazyFrame.select [ pl.col "res" ]
@@ -113,7 +113,7 @@ type ``UDF Tests`` () =
         let df =
             lf
             |> LazyFrame.withColumn (
-                pl.col("val").MapOption logic
+                pl.col("val").MapBatchesOption logic
                 |> pl.alias "res"
             )
             |> LazyFrame.collect
@@ -254,7 +254,7 @@ type ``UDF Tests`` () =
             lf
             |> LazyFrame.withColumn (
                 pl.col "Code"
-                |> fun e -> e.MapValueOption parseEmpId
+                |> fun e -> e.MapBatchesValueOption parseEmpId
                 |> pl.alias "EmpId"
             )
             |> LazyFrame.collect
@@ -415,3 +415,86 @@ type ``UDF Tests`` () =
         Assert.Throws<ArgumentException>(fun () ->
             (s1, s2) ||> Series.map2 (+) |> ignore
         ) |> ignore
+
+    [<Fact>]
+    [<Trait("UDF", "MapGroups")>]
+    member _.``MapGroups Arrow UDF in GroupBy Agg`` () =
+        let data = [
+            {| Group = "A"; Val = 10.0 |}
+            {| Group = "A"; Val = 20.0 |}
+            {| Group = "B"; Val = 50.0 |}
+            {| Group = "B"; Val = 150.0 |}
+        ]
+        use sourceDf = DataFrame.ofRecords data
+
+        let customRange (arr: IArrowArray) : IArrowArray =
+            let fArr = arr :?> DoubleArray
+            let mutable minVal = System.Double.MaxValue
+            let mutable maxVal = System.Double.MinValue
+            for i in 0 .. fArr.Length - 1 do
+                let v = fArr.GetValue(i).Value
+                if v < minVal then minVal <- v
+                if v > maxVal then maxVal <- v
+            let b = new DoubleArray.Builder()
+            b.Append(maxVal - minVal) |> ignore
+            b.Build()
+
+        use res: DataFrame =
+            sourceDf.GroupBy([ pl.col "Group" ])
+                .Agg([
+                    pl.col("Val").MapGroupsArrow(customRange, DataType.Float64)
+                    |> pl.alias "range"
+                ])
+                .Sort("Group")
+
+        Assert.Equal(2L, res.Height)
+        Assert.Equal("A", res.Cell<string>("Group", 0))
+        Assert.Equal(10.0, res.Cell<double>("range", 0)) // 20 - 10
+        Assert.Equal("B", res.Cell<string>("Group", 1))
+        Assert.Equal(100.0, res.Cell<double>("range", 1)) // 150 - 50
+
+    [<Fact>]
+    [<Trait("UDF", "MapGroups")>]
+    member _.``Eager GroupBy MapGroups sub-DataFrame transformation`` () =
+        let data = [
+            {| Group = "A"; Val = 10 |}
+            {| Group = "A"; Val = 20 |}
+            {| Group = "B"; Val = 30 |}
+            {| Group = "B"; Val = 40 |}
+        ]
+        use sourceDf = DataFrame.ofRecords data
+
+        use res: DataFrame =
+            sourceDf.GroupBy([ pl.col "Group" ])
+                .MapGroups(fun groupDf -> groupDf.Sort("Val", descending = true).Head(1))
+                .Sort("Group")
+
+        Assert.Equal(2L, res.Height)
+        Assert.Equal("A", res.Cell<string>("Group", 0))
+        Assert.Equal(20, res.Cell<int>("Val", 0))
+        Assert.Equal("B", res.Cell<string>("Group", 1))
+        Assert.Equal(40, res.Cell<int>("Val", 1))
+
+    [<Fact>]
+    [<Trait("UDF", "MapGroups")>]
+    member _.``Lazy GroupBy MapGroups sub-DataFrame transformation`` () =
+        let data = [
+            {| Group = "A"; Val = 10 |}
+            {| Group = "A"; Val = 20 |}
+            {| Group = "B"; Val = 30 |}
+            {| Group = "B"; Val = 40 |}
+        ]
+        use sourceDf = DataFrame.ofRecords data
+
+        use res: DataFrame =
+            sourceDf.Lazy()
+                .GroupBy([ pl.col "Group" ])
+                .MapGroups(fun groupDf -> groupDf.Sort("Val", descending = true).Head(1))
+                .Sort("Group")
+                .Collect()
+
+        Assert.Equal(2L, res.Height)
+        Assert.Equal("A", res.Cell<string>("Group", 0))
+        Assert.Equal(20, res.Cell<int>("Val", 0))
+        Assert.Equal("B", res.Cell<string>("Group", 1))
+        Assert.Equal(40, res.Cell<int>("Val", 1))

@@ -122,7 +122,8 @@ module Series =
     /// </summary>
     /// <param name="mapping">The mapping function applied to each element.</param>
     /// <param name="series">The target Series.</param>
-    let inline map ([<InlineIfLambda>] mapping: 'T -> 'U) (series: Series) : Series = series.Map<'T, 'U> mapping
+    let inline map ([<InlineIfLambda>] mapping: 'T -> 'U) (series: Series) : Series = series.MapElements<'T, 'U> mapping
+    let inline mapElements ([<InlineIfLambda>] mapping: 'T -> 'U) (series: Series) : Series = series.MapElements<'T, 'U> mapping
 
     /// <summary>
     /// Map values of the Series using an F# function that handles Option values with automatic return DataType inference.
@@ -131,7 +132,9 @@ module Series =
     /// <param name="mapping">The mapping function taking and returning F# Option.</param>
     /// <param name="series">The target Series.</param>
     let inline mapOption ([<InlineIfLambda>] mapping: 'T option -> 'U option) (series: Series) : Series =
-        series.MapOption<'T, 'U> mapping
+        series.MapElementsOption<'T, 'U> mapping
+    let inline mapElementsOption ([<InlineIfLambda>] mapping: 'T option -> 'U option) (series: Series) : Series =
+        series.MapElementsOption<'T, 'U> mapping
 
     /// <summary>
     /// Map values of the Series using an F# function that handles ValueOption with automatic return DataType inference.
@@ -140,7 +143,9 @@ module Series =
     /// <param name="mapping">The mapping function taking and returning F# ValueOption.</param>
     /// <param name="series">The target Series.</param>
     let inline mapValueOption ([<InlineIfLambda>] mapping: 'T voption -> 'U voption) (series: Series) : Series =
-        series.MapValueOption<'T, 'U> mapping
+        series.MapElementsValueOption<'T, 'U> mapping
+    let inline mapElementsValueOption ([<InlineIfLambda>] mapping: 'T voption -> 'U voption) (series: Series) : Series =
+        series.MapElementsValueOption<'T, 'U> mapping
 
     /// <summary>
     /// Builds a new Series whose elements are the results of applying the given function

@@ -27,6 +27,42 @@ public class GroupByBuilder : IEnumerable<(object[] Key, DataFrame Group)>
     }
 
     /// <summary>
+    /// Apply a custom function to each group as an isolated sub-DataFrame and concatenate the results.
+    /// Corresponds to Polars <c>group_by().map_groups(func)</c>.
+    /// </summary>
+    /// <param name="function">Function transforming each group's DataFrame into a new DataFrame.</param>
+    /// <returns>A new concatenated DataFrame.</returns>
+    public DataFrame MapGroups(Func<DataFrame, DataFrame> function)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        var mappedGroups = new List<DataFrame>();
+        try
+        {
+            foreach (var (_, groupDf) in this)
+            {
+                using (groupDf)
+                {
+                    var mapped = function(groupDf);
+                    if (mapped != null && mapped.Height > 0)
+                    {
+                        mappedGroups.Add(mapped);
+                    }
+                }
+            }
+
+            if (mappedGroups.Count == 0)
+                return _df.Slice(0, 0);
+
+            return DataFrame.Concat(mappedGroups);
+        }
+        finally
+        {
+            foreach (var df in mappedGroups)
+                df.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Count the number of values in each group.
     /// </summary>
     public DataFrame Count()
@@ -147,6 +183,11 @@ public class GroupByBuilder : IEnumerable<(object[] Key, DataFrame Group)>
 
             _ => lazyWithIndex.GroupBy(intoKeys, _lazyGrouped._maintainOrder)
         };
+
+        if (_lazyGrouped._havingExpr is not null)
+        {
+            newLazyGrouped.Having(_lazyGrouped._havingExpr);
+        }
 
         var groupsDf = newLazyGrouped
             .Agg(Pl.Col(rowIdxCol).Implode().Alias(tempCol))

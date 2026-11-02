@@ -202,7 +202,56 @@ public sealed class LazyGroupBy : IDisposable
         _havingExpr = predicate;
         return this;
     }
-    private Expr? _havingExpr = null;
+    internal Expr? _havingExpr = null;
+
+    /// <summary>
+    /// Apply a custom function to each group as an isolated sub-DataFrame and concatenate the results into a LazyFrame.
+    /// Corresponds to Polars <c>lazy_frame.group_by().map_groups(func)</c>.
+    /// <para>Warning: This materializes groups into memory and breaks the lazy optimization pipeline.</para>
+    /// </summary>
+    /// <param name="function">Function transforming each group's DataFrame into a new DataFrame.</param>
+    /// <returns>A new LazyFrame containing the concatenated result.</returns>
+    public LazyFrame MapGroups(Func<DataFrame, DataFrame> function)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, nameof(LazyGroupBy));
+        ArgumentNullException.ThrowIfNull(function);
+
+        var collectedDf = new LazyFrame(PolarsWrapper.LazyClone(_lfHandle)).Collect();
+        using (collectedDf)
+        {
+            var intoKeys = (_keys ?? []).Select(k => (IntoExprColumn)k).ToArray();
+            GroupByBuilder builder = _type switch
+            {
+                GroupByType.Dynamic => collectedDf.GroupByDynamic(
+                    indexColumn: _indexColumn!,
+                    every: _every!,
+                    period: _period!,
+                    offset: _offset!,
+                    label: _label,
+                    includeBoundaries: _includeBoundaries,
+                    ClosedInterval: _ClosedInterval,
+                    startBy: _startBy,
+                    groupBy: intoKeys),
+
+                GroupByType.Rolling => collectedDf.Rolling(
+                    indexColumn: _indexColumn!,
+                    period: _period!,
+                    offset: _offset!,
+                    ClosedInterval: _ClosedInterval,
+                    groupBy: intoKeys),
+
+                _ => collectedDf.GroupBy(intoKeys, _maintainOrder)
+            };
+
+            if (_havingExpr is not null)
+            {
+                builder.Having(_havingExpr);
+            }
+
+            using var resultDf = builder.MapGroups(function);
+            return resultDf.Lazy();
+        }
+    }
 
     /// <summary>
     /// Apply aggregations to the group.

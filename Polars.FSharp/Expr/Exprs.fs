@@ -981,12 +981,12 @@ and Expr(handle: ExprHandle) =
         new Expr(PolarsWrapper.DropNans(this.CloneHandle()))
 
     /// <summary>
-    /// Apply a custom C#/F# function (UDF) to the expression.
+    /// Apply a custom C#/F# function (UDF) to the expression in batches.
     /// The function receives an Apache Arrow Array and returns an Arrow Array.
     /// </summary>
     /// <param name="mapping">Function mapping IArrowArray -> IArrowArray.</param>
     /// <param name="outputType">The expected output DataType (optional).</param>
-    member this.MapArrow(mapping: IArrowArray -> IArrowArray, ?outputType: DataType) : Expr =
+    member this.MapBatchesArrow(mapping: IArrowArray -> IArrowArray, ?outputType: DataType) : Expr =
         let targetType = defaultArg outputType DataType.SameAsInput
         use typeHandle = targetType.CreateHandle()
         let netFunc = Func<IArrowArray, IArrowArray> mapping
@@ -994,38 +994,95 @@ and Expr(handle: ExprHandle) =
         new Expr(newHandle)
 
     /// <summary>
-    /// Map values using a standard F# function.
+    /// Map values using a standard F# function over batches.
     /// Automatically wraps it using Udf.map.
     /// </summary>
-    member this.Map<'T, 'U>(f: 'T -> 'U) =
+    member this.MapBatches<'T, 'U>(f: 'T -> 'U) =
         let arrowType = typeof<IArrowArray>
 
         if arrowType.IsAssignableFrom typeof<'T> || arrowType.IsAssignableFrom typeof<'U> then
             invalidArg
                 (nameof f)
-                "Detected Arrow array types ('T or 'U implement IArrowArray). Please use Expr.MapArrow instead of Expr.Map."
+                "Detected Arrow array types ('T or 'U implement IArrowArray). Please use Expr.MapBatchesArrow instead of Expr.MapBatches."
 
         use returnType = DataType.FromNetType<'U>()
         let udf = Udf.map f
-        this.MapArrow(udf, returnType)
+        this.MapBatchesArrow(udf, returnType)
+
+    /// <summary>
+    /// Map values using an F# function that handles Options over batches.
+    /// Automatically wraps it using Udf.mapOption.
+    /// </summary>
+    member this.MapBatchesOption<'T, 'U>(f: 'T option -> 'U option) =
+        use returnType = DataType.FromNetType<'U>()
+        let udf = Udf.mapOption f
+        this.MapBatchesArrow(udf, returnType)
+
+    /// <summary>
+    /// Map values using an F# function that handles Value Options over batches.
+    /// Automatically wraps it using Udf.mapValueOption.
+    /// </summary>
+    member this.MapBatchesValueOption<'T, 'U>(f: 'T voption -> 'U voption) =
+        let udf = Udf.mapValueOption f
+        use returnType = DataType.FromNetType<'U>()
+        this.MapBatchesArrow(udf, returnType)
+
+    /// <summary>
+    /// Apply a custom function over groups of data in a group_by aggregation context.
+    /// The function receives an Arrow array restricted to each group and returns an Arrow array.
+    /// </summary>
+    member this.MapGroupsArrow(mapping: IArrowArray -> IArrowArray, ?outputType: DataType) : Expr =
+        let targetType = defaultArg outputType DataType.SameAsInput
+        use typeHandle = targetType.CreateHandle()
+        let netFunc = Func<IArrowArray, IArrowArray> mapping
+        let newHandle = PolarsWrapper.Apply(this.CloneHandle(), netFunc, typeHandle)
+        new Expr(newHandle)
+
+    /// <summary>
+    /// Apply a multi-column custom function over groups of data in a group_by aggregation context.
+    /// The function receives Arrow arrays restricted to each group and returns an Arrow array.
+    /// </summary>
+    member this.MapGroupsManyArrow(additionalExprs: Expr seq, mapping: System.Collections.Generic.IReadOnlyList<IArrowArray> -> IArrowArray, ?outputType: DataType) : Expr =
+        let targetType = defaultArg outputType DataType.Unknown
+        use typeHandle = targetType.CreateHandle()
+        let netFunc = Func<System.Collections.Generic.IReadOnlyList<IArrowArray>, IArrowArray> mapping
+        let otherHandles = additionalExprs |> Seq.map (fun e -> e.Handle) |> Seq.toArray
+        let newHandle = PolarsWrapper.ApplyMany(this.CloneHandle(), otherHandles, netFunc, typeHandle)
+        new Expr(newHandle)
+
+    /// <summary>
+    /// Apply a custom C#/F# function (UDF) to the expression.
+    /// The function receives an Apache Arrow Array and returns an Arrow Array.
+    /// </summary>
+    /// <param name="mapping">Function mapping IArrowArray -> IArrowArray.</param>
+    /// <param name="outputType">The expected output DataType (optional).</param>
+    [<Obsolete("Use MapBatchesArrow instead.")>]
+    member this.MapArrow(mapping: IArrowArray -> IArrowArray, ?outputType: DataType) : Expr =
+        this.MapBatchesArrow(mapping, ?outputType = outputType)
+
+    /// <summary>
+    /// Map values using a standard F# function.
+    /// Automatically wraps it using Udf.map.
+    /// </summary>
+    [<Obsolete("Use MapBatches instead.")>]
+    member this.Map<'T, 'U>(f: 'T -> 'U) =
+        this.MapBatches<'T, 'U>(f)
 
     /// <summary>
     /// Map values using an F# function that handles Options.
     /// Automatically wraps it using Udf.mapOption.
     /// </summary>
+    [<Obsolete("Use MapBatchesOption instead.")>]
     member this.MapOption<'T, 'U>(f: 'T option -> 'U option) =
-        use returnType = DataType.FromNetType<'U>()
-        let udf = Udf.mapOption f
-        this.MapArrow(udf, returnType)
+        this.MapBatchesOption<'T, 'U>(f)
 
     /// <summary>
     /// Map values using an F# function that handles Value Options.
     /// Automatically wraps it using Udf.mapValueOption.
     /// </summary>
+    [<Obsolete("Use MapBatchesValueOption instead.")>]
     member this.MapValueOption<'T, 'U>(f: 'T voption -> 'U voption) =
-        let udf = Udf.mapValueOption f
-        use returnType = DataType.FromNetType<'U>()
-        this.MapArrow(udf, returnType)
+        this.MapBatchesValueOption<'T, 'U>(f)
 
     /// <summary> Explode a list column into multiple rows. </summary>
     member this.Explode(?emptyAsNull: bool, ?keepNulls: bool) =

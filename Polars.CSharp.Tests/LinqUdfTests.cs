@@ -41,11 +41,56 @@ public static partial class TestUdfMethods
 
     [GeneratedRegex(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$")]
     public static partial Regex ComplexLookaroundRegex();
+
+    public static double CalculateRange(IEnumerable<int> values)
+    {
+        var list = values.ToList();
+        return list.Count == 0 ? 0 : list.Max() - list.Min();
+    }
+
+    public static double CustomSpread(this IEnumerable<int> values)
+    {
+        var list = values.ToList();
+        return list.Count == 0 ? 0 : list.Max() - list.Min();
+    }
+
+    public static double WeightedAverage(IEnumerable<int> salaries, IEnumerable<int> weights)
+    {
+        var salList = salaries.ToList();
+        var wtList = weights.ToList();
+        double sumProduct = 0;
+        double sumWeight = 0;
+        for (int i = 0; i < salList.Count; i++)
+        {
+            sumProduct += (double)salList[i] * wtList[i];
+            sumWeight += wtList[i];
+        }
+        return sumWeight == 0 ? 0 : sumProduct / sumWeight;
+    }
+
+    public static int PeakToTrough(int[] values)
+    {
+        if (values.Length == 0) return 0;
+        return values.Max() - values.Min();
+    }
+
+    public static int MedianInt(List<int> values)
+    {
+        if (values.Count == 0) return 0;
+        values.Sort();
+        return values[values.Count / 2];
+    }
+
+    public static double TotalPayroll(IEnumerable<UdfDepartmentEmployee> employees)
+    {
+        return employees.Sum(e => (double)e.Salary);
+    }
 }
 
 public record UdfEmployee(string Name, int Age, int Salary);
 public record UdfNullableRecord(string? Description, int? Score);
 public record UdfUserAccount(string User, string Password);
+public record UdfDepartmentEmployee(string Name, string Department, int Age, int Salary);
 
 public class LinqUdfTests
 {
@@ -60,7 +105,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_SingleColumn_Udf_In_Where()
     {
         using var df = CreateSampleDf();
@@ -77,7 +122,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_SingleColumn_Udf_With_Captured_Variable_In_Where()
     {
         using var df = CreateSampleDf();
@@ -92,7 +137,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_SingleColumn_Udf_In_Select()
     {
         using var df = CreateSampleDf();
@@ -112,7 +157,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_MultiColumn_Udf_In_Where()
     {
         using var df = CreateSampleDf();
@@ -129,7 +174,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_MultiColumn_Udf_In_Select()
     {
         using var df = CreateSampleDf();
@@ -149,7 +194,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_MultiColumn_Udf_With_Captured_Closure()
     {
         using var df = CreateSampleDf();
@@ -170,7 +215,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_Extension_Method_Udf()
     {
         using var df = CreateSampleDf();
@@ -185,7 +230,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_Delegate_Invocation_Udf()
     {
         using var df = CreateSampleDf();
@@ -202,7 +247,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_Udf_Nullable_Handling()
     {
         using var df = DataFrame.FromRows([
@@ -229,7 +274,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_Udf_In_OrderBy()
     {
         using var df = CreateSampleDf();
@@ -249,7 +294,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_Udf_In_GroupBy()
     {
         using var df = CreateSampleDf();
@@ -272,7 +317,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_Udf_Under_Strict_Policy_Pushes_Down()
     {
         using var df = CreateSampleDf();
@@ -293,7 +338,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_WholeEntity_Blackbox_Udf_Requires_Client_Eval_Policy()
     {
         using var df = CreateSampleDf();
@@ -320,7 +365,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_MultiColumn_Udf_Pushes_Down_Under_Strict_Policy()
     {
         using var df = CreateSampleDf();
@@ -337,7 +382,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_DisallowUdfPushdown_Blocks_MultiColumn_Udf()
     {
         using var df = CreateSampleDf();
@@ -374,7 +419,7 @@ public class LinqUdfTests
     }
 
     [Fact]
-    [Trait("Category", "LINQ_UDF")]
+    [Trait("LINQ", "UDF")]
     public void Test_Linq_DisallowUdfPushdown_Blocks_Regex_Lookaround_Udf()
     {
         using var df = DataFrame.FromColumns([
@@ -411,5 +456,287 @@ public class LinqUdfTests
                 Assert.Equal("Alice", fallbackResults[0].User);
             }
         }
+    }
+
+    private static DataFrame CreateDepartmentDf()
+    {
+        return DataFrame.FromRows([
+            new UdfDepartmentEmployee("Alice", "Eng", 30, 60000),
+            new UdfDepartmentEmployee("Bob", "Eng", 25, 45000),
+            new UdfDepartmentEmployee("Charlie", "Eng", 40, 80000),
+            new UdfDepartmentEmployee("David", "Sales", 22, 35000),
+            new UdfDepartmentEmployee("Eve", "Sales", 35, 70000)
+        ]);
+    }
+
+    [Fact]
+    [Trait("LINQ", "UDF")]
+    public void Test_Linq_GroupBy_Custom_SingleColumn_Aggregation()
+    {
+        using var df = CreateDepartmentDf();
+
+        var results = df.AsQueryable<UdfDepartmentEmployee>()
+            .GroupBy(x => x.Department)
+            .Select(g => new
+            {
+                Dept = g.Key,
+                SalaryRange = TestUdfMethods.CalculateRange(g.Select(x => x.Salary))
+            })
+            .OrderBy(x => x.Dept)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+        // Eng: 80000 - 45000 = 35000
+        Assert.Equal("Eng", results[0].Dept);
+        Assert.Equal(35000.0, results[0].SalaryRange);
+        // Sales: 70000 - 35000 = 35000
+        Assert.Equal("Sales", results[1].Dept);
+        Assert.Equal(35000.0, results[1].SalaryRange);
+    }
+
+    [Fact]
+    [Trait("LINQ", "UDF")]
+    public void Test_Linq_GroupBy_Custom_ExtensionMethod_Aggregation()
+    {
+        using var df = CreateDepartmentDf();
+
+        var results = df.AsQueryable<UdfDepartmentEmployee>()
+            .GroupBy(x => x.Department)
+            .Select(g => new
+            {
+                Dept = g.Key,
+                Spread = g.Select(x => x.Salary).CustomSpread()
+            })
+            .OrderBy(x => x.Dept)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal("Eng", results[0].Dept);
+        Assert.Equal(35000.0, results[0].Spread);
+        Assert.Equal("Sales", results[1].Dept);
+        Assert.Equal(35000.0, results[1].Spread);
+    }
+
+    [Fact]
+    [Trait("LINQ", "UDF")]
+    public void Test_Linq_GroupBy_Custom_MultiColumn_Aggregation()
+    {
+        using var df = CreateDepartmentDf();
+
+        var results = df.AsQueryable<UdfDepartmentEmployee>()
+            .GroupBy(x => x.Department)
+            .Select(g => new
+            {
+                Dept = g.Key,
+                WeightedAvg = TestUdfMethods.WeightedAverage(g.Select(x => x.Salary), g.Select(x => x.Age))
+            })
+            .OrderBy(x => x.Dept)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+        // Eng: (60000*30 + 45000*25 + 80000*40) / (30 + 25 + 40) = (1800000 + 1125000 + 3200000) / 95 = 6125000 / 95 ≈ 64473.68
+        Assert.Equal("Eng", results[0].Dept);
+        Assert.Equal(6125000.0 / 95.0, results[0].WeightedAvg, 2);
+
+        // Sales: (35000*22 + 70000*35) / (22 + 35) = (770000 + 2450000) / 57 = 3220000 / 57 ≈ 56491.23
+        Assert.Equal("Sales", results[1].Dept);
+        Assert.Equal(3220000.0 / 57.0, results[1].WeightedAvg, 2);
+    }
+
+    [Fact]
+    [Trait("LINQ", "UDF")]
+    public void Test_Linq_GroupBy_Custom_Array_And_List_Aggregation()
+    {
+        using var df = CreateDepartmentDf();
+
+        var results = df.AsQueryable<UdfDepartmentEmployee>()
+            .GroupBy(x => x.Department)
+            .Select(g => new
+            {
+                Dept = g.Key,
+                Peak = TestUdfMethods.PeakToTrough(g.Select(x => x.Salary).ToArray()),
+                Median = TestUdfMethods.MedianInt(g.Select(x => x.Salary).ToList())
+            })
+            .OrderBy(x => x.Dept)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+        // Eng salaries: [45000, 60000, 80000] -> Peak: 35000, Median: 60000
+        Assert.Equal("Eng", results[0].Dept);
+        Assert.Equal(35000, results[0].Peak);
+        Assert.Equal(60000, results[0].Median);
+
+        // Sales salaries: [35000, 70000] -> Peak: 35000, Median: 70000
+        Assert.Equal("Sales", results[1].Dept);
+        Assert.Equal(35000, results[1].Peak);
+        Assert.Equal(70000, results[1].Median);
+    }
+
+    [Fact]
+    [Trait("LINQ", "UDF")]
+    public void Test_Linq_GroupBy_Aggregate_Linq_Method()
+    {
+        using var df = CreateDepartmentDf();
+
+        var results = df.AsQueryable<UdfDepartmentEmployee>()
+            .GroupBy(x => x.Department)
+            .Select(g => new
+            {
+                Dept = g.Key,
+                AggSum = g.Select(x => x.Salary).Aggregate((acc, x) => acc + x)
+            })
+            .OrderBy(x => x.Dept)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+        // Eng: 60000 + 45000 + 80000 = 185000
+        Assert.Equal("Eng", results[0].Dept);
+        Assert.Equal(185000, results[0].AggSum);
+
+        // Sales: 35000 + 70000 = 105000
+        Assert.Equal("Sales", results[1].Dept);
+        Assert.Equal(105000, results[1].AggSum);
+    }
+
+    [Fact]
+    [Trait("LINQ", "UDF")]
+    public void Test_Linq_GroupBy_Custom_Agg_Combined_With_Native_Agg()
+    {
+        using var df = CreateDepartmentDf();
+
+        var results = df.AsQueryable<UdfDepartmentEmployee>()
+            .GroupBy(x => x.Department)
+            .Select(g => new
+            {
+                Dept = g.Key,
+                Count = g.Count(),
+                TotalSalary = g.Sum(x => x.Salary),
+                SalaryRange = TestUdfMethods.CalculateRange(g.Select(x => x.Salary))
+            })
+            .OrderBy(x => x.Dept)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal("Eng", results[0].Dept);
+        Assert.Equal(3, results[0].Count);
+        Assert.Equal(185000, results[0].TotalSalary);
+        Assert.Equal(35000.0, results[0].SalaryRange);
+
+        Assert.Equal("Sales", results[1].Dept);
+        Assert.Equal(2, results[1].Count);
+        Assert.Equal(105000, results[1].TotalSalary);
+        Assert.Equal(35000.0, results[1].SalaryRange);
+    }
+
+    [Fact]
+    [Trait("LINQ", "UDF")]
+    public void Test_Linq_GroupBy_Custom_Agg_DisallowUdfPushdown()
+    {
+        using var df = CreateDepartmentDf();
+
+        using (Pl.Config.SetDisallowUdfPushdown(true).BeginScope())
+        {
+            var blockedQuery = df.AsQueryable<UdfDepartmentEmployee>()
+                .GroupBy(x => x.Department)
+                .Select(g => new
+                {
+                    Dept = g.Key,
+                    SalaryRange = TestUdfMethods.CalculateRange(g.Select(x => x.Salary))
+                });
+
+            // Under Strict: throws PolarsPushdownException because group UDF pushdown is disallowed
+            var ex = Assert.Throws<PolarsPushdownException>(() => blockedQuery.ToList());
+            Assert.Contains("CalculateRange", ex.ExpressionText);
+
+            // Under Allow: falls back to client evaluation
+            using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
+            {
+                var fallbackQuery = df.AsQueryable<UdfDepartmentEmployee>()
+                    .GroupBy(x => x.Department)
+                    .Select(g => new
+                    {
+                        Dept = g.Key,
+                        SalaryRange = TestUdfMethods.CalculateRange(g.Select(x => x.Salary))
+                    })
+                    .OrderBy(x => x.Dept);
+
+                var fallbackResults = fallbackQuery.ToList();
+                Assert.Equal(2, fallbackResults.Count);
+                Assert.Equal(35000.0, fallbackResults[0].SalaryRange);
+                Assert.Equal(35000.0, fallbackResults[1].SalaryRange);
+            }
+        }
+    }
+
+    [Fact]
+    [Trait("LINQ", "UDF")]
+    public void Test_Linq_GroupBy_Custom_Agg_Composite_Arithmetic()
+    {
+        using var df = CreateDepartmentDf();
+
+        var results = df.AsQueryable<UdfDepartmentEmployee>()
+            .GroupBy(x => x.Department)
+            .Select(g => new
+            {
+                Dept = g.Key,
+                ScaledRange = TestUdfMethods.CalculateRange(g.Select(x => x.Salary)) * 1.5 + 100.0
+            })
+            .OrderBy(x => x.Dept)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+        // 35000 * 1.5 + 100 = 52600
+        Assert.Equal("Eng", results[0].Dept);
+        Assert.Equal(52600.0, results[0].ScaledRange);
+        Assert.Equal("Sales", results[1].Dept);
+        Assert.Equal(52600.0, results[1].ScaledRange);
+    }
+
+    [Fact]
+    [Trait("LINQ", "UDF")]
+    public void Test_Linq_GroupBy_Custom_Agg_With_Having()
+    {
+        using var df = CreateDepartmentDf();
+
+        // Single group filter via Having: only keep groups where Range > 30000
+        var results = df.AsQueryable<UdfDepartmentEmployee>()
+            .GroupBy(x => x.Department)
+            .Select(g => new
+            {
+                Dept = g.Key,
+                SalaryRange = TestUdfMethods.CalculateRange(g.Select(x => x.Salary))
+            })
+            .Where(x => x.SalaryRange > 30000.0)
+            .OrderBy(x => x.Dept)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal("Eng", results[0].Dept);
+        Assert.Equal("Sales", results[1].Dept);
+    }
+
+    [Fact]
+    [Trait("LINQ", "UDF")]
+    public void Test_Linq_GroupBy_Custom_Agg_On_WholeGroup()
+    {
+        using var df = CreateDepartmentDf();
+
+        var results = df.AsQueryable<UdfDepartmentEmployee>()
+            .GroupBy(x => x.Department)
+            .Select(g => new
+            {
+                Dept = g.Key,
+                Payroll = TestUdfMethods.TotalPayroll(g)
+            })
+            .OrderBy(x => x.Dept)
+            .ToList();
+
+        Assert.Equal(2, results.Count);
+        // Eng: 60000 + 45000 + 80000 = 185000
+        Assert.Equal("Eng", results[0].Dept);
+        Assert.Equal(185000.0, results[0].Payroll);
+        // Sales: 35000 + 70000 = 105000
+        Assert.Equal("Sales", results[1].Dept);
+        Assert.Equal(105000.0, results[1].Payroll);
     }
 }

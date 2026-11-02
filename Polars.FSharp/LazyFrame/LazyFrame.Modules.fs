@@ -89,6 +89,8 @@ module LazyFrame =
     let having (predicate: Expr) (builder: LazyGroupBy) = builder.Having(predicate)
     /// <summary> Aggregate LazyGroupBy. </summary>
     let agg (aggs: seq<Expr>) (builder: LazyGroupBy) = builder.Agg(aggs)
+    /// <summary> Apply a custom function to each group and concatenate results into a LazyFrame. </summary>
+    let mapGroups (f: DataFrame -> DataFrame) (builder: LazyGroupBy) : LazyFrame = builder.MapGroups(f)
     /// <summary> Perform a join between two LazyFrames. </summary>
     let joinOn (other: LazyFrame) (on: Expr seq) (how: JoinType) (lf: LazyFrame) : LazyFrame = lf.Join(other, on, how)
 

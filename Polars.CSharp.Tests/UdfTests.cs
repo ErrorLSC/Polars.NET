@@ -107,7 +107,7 @@ public partial class UdfTests
         Func<IArrowArray, IArrowArray> udf = UdfLogic.IntToDouble;
 
         using var res = df.Select(
-            Pl.Col("num").MapArrow(udf, Pl.Float64).Alias("res")
+            Pl.Col("num").MapBatches(udf, Pl.Float64).Alias("res")
         );
 
         Assert.Equal(5, res.Height);
@@ -126,7 +126,7 @@ public partial class UdfTests
         Assert.Equal(5, df.Height);
 
         // UDF (Int64 -> Int64)
-        var udf = Pl.Col("num").Map<long, long>(x => x * 2).Alias("res");
+        var udf = Pl.Col("num").MapBatches<long, long>(x => x * 2).Alias("res");
 
         using var res = df.Select(
             Pl.Col("num"),
@@ -148,7 +148,7 @@ public partial class UdfTests
 
         using var df = lf.Select(
             Pl.Col("num")
-            .MapArrow(udf, DataType.String)
+            .MapBatches(udf, DataType.String)
             .Alias("desc")
         ).Collect();
         df.Show();
@@ -169,7 +169,7 @@ public partial class UdfTests
         var ex = Assert.Throws<PolarsException>(() =>
         {
             lf.Select(
-                Pl.Col("num").MapArrow(udf, Pl.SameAsInput)
+                Pl.Col("num").MapBatches(udf, Pl.SameAsInput)
             ).Collect();
         });
 
@@ -182,7 +182,7 @@ public partial class UdfTests
         using var df = DataFrame.ReadCsv(csv.Path);
 
         var doubleExpr = Pl.Col("num")
-            .Map<long, long>(x => x * 2)
+            .MapBatches<long, long>(x => x * 2)
             .Alias("doubled");
 
         using var res = df.Select(Pl.Col("num"), doubleExpr);
@@ -199,7 +199,7 @@ public partial class UdfTests
 
         // UDF: "Hello, {name}!"
         var greetExpr = Pl.Col("name")
-            .Map<string, string>(name => $"Hello, {name}!")
+            .MapBatches<string, string>(name => $"Hello, {name}!")
             .Alias("greeting");
 
         using var res = df.Select(Pl.Col("name"), greetExpr);
@@ -217,7 +217,7 @@ public partial class UdfTests
         using var df = DataFrame.ReadCsv(csv.Path);
 
         var formatExpr = Pl.Col("id")
-            .Map<long, string>(id => $"Order-{id}")
+            .MapBatches<long, string>(id => $"Order-{id}")
             .Alias("order_id");
 
         using var res = df.Select(Pl.Col("id"), formatExpr);
@@ -233,7 +233,7 @@ public partial class UdfTests
 
         // 0 -> null (C# null)
         var cleanExpr = Pl.Col("num")
-            .Map<long, long?>(x => x == 0 ? null : x)
+            .MapBatches<long, long?>(x => x == 0 ? null : x)
             .Alias("cleaned");
 
         using var res = df.Select(Pl.Col("num"), cleanExpr);
@@ -251,7 +251,7 @@ public partial class UdfTests
         // int? -> string
         // null -> "FoundNull" or "Value:{x}"
         var checkNullExpr = Pl.Col("num")
-            .Map<int?, string>(x => x.HasValue ? $"Value:{x}" : "FoundNull")
+            .MapBatches<int?, string>(x => x.HasValue ? $"Value:{x}" : "FoundNull")
             .Alias("status");
 
         using var res = df.Select(Pl.Col("num"), checkNullExpr);
@@ -278,7 +278,7 @@ public partial class UdfTests
                     .Agg(
                         Pl.Col("val")
                         .Implode()
-                        .Map((Func<long[], long>)myGroupLogic)
+                        .MapBatches((Func<long[], long>)myGroupLogic)
                         .Alias("custom_agg")
                     )
                     .Sort("key");
@@ -301,7 +301,7 @@ public partial class UdfTests
 
         // Act
         using var result = df.Select(
-            Pl.Col("a").Map(
+            Pl.Col("a").MapBatches(
                 function: arrays =>
                 {
                     // arrays[0] = col a, arrays[1] = col b
@@ -411,12 +411,12 @@ public partial class UdfTests
 
         // 1. Transform Mapping: using SG Regex to mask email with lookahead
         var maskEmailExpr = Pl.Col("Email")
-            .Map<string, string>(email => EmailAtLookaheadRegex().Replace(email, "[at]"))
+            .MapBatches<string, string>(email => EmailAtLookaheadRegex().Replace(email, "[at]"))
             .Alias("MaskedEmail");
 
         // 2. Boolean Mapping: using complex lookahead SG Regex to validate passwords
         var isValidPwdExpr = Pl.Col("Password")
-            .Map<string, bool>(pwd => StrongPasswordRegex().IsMatch(pwd))
+            .MapBatches<string, bool>(pwd => StrongPasswordRegex().IsMatch(pwd))
             .Alias("IsValidPassword");
 
         using var result = df.Select(
@@ -435,5 +435,169 @@ public partial class UdfTests
         Assert.False(result.Column("IsValidPassword").GetValue<bool>(1)); // "weakpass"  -> Invalid
         Assert.True(result.Column("IsValidPassword").GetValue<bool>(2));  // "Admin2026"  -> Valid
         Assert.False(result.Column("IsValidPassword").GetValue<bool>(3)); // "123456"     -> Invalid
+    }
+
+    [Fact]
+    [Trait("UDF", "MapGroups")]
+    public void Test_MapGroups_SingleColumn_Aggregation()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("group", ["A", "A", "A", "B", "B"]),
+            Series.From("val", [10.0, 20.0, 30.0, 100.0, 200.0])
+        ]);
+
+        // Group custom aggregation: range = max - min
+        using var res = df.GroupBy("group")
+            .Agg(
+                Pl.Col("val").MapGroups(series =>
+                {
+                    double min = series.Min<double>()!.Value;
+                    double max = series.Max<double>()!.Value;
+                    return Series.From("range", [max - min]);
+                }, DataType.Float64).Alias("range")
+            )
+            .Sort("group");
+
+        Assert.Equal(2, res.Height);
+        Assert.Equal("A", res.GetValue<string>(0, "group"));
+        Assert.Equal(20.0, res.GetValue<double>(0, "range")); // 30 - 10
+        Assert.Equal("B", res.GetValue<string>(1, "group"));
+        Assert.Equal(100.0, res.GetValue<double>(1, "range")); // 200 - 100
+    }
+
+    [Fact]
+    [Trait("UDF", "MapGroups")]
+    public void Test_MapGroups_MultiColumn_Aggregation()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("dept", ["Sales", "Sales", "Eng", "Eng"]),
+            Series.From("salary", [5000.0, 7000.0, 8000.0, 12000.0]),
+            Series.From("bonus", [500.0, 1000.0, 1000.0, 2000.0])
+        ]);
+
+        // Multi-column MapGroups: total compensation = sum(salary + bonus)
+        using var res = df.GroupBy("dept")
+            .Agg(
+                Pl.Col("salary").MapGroups(
+                    seriesList =>
+                    {
+                        var salary = seriesList[0].ToArray<double>();
+                        var bonus = seriesList[1].ToArray<double>();
+                        double total = 0;
+                        for (int i = 0; i < salary.Length; i++)
+                        {
+                            total += salary[i] + bonus[i];
+                        }
+                        return Series.From("total_comp", [total]);
+                    },
+                    DataType.Float64,
+                    additionalExprs: [Pl.Col("bonus")]
+                ).Alias("total_comp")
+            )
+            .Sort("dept");
+
+        Assert.Equal(2, res.Height);
+        // Eng: 8000+1000 + 12000+2000 = 23000
+        Assert.Equal("Eng", res.GetValue<string>(0, "dept"));
+        Assert.Equal(23000.0, res.GetValue<double>(0, "total_comp"));
+        // Sales: 5000+500 + 7000+1000 = 13500
+        Assert.Equal("Sales", res.GetValue<string>(1, "dept"));
+        Assert.Equal(13500.0, res.GetValue<double>(1, "total_comp"));
+    }
+
+    [Fact]
+    [Trait("UDF", "MapGroups")]
+    public void Test_GroupByBuilder_MapGroups_DataFrame()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("dept", ["A", "A", "A", "B", "B"]),
+            Series.From("score", [10, 50, 30, 80, 20])
+        ]);
+
+        // Per group top 1 by score
+        using var res = df.GroupBy("dept")
+            .MapGroups(group => group.Sort("score", descending: true).Head(1))
+            .Sort("dept");
+
+        Assert.Equal(2, res.Height);
+        Assert.Equal("A", res.GetValue<string>(0, "dept"));
+        Assert.Equal(50, res.GetValue<int>(0, "score"));
+        Assert.Equal("B", res.GetValue<string>(1, "dept"));
+        Assert.Equal(80, res.GetValue<int>(1, "score"));
+    }
+
+    [Fact]
+    [Trait("UDF", "MapGroups")]
+    public void Test_LazyGroupBy_MapGroups_DataFrame()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("dept", ["A", "A", "A", "B", "B"]),
+            Series.From("score", [10, 50, 30, 80, 20])
+        ]);
+
+        // Per group top 1 by score on LazyGroupBy, returning LazyFrame
+        using var res = df.Lazy()
+            .GroupBy("dept")
+            .MapGroups(group => group.Sort("score", descending: true).Head(1))
+            .Sort("dept")
+            .Collect();
+
+        Assert.Equal(2, res.Height);
+        Assert.Equal("A", res.GetValue<string>(0, "dept"));
+        Assert.Equal(50, res.GetValue<int>(0, "score"));
+        Assert.Equal("B", res.GetValue<string>(1, "dept"));
+        Assert.Equal(80, res.GetValue<int>(1, "score"));
+    }
+
+    [Fact]
+    [Trait("UDF", "MapGroups")]
+    public void Test_LazyGroupBy_MapGroups_With_Having()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("dept", ["A", "A", "A", "B", "B"]),
+            Series.From("score", [10, 50, 30, 80, 20])
+        ]);
+
+        // Having filter on total score > 90, so only group B (80+20 = 100 > 90) remains (group A is 10+50+30 = 90 not > 90)
+        using var res = df.Lazy()
+            .GroupBy("dept")
+            .Having(Pl.Col("score").Sum() > 90)
+            .MapGroups(group => group.Sort("score", descending: true).Head(1))
+            .Collect();
+
+        Assert.Equal(1, res.Height);
+        Assert.Equal("B", res.GetValue<string>(0, "dept"));
+        Assert.Equal(80, res.GetValue<int>(0, "score"));
+    }
+
+    [Fact]
+    [Trait("UDF", "MapGroups")]
+    public void Test_Pl_MapGroups_StaticHelper()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("k", ["X", "X", "Y"]),
+            Series.From("v1", [1.0, 2.0, 3.0]),
+            Series.From("v2", [10.0, 20.0, 30.0])
+        ]);
+
+        using var res = df.GroupBy("k")
+            .Agg(
+                Pl.MapGroups(
+                    seriesList =>
+                    {
+                        var v1Sum = seriesList[0].Sum<double>() ?? 0.0;
+                        var v2Sum = seriesList[1].Sum<double>() ?? 0.0;
+                        return Series.From("sum_prod", [v1Sum + v2Sum]);
+                    },
+                    DataType.Float64,
+                    Pl.Col("v1"), Pl.Col("v2")
+                ).Alias("sum_prod")
+            )
+            .Sort("k");
+
+        // X: (1+2) + (10+20) = 33
+        // Y: 3 + 30 = 33
+        Assert.Equal(33.0, res.GetValue<double>(0, "sum_prod"));
+        Assert.Equal(33.0, res.GetValue<double>(1, "sum_prod"));
     }
 }

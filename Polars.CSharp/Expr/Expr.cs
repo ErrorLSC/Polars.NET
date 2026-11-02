@@ -649,54 +649,198 @@ public partial class Expr : IDisposable, IEquatable<Expr>
     /// Optional target DataType. If null, the DataType is automatically inferred from <typeparamref name="TOutput"/>.
     /// </param>
     /// <summary>
-    /// Apply a custom C# function to the expression (High-Level).
+    /// Apply a custom C# function to batches/series of data (High-Level).
     /// </summary>
-    public Expr Map<TInput, TOutput>(Func<TInput, TOutput> function, DataType? outputType = null)
+    public Expr MapBatches<TInput, TOutput>(Func<TInput, TOutput> function, DataType? outputType = null)
     {
         Type arrowArrayType = typeof(Apache.Arrow.IArrowArray);
         if (arrowArrayType.IsAssignableFrom(typeof(TInput)) || arrowArrayType.IsAssignableFrom(typeof(TOutput)))
         {
             throw new ArgumentException(
-                "Detected Arrow array types. For batch/vectorized operations on IArrowArray, please use MapArrow instead of Map.",
+                "Detected Arrow array types. For batch/vectorized operations on IArrowArray, please use MapBatches(Func<IArrowArray, IArrowArray>, DataType).",
                 nameof(function));
         }
         using DataType outDataType = outputType ?? DataType.FromNetType<TOutput>();
         return new(PolarsWrapper.Map(CloneHandle(), UdfUtils.Wrap(function), outDataType.Handle));
     }
+
     /// <summary>
-    /// Apply a raw Arrow-to-Arrow UDF. (Advanced / Internal use)
+    /// Apply a raw Arrow-to-Arrow UDF over batches/series of data.
     /// </summary>
-    public Expr MapArrow(Func<IArrowArray, IArrowArray> function, DataType outputType)
+    public Expr MapBatches(Func<IArrowArray, IArrowArray> function, DataType outputType)
         => new(PolarsWrapper.Map(CloneHandle(), function, outputType.Handle));
 
     /// <summary>
-    /// Apply a multi-column UDF that receives multiple Arrow arrays and returns a single new column.
+    /// Apply a Series-to-Series UDF over batches/series of data.
+    /// </summary>
+    public Expr MapBatches(Func<Series, Series> function, DataType? outputType = null)
+    {
+        using DataType outDataType = outputType ?? DataType.Unknown;
+        return new(PolarsWrapper.Map(CloneHandle(), arr =>
+        {
+            using var s = Series.FromArrow("batch", arr);
+            using var res = function(s);
+            return res.ToArrow();
+        }, outDataType.Handle));
+    }
+
+    /// <summary>
+    /// Apply a multi-column UDF over batches of data that receives multiple Arrow arrays and returns a single new column.
     /// The first expression is <c>this</c>.
     /// </summary>
-    /// <param name="function">Receives all input arrays (note: including <c>this</c> as the first element).</param>
-    /// <param name="outputType">The expected output data type.</param>
-    /// <param name="additionalExprs">Other columns/expressions as IntoExprColumn.</param>
-    public Expr Map(
+    public Expr MapBatches(
         Func<IReadOnlyList<IArrowArray>, IArrowArray> function,
         DataType outputType,
         params IntoExprColumn[] additionalExprs)
     {
         if (additionalExprs == null || additionalExprs.Length == 0)
-            throw new ArgumentException("At least one additional expression is required for MapMany.");
+            throw new ArgumentException("At least one additional expression is required for multi-column MapBatches.");
 
-        // Convert IntoExprColumn -> Expr (dealing with ownership)
         var otherExprs = additionalExprs
             .Select(e => e.Consume())
             .Select(e => e.Handle)
             .ToArray();
 
-        // this will be transferred in the wrapper
         return new(PolarsWrapper.MapMany(
             CloneHandle(),
             otherExprs,
             function,
             outputType.Handle));
     }
+
+    /// <summary>
+    /// Apply a custom function over groups of data in a group_by aggregation context.
+    /// The function receives an Arrow array restricted to each group and returns an Arrow array (e.g. length 1 for scalar aggregation).
+    /// </summary>
+    public Expr MapGroups(Func<IArrowArray, IArrowArray> function, DataType outputType, bool returnsScalar = true)
+        => new(PolarsWrapper.Apply(CloneHandle(), function, outputType.Handle, returnsScalar));
+
+    /// <summary>
+    /// Apply a custom Series function over groups of data in a group_by aggregation context.
+    /// The function receives a Series restricted to each group and returns a Series (e.g. length 1 for scalar aggregation).
+    /// </summary>
+    public Expr MapGroups(Func<Series, Series> function, DataType? outputType = null, bool returnsScalar = true)
+    {
+        using DataType outDataType = outputType ?? DataType.Unknown;
+        return new(PolarsWrapper.Apply(CloneHandle(), arr =>
+        {
+            using var s = Series.FromArrow("group", arr);
+            using var res = function(s);
+            return res.ToArrow();
+        }, outDataType.Handle, returnsScalar));
+    }
+
+    /// <summary>
+    /// Apply a multi-column UDF over groups of data in a group_by aggregation context.
+    /// The function receives Arrow arrays restricted to each group and returns a single Arrow array.
+    /// The first expression is <c>this</c>.
+    /// </summary>
+    public Expr MapGroups(
+        Func<IReadOnlyList<IArrowArray>, IArrowArray> function,
+        DataType outputType,
+        params IntoExprColumn[] additionalExprs)
+        => MapGroups(function, outputType, true, additionalExprs);
+
+    /// <summary>
+    /// Apply a multi-column UDF over groups of data in a group_by aggregation context with explicit returnsScalar flag.
+    /// </summary>
+    public Expr MapGroups(
+        Func<IReadOnlyList<IArrowArray>, IArrowArray> function,
+        DataType outputType,
+        bool returnsScalar,
+        params IntoExprColumn[] additionalExprs)
+    {
+        if (additionalExprs == null || additionalExprs.Length == 0)
+            throw new ArgumentException("At least one additional expression is required for multi-column MapGroups.");
+
+        var otherExprs = additionalExprs
+            .Select(e => e.Consume())
+            .Select(e => e.Handle)
+            .ToArray();
+
+        return new(PolarsWrapper.ApplyMany(
+            CloneHandle(),
+            otherExprs,
+            function,
+            outputType.Handle,
+            returnsScalar));
+    }
+
+    /// <summary>
+    /// Apply a multi-column Series UDF over groups of data in a group_by aggregation context.
+    /// The function receives Series restricted to each group and returns a single Series.
+    /// The first expression is <c>this</c>.
+    /// </summary>
+    public Expr MapGroups(
+        Func<IReadOnlyList<Series>, Series> function,
+        DataType outputType,
+        params IntoExprColumn[] additionalExprs)
+        => MapGroups(function, outputType, true, additionalExprs);
+
+    /// <summary>
+    /// Apply a multi-column Series UDF over groups of data in a group_by aggregation context with explicit returnsScalar flag.
+    /// </summary>
+    public Expr MapGroups(
+        Func<IReadOnlyList<Series>, Series> function,
+        DataType outputType,
+        bool returnsScalar,
+        params IntoExprColumn[] additionalExprs)
+    {
+        if (additionalExprs == null || additionalExprs.Length == 0)
+            throw new ArgumentException("At least one additional expression is required for multi-column MapGroups.");
+
+        var otherExprs = additionalExprs
+            .Select(e => e.Consume())
+            .Select(e => e.Handle)
+            .ToArray();
+
+        return new(PolarsWrapper.ApplyMany(
+            CloneHandle(),
+            otherExprs,
+            arrs =>
+            {
+                var seriesList = new Series[arrs.Count];
+                for (int i = 0; i < arrs.Count; i++)
+                    seriesList[i] = Series.FromArrow($"col_{i}", arrs[i]);
+                try
+                {
+                    using var res = function(seriesList);
+                    return res.ToArrow();
+                }
+                finally
+                {
+                    for (int i = 0; i < seriesList.Length; i++)
+                        seriesList[i].Dispose();
+                }
+            },
+            outputType.Handle,
+            returnsScalar));
+    }
+
+    /// <summary>
+    /// Apply a custom C# function to the expression (High-Level).
+    /// </summary>
+    [Obsolete("Use MapBatches instead.")]
+    public Expr Map<TInput, TOutput>(Func<TInput, TOutput> function, DataType? outputType = null)
+        => MapBatches(function, outputType);
+
+    /// <summary>
+    /// Apply a raw Arrow-to-Arrow UDF. (Advanced / Internal use)
+    /// </summary>
+    [Obsolete("Use MapBatches instead.")]
+    public Expr MapArrow(Func<IArrowArray, IArrowArray> function, DataType outputType)
+        => MapBatches(function, outputType);
+
+    /// <summary>
+    /// Apply a multi-column UDF that receives multiple Arrow arrays and returns a single new column.
+    /// The first expression is <c>this</c>.
+    /// </summary>
+    [Obsolete("Use MapBatches instead.")]
+    public Expr Map(
+        Func<IReadOnlyList<IArrowArray>, IArrowArray> function,
+        DataType outputType,
+        params IntoExprColumn[] additionalExprs)
+        => MapBatches(function, outputType, additionalExprs);
 
     // ==========================================
     // Window & Offset

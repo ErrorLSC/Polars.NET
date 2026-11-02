@@ -1,8 +1,10 @@
 namespace Polars.NET.Linq
 
 open System
+open System.Reflection
 open System.Linq.Expressions
 open Polars.NET.Core
+open Polars.NET.Core.Arrow
 open Polars.NET.Core.Helpers
 
 module AggTranslator =
@@ -72,6 +74,8 @@ module AggTranslator =
         | OrderBySelf of source: GroupSeq * isDescending: bool
         | Take of source: GroupSeq * countExpr: Expression
         | Skip of source: GroupSeq * countExpr: Expression
+        | ToList of source: GroupSeq
+        | ToArray of source: GroupSeq
 
     /// Active pattern extracting intermediate transformation chains on the group source `g`.
     let rec private (|GroupSeqChain|_|) (groupParamName: string) (expr: Expression) : GroupSeq option =
@@ -125,6 +129,14 @@ module AggTranslator =
         | MethodCall(m, null, [ sourceExpr; CleanLambda keySelector ]) when m.Name = "DistinctBy" ->
             match (|GroupSeqChain|_|) groupParamName sourceExpr with
             | Some s -> Some(DistinctBy(s, keySelector))
+            | None -> None
+        | MethodCall(m, null, [ sourceExpr ]) when m.Name = "ToList" ->
+            match (|GroupSeqChain|_|) groupParamName sourceExpr with
+            | Some s -> Some(ToList s)
+            | None -> None
+        | MethodCall(m, null, [ sourceExpr ]) when m.Name = "ToArray" ->
+            match (|GroupSeqChain|_|) groupParamName sourceExpr with
+            | Some s -> Some(ToArray s)
             | None -> None
         | _ -> None
 
@@ -311,6 +323,10 @@ module AggTranslator =
                     Some { prev with Slice = newSlice }
                 | None -> None
 
+        | ToList source
+        | ToArray source ->
+            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
+
     /// Combines the resolved target column expression with any sequence filter predicates, sorting, and slicing.
     let private getFilteredTarget (resolved: ResolvedGroupSeq) : ExprHandle option =
         match resolved.Target with
@@ -394,6 +410,62 @@ module AggTranslator =
         | null -> null
         | Unary(ExpressionType.Quote, inner) -> unwrapQuoteOnly inner
         | other -> other
+
+    let rec internal exprDependsOnParam (paramName: string) (e: Expression) : bool =
+        match e with
+        | null -> false
+        | :? ParameterExpression as p -> p.Name = paramName
+        | :? MemberExpression as m -> exprDependsOnParam paramName m.Expression
+        | :? MethodCallExpression as mc ->
+            (not (isNull mc.Object) && exprDependsOnParam paramName mc.Object)
+            || (mc.Arguments |> Seq.exists (exprDependsOnParam paramName))
+        | :? BinaryExpression as b ->
+            exprDependsOnParam paramName b.Left || exprDependsOnParam paramName b.Right
+        | :? UnaryExpression as u -> exprDependsOnParam paramName u.Operand
+        | :? ConditionalExpression as c ->
+            exprDependsOnParam paramName c.Test || exprDependsOnParam paramName c.IfTrue || exprDependsOnParam paramName c.IfFalse
+        | :? InvocationExpression as inv ->
+            exprDependsOnParam paramName inv.Expression || (inv.Arguments |> Seq.exists (exprDependsOnParam paramName))
+        | :? LambdaExpression as l ->
+            exprDependsOnParam paramName l.Body
+        | :? ConstantExpression -> false
+        | _ -> false
+
+    let private isIntermediateSequenceMethod (m: MethodInfo) =
+        if isNull m then false
+        else
+            let decl = m.DeclaringType
+            if isNull decl then false
+            elif decl = typeof<System.Linq.Queryable> then true
+            elif decl.Assembly = typeof<ExprHandle>.Assembly then true
+            elif not (isNull decl.FullName) && (decl.FullName = "Polars.CSharp.Expr" || decl.FullName = "Polars.CSharp.Series" || decl.FullName = "Polars.CSharp.DataFrame" || decl.FullName = "Polars.CSharp.LazyFrame" || decl.FullName = "Polars.CSharp.Polars") then true
+            elif decl = typeof<System.Linq.Enumerable> then
+                match m.Name with
+                | "Select" | "Where" | "OrderBy" | "OrderByDescending"
+                | "ThenBy" | "ThenByDescending" | "Order" | "OrderDescending"
+                | "Take" | "Skip" | "Distinct" | "DistinctBy"
+                | "GroupBy" | "GroupJoin" | "Join" -> true
+                | _ -> false
+            else false
+
+    let private isNativeReductionMethod (name: string) =
+        match name with
+        | "Sum" | "Mean" | "Average" | "Min" | "Max" | "Median"
+        | "First" | "FirstOrDefault" | "Last" | "LastOrDefault"
+        | "Std" | "StdDev" | "Var" | "Variance" -> true
+        | _ -> false
+
+    let private isScalarLikeResultType (t: Type) =
+        PolarsTypeHelper.IsScalarType t
+        || t = typeof<string>
+        || t = typeof<decimal>
+        || t = typeof<DateTime>
+        || t = typeof<TimeSpan>
+        || t = typeof<DateOnly>
+        || t = typeof<TimeOnly>
+        || t = typeof<Guid>
+        || (t.IsValueType && Nullable.GetUnderlyingType t <> null)
+        || (t.IsValueType && not (typeof<System.Collections.IEnumerable>.IsAssignableFrom t))
 
     let rec private tryTranslateAggCore
         (groupParamName: string)
@@ -554,7 +626,7 @@ module AggTranslator =
         // ---------------------------------------------------------------------
         // Standard Reductions with Selector: e.g. g.Sum(x => x.Field), g.Min(x => x.Field), g.Std(x => x.Field)
         // ---------------------------------------------------------------------
-        | MethodCall(m, null, [ GroupSeqChain groupParamName seq; CleanLambda selector ]) ->
+        | MethodCall(m, null, [ GroupSeqChain groupParamName seq; CleanLambda selector ]) when isNativeReductionMethod m.Name ->
             let projectedSeq = Select(seq, selector)
 
             match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap projectedSeq with
@@ -610,7 +682,7 @@ module AggTranslator =
         // ---------------------------------------------------------------------
         // Standard Reductions without Selector: e.g. g.Select(x => x.Col).Sum(), g.Sum()
         // ---------------------------------------------------------------------
-        | MethodCall(m, null, [ GroupSeqChain groupParamName seq ]) ->
+        | MethodCall(m, null, [ GroupSeqChain groupParamName seq ]) when isNativeReductionMethod m.Name ->
             match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq with
             | Some resolved ->
                 getFilteredTarget resolved
@@ -657,7 +729,128 @@ module AggTranslator =
         | Constant(v, t) ->
             Some(toLiteralHandle v t)
 
-        | _ -> None
+        | _ ->
+            tryTranslateGroupUdf groupParamName scalarColOpt wholeRowStructOpt scopeMap cleanExpr
+
+    and private tryTranslateGroupUdf
+        (groupParamName: string)
+        (scalarColOpt: string option)
+        (wholeRowStructOpt: ExprHandle option)
+        (scopeMap: Map<string * string, string>)
+        (expr: Expression)
+        : ExprHandle option =
+        try
+            if CoreConfig.DisallowUdfPushdown || isNull expr || expr.Type = typeof<System.Void> then
+                None
+            else
+                let methodInfoOpt, rawArgs =
+                    match expr with
+                    | :? MethodCallExpression as mc ->
+                        if isIntermediateSequenceMethod mc.Method then
+                            None, []
+                        else
+                            let args =
+                                if isNull mc.Object then
+                                    mc.Arguments |> Seq.toList
+                                else
+                                    mc.Object :: (mc.Arguments |> Seq.toList)
+                            Some mc.Method, args
+                    | :? InvocationExpression as inv ->
+                        let args = inv.Arguments |> Seq.toList
+                        None, args
+                    | _ -> None, []
+
+                let methodName =
+                    match methodInfoOpt with
+                    | Some m -> m.Name
+                    | None -> "Invoke"
+
+                let isNativePolarsMethod =
+                    match methodInfoOpt with
+                    | Some m when not (isNull m.DeclaringType) ->
+                        let ns = m.DeclaringType.FullName
+                        not (isNull ns) && (ns = "Polars.Linq" || ns = "Polars.ExprExtensions" || ns = "Polars.LinqExtensions")
+                    | _ -> false
+
+                if isNativePolarsMethod || rawArgs.IsEmpty || not (rawArgs |> List.exists (exprDependsOnParam groupParamName)) then
+                    None
+                else
+                    // Collect all argument expressions that depend on the group parameter
+                    let dependentArgs =
+                        rawArgs
+                        |> List.filter (exprDependsOnParam groupParamName)
+
+                    // Every dependent argument must be a sequence or rows from the group (GroupSeqChain)
+                    let resolveArgHandle (arg: Expression) : ExprHandle option =
+                        match (|GroupSeqChain|_|) groupParamName arg with
+                        | Some seq ->
+                            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq with
+                            | Some resolved -> getFilteredTarget resolved
+                            | None -> None
+                        | None -> None
+
+                    let translatedDependentArgs =
+                        dependentArgs
+                        |> List.map (fun a ->
+                            match resolveArgHandle a with
+                            | Some h -> Some(a, h)
+                            | None -> None)
+
+                    if translatedDependentArgs |> List.exists Option.isNone then
+                        None
+                    else
+                        let outDataTypeOpt =
+                            try
+                                let h = ArrowUdfBatchAdapter.GetDataTypeHandle(expr.Type)
+                                if isNull h || h.IsInvalid then None else Some h
+                            with _ ->
+                                None
+
+                        match outDataTypeOpt with
+                        | None -> None
+                        | Some outDataType ->
+                            let dynArgs = translatedDependentArgs |> List.choose id
+                            let dynCount = dynArgs.Length
+                            let returnsScalar = isScalarLikeResultType expr.Type
+
+                            if dynCount = 1 then
+                                let argExpr, handle = dynArgs.[0]
+                                let inParam = Expression.Parameter(typeof<obj>, "input")
+                                let typedIn = Expression.Convert(inParam, argExpr.Type)
+                                let bodyWithParam = ExprTranslator.replaceSubtrees [ (argExpr, typedIn :> Expression) ] expr
+                                let boxedBody = Expression.Convert(bodyWithParam, typeof<obj>)
+                                let lambda = Expression.Lambda<Func<obj, obj>>(boxedBody, inParam)
+                                let userFunc = lambda.Compile()
+
+                                let arrowCallback = ArrowUdfBatchAdapter.CreateGroupAggregationSingle(userFunc, argExpr.Type, expr.Type)
+                                ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
+                                Some(PolarsWrapper.Apply(handle, arrowCallback, outDataType, returnsScalar = returnsScalar))
+
+                            elif dynCount > 1 then
+                                let inArrayParam = Expression.Parameter(typeof<obj[]>, "inputs")
+                                let replacements =
+                                    dynArgs
+                                    |> List.mapi (fun i (argExpr, _) ->
+                                        let arrayIdx = Expression.ArrayIndex(inArrayParam, Expression.Constant(i))
+                                        let typedIn = Expression.Convert(arrayIdx, argExpr.Type)
+                                        (argExpr, typedIn :> Expression))
+
+                                let bodyWithParams = ExprTranslator.replaceSubtrees replacements expr
+                                let boxedBody = Expression.Convert(bodyWithParams, typeof<obj>)
+                                let lambda = Expression.Lambda<Func<obj[], obj>>(boxedBody, inArrayParam)
+                                let userFunc = lambda.Compile()
+
+                                let inputTypes = dynArgs |> List.map (fun (a, _) -> a.Type) |> List.toArray
+                                let arrowCallback = ArrowUdfBatchAdapter.CreateGroupAggregationMulti(userFunc, inputTypes, expr.Type)
+                                let mainHandle = snd dynArgs.[0]
+                                let otherHandles = dynArgs |> List.tail |> List.map snd |> List.toArray
+
+                                ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
+                                Some(PolarsWrapper.ApplyMany(mainHandle, otherHandles, arrowCallback, outDataType, returnsScalar = returnsScalar))
+                            else
+                                None
+        with _ ->
+            None
 
     // =========================================================================
     // 5. Public API: Group Aggregation Translation with Alias

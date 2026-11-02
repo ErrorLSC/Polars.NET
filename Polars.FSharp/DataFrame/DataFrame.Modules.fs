@@ -39,6 +39,8 @@ module DataFrame =
     let having (predicate: Expr) (builder: GroupBy) = builder.Having(predicate)
     /// <summary> Aggregation clause for GroupBy. </summary>
     let agg (aggs: seq<Expr>) (builder: GroupBy) = builder.Agg(aggs)
+    /// <summary> Apply a custom function to each group and concatenate results. </summary>
+    let mapGroups (f: DataFrame -> DataFrame) (builder: GroupBy) : DataFrame = builder.MapGroups(f)
 
     /// <summary> Perform a join between two DataFrames. </summary>
     let join (other: DataFrame) (leftOn: seq<Expr>) (rightOn: seq<Expr>) (how: JoinType) (left: DataFrame) : DataFrame =

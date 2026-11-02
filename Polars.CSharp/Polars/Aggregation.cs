@@ -317,4 +317,90 @@ public readonly partial struct Polars
     /// <param name="column">Column name.</param>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
     public static Expr Var(string column, byte ddof = 1) => Col(column).Var(ddof);
+
+    /// <summary>
+    /// Apply a custom function over one or more expressions in a group_by context.
+    /// Corresponds to Python <c>pl.map_groups</c>.
+    /// </summary>
+    public static Expr MapGroups(
+        Func<IReadOnlyList<Apache.Arrow.IArrowArray>, Apache.Arrow.IArrowArray> function,
+        DataType outputType,
+        bool returnsScalar,
+        params IntoExprColumn[] exprs)
+    {
+        if (exprs is null || exprs.Length == 0)
+            throw new ArgumentException("At least one expression is required for MapGroups.", nameof(exprs));
+
+        var first = exprs[0].Consume();
+        if (exprs.Length == 1)
+        {
+            return first.MapGroups(arr => function([arr]), outputType, returnsScalar);
+        }
+
+        var rest = exprs.Skip(1).ToArray();
+        return first.MapGroups(function, outputType, returnsScalar, rest);
+    }
+
+    /// <summary>
+    /// Apply a custom function over one or more expressions in a group_by context (defaults to scalar aggregation).
+    /// </summary>
+    public static Expr MapGroups(
+        Func<IReadOnlyList<Apache.Arrow.IArrowArray>, Apache.Arrow.IArrowArray> function,
+        DataType outputType,
+        params IntoExprColumn[] exprs)
+        => MapGroups(function, outputType, true, exprs);
+
+    /// <summary>
+    /// Apply a custom Series function over one or more expressions in a group_by context.
+    /// Corresponds to Python <c>pl.map_groups</c>.
+    /// </summary>
+    public static Expr MapGroups(
+        Func<IReadOnlyList<Series>, Series> function,
+        DataType outputType,
+        bool returnsScalar,
+        params IntoExprColumn[] exprs)
+    {
+        if (exprs is null || exprs.Length == 0)
+            throw new ArgumentException("At least one expression is required for MapGroups.", nameof(exprs));
+
+        var first = exprs[0].Consume();
+        if (exprs.Length == 1)
+        {
+            return first.MapGroups(s => function([s]), outputType, returnsScalar);
+        }
+
+        var rest = exprs.Skip(1).ToArray();
+        return first.MapGroups(function, outputType, returnsScalar, rest);
+    }
+
+    /// <summary>
+    /// Apply a custom Series function over one or more expressions in a group_by context (defaults to scalar aggregation).
+    /// </summary>
+    public static Expr MapGroups(
+        Func<IReadOnlyList<Series>, Series> function,
+        DataType outputType,
+        params IntoExprColumn[] exprs)
+        => MapGroups(function, outputType, true, exprs);
+
+    /// <summary>
+    /// Apply a custom function over one or more expressions over batches of data.
+    /// Corresponds to Python <c>pl.map_batches</c>.
+    /// </summary>
+    public static Expr MapBatches(
+        Func<IReadOnlyList<Apache.Arrow.IArrowArray>, Apache.Arrow.IArrowArray> function,
+        DataType outputType,
+        params IntoExprColumn[] exprs)
+    {
+        if (exprs is null || exprs.Length == 0)
+            throw new ArgumentException("At least one expression is required for MapBatches.", nameof(exprs));
+
+        var first = exprs[0].Consume();
+        if (exprs.Length == 1)
+        {
+            return first.MapBatches(arr => function([arr]), outputType);
+        }
+
+        var rest = exprs.Skip(1).ToArray();
+        return first.MapBatches(function, outputType, rest);
+    }
 }

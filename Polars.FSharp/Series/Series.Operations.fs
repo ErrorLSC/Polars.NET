@@ -562,49 +562,84 @@ module SeriesOperationExtensions =
         /// </summary>
         /// <param name="func">The compiled UDF (created via Udf.map or Udf.mapOption).</param>
         /// <param name="returnType">The expected output DataType. Required for Polars query planning.</param>
-        member this.MapArrow(func: IArrowArray -> IArrowArray, ?returnType: DataType) =
-            this.ApplyExpr(Expr.Col(this.Name).MapArrow(func, ?outputType = returnType))
+        member this.MapElementsArrow(func: IArrowArray -> IArrowArray, ?returnType: DataType) =
+            this.ApplyExpr(Expr.Col(this.Name).MapBatchesArrow(func, ?outputType = returnType))
 
-        /// <summary>
-        /// Apply a custom function (UDF) assuming the output type is the same as the input.
-        /// </summary>
-        /// <param name="func">The compiled UDF.</param>
-        member this.Map(func: IArrowArray -> IArrowArray) =
-            this.MapArrow(func, DataType.SameAsInput)
+        member this.MapElements(func: IArrowArray -> IArrowArray) =
+            this.MapElementsArrow(func, DataType.SameAsInput)
 
-        /// <summary>
-        /// Map values using a standard F# function.
-        /// Automatically wraps it using Udf.map.
-        /// </summary>
-        member this.Map<'T, 'U>(f: 'T -> 'U) =
+        member this.MapElements<'T, 'U>(f: 'T -> 'U) =
             let arrowType = typeof<IArrowArray>
 
             if arrowType.IsAssignableFrom typeof<'T> || arrowType.IsAssignableFrom typeof<'U> then
                 invalidArg
                     (nameof f)
-                    "Detected Arrow array types ('T or 'U implement IArrowArray). Please use Series.MapArrow instead of Series.Map."
+                    "Detected Arrow array types ('T or 'U implement IArrowArray). Please use Series.MapBatchesArrow instead of Series.MapBatches."
 
             use returnType = DataType.FromNetType<'U>()
             let udf = Udf.map f
-            this.MapArrow(udf, returnType)
+            this.MapElementsArrow(udf, returnType)
+
+        member this.MapElementsOption<'T, 'U>(f: 'T option -> 'U option) =
+            use returnType = DataType.FromNetType<'U>()
+            let udf = Udf.mapOption f
+            this.MapElementsArrow(udf, returnType)
+
+        [<Obsolete("Use MapBatchesArrow instead.")>]
+        member this.MapArrow(func: IArrowArray -> IArrowArray, ?returnType: DataType) =
+            this.MapElementsArrow(func, ?returnType = returnType)
+
+        /// <summary>
+        /// Apply a custom function (UDF) assuming the output type is the same as the input.
+        /// </summary>
+        /// <param name="func">The compiled UDF.</param>
+        [<Obsolete("Use MapElements instead.")>]
+        member this.Map(func: IArrowArray -> IArrowArray) =
+            this.MapElements(func)
+
+        /// <summary>
+        /// Map values using a standard F# function.
+        /// Automatically wraps it using Udf.map.
+        /// </summary>
+        [<Obsolete("Use MapElements instead.")>]
+        member this.Map<'T, 'U>(f: 'T -> 'U) =
+            this.MapElements<'T, 'U>(f)
 
         /// <summary>
         /// Map values using an F# function that handles Options.
         /// Automatically wraps it using Udf.mapOption.
         /// </summary>
+        [<Obsolete("Use MapElementsOption instead.")>]
         member this.MapOption<'T, 'U>(f: 'T option -> 'U option) =
+            this.MapElementsOption<'T, 'U>(f)
+
+        member this.MapElementsValueOption<'T, 'U>(f: 'T voption -> 'U voption) =
             use returnType = DataType.FromNetType<'U>()
-            let udf = Udf.mapOption f
-            this.MapArrow(udf, returnType)
+            let udf = Udf.mapValueOption f
+            this.MapElementsArrow(udf, returnType)
+
+        member this.MapBatchesArrow(func: IArrowArray -> IArrowArray, ?returnType: DataType) =
+            this.MapElementsArrow(func, ?returnType = returnType)
+
+        member this.MapBatches(func: IArrowArray -> IArrowArray) =
+            this.MapElements(func)
+
+        member this.MapBatches<'T, 'U>(f: 'T -> 'U) =
+            this.MapElements<'T, 'U>(f)
+
+        member this.MapBatchesOption<'T, 'U>(f: 'T option -> 'U option) =
+            this.MapElementsOption<'T, 'U>(f)
+
+        member this.MapBatchesValueOption<'T, 'U>(f: 'T voption -> 'U voption) =
+            this.MapElementsValueOption<'T, 'U>(f)
 
         /// <summary>
         /// Map values using an F# function that handles Value Options.
         /// Automatically wraps it using Udf.mapValueOption.
         /// </summary>
+        [<Obsolete("Use MapElementsValueOption instead.")>]
         member this.MapValueOption<'T, 'U>(f: 'T voption -> 'U voption) =
-            use returnType = DataType.FromNetType<'U>()
-            let udf = Udf.mapValueOption f
-            this.MapArrow(udf, returnType)
+            this.MapElementsValueOption<'T, 'U>(f)
 
         /// <summary> True division (float result). </summary>
         member this.Truediv(other: Series) =

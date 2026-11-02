@@ -760,16 +760,31 @@ public partial class Series : IDisposable, IEquatable<Series>
     // UDF
     // ==========================================
     /// <summary>
-    /// Apply a custom C# function to the series (element-wise).
+    /// Apply a custom C# function to the series element-by-element (scalar-wise).
     /// <para>Warning: This is slower than native expressions because it runs in the .NET runtime.</para>
     /// </summary>
+    public Series MapElements<TInput, TOutput>(Func<TInput, TOutput> function)
+        => ApplyExpr(Pl.Col(Name).MapBatches(function));
+
+    /// <summary>
+    /// Apply a raw Arrow-to-Arrow UDF to batches of the series.
+    /// </summary>
+    public Series MapElements(Func<IArrowArray, IArrowArray> function, DataType outputType)
+        => ApplyExpr(Pl.Col(Name).MapBatches(function, outputType));
+
+    /// <summary>
+    /// Apply a custom C# function to the series (element-wise).
+    /// </summary>
+    [Obsolete("Use MapElements instead.")]
     public Series Map<TInput, TOutput>(Func<TInput, TOutput> function)
-        => ApplyExpr(Pl.Col(Name).Map(function));
+        => MapElements(function);
+
     /// <summary>
     /// Apply a raw Arrow-to-Arrow UDF.
     /// </summary>
+    [Obsolete("Use MapElements instead.")]
     public Series Map(Func<IArrowArray, IArrowArray> function, DataType outputType)
-        => ApplyExpr(Pl.Col(Name).Map(function, outputType));
+        => MapElements(function, outputType);
     // ==========================================
     // Display (Show)
     // ==========================================

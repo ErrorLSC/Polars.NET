@@ -49,6 +49,12 @@ type LazyGroupBy(lfHandle: LazyFrameHandle, groupByType: GroupByType, keys: Expr
     // Builder Core Methods
     // --------------------------------------------------------
 
+    member internal this.Handle = lfHandle
+    member internal this.GroupByType = groupByType
+    member internal this.HavingExpr = havingExpr
+    member internal this.GetKeys() =
+        ownedKeyHandles |> Array.map (fun h -> new Expr(PolarsWrapper.CloneExpr h))
+
     /// <summary>
     /// Filter groups with a list of predicates after aggregation.
     /// Using this method is equivalent to adding the predicates to the aggregation and filtering afterwards.
@@ -319,7 +325,9 @@ type GroupBy(df: DataFrame, groupByType: GroupByType, keys: Expr[]) =
         let interp = defaultArg interpolation QuantileMethod.Linear
         this.Agg [ Expr.All().Quantile(quantile, interp) ]
 
-    member private this.GetExcludedKeyNames() =
+    member internal this.DataFrame = df
+
+    member internal this.GetExcludedKeyNames() =
         let baseKeys =
             keys
             |> Array.choose (fun expr ->

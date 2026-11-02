@@ -25,6 +25,16 @@ unsafe internal partial class NativeBindings
         nint userData
     );
 
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_apply(
+        ExprHandle expr,
+        UdfCallback callback,
+        DataTypeHandle returnType,
+        CleanupCallback cleanup,
+        nint userData,
+        [MarshalAs(UnmanagedType.I1)] bool returnsScalar
+    );
+
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int MultiUdfCallback(
         uint numArgs,
@@ -45,5 +55,17 @@ unsafe internal partial class NativeBindings
         DataTypeHandle outputType,
         CleanupCallback cleanup,
         nint userData
+    );
+
+    [LibraryImport(LibName)]
+    public static unsafe partial ExprHandle pl_expr_apply_many(
+        ExprHandle baseExpr,
+        nint[] additionalArgs,
+        nuint additionalCount,
+        MultiUdfCallback callback,
+        DataTypeHandle outputType,
+        CleanupCallback cleanup,
+        nint userData,
+        [MarshalAs(UnmanagedType.I1)] bool returnsScalar
     );
 }
