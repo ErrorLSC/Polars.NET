@@ -18,6 +18,7 @@ module internal ExprTranslator =
     let internal translateUnary nodeType operand = OperatorAndUdfTranslator.translateUnary nodeType operand
     let internal isPolarsEngineMethod m = OperatorAndUdfTranslator.isPolarsEngineMethod m
     let internal isInternalOrLinqMethod m = OperatorAndUdfTranslator.isInternalOrLinqMethod m
+    let internal exprDependsOnParam paramName expr = OperatorAndUdfTranslator.exprDependsOnParam paramName expr
     let internal compileSingleArgUdfDelegate argExpr expr = OperatorAndUdfTranslator.compileSingleArgUdfDelegate argExpr expr
     let internal compileMultiArgUdfDelegate dynArgs expr = OperatorAndUdfTranslator.compileMultiArgUdfDelegate dynArgs expr
 

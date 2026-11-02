@@ -272,21 +272,6 @@ module internal PartialEvaluator =
                 Parameters = replacer.Parameters
             }
 
-    /// Substitutes extracted query parameters in a normalized AST with concrete ConstantExpressions.
-    let substitute (expr: Expression) (paramMap: IReadOnlyDictionary<string, obj>) : Expression =
-        if isNull expr || isNull paramMap || paramMap.Count = 0 then
-            expr
-        else
-            let visitor =
-                { new ExpressionVisitor() with
-                    override _.VisitParameter(p: ParameterExpression) =
-                        match paramMap.TryGetValue p.Name with
-                        | true, value -> Expression.Constant(value, p.Type) :> Expression
-                        | false, _ -> p :> Expression
-                }
-
-            visitor.Visit expr
-
     /// Substitutes extracted query parameters using an ExtractedParameter dictionary.
     let substituteExtracted
         (expr: Expression)

@@ -153,25 +153,33 @@ module internal OperatorAndUdfTranslator =
     // 9b. Managed UDF Callback Translation (Tier 2 Pushdown)
     // =========================================================================
 
-    let rec internal exprDependsOnContext (ctx: TranslationContext) (e: Expression) : bool =
+    let rec internal exprDependsOn (paramPredicate: string -> bool) (e: Expression) : bool =
         match e with
         | null -> false
         | :? ParameterExpression as p ->
             if isNull p.Name then false
-            else ctx.ContainsParam p.Name
-        | :? MemberExpression as m -> exprDependsOnContext ctx m.Expression
+            else paramPredicate p.Name
+        | :? MemberExpression as m -> exprDependsOn paramPredicate m.Expression
         | :? MethodCallExpression as mc ->
-            not (isNull mc.Object) && exprDependsOnContext ctx mc.Object
-            || mc.Arguments |> Seq.exists (exprDependsOnContext ctx)
+            (not (isNull mc.Object) && exprDependsOn paramPredicate mc.Object)
+            || (mc.Arguments |> Seq.exists (exprDependsOn paramPredicate))
         | :? BinaryExpression as b ->
-            exprDependsOnContext ctx b.Left || exprDependsOnContext ctx b.Right
-        | :? UnaryExpression as u -> exprDependsOnContext ctx u.Operand
+            exprDependsOn paramPredicate b.Left || exprDependsOn paramPredicate b.Right
+        | :? UnaryExpression as u -> exprDependsOn paramPredicate u.Operand
         | :? ConditionalExpression as c ->
-            exprDependsOnContext ctx c.Test || exprDependsOnContext ctx c.IfTrue || exprDependsOnContext ctx c.IfFalse
+            exprDependsOn paramPredicate c.Test || exprDependsOn paramPredicate c.IfTrue || exprDependsOn paramPredicate c.IfFalse
         | :? InvocationExpression as inv ->
-            exprDependsOnContext ctx inv.Expression || (inv.Arguments |> Seq.exists (exprDependsOnContext ctx))
+            exprDependsOn paramPredicate inv.Expression || (inv.Arguments |> Seq.exists (exprDependsOn paramPredicate))
+        | :? LambdaExpression as l ->
+            exprDependsOn paramPredicate l.Body
         | :? ConstantExpression -> false
         | _ -> false
+
+    let internal exprDependsOnParam (paramName: string) (e: Expression) : bool =
+        exprDependsOn ((=) paramName) e
+
+    let internal exprDependsOnContext (ctx: TranslationContext) (e: Expression) : bool =
+        exprDependsOn ctx.ContainsParam e
 
     let internal replaceSubtrees (replacements: (Expression * Expression) list) (root: Expression) : Expression =
         let visitor =

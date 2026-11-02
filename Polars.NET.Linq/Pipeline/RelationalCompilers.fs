@@ -563,6 +563,12 @@ module internal RelationalCompilers =
             bindings |> List.forall (fun (_, expr) -> isTransparentArg expr)
         | _ -> false
 
+    /// Active pattern categorizing an optional Join/Unpivot result selector into transparent (or absent) vs concrete
+    let (|TransparentOrNoResSelector|ConcreteResSelector|) (resSelOpt: LambdaExpression option) =
+        match resSelOpt with
+        | Some resSel when not (isTransparentJoinResSelector resSel) -> ConcreteResSelector resSel
+        | _ -> TransparentOrNoResSelector
+
     /// Compiles GroupJoin followed by SelectMany(DefaultIfEmpty) into a native Left JoinSpec
     let compileGroupJoinLeftOuterSpec
         (baseLf: LazyFrameHandle)

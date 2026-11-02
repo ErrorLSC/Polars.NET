@@ -169,7 +169,8 @@ module internal ExpressionPatterns =
         && (t.Name.StartsWith "AnonymousObject"
             || t.Name.StartsWith "Tuple"
             || t.Name.StartsWith "ValueTuple"
-            || t.Name.Contains "TransparentIdentifier")
+            || t.Name.Contains "TransparentIdentifier"
+            || t.Name.Contains "AnonymousType")
 
     /// Checks if a ParameterExpression belongs to the active query context or a synthetic tuple/transparent scope
     let internal isSyntheticScopeParam (ctxContainsParam: string -> bool) (p: ParameterExpression) =
@@ -180,8 +181,7 @@ module internal ExpressionPatterns =
                    || p.Name.StartsWith "tupled"
                    || p.Name.Contains "TransparentIdentifier"
                    || p.Name.StartsWith "<>h__")
-            || isTupleOrAnonType p.Type
-            || not (isNull p.Type) && p.Type.Name.Contains "AnonymousType")
+            || isTupleOrAnonType p.Type)
 
     let private isNullableMember (memberName: string) (m: MemberInfo) =
         not (isNull m)

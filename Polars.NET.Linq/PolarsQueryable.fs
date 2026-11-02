@@ -39,11 +39,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
             PolarsQuery<'TElement>(this, Some expression) :> IQueryable<'TElement>
 
         member this.Execute(expression: Expression) : obj =
-            let executeMethod =
-                typeof<PolarsQueryProvider>.GetInterface("IQueryProvider").GetMethods()
-                |> Array.find (fun m -> m.Name = "Execute" && m.IsGenericMethod)
-                |> fun m -> m.MakeGenericMethod expression.Type
-
+            let executeMethod = LinqReflectionCache.GetQueryProviderExecuteMethod expression.Type
             executeMethod.Invoke(this, [| expression |])
 
         member this.Execute<'TResult>(expression: Expression) : 'TResult =
@@ -171,7 +167,29 @@ and PolarsQuery<'T>
             | QueryOp.Sort specs :: tail -> QueryOp.Sort(specs @ [ spec ]) :: tail
             | _ -> QueryOp.Sort [ spec ] :: ops
 
-        let fullFallback = lfCloned, [], [], None, true
+        let updateJoinScopeMap (existingScopeMap: Map<string * string, string>) (leftScope: string) (leftCols: string array) (rightScope: string) (rightCols: string array) (suffix: string) (invertSides: bool) =
+            if invertSides then
+                let rightColSet = Set.ofArray rightCols
+                let baseMap =
+                    if existingScopeMap.IsEmpty then
+                        rightCols |> Array.fold (fun m col -> Map.add (rightScope, col) col m) existingScopeMap
+                    else
+                        existingScopeMap
+                leftCols
+                |> Array.fold (fun m col ->
+                    let physicalCol = if rightColSet.Contains col then col + suffix else col
+                    Map.add (leftScope, col) physicalCol m) baseMap
+            else
+                let leftColSet = Set.ofArray leftCols
+                let baseMap =
+                    if existingScopeMap.IsEmpty then
+                        leftCols |> Array.fold (fun m col -> Map.add (leftScope, col) col m) existingScopeMap
+                    else
+                        existingScopeMap
+                rightCols
+                |> Array.fold (fun m col ->
+                    let physicalCol = if leftColSet.Contains col then col + suffix else col
+                    Map.add (rightScope, col) physicalCol m) baseMap
 
         let rec fuse
             (currentLf: LazyFrameHandle)
@@ -227,9 +245,11 @@ and PolarsQuery<'T>
                                     let rec isTransparentTarget (e: Expression) =
                                         match ExprTranslator.unwrap e with
                                         | :? ParameterExpression as p ->
-                                            p.Type.Name.Contains "TransparentIdentifier" || p.Type.Name.Contains "AnonymousType"
-                                        | :? MemberExpression as me when me.Member.Name.Contains "TransparentIdentifier" ->
-                                            isTransparentTarget me.Expression
+                                            isTupleOrAnonType p.Type || (not (isNull p.Name) && p.Name.Contains "TransparentIdentifier")
+                                        | MemberAccess(target, m) when isNavigationMember m || isTupleOrAnonType m.DeclaringType ->
+                                            true
+                                        | MemberAccess(target, _) ->
+                                            isTransparentTarget target
                                         | _ -> false
                                     if isTransparentTarget visitedInner then
                                         match letBindings.TryFind node.Member.Name with
@@ -265,10 +285,10 @@ and PolarsQuery<'T>
                                                 match ExprTranslator.unwrap expr with
                                                 | :? ParameterExpression as p when
                                                     (p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>)
-                                                    || p.Type.Name.Contains "TransparentIdentifier"
-                                                    || p.Name.Contains "TransparentIdentifier" ->
+                                                    || isTupleOrAnonType p.Type
+                                                    || (not (isNull p.Name) && p.Name.Contains "TransparentIdentifier") ->
                                                     true
-                                                | MemberAccess(target, m) when m.Name.Contains "TransparentIdentifier" ->
+                                                | MemberAccess(_, m) when isNavigationMember m ->
                                                     true
                                                 | _ -> false)
                                     if hasGroupingNav then
@@ -300,7 +320,7 @@ and PolarsQuery<'T>
                                             }.Visit(subExpr)
                                         | None -> subExpr
                                     match ExprTranslator.unwrap normalizedExpr with
-                                    | :? ParameterExpression as p when p.Name = param.Name && (p.Type.Name.Contains "TransparentIdentifier" || p.Type.Name.Contains "AnonymousType") ->
+                                    | :? ParameterExpression as p when p.Name = param.Name && isTupleOrAnonType p.Type ->
                                         m
                                     | _ ->
                                         Map.add name normalizedExpr m) letBindings
@@ -449,11 +469,7 @@ and PolarsQuery<'T>
                     match nativeExprOpt with
                     | Some exprHandle -> pushOp (QueryOp.Filter exprHandle) tail
                     | None ->
-                        if
-                            p.Type.Name.StartsWith "AnonymousObject"
-                            || p.Type.Name.Contains "TransparentIdentifier"
-                            || clientProjOpt.IsSome
-                        then
+                        if isTupleOrAnonType p.Type || clientProjOpt.IsSome then
                             FallbackTracker.Diagnostic <-
                                 Some(
                                     sprintf
@@ -644,43 +660,18 @@ and PolarsQuery<'T>
                             | _ -> innerKey.Parameters.[0].Name
 
                         let updatedScopeMap =
-                            if spec.InvertSides then
-                                let rightColSet = Set.ofArray rightCols
-                                let initialRightMap =
-                                    if scopeMap.IsEmpty then
-                                        rightCols |> Array.fold (fun m col -> Map.add (rightScope, col) col m) scopeMap
-                                    else
-                                        scopeMap
-                                leftCols
-                                |> Array.fold (fun m col ->
-                                    let physicalCol = if rightColSet.Contains col then col + suffix else col
-                                    Map.add (leftScope, col) physicalCol m) initialRightMap
+                            updateJoinScopeMap scopeMap leftScope leftCols rightScope rightCols suffix spec.InvertSides
+
+                        let pushJoinOp op =
+                            if tail.IsEmpty then
+                                fuse activeBaseLf tail [ op ] clientPreds clientProjOpt updatedScopeMap
                             else
-                                let leftColSet = Set.ofArray leftCols
-                                let initialLeftMap =
-                                    if scopeMap.IsEmpty then
-                                        leftCols |> Array.fold (fun m col -> Map.add (leftScope, col) col m) scopeMap
-                                    else
-                                        scopeMap
-                                rightCols
-                                |> Array.fold (fun m col ->
-                                    let physicalCol = if leftColSet.Contains col then col + suffix else col
-                                    Map.add (rightScope, col) physicalCol m) initialLeftMap
+                                let joinedLf = applyNativeOps activeBaseLf [ op ]
+                                fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
 
                         match resSelOpt with
-                        | None ->
-                            if tail.IsEmpty then
-                                fuse activeBaseLf tail [ QueryOp.Join spec ] clientPreds clientProjOpt updatedScopeMap
-                            else
-                                let joinedLf = applyNativeOps activeBaseLf [ QueryOp.Join spec ]
-                                fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
-                        | Some resSel when isTransparentJoinResSelector resSel ->
-                            if tail.IsEmpty then
-                                fuse activeBaseLf tail [ QueryOp.Join spec ] clientPreds clientProjOpt updatedScopeMap
-                            else
-                                let joinedLf = applyNativeOps activeBaseLf [ QueryOp.Join spec ]
-                                fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
-                        | Some resSel ->
+                        | TransparentOrNoResSelector -> pushJoinOp (QueryOp.Join spec)
+                        | ConcreteResSelector resSel ->
                             let hasSubquery = canPushdown && SubqueryDecorrelator.containsSubquery resSel.Body
                             if hasSubquery then
                                 let joinedBaseLf = applyNativeOps activeBaseLf [ QueryOp.Join spec ]
@@ -788,20 +779,16 @@ and PolarsQuery<'T>
                                     else Some c)
                             Array.append leftCols rightAddedCols
 
+                        let pushJoinOp op =
+                            if tail.IsEmpty then
+                                fuse activeBaseLf tail [ op ] clientPreds clientProjOpt updatedScopeMap
+                            else
+                                let joinedLf = applyNativeOps activeBaseLf [ op ]
+                                fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
+
                         match resSelOpt with
-                        | None ->
-                            if tail.IsEmpty then
-                                fuse activeBaseLf tail [ QueryOp.JoinAsOf spec ] clientPreds clientProjOpt updatedScopeMap
-                            else
-                                let joinedLf = applyNativeOps activeBaseLf [ QueryOp.JoinAsOf spec ]
-                                fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
-                        | Some resSel when isTransparentJoinResSelector resSel ->
-                            if tail.IsEmpty then
-                                fuse activeBaseLf tail [ QueryOp.JoinAsOf spec ] clientPreds clientProjOpt updatedScopeMap
-                            else
-                                let joinedLf = applyNativeOps activeBaseLf [ QueryOp.JoinAsOf spec ]
-                                fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
-                        | Some resSel ->
+                        | TransparentOrNoResSelector -> pushJoinOp (QueryOp.JoinAsOf spec)
+                        | ConcreteResSelector resSel ->
                             let hasSubquery = canPushdown && SubqueryDecorrelator.containsSubquery resSel.Body
                             if hasSubquery then
                                 let joinedBaseLf = applyNativeOps activeBaseLf [ QueryOp.JoinAsOf spec ]
@@ -874,33 +861,19 @@ and PolarsQuery<'T>
                             | Some resSel when resSel.Parameters.Count >= 2 -> resSel.Parameters.[1].Name
                             | _ -> innerKey.Parameters.[0].Name
 
-                        let leftColSet = Set.ofArray leftCols
-                        let initialLeftMap =
-                            if scopeMap.IsEmpty then
-                                leftCols |> Array.fold (fun m col -> Map.add (leftScope, col) col m) scopeMap
-                            else
-                                scopeMap
-
                         let updatedScopeMap =
-                            rightCols
-                            |> Array.fold (fun m col ->
-                                let physicalCol = if leftColSet.Contains col then col + suffix else col
-                                Map.add (rightScope, col) physicalCol m) initialLeftMap
+                            updateJoinScopeMap scopeMap leftScope leftCols rightScope rightCols suffix false
+
+                        let pushJoinOp op =
+                            if tail.IsEmpty then
+                                fuse activeBaseLf tail [ op ] clientPreds clientProjOpt updatedScopeMap
+                            else
+                                let joinedLf = applyNativeOps activeBaseLf [ op ]
+                                fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
 
                         match resSelOpt with
-                        | None ->
-                            if tail.IsEmpty then
-                                fuse activeBaseLf tail [ joinOp ] clientPreds clientProjOpt updatedScopeMap
-                            else
-                                let joinedLf = applyNativeOps activeBaseLf [ joinOp ]
-                                fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
-                        | Some resSel when isTransparentJoinResSelector resSel ->
-                            if tail.IsEmpty then
-                                fuse activeBaseLf tail [ joinOp ] clientPreds clientProjOpt updatedScopeMap
-                            else
-                                let joinedLf = applyNativeOps activeBaseLf [ joinOp ]
-                                fuse joinedLf tail [] clientPreds clientProjOpt updatedScopeMap
-                        | Some resSel ->
+                        | TransparentOrNoResSelector -> pushJoinOp joinOp
+                        | ConcreteResSelector resSel ->
                             match compileJoinResultSelector leftCols rightCols spec resSel updatedScopeMap with
                             | Some selectOp ->
                                 if tail.IsEmpty then
@@ -993,20 +966,16 @@ and PolarsQuery<'T>
                                 scopeMap
                                 |> Map.fold (fun m k v -> Map.add k v m) (Map.ofArray (Array.append outerMappings (List.toArray innerMappings)))
 
+                            let pushJoinOp op =
+                                if tail.IsEmpty then
+                                    fuse activeBaseLf tail [ op ] clientPreds clientProjOpt updatedScopeMap
+                                else
+                                    let unpivotedLf = applyNativeOps activeBaseLf [ op ]
+                                    fuse unpivotedLf tail [] clientPreds clientProjOpt updatedScopeMap
+
                             match resLambdaOpt with
-                            | None ->
-                                if tail.IsEmpty then
-                                    fuse activeBaseLf tail [ unpivotOp ] clientPreds clientProjOpt updatedScopeMap
-                                else
-                                    let unpivotedLf = applyNativeOps activeBaseLf [ unpivotOp ]
-                                    fuse unpivotedLf tail [] clientPreds clientProjOpt updatedScopeMap
-                            | Some resSel when isTransparentJoinResSelector resSel ->
-                                if tail.IsEmpty then
-                                    fuse activeBaseLf tail [ unpivotOp ] clientPreds clientProjOpt updatedScopeMap
-                                else
-                                    let unpivotedLf = applyNativeOps activeBaseLf [ unpivotOp ]
-                                    fuse unpivotedLf tail [] clientPreds clientProjOpt updatedScopeMap
-                            | Some resSel ->
+                            | TransparentOrNoResSelector -> pushJoinOp unpivotOp
+                            | ConcreteResSelector resSel ->
                                 match compileJoinResultSelectorWithParams postUnpivotCols [||] false None resSel updatedScopeMap with
                                 | Some selectOp ->
                                     if tail.IsEmpty then

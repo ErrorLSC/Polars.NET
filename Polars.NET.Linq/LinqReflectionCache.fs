@@ -22,6 +22,13 @@ type internal LinqReflectionCache private () =
     static let fromRowsMethod =
         typeof<DataFrameBuilder>.GetMethod("FromRows", BindingFlags.Public ||| BindingFlags.Static)
 
+    static let queryProviderExecuteGenericMethod =
+        typeof<IQueryProvider>.GetMethods()
+        |> Array.find (fun m -> m.Name = "Execute" && m.IsGenericMethod)
+
+    static let queryProviderExecuteCache =
+        ConcurrentDictionary<Type, MethodInfo>()
+
     static let materializerMethods = typeof<IDataFrameMaterializer>.GetMethods()
 
     static let materializerDelegateCache =
@@ -146,6 +153,10 @@ type internal LinqReflectionCache private () =
 
     /// Cached MethodInfo for DataFrameBuilder.FromRows
     static member FromRowsMethod = fromRowsMethod
+
+    /// Resolves and caches IQueryProvider.Execute<TResult> MethodInfo
+    static member GetQueryProviderExecuteMethod(resultType: Type) : MethodInfo =
+        queryProviderExecuteCache.GetOrAdd(resultType, fun t -> queryProviderExecuteGenericMethod.MakeGenericMethod t)
 
     /// Resolves a strongly-typed, zero-reflection materializer invoker for the specified element type
     static member GetMaterializerInvoker(elemType: Type) : Func<IDataFrameMaterializer, DataFrameHandle, IEnumerable> =

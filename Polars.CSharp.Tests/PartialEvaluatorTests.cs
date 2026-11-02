@@ -140,28 +140,4 @@ public class PartialEvaluatorTests
         var right = Assert.IsType<ConstantExpression>(binary.Right);
         Assert.Equal("MED BOX", right.Value);
     }
-
-    [Fact]
-    [Trait("LINQ", "PartialEvaluator")]
-    public void Substitute_WithNewValues_ReplacesCorrectly()
-    {
-        var container = "MED BOX";
-        Expression<Func<string, bool>> expr = s => s == container;
-
-        var extracted = PartialEvaluator.extract(expr);
-
-        var newParams = new Dictionary<string, object>
-        {
-            ["@p0"] = "MED DRUM"
-        };
-
-        var substituted = (LambdaExpression)PartialEvaluator.substitute(
-            extracted.NormalizedExpression,
-            newParams
-        );
-
-        var binary = Assert.IsType<BinaryExpression>(substituted.Body, exactMatch: false);
-        var right = Assert.IsType<ConstantExpression>(binary.Right);
-        Assert.Equal("MED DRUM", right.Value);
-    }
 }
