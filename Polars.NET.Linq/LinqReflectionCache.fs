@@ -16,6 +16,12 @@ type internal LinqReflectionCache private () =
     static let enumerableMethods =
         typeof<Enumerable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
 
+    static let queryableMethods =
+        typeof<Queryable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
+
+    static let fromRowsMethod =
+        typeof<DataFrameBuilder>.GetMethod("FromRows", BindingFlags.Public ||| BindingFlags.Static)
+
     static let materializerMethods = typeof<IDataFrameMaterializer>.GetMethods()
 
     static let materializerDelegateCache =
@@ -119,6 +125,27 @@ type internal LinqReflectionCache private () =
 
                 methodDef.MakeGenericMethod(typeArgs)
         )
+
+    /// Resolves and caches Queryable methods for in-memory fallbacks
+    static member GetQueryableMethod(name: string, paramCount: int, typeArgs: Type array) : MethodInfo =
+        let key =
+            sprintf "%s_%d_%s" name paramCount (String.Join(",", typeArgs |> Array.map (fun t -> t.FullName)))
+
+        enumerableGenericCache.GetOrAdd(
+            (name, paramCount, key),
+            fun _ ->
+                let methodDef =
+                    queryableMethods
+                    |> Array.find (fun m ->
+                        m.Name = name
+                        && m.GetParameters().Length = paramCount
+                        && m.GetGenericArguments().Length = typeArgs.Length)
+
+                methodDef.MakeGenericMethod(typeArgs)
+        )
+
+    /// Cached MethodInfo for DataFrameBuilder.FromRows
+    static member FromRowsMethod = fromRowsMethod
 
     /// Resolves a strongly-typed, zero-reflection materializer invoker for the specified element type
     static member GetMaterializerInvoker(elemType: Type) : Func<IDataFrameMaterializer, DataFrameHandle, IEnumerable> =

@@ -52,7 +52,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
             match expression with
             | MethodCall(m, _, _) when ScalarExecutor.isScalarReductionMethod m ->
                 ScalarExecutor.executeScalar<'TResult> (this :> IQueryProvider) materializer expression
-            | _ when PolarsTypeHelper.IsScalarType targetType || targetType = typeof<string> ->
+            | _ when PolarsTypeHelper.IsScalarType targetType ->
                 ScalarExecutor.executeScalar<'TResult> (this :> IQueryProvider) materializer expression
             | _ ->
                 let query = (this :> IQueryProvider).CreateQuery expression
@@ -85,7 +85,7 @@ and PolarsQuery<'T>
     =
     let materializer = provider.Materializer
     let targetType = typeof<'T>
-    let isScalar = PolarsTypeHelper.IsScalarType targetType || targetType = typeof<string>
+    let isScalar = PolarsTypeHelper.IsScalarType targetType
     let isGrouping =
         targetType.IsGenericType
         && targetType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
@@ -1137,9 +1137,7 @@ and PolarsQuery<'T>
             let inMemoryArray = toArrayMethod.Invoke(null, [| casted |])
 
             let asQueryableMethod =
-                typeof<Queryable>.GetMethods()
-                |> Array.find (fun m -> m.Name = "AsQueryable" && m.IsGenericMethodDefinition)
-                |> fun m -> m.MakeGenericMethod(rootElemType)
+                LinqReflectionCache.GetQueryableMethod("AsQueryable", 1, [| rootElemType |])
 
             let inMemoryQueryable =
                 asQueryableMethod.Invoke(null, [| inMemoryArray |]) :?> IQueryable
@@ -1202,9 +1200,12 @@ and PolarsQuery<'T>
                     let applyGroupSort (seqToSort: IEnumerable<'T>) : IEnumerable<'T> =
                         match stages |> List.tryPick (function LinqStage.Sort(sortLambda, isDesc, _) -> Some(sortLambda, isDesc) | _ -> None) with
                         | Some(sortLambda, isDesc) ->
-                            let compiled = sortLambda.Compile()
-                            let keySel (g: 'T) = compiled.DynamicInvoke([| box g |]) :?> IComparable
-                            if isDesc then Seq.sortByDescending keySel seqToSort else Seq.sortBy keySel seqToSort
+                            let param = Expression.Parameter(typeof<'T>, "g")
+                            let typedCall = Expression.Invoke(sortLambda, param)
+                            let boxed = Expression.Convert(typedCall, typeof<IComparable>)
+                            let typedLambda = Expression.Lambda<Func<'T, IComparable>>(boxed, param)
+                            let keySel = typedLambda.Compile()
+                            if isDesc then Seq.sortByDescending keySel.Invoke seqToSort else Seq.sortBy keySel.Invoke seqToSort
                         | None -> seqToSort
 
                     let groupByInfoOpt =
@@ -1229,12 +1230,7 @@ and PolarsQuery<'T>
                                 let compiledElemSelector = elemLambda.Compile()
 
                                 let groupByMethod =
-                                    typeof<Enumerable>.GetMethods()
-                                    |> Array.find (fun m ->
-                                        m.Name = "GroupBy"
-                                        && m.GetParameters().Length = 3
-                                        && m.GetGenericArguments().Length = 3)
-                                    |> fun m -> m.MakeGenericMethod(sourceType, keyType, elemType)
+                                    LinqReflectionCache.GetEnumerableMethod("GroupBy", 3, [| sourceType; keyType; elemType |])
 
                                 groupByMethod.Invoke(
                                     null,
@@ -1246,12 +1242,7 @@ and PolarsQuery<'T>
                                 let rawRows = invoker.Invoke(materializer, dfHandle)
 
                                 let groupByMethod =
-                                    typeof<Enumerable>.GetMethods()
-                                    |> Array.find (fun m ->
-                                        m.Name = "GroupBy"
-                                        && m.GetParameters().Length = 2
-                                        && m.GetGenericArguments().Length = 2)
-                                    |> fun m -> m.MakeGenericMethod(elemType, keyType)
+                                    LinqReflectionCache.GetEnumerableMethod("GroupBy", 2, [| elemType; keyType |])
 
                                 groupByMethod.Invoke(null, [| box rawRows; box compiledKeySelector |])
                                 :?> IEnumerable<'T>

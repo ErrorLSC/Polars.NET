@@ -34,7 +34,7 @@ module AggTranslator =
         (scopeMap: Map<string * string, string>)
         (p: ParameterExpression)
         : TranslationContext =
-        if PolarsTypeHelper.IsScalarType p.Type || p.Type = typeof<string> then
+        if PolarsTypeHelper.IsScalarType p.Type then
             match scalarColOpt with
             | Some col when not (String.IsNullOrEmpty col) -> TranslationContext.Scalar(p.Name, col)
             | _ -> TranslationContext.Entity p.Name
@@ -768,8 +768,16 @@ module AggTranslator =
                 let isNativePolarsMethod =
                     match methodInfoOpt with
                     | Some m when not (isNull m.DeclaringType) ->
-                        let ns = m.DeclaringType.FullName
-                        not (isNull ns) && (ns = "Polars.Linq" || ns = "Polars.ExprExtensions" || ns = "Polars.LinqExtensions")
+                        let fn = m.DeclaringType.FullName
+                        not (isNull fn) && (
+                            fn = "Polars.CSharp.Expr"
+                            || fn = "Polars.CSharp.Series"
+                            || fn = "Polars.CSharp.DataFrame"
+                            || fn = "Polars.CSharp.LazyFrame"
+                            || fn = "Polars.CSharp.Polars"
+                            || fn = "Polars.Linq"
+                            || fn = "Polars.ExprExtensions"
+                            || fn = "Polars.LinqExtensions")
                     | _ -> false
 
                 if isNativePolarsMethod || rawArgs.IsEmpty || not (rawArgs |> List.exists (exprDependsOnParam groupParamName)) then
@@ -815,32 +823,14 @@ module AggTranslator =
 
                             if dynCount = 1 then
                                 let argExpr, handle = dynArgs.[0]
-                                let inParam = Expression.Parameter(typeof<obj>, "input")
-                                let typedIn = Expression.Convert(inParam, argExpr.Type)
-                                let bodyWithParam = ExprTranslator.replaceSubtrees [ (argExpr, typedIn :> Expression) ] expr
-                                let boxedBody = Expression.Convert(bodyWithParam, typeof<obj>)
-                                let lambda = Expression.Lambda<Func<obj, obj>>(boxedBody, inParam)
-                                let userFunc = lambda.Compile()
-
+                                let userFunc = ExprTranslator.compileSingleArgUdfDelegate argExpr expr
                                 let arrowCallback = ArrowUdfBatchAdapter.CreateGroupAggregationSingle(userFunc, argExpr.Type, expr.Type)
                                 ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
                                 UdfTracker.Record(sprintf "%s: %s" methodName (expr.ToString()))
                                 Some(PolarsWrapper.Apply(handle, arrowCallback, outDataType, returnsScalar = returnsScalar))
 
                             elif dynCount > 1 then
-                                let inArrayParam = Expression.Parameter(typeof<obj[]>, "inputs")
-                                let replacements =
-                                    dynArgs
-                                    |> List.mapi (fun i (argExpr, _) ->
-                                        let arrayIdx = Expression.ArrayIndex(inArrayParam, Expression.Constant(i))
-                                        let typedIn = Expression.Convert(arrayIdx, argExpr.Type)
-                                        (argExpr, typedIn :> Expression))
-
-                                let bodyWithParams = ExprTranslator.replaceSubtrees replacements expr
-                                let boxedBody = Expression.Convert(bodyWithParams, typeof<obj>)
-                                let lambda = Expression.Lambda<Func<obj[], obj>>(boxedBody, inArrayParam)
-                                let userFunc = lambda.Compile()
-
+                                let userFunc = ExprTranslator.compileMultiArgUdfDelegate dynArgs expr
                                 let inputTypes = dynArgs |> List.map (fun (a, _) -> a.Type) |> List.toArray
                                 let arrowCallback = ArrowUdfBatchAdapter.CreateGroupAggregationMulti(userFunc, inputTypes, expr.Type)
                                 let mainHandle = snd dynArgs.[0]

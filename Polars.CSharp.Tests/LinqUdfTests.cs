@@ -984,7 +984,7 @@ public class LinqUdfTests
                 t => TestUdfMethods.ShouldRetireSeasonal(t.Category),
                 then => then.Delete()
             );
-        mergeBuilder.InspectPlan();
+
         // Verify logical merge plan
         string mergePlan = mergeBuilder.ToMergePlanString();
         Assert.NotEmpty(mergePlan);

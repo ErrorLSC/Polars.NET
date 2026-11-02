@@ -193,7 +193,7 @@ module internal QueryPipelineHelpers =
 
     /// Resolves the single physical column name if the sequence is scalar (e.g. string, int, double).
     let tryGetScalarColumnName (elemType: Type) (lf: LazyFrameHandle) : string option =
-        if PolarsTypeHelper.IsScalarType elemType || elemType = typeof<string> then
+        if PolarsTypeHelper.IsScalarType elemType then
             let colNames = PolarsSchemaExtractor.GetColumnNames lf
             if colNames.Length = 1 then Some colNames.[0] else None
         else
@@ -536,7 +536,7 @@ module internal QueryPipelineHelpers =
             Some [ ("Key", k); ("Value", v) ]
         | :? NewExpression as ne when ne.Type.Name.StartsWith "KeyValuePair" && ne.Arguments.Count = 2 ->
             Some [ ("Key", ne.Arguments.[0]); ("Value", ne.Arguments.[1]) ]
-        | :? ConstantExpression as ce when not (isNull ce.Value) && not (PolarsTypeHelper.IsScalarType ce.Type || ce.Type = typeof<string>) ->
+        | :? ConstantExpression as ce when not (isNull ce.Value) && not (PolarsTypeHelper.IsScalarType ce.Type) ->
             let props = ce.Type.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
             if props.Length > 0 then
                 let bindings =
@@ -802,11 +802,7 @@ module internal QueryPipelineHelpers =
             None
         else
             let itemType = itemVal.GetType()
-            if
-                PolarsTypeHelper.IsScalarType itemType
-                || itemType = typeof<string>
-                || itemType.IsEnum
-            then
+            if PolarsTypeHelper.IsScalarType itemType then
                 let colNames = PolarsSchemaExtractor.GetColumnNames targetLf
                 let targetCol = if colNames.Length > 0 then colNames.[0] else ""
                 let colExpr = PolarsWrapper.Col targetCol
@@ -1431,7 +1427,7 @@ module internal QueryPipelineHelpers =
         | None ->
             let unwrappedBody = ExprTranslator.unwrap projLambda.Body
             match unwrappedBody with
-            | MemberAccess _ as ma when not (PolarsTypeHelper.IsScalarType ma.Type || ma.Type = typeof<string>) && (ExprTranslator.tryResolveColumnNameWithContext ctx ma).IsNone ->
+            | MemberAccess _ as ma when not (PolarsTypeHelper.IsScalarType ma.Type) && (ExprTranslator.tryResolveColumnNameWithContext ctx ma).IsNone ->
                 let lfCols = PolarsSchemaExtractor.GetColumnNames lf |> Set.ofArray
                 let entityProps = ma.Type.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
                 let matchedExprs =
@@ -1648,7 +1644,7 @@ module internal QueryPipelineHelpers =
                             PolarsWrapper.Col c)
                 Some(QueryOp.Select selectExprs)
 
-            | MemberAccess _ as ma when not (PolarsTypeHelper.IsScalarType ma.Type || ma.Type = typeof<string>) ->
+            | MemberAccess _ as ma when not (PolarsTypeHelper.IsScalarType ma.Type) ->
                 let entityProps = ma.Type.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
                 let matchedCols = entityProps |> Array.map (fun p -> p.Name) |> Array.filter firstColSet.Contains
                 if matchedCols.Length > 0 then
@@ -1782,9 +1778,7 @@ module internal QueryPipelineHelpers =
             let elemType = elem.GetType()
 
             let fromRows =
-                typeof<DataFrameBuilder>
-                    .GetMethod("FromRows", BindingFlags.Public ||| BindingFlags.Static)
-                    .MakeGenericMethod(elemType)
+                LinqReflectionCache.FromRowsMethod.MakeGenericMethod(elemType)
 
             let typedArray = Array.CreateInstance(elemType, 1)
             typedArray.SetValue(elem, 0)
@@ -2399,7 +2393,7 @@ module internal QueryPipelineHelpers =
 
         let wholeRowStructOpt: ExprHandle option =
             try
-                let props = elemType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                let props = PolarsTypeHelper.GetModelProperties elemType
 
                 if props.Length > 0 && not (isTupleOrAnonType elemType) then
                     let colExprs = props |> Array.map (fun p -> PolarsWrapper.Col p.Name)
@@ -3122,7 +3116,7 @@ module internal QueryPipelineHelpers =
 
         let wholeRowStructOpt: ExprHandle option =
             try
-                let props = elemType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                let props = PolarsTypeHelper.GetModelProperties elemType
 
                 if props.Length > 0 then
                     let colExprs = props |> Array.map (fun p -> PolarsWrapper.Col p.Name)

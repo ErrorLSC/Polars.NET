@@ -57,7 +57,7 @@ module internal SubqueryDecorrelator =
         if isNull t then
             false
         else
-            PolarsTypeHelper.IsScalarType t || t = typeof<string> || t.IsEnum
+            PolarsTypeHelper.IsScalarType t
 
     /// Checks whether an expression contains a queryable source or LINQ reduction call.
     let rec containsSubquery (expr: Expression) : bool =
@@ -104,7 +104,7 @@ module internal SubqueryDecorrelator =
     /// is a scalar/primitive (bound to the underlying single physical column) or a composite entity.
     let createContextForType (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
         let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
-        if PolarsTypeHelper.IsScalarType elemType || elemType = typeof<string> then
+        if PolarsTypeHelper.IsScalarType elemType then
             if colNames.Length = 1 then
                 TranslationContext.Scalar(paramName, colNames.[0])
             else
@@ -128,7 +128,7 @@ module internal SubqueryDecorrelator =
                     && (actualT.Name.StartsWith "ValueTuple" || actualT.Name.StartsWith "Tuple")
                 then
                     actualT.GetGenericArguments() |> Array.map getLeftMemberNames |> Set.unionMany
-                elif PolarsTypeHelper.IsScalarType actualT || actualT = typeof<string> then
+                elif PolarsTypeHelper.IsScalarType actualT then
                     Set.empty
                 else
                     let props =
@@ -193,10 +193,7 @@ module internal SubqueryDecorrelator =
                 | elemType ->
                     try
                         let fromRows =
-                            typeof<DataFrameBuilder>
-                                .GetMethod("FromRows", BindingFlags.Public ||| BindingFlags.Static)
-                                .MakeGenericMethod
-                                elemType
+                            LinqReflectionCache.FromRowsMethod.MakeGenericMethod elemType
 
                         let dfHandle = fromRows.Invoke(null, [| value |]) :?> DataFrameHandle
                         Some(PolarsWrapper.DataFrameToLazy dfHandle)

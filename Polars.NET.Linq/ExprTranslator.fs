@@ -2571,7 +2571,7 @@ module internal rec ExprTranslator =
         | Some scope ->
             let findColInScopeMap (scopeMap: Map<string * string, string>) =
                 let nonNullablePropCol =
-                    if not (isNull cleanE.Type) && not (PolarsTypeHelper.IsScalarType cleanE.Type || cleanE.Type = typeof<string>) then
+                    if not (isNull cleanE.Type) && not (PolarsTypeHelper.IsScalarType cleanE.Type) then
                         cleanE.Type.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
                         |> Array.tryPick (fun prop ->
                             if prop.PropertyType.IsValueType && isNull (Nullable.GetUnderlyingType prop.PropertyType) then
@@ -2704,7 +2704,7 @@ module internal rec ExprTranslator =
                     | None -> base.Visit(node) }
         visitor.Visit(root)
 
-    let private isInternalOrLinqMethod (m: MethodInfo) =
+    let internal isInternalOrLinqMethod (m: MethodInfo) =
         if isNull m then false
         else
             let decl = m.DeclaringType
@@ -2713,7 +2713,39 @@ module internal rec ExprTranslator =
                 decl = typeof<System.Linq.Queryable>
                 || decl = typeof<System.Linq.Enumerable>
                 || decl.Assembly = typeof<ExprHandle>.Assembly
-                || (not (isNull decl.FullName) && (decl.FullName = "Polars.CSharp.Expr" || decl.FullName = "Polars.CSharp.Series" || decl.FullName = "Polars.CSharp.DataFrame" || decl.FullName = "Polars.CSharp.LazyFrame" || decl.FullName = "Polars.CSharp.Polars"))
+                || (let fn = decl.FullName in not (isNull fn) && (
+                    fn = "Polars.CSharp.Expr"
+                    || fn = "Polars.CSharp.Series"
+                    || fn = "Polars.CSharp.DataFrame"
+                    || fn = "Polars.CSharp.LazyFrame"
+                    || fn = "Polars.CSharp.Polars"
+                    || fn = "Polars.Linq"
+                    || fn = "Polars.ExprExtensions"
+                    || fn = "Polars.LinqExtensions"))
+
+    /// Synthesizes and compiles a Func<obj, obj> delegate by replacing a single argument expression with a parameter.
+    let internal compileSingleArgUdfDelegate (argExpr: Expression) (expr: Expression) : Func<obj, obj> =
+        let inParam = Expression.Parameter(typeof<obj>, "input")
+        let typedIn = Expression.Convert(inParam, argExpr.Type)
+        let bodyWithParam = replaceSubtrees [ (argExpr, typedIn :> Expression) ] expr
+        let boxedBody = Expression.Convert(bodyWithParam, typeof<obj>)
+        let lambda = Expression.Lambda<Func<obj, obj>>(boxedBody, inParam)
+        lambda.Compile()
+
+    /// Synthesizes and compiles a Func<obj[], obj> delegate by replacing multiple argument expressions with array index accesses.
+    let internal compileMultiArgUdfDelegate (dynArgs: (Expression * 'T) list) (expr: Expression) : Func<obj[], obj> =
+        let inArrayParam = Expression.Parameter(typeof<obj[]>, "inputs")
+        let replacements =
+            dynArgs
+            |> List.mapi (fun i (argExpr, _) ->
+                let arrayIdx = Expression.ArrayIndex(inArrayParam, Expression.Constant(i))
+                let typedIn = Expression.Convert(arrayIdx, argExpr.Type)
+                (argExpr, typedIn :> Expression))
+
+        let bodyWithParams = replaceSubtrees replacements expr
+        let boxedBody = Expression.Convert(bodyWithParams, typeof<obj>)
+        let lambda = Expression.Lambda<Func<obj[], obj>>(boxedBody, inArrayParam)
+        lambda.Compile()
 
     let internal tryTranslateUdfInvocation (ctx: TranslationContext) (expr: Expression) : ExprHandle option =
         try
@@ -2776,32 +2808,14 @@ module internal rec ExprTranslator =
 
                             if dynCount = 1 then
                                 let argExpr, handle = dynArgs.[0]
-                                let inParam = Expression.Parameter(typeof<obj>, "input")
-                                let typedIn = Expression.Convert(inParam, argExpr.Type)
-                                let bodyWithParam = replaceSubtrees [ (argExpr, typedIn :> Expression) ] expr
-                                let boxedBody = Expression.Convert(bodyWithParam, typeof<obj>)
-                                let lambda = Expression.Lambda<Func<obj, obj>>(boxedBody, inParam)
-                                let userFunc = lambda.Compile()
-
+                                let userFunc = compileSingleArgUdfDelegate argExpr expr
                                 let arrowCallback = ArrowUdfBatchAdapter.CreateSingle(userFunc, argExpr.Type, expr.Type)
                                 ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
                                 UdfTracker.Record(sprintf "%s: %s" methodName (expr.ToString()))
                                 Some(PolarsWrapper.Map(handle, arrowCallback, outDataType))
 
                             elif dynCount > 1 then
-                                let inArrayParam = Expression.Parameter(typeof<obj[]>, "inputs")
-                                let replacements =
-                                    dynArgs
-                                    |> List.mapi (fun i (argExpr, _) ->
-                                        let arrayIdx = Expression.ArrayIndex(inArrayParam, Expression.Constant(i))
-                                        let typedIn = Expression.Convert(arrayIdx, argExpr.Type)
-                                        (argExpr, typedIn :> Expression))
-
-                                let bodyWithParams = replaceSubtrees replacements expr
-                                let boxedBody = Expression.Convert(bodyWithParams, typeof<obj>)
-                                let lambda = Expression.Lambda<Func<obj[], obj>>(boxedBody, inArrayParam)
-                                let userFunc = lambda.Compile()
-
+                                let userFunc = compileMultiArgUdfDelegate dynArgs expr
                                 let inputTypes = dynArgs |> List.map (fun (a, _) -> a.Type) |> List.toArray
                                 let arrowCallback = ArrowUdfBatchAdapter.CreateMulti(userFunc, inputTypes, expr.Type)
                                 let mainHandle = snd dynArgs.[0]
