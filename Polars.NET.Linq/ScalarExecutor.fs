@@ -36,9 +36,49 @@ module internal ScalarExecutor =
         | "SequenceEqual"
         | "MinBy"
         | "MaxBy"
-        | "Aggregate"
-        | "AggregateBy" -> true
+        | "Aggregate" -> true
         | _ -> false
+
+    /// Resolves the default value for a given Type.
+    let private getDefaultVal (t: Type) : obj =
+        PolarsTypeHelper.GetDefaultValue t
+
+    /// Extracts the effective source element type considering client projections.
+    let private getEffectiveSourceType (clientProjOpt: (Type * Func<obj, obj>) option) (elemType: Type) : Type =
+        clientProjOpt |> Option.map fst |> Option.defaultValue elemType
+
+    /// Extracts the optional comparer instance from arguments if supplied.
+    let private tryExtractComparer (rest: Expression list) : obj =
+        match rest with
+        | [ comparerExpr ] -> tryEvaluate comparerExpr |> Option.toObj
+        | _ -> null
+
+    /// Projects a raw materializer result object through client projection, applying default fallback for null if needed.
+    let private projectClientResult<'T>
+        (clientProjOpt: (Type * Func<obj, obj>) option)
+        (defaultVal: obj)
+        (rawEntity: obj)
+        : 'T =
+        if isNull rawEntity && PolarsTypeHelper.AcceptsNull typeof<'T> then
+            defaultVal :?> 'T
+        else
+            match clientProjOpt with
+            | Some(_, projFunc) -> projFunc.Invoke rawEntity :?> 'T
+            | None -> rawEntity :?> 'T
+
+    /// Attempts to extract plan info (LazyFrame, hasClientPreds, clientProjOpt) from an expression,
+    /// supporting both uncorrelated query handles, decorrelated subtrees, and queryables.
+    let private tryResolvePlanFromExpr
+        (provider: IQueryProvider)
+        (expr: Expression)
+        : (LazyFrameHandle * bool * (Type * Func<obj, obj>) option) option =
+        match SubqueryDecorrelator.resolveSequenceLazyFrame expr with
+        | Some lf -> Some(lf, false, None)
+        | None ->
+            match tryEvaluate expr with
+            | Some(:? IInternalPlanSource as ps) -> Some(ps.GetPlanInfo())
+            | Some(:? IPolarsPlanSource as ps) -> Some(ps.GetCompiledLazyFrameHandle(), false, None)
+            | _ -> None
 
     /// Composes a client-side projection Func<obj, obj> with a downstream typed LambdaExpression selector,
     /// producing a single compiled Delegate of type Func<TSource, TReturn>.
@@ -99,9 +139,6 @@ module internal ScalarExecutor =
         let resolvedPred =
             tryResolvePredicate hasClientPreds clientProjOpt elemType nativeLf predLambdaOpt
 
-        let getDefaultVal (t: Type) =
-            if t.IsValueType then Activator.CreateInstance t else null
-
         let userDefVal = defaultArg userDefValOpt (getDefaultVal elemType)
 
         let offset, len, kindName =
@@ -120,12 +157,6 @@ module internal ScalarExecutor =
                 let invoker = LinqReflectionCache.GetMaterializerRowFetchInvoker(kindName, targetType)
                 invoker.Invoke(mat, df, pred)
 
-        let projectOrDefault (sourceType: Type) (projFunc: Func<obj, obj>) (rawEntity: obj) =
-            if isNull rawEntity && not sourceType.IsValueType then
-                userDefVal :?> 'TResult
-            else
-                projFunc.Invoke rawEntity :?> 'TResult
-
         match resolvedPred with
         | ValueSome(Pushdown filterExpr) ->
             let filteredLf = PolarsWrapper.LazyFilter(nativeLf, filterExpr)
@@ -137,12 +168,10 @@ module internal ScalarExecutor =
             enforceClientPredicatePolicy (kindName, predLambdaOpt)
             let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
             let rawEntity = invokeRowFetch srcType dfHandle combinedPred (getDefaultVal srcType)
-
-            match clientProjOpt with
-            | Some(_, projFunc) -> projectOrDefault srcType projFunc rawEntity
-            | None -> rawEntity :?> 'TResult
+            projectClientResult<'TResult> clientProjOpt userDefVal rawEntity
 
         | ValueNone ->
+            let targetType = getEffectiveSourceType clientProjOpt elemType
             let dfHandle =
                 if not hasClientPreds then
                     let slicedLf = PolarsWrapper.LazySlice(nativeLf, offset, len)
@@ -150,26 +179,9 @@ module internal ScalarExecutor =
                 else
                     PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
 
-            match clientProjOpt with
-            | Some(sourceType, projFunc) ->
-                let rawEntity =
-                    match kind with
-                    | RowFetchKind.Single ->
-                        let height = PolarsWrapper.DataFrameHeight dfHandle
-
-                        if isOrDefault && height = 0L then
-                            null
-                        elif not isOrDefault && height = 0L then
-                            invalidOp "Sequence contains no elements."
-                        elif height > 1L then
-                            invalidOp "Sequence contains more than one element."
-                        else
-                            LinqReflectionCache.GetMaterializerSingleInvoker(sourceType).Invoke(mat, dfHandle, null)
-                    | _ -> invokeRowFetch sourceType dfHandle null (getDefaultVal sourceType)
-
-                projectOrDefault sourceType projFunc rawEntity
-
-            | None -> invokeRowFetch elemType dfHandle null userDefVal :?> 'TResult
+            let defVal = if clientProjOpt.IsSome then getDefaultVal targetType else userDefVal
+            let rawEntity = invokeRowFetch targetType dfHandle null defVal
+            projectClientResult<'TResult> clientProjOpt userDefVal rawEntity
 
     /// Core scalar execution pipeline: compiles native plan, executes native reductions,
     /// and extracts scalar results via IDataFrameMaterializer.
@@ -190,7 +202,7 @@ module internal ScalarExecutor =
 
         let extractOptionalLambda (args: Expression list) : LambdaExpression option =
             match args with
-            | [ StripQuotes(:? LambdaExpression as l) ] -> Some l
+            | [ CleanLambda l ] -> Some l
             | _ -> None
 
         let evaluatedExpr = PartialEvaluator.eval expression
@@ -228,7 +240,7 @@ module internal ScalarExecutor =
                     if not hasClientPreds then
                         collectNativeRowCount mat nativeLf None |> adjustForChunk
                     else
-                        let elemTypeActual = clientProjOpt |> Option.map fst |> Option.defaultValue elemType
+                        let elemTypeActual = getEffectiveSourceType clientProjOpt elemType
                         collectClientCount elemTypeActual null
 
             Convert.ChangeType(effectiveCount, targetType) :?> 'TResult
@@ -264,7 +276,7 @@ module internal ScalarExecutor =
                         hasAnyRow nativeLf None
                     else
                         let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
-                        let srcType = clientProjOpt |> Option.map fst |> Option.defaultValue elemType
+                        let srcType = getEffectiveSourceType clientProjOpt elemType
                         let invoker = LinqReflectionCache.GetMaterializerAnyInvoker srcType
                         invoker.Invoke(mat, dfHandle, null)
 
@@ -287,40 +299,52 @@ module internal ScalarExecutor =
             let isOrDefault = m.Name.EndsWith "OrDefault"
             let elemType = getSequenceElementType source.Type
 
+            let predLambdaOpt, defValOpt =
+                match rest with
+                | [ CleanLambda p ] -> Some p, None
+                | [ CleanLambda p; defExpr ] -> Some p, tryEvaluate defExpr
+                | [ defExpr ] when not (typeof<LambdaExpression>.IsAssignableFrom defExpr.Type) ->
+                    None, tryEvaluate defExpr
+                | _ -> None, None
+
             if
                 elemType.IsGenericType
                 && elemType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
             then
                 let query = provider.CreateQuery source :> IEnumerable
                 let castMethod = LinqReflectionCache.GetEnumerableMethod("Cast", 1, [| elemType |])
-                let seq = castMethod.Invoke(null, [| box query |]) :?> IEnumerable<'TResult>
+                let baseSeq = castMethod.Invoke(null, [| box query |]) :?> IEnumerable<'TResult>
+
+                let seq =
+                    match predLambdaOpt with
+                    | Some p ->
+                        let compiled = p.Compile() :?> Func<'TResult, bool>
+                        baseSeq |> Seq.filter compiled.Invoke
+                    | None -> baseSeq
+
+                let defaultResult =
+                    match defValOpt with
+                    | Some v -> v :?> 'TResult
+                    | None -> Unchecked.defaultof<'TResult>
 
                 match kind with
                 | RowFetchKind.First ->
                     if isOrDefault then
-                        Seq.tryHead seq |> Option.defaultValue Unchecked.defaultof<'TResult>
+                        Seq.tryHead seq |> Option.defaultValue defaultResult
                     else
                         Seq.head seq
                 | RowFetchKind.Last ->
                     if isOrDefault then
-                        Seq.tryLast seq |> Option.defaultValue Unchecked.defaultof<'TResult>
+                        Seq.tryLast seq |> Option.defaultValue defaultResult
                     else
                         Seq.last seq
                 | RowFetchKind.Single ->
                     if isOrDefault && Seq.isEmpty seq then
-                        Unchecked.defaultof<'TResult>
+                        defaultResult
                     else
                         Seq.exactlyOne seq
             else
                 let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
-
-                let predLambdaOpt, defValOpt =
-                    match rest with
-                    | [ StripQuotes(:? LambdaExpression as p) ] -> Some p, None
-                    | [ StripQuotes(:? LambdaExpression as p); defExpr ] -> Some p, tryEvaluate defExpr
-                    | [ defExpr ] when not (typeof<LambdaExpression>.IsAssignableFrom defExpr.Type) ->
-                        None, tryEvaluate defExpr
-                    | _ -> None, None
 
                 executeRowFetch<'TResult>
                     mat
@@ -351,12 +375,8 @@ module internal ScalarExecutor =
                         let ctx = createContextForType elemType nativeLf selector.Parameters.[0].Name
                         ExprTranslator.tryTranslateWithContext ctx selector.Body
                     | None ->
-                        if PolarsTypeHelper.IsSupportedSimpleType targetType then
-                            let colNames = PolarsSchemaExtractor.GetColumnNames nativeLf
-                            let targetCol = if colNames.Length > 0 then colNames.[0] else ""
-                            Some(PolarsWrapper.Col targetCol)
-                        else
-                            None
+                        tryGetScalarColumnName elemType nativeLf
+                        |> Option.map PolarsWrapper.Col
                 else
                     None
 
@@ -411,21 +431,17 @@ module internal ScalarExecutor =
                 | Some idxVal -> false, Convert.ToInt64 idxVal
                 | None -> failwithf "Failed to evaluate index for %s." m.Name
 
-            if not isFromEnd && rawIndexVal < 0L then
+            let isInvalidIndex =
+                if isFromEnd then rawIndexVal <= 0L
+                else rawIndexVal < 0L
+
+            if isInvalidIndex then
                 if isOrDefault then
                     Unchecked.defaultof<'TResult>
                 else
                     raise (ArgumentOutOfRangeException("index", "Index was out of range."))
             else
-                let targetSourceType = clientProjOpt |> Option.map fst |> Option.defaultValue elemType
-
-                let projectEntity (rawEntity: obj) : 'TResult =
-                    if isNull rawEntity && not targetSourceType.IsValueType then
-                        Unchecked.defaultof<'TResult>
-                    else
-                        match clientProjOpt with
-                        | Some(_, projFunc) -> projFunc.Invoke rawEntity :?> 'TResult
-                        | None -> rawEntity :?> 'TResult
+                let targetSourceType = getEffectiveSourceType clientProjOpt elemType
 
                 if not hasClientPreds then
                     let sliceOffset = if isFromEnd then -rawIndexVal else rawIndexVal
@@ -439,7 +455,8 @@ module internal ScalarExecutor =
                             raise (ArgumentOutOfRangeException("index", "Index was out of range."))
                     else
                         let invoker = LinqReflectionCache.GetMaterializerElementAtInvoker targetSourceType
-                        projectEntity (invoker.Invoke(mat, dfHandle, 0L))
+                        let rawEntity = invoker.Invoke(mat, dfHandle, 0L)
+                        projectClientResult<'TResult> clientProjOpt (Unchecked.defaultof<'TResult>) rawEntity
                 else
                     let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
 
@@ -452,7 +469,8 @@ module internal ScalarExecutor =
                     let invoker =
                         LinqReflectionCache.GetMaterializerElementAtByNameInvoker(m.Name, targetSourceType)
 
-                    projectEntity (invoker.Invoke(mat, dfHandle, targetIndex))
+                    let rawEntity = invoker.Invoke(mat, dfHandle, targetIndex)
+                    projectClientResult<'TResult> clientProjOpt (Unchecked.defaultof<'TResult>) rawEntity
 
         // =========================================================================
         // 6. Contains(item) / Contains(item, comparer)
@@ -465,11 +483,7 @@ module internal ScalarExecutor =
                 | Some v -> v
                 | None -> failwith "Failed to evaluate item parameter for Contains."
 
-            let comparerObj =
-                match rest with
-                | [ comparerExpr ] -> tryEvaluate comparerExpr |> Option.toObj
-                | _ -> null
-
+            let comparerObj = tryExtractComparer rest
             let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
 
             let filterExprOpt =
@@ -487,20 +501,23 @@ module internal ScalarExecutor =
 
                 match clientProjOpt with
                 | Some(sourceType, projFunc) ->
-                    let compiledPred =
-                        Func<obj, bool>(fun projectedObj ->
-                            if isNull comparerObj then
-                                if isNull itemVal then isNull projectedObj
-                                elif isNull projectedObj then false
-                                else Object.Equals(projectedObj, itemVal)
-                            else
-                                let compMethod =
-                                    comparerObj.GetType().GetMethod("Equals", [| typeof<obj>; typeof<obj> |])
-
+                    let compFunc =
+                        if isNull comparerObj then
+                            fun a b ->
+                                if isNull a then isNull b
+                                elif isNull b then false
+                                else Object.Equals(a, b)
+                        else
+                            match comparerObj with
+                            | :? IEqualityComparer as eq -> (fun a b -> eq.Equals(a, b))
+                            | _ ->
+                                let compMethod = comparerObj.GetType().GetMethod("Equals", [| typeof<obj>; typeof<obj> |])
                                 if not (isNull compMethod) then
-                                    compMethod.Invoke(comparerObj, [| projectedObj; itemVal |]) :?> bool
+                                    (fun a b -> compMethod.Invoke(comparerObj, [| a; b |]) :?> bool)
                                 else
-                                    Object.Equals(projectedObj, itemVal))
+                                    (fun a b -> Object.Equals(a, b))
+
+                    let compiledPred = Func<obj, bool>(fun projectedObj -> compFunc projectedObj itemVal)
 
                     let combinedPred =
                         LinqReflectionCache.CreateComposedPredicate(sourceType, projFunc, compiledPred, elemType)
@@ -517,21 +534,10 @@ module internal ScalarExecutor =
         // =========================================================================
         | MethodCall(m, null, source :: secondExpr :: rest) when m.Name = "SequenceEqual" ->
             let elemType = getSequenceElementType source.Type
-
-            let compObj =
-                match rest with
-                | [ comparerExpr ] -> tryEvaluate comparerExpr |> Option.toObj
-                | _ -> null
-
+            let compObj = tryExtractComparer rest
             let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
 
-            let secondPlanOpt =
-                match SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr with
-                | Some lf -> Some(lf, false, None)
-                | None ->
-                    match tryEvaluate secondExpr with
-                    | Some(:? IInternalPlanSource as ps) -> Some(ps.GetPlanInfo())
-                    | _ -> None
+            let secondPlanOpt = tryResolvePlanFromExpr provider secondExpr
 
             match secondPlanOpt with
             | Some(secondLf, secondHasClient, secondProjOpt) when
@@ -574,11 +580,7 @@ module internal ScalarExecutor =
             let nativeLf, hasClientPreds, clientProjOpt = resolveQueryPlan source
             let elemType = getSequenceElementType source.Type
             let keyType = keyLambda.ReturnType
-
-            let compObj =
-                match rest with
-                | [ comparerExpr ] -> tryEvaluate comparerExpr |> Option.toObj
-                | _ -> null
+            let compObj = tryExtractComparer rest
 
             let nativeSortColOpt =
                 if not hasClientPreds && clientProjOpt.IsNone && isNull compObj then
@@ -624,10 +626,7 @@ module internal ScalarExecutor =
                     LinqReflectionCache.GetMaterializerExtremumByInvoker(m.Name, targetSourceType, keyType)
 
                 let rawWinner = invoker.Invoke(mat, dfHandle, effectiveKeySel, compObj)
-
-                match clientProjOpt with
-                | Some(_, projFunc) -> projFunc.Invoke rawWinner :?> 'TResult
-                | None -> rawWinner :?> 'TResult
+                projectClientResult<'TResult> clientProjOpt (Unchecked.defaultof<'TResult>) rawWinner
 
         // =========================================================================
         // 9. Aggregate (Fold/Reduce)
@@ -642,15 +641,15 @@ module internal ScalarExecutor =
                 | None -> failwith "Failed to evaluate seed parameter for Aggregate."
 
             match rest with
-            | [ StripQuotes(:? LambdaExpression as func) ] ->
+            | [ CleanLambda func ] ->
                 let invoker = LinqReflectionCache.GetAggregateInvoker elemType
                 invoker.Invoke(rawRows, func.Compile()) :?> 'TResult
 
-            | [ seedExpr; StripQuotes(:? LambdaExpression as func) ] ->
+            | [ seedExpr; CleanLambda func ] ->
                 let invoker = LinqReflectionCache.GetAggregateWithSeedInvoker(elemType, targetType)
                 invoker.Invoke(rawRows, evalSeed seedExpr, func.Compile()) :?> 'TResult
 
-            | [ seedExpr; StripQuotes(:? LambdaExpression as func); StripQuotes(:? LambdaExpression as resSel) ] ->
+            | [ seedExpr; CleanLambda func; CleanLambda resSel ] ->
                 let invoker =
                     LinqReflectionCache.GetAggregateWithResultSelectorInvoker(elemType, func.ReturnType, targetType)
 
@@ -659,4 +658,3 @@ module internal ScalarExecutor =
             | _ -> failwithf "Unsupported Aggregate overload: %A" expression
 
         | _ -> failwithf "Scalar execution for expression is not supported: %A" expression
-

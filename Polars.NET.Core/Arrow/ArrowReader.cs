@@ -293,7 +293,7 @@ public static class ArrowReader
                 }
                 else
                 {
-                    var defaultVal = field.PropertyType.IsValueType ? Activator.CreateInstance(field.PropertyType) : null;
+                    var defaultVal = PolarsTypeHelper.GetDefaultValue(field.PropertyType);
                     getters[i] = _ => defaultVal;
                 }
             }
@@ -349,7 +349,7 @@ public static class ArrowReader
                 }
                 else
                 {
-                    var defaultVal = p.ParameterType.IsValueType ? Activator.CreateInstance(p.ParameterType) : null;
+                    var defaultVal = PolarsTypeHelper.GetDefaultValue(p.ParameterType);
                     getters[i] = _ => defaultVal;
                 }
             }

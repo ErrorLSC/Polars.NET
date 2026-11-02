@@ -199,7 +199,7 @@ public static class ArrowUdfBatchAdapter
         {
             var keyType = targetType.GetGenericArguments()[0];
             var groupingType = typeof(ArrowGrouping<,>).MakeGenericType(keyType, elementType);
-            object? defaultKey = keyType.IsValueType ? Activator.CreateInstance(keyType) : null;
+            object? defaultKey = PolarsTypeHelper.GetDefaultValue(keyType);
             return Activator.CreateInstance(groupingType, defaultKey, materializedArray);
         }
 

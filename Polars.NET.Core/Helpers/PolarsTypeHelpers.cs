@@ -255,6 +255,15 @@ public static class PolarsTypeHelper
     }
 
     /// <summary>
+    /// Returns the default value for the specified type (Activator.CreateInstance for value types, null for reference types).
+    /// </summary>
+    public static object? GetDefaultValue(Type? type)
+    {
+        if (type == null) return null;
+        return type.IsValueType ? Activator.CreateInstance(type) : null;
+    }
+
+    /// <summary>
     /// Checks whether the specified type represents a supported primitive or scalar value
     /// (e.g. primitives, string, decimal, DateOnly, DateTime, TimeSpan, etc., including Nullable<T> equivalents).
     /// </summary>
