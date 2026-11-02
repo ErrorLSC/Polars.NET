@@ -1388,7 +1388,12 @@ public readonly partial struct PolarsWrapper
             normalize
         ));
     }
-    public static string SeriesToString(SeriesHandle handle) => ErrorHelper.CheckString(NativeBindings.pl_series_to_string(handle));
+    public static string SeriesToString(SeriesHandle handle)
+    {
+        int status = NativeBindings.pl_series_to_string(handle, out IntPtr ptr, out nuint len);
+        ErrorHelper.CheckStatus(status);
+        return ErrorHelper.CheckUtf8String(ptr, len);
+    }
     public static bool SeriesIsSorted(SeriesHandle handle,bool descending,bool nullsLast)
     {
         int code = NativeBindings.pl_series_is_sorted(handle,descending,nullsLast,out bool state);

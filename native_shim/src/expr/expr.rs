@@ -1,6 +1,6 @@
 use polars::{chunked_array::cast::CastOptions, prelude::*, series::ops::NullBehavior, sql::sql_expr};
 use polars_plan::plans::AExprSorted;
-use std::{ffi::{CStr, CString}, os::raw::c_char, slice::from_raw_parts};
+use std::{ffi::CStr, os::raw::{c_char, c_int}, slice::from_raw_parts};
 use crate::{types::{DataTypeContext, DataTypeExprContext, ExprContext, SeriesContext}, utils::{parse_closed_interval, parse_closed_window, ptr_to_opt_pl_str_vec}};
 use std::ops::{Add, Sub, Mul, Div, Rem, Neg};
 use crate::utils::{consume_exprs_array, ptr_to_str};
@@ -2198,22 +2198,21 @@ pub extern "C" fn pl_expr_sql(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_to_string(ptr: *mut ExprContext) -> *mut c_char {
-    ffi_try!({
-        if ptr.is_null() {
-            polars_bail!(ComputeError: "Expr pointer is null");
+pub extern "C" fn pl_expr_to_string(
+    ptr: *mut ExprContext,
+    out_ptr: *mut *mut u8,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_try_c_int!({
+        if ptr.is_null() || out_ptr.is_null() || out_len.is_null() {
+            polars_bail!(ComputeError: "Expr pointer or output pointer is null");
         }
-        
         let ctx = unsafe { &*ptr };
-        
-        let mut s = ctx.inner.to_string();
-        
-        if s.contains('\0') {
-            s = s.replace('\0', "␀"); 
+        let s = ctx.inner.to_string();
+        unsafe {
+            crate::utils::write_utf8_to_raw(s, out_ptr, out_len);
         }
-        
-        let c_str = CString::new(s).expect("String sanitization failed");
-        Ok(c_str.into_raw())
+        Ok(0)
     })
 }
 

@@ -21,8 +21,9 @@ public readonly partial struct PolarsWrapper
 
     public static string Explain(LazyFrameHandle lf, bool optimized)
     {
-        IntPtr ptr = NativeBindings.pl_lazy_explain(lf, optimized);
-        return ErrorHelper.CheckString(ptr);
+        int status = NativeBindings.pl_lazy_explain(lf, optimized, out IntPtr ptr, out nuint len);
+        ErrorHelper.CheckStatus(status);
+        return ErrorHelper.CheckUtf8String(ptr, len);
     }
     public static LazyFrameHandle LazySelect(LazyFrameHandle lf, ExprHandle[] exprs)
     {
@@ -72,17 +73,16 @@ public readonly partial struct PolarsWrapper
 
         var inPtrs = HandlesToPtrs(lfs)!;
 
-        var outPtrs = new nint[lfs.Length];
-
         int status = NativeBindings.pl_lazy_explain_all(
             inPtrs,
             (nuint)lfs.Length,
-            out nint plan
+            out IntPtr ptr,
+            out nuint len
         );
 
         ErrorHelper.CheckStatus(status);
 
-        return ErrorHelper.CheckString(plan);
+        return ErrorHelper.CheckUtf8String(ptr, len);
     }
     public static LazyFrameHandle LazyFilter(LazyFrameHandle lf, ExprHandle expr)
     {

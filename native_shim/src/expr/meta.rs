@@ -173,9 +173,13 @@ pub extern "C" fn pl_expr_meta_into_tree_formatter(
     expr_ptr: *const ExprContext,
     display_as_dot: bool,
     schema_ptr: *const SchemaContext,
-    out_str: *mut *mut c_char,
+    out_ptr: *mut *mut u8,
+    out_len: *mut usize,
 ) -> c_int {
-    ffi_eval_out_try!(out_str, {
+    ffi_try_c_int!({
+        if expr_ptr.is_null() || out_ptr.is_null() || out_len.is_null() {
+            polars_bail!(ComputeError: "Expr pointer or output pointer is null");
+        }
         let ctx = unsafe { &*expr_ptr };
         
         let schema_opt = if schema_ptr.is_null() {
@@ -186,12 +190,11 @@ pub extern "C" fn pl_expr_meta_into_tree_formatter(
         };
         
         let formatter = ctx.inner.clone().meta().into_tree_formatter(display_as_dot, schema_opt.map(|v| &**v))?;
-        
         let formatted_str = format!("{}", formatter);
         
-        let c_str = CString::new(formatted_str)
-            .map_err(|e| PolarsError::ComputeError(format!("CString error: {}", e).into()))?;
-            
-        Ok(c_str.into_raw())
+        unsafe {
+            crate::utils::write_utf8_to_raw(formatted_str, out_ptr, out_len);
+        }
+        Ok(0)
     })
 }

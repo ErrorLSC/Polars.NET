@@ -51,7 +51,12 @@ unsafe internal partial class NativeBindings
         string name,
         int offset
     );
-    [LibraryImport(LibName)] public static partial IntPtr pl_lazy_explain(LazyFrameHandle lf, [MarshalAs(UnmanagedType.U1)] bool optimized);
+    [LibraryImport(LibName)]
+    public static partial int pl_lazy_explain(
+        LazyFrameHandle lf,
+        [MarshalAs(UnmanagedType.U1)] bool optimized,
+        out IntPtr outPtr,
+        out nuint outLen);
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_lazy_filter(LazyFrameHandle lf, ExprHandle expr);
     [LibraryImport(LibName)]
@@ -165,7 +170,8 @@ unsafe internal partial class NativeBindings
     public static partial int pl_lazy_explain_all(
         nint[] lfsPtr,
         nuint lfsLen,
-        out nint plan
+        out IntPtr outPtr,
+        out nuint outLen
     );
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_lazy_clone(LazyFrameHandle lf);

@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
+using System.Text;
 using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
@@ -78,6 +79,47 @@ internal static class ErrorHelper
         finally
         {
             NativeBindings.pl_free_string(ptr);
+        }
+    }
+
+    // =========================================================================
+    // 3.1 UTF-8 Byte Stream Check
+    // =========================================================================
+    public static string CheckUtf8String(nint ptr, nuint len)
+    {
+        if (ptr == nint.Zero || len == 0)
+        {
+            if (ptr != nint.Zero)
+            {
+                NativeBindings.pl_free_utf8_bytes(ptr, len);
+            }
+            return string.Empty;
+        }
+
+        if (len > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(len), "UTF-8 byte stream is too large for .NET string.");
+        }
+
+        try
+        {
+            unsafe
+            {
+                var utf8Span = new ReadOnlySpan<byte>((void*)ptr, (int)len);
+                int charCount = Encoding.UTF8.GetCharCount(utf8Span);
+
+                // Allocate UTF-16 chars on stack for common lengths to avoid intermediate heap allocation
+                Span<char> charBuffer = charCount <= 512
+                    ? stackalloc char[charCount]
+                    : new char[charCount];
+
+                int actualChars = Encoding.UTF8.GetChars(utf8Span, charBuffer);
+                return new string(charBuffer[..actualChars]);
+            }
+        }
+        finally
+        {
+            NativeBindings.pl_free_utf8_bytes(ptr, len);
         }
     }
     // =========================================================================

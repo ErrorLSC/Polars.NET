@@ -1569,8 +1569,9 @@ public readonly partial struct PolarsWrapper
     }
     public static string ExprToString(ExprHandle e)
     {
-        var h = NativeBindings.pl_expr_to_string(e);
-        return ErrorHelper.CheckString(h);
+        int status = NativeBindings.pl_expr_to_string(e, out IntPtr ptr, out nuint len);
+        ErrorHelper.CheckStatus(status);
+        return ErrorHelper.CheckUtf8String(ptr, len);
     }
     public static string FormatTree(ExprHandle expr, bool displayAsDot, SchemaHandle? schema)
     {
@@ -1578,10 +1579,10 @@ public readonly partial struct PolarsWrapper
             schema != null ? [schema] : null
         );
         IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
-        int status = NativeBindings.pl_expr_meta_into_tree_formatter(expr, displayAsDot, schemaPtr, out IntPtr ptr);
+        int status = NativeBindings.pl_expr_meta_into_tree_formatter(expr, displayAsDot, schemaPtr, out IntPtr ptr, out nuint len);
         ErrorHelper.CheckStatus(status);
 
-        return ErrorHelper.CheckString(ptr);
+        return ErrorHelper.CheckUtf8String(ptr, len);
     }
     public static ExprHandle[] Pop(ExprHandle handle)
     {

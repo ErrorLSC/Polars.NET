@@ -801,17 +801,21 @@ pub extern "C" fn pl_dataframe_lazy(df_ptr: *mut DataFrameContext) -> *mut LazyF
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_to_string(df_ptr: *mut DataFrameContext) -> *mut c_char {
-    ffi_try!({
-        let ctx = unsafe { &mut *df_ptr };
-        let mut s = ctx.df.to_string();
-
-        if s.contains('\0') {
-            s = s.replace('\0', "␀");
+pub extern "C" fn pl_dataframe_to_string(
+    df_ptr: *mut DataFrameContext,
+    out_ptr: *mut *mut u8,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_try_c_int!({
+        if df_ptr.is_null() || out_ptr.is_null() || out_len.is_null() {
+            polars_bail!(ComputeError: "dataframe pointer or output pointer is null");
         }
-
-        let c_str = CString::new(s).expect("String sanitization failed");
-        Ok(c_str.into_raw())
+        let ctx = unsafe { &*df_ptr };
+        let s = ctx.df.to_string();
+        unsafe {
+            crate::utils::write_utf8_to_raw(s, out_ptr, out_len);
+        }
+        Ok(0)
     })
 }
 

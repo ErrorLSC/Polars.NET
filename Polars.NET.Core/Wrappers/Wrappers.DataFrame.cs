@@ -371,8 +371,9 @@ public readonly partial struct PolarsWrapper
         => ErrorHelper.Check(NativeBindings.pl_dataframe_lazy(df));
     public static string DataFrameToString(DataFrameHandle handle)
     {
-        var ptr = NativeBindings.pl_dataframe_to_string(handle);
-        return ErrorHelper.CheckString(ptr);
+        int status = NativeBindings.pl_dataframe_to_string(handle, out IntPtr ptr, out nuint len);
+        ErrorHelper.CheckStatus(status);
+        return ErrorHelper.CheckUtf8String(ptr, len);
     }
     public static DataFrameHandle DataFrameRechunk(DataFrameHandle df)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_rechunk(df));

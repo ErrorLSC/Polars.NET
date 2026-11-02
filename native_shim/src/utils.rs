@@ -15,6 +15,28 @@ pub extern "C" fn pl_free_string(ptr: *mut std::os::raw::c_char) {
     }
 }
 
+/// Helper to transfer a Rust String to an FFI caller as raw UTF-8 bytes and length.
+/// Caller must free it with `pl_free_utf8_bytes`.
+pub unsafe fn write_utf8_to_raw(s: String, out_ptr: *mut *mut u8, out_len: *mut usize) {
+    let boxed = s.into_bytes().into_boxed_slice();
+    let len = boxed.len();
+    unsafe {
+        *out_len = len;
+        if len == 0 {
+            *out_ptr = std::ptr::null_mut();
+        } else {
+            *out_ptr = Box::into_raw(boxed) as *mut u8;
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_free_utf8_bytes(ptr: *mut u8, len: usize) {
+    if !ptr.is_null() && len > 0 {
+        let _ = unsafe { Box::from_raw(std::slice::from_raw_parts_mut(ptr, len)) };
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_free_ptr_array(ptr: *mut *mut c_void, len: usize) {
     if !ptr.is_null() {

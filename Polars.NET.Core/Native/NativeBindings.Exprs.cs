@@ -13,6 +13,7 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_concat_expr(nint[] exprs,UIntPtr exprLen, [MarshalAs(UnmanagedType.U1)] bool rechunk);
     // String Free
     [LibraryImport(LibName)] public static partial void pl_free_string(nint ptr);
+    [LibraryImport(LibName)] public static partial void pl_free_utf8_bytes(IntPtr ptr, nuint len);
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_sql(string query);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
@@ -816,13 +817,17 @@ unsafe internal partial class NativeBindings
         out IntPtr outStr
     );
     [LibraryImport(LibName)]
-    public static partial IntPtr pl_expr_to_string(ExprHandle expr);
+    public static partial int pl_expr_to_string(
+        ExprHandle expr,
+        out IntPtr outPtr,
+        out nuint outLen);
     [LibraryImport(LibName)]
     public static partial int pl_expr_meta_into_tree_formatter(
         ExprHandle expr,
         [MarshalAs(UnmanagedType.U1)] bool displayAsDot,
         IntPtr schemaPtr,
-        out IntPtr outStr);
+        out IntPtr outPtr,
+        out nuint outLen);
     [LibraryImport(LibName)]
     public static partial int pl_expr_meta_is_column(ExprHandle expr,[MarshalAs(UnmanagedType.U1)]out bool result);
     [LibraryImport(LibName)]

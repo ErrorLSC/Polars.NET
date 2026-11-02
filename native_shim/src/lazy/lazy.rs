@@ -1,4 +1,4 @@
-use std::ffi::{CStr, CString, c_char, c_int};
+use std::ffi::{CStr, c_char, c_int};
 use polars::frame::PivotColumnNaming;
 use polars::prelude::*;
 use crate::{types::*, utils::parse_closed_window};
@@ -551,13 +551,22 @@ pub extern "C" fn pl_lazy_collect_all(
 pub extern "C" fn pl_lazy_explain_all(
     lfs_ptr: *const *mut LazyFrameContext, 
     lfs_len: usize,
-    out_str: *mut *mut c_char,
+    out_ptr: *mut *mut u8,
+    out_len: *mut usize,
 ) -> c_int {
     ffi_try_c_int!({
-        unsafe { *out_str = std::ptr::null_mut() };
+        if out_ptr.is_null() || out_len.is_null() {
+            polars_bail!(ComputeError: "out_ptr or out_len is null");
+        }
         if lfs_len == 0 {
-            unsafe { *out_str = CString::new("").unwrap().into_raw() };
+            unsafe {
+                crate::utils::write_utf8_to_raw(String::new(), out_ptr, out_len);
+            }
             return Ok(0);
+        }
+
+        if lfs_ptr.is_null() {
+            polars_bail!(ComputeError: "lfs_ptr is null");
         }
 
         let lfs = unsafe { std::slice::from_raw_parts(lfs_ptr, lfs_len) };
@@ -573,10 +582,9 @@ pub extern "C" fn pl_lazy_explain_all(
         let explained = LazyFrame::explain_all(plans, opt_state)
             .map_err(|e| PolarsError::ComputeError(format!("explain_all failed: {}", e).into()))?;
 
-        let c_str = CString::new(explained)
-            .map_err(|e| PolarsError::ComputeError(format!("Invalid UTF-8: {}", e).into()))?;
-            
-        unsafe { *out_str = c_str.into_raw() };
+        unsafe {
+            crate::utils::write_utf8_to_raw(explained, out_ptr, out_len);
+        }
         Ok(0)
     })
 }
@@ -1189,13 +1197,22 @@ pub unsafe extern "C" fn pl_lazyframe_with_row_index(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_lazy_explain(lf_ptr: *mut LazyFrameContext, optimized: bool) -> *mut c_char {
-    ffi_try!({
+pub extern "C" fn pl_lazy_explain(
+    lf_ptr: *mut LazyFrameContext,
+    optimized: bool,
+    out_ptr: *mut *mut u8,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_try_c_int!({
+        if lf_ptr.is_null() || out_ptr.is_null() || out_len.is_null() {
+            polars_bail!(ComputeError: "lazy frame pointer or output pointer is null");
+        }
         let ctx = unsafe { &*lf_ptr };
-        
         let plan_str = ctx.inner.explain(optimized)?;
-        
-        Ok(std::ffi::CString::new(plan_str).unwrap().into_raw())
+        unsafe {
+            crate::utils::write_utf8_to_raw(plan_str, out_ptr, out_len);
+        }
+        Ok(0)
     })
 }
 

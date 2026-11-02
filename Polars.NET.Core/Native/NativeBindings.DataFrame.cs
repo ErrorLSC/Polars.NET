@@ -38,7 +38,11 @@ unsafe internal partial class NativeBindings
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_dataframe_width(DataFrameHandle df, out uint width);
     [LibraryImport(LibName)] public static partial nint pl_dataframe_get_column_name(DataFrameHandle df, UIntPtr index);
-    [LibraryImport(LibName)] public static partial nint pl_dataframe_to_string(DataFrameHandle df);
+    [LibraryImport(LibName)]
+    public static partial int pl_dataframe_to_string(
+        DataFrameHandle df,
+        out IntPtr outPtr,
+        out nuint outLen);
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_dataframe_clone(DataFrameHandle df);
     [LibraryImport(LibName)]
