@@ -52,13 +52,6 @@ module internal SubqueryDecorrelator =
         | Lambda(_, body) -> containsParameter paramName body
         | _ -> false
 
-    /// Determines if a type represents a scalar/primitive/string rather than a sequence/collection or composite type.
-    let isScalarType (t: Type) : bool =
-        if isNull t then
-            false
-        else
-            PolarsTypeHelper.IsScalarType t
-
     /// Checks whether an expression contains a queryable source or LINQ reduction call.
     let rec containsSubquery (expr: Expression) : bool =
         match expr with
@@ -132,7 +125,7 @@ module internal SubqueryDecorrelator =
                     Set.empty
                 else
                     let props =
-                        actualT.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                        PolarsTypeHelper.GetModelProperties actualT
                         |> Array.map (fun p -> p.Name)
 
                     let fields =
@@ -243,8 +236,8 @@ module internal SubqueryDecorrelator =
     /// Evaluates an uncorrelated expression into a scalar ConstantExpression.
     let tryEvaluateUncorrelatedScalar (expr: Expression) : Expression option =
         try
-            let lambda = Expression.Lambda(Expression.Convert(expr, typeof<obj>)).Compile()
-            let resultVal = lambda.DynamicInvoke()
+            let lambda = Expression.Lambda<Func<obj>>(Expression.Convert(expr, typeof<obj>)).Compile()
+            let resultVal = lambda.Invoke()
 
             if isNull resultVal then
                 Some(Expression.Constant(null, expr.Type) :> Expression)
@@ -260,7 +253,7 @@ module internal SubqueryDecorrelator =
         | _ when
             containsSubquery expr
             && not (outerNames |> Set.exists (fun name -> containsParameter name expr))
-            && isScalarType expr.Type
+            && PolarsTypeHelper.IsScalarType expr.Type
             ->
             match tryEvaluateUncorrelatedScalar expr with
             | Some foldedConstant -> foldedConstant, true
@@ -373,6 +366,7 @@ module internal SubqueryDecorrelator =
         {
             InnerSeq: Expression
             MethodName: string
+            TargetType: Type
             SelectorLambdaOpt: LambdaExpression option
             ExtraWhereLambdaOpt: LambdaExpression option
         }
@@ -467,6 +461,7 @@ module internal SubqueryDecorrelator =
                     {
                         InnerSeq = src
                         MethodName = methodName
+                        TargetType = mc.Type
                         SelectorLambdaOpt = selLamOpt
                         ExtraWhereLambdaOpt = None
                     }
@@ -475,6 +470,7 @@ module internal SubqueryDecorrelator =
                     {
                         InnerSeq = innerSeq
                         MethodName = methodName
+                        TargetType = mc.Type
                         SelectorLambdaOpt = if isCount then None else Some lam
                         ExtraWhereLambdaOpt = if isCount then Some lam else None
                     }
@@ -485,6 +481,7 @@ module internal SubqueryDecorrelator =
                     {
                         InnerSeq = src
                         MethodName = methodName
+                        TargetType = mc.Type
                         SelectorLambdaOpt = selLamOpt
                         ExtraWhereLambdaOpt = None
                     }
@@ -493,6 +490,7 @@ module internal SubqueryDecorrelator =
                     {
                         InnerSeq = target
                         MethodName = methodName
+                        TargetType = mc.Type
                         SelectorLambdaOpt = if isCount then None else Some lam
                         ExtraWhereLambdaOpt = if isCount then Some lam else None
                     }
@@ -709,45 +707,65 @@ module internal SubqueryDecorrelator =
                 }
 
     /// Builds a physical reduction aggregation handle (Len() for Count/Any, or translated reduction op).
-    let internal tryBuildAggHandle
+    let internal tryBuildAggHandleWithContext
         (rightLf: LazyFrameHandle)
         (methodName: string)
         (isAnyOrCount: bool)
         (selectorLambdaOpt: LambdaExpression option)
+        (explicitCtxOpt: TranslationContext option)
+        (colNameResolver: string -> string)
         : ExprHandle option =
         if isAnyOrCount || methodName = "Count" || methodName = "LongCount" then
             Some(PolarsWrapper.Len())
         elif methodName = "ToList" || methodName = "ToArray" then
             match selectorLambdaOpt with
             | Some selLam ->
-                let selParam = selLam.Parameters.[0]
-                let selCtx = createContextForType selParam.Type rightLf selParam.Name
+                let ctx =
+                    match explicitCtxOpt with
+                    | Some c -> c
+                    | None ->
+                        let selParam = selLam.Parameters.[0]
+                        createContextForType selParam.Type rightLf selParam.Name
 
-                ExprTranslator.tryTranslateWithContext selCtx selLam.Body
+                ExprTranslator.tryTranslateWithContext ctx selLam.Body
                 |> Option.map (fun colH -> PolarsWrapper.Implode(colH, maintainOrder = true))
             | None ->
                 let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
 
                 if rightCols.Length > 0 then
-                    Some(PolarsWrapper.Implode(PolarsWrapper.Col rightCols.[0], maintainOrder = true))
+                    let cName = colNameResolver rightCols.[0]
+                    Some(PolarsWrapper.Implode(PolarsWrapper.Col cName, maintainOrder = true))
                 else
                     None
         else
             match selectorLambdaOpt with
             | Some selLam ->
-                let selParam = selLam.Parameters.[0]
-                let selCtx = createContextForType selParam.Type rightLf selParam.Name
+                let ctx =
+                    match explicitCtxOpt with
+                    | Some c -> c
+                    | None ->
+                        let selParam = selLam.Parameters.[0]
+                        createContextForType selParam.Type rightLf selParam.Name
 
-                ExprTranslator.tryTranslateWithContext selCtx selLam.Body
+                ExprTranslator.tryTranslateWithContext ctx selLam.Body
                 |> Option.bind (ExprTranslator.translateReductionOp methodName)
             | None ->
                 let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
 
                 if rightCols.Length > 0 then
-                    PolarsWrapper.Col rightCols.[0]
+                    let cName = colNameResolver rightCols.[0]
+                    PolarsWrapper.Col cName
                     |> ExprTranslator.translateReductionOp methodName
                 else
                     None
+
+    let internal tryBuildAggHandle
+        (rightLf: LazyFrameHandle)
+        (methodName: string)
+        (isAnyOrCount: bool)
+        (selectorLambdaOpt: LambdaExpression option)
+        : ExprHandle option =
+        tryBuildAggHandleWithContext rightLf methodName isAnyOrCount selectorLambdaOpt None id
 
     // =========================================================================
     // 4. Semi/Anti Join Filter Decorrelation (Step 1)
@@ -1094,6 +1112,19 @@ module internal SubqueryDecorrelator =
                 let uid = Guid.NewGuid().ToString "N"
                 let aggColName = $"__subquery_agg_{uid}"
 
+                let buildAggColBase (colName: string) =
+                    if isCount then
+                        PolarsWrapper.FillNull(PolarsWrapper.Col colName, PolarsWrapper.Lit 0u)
+                    elif aggCall.MethodName = "Sum" then
+                        match PolarsTypeHelper.GetNumericZeroValue aggCall.TargetType with
+                        | null -> PolarsWrapper.Col colName
+                        | zeroVal ->
+                            let core = PolarsTypeHelper.UnwrapCoreType aggCall.TargetType
+                            let zeroH = ExprTranslator.toLiteralHandle zeroVal core
+                            PolarsWrapper.FillNull(PolarsWrapper.Col colName, zeroH)
+                    else
+                        PolarsWrapper.Col colName
+
                 if parts.ThetaConditions.IsEmpty then
                     let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
 
@@ -1107,11 +1138,7 @@ module internal SubqueryDecorrelator =
 
                     let! outerSideH = ExprTranslator.tryTranslateWithContext outerCtx outerSideExpr
 
-                    let aggColBaseH =
-                        if isCount then
-                            PolarsWrapper.FillNull(PolarsWrapper.Col aggColName, PolarsWrapper.Lit 0u)
-                        else
-                            PolarsWrapper.Col aggColName
+                    let aggColBaseH = buildAggColBase aggColName
 
                     let! scaledAggH =
                         match scale with
@@ -1294,11 +1321,7 @@ module internal SubqueryDecorrelator =
 
                     let! outerSideH = ExprTranslator.tryTranslateWithContext outerCtx outerSideExpr
 
-                    let aggColBaseH =
-                        if isCount then
-                            PolarsWrapper.FillNull(PolarsWrapper.Col aggColName, PolarsWrapper.Lit 0u)
-                        else
-                            PolarsWrapper.Col aggColName
+                    let aggColBaseH = buildAggColBase aggColName
 
                     let! scaledAggH =
                         match scale with
@@ -1662,18 +1685,11 @@ module internal SubqueryDecorrelator =
                                     if cand.IsAny || cand.MethodName = "Count" || cand.MethodName = "LongCount" then
                                         Some(PolarsWrapper.Lit 0u)
                                     elif cand.MethodName = "Sum" then
-                                        if cand.TargetType = typeof<double> then
-                                            Some(PolarsWrapper.Lit 0.0)
-                                        elif cand.TargetType = typeof<float> then
-                                            Some(PolarsWrapper.Lit 0.0f)
-                                        elif cand.TargetType = typeof<int> then
-                                            Some(PolarsWrapper.Lit 0)
-                                        elif cand.TargetType = typeof<int64> then
-                                            Some(PolarsWrapper.Lit 0L)
-                                        elif cand.TargetType = typeof<decimal> then
-                                            Some(PolarsWrapper.Lit 0.0)
-                                        else
-                                            None
+                                        match PolarsTypeHelper.GetNumericZeroValue cand.TargetType with
+                                        | null -> None
+                                        | zeroVal ->
+                                            let core = PolarsTypeHelper.UnwrapCoreType cand.TargetType
+                                            Some(ExprTranslator.toLiteralHandle zeroVal core)
                                     else
                                         None
 
@@ -1824,45 +1840,16 @@ module internal SubqueryDecorrelator =
                             let filteredLf = PolarsWrapper.LazyFilter(joinedLf, thetaFilterH)
 
                             let buildAgg (cand: ProjectionSubqueryCandidate) =
-                                if cand.IsAny || cand.MethodName = "Count" || cand.MethodName = "LongCount" then
-                                    Some(PolarsWrapper.Len())
-                                elif cand.MethodName = "ToList" || cand.MethodName = "ToArray" then
-                                    match cand.SelectorLambdaOpt with
-                                    | Some selLam ->
-                                        ExprTranslator.tryTranslateWithContext correlatedCtx selLam.Body
-                                        |> Option.map (fun colH -> PolarsWrapper.Implode(colH, maintainOrder = true))
-                                    | None ->
-                                        let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
+                                let colResolver c =
+                                    if leftCols.Contains c then c + rightSuffix else c
 
-                                        if rightCols.Length > 0 then
-                                            let cName =
-                                                if leftCols.Contains rightCols.[0] then
-                                                    rightCols.[0] + rightSuffix
-                                                else
-                                                    rightCols.[0]
-
-                                            Some(PolarsWrapper.Implode(PolarsWrapper.Col cName, maintainOrder = true))
-                                        else
-                                            None
-                                else
-                                    match cand.SelectorLambdaOpt with
-                                    | Some selLam ->
-                                        ExprTranslator.tryTranslateWithContext correlatedCtx selLam.Body
-                                        |> Option.bind (ExprTranslator.translateReductionOp cand.MethodName)
-                                    | None ->
-                                        let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
-
-                                        if rightCols.Length > 0 then
-                                            let cName =
-                                                if leftCols.Contains rightCols.[0] then
-                                                    rightCols.[0] + rightSuffix
-                                                else
-                                                    rightCols.[0]
-
-                                            PolarsWrapper.Col cName
-                                            |> ExprTranslator.translateReductionOp cand.MethodName
-                                        else
-                                            None
+                                tryBuildAggHandleWithContext
+                                    rightLf
+                                    cand.MethodName
+                                    cand.IsAny
+                                    cand.SelectorLambdaOpt
+                                    (Some correlatedCtx)
+                                    colResolver
 
                             let! assignments = assignAggCols buildAgg indexedCandidates []
 

@@ -225,16 +225,35 @@ public static class PolarsTypeHelper
         return typeof(string);
     }
 
-    private static bool IsNumeric(Type type)
+    /// <summary>
+    /// Checks whether the specified type represents a supported numeric primitive or value
+    /// (e.g. byte, int, long, float, double, decimal, Half, Int128, etc., including Nullable equivalents).
+    /// </summary>
+    public static bool IsNumeric(Type? type)
     {
-        return type == typeof(byte) || type == typeof(sbyte) ||
-               type == typeof(short) || type == typeof(ushort) ||
-               type == typeof(int) || type == typeof(uint) ||
-               type == typeof(long) || type == typeof(ulong) ||
-               type == typeof(Half) || type == typeof(float) ||
-               type == typeof(double) || type == typeof(decimal) ||
-               type == typeof(Int128) || type == typeof(UInt128);
+        if (type == null) return false;
+        Type core = UnwrapCoreType(type);
+        return core == typeof(byte) || core == typeof(sbyte) ||
+               core == typeof(short) || core == typeof(ushort) ||
+               core == typeof(int) || core == typeof(uint) ||
+               core == typeof(long) || core == typeof(ulong) ||
+               core == typeof(Half) || core == typeof(float) ||
+               core == typeof(double) || core == typeof(decimal) ||
+               core == typeof(Int128) || core == typeof(UInt128);
     }
+
+    /// <summary>
+    /// Returns the zero-value literal object for a given numeric type, or null if not numeric.
+    /// Unwraps Nullable&lt;T&gt;, FSharpOption&lt;T&gt;, and FSharpValueOption&lt;T&gt;.
+    /// </summary>
+    public static object? GetNumericZeroValue(Type? type)
+    {
+        if (type == null) return null;
+        Type core = UnwrapCoreType(type);
+        if (!IsNumeric(core)) return null;
+        return Activator.CreateInstance(core);
+    }
+
     /// <summary>
     /// Checks whether the specified type represents a supported primitive or scalar value
     /// (e.g. primitives, string, decimal, DateOnly, DateTime, TimeSpan, etc., including Nullable<T> equivalents).
