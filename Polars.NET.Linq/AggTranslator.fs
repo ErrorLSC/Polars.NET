@@ -464,8 +464,8 @@ module AggTranslator =
         || t = typeof<DateOnly>
         || t = typeof<TimeOnly>
         || t = typeof<Guid>
-        || (t.IsValueType && Nullable.GetUnderlyingType t <> null)
-        || (t.IsValueType && not (typeof<System.Collections.IEnumerable>.IsAssignableFrom t))
+        || t.IsValueType && Nullable.GetUnderlyingType t <> null
+        || t.IsValueType && not (typeof<System.Collections.IEnumerable>.IsAssignableFrom t)
 
     let rec private tryTranslateAggCore
         (groupParamName: string)
@@ -767,18 +767,8 @@ module AggTranslator =
 
                 let isNativePolarsMethod =
                     match methodInfoOpt with
-                    | Some m when not (isNull m.DeclaringType) ->
-                        let fn = m.DeclaringType.FullName
-                        not (isNull fn) && (
-                            fn = "Polars.CSharp.Expr"
-                            || fn = "Polars.CSharp.Series"
-                            || fn = "Polars.CSharp.DataFrame"
-                            || fn = "Polars.CSharp.LazyFrame"
-                            || fn = "Polars.CSharp.Polars"
-                            || fn = "Polars.Linq"
-                            || fn = "Polars.ExprExtensions"
-                            || fn = "Polars.LinqExtensions")
-                    | _ -> false
+                    | Some m -> ExprTranslator.isInternalOrLinqMethod m
+                    | None -> false
 
                 if isNativePolarsMethod || rawArgs.IsEmpty || not (rawArgs |> List.exists (exprDependsOnParam groupParamName)) then
                     None

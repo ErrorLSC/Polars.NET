@@ -16,16 +16,30 @@
   <ItemGroup>
     <Compile Include="PartialEvaluator.fs" />
     <Compile Include="OpsSpecs.fs" />
-    <Compile Include="QueryCacheKey.fs" />
+    <Compile Include="QueryCache/QueryCacheKey.fs" />
     <Compile Include="JsonTypeInference.fs" />
     <Compile Include="ExpressionPatterns.fs" />
+    <Compile Include="Translators/TranslationContext.fs" />
+    <Compile Include="Translators/ColumnResolver.fs" />
+    <Compile Include="Translators/MemberAccessTranslator.fs" />
+    <Compile Include="Translators/StringTemporalTranslator.fs" />
+    <Compile Include="Translators/NumericTranslator.fs" />
+    <Compile Include="Translators/RegexTranslator.fs" />
+    <Compile Include="Translators/WindowAndMethodTranslator.fs" />
+    <Compile Include="Translators/ListAndJsonTranslator.fs" />
+    <Compile Include="Translators/OperatorAndUdfTranslator.fs" />
     <Compile Include="ExprTranslator.fs" />
     <Compile Include="AggTranslator.fs" />
     <Compile Include="FSharpAstRewriter.fs" />
     <Compile Include="LinqReflectionCache.fs" />
     <Compile Include="SubqueryDecorrelator.fs" />
-    <Compile Include="QueryPlanCache.fs" />
-    <Compile Include="QueryPipelineHelpers.fs" />
+    <Compile Include="QueryCache/QueryPlanCache.fs" />
+    <Compile Include="Pipeline/PipelineTypes.fs" />
+    <Compile Include="Pipeline/PipelineStageParser.fs" />
+    <Compile Include="Pipeline/NativeOpsApplier.fs" />
+    <Compile Include="Pipeline/RelationalCompilers.fs" />
+    <Compile Include="Pipeline/GroupByCompiler.fs" />
+    <Compile Include="Pipeline/GroupingSetsCompiler.fs" />
     <Compile Include="ScalarExecutor.fs" />
     <Compile Include="PolarsQueryable.fs" />
   </ItemGroup>

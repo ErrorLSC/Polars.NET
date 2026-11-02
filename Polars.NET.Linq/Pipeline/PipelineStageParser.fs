@@ -1,0 +1,1135 @@
+namespace Polars.NET.Linq
+
+open System
+open System.Collections.Generic
+open System.Linq
+open System.Linq.Expressions
+open System.Reflection
+open Polars.NET.Core
+open Polars.NET.Core.Helpers
+
+[<AutoOpen>]
+module internal PipelineStageParser =
+
+    // =========================================================================
+    // 1. Type, Schema & Policy Helpers
+    // =========================================================================
+
+    /// Creates an appropriate TranslationContext based on whether the sequence element type
+    /// is a scalar/primitive (bound to the underlying single physical column) or a composite entity.
+    let createContextForType (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
+        SubqueryDecorrelator.createContextForType elemType lf paramName
+
+    /// Creates a TranslationContext that prioritizes registered scope mappings (for deep multi-table joins)
+    /// before falling back to default schema extraction.
+    let createContextWithScope (scopeMap: Map<string * string, string>) (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
+        if scopeMap.IsEmpty then
+            createContextForType elemType lf paramName
+        else
+            let cols = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
+            TranslationContext.ScopedEntity([ paramName ], scopeMap, cols)
+
+    /// Extracts the underlying sequence element type from generic collections/arrays
+    let getSequenceElementType (t: Type) : Type =
+        if t.IsGenericType then t.GetGenericArguments().[0]
+        elif t.IsArray then t.GetElementType()
+        else t
+
+    /// Resolves the single physical column name if the sequence is scalar (e.g. string, int, double).
+    let tryGetScalarColumnName (elemType: Type) (lf: LazyFrameHandle) : string option =
+        if PolarsTypeHelper.IsScalarType elemType then
+            let colNames = PolarsSchemaExtractor.GetColumnNames lf
+            if colNames.Length = 1 then Some colNames.[0] else None
+        else
+            None
+
+    /// Dispatches and resolves predicate into either native ExprHandle pushdown or composed client Func<obj, bool>
+    let tryResolvePredicate
+        (hasClientPreds: bool)
+        (clientProjOpt: (Type * Func<obj, obj>) option)
+        (elemType: Type)
+        (nativeLf: LazyFrameHandle)
+        (predLambdaOpt: LambdaExpression option)
+        : ResolvedPredicate voption =
+        match predLambdaOpt with
+        | None -> ValueNone
+        | Some predLambda ->
+            let nativeFilterOpt =
+                if not hasClientPreds && clientProjOpt.IsNone then
+                    let ctx = createContextForType elemType nativeLf predLambda.Parameters.[0].Name
+                    ExprTranslator.tryTranslateWithContext ctx predLambda.Body
+                else
+                    None
+
+            match nativeFilterOpt with
+            | Some filterExpr -> ValueSome(Pushdown filterExpr)
+            | None ->
+                let compiledPred = predLambda.Compile()
+                let predArgType = predLambda.Parameters.[0].Type
+
+                match clientProjOpt with
+                | Some(sourceType, projFunc) ->
+                    let combinedPred =
+                        LinqReflectionCache.CreateComposedPredicate(sourceType, projFunc, compiledPred, predArgType)
+
+                    ValueSome(Client(sourceType, combinedPred))
+                | None -> ValueSome(Client(elemType, compiledPred))
+
+    /// Enforces client evaluation policy on unpushed scalar/terminal predicates (e.g. First(pred), Any(pred))
+    let enforceClientPredicatePolicy (stage: string, predLambdaOpt: LambdaExpression option) : unit =
+        let policy = CoreConfig.ClientEvaluationPolicy
+        match policy with
+        | ClientEvaluationPolicy.Allow -> ()
+        | ClientEvaluationPolicy.Warn ->
+            let text = match predLambdaOpt with Some p -> p.ToString() | None -> "Predicate"
+            System.Diagnostics.Trace.TraceWarning
+                $"[Polars.NET Warning] Predicate in '%s{stage}' (%s{text}) could not be pushed down and is evaluated on client."
+        | ClientEvaluationPolicy.Strict
+        | _ ->
+            let text = match predLambdaOpt with Some p -> p.ToString() | None -> "Predicate"
+            raise (PolarsPushdownException(stage, text, $"Predicate in '%s{stage}' could not be pushed down to native Polars engine."))
+
+    /// Enforces the ClientEvaluationPolicy against client predicates and full fallbacks
+    let enforcePipelinePolicy
+        (stage: string)
+        (requiresClientFallback: bool)
+        (clientPredsWithAst: (Func<obj, bool> * LambdaExpression) list)
+        (expressionText: string)
+        : unit =
+        let policy = CoreConfig.ClientEvaluationPolicy
+        match policy with
+        | ClientEvaluationPolicy.Allow -> ()
+        | ClientEvaluationPolicy.Warn ->
+            if requiresClientFallback then
+                System.Diagnostics.Trace.TraceWarning
+                    $"[Polars.NET Warning] Query pipeline at stage '%s{stage}' fell back to full client-side in-memory LINQ: %s{expressionText}"
+            elif not clientPredsWithAst.IsEmpty then
+                let predTexts =
+                    clientPredsWithAst
+                    |> List.map (fun (_, l) -> l.ToString())
+                    |> String.concat "; "
+                System.Diagnostics.Trace.TraceWarning
+                    $"[Polars.NET Warning] Query predicate at stage '%s{stage}' fell back to client-side evaluation: %s{predTexts}"
+        | ClientEvaluationPolicy.Strict
+        | _ ->
+            if requiresClientFallback then
+                raise (
+                    PolarsPushdownException(
+                        stage,
+                        expressionText,
+                        "Full in-memory LINQ fallback was triggered due to unsupported query operations or transparent identifiers."
+                    )
+                )
+            elif not clientPredsWithAst.IsEmpty then
+                let firstPred = clientPredsWithAst |> List.head |> snd
+                raise (
+                    PolarsPushdownException(
+                        stage,
+                        firstPred.ToString(),
+                        sprintf "Method, member, or operator in predicate '%s' cannot be pushed down to native Polars engine." (firstPred.ToString())
+                    )
+                )
+
+    /// Post-processes raw scalar aggregate results (handling NaN, empty collections, and F# Option/ValueOption types)
+    let boxScalarResult<'TResult> (rawScalar: obj, methodName: string) : 'TResult =
+        let targetType = typeof<'TResult>
+
+        let isEmpty =
+            isNull rawScalar || rawScalar :? double && Double.IsNaN(rawScalar :?> double)
+
+        if isEmpty then
+            match methodName with
+            | "Sum" ->
+                if PolarsTypeHelper.AcceptsNull targetType then
+                    LinqReflectionCache.GetEmptyOptionalValue targetType :?> 'TResult
+                else
+                    Activator.CreateInstance targetType :?> 'TResult
+            | "Average"
+            | "Min"
+            | "Max" ->
+                if PolarsTypeHelper.AcceptsNull targetType then
+                    LinqReflectionCache.GetEmptyOptionalValue targetType :?> 'TResult
+                else
+                    invalidOp "Sequence contains no elements."
+            | _ -> invalidOp "Sequence contains no elements."
+        else
+            let struct (_, kind) = PolarsTypeHelper.GetOptionalInfo targetType
+
+            match kind with
+            | OptionalKind.FSharpOption ->
+                let someMethod = targetType.GetMethod "Some"
+
+                let converted =
+                    Convert.ChangeType(rawScalar, PolarsTypeHelper.GetUnderlyingOrSelf targetType)
+
+                someMethod.Invoke(null, [| converted |]) :?> 'TResult
+            | OptionalKind.FSharpValueOption ->
+                let vSomeMethod = targetType.GetMethod "NewValueSome"
+
+                let converted =
+                    Convert.ChangeType(rawScalar, PolarsTypeHelper.GetUnderlyingOrSelf targetType)
+
+                vSomeMethod.Invoke(null, [| converted |]) :?> 'TResult
+            | OptionalKind.Nullable ->
+                Convert.ChangeType(rawScalar, PolarsTypeHelper.GetUnderlyingOrSelf targetType) :?> 'TResult
+            | _ -> Convert.ChangeType(rawScalar, targetType) :?> 'TResult
+
+    /// Maps standard reduction method names to Polars aggregate expressions
+    let resolveScalarAggExpr (methodName: string) (colExpr: ExprHandle) : ExprHandle =
+        match methodName with
+        | "Max" -> PolarsWrapper.Max colExpr
+        | "Min" -> PolarsWrapper.Min colExpr
+        | "Sum" -> PolarsWrapper.Sum colExpr
+        | "Average" -> PolarsWrapper.Mean colExpr
+        | other -> failwithf "Unsupported scalar aggregate operator: %s" other
+
+    let private invokeWithBoxedParam (lambda: LambdaExpression) : InvocationExpression * ParameterExpression =
+        let paramType = lambda.Parameters.[0].Type
+        let rawParam = Expression.Parameter(typeof<obj>, "rawItem")
+
+        let castParam =
+            if paramType = typeof<obj> then
+                rawParam :> Expression
+            else
+                Expression.Convert(rawParam, paramType) :> Expression
+
+        Expression.Invoke(lambda, castParam), rawParam
+
+    /// Compiles any lambda predicate into a type-safe boxed delegate Func<obj, bool>
+    /// to safely evaluate against raw materialized source entities without generic coupling.
+    let compileClientPredicate (lambda: LambdaExpression) : Func<obj, bool> =
+        let invoked, rawParam = invokeWithBoxedParam lambda
+        Expression.Lambda<Func<obj, bool>>(invoked, rawParam).Compile()
+
+    /// Compiles a lambda into a typed Func<obj, obj> without DynamicInvoke reflection overhead.
+    let compileToBoxedFunc (lambda: LambdaExpression) : Func<obj, obj> =
+        let invoked, rawParam = invokeWithBoxedParam lambda
+        let boxedResult = Expression.Convert(invoked, typeof<obj>)
+        Expression.Lambda<Func<obj, obj>>(boxedResult, rawParam).Compile()
+
+    /// Helper to extract all column names and their corresponding DataTypeHandle from a LazyFrame schema
+    let getLazySchemaFields (lf: LazyFrameHandle) : (string * DataTypeHandle) array =
+        let schema = PolarsWrapper.GetLazySchema lf
+        let count = PolarsWrapper.GetSchemaLen schema
+
+        Array.init (int count) (fun i ->
+            let mutable name = null
+            let mutable dtHandle = new DataTypeHandle()
+            PolarsWrapper.GetSchemaFieldAt(schema, uint64 i, &name, &dtHandle)
+            name, dtHandle)
+
+    /// Disambiguates duplicate column names against an existing set of columns by appending a given suffix,
+    /// returning the safely renamed LazyFrame, updated column set, and a renaming map.
+    let disambiguateColumns
+        (existingCols: Set<string>)
+        (lf: LazyFrameHandle)
+        (suffix: string)
+        : LazyFrameHandle * Set<string> * Map<string, string> =
+        let cols = PolarsSchemaExtractor.GetColumnNames lf
+        let duplicates = cols |> Array.filter existingCols.Contains
+
+        if duplicates.Length > 0 then
+            let newNames = duplicates |> Array.map (fun c -> c + suffix)
+            let renamedLf = PolarsWrapper.LazyRename(lf, duplicates, newNames, strict = false)
+            let suffixMap = Array.zip duplicates newNames |> Map.ofArray
+            renamedLf, existingCols |> Set.union (Set.ofArray cols), suffixMap
+        else
+            lf, existingCols |> Set.union (Set.ofArray cols), Map.empty
+
+    /// Applies eager row shuffling (sample_frac = 1.0, without replacement) to a DataFrame.
+    let applyShuffle (df: DataFrameHandle) : DataFrameHandle =
+        let fracHandle = PolarsWrapper.SeriesNew("", [| 1.0 |])
+        PolarsWrapper.SampleFrac(df, fracHandle, false, Nullable true, Nullable())
+
+    // =========================================================================
+    // 2. AST & Member Binding Extractors
+    // =========================================================================
+
+    let rec private hasStaticMethodCall (methodName: string) (e: Expression) : bool =
+        match e with
+        | null -> false
+        | MethodCall(m, null, _) when m.Name = methodName -> true
+        | MethodCall(_, null, args) -> args |> List.exists (hasStaticMethodCall methodName)
+        | _ -> false
+
+    /// Recursively inspects the expression tree to locate Chunk(size) invocations.
+    let rec tryExtractChunkSize (e: Expression) : int option =
+        match e with
+        | null -> None
+        | MethodCall(m, null, [ _; sizeExpr ]) when m.Name = "Chunk" ->
+            tryEvaluate sizeExpr |> Option.map Convert.ToInt32
+        | MethodCall(_, null, args) -> args |> List.tryPick tryExtractChunkSize
+        | _ -> None
+
+    /// Recursively inspects the expression tree to detect if Shuffle() was called.
+    let hasShuffle (e: Expression) : bool = hasStaticMethodCall "Shuffle" e
+
+    /// Recursively inspects the expression tree to locate AggregateBy invocations.
+    let rec tryExtractAggregateBy (e: Expression) =
+        match e with
+        | null -> None
+        | MethodCall(m, null, source :: CleanLambda k :: seedExpr :: CleanLambda f :: rest) when
+            m.Name = "AggregateBy"
+            ->
+            let seedLambdaOpt =
+                match seedExpr with
+                | CleanLambda s -> Some s
+                | _ -> None
+
+            Some(source, k, seedExpr, seedLambdaOpt, f, List.tryHead rest)
+        | MethodCall(_, null, args) -> args |> List.tryPick tryExtractAggregateBy
+        | _ -> None
+
+    /// Recursively inspects the expression tree to locate DefaultIfEmpty invocations.
+    let rec tryExtractDefaultIfEmpty (e: Expression) : (bool * obj option) option =
+        match e with
+        | null -> None
+        | MethodCall(m, null, _ :: rest) when m.Name = "DefaultIfEmpty" && rest.Length <= 1 ->
+            Some(true, rest |> List.tryHead |> Option.bind tryEvaluate)
+        | MethodCall(_, null, args) -> args |> List.tryPick tryExtractDefaultIfEmpty
+        | _ -> None
+
+    /// Recursively inspects the expression tree to locate GroupBy key and optional element selectors.
+    let rec tryExtractGroupByInfo (e: Expression) : (LambdaExpression * LambdaExpression option) option =
+        match e with
+        | null -> None
+        | MethodCall(m, null, [ _; CleanLambda k; CleanLambda elem ]) when m.Name = "GroupBy" ->
+            Some(k, Some elem)
+        | MethodCall(m, null, [ _; CleanLambda k ]) when m.Name = "GroupBy" -> Some(k, None)
+        | MethodCall(_, null, args) -> args |> List.tryPick tryExtractGroupByInfo
+        | _ -> None
+
+    /// Recursively inspects the expression tree to detect if GroupJoin() was called.
+    let hasGroupJoin (e: Expression) : bool = hasStaticMethodCall "GroupJoin" e
+
+    /// Recursively inspects the expression tree to locate OrderBy/OrderByDescending sort selectors.
+    let rec tryExtractSortSelector (e: Expression) : (LambdaExpression * bool) option =
+        match e with
+        | null -> None
+        | MethodCall(m, null, [ _; CleanLambda l ]) when m.Name = "OrderBy" || m.Name = "OrderByDescending" ->
+            Some(l, m.Name = "OrderByDescending")
+        | MethodCall(_, null, args) -> args |> List.tryPick tryExtractSortSelector
+        | _ -> None
+
+    /// Recursively locates the root IQueryable / IPolarsPlanSource ConstantExpression in a LINQ pipeline.
+    let rec tryFindRootQueryable (e: Expression) : (Expression * Type) option =
+        match e with
+        | null -> None
+        | :? ConstantExpression as ce when
+            typeof<IQueryable>.IsAssignableFrom(ce.Type)
+            || typeof<IPolarsPlanSource>.IsAssignableFrom(ce.Type)
+            ->
+            Some(ce :> Expression, ce.Type)
+        | :? MethodCallExpression as mc when mc.Arguments.Count > 0 -> tryFindRootQueryable mc.Arguments.[0]
+        | _ -> None
+
+    /// Extracts member names matching properties or capitalizes them to PascalCase
+    let extractPascalCaseMemberNames (newExpr: NewExpression) : string list =
+        if not (isNull newExpr.Members) then
+            newExpr.Members |> Seq.map (fun m -> m.Name) |> Seq.toList
+        else
+            let t = newExpr.Type
+            newExpr.Constructor.GetParameters()
+            |> Seq.map (fun p ->
+                if String.IsNullOrEmpty p.Name then
+                    "Col"
+                else
+                    match t.GetProperty(p.Name, BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.IgnoreCase) with
+                    | prop when not (isNull prop) -> prop.Name
+                    | _ ->
+                        Char.ToUpperInvariant(p.Name.[0]).ToString() + p.Name.Substring 1)
+            |> Seq.toList
+
+    /// Extracts column names from a DistinctBy keySelector lambda
+    let extractDistinctColumns (keyLambda: LambdaExpression) : string array option =
+        match keyLambda.Body with
+        | ExtractColumnName colName -> Some [| colName |]
+        | :? NewExpression as newExpr -> Some(extractPascalCaseMemberNames newExpr |> List.toArray)
+        | :? MemberInitExpression as initExpr ->
+            Some(initExpr.Bindings |> Seq.map (fun b -> b.Member.Name) |> Seq.toArray)
+        | _ -> None
+
+    /// Extracts target column name for SelectMany/Explode
+    let extractExplodeColumn (colLambda: LambdaExpression) : string option =
+        match colLambda.Body with
+        | ExtractColumnName colName -> Some colName
+        | _ -> None
+
+    /// Uniformly extracts member name and expression pairs from NewExpression or MemberInitExpression
+    let tryExtractMemberBindings (expr: Expression) : (string * Expression) list option =
+        match expr with
+        | :? NewExpression as newExpr ->
+            let names = extractPascalCaseMemberNames newExpr
+            Some(List.zip names (newExpr.Arguments |> Seq.toList))
+        | :? MemberInitExpression as initExpr ->
+            let bindings =
+                initExpr.Bindings
+                |> Seq.choose (function
+                    | :? MemberAssignment as a -> Some(a.Member.Name, a.Expression)
+                    | _ -> None)
+                |> Seq.toList
+
+            if bindings.Length = initExpr.Bindings.Count then
+                Some bindings
+            else
+                None
+        | MethodCall(m, null, args) when m.Name = "Create" && not (isNull m.DeclaringType) && m.DeclaringType.Name = "Tuple" ->
+            let names = [ for i in 1 .. args.Length -> sprintf "Item%d" i ]
+            Some(List.zip names args)
+        | MethodCall(m, null, [ k; v ]) when m.Name = "Create" && not (isNull m.DeclaringType) && m.DeclaringType.Name = "KeyValuePair" ->
+            Some [ ("Key", k); ("Value", v) ]
+        | :? NewExpression as ne when ne.Type.Name.StartsWith "KeyValuePair" && ne.Arguments.Count = 2 ->
+            Some [ ("Key", ne.Arguments.[0]); ("Value", ne.Arguments.[1]) ]
+        | :? ConstantExpression as ce when not (isNull ce.Value) && not (PolarsTypeHelper.IsScalarType ce.Type) ->
+            let props = ce.Type.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+            if props.Length > 0 then
+                let bindings =
+                    props
+                    |> Array.map (fun p -> p.Name, Expression.Constant(p.GetValue(ce.Value), p.PropertyType) :> Expression)
+                    |> Array.toList
+                Some bindings
+            else
+                None
+        | _ -> None
+
+    /// Pattern structure representing an Unpivot (Melt) operation extracted from SelectMany
+    type internal UnpivotPattern =
+        {
+            ExplicitIndexCols: string list
+            VarPropName: string
+            ValPropName: string
+            VariableName: string
+            ValueName: string
+            OnCols: string array
+            LabelMappings: (string * string) list
+        }
+
+    /// Tries to recognize whether a SelectMany collection selector is unpivoting multiple columns
+    let tryExtractUnpivotPattern
+        (colLambda: LambdaExpression)
+        (resLambdaOpt: LambdaExpression option)
+        : UnpivotPattern option =
+        if colLambda.Parameters.Count <> 1 then
+            None
+        else
+            let outerParam = colLambda.Parameters.[0]
+            let cleanBody = ExprTranslator.unwrap colLambda.Body
+
+            match cleanBody with
+            | :? NewArrayExpression as nae when
+                (nae.NodeType = ExpressionType.NewArrayInit) && nae.Expressions.Count >= 1
+                ->
+                let elems = nae.Expressions |> Seq.toList
+                let elemBindingsOpt =
+                    elems
+                    |> List.choose tryExtractMemberBindings
+
+                if elemBindingsOpt.Length <> elems.Length || elems.IsEmpty then
+                    None
+                else
+                    let firstNames = elemBindingsOpt.Head |> List.map fst
+                    let allSameStructure =
+                        elemBindingsOpt
+                        |> List.forall (fun b -> List.map fst b = firstNames)
+
+                    if not allSameStructure then
+                        None
+                    else
+                        let memberColumns =
+                            firstNames
+                            |> List.map (fun name ->
+                                let exprs =
+                                    elemBindingsOpt
+                                    |> List.map (fun b ->
+                                        b
+                                        |> List.find (fun (n, _) -> n = name)
+                                        |> snd
+                                        |> ExprTranslator.unwrap)
+                                name, exprs)
+
+                        let isInvariantOuterMember (exprs: Expression list) =
+                            let names =
+                                exprs
+                                |> List.choose (function
+                                    | MemberAccess(target, m) when
+                                        match ExprTranslator.unwrap target with
+                                        | :? ParameterExpression as p -> p.Name = outerParam.Name
+                                        | _ -> false
+                                        -> Some m.Name
+                                    | _ -> None)
+                            if names.Length = exprs.Length && (names |> Set.ofList |> Set.count = 1) then
+                                Some names.Head
+                            else
+                                None
+
+                        let isConstantMember (exprs: Expression list) =
+                            let consts =
+                                exprs
+                                |> List.choose (function
+                                    | :? ConstantExpression as ce when not (isNull ce.Value) ->
+                                        Some(ce.Value.ToString())
+                                    | other ->
+                                        match tryEvaluate other with
+                                        | Some v when not (isNull v) -> Some(v.ToString())
+                                        | _ -> None)
+                            if consts.Length = exprs.Length then
+                                Some consts
+                            else
+                                None
+
+                        let isVaryingOuterMember (exprs: Expression list) =
+                            let names =
+                                exprs
+                                |> List.choose (function
+                                    | MemberAccess(target, m) when
+                                        match ExprTranslator.unwrap target with
+                                        | :? ParameterExpression as p -> p.Name = outerParam.Name
+                                        | _ -> false
+                                        -> Some m.Name
+                                    | _ -> None)
+                            if names.Length = exprs.Length then
+                                Some names
+                            else
+                                None
+
+                        let mutable explicitIndexCols = []
+                        let mutable varMemberOpt = None
+                        let mutable valMemberOpt = None
+
+                        for (name, exprs) in memberColumns do
+                            match isInvariantOuterMember exprs with
+                            | Some colName ->
+                                explicitIndexCols <- explicitIndexCols @ [ colName ]
+                            | None ->
+                                match isConstantMember exprs with
+                                | Some consts ->
+                                    varMemberOpt <- Some (name, consts)
+                                | None ->
+                                    match isVaryingOuterMember exprs with
+                                    | Some colNames ->
+                                        valMemberOpt <- Some (name, colNames)
+                                    | None -> ()
+
+                        match varMemberOpt, valMemberOpt with
+                        | Some(varPropName, consts), Some(valPropName, colNames) ->
+                            let inferredVarName, inferredValName =
+                                match resLambdaOpt with
+                                | Some resSel when resSel.Parameters.Count >= 2 ->
+                                    let pInner = resSel.Parameters.[1]
+                                    match tryExtractMemberBindings resSel.Body with
+                                    | Some bindings ->
+                                        let findAssignedName prop =
+                                            bindings
+                                            |> List.tryPick (fun (targetName, e) ->
+                                                match ExprTranslator.unwrap e with
+                                                | MemberAccess(target, m) when
+                                                    (match ExprTranslator.unwrap target with :? ParameterExpression as p -> p.Name = pInner.Name | _ -> false)
+                                                    && m.Name = prop -> Some targetName
+                                                | _ -> None)
+                                        let vName = findAssignedName varPropName |> Option.defaultValue varPropName
+                                        let valName = findAssignedName valPropName |> Option.defaultValue valPropName
+                                        vName, valName
+                                    | None -> varPropName, valPropName
+                                | _ -> varPropName, valPropName
+
+                            let finalVarName =
+                                if inferredVarName.StartsWith "Item" || inferredVarName = "Key" then "variable"
+                                else inferredVarName
+
+                            let finalValName =
+                                if inferredValName.StartsWith "Item" || inferredValName = "Value" then "value"
+                                else inferredValName
+
+                            let onCols = colNames |> List.toArray
+                            let labelMappings = List.zip colNames consts
+
+                            Some {
+                                ExplicitIndexCols = explicitIndexCols
+                                VarPropName = varPropName
+                                ValPropName = valPropName
+                                VariableName = finalVarName
+                                ValueName = finalValName
+                                OnCols = onCols
+                                LabelMappings = labelMappings
+                            }
+                        | _ -> None
+            | _ -> None
+
+    let isUnpivotPattern (colLambda: LambdaExpression) : bool =
+        tryExtractUnpivotPattern colLambda None |> Option.isSome
+
+    /// Inspects GroupJoin result selector to detect group-level aggregations (e.g., g.Count())
+    let tryExtractGroupAgg
+        (groupParamName: string)
+        (resLambda: LambdaExpression)
+        : (string * ExprHandle) option =
+        match resLambda.Body with
+        | :? NewExpression as newExpr ->
+            let args = newExpr.Arguments |> Seq.toList
+            let memberNames = extractPascalCaseMemberNames newExpr
+
+            List.zip memberNames args
+            |> List.tryPick (fun (memName, arg) ->
+                match arg with
+                | MethodCall(m, _, (:? ParameterExpression as p) :: _) when
+                    p.Name = groupParamName && (m.Name = "Count" || m.Name = "LongCount")
+                    ->
+                    Some(memName, PolarsWrapper.Alias(PolarsWrapper.Len(), memName))
+                | _ -> None)
+        | _ -> None
+
+    /// Desugars a .NET 11 GroupJoin downstream projection (g => body)
+    /// into a classic 2-parameter result selector ((outer, innerGroup) => body)
+    /// where g.Key maps to 'outer' and 'g' (as IEnumerable) maps to 'innerGroup'.
+    let desugarGroupJoinProject
+        (projLambda: LambdaExpression)
+        (outerType: Type)
+        (innerType: Type)
+        : LambdaExpression =
+        let gParam = projLambda.Parameters.[0]
+        let pOuter = Expression.Parameter(outerType, "outer")
+        let innerSeqType = typedefof<IEnumerable<_>>.MakeGenericType(innerType)
+        let pInnerGroup = Expression.Parameter(innerSeqType, "innerGroup")
+
+        let replacer =
+            { new ExpressionVisitor() with
+                override _.VisitMember(node: MemberExpression) =
+                    match ExprTranslator.unwrap node.Expression with
+                    | :? ParameterExpression as p when p.Name = gParam.Name && node.Member.Name = "Key" ->
+                        pOuter :> Expression
+                    | _ -> base.VisitMember(node)
+
+                override _.VisitParameter(node: ParameterExpression) =
+                    if node.Name = gParam.Name then
+                        pInnerGroup :> Expression
+                    else
+                        base.VisitParameter node
+            }
+
+        let newBody = replacer.Visit projLambda.Body
+
+        let delegateType =
+            typedefof<Func<_, _, _>>.MakeGenericType(outerType, innerSeqType, projLambda.ReturnType)
+
+        Expression.Lambda(delegateType, newBody, [| pOuter; pInnerGroup |])
+
+    /// Universally extracts column renaming mappings from a two-parameter result selector
+    let extractBinaryResultRenames
+        (resLambda: LambdaExpression)
+        (explodedInfoOpt: (string * string) option)
+        : (string * string) list =
+        match resLambda.Body with
+        | :? NewExpression as newExpr ->
+            let args = newExpr.Arguments |> Seq.toList
+            let memberNames = extractPascalCaseMemberNames newExpr
+
+            List.zip memberNames args
+            |> List.choose (fun (memName, arg) ->
+                match explodedInfoOpt with
+                | Some(itemParamName, explodedCol) when
+                    (match arg with
+                     | :? ParameterExpression as p -> p.Name = itemParamName
+                     | _ -> false)
+                    && memName <> explodedCol
+                    ->
+                    Some(explodedCol, memName)
+                | _ ->
+                    match arg with
+                    | ExtractColumnName srcCol when srcCol <> memName -> Some(srcCol, memName)
+                    | _ -> None)
+        | _ -> []
+
+    /// Builds a Polars equality filter expression matching an item (scalar primitive or composite entity/record)
+    /// against the columns of a target LazyFrame.
+    let buildItemEqualityFilter (itemVal: obj) (targetLf: LazyFrameHandle) : ExprHandle option =
+        if isNull itemVal then
+            None
+        else
+            let itemType = itemVal.GetType()
+            if PolarsTypeHelper.IsScalarType itemType then
+                let colNames = PolarsSchemaExtractor.GetColumnNames targetLf
+                let targetCol = if colNames.Length > 0 then colNames.[0] else ""
+                let colExpr = PolarsWrapper.Col targetCol
+                let litExpr = ExprTranslator.toLiteralHandle itemVal itemType
+                Some(PolarsWrapper.Eq(colExpr, litExpr))
+            else
+                let props = itemType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+
+                let conditions =
+                    props
+                    |> Array.choose (fun p ->
+                        let v = p.GetValue itemVal
+
+                        if isNull v then
+                            None
+                        else
+                            try
+                                let colExpr = PolarsWrapper.Col p.Name
+                                let lit = ExprTranslator.toLiteralHandle v p.PropertyType
+                                Some(PolarsWrapper.Eq(colExpr, lit))
+                            with _ ->
+                                None)
+
+                if conditions.Length > 0 then
+                    Some(conditions |> Array.reduce (fun acc c -> PolarsWrapper.And(acc, c)))
+                else
+                    None
+
+    // =========================================================================
+    // 3. LINQ Expression Stage Flattener
+    // =========================================================================
+
+    let internal extractTolerance (objVal: obj) : string option * int64 option * double option =
+        if isNull objVal then
+            (None, None, None)
+        else
+            let t = objVal.GetType()
+            if t = typeof<string> then
+                (Some(objVal :?> string), None, None)
+            elif t = typeof<TimeSpan> then
+                let ts = objVal :?> TimeSpan
+                (Some(DurationFormatter.ToPolarsString ts), None, None)
+            elif t = typeof<int64> then
+                (None, Some(objVal :?> int64), None)
+            elif t = typeof<int> then
+                (None, Some(int64 (objVal :?> int)), None)
+            elif t = typeof<double> then
+                (None, None, Some(objVal :?> double))
+            elif t.Name = "AsOfTolerance" || (t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<Nullable<_>> && t.GetGenericArguments().[0].Name = "AsOfTolerance") then
+                let actualObj =
+                    if t.IsGenericType then
+                        let hasValueProp = t.GetProperty("HasValue")
+                        let valueProp = t.GetProperty("Value")
+                        if not (hasValueProp.GetValue(objVal) :?> bool) then null
+                        else valueProp.GetValue(objVal)
+                    else objVal
+                if isNull actualObj then
+                    (None, None, None)
+                else
+                    let actualType = actualObj.GetType()
+                    let sField = actualType.GetField("StringVal", BindingFlags.Instance ||| BindingFlags.NonPublic ||| BindingFlags.Public)
+                    let iField = actualType.GetField("IntVal", BindingFlags.Instance ||| BindingFlags.NonPublic ||| BindingFlags.Public)
+                    let dField = actualType.GetField("FloatVal", BindingFlags.Instance ||| BindingFlags.NonPublic ||| BindingFlags.Public)
+                    let sVal = if isNull sField then null else sField.GetValue(actualObj) :?> string
+                    let iVal = if isNull iField then Nullable<int64>() else iField.GetValue(actualObj) :?> Nullable<int64>
+                    let dVal = if isNull dField then Nullable<double>() else dField.GetValue(actualObj) :?> Nullable<double>
+                    (Option.ofObj sVal, (if iVal.HasValue then Some iVal.Value else None), (if dVal.HasValue then Some dVal.Value else None))
+            else
+                (None, None, None)
+
+    let internal extractStrategy (objVal: obj) : PlAsofStrategy =
+        if isNull objVal then
+            PlAsofStrategy.Backward
+        else
+            try
+                let byteVal = Convert.ToByte(objVal)
+                match byteVal with
+                | 0uy -> PlAsofStrategy.Backward
+                | 1uy -> PlAsofStrategy.Forward
+                | 2uy -> PlAsofStrategy.Nearest
+                | _ -> PlAsofStrategy.Backward
+            with _ -> PlAsofStrategy.Backward
+
+    /// Fuses adjacent sort stages that represent null-handling idioms (e.g. OrderBy(x => x.Score == null).ThenBy(x => x.Score))
+    let rec fuseSortStages (stages: LinqStage list) : LinqStage list =
+        match stages with
+        | LinqStage.Sort(l1, isDesc1, _) :: LinqStage.Sort(l2, isDesc2, _) :: tail ->
+            match tryFuseNullSortPair l1 isDesc1 l2 isDesc2 with
+            | Some (fusedLambda, fusedDesc, fusedNullsLast) ->
+                fuseSortStages (LinqStage.Sort(fusedLambda, fusedDesc, fusedNullsLast) :: tail)
+            | None ->
+                LinqStage.Sort(l1, isDesc1, (if isDesc1 then true else false)) :: fuseSortStages (LinqStage.Sort(l2, isDesc2, (if isDesc2 then true else false)) :: tail)
+        | head :: tail -> head :: fuseSortStages tail
+        | [] -> []
+
+    /// Fuses adjacent sort pairs within GroupFoldContext
+    let rec fuseSortPairs (pairs: (LambdaExpression * bool * bool) list) : (LambdaExpression * bool * bool) list =
+        match pairs with
+        | (l1, isDesc1, _) :: (l2, isDesc2, _) :: tail ->
+            match tryFuseNullSortPair l1 isDesc1 l2 isDesc2 with
+            | Some (fusedLambda, fusedDesc, fusedNullsLast) ->
+                fuseSortPairs ((fusedLambda, fusedDesc, fusedNullsLast) :: tail)
+            | None ->
+                (l1, isDesc1, (if isDesc1 then true else false)) :: fuseSortPairs ((l2, isDesc2, (if isDesc2 then true else false)) :: tail)
+        | head :: tail -> head :: fuseSortPairs tail
+        | [] -> []
+
+    let rec (|GroupByCall|_|) (expr: Expression) =
+        match ExprTranslator.unwrap expr with
+        | MethodCall(m, _, [ source; CleanLambda k ]) when m.Name = "GroupBy" ->
+            Some(source, k)
+        | MethodCall(m, _, [ source; CleanLambda k; CleanLambda _ ]) when m.Name = "GroupBy" ->
+            Some(source, k)
+        | _ -> None
+
+    let rec extractProject (stages: LinqStage list) =
+        match stages with
+        | LinqStage.Project r :: rest -> Some(r, rest)
+        | other :: rest ->
+            match extractProject rest with
+            | Some(r, remaining) -> Some(r, other :: remaining)
+            | None -> None
+        | [] -> None
+
+    /// Recursively flattens a LINQ expression tree into a linear sequence of LinqStage values.
+    let rec flattenStages (e: Expression) (acc: LinqStage list) : LinqStage list =
+        let evalUInt32 opName (expr: Expression) =
+            match tryEvaluate expr with
+            | Some c -> Convert.ToUInt32 c
+            | None -> failwithf "Could not evaluate %s count argument: %A" opName expr
+
+        match e with
+        | null -> fuseSortStages acc
+        | MethodCall(m, null, [ source; StripQuotes(:? LambdaExpression as l) ]) when m.Name = "Select" ->
+            let isPassthrough (body: Expression) =
+                let p = l.Parameters.[0]
+
+                let rec check (expr: Expression) =
+                    match expr with
+                    | null -> false
+                    | :? ParameterExpression as pe when pe.Name = p.Name -> true
+                    | Unary(ExpressionType.Convert, inner)
+                    | Unary(ExpressionType.ConvertChecked, inner)
+                    | Unary(ExpressionType.Quote, inner) -> check inner
+                    | MemberAccess(:? ParameterExpression as pe, memInfo) when
+                        pe.Name = p.Name && isFSharpAnonymousMember memInfo
+                        ->
+                        true
+                    | :? NewExpression as ne when isTupleOrAnonType ne.Type ->
+                        ne.Arguments
+                        |> Seq.mapi (fun idx arg ->
+                            match ExprTranslator.unwrap arg with
+                            | MemberAccess(:? ParameterExpression as pe, mem) when
+                                pe.Name = p.Name
+                                && (mem.Name = sprintf "Item%d" (idx + 1)
+                                    || mem.Name = "Outer" && idx = 0
+                                    || mem.Name = "Inner" && idx = 1)
+                                ->
+                                true
+                            | _ -> false)
+                        |> Seq.forall id
+                    | _ -> false
+
+                check body
+
+            if isPassthrough l.Body then
+                flattenStages source acc
+            else
+                flattenStages source (LinqStage.Project l :: acc)
+
+        // Single-lambda stages: Where, OrderBy/ThenBy, DistinctBy, GroupBy(key), TakeWhile, SkipWhile
+        | MethodCall(m,
+                     null,
+                     [ source; StripQuotes(:? LambdaExpression as l) ]) when
+            m.Name = "Where"
+            || m.Name = "OrderBy"
+            || m.Name = "ThenBy"
+            || m.Name = "OrderByDescending"
+            || m.Name = "ThenByDescending"
+            || m.Name = "DistinctBy"
+            || m.Name = "GroupBy"
+            || m.Name = "TakeWhile"
+            || m.Name = "SkipWhile"
+            ->
+            let stage =
+                match m.Name with
+                | "Where" -> LinqStage.Filter l
+                | "OrderBy" | "ThenBy" -> LinqStage.Sort(l, isDescending = false, nullsLast = false)
+                | "OrderByDescending" | "ThenByDescending" -> LinqStage.Sort(l, isDescending = true, nullsLast = true)
+                | "DistinctBy" -> LinqStage.DistinctBy l
+                | "GroupBy" -> LinqStage.GroupByKey l
+                | "TakeWhile" -> LinqStage.TakeWhile l
+                | _ -> LinqStage.SkipWhile l
+
+            flattenStages source (stage :: acc)
+
+        // Multidimensional Groupings (Scheme A & Scheme B)
+        // Scheme A: RollUp / Cube / GroupingSets with result selector
+        | MethodCall(m, _, [ GroupByCall(source, k); CleanLambda r ]) when m.Name = "RollUp" || m.Name = "Rollup" ->
+            flattenStages source (LinqStage.GroupByRollup(k, r) :: acc)
+
+        | MethodCall(m, _, [ GroupByCall(source, k); CleanLambda r ]) when m.Name = "Cube" ->
+            flattenStages source (LinqStage.GroupByCube(k, r) :: acc)
+
+        | MethodCall(m, _, [ GroupByCall(source, k); setsExpr; CleanLambda r ]) when m.Name = "GroupingSets" ->
+            flattenStages source (LinqStage.GroupByGroupingSets(k, setsExpr, r) :: acc)
+
+        // Scheme B: RollUp / Cube / GroupingSets without result selector, followed by Select (Project)
+        | MethodCall(m, _, [ GroupByCall(source, k) ]) when m.Name = "RollUp" || m.Name = "Rollup" ->
+            match extractProject acc with
+            | Some(r, remaining) ->
+                flattenStages source (LinqStage.GroupByRollup(k, r) :: remaining)
+            | None ->
+                flattenStages source acc
+
+        | MethodCall(m, _, [ GroupByCall(source, k) ]) when m.Name = "Cube" ->
+            match extractProject acc with
+            | Some(r, remaining) ->
+                flattenStages source (LinqStage.GroupByCube(k, r) :: remaining)
+            | None ->
+                flattenStages source acc
+
+        | MethodCall(m, _, [ GroupByCall(source, k); setsExpr ]) when m.Name = "GroupingSets" ->
+            match extractProject acc with
+            | Some(r, remaining) ->
+                flattenStages source (LinqStage.GroupByGroupingSets(k, setsExpr, r) :: remaining)
+            | None ->
+                flattenStages source acc
+
+        // Single-argument (source-only) stages
+        | MethodCall(m, null, [ source ]) ->
+            let stageOpt =
+                match m.Name with
+                | "Distinct" -> Some LinqStage.Distinct
+                | "Index" -> Some LinqStage.Index
+                | "Order" -> Some(LinqStage.SortDefault(isDescending = false, nullsLast = false))
+                | "OrderDescending" -> Some(LinqStage.SortDefault(isDescending = true, nullsLast = true))
+                | "Reverse" -> Some LinqStage.Reverse
+                | "Shuffle" -> Some LinqStage.Shuffle
+                | "DefaultIfEmpty" -> Some(LinqStage.DefaultIfEmpty None)
+                | "Cast" when m.IsGenericMethod -> Some(LinqStage.Cast(m.GetGenericArguments().[0]))
+                | "OfType" when m.IsGenericMethod ->
+                    Some(LinqStage.OfType(getSequenceElementType source.Type, m.GetGenericArguments().[0]))
+                | _ -> None
+
+            match stageOpt with
+            | Some stage -> flattenStages source (stage :: acc)
+            | None -> fuseSortStages acc
+
+        // Count-based slicing stages: Take, Skip, TakeLast, SkipLast
+        | MethodCall(m, null, [ source; countExpr ]) when
+            m.Name = "Take" || m.Name = "Skip" || m.Name = "TakeLast" || m.Name = "SkipLast"
+            ->
+            let n = evalUInt32 m.Name countExpr
+
+            let stage =
+                match m.Name with
+                | "Take" -> LinqStage.Take n
+                | "Skip" -> LinqStage.Skip n
+                | "TakeLast" -> LinqStage.TakeLast n
+                | _ -> LinqStage.SkipLast n
+
+            flattenStages source (stage :: acc)
+
+        | MethodCall(m, null, [ source; CleanLambda k; CleanLambda e; CleanLambda r ]) when m.Name = "GroupBy" ->
+            flattenStages source (LinqStage.GroupByWithElementAndResult(k, e, r) :: acc)
+
+        | MethodCall(m,
+                     null,
+                     [ source; StripQuotes(:? LambdaExpression as k); StripQuotes(:? LambdaExpression as r) ]) when
+            m.Name = "GroupBy"
+            ->
+            flattenStages source (LinqStage.GroupByWithResult(k, r) :: acc)
+
+        // Join, LeftJoin, RightJoin, FullJoin, GroupJoin (with optional result selector)
+        | MethodCall(m,
+                     _,
+                     outer :: inner :: StripQuotes(:? LambdaExpression as outerKey) :: StripQuotes(:? LambdaExpression as innerKey) :: rest) when
+            m.Name = "Join"
+            || m.Name = "LeftJoin"
+            || m.Name = "RightJoin"
+            || m.Name = "FullJoin"
+            || m.Name = "GroupJoin"
+            ->
+            let resSelOpt =
+                match rest with
+                | StripQuotes(:? LambdaExpression as resSel) :: _ -> Some resSel
+                | _ -> None
+
+            let stage =
+                if m.Name = "GroupJoin" then
+                    LinqStage.GroupJoin(m, inner, outerKey, innerKey, resSelOpt)
+                else
+                    LinqStage.Join(m, inner, outerKey, innerKey, resSelOpt)
+
+            flattenStages outer (stage :: acc)
+
+        // JoinAsOf (time-series asof join with optional By partition, tolerance, and strategy)
+        | MethodCall(m,
+                     _,
+                     outer :: inner :: StripQuotes(:? LambdaExpression as outerKey) :: StripQuotes(:? LambdaExpression as innerKey) :: rest) when
+            m.Name = "JoinAsOf"
+            ->
+            let outerByOpt, innerByOpt, resSelOpt, tolExprOpt, stratExprOpt =
+                match rest with
+                | StripQuotes(:? LambdaExpression as ob) :: StripQuotes(:? LambdaExpression as ib) :: StripQuotes(:? LambdaExpression as rs) :: tail ->
+                    let tol = tail |> List.tryItem 0
+                    let strat = tail |> List.tryItem 1
+                    Some ob, Some ib, Some rs, tol, strat
+                | StripQuotes(:? LambdaExpression as ob) :: StripQuotes(:? LambdaExpression as ib) :: tail ->
+                    let tol = tail |> List.tryItem 0
+                    let strat = tail |> List.tryItem 1
+                    Some ob, Some ib, None, tol, strat
+                | StripQuotes(:? LambdaExpression as rs) :: tail ->
+                    let tol = tail |> List.tryItem 0
+                    let strat = tail |> List.tryItem 1
+                    None, None, Some rs, tol, strat
+                | tail ->
+                    let tol = tail |> List.tryItem 0
+                    let strat = tail |> List.tryItem 1
+                    None, None, None, tol, strat
+
+            let tolStr, tolInt, tolFloat =
+                match tolExprOpt with
+                | Some expr ->
+                    let objVal =
+                        match expr with
+                        | :? ConstantExpression as ce -> ce.Value
+                        | _ ->
+                            try Expression.Lambda(expr).Compile().DynamicInvoke()
+                            with _ -> null
+                    extractTolerance objVal
+                | None -> None, None, None
+
+            let strat =
+                match stratExprOpt with
+                | Some expr ->
+                    let objVal =
+                        match expr with
+                        | :? ConstantExpression as ce -> ce.Value
+                        | _ ->
+                            try Expression.Lambda(expr).Compile().DynamicInvoke()
+                            with _ -> null
+                    extractStrategy objVal
+                | None -> PlAsofStrategy.Backward
+
+            let stage =
+                LinqStage.JoinAsOf(
+                    m,
+                    inner,
+                    outerKey,
+                    innerKey,
+                    outerByOpt,
+                    innerByOpt,
+                    resSelOpt,
+                    tolStr,
+                    tolInt,
+                    tolFloat,
+                    strat
+                )
+
+            flattenStages outer (stage :: acc)
+
+        | MethodCall(m, null, [ first; second ]) when m.Name = "Intersect" || m.Name = "Except" ->
+            flattenStages first (LinqStage.SetOp(m, second, None, None) :: acc)
+
+        | MethodCall(m, null, [ first; second; StripQuotes(:? LambdaExpression as keySel) ]) when
+            m.Name = "IntersectBy" || m.Name = "ExceptBy"
+            ->
+            flattenStages first (LinqStage.SetOp(m, second, Some keySel, None) :: acc)
+
+        | MethodCall(m,
+                     null,
+                     [ first; second; StripQuotes(:? LambdaExpression as k1); StripQuotes(:? LambdaExpression as k2) ]) when
+            m.Name = "IntersectBy" || m.Name = "ExceptBy"
+            ->
+            flattenStages first (LinqStage.SetOp(m, second, Some k1, Some k2) :: acc)
+
+        | MethodCall(m, null, [ first; second ]) when m.Name = "Concat" ->
+            flattenStages first (LinqStage.Concat second :: acc)
+
+        | MethodCall(m, null, [ first; second ]) when m.Name = "Union" ->
+            flattenStages first (LinqStage.Union(second, None) :: acc)
+
+        | MethodCall(m, null, [ first; second; StripQuotes(:? LambdaExpression as keySel) ]) when m.Name = "UnionBy" ->
+            flattenStages first (LinqStage.Union(second, Some keySel) :: acc)
+
+        | MethodCall(m, null, source :: StripQuotes(:? LambdaExpression as colSel) :: rest) when
+            m.Name = "SelectMany"
+            ->
+            let resSelOpt =
+                match rest with
+                | [ StripQuotes(:? LambdaExpression as r) ] -> Some r
+                | _ -> None
+
+            let paramName = colSel.Parameters.[0].Name
+            let containsParam = SubqueryDecorrelator.containsParameter paramName colSel.Body
+
+            let isGroupSource, groupKeySelOpt, baseGroupSource =
+                match source with
+                | MethodCall(gm, null, gs :: StripQuotes(:? LambdaExpression as ks) :: _) when gm.Name = "GroupBy" ->
+                    true, Some ks, gs
+                | _ -> false, None, source
+
+            if isGroupSource && containsParam then
+                let innerStages =
+                    match ExprTranslator.unwrap colSel.Body with
+                    | :? MethodCallExpression as innerMc -> flattenStages innerMc []
+                    | _ -> []
+                let stage = LinqStage.GroupPartitionSlice(groupKeySelOpt.Value, innerStages, resSelOpt)
+                flattenStages baseGroupSource (stage :: acc)
+            else
+                let nestedStagesOpt =
+                    if containsParam then
+                        match ExprTranslator.unwrap colSel.Body with
+                        | :? MethodCallExpression as innerMc when innerMc.Method.Name <> "DefaultIfEmpty" ->
+                            let innerStages = flattenStages innerMc []
+                            if not innerStages.IsEmpty then Some innerStages else None
+                        | _ -> None
+                    else
+                        None
+
+                match nestedStagesOpt with
+                | Some innerStages -> flattenStages source (innerStages @ acc)
+                | None ->
+                    if isUnpivotPattern colSel then
+                        flattenStages source (LinqStage.Unpivot(colSel, resSelOpt) :: acc)
+                    elif containsParam then
+                        flattenStages source (LinqStage.Explode(colSel, resSelOpt) :: acc)
+                    else
+                        flattenStages source (LinqStage.CrossJoin(colSel.Body, resSelOpt) :: acc)
+
+        | MethodCall(m, null, [ source; second ]) when m.Name = "Zip" ->
+            flattenStages source (LinqStage.Zip(second, None) :: acc)
+
+        | MethodCall(m, null, [ source; second; StripQuotes(:? LambdaExpression as resSel) ]) when m.Name = "Zip" ->
+            flattenStages source (LinqStage.Zip(second, Some resSel) :: acc)
+
+        | MethodCall(m, null, [ first; second; third ]) when m.Name = "Zip" ->
+            flattenStages first (LinqStage.Zip3(second, third) :: acc)
+
+        | MethodCall(m, null, [ source; sizeExpr ]) when m.Name = "Chunk" ->
+            match tryEvaluate sizeExpr with
+            | Some s ->
+                let size = Convert.ToInt32 s
+
+                if size <= 0 then
+                    raise (ArgumentOutOfRangeException("size", "Chunk size must be positive."))
+
+                flattenStages source (LinqStage.Chunk size :: acc)
+            | None -> failwithf "Could not evaluate Chunk size argument: %A" sizeExpr
+
+        | MethodCall(m, null, [ source; elemExpr ]) when m.Name = "Append" || m.Name = "Prepend" ->
+            let stage = if m.Name = "Append" then LinqStage.Append elemExpr else LinqStage.Prepend elemExpr
+            flattenStages source (stage :: acc)
+
+        | MethodCall(m, null, [ source; defaultExpr ]) when m.Name = "DefaultIfEmpty" ->
+            flattenStages source (LinqStage.DefaultIfEmpty(Some defaultExpr) :: acc)
+
+        | MethodCall(m, null, source :: CleanLambda keyLambda :: _) when m.Name = "CountBy" ->
+            flattenStages source (LinqStage.CountBy keyLambda :: acc)
+
+        | MethodCall(m, null, source :: CleanLambda k :: CleanLambda seedFactory :: CleanLambda f :: _) when m.Name = "AggregateBy" ->
+            flattenStages source (LinqStage.AggregateBy(k, null, Some seedFactory, f) :: acc)
+
+        | MethodCall(m, null, source :: CleanLambda k :: seedExpr :: CleanLambda f :: _) when m.Name = "AggregateBy" ->
+            flattenStages source (LinqStage.AggregateBy(k, seedExpr, None, f) :: acc)
+
+        | _ -> fuseSortStages acc
+
+    // =========================================================================
+    // 4. Stage-to-QueryOp Compilers & Native Plan Builder
+    // =========================================================================
+
+    /// Attempts to decorrelate subquery expressions (EXISTS/NOT EXISTS via Any, and IN/NOT IN via Contains)
+    /// into native Semi/Anti Joins.
+    let tryDecorrelateSubquery
+        (currentLf: LazyFrameHandle)
+        (filterLambda: LambdaExpression)
+        : JoinSpec option =
+        match SubqueryDecorrelator.tryDecorrelateFilter currentLf filterLambda Map.empty with
+        | Some {
+                   GeneratedOps = [ QueryOp.Join spec ]
+                   ResidualLambda = None
+               } -> Some spec
+        | _ -> None
