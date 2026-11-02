@@ -53,10 +53,10 @@ module internal ExprTranslator =
             | RegexInvocation invocation -> RegexTranslator.translateRegexInvocation eval ctx invocation
 
             // 1b. Row-level List / Array method or property invocations
-            | ListInvocation invocation -> ListAndJsonTranslator.translateListInvocation eval ctx invocation
+            | ListInvocation invocation -> ListTranslator.translateListInvocation eval ctx invocation
 
             // 1c. JSON operations (System.Text.Json)
-            | JsonInvocation invocation -> ListAndJsonTranslator.translateJsonInvocation eval ctx invocation
+            | JsonInvocation invocation -> JsonTranslator.translateJsonInvocation eval ctx invocation
 
             // 2. Struct Field Access
             | StructFieldAccess(parentExpr, fieldName) ->

@@ -17,8 +17,8 @@
     <Compile Include="PartialEvaluator.fs" />
     <Compile Include="OpsSpecs.fs" />
     <Compile Include="QueryCache/QueryCacheKey.fs" />
-    <Compile Include="JsonTypeInference.fs" />
     <Compile Include="ExpressionPatterns.fs" />
+    <Compile Include="ScopeNavigation.fs" />
     <Compile Include="Translators/TranslationContext.fs" />
     <Compile Include="Translators/ColumnResolver.fs" />
     <Compile Include="Translators/MemberAccessTranslator.fs" />
@@ -26,7 +26,8 @@
     <Compile Include="Translators/NumericTranslator.fs" />
     <Compile Include="Translators/RegexTranslator.fs" />
     <Compile Include="Translators/WindowAndMethodTranslator.fs" />
-    <Compile Include="Translators/ListAndJsonTranslator.fs" />
+    <Compile Include="Translators/ListTranslator.fs" />
+    <Compile Include="Translators/JsonTranslator.fs" />
     <Compile Include="Translators/OperatorAndUdfTranslator.fs" />
     <Compile Include="ExprTranslator.fs" />
     <Compile Include="AggTranslator.fs" />

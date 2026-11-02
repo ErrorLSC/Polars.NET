@@ -298,13 +298,31 @@ public static class PolarsTypeHelper
         if (core == typeof(object) || core == typeof(ValueType))
             return false;
 
-        // 4. Exclude System.Tuple and System.ValueTuple (used for Zip/Joins)
-        if (core.FullName != null &&
-           (core.FullName.StartsWith("System.Tuple") || core.FullName.StartsWith("System.ValueTuple")))
+        // 4. Exclude tuples and anonymous types (used for Zip/Joins and transparent scopes)
+        if (IsTupleOrAnonymousType(core))
             return false;
 
         // 5. Must be an F# record, class, or custom struct
         return IsFSharpRecord(core) || core.IsClass || (core.IsValueType && !core.IsPrimitive && !core.IsEnum);
+    }
+
+    /// <summary>
+    /// Checks whether the specified type represents a compiler-generated or runtime tuple,
+    /// anonymous type, or LINQ transparent identifier wrapper (e.g. System.Tuple, ValueTuple,
+    /// F# AnonymousObject, Roslyn TransparentIdentifier, C# AnonymousType).
+    /// </summary>
+    public static bool IsTupleOrAnonymousType(Type? type)
+    {
+        if (type == null) return false;
+        Type core = UnwrapCoreType(type);
+        string? name = core.Name;
+        if (name == null) return false;
+
+        return name.StartsWith("AnonymousObject")
+            || name.StartsWith("Tuple")
+            || name.StartsWith("ValueTuple")
+            || name.Contains("TransparentIdentifier")
+            || name.Contains("AnonymousType");
     }
 
     /// <summary>

@@ -377,9 +377,9 @@ module internal PipelineStageParser =
             let names = [ for i in 1 .. args.Length -> sprintf "Item%d" i ]
             Some(List.zip names args)
         | MethodCall(m, null, [ k; v ]) when m.Name = "Create" && not (isNull m.DeclaringType) && m.DeclaringType.Name = "KeyValuePair" ->
-            Some [ ("Key", k); ("Value", v) ]
+            Some [ "Key", k; "Value", v ]
         | :? NewExpression as ne when ne.Type.Name.StartsWith "KeyValuePair" && ne.Arguments.Count = 2 ->
-            Some [ ("Key", ne.Arguments.[0]); ("Value", ne.Arguments.[1]) ]
+            Some [ "Key", ne.Arguments.[0]; "Value", ne.Arguments.[1] ]
         | :? ConstantExpression as ce when not (isNull ce.Value) && not (PolarsTypeHelper.IsScalarType ce.Type) ->
             let props = ce.Type.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
             if props.Length > 0 then
@@ -681,20 +681,20 @@ module internal PipelineStageParser =
 
     let internal extractTolerance (objVal: obj) : string option * int64 option * double option =
         if isNull objVal then
-            (None, None, None)
+            None, None, None
         else
             let t = objVal.GetType()
             if t = typeof<string> then
-                (Some(objVal :?> string), None, None)
+                Some(objVal :?> string), None, None
             elif t = typeof<TimeSpan> then
                 let ts = objVal :?> TimeSpan
-                (Some(DurationFormatter.ToPolarsString ts), None, None)
+                Some(DurationFormatter.ToPolarsString ts), None, None
             elif t = typeof<int64> then
-                (None, Some(objVal :?> int64), None)
+                None, Some(objVal :?> int64), None
             elif t = typeof<int> then
-                (None, Some(int64 (objVal :?> int)), None)
+                None, Some(int64 (objVal :?> int)), None
             elif t = typeof<double> then
-                (None, None, Some(objVal :?> double))
+                None, None, Some(objVal :?> double)
             elif t.Name = "AsOfTolerance" || (t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<Nullable<_>> && t.GetGenericArguments().[0].Name = "AsOfTolerance") then
                 let actualObj =
                     if t.IsGenericType then
@@ -704,7 +704,7 @@ module internal PipelineStageParser =
                         else valueProp.GetValue(objVal)
                     else objVal
                 if isNull actualObj then
-                    (None, None, None)
+                    None, None, None
                 else
                     let actualType = actualObj.GetType()
                     let sField = actualType.GetField("StringVal", BindingFlags.Instance ||| BindingFlags.NonPublic ||| BindingFlags.Public)
@@ -713,9 +713,9 @@ module internal PipelineStageParser =
                     let sVal = if isNull sField then null else sField.GetValue(actualObj) :?> string
                     let iVal = if isNull iField then Nullable<int64>() else iField.GetValue(actualObj) :?> Nullable<int64>
                     let dVal = if isNull dField then Nullable<double>() else dField.GetValue(actualObj) :?> Nullable<double>
-                    (Option.ofObj sVal, (if iVal.HasValue then Some iVal.Value else None), (if dVal.HasValue then Some dVal.Value else None))
+                    Option.ofObj sVal, (if iVal.HasValue then Some iVal.Value else None), (if dVal.HasValue then Some dVal.Value else None)
             else
-                (None, None, None)
+                None, None, None
 
     let internal extractStrategy (objVal: obj) : PlAsofStrategy =
         if isNull objVal then
@@ -729,6 +729,108 @@ module internal PipelineStageParser =
                 | 2uy -> PlAsofStrategy.Nearest
                 | _ -> PlAsofStrategy.Backward
             with _ -> PlAsofStrategy.Backward
+
+    /// Canonical classification of null-checking predicate expressions for sort fusion
+    [<RequireQualifiedAccess>]
+    type internal NullCheckKind =
+        | IsNull of target: Expression      // true when target is null
+        | IsNotNull of target: Expression   // true when target is not null
+
+    /// Extracts whether an expression is a null check (x == null, x != null, !x.HasValue, etc.)
+    let internal tryExtractNullCheck (expr: Expression) : NullCheckKind option =
+        let isNullConst (e: Expression) =
+            match unwrap e with
+            | :? ConstantExpression as c when isNull c.Value -> true
+            | _ -> false
+
+        let isOneOrTrue (e: Expression) =
+            match unwrap e with
+            | :? ConstantExpression as c when not (isNull c.Value) ->
+                match c.Value with
+                | :? bool as b -> b
+                | :? int as i -> i = 1
+                | :? int64 as i -> i = 1L
+                | _ -> false
+            | _ -> false
+
+        let isZeroOrFalse (e: Expression) =
+            match unwrap e with
+            | :? ConstantExpression as c when not (isNull c.Value) ->
+                match c.Value with
+                | :? bool as b -> not b
+                | :? int as i -> i = 0
+                | :? int64 as i -> i = 0L
+                | _ -> false
+            | _ -> false
+
+        let rec analyze (e: Expression) : NullCheckKind option =
+            let u = unwrap e
+            match u with
+            | :? BinaryExpression as b when b.NodeType = ExpressionType.Equal ->
+                if isNullConst b.Right then Some(NullCheckKind.IsNull(unwrap b.Left))
+                elif isNullConst b.Left then Some(NullCheckKind.IsNull(unwrap b.Right))
+                else None
+            | :? BinaryExpression as b when b.NodeType = ExpressionType.NotEqual ->
+                if isNullConst b.Right then Some(NullCheckKind.IsNotNull(unwrap b.Left))
+                elif isNullConst b.Left then Some(NullCheckKind.IsNotNull(unwrap b.Right))
+                else None
+            | :? UnaryExpression as u when u.NodeType = ExpressionType.Not ->
+                match analyze u.Operand with
+                | Some(NullCheckKind.IsNull t) -> Some(NullCheckKind.IsNotNull t)
+                | Some(NullCheckKind.IsNotNull t) -> Some(NullCheckKind.IsNull t)
+                | None -> None
+            | MemberAccess(target, m) when isNullableHasValue m ->
+                Some(NullCheckKind.IsNotNull(unwrap target))
+            | :? ConditionalExpression as cond ->
+                if isOneOrTrue cond.IfTrue && isZeroOrFalse cond.IfFalse then
+                    analyze cond.Test
+                elif isZeroOrFalse cond.IfTrue && isOneOrTrue cond.IfFalse then
+                    match analyze cond.Test with
+                    | Some(NullCheckKind.IsNull t) -> Some(NullCheckKind.IsNotNull t)
+                    | Some(NullCheckKind.IsNotNull t) -> Some(NullCheckKind.IsNull t)
+                    | None -> None
+                else
+                    None
+            | _ -> None
+
+        analyze expr
+
+    /// Attempts to fuse an adjacent pair of sort stages (e.g. OrderBy(x => x.Score == null).ThenBy(x => x.Score))
+    /// into a single Sort stage with the appropriate native Polars NullsLast setting.
+    let internal tryFuseNullSortPair
+        (l1: LambdaExpression)
+        (isDesc1: bool)
+        (l2: LambdaExpression)
+        (isDesc2: bool)
+        : (LambdaExpression * bool * bool) option =
+        match tryExtractNullCheck l1.Body with
+        | Some checkKind ->
+            let target1 =
+                match checkKind with
+                | NullCheckKind.IsNull t -> t
+                | NullCheckKind.IsNotNull t -> t
+
+            let target2 =
+                let u2 = unwrap l2.Body
+                match u2 with
+                | MemberAccess(inner, m) when isNullableValue m -> unwrap inner
+                | _ -> u2
+
+            let lambda1 = Expression.Lambda(target1, l1.Parameters)
+            let lambda2 = Expression.Lambda(target2, l2.Parameters)
+
+            if ExpressionEqualityComparer.Instance.Equals(lambda1, lambda2) then
+                let nullsLast =
+                    match checkKind with
+                    | NullCheckKind.IsNull _ ->
+                        if not isDesc1 then true else false
+                    | NullCheckKind.IsNotNull _ ->
+                        if not isDesc1 then false else true
+
+                Some(l2, isDesc2, nullsLast)
+            else
+                None
+        | None -> None
 
     /// Fuses adjacent sort stages that represent null-handling idioms (e.g. OrderBy(x => x.Score == null).ThenBy(x => x.Score))
     let rec fuseSortStages (stages: LinqStage list) : LinqStage list =
@@ -1116,20 +1218,3 @@ module internal PipelineStageParser =
             flattenStages source (LinqStage.AggregateBy(k, seedExpr, None, f) :: acc)
 
         | _ -> fuseSortStages acc
-
-    // =========================================================================
-    // 4. Stage-to-QueryOp Compilers & Native Plan Builder
-    // =========================================================================
-
-    /// Attempts to decorrelate subquery expressions (EXISTS/NOT EXISTS via Any, and IN/NOT IN via Contains)
-    /// into native Semi/Anti Joins.
-    let tryDecorrelateSubquery
-        (currentLf: LazyFrameHandle)
-        (filterLambda: LambdaExpression)
-        : JoinSpec option =
-        match SubqueryDecorrelator.tryDecorrelateFilter currentLf filterLambda Map.empty with
-        | Some {
-                   GeneratedOps = [ QueryOp.Join spec ]
-                   ResidualLambda = None
-               } -> Some spec
-        | _ -> None

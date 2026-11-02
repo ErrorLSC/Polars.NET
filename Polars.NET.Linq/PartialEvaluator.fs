@@ -25,15 +25,12 @@ type internal ExtractionResult =
 /// and local computations into ConstantExpressions or extracted query parameters before AST translation.
 module internal PartialEvaluator =
 
-    /// Checks if a type is a compiler-generated closure class (e.g. <>c__DisplayClass, FSharpFunc).
+    /// Checks if a type is a compiler-generated closure or anonymous class.
     let private isCompilerGenerated (t: Type) : bool =
         if isNull t then
             false
         else
             t.IsDefined(typeof<System.Runtime.CompilerServices.CompilerGeneratedAttribute>, false)
-            || t.Name.Contains "DisplayClass"
-            || t.Name.Contains "<>c"
-            || t.Name.Contains "_Closure$__"
 
     /// Evaluates a member access, constant, array init, or simple conversion through reflection fast path without compiling a dynamic method.
     let rec internal tryFastEvaluate (expr: Expression) : obj option =
@@ -103,6 +100,34 @@ module internal PartialEvaluator =
         | None ->
             let boxed = Expression.Convert(expr, typeof<obj>)
             Expression.Lambda<Func<obj>>(boxed).Compile().Invoke()
+
+    /// Evaluates expressions that resolve to values (e.g. closures, captured variables, local props, parameterless methods)
+    let rec internal tryEvaluate (expr: Expression) : obj option =
+        if isNull expr then
+            None
+        else
+            match tryFastEvaluate expr with
+            | Some v -> Some v
+            | None ->
+                match expr with
+                | :? UnaryExpression as ue when
+                    ue.NodeType = ExpressionType.Convert
+                    || ue.NodeType = ExpressionType.ConvertChecked
+                    || ue.NodeType = ExpressionType.Quote ->
+                    tryEvaluate ue.Operand
+                | :? MethodCallExpression as mc when mc.Arguments.Count = 0 ->
+                    try
+                        let targetObj =
+                            if isNull mc.Object then null
+                            else match tryEvaluate mc.Object with Some o -> o | None -> null
+                        Some(mc.Method.Invoke(targetObj, null))
+                    with _ ->
+                        None
+                | :? NewArrayExpression as na when na.NodeType = ExpressionType.NewArrayInit ->
+                    try Some(evaluateSubtree na) with _ -> None
+                | :? NewExpression | :? ListInitExpression ->
+                    try Some(evaluateSubtree expr) with _ -> None
+                | _ -> None
 
     /// Recursively checks if an expression tree references closure variables, external fields/properties,
     /// or method calls (i.e. dynamic parameters rather than pure inlined literal constants).

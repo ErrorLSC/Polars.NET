@@ -3,7 +3,6 @@ namespace Polars.NET.Linq
 open Polars.NET.Core
 open System
 open System.Text
-open System.Linq
 open System.Reflection
 open System.Linq.Expressions
 open System.Text.RegularExpressions
