@@ -9,18 +9,18 @@ open System.Linq.Expressions
 [<AutoOpen>]
 module internal ExprTranslator =
 
-    let internal toLiteralHandle (value: obj) (t: Type) = toLiteral value t |> PolarsScalarLowerer.lower
+    let internal toLiteralHandle (value: obj) (t: Type) = ScalarExprOps.toLiteral value t |> PolarsScalarLowerer.lower
 
     let internal tryTranslateCast targetType (operand: ExprHandle) =
-        ColumnResolver.tryTranslateCast targetType (ScalarExpr.Opaque(operand, [], ""))
+        ScalarExprOps.tryTranslateCast targetType (ScalarExpr.Opaque(operand, [], ""))
         |> Option.map PolarsScalarLowerer.lower
 
     let internal translateReductionOp methodName (targetColExpr: ExprHandle) =
-        ColumnResolver.translateReductionOp methodName (ScalarExpr.Opaque(targetColExpr, [], ""))
+        ScalarExprOps.translateReductionOp methodName (ScalarExpr.Opaque(targetColExpr, [], ""))
         |> Option.map PolarsScalarLowerer.lower
 
     let internal translateDispersionOp methodName ddof (targetColExpr: ExprHandle) =
-        ColumnResolver.translateDispersionOp methodName ddof (ScalarExpr.Opaque(targetColExpr, [], ""))
+        ScalarExprOps.translateDispersionOp methodName ddof (ScalarExpr.Opaque(targetColExpr, [], ""))
         |> Option.map PolarsScalarLowerer.lower
 
     let internal translateBinary nodeType (left: ExprHandle) (right: ExprHandle) : ExprHandle =
@@ -78,7 +78,7 @@ module internal ExprTranslator =
                 if isNull constExpr.Value then
                     Some(ScalarExpr.Literal(LiteralValue.Null PlDataType.Null))
                 else
-                    Some(ColumnResolver.toLiteral constExpr.Value constExpr.Type)
+                    Some(ScalarExprOps.toLiteral constExpr.Value constExpr.Type)
 
             // 4. Member / Property Access
             | MemberAccess _ as memberExpr -> MemberAccessTranslator.translateMemberAccess eval ctx memberExpr
@@ -87,10 +87,10 @@ module internal ExprTranslator =
             | MethodCall(m, target, args) ->
                 match WindowAndMethodTranslator.translateMethodCall eval ctx m target args with
                 | Some s -> Some s
-                | None -> OperatorAndUdfTranslator.tryTranslateUdfInvocationScalar eval ctx expr
+                | None -> OperatorAndUdfTranslator.tryTranslateUdfInvocation eval ctx expr
 
             // 5b. Delegate Invocations (e.g. myFunc(x.A, x.B))
-            | :? InvocationExpression -> OperatorAndUdfTranslator.tryTranslateUdfInvocationScalar eval ctx expr
+            | :? InvocationExpression -> OperatorAndUdfTranslator.tryTranslateUdfInvocation eval ctx expr
 
             // 6. Binary operations
             | Binary(op, left, right) -> OperatorAndUdfTranslator.translateBinaryExpr eval ctx op left right

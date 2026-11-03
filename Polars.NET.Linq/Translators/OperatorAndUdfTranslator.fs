@@ -42,7 +42,7 @@ module internal OperatorAndUdfTranslator =
         | ExpressionType.UnaryPlus -> Some operand
         | _ -> None
 
-    let internal tryResolveEntityNullTargetScalar (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
+    let internal tryResolveEntityNullTarget (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
         let cleanE = unwrap expr
         let scopeOpt = tryExtractScopeName cleanE
         match scopeOpt with
@@ -96,7 +96,7 @@ module internal OperatorAndUdfTranslator =
         : ScalarExpr option =
         let translateNullCheckTarget targetExpr =
             eval ctx targetExpr
-            |> Option.orElseWith (fun () -> tryResolveEntityNullTargetScalar ctx targetExpr)
+            |> Option.orElseWith (fun () -> tryResolveEntityNullTarget ctx targetExpr)
 
         if op = ExpressionType.NotEqual && isNullConstantExpr right then
             translateNullCheckTarget left |> Option.map (fun x -> ScalarExpr.Unary(UnaryOp.IsNotNull, x))
@@ -235,7 +235,7 @@ module internal OperatorAndUdfTranslator =
         let lambda = Expression.Lambda<Func<obj[], obj>>(boxedBody, inArrayParam)
         lambda.Compile()
 
-    let internal tryTranslateUdfInvocation (eval: ExprEvaluator) (ctx: TranslationContext) (expr: Expression) : ExprHandle option =
+    let internal tryTranslateUdfInvocation (eval: ScalarExprEvaluator) (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
         try
             if CoreConfig.DisallowUdfPushdown || isNull expr || expr.Type = typeof<System.Void> then
                 None
@@ -274,7 +274,7 @@ module internal OperatorAndUdfTranslator =
                     let translatedDependentArgs =
                         dependentArgs
                         |> List.map (fun a ->
-                            match eval ctx a with
+                            match eval ctx a |> Option.map PolarsScalarLowerer.lower with
                             | Some h -> Some(a, h)
                             | None -> None)
 
@@ -300,7 +300,7 @@ module internal OperatorAndUdfTranslator =
                                 let arrowCallback = ArrowUdfBatchAdapter.CreateSingle(userFunc, argExpr.Type, expr.Type)
                                 ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
                                 UdfTracker.Record(sprintf "%s: %s" methodName (expr.ToString()))
-                                Some(PolarsWrapper.Map(handle, arrowCallback, outDataType))
+                                Some(ScalarExpr.Opaque(PolarsWrapper.Map(handle, arrowCallback, outDataType), [], "UDF"))
 
                             elif dynCount > 1 then
                                 let userFunc = compileMultiArgUdfDelegate dynArgs expr
@@ -311,14 +311,9 @@ module internal OperatorAndUdfTranslator =
 
                                 ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
                                 UdfTracker.Record(sprintf "%s: %s" methodName (expr.ToString()))
-                                Some(PolarsWrapper.MapMany(mainHandle, otherHandles, arrowCallback, outDataType))
+                                Some(ScalarExpr.Opaque(PolarsWrapper.MapMany(mainHandle, otherHandles, arrowCallback, outDataType), [], "UDF"))
                             else
                                 None
         with _ ->
             None
-
-    let internal tryTranslateUdfInvocationScalar (eval: ScalarExprEvaluator) (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
-        let handleEval c e = eval c e |> Option.map PolarsScalarLowerer.lower
-        tryTranslateUdfInvocation handleEval ctx expr
-        |> Option.map (fun h -> ScalarExpr.Opaque(h, [], "UDF"))
 

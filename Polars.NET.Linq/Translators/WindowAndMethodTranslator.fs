@@ -1,6 +1,8 @@
 namespace Polars.NET.Linq
 
 open Polars.NET.Core
+open Polars.NET.Core.Arrow
+open Polars.NET.Core.Helpers
 open Polars.NET.Linq.IR
 open System
 open System.Text
@@ -117,7 +119,7 @@ module internal WindowAndMethodTranslator =
             | _ -> None
         | _ -> None
 
-    let private translateRankMethodScalar (eval: ScalarExprEvaluator)
+    let private translateRankMethod (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
         (target: Expression)
         (args: Expression list)
@@ -174,7 +176,7 @@ module internal WindowAndMethodTranslator =
             | _ -> None
         | _ -> None
 
-    let private translateOverMethodScalar (eval: ScalarExprEvaluator)
+    let private translateOverMethod (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
         (target: Expression)
         (args: Expression list)
@@ -298,7 +300,7 @@ module internal WindowAndMethodTranslator =
 
         | _ -> None
 
-    let private translateCumulativeMethodScalar (eval: ScalarExprEvaluator)
+    let private translateCumulativeMethod (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
         (m: MethodInfo)
         (target: Expression)
@@ -328,7 +330,7 @@ module internal WindowAndMethodTranslator =
             | "CumCount" -> Some(ScalarExpr.Function(ScalarFunction.CumCount, [ colS; ScalarExpr.Literal(LiteralValue.Bool reverse) ], PlDataType.UInt32))
             | _ -> None)
 
-    let private translateInterpolateMethodScalar (eval: ScalarExprEvaluator)
+    let private translateInterpolateMethod (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
         (m: MethodInfo)
         (target: Expression)
@@ -361,7 +363,7 @@ module internal WindowAndMethodTranslator =
 
         | _ -> None
 
-    let internal translateQuantileMethodScalar (eval: ScalarExprEvaluator)
+    let internal translateQuantileMethod (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
         (target: Expression)
         (args: Expression list)
@@ -395,7 +397,7 @@ module internal WindowAndMethodTranslator =
 
         | _ -> None
 
-    let private translateConversionOrParseMethodScalar (eval: ScalarExprEvaluator)
+    let private translateConversionOrParseMethod (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
         (m: MethodInfo)
         (target: Expression)
@@ -409,9 +411,10 @@ module internal WindowAndMethodTranslator =
                 match eval ctx strExpr with
                 | Some strS ->
                     if isIntegerType targetType then
-                        tryGetPlDataType targetType
-                        |> Option.map (fun dtype ->
-                            ScalarExpr.Function(ScalarFunction.StrToInteger, [ strS; ScalarExpr.Literal(LiteralValue.Int32 10); ScalarExpr.Literal(LiteralValue.Int32(int dtype)) ], dtype))
+                        match Option.ofNullable (ArrowTypeResolver.TryGetPlDataType targetType) with
+                        | Some dtype ->
+                            Some(ScalarExpr.Function(ScalarFunction.StrToInteger, [ strS; ScalarExpr.Literal(LiteralValue.Int32 10); ScalarExpr.Literal(LiteralValue.Int32(int dtype)) ], dtype))
+                        | None -> None
                     elif targetType = typeof<decimal> then
                         Some(ScalarExpr.Function(ScalarFunction.StrToDecimal, [ strS; ScalarExpr.Literal(LiteralValue.Int32 4) ], PlDataType.Decimal))
                     elif targetType = typeof<double> || targetType = typeof<float> || targetType = typeof<bool> then
@@ -452,14 +455,14 @@ module internal WindowAndMethodTranslator =
                     | "ToUInt16" -> typeof<uint16>
                     | _ -> typeof<int>
 
-                match eval ctx strExpr, tryGetPlDataType intType with
+                match eval ctx strExpr, Option.ofNullable (ArrowTypeResolver.TryGetPlDataType intType) with
                 | Some strS, Some dtype ->
                     Some(ScalarExpr.Function(ScalarFunction.StrToInteger, [ strS; ScalarExpr.Literal(LiteralValue.Int32 10); ScalarExpr.Literal(LiteralValue.Int32(int dtype)) ], dtype))
                 | _ -> None
 
             | "ToInt32" | "ToInt64" as convName, [ strExpr; baseExpr ] when strExpr.Type = typeof<string> ->
                 let intType = if convName = "ToInt32" then typeof<int> else typeof<int64>
-                match eval ctx strExpr, eval ctx baseExpr, tryGetPlDataType intType with
+                match eval ctx strExpr, eval ctx baseExpr, Option.ofNullable (ArrowTypeResolver.TryGetPlDataType intType) with
                 | Some strS, Some baseS, Some dtype ->
                     Some(ScalarExpr.Function(ScalarFunction.StrToInteger, [ strS; baseS; ScalarExpr.Literal(LiteralValue.Int32(int dtype)) ], dtype))
                 | _ -> None
@@ -514,22 +517,22 @@ module internal WindowAndMethodTranslator =
             translateDiffMethod eval ctx effectiveTarget effectiveArgs
 
         elif not (isNull effectiveTarget) && m.Name = "Over" then
-            translateOverMethodScalar eval ctx effectiveTarget effectiveArgs
+            translateOverMethod eval ctx effectiveTarget effectiveArgs
 
         elif not (isNull effectiveTarget) && m.Name = "Rank" then
-            translateRankMethodScalar eval ctx effectiveTarget effectiveArgs
+            translateRankMethod eval ctx effectiveTarget effectiveArgs
 
         elif not (isNull effectiveTarget) && m.Name = "PctChange" then
             translatePctChangeMethod eval ctx effectiveTarget effectiveArgs
 
         elif not (isNull effectiveTarget) && m.Name = "Quantile" then
-            translateQuantileMethodScalar eval ctx effectiveTarget effectiveArgs
+            translateQuantileMethod eval ctx effectiveTarget effectiveArgs
 
         elif
             not (isNull effectiveTarget)
             && (m.Name = "Interpolate" || m.Name = "InterpolateBy")
         then
-            translateInterpolateMethodScalar eval ctx m effectiveTarget effectiveArgs
+            translateInterpolateMethod eval ctx m effectiveTarget effectiveArgs
 
         elif
             not (isNull effectiveTarget)
@@ -539,7 +542,7 @@ module internal WindowAndMethodTranslator =
                 || m.Name = "CumProd"
                 || m.Name = "CumCount")
         then
-            translateCumulativeMethodScalar eval ctx m effectiveTarget effectiveArgs
+            translateCumulativeMethod eval ctx m effectiveTarget effectiveArgs
 
         elif m.DeclaringType = typeof<Regex> && isNull target && m.Name = "Escape" then
             match args with
@@ -551,7 +554,7 @@ module internal WindowAndMethodTranslator =
             m.DeclaringType = typeof<Convert>
             || (isNull target && (m.Name = "Parse" || m.Name = "TryParse"))
         then
-            match translateConversionOrParseMethodScalar eval ctx m target args with
+            match translateConversionOrParseMethod eval ctx m target args with
             | Some s -> Some s
             | None ->
                 if m.DeclaringType = typeof<DateTime> || m.DeclaringType = typeof<DateOnly> || m.DeclaringType = typeof<TimeOnly> then
@@ -609,7 +612,7 @@ module internal WindowAndMethodTranslator =
             m.DeclaringType = typeof<DateTime>
             || m.DeclaringType = typeof<DateOnly>
             || m.DeclaringType = typeof<TimeOnly>
-            || not (isNull target) && isTemporalType target.Type
+            || not (isNull target) && PolarsTypeHelper.IsTemporalType target.Type
         then
             translateTemporalMethod eval ctx m target args
 

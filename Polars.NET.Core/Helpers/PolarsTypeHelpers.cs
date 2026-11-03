@@ -285,6 +285,20 @@ public static class PolarsTypeHelper
             || underlying == typeof(TimeOnly)
             || underlying == typeof(Guid);
     }
+
+    /// <summary>
+    /// Checks whether the specified type represents a temporal date/time type (DateTime, DateTimeOffset, DateOnly, TimeOnly, TimeSpan).
+    /// </summary>
+    public static bool IsTemporalType(Type? type)
+    {
+        if (type == null) return false;
+        Type core = UnwrapCoreType(type);
+        return core == typeof(DateTime)
+            || core == typeof(DateTimeOffset)
+            || core == typeof(DateOnly)
+            || core == typeof(TimeOnly)
+            || core == typeof(TimeSpan);
+    }
     /// <summary>
     /// Checks whether the specified type represents a composite Struct container
     /// (e.g. C# POCO/record struct or F# record) rather than a scalar or an enumerable collection.

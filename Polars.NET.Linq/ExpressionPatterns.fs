@@ -92,6 +92,13 @@ module internal ExpressionPatterns =
         | Unary(ExpressionType.Quote, inner) -> unwrap inner
         | other -> other
 
+    /// Checks if an expression represents a null literal (or wrapped null constant).
+    let internal isNullConstantExpr (e: Expression) : bool =
+        match unwrap e with
+        | null -> true
+        | :? ConstantExpression as c -> isNull c.Value
+        | _ -> false
+
     let (|ArrayIndexOp|_|) (expr: Expression) : (Expression * Expression) option =
         match expr with
         | :? BinaryExpression as bin when bin.NodeType = ExpressionType.ArrayIndex -> Some(bin.Left, bin.Right)

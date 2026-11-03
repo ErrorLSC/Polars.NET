@@ -259,4 +259,23 @@ public static class ArrowTypeResolver
         var arrowType = GetArrowTypeFromNetType(type);
         return GetPlDataTypeFromArrowType(arrowType);
     }
+
+    public static IArrowType? TryGetArrowType(Type? type)
+    {
+        if (type == null) return null;
+        try { return GetArrowTypeFromNetType(type); }
+        catch { return null; }
+    }
+
+    public static PlDataType? TryGetPlDataType(Type? type)
+    {
+        if (type == null) return null;
+        try
+        {
+            var arrowType = GetArrowTypeFromNetType(type);
+            var dt = GetPlDataTypeFromArrowType(arrowType);
+            return dt == PlDataType.Unknown ? null : dt;
+        }
+        catch { return null; }
+    }
 }

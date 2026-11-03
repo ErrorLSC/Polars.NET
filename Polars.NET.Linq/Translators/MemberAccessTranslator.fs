@@ -30,7 +30,7 @@ module internal MemberAccessTranslator =
             | MemberAccess(target, m) when not (isNull target) && target.Type = typeof<string> && m.Name = "Length" ->
                 eval ctx target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.LenChars, [ t ], PlDataType.UInt32))
 
-            | MemberAccess(target, m) when not (isNull target) && isTemporalType target.Type ->
+            | MemberAccess(target, m) when not (isNull target) && PolarsTypeHelper.IsTemporalType target.Type ->
                 let t () = eval ctx target
 
                 match m.Name with
@@ -94,4 +94,4 @@ module internal MemberAccessTranslator =
 
             | _ ->
                 tryEvaluate memberExpr
-                |> Option.map (fun value -> toLiteral value memberExpr.Type)
+                |> Option.map (fun value -> ScalarExprOps.toLiteral value memberExpr.Type)

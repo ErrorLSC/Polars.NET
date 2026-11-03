@@ -12,103 +12,7 @@ open Polars.NET.Core.Helpers
 module internal ColumnResolver =
 
     // =========================================================================
-    // 1. Type & Literal Mapping Helpers
-    // =========================================================================
-
-    /// Pure symbolic translation of standard LINQ reduction method names to ScalarExpr.Aggregation nodes.
-    let internal translateReductionOp (methodName: string) (targetColExpr: ScalarExpr) : ScalarExpr option =
-        match methodName with
-        | "Sum" -> Some(ScalarExpr.Aggregation(AggKind.Sum, Some targetColExpr, false))
-        | "Mean"
-        | "Average" -> Some(ScalarExpr.Aggregation(AggKind.Mean, Some targetColExpr, false))
-        | "Min" -> Some(ScalarExpr.Aggregation(AggKind.Min, Some targetColExpr, false))
-        | "Max" -> Some(ScalarExpr.Aggregation(AggKind.Max, Some targetColExpr, false))
-        | "Median" -> Some(ScalarExpr.Aggregation(AggKind.Median, Some targetColExpr, false))
-        | "First"
-        | "FirstOrDefault" -> Some(ScalarExpr.Aggregation(AggKind.First, Some targetColExpr, false))
-        | "Last"
-        | "LastOrDefault" -> Some(ScalarExpr.Aggregation(AggKind.Last, Some targetColExpr, false))
-        | "Std"
-        | "StdDev" -> Some(ScalarExpr.Aggregation(AggKind.Std 1uy, Some targetColExpr, false))
-        | "Var"
-        | "Variance" -> Some(ScalarExpr.Aggregation(AggKind.Var 1uy, Some targetColExpr, false))
-        | _ -> None
-
-    /// Pure symbolic translation of statistical dispersion reduction operations.
-    let internal translateDispersionOp
-        (methodName: string)
-        (ddof: byte)
-        (targetColExpr: ScalarExpr)
-        : ScalarExpr option =
-        match methodName with
-        | "Std"
-        | "StdDev" -> Some(ScalarExpr.Aggregation(AggKind.Std ddof, Some targetColExpr, false))
-        | "Var"
-        | "Variance" -> Some(ScalarExpr.Aggregation(AggKind.Var ddof, Some targetColExpr, false))
-        | _ -> None
-
-    let internal isTemporalType (t: Type) =
-        t = typeof<DateTime>
-        || t = typeof<DateTimeOffset>
-        || t = typeof<DateOnly>
-        || t = typeof<TimeOnly>
-
-    [<TailCall>]
-    let rec internal isNullConstantExpr (e: Expression) =
-        match e with
-        | null -> true
-        | :? ConstantExpression as c -> isNull c.Value
-        | :? UnaryExpression as u when
-            u.NodeType = ExpressionType.Convert
-            || u.NodeType = ExpressionType.ConvertChecked
-            || u.NodeType = ExpressionType.Quote
-            ->
-            isNullConstantExpr u.Operand
-        | _ -> false
-
-    /// Resolves the Apache Arrow IArrowType for a .NET CLR Type using the central ArrowTypeResolver.
-    let internal tryGetArrowType (t: Type) : Apache.Arrow.Types.IArrowType option =
-        try
-            Some(ArrowTypeResolver.GetArrowTypeFromNetType t)
-        with _ ->
-            None
-
-    /// Resolves the PlDataType for a .NET CLR Type by routing through the canonical ArrowTypeResolver.
-    let internal tryGetPlDataType (t: Type) : PlDataType option =
-        try
-            let dt = ArrowTypeResolver.GetPlDataTypeFromNetType t
-            if dt = PlDataType.Unknown then None else Some dt
-        with _ ->
-            None
-
-    /// Pure symbolic conversion from a constant object and CLR type to a ScalarExpr literal.
-    [<TailCall>]
-    let rec internal toLiteral (value: obj) (t: Type) : ScalarExpr =
-        match value with
-        | null ->
-            let dt = tryGetPlDataType t |> Option.defaultValue PlDataType.Null
-            ScalarExpr.Literal(LiteralValue.Null dt)
-        | _ ->
-            let coreType = PolarsTypeHelper.UnwrapCoreType t
-            if coreType.IsEnum then
-                let underlyingType = Enum.GetUnderlyingType coreType
-                let underlyingVal = Convert.ChangeType(value, underlyingType)
-                toLiteral underlyingVal underlyingType
-            else
-                match value with
-                | :? char as c -> ScalarExpr.Literal(LiteralValue.String(string c))
-                | _ -> ScalarExpr.Literal(LiteralValue.OfObject value)
-
-    /// Pure symbolic translation of type casting to ScalarExpr.Cast nodes.
-    let internal tryTranslateCast (targetType: Type) (operand: ScalarExpr) : ScalarExpr option =
-        if targetType = typeof<obj> then
-            Some operand
-        else
-            tryGetPlDataType targetType
-            |> Option.map (fun dt -> ScalarExpr.Cast(operand, dt, isStrict = false))
-
-    // =========================================================================
-    // 2. Column & Parameter Identifiers
+    // 1. Column & Parameter Identifiers
     // =========================================================================
 
     /// Transparently unwraps .Value on tuple components: pair.Outer.Value.DeptName
@@ -246,7 +150,7 @@ module internal ColumnResolver =
                 if
                     PolarsTypeHelper.IsScalarType inner.Type
                     || inner.Type = typeof<string>
-                    || isTemporalType inner.Type
+                    || PolarsTypeHelper.IsTemporalType inner.Type
                 then
                     None
                 else

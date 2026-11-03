@@ -3,6 +3,8 @@ namespace Polars.NET.Linq.IR
 open System
 open System.ComponentModel
 open Polars.NET.Core
+open Polars.NET.Core.Arrow
+open Polars.NET.Core.Helpers
 
 type PlDataType = Polars.NET.Core.PlDataType
 
@@ -32,6 +34,7 @@ type ScalarLitMechanism = ScalarLitMechanism
         static member ($)(ScalarLitMechanism, v: LiteralValue) = ScalarExpr.Literal v
 
 /// Construction helpers, active patterns, and visitors for ScalarExpr
+[<AutoOpen>]
 [<EditorBrowsable(EditorBrowsableState.Never)>]
 module ScalarExprOps =
 
@@ -45,6 +48,66 @@ module ScalarExprOps =
     /// Strongly-typed, zero-boxing overloaded literal constructor via SRTP
     let inline lit (v: ^T) : ScalarExpr =
         ((^T or ScalarLitMechanism): (static member ($): ScalarLitMechanism * ^T -> ScalarExpr) (ScalarLitMechanism, v))
+
+    /// Pure symbolic conversion from a constant object and CLR type to a ScalarExpr literal.
+    [<TailCall>]
+    let rec toLiteral (value: obj) (t: Type) : ScalarExpr =
+        match value with
+        | null ->
+            let dt =
+                Option.ofNullable (ArrowTypeResolver.TryGetPlDataType t)
+                |> Option.defaultValue PlDataType.Null
+            ScalarExpr.Literal(LiteralValue.Null dt)
+        | _ ->
+            let coreType = PolarsTypeHelper.UnwrapCoreType t
+            if coreType.IsEnum then
+                let underlyingType = Enum.GetUnderlyingType coreType
+                let underlyingVal = Convert.ChangeType(value, underlyingType)
+                toLiteral underlyingVal underlyingType
+            else
+                match value with
+                | :? char as c -> ScalarExpr.Literal(LiteralValue.String(string c))
+                | _ -> ScalarExpr.Literal(LiteralValue.OfObject value)
+
+    /// Pure symbolic translation of type casting to ScalarExpr.Cast nodes.
+    let tryTranslateCast (targetType: Type) (operand: ScalarExpr) : ScalarExpr option =
+        if targetType = typeof<obj> then
+            Some operand
+        else
+            Option.ofNullable (ArrowTypeResolver.TryGetPlDataType targetType)
+            |> Option.map (fun dt -> ScalarExpr.Cast(operand, dt, isStrict = false))
+
+    /// Pure symbolic translation of standard LINQ reduction method names to ScalarExpr.Aggregation nodes.
+    let translateReductionOp (methodName: string) (targetColExpr: ScalarExpr) : ScalarExpr option =
+        match methodName with
+        | "Sum" -> Some(ScalarExpr.Aggregation(AggKind.Sum, Some targetColExpr, false))
+        | "Mean"
+        | "Average" -> Some(ScalarExpr.Aggregation(AggKind.Mean, Some targetColExpr, false))
+        | "Min" -> Some(ScalarExpr.Aggregation(AggKind.Min, Some targetColExpr, false))
+        | "Max" -> Some(ScalarExpr.Aggregation(AggKind.Max, Some targetColExpr, false))
+        | "Median" -> Some(ScalarExpr.Aggregation(AggKind.Median, Some targetColExpr, false))
+        | "First"
+        | "FirstOrDefault" -> Some(ScalarExpr.Aggregation(AggKind.First, Some targetColExpr, false))
+        | "Last"
+        | "LastOrDefault" -> Some(ScalarExpr.Aggregation(AggKind.Last, Some targetColExpr, false))
+        | "Std"
+        | "StdDev" -> Some(ScalarExpr.Aggregation(AggKind.Std 1uy, Some targetColExpr, false))
+        | "Var"
+        | "Variance" -> Some(ScalarExpr.Aggregation(AggKind.Var 1uy, Some targetColExpr, false))
+        | _ -> None
+
+    /// Pure symbolic translation of statistical dispersion reduction operations.
+    let translateDispersionOp
+        (methodName: string)
+        (ddof: byte)
+        (targetColExpr: ScalarExpr)
+        : ScalarExpr option =
+        match methodName with
+        | "Std"
+        | "StdDev" -> Some(ScalarExpr.Aggregation(AggKind.Std ddof, Some targetColExpr, false))
+        | "Var"
+        | "Variance" -> Some(ScalarExpr.Aggregation(AggKind.Var ddof, Some targetColExpr, false))
+        | _ -> None
 
     // =========================================================================
     // 2. Traversal, Visitors & Transformations
