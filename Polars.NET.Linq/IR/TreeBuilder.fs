@@ -3,6 +3,7 @@ namespace Polars.NET.Linq.IR
 open System
 open System.Linq.Expressions
 open Polars.NET.Core
+open Polars.NET.Core.Helpers
 open Polars.NET.Linq
 
 /// Constructs LogicalPlan relational trees from LINQ query stages or QueryOp streams.
@@ -62,23 +63,43 @@ module internal TreeBuilder =
 
     /// Constructs a LogicalPlan tree directly from a base LazyFrameHandle and a sequence of LinqStages.
     let fromStages (baseLf: LazyFrameHandle) (stages: LinqStage list) (_targetType: Type) : LogicalPlan =
-        let initialPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame baseLf, LogicalSchema.Empty)
+        let initialCols = PolarsSchemaExtractor.GetColumnNames baseLf |> Array.toList
+        let initialPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame baseLf, LogicalSchema.OfNames initialCols)
         stages
         |> List.fold (fun currentPlan stage ->
             match stage with
             | LinqStage.Filter lam ->
-                let p = lam.Parameters.[0]
-                let ctx = TranslationContext.Entity p.Name
-                match tryBuildScalar ctx lam.Body with
-                | Some pred -> LogicalPlan.Filter(currentPlan, pred)
-                | None -> currentPlan
+                match SubqueryDecorrelator.tryDecorrelateFilter currentPlan lam Map.empty with
+                | Some (decorPlan, residualOpt) ->
+                    match residualOpt with
+                    | Some resLam ->
+                        let p = resLam.Parameters.[0]
+                        let ctx = TranslationContext.Entity p.Name
+                        match tryBuildScalar ctx resLam.Body with
+                        | Some pred -> LogicalPlan.Filter(decorPlan, pred)
+                        | None -> decorPlan
+                    | None -> decorPlan
+                | None ->
+                    let p = lam.Parameters.[0]
+                    let ctx = TranslationContext.Entity p.Name
+                    match tryBuildScalar ctx lam.Body with
+                    | Some pred -> LogicalPlan.Filter(currentPlan, pred)
+                    | None -> currentPlan
 
             | LinqStage.Project lam ->
-                let p = lam.Parameters.[0]
-                let ctx = TranslationContext.Entity p.Name
-                match extractProjections ctx lam.Body with
-                | Some projs -> LogicalPlan.Project(currentPlan, projs)
-                | None -> currentPlan
+                match SubqueryDecorrelator.tryDecorrelateProjection currentPlan lam Map.empty with
+                | Some (decorPlan, rewrittenLam) ->
+                    let p = rewrittenLam.Parameters.[0]
+                    let ctx = TranslationContext.Entity p.Name
+                    match extractProjections ctx rewrittenLam.Body with
+                    | Some projs -> LogicalPlan.Project(decorPlan, projs)
+                    | None -> decorPlan
+                | None ->
+                    let p = lam.Parameters.[0]
+                    let ctx = TranslationContext.Entity p.Name
+                    match extractProjections ctx lam.Body with
+                    | Some projs -> LogicalPlan.Project(currentPlan, projs)
+                    | None -> currentPlan
 
             | LinqStage.Sort(lam, isDesc, nullsLast) ->
                 let p = lam.Parameters.[0]

@@ -3,6 +3,7 @@ namespace Polars.NET.Linq.Backend.Polars
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
 open Polars.NET.Linq
+open Polars.NET.Linq.IR
 open System
 open System.Collections
 open System.Linq
@@ -155,4 +156,26 @@ module internal PolarsObjectConverter =
     let resolveSequenceLazyFrame (expr: Expression) : LazyFrameHandle option =
         compileSubtreeToLazyFrame expr
         |> Option.orElseWith (fun () -> resolveToLazyFrameHandle expr)
+
+    /// Resolves an inner sequence expression to a LogicalPlan.Scan.
+    let resolveSequencePlan (expr: Expression) : LogicalPlan option =
+        match expr with
+        | :? ConstantExpression as c when not (isNull c.Value) ->
+            match c.Value with
+            | :? IPolarsPlanSource as planSource ->
+                let lf = planSource.GetCompiledLazyFrameHandle()
+                let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
+                Some(LogicalPlan.Scan(LogicalPlanSource.LazyFrame lf, LogicalSchema.OfNames colNames))
+            | _ ->
+                match resolveSequenceLazyFrame expr with
+                | Some lf ->
+                    let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
+                    Some(LogicalPlan.Scan(LogicalPlanSource.LazyFrame lf, LogicalSchema.OfNames colNames))
+                | None -> None
+        | _ ->
+            match resolveSequenceLazyFrame expr with
+            | Some lf ->
+                let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
+                Some(LogicalPlan.Scan(LogicalPlanSource.LazyFrame lf, LogicalSchema.OfNames colNames))
+            | None -> None
 

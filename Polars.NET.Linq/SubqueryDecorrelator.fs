@@ -10,15 +10,6 @@ open System.Linq.Expressions
 open System.Linq
 open System.Collections.Generic
 
-/// Represents the result of attempting subquery decorrelation on a filter expression.
-type internal DecorrelationResult =
-    {
-        /// Execution pipeline operations produced by decorrelation (e.g., Semi-Join, Anti-Join)
-        GeneratedOps: QueryOp list
-        /// Any remaining pure outer filter expression that must still be applied
-        ResidualLambda: LambdaExpression option
-    }
-
 /// Dedicated engine for decorrelating subqueries (EXISTS, NOT EXISTS, IN, NOT IN, scalar aggregates,
 /// and embedded projection subqueries) into native Polars pushdown operations.
 module internal SubqueryDecorrelator =
@@ -144,8 +135,8 @@ module internal SubqueryDecorrelator =
 
     /// Creates an appropriate TranslationContext based on whether the sequence element type
     /// is a scalar/primitive (bound to the underlying single physical column) or a composite entity.
-    let createContextForType (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
-        let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
+    let createContextForType (elemType: Type) (plan: LogicalPlan) (paramName: string) : TranslationContext =
+        let colNames = (SchemaInference.inferPlanSchema plan).ColumnNames
         createContextForTypeWithCols elemType colNames paramName
 
     /// Evaluates an uncorrelated expression into a scalar ConstantExpression.
@@ -566,26 +557,24 @@ module internal SubqueryDecorrelator =
                     InnerFilters = c.InnerFilters
                 })
 
-    /// Combines and applies pushdown inner filters onto the right-side LazyFrame.
+    /// Combines and applies pushdown inner filters onto the right-side LogicalPlan.
     let internal tryApplyInnerFilters
-        (rawRightLf: LazyFrameHandle)
+        (rawRightPlan: LogicalPlan)
         (innerParam: ParameterExpression)
         (innerFilters: Expression list)
-        : LazyFrameHandle option =
+        : LogicalPlan option =
         if innerFilters.IsEmpty then
-            Some rawRightLf
+            Some rawRightPlan
         else
             let combinedInner =
                 innerFilters |> List.reduce (fun a b -> Expression.AndAlso(a, b) :> Expression)
 
-            let innerCols = PolarsSchemaExtractor.GetColumnNames rawRightLf |> Array.toList
+            let innerCols = (SchemaInference.inferPlanSchema rawRightPlan).ColumnNames
             let innerCtx = createContextForTypeWithCols innerParam.Type innerCols innerParam.Name
 
             ExprTranslator.tryTranslateToScalar innerCtx combinedInner
             |> Option.map (fun filterScalar ->
-                let scanPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame rawRightLf, LogicalSchema.Empty)
-                let filterPlan = LogicalPlan.Filter(scanPlan, filterScalar)
-                PolarsPhysicalLowerer.lowerPlan filterPlan)
+                LogicalPlan.Filter(rawRightPlan, filterScalar))
 
     type internal SymbolicJoinKeys =
         {
@@ -692,21 +681,21 @@ module internal SubqueryDecorrelator =
 
     /// Tries to decorrelate a single conjunct expression relative to outerParam into Semi/Anti join operations.
     let internal tryDecorrelateConjunct
-        (currentLf: LazyFrameHandle)
+        (outerPlan: LogicalPlan)
         (outerParam: ParameterExpression)
         (conjunctExpr: Expression)
         (scopeMap: Map<string * string, string>)
-        : QueryOp list option =
+        : LogicalPlan option =
         let outerName = outerParam.Name
         let outerNames =
             Set.ofSeq (outerName :: (scopeMap |> Map.toList |> List.map (fun ((s, _), _) -> s)))
 
-        let outerCols = PolarsSchemaExtractor.GetColumnNames currentLf |> Array.toList
+        let outerCols = (SchemaInference.inferPlanSchema outerPlan).ColumnNames
         let outerCtx =
             if not scopeMap.IsEmpty then
                 TranslationContext.ScopedEntity([ outerName ], scopeMap, outerCols)
             else
-                createContextForType outerParam.Type currentLf outerName
+                createContextForType outerParam.Type outerPlan outerName
 
         let isNegated, coreExpr =
             match ExpressionPatterns.unwrap conjunctExpr with
@@ -717,32 +706,18 @@ module internal SubqueryDecorrelator =
             option {
                 let! innerSource, innerLambdaOpt = tryMatchAny coreExpr
                 let! parts = tryExtractCorrelatedParts outerNames innerSource innerLambdaOpt
-                let! rawRightLf = resolveSequenceLazyFrame parts.RootSource
-                let! rightLf = tryApplyInnerFilters rawRightLf parts.InnerParam parts.InnerFilters
+                let! rawRightPlan = resolveSequencePlan parts.RootSource
+                let! rightPlan = tryApplyInnerFilters rawRightPlan parts.InnerParam parts.InnerFilters
 
-                let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf |> Array.toList
+                let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
                 let innerCtx =
                     createContextForTypeWithCols parts.InnerParam.Type rightCols parts.InnerParam.Name
 
+                let joinHow = if isNegated then PlJoinType.Anti else PlJoinType.Semi
+
                 if parts.ThetaConditions.IsEmpty then
                     let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
-                    let leftOn = keys.OuterKeys |> List.map PolarsScalarLowerer.lower |> List.toArray
-                    let rightOn = keys.InnerKeys |> List.map PolarsScalarLowerer.lower |> List.toArray
-
-                    return
-                        [
-                            QueryOp.Join
-                                {
-                                    RightLf = rightLf
-                                    LeftOn = leftOn
-                                    RightOn = rightOn
-                                    How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
-                                    Suffix = None
-                                    InvertSides = false
-                                    Coalesce = PlJoinCoalesce.JoinSpecific
-                                    NullsEqual = false
-                                }
-                        ]
+                    return LogicalPlan.Join(outerPlan, rightPlan, keys.OuterKeys, keys.InnerKeys, joinHow, None, PlJoinCoalesce.JoinSpecific, false)
                 else
                     let leftCols = outerCols |> Set.ofList
                     let originalCols = outerCols
@@ -763,9 +738,6 @@ module internal SubqueryDecorrelator =
                     let uid = Guid.NewGuid().ToString "N"
                     let ridCol = $"__subquery_rid_{uid}"
 
-                    let outerPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame currentLf, LogicalSchema.Empty)
-                    let rightPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame rightLf, LogicalSchema.Empty)
-
                     let withRidPlan = LogicalPlan.WithRowIndex(outerPlan, ridCol, Some 0u)
                     let joinedPlan =
                         if outerKeys.IsEmpty then
@@ -777,36 +749,22 @@ module internal SubqueryDecorrelator =
                     let selectedPlan = LogicalPlan.Project(filteredPlan, [ (ridCol, ScalarExpr.Column ridCol) ])
                     let matchedRidsPlan = LogicalPlan.Distinct(selectedPlan, None, PlUniqueKeepStrategy.Any)
 
-                    let matchedRidsLf = PolarsPhysicalLowerer.lowerPlan matchedRidsPlan
-                    let ridLeftH = PolarsScalarLowerer.lower (ScalarExpr.Column ridCol)
-                    let ridRightH = PolarsScalarLowerer.lower (ScalarExpr.Column ridCol)
+                    let semiJoinPlan =
+                        LogicalPlan.Join(withRidPlan, matchedRidsPlan, [ ScalarExpr.Column ridCol ], [ ScalarExpr.Column ridCol ], joinHow, None, PlJoinCoalesce.JoinSpecific, false)
 
-                    let withRowIndexOp = QueryOp.WithRowIndex(ridCol, Some 0u)
-                    let semiJoinOp =
-                        QueryOp.Join
-                            {
-                                RightLf = matchedRidsLf
-                                LeftOn = [| ridLeftH |]
-                                RightOn = [| ridRightH |]
-                                How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
-                                Suffix = None
-                                InvertSides = false
-                                Coalesce = PlJoinCoalesce.JoinSpecific
-                                NullsEqual = false
-                            }
+                    let restoreSchemaPlan =
+                        LogicalPlan.Project(semiJoinPlan, originalCols |> List.map (fun c -> c, ScalarExpr.Column c))
 
-                    let restoreSchemaOp = QueryOp.Select(originalCols |> List.map (fun c -> PolarsScalarLowerer.lower (ScalarExpr.Column c)) |> List.toArray)
-
-                    return [ withRowIndexOp; semiJoinOp; restoreSchemaOp ]
+                    return restoreSchemaPlan
             }
 
         let tryContains () =
             option {
                 let! innerSource, selLambdaOpt, outerKeyExpr = tryMatchContains coreExpr
                 do! guard (not (outerNames |> Set.exists (fun name -> containsParameter name innerSource)))
-                let! rightLf = resolveSequenceLazyFrame innerSource
+                let! rightPlan = resolveSequencePlan innerSource
                 let! leftKey = ExprTranslator.tryTranslateToScalar outerCtx outerKeyExpr
-                let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf |> Array.toList
+                let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
 
                 let! rightKey =
                     match selLambdaOpt with
@@ -820,23 +778,11 @@ module internal SubqueryDecorrelator =
                         else
                             None
 
-                return
-                    [
-                        QueryOp.Join
-                            {
-                                RightLf = rightLf
-                                LeftOn = [| PolarsScalarLowerer.lower leftKey |]
-                                RightOn = [| PolarsScalarLowerer.lower rightKey |]
-                                How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
-                                Suffix = None
-                                InvertSides = false
-                                Coalesce = PlJoinCoalesce.JoinSpecific
-                                NullsEqual = false
-                            }
-                    ]
+                let joinHow = if isNegated then PlJoinType.Anti else PlJoinType.Semi
+                return LogicalPlan.Join(outerPlan, rightPlan, [ leftKey ], [ rightKey ], joinHow, None, PlJoinCoalesce.JoinSpecific, false)
             }
 
-        let rec tryDisjunctiveAny (disjExpr: Expression) : QueryOp list option =
+        let rec tryDisjunctiveAny (disjExpr: Expression) : LogicalPlan option =
             match ExpressionPatterns.unwrap disjExpr with
             | Binary((ExpressionType.OrElse | ExpressionType.Or), left, right) ->
                 let rec flattenOr (e: Expression) =
@@ -844,20 +790,19 @@ module internal SubqueryDecorrelator =
                     | Binary((ExpressionType.OrElse | ExpressionType.Or), l, r) -> flattenOr l @ flattenOr r
                     | other -> [ other ]
                 let branches = flattenOr left @ flattenOr right
-                let extractBranchMatchedLf (branch: Expression) : LazyFrameHandle option =
+                let extractBranchPlan (branch: Expression) : LogicalPlan option =
                     option {
                         let! innerSource, innerLambdaOpt = tryMatchAny (ExpressionPatterns.unwrap branch)
                         let! parts = tryExtractCorrelatedParts outerNames innerSource innerLambdaOpt
                         do! guard (parts.ThetaConditions.IsEmpty && parts.EquiPairs.Length = 1)
-                        let! rawRightLf = resolveSequenceLazyFrame parts.RootSource
-                        let! rightLf = tryApplyInnerFilters rawRightLf parts.InnerParam parts.InnerFilters
-                        let innerCols = PolarsSchemaExtractor.GetColumnNames rightLf |> Array.toList
+                        let! rawRightPlan = resolveSequencePlan parts.RootSource
+                        let! rightPlan = tryApplyInnerFilters rawRightPlan parts.InnerParam parts.InnerFilters
+                        let innerCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
                         let innerCtx = createContextForTypeWithCols parts.InnerParam.Type innerCols parts.InnerParam.Name
                         let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
                         let keyAlias = "__disj_any_key__"
-                        let rightPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame rightLf, LogicalSchema.Empty)
                         let projPlan = LogicalPlan.Project(rightPlan, [ (keyAlias, keys.InnerKeys.Head) ])
-                        return PolarsPhysicalLowerer.lowerPlan projPlan
+                        return projPlan
                     }
                 let extractBranchOuterKey (branch: Expression) : ScalarExpr option =
                     option {
@@ -867,9 +812,9 @@ module internal SubqueryDecorrelator =
                         let outerKeyExpr, _ = parts.EquiPairs.[0]
                         return! ExprTranslator.tryTranslateToScalar outerCtx outerKeyExpr
                     }
-                let branchLfs = branches |> List.choose extractBranchMatchedLf
+                let branchPlans = branches |> List.choose extractBranchPlan
                 let branchOuterKeys = branches |> List.choose extractBranchOuterKey
-                if branchLfs.Length = branches.Length && branchOuterKeys.Length = branches.Length then
+                if branchPlans.Length = branches.Length && branchOuterKeys.Length = branches.Length then
                     let firstOuterKeyExpr =
                         let s, l = (tryMatchAny (ExpressionPatterns.unwrap branches.[0])).Value
                         let p = (tryExtractCorrelatedParts outerNames s l).Value
@@ -881,25 +826,9 @@ module internal SubqueryDecorrelator =
                             let p = (tryExtractCorrelatedParts outerNames s l).Value
                             ExpressionEqualityComparer.Instance.Equals(fst p.EquiPairs.[0], firstOuterKeyExpr))
                     if allSameOuterKey then
-                        let branchPlans = branchLfs |> List.map (fun lf -> LogicalPlan.Scan(LogicalPlanSource.LazyFrame lf, LogicalSchema.Empty))
                         let unionPlan = branchPlans |> List.reduce (fun acc p -> LogicalPlan.Union(acc, p, true))
-                        let concatLf = PolarsPhysicalLowerer.lowerPlan unionPlan
-                        let outerKeyH = PolarsScalarLowerer.lower branchOuterKeys.[0]
-                        let rightKeyH = PolarsScalarLowerer.lower (ScalarExpr.Column "__disj_any_key__")
-                        Some
-                            [
-                                QueryOp.Join
-                                    {
-                                        RightLf = concatLf
-                                        LeftOn = [| outerKeyH |]
-                                        RightOn = [| rightKeyH |]
-                                        How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
-                                        Suffix = None
-                                        InvertSides = false
-                                        Coalesce = PlJoinCoalesce.JoinSpecific
-                                        NullsEqual = false
-                                    }
-                            ]
+                        let joinHow = if isNegated then PlJoinType.Anti else PlJoinType.Semi
+                        Some (LogicalPlan.Join(outerPlan, unionPlan, [ branchOuterKeys.[0] ], [ ScalarExpr.Column "__disj_any_key__" ], joinHow, None, PlJoinCoalesce.JoinSpecific, false))
                     else
                         None
                 else
@@ -913,23 +842,23 @@ module internal SubqueryDecorrelator =
     // =========================================================================
 
     /// Tries to decorrelate a correlated scalar aggregate expression (e.g. Min, Max, Average, Sum, Count)
-    /// within a filter conjunct into a pre-aggregated GroupBy LazyFrame, Left-Join, and pushdown comparison filter.
+    /// within a filter conjunct into a pre-aggregated GroupBy LogicalPlan, Left-Join, and pushdown comparison filter.
     let internal tryDecorrelateCorrelatedScalarAgg
-        (currentLf: LazyFrameHandle)
+        (outerPlan: LogicalPlan)
         (outerParam: ParameterExpression)
         (conjunctExpr: Expression)
         (scopeMap: Map<string * string, string>)
-        : QueryOp list option =
+        : LogicalPlan option =
         let outerName = outerParam.Name
         let outerNames =
             Set.ofSeq (outerName :: (scopeMap |> Map.toList |> List.map (fun ((s, _), _) -> s)))
 
-        let outerCols = PolarsSchemaExtractor.GetColumnNames currentLf |> Array.toList
+        let outerCols = (SchemaInference.inferPlanSchema outerPlan).ColumnNames
         let outerCtx =
             if not scopeMap.IsEmpty then
                 TranslationContext.ScopedEntity([ outerName ], scopeMap, outerCols)
             else
-                createContextForType outerParam.Type currentLf outerName
+                createContextForType outerParam.Type outerPlan outerName
 
         let isNegated, coreConjunct =
             match ExpressionPatterns.unwrap conjunctExpr with
@@ -996,10 +925,10 @@ module internal SubqueryDecorrelator =
                 let! parts =
                     tryExtractCorrelatedParts outerNames aggCall.InnerSeq aggCall.ExtraWhereLambdaOpt
 
-                let! rawRightLf = resolveSequenceLazyFrame parts.RootSource
-                let! rightLf = tryApplyInnerFilters rawRightLf parts.InnerParam parts.InnerFilters
+                let! rawRightPlan = resolveSequencePlan parts.RootSource
+                let! rightPlan = tryApplyInnerFilters rawRightPlan parts.InnerParam parts.InnerFilters
 
-                let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf |> Array.toList
+                let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
                 let innerCtx =
                     createContextForTypeWithCols parts.InnerParam.Type rightCols parts.InnerParam.Name
 
@@ -1026,9 +955,7 @@ module internal SubqueryDecorrelator =
                     let! rawAggScalar =
                         tryBuildAggScalar rightCols aggCall.MethodName isCount aggCall.SelectorLambdaOpt
 
-                    let rightPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame rightLf, LogicalSchema.Empty)
                     let groupedPlan = LogicalPlan.GroupBy(rightPlan, keys.InnerKeys, [ (aggColName, rawAggScalar) ], None, false)
-                    let groupedLf = PolarsPhysicalLowerer.lowerPlan groupedPlan
 
                     let! outerSideScalar = ExprTranslator.tryTranslateToScalar outerCtx outerSideExpr
 
@@ -1051,39 +978,17 @@ module internal SubqueryDecorrelator =
                             | _ -> None
 
                     let cmpScalar = OperatorAndUdfTranslator.translateBinary effectiveOp outerSideScalar scaledAggScalar
-                    let cmpHandle = PolarsScalarLowerer.lower cmpScalar
 
-                    let leftOnHs = keys.OuterKeys |> List.map PolarsScalarLowerer.lower |> List.toArray
-                    let rightOnHs = keys.InnerKeys |> List.map PolarsScalarLowerer.lower |> List.toArray
-
-                    let joinOp =
-                        QueryOp.Join
-                            {
-                                RightLf = groupedLf
-                                LeftOn = leftOnHs
-                                RightOn = rightOnHs
-                                How = PlJoinType.Left
-                                Suffix = None
-                                InvertSides = false
-                                Coalesce = PlJoinCoalesce.JoinSpecific
-                                NullsEqual = false
-                            }
-
-                    let filterOp = QueryOp.Filter cmpHandle
-
-                    let originalCols = PolarsSchemaExtractor.GetColumnNames currentLf
-
-                    let ops =
+                    let joinedPlan = LogicalPlan.Join(outerPlan, groupedPlan, keys.OuterKeys, keys.InnerKeys, PlJoinType.Left, None, PlJoinCoalesce.JoinSpecific, false)
+                    let filterPlan = LogicalPlan.Filter(joinedPlan, cmpScalar)
+                    let originalCols = (SchemaInference.inferPlanSchema outerPlan).ColumnNames
+                    let restorePlan =
                         if originalCols.Length > 0 then
-                            [
-                                joinOp
-                                filterOp
-                                QueryOp.Select(originalCols |> Array.map (fun c -> PolarsScalarLowerer.lower (ScalarExpr.Column c)))
-                            ]
+                            LogicalPlan.Project(filterPlan, originalCols |> List.map (fun c -> c, ScalarExpr.Column c))
                         else
-                            [ joinOp; filterOp ]
+                            filterPlan
 
-                    return ops
+                    return restorePlan
                 else
                     // Theta conditions present (composite conditions: equi-join + inequalities/cross conditions)
                     let leftCols = outerCols |> Set.ofList
@@ -1126,9 +1031,6 @@ module internal SubqueryDecorrelator =
 
                     let ridCol = $"__subquery_rid_{uid}"
 
-                    let outerPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame currentLf, LogicalSchema.Empty)
-                    let rightPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame rightLf, LogicalSchema.Empty)
-
                     let withRidPlan = LogicalPlan.WithRowIndex(outerPlan, ridCol, Some 0u)
                     let joinedPlan =
                         if outerKeys.IsEmpty then
@@ -1145,24 +1047,18 @@ module internal SubqueryDecorrelator =
                             None,
                             false
                         )
-                    let groupedMatchesLf = PolarsPhysicalLowerer.lowerPlan groupedPlan
 
-                    let ridLeftH = PolarsScalarLowerer.lower (ScalarExpr.Column ridCol)
-                    let ridRightH = PolarsScalarLowerer.lower (ScalarExpr.Column ridCol)
-                    let withRowIndexOp = QueryOp.WithRowIndex(ridCol, Some 0u)
-
-                    let joinOp =
-                        QueryOp.Join
-                            {
-                                RightLf = groupedMatchesLf
-                                LeftOn = [| ridLeftH |]
-                                RightOn = [| ridRightH |]
-                                How = PlJoinType.Left
-                                Suffix = None
-                                InvertSides = false
-                                Coalesce = PlJoinCoalesce.JoinSpecific
-                                NullsEqual = false
-                            }
+                    let leftJoinPlan =
+                        LogicalPlan.Join(
+                            withRidPlan,
+                            groupedPlan,
+                            [ ScalarExpr.Column ridCol ],
+                            [ ScalarExpr.Column ridCol ],
+                            PlJoinType.Left,
+                            None,
+                            PlJoinCoalesce.JoinSpecific,
+                            false
+                        )
 
                     let! outerSideScalar = ExprTranslator.tryTranslateToScalar outerCtx outerSideExpr
 
@@ -1185,22 +1081,20 @@ module internal SubqueryDecorrelator =
                             | _ -> None
 
                     let cmpScalar = OperatorAndUdfTranslator.translateBinary effectiveOp outerSideScalar scaledAggScalar
-                    let cmpHandle = PolarsScalarLowerer.lower cmpScalar
+                    let filteredPlan = LogicalPlan.Filter(leftJoinPlan, cmpScalar)
+                    let restorePlan = LogicalPlan.Project(filteredPlan, originalCols |> List.map (fun c -> c, ScalarExpr.Column c))
 
-                    let filterOp = QueryOp.Filter cmpHandle
-                    let restoreSchemaOp = QueryOp.Select(originalCols |> List.map (fun c -> PolarsScalarLowerer.lower (ScalarExpr.Column c)) |> List.toArray)
-
-                    return [ withRowIndexOp; joinOp; filterOp; restoreSchemaOp ]
+                    return restorePlan
             }
         | _ -> None
 
     /// Attempts to decorrelate one or more subquery expressions within a filter lambda,
-    /// emitting corresponding QueryOp pushdown stages and separating residual outer filters.
+    /// returning the rewritten LogicalPlan and any residual outer filter lambda.
     let tryDecorrelateFilter
-        (currentLf: LazyFrameHandle)
+        (outerPlan: LogicalPlan)
         (filterLambda: LambdaExpression)
         (scopeMap: Map<string * string, string>)
-        : DecorrelationResult option =
+        : (LogicalPlan * LambdaExpression option) option =
         if filterLambda.Parameters.Count <> 1 then
             None
         else
@@ -1209,28 +1103,27 @@ module internal SubqueryDecorrelator =
                 Set.ofSeq (outerParam.Name :: (scopeMap |> Map.toList |> List.map (fun ((s, _), _) -> s)))
             let conjuncts = flattenAnd filterLambda.Body
 
-            let generatedOpsRev, residualConjunctsRev, wasDecorrelated =
+            let (finalPlan, residualConjunctsRev, wasDecorrelated) =
                 conjuncts
                 |> List.fold
-                    (fun (opsAcc, resAcc, decorrelatedAny) cond ->
-                        match tryDecorrelateConjunct currentLf outerParam cond scopeMap with
-                        | Some ops -> List.rev ops @ opsAcc, resAcc, true
+                    (fun (currPlan, resAcc, decorrelatedAny) cond ->
+                        match tryDecorrelateConjunct currPlan outerParam cond scopeMap with
+                        | Some nextPlan -> nextPlan, resAcc, true
                         | None ->
-                            match tryDecorrelateCorrelatedScalarAgg currentLf outerParam cond scopeMap with
-                            | Some aggOps -> List.rev aggOps @ opsAcc, resAcc, true
+                            match tryDecorrelateCorrelatedScalarAgg currPlan outerParam cond scopeMap with
+                            | Some nextPlan -> nextPlan, resAcc, true
                             | None ->
                                 let foldedCond, changed = foldUncorrelatedSubqueries outerNames cond
 
                                 if changed then
-                                    opsAcc, foldedCond :: resAcc, true
+                                    currPlan, foldedCond :: resAcc, true
                                 else
-                                    opsAcc, cond :: resAcc, decorrelatedAny)
-                    ([], [], false)
+                                    currPlan, cond :: resAcc, decorrelatedAny)
+                    (outerPlan, [], false)
 
-            let generatedOps = List.rev generatedOpsRev
             let residualConjuncts = List.rev residualConjunctsRev
 
-            if generatedOps.IsEmpty && not wasDecorrelated then
+            if not wasDecorrelated then
                 None
             else
                 let residualLambda =
@@ -1243,11 +1136,7 @@ module internal SubqueryDecorrelator =
 
                         Some(Expression.Lambda(combined, outerParam))
 
-                Some
-                    {
-                        GeneratedOps = generatedOps
-                        ResidualLambda = residualLambda
-                    }
+                Some(finalPlan, residualLambda)
 
     // =========================================================================
     // 6. Projection Subquery Decorrelation & Coalescing (Step 4)
@@ -1443,12 +1332,12 @@ module internal SubqueryDecorrelator =
     /// Attempts to decorrelate embedded subqueries (e.g. Count, Sum, Average, Min, Max, Any)
     /// found within a Select projection lambda. Groups subqueries against the same inner source table
     /// and keys into unified GroupBy aggregations, emitting Left Outer Joins and null-coalescing operations,
-    /// and returns the rewritten projection lambda with native column references.
+    /// and returns the rewritten LogicalPlan with the rewritten projection lambda.
     let tryDecorrelateProjection
-        (currentLf: LazyFrameHandle)
+        (outerPlan: LogicalPlan)
         (projLambda: LambdaExpression)
         (scopeMap: Map<string * string, string>)
-        : (QueryOp list * LambdaExpression) option =
+        : (LogicalPlan * LambdaExpression) option =
         if projLambda.Parameters.Count < 1 then
             None
         elif not (containsSubquery projLambda.Body) then
@@ -1466,12 +1355,12 @@ module internal SubqueryDecorrelator =
 
             if candidates.IsEmpty then
                 if hasFolded then
-                    Some([], Expression.Lambda(foldedBody, projLambda.Parameters))
+                    Some(outerPlan, Expression.Lambda(foldedBody, projLambda.Parameters))
                 else
                     None
             else
                 let groups = groupCandidates candidates
-                let colNames = PolarsSchemaExtractor.GetColumnNames currentLf |> Array.toList
+                let colNames = (SchemaInference.inferPlanSchema outerPlan).ColumnNames
                 let outerCtx =
                     if not scopeMap.IsEmpty then
                         TranslationContext.ScopedEntity(outerParamNames |> Set.toList, scopeMap, colNames)
@@ -1480,7 +1369,7 @@ module internal SubqueryDecorrelator =
                     else
                         TranslationContext.ScopedEntity(outerParamNames |> Set.toList, Map.empty, colNames)
 
-                let compileGroup (grpIdx: int) (grp: ProjectionSubqueryCandidate list) =
+                let compileGroup (grpIdx: int) (grp: ProjectionSubqueryCandidate list) (currPlan: LogicalPlan) =
                     let head = grp.Head
 
                     let sameAggOp (c1: ProjectionSubqueryCandidate) (c2: ProjectionSubqueryCandidate) =
@@ -1506,38 +1395,31 @@ module internal SubqueryDecorrelator =
                                 | Some rawAggScalar ->
                                     assignAggCols buildAgg tail ((cand, colName, Some(colName, rawAggScalar)) :: assigned)
 
-                    let buildFillNullOps
+                    let buildFillNullCols
                         (assignments: (ProjectionSubqueryCandidate * string * (string * ScalarExpr) option) list)
-                        =
+                        : (string * ScalarExpr) list =
                         let handledCols = HashSet<string>()
 
-                        let fillExprs =
-                            assignments
-                            |> List.choose (fun (cand, colName, _) ->
-                                let defaultValOpt =
-                                    if cand.IsAny || cand.MethodName = "Count" || cand.MethodName = "LongCount" then
-                                        Some(ScalarExpr.Literal(LiteralValue.UInt32 0u))
-                                    elif cand.MethodName = "Sum" then
-                                        match PolarsTypeHelper.GetNumericZeroValue cand.TargetType with
-                                        | null -> None
-                                        | zeroVal ->
-                                            let core = PolarsTypeHelper.UnwrapCoreType cand.TargetType
-                                            Some(toLiteral zeroVal core)
-                                    else
-                                        None
+                        assignments
+                        |> List.choose (fun (cand, colName, _) ->
+                            let defaultValOpt =
+                                if cand.IsAny || cand.MethodName = "Count" || cand.MethodName = "LongCount" then
+                                    Some(ScalarExpr.Literal(LiteralValue.UInt32 0u))
+                                elif cand.MethodName = "Sum" then
+                                    match PolarsTypeHelper.GetNumericZeroValue cand.TargetType with
+                                    | null -> None
+                                    | zeroVal ->
+                                        let core = PolarsTypeHelper.UnwrapCoreType cand.TargetType
+                                        Some(toLiteral zeroVal core)
+                                else
+                                    None
 
-                                match defaultValOpt with
-                                | Some defVal when handledCols.Add colName ->
-                                    let filled =
-                                        ScalarExpr.Function(ScalarFunction.FillNull, [ ScalarExpr.Column colName; defVal ], PlDataType.Unknown)
-                                    let aliased = ScalarExpr.Alias(filled, colName)
-                                    Some(PolarsScalarLowerer.lower aliased)
-                                | _ -> None)
-
-                        if fillExprs.IsEmpty then
-                            []
-                        else
-                            [ QueryOp.WithColumns(fillExprs |> List.toArray) ]
+                            match defaultValOpt with
+                            | Some defVal when handledCols.Add colName ->
+                                let filled =
+                                    ScalarExpr.Function(ScalarFunction.FillNull, [ ScalarExpr.Column colName; defVal ], PlDataType.Unknown)
+                                Some(colName, filled)
+                            | _ -> None)
 
                     let buildReplacements
                         (assignments: (ProjectionSubqueryCandidate * string * (string * ScalarExpr) option) list)
@@ -1559,9 +1441,9 @@ module internal SubqueryDecorrelator =
                     let indexedCandidates = grp |> List.mapi (fun i c -> i, c)
 
                     option {
-                        let! rawRightLf = resolveSequenceLazyFrame head.RootSource
-                        let! rightLf = tryApplyInnerFilters rawRightLf head.InnerParam head.InnerFilters
-                        let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf |> Array.toList
+                        let! rawRightPlan = resolveSequencePlan head.RootSource
+                        let! rightPlan = tryApplyInnerFilters rawRightPlan head.InnerParam head.InnerFilters
+                        let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
 
                         let innerCtx =
                             createContextForTypeWithCols head.InnerParam.Type rightCols head.InnerParam.Name
@@ -1577,30 +1459,30 @@ module internal SubqueryDecorrelator =
                             let aggExprsToEmit =
                                 assignments |> List.choose (fun (_, _, exprOpt) -> exprOpt)
 
-                            let rightPlan =
-                                LogicalPlan.Scan(LogicalPlanSource.LazyFrame rightLf, LogicalSchema.Empty)
                             let groupedPlan =
                                 LogicalPlan.GroupBy(rightPlan, keys.InnerKeys, aggExprsToEmit, None, false)
-                            let groupedLf = PolarsPhysicalLowerer.lowerPlan groupedPlan
 
-                            let joinOp =
-                                QueryOp.Join
-                                    {
-                                        RightLf = groupedLf
-                                        LeftOn = keys.OuterKeys |> List.map PolarsScalarLowerer.lower |> List.toArray
-                                        RightOn = keys.InnerKeys |> List.map PolarsScalarLowerer.lower |> List.toArray
-                                        How = PlJoinType.Left
-                                        Suffix = None
-                                        InvertSides = false
-                                        Coalesce = PlJoinCoalesce.JoinSpecific
-                                        NullsEqual = false
-                                    }
+                            let joinPlan =
+                                LogicalPlan.Join(
+                                    currPlan,
+                                    groupedPlan,
+                                    keys.OuterKeys,
+                                    keys.InnerKeys,
+                                    PlJoinType.Left,
+                                    None,
+                                    PlJoinCoalesce.JoinSpecific,
+                                    false
+                                )
 
-                            let fillNullOps = buildFillNullOps assignments
+                            let fillNullCols = buildFillNullCols assignments
+                            let withColsPlan =
+                                if fillNullCols.IsEmpty then joinPlan
+                                else LogicalPlan.WithColumns(joinPlan, fillNullCols)
+
                             let replacements = buildReplacements assignments
-                            return joinOp :: fillNullOps, replacements
+                            return withColsPlan, replacements
                         else
-                            let leftCols = PolarsSchemaExtractor.GetColumnNames currentLf |> Set.ofArray
+                            let leftCols = (SchemaInference.inferPlanSchema currPlan).ColumnNames |> Set.ofList
                             let rightSuffix = LinqConstants.DefaultRightSuffix
 
                             let correlatedCtx =
@@ -1629,12 +1511,7 @@ module internal SubqueryDecorrelator =
                             let uid = Guid.NewGuid().ToString "N"
                             let ridCol = $"__subquery_rid_{grpIdx}_{uid}"
 
-                            let outerPlan =
-                                LogicalPlan.Scan(LogicalPlanSource.LazyFrame currentLf, LogicalSchema.Empty)
-                            let rightPlan =
-                                LogicalPlan.Scan(LogicalPlanSource.LazyFrame rightLf, LogicalSchema.Empty)
-
-                            let withRidPlan = LogicalPlan.WithRowIndex(outerPlan, ridCol, Some 0u)
+                            let withRidPlan = LogicalPlan.WithRowIndex(currPlan, ridCol, Some 0u)
 
                             let joinedPlan =
                                 if outerKeys.IsEmpty then
@@ -1688,46 +1565,42 @@ module internal SubqueryDecorrelator =
                                     false
                                 )
 
-                            let groupedMatchesLf = PolarsPhysicalLowerer.lowerPlan groupedMatchesPlan
+                            let joinPlan =
+                                LogicalPlan.Join(
+                                    withRidPlan,
+                                    groupedMatchesPlan,
+                                    [ ScalarExpr.Column ridCol ],
+                                    [ ScalarExpr.Column ridCol ],
+                                    PlJoinType.Left,
+                                    None,
+                                    PlJoinCoalesce.JoinSpecific,
+                                    false
+                                )
 
-                            let withRowIndexOp = QueryOp.WithRowIndex(ridCol, Some 0u)
+                            let fillNullCols = buildFillNullCols assignments
+                            let withColsPlan =
+                                if fillNullCols.IsEmpty then joinPlan
+                                else LogicalPlan.WithColumns(joinPlan, fillNullCols)
 
-                            let joinOp =
-                                QueryOp.Join
-                                    {
-                                        RightLf = groupedMatchesLf
-                                        LeftOn = [| PolarsScalarLowerer.lower (ScalarExpr.Column ridCol) |]
-                                        RightOn = [| PolarsScalarLowerer.lower (ScalarExpr.Column ridCol) |]
-                                        How = PlJoinType.Left
-                                        Suffix = None
-                                        InvertSides = false
-                                        Coalesce = PlJoinCoalesce.JoinSpecific
-                                        NullsEqual = false
-                                    }
-
-                            let fillNullOps = buildFillNullOps assignments
                             let replacements = buildReplacements assignments
-                            return [ withRowIndexOp; joinOp ] @ fillNullOps, replacements
+                            return withColsPlan, replacements
                     }
 
-                let compiledGroupsOpt =
-                    groups
-                    |> List.mapi (fun idx grp -> compileGroup idx grp)
-                    |> fun listOpts ->
-                        if listOpts |> List.exists Option.isNone then
-                            None
-                        else
-                            Some(listOpts |> List.choose id)
+                let rec chainGroups (plan: LogicalPlan) (replsAcc: (Expression * Expression) list) (remaining: (int * ProjectionSubqueryCandidate list) list) =
+                    match remaining with
+                    | [] -> Some(plan, replsAcc)
+                    | (idx, grp) :: tail ->
+                        match compileGroup idx grp plan with
+                        | Some(nextPlan, repls) ->
+                            chainGroups nextPlan (replsAcc @ repls) tail
+                        | None -> None
 
-                match compiledGroupsOpt with
+                match chainGroups outerPlan [] (groups |> List.mapi (fun i g -> i, g)) with
                 | None -> None
-                | Some compiledGroups ->
-                    let allGeneratedOps = compiledGroups |> List.collect fst
-                    let allReplacements = compiledGroups |> List.collect snd
-
+                | Some(finalPlan, allReplacements) ->
                     let replacer = SubqueryExpressionReplacer allReplacements
                     let rewrittenBody = replacer.Visit foldedBody
 
                     let rewrittenLambda = Expression.Lambda(rewrittenBody, projLambda.Parameters)
 
-                    Some(allGeneratedOps, rewrittenLambda)
+                    Some(finalPlan, rewrittenLambda)

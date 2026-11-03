@@ -18,7 +18,8 @@ module internal PipelineStageParser =
     /// Creates an appropriate TranslationContext based on whether the sequence element type
     /// is a scalar/primitive (bound to the underlying single physical column) or a composite entity.
     let createContextForType (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
-        SubqueryDecorrelator.createContextForType elemType lf paramName
+        let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
+        SubqueryDecorrelator.createContextForTypeWithCols elemType colNames paramName
 
     /// Creates a TranslationContext that prioritizes registered scope mappings (for deep multi-table joins)
     /// before falling back to default schema extraction.

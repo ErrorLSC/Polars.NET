@@ -7,6 +7,7 @@ open System.Linq.Expressions
 open System.Reflection
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
+open Polars.NET.Linq.IR
 open Polars.NET.Linq.Backend.Polars
 
 module internal LinqPipelineCompiler =
@@ -313,14 +314,20 @@ module internal LinqPipelineCompiler =
             // 2. Filtering & Window Masking (Filter, TakeWhile, SkipWhile)
             // -----------------------------------------------------------------
             | LinqStage.Filter l :: tail ->
-                match if canPushdown then SubqueryDecorrelator.tryDecorrelateFilter currentLf l scopeMap else None with
-                | Some decorResult ->
-                    let newOpsAcc = (decorResult.GeneratedOps |> List.rev) @ opsAcc
+                let filterPlanOpt =
+                    if canPushdown && SubqueryDecorrelator.containsSubquery l.Body then
+                        let outerPlan = PolarsPhysicalLowerer.fromOps currentLf (List.rev opsAcc)
+                        SubqueryDecorrelator.tryDecorrelateFilter outerPlan l scopeMap
+                    else None
+
+                match filterPlanOpt with
+                | Some (newPlan, residualLamOpt) ->
+                    let newLf = PolarsPhysicalLowerer.lowerPlan newPlan
                     let nextStages =
-                        match decorResult.ResidualLambda with
+                        match residualLamOpt with
                         | Some residualLam -> LinqStage.Filter residualLam :: tail
                         | None -> tail
-                    fuse currentLf nextStages newOpsAcc clientPreds clientProjOpt scopeMap
+                    fuse newLf nextStages [] clientPreds clientProjOpt scopeMap
                 | None ->
                     let p = l.Parameters.[0]
                     let ctx = createContextWithScope scopeMap p.Type currentLf p.Name
@@ -372,9 +379,16 @@ module internal LinqPipelineCompiler =
             // 3. Projection (Select, Transparent Let, Subquery Decorrelation)
             // -----------------------------------------------------------------
             | LinqStage.Project projLambda :: tail ->
-                match if canPushdown then SubqueryDecorrelator.tryDecorrelateProjection currentLf projLambda scopeMap else None with
-                | Some(subqueryOps, rewrittenProjLambda) ->
-                    fuse currentLf (LinqStage.Project rewrittenProjLambda :: tail) ((subqueryOps |> List.rev) @ opsAcc) clientPreds None scopeMap
+                let projPlanOpt =
+                    if canPushdown && SubqueryDecorrelator.containsSubquery projLambda.Body then
+                        let outerPlan = PolarsPhysicalLowerer.fromOps currentLf (List.rev opsAcc)
+                        SubqueryDecorrelator.tryDecorrelateProjection outerPlan projLambda scopeMap
+                    else None
+
+                match projPlanOpt with
+                | Some (newPlan, rewrittenProjLambda) ->
+                    let newLf = PolarsPhysicalLowerer.lowerPlan newPlan
+                    fuse newLf (LinqStage.Project rewrittenProjLambda :: tail) [] clientPreds None scopeMap
                 | None ->
                     let nativeProjOpOpt =
                         if canPushdown then
@@ -541,10 +555,11 @@ module internal LinqPipelineCompiler =
                             let hasSubquery = canPushdown && SubqueryDecorrelator.containsSubquery resSel.Body
                             if hasSubquery then
                                 let joinedBaseLf = applyNativeOps activeBaseLf [ QueryOp.Join spec ]
-                                match SubqueryDecorrelator.tryDecorrelateProjection joinedBaseLf resSel updatedScopeMap with
-                                | Some(subqueryOps, rewrittenResSel) ->
-                                    let lfAfterSubqueries =
-                                        if subqueryOps.IsEmpty then joinedBaseLf else applyNativeOps joinedBaseLf subqueryOps
+                                let colNames = PolarsSchemaExtractor.GetColumnNames joinedBaseLf |> Array.toList
+                                let outerPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame (PolarsWrapper.LazyClone joinedBaseLf), LogicalSchema.OfNames colNames)
+                                match SubqueryDecorrelator.tryDecorrelateProjection outerPlan resSel updatedScopeMap with
+                                | Some(newPlan, rewrittenResSel) ->
+                                    let lfAfterSubqueries = PolarsPhysicalLowerer.lowerPlan newPlan
                                     let postJoinLeftCols = getLazySchemaFields lfAfterSubqueries |> Array.map fst
                                     match compileJoinResultSelector postJoinLeftCols rightCols spec rewrittenResSel updatedScopeMap with
                                     | Some selectOp ->
@@ -658,10 +673,11 @@ module internal LinqPipelineCompiler =
                             let hasSubquery = canPushdown && SubqueryDecorrelator.containsSubquery resSel.Body
                             if hasSubquery then
                                 let joinedBaseLf = applyNativeOps activeBaseLf [ QueryOp.JoinAsOf spec ]
-                                match SubqueryDecorrelator.tryDecorrelateProjection joinedBaseLf resSel updatedScopeMap with
-                                | Some(subqueryOps, rewrittenResSel) ->
-                                    let lfAfterSubqueries =
-                                        if subqueryOps.IsEmpty then joinedBaseLf else applyNativeOps joinedBaseLf subqueryOps
+                                let colNames = PolarsSchemaExtractor.GetColumnNames joinedBaseLf |> Array.toList
+                                let outerPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame (PolarsWrapper.LazyClone joinedBaseLf), LogicalSchema.OfNames colNames)
+                                match SubqueryDecorrelator.tryDecorrelateProjection outerPlan resSel updatedScopeMap with
+                                | Some(newPlan, rewrittenResSel) ->
+                                    let lfAfterSubqueries = PolarsPhysicalLowerer.lowerPlan newPlan
                                     let postSubqueryCols = getLazySchemaFields lfAfterSubqueries |> Array.map fst
                                     match compileJoinResultSelectorWithParams postSubqueryCols rightCols false spec.Suffix rewrittenResSel updatedScopeMap with
                                     | Some selectOp ->
