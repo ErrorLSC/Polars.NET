@@ -56,17 +56,8 @@ type internal TranslationContext =
         | TranslationContext.CorrelatedJoin(outerParams, inner, _, _, scopeMap) ->
             List.contains name outerParams || name = inner || scopeMap |> Map.exists (fun (s, _) _ -> s = name)
 
-    /// Attempts to resolve the parameter expression node itself to a native Polars ExprHandle.
-    member this.TryResolveParameterHandle(name: string) : ExprHandle option =
-        match this with
-        | TranslationContext.Scalar(p, physicalCol) when p = name && not (String.IsNullOrEmpty physicalCol) ->
-            Some(PolarsWrapper.Col physicalCol)
-        | TranslationContext.ListElement p when p = name ->
-            Some(PolarsWrapper.Col "")
-        | _ -> None
-
     /// Attempts to resolve the parameter expression node itself to a pure symbolic ScalarExpr.
-    member this.TryResolveParameterScalar(name: string) : ScalarExpr option =
+    member this.TryResolveParameter(name: string) : ScalarExpr option =
         match this with
         | TranslationContext.Scalar(p, physicalCol) when p = name && not (String.IsNullOrEmpty physicalCol) ->
             Some(ScalarExpr.Column physicalCol)
@@ -80,8 +71,8 @@ type internal TranslationContext =
         | TranslationContext.Scalar _ -> false
         | _ -> true
 
-/// Signature for higher-order recursive expression evaluation across translator modules.
-type internal ExprEvaluator = TranslationContext -> Expression -> ExprHandle option
-
 /// Signature for higher-order recursive scalar expression evaluation across translator modules.
 type internal ScalarExprEvaluator = TranslationContext -> Expression -> ScalarExpr option
+
+/// Signature for legacy higher-order recursive expression evaluation.
+type internal ExprEvaluator = TranslationContext -> Expression -> ExprHandle option

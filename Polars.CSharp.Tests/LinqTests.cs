@@ -4821,6 +4821,9 @@ public partial class LinqTests
                           o.Id,
                           AbsAmount = Math.Abs(o.Amount),
                           Rounded = Math.Round(o.Amount, 1, MidpointRounding.ToEven),
+                          RoundAwayFromZero = Math.Round(o.Amount, MidpointRounding.AwayFromZero),
+                          RoundDigitsAwayFromZero = Math.Round(o.Amount, 1, MidpointRounding.AwayFromZero),
+                          RoundDigitsToZero = Math.Round(o.Amount, 1, MidpointRounding.ToZero),
                           CeilVal = Math.Ceiling(o.Amount),
                           MaxVal = Math.Max(o.Amount, 100.0)
                       });
@@ -4834,6 +4837,9 @@ public partial class LinqTests
         Assert.Equal(1, queryResults[0].Id);
         Assert.Equal(120.55, queryResults[0].AbsAmount);
         Assert.Equal(120.6, queryResults[0].Rounded);
+        Assert.Equal(121.0, queryResults[0].RoundAwayFromZero);
+        Assert.Equal(120.6, queryResults[0].RoundDigitsAwayFromZero);
+        Assert.Equal(120.5, queryResults[0].RoundDigitsToZero);
         Assert.Equal(121.0, queryResults[0].CeilVal);
         Assert.Equal(120.55, queryResults[0].MaxVal);
 
@@ -4841,6 +4847,9 @@ public partial class LinqTests
         Assert.Equal(3, queryResults[1].Id);
         Assert.Equal(999.4, queryResults[1].AbsAmount);
         Assert.Equal(999.4, queryResults[1].Rounded);
+        Assert.Equal(999.0, queryResults[1].RoundAwayFromZero);
+        Assert.Equal(999.4, queryResults[1].RoundDigitsAwayFromZero);
+        Assert.Equal(999.4, queryResults[1].RoundDigitsToZero);
         Assert.Equal(1000.0, queryResults[1].CeilVal);
         Assert.Equal(999.4, queryResults[1].MaxVal);
     }

@@ -23,7 +23,7 @@ module internal TreeBuilder =
 
     /// Extracts projection bindings (name * ScalarExpr) from a projection LambdaExpression.
     let private extractProjections (ctx: TranslationContext) (body: Expression) : (string * ScalarExpr) list option =
-        match ExprTranslator.unwrap body with
+        match ExpressionPatterns.unwrap body with
         | :? MemberInitExpression as mie ->
             let bindings =
                 mie.Bindings

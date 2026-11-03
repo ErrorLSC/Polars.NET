@@ -6,6 +6,8 @@ open System.Linq.Expressions
 open Polars.NET.Core
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Helpers
+open Polars.NET.Linq.IR
+open Polars.NET.Linq.Backend.Polars
 
 module AggTranslator =
     open ExprTranslator
@@ -334,7 +336,7 @@ module AggTranslator =
 
     let private isIntermediateSequenceMethod (m: MethodInfo) =
         if isNull m then false
-        elif ExprTranslator.isInternalOrLinqMethod m then true
+        elif OperatorAndUdfTranslator.isInternalOrLinqMethod m then true
         elif m.DeclaringType = typeof<System.Linq.Enumerable> then
             match m.Name with
             | "Select" | "Where" | "OrderBy" | "OrderByDescending"
@@ -533,10 +535,14 @@ module AggTranslator =
         // Composite Expressions: Binary, Unary, Constant, Conditional, MethodCall
         // ---------------------------------------------------------------------
         | MethodCall(m, target, args) when isNumericDeclaringType m.DeclaringType && isNull target ->
-            translateNumericMethodWithTranslator
-                (tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap)
+            let translateScalar expr =
+                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap expr
+                |> Option.map (fun h -> ScalarExpr.Opaque(h, [], ""))
+            translateNumericMethod
+                translateScalar
                 m
                 args
+            |> Option.map PolarsScalarLowerer.lower
 
         | :? ConditionalExpression as cond ->
             match
@@ -600,7 +606,7 @@ module AggTranslator =
                         None, args
                     | _ -> None, []
 
-                if rawArgs.IsEmpty || not (rawArgs |> List.exists (ExprTranslator.exprDependsOnParam groupParamName)) then
+                if rawArgs.IsEmpty || not (rawArgs |> List.exists (OperatorAndUdfTranslator.exprDependsOnParam groupParamName)) then
                     None
                 else
                     let methodName =
@@ -611,7 +617,7 @@ module AggTranslator =
                     // Collect all argument expressions that depend on the group parameter
                     let dependentArgs =
                         rawArgs
-                        |> List.filter (ExprTranslator.exprDependsOnParam groupParamName)
+                        |> List.filter (OperatorAndUdfTranslator.exprDependsOnParam groupParamName)
 
                     // Every dependent argument must be a sequence or rows from the group (GroupSeqChain)
                     let resolveArgHandle (arg: Expression) : ExprHandle option =
@@ -650,12 +656,12 @@ module AggTranslator =
 
                             if dynCount = 1 then
                                 let argExpr, handle = dynArgs.[0]
-                                let userFunc = ExprTranslator.compileSingleArgUdfDelegate argExpr expr
+                                let userFunc = OperatorAndUdfTranslator.compileSingleArgUdfDelegate argExpr expr
                                 let arrowCallback = ArrowUdfBatchAdapter.CreateGroupAggregationSingle(userFunc, argExpr.Type, expr.Type)
                                 Some(PolarsWrapper.Apply(handle, arrowCallback, outDataType, returnsScalar = returnsScalar))
 
                             elif dynCount > 1 then
-                                let userFunc = ExprTranslator.compileMultiArgUdfDelegate dynArgs expr
+                                let userFunc = OperatorAndUdfTranslator.compileMultiArgUdfDelegate dynArgs expr
                                 let inputTypes = dynArgs |> List.map (fun (a, _) -> a.Type) |> List.toArray
                                 let arrowCallback = ArrowUdfBatchAdapter.CreateGroupAggregationMulti(userFunc, inputTypes, expr.Type)
                                 let mainHandle = snd dynArgs.[0]

@@ -3,6 +3,7 @@ namespace Polars.NET.Linq
 open Polars.NET.Core
 open Polars.NET.Core.Arrow
 open Polars.NET.Linq.IR
+open Polars.NET.Linq.Backend.Polars
 open System
 open System.Linq.Expressions
 open System.Reflection
@@ -11,7 +12,7 @@ open Polars.NET.Core.Helpers
 [<AutoOpen>]
 module internal OperatorAndUdfTranslator =
 
-    let internal translateBinaryScalar (nodeType: ExpressionType) (left: ScalarExpr) (right: ScalarExpr) : ScalarExpr =
+    let internal translateBinary (nodeType: ExpressionType) (left: ScalarExpr) (right: ScalarExpr) : ScalarExpr =
         match nodeType with
         | ExpressionType.Equal -> ScalarExpr.Binary(BinaryOp.Eq, left, right)
         | ExpressionType.NotEqual -> ScalarExpr.Binary(BinaryOp.NotEq, left, right)
@@ -33,41 +34,11 @@ module internal OperatorAndUdfTranslator =
         | ExpressionType.Coalesce -> ScalarExpr.Coalesce [ left; right ]
         | other -> failwithf "Binary operator '%A' is not currently supported in Polars LINQ" other
 
-    let internal translateBinary (nodeType: ExpressionType) (left: ExprHandle) (right: ExprHandle) : ExprHandle =
-        match nodeType with
-        | ExpressionType.Equal -> PolarsWrapper.Eq(left, right)
-        | ExpressionType.NotEqual -> PolarsWrapper.Neq(left, right)
-        | ExpressionType.GreaterThan -> PolarsWrapper.Gt(left, right)
-        | ExpressionType.GreaterThanOrEqual -> PolarsWrapper.GtEq(left, right)
-        | ExpressionType.LessThan -> PolarsWrapper.Lt(left, right)
-        | ExpressionType.LessThanOrEqual -> PolarsWrapper.LtEq(left, right)
-        | ExpressionType.Add -> PolarsWrapper.Add(left, right)
-        | ExpressionType.Subtract -> PolarsWrapper.Sub(left, right)
-        | ExpressionType.Multiply -> PolarsWrapper.Mul(left, right)
-        | ExpressionType.Divide -> PolarsWrapper.Div(left, right)
-        | ExpressionType.Modulo -> PolarsWrapper.Rem(left, right)
-        | ExpressionType.Power -> PolarsWrapper.Pow(left, right)
-        | ExpressionType.And
-        | ExpressionType.AndAlso -> PolarsWrapper.And(left, right)
-        | ExpressionType.Or
-        | ExpressionType.OrElse -> PolarsWrapper.Or(left, right)
-        | ExpressionType.ExclusiveOr -> PolarsWrapper.Xor(left, right)
-        | ExpressionType.Coalesce -> PolarsWrapper.Coalesce [| left; right |]
-        | other -> failwithf "Binary operator '%A' is not currently supported in Polars LINQ" other
-
-    let internal translateUnaryScalar (nodeType: ExpressionType) (operand: ScalarExpr) : ScalarExpr option =
+    let internal translateUnary (nodeType: ExpressionType) (operand: ScalarExpr) : ScalarExpr option =
         match nodeType with
         | ExpressionType.Not -> Some(ScalarExpr.Unary(UnaryOp.Not, operand))
         | ExpressionType.Negate
         | ExpressionType.NegateChecked -> Some(ScalarExpr.Unary(UnaryOp.Negate, operand))
-        | ExpressionType.UnaryPlus -> Some operand
-        | _ -> None
-
-    let internal translateUnary (nodeType: ExpressionType) (operand: ExprHandle) : ExprHandle option =
-        match nodeType with
-        | ExpressionType.Not -> Some(PolarsWrapper.Not operand)
-        | ExpressionType.Negate
-        | ExpressionType.NegateChecked -> Some(PolarsWrapper.Neg operand)
         | ExpressionType.UnaryPlus -> Some operand
         | _ -> None
 
@@ -116,13 +87,7 @@ module internal OperatorAndUdfTranslator =
             | _ -> None
         | None -> None
 
-    let internal tryResolveEntityNullTarget (ctx: TranslationContext) (expr: Expression) : ExprHandle option =
-        tryResolveEntityNullTargetScalar ctx expr
-        |> Option.map (function
-            | ScalarExpr.Column col -> PolarsWrapper.Col col
-            | _ -> PolarsWrapper.Col "")
-
-    let internal translateBinaryExprScalar
+    let internal translateBinaryExpr
         (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
         (op: ExpressionType)
@@ -170,61 +135,10 @@ module internal OperatorAndUdfTranslator =
             | _ -> None
         else
             match eval ctx left, eval ctx right with
-            | Some l, Some r -> Some(translateBinaryScalar op l r)
-            | _ -> None
-
-    let internal translateBinaryExpr
-        (eval: ExprEvaluator)
-        (ctx: TranslationContext)
-        (op: ExpressionType)
-        (left: Expression)
-        (right: Expression)
-        : ExprHandle option =
-        let translateNullCheckTarget targetExpr =
-            eval ctx targetExpr
-            |> Option.orElseWith (fun () -> tryResolveEntityNullTarget ctx targetExpr)
-
-        if op = ExpressionType.NotEqual && isNullConstantExpr right then
-            translateNullCheckTarget left |> Option.map PolarsWrapper.IsNotNull
-        elif op = ExpressionType.NotEqual && isNullConstantExpr left then
-            translateNullCheckTarget right |> Option.map PolarsWrapper.IsNotNull
-        elif op = ExpressionType.Equal && isNullConstantExpr right then
-            translateNullCheckTarget left |> Option.map PolarsWrapper.IsNull
-        elif op = ExpressionType.Equal && isNullConstantExpr left then
-            translateNullCheckTarget right |> Option.map PolarsWrapper.IsNull
-        elif op = ExpressionType.LeftShift then
-            match eval ctx left, tryEvaluate right with
-            | Some leftH, Some nVal ->
-                try
-                    let n = Convert.ToInt32 nVal
-                    Some(PolarsWrapper.BitLeftShift(leftH, n))
-                with _ ->
-                    None
-            | _ -> None
-
-        elif op = ExpressionType.RightShift then
-            match eval ctx left, tryEvaluate right with
-            | Some leftH, Some nVal ->
-                try
-                    let n = Convert.ToInt32 nVal
-                    Some(PolarsWrapper.BitRightShift(leftH, n))
-                with _ ->
-                    None
-            | _ -> None
-        // Intercept String concatenation (+) to synthesize native FormatString
-        elif
-            op = ExpressionType.Add
-            && (left.Type = typeof<string> || right.Type = typeof<string>)
-        then
-            match eval ctx left, eval ctx right with
-            | Some l, Some r -> Some(PolarsWrapper.FormatString("{}{}", [| l; r |]))
-            | _ -> None
-        else
-            match eval ctx left, eval ctx right with
             | Some l, Some r -> Some(translateBinary op l r)
             | _ -> None
 
-    let internal translateUnaryExprScalar
+    let internal translateUnaryExpr
         (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
         (op: ExpressionType)
@@ -233,18 +147,8 @@ module internal OperatorAndUdfTranslator =
         : ScalarExpr option =
         match op with
         | ExpressionType.Convert
-        | ExpressionType.ConvertChecked ->
-            eval ctx operand |> Option.bind (tryTranslateCastScalar targetType)
-        | _ -> eval ctx operand |> Option.bind (translateUnaryScalar op)
-
-    let internal translateUnaryExpr
-        (eval: ExprEvaluator)
-        (ctx: TranslationContext)
-        (op: ExpressionType)
-        (operand: Expression)
-        (targetType: Type)
-        : ExprHandle option =
-        match op with
+        | ExpressionType.ConvertChecked when targetType = operand.Type || Nullable.GetUnderlyingType targetType = operand.Type ->
+            eval ctx operand
         | ExpressionType.Convert
         | ExpressionType.ConvertChecked ->
             eval ctx operand |> Option.bind (tryTranslateCast targetType)
@@ -412,4 +316,9 @@ module internal OperatorAndUdfTranslator =
                                 None
         with _ ->
             None
+
+    let internal tryTranslateUdfInvocationScalar (eval: ScalarExprEvaluator) (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
+        let handleEval c e = eval c e |> Option.map PolarsScalarLowerer.lower
+        tryTranslateUdfInvocation handleEval ctx expr
+        |> Option.map (fun h -> ScalarExpr.Opaque(h, [], "UDF"))
 

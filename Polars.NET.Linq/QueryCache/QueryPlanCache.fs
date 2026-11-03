@@ -59,7 +59,8 @@ type QueryPlanCache private () =
             let maxCap = QueryPlanCache.MaxCapacity
 
             if cache.Count >= maxCap then
-                let pruneTargetCount = max 1 (int (float maxCap * 0.20))
+                let excess = cache.Count - maxCap + 1
+                let pruneTargetCount = max excess (int (float maxCap * 0.20))
 
                 let sortedOldest =
                     cache

@@ -4,6 +4,9 @@ open System
 open System.ComponentModel
 open Polars.NET.Core
 
+type PlDataType = Polars.NET.Core.PlDataType
+
+
 /// SRTP carrier mechanism for statically resolved scalar literal construction
 [<EditorBrowsable(EditorBrowsableState.Never)>]
 type ScalarLitMechanism = ScalarLitMechanism
@@ -42,52 +45,6 @@ module ScalarExprOps =
     /// Strongly-typed, zero-boxing overloaded literal constructor via SRTP
     let inline lit (v: ^T) : ScalarExpr =
         ((^T or ScalarLitMechanism): (static member ($): ScalarLitMechanism * ^T -> ScalarExpr) (ScalarLitMechanism, v))
-
-    /// Creates a typed null literal
-    let litNull (dtype: PlDataType) : ScalarExpr =
-        ScalarExpr.Literal(LiteralValue.Null dtype)
-
-    /// Dynamically resolves runtime object into a strongly-typed literal
-    let litObj (raw: obj) : ScalarExpr =
-        ScalarExpr.Literal(LiteralValue.OfObject raw)
-
-    /// Wraps an unmanaged or pre-translated handle into an opaque scalar node
-    let opaque (handle: ExprHandle) (referencedCols: string list) (description: string) : ScalarExpr =
-        ScalarExpr.Opaque(handle, referencedCols, description)
-
-    let andExpr (left: ScalarExpr) (right: ScalarExpr) : ScalarExpr =
-        match left, right with
-        | ScalarExpr.Literal(LiteralValue.Bool true), other
-        | other, ScalarExpr.Literal(LiteralValue.Bool true) -> other
-        | ScalarExpr.Literal(LiteralValue.Bool false), _
-        | _, ScalarExpr.Literal(LiteralValue.Bool false) -> lit false
-        | _ -> ScalarExpr.Binary(BinaryOp.And, left, right)
-
-    let orExpr (left: ScalarExpr) (right: ScalarExpr) : ScalarExpr =
-        match left, right with
-        | ScalarExpr.Literal(LiteralValue.Bool true), _
-        | _, ScalarExpr.Literal(LiteralValue.Bool true) -> lit true
-        | ScalarExpr.Literal(LiteralValue.Bool false), other
-        | other, ScalarExpr.Literal(LiteralValue.Bool false) -> other
-        | _ -> ScalarExpr.Binary(BinaryOp.Or, left, right)
-
-    let notExpr (expr: ScalarExpr) : ScalarExpr =
-        match expr with
-        | ScalarExpr.Unary(UnaryOp.Not, inner) -> inner
-        | ScalarExpr.Literal(LiteralValue.Bool b) -> lit (not b)
-        | _ -> ScalarExpr.Unary(UnaryOp.Not, expr)
-
-    let eqExpr (left: ScalarExpr) (right: ScalarExpr) : ScalarExpr =
-        ScalarExpr.Binary(BinaryOp.Eq, left, right)
-
-    let notEqExpr (left: ScalarExpr) (right: ScalarExpr) : ScalarExpr =
-        ScalarExpr.Binary(BinaryOp.NotEq, left, right)
-
-    let isNullExpr (expr: ScalarExpr) : ScalarExpr =
-        ScalarExpr.Unary(UnaryOp.IsNull, expr)
-
-    let isNotNullExpr (expr: ScalarExpr) : ScalarExpr =
-        ScalarExpr.Unary(UnaryOp.IsNotNull, expr)
 
     // =========================================================================
     // 2. Traversal, Visitors & Transformations

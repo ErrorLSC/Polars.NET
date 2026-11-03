@@ -56,45 +56,8 @@ module internal JsonTypeInference =
                     Some { TargetType = coreType; Fields = props })
 
     /// Recursively synthesizes a fresh Polars DataTypeHandle for a .NET Type.
-    let rec inferPolarsJsonDataType (t: Type) : DataTypeHandle option =
-        let coreType = PolarsTypeHelper.UnwrapCoreType t
-
-        // 1. Scalar / Primitive types (primitives, string, dates, times, decimals, guid)
-        if PolarsTypeHelper.IsScalarType coreType then
-            if coreType = typeof<Guid> then
-                // In JSON, Guid is serialized as a UUID string
-                Some(PolarsWrapper.NewPrimitiveType(int PlDataType.String))
-            else
-                try
-                    let arrowType = ArrowTypeResolver.GetArrowTypeFromNetType coreType
-                    Some(PolarsWrapper.MapArrowToDataTypeHandle arrowType)
-                with _ ->
-                    None
-
-        // 2. Arrays and Collections -> List
-        elif not (isNull (PolarsTypeHelper.TryGetEnumerableElementType coreType)) then
-            let elemType = PolarsTypeHelper.TryGetEnumerableElementType coreType
-            inferPolarsJsonDataType elemType
-            |> Option.map PolarsWrapper.NewListType
-
-        // 3. Composite Objects (Classes / Records / Structs) -> Struct
-        elif PolarsTypeHelper.IsStructType coreType then
-            match tryGetStructMeta coreType with
-            | Some meta ->
-                let fieldResults =
-                    meta.Fields
-                    |> List.map (fun f -> f.JsonName, inferPolarsJsonDataType f.PropertyType)
-
-                if fieldResults |> List.forall (fun (_, opt) -> opt.IsSome) then
-                    let names = fieldResults |> List.map fst |> List.toArray
-                    let handles = fieldResults |> List.map (snd >> Option.get) |> List.toArray
-                    Some(PolarsWrapper.NewStructType(names, handles))
-                else
-                    None
-            | None -> None
-
-        else
-            None
+    let inferPolarsJsonDataType (t: Type) : DataTypeHandle option =
+        Polars.NET.Linq.Backend.Polars.PolarsScalarLowerer.inferPolarsJsonDataType t
 
     /// Resolves the actual JSON field name corresponding to a C# member/property name.
     let tryResolveJsonFieldName (t: Type) (csharpPropName: string) : string option =
@@ -335,128 +298,7 @@ module internal JsonTranslator =
                         Some(JsonSerialize target)
                     | _ -> None
 
-    let internal translateJsonInvocation (eval: ExprEvaluator) (ctx: TranslationContext) (invocation: JsonInvocation) : ExprHandle option =
-        match invocation with
-        | JsonPathMatch(target, path, targetType) ->
-            eval ctx target
-            |> Option.bind (fun t ->
-                let pathH = PolarsWrapper.Lit path
-                let matchH = PolarsWrapper.StrJsonPathMatch(t, pathH)
-                if targetType = typeof<string> || targetType = typeof<obj> then
-                    Some matchH
-                elif targetType = typeof<bool> || targetType = typeof<Nullable<bool>> then
-                    let lowerH = PolarsWrapper.StrToLower matchH
-                    Some(PolarsWrapper.Eq(lowerH, PolarsWrapper.Lit "true"))
-                else
-                    tryTranslateCast targetType matchH)
-
-        | JsonSerialize target ->
-            let unwrappedTarget = unwrap target
-            match unwrappedTarget with
-            | :? NewExpression as ne ->
-                let memberNames =
-                    if not (isNull ne.Members) && ne.Members.Count = ne.Arguments.Count then
-                        ne.Members |> Seq.map (fun m -> m.Name) |> Seq.toArray
-                    elif not (isNull ne.Constructor) then
-                        let ctorParams = ne.Constructor.GetParameters()
-                        ctorParams |> Array.map (fun p -> p.Name)
-                    else
-                        [||]
-
-                let argHandles =
-                    ne.Arguments
-                    |> Seq.mapi (fun i argExpr ->
-                        match eval ctx argExpr with
-                        | Some h ->
-                            let fieldName = if i < memberNames.Length then memberNames.[i] else sprintf "field_%d" i
-                            Some(PolarsWrapper.Alias(h, fieldName))
-                        | None -> None)
-                    |> Seq.toList
-
-                if argHandles |> List.forall Option.isSome then
-                    let handlesArray = argHandles |> List.map Option.get |> List.toArray
-                    let structH = PolarsWrapper.AsStruct handlesArray
-                    Some(PolarsWrapper.StructJsonEncode structH)
-                else
-                    None
-
-            | :? MemberInitExpression as mie ->
-                let bindings =
-                    mie.Bindings
-                    |> Seq.choose (fun b ->
-                        match b with
-                        | :? MemberAssignment as ma ->
-                            match eval ctx ma.Expression with
-                            | Some h -> Some(PolarsWrapper.Alias(h, ma.Member.Name))
-                            | None -> None
-                        | _ -> None)
-                    |> Seq.toArray
-                if bindings.Length = mie.Bindings.Count then
-                    let structH = PolarsWrapper.AsStruct bindings
-                    Some(PolarsWrapper.StructJsonEncode structH)
-                else
-                    None
-
-            | other ->
-                eval ctx other
-                |> Option.map (fun h -> PolarsWrapper.StructJsonEncode h)
-
-        | JsonDeserialize(target, dtoType, steps) ->
-            match JsonTypeInference.inferPolarsJsonDataType dtoType with
-            | None -> None
-            | Some dtypeHandle ->
-                use _dtypeScope = dtypeHandle
-                let dtypeExpr = PolarsWrapper.DataTypeExprFromDataType dtypeHandle
-
-                match eval ctx target with
-                | None ->
-                    dtypeExpr.Dispose()
-                    None
-                | Some targetH ->
-                    let decodedH = PolarsWrapper.StrJsonDecode(targetH, dtypeExpr)
-
-                    let rec traverseSteps (currentH: ExprHandle) (currType: Type) (remainingSteps: JsonAccessStep list) : ExprHandle option =
-                        match remainingSteps with
-                        | [] -> Some currentH
-
-                        | PropertyStep m :: rest when
-                            (m.Name = "Length" || m.Name = "Count")
-                            && not (isNull (PolarsTypeHelper.TryGetEnumerableElementType currType)) ->
-                            let lenH = PolarsWrapper.ListLen currentH
-                            traverseSteps lenH typeof<int> rest
-
-                        | PropertyStep m :: rest ->
-                            let memberType =
-                                match m with
-                                | :? PropertyInfo as p -> p.PropertyType
-                                | :? FieldInfo as f -> f.FieldType
-                                | _ -> typeof<obj>
-
-                            match JsonTypeInference.tryResolveJsonFieldName currType m.Name with
-                            | Some jsonFieldName ->
-                                let fieldH = PolarsWrapper.StructFieldByName(currentH, [| jsonFieldName |])
-                                traverseSteps fieldH memberType rest
-                            | None ->
-                                let fieldH = PolarsWrapper.StructFieldByName(currentH, [| m.Name |])
-                                traverseSteps fieldH memberType rest
-
-                        | IndexStep indexExpr :: rest ->
-                            let elemType =
-                                let elemOpt = PolarsTypeHelper.TryGetEnumerableElementType currType
-                                if not (isNull elemOpt) then elemOpt
-                                elif currType.IsArray then currType.GetElementType()
-                                elif currType.IsGenericType then currType.GetGenericArguments().[0]
-                                else typeof<obj>
-
-                            match eval ctx indexExpr with
-                            | Some idxH ->
-                                let itemH = PolarsWrapper.ListGet(currentH, idxH, nullOnOob = true)
-                                traverseSteps itemH elemType rest
-                            | None -> None
-
-                    traverseSteps decodedH dtoType steps
-
-    let internal translateJsonInvocationScalar (eval: ScalarExprEvaluator) (ctx: TranslationContext) (invocation: JsonInvocation) : ScalarExpr option =
+    let internal translateJsonInvocation (eval: ScalarExprEvaluator) (ctx: TranslationContext) (invocation: JsonInvocation) : ScalarExpr option =
         match invocation with
         | JsonPathMatch(target, path, targetType) ->
             eval ctx target
@@ -469,7 +311,7 @@ module internal JsonTranslator =
                     let lowerS = ScalarExpr.Function("to_lower", [ matchS ], PlDataType.String)
                     Some(ScalarExpr.Binary(BinaryOp.Eq, lowerS, ScalarExpr.Literal(LiteralValue.String "true")))
                 else
-                    tryTranslateCastScalar targetType matchS)
+                    tryTranslateCast targetType matchS)
 
         | JsonSerialize target ->
             let unwrappedTarget = unwrap target
@@ -523,11 +365,8 @@ module internal JsonTranslator =
                 |> Option.map (fun s -> ScalarExpr.Function("struct_json_encode", [ s ], PlDataType.String))
 
         | JsonDeserialize(target, dtoType, steps) ->
-            match JsonTypeInference.inferPolarsJsonDataType dtoType with
-            | None -> None
-            | Some dtypeHandle ->
-                dtypeHandle.Dispose()
-
+            if Polars.NET.Linq.Backend.Polars.PolarsScalarLowerer.inferPolarsJsonDataType dtoType |> Option.isNone then None
+            else
                 match eval ctx target with
                 | None -> None
                 | Some targetS ->
@@ -578,5 +417,3 @@ module internal JsonTranslator =
                             | None -> None
 
                     traverseSteps decodedS dtoType steps
-
-

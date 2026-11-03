@@ -413,7 +413,7 @@ module internal PipelineStageParser =
             None
         else
             let outerParam = colLambda.Parameters.[0]
-            let cleanBody = ExprTranslator.unwrap colLambda.Body
+            let cleanBody = ExpressionPatterns.unwrap colLambda.Body
 
             match cleanBody with
             | :? NewArrayExpression as nae when
@@ -444,7 +444,7 @@ module internal PipelineStageParser =
                                         b
                                         |> List.find (fun (n, _) -> n = name)
                                         |> snd
-                                        |> ExprTranslator.unwrap)
+                                        |> ExpressionPatterns.unwrap)
                                 name, exprs)
 
                         let isInvariantOuterMember (exprs: Expression list) =
@@ -452,7 +452,7 @@ module internal PipelineStageParser =
                                 exprs
                                 |> List.choose (function
                                     | MemberAccess(target, m) when
-                                        match ExprTranslator.unwrap target with
+                                        match ExpressionPatterns.unwrap target with
                                         | :? ParameterExpression as p -> p.Name = outerParam.Name
                                         | _ -> false
                                         -> Some m.Name
@@ -482,7 +482,7 @@ module internal PipelineStageParser =
                                 exprs
                                 |> List.choose (function
                                     | MemberAccess(target, m) when
-                                        match ExprTranslator.unwrap target with
+                                        match ExpressionPatterns.unwrap target with
                                         | :? ParameterExpression as p -> p.Name = outerParam.Name
                                         | _ -> false
                                         -> Some m.Name
@@ -521,9 +521,9 @@ module internal PipelineStageParser =
                                         let findAssignedName prop =
                                             bindings
                                             |> List.tryPick (fun (targetName, e) ->
-                                                match ExprTranslator.unwrap e with
+                                                match ExpressionPatterns.unwrap e with
                                                 | MemberAccess(target, m) when
-                                                    (match ExprTranslator.unwrap target with :? ParameterExpression as p -> p.Name = pInner.Name | _ -> false)
+                                                    (match ExpressionPatterns.unwrap target with :? ParameterExpression as p -> p.Name = pInner.Name | _ -> false)
                                                     && m.Name = prop -> Some targetName
                                                 | _ -> None)
                                         let vName = findAssignedName varPropName |> Option.defaultValue varPropName
@@ -594,7 +594,7 @@ module internal PipelineStageParser =
         let replacer =
             { new ExpressionVisitor() with
                 override _.VisitMember(node: MemberExpression) =
-                    match ExprTranslator.unwrap node.Expression with
+                    match ExpressionPatterns.unwrap node.Expression with
                     | :? ParameterExpression as p when p.Name = gParam.Name && node.Member.Name = "Key" ->
                         pOuter :> Expression
                     | _ -> base.VisitMember(node)
@@ -857,7 +857,7 @@ module internal PipelineStageParser =
         | [] -> []
 
     let rec (|GroupByCall|_|) (expr: Expression) =
-        match ExprTranslator.unwrap expr with
+        match ExpressionPatterns.unwrap expr with
         | MethodCall(m, _, [ source; CleanLambda k ]) when m.Name = "GroupBy" ->
             Some(source, k)
         | MethodCall(m, _, [ source; CleanLambda k; CleanLambda _ ]) when m.Name = "GroupBy" ->
@@ -900,7 +900,7 @@ module internal PipelineStageParser =
                     | :? NewExpression as ne when isTupleOrAnonType ne.Type ->
                         ne.Arguments
                         |> Seq.mapi (fun idx arg ->
-                            match ExprTranslator.unwrap arg with
+                            match ExpressionPatterns.unwrap arg with
                             | MemberAccess(:? ParameterExpression as pe, mem) when
                                 pe.Name = p.Name
                                 && (mem.Name = sprintf "Item%d" (idx + 1)
@@ -1155,7 +1155,7 @@ module internal PipelineStageParser =
 
             if isGroupSource && containsParam then
                 let innerStages =
-                    match ExprTranslator.unwrap colSel.Body with
+                    match ExpressionPatterns.unwrap colSel.Body with
                     | :? MethodCallExpression as innerMc -> flattenStages innerMc []
                     | _ -> []
                 let stage = LinqStage.GroupPartitionSlice(groupKeySelOpt.Value, innerStages, resSelOpt)
@@ -1163,7 +1163,7 @@ module internal PipelineStageParser =
             else
                 let nestedStagesOpt =
                     if containsParam then
-                        match ExprTranslator.unwrap colSel.Body with
+                        match ExpressionPatterns.unwrap colSel.Body with
                         | :? MethodCallExpression as innerMc when innerMc.Method.Name <> "DefaultIfEmpty" ->
                             let innerStages = flattenStages innerMc []
                             if not innerStages.IsEmpty then Some innerStages else None

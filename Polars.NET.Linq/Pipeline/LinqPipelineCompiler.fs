@@ -108,7 +108,7 @@ module internal LinqPipelineCompiler =
                                 override self.VisitMember(node: MemberExpression) =
                                     let visitedInner = self.Visit(node.Expression)
                                     let rec isTransparentTarget (e: Expression) =
-                                        match ExprTranslator.unwrap e with
+                                        match ExpressionPatterns.unwrap e with
                                         | :? ParameterExpression as p ->
                                             isTupleOrAnonType p.Type || (not (isNull p.Name) && p.Name.Contains "TransparentIdentifier")
                                         | MemberAccess(target, m) when isNavigationMember m || isTupleOrAnonType m.DeclaringType ->
@@ -147,7 +147,7 @@ module internal LinqPipelineCompiler =
                                             if propName.Contains "TransparentIdentifier" then
                                                 true
                                             else
-                                                match ExprTranslator.unwrap expr with
+                                                match ExpressionPatterns.unwrap expr with
                                                 | :? ParameterExpression as p when
                                                     (p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>)
                                                     || isTupleOrAnonType p.Type
@@ -167,7 +167,7 @@ module internal LinqPipelineCompiler =
                             let gParamOpt =
                                 bindings
                                 |> List.tryPick (fun (name, expr) ->
-                                    match ExprTranslator.unwrap expr with
+                                    match ExpressionPatterns.unwrap expr with
                                     | :? ParameterExpression as p when p.Name = param.Name && p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>> ->
                                         Some(name, p :> Expression)
                                     | _ -> None)
@@ -184,7 +184,7 @@ module internal LinqPipelineCompiler =
                                                     else base.VisitParameter p
                                             }.Visit(subExpr)
                                         | None -> subExpr
-                                    match ExprTranslator.unwrap normalizedExpr with
+                                    match ExpressionPatterns.unwrap normalizedExpr with
                                     | :? ParameterExpression as p when p.Name = param.Name && isTupleOrAnonType p.Type ->
                                         m
                                     | _ ->
@@ -193,7 +193,7 @@ module internal LinqPipelineCompiler =
                         | None ->
                             let finalProjBody = substituteLet projLambda.Body
                             let isKeyArg (e: Expression) =
-                                match ExprTranslator.unwrap e with
+                                match ExpressionPatterns.unwrap e with
                                 | MemberAccess(p, m) when
                                     not (isNull p) && (p.NodeType = ExpressionType.Parameter || isNavigationMember (match p with :? MemberExpression as me -> me.Member | _ -> null)) && m.Name = "Key"
                                     ->
@@ -203,7 +203,7 @@ module internal LinqPipelineCompiler =
                                 | _ -> false
 
                             let gParamName =
-                                match letBindings |> Map.tryPick (fun _ v -> match ExprTranslator.unwrap v with :? ParameterExpression as p when p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>> -> Some p.Name | _ -> None) with
+                                match letBindings |> Map.tryPick (fun _ v -> match ExpressionPatterns.unwrap v with :? ParameterExpression as p when p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>> -> Some p.Name | _ -> None) with
                                 | Some name -> name
                                 | None -> projLambda.Parameters.[0].Name
 
@@ -611,7 +611,7 @@ module internal LinqPipelineCompiler =
                             match tryExtractMemberBindings lambda.Body with
                             | Some bindings -> bindings |> List.map fst
                             | None ->
-                                match ExprTranslator.unwrap lambda.Body with
+                                match ExpressionPatterns.unwrap lambda.Body with
                                 | MemberAccess(_, m) -> [ m.Name ]
                                 | _ -> []
 

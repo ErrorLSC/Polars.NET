@@ -89,7 +89,7 @@ module internal SubqueryDecorrelator =
 
     /// Flattens nested binary AndAlso expressions into a list of conjunct expressions.
     let rec flattenAnd (expr: Expression) : Expression list =
-        match ExprTranslator.unwrap expr with
+        match ExpressionPatterns.unwrap expr with
         | Binary(ExpressionType.AndAlso, left, right) -> flattenAnd left @ flattenAnd right
         | other -> [ other ]
 
@@ -386,7 +386,7 @@ module internal SubqueryDecorrelator =
         | _ -> false
 
     let rec internal unwrapWhere (seqExpr: Expression) : Expression * LambdaExpression list =
-        match ExprTranslator.unwrap seqExpr with
+        match ExpressionPatterns.unwrap seqExpr with
         | MethodCall(mWhere, null, [ src; CleanLambda lam ]) when mWhere.Name = "Where" ->
             let rootSrc, lams = unwrapWhere src
             rootSrc, lams @ [ lam ]
@@ -407,12 +407,12 @@ module internal SubqueryDecorrelator =
         | MethodCall(m, null, [ innerSeq; CleanLambda lam ]) when m.Name = "Any" -> Some(innerSeq, Some lam)
         | MethodCall(m, innerSeq, [ CleanLambda lam ]) when m.Name = "Any" -> Some(innerSeq, Some lam)
         | MethodCall(m, null, [ innerSeq ]) when m.Name = "Any" ->
-            match ExprTranslator.unwrap innerSeq with
+            match ExpressionPatterns.unwrap innerSeq with
             | MethodCall(mWhere, null, [ src; CleanLambda lam ]) when mWhere.Name = "Where" -> Some(src, Some lam)
             | MethodCall(mWhere, src, [ CleanLambda lam ]) when mWhere.Name = "Where" -> Some(src, Some lam)
             | _ -> Some(innerSeq, None)
         | MethodCall(m, innerSeq, []) when m.Name = "Any" ->
-            match ExprTranslator.unwrap innerSeq with
+            match ExpressionPatterns.unwrap innerSeq with
             | MethodCall(mWhere, null, [ src; CleanLambda lam ]) when mWhere.Name = "Where" -> Some(src, Some lam)
             | MethodCall(mWhere, src, [ CleanLambda lam ]) when mWhere.Name = "Where" -> Some(src, Some lam)
             | _ -> Some(innerSeq, None)
@@ -421,7 +421,7 @@ module internal SubqueryDecorrelator =
     // Pattern 2: innerSeq.Contains(keyExpr) or Contains(innerSeq, keyExpr)
     let internal tryMatchContains (e: Expression) : (Expression * LambdaExpression option * Expression) option =
         let matchSeqAndKey (innerSeq: Expression) (keyExpr: Expression) =
-            match ExprTranslator.unwrap innerSeq with
+            match ExpressionPatterns.unwrap innerSeq with
             | MethodCall(mSel, null, [ src; CleanLambda selLam ]) when mSel.Name = "Select" ->
                 Some(src, Some selLam, keyExpr)
             | MethodCall(mSel, src, [ CleanLambda selLam ]) when mSel.Name = "Select" -> Some(src, Some selLam, keyExpr)
@@ -435,7 +435,7 @@ module internal SubqueryDecorrelator =
     // Pattern 3: AggReductionCall (Count, Sum, Avg, Min, Max, etc.)
     let internal tryMatchAggCall (expr: Expression) : AggReductionCall option =
         let unwrapClean (e: Expression) =
-            match ExprTranslator.unwrap e with
+            match ExpressionPatterns.unwrap e with
             | :? MethodCallExpression as mc -> mc
             | _ -> null
 
@@ -448,7 +448,7 @@ module internal SubqueryDecorrelator =
             let isCount = methodName = "Count" || methodName = "LongCount"
 
             let extractSeqAndSelector seqExpr =
-                match ExprTranslator.unwrap seqExpr with
+                match ExpressionPatterns.unwrap seqExpr with
                 | MethodCall(mSel, null, [ src; CleanLambda selLam ]) when mSel.Name = "Select" -> src, Some selLam
                 | MethodCall(mSel, src, [ CleanLambda selLam ]) when mSel.Name = "Select" -> src, Some selLam
                 | other -> other, None
@@ -497,7 +497,7 @@ module internal SubqueryDecorrelator =
             | _ -> None
 
     let internal tryExtractScaledAgg (expr: Expression) : (Expression * AggScale) option =
-        let unwrapClean = ExprTranslator.unwrap expr
+        let unwrapClean = ExpressionPatterns.unwrap expr
 
         match unwrapClean with
         | Binary(ExpressionType.Multiply, left, right)
@@ -538,10 +538,10 @@ module internal SubqueryDecorrelator =
             outerNames |> Set.exists (fun name -> containsParameter name e)
 
         let classify (cond: Expression) =
-            match ExprTranslator.unwrap cond with
+            match ExpressionPatterns.unwrap cond with
             | Binary(ExpressionType.Equal, left, right) ->
-                let cleanL = ExprTranslator.unwrap left
-                let cleanR = ExprTranslator.unwrap right
+                let cleanL = ExpressionPatterns.unwrap left
+                let cleanR = ExpressionPatterns.unwrap right
                 let lOuter = containsOuter cleanL
                 let lInner = containsParameter innerName cleanL
                 let rOuter = containsOuter cleanR
@@ -790,8 +790,8 @@ module internal SubqueryDecorrelator =
                 createContextForType outerParam.Type currentLf outerName
 
         let isNegated, coreExpr =
-            match ExprTranslator.unwrap conjunctExpr with
-            | Unary(ExpressionType.Not, inner) -> true, ExprTranslator.unwrap inner
+            match ExpressionPatterns.unwrap conjunctExpr with
+            | Unary(ExpressionType.Not, inner) -> true, ExpressionPatterns.unwrap inner
             | other -> false, other
 
         let tryAny () =
@@ -948,16 +948,16 @@ module internal SubqueryDecorrelator =
             }
 
         let rec tryDisjunctiveAny (disjExpr: Expression) : QueryOp list option =
-            match ExprTranslator.unwrap disjExpr with
+            match ExpressionPatterns.unwrap disjExpr with
             | Binary((ExpressionType.OrElse | ExpressionType.Or), left, right) ->
                 let rec flattenOr (e: Expression) =
-                    match ExprTranslator.unwrap e with
+                    match ExpressionPatterns.unwrap e with
                     | Binary((ExpressionType.OrElse | ExpressionType.Or), l, r) -> flattenOr l @ flattenOr r
                     | other -> [ other ]
                 let branches = flattenOr left @ flattenOr right
                 let extractBranchMatchedLf (branch: Expression) : LazyFrameHandle option =
                     option {
-                        let! innerSource, innerLambdaOpt = tryMatchAny (ExprTranslator.unwrap branch)
+                        let! innerSource, innerLambdaOpt = tryMatchAny (ExpressionPatterns.unwrap branch)
                         let! parts = tryExtractCorrelatedParts outerNames innerSource innerLambdaOpt
                         do! guard (parts.ThetaConditions.IsEmpty && parts.EquiPairs.Length = 1)
                         let! rawRightLf = resolveSequenceLazyFrame parts.RootSource
@@ -971,7 +971,7 @@ module internal SubqueryDecorrelator =
                     }
                 let extractBranchOuterKey (branch: Expression) : ExprHandle option =
                     option {
-                        let! innerSource, innerLambdaOpt = tryMatchAny (ExprTranslator.unwrap branch)
+                        let! innerSource, innerLambdaOpt = tryMatchAny (ExpressionPatterns.unwrap branch)
                         let! parts = tryExtractCorrelatedParts outerNames innerSource innerLambdaOpt
                         do! guard (parts.ThetaConditions.IsEmpty && parts.EquiPairs.Length = 1)
                         let outerKeyExpr, _ = parts.EquiPairs.[0]
@@ -981,13 +981,13 @@ module internal SubqueryDecorrelator =
                 let branchOuterKeys = branches |> List.choose extractBranchOuterKey
                 if branchLfs.Length = branches.Length && branchOuterKeys.Length = branches.Length then
                     let firstOuterKeyExpr =
-                        let s, l = (tryMatchAny (ExprTranslator.unwrap branches.[0])).Value
+                        let s, l = (tryMatchAny (ExpressionPatterns.unwrap branches.[0])).Value
                         let p = (tryExtractCorrelatedParts outerNames s l).Value
                         fst p.EquiPairs.[0]
                     let allSameOuterKey =
                         branches
                         |> List.forall (fun b ->
-                            let s, l = (tryMatchAny (ExprTranslator.unwrap b)).Value
+                            let s, l = (tryMatchAny (ExpressionPatterns.unwrap b)).Value
                             let p = (tryExtractCorrelatedParts outerNames s l).Value
                             ExpressionEqualityComparer.Instance.Equals(fst p.EquiPairs.[0], firstOuterKeyExpr))
                     if allSameOuterKey then
@@ -1038,8 +1038,8 @@ module internal SubqueryDecorrelator =
                 createContextForType outerParam.Type currentLf outerName
 
         let isNegated, coreConjunct =
-            match ExprTranslator.unwrap conjunctExpr with
-            | Unary(ExpressionType.Not, inner) -> true, ExprTranslator.unwrap inner
+            match ExpressionPatterns.unwrap conjunctExpr with
+            | Unary(ExpressionType.Not, inner) -> true, ExpressionPatterns.unwrap inner
             | other -> false, other
 
         let invertOp =

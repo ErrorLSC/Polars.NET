@@ -1,6 +1,5 @@
 namespace Polars.NET.Linq
 
-open Polars.NET.Core
 open Polars.NET.Core.Arrow
 open Polars.NET.Linq.IR
 open System
@@ -12,33 +11,12 @@ open Polars.NET.Core.Helpers
 [<AutoOpen>]
 module internal ColumnResolver =
 
-    /// Strips Unary wraps like Convert or Quote recursively
-    let inline internal unwrap (e: Expression) = ExpressionPatterns.unwrap e
-
     // =========================================================================
     // 1. Type & Literal Mapping Helpers
     // =========================================================================
-    /// Maps standard LINQ reduction method names to their corresponding native Polars aggregation expressions.
-    let internal translateReductionOp (methodName: string) (targetColExpr: ExprHandle) : ExprHandle option =
-        match methodName with
-        | "Sum" -> Some(PolarsWrapper.Sum targetColExpr)
-        | "Mean"
-        | "Average" -> Some(PolarsWrapper.Mean targetColExpr)
-        | "Min" -> Some(PolarsWrapper.Min targetColExpr)
-        | "Max" -> Some(PolarsWrapper.Max targetColExpr)
-        | "Median" -> Some(PolarsWrapper.Median targetColExpr)
-        | "First"
-        | "FirstOrDefault" -> Some(PolarsWrapper.First(targetColExpr, ignoreNulls = false))
-        | "Last"
-        | "LastOrDefault" -> Some(PolarsWrapper.Last(targetColExpr, ignoreNulls = false))
-        | "Std"
-        | "StdDev" -> Some(PolarsWrapper.Std(targetColExpr, 1uy))
-        | "Var"
-        | "Variance" -> Some(PolarsWrapper.Var(targetColExpr, 1uy))
-        | _ -> None
 
     /// Pure symbolic translation of standard LINQ reduction method names to ScalarExpr.Aggregation nodes.
-    let internal translateReductionOpScalar (methodName: string) (targetColExpr: ScalarExpr) : ScalarExpr option =
+    let internal translateReductionOp (methodName: string) (targetColExpr: ScalarExpr) : ScalarExpr option =
         match methodName with
         | "Sum" -> Some(ScalarExpr.Aggregation(AggKind.Sum, Some targetColExpr, false))
         | "Mean"
@@ -51,35 +29,22 @@ module internal ColumnResolver =
         | "Last"
         | "LastOrDefault" -> Some(ScalarExpr.Aggregation(AggKind.Last, Some targetColExpr, false))
         | "Std"
-        | "StdDev" -> Some(ScalarExpr.Aggregation(AggKind.Std, Some targetColExpr, false))
+        | "StdDev" -> Some(ScalarExpr.Aggregation(AggKind.Std 1uy, Some targetColExpr, false))
         | "Var"
-        | "Variance" -> Some(ScalarExpr.Aggregation(AggKind.Var, Some targetColExpr, false))
-        | _ -> None
-
-    /// Maps statistical dispersion reduction operations with explicit degree of freedom (ddof).
-    let internal translateDispersionOp
-        (methodName: string)
-        (ddof: byte)
-        (targetColExpr: ExprHandle)
-        : ExprHandle option =
-        match methodName with
-        | "Std"
-        | "StdDev" -> Some(PolarsWrapper.Std(targetColExpr, ddof))
-        | "Var"
-        | "Variance" -> Some(PolarsWrapper.Var(targetColExpr, ddof))
+        | "Variance" -> Some(ScalarExpr.Aggregation(AggKind.Var 1uy, Some targetColExpr, false))
         | _ -> None
 
     /// Pure symbolic translation of statistical dispersion reduction operations.
-    let internal translateDispersionOpScalar
+    let internal translateDispersionOp
         (methodName: string)
-        (_ddof: byte)
+        (ddof: byte)
         (targetColExpr: ScalarExpr)
         : ScalarExpr option =
         match methodName with
         | "Std"
-        | "StdDev" -> Some(ScalarExpr.Aggregation(AggKind.Std, Some targetColExpr, false))
+        | "StdDev" -> Some(ScalarExpr.Aggregation(AggKind.Std ddof, Some targetColExpr, false))
         | "Var"
-        | "Variance" -> Some(ScalarExpr.Aggregation(AggKind.Var, Some targetColExpr, false))
+        | "Variance" -> Some(ScalarExpr.Aggregation(AggKind.Var ddof, Some targetColExpr, false))
         | _ -> None
 
     let internal isTemporalType (t: Type) =
@@ -101,75 +66,24 @@ module internal ColumnResolver =
             isNullConstantExpr u.Operand
         | _ -> false
 
-    let internal tryGetPolarsDataType (t: Type) : DataTypeHandle option =
+    /// Resolves the Apache Arrow IArrowType for a .NET CLR Type using the central ArrowTypeResolver.
+    let internal tryGetArrowType (t: Type) : Apache.Arrow.Types.IArrowType option =
         try
-            let arrowType = ArrowTypeResolver.GetArrowTypeFromNetType t
-            Some(PolarsWrapper.MapArrowToDataTypeHandle arrowType)
+            Some(ArrowTypeResolver.GetArrowTypeFromNetType t)
         with _ ->
             None
 
-    [<TailCall>]
-    let rec internal toLiteralHandle (value: obj) (t: Type) : ExprHandle =
-        match value with
-        | null -> PolarsWrapper.LitNull()
-        | _ ->
-            let coreType = PolarsTypeHelper.UnwrapCoreType(t)
-
-            if coreType.IsEnum then
-                let underlyingType = Enum.GetUnderlyingType coreType
-                let underlyingVal = Convert.ChangeType(value, underlyingType)
-                toLiteralHandle underlyingVal underlyingType
-            else
-                match value with
-                | :? bool as b -> PolarsWrapper.Lit b
-                | :? sbyte as sb -> PolarsWrapper.Lit sb
-                | :? byte as b -> PolarsWrapper.Lit b
-                | :? int16 as s -> PolarsWrapper.Lit s
-                | :? uint16 as us -> PolarsWrapper.Lit us
-                | :? int as i -> PolarsWrapper.Lit i
-                | :? uint32 as ui -> PolarsWrapper.Lit ui
-                | :? int64 as l -> PolarsWrapper.Lit l
-                | :? uint64 as ul -> PolarsWrapper.Lit ul
-                | :? Int128 as i128 -> PolarsWrapper.Lit i128
-                | :? decimal as d -> PolarsWrapper.Lit d
-                | :? Half as h -> PolarsWrapper.Lit h
-                | :? float32 as f -> PolarsWrapper.Lit f
-                | :? double as d -> PolarsWrapper.Lit d
-                | :? char as c -> PolarsWrapper.Lit(string c)
-                | :? string as s -> PolarsWrapper.Lit s
-                | :? DateTime as dt -> PolarsWrapper.Lit dt
-                | :? DateTimeOffset as doff -> PolarsWrapper.Lit doff
-                | :? TimeSpan as ts -> PolarsWrapper.Lit ts
-                | :? DateOnly as dof -> PolarsWrapper.Lit dof
-                | :? TimeOnly as tof -> PolarsWrapper.Lit tof
-                | other ->
-                    failwithf
-                        "Type '%s' is not supported as a constant literal in Polars LINQ"
-                        (other.GetType().FullName)
-
+    /// Resolves the PlDataType for a .NET CLR Type by routing through the canonical ArrowTypeResolver.
     let internal tryGetPlDataType (t: Type) : PlDataType option =
-        let core = PolarsTypeHelper.UnwrapCoreType t
-        if core = typeof<bool> then Some PlDataType.Boolean
-        elif core = typeof<sbyte> then Some PlDataType.Int8
-        elif core = typeof<int16> then Some PlDataType.Int16
-        elif core = typeof<int> then Some PlDataType.Int32
-        elif core = typeof<int64> then Some PlDataType.Int64
-        elif core = typeof<byte> then Some PlDataType.UInt8
-        elif core = typeof<uint16> then Some PlDataType.UInt16
-        elif core = typeof<uint32> then Some PlDataType.UInt32
-        elif core = typeof<uint64> then Some PlDataType.UInt64
-        elif core = typeof<float32> then Some PlDataType.Float32
-        elif core = typeof<double> then Some PlDataType.Float64
-        elif core = typeof<decimal> then Some PlDataType.Decimal
-        elif core = typeof<string> then Some PlDataType.String
-        elif core = typeof<DateOnly> then Some PlDataType.Date
-        elif core = typeof<DateTime> || core = typeof<DateTimeOffset> then Some PlDataType.Datetime
-        elif core = typeof<TimeSpan> then Some PlDataType.Duration
-        elif core = typeof<TimeOnly> then Some PlDataType.Time
-        else None
+        try
+            let dt = ArrowTypeResolver.GetPlDataTypeFromNetType t
+            if dt = PlDataType.Unknown then None else Some dt
+        with _ ->
+            None
 
+    /// Pure symbolic conversion from a constant object and CLR type to a ScalarExpr literal.
     [<TailCall>]
-    let rec internal toLiteralScalar (value: obj) (t: Type) : ScalarExpr =
+    let rec internal toLiteral (value: obj) (t: Type) : ScalarExpr =
         match value with
         | null ->
             let dt = tryGetPlDataType t |> Option.defaultValue PlDataType.Null
@@ -179,27 +93,19 @@ module internal ColumnResolver =
             if coreType.IsEnum then
                 let underlyingType = Enum.GetUnderlyingType coreType
                 let underlyingVal = Convert.ChangeType(value, underlyingType)
-                toLiteralScalar underlyingVal underlyingType
+                toLiteral underlyingVal underlyingType
             else
                 match value with
                 | :? char as c -> ScalarExpr.Literal(LiteralValue.String(string c))
                 | _ -> ScalarExpr.Literal(LiteralValue.OfObject value)
 
-    let internal tryTranslateCastScalar (targetType: Type) (operand: ScalarExpr) : ScalarExpr option =
+    /// Pure symbolic translation of type casting to ScalarExpr.Cast nodes.
+    let internal tryTranslateCast (targetType: Type) (operand: ScalarExpr) : ScalarExpr option =
         if targetType = typeof<obj> then
             Some operand
         else
             tryGetPlDataType targetType
             |> Option.map (fun dt -> ScalarExpr.Cast(operand, dt, isStrict = false))
-
-    let internal tryTranslateCast (targetType: Type) (operand: ExprHandle) : ExprHandle option =
-        if targetType = typeof<obj> then
-            Some operand
-        else
-            tryGetPolarsDataType targetType
-            |> Option.map (fun dtypeHandle ->
-                let dtypeExpr = PolarsWrapper.DataTypeExprFromDataType dtypeHandle
-                PolarsWrapper.ExprCast(operand, dtypeExpr, strict = false, wrapNumerical = false))
 
     // =========================================================================
     // 2. Column & Parameter Identifiers

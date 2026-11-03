@@ -136,7 +136,7 @@ module internal ListTranslator =
 
         // 4. Enumerable / Queryable Static Extension Methods (1 & 2 args)
         | MethodCall(m, null, target :: args) when
-            (m.DeclaringType = typeof<System.Linq.Enumerable> || (m.DeclaringType = typeof<System.Linq.Queryable> && m.Name = "Contains"))
+            (m.DeclaringType = typeof<System.Linq.Enumerable> || m.DeclaringType = typeof<System.Linq.Queryable> && m.Name = "Contains")
             && isListContainer target.Type
             ->
             match m.Name, args with
@@ -201,139 +201,7 @@ module internal ListTranslator =
                 None
         | _ -> None
 
-    let internal translateListInvocation (eval: ExprEvaluator) (ctx: TranslationContext) (invocation: ListInvocation) : ExprHandle option =
-        let t1 expr = eval ctx expr
-
-        let t2 e1 e2 =
-            match eval ctx e1, eval ctx e2 with
-            | Some l, Some r -> Some(l, r)
-            | _ -> None
-
-        match invocation with
-        | ListLen target -> t1 target |> Option.map PolarsWrapper.ListLen
-        | ListContains(target, itemExpr) ->
-            match t2 target itemExpr with
-            | Some(t, item) -> Some(PolarsWrapper.ListContains(t, item, nullsEqual = false))
-            | None ->
-                // Check if target is an in-memory collection (IN predicate: item IN target)
-                option {
-                    let! itemH = t1 itemExpr
-                    let unwrapped = unwrapSpanOrArray target
-                    let! evaluated = tryEvaluate unwrapped
-
-                    match evaluated with
-                    | :? System.Collections.IEnumerable as coll when coll.GetType() <> typeof<string> ->
-                        let! seriesHandle = tryCreateSeriesHandleFromObject coll
-                        let litH = PolarsWrapper.Lit seriesHandle
-                        let implodedH = PolarsWrapper.Implode(litH, maintainOrder = false)
-                        return PolarsWrapper.IsIn(itemH, implodedH, nullsEqual = false)
-                    | _ -> return! None
-                }
-        | ListGet(target, indexExpr) ->
-            t2 target indexExpr
-            |> Option.map (fun (t, idx) -> PolarsWrapper.ListGet(t, idx, nullOnOob = true))
-        | ListFirst target ->
-            t1 target
-            |> Option.map (fun t -> PolarsWrapper.ListGet(t, PolarsWrapper.Lit 0, nullOnOob = true))
-        | ListLast target ->
-            t1 target
-            |> Option.map (fun t -> PolarsWrapper.ListGet(t, PolarsWrapper.Lit -1, nullOnOob = true))
-        | ListSum target -> t1 target |> Option.map PolarsWrapper.ListSum
-        | ListMean target -> t1 target |> Option.map PolarsWrapper.ListMean
-        | ListMin target -> t1 target |> Option.map PolarsWrapper.ListMin
-        | ListMax target -> t1 target |> Option.map PolarsWrapper.ListMax
-
-        | ListJoin(target, separatorExpr) ->
-            let sepOpt =
-                match tryEvaluate separatorExpr with
-                | Some(:? string as sep) -> Some sep
-                | Some(:? char as sep) -> Some(string sep)
-                | _ -> None
-
-            match unwrap target with
-            | :? NewArrayExpression as nae when nae.NodeType = ExpressionType.NewArrayInit ->
-                match sepOpt with
-                | Some sep ->
-                    let items = nae.Expressions |> Seq.toList
-                    let itemHandles = items |> List.choose (eval ctx)
-                    if itemHandles.Length = items.Length && not itemHandles.IsEmpty then
-                        Some(PolarsWrapper.ConcatString(List.toArray itemHandles, sep, ignoreNulls = false))
-                    else
-                        None
-                | None -> None
-            | _ ->
-                match t1 target, sepOpt with
-                | Some t, Some sep -> Some(PolarsWrapper.ListJoin(t, sep, ignoreNulls = true))
-                | _ -> None
-
-        | ListHead(target, countExpr) -> t2 target countExpr |> Option.map PolarsWrapper.ListHead
-        | ListTail(target, countExpr) -> t2 target countExpr |> Option.map PolarsWrapper.ListTail
-
-        | ListSlice(target, offsetExpr, lengthOpt) ->
-            match t2 target offsetExpr with
-            | Some(t, offset) ->
-                match lengthOpt with
-                | Some lenExpr -> t1 lenExpr |> Option.map (fun len -> PolarsWrapper.ListSlice(t, offset, len))
-                | None -> Some(PolarsWrapper.ListSlice(t, offset, PolarsWrapper.Lit Int64.MaxValue))
-            | None -> None
-
-        | ListUnique target ->
-            t1 target
-            |> Option.map (fun t -> PolarsWrapper.ListEval(t, PolarsWrapper.ExprUnique(PolarsWrapper.Col(""))))
-        | ListReverse target ->
-            t1 target
-            |> Option.map (fun t -> PolarsWrapper.ListEval(t, PolarsWrapper.Reverse(PolarsWrapper.Col(""))))
-        | ListSort(target, descending) ->
-            t1 target
-            |> Option.map (fun t ->
-                PolarsWrapper.ListSort(t, descending = descending, nullsLast = false, maintainOrder = false))
-
-        | ListSetIntersection(target, otherExpr) -> t2 target otherExpr |> Option.map PolarsWrapper.ListSetIntersection
-        | ListSetUnion(target, otherExpr) -> t2 target otherExpr |> Option.map PolarsWrapper.ListSetUnion
-        | ListSetDifference(target, otherExpr) -> t2 target otherExpr |> Option.map PolarsWrapper.ListSetDifference
-
-        | ListAny(target, None) ->
-            t1 target
-            |> Option.map (fun t -> PolarsWrapper.Gt(PolarsWrapper.ListLen t, PolarsWrapper.Lit 0))
-
-        | ListAny(target, Some lam) when lam.Parameters.Count = 1 ->
-            match t1 target with
-            | Some t ->
-                let innerCtx = TranslationContext.ListElement lam.Parameters.[0].Name
-
-                eval innerCtx lam.Body
-                |> Option.map (fun innerCond ->
-                    let anyExpr = PolarsWrapper.Any(innerCond, ignoreNulls = false)
-                    let boolList = PolarsWrapper.ListEval(t, anyExpr)
-                    PolarsWrapper.ListGet(boolList, PolarsWrapper.Lit 0, nullOnOob = true))
-            | None -> None
-
-        | ListAny _ -> None
-
-        | ListAll(target, lam) when lam.Parameters.Count = 1 ->
-            match t1 target with
-            | Some t ->
-                let innerCtx = TranslationContext.ListElement lam.Parameters.[0].Name
-
-                eval innerCtx lam.Body
-                |> Option.map (fun innerCond ->
-                    let allExpr = PolarsWrapper.All(innerCond, ignoreNulls = false)
-                    let boolList = PolarsWrapper.ListEval(t, allExpr)
-                    PolarsWrapper.ListGet(boolList, PolarsWrapper.Lit 0, nullOnOob = true))
-            | None -> None
-        | ListAll _ -> None
-
-        | ListSelect(target, lam) when lam.Parameters.Count = 1 ->
-            match t1 target with
-            | Some t ->
-                let innerCtx = TranslationContext.ListElement lam.Parameters.[0].Name
-
-                eval innerCtx lam.Body
-                |> Option.map (fun mapperExpr -> PolarsWrapper.ListEval(t, mapperExpr))
-            | None -> None
-        | ListSelect _ -> None
-
-    let internal translateListInvocationScalar
+    let internal translateListInvocation
         (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
         (invocation: ListInvocation)
@@ -457,5 +325,4 @@ module internal ListTranslator =
                 |> Option.map (fun mapperExpr -> ScalarExpr.Function("list_eval", [ t; mapperExpr ], PlDataType.List))
             | None -> None
         | ListSelect _ -> None
-
 

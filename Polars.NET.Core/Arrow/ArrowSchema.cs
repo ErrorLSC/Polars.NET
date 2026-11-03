@@ -217,4 +217,46 @@ public static class ArrowTypeResolver
             _ => typeof(object)
         };
     }
+
+    // =================================================================================
+    // 5. Arrow -> Polars DataType Mapping
+    // =================================================================================
+    public static PlDataType GetPlDataTypeFromArrowType(IArrowType arrowType)
+    {
+        return arrowType switch
+        {
+            BooleanType => PlDataType.Boolean,
+            Int8Type => PlDataType.Int8,
+            Int16Type => PlDataType.Int16,
+            Int32Type => PlDataType.Int32,
+            Int64Type => PlDataType.Int64,
+            UInt8Type => PlDataType.UInt8,
+            UInt16Type => PlDataType.UInt16,
+            UInt32Type => PlDataType.UInt32,
+            UInt64Type => PlDataType.UInt64,
+            HalfFloatType => PlDataType.Float16,
+            FloatType => PlDataType.Float32,
+            DoubleType => PlDataType.Float64,
+            Decimal128Type or Decimal256Type => PlDataType.Decimal,
+            StringType or StringViewType or LargeStringType => PlDataType.String,
+            BinaryType or BinaryViewType or LargeBinaryType or FixedSizeBinaryType => PlDataType.Binary,
+            Date32Type or Date64Type => PlDataType.Date,
+            Time32Type or Time64Type => PlDataType.Time,
+            TimestampType => PlDataType.Datetime,
+            DurationType => PlDataType.Duration,
+            ListType or LargeListType => PlDataType.List,
+            FixedSizeListType => PlDataType.Array,
+            StructType => PlDataType.Struct,
+            NullType => PlDataType.Null,
+            _ => PlDataType.Unknown
+        };
+    }
+
+    public static PlDataType GetPlDataTypeFromNetType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        Type type)
+    {
+        var arrowType = GetArrowTypeFromNetType(type);
+        return GetPlDataTypeFromArrowType(arrowType);
+    }
 }

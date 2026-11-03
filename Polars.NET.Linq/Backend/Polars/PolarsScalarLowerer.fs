@@ -2,11 +2,43 @@ namespace Polars.NET.Linq.Backend.Polars
 
 open System
 open Polars.NET.Core
-open Polars.NET.Linq
+open Polars.NET.Core.Arrow
+open Polars.NET.Core.Helpers
 open Polars.NET.Linq.IR
 
 /// Lowers pure symbolic ScalarExpr AST nodes to unmanaged Polars ExprHandle pointers.
 module internal PolarsScalarLowerer =
+
+    let rec internal inferPolarsJsonDataType (t: Type) : DataTypeHandle option =
+        let coreType = PolarsTypeHelper.UnwrapCoreType t
+        if PolarsTypeHelper.IsScalarType coreType then
+            if coreType = typeof<Guid> then
+                Some(PolarsWrapper.NewPrimitiveType(int PlDataType.String))
+            else
+                try
+                    let arrowType = ArrowTypeResolver.GetArrowTypeFromNetType coreType
+                    Some(PolarsWrapper.MapArrowToDataTypeHandle arrowType)
+                with _ ->
+                    None
+        elif not (isNull (PolarsTypeHelper.TryGetEnumerableElementType coreType)) then
+            let elemType = PolarsTypeHelper.TryGetEnumerableElementType coreType
+            inferPolarsJsonDataType elemType |> Option.map PolarsWrapper.NewListType
+        elif PolarsTypeHelper.IsStructType coreType then
+            let members = ArrowTypeResolver.GetReadableMembers coreType
+            let fields =
+                members
+                |> Array.map (fun m ->
+                    let memberType = ArrowTypeResolver.GetMemberType m
+                    let jsonName = PolarsTypeHelper.GetSerializedName m
+                    jsonName, inferPolarsJsonDataType memberType)
+            if fields |> Array.forall (fun (_, opt) -> opt.IsSome) then
+                let names = fields |> Array.map fst
+                let handles = fields |> Array.map (snd >> Option.get)
+                Some(PolarsWrapper.NewStructType(names, handles))
+            else
+                None
+        else
+            None
 
     /// Strongly-typed zero-boxing conversion from LiteralValue to Polars ExprHandle
     let lowerLiteral (value: LiteralValue) : ExprHandle =
@@ -62,7 +94,7 @@ module internal PolarsScalarLowerer =
             | BinaryOp.Modulo -> PolarsWrapper.Rem(leftH, rightH)
             | BinaryOp.FloorDivide -> PolarsWrapper.FloorDiv(leftH, rightH)
             | BinaryOp.Power -> PolarsWrapper.Pow(leftH, rightH)
-            | BinaryOp.StringConcat -> PolarsWrapper.Add(leftH, rightH)
+            | BinaryOp.StringConcat -> PolarsWrapper.FormatString("{}{}", [| leftH; rightH |])
             | BinaryOp.Contains -> PolarsWrapper.StrContains(leftH, rightH, literal = false, strict = false)
             | BinaryOp.StartsWith -> PolarsWrapper.StrStartsWith(leftH, rightH)
             | BinaryOp.EndsWith -> PolarsWrapper.StrEndsWith(leftH, rightH)
@@ -80,7 +112,11 @@ module internal PolarsScalarLowerer =
 
         | ScalarExpr.Cast(inner, targetType, isStrict) ->
             let innerH = lower inner
-            let dtHandle = PolarsWrapper.NewPrimitiveType(int targetType)
+            let dtHandle =
+                match targetType with
+                | PlDataType.Decimal -> PolarsWrapper.NewDecimalType(38, 18)
+                | other -> PolarsWrapper.NewPrimitiveType(int other)
+            use _h = dtHandle
             let dtExpr = PolarsWrapper.DataTypeExprFromDataType dtHandle
             PolarsWrapper.ExprCast(innerH, dtExpr, strict = isStrict, wrapNumerical = false)
 
@@ -124,8 +160,8 @@ module internal PolarsScalarLowerer =
             | AggKind.First -> PolarsWrapper.First(baseH, false)
             | AggKind.Last -> PolarsWrapper.Last(baseH, false)
             | AggKind.Median -> PolarsWrapper.Median baseH
-            | AggKind.Std -> PolarsWrapper.Std(baseH, 1uy)
-            | AggKind.Var -> PolarsWrapper.Var(baseH, 1uy)
+            | AggKind.Std ddof -> PolarsWrapper.Std(baseH, ddof)
+            | AggKind.Var ddof -> PolarsWrapper.Var(baseH, ddof)
             | AggKind.Quantile prob -> PolarsWrapper.Quantile(baseH, prob, PlQuantileMethod.Nearest)
             | AggKind.List -> PolarsWrapper.Implode(baseH, false)
             | AggKind.Len -> PolarsWrapper.Len()
@@ -152,8 +188,37 @@ module internal PolarsScalarLowerer =
             // Math
             | "abs", [ a ] -> PolarsWrapper.Abs(lower a)
             | "round", [ a ] -> PolarsWrapper.Round(lower a, 0u, PlRoundMode.HalfToEven)
-            | "round", [ a; ScalarExpr.Literal(LiteralValue.Int32 decimals) ] ->
-                PolarsWrapper.Round(lower a, uint32 decimals, PlRoundMode.HalfToEven)
+            | "round", [ a; ScalarExpr.Literal decLit ] ->
+                let decimals =
+                    match decLit with
+                    | LiteralValue.Int32 d -> uint32 (max 0 d)
+                    | LiteralValue.Int64 d -> uint32 (max 0L d)
+                    | LiteralValue.UInt32 d -> d
+                    | LiteralValue.UInt8 d -> uint32 d
+                    | LiteralValue.Int16 d -> uint32 (max 0s d)
+                    | _ -> 0u
+                PolarsWrapper.Round(lower a, decimals, PlRoundMode.HalfToEven)
+            | "round", [ a; ScalarExpr.Literal decLit; ScalarExpr.Literal modeLit ] ->
+                let decimals =
+                    match decLit with
+                    | LiteralValue.Int32 d -> uint32 (max 0 d)
+                    | LiteralValue.Int64 d -> uint32 (max 0L d)
+                    | LiteralValue.UInt32 d -> d
+                    | LiteralValue.UInt8 d -> uint32 d
+                    | LiteralValue.Int16 d -> uint32 (max 0s d)
+                    | _ -> 0u
+                let plMode =
+                    match modeLit with
+                    | LiteralValue.Int32 m -> LanguagePrimitives.EnumOfValue<byte, PlRoundMode> (byte m)
+                    | LiteralValue.UInt8 m -> LanguagePrimitives.EnumOfValue<byte, PlRoundMode> m
+                    | LiteralValue.Int64 m -> LanguagePrimitives.EnumOfValue<byte, PlRoundMode> (byte m)
+                    | _ -> PlRoundMode.HalfToEven
+                PolarsWrapper.Round(lower a, decimals, plMode)
+            | "cast_decimal", [ t; ScalarExpr.Literal(LiteralValue.Int32 scale) ] ->
+                let decType = PolarsWrapper.NewDecimalType(38, scale)
+                use _h = decType
+                let decTypeExpr = PolarsWrapper.DataTypeExprFromDataType decType
+                PolarsWrapper.ExprCast(lower t, decTypeExpr, strict = false, wrapNumerical = false)
             | "floor", [ a ] -> PolarsWrapper.Floor(lower a)
             | "ceil", [ a ]
             | "ceiling", [ a ] -> PolarsWrapper.Ceil(lower a)
@@ -324,7 +389,7 @@ module internal PolarsScalarLowerer =
             | "as_struct", items -> PolarsWrapper.AsStruct(items |> List.map lower |> List.toArray)
             | "str_json_decode", [ a; ScalarExpr.Literal(LiteralValue.String typeName) ] ->
                 let dtoType = Type.GetType typeName
-                let dtypeHandle = JsonTypeInference.inferPolarsJsonDataType dtoType |> Option.get
+                let dtypeHandle = inferPolarsJsonDataType dtoType |> Option.get
                 use _h = dtypeHandle
                 let dtypeExpr = PolarsWrapper.DataTypeExprFromDataType dtypeHandle
                 PolarsWrapper.StrJsonDecode(lower a, dtypeExpr)

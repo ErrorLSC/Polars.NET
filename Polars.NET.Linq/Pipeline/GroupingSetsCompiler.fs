@@ -48,13 +48,13 @@ module internal GroupingSetsCompiler =
                 | _ -> None
 
         let keyPairsOpt: (string * Expression) list option =
-            match ExprTranslator.unwrap keyLambda.Body with
+            match ExpressionPatterns.unwrap keyLambda.Body with
             | :? NewExpression as ne when
                 ne.Type.IsGenericType && (ne.Type.Name.StartsWith "Tuple`" || ne.Type.Name.StartsWith "ValueTuple`") ->
                 let names =
                     ne.Arguments
                     |> Seq.mapi (fun i arg ->
-                        match ExprTranslator.unwrap arg with
+                        match ExpressionPatterns.unwrap arg with
                         | ExtractColumnName col -> col
                         | MemberAccess(_, m) -> m.Name
                         | _ -> sprintf "Item%d" (i + 1))
@@ -93,7 +93,7 @@ module internal GroupingSetsCompiler =
                 if isTwoParam then resLambda.Parameters.[1].Name else resLambda.Parameters.[0].Name
 
             let isKeyArg (e: Expression) =
-                let cleanE = ExprTranslator.unwrap e
+                let cleanE = ExpressionPatterns.unwrap e
                 if isTwoParam then
                     let keyParamName = resLambda.Parameters.[0].Name
                     match cleanE with
@@ -108,7 +108,7 @@ module internal GroupingSetsCompiler =
                     | _ -> false
 
             let isKeyExpression (e: Expression) : bool =
-                let cleanE = ExprTranslator.unwrap e
+                let cleanE = ExpressionPatterns.unwrap e
                 if isKeyArg cleanE then
                     true
                 else
@@ -123,7 +123,7 @@ module internal GroupingSetsCompiler =
                 match tryExtractMemberBindings resLambda.Body with
                 | Some bindings -> Some bindings
                 | None ->
-                    let cleanProj = ExprTranslator.unwrap resLambda.Body
+                    let cleanProj = ExpressionPatterns.unwrap resLambda.Body
                     if isKeyExpression cleanProj then
                         let name =
                             match cleanProj with
@@ -145,7 +145,7 @@ module internal GroupingSetsCompiler =
                         let outputColName =
                             List.zip memberNames args
                             |> List.tryPick (fun (memName, rawArg) ->
-                                let arg = ExprTranslator.unwrap rawArg
+                                let arg = ExpressionPatterns.unwrap rawArg
 
                                 match arg with
                                 | MemberAccess(MemberAccess(_, k), m) when k.Name = "Key" ->
@@ -180,7 +180,7 @@ module internal GroupingSetsCompiler =
                     match expr with
                     | MethodCall(m, _, [ propExpr ]) when m.Name = "Grouping" ->
                         let targetKeyNameOpt =
-                            match ExprTranslator.unwrap propExpr with
+                            match ExpressionPatterns.unwrap propExpr with
                             | MemberAccess(_, mem) ->
                                 if mem.Name = "Key" && keyDefs.Length = 1 then Some (fst keyDefs.[0])
                                 else Some mem.Name
@@ -190,10 +190,10 @@ module internal GroupingSetsCompiler =
                         targetKeyNameOpt |> Option.map (fun name -> name, m.ReturnType)
                     | MethodCall(m, _, [ _; CleanLambda lam ]) when m.Name = "Grouping" ->
                         let targetKeyNameOpt =
-                            match ExprTranslator.unwrap lam.Body with
+                            match ExpressionPatterns.unwrap lam.Body with
                             | MemberAccess(_, mem) -> Some mem.Name
                             | ExtractColumnName col -> Some col
-                            | p when (ExprTranslator.unwrap p).NodeType = ExpressionType.Parameter && keyDefs.Length = 1 ->
+                            | p when (ExpressionPatterns.unwrap p).NodeType = ExpressionType.Parameter && keyDefs.Length = 1 ->
                                 Some (fst keyDefs.[0])
                             | _ -> None
                         targetKeyNameOpt |> Option.map (fun name -> name, m.ReturnType)
@@ -291,7 +291,7 @@ module internal GroupingSetsCompiler =
                                     if mask &&& (1 <<< numKeys - 1 - i) <> 0 then yield i ] ]
                         | GroupingKind.GroupingSets setsExpr ->
                             let extractColsFromLambda (lam: LambdaExpression) : string list option =
-                                match ExprTranslator.unwrap lam.Body with
+                                match ExpressionPatterns.unwrap lam.Body with
                                 | :? NewExpression as ne ->
                                     if not (isNull ne.Members) && ne.Members.Count > 0 then
                                         Some (ne.Members |> Seq.map (fun m -> m.Name) |> Seq.toList)
@@ -299,7 +299,7 @@ module internal GroupingSetsCompiler =
                                         let cols =
                                             ne.Arguments
                                             |> Seq.choose (fun arg ->
-                                                match ExprTranslator.unwrap arg with
+                                                match ExpressionPatterns.unwrap arg with
                                                 | ExtractColumnName col -> Some col
                                                 | MemberAccess(_, m) -> Some m.Name
                                                 | _ -> None)
@@ -316,7 +316,7 @@ module internal GroupingSetsCompiler =
                                     keyDefs |> List.tryFindIndex (fun (k, _) -> k = name || keyNameToOutputAliasMap.[k] = name))
 
                             let extractedSetsOpt =
-                                match ExprTranslator.unwrap setsExpr with
+                                match ExpressionPatterns.unwrap setsExpr with
                                 // 1. Strongly-typed Lambdas (Constant array: Expression<Func<TKey, object>>[])
                                 | :? ConstantExpression as c when not (isNull c.Value) && (c.Value :? System.Array) && (let elemType = c.Value.GetType().GetElementType() in not (isNull elemType) && typeof<LambdaExpression>.IsAssignableFrom elemType) ->
                                     let arr = c.Value :?> System.Array
@@ -331,11 +331,11 @@ module internal GroupingSetsCompiler =
                                     Some sets
 
                                 // 2. Strongly-typed Lambdas (NewArrayExpression of lambdas)
-                                | :? NewArrayExpression as nae when nae.Expressions |> Seq.exists (fun elem -> match ExprTranslator.unwrap elem with CleanLambda _ -> true | _ -> false) ->
+                                | :? NewArrayExpression as nae when nae.Expressions |> Seq.exists (fun elem -> match ExpressionPatterns.unwrap elem with CleanLambda _ -> true | _ -> false) ->
                                     let sets =
                                         nae.Expressions
                                         |> Seq.choose (fun elem ->
-                                            match ExprTranslator.unwrap elem with
+                                            match ExpressionPatterns.unwrap elem with
                                             | CleanLambda lam ->
                                                 extractColsFromLambda lam |> Option.map mapColNamesToIndices
                                             | _ -> None)
@@ -356,14 +356,14 @@ module internal GroupingSetsCompiler =
                                     let sets =
                                         nae.Expressions
                                         |> Seq.choose (fun elem ->
-                                            match ExprTranslator.unwrap elem with
+                                            match ExpressionPatterns.unwrap elem with
                                             | :? ConstantExpression as ce when not (isNull ce.Value) && ce.Type = typeof<string[]> ->
                                                 Some(ce.Value :?> string[])
                                             | :? NewArrayExpression as innerNae ->
                                                 let strs =
                                                     innerNae.Expressions
                                                     |> Seq.choose (fun sExpr ->
-                                                        match ExprTranslator.unwrap sExpr with
+                                                        match ExpressionPatterns.unwrap sExpr with
                                                         | :? ConstantExpression as sc when sc.Type = typeof<string> ->
                                                             Some(sc.Value :?> string)
                                                         | _ -> None)

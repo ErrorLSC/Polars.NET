@@ -20,7 +20,7 @@ module internal RelationalCompilers =
         match tryExtractMemberBindings projLambda.Body with
         | Some bindings ->
             let isNavigationBinding (_name: string, expr: Expression) =
-                match ExprTranslator.unwrap expr with
+                match ExpressionPatterns.unwrap expr with
                 | :? ParameterExpression as p when p.Name = param.Name -> true
                 | MemberAccess(_, m) when isNavigationMember m -> true
                 | _ -> false
@@ -51,7 +51,7 @@ module internal RelationalCompilers =
             | :? ConditionalExpression as cond ->
                 let hasParamRef (e: Expression) =
                     let rec check expr =
-                        match ExprTranslator.unwrap expr with
+                        match ExpressionPatterns.unwrap expr with
                         | null -> false
                         | :? ParameterExpression as p ->
                             isSyntheticScopeParam ctx.ContainsParam p
@@ -76,12 +76,12 @@ module internal RelationalCompilers =
                 match colExprOpt, fallbackExprOpt with
                 | Some colExpr, Some fallbackExpr ->
                     let colHandleOpt =
-                        match ExprTranslator.tryResolveColumnNameWithContext ctx colExpr with
+                        match ColumnResolver.tryResolveColumnNameWithContext ctx colExpr with
                         | Some c -> Some(PolarsWrapper.Col c)
                         | None -> ExprTranslator.tryTranslateWithContext ctx colExpr
 
                     let litHandleOpt =
-                        let cleanFallback = ExprTranslator.unwrap fallbackExpr
+                        let cleanFallback = ExpressionPatterns.unwrap fallbackExpr
 
                         match cleanFallback with
                         | :? ConstantExpression as ce when not (isNull ce.Value) ->
@@ -98,7 +98,7 @@ module internal RelationalCompilers =
                 | _ -> None
 
             | MemberAccess _ as ma ->
-                ExprTranslator.tryResolveColumnNameWithContext ctx ma
+                ColumnResolver.tryResolveColumnNameWithContext ctx ma
                 |> Option.map PolarsWrapper.Col
 
             | _ -> None
@@ -142,16 +142,16 @@ module internal RelationalCompilers =
                 SplitOptContext.Current <- None
 
         | None ->
-            let unwrappedBody = ExprTranslator.unwrap projLambda.Body
+            let unwrappedBody = ExpressionPatterns.unwrap projLambda.Body
             match unwrappedBody with
-            | MemberAccess _ as ma when not (PolarsTypeHelper.IsScalarType ma.Type) && (ExprTranslator.tryResolveColumnNameWithContext ctx ma).IsNone ->
+            | MemberAccess _ as ma when not (PolarsTypeHelper.IsScalarType ma.Type) && (ColumnResolver.tryResolveColumnNameWithContext ctx ma).IsNone ->
                 let lfCols = PolarsSchemaExtractor.GetColumnNames lf |> Set.ofArray
                 let entityProps = ma.Type.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
                 let matchedExprs =
                     entityProps
                     |> Array.choose (fun prop ->
                         let propAccess = Expression.Property(ma, prop) :> Expression
-                        match ExprTranslator.tryResolveColumnNameWithContext ctx propAccess with
+                        match ColumnResolver.tryResolveColumnNameWithContext ctx propAccess with
                         | Some physCol -> Some(PolarsWrapper.Alias(PolarsWrapper.Col physCol, prop.Name))
                         | None when lfCols.Contains prop.Name -> Some(PolarsWrapper.Col prop.Name)
                         | None -> None)
@@ -345,7 +345,7 @@ module internal RelationalCompilers =
                 else
                     TranslationContext.BinaryJoin(firstParam.Name, secondParam.Name, firstColSet, secondSuffix)
 
-            let unwrappedBody = ExprTranslator.unwrap resLambda.Body
+            let unwrappedBody = ExpressionPatterns.unwrap resLambda.Body
             match unwrappedBody with
             | :? ParameterExpression as p when p.Name = firstParam.Name ->
                 let selectExprs = firstCols |> Array.map PolarsWrapper.Col
@@ -521,7 +521,7 @@ module internal RelationalCompilers =
     /// Fallback translator for filters over tuple/transparent scopes (supporting null checks and binary comparisons)
     let rec tryTranslateTupleFilter (ctx: TranslationContext) (e: Expression) : ExprHandle option =
         let isNullConstant (expr: Expression) =
-            match ExprTranslator.unwrap expr with
+            match ExpressionPatterns.unwrap expr with
             | :? ConstantExpression as c -> isNull c.Value
             | _ -> false
 
@@ -541,7 +541,7 @@ module internal RelationalCompilers =
                     None
             | _ -> None
         | MemberAccess _ as ma ->
-            ExprTranslator.tryResolveColumnNameWithContext ctx ma
+            ColumnResolver.tryResolveColumnNameWithContext ctx ma
             |> Option.map PolarsWrapper.Col
         | Constant _ -> ExprTranslator.tryTranslateWithContext TranslationContext.Empty e
         | _ -> None
@@ -553,7 +553,7 @@ module internal RelationalCompilers =
             let p1, p2 = resSel.Parameters.[0].Name, resSel.Parameters.[1].Name
 
             let rec isTransparentArg (e: Expression) =
-                match ExprTranslator.unwrap e with
+                match ExpressionPatterns.unwrap e with
                 | :? ParameterExpression as p -> p.Name = p1 || p.Name = p2
                 | MemberAccess(target, m) when isNavigationMember m -> isTransparentArg target
                 | :? NewExpression as ne when isTupleOrAnonType ne.Type ->

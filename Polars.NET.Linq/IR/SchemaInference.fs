@@ -80,8 +80,8 @@ module internal SchemaInference =
             | AggKind.Len -> PlDataType.Int64
             | AggKind.Mean -> PlDataType.Float64
             | AggKind.Median -> PlDataType.Float64
-            | AggKind.Std
-            | AggKind.Var -> PlDataType.Float64
+            | AggKind.Std _
+            | AggKind.Var _ -> PlDataType.Float64
             | AggKind.Sum
             | AggKind.Min
             | AggKind.Max

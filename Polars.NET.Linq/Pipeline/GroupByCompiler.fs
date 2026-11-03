@@ -1,8 +1,6 @@
 namespace Polars.NET.Linq
 
 open System
-open System.Collections
-open System.Collections.Generic
 open System.Linq
 open System.Linq.Expressions
 open System.Reflection
@@ -148,7 +146,7 @@ module internal GroupByCompiler =
                 | Some bindings ->
                     bindings
                     |> List.choose (fun (propName, expr) ->
-                        match ExprTranslator.unwrap expr with
+                        match ExpressionPatterns.unwrap expr with
                         | ExtractColumnName col -> Some(propName, col)
                         | MemberAccess(_, m) -> Some(propName, m.Name)
                         | _ -> None)
@@ -164,7 +162,7 @@ module internal GroupByCompiler =
                     let baseCtx = createContextForType topParam.Type lf topParam.Name
 
                     let translateArg (arg: Expression) : ExprHandle option =
-                        let cleanArg = ExprTranslator.unwrap arg
+                        let cleanArg = ExpressionPatterns.unwrap arg
                         match cleanArg with
                         | MemberAccess(p, m) when p.NodeType = ExpressionType.Parameter && p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>> && m.Name = "Key" ->
                             singleKeyColOpt |> Option.map PolarsWrapper.Col
@@ -223,10 +221,10 @@ module internal GroupByCompiler =
         (rawArgExpr: Expression)
         : ExprHandle option =
 
-        let argExpr = ExprTranslator.unwrap rawArgExpr
+        let argExpr = ExpressionPatterns.unwrap rawArgExpr
 
         let isGroupParam (e: Expression) =
-            match ExprTranslator.unwrap e with
+            match ExpressionPatterns.unwrap e with
             | :? ParameterExpression as p -> p.Name = groupParamName
             | _ -> false
 
@@ -281,7 +279,7 @@ module internal GroupByCompiler =
                 let selCtx = createContextWithScope scopeMap selParam.Type lf selParam.Name
 
                 let colExprOpt =
-                    match ExprTranslator.tryResolveColumnNameWithContext selCtx selLambda.Body with
+                    match ColumnResolver.tryResolveColumnNameWithContext selCtx selLambda.Body with
                     | Some cName -> Some(PolarsWrapper.Col cName)
                     | None -> ExprTranslator.tryTranslateWithContext selCtx selLambda.Body
 
@@ -325,14 +323,14 @@ module internal GroupByCompiler =
                     let resolvedBindings =
                         bindings
                         |> List.choose (fun (propName, expr) ->
-                            match ExprTranslator.tryResolveColumnNameWithContext elCtx expr with
+                            match ColumnResolver.tryResolveColumnNameWithContext elCtx expr with
                             | Some cName -> Some((propName, cName))
                             | None -> None)
                     let updatedFromEntities =
                         bindings
                         |> List.fold (fun m (propName, expr) ->
                             let subScopeOpt =
-                                match ExprTranslator.unwrap expr with
+                                match ExpressionPatterns.unwrap expr with
                                 | :? ParameterExpression as p -> Some p.Name
                                 | MemberAccess(_, m) -> Some m.Name
                                 | _ -> None
@@ -349,7 +347,7 @@ module internal GroupByCompiler =
                     Some combined
                 | None ->
                     let subScopeOpt =
-                        match ExprTranslator.unwrap el.Body with
+                        match ExpressionPatterns.unwrap el.Body with
                         | :? ParameterExpression as p -> Some p.Name
                         | MemberAccess(_, m) -> Some m.Name
                         | _ -> None
@@ -390,13 +388,13 @@ module internal GroupByCompiler =
                 | _ -> None
 
         let keyPairsOpt: (string * Expression) list option =
-            match ExprTranslator.unwrap ctx.KeyLambda.Body with
+            match ExpressionPatterns.unwrap ctx.KeyLambda.Body with
             | :? NewExpression as ne when
                 ne.Type.IsGenericType && (ne.Type.Name.StartsWith "Tuple`" || ne.Type.Name.StartsWith "ValueTuple`") ->
                 let names =
                     ne.Arguments
                     |> Seq.mapi (fun i arg ->
-                        match ExprTranslator.unwrap arg with
+                        match ExpressionPatterns.unwrap arg with
                         | ExtractColumnName col -> col
                         | MemberAccess(_, m) -> m.Name
                         | _ -> sprintf "Item%d" (i + 1))
@@ -430,7 +428,7 @@ module internal GroupByCompiler =
         | None -> None
         | Some keyDefs ->
             let isKeyExpression (e: Expression) : bool =
-                let cleanE = ExprTranslator.unwrap e
+                let cleanE = ExpressionPatterns.unwrap e
 
                 if isKeyArg cleanE then
                     true
@@ -447,7 +445,7 @@ module internal GroupByCompiler =
                 match tryExtractMemberBindings projBody with
                 | Some bindings -> Some bindings
                 | None ->
-                    let cleanProj = ExprTranslator.unwrap projBody
+                    let cleanProj = ExpressionPatterns.unwrap projBody
                     if isKeyExpression cleanProj then
                         let name =
                             match cleanProj with
@@ -474,7 +472,7 @@ module internal GroupByCompiler =
                         let outputColName =
                             List.zip memberNames args
                             |> List.tryPick (fun (memName, rawArg) ->
-                                let arg = ExprTranslator.unwrap rawArg
+                                let arg = ExpressionPatterns.unwrap rawArg
 
                                 match arg with
                                 | MemberAccess(MemberAccess(_, k), m) when k.Name = "Key" ->
@@ -517,7 +515,7 @@ module internal GroupByCompiler =
                     elemExprOpt |> Option.orElse (scalarColOpt |> Option.map PolarsWrapper.Col)
 
                 let tryResolveKeyPropertyCol (e: Expression) : string option =
-                    let cleanE = ExprTranslator.unwrap e
+                    let cleanE = ExpressionPatterns.unwrap e
                     match cleanE with
                     | MemberAccess(_, m) when m.Name = "Key" && keyDefs.Length = 1 ->
                         Some keyNameToOutputAliasMap.[fst keyDefs.[0]]
@@ -585,11 +583,11 @@ module internal GroupByCompiler =
                 let windowAggs = ResizeArray<Expression * string * ExprHandle>()
 
                 let findOrAddWindowAgg (node: Expression) : string option =
-                    let unwrappedNode = ExprTranslator.unwrap node
+                    let unwrappedNode = ExpressionPatterns.unwrap node
                     let existingProjectedColOpt =
                         List.zip memberNames args
                         |> List.tryPick (fun (colName, argExpr) ->
-                            if ExpressionEqualityComparer.Instance.Equals(ExprTranslator.unwrap argExpr, unwrappedNode) then
+                            if ExpressionEqualityComparer.Instance.Equals(ExpressionPatterns.unwrap argExpr, unwrappedNode) then
                                 Some colName
                             else
                                 None)
@@ -614,7 +612,7 @@ module internal GroupByCompiler =
                         else None
                     match targetOpt with
                     | Some target ->
-                        let unwrapped = ExprTranslator.unwrap target
+                        let unwrapped = ExpressionPatterns.unwrap target
                         let t = unwrapped.Type
                         (not (isNull t) && t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>)
                         || (match unwrapped with
@@ -629,11 +627,11 @@ module internal GroupByCompiler =
                             else
                                 match derivedColsOpt with
                                 | Some derivedMap ->
-                                    let unwrappedNode = ExprTranslator.unwrap node
+                                    let unwrappedNode = ExpressionPatterns.unwrap node
                                     let matchingColOpt =
                                         List.zip memberNames args
                                         |> List.tryPick (fun (colName, argExpr) ->
-                                            if derivedMap.ContainsKey colName && ExpressionEqualityComparer.Instance.Equals(ExprTranslator.unwrap argExpr, unwrappedNode) then
+                                            if derivedMap.ContainsKey colName && ExpressionEqualityComparer.Instance.Equals(ExpressionPatterns.unwrap argExpr, unwrappedNode) then
                                                 Some colName
                                             else
                                                 None)
@@ -702,7 +700,7 @@ module internal GroupByCompiler =
                         |> Map.ofList
 
                     let resolveResultColName (e: Expression) : string option =
-                        let cleanE = ExprTranslator.unwrap e
+                        let cleanE = ExpressionPatterns.unwrap e
 
                         match tryResolveKeyPropertyCol cleanE with
                         | Some colName -> Some colName
@@ -710,10 +708,10 @@ module internal GroupByCompiler =
                             match cleanE with
                             | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter -> Some m.Name
                             | MethodCall _ as aggCall ->
-                                let unwrappedAgg = ExprTranslator.unwrap aggCall
+                                let unwrappedAgg = ExpressionPatterns.unwrap aggCall
                                 List.zip memberNames args
                                 |> List.tryPick (fun (colName, argExpr) ->
-                                    if ExpressionEqualityComparer.Instance.Equals(ExprTranslator.unwrap argExpr, unwrappedAgg) then
+                                    if ExpressionEqualityComparer.Instance.Equals(ExpressionPatterns.unwrap argExpr, unwrappedAgg) then
                                         Some colName
                                     else
                                         None)
@@ -725,7 +723,7 @@ module internal GroupByCompiler =
                         match resolveResultColName aggCall with
                         | Some colName -> Some colName
                         | None ->
-                            let unwrappedAgg = ExprTranslator.unwrap aggCall
+                            let unwrappedAgg = ExpressionPatterns.unwrap aggCall
                             match extraHavingAggs |> Seq.tryFindIndex (fun (expr, _) -> ExpressionEqualityComparer.Instance.Equals(expr, unwrappedAgg)) with
                             | Some idx -> Some (sprintf "__having_agg_%d" idx)
                             | None ->
@@ -768,7 +766,7 @@ module internal GroupByCompiler =
                             match resolveResultColName other with
                             | Some colName -> Some(PolarsWrapper.Col colName)
                             | None ->
-                                match ExprTranslator.unwrap other with
+                                match ExpressionPatterns.unwrap other with
                                 | :? MethodCallExpression as aggCall ->
                                     match resolveHavingAggColName aggCall with
                                     | Some c -> Some(PolarsWrapper.Col c)
@@ -873,7 +871,7 @@ module internal GroupByCompiler =
                             let orderedColExprs =
                                 List.zip memberNames args
                                 |> List.collect (fun (memName, rawArg) ->
-                                    let arg = ExprTranslator.unwrap rawArg
+                                    let arg = ExpressionPatterns.unwrap rawArg
                                     if isKeyArg arg then
                                         if keyDefs.Length = 1 then
                                             [ PolarsWrapper.Col keyNameToOutputAliasMap.[fst keyDefs.[0]] ]

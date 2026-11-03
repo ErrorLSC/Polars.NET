@@ -146,8 +146,8 @@ type AggKind =
     | First
     | Last
     | Median
-    | Std
-    | Var
+    | Std of ddof: byte
+    | Var of ddof: byte
     | Quantile of prob: double
     | List
     | Len
