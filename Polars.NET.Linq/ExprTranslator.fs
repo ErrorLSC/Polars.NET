@@ -48,8 +48,8 @@ module internal ExprTranslator =
 
                 match eval ctx target with
                 | Some t ->
-                    let splitS = ScalarExpr.Function("split_exact", [ t; ScalarExpr.Literal(LiteralValue.String sep); ScalarExpr.Literal(LiteralValue.Int32 n) ], PlDataType.Unknown)
-                    Some(ScalarExpr.Function("struct_field_by_index", [ splitS; ScalarExpr.Literal(LiteralValue.Int32 idx) ], PlDataType.String))
+                    let splitS = ScalarExpr.Function(ScalarFunction.SplitExact, [ t; ScalarExpr.Literal(LiteralValue.String sep); ScalarExpr.Literal(LiteralValue.Int32 n) ], PlDataType.Unknown)
+                    Some(ScalarExpr.Function(ScalarFunction.StructFieldByIndex, [ splitS; ScalarExpr.Literal(LiteralValue.Int32 idx) ], PlDataType.String))
                 | _ -> None
 
             // 1. Row-level List / Array operations
@@ -70,7 +70,7 @@ module internal ExprTranslator =
             // 2. Struct Field Access
             | StructFieldAccess(parentExpr, fieldName) ->
                 match eval ctx parentExpr with
-                | Some parentS -> Some(ScalarExpr.Function("struct_field_by_name", [ parentS; ScalarExpr.Literal(LiteralValue.String fieldName) ], PlDataType.Unknown))
+                | Some parentS -> Some(ScalarExpr.Function(ScalarFunction.StructFieldByName, [ parentS; ScalarExpr.Literal(LiteralValue.String fieldName) ], PlDataType.Unknown))
                 | None -> None
 
             // 3. Constants and Literals

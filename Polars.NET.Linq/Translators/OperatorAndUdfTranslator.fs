@@ -111,7 +111,7 @@ module internal OperatorAndUdfTranslator =
             | Some leftS, Some nVal ->
                 try
                     let n = Convert.ToInt32 nVal
-                    Some(ScalarExpr.Function("bit_left_shift", [ leftS; ScalarExpr.Literal(LiteralValue.Int32 n) ], PlDataType.Unknown))
+                    Some(ScalarExpr.Function(ScalarFunction.BitLeftShift, [ leftS; ScalarExpr.Literal(LiteralValue.Int32 n) ], PlDataType.Unknown))
                 with _ ->
                     None
             | _ -> None
@@ -121,7 +121,7 @@ module internal OperatorAndUdfTranslator =
             | Some leftS, Some nVal ->
                 try
                     let n = Convert.ToInt32 nVal
-                    Some(ScalarExpr.Function("bit_right_shift", [ leftS; ScalarExpr.Literal(LiteralValue.Int32 n) ], PlDataType.Unknown))
+                    Some(ScalarExpr.Function(ScalarFunction.BitRightShift, [ leftS; ScalarExpr.Literal(LiteralValue.Int32 n) ], PlDataType.Unknown))
                 with _ ->
                     None
             | _ -> None

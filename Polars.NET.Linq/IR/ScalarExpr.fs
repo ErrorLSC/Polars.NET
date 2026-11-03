@@ -129,8 +129,8 @@ module ScalarExprOps =
             ScalarExpr.Binary(op, substitute subst left, substitute subst right)
         | ScalarExpr.Unary(op, inner) -> ScalarExpr.Unary(op, substitute subst inner)
         | ScalarExpr.Cast(inner, dtype, strict) -> ScalarExpr.Cast(substitute subst inner, dtype, strict)
-        | ScalarExpr.Function(name, args, ret) ->
-            ScalarExpr.Function(name, args |> List.map (substitute subst), ret)
+        | ScalarExpr.Function(fn, args, ret) ->
+            ScalarExpr.Function(fn, args |> List.map (substitute subst), ret)
         | ScalarExpr.Aggregation(kind, innerOpt, dist) ->
             ScalarExpr.Aggregation(kind, innerOpt |> Option.map (substitute subst), dist)
         | ScalarExpr.Window(inner, partBy, orderBy) ->

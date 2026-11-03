@@ -2,6 +2,7 @@ namespace Polars.NET.Linq
 
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
+open Polars.NET.Linq.IR
 open Polars.NET.Linq.Backend.Polars
 open System
 open System.Reflection
@@ -95,10 +96,8 @@ module internal SubqueryDecorrelator =
         | Binary(ExpressionType.AndAlso, left, right) -> flattenAnd left @ flattenAnd right
         | other -> [ other ]
 
-    /// Creates an appropriate TranslationContext based on whether the sequence element type
-    /// is a scalar/primitive (bound to the underlying single physical column) or a composite entity.
-    let createContextForType (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
-        let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
+    /// Creates an appropriate TranslationContext based on column names and element type.
+    let createContextForTypeWithCols (elemType: Type) (colNames: string list) (paramName: string) : TranslationContext =
         if PolarsTypeHelper.IsScalarType elemType then
             if colNames.Length = 1 then
                 TranslationContext.Scalar(paramName, colNames.[0])
@@ -142,6 +141,12 @@ module internal SubqueryDecorrelator =
             TranslationContext.TupleJoin(paramName, leftCols, LinqConstants.DefaultRightSuffix)
         else
             TranslationContext.EntityWithCols(paramName, colNames)
+
+    /// Creates an appropriate TranslationContext based on whether the sequence element type
+    /// is a scalar/primitive (bound to the underlying single physical column) or a composite entity.
+    let createContextForType (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
+        let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
+        createContextForTypeWithCols elemType colNames paramName
 
     /// Evaluates an uncorrelated expression into a scalar ConstantExpression.
     let tryEvaluateUncorrelatedScalar (expr: Expression) : Expression option =
@@ -573,31 +578,33 @@ module internal SubqueryDecorrelator =
             let combinedInner =
                 innerFilters |> List.reduce (fun a b -> Expression.AndAlso(a, b) :> Expression)
 
-            let innerCtx = createContextForType innerParam.Type rawRightLf innerParam.Name
+            let innerCols = PolarsSchemaExtractor.GetColumnNames rawRightLf |> Array.toList
+            let innerCtx = createContextForTypeWithCols innerParam.Type innerCols innerParam.Name
 
-            ExprTranslator.tryTranslateWithContext innerCtx combinedInner
-            |> Option.map (fun filterH -> PolarsWrapper.LazyFilter(rawRightLf, filterH))
+            ExprTranslator.tryTranslateToScalar innerCtx combinedInner
+            |> Option.map (fun filterScalar ->
+                let scanPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame rawRightLf, LogicalSchema.Empty)
+                let filterPlan = LogicalPlan.Filter(scanPlan, filterScalar)
+                PolarsPhysicalLowerer.lowerPlan filterPlan)
 
-    type internal TranslatedKeys =
+    type internal SymbolicJoinKeys =
         {
-            OuterKeys: ExprHandle[]
-            InnerGroupByKeys: ExprHandle[]
-            InnerJoinKeys: ExprHandle[]
+            OuterKeys: ScalarExpr list
+            InnerKeys: ScalarExpr list
         }
 
-    /// Safely translates join keys across outer and inner contexts, using PolarsWrapper.CloneExpr
-    /// to yield independent inner key handles for GroupBy and Join operations.
+    /// Safely translates join keys across outer and inner contexts into symbolic ScalarExpr.
     let internal tryTranslateJoinKeys
         (outerCtx: TranslationContext)
         (innerCtx: TranslationContext)
         (equiPairs: (Expression * Expression) list)
-        : TranslatedKeys option =
+        : SymbolicJoinKeys option =
         let translated =
             equiPairs
             |> List.choose (fun (outerE, innerE) ->
                 match
-                    ExprTranslator.tryTranslateWithContext outerCtx outerE,
-                    ExprTranslator.tryTranslateWithContext innerCtx innerE
+                    ExprTranslator.tryTranslateToScalar outerCtx outerE,
+                    ExprTranslator.tryTranslateToScalar innerCtx innerE
                 with
                 | Some lk, Some rk -> Some(lk, rk)
                 | _ -> None)
@@ -605,28 +612,23 @@ module internal SubqueryDecorrelator =
         if translated.Length <> equiPairs.Length then
             None
         else
-            let outerKeys = translated |> List.map fst |> List.toArray
-            let innerKeys = translated |> List.map snd |> List.toArray
-            let innerGroupByKeys = innerKeys |> Array.map PolarsWrapper.CloneExpr
-
             Some
                 {
-                    OuterKeys = outerKeys
-                    InnerGroupByKeys = innerGroupByKeys
-                    InnerJoinKeys = innerKeys
+                    OuterKeys = translated |> List.map fst
+                    InnerKeys = translated |> List.map snd
                 }
 
-    /// Builds a physical reduction aggregation handle (Len() for Count/Any, or translated reduction op).
-    let internal tryBuildAggHandleWithContext
-        (rightLf: LazyFrameHandle)
+    /// Builds a symbolic reduction aggregation expression (Len() for Count/Any, or translated reduction op).
+    let internal tryBuildAggScalarWithContext
+        (rightCols: string list)
         (methodName: string)
         (isAnyOrCount: bool)
         (selectorLambdaOpt: LambdaExpression option)
         (explicitCtxOpt: TranslationContext option)
         (colNameResolver: string -> string)
-        : ExprHandle option =
+        : ScalarExpr option =
         if isAnyOrCount || methodName = "Count" || methodName = "LongCount" then
-            Some(PolarsWrapper.Len())
+            Some(ScalarExpr.Aggregation(AggKind.Len, None, false))
         elif methodName = "ToList" || methodName = "ToArray" then
             match selectorLambdaOpt with
             | Some selLam ->
@@ -635,47 +637,54 @@ module internal SubqueryDecorrelator =
                     | Some c -> c
                     | None ->
                         let selParam = selLam.Parameters.[0]
-                        createContextForType selParam.Type rightLf selParam.Name
+                        createContextForTypeWithCols selParam.Type rightCols selParam.Name
 
-                ExprTranslator.tryTranslateWithContext ctx selLam.Body
-                |> Option.map (fun colH -> PolarsWrapper.Implode(colH, maintainOrder = true))
+                ExprTranslator.tryTranslateToScalar ctx selLam.Body
+                |> Option.map (fun colScalar -> ScalarExpr.Aggregation(AggKind.List, Some colScalar, false))
             | None ->
-                let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
-
-                if rightCols.Length > 0 then
+                if not rightCols.IsEmpty then
                     let cName = colNameResolver rightCols.[0]
-                    Some(PolarsWrapper.Implode(PolarsWrapper.Col cName, maintainOrder = true))
+                    Some(ScalarExpr.Aggregation(AggKind.List, Some(ScalarExpr.Column cName), false))
                 else
                     None
         else
-            match selectorLambdaOpt with
-            | Some selLam ->
-                let ctx =
-                    match explicitCtxOpt with
-                    | Some c -> c
-                    | None ->
-                        let selParam = selLam.Parameters.[0]
-                        createContextForType selParam.Type rightLf selParam.Name
+            let aggKindOpt =
+                match methodName with
+                | "Sum" -> Some AggKind.Sum
+                | "Average" | "Mean" -> Some AggKind.Mean
+                | "Min" -> Some AggKind.Min
+                | "Max" -> Some AggKind.Max
+                | "Median" -> Some AggKind.Median
+                | _ -> None
 
-                ExprTranslator.tryTranslateWithContext ctx selLam.Body
-                |> Option.bind (ExprTranslator.translateReductionOp methodName)
-            | None ->
-                let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
+            match aggKindOpt with
+            | None -> None
+            | Some kind ->
+                match selectorLambdaOpt with
+                | Some selLam ->
+                    let ctx =
+                        match explicitCtxOpt with
+                        | Some c -> c
+                        | None ->
+                            let selParam = selLam.Parameters.[0]
+                            createContextForTypeWithCols selParam.Type rightCols selParam.Name
 
-                if rightCols.Length > 0 then
-                    let cName = colNameResolver rightCols.[0]
-                    PolarsWrapper.Col cName
-                    |> ExprTranslator.translateReductionOp methodName
-                else
-                    None
+                    ExprTranslator.tryTranslateToScalar ctx selLam.Body
+                    |> Option.map (fun colScalar -> ScalarExpr.Aggregation(kind, Some colScalar, false))
+                | None ->
+                    if not rightCols.IsEmpty then
+                        let cName = colNameResolver rightCols.[0]
+                        Some(ScalarExpr.Aggregation(kind, Some(ScalarExpr.Column cName), false))
+                    else
+                        None
 
-    let internal tryBuildAggHandle
-        (rightLf: LazyFrameHandle)
+    let internal tryBuildAggScalar
+        (rightCols: string list)
         (methodName: string)
         (isAnyOrCount: bool)
         (selectorLambdaOpt: LambdaExpression option)
-        : ExprHandle option =
-        tryBuildAggHandleWithContext rightLf methodName isAnyOrCount selectorLambdaOpt None id
+        : ScalarExpr option =
+        tryBuildAggScalarWithContext rightCols methodName isAnyOrCount selectorLambdaOpt None id
 
     // =========================================================================
     // 4. Semi/Anti Join Filter Decorrelation (Step 1)
@@ -711,19 +720,22 @@ module internal SubqueryDecorrelator =
                 let! rawRightLf = resolveSequenceLazyFrame parts.RootSource
                 let! rightLf = tryApplyInnerFilters rawRightLf parts.InnerParam parts.InnerFilters
 
+                let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf |> Array.toList
                 let innerCtx =
-                    createContextForType parts.InnerParam.Type rightLf parts.InnerParam.Name
+                    createContextForTypeWithCols parts.InnerParam.Type rightCols parts.InnerParam.Name
 
                 if parts.ThetaConditions.IsEmpty then
                     let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
+                    let leftOn = keys.OuterKeys |> List.map PolarsScalarLowerer.lower |> List.toArray
+                    let rightOn = keys.InnerKeys |> List.map PolarsScalarLowerer.lower |> List.toArray
 
                     return
                         [
                             QueryOp.Join
                                 {
                                     RightLf = rightLf
-                                    LeftOn = keys.OuterKeys
-                                    RightOn = keys.InnerJoinKeys
+                                    LeftOn = leftOn
+                                    RightOn = rightOn
                                     How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
                                     Suffix = None
                                     InvertSides = false
@@ -732,8 +744,8 @@ module internal SubqueryDecorrelator =
                                 }
                         ]
                 else
-                    let leftCols = PolarsSchemaExtractor.GetColumnNames currentLf |> Set.ofArray
-                    let originalCols = PolarsSchemaExtractor.GetColumnNames currentLf
+                    let leftCols = outerCols |> Set.ofList
+                    let originalCols = outerCols
 
                     let correlatedCtx =
                         TranslationContext.CorrelatedJoin([ outerName ], parts.InnerParam.Name, leftCols, "_right", scopeMap)
@@ -742,72 +754,40 @@ module internal SubqueryDecorrelator =
                         parts.ThetaConditions
                         |> List.reduce (fun a b -> Expression.AndAlso(a, b) :> Expression)
 
-                    let! thetaFilterH =
-                        ExprTranslator.tryTranslateWithContext correlatedCtx combinedThetaExpr
+                    let! thetaFilterScalar =
+                        ExprTranslator.tryTranslateToScalar correlatedCtx combinedThetaExpr
 
-                    let! outerKeys, innerKeys =
-                        if parts.EquiPairs.IsEmpty then
-                            Some([||], [||])
-                        else
-                            tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
-                            |> Option.map (fun k -> k.OuterKeys, k.InnerJoinKeys)
+                    let outerKeys = parts.EquiPairs |> List.choose (fun (o, _) -> ExprTranslator.tryTranslateToScalar outerCtx o)
+                    let innerKeys = parts.EquiPairs |> List.choose (fun (_, i) -> ExprTranslator.tryTranslateToScalar innerCtx i)
 
                     let uid = Guid.NewGuid().ToString "N"
                     let ridCol = $"__subquery_rid_{uid}"
 
-                    let outerWithRidLf =
-                        PolarsWrapper.LazyFrameWithRowIndex(PolarsWrapper.LazyClone currentLf, ridCol, Nullable 0)
+                    let outerPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame currentLf, LogicalSchema.Empty)
+                    let rightPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame rightLf, LogicalSchema.Empty)
 
-                    let joinedLf =
-                        if outerKeys.Length = 0 then
-                            PolarsWrapper.Join(
-                                outerWithRidLf,
-                                rightLf,
-                                [||],
-                                [||],
-                                PlJoinType.Cross,
-                                LinqConstants.DefaultRightSuffix,
-                                PlJoinValidation.ManyToMany,
-                                PlJoinCoalesce.KeepColumns,
-                                PlJoinMaintainOrder.None,
-                                PlJoinSide.None,
-                                false,
-                                Nullable(),
-                                0UL
-                            )
+                    let withRidPlan = LogicalPlan.WithRowIndex(outerPlan, ridCol, Some 0u)
+                    let joinedPlan =
+                        if outerKeys.IsEmpty then
+                            LogicalPlan.Join(withRidPlan, rightPlan, [], [], PlJoinType.Cross, Some LinqConstants.DefaultRightSuffix, PlJoinCoalesce.KeepColumns, false)
                         else
-                            PolarsWrapper.Join(
-                                outerWithRidLf,
-                                rightLf,
-                                outerKeys |> Array.map PolarsWrapper.CloneExpr,
-                                innerKeys |> Array.map PolarsWrapper.CloneExpr,
-                                PlJoinType.Inner,
-                                LinqConstants.DefaultRightSuffix,
-                                PlJoinValidation.ManyToMany,
-                                PlJoinCoalesce.JoinSpecific,
-                                PlJoinMaintainOrder.None,
-                                PlJoinSide.None,
-                                false,
-                                Nullable(),
-                                0UL
-                            )
+                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, PlJoinType.Inner, Some LinqConstants.DefaultRightSuffix, PlJoinCoalesce.JoinSpecific, false)
 
-                    let filteredLf = PolarsWrapper.LazyFilter(joinedLf, thetaFilterH)
+                    let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
+                    let selectedPlan = LogicalPlan.Project(filteredPlan, [ (ridCol, ScalarExpr.Column ridCol) ])
+                    let matchedRidsPlan = LogicalPlan.Distinct(selectedPlan, None, PlUniqueKeepStrategy.Any)
 
-                    let selectedLf =
-                        PolarsWrapper.LazySelect(filteredLf, [| PolarsWrapper.Col ridCol |])
-
-                    let matchedRidsLf =
-                        PolarsWrapper.LazyUnique(selectedLf, null, PlUniqueKeepStrategy.Any, false)
+                    let matchedRidsLf = PolarsPhysicalLowerer.lowerPlan matchedRidsPlan
+                    let ridLeftH = PolarsScalarLowerer.lower (ScalarExpr.Column ridCol)
+                    let ridRightH = PolarsScalarLowerer.lower (ScalarExpr.Column ridCol)
 
                     let withRowIndexOp = QueryOp.WithRowIndex(ridCol, Some 0u)
-
                     let semiJoinOp =
                         QueryOp.Join
                             {
                                 RightLf = matchedRidsLf
-                                LeftOn = [| PolarsWrapper.Col ridCol |]
-                                RightOn = [| PolarsWrapper.Col ridCol |]
+                                LeftOn = [| ridLeftH |]
+                                RightOn = [| ridRightH |]
                                 How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
                                 Suffix = None
                                 InvertSides = false
@@ -815,7 +795,7 @@ module internal SubqueryDecorrelator =
                                 NullsEqual = false
                             }
 
-                    let restoreSchemaOp = QueryOp.Select(originalCols |> Array.map PolarsWrapper.Col)
+                    let restoreSchemaOp = QueryOp.Select(originalCols |> List.map (fun c -> PolarsScalarLowerer.lower (ScalarExpr.Column c)) |> List.toArray)
 
                     return [ withRowIndexOp; semiJoinOp; restoreSchemaOp ]
             }
@@ -825,19 +805,18 @@ module internal SubqueryDecorrelator =
                 let! innerSource, selLambdaOpt, outerKeyExpr = tryMatchContains coreExpr
                 do! guard (not (outerNames |> Set.exists (fun name -> containsParameter name innerSource)))
                 let! rightLf = resolveSequenceLazyFrame innerSource
-                let! leftKey = ExprTranslator.tryTranslateWithContext outerCtx outerKeyExpr
+                let! leftKey = ExprTranslator.tryTranslateToScalar outerCtx outerKeyExpr
+                let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf |> Array.toList
 
                 let! rightKey =
                     match selLambdaOpt with
                     | Some selLambda ->
                         let p = selLambda.Parameters.[0]
-                        let innerCtx = createContextForType p.Type rightLf p.Name
-                        ExprTranslator.tryTranslateWithContext innerCtx selLambda.Body
+                        let innerCtx = createContextForTypeWithCols p.Type rightCols p.Name
+                        ExprTranslator.tryTranslateToScalar innerCtx selLambda.Body
                     | None ->
-                        let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
-
-                        if rightCols.Length > 0 then
-                            Some(PolarsWrapper.Col rightCols.[0])
+                        if not rightCols.IsEmpty then
+                            Some(ScalarExpr.Column rightCols.[0])
                         else
                             None
 
@@ -846,8 +825,8 @@ module internal SubqueryDecorrelator =
                         QueryOp.Join
                             {
                                 RightLf = rightLf
-                                LeftOn = [| leftKey |]
-                                RightOn = [| rightKey |]
+                                LeftOn = [| PolarsScalarLowerer.lower leftKey |]
+                                RightOn = [| PolarsScalarLowerer.lower rightKey |]
                                 How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
                                 Suffix = None
                                 InvertSides = false
@@ -872,20 +851,21 @@ module internal SubqueryDecorrelator =
                         do! guard (parts.ThetaConditions.IsEmpty && parts.EquiPairs.Length = 1)
                         let! rawRightLf = resolveSequenceLazyFrame parts.RootSource
                         let! rightLf = tryApplyInnerFilters rawRightLf parts.InnerParam parts.InnerFilters
-                        let innerCtx = createContextForType parts.InnerParam.Type rightLf parts.InnerParam.Name
+                        let innerCols = PolarsSchemaExtractor.GetColumnNames rightLf |> Array.toList
+                        let innerCtx = createContextForTypeWithCols parts.InnerParam.Type innerCols parts.InnerParam.Name
                         let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
-                        let outerKeyExpr, _ = parts.EquiPairs.[0]
                         let keyAlias = "__disj_any_key__"
-                        let projectedLf = PolarsWrapper.LazySelect(rightLf, [| PolarsWrapper.Alias(keys.InnerJoinKeys.[0], keyAlias) |])
-                        return projectedLf
+                        let rightPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame rightLf, LogicalSchema.Empty)
+                        let projPlan = LogicalPlan.Project(rightPlan, [ (keyAlias, keys.InnerKeys.Head) ])
+                        return PolarsPhysicalLowerer.lowerPlan projPlan
                     }
-                let extractBranchOuterKey (branch: Expression) : ExprHandle option =
+                let extractBranchOuterKey (branch: Expression) : ScalarExpr option =
                     option {
                         let! innerSource, innerLambdaOpt = tryMatchAny (ExpressionPatterns.unwrap branch)
                         let! parts = tryExtractCorrelatedParts outerNames innerSource innerLambdaOpt
                         do! guard (parts.ThetaConditions.IsEmpty && parts.EquiPairs.Length = 1)
                         let outerKeyExpr, _ = parts.EquiPairs.[0]
-                        return! ExprTranslator.tryTranslateWithContext outerCtx outerKeyExpr
+                        return! ExprTranslator.tryTranslateToScalar outerCtx outerKeyExpr
                     }
                 let branchLfs = branches |> List.choose extractBranchMatchedLf
                 let branchOuterKeys = branches |> List.choose extractBranchOuterKey
@@ -901,14 +881,18 @@ module internal SubqueryDecorrelator =
                             let p = (tryExtractCorrelatedParts outerNames s l).Value
                             ExpressionEqualityComparer.Instance.Equals(fst p.EquiPairs.[0], firstOuterKeyExpr))
                     if allSameOuterKey then
-                        let concatLf = PolarsWrapper.LazyConcat(branchLfs |> List.toArray, PlConcatType.Vertical, false, true)
+                        let branchPlans = branchLfs |> List.map (fun lf -> LogicalPlan.Scan(LogicalPlanSource.LazyFrame lf, LogicalSchema.Empty))
+                        let unionPlan = branchPlans |> List.reduce (fun acc p -> LogicalPlan.Union(acc, p, true))
+                        let concatLf = PolarsPhysicalLowerer.lowerPlan unionPlan
+                        let outerKeyH = PolarsScalarLowerer.lower branchOuterKeys.[0]
+                        let rightKeyH = PolarsScalarLowerer.lower (ScalarExpr.Column "__disj_any_key__")
                         Some
                             [
                                 QueryOp.Join
                                     {
                                         RightLf = concatLf
-                                        LeftOn = [| branchOuterKeys.[0] |]
-                                        RightOn = [| PolarsWrapper.Col "__disj_any_key__" |]
+                                        LeftOn = [| outerKeyH |]
+                                        RightOn = [| rightKeyH |]
                                         How = if isNegated then PlJoinType.Anti else PlJoinType.Semi
                                         Suffix = None
                                         InvertSides = false
@@ -1015,77 +999,69 @@ module internal SubqueryDecorrelator =
                 let! rawRightLf = resolveSequenceLazyFrame parts.RootSource
                 let! rightLf = tryApplyInnerFilters rawRightLf parts.InnerParam parts.InnerFilters
 
+                let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf |> Array.toList
                 let innerCtx =
-                    createContextForType parts.InnerParam.Type rightLf parts.InnerParam.Name
+                    createContextForTypeWithCols parts.InnerParam.Type rightCols parts.InnerParam.Name
 
                 let isCount = aggCall.MethodName = "Count" || aggCall.MethodName = "LongCount"
                 let uid = Guid.NewGuid().ToString "N"
                 let aggColName = $"__subquery_agg_{uid}"
 
-                let buildAggColBase (colName: string) =
+                let buildAggColBase (colName: string) : ScalarExpr =
                     if isCount then
-                        PolarsWrapper.FillNull(PolarsWrapper.Col colName, PolarsWrapper.Lit 0u)
+                        ScalarExpr.Function(ScalarFunction.FillNull, [ ScalarExpr.Column colName; ScalarExpr.Literal(LiteralValue.UInt32 0u) ], PlDataType.UInt32)
                     elif aggCall.MethodName = "Sum" then
                         match PolarsTypeHelper.GetNumericZeroValue aggCall.TargetType with
-                        | null -> PolarsWrapper.Col colName
+                        | null -> ScalarExpr.Column colName
                         | zeroVal ->
                             let core = PolarsTypeHelper.UnwrapCoreType aggCall.TargetType
-                            let zeroH = ExprTranslator.toLiteralHandle zeroVal core
-                            PolarsWrapper.FillNull(PolarsWrapper.Col colName, zeroH)
+                            let zeroLit = toLiteral zeroVal core
+                            ScalarExpr.Function(ScalarFunction.FillNull, [ ScalarExpr.Column colName; zeroLit ], PlDataType.Unknown)
                     else
-                        PolarsWrapper.Col colName
+                        ScalarExpr.Column colName
 
                 if parts.ThetaConditions.IsEmpty then
                     let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
 
-                    let! rawAggH =
-                        tryBuildAggHandle rightLf aggCall.MethodName isCount aggCall.SelectorLambdaOpt
+                    let! rawAggScalar =
+                        tryBuildAggScalar rightCols aggCall.MethodName isCount aggCall.SelectorLambdaOpt
 
-                    let aliasedAggH = PolarsWrapper.Alias(rawAggH, aggColName)
+                    let rightPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame rightLf, LogicalSchema.Empty)
+                    let groupedPlan = LogicalPlan.GroupBy(rightPlan, keys.InnerKeys, [ (aggColName, rawAggScalar) ], None, false)
+                    let groupedLf = PolarsPhysicalLowerer.lowerPlan groupedPlan
 
-                    let groupedLf =
-                        PolarsWrapper.LazyGroupByAgg(rightLf, keys.InnerGroupByKeys, [| aliasedAggH |], null, false)
+                    let! outerSideScalar = ExprTranslator.tryTranslateToScalar outerCtx outerSideExpr
 
-                    let! outerSideH = ExprTranslator.tryTranslateWithContext outerCtx outerSideExpr
+                    let aggColBaseScalar = buildAggColBase aggColName
 
-                    let aggColBaseH = buildAggColBase aggColName
-
-                    let! scaledAggH =
+                    let! scaledAggScalar =
                         match scale with
-                        | AggScale.Identity -> Some aggColBaseH
+                        | AggScale.Identity -> Some aggColBaseScalar
                         | AggScale.Multiply multExpr ->
                             match tryEvaluate multExpr with
                             | Some v when not (isNull v) ->
-                                let litH = ExprTranslator.toLiteralHandle v multExpr.Type
-
-                                Some(PolarsWrapper.Mul(litH, aggColBaseH))
+                                let lit = toLiteral v multExpr.Type
+                                Some(ScalarExpr.Binary(BinaryOp.Multiply, lit, aggColBaseScalar))
                             | _ -> None
                         | AggScale.Divide divExpr ->
                             match tryEvaluate divExpr with
                             | Some v when not (isNull v) ->
-                                let litH = ExprTranslator.toLiteralHandle v divExpr.Type
-
-                                Some(PolarsWrapper.Div(aggColBaseH, litH))
+                                let lit = toLiteral v divExpr.Type
+                                Some(ScalarExpr.Binary(BinaryOp.Divide, aggColBaseScalar, lit))
                             | _ -> None
 
-                    let cmpHandle =
-                        match effectiveOp with
-                        | ExpressionType.Equal -> PolarsWrapper.Eq(outerSideH, scaledAggH)
-                        | ExpressionType.NotEqual -> PolarsWrapper.Neq(outerSideH, scaledAggH)
-                        | ExpressionType.LessThan -> PolarsWrapper.Lt(outerSideH, scaledAggH)
-                        | ExpressionType.LessThanOrEqual -> PolarsWrapper.LtEq(outerSideH, scaledAggH)
-                        | ExpressionType.GreaterThan -> PolarsWrapper.Gt(outerSideH, scaledAggH)
-                        | ExpressionType.GreaterThanOrEqual -> PolarsWrapper.GtEq(outerSideH, scaledAggH)
-                        | _ -> null
+                    let cmpScalar = OperatorAndUdfTranslator.translateBinary effectiveOp outerSideScalar scaledAggScalar
+                    let cmpHandle = PolarsScalarLowerer.lower cmpScalar
 
-                    do! guard (not (isNull cmpHandle))
+                    let leftOnHs = keys.OuterKeys |> List.map PolarsScalarLowerer.lower |> List.toArray
+                    let rightOnHs = keys.InnerKeys |> List.map PolarsScalarLowerer.lower |> List.toArray
 
                     let joinOp =
                         QueryOp.Join
                             {
                                 RightLf = groupedLf
-                                LeftOn = keys.OuterKeys
-                                RightOn = keys.InnerJoinKeys
+                                LeftOn = leftOnHs
+                                RightOn = rightOnHs
                                 How = PlJoinType.Left
                                 Suffix = None
                                 InvertSides = false
@@ -1102,7 +1078,7 @@ module internal SubqueryDecorrelator =
                             [
                                 joinOp
                                 filterOp
-                                QueryOp.Select(originalCols |> Array.map PolarsWrapper.Col)
+                                QueryOp.Select(originalCols |> Array.map (fun c -> PolarsScalarLowerer.lower (ScalarExpr.Column c)))
                             ]
                         else
                             [ joinOp; filterOp ]
@@ -1110,8 +1086,8 @@ module internal SubqueryDecorrelator =
                     return ops
                 else
                     // Theta conditions present (composite conditions: equi-join + inequalities/cross conditions)
-                    let leftCols = PolarsSchemaExtractor.GetColumnNames currentLf |> Set.ofArray
-                    let originalCols = PolarsSchemaExtractor.GetColumnNames currentLf
+                    let leftCols = outerCols |> Set.ofList
+                    let originalCols = outerCols
                     let rightSuffix = LinqConstants.DefaultRightSuffix
 
                     let correlatedCtx =
@@ -1127,101 +1103,60 @@ module internal SubqueryDecorrelator =
                         parts.ThetaConditions
                         |> List.reduce (fun a b -> Expression.AndAlso(a, b) :> Expression)
 
-                    let! thetaFilterH =
-                        ExprTranslator.tryTranslateWithContext correlatedCtx combinedThetaExpr
+                    let! thetaFilterScalar =
+                        ExprTranslator.tryTranslateToScalar correlatedCtx combinedThetaExpr
 
-                    let! outerKeys, innerKeys =
-                        if parts.EquiPairs.IsEmpty then
-                            Some([||], [||])
+                    let outerKeys = parts.EquiPairs |> List.choose (fun (o, _) -> ExprTranslator.tryTranslateToScalar outerCtx o)
+                    let innerKeys = parts.EquiPairs |> List.choose (fun (_, i) -> ExprTranslator.tryTranslateToScalar innerCtx i)
+
+                    let! rawAggScalar =
+                        if isCount then
+                            Some(ScalarExpr.Aggregation(AggKind.Len, None, false))
                         else
-                            tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
-                            |> Option.map (fun k -> k.OuterKeys, k.InnerJoinKeys)
+                            let colResolver c =
+                                if leftCols.Contains c then c + rightSuffix else c
+
+                            tryBuildAggScalarWithContext
+                                rightCols
+                                aggCall.MethodName
+                                isCount
+                                aggCall.SelectorLambdaOpt
+                                (Some correlatedCtx)
+                                colResolver
 
                     let ridCol = $"__subquery_rid_{uid}"
 
-                    let outerWithRidLf =
-                        PolarsWrapper.LazyFrameWithRowIndex(
-                            PolarsWrapper.LazyClone currentLf,
-                            ridCol,
-                            Nullable 0
-                        )
+                    let outerPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame currentLf, LogicalSchema.Empty)
+                    let rightPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame rightLf, LogicalSchema.Empty)
 
-                    let joinedLf =
-                        if outerKeys.Length = 0 then
-                            PolarsWrapper.Join(
-                                outerWithRidLf,
-                                rightLf,
-                                [||],
-                                [||],
-                                PlJoinType.Cross,
-                                rightSuffix,
-                                PlJoinValidation.ManyToMany,
-                                PlJoinCoalesce.KeepColumns,
-                                PlJoinMaintainOrder.None,
-                                PlJoinSide.None,
-                                false,
-                                Nullable(),
-                                0UL
-                            )
+                    let withRidPlan = LogicalPlan.WithRowIndex(outerPlan, ridCol, Some 0u)
+                    let joinedPlan =
+                        if outerKeys.IsEmpty then
+                            LogicalPlan.Join(withRidPlan, rightPlan, [], [], PlJoinType.Cross, Some rightSuffix, PlJoinCoalesce.KeepColumns, false)
                         else
-                            PolarsWrapper.Join(
-                                outerWithRidLf,
-                                rightLf,
-                                outerKeys |> Array.map PolarsWrapper.CloneExpr,
-                                innerKeys |> Array.map PolarsWrapper.CloneExpr,
-                                PlJoinType.Inner,
-                                rightSuffix,
-                                PlJoinValidation.ManyToMany,
-                                PlJoinCoalesce.JoinSpecific,
-                                PlJoinMaintainOrder.None,
-                                PlJoinSide.None,
-                                false,
-                                Nullable(),
-                                0UL
-                            )
+                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, PlJoinType.Inner, Some rightSuffix, PlJoinCoalesce.JoinSpecific, false)
 
-                    let filteredLf = PolarsWrapper.LazyFilter(joinedLf, thetaFilterH)
-
-                    let! rawAggH =
-                        if isCount then
-                            Some(PolarsWrapper.Len())
-                        else
-                            match aggCall.SelectorLambdaOpt with
-                            | Some selLam ->
-                                ExprTranslator.tryTranslateWithContext correlatedCtx selLam.Body
-                                |> Option.bind (ExprTranslator.translateReductionOp aggCall.MethodName)
-                            | None ->
-                                let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf
-                                if rightCols.Length > 0 then
-                                    let cName =
-                                        if leftCols.Contains rightCols.[0] then
-                                            rightCols.[0] + rightSuffix
-                                        else
-                                            rightCols.[0]
-                                    PolarsWrapper.Col cName
-                                    |> ExprTranslator.translateReductionOp aggCall.MethodName
-                                else
-                                    None
-
-                    let aliasedAggH = PolarsWrapper.Alias(rawAggH, aggColName)
-
-                    let groupedMatchesLf =
-                        PolarsWrapper.LazyGroupByAgg(
-                            filteredLf,
-                            [| PolarsWrapper.Col ridCol |],
-                            [| aliasedAggH |],
-                            null,
+                    let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
+                    let groupedPlan =
+                        LogicalPlan.GroupBy(
+                            filteredPlan,
+                            [ ScalarExpr.Column ridCol ],
+                            [ (aggColName, rawAggScalar) ],
+                            None,
                             false
                         )
+                    let groupedMatchesLf = PolarsPhysicalLowerer.lowerPlan groupedPlan
 
+                    let ridLeftH = PolarsScalarLowerer.lower (ScalarExpr.Column ridCol)
+                    let ridRightH = PolarsScalarLowerer.lower (ScalarExpr.Column ridCol)
                     let withRowIndexOp = QueryOp.WithRowIndex(ridCol, Some 0u)
 
                     let joinOp =
                         QueryOp.Join
                             {
                                 RightLf = groupedMatchesLf
-                                LeftOn = [| PolarsWrapper.Col ridCol |]
-                                RightOn = [| PolarsWrapper.Col ridCol |]
+                                LeftOn = [| ridLeftH |]
+                                RightOn = [| ridRightH |]
                                 How = PlJoinType.Left
                                 Suffix = None
                                 InvertSides = false
@@ -1229,42 +1164,31 @@ module internal SubqueryDecorrelator =
                                 NullsEqual = false
                             }
 
-                    let! outerSideH = ExprTranslator.tryTranslateWithContext outerCtx outerSideExpr
+                    let! outerSideScalar = ExprTranslator.tryTranslateToScalar outerCtx outerSideExpr
 
-                    let aggColBaseH = buildAggColBase aggColName
+                    let aggColBaseScalar = buildAggColBase aggColName
 
-                    let! scaledAggH =
+                    let! scaledAggScalar =
                         match scale with
-                        | AggScale.Identity -> Some aggColBaseH
+                        | AggScale.Identity -> Some aggColBaseScalar
                         | AggScale.Multiply multExpr ->
                             match tryEvaluate multExpr with
                             | Some v when not (isNull v) ->
-                                let litH = ExprTranslator.toLiteralHandle v multExpr.Type
-
-                                Some(PolarsWrapper.Mul(litH, aggColBaseH))
+                                let lit = toLiteral v multExpr.Type
+                                Some(ScalarExpr.Binary(BinaryOp.Multiply, lit, aggColBaseScalar))
                             | _ -> None
                         | AggScale.Divide divExpr ->
                             match tryEvaluate divExpr with
                             | Some v when not (isNull v) ->
-                                let litH = ExprTranslator.toLiteralHandle v divExpr.Type
-
-                                Some(PolarsWrapper.Div(aggColBaseH, litH))
+                                let lit = toLiteral v divExpr.Type
+                                Some(ScalarExpr.Binary(BinaryOp.Divide, aggColBaseScalar, lit))
                             | _ -> None
 
-                    let cmpHandle =
-                        match effectiveOp with
-                        | ExpressionType.Equal -> PolarsWrapper.Eq(outerSideH, scaledAggH)
-                        | ExpressionType.NotEqual -> PolarsWrapper.Neq(outerSideH, scaledAggH)
-                        | ExpressionType.LessThan -> PolarsWrapper.Lt(outerSideH, scaledAggH)
-                        | ExpressionType.LessThanOrEqual -> PolarsWrapper.LtEq(outerSideH, scaledAggH)
-                        | ExpressionType.GreaterThan -> PolarsWrapper.Gt(outerSideH, scaledAggH)
-                        | ExpressionType.GreaterThanOrEqual -> PolarsWrapper.GtEq(outerSideH, scaledAggH)
-                        | _ -> null
-
-                    do! guard (not (isNull cmpHandle))
+                    let cmpScalar = OperatorAndUdfTranslator.translateBinary effectiveOp outerSideScalar scaledAggScalar
+                    let cmpHandle = PolarsScalarLowerer.lower cmpScalar
 
                     let filterOp = QueryOp.Filter cmpHandle
-                    let restoreSchemaOp = QueryOp.Select(originalCols |> Array.map PolarsWrapper.Col)
+                    let restoreSchemaOp = QueryOp.Select(originalCols |> List.map (fun c -> PolarsScalarLowerer.lower (ScalarExpr.Column c)) |> List.toArray)
 
                     return [ withRowIndexOp; joinOp; filterOp; restoreSchemaOp ]
             }
@@ -1552,7 +1476,7 @@ module internal SubqueryDecorrelator =
                     if not scopeMap.IsEmpty then
                         TranslationContext.ScopedEntity(outerParamNames |> Set.toList, scopeMap, colNames)
                     elif projLambda.Parameters.Count = 1 then
-                        createContextForType projLambda.Parameters.[0].Type currentLf projLambda.Parameters.[0].Name
+                        createContextForTypeWithCols projLambda.Parameters.[0].Type colNames projLambda.Parameters.[0].Name
                     else
                         TranslationContext.ScopedEntity(outerParamNames |> Set.toList, Map.empty, colNames)
 
@@ -1579,12 +1503,11 @@ module internal SubqueryDecorrelator =
 
                                 match buildAgg cand with
                                 | None -> None
-                                | Some rawAggH ->
-                                    let aliased = PolarsWrapper.Alias(rawAggH, colName)
-                                    assignAggCols buildAgg tail ((cand, colName, Some aliased) :: assigned)
+                                | Some rawAggScalar ->
+                                    assignAggCols buildAgg tail ((cand, colName, Some(colName, rawAggScalar)) :: assigned)
 
                     let buildFillNullOps
-                        (assignments: (ProjectionSubqueryCandidate * string * ExprHandle option) list)
+                        (assignments: (ProjectionSubqueryCandidate * string * (string * ScalarExpr) option) list)
                         =
                         let handledCols = HashSet<string>()
 
@@ -1593,20 +1516,22 @@ module internal SubqueryDecorrelator =
                             |> List.choose (fun (cand, colName, _) ->
                                 let defaultValOpt =
                                     if cand.IsAny || cand.MethodName = "Count" || cand.MethodName = "LongCount" then
-                                        Some(PolarsWrapper.Lit 0u)
+                                        Some(ScalarExpr.Literal(LiteralValue.UInt32 0u))
                                     elif cand.MethodName = "Sum" then
                                         match PolarsTypeHelper.GetNumericZeroValue cand.TargetType with
                                         | null -> None
                                         | zeroVal ->
                                             let core = PolarsTypeHelper.UnwrapCoreType cand.TargetType
-                                            Some(ExprTranslator.toLiteralHandle zeroVal core)
+                                            Some(toLiteral zeroVal core)
                                     else
                                         None
 
                                 match defaultValOpt with
                                 | Some defVal when handledCols.Add colName ->
-                                    let filled = PolarsWrapper.FillNull(PolarsWrapper.Col colName, defVal)
-                                    Some(PolarsWrapper.Alias(filled, colName))
+                                    let filled =
+                                        ScalarExpr.Function(ScalarFunction.FillNull, [ ScalarExpr.Column colName; defVal ], PlDataType.Unknown)
+                                    let aliased = ScalarExpr.Alias(filled, colName)
+                                    Some(PolarsScalarLowerer.lower aliased)
                                 | _ -> None)
 
                         if fillExprs.IsEmpty then
@@ -1615,7 +1540,7 @@ module internal SubqueryDecorrelator =
                             [ QueryOp.WithColumns(fillExprs |> List.toArray) ]
 
                     let buildReplacements
-                        (assignments: (ProjectionSubqueryCandidate * string * ExprHandle option) list)
+                        (assignments: (ProjectionSubqueryCandidate * string * (string * ScalarExpr) option) list)
                         =
                         assignments
                         |> List.map (fun (cand, colName, _) ->
@@ -1636,36 +1561,34 @@ module internal SubqueryDecorrelator =
                     option {
                         let! rawRightLf = resolveSequenceLazyFrame head.RootSource
                         let! rightLf = tryApplyInnerFilters rawRightLf head.InnerParam head.InnerFilters
+                        let rightCols = PolarsSchemaExtractor.GetColumnNames rightLf |> Array.toList
 
                         let innerCtx =
-                            createContextForType head.InnerParam.Type rightLf head.InnerParam.Name
+                            createContextForTypeWithCols head.InnerParam.Type rightCols head.InnerParam.Name
 
                         if head.ThetaConditions.IsEmpty then
                             let! keys = tryTranslateJoinKeys outerCtx innerCtx head.EquiPairs
 
                             let buildAgg (cand: ProjectionSubqueryCandidate) =
-                                tryBuildAggHandle rightLf cand.MethodName cand.IsAny cand.SelectorLambdaOpt
+                                tryBuildAggScalar rightCols cand.MethodName cand.IsAny cand.SelectorLambdaOpt
 
                             let! assignments = assignAggCols buildAgg indexedCandidates []
 
                             let aggExprsToEmit =
-                                assignments |> List.choose (fun (_, _, exprOpt) -> exprOpt) |> List.toArray
+                                assignments |> List.choose (fun (_, _, exprOpt) -> exprOpt)
 
-                            let groupedLf =
-                                PolarsWrapper.LazyGroupByAgg(
-                                    rightLf,
-                                    keys.InnerGroupByKeys,
-                                    aggExprsToEmit,
-                                    null,
-                                    false
-                                )
+                            let rightPlan =
+                                LogicalPlan.Scan(LogicalPlanSource.LazyFrame rightLf, LogicalSchema.Empty)
+                            let groupedPlan =
+                                LogicalPlan.GroupBy(rightPlan, keys.InnerKeys, aggExprsToEmit, None, false)
+                            let groupedLf = PolarsPhysicalLowerer.lowerPlan groupedPlan
 
                             let joinOp =
                                 QueryOp.Join
                                     {
                                         RightLf = groupedLf
-                                        LeftOn = keys.OuterKeys
-                                        RightOn = keys.InnerJoinKeys
+                                        LeftOn = keys.OuterKeys |> List.map PolarsScalarLowerer.lower |> List.toArray
+                                        RightOn = keys.InnerKeys |> List.map PolarsScalarLowerer.lower |> List.toArray
                                         How = PlJoinType.Left
                                         Suffix = None
                                         InvertSides = false
@@ -1693,68 +1616,58 @@ module internal SubqueryDecorrelator =
                                 head.ThetaConditions
                                 |> List.reduce (fun a b -> Expression.AndAlso(a, b) :> Expression)
 
-                            let! thetaFilterH =
-                                ExprTranslator.tryTranslateWithContext correlatedCtx combinedThetaExpr
+                            let! thetaFilterScalar =
+                                ExprTranslator.tryTranslateToScalar correlatedCtx combinedThetaExpr
 
                             let! outerKeys, innerKeys =
                                 if head.EquiPairs.IsEmpty then
-                                    Some([||], [||])
+                                    Some([], [])
                                 else
                                     tryTranslateJoinKeys outerCtx innerCtx head.EquiPairs
-                                    |> Option.map (fun k -> k.OuterKeys, k.InnerJoinKeys)
+                                    |> Option.map (fun k -> k.OuterKeys, k.InnerKeys)
 
                             let uid = Guid.NewGuid().ToString "N"
                             let ridCol = $"__subquery_rid_{grpIdx}_{uid}"
 
-                            let outerWithRidLf =
-                                PolarsWrapper.LazyFrameWithRowIndex(
-                                    PolarsWrapper.LazyClone currentLf,
-                                    ridCol,
-                                    Nullable 0
-                                )
+                            let outerPlan =
+                                LogicalPlan.Scan(LogicalPlanSource.LazyFrame currentLf, LogicalSchema.Empty)
+                            let rightPlan =
+                                LogicalPlan.Scan(LogicalPlanSource.LazyFrame rightLf, LogicalSchema.Empty)
 
-                            let joinedLf =
-                                if outerKeys.Length = 0 then
-                                    PolarsWrapper.Join(
-                                        outerWithRidLf,
-                                        rightLf,
-                                        [||],
-                                        [||],
+                            let withRidPlan = LogicalPlan.WithRowIndex(outerPlan, ridCol, Some 0u)
+
+                            let joinedPlan =
+                                if outerKeys.IsEmpty then
+                                    LogicalPlan.Join(
+                                        withRidPlan,
+                                        rightPlan,
+                                        [],
+                                        [],
                                         PlJoinType.Cross,
-                                        rightSuffix,
-                                        PlJoinValidation.ManyToMany,
+                                        Some rightSuffix,
                                         PlJoinCoalesce.KeepColumns,
-                                        PlJoinMaintainOrder.None,
-                                        PlJoinSide.None,
-                                        false,
-                                        Nullable(),
-                                        0UL
+                                        false
                                     )
                                 else
-                                    PolarsWrapper.Join(
-                                        outerWithRidLf,
-                                        rightLf,
-                                        outerKeys |> Array.map PolarsWrapper.CloneExpr,
-                                        innerKeys |> Array.map PolarsWrapper.CloneExpr,
+                                    LogicalPlan.Join(
+                                        withRidPlan,
+                                        rightPlan,
+                                        outerKeys,
+                                        innerKeys,
                                         PlJoinType.Inner,
-                                        rightSuffix,
-                                        PlJoinValidation.ManyToMany,
+                                        Some rightSuffix,
                                         PlJoinCoalesce.JoinSpecific,
-                                        PlJoinMaintainOrder.None,
-                                        PlJoinSide.None,
-                                        false,
-                                        Nullable(),
-                                        0UL
+                                        false
                                     )
 
-                            let filteredLf = PolarsWrapper.LazyFilter(joinedLf, thetaFilterH)
+                            let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
 
                             let buildAgg (cand: ProjectionSubqueryCandidate) =
                                 let colResolver c =
                                     if leftCols.Contains c then c + rightSuffix else c
 
-                                tryBuildAggHandleWithContext
-                                    rightLf
+                                tryBuildAggScalarWithContext
+                                    rightCols
                                     cand.MethodName
                                     cand.IsAny
                                     cand.SelectorLambdaOpt
@@ -1764,16 +1677,18 @@ module internal SubqueryDecorrelator =
                             let! assignments = assignAggCols buildAgg indexedCandidates []
 
                             let aggExprsToEmit =
-                                assignments |> List.choose (fun (_, _, exprOpt) -> exprOpt) |> List.toArray
+                                assignments |> List.choose (fun (_, _, exprOpt) -> exprOpt)
 
-                            let groupedMatchesLf =
-                                PolarsWrapper.LazyGroupByAgg(
-                                    filteredLf,
-                                    [| PolarsWrapper.Col ridCol |],
+                            let groupedMatchesPlan =
+                                LogicalPlan.GroupBy(
+                                    filteredPlan,
+                                    [ ScalarExpr.Column ridCol ],
                                     aggExprsToEmit,
-                                    null,
+                                    None,
                                     false
                                 )
+
+                            let groupedMatchesLf = PolarsPhysicalLowerer.lowerPlan groupedMatchesPlan
 
                             let withRowIndexOp = QueryOp.WithRowIndex(ridCol, Some 0u)
 
@@ -1781,8 +1696,8 @@ module internal SubqueryDecorrelator =
                                 QueryOp.Join
                                     {
                                         RightLf = groupedMatchesLf
-                                        LeftOn = [| PolarsWrapper.Col ridCol |]
-                                        RightOn = [| PolarsWrapper.Col ridCol |]
+                                        LeftOn = [| PolarsScalarLowerer.lower (ScalarExpr.Column ridCol) |]
+                                        RightOn = [| PolarsScalarLowerer.lower (ScalarExpr.Column ridCol) |]
                                         How = PlJoinType.Left
                                         Suffix = None
                                         InvertSides = false

@@ -16,11 +16,13 @@
   <ItemGroup>
     <Compile Include="PartialEvaluator.fs" />
     <Compile Include="OpsSpecs.fs" />
+    <Compile Include="Backend/Polars/NativeOpsApplier.fs" />
     <Compile Include="IR/LogicalIR.fs" />
     <Compile Include="IR/ScalarExpr.fs" />
     <Compile Include="IR/LogicalPlan.fs" />
     <Compile Include="IR/SchemaInference.fs" />
     <Compile Include="Backend/Polars/PolarsScalarLowerer.fs" />
+    <Compile Include="Backend/Polars/PolarsPhysicalLowerer.fs" />
     <Compile Include="QueryCache/QueryCacheKey.fs" />
     <Compile Include="ExpressionPatterns.fs" />
     <Compile Include="LinqReflectionCache.fs" />
@@ -43,7 +45,6 @@
     <Compile Include="QueryCache/QueryPlanCache.fs" />
     <Compile Include="Pipeline/PipelineTypes.fs" />
     <Compile Include="Pipeline/PipelineStageParser.fs" />
-    <Compile Include="Backend/Polars/NativeOpsApplier.fs" />
     <Compile Include="Pipeline/RelationalCompilers.fs" />
     <Compile Include="Pipeline/GroupByCompiler.fs" />
     <Compile Include="Pipeline/GroupingSetsCompiler.fs" />
@@ -53,7 +54,6 @@
     <Compile Include="IR/Passes/PredicatePushdown.fs" />
     <Compile Include="IR/Passes/ProjectionPruning.fs" />
     <Compile Include="IR/Passes/LogicalOptimizer.fs" />
-    <Compile Include="Backend/Polars/PolarsPhysicalLowerer.fs" />
     <Compile Include="ScalarExecutor.fs" />
     <Compile Include="PolarsQueryable.fs" />
   </ItemGroup>

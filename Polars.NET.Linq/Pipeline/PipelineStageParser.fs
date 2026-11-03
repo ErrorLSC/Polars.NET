@@ -207,17 +207,6 @@ module internal PipelineStageParser =
         let boxedResult = Expression.Convert(invoked, typeof<obj>)
         Expression.Lambda<Func<obj, obj>>(boxedResult, rawParam).Compile()
 
-    /// Helper to extract all column names and their corresponding DataTypeHandle from a LazyFrame schema
-    let getLazySchemaFields (lf: LazyFrameHandle) : (string * DataTypeHandle) array =
-        let schema = PolarsWrapper.GetLazySchema lf
-        let count = PolarsWrapper.GetSchemaLen schema
-
-        Array.init (int count) (fun i ->
-            let mutable name = null
-            let mutable dtHandle = new DataTypeHandle()
-            PolarsWrapper.GetSchemaFieldAt(schema, uint64 i, &name, &dtHandle)
-            name, dtHandle)
-
     /// Disambiguates duplicate column names against an existing set of columns by appending a given suffix,
     /// returning the safely renamed LazyFrame, updated column set, and a renaming map.
     let disambiguateColumns

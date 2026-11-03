@@ -263,7 +263,7 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    Some(ScalarExpr.Function("str_contains", [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.Boolean))
+                    Some(ScalarExpr.Function(ScalarFunction.StrContains, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.Boolean))
                 | None ->
                     if CoreConfig.DisallowUdfPushdown then
                         None
@@ -282,7 +282,7 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    Some(ScalarExpr.Function("str_replace_all", [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.String rep); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.String))
+                    Some(ScalarExpr.Function(ScalarFunction.ReplaceAll, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.String rep); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.String))
                 | None ->
                     if CoreConfig.DisallowUdfPushdown then
                         None
@@ -301,7 +301,7 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    Some(ScalarExpr.Function("str_replace", [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.String rep); ScalarExpr.Literal(LiteralValue.Int64 (int64 count)) ], PlDataType.String))
+                    Some(ScalarExpr.Function(ScalarFunction.Replace, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.String rep); ScalarExpr.Literal(LiteralValue.Int64 (int64 count)) ], PlDataType.String))
                 | None ->
                     if CoreConfig.DisallowUdfPushdown then
                         None
@@ -332,7 +332,7 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    let extracted = ScalarExpr.Function("str_extract", [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Int32 groupIndex) ], PlDataType.String)
+                    let extracted = ScalarExpr.Function(ScalarFunction.StrExtract, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Int32 groupIndex) ], PlDataType.String)
                     let nonNullExtracted = ScalarExpr.Coalesce [ extracted; ScalarExpr.Literal(LiteralValue.String "") ]
                     let isTargetNull = ScalarExpr.Unary(UnaryOp.IsNull, t)
                     Some(ScalarExpr.Conditional(isTargetNull, ScalarExpr.Literal(LiteralValue.Null PlDataType.String), nonNullExtracted))
@@ -362,8 +362,8 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    let structExpr = ScalarExpr.Function("str_extract_groups", [ t; ScalarExpr.Literal(LiteralValue.String validPat) ], PlDataType.Unknown)
-                    let fieldExpr = ScalarExpr.Function("struct_field_by_name", [ structExpr; ScalarExpr.Literal(LiteralValue.String groupName) ], PlDataType.String)
+                    let structExpr = ScalarExpr.Function(ScalarFunction.StrExtractGroups, [ t; ScalarExpr.Literal(LiteralValue.String validPat) ], PlDataType.Unknown)
+                    let fieldExpr = ScalarExpr.Function(ScalarFunction.StructFieldByName, [ structExpr; ScalarExpr.Literal(LiteralValue.String groupName) ], PlDataType.String)
                     let nonNullExtracted = ScalarExpr.Coalesce [ fieldExpr; ScalarExpr.Literal(LiteralValue.String "") ]
                     let isTargetNull = ScalarExpr.Unary(UnaryOp.IsNull, t)
                     Some(ScalarExpr.Conditional(isTargetNull, ScalarExpr.Literal(LiteralValue.Null PlDataType.String), nonNullExtracted))
@@ -393,7 +393,7 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    Some(ScalarExpr.Function("str_extract_all", [ t; ScalarExpr.Literal(LiteralValue.String validPat) ], PlDataType.List))
+                    Some(ScalarExpr.Function(ScalarFunction.StrExtractAll, [ t; ScalarExpr.Literal(LiteralValue.String validPat) ], PlDataType.List))
                 | None ->
                     if CoreConfig.DisallowUdfPushdown then
                         None
@@ -416,7 +416,7 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    Some(ScalarExpr.Function("str_count_matches", [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.UInt32))
+                    Some(ScalarExpr.Function(ScalarFunction.StrCountMatches, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.UInt32))
                 | None ->
                     if CoreConfig.DisallowUdfPushdown then
                         None
@@ -449,7 +449,7 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    Some(ScalarExpr.Function("str_split", [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.List))
+                    Some(ScalarExpr.Function(ScalarFunction.StrSplit, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.List))
                 | None ->
                     if CoreConfig.DisallowUdfPushdown then
                         None

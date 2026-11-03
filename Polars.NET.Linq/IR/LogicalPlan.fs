@@ -240,9 +240,9 @@ module internal LogicalPlanOps =
         | ScalarExpr.Cast(inner, targetType, isStrict) ->
             sprintf "CAST(%s AS %A%s)" (formatScalar inner) targetType (if isStrict then " STRICT" else "")
 
-        | ScalarExpr.Function(name, args, _) ->
+        | ScalarExpr.Function(fn, args, _) ->
             let argsStr = args |> List.map formatScalar |> String.concat ", "
-            sprintf "%s(%s)" name argsStr
+            sprintf "%s(%s)" fn.Name argsStr
 
         | ScalarExpr.Aggregation(kind, exprOpt, isDistinct) ->
             let innerStr =

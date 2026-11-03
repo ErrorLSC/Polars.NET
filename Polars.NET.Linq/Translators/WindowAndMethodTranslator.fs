@@ -80,7 +80,7 @@ module internal WindowAndMethodTranslator =
             | _ -> None
 
         match targetS (), offsetHandleOpt with
-        | Some eS, Some nS -> Some(ScalarExpr.Function("shift", [ eS; nS ], PlDataType.Unknown))
+        | Some eS, Some nS -> Some(ScalarExpr.Function(ScalarFunction.Shift, [ eS; nS ], PlDataType.Unknown))
         | _ -> None
 
     let private translateDiffMethod (eval: ScalarExprEvaluator)
@@ -104,16 +104,16 @@ module internal WindowAndMethodTranslator =
         | [] ->
             targetS ()
             |> Option.map (fun eS ->
-                ScalarExpr.Function("diff", [ eS; ScalarExpr.Literal(LiteralValue.Int64 1L); ScalarExpr.Literal(LiteralValue.Int32(int PlNullBehavior.Ignore)) ], PlDataType.Unknown))
+                ScalarExpr.Function(ScalarFunction.Diff, [ eS; ScalarExpr.Literal(LiteralValue.Int64 1L); ScalarExpr.Literal(LiteralValue.Int32(int PlNullBehavior.Ignore)) ], PlDataType.Unknown))
         | [ nExpr ] ->
             match targetS (), resolveN nExpr with
             | Some eS, Some nS ->
-                Some(ScalarExpr.Function("diff", [ eS; nS; ScalarExpr.Literal(LiteralValue.Int32(int PlNullBehavior.Ignore)) ], PlDataType.Unknown))
+                Some(ScalarExpr.Function(ScalarFunction.Diff, [ eS; nS; ScalarExpr.Literal(LiteralValue.Int32(int PlNullBehavior.Ignore)) ], PlDataType.Unknown))
             | _ -> None
         | [ nExpr; nbExpr ] ->
             match targetS (), resolveN nExpr, tryEvaluate nbExpr with
             | Some eS, Some nS, Some(:? PlNullBehavior as nb) ->
-                Some(ScalarExpr.Function("diff", [ eS; nS; ScalarExpr.Literal(LiteralValue.Int32(int nb)) ], PlDataType.Unknown))
+                Some(ScalarExpr.Function(ScalarFunction.Diff, [ eS; nS; ScalarExpr.Literal(LiteralValue.Int32(int nb)) ], PlDataType.Unknown))
             | _ -> None
         | _ -> None
 
@@ -128,33 +128,33 @@ module internal WindowAndMethodTranslator =
         | [] ->
             targetS ()
             |> Option.map (fun eS ->
-                ScalarExpr.Function("rank", [ eS; ScalarExpr.Literal(LiteralValue.Int32(int PlRankMethod.Average)); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.Unknown))
+                ScalarExpr.Function(ScalarFunction.Rank, [ eS; ScalarExpr.Literal(LiteralValue.Int32(int PlRankMethod.Average)); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.Unknown))
 
         | [ descExpr ] when descExpr.Type = typeof<bool> ->
             match targetS (), tryEvaluate descExpr with
             | Some eS, Some(:? bool as desc) ->
-                Some(ScalarExpr.Function("rank", [ eS; ScalarExpr.Literal(LiteralValue.Int32(int PlRankMethod.Average)); ScalarExpr.Literal(LiteralValue.Bool desc) ], PlDataType.Unknown))
+                Some(ScalarExpr.Function(ScalarFunction.Rank, [ eS; ScalarExpr.Literal(LiteralValue.Int32(int PlRankMethod.Average)); ScalarExpr.Literal(LiteralValue.Bool desc) ], PlDataType.Unknown))
             | _ -> None
 
         | [ methodExpr ] ->
             match targetS (), tryEvaluate methodExpr with
             | Some eS, Some mObj ->
                 let m = tryExtractRankMethod mObj
-                Some(ScalarExpr.Function("rank", [ eS; ScalarExpr.Literal(LiteralValue.Int32(int m)); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.Unknown))
+                Some(ScalarExpr.Function(ScalarFunction.Rank, [ eS; ScalarExpr.Literal(LiteralValue.Int32(int m)); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.Unknown))
             | _ -> None
 
         | [ methodExpr; descExpr ] ->
             match targetS (), tryEvaluate methodExpr, tryEvaluate descExpr with
             | Some eS, Some mObj, Some(:? bool as desc) ->
                 let m = tryExtractRankMethod mObj
-                Some(ScalarExpr.Function("rank", [ eS; ScalarExpr.Literal(LiteralValue.Int32(int m)); ScalarExpr.Literal(LiteralValue.Bool desc) ], PlDataType.Unknown))
+                Some(ScalarExpr.Function(ScalarFunction.Rank, [ eS; ScalarExpr.Literal(LiteralValue.Int32(int m)); ScalarExpr.Literal(LiteralValue.Bool desc) ], PlDataType.Unknown))
             | _ -> None
 
         | [ methodExpr; descExpr; seedExpr ] ->
             match targetS (), tryEvaluate methodExpr, tryEvaluate descExpr, tryEvaluate seedExpr with
             | Some eS, Some mObj, Some(:? bool as desc), Some _seedObj ->
                 let m = tryExtractRankMethod mObj
-                Some(ScalarExpr.Function("rank", [ eS; ScalarExpr.Literal(LiteralValue.Int32(int m)); ScalarExpr.Literal(LiteralValue.Bool desc) ], PlDataType.Unknown))
+                Some(ScalarExpr.Function(ScalarFunction.Rank, [ eS; ScalarExpr.Literal(LiteralValue.Int32(int m)); ScalarExpr.Literal(LiteralValue.Bool desc) ], PlDataType.Unknown))
             | _ -> None
 
         | _ -> None
@@ -167,10 +167,10 @@ module internal WindowAndMethodTranslator =
         let targetS () = eval ctx target
 
         match args with
-        | [] -> targetS () |> Option.map (fun eS -> ScalarExpr.Function("pct_change", [ eS; ScalarExpr.Literal(LiteralValue.Int64 1L) ], PlDataType.Unknown))
+        | [] -> targetS () |> Option.map (fun eS -> ScalarExpr.Function(ScalarFunction.PctChange, [ eS; ScalarExpr.Literal(LiteralValue.Int64 1L) ], PlDataType.Unknown))
         | [ nExpr ] ->
             match targetS (), tryEvaluate nExpr with
-            | Some eS, Some nVal -> Some(ScalarExpr.Function("pct_change", [ eS; ScalarExpr.Literal(LiteralValue.Int64(Convert.ToInt64 nVal)) ], PlDataType.Unknown))
+            | Some eS, Some nVal -> Some(ScalarExpr.Function(ScalarFunction.PctChange, [ eS; ScalarExpr.Literal(LiteralValue.Int64(Convert.ToInt64 nVal)) ], PlDataType.Unknown))
             | _ -> None
         | _ -> None
 
@@ -321,11 +321,11 @@ module internal WindowAndMethodTranslator =
         eval ctx effectiveTarget
         |> Option.bind (fun colS ->
             match m.Name with
-            | "CumSum" -> Some(ScalarExpr.Function("cum_sum", [ colS; ScalarExpr.Literal(LiteralValue.Bool reverse) ], PlDataType.Unknown))
-            | "CumMax" -> Some(ScalarExpr.Function("cum_max", [ colS; ScalarExpr.Literal(LiteralValue.Bool reverse) ], PlDataType.Unknown))
-            | "CumMin" -> Some(ScalarExpr.Function("cum_min", [ colS; ScalarExpr.Literal(LiteralValue.Bool reverse) ], PlDataType.Unknown))
-            | "CumProd" -> Some(ScalarExpr.Function("cum_prod", [ colS; ScalarExpr.Literal(LiteralValue.Bool reverse) ], PlDataType.Unknown))
-            | "CumCount" -> Some(ScalarExpr.Function("cum_count", [ colS; ScalarExpr.Literal(LiteralValue.Bool reverse) ], PlDataType.UInt32))
+            | "CumSum" -> Some(ScalarExpr.Function(ScalarFunction.CumSum, [ colS; ScalarExpr.Literal(LiteralValue.Bool reverse) ], PlDataType.Unknown))
+            | "CumMax" -> Some(ScalarExpr.Function(ScalarFunction.CumMax, [ colS; ScalarExpr.Literal(LiteralValue.Bool reverse) ], PlDataType.Unknown))
+            | "CumMin" -> Some(ScalarExpr.Function(ScalarFunction.CumMin, [ colS; ScalarExpr.Literal(LiteralValue.Bool reverse) ], PlDataType.Unknown))
+            | "CumProd" -> Some(ScalarExpr.Function(ScalarFunction.CumProd, [ colS; ScalarExpr.Literal(LiteralValue.Bool reverse) ], PlDataType.Unknown))
+            | "CumCount" -> Some(ScalarExpr.Function(ScalarFunction.CumCount, [ colS; ScalarExpr.Literal(LiteralValue.Bool reverse) ], PlDataType.UInt32))
             | _ -> None)
 
     let private translateInterpolateMethodScalar (eval: ScalarExprEvaluator)
@@ -343,20 +343,20 @@ module internal WindowAndMethodTranslator =
         match m.Name, effectiveArgs with
         | "Interpolate", [] ->
             eval ctx effectiveTarget
-            |> Option.map (fun s -> ScalarExpr.Function("interpolate", [ s; ScalarExpr.Literal(LiteralValue.Int32(int PlInterpolationMethod.Linear)) ], PlDataType.Unknown))
+            |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.Interpolate, [ s; ScalarExpr.Literal(LiteralValue.Int32(int PlInterpolationMethod.Linear)) ], PlDataType.Unknown))
 
         | "Interpolate", [ methodExpr ] ->
             match eval ctx effectiveTarget, tryEvaluate methodExpr with
             | Some targetS, Some methodVal ->
                 let method = tryExtractInterpolationMethod methodVal
-                Some(ScalarExpr.Function("interpolate", [ targetS; ScalarExpr.Literal(LiteralValue.Int32(int method)) ], PlDataType.Unknown))
+                Some(ScalarExpr.Function(ScalarFunction.Interpolate, [ targetS; ScalarExpr.Literal(LiteralValue.Int32(int method)) ], PlDataType.Unknown))
             | Some targetS, None ->
-                Some(ScalarExpr.Function("interpolate", [ targetS; ScalarExpr.Literal(LiteralValue.Int32(int PlInterpolationMethod.Linear)) ], PlDataType.Unknown))
+                Some(ScalarExpr.Function(ScalarFunction.Interpolate, [ targetS; ScalarExpr.Literal(LiteralValue.Int32(int PlInterpolationMethod.Linear)) ], PlDataType.Unknown))
             | _ -> None
 
         | "InterpolateBy", [ byExpr ] ->
             match eval ctx effectiveTarget, eval ctx byExpr with
-            | Some targetS, Some byS -> Some(ScalarExpr.Function("interpolate_by", [ targetS; byS ], PlDataType.Unknown))
+            | Some targetS, Some byS -> Some(ScalarExpr.Function(ScalarFunction.InterpolateBy, [ targetS; byS ], PlDataType.Unknown))
             | _ -> None
 
         | _ -> None
@@ -411,9 +411,9 @@ module internal WindowAndMethodTranslator =
                     if isIntegerType targetType then
                         tryGetPlDataType targetType
                         |> Option.map (fun dtype ->
-                            ScalarExpr.Function("str_to_integer", [ strS; ScalarExpr.Literal(LiteralValue.Int32 10); ScalarExpr.Literal(LiteralValue.Int32(int dtype)) ], dtype))
+                            ScalarExpr.Function(ScalarFunction.StrToInteger, [ strS; ScalarExpr.Literal(LiteralValue.Int32 10); ScalarExpr.Literal(LiteralValue.Int32(int dtype)) ], dtype))
                     elif targetType = typeof<decimal> then
-                        Some(ScalarExpr.Function("str_to_decimal", [ strS; ScalarExpr.Literal(LiteralValue.Int32 4) ], PlDataType.Decimal))
+                        Some(ScalarExpr.Function(ScalarFunction.StrToDecimal, [ strS; ScalarExpr.Literal(LiteralValue.Int32 4) ], PlDataType.Decimal))
                     elif targetType = typeof<double> || targetType = typeof<float> || targetType = typeof<bool> then
                         tryTranslateCast targetType strS
                     else
@@ -425,19 +425,19 @@ module internal WindowAndMethodTranslator =
             match m.Name, args with
             | "FromHexString", [ strExpr ] ->
                 eval ctx strExpr
-                |> Option.map (fun strS -> ScalarExpr.Function("hex_decode", [ strS ], PlDataType.Binary))
+                |> Option.map (fun strS -> ScalarExpr.Function(ScalarFunction.HexDecode, [ strS ], PlDataType.Binary))
 
             | "FromBase64String", [ strExpr ] ->
                 eval ctx strExpr
-                |> Option.map (fun strS -> ScalarExpr.Function("base64_decode", [ strS ], PlDataType.Binary))
+                |> Option.map (fun strS -> ScalarExpr.Function(ScalarFunction.Base64Decode, [ strS ], PlDataType.Binary))
 
             | "ToHexString", [ strExpr ] ->
                 eval ctx strExpr
-                |> Option.map (fun strS -> ScalarExpr.Function("hex_encode", [ strS ], PlDataType.String))
+                |> Option.map (fun strS -> ScalarExpr.Function(ScalarFunction.HexEncode, [ strS ], PlDataType.String))
 
             | "ToBase64String", [ strExpr ] ->
                 eval ctx strExpr
-                |> Option.map (fun strS -> ScalarExpr.Function("base64_encode", [ strS ], PlDataType.String))
+                |> Option.map (fun strS -> ScalarExpr.Function(ScalarFunction.Base64Encode, [ strS ], PlDataType.String))
 
             | "ToInt32" | "ToInt64" | "ToInt16" | "ToByte" | "ToSByte" | "ToUInt32" | "ToUInt64" | "ToUInt16" as convName, [ strExpr ] when strExpr.Type = typeof<string> ->
                 let intType =
@@ -454,19 +454,19 @@ module internal WindowAndMethodTranslator =
 
                 match eval ctx strExpr, tryGetPlDataType intType with
                 | Some strS, Some dtype ->
-                    Some(ScalarExpr.Function("str_to_integer", [ strS; ScalarExpr.Literal(LiteralValue.Int32 10); ScalarExpr.Literal(LiteralValue.Int32(int dtype)) ], dtype))
+                    Some(ScalarExpr.Function(ScalarFunction.StrToInteger, [ strS; ScalarExpr.Literal(LiteralValue.Int32 10); ScalarExpr.Literal(LiteralValue.Int32(int dtype)) ], dtype))
                 | _ -> None
 
             | "ToInt32" | "ToInt64" as convName, [ strExpr; baseExpr ] when strExpr.Type = typeof<string> ->
                 let intType = if convName = "ToInt32" then typeof<int> else typeof<int64>
                 match eval ctx strExpr, eval ctx baseExpr, tryGetPlDataType intType with
                 | Some strS, Some baseS, Some dtype ->
-                    Some(ScalarExpr.Function("str_to_integer", [ strS; baseS; ScalarExpr.Literal(LiteralValue.Int32(int dtype)) ], dtype))
+                    Some(ScalarExpr.Function(ScalarFunction.StrToInteger, [ strS; baseS; ScalarExpr.Literal(LiteralValue.Int32(int dtype)) ], dtype))
                 | _ -> None
 
             | "ToDecimal", [ strExpr ] when strExpr.Type = typeof<string> ->
                 eval ctx strExpr
-                |> Option.map (fun strS -> ScalarExpr.Function("str_to_decimal", [ strS; ScalarExpr.Literal(LiteralValue.Int32 4) ], PlDataType.Decimal))
+                |> Option.map (fun strS -> ScalarExpr.Function(ScalarFunction.StrToDecimal, [ strS; ScalarExpr.Literal(LiteralValue.Int32 4) ], PlDataType.Decimal))
 
             | "ToDouble", [ strExpr ] when strExpr.Type = typeof<string> ->
                 eval ctx strExpr
@@ -544,7 +544,7 @@ module internal WindowAndMethodTranslator =
         elif m.DeclaringType = typeof<Regex> && isNull target && m.Name = "Escape" then
             match args with
             | [ strExpr ] ->
-                eval ctx strExpr |> Option.map (fun s -> ScalarExpr.Function("regex_escape", [ s ], PlDataType.String))
+                eval ctx strExpr |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.RegexEscape, [ s ], PlDataType.String))
             | _ -> None
 
         elif
@@ -562,41 +562,41 @@ module internal WindowAndMethodTranslator =
         elif m.Name = "ToTitleCase" && args.Length >= 1 then
             match args |> List.tryFind (fun a -> a.Type = typeof<string>) with
             | Some strExpr ->
-                eval ctx strExpr |> Option.map (fun s -> ScalarExpr.Function("to_titlecase", [ s ], PlDataType.String))
+                eval ctx strExpr |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.ToTitlecase, [ s ], PlDataType.String))
             | None -> None
 
         elif not (isNull m.DeclaringType) && typeof<Encoding>.IsAssignableFrom m.DeclaringType && m.Name = "GetByteCount" then
             match args with
             | [ strExpr ] when strExpr.Type = typeof<string> ->
-                eval ctx strExpr |> Option.map (fun s -> ScalarExpr.Function("len_bytes", [ s ], PlDataType.UInt32))
+                eval ctx strExpr |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.LenBytes, [ s ], PlDataType.UInt32))
             | _ -> None
 
         elif m.DeclaringType = typeof<Enumerable> && isNull target then
             match m.Name, args with
             | "Take", [ strExpr; countExpr ] when strExpr.Type = typeof<string> ->
                 match eval ctx strExpr, eval ctx countExpr with
-                | Some strS, Some countS -> Some(ScalarExpr.Function("head", [ strS; countS ], PlDataType.String))
+                | Some strS, Some countS -> Some(ScalarExpr.Function(ScalarFunction.Head, [ strS; countS ], PlDataType.String))
                 | _ -> None
 
             | "TakeLast", [ strExpr; countExpr ] when strExpr.Type = typeof<string> ->
                 match eval ctx strExpr, eval ctx countExpr with
-                | Some strS, Some countS -> Some(ScalarExpr.Function("tail", [ strS; countS ], PlDataType.String))
+                | Some strS, Some countS -> Some(ScalarExpr.Function(ScalarFunction.Tail, [ strS; countS ], PlDataType.String))
                 | _ -> None
 
             | "Reverse", [ strExpr ] when strExpr.Type = typeof<string> ->
-                eval ctx strExpr |> Option.map (fun s -> ScalarExpr.Function("reverse", [ s ], PlDataType.String))
+                eval ctx strExpr |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.Reverse, [ s ], PlDataType.String))
 
             | _ -> None
 
         elif m.Name = "StrReverse" && isNull target && args.Length = 1 && args.[0].Type = typeof<string> then
-            eval ctx args.[0] |> Option.map (fun s -> ScalarExpr.Function("reverse", [ s ], PlDataType.String))
+            eval ctx args.[0] |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.Reverse, [ s ], PlDataType.String))
 
         elif m.DeclaringType = typeof<char> && isNull target then
             match m.Name, args with
             | ("ToUpper" | "ToUpperInvariant"), [ charExpr ] ->
-                eval ctx charExpr |> Option.map (fun s -> ScalarExpr.Function("to_upper", [ s ], PlDataType.String))
+                eval ctx charExpr |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.ToUpper, [ s ], PlDataType.String))
             | ("ToLower" | "ToLowerInvariant"), [ charExpr ] ->
-                eval ctx charExpr |> Option.map (fun s -> ScalarExpr.Function("to_lower", [ s ], PlDataType.String))
+                eval ctx charExpr |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.ToLower, [ s ], PlDataType.String))
             | _ -> None
 
         elif
@@ -648,7 +648,7 @@ module internal WindowAndMethodTranslator =
                             match Int32.TryParse(s) with
                             | true, v -> v
                             | false, _ -> 2
-                        let scaled = ScalarExpr.Function("cast_decimal", [ t; ScalarExpr.Literal(LiteralValue.Int32 scale) ], PlDataType.Decimal)
+                        let scaled = ScalarExpr.Function(ScalarFunction.CastDecimal, [ t; ScalarExpr.Literal(LiteralValue.Int32 scale) ], PlDataType.Decimal)
                         tryTranslateCast typeof<string> scaled
                     else
                         None
