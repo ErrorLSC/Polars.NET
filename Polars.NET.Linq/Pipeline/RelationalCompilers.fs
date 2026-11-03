@@ -5,6 +5,7 @@ open System.Linq.Expressions
 open System.Reflection
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
+open Polars.NET.Linq.Backend.Polars
 
 [<AutoOpen>]
 module internal RelationalCompilers =
@@ -196,7 +197,7 @@ module internal RelationalCompilers =
             | "FullJoin" -> PlJoinType.Outer
             | _ -> PlJoinType.Inner
 
-        match SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr with
+        match PolarsObjectConverter.resolveSequenceLazyFrame innerExpr with
         | Some rightLf ->
             let outerParam = outerKey.Parameters.[0]
             let innerParam = innerKey.Parameters.[0]
@@ -260,7 +261,7 @@ module internal RelationalCompilers =
                 ExprTranslator.tryTranslateWithContext ctx keyLambda.Body
                 |> Option.map (fun h -> [| h |])
 
-        match SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr with
+        match PolarsObjectConverter.resolveSequenceLazyFrame innerExpr with
         | Some rightLf ->
             let outerParam = outerKey.Parameters.[0]
             let innerParam = innerKey.Parameters.[0]
@@ -428,7 +429,7 @@ module internal RelationalCompilers =
             else
                 PlJoinType.Anti
 
-        SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr
+        PolarsObjectConverter.resolveSequenceLazyFrame secondExpr
         |> Option.bind (fun rightLf ->
             let keysOpt =
                 match firstKeyOpt, secondKeyOpt with
@@ -492,17 +493,8 @@ module internal RelationalCompilers =
 
         match evaluatedOpt with
         | Some elem when not (isNull elem) ->
-            let elemType = elem.GetType()
-
-            let fromRows =
-                LinqReflectionCache.FromRowsMethod.MakeGenericMethod(elemType)
-
-            let typedArray = Array.CreateInstance(elemType, 1)
-            typedArray.SetValue(elem, 0)
-
-            let singleDf = fromRows.Invoke(null, [| box typedArray |]) :?> DataFrameHandle
-            let otherLf = PolarsWrapper.DataFrameToLazy singleDf
-            Some(QueryOp.Concat { OtherLf = otherLf; Prepend = prepend })
+            PolarsObjectConverter.fromSingleRow elem (elem.GetType())
+            |> Option.map (fun otherLf -> QueryOp.Concat { OtherLf = otherLf; Prepend = prepend })
         | _ -> None
 
     /// Converts a list of (sourceCol, targetCol) pairs into a single-element or empty QueryOp.Rename list
@@ -577,7 +569,7 @@ module internal RelationalCompilers =
         (innerKey: LambdaExpression)
         (scopeMap: Map<string * string, string>)
         : JoinSpec option =
-        SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr
+        PolarsObjectConverter.resolveSequenceLazyFrame innerExpr
         |> Option.bind (fun rightLf ->
             let outerParam = outerKey.Parameters.[0]
             let innerParam = innerKey.Parameters.[0]
@@ -627,7 +619,7 @@ module internal RelationalCompilers =
         (innerKey: LambdaExpression)
         (resSel: LambdaExpression)
         : QueryOp list option =
-        SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr
+        PolarsObjectConverter.resolveSequenceLazyFrame innerExpr
         |> Option.bind (fun rightLf ->
             let outerParam = outerKey.Parameters.[0]
             let innerParam = innerKey.Parameters.[0]
@@ -680,7 +672,7 @@ module internal RelationalCompilers =
         (secondExpr: Expression)
         (resLambdaOpt: LambdaExpression option)
         : QueryOp list option =
-        SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr
+        PolarsObjectConverter.resolveSequenceLazyFrame secondExpr
         |> Option.map (fun otherLf ->
             let baseCols = PolarsSchemaExtractor.GetColumnNames baseLf |> Set.ofArray
             let safeSecondLf, _, suffixMap = disambiguateColumns baseCols otherLf "_second"
@@ -699,8 +691,8 @@ module internal RelationalCompilers =
 
     let compileZip3 (baseLf: LazyFrameHandle) (secondExpr: Expression) (thirdExpr: Expression) : QueryOp option =
         match
-            SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr,
-            SubqueryDecorrelator.resolveSequenceLazyFrame thirdExpr
+            PolarsObjectConverter.resolveSequenceLazyFrame secondExpr,
+            PolarsObjectConverter.resolveSequenceLazyFrame thirdExpr
         with
         | Some secondLf, Some thirdLf ->
             let baseCols = PolarsSchemaExtractor.GetColumnNames baseLf |> Set.ofArray
@@ -738,7 +730,7 @@ module internal RelationalCompilers =
 
     /// Compiles CrossJoin (uncorrelated SelectMany) into a Cross Join and optional renames
     let compileCrossJoin (innerExpr: Expression) (resLambdaOpt: LambdaExpression option) : QueryOp list option =
-        SubqueryDecorrelator.resolveSequenceLazyFrame innerExpr
+        PolarsObjectConverter.resolveSequenceLazyFrame innerExpr
         |> Option.map (fun rightLf ->
             let joinOp =
                 QueryOp.Join

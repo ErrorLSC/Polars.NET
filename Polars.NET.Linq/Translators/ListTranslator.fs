@@ -6,6 +6,7 @@ open System.Linq.Expressions
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
 open Polars.NET.Linq.IR
+open Polars.NET.Linq.Backend.Polars
 
 [<AutoOpen>]
 module internal ListTranslator =
@@ -174,33 +175,6 @@ module internal ListTranslator =
 
         | _ -> None
 
-    let internal tryCreateSeriesHandleFromObject (objVal: obj) : SeriesHandle option =
-        match objVal with
-        | null -> None
-        | :? Array as arr ->
-            try
-                let h = SeriesFactory.Create("", arr)
-                if not (isNull h || h.IsInvalid) then Some h else None
-            with _ ->
-                None
-        | :? System.Collections.IEnumerable as seq when seq.GetType() <> typeof<string> ->
-            try
-                let elemType =
-                    match PolarsTypeHelper.TryGetEnumerableElementType (seq.GetType()) with
-                    | null -> typeof<obj>
-                    | t -> t
-
-                let createGeneric =
-                    typeof<SeriesFactory>
-                        .GetMethod("CreateGenericType", BindingFlags.Public ||| BindingFlags.Static)
-                        .MakeGenericMethod(elemType)
-
-                let h = createGeneric.Invoke(null, [| box ""; seq |]) :?> SeriesHandle
-                if not (isNull h || h.IsInvalid) then Some h else None
-            with _ ->
-                None
-        | _ -> None
-
     let internal translateListInvocation
         (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
@@ -227,7 +201,7 @@ module internal ListTranslator =
 
                     match evaluated with
                     | :? System.Collections.IEnumerable as coll when coll.GetType() <> typeof<string> ->
-                        let! seriesHandle = tryCreateSeriesHandleFromObject coll
+                        let! seriesHandle = PolarsObjectConverter.tryCreateSeriesHandle "" coll
                         let litH = PolarsWrapper.Lit seriesHandle
                         let implodedH = PolarsWrapper.Implode(litH, maintainOrder = false)
                         return ScalarExpr.Function("is_in", [ itemS; ScalarExpr.Opaque(implodedH, [], "in-memory list") ], PlDataType.Boolean)

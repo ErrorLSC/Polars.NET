@@ -7,6 +7,7 @@ open System.Linq.Expressions
 open System.Reflection
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
+open Polars.NET.Linq.Backend.Polars
 
 module internal LinqPipelineCompiler =
 
@@ -484,13 +485,13 @@ module internal LinqPipelineCompiler =
 
                 | LinqStage.Concat otherExpr :: tail ->
                     let opOpt =
-                        SubqueryDecorrelator.resolveSequenceLazyFrame otherExpr
+                        PolarsObjectConverter.resolveSequenceLazyFrame otherExpr
                         |> Option.map (fun otherLf -> QueryOp.Concat { OtherLf = otherLf; Prepend = false })
                     pushOpOrFallback opOpt tail
 
                 | LinqStage.Union(secondExpr, keyLambdaOpt) :: tail ->
                     let opsOpt =
-                        SubqueryDecorrelator.resolveSequenceLazyFrame secondExpr
+                        PolarsObjectConverter.resolveSequenceLazyFrame secondExpr
                         |> Option.map (fun otherLf ->
                             let concatOp = QueryOp.Concat { OtherLf = otherLf; Prepend = false }
                             let uniqueOp =

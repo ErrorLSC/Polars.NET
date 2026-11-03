@@ -3,6 +3,7 @@ namespace Polars.FSharp.Query
 open Polars.FSharp
 open System.Linq
 open Polars.NET.Linq
+open Polars.NET.Linq.Backend.Polars
 open System
 open Polars.NET.Core
 open System.Threading
@@ -85,7 +86,7 @@ module LinqExtension =
             | _ -> None
         // 3. Fallback: Expression tree evaluation through PolarsQuery resolver
         | _ ->
-            match SubqueryDecorrelator.resolveToLazyFrameHandle q.Expression with
+            match PolarsObjectConverter.resolveToLazyFrameHandle q.Expression with
             | Some h -> Some h
             | None ->
                 match tryExtractExplainable (box q) with

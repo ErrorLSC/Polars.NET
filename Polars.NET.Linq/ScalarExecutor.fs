@@ -8,6 +8,7 @@ open System.Linq.Expressions
 open System.Reflection
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
+open Polars.NET.Linq.Backend.Polars
 
 /// Dedicated execution engine for LINQ scalar & single-row terminal operations
 /// (Count, LongCount, Any, All, First*, Last*, Single*, Min, Max, Sum, Average, ElementAt*, Contains, SequenceEqual, MinBy, MaxBy, Aggregate).
@@ -72,7 +73,7 @@ module internal ScalarExecutor =
         (provider: IQueryProvider)
         (expr: Expression)
         : (LazyFrameHandle * bool * (Type * Func<obj, obj>) option) option =
-        match SubqueryDecorrelator.resolveSequenceLazyFrame expr with
+        match PolarsObjectConverter.resolveSequenceLazyFrame expr with
         | Some lf -> Some(lf, false, None)
         | None ->
             match tryEvaluate expr with
