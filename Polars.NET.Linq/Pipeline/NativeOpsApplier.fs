@@ -8,6 +8,45 @@ open Polars.NET.Core.Helpers
 [<AutoOpen>]
 module internal NativeOpsApplier =
 
+    let alignSchema (baseLf: LazyFrameHandle) (targetLf: LazyFrameHandle) : LazyFrameHandle =
+        let baseFields = getLazySchemaFields baseLf
+        let targetFields = getLazySchemaFields targetLf
+
+        let baseNames = baseFields |> Array.map fst
+        let targetNames = targetFields |> Array.map fst
+
+        if Set.ofArray baseNames = Set.ofArray targetNames then
+            let targetFieldMap = targetFields |> Map.ofArray
+
+            let reorderedAndCastedExprs =
+                baseFields
+                |> Array.map (fun (colName, baseDt) ->
+                    let targetDt = targetFieldMap.[colName]
+                    let colExpr = PolarsWrapper.Col colName
+
+                    if not (PolarsWrapper.DataTypeEq(baseDt, targetDt)) then
+                        let dtExpr = PolarsWrapper.DataTypeExprFromDataType baseDt
+                        PolarsWrapper.ExprCast(colExpr, dtExpr, strict = false, wrapNumerical = false)
+                    else
+                        colExpr)
+
+            PolarsWrapper.LazySelect(targetLf, reorderedAndCastedExprs)
+        elif baseFields.Length = targetFields.Length then
+            let projectedExprs =
+                Array.zip baseFields targetFields
+                |> Array.map (fun ((baseName, baseDt), (targetName, targetDt)) ->
+                    let colExpr = PolarsWrapper.Col targetName
+                    let castedExpr =
+                        if not (PolarsWrapper.DataTypeEq(baseDt, targetDt)) then
+                            let dtExpr = PolarsWrapper.DataTypeExprFromDataType baseDt
+                            PolarsWrapper.ExprCast(colExpr, dtExpr, strict = false, wrapNumerical = false)
+                        else
+                            colExpr
+                    PolarsWrapper.Alias(castedExpr, baseName))
+            PolarsWrapper.LazySelect(targetLf, projectedExprs)
+        else
+            targetLf
+
     let applyNativeOps (sourceLf: LazyFrameHandle) (ops: QueryOp list) : LazyFrameHandle =
         ops
         |> List.fold
@@ -104,45 +143,6 @@ module internal NativeOpsApplier =
                     PolarsWrapper.LazyUnique(currentLf, selector, spec.Keep, spec.MaintainOrder)
 
                 | QueryOp.Concat spec ->
-                    let alignSchema (baseLf: LazyFrameHandle) (targetLf: LazyFrameHandle) : LazyFrameHandle =
-                        let baseFields = getLazySchemaFields baseLf
-                        let targetFields = getLazySchemaFields targetLf
-
-                        let baseNames = baseFields |> Array.map fst
-                        let targetNames = targetFields |> Array.map fst
-
-                        if Set.ofArray baseNames = Set.ofArray targetNames then
-                            let targetFieldMap = targetFields |> Map.ofArray
-
-                            let reorderedAndCastedExprs =
-                                baseFields
-                                |> Array.map (fun (colName, baseDt) ->
-                                    let targetDt = targetFieldMap.[colName]
-                                    let colExpr = PolarsWrapper.Col colName
-
-                                    if not (PolarsWrapper.DataTypeEq(baseDt, targetDt)) then
-                                        let dtExpr = PolarsWrapper.DataTypeExprFromDataType baseDt
-                                        PolarsWrapper.ExprCast(colExpr, dtExpr, strict = false, wrapNumerical = false)
-                                    else
-                                        colExpr)
-
-                            PolarsWrapper.LazySelect(targetLf, reorderedAndCastedExprs)
-                        elif baseFields.Length = targetFields.Length then
-                            let projectedExprs =
-                                Array.zip baseFields targetFields
-                                |> Array.map (fun ((baseName, baseDt), (targetName, targetDt)) ->
-                                    let colExpr = PolarsWrapper.Col targetName
-                                    let castedExpr =
-                                        if not (PolarsWrapper.DataTypeEq(baseDt, targetDt)) then
-                                            let dtExpr = PolarsWrapper.DataTypeExprFromDataType baseDt
-                                            PolarsWrapper.ExprCast(colExpr, dtExpr, strict = false, wrapNumerical = false)
-                                        else
-                                            colExpr
-                                    PolarsWrapper.Alias(castedExpr, baseName))
-                            PolarsWrapper.LazySelect(targetLf, projectedExprs)
-                        else
-                            targetLf
-
                     let alignedOtherLf = alignSchema currentLf spec.OtherLf
 
                     let handles =

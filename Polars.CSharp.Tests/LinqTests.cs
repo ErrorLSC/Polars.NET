@@ -228,6 +228,32 @@ public partial class LinqTests
         Assert.Equal("ALICE", firstName);
 
     }
+
+    [Fact]
+    [Trait("LINQ", "IR")]
+    public void Test_CSharp_Linq_ExplainLogicalPlan()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000),
+            new Employee("Charlie", 35, 70000)
+        };
+
+        using var dfEmps = DataFrame.FromRows(emps);
+        var empQuery = dfEmps.AsQueryable(emps);
+
+        var query = empQuery
+            .Where(e => e.Age > 26)
+            .OrderBy(e => e.Salary)
+            .Select(e => new { e.Name, e.Salary });
+
+        string logicalPlan = query.ExplainLogicalPlan();
+        Assert.False(string.IsNullOrWhiteSpace(logicalPlan));
+        Assert.Contains("Filter", logicalPlan);
+        Assert.Contains("Sort", logicalPlan);
+        Assert.Contains("Project", logicalPlan);
+    }
     [Fact]
     [Trait("LINQ", "Scalar_Projection")]
     public void Test_CSharp_Linq_Scalar_Projection_Any_All()

@@ -1035,6 +1035,22 @@ public static class LinqExtensions
 
         return "[Polars.NET] Query source is not a native PolarsQueryable. In-memory execution only.";
     }
+
+    /// <summary>
+    /// Explains the intermediate representation (IR) LogicalPlan of the query pipeline.
+    /// </summary>
+    /// <param name="source">The source queryable.</param>
+    public static string ExplainLogicalPlan<T>(this IQueryable<T> source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        if (source is IPolarsExplainable explainable)
+        {
+            return explainable.ExplainLogicalPlan();
+        }
+
+        return "[Polars.NET] Query source is not a native PolarsQueryable. Logical plan inspection unavailable.";
+    }
     /// <summary>
     /// Gets or sets the default plan inspector action used when none is explicitly specified.
     /// Defaults to <see cref="Console.WriteLine(string)"/>.

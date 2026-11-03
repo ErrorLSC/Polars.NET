@@ -6,6 +6,7 @@ open System.Collections.Generic
 open System.Linq
 open System.Linq.Expressions
 open Polars.NET.Core
+open Polars.NET.Linq.IR
 
 /// Internal classification of resolved predicate pushdown state
 type internal ResolvedPredicate =
@@ -66,6 +67,7 @@ type internal MaterializedGrouping<'TKey, 'TElement>(key: 'TKey, elements: 'TEle
 type PlanInspection =
     {
         NativePlan: string
+        LogicalPlan: string option
         HasClientPredicates: bool
         ClientPredicateExpressions: LambdaExpression list
         HasClientProjection: bool
@@ -153,6 +155,8 @@ type PlanInspection =
 type IPolarsExplainable =
     abstract member InspectPlan: optimized: bool -> PlanInspection
     abstract member Explain: optimized: bool -> string
+    abstract member ExplainLogicalPlan: unit -> string
+    abstract member GetLogicalPlan: unit -> LogicalPlan
 
 type internal FallbackTracker =
     [<ThreadStatic; DefaultValue>]

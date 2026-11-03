@@ -16,6 +16,11 @@
   <ItemGroup>
     <Compile Include="PartialEvaluator.fs" />
     <Compile Include="OpsSpecs.fs" />
+    <Compile Include="IR/LogicalIR.fs" />
+    <Compile Include="IR/ScalarExpr.fs" />
+    <Compile Include="IR/LogicalPlan.fs" />
+    <Compile Include="IR/SchemaInference.fs" />
+    <Compile Include="IR/ScalarLowerer.fs" />
     <Compile Include="QueryCache/QueryCacheKey.fs" />
     <Compile Include="ExpressionPatterns.fs" />
     <Compile Include="ScopeNavigation.fs" />
@@ -41,6 +46,13 @@
     <Compile Include="Pipeline/RelationalCompilers.fs" />
     <Compile Include="Pipeline/GroupByCompiler.fs" />
     <Compile Include="Pipeline/GroupingSetsCompiler.fs" />
+    <Compile Include="Pipeline/LinqPipelineCompiler.fs" />
+    <Compile Include="IR/PhysicalLowerer.fs" />
+    <Compile Include="IR/TreeBuilder.fs" />
+    <Compile Include="IR/Passes/SortSliceFusion.fs" />
+    <Compile Include="IR/Passes/PredicatePushdown.fs" />
+    <Compile Include="IR/Passes/ProjectionPruning.fs" />
+    <Compile Include="IR/Passes/LogicalOptimizer.fs" />
     <Compile Include="ScalarExecutor.fs" />
     <Compile Include="PolarsQueryable.fs" />
   </ItemGroup>

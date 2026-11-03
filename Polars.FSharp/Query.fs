@@ -271,6 +271,14 @@ module LinqExtension =
             | None -> "[Polars.FSharp] Query source is not a native PolarsQueryable. In-memory execution only."
 
         /// <summary>
+        /// Explains the intermediate representation (IR) LogicalPlan of the query pipeline.
+        /// </summary>
+        member this.ExplainLogicalPlan() : string =
+            match tryExtractExplainable (box this) with
+            | Some explainable -> explainable.ExplainLogicalPlan()
+            | None -> "[Polars.FSharp] Query source is not a native PolarsQueryable. Logical plan inspection unavailable."
+
+        /// <summary>
         /// Gets or sets the default plan inspector action used when none is explicitly specified.
         /// Defaults to <see cref="Console.WriteLine(string)"/>.
         /// </summary>

@@ -30,6 +30,7 @@
     <Compile Include="DataFrameTests.fs" />
     <Compile Include="AsyncTests.fs" />
     <Compile Include="TpchLinqTests.fs" />
+    <Compile Include="LogicalPlanOptimizerTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -27,9 +27,13 @@ module internal ScopeNavigation =
         && not (isNull m.DeclaringType)
         && Nullable.GetUnderlyingType m.DeclaringType <> null
 
-    /// Checks if a member belongs to F#'s internal AnonymousObject or tuple wrapper
+    /// Checks if a member belongs to F#'s internal AnonymousObject wrapper
     let internal isFSharpAnonymousMember (m: MemberInfo) : bool =
-        not (isNull m) && not (isNull m.DeclaringType) && isTupleOrAnonType m.DeclaringType
+        not (isNull m)
+        && not (isNull m.DeclaringType)
+        && not (isNull m.DeclaringType.FullName)
+        && m.DeclaringType.FullName.Contains "AnonymousObject"
+        && m.Name = "Item"
 
     /// Unified check for whether a member access is a transparent navigation/scope wrapper
     /// (such as Nullable<T>.Value, Roslyn TransparentIdentifier, Zip/Join tuple item,
