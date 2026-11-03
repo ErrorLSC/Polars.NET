@@ -7,6 +7,7 @@ open System.Linq.Expressions
 open System.Reflection
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
+open Polars.NET.Linq.IR
 
 [<AutoOpen>]
 module internal PipelineStageParser =
@@ -21,14 +22,18 @@ module internal PipelineStageParser =
         let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
         SubqueryDecorrelator.createContextForTypeWithCols elemType colNames paramName
 
+    /// Creates a TranslationContext with scope and column names.
+    let createContextWithScopeAndCols (scopeMap: Map<string * string, string>) (elemType: Type) (cols: string list) (paramName: string) : TranslationContext =
+        if scopeMap.IsEmpty then
+            SubqueryDecorrelator.createContextForTypeWithCols elemType cols paramName
+        else
+            TranslationContext.ScopedEntity([ paramName ], scopeMap, cols)
+
     /// Creates a TranslationContext that prioritizes registered scope mappings (for deep multi-table joins)
     /// before falling back to default schema extraction.
     let createContextWithScope (scopeMap: Map<string * string, string>) (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
-        if scopeMap.IsEmpty then
-            createContextForType elemType lf paramName
-        else
-            let cols = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
-            TranslationContext.ScopedEntity([ paramName ], scopeMap, cols)
+        let cols = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
+        createContextWithScopeAndCols scopeMap elemType cols paramName
 
     /// Extracts the underlying sequence element type from generic collections/arrays
     let getSequenceElementType (t: Type) : Type =
@@ -36,45 +41,18 @@ module internal PipelineStageParser =
         elif t.IsArray then t.GetElementType()
         else t
 
-    /// Resolves the single physical column name if the sequence is scalar (e.g. string, int, double).
-    let tryGetScalarColumnName (elemType: Type) (lf: LazyFrameHandle) : string option =
+    /// Resolves the single physical column name from column names if the sequence is scalar.
+    let tryGetScalarColumnNameFromCols (elemType: Type) (colNames: string seq) : string option =
         if PolarsTypeHelper.IsScalarType elemType then
-            let colNames = PolarsSchemaExtractor.GetColumnNames lf
-            if colNames.Length = 1 then Some colNames.[0] else None
+            let cols = Seq.toList colNames
+            if cols.Length = 1 then Some cols.[0] else None
         else
             None
 
-    /// Dispatches and resolves predicate into either native ExprHandle pushdown or composed client Func<obj, bool>
-    let tryResolvePredicate
-        (hasClientPreds: bool)
-        (clientProjOpt: (Type * Func<obj, obj>) option)
-        (elemType: Type)
-        (nativeLf: LazyFrameHandle)
-        (predLambdaOpt: LambdaExpression option)
-        : ResolvedPredicate voption =
-        match predLambdaOpt with
-        | None -> ValueNone
-        | Some predLambda ->
-            let nativeFilterOpt =
-                if not hasClientPreds && clientProjOpt.IsNone then
-                    let ctx = createContextForType elemType nativeLf predLambda.Parameters.[0].Name
-                    ExprTranslator.tryTranslateWithContext ctx predLambda.Body
-                else
-                    None
-
-            match nativeFilterOpt with
-            | Some filterExpr -> ValueSome(Pushdown filterExpr)
-            | None ->
-                let compiledPred = predLambda.Compile()
-                let predArgType = predLambda.Parameters.[0].Type
-
-                match clientProjOpt with
-                | Some(sourceType, projFunc) ->
-                    let combinedPred =
-                        LinqReflectionCache.CreateComposedPredicate(sourceType, projFunc, compiledPred, predArgType)
-
-                    ValueSome(Client(sourceType, combinedPred))
-                | None -> ValueSome(Client(elemType, compiledPred))
+    /// Resolves the single physical column name if the sequence is scalar (e.g. string, int, double).
+    let tryGetScalarColumnName (elemType: Type) (lf: LazyFrameHandle) : string option =
+        let colNames = PolarsSchemaExtractor.GetColumnNames lf
+        tryGetScalarColumnNameFromCols elemType colNames
 
     /// Enforces client evaluation policy on unpushed scalar/terminal predicates (e.g. First(pred), Any(pred))
     let enforceClientPredicatePolicy (stage: string, predLambdaOpt: LambdaExpression option) : unit =
@@ -175,15 +153,6 @@ module internal PipelineStageParser =
                 Convert.ChangeType(rawScalar, PolarsTypeHelper.GetUnderlyingOrSelf targetType) :?> 'TResult
             | _ -> Convert.ChangeType(rawScalar, targetType) :?> 'TResult
 
-    /// Maps standard reduction method names to Polars aggregate expressions
-    let resolveScalarAggExpr (methodName: string) (colExpr: ExprHandle) : ExprHandle =
-        match methodName with
-        | "Max" -> PolarsWrapper.Max colExpr
-        | "Min" -> PolarsWrapper.Min colExpr
-        | "Sum" -> PolarsWrapper.Sum colExpr
-        | "Average" -> PolarsWrapper.Mean colExpr
-        | other -> failwithf "Unsupported scalar aggregate operator: %s" other
-
     let private invokeWithBoxedParam (lambda: LambdaExpression) : InvocationExpression * ParameterExpression =
         let paramType = lambda.Parameters.[0].Type
         let rawParam = Expression.Parameter(typeof<obj>, "rawItem")
@@ -207,29 +176,6 @@ module internal PipelineStageParser =
         let invoked, rawParam = invokeWithBoxedParam lambda
         let boxedResult = Expression.Convert(invoked, typeof<obj>)
         Expression.Lambda<Func<obj, obj>>(boxedResult, rawParam).Compile()
-
-    /// Disambiguates duplicate column names against an existing set of columns by appending a given suffix,
-    /// returning the safely renamed LazyFrame, updated column set, and a renaming map.
-    let disambiguateColumns
-        (existingCols: Set<string>)
-        (lf: LazyFrameHandle)
-        (suffix: string)
-        : LazyFrameHandle * Set<string> * Map<string, string> =
-        let cols = PolarsSchemaExtractor.GetColumnNames lf
-        let duplicates = cols |> Array.filter existingCols.Contains
-
-        if duplicates.Length > 0 then
-            let newNames = duplicates |> Array.map (fun c -> c + suffix)
-            let renamedLf = PolarsWrapper.LazyRename(lf, duplicates, newNames, strict = false)
-            let suffixMap = Array.zip duplicates newNames |> Map.ofArray
-            renamedLf, existingCols |> Set.union (Set.ofArray cols), suffixMap
-        else
-            lf, existingCols |> Set.union (Set.ofArray cols), Map.empty
-
-    /// Applies eager row shuffling (sample_frac = 1.0, without replacement) to a DataFrame.
-    let applyShuffle (df: DataFrameHandle) : DataFrameHandle =
-        let fracHandle = PolarsWrapper.SeriesNew("", [| 1.0 |])
-        PolarsWrapper.SampleFrac(df, fracHandle, false, Nullable true, Nullable())
 
     // =========================================================================
     // 2. AST & Member Binding Extractors
@@ -548,26 +494,6 @@ module internal PipelineStageParser =
     let isUnpivotPattern (colLambda: LambdaExpression) : bool =
         tryExtractUnpivotPattern colLambda None |> Option.isSome
 
-    /// Inspects GroupJoin result selector to detect group-level aggregations (e.g., g.Count())
-    let tryExtractGroupAgg
-        (groupParamName: string)
-        (resLambda: LambdaExpression)
-        : (string * ExprHandle) option =
-        match resLambda.Body with
-        | :? NewExpression as newExpr ->
-            let args = newExpr.Arguments |> Seq.toList
-            let memberNames = extractPascalCaseMemberNames newExpr
-
-            List.zip memberNames args
-            |> List.tryPick (fun (memName, arg) ->
-                match arg with
-                | MethodCall(m, _, (:? ParameterExpression as p) :: _) when
-                    p.Name = groupParamName && (m.Name = "Count" || m.Name = "LongCount")
-                    ->
-                    Some(memName, PolarsWrapper.Alias(PolarsWrapper.Len(), memName))
-                | _ -> None)
-        | _ -> None
-
     /// Desugars a .NET 11 GroupJoin downstream projection (g => body)
     /// into a classic 2-parameter result selector ((outer, innerGroup) => body)
     /// where g.Key maps to 'outer' and 'g' (as IEnumerable) maps to 'innerGroup'.
@@ -628,42 +554,6 @@ module internal PipelineStageParser =
                     | ExtractColumnName srcCol when srcCol <> memName -> Some(srcCol, memName)
                     | _ -> None)
         | _ -> []
-
-    /// Builds a Polars equality filter expression matching an item (scalar primitive or composite entity/record)
-    /// against the columns of a target LazyFrame.
-    let buildItemEqualityFilter (itemVal: obj) (targetLf: LazyFrameHandle) : ExprHandle option =
-        if isNull itemVal then
-            None
-        else
-            let itemType = itemVal.GetType()
-            if PolarsTypeHelper.IsScalarType itemType then
-                let colNames = PolarsSchemaExtractor.GetColumnNames targetLf
-                let targetCol = if colNames.Length > 0 then colNames.[0] else ""
-                let colExpr = PolarsWrapper.Col targetCol
-                let litExpr = ExprTranslator.toLiteralHandle itemVal itemType
-                Some(PolarsWrapper.Eq(colExpr, litExpr))
-            else
-                let props = itemType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-
-                let conditions =
-                    props
-                    |> Array.choose (fun p ->
-                        let v = p.GetValue itemVal
-
-                        if isNull v then
-                            None
-                        else
-                            try
-                                let colExpr = PolarsWrapper.Col p.Name
-                                let lit = ExprTranslator.toLiteralHandle v p.PropertyType
-                                Some(PolarsWrapper.Eq(colExpr, lit))
-                            with _ ->
-                                None)
-
-                if conditions.Length > 0 then
-                    Some(conditions |> Array.reduce (fun acc c -> PolarsWrapper.And(acc, c)))
-                else
-                    None
 
     // =========================================================================
     // 3. LINQ Expression Stage Flattener

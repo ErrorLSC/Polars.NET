@@ -10,6 +10,56 @@ open Polars.NET.Linq.Backend.Polars
 [<AutoOpen>]
 module internal RelationalCompilers =
 
+    /// Disambiguates duplicate column names against an existing set of columns by appending a given suffix,
+    /// returning the list of renamed columns, new names, updated column set, and a renaming map.
+    let disambiguateColumnNames
+        (existingCols: Set<string>)
+        (cols: string array)
+        (suffix: string)
+        : string array * string array * Set<string> * Map<string, string> =
+        let duplicates = cols |> Array.filter existingCols.Contains
+        if duplicates.Length > 0 then
+            let newNames = duplicates |> Array.map (fun c -> c + suffix)
+            let suffixMap = Array.zip duplicates newNames |> Map.ofArray
+            duplicates, newNames, existingCols |> Set.union (Set.ofArray cols), suffixMap
+        else
+            [||], [||], existingCols |> Set.union (Set.ofArray cols), Map.empty
+
+    /// Disambiguates duplicate column names against an existing set of columns by appending a given suffix,
+    /// returning the safely renamed LazyFrame, updated column set, and a renaming map.
+    let disambiguateColumns
+        (existingCols: Set<string>)
+        (lf: LazyFrameHandle)
+        (suffix: string)
+        : LazyFrameHandle * Set<string> * Map<string, string> =
+        let cols = PolarsSchemaExtractor.GetColumnNames lf
+        let duplicates, newNames, updatedCols, suffixMap = disambiguateColumnNames existingCols cols suffix
+        if duplicates.Length > 0 then
+            let renamedLf = PolarsWrapper.LazyRename(lf, duplicates, newNames, strict = false)
+            renamedLf, updatedCols, suffixMap
+        else
+            lf, updatedCols, Map.empty
+
+    /// Inspects GroupJoin result selector to detect group-level aggregations (e.g., g.Count())
+    let tryExtractGroupAgg
+        (groupParamName: string)
+        (resLambda: LambdaExpression)
+        : (string * ExprHandle) option =
+        match resLambda.Body with
+        | :? NewExpression as newExpr ->
+            let args = newExpr.Arguments |> Seq.toList
+            let memberNames = extractPascalCaseMemberNames newExpr
+
+            List.zip memberNames args
+            |> List.tryPick (fun (memName, arg) ->
+                match arg with
+                | MethodCall(m, _, (:? ParameterExpression as p) :: _) when
+                    p.Name = groupParamName && (m.Name = "Count" || m.Name = "LongCount")
+                    ->
+                    Some(memName, PolarsWrapper.Alias(PolarsWrapper.Len(), memName))
+                | _ -> None)
+        | _ -> None
+
     let tryCompileTransparentLet
         (lf: LazyFrameHandle)
         (projLambda: LambdaExpression)

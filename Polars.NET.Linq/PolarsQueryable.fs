@@ -13,11 +13,16 @@ open System.Threading.Tasks
 open Polars.NET.Linq.IR
 open Polars.NET.Linq.Backend.Polars
 
+[<AutoOpen>]
+module internal PolarsQueryHelpers =
+    /// Applies eager row shuffling (sample_frac = 1.0, without replacement) to a DataFrame.
+    let applyShuffle (df: DataFrameHandle) : DataFrameHandle =
+        let fracHandle = PolarsWrapper.SeriesNew("", [| 1.0 |])
+        PolarsWrapper.SampleFrac(df, fracHandle, false, Nullable true, Nullable())
+
 /// Strongly-typed IQueryProvider backed by Polars.NET.Core
 type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer) =
-    let rootTemplate = PolarsWrapper.LazyClone initialLazyFrame
-
-    member _.RootLazyFrame = PolarsWrapper.LazyClone rootTemplate
+    member _.RootLazyFrame = PolarsWrapper.LazyClone initialLazyFrame
     member _.Materializer = materializer
 
     interface IQueryProvider with

@@ -283,6 +283,48 @@ public partial class LinqTests
         Assert.Contains("starts_with", logicalPlan);
         Assert.Contains("to_upper", logicalPlan);
     }
+
+    [Fact]
+    [Trait("LINQ", "IR")]
+    public void Test_CSharp_Linq_ExplainLogicalPlan_RelationalOperators_PureSymbolic()
+    {
+        var emps1 = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000),
+        };
+        var emps2 = new[]
+        {
+            new Employee("Charlie", 25, 70000),
+            new Employee("David", 40, 80000),
+        };
+
+        using var df1 = DataFrame.FromRows(emps1);
+        using var df2 = DataFrame.FromRows(emps2);
+
+        var q1 = df1.AsQueryable(emps1);
+        var q2 = df2.AsQueryable(emps2);
+
+        // Join
+        var joinQuery = q1.Join(q2, e1 => e1.Age, e2 => e2.Age, (e1, e2) => new { Name1 = e1.Name, Name2 = e2.Name });
+        string joinPlan = joinQuery.ExplainLogicalPlan();
+        Assert.False(string.IsNullOrWhiteSpace(joinPlan));
+        Assert.Contains("Join", joinPlan);
+        Assert.DoesNotContain("Opaque", joinPlan);
+
+        // Union / Concat
+        var concatQuery = q1.Concat(q2);
+        string concatPlan = concatQuery.ExplainLogicalPlan();
+        Assert.False(string.IsNullOrWhiteSpace(concatPlan));
+        Assert.Contains("Union", concatPlan);
+
+        // GroupBy
+        var groupQuery = q1.GroupBy(e => e.Age, (k, g) => new { Age = k, Count = g.Count() });
+        string groupPlan = groupQuery.ExplainLogicalPlan();
+        Assert.False(string.IsNullOrWhiteSpace(groupPlan));
+        Assert.Contains("GroupBy", groupPlan);
+        Assert.DoesNotContain("Opaque", groupPlan);
+    }
     [Fact]
     [Trait("LINQ", "Scalar_Projection")]
     public void Test_CSharp_Linq_Scalar_Projection_Any_All()

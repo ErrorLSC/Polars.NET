@@ -40,9 +40,82 @@ module internal ScalarExecutor =
         | "Aggregate" -> true
         | _ -> false
 
-    /// Resolves the default value for a given Type.
-    let private getDefaultVal (t: Type) : obj =
-        PolarsTypeHelper.GetDefaultValue t
+    /// Dispatches and resolves predicate into either native ExprHandle pushdown or composed client Func<obj, bool>
+    let internal tryResolvePredicate
+        (hasClientPreds: bool)
+        (clientProjOpt: (Type * Func<obj, obj>) option)
+        (elemType: Type)
+        (nativeLf: LazyFrameHandle)
+        (predLambdaOpt: LambdaExpression option)
+        : ResolvedPredicate voption =
+        match predLambdaOpt with
+        | None -> ValueNone
+        | Some predLambda ->
+            let nativeFilterOpt =
+                if not hasClientPreds && clientProjOpt.IsNone then
+                    let ctx = createContextForType elemType nativeLf predLambda.Parameters.[0].Name
+                    ExprTranslator.tryTranslateWithContext ctx predLambda.Body
+                else
+                    None
+
+            match nativeFilterOpt with
+            | Some filterExpr -> ValueSome(Pushdown filterExpr)
+            | None ->
+                let compiledPred = predLambda.Compile()
+                let predArgType = predLambda.Parameters.[0].Type
+
+                match clientProjOpt with
+                | Some(sourceType, projFunc) ->
+                    let combinedPred =
+                        LinqReflectionCache.CreateComposedPredicate(sourceType, projFunc, compiledPred, predArgType)
+                    ValueSome(Client(sourceType, combinedPred))
+                | None ->
+                    ValueSome(Client(predArgType, compiledPred))
+
+    /// Maps standard reduction method names to Polars aggregate expressions
+    let internal resolveScalarAggExpr (methodName: string) (colExpr: ExprHandle) : ExprHandle =
+        match methodName with
+        | "Max" -> PolarsWrapper.Max colExpr
+        | "Min" -> PolarsWrapper.Min colExpr
+        | "Sum" -> PolarsWrapper.Sum colExpr
+        | "Average" -> PolarsWrapper.Mean colExpr
+        | _ -> PolarsWrapper.Len()
+
+    /// Builds a Polars equality filter expression matching an item (scalar primitive or composite entity/record)
+    /// against the columns of a target LazyFrame.
+    let internal buildItemEqualityFilter (itemVal: obj) (targetLf: LazyFrameHandle) : ExprHandle option =
+        if isNull itemVal then
+            None
+        else
+            let itemType = itemVal.GetType()
+            if PolarsTypeHelper.IsScalarType itemType then
+                let colNames = PolarsSchemaExtractor.GetColumnNames targetLf
+                let targetCol = if colNames.Length > 0 then colNames.[0] else ""
+                let colExpr = PolarsWrapper.Col targetCol
+                let litExpr = ExprTranslator.toLiteralHandle itemVal itemType
+                Some(PolarsWrapper.Eq(colExpr, litExpr))
+            else
+                let props = itemType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+
+                let conditions =
+                    props
+                    |> Array.choose (fun p ->
+                        let v = p.GetValue itemVal
+
+                        if isNull v then
+                            None
+                        else
+                            try
+                                let colExpr = PolarsWrapper.Col p.Name
+                                let lit = ExprTranslator.toLiteralHandle v p.PropertyType
+                                Some(PolarsWrapper.Eq(colExpr, lit))
+                            with _ ->
+                                None)
+
+                if conditions.Length > 0 then
+                    Some(conditions |> Array.reduce (fun acc c -> PolarsWrapper.And(acc, c)))
+                else
+                    None
 
     /// Extracts the effective source element type considering client projections.
     let private getEffectiveSourceType (clientProjOpt: (Type * Func<obj, obj>) option) (elemType: Type) : Type =
@@ -140,7 +213,7 @@ module internal ScalarExecutor =
         let resolvedPred =
             tryResolvePredicate hasClientPreds clientProjOpt elemType nativeLf predLambdaOpt
 
-        let userDefVal = defaultArg userDefValOpt (getDefaultVal elemType)
+        let userDefVal = defaultArg userDefValOpt (PolarsTypeHelper.GetDefaultValue elemType)
 
         let offset, len, kindName =
             match kind with
@@ -168,7 +241,7 @@ module internal ScalarExecutor =
         | ValueSome(Client(srcType, combinedPred)) ->
             enforceClientPredicatePolicy (kindName, predLambdaOpt)
             let dfHandle = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
-            let rawEntity = invokeRowFetch srcType dfHandle combinedPred (getDefaultVal srcType)
+            let rawEntity = invokeRowFetch srcType dfHandle combinedPred (PolarsTypeHelper.GetDefaultValue srcType)
             projectClientResult<'TResult> clientProjOpt userDefVal rawEntity
 
         | ValueNone ->
@@ -180,7 +253,7 @@ module internal ScalarExecutor =
                 else
                     PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
 
-            let defVal = if clientProjOpt.IsSome then getDefaultVal targetType else userDefVal
+            let defVal = if clientProjOpt.IsSome then PolarsTypeHelper.GetDefaultValue targetType else userDefVal
             let rawEntity = invokeRowFetch targetType dfHandle null defVal
             projectClientResult<'TResult> clientProjOpt userDefVal rawEntity
 

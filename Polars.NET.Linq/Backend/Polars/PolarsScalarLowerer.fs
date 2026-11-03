@@ -235,6 +235,7 @@ module internal PolarsScalarLowerer =
             | ScalarFunction.Asin, [ a ] -> PolarsWrapper.ArcSin(lower a)
             | ScalarFunction.Acos, [ a ] -> PolarsWrapper.ArcCos(lower a)
             | ScalarFunction.Atan, [ a ] -> PolarsWrapper.ArcTan(lower a)
+            | ScalarFunction.Atan2, [ y; x ] -> PolarsWrapper.ArcTan2(lower y, lower x)
             | ScalarFunction.Sinh, [ a ] -> PolarsWrapper.Sinh(lower a)
             | ScalarFunction.Cosh, [ a ] -> PolarsWrapper.Cosh(lower a)
             | ScalarFunction.Tanh, [ a ] -> PolarsWrapper.Tanh(lower a)
@@ -418,6 +419,12 @@ module internal PolarsScalarLowerer =
                 PolarsWrapper.BitLeftShift(lower a, n)
             | ScalarFunction.BitRightShift, [ a; ScalarExpr.Literal(LiteralValue.Int32 n) ] ->
                 PolarsWrapper.BitRightShift(lower a, n)
+            | ScalarFunction.BitwiseCountOnes, [ a ] ->
+                PolarsWrapper.BitwiseCountOnes(lower a)
+            | ScalarFunction.BitwiseLeadingZeros, [ a ] ->
+                PolarsWrapper.BitwiseLeadingZeros(lower a)
+            | ScalarFunction.BitwiseTrailingZeros, [ a ] ->
+                PolarsWrapper.BitwiseTrailingZeros(lower a)
 
             | other, _ -> failwithf "Unsupported function in PolarsScalarLowerer: %s" other.Name
 

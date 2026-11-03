@@ -240,6 +240,7 @@ type ScalarFunction =
     | Asin
     | Acos
     | Atan
+    | Atan2
     | Sinh
     | Cosh
     | Tanh
@@ -364,6 +365,9 @@ type ScalarFunction =
     // --- Bitwise ---
     | BitLeftShift
     | BitRightShift
+    | BitwiseCountOnes
+    | BitwiseLeadingZeros
+    | BitwiseTrailingZeros
 
     // --- Custom / Extension Function ---
     | Custom of name: string
@@ -387,6 +391,7 @@ type ScalarFunction =
         | ScalarFunction.Asin -> "asin"
         | ScalarFunction.Acos -> "acos"
         | ScalarFunction.Atan -> "atan"
+        | ScalarFunction.Atan2 -> "atan2"
         | ScalarFunction.Sinh -> "sinh"
         | ScalarFunction.Cosh -> "cosh"
         | ScalarFunction.Tanh -> "tanh"
@@ -497,6 +502,9 @@ type ScalarFunction =
         | ScalarFunction.CumCount -> "cum_count"
         | ScalarFunction.BitLeftShift -> "bit_left_shift"
         | ScalarFunction.BitRightShift -> "bit_right_shift"
+        | ScalarFunction.BitwiseCountOnes -> "bitwise_count_ones"
+        | ScalarFunction.BitwiseLeadingZeros -> "bitwise_leading_zeros"
+        | ScalarFunction.BitwiseTrailingZeros -> "bitwise_trailing_zeros"
         | ScalarFunction.Custom name -> name
 
     static member FromString(str: string) : ScalarFunction =
@@ -518,6 +526,7 @@ type ScalarFunction =
         | "asin" -> ScalarFunction.Asin
         | "acos" -> ScalarFunction.Acos
         | "atan" -> ScalarFunction.Atan
+        | "atan2" -> ScalarFunction.Atan2
         | "sinh" -> ScalarFunction.Sinh
         | "cosh" -> ScalarFunction.Cosh
         | "tanh" -> ScalarFunction.Tanh
@@ -628,6 +637,9 @@ type ScalarFunction =
         | "cum_count" -> ScalarFunction.CumCount
         | "bit_left_shift" -> ScalarFunction.BitLeftShift
         | "bit_right_shift" -> ScalarFunction.BitRightShift
+        | "bitwise_count_ones" | "popcnt" | "popcount" -> ScalarFunction.BitwiseCountOnes
+        | "bitwise_leading_zeros" | "leading_zeros" | "leadingzerocount" -> ScalarFunction.BitwiseLeadingZeros
+        | "bitwise_trailing_zeros" | "trailing_zeros" | "trailingzerocount" -> ScalarFunction.BitwiseTrailingZeros
         | other -> ScalarFunction.Custom other
 
 /// Pure symbolic scalar and column expression tree

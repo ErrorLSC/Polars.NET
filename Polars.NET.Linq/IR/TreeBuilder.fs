@@ -4,9 +4,25 @@ open System
 open System.Linq.Expressions
 open Polars.NET.Core
 open Polars.NET.Linq
+open Polars.NET.Linq.Backend.Polars
 
 /// Constructs LogicalPlan relational trees from LINQ query stages or QueryOp streams.
 module internal TreeBuilder =
+
+    /// Extracts a sequence of key ScalarExprs from a key selector lambda (supporting scalar columns or anonymous key objects).
+    let private tryExtractKeyScalars (ctx: TranslationContext) (keyLambda: LambdaExpression) : ScalarExpr list option =
+        match tryExtractMemberBindings keyLambda.Body with
+        | Some bindings ->
+            let exprs =
+                bindings
+                |> List.choose (fun (_, e) -> ExprTranslator.tryTranslateToScalar ctx e)
+            if exprs.Length = bindings.Length then
+                Some exprs
+            else
+                None
+        | None ->
+            ExprTranslator.tryTranslateToScalar ctx keyLambda.Body
+            |> Option.map (fun s -> [ s ])
 
     /// Extracts projection bindings (name * ScalarExpr) from a projection LambdaExpression.
     let private extractProjections (ctx: TranslationContext) (body: Expression) : (string * ScalarExpr) list option =
@@ -46,6 +62,148 @@ module internal TreeBuilder =
         | other ->
             ExprTranslator.tryTranslateToScalar ctx other
             |> Option.map (fun s -> [ ("value", s) ])
+
+    /// Extracts group aggregations and projections from a GroupBy result selector LambdaExpression.
+    let private tryExtractGroupByResult
+        (currentPlan: LogicalPlan)
+        (keyExprs: ScalarExpr list)
+        (resLam: LambdaExpression)
+        : LogicalPlan option =
+
+        let keyParam = resLam.Parameters.[0]
+        let groupParamOpt = if resLam.Parameters.Count >= 2 then Some resLam.Parameters.[1] else None
+
+        let isKeyArg (e: Expression) =
+            match ExpressionPatterns.unwrap e with
+            | :? ParameterExpression as p when p.Name = keyParam.Name -> true
+            | MemberAccess(target, _) when
+                (match ExpressionPatterns.unwrap target with :? ParameterExpression as p -> p.Name = keyParam.Name | _ -> false) -> true
+            | _ -> false
+
+        let tryTranslateGroupExpr (expr: Expression) : (bool * ScalarExpr) option =
+            let clean = ExpressionPatterns.unwrap expr
+            if isKeyArg clean then
+                match clean with
+                | MemberAccess(_, m) -> Some(true, ScalarExpr.Column m.Name)
+                | _ ->
+                    if keyExprs.Length = 1 then Some(true, keyExprs.[0])
+                    else None
+            else
+                match groupParamOpt with
+                | Some gp ->
+                    let isGroupTarget (e: Expression) =
+                        match ExpressionPatterns.unwrap e with
+                        | :? ParameterExpression as p -> p.Name = gp.Name
+                        | MethodCall(innerM, _, innerArgs) when innerM.Name = "Select" && innerArgs.Length >= 1 ->
+                            match ExpressionPatterns.unwrap innerArgs.[0] with
+                            | :? ParameterExpression as p -> p.Name = gp.Name
+                            | _ -> false
+                        | _ -> false
+
+                    match clean with
+                    | MethodCall(m, _, args) when args.Length >= 1 && isGroupTarget args.[0] ->
+                        match m.Name with
+                        | "Count" | "LongCount" when args.Length = 1 ->
+                            Some(false, ScalarExpr.Aggregation(AggKind.Len, None, false))
+                        | "Count" | "LongCount" when args.Length = 2 ->
+                            match args.[1] with
+                            | CleanLambda lam ->
+                                let ctx = TranslationContext.Entity lam.Parameters.[0].Name
+                                ExprTranslator.tryTranslateToScalar ctx lam.Body
+                                |> Option.map (fun s -> false, ScalarExpr.Aggregation(AggKind.Count, Some s, false))
+                            | _ -> None
+                        | "Sum" | "Average" | "Mean" | "Min" | "Max" | "Median"
+                        | "First" | "FirstOrDefault" | "Last" | "LastOrDefault"
+                        | "Std" | "StdDev" | "Var" | "Variance" ->
+                            if args.Length = 2 then
+                                match args.[1] with
+                                | CleanLambda lam ->
+                                    let ctx = TranslationContext.Entity lam.Parameters.[0].Name
+                                    ExprTranslator.tryTranslateToScalar ctx lam.Body
+                                    |> Option.bind (fun s -> ScalarExprOps.translateReductionOp m.Name s)
+                                    |> Option.map (fun s -> false, s)
+                                | _ -> None
+                            elif args.Length = 1 then
+                                match args.[0] with
+                                | MethodCall(sm, _, [ _; CleanLambda lam ]) when sm.Name = "Select" ->
+                                    let ctx = TranslationContext.Entity lam.Parameters.[0].Name
+                                    ExprTranslator.tryTranslateToScalar ctx lam.Body
+                                    |> Option.bind (fun s -> ScalarExprOps.translateReductionOp m.Name s)
+                                    |> Option.map (fun s -> false, s)
+                                | _ -> None
+                            else
+                                None
+                        | "ToList" | "ToArray" ->
+                            Some(false, ScalarExpr.Aggregation(AggKind.List, None, false))
+                        | _ -> None
+                    | _ ->
+                        let ctx = TranslationContext.Entity keyParam.Name
+                        ExprTranslator.tryTranslateToScalar ctx clean |> Option.map (fun s -> false, s)
+                | None ->
+                    let ctx = TranslationContext.Entity keyParam.Name
+                    ExprTranslator.tryTranslateToScalar ctx clean |> Option.map (fun s -> false, s)
+
+        let bindingsOpt =
+            match ExpressionPatterns.unwrap resLam.Body with
+            | :? MemberInitExpression as mie ->
+                let b =
+                    mie.Bindings
+                    |> Seq.choose (function
+                        | :? MemberAssignment as ma ->
+                            tryTranslateGroupExpr ma.Expression
+                            |> Option.map (fun (isK, s) -> ma.Member.Name, isK, s)
+                        | _ -> None)
+                    |> Seq.toList
+                if b.Length = mie.Bindings.Count then Some b else None
+
+            | :? NewExpression as ne ->
+                let names =
+                    if not (isNull ne.Members) && ne.Members.Count = ne.Arguments.Count then
+                        ne.Members |> Seq.map (fun m -> m.Name) |> Seq.toList
+                    elif not (isNull ne.Constructor) then
+                        ne.Constructor.GetParameters() |> Seq.map (fun p -> p.Name) |> Seq.toList
+                    else
+                        []
+
+                let b =
+                    ne.Arguments
+                    |> Seq.mapi (fun i arg ->
+                        let name = if i < names.Length then names.[i] else sprintf "col_%d" i
+                        tryTranslateGroupExpr arg |> Option.map (fun (isK, s) -> name, isK, s))
+                    |> Seq.toList
+
+                if b |> List.forall Option.isSome then
+                    Some(b |> List.map Option.get)
+                else
+                    None
+
+            | other ->
+                tryTranslateGroupExpr other
+                |> Option.map (fun (isK, s) -> [ ("value", isK, s) ])
+
+        match bindingsOpt with
+        | Some bindings ->
+            let aggs =
+                bindings
+                |> List.choose (fun (name, isKey, s) ->
+                    if isKey then None
+                    else Some(name, s))
+
+            let groupPlan = LogicalPlan.GroupBy(currentPlan, keyExprs, aggs, None, false)
+
+            let finalProjs =
+                bindings
+                |> List.map (fun (name, isKey, s) ->
+                    if isKey then
+                        match s with
+                        | ScalarExpr.Column cName -> name, ScalarExpr.Column cName
+                        | _ -> name, s
+                    else
+                        name, ScalarExpr.Column name)
+
+            Some (LogicalPlan.Project(groupPlan, finalProjs))
+        | None ->
+            None
 
     /// Constructs a LogicalPlan tree by applying a sequence of LinqStages to an initial LogicalPlan.
     let fromStages (initialPlan: LogicalPlan) (stages: LinqStage list) : LogicalPlan =
@@ -112,6 +270,9 @@ module internal TreeBuilder =
             | LinqStage.Skip count ->
                 LogicalPlan.Limit(currentPlan, int64 count, UInt32.MaxValue)
 
+            | LinqStage.TakeLast count ->
+                LogicalPlan.Limit(currentPlan, -int64 count, count)
+
             | LinqStage.SkipLast count ->
                 LogicalPlan.SkipLast(currentPlan, count)
 
@@ -149,10 +310,281 @@ module internal TreeBuilder =
                 let keyP = keyLam.Parameters.[0]
                 let keyCtx = TranslationContext.Entity keyP.Name
                 let keyExpr = ExprTranslator.tryTranslateToScalar keyCtx keyLam.Body |> Option.defaultValue (ScalarExpr.Column "Key")
-                let resP = resLam.Parameters.[0]
-                let resCtx = TranslationContext.Entity resP.Name
-                match extractProjections resCtx resLam.Body with
-                | Some aggs -> LogicalPlan.GroupBy(currentPlan, [ keyExpr ], aggs, None, false)
+                match tryExtractGroupByResult currentPlan [ keyExpr ] resLam with
+                | Some plan -> plan
+                | None ->
+                    let resP = resLam.Parameters.[0]
+                    let resCtx = TranslationContext.Entity resP.Name
+                    match extractProjections resCtx resLam.Body with
+                    | Some aggs -> LogicalPlan.GroupBy(currentPlan, [ keyExpr ], aggs, None, false)
+                    | None -> currentPlan
+
+            | LinqStage.GroupByWithElementAndResult(keyLam, _elemLam, resLam) ->
+                let keyP = keyLam.Parameters.[0]
+                let keyCtx = TranslationContext.Entity keyP.Name
+                let keyExpr = ExprTranslator.tryTranslateToScalar keyCtx keyLam.Body |> Option.defaultValue (ScalarExpr.Column "Key")
+                match tryExtractGroupByResult currentPlan [ keyExpr ] resLam with
+                | Some plan -> plan
+                | None ->
+                    let resP = resLam.Parameters.[0]
+                    let resCtx = TranslationContext.Entity resP.Name
+                    match extractProjections resCtx resLam.Body with
+                    | Some aggs -> LogicalPlan.GroupBy(currentPlan, [ keyExpr ], aggs, None, false)
+                    | None -> currentPlan
+
+            | LinqStage.Join(methodInfo, innerExpr, outerKey, innerKey, resSelOpt) ->
+                match PolarsObjectConverter.resolveSequencePlan innerExpr with
+                | Some rightPlan ->
+                    let isRightJoin = methodInfo.Name = "RightJoin"
+                    let how =
+                        match methodInfo.Name with
+                        | "RightJoin"
+                        | "LeftJoin" -> PlJoinType.Left
+                        | "FullJoin" -> PlJoinType.Outer
+                        | "SemiJoin" -> PlJoinType.Semi
+                        | "AntiJoin" -> PlJoinType.Anti
+                        | _ -> PlJoinType.Inner
+
+                    let leftCols = (SchemaInference.inferPlanSchema currentPlan).ColumnNames
+                    let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
+                    let leftColSet = Set.ofList leftCols
+
+                    let baseSuffix = if isRightJoin then LinqConstants.DefaultLeftSuffix else LinqConstants.DefaultRightSuffix
+                    let rec findUniqueSuffix (cnt: int) =
+                        let candidate = if cnt = 1 then baseSuffix else sprintf "%s%d" baseSuffix cnt
+                        let hasConflict = rightCols |> List.exists (fun rc -> leftColSet.Contains (rc + candidate))
+                        if not hasConflict then candidate
+                        else findUniqueSuffix (cnt + 1)
+                    let uniqueSuffix = findUniqueSuffix 1
+
+                    let outerParam = outerKey.Parameters.[0]
+                    let innerParam = innerKey.Parameters.[0]
+                    let leftCtx = SubqueryDecorrelator.createContextForTypeWithCols outerParam.Type leftCols outerParam.Name
+                    let rightCtx = SubqueryDecorrelator.createContextForTypeWithCols innerParam.Type rightCols innerParam.Name
+
+                    match tryExtractKeyScalars leftCtx outerKey, tryExtractKeyScalars rightCtx innerKey with
+                    | Some leftKeys, Some rightKeys when leftKeys.Length = rightKeys.Length ->
+                        let joinPlan =
+                            if isRightJoin then
+                                LogicalPlan.Join(rightPlan, currentPlan, rightKeys, leftKeys, how, Some uniqueSuffix, PlJoinCoalesce.KeepColumns, false)
+                            else
+                                LogicalPlan.Join(currentPlan, rightPlan, leftKeys, rightKeys, how, Some uniqueSuffix, PlJoinCoalesce.KeepColumns, false)
+
+                        match resSelOpt with
+                        | Some resSel when not (isTransparentJoinResSelector resSel) ->
+                            let leftP = resSel.Parameters.[0]
+                            let rightP = resSel.Parameters.[1]
+                            let resCtx = TranslationContext.BinaryJoin(leftP.Name, rightP.Name, leftColSet, uniqueSuffix)
+                            match SubqueryDecorrelator.tryDecorrelateProjection joinPlan resSel Map.empty with
+                            | Some (decorPlan, rewrittenResSel) ->
+                                let leftP2 = rewrittenResSel.Parameters.[0]
+                                let rightP2 = rewrittenResSel.Parameters.[1]
+                                let resCtx2 = TranslationContext.BinaryJoin(leftP2.Name, rightP2.Name, leftColSet, uniqueSuffix)
+                                match extractProjections resCtx2 rewrittenResSel.Body with
+                                | Some projs -> LogicalPlan.Project(decorPlan, projs)
+                                | None -> decorPlan
+                            | None ->
+                                match extractProjections resCtx resSel.Body with
+                                | Some projs -> LogicalPlan.Project(joinPlan, projs)
+                                | None -> joinPlan
+                        | _ -> joinPlan
+                    | _ -> currentPlan
+                | None -> currentPlan
+
+            | LinqStage.GroupJoin(_, innerExpr, outerKey, innerKey, resSelOpt) ->
+                match PolarsObjectConverter.resolveSequencePlan innerExpr with
+                | Some rightPlan ->
+                    let leftCols = (SchemaInference.inferPlanSchema currentPlan).ColumnNames
+                    let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
+                    let leftColSet = Set.ofList leftCols
+                    let uniqueSuffix = LinqConstants.DefaultRightSuffix
+
+                    let outerParam = outerKey.Parameters.[0]
+                    let innerParam = innerKey.Parameters.[0]
+                    let leftCtx = SubqueryDecorrelator.createContextForTypeWithCols outerParam.Type leftCols outerParam.Name
+                    let rightCtx = SubqueryDecorrelator.createContextForTypeWithCols innerParam.Type rightCols innerParam.Name
+
+                    match tryExtractKeyScalars leftCtx outerKey, tryExtractKeyScalars rightCtx innerKey with
+                    | Some leftKeys, Some rightKeys when leftKeys.Length = rightKeys.Length ->
+                        let joinPlan = LogicalPlan.Join(currentPlan, rightPlan, leftKeys, rightKeys, PlJoinType.Left, Some uniqueSuffix, PlJoinCoalesce.KeepColumns, false)
+                        match resSelOpt with
+                        | Some resSel when not (isTransparentJoinResSelector resSel) ->
+                            let leftP = resSel.Parameters.[0]
+                            let rightP = resSel.Parameters.[1]
+                            let resCtx = TranslationContext.BinaryJoin(leftP.Name, rightP.Name, leftColSet, uniqueSuffix)
+                            match extractProjections resCtx resSel.Body with
+                            | Some projs -> LogicalPlan.Project(joinPlan, projs)
+                            | None -> joinPlan
+                        | _ -> joinPlan
+                    | _ -> currentPlan
+                | None -> currentPlan
+
+            | LinqStage.CrossJoin(innerExpr, resSelOpt) ->
+                match PolarsObjectConverter.resolveSequencePlan innerExpr with
+                | Some rightPlan ->
+                    let leftCols = (SchemaInference.inferPlanSchema currentPlan).ColumnNames |> Set.ofList
+                    let uniqueSuffix = LinqConstants.DefaultRightSuffix
+                    let joinPlan = LogicalPlan.Join(currentPlan, rightPlan, [], [], PlJoinType.Cross, Some uniqueSuffix, PlJoinCoalesce.JoinSpecific, false)
+                    match resSelOpt with
+                    | Some resSel when not (isTransparentJoinResSelector resSel) ->
+                        let leftP = resSel.Parameters.[0]
+                        let rightP = resSel.Parameters.[1]
+                        let resCtx = TranslationContext.BinaryJoin(leftP.Name, rightP.Name, leftCols, uniqueSuffix)
+                        match extractProjections resCtx resSel.Body with
+                        | Some projs -> LogicalPlan.Project(joinPlan, projs)
+                        | None -> joinPlan
+                    | _ -> joinPlan
+                | None -> currentPlan
+
+            | LinqStage.JoinAsOf(_, inner, outerKey, innerKey, outerByOpt, innerByOpt, resSelOpt, toleranceStr, toleranceInt, toleranceFloat, strategy) ->
+                match PolarsObjectConverter.resolveSequencePlan inner with
+                | Some rightPlan ->
+                    let leftCols = (SchemaInference.inferPlanSchema currentPlan).ColumnNames
+                    let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
+                    let leftColSet = Set.ofList leftCols
+                    let leftCtx = SubqueryDecorrelator.createContextForTypeWithCols outerKey.Parameters.[0].Type leftCols outerKey.Parameters.[0].Name
+                    let rightCtx = SubqueryDecorrelator.createContextForTypeWithCols innerKey.Parameters.[0].Type rightCols innerKey.Parameters.[0].Name
+                    match ExprTranslator.tryTranslateToScalar leftCtx outerKey.Body, ExprTranslator.tryTranslateToScalar rightCtx innerKey.Body with
+                    | Some leftOn, Some rightOn ->
+                        let leftBy =
+                            match outerByOpt with
+                            | Some ob -> tryExtractKeyScalars leftCtx ob |> Option.defaultValue []
+                            | None -> []
+                        let rightBy =
+                            match innerByOpt with
+                            | Some ib -> tryExtractKeyScalars rightCtx ib |> Option.defaultValue []
+                            | None -> []
+                        let spec: LogicalAsOfJoinSpec =
+                            {
+                                LeftOn = leftOn
+                                RightOn = rightOn
+                                LeftBy = leftBy
+                                RightBy = rightBy
+                                Strategy = strategy
+                                ToleranceStr = toleranceStr
+                                ToleranceInt = toleranceInt
+                                ToleranceFloat = toleranceFloat
+                                AllowEq = true
+                                CheckSorted = true
+                                Suffix = Some LinqConstants.DefaultRightSuffix
+                                Validation = PlJoinValidation.ManyToMany
+                                Coalesce = PlJoinCoalesce.KeepColumns
+                                MaintainOrder = PlJoinMaintainOrder.None
+                                JoinSide = PlJoinSide.None
+                                NullsEqual = false
+                            }
+                        let asOfPlan = LogicalPlan.JoinAsOf(currentPlan, rightPlan, spec)
+                        match resSelOpt with
+                        | Some resSel when not (isTransparentJoinResSelector resSel) ->
+                            let leftP = resSel.Parameters.[0]
+                            let rightP = resSel.Parameters.[1]
+                            let resCtx = TranslationContext.BinaryJoin(leftP.Name, rightP.Name, leftColSet, LinqConstants.DefaultRightSuffix)
+                            match extractProjections resCtx resSel.Body with
+                            | Some projs -> LogicalPlan.Project(asOfPlan, projs)
+                            | None -> asOfPlan
+                        | _ -> asOfPlan
+                    | _ -> currentPlan
+                | None -> currentPlan
+
+            | LinqStage.SetOp(methodInfo, secondExpr, key1Opt, key2Opt) ->
+                match PolarsObjectConverter.resolveSequencePlan secondExpr with
+                | Some rightPlan ->
+                    let how =
+                        if methodInfo.Name.StartsWith "Intersect" then
+                            PlJoinType.Semi
+                        else
+                            PlJoinType.Anti
+
+                    let leftCols = (SchemaInference.inferPlanSchema currentPlan).ColumnNames
+                    let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
+
+                    let keysOpt =
+                        match key1Opt, key2Opt with
+                        | Some k1, Some k2 ->
+                            let p1 = k1.Parameters.[0]
+                            let p2 = k2.Parameters.[0]
+                            let ctx1 = SubqueryDecorrelator.createContextForTypeWithCols p1.Type leftCols p1.Name
+                            let ctx2 = SubqueryDecorrelator.createContextForTypeWithCols p2.Type rightCols p2.Name
+                            match ExprTranslator.tryTranslateToScalar ctx1 k1.Body, ExprTranslator.tryTranslateToScalar ctx2 k2.Body with
+                            | Some lk, Some rk -> Some([ lk ], [ rk ])
+                            | _ -> None
+                        | Some k1, None ->
+                            let p1 = k1.Parameters.[0]
+                            let ctx1 = SubqueryDecorrelator.createContextForTypeWithCols p1.Type leftCols p1.Name
+                            match ExprTranslator.tryTranslateToScalar ctx1 k1.Body with
+                            | Some lk when rightCols.Length > 0 ->
+                                Some([ lk ], [ ScalarExpr.Column rightCols.[0] ])
+                            | _ -> None
+                        | None, None ->
+                            if leftCols.Length = rightCols.Length && leftCols.Length > 0 then
+                                Some(leftCols |> List.map ScalarExpr.Column, rightCols |> List.map ScalarExpr.Column)
+                            else
+                                Some(leftCols |> List.map ScalarExpr.Column, leftCols |> List.map ScalarExpr.Column)
+                        | _ -> None
+
+                    match keysOpt with
+                    | Some(leftOn, rightOn) ->
+                        LogicalPlan.Join(currentPlan, rightPlan, leftOn, rightOn, how, None, PlJoinCoalesce.JoinSpecific, true)
+                    | None -> currentPlan
+                | None -> currentPlan
+
+            | LinqStage.Union(secondExpr, _) ->
+                match PolarsObjectConverter.resolveSequencePlan secondExpr with
+                | Some otherPlan ->
+                    LogicalPlan.Distinct(LogicalPlan.Union(currentPlan, otherPlan, isAll = true), None, PlUniqueKeepStrategy.First)
+                | None -> currentPlan
+
+            | LinqStage.Concat secondExpr ->
+                match PolarsObjectConverter.resolveSequencePlan secondExpr with
+                | Some otherPlan -> LogicalPlan.Union(currentPlan, otherPlan, isAll = true)
+                | None -> currentPlan
+
+            | LinqStage.Append elemExpr ->
+                match tryEvaluate elemExpr with
+                | Some elem when not (isNull elem) ->
+                    match PolarsObjectConverter.fromSingleRow elem (elem.GetType()) with
+                    | Some otherLf ->
+                        let otherPlan = PolarsPhysicalLowerer.scanLazyFrame otherLf
+                        LogicalPlan.Union(currentPlan, otherPlan, isAll = true)
+                    | None -> currentPlan
+                | _ -> currentPlan
+
+            | LinqStage.Prepend elemExpr ->
+                match tryEvaluate elemExpr with
+                | Some elem when not (isNull elem) ->
+                    match PolarsObjectConverter.fromSingleRow elem (elem.GetType()) with
+                    | Some otherLf ->
+                        let otherPlan = PolarsPhysicalLowerer.scanLazyFrame otherLf
+                        LogicalPlan.Union(otherPlan, currentPlan, isAll = true)
+                    | None -> currentPlan
+                | _ -> currentPlan
+
+            | LinqStage.Zip(secondExpr, resSelOpt) ->
+                match PolarsObjectConverter.resolveSequencePlan secondExpr with
+                | Some secondPlan ->
+                    let zipPlan = LogicalPlan.HorizontalConcat [ currentPlan; secondPlan ]
+                    match resSelOpt with
+                    | Some resSel when not (isTransparentJoinResSelector resSel) ->
+                        let leftCols = (SchemaInference.inferPlanSchema currentPlan).ColumnNames |> Set.ofList
+                        let leftP = resSel.Parameters.[0]
+                        let rightP = resSel.Parameters.[1]
+                        let resCtx = TranslationContext.BinaryJoin(leftP.Name, rightP.Name, leftCols, "_second")
+                        match extractProjections resCtx resSel.Body with
+                        | Some projs -> LogicalPlan.Project(zipPlan, projs)
+                        | None -> zipPlan
+                    | _ -> zipPlan
+                | None -> currentPlan
+
+            | LinqStage.Zip3(secondExpr, thirdExpr) ->
+                match PolarsObjectConverter.resolveSequencePlan secondExpr, PolarsObjectConverter.resolveSequencePlan thirdExpr with
+                | Some secondPlan, Some thirdPlan ->
+                    LogicalPlan.HorizontalConcat [ currentPlan; secondPlan; thirdPlan ]
+                | _ -> currentPlan
+
+            | LinqStage.Unpivot(colLam, _) ->
+                match tryExtractUnpivotPattern colLam None with
+                | Some pat ->
+                    LogicalPlan.Unpivot(currentPlan, pat.ExplicitIndexCols, Some (pat.OnCols |> Array.toList), pat.VariableName, pat.ValueName)
                 | None -> currentPlan
 
             | LinqStage.Explode(colLam, _) ->
@@ -170,3 +602,7 @@ module internal TreeBuilder =
             | _ ->
                 currentPlan)
             initialPlan
+
+    /// Constructs a LogicalPlan tree from an initial LogicalPlanSource, schema, and sequence of LinqStages.
+    let fromScan (source: LogicalPlanSource) (schema: LogicalSchema) (stages: LinqStage list) : LogicalPlan =
+        fromStages (LogicalPlan.Scan(source, schema)) stages
