@@ -189,11 +189,12 @@ and PolarsQuery<'T>
     /// Compiles pipeline and builds the target LogicalPlan IR tree.
     member this.GetLogicalPlan() : LogicalPlan =
         let baseLf, ops, _, _, _, stages = this.CompilePipeline()
+        let initialPlan = PolarsPhysicalLowerer.scanLazyFrame baseLf
         let logicalPlan =
             if not stages.IsEmpty then
-                TreeBuilder.fromStages baseLf stages targetType
+                TreeBuilder.fromStages initialPlan stages
             else
-                PolarsPhysicalLowerer.fromOps baseLf ops
+                PolarsPhysicalLowerer.fromOpsOnPlan initialPlan ops
         LogicalOptimizer.optimize logicalPlan
 
     /// Explains the intermediate representation (IR) LogicalPlan tree.
@@ -568,11 +569,12 @@ and PolarsQuery<'T>
         let nativeLf = applyNativeOps baseLf ops
         let planStr = PolarsWrapper.Explain(nativeLf, optimized)
 
+        let initialPlan = PolarsPhysicalLowerer.scanLazyFrame baseLf
         let logicalPlan =
             if not stages.IsEmpty then
-                TreeBuilder.fromStages baseLf stages targetType
+                TreeBuilder.fromStages initialPlan stages
             else
-                PolarsPhysicalLowerer.fromOps baseLf ops
+                PolarsPhysicalLowerer.fromOpsOnPlan initialPlan ops
         let optimizedLogicalPlan = LogicalOptimizer.optimize logicalPlan
         let chunkSizeOpt = stages |> List.tryPick (function LinqStage.Chunk s -> Some s | _ -> None)
         let shouldShuffle = stages |> List.exists (function LinqStage.Shuffle -> true | _ -> false)

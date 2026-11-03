@@ -363,10 +363,13 @@ module internal PolarsPhysicalLowerer =
         | LogicalPlan.Empty _ ->
             createEmptyLazyFrame (), []
 
-    /// Constructs a LogicalPlan tree from a base LazyFrameHandle and a sequence of QueryOps.
-    let fromOps (baseLf: LazyFrameHandle) (ops: QueryOp list) : LogicalPlan =
-        let initialCols = PolarsSchemaExtractor.GetColumnNames baseLf |> Array.toList
-        let initialPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame baseLf, LogicalSchema.OfNames initialCols)
+    /// Creates a LogicalPlan Scan leaf node from a physical LazyFrameHandle.
+    let scanLazyFrame (lf: LazyFrameHandle) : LogicalPlan =
+        let cols = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
+        LogicalPlan.Scan(LogicalPlanSource.LazyFrame lf, LogicalSchema.OfNames cols)
+
+    /// Constructs a LogicalPlan tree from an initial LogicalPlan and a sequence of QueryOps.
+    let fromOpsOnPlan (initialPlan: LogicalPlan) (ops: QueryOp list) : LogicalPlan =
         ops
         |> List.fold (fun currentPlan op ->
             match op with
@@ -432,8 +435,7 @@ module internal PolarsPhysicalLowerer =
                 currentPlan
 
             | QueryOp.Join spec ->
-                let rightCols = PolarsSchemaExtractor.GetColumnNames spec.RightLf |> Array.toList
-                let rightPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame spec.RightLf, LogicalSchema.OfNames rightCols)
+                let rightPlan = scanLazyFrame spec.RightLf
                 let leftOn = spec.LeftOn |> Array.map (fun h -> ScalarExpr.Opaque(h, [], "LeftOn")) |> Array.toList
                 let rightOn = spec.RightOn |> Array.map (fun h -> ScalarExpr.Opaque(h, [], "RightOn")) |> Array.toList
                 if spec.InvertSides then
@@ -442,8 +444,7 @@ module internal PolarsPhysicalLowerer =
                     LogicalPlan.Join(currentPlan, rightPlan, leftOn, rightOn, spec.How, spec.Suffix, spec.Coalesce, spec.NullsEqual)
 
             | QueryOp.JoinAsOf spec ->
-                let rightCols = PolarsSchemaExtractor.GetColumnNames spec.RightLf |> Array.toList
-                let rightPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame spec.RightLf, LogicalSchema.OfNames rightCols)
+                let rightPlan = scanLazyFrame spec.RightLf
                 let leftOn = spec.LeftOn |> Array.head |> fun h -> ScalarExpr.Opaque(h, [], "LeftOn")
                 let rightOn = spec.RightOn |> Array.head |> fun h -> ScalarExpr.Opaque(h, [], "RightOn")
                 let leftBy =
@@ -487,8 +488,7 @@ module internal PolarsPhysicalLowerer =
                 LogicalPlan.GroupBy(currentPlan, keys, aggs, having, spec.MaintainOrder)
 
             | QueryOp.Concat spec ->
-                let otherCols = PolarsSchemaExtractor.GetColumnNames spec.OtherLf |> Array.toList
-                let otherPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame spec.OtherLf, LogicalSchema.OfNames otherCols)
+                let otherPlan = scanLazyFrame spec.OtherLf
                 if spec.Prepend then
                     LogicalPlan.Union(otherPlan, currentPlan, isAll = true)
                 else
@@ -497,9 +497,11 @@ module internal PolarsPhysicalLowerer =
             | QueryOp.HorizontalConcat otherLfs ->
                 let otherPlans =
                     otherLfs
-                    |> Array.map (fun lf ->
-                        let cols = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
-                        LogicalPlan.Scan(LogicalPlanSource.LazyFrame lf, LogicalSchema.OfNames cols))
+                    |> Array.map scanLazyFrame
                     |> Array.toList
                 LogicalPlan.HorizontalConcat(currentPlan :: otherPlans))
             initialPlan
+
+    /// Constructs a LogicalPlan tree from a base LazyFrameHandle and a sequence of QueryOps.
+    let fromOps (baseLf: LazyFrameHandle) (ops: QueryOp list) : LogicalPlan =
+        fromOpsOnPlan (scanLazyFrame baseLf) ops

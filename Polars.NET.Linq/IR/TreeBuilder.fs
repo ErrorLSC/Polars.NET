@@ -3,24 +3,10 @@ namespace Polars.NET.Linq.IR
 open System
 open System.Linq.Expressions
 open Polars.NET.Core
-open Polars.NET.Core.Helpers
 open Polars.NET.Linq
 
 /// Constructs LogicalPlan relational trees from LINQ query stages or QueryOp streams.
 module internal TreeBuilder =
-
-    /// Translates an Expression into a ScalarExpr using available scope and column resolution context.
-    let tryBuildScalar (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
-        match ExprTranslator.tryTranslateToScalar ctx expr with
-        | Some s -> Some s
-        | None ->
-            ExprTranslator.tryTranslateWithContext ctx expr
-            |> Option.map (fun h ->
-                let cols =
-                    match ColumnResolver.tryResolveColumnNameWithContext ctx expr with
-                    | Some c -> [ c ]
-                    | None -> []
-                ScalarExpr.Opaque(h, cols, expr.ToString()))
 
     /// Extracts projection bindings (name * ScalarExpr) from a projection LambdaExpression.
     let private extractProjections (ctx: TranslationContext) (body: Expression) : (string * ScalarExpr) list option =
@@ -30,7 +16,7 @@ module internal TreeBuilder =
                 mie.Bindings
                 |> Seq.choose (function
                     | :? MemberAssignment as ma ->
-                        tryBuildScalar ctx ma.Expression
+                        ExprTranslator.tryTranslateToScalar ctx ma.Expression
                         |> Option.map (fun s -> ma.Member.Name, s)
                     | _ -> None)
                 |> Seq.toList
@@ -49,7 +35,7 @@ module internal TreeBuilder =
                 ne.Arguments
                 |> Seq.mapi (fun i arg ->
                     let name = if i < names.Length then names.[i] else sprintf "col_%d" i
-                    tryBuildScalar ctx arg |> Option.map (fun s -> name, s))
+                    ExprTranslator.tryTranslateToScalar ctx arg |> Option.map (fun s -> name, s))
                 |> Seq.toList
 
             if bindings |> List.forall Option.isSome then
@@ -58,13 +44,11 @@ module internal TreeBuilder =
                 None
 
         | other ->
-            tryBuildScalar ctx other
+            ExprTranslator.tryTranslateToScalar ctx other
             |> Option.map (fun s -> [ ("value", s) ])
 
-    /// Constructs a LogicalPlan tree directly from a base LazyFrameHandle and a sequence of LinqStages.
-    let fromStages (baseLf: LazyFrameHandle) (stages: LinqStage list) (_targetType: Type) : LogicalPlan =
-        let initialCols = PolarsSchemaExtractor.GetColumnNames baseLf |> Array.toList
-        let initialPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame baseLf, LogicalSchema.OfNames initialCols)
+    /// Constructs a LogicalPlan tree by applying a sequence of LinqStages to an initial LogicalPlan.
+    let fromStages (initialPlan: LogicalPlan) (stages: LinqStage list) : LogicalPlan =
         stages
         |> List.fold (fun currentPlan stage ->
             match stage with
@@ -75,14 +59,14 @@ module internal TreeBuilder =
                     | Some resLam ->
                         let p = resLam.Parameters.[0]
                         let ctx = TranslationContext.Entity p.Name
-                        match tryBuildScalar ctx resLam.Body with
+                        match ExprTranslator.tryTranslateToScalar ctx resLam.Body with
                         | Some pred -> LogicalPlan.Filter(decorPlan, pred)
                         | None -> decorPlan
                     | None -> decorPlan
                 | None ->
                     let p = lam.Parameters.[0]
                     let ctx = TranslationContext.Entity p.Name
-                    match tryBuildScalar ctx lam.Body with
+                    match ExprTranslator.tryTranslateToScalar ctx lam.Body with
                     | Some pred -> LogicalPlan.Filter(currentPlan, pred)
                     | None -> currentPlan
 
@@ -104,7 +88,7 @@ module internal TreeBuilder =
             | LinqStage.Sort(lam, isDesc, nullsLast) ->
                 let p = lam.Parameters.[0]
                 let ctx = TranslationContext.Entity p.Name
-                match tryBuildScalar ctx lam.Body with
+                match ExprTranslator.tryTranslateToScalar ctx lam.Body with
                 | Some s ->
                     let newOrder = { SortOrder.Expr = s; Descending = isDesc; NullsLast = nullsLast }
                     match currentPlan with
@@ -137,7 +121,7 @@ module internal TreeBuilder =
             | LinqStage.DistinctBy lam ->
                 let p = lam.Parameters.[0]
                 let ctx = TranslationContext.Entity p.Name
-                match tryBuildScalar ctx lam.Body with
+                match ExprTranslator.tryTranslateToScalar ctx lam.Body with
                 | Some (ScalarExpr.Column col) -> LogicalPlan.Distinct(currentPlan, Some [ col ], PlUniqueKeepStrategy.First)
                 | _ -> currentPlan
 
@@ -150,21 +134,21 @@ module internal TreeBuilder =
             | LinqStage.CountBy lam ->
                 let p = lam.Parameters.[0]
                 let ctx = TranslationContext.Entity p.Name
-                match tryBuildScalar ctx lam.Body with
+                match ExprTranslator.tryTranslateToScalar ctx lam.Body with
                 | Some keyExpr -> LogicalPlan.GroupBy(currentPlan, [ keyExpr ], [ ("Count", ScalarExpr.Aggregation(AggKind.Len, None, false)) ], None, false)
                 | None -> currentPlan
 
             | LinqStage.GroupByKey lam ->
                 let p = lam.Parameters.[0]
                 let ctx = TranslationContext.Entity p.Name
-                match tryBuildScalar ctx lam.Body with
+                match ExprTranslator.tryTranslateToScalar ctx lam.Body with
                 | Some keyExpr -> LogicalPlan.GroupBy(currentPlan, [ keyExpr ], [], None, false)
                 | None -> currentPlan
 
             | LinqStage.GroupByWithResult(keyLam, resLam) ->
                 let keyP = keyLam.Parameters.[0]
                 let keyCtx = TranslationContext.Entity keyP.Name
-                let keyExpr = tryBuildScalar keyCtx keyLam.Body |> Option.defaultValue (ScalarExpr.Column "Key")
+                let keyExpr = ExprTranslator.tryTranslateToScalar keyCtx keyLam.Body |> Option.defaultValue (ScalarExpr.Column "Key")
                 let resP = resLam.Parameters.[0]
                 let resCtx = TranslationContext.Entity resP.Name
                 match extractProjections resCtx resLam.Body with
@@ -186,4 +170,3 @@ module internal TreeBuilder =
             | _ ->
                 currentPlan)
             initialPlan
-

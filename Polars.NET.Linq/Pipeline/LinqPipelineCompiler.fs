@@ -555,8 +555,7 @@ module internal LinqPipelineCompiler =
                             let hasSubquery = canPushdown && SubqueryDecorrelator.containsSubquery resSel.Body
                             if hasSubquery then
                                 let joinedBaseLf = applyNativeOps activeBaseLf [ QueryOp.Join spec ]
-                                let colNames = PolarsSchemaExtractor.GetColumnNames joinedBaseLf |> Array.toList
-                                let outerPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame (PolarsWrapper.LazyClone joinedBaseLf), LogicalSchema.OfNames colNames)
+                                let outerPlan = PolarsPhysicalLowerer.scanLazyFrame (PolarsWrapper.LazyClone joinedBaseLf)
                                 match SubqueryDecorrelator.tryDecorrelateProjection outerPlan resSel updatedScopeMap with
                                 | Some(newPlan, rewrittenResSel) ->
                                     let lfAfterSubqueries = PolarsPhysicalLowerer.lowerPlan newPlan
@@ -673,8 +672,7 @@ module internal LinqPipelineCompiler =
                             let hasSubquery = canPushdown && SubqueryDecorrelator.containsSubquery resSel.Body
                             if hasSubquery then
                                 let joinedBaseLf = applyNativeOps activeBaseLf [ QueryOp.JoinAsOf spec ]
-                                let colNames = PolarsSchemaExtractor.GetColumnNames joinedBaseLf |> Array.toList
-                                let outerPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame (PolarsWrapper.LazyClone joinedBaseLf), LogicalSchema.OfNames colNames)
+                                let outerPlan = PolarsPhysicalLowerer.scanLazyFrame (PolarsWrapper.LazyClone joinedBaseLf)
                                 match SubqueryDecorrelator.tryDecorrelateProjection outerPlan resSel updatedScopeMap with
                                 | Some(newPlan, rewrittenResSel) ->
                                     let lfAfterSubqueries = PolarsPhysicalLowerer.lowerPlan newPlan
