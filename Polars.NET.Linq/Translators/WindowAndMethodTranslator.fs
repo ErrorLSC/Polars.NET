@@ -503,6 +503,7 @@ module internal WindowAndMethodTranslator =
 
         if (m.Name = "IsNull" || m.Name = "isNull") && args.Length = 1 then
             eval ctx args.Head
+            |> Option.orElseWith (fun () -> tryResolveEntityNullTarget ctx args.Head)
             |> Option.map (fun s -> ScalarExpr.Unary(UnaryOp.IsNull, s))
         elif not (isNull effectiveTarget) && m.Name = "Shift" then
             translateShiftMethod eval ctx effectiveTarget effectiveArgs

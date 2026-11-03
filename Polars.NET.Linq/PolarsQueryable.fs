@@ -111,11 +111,8 @@ and PolarsQuery<'T>
     new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer) =
         PolarsQuery<'T>(PolarsQueryProvider(lazyFrameHandle, materializer), None)
 
-    /// Parses the LINQ expression tree into native ops, client predicates, optional projection, fallback signal, and normalized stages
-    member private _.CompilePipeline
-        ()
-        : LazyFrameHandle * QueryOp list * ((Func<obj, bool> * LambdaExpression) list) * ((Type * Func<obj, obj>) option) * bool * LinqStage list =
-        let lfCloned = provider.RootLazyFrame
+    /// Extracts normalized stages from the query expression (using the QueryPlanCache).
+    member private _.ExtractStages() : LinqStage list =
         let rewrittenExpr = getEffectiveExpr ()
         let extraction = PartialEvaluator.extract rewrittenExpr
         let cacheKey = QueryCacheKey.Create(typeof<'T>, extraction.NormalizedExpression)
@@ -151,52 +148,47 @@ and PolarsQuery<'T>
                     }
             )
 
-        let bound =
+        if not cached.NormalizedStages.IsEmpty then
             if extraction.Parameters.Count = 0 then
-                extraction.NormalizedExpression
+                cached.NormalizedStages
             else
-                PartialEvaluator.substituteExtracted extraction.NormalizedExpression extraction.Parameters
-
-        let stages =
-            if not cached.NormalizedStages.IsEmpty then
+                cached.NormalizedStages
+                |> List.map (QueryPlanCache.SubstituteStage extraction.Parameters)
+        else
+            let bound =
                 if extraction.Parameters.Count = 0 then
-                    cached.NormalizedStages
+                    extraction.NormalizedExpression
                 else
-                    cached.NormalizedStages
-                    |> List.map (QueryPlanCache.SubstituteStage extraction.Parameters)
-            else
-                flattenStages bound []
+                    PartialEvaluator.substituteExtracted extraction.NormalizedExpression extraction.Parameters
+            flattenStages bound []
+
+    /// Compiles pipeline into a pure symbolic CompiledLogicalQuery IR.
+    member internal this.CompileLogicalQuery() : CompiledLogicalQuery =
+        let lfCloned = provider.RootLazyFrame
+        let stages = this.ExtractStages()
         FallbackTracker.Diagnostic <- None
         UdfTracker.Reset()
 
-        let finalLf, ops, clientPreds, clientProjOpt, requiresClientFallback =
-            LinqPipelineCompiler.compileStages lfCloned stages targetType isScalar isGrouping bound
-
-        finalLf, ops, clientPreds, clientProjOpt, requiresClientFallback, stages
+        let initialPlan = PolarsPhysicalLowerer.scanLazyFrame lfCloned
+        let compiled = TreeBuilder.buildCompiledQuery initialPlan isGrouping stages
+        { compiled with Plan = LogicalOptimizer.optimize compiled.Plan }
 
     /// Compiles pipeline and builds the target native LazyFrameHandle alongside client predicates, projection, fallback signal, and normalized stages
     member private this.GetCompiledPlan
         ()
         : LazyFrameHandle * (Func<obj, bool> list) * ((Type * Func<obj, obj>) option) * bool * LinqStage list =
-        let baseLf, ops, clientPredsWithAst, clientProjOpt, requiresClientFallback, stages =
-            this.CompilePipeline()
+        let compiled = this.CompileLogicalQuery()
+        let nativeLf = PolarsPhysicalLowerer.lowerPlan compiled.Plan
 
         enforcePipelinePolicy
             "QueryExecution"
-            requiresClientFallback
-            clientPredsWithAst
+            compiled.RequiresClientFallback
+            compiled.ClientPredicates
             (expression.ToString())
 
-        let nativeLf = applyNativeOps baseLf ops
-        let clientPredicates = clientPredsWithAst |> List.map fst
-        nativeLf, clientPredicates, clientProjOpt, requiresClientFallback, stages
-
-    /// Compiles pipeline into a pure symbolic CompiledLogicalQuery.
-    member this.CompileLogicalQuery() : CompiledLogicalQuery =
-        let baseLf, _, _, _, _, stages = this.CompilePipeline()
-        let initialPlan = PolarsPhysicalLowerer.scanLazyFrame baseLf
-        let compiled = TreeBuilder.buildCompiledQuery initialPlan stages
-        { compiled with Plan = LogicalOptimizer.optimize compiled.Plan }
+        let clientPredicates = compiled.ClientPredicates |> List.map fst
+        let stages = this.ExtractStages()
+        nativeLf, clientPredicates, compiled.ClientProjection, compiled.RequiresClientFallback, stages
 
     /// Compiles pipeline and builds the target LogicalPlan IR tree.
     member this.GetLogicalPlan() : LogicalPlan =
@@ -568,19 +560,11 @@ and PolarsQuery<'T>
         member this.GetCompiledLazyFrameHandle() = this.CompileToLazyFrameHandle()
 
     member this.GetPlanInspection(optimized: bool) : PlanInspection =
-        let baseLf, ops, clientPreds, clientProjOpt, requiresClientFallback, stages =
-            this.CompilePipeline()
-
-        let nativeLf = applyNativeOps baseLf ops
+        let compiled = this.CompileLogicalQuery()
+        let nativeLf = PolarsPhysicalLowerer.lowerPlan compiled.Plan
         let planStr = PolarsWrapper.Explain(nativeLf, optimized)
+        let stages = this.ExtractStages()
 
-        let initialPlan = PolarsPhysicalLowerer.scanLazyFrame baseLf
-        let logicalPlan =
-            if not stages.IsEmpty then
-                TreeBuilder.fromStages initialPlan stages
-            else
-                PolarsPhysicalLowerer.fromOpsOnPlan initialPlan ops
-        let optimizedLogicalPlan = LogicalOptimizer.optimize logicalPlan
         let chunkSizeOpt = stages |> List.tryPick (function LinqStage.Chunk s -> Some s | _ -> None)
         let shouldShuffle = stages |> List.exists (function LinqStage.Shuffle -> true | _ -> false)
         let mutable postOps = []
@@ -612,11 +596,11 @@ and PolarsQuery<'T>
 
         {
             NativePlan = planWithPostOps
-            LogicalPlan = Some(LogicalPlanOps.formatPlan optimizedLogicalPlan)
-            HasClientPredicates = not clientPreds.IsEmpty
-            ClientPredicateExpressions = clientPreds |> List.map snd
-            HasClientProjection = clientProjOpt.IsSome || chunkSizeOpt.IsSome || shouldShuffle || isGrouping
-            IsFullFallback = requiresClientFallback
+            LogicalPlan = Some(LogicalPlanOps.formatPlan compiled.Plan)
+            HasClientPredicates = not compiled.ClientPredicates.IsEmpty
+            ClientPredicateExpressions = compiled.ClientPredicates |> List.map snd
+            HasClientProjection = compiled.ClientProjection.IsSome || chunkSizeOpt.IsSome || shouldShuffle || isGrouping
+            IsFullFallback = compiled.RequiresClientFallback
             FallbackReason = FallbackTracker.Diagnostic
             HasUdf = not detectedUdfs.IsEmpty
             UdfExpressions = detectedUdfs
@@ -632,6 +616,7 @@ and PolarsQuery<'T>
 
         member this.GetLogicalPlan() = this.GetLogicalPlan()
 
+    interface IPolarsInternalExplainable with
         member this.CompileLogicalQuery() = this.CompileLogicalQuery()
 
     interface IAsyncEnumerable<'T> with

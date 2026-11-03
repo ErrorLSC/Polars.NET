@@ -24,7 +24,9 @@ module internal PipelineStageParser =
 
     /// Creates a TranslationContext with scope and column names.
     let createContextWithScopeAndCols (scopeMap: Map<string * string, string>) (elemType: Type) (cols: string list) (paramName: string) : TranslationContext =
-        if scopeMap.IsEmpty then
+        if PolarsTypeHelper.IsScalarType elemType then
+            SubqueryDecorrelator.createContextForTypeWithCols elemType cols paramName
+        elif scopeMap.IsEmpty then
             SubqueryDecorrelator.createContextForTypeWithCols elemType cols paramName
         else
             TranslationContext.ScopedEntity([ paramName ], scopeMap, cols)
@@ -34,6 +36,38 @@ module internal PipelineStageParser =
     let createContextWithScope (scopeMap: Map<string * string, string>) (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
         let cols = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
         createContextWithScopeAndCols scopeMap elemType cols paramName
+
+    let updateJoinScopeMap
+        (existingScopeMap: Map<string * string, string>)
+        (leftScope: string)
+        (leftCols: string array)
+        (rightScope: string)
+        (rightCols: string array)
+        (suffix: string)
+        (invertSides: bool)
+        =
+        if invertSides then
+            let rightColSet = Set.ofArray rightCols
+            let baseMap =
+                if existingScopeMap.IsEmpty then
+                    rightCols |> Array.fold (fun m col -> Map.add (rightScope, col) col m) existingScopeMap
+                else
+                    existingScopeMap
+            leftCols
+            |> Array.fold (fun m col ->
+                let physicalCol = if rightColSet.Contains col then col + suffix else col
+                Map.add (leftScope, col) physicalCol m) baseMap
+        else
+            let leftColSet = Set.ofArray leftCols
+            let baseMap =
+                if existingScopeMap.IsEmpty then
+                    leftCols |> Array.fold (fun m col -> Map.add (leftScope, col) col m) existingScopeMap
+                else
+                    existingScopeMap
+            rightCols
+            |> Array.fold (fun m col ->
+                let physicalCol = if leftColSet.Contains col then col + suffix else col
+                Map.add (rightScope, col) physicalCol m) baseMap
 
     /// Extracts the underlying sequence element type from generic collections/arrays
     let getSequenceElementType (t: Type) : Type =

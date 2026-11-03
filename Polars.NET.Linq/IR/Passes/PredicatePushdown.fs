@@ -53,8 +53,8 @@ module internal PredicatePushdown =
 
             // 3. Pushdown through Projection: substitute aliases and push below Project
             | LogicalPlan.Project(input, projs) ->
-                // Ensure predicate does not contain aggregations or subqueries before pushing
-                if ScalarExprOps.containsAggregation pred || ScalarExprOps.containsSubquery pred then
+                // Ensure predicate does not contain aggregations, window functions, or subqueries before pushing
+                if ScalarExprOps.containsAggregation pred || ScalarExprOps.containsWindow pred || ScalarExprOps.containsSubquery pred then
                     LogicalPlan.Filter(plan, pred)
                 else
                     let projMap = projs |> Map.ofList
@@ -64,8 +64,12 @@ module internal PredicatePushdown =
                     if canSubstitute then
                         let substPred =
                             ScalarExprOps.substitute (fun col -> projMap.TryFind col) pred
-                        let pushedInput = pushdownConjunct substPred input
-                        LogicalPlan.Project(pushedInput, projs)
+                        // If substituted predicate contains aggregations, window functions, or subqueries, cannot push below Project!
+                        if ScalarExprOps.containsAggregation substPred || ScalarExprOps.containsWindow substPred || ScalarExprOps.containsSubquery substPred then
+                            LogicalPlan.Filter(plan, pred)
+                        else
+                            let pushedInput = pushdownConjunct substPred input
+                            LogicalPlan.Project(pushedInput, projs)
                     else
                         LogicalPlan.Filter(plan, pred)
 

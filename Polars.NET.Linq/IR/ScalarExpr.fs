@@ -180,6 +180,24 @@ module ScalarExprOps =
         | ScalarExpr.Alias(inner, _) -> containsSubquery inner
         | _ -> false
 
+    /// Checks whether an expression embeds a window expression.
+    let rec containsWindow (expr: ScalarExpr) : bool =
+        match expr with
+        | ScalarExpr.Window _ -> true
+        | ScalarExpr.Binary(_, left, right) -> containsWindow left || containsWindow right
+        | ScalarExpr.Unary(_, inner)
+        | ScalarExpr.Cast(inner, _, _) -> containsWindow inner
+        | ScalarExpr.Function(_, args, _) -> args |> List.exists containsWindow
+        | ScalarExpr.Aggregation(_, innerOpt, _) ->
+            innerOpt |> Option.map containsWindow |> Option.defaultValue false
+        | ScalarExpr.Conditional(test, ifTrue, ifFalse) ->
+            containsWindow test || containsWindow ifTrue || containsWindow ifFalse
+        | ScalarExpr.Coalesce exprs -> exprs |> List.exists containsWindow
+        | ScalarExpr.ItemAccess(target, idx) -> containsWindow target || containsWindow idx
+        | ScalarExpr.Slice(target, _, _) -> containsWindow target
+        | ScalarExpr.Alias(inner, _) -> containsWindow inner
+        | _ -> false
+
     /// Substitutes column references in an expression using a mapping function.
     let rec substitute (subst: string -> ScalarExpr option) (expr: ScalarExpr) : ScalarExpr =
         match expr with

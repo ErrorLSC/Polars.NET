@@ -308,3 +308,48 @@ module internal ColumnResolver =
                         if isRootedInParamOrClosure inner then Some m.Name else None
 
             | _ -> None
+
+    let internal tryResolveEntityNullTarget (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
+        let cleanE = unwrap expr
+        let scopeOpt = tryExtractScopeName cleanE
+        match scopeOpt with
+        | Some scope ->
+            let findColInScopeMap (scopeMap: Map<string * string, string>) =
+                let nonNullablePropCol =
+                    if not (isNull cleanE.Type) && not (PolarsTypeHelper.IsScalarType cleanE.Type) then
+                        cleanE.Type.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                        |> Array.tryPick (fun prop ->
+                            if prop.PropertyType.IsValueType && isNull (Nullable.GetUnderlyingType prop.PropertyType) then
+                                scopeMap.TryFind(scope, prop.Name)
+                                |> Option.orElseWith (fun () -> scopeMap.TryFind("", prop.Name))
+                                |> Option.orElseWith (fun () ->
+                                    scopeMap
+                                    |> Map.tryPick (fun (_, c) pCol -> if c = prop.Name then Some pCol else None))
+                            else
+                                None)
+                    else
+                        None
+                match nonNullablePropCol with
+                | Some col -> Some(ScalarExpr.Column col)
+                | None ->
+                    scopeMap
+                    |> Map.toList
+                    |> List.tryPick (fun ((s, _), physicalCol) ->
+                        if s = scope then Some(ScalarExpr.Column physicalCol) else None)
+
+            match ctx with
+            | TranslationContext.ScopedEntity(_, scopeMap, _)
+            | TranslationContext.CorrelatedJoin(_, _, _, _, scopeMap) ->
+                findColInScopeMap scopeMap
+            | TranslationContext.BinaryJoin(leftParam, rightParam, leftCols, rightSuffix) ->
+                if scope = leftParam then
+                    leftCols |> Seq.tryHead |> Option.map ScalarExpr.Column
+                elif scope = rightParam then
+                    leftCols |> Seq.tryHead |> Option.map (fun c -> ScalarExpr.Column(c + rightSuffix))
+                else None
+            | TranslationContext.Merge(target, source, suffix) ->
+                if scope = target then Some(ScalarExpr.Column "")
+                elif scope = source then Some(ScalarExpr.Column suffix)
+                else None
+            | _ -> None
+        | None -> None

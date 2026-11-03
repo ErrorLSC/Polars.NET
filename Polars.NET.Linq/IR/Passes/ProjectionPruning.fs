@@ -11,13 +11,16 @@ module internal ProjectionPruning =
         match plan with
         // 1. Double Project Collapsing
         | LogicalPlan.Project(LogicalPlan.Project(innerInput, innerProjs), outerProjs) ->
-            let prunedInput = prune innerInput
-            let innerMap = innerProjs |> Map.ofList
-            let collapsedProjs =
-                outerProjs
-                |> List.map (fun (name, expr) ->
-                    name, ScalarExprOps.substitute (fun col -> Map.tryFind col innerMap) expr)
-            prune (LogicalPlan.Project(prunedInput, collapsedProjs))
+            if innerProjs |> List.exists (fun (_, e) -> ScalarExprOps.containsWindow e) then
+                LogicalPlan.Project(prune (LogicalPlan.Project(innerInput, innerProjs)), outerProjs)
+            else
+                let prunedInput = prune innerInput
+                let innerMap = innerProjs |> Map.ofList
+                let collapsedProjs =
+                    outerProjs
+                    |> List.map (fun (name, expr) ->
+                        name, ScalarExprOps.substitute (fun col -> Map.tryFind col innerMap) expr)
+                prune (LogicalPlan.Project(prunedInput, collapsedProjs))
 
         // 2. Identity Project Elimination: Project selecting exactly input columns unchanged
         | LogicalPlan.Project(input, projs) ->

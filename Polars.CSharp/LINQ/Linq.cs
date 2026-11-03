@@ -1057,11 +1057,11 @@ public static class LinqExtensions
     /// Compiles the query pipeline into a pure symbolic CompiledLogicalQuery IR.
     /// </summary>
     /// <param name="source">The source queryable.</param>
-    public static CompiledLogicalQuery? CompileLogicalQuery<T>(this IQueryable<T> source)
+    internal static CompiledLogicalQuery? CompileLogicalQuery<T>(this IQueryable<T> source)
     {
         ArgumentNullException.ThrowIfNull(source);
 
-        if (source is IPolarsExplainable explainable)
+        if (source is IPolarsInternalExplainable explainable)
         {
             return explainable.CompileLogicalQuery();
         }

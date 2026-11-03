@@ -102,7 +102,34 @@ module internal ExprTranslator =
             | :? ConditionalExpression as cond ->
                 match eval ctx cond.Test, eval ctx cond.IfTrue, eval ctx cond.IfFalse with
                 | Some testS, Some trueS, Some falseS -> Some(ScalarExpr.Conditional(testS, trueS, falseS))
-                | _ -> None
+                | _ ->
+                    let hasParam (e: Expression) =
+                        let rec check expr =
+                            match unwrap expr with
+                            | null -> false
+                            | :? ParameterExpression as p -> ctx.ContainsParam p.Name
+                            | MethodCall(_, target, args) -> not (isNull target) && check target || args |> List.exists check
+                            | MemberAccess(target, _) -> not (isNull target) && check target
+                            | Unary(_, inner) -> check inner
+                            | Binary(_, left, right) -> check left || check right
+                            | _ -> false
+                        check e
+
+                    let colExprOpt, fallbackExprOpt =
+                        if hasParam cond.IfTrue && not (hasParam cond.IfFalse) then
+                            Some cond.IfTrue, Some cond.IfFalse
+                        elif hasParam cond.IfFalse && not (hasParam cond.IfTrue) then
+                            Some cond.IfFalse, Some cond.IfTrue
+                        else
+                            None, None
+
+                    match colExprOpt, fallbackExprOpt with
+                    | Some colExpr, Some fallbackExpr ->
+                        match eval ctx colExpr, eval ctx fallbackExpr with
+                        | Some colS, Some fallbackS ->
+                            Some(ScalarExpr.Function(ScalarFunction.FillNull, [ colS; fallbackS ], PlDataType.Unknown))
+                        | _ -> None
+                    | _ -> None
 
             // 9. Parameter mapping: delegate physical column resolution directly to TranslationContext
             | :? ParameterExpression as p ->
