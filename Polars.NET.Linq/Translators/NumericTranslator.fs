@@ -1,6 +1,7 @@
 namespace Polars.NET.Linq
 
 open Polars.NET.Core
+open Polars.NET.Linq.IR
 open System
 open System.Linq.Expressions
 open System.Reflection
@@ -133,3 +134,79 @@ module internal NumericTranslator =
         (args: Expression list)
         : ExprHandle option =
         translateNumericMethodWithTranslator (eval ctx) m args
+
+    let internal translateNumericMethodScalarWithTranslator
+        (translateExpr: Expression -> ScalarExpr option)
+        (m: MethodInfo)
+        (args: Expression list)
+        : ScalarExpr option =
+        let t1 expr = translateExpr expr
+
+        let t2 e1 e2 =
+            match translateExpr e1, translateExpr e2 with
+            | Some l, Some r -> Some(l, r)
+            | _ -> None
+
+        match m.Name, args with
+        | "Abs", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Unary(UnaryOp.Abs, a))
+        | "Ceiling", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("ceil", [ a ], PlDataType.Unknown))
+        | "Floor", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("floor", [ a ], PlDataType.Unknown))
+        | "Truncate", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("truncate", [ a ], PlDataType.Unknown))
+        | "Sign", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("sign", [ a ], PlDataType.Unknown))
+        | "Round", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("round", [ a ], PlDataType.Unknown))
+        | "Round", [ x; digitsExpr ] when digitsExpr.Type = typeof<int> || digitsExpr.Type = typeof<uint32> ->
+            match t1 x, tryEvaluate digitsExpr with
+            | Some a, Some d ->
+                let decimals = Convert.ToInt32 d
+                Some(ScalarExpr.Function("round", [ a; ScalarExpr.Literal(LiteralValue.Int32 decimals) ], PlDataType.Unknown))
+            | _ -> None
+        | "Min", [ x; y ] ->
+            t2 x y
+            |> Option.map (fun (l, r) ->
+                let cond = ScalarExpr.Binary(BinaryOp.LtEq, l, r)
+                ScalarExpr.Conditional(cond, l, r))
+        | "Max", [ x; y ] ->
+            t2 x y
+            |> Option.map (fun (l, r) ->
+                let cond = ScalarExpr.Binary(BinaryOp.GtEq, l, r)
+                ScalarExpr.Conditional(cond, l, r))
+        | "Clamp", [ valExpr; minExpr; maxExpr ] ->
+            match t1 valExpr, t1 minExpr, t1 maxExpr with
+            | Some v, Some mn, Some mx -> Some(ScalarExpr.Function("clamp", [ v; mn; mx ], PlDataType.Unknown))
+            | _ -> None
+        | "Sqrt", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("sqrt", [ a ], PlDataType.Float64))
+        | "Cbrt", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("cbrt", [ a ], PlDataType.Float64))
+        | "Exp", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("exp", [ a ], PlDataType.Float64))
+        | "Log", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("log", [ a ], PlDataType.Float64))
+        | "Log10", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("log", [ a; ScalarExpr.Literal(LiteralValue.Float64 10.0) ], PlDataType.Float64))
+        | "Log2", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("log", [ a; ScalarExpr.Literal(LiteralValue.Float64 2.0) ], PlDataType.Float64))
+        | "Log", [ x; newBase ] -> t2 x newBase |> Option.map (fun (a, b) -> ScalarExpr.Function("log", [ a; b ], PlDataType.Float64))
+        | "Sin", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("sin", [ a ], PlDataType.Float64))
+        | "Cos", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("cos", [ a ], PlDataType.Float64))
+        | "Tan", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("tan", [ a ], PlDataType.Float64))
+        | "Asin", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("asin", [ a ], PlDataType.Float64))
+        | "Acos", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("acos", [ a ], PlDataType.Float64))
+        | "Atan", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("atan", [ a ], PlDataType.Float64))
+        | "Sinh", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("sinh", [ a ], PlDataType.Float64))
+        | "Cosh", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("cosh", [ a ], PlDataType.Float64))
+        | "Tanh", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function("tanh", [ a ], PlDataType.Float64))
+        | "Pow", [ x; y ] -> t2 x y |> Option.map (fun (a, b) -> ScalarExpr.Binary(BinaryOp.Power, a, b))
+        | "ToInt32", [ x ] -> t1 x |> Option.bind (tryTranslateCastScalar typeof<int>)
+        | "ToUInt32", [ x ] -> t1 x |> Option.bind (tryTranslateCastScalar typeof<uint32>)
+        | "ToInt64", [ x ] -> t1 x |> Option.bind (tryTranslateCastScalar typeof<int64>)
+        | "ToUInt64", [ x ] -> t1 x |> Option.bind (tryTranslateCastScalar typeof<uint64>)
+        | "ToSingle", [ x ] -> t1 x |> Option.bind (tryTranslateCastScalar typeof<float32>)
+        | "ToDouble", [ x ] -> t1 x |> Option.bind (tryTranslateCastScalar typeof<double>)
+        | "ToByte", [ x ] -> t1 x |> Option.bind (tryTranslateCastScalar typeof<byte>)
+        | "ToSByte", [ x ] -> t1 x |> Option.bind (tryTranslateCastScalar typeof<sbyte>)
+        | "ToInt16", [ x ] -> t1 x |> Option.bind (tryTranslateCastScalar typeof<int16>)
+        | "ToUInt16", [ x ] -> t1 x |> Option.bind (tryTranslateCastScalar typeof<uint16>)
+        | _ -> None
+
+    let internal translateNumericMethodScalar
+        (eval: ScalarExprEvaluator)
+        (ctx: TranslationContext)
+        (m: MethodInfo)
+        (args: Expression list)
+        : ScalarExpr option =
+        translateNumericMethodScalarWithTranslator (eval ctx) m args

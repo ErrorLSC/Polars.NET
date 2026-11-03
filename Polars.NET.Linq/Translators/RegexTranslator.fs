@@ -1,6 +1,7 @@
 namespace Polars.NET.Linq
 
 open Polars.NET.Core
+open Polars.NET.Linq.IR
 open System
 open System.Linq.Expressions
 open System.Text.RegularExpressions
@@ -489,3 +490,230 @@ module internal RegexTranslator =
                         t,
                         Func<string, seq<string>>(fun s -> if isNull s then null else rx.Split(s) :> seq<string>)
                     ))
+
+    let internal translateRegexInvocationScalar
+        (eval: ScalarExprEvaluator)
+        (ctx: TranslationContext)
+        (invocation: RegexInvocation)
+        : ScalarExpr option =
+
+        let getRegex rxOpt pat =
+            match rxOpt with
+            | Some(rx: Regex) -> rx
+            | None -> Regex pat
+
+        let getOptions rxOpt =
+            match rxOpt with
+            | Some(rx: Regex) -> rx.Options
+            | None -> RegexOptions.None
+
+        match invocation with
+        // --- 1. IsMatch ---
+        | IsMatch(target, pat, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    Some(ScalarExpr.Function("str_contains", [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.Boolean))
+                | None ->
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
+                        | Some colName ->
+                            let rx = getRegex rxOpt pat
+                            let h = PolarsWrapper.MapStringPredicate(PolarsWrapper.Col colName, Func<string, bool>(rx.IsMatch))
+                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.IsMatch UDF"))
+                        | None -> None)
+
+        // --- 2. ReplaceLiteral ---
+        | ReplaceLiteral(target, pat, rep, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    Some(ScalarExpr.Function("str_replace_all", [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.String rep); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.String))
+                | None ->
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
+                        | Some colName ->
+                            let rx = getRegex rxOpt pat
+                            let h = PolarsWrapper.MapStringTransform(PolarsWrapper.Col colName, Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep)))
+                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.Replace UDF"))
+                        | None -> None)
+
+        // --- 2b. ReplaceLiteralN ---
+        | ReplaceLiteralN(target, pat, rep, count, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    Some(ScalarExpr.Function("str_replace", [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.String rep); ScalarExpr.Literal(LiteralValue.Int64 (int64 count)) ], PlDataType.String))
+                | None ->
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
+                        | Some colName ->
+                            let rx = getRegex rxOpt pat
+                            let h = PolarsWrapper.MapStringTransform(PolarsWrapper.Col colName, Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep, count)))
+                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.ReplaceN UDF"))
+                        | None -> None)
+
+        // --- 3. ReplaceEvaluator ---
+        | ReplaceEvaluator(target, pat, evaluator, rxOpt) ->
+            if CoreConfig.DisallowUdfPushdown then
+                None
+            else
+                match ColumnResolver.tryResolveColumnNameWithContext ctx target with
+                | Some colName ->
+                    let rx = getRegex rxOpt pat
+                    let h = PolarsWrapper.MapStringTransform(PolarsWrapper.Col colName, Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, evaluator)))
+                    Some(ScalarExpr.Opaque(h, [ colName ], "Regex.ReplaceEvaluator UDF"))
+                | None -> None
+
+        // --- 4. MatchValue & Groups[i].Value ---
+        | MatchValue(target, pat, groupIndex, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    let extracted = ScalarExpr.Function("str_extract", [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Int32 groupIndex) ], PlDataType.String)
+                    let nonNullExtracted = ScalarExpr.Coalesce [ extracted; ScalarExpr.Literal(LiteralValue.String "") ]
+                    let isTargetNull = ScalarExpr.Unary(UnaryOp.IsNull, t)
+                    Some(ScalarExpr.Conditional(isTargetNull, ScalarExpr.Literal(LiteralValue.Null PlDataType.String), nonNullExtracted))
+                | None ->
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
+                        | Some colName ->
+                            let rx = getRegex rxOpt pat
+                            let h =
+                                PolarsWrapper.MapStringTransform(
+                                    PolarsWrapper.Col colName,
+                                    Func<string, string>(fun s ->
+                                        if isNull s then null
+                                        else
+                                            let m = rx.Match(s)
+                                            if m.Success && groupIndex < m.Groups.Count then m.Groups.[groupIndex].Value else "")
+                                )
+                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.MatchValue UDF"))
+                        | None -> None)
+
+        // --- 4b. MatchGroupNamed ---
+        | MatchGroupNamed(target, pat, groupName, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    let structExpr = ScalarExpr.Function("str_extract_groups", [ t; ScalarExpr.Literal(LiteralValue.String validPat) ], PlDataType.Unknown)
+                    let fieldExpr = ScalarExpr.Function("struct_field_by_name", [ structExpr; ScalarExpr.Literal(LiteralValue.String groupName) ], PlDataType.String)
+                    let nonNullExtracted = ScalarExpr.Coalesce [ fieldExpr; ScalarExpr.Literal(LiteralValue.String "") ]
+                    let isTargetNull = ScalarExpr.Unary(UnaryOp.IsNull, t)
+                    Some(ScalarExpr.Conditional(isTargetNull, ScalarExpr.Literal(LiteralValue.Null PlDataType.String), nonNullExtracted))
+                | None ->
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
+                        | Some colName ->
+                            let rx = getRegex rxOpt pat
+                            let h =
+                                PolarsWrapper.MapStringTransform(
+                                    PolarsWrapper.Col colName,
+                                    Func<string, string>(fun s ->
+                                        if isNull s then null
+                                        else
+                                            let m = rx.Match(s)
+                                            if m.Success && m.Groups.[groupName].Success then m.Groups.[groupName].Value else "")
+                                )
+                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.MatchGroupNamed UDF"))
+                        | None -> None)
+
+        // --- 5. MatchesAll ---
+        | MatchesAll(target, pat, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    Some(ScalarExpr.Function("str_extract_all", [ t; ScalarExpr.Literal(LiteralValue.String validPat) ], PlDataType.List))
+                | None ->
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
+                        | Some colName ->
+                            let rx = getRegex rxOpt pat
+                            let h =
+                                PolarsWrapper.MapStringToList(
+                                    PolarsWrapper.Col colName,
+                                    Func<string, seq<string>>(fun s -> if isNull s then null else rx.Matches(s) |> Seq.map (fun m -> m.Value))
+                                )
+                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.MatchesAll UDF"))
+                        | None -> None)
+
+        // --- 6. MatchesCount ---
+        | MatchesCount(target, pat, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    Some(ScalarExpr.Function("str_count_matches", [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.UInt32))
+                | None ->
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
+                        | Some colName ->
+                            let rx = getRegex rxOpt pat
+                            let intDtype = PolarsWrapper.NewPrimitiveType(int PlDataType.Int32)
+                            let h =
+                                PolarsWrapper.Map(
+                                    PolarsWrapper.Col colName,
+                                    Func<Apache.Arrow.IArrowArray, Apache.Arrow.IArrowArray>(fun arr ->
+                                        let strViewArr = arr :?> Apache.Arrow.StringViewArray
+                                        let builder = Apache.Arrow.Int32Array.Builder()
+                                        for i in 0 .. strViewArr.Length - 1 do
+                                            if strViewArr.IsNull(i) then
+                                                builder.AppendNull() |> ignore
+                                            else
+                                                builder.Append(rx.Matches(strViewArr.GetString(i)).Count) |> ignore
+                                        builder.Build() :> Apache.Arrow.IArrowArray),
+                                    intDtype
+                                )
+                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.MatchesCount UDF"))
+                        | None -> None)
+
+        // --- 7. Split ---
+        | Split(target, pat, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    Some(ScalarExpr.Function("str_split", [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.List))
+                | None ->
+                    if CoreConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
+                        | Some colName ->
+                            let rx = getRegex rxOpt pat
+                            let h =
+                                PolarsWrapper.MapStringToList(
+                                    PolarsWrapper.Col colName,
+                                    Func<string, seq<string>>(fun s -> if isNull s then null else rx.Split(s) :> seq<string>)
+                                )
+                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.Split UDF"))
+                        | None -> None)
+

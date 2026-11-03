@@ -117,6 +117,7 @@ type BinaryOp =
     | Divide
     | Modulo
     | FloorDivide
+    | Power
     // String & Pattern
     | StringConcat
     | Like

@@ -1,11 +1,12 @@
-namespace Polars.NET.Linq.IR
+namespace Polars.NET.Linq.Backend.Polars
 
 open System
 open Polars.NET.Core
 open Polars.NET.Linq
+open Polars.NET.Linq.IR
 
 /// Physical lowerer that translates LogicalPlan trees into native Polars operations.
-module internal PhysicalLowerer =
+module internal PolarsPhysicalLowerer =
 
     let private createEmptyLazyFrame () : LazyFrameHandle =
         let df = PolarsWrapper.DataFrameNew ReadOnlySpan.Empty
@@ -23,7 +24,7 @@ module internal PhysicalLowerer =
 
         | LogicalPlan.Filter(input, pred) ->
             let lf = lowerPlan input
-            let exprH = ScalarLowerer.lower pred
+            let exprH = PolarsScalarLowerer.lower pred
             PolarsWrapper.LazyFilter(lf, exprH)
 
         | LogicalPlan.Project(input, projs) ->
@@ -31,7 +32,7 @@ module internal PhysicalLowerer =
             let exprs =
                 projs
                 |> List.map (fun (name, expr) ->
-                    let h = ScalarLowerer.lower expr
+                    let h = PolarsScalarLowerer.lower expr
                     PolarsWrapper.Alias(h, name))
                 |> List.toArray
             PolarsWrapper.LazySelect(lf, exprs)
@@ -41,7 +42,7 @@ module internal PhysicalLowerer =
             let exprs =
                 cols
                 |> List.map (fun (name, expr) ->
-                    let h = ScalarLowerer.lower expr
+                    let h = PolarsScalarLowerer.lower expr
                     PolarsWrapper.Alias(h, name))
                 |> List.toArray
             PolarsWrapper.LazyWithColumns(lf, exprs)
@@ -49,8 +50,8 @@ module internal PhysicalLowerer =
         | LogicalPlan.Join(left, right, leftOn, rightOn, how, suffix, coalesce, nullsEqual) ->
             let leftLf = lowerPlan left
             let rightLf = lowerPlan right
-            let leftOnHs = leftOn |> List.map ScalarLowerer.lower |> List.toArray
-            let rightOnHs = rightOn |> List.map ScalarLowerer.lower |> List.toArray
+            let leftOnHs = leftOn |> List.map PolarsScalarLowerer.lower |> List.toArray
+            let rightOnHs = rightOn |> List.map PolarsScalarLowerer.lower |> List.toArray
             PolarsWrapper.Join(
                 leftLf,
                 rightLf,
@@ -70,14 +71,14 @@ module internal PhysicalLowerer =
         | LogicalPlan.JoinAsOf(left, right, spec) ->
             let leftLf = lowerPlan left
             let rightLf = lowerPlan right
-            let leftOnH = [| ScalarLowerer.lower spec.LeftOn |]
-            let rightOnH = [| ScalarLowerer.lower spec.RightOn |]
+            let leftOnH = [| PolarsScalarLowerer.lower spec.LeftOn |]
+            let rightOnH = [| PolarsScalarLowerer.lower spec.RightOn |]
             let leftByHs =
                 if spec.LeftBy.IsEmpty then null
-                else spec.LeftBy |> List.map ScalarLowerer.lower |> List.toArray
+                else spec.LeftBy |> List.map PolarsScalarLowerer.lower |> List.toArray
             let rightByHs =
                 if spec.RightBy.IsEmpty then null
-                else spec.RightBy |> List.map ScalarLowerer.lower |> List.toArray
+                else spec.RightBy |> List.map PolarsScalarLowerer.lower |> List.toArray
             PolarsWrapper.JoinAsOf(
                 leftLf,
                 rightLf,
@@ -103,19 +104,19 @@ module internal PhysicalLowerer =
 
         | LogicalPlan.GroupBy(input, keys, aggs, having, maintainOrder) ->
             let lf = lowerPlan input
-            let keyHs = keys |> List.map ScalarLowerer.lower |> List.toArray
+            let keyHs = keys |> List.map PolarsScalarLowerer.lower |> List.toArray
             let aggHs =
                 aggs
                 |> List.map (fun (name, expr) ->
-                    let h = ScalarLowerer.lower expr
+                    let h = PolarsScalarLowerer.lower expr
                     PolarsWrapper.Alias(h, name))
                 |> List.toArray
-            let havingH = having |> Option.map ScalarLowerer.lower |> Option.toObj
+            let havingH = having |> Option.map PolarsScalarLowerer.lower |> Option.toObj
             PolarsWrapper.LazyGroupByAgg(lf, keyHs, aggHs, havingH, maintainOrder)
 
         | LogicalPlan.Sort(input, orderings) ->
             let lf = lowerPlan input
-            let exprs = orderings |> List.map (fun o -> ScalarLowerer.lower o.Expr) |> List.toArray
+            let exprs = orderings |> List.map (fun o -> PolarsScalarLowerer.lower o.Expr) |> List.toArray
             let desc = orderings |> List.map (fun o -> o.Descending) |> List.toArray
             let nullsLast = orderings |> List.map (fun o -> o.NullsLast) |> List.toArray
             PolarsWrapper.LazyFrameSort(lf, exprs, desc, nullsLast, maintainOrder = false)
@@ -197,14 +198,14 @@ module internal PhysicalLowerer =
 
         | LogicalPlan.Filter(input, pred) ->
             let baseLf, ops = lowerToOps input
-            baseLf, ops @ [ QueryOp.Filter(ScalarLowerer.lower pred) ]
+            baseLf, ops @ [ QueryOp.Filter(PolarsScalarLowerer.lower pred) ]
 
         | LogicalPlan.Project(input, projs) ->
             let baseLf, ops = lowerToOps input
             let exprs =
                 projs
                 |> List.map (fun (name, expr) ->
-                    let h = ScalarLowerer.lower expr
+                    let h = PolarsScalarLowerer.lower expr
                     PolarsWrapper.Alias(h, name))
                 |> List.toArray
             baseLf, ops @ [ QueryOp.Select exprs ]
@@ -214,7 +215,7 @@ module internal PhysicalLowerer =
             let exprs =
                 cols
                 |> List.map (fun (name, expr) ->
-                    let h = ScalarLowerer.lower expr
+                    let h = PolarsScalarLowerer.lower expr
                     PolarsWrapper.Alias(h, name))
                 |> List.toArray
             baseLf, ops @ [ QueryOp.WithColumns exprs ]
@@ -225,7 +226,7 @@ module internal PhysicalLowerer =
                 orderings
                 |> List.map (fun o ->
                     {
-                        Expr = ScalarLowerer.lower o.Expr
+                        SortSpec.Expr = PolarsScalarLowerer.lower o.Expr
                         Descending = o.Descending
                         NullsLast = o.NullsLast
                     })
@@ -294,8 +295,8 @@ module internal PhysicalLowerer =
             let spec =
                 {
                     RightLf = rightLf
-                    LeftOn = leftOn |> List.map ScalarLowerer.lower |> List.toArray
-                    RightOn = rightOn |> List.map ScalarLowerer.lower |> List.toArray
+                    LeftOn = leftOn |> List.map PolarsScalarLowerer.lower |> List.toArray
+                    RightOn = rightOn |> List.map PolarsScalarLowerer.lower |> List.toArray
                     How = how
                     Suffix = suffix
                     InvertSides = false
@@ -311,10 +312,10 @@ module internal PhysicalLowerer =
             let asOfSpec =
                 {
                     RightLf = rightLf
-                    LeftOn = [| ScalarLowerer.lower spec.LeftOn |]
-                    RightOn = [| ScalarLowerer.lower spec.RightOn |]
-                    LeftBy = if spec.LeftBy.IsEmpty then None else Some(spec.LeftBy |> List.map ScalarLowerer.lower |> List.toArray)
-                    RightBy = if spec.RightBy.IsEmpty then None else Some(spec.RightBy |> List.map ScalarLowerer.lower |> List.toArray)
+                    LeftOn = [| PolarsScalarLowerer.lower spec.LeftOn |]
+                    RightOn = [| PolarsScalarLowerer.lower spec.RightOn |]
+                    LeftBy = if spec.LeftBy.IsEmpty then None else Some(spec.LeftBy |> List.map PolarsScalarLowerer.lower |> List.toArray)
+                    RightBy = if spec.RightBy.IsEmpty then None else Some(spec.RightBy |> List.map PolarsScalarLowerer.lower |> List.toArray)
                     Strategy = spec.Strategy
                     ToleranceStr = spec.ToleranceStr
                     ToleranceInt = spec.ToleranceInt
@@ -337,14 +338,14 @@ module internal PhysicalLowerer =
             let activeLf = if inOps.IsEmpty then inLf else applyNativeOps inLf inOps
             let spec =
                 {
-                    Keys = keys |> List.map ScalarLowerer.lower |> List.toArray
+                    Keys = keys |> List.map PolarsScalarLowerer.lower |> List.toArray
                     Aggs =
                         aggs
                         |> List.map (fun (name, expr) ->
-                            let h = ScalarLowerer.lower expr
+                            let h = PolarsScalarLowerer.lower expr
                             PolarsWrapper.Alias(h, name))
                         |> List.toArray
-                    Having = having |> Option.map ScalarLowerer.lower
+                    Having = having |> Option.map PolarsScalarLowerer.lower
                     MaintainOrder = maintainOrder
                 }
             activeLf, [ QueryOp.GroupBy spec ]
@@ -360,3 +361,138 @@ module internal PhysicalLowerer =
 
         | LogicalPlan.Empty _ ->
             createEmptyLazyFrame (), []
+
+    /// Constructs a LogicalPlan tree from a base LazyFrameHandle and a sequence of QueryOps.
+    let fromOps (baseLf: LazyFrameHandle) (ops: QueryOp list) : LogicalPlan =
+        let initialPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame baseLf, LogicalSchema.Empty)
+        ops
+        |> List.fold (fun currentPlan op ->
+            match op with
+            | QueryOp.Filter exprH ->
+                let scalar = ScalarExpr.Opaque(exprH, [], "Filter")
+                LogicalPlan.Filter(currentPlan, scalar)
+
+            | QueryOp.Select exprs ->
+                let projs =
+                    exprs
+                    |> Array.mapi (fun i h ->
+                        let name = defaultArg (Option.ofObj (PolarsWrapper.ExprGetOutputName h)) (sprintf "col_%d" i)
+                        name, ScalarExpr.Opaque(h, [ name ], "Select"))
+                    |> Array.toList
+                LogicalPlan.Project(currentPlan, projs)
+
+            | QueryOp.WithColumns exprs ->
+                let cols =
+                    exprs
+                    |> Array.mapi (fun i h ->
+                        let name = defaultArg (Option.ofObj (PolarsWrapper.ExprGetOutputName h)) (sprintf "col_%d" i)
+                        name, ScalarExpr.Opaque(h, [ name ], "WithColumns"))
+                    |> Array.toList
+                LogicalPlan.WithColumns(currentPlan, cols)
+
+            | QueryOp.Sort specs ->
+                let orderings =
+                    specs
+                    |> List.map (fun s ->
+                        {
+                            SortOrder.Expr = ScalarExpr.Opaque(s.Expr, [], "Sort")
+                            Descending = s.Descending
+                            NullsLast = s.NullsLast
+                        })
+                LogicalPlan.Sort(currentPlan, orderings)
+
+            | QueryOp.Slice(offset, len) ->
+                LogicalPlan.Limit(currentPlan, offset, len)
+
+            | QueryOp.SkipLast count ->
+                LogicalPlan.SkipLast(currentPlan, count)
+
+            | QueryOp.Unique spec ->
+                let subset = spec.SubsetCols |> Option.map Array.toList
+                LogicalPlan.Distinct(currentPlan, subset, spec.Keep)
+
+            | QueryOp.WithRowIndex(name, offsetOpt) ->
+                LogicalPlan.WithRowIndex(currentPlan, name, offsetOpt)
+
+            | QueryOp.Rename spec ->
+                LogicalPlan.Rename(currentPlan, Array.toList spec.ExistingNames, Array.toList spec.NewNames)
+
+            | QueryOp.Explode spec ->
+                LogicalPlan.Explode(currentPlan, Array.toList spec.ColumnNames, spec.EmptyAsNull, spec.KeepNulls)
+
+            | QueryOp.Unpivot spec ->
+                LogicalPlan.Unpivot(currentPlan, Array.toList spec.Index, spec.On |> Option.map Array.toList, spec.VariableName, spec.ValueName)
+
+            | QueryOp.Reverse ->
+                LogicalPlan.Reverse currentPlan
+
+            | QueryOp.SelectPassthrough ->
+                currentPlan
+
+            | QueryOp.Join spec ->
+                let rightPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame spec.RightLf, LogicalSchema.Empty)
+                let leftOn = spec.LeftOn |> Array.map (fun h -> ScalarExpr.Opaque(h, [], "LeftOn")) |> Array.toList
+                let rightOn = spec.RightOn |> Array.map (fun h -> ScalarExpr.Opaque(h, [], "RightOn")) |> Array.toList
+                if spec.InvertSides then
+                    LogicalPlan.Join(rightPlan, currentPlan, rightOn, leftOn, spec.How, spec.Suffix, spec.Coalesce, spec.NullsEqual)
+                else
+                    LogicalPlan.Join(currentPlan, rightPlan, leftOn, rightOn, spec.How, spec.Suffix, spec.Coalesce, spec.NullsEqual)
+
+            | QueryOp.JoinAsOf spec ->
+                let rightPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame spec.RightLf, LogicalSchema.Empty)
+                let leftOn = spec.LeftOn |> Array.head |> fun h -> ScalarExpr.Opaque(h, [], "LeftOn")
+                let rightOn = spec.RightOn |> Array.head |> fun h -> ScalarExpr.Opaque(h, [], "RightOn")
+                let leftBy =
+                    match spec.LeftBy with
+                    | Some hs -> hs |> Array.map (fun h -> ScalarExpr.Opaque(h, [], "LeftBy")) |> Array.toList
+                    | None -> []
+                let rightBy =
+                    match spec.RightBy with
+                    | Some hs -> hs |> Array.map (fun h -> ScalarExpr.Opaque(h, [], "RightBy")) |> Array.toList
+                    | None -> []
+                let logicalSpec =
+                    {
+                        LeftOn = leftOn
+                        RightOn = rightOn
+                        LeftBy = leftBy
+                        RightBy = rightBy
+                        Strategy = spec.Strategy
+                        ToleranceStr = spec.ToleranceStr
+                        ToleranceInt = spec.ToleranceInt
+                        ToleranceFloat = spec.ToleranceFloat
+                        AllowEq = spec.AllowEq
+                        CheckSorted = spec.CheckSorted
+                        Suffix = spec.Suffix
+                        Validation = spec.Validation
+                        Coalesce = spec.Coalesce
+                        MaintainOrder = spec.MaintainOrder
+                        JoinSide = spec.JoinSide
+                        NullsEqual = spec.NullsEqual
+                    }
+                LogicalPlan.JoinAsOf(currentPlan, rightPlan, logicalSpec)
+
+            | QueryOp.GroupBy spec ->
+                let keys = spec.Keys |> Array.map (fun h -> ScalarExpr.Opaque(h, [], "GroupKey")) |> Array.toList
+                let aggs =
+                    spec.Aggs
+                    |> Array.mapi (fun i h ->
+                        let name = defaultArg (Option.ofObj (PolarsWrapper.ExprGetOutputName h)) (sprintf "agg_%d" i)
+                        name, ScalarExpr.Opaque(h, [ name ], "Agg"))
+                    |> Array.toList
+                let having = spec.Having |> Option.map (fun h -> ScalarExpr.Opaque(h, [], "Having"))
+                LogicalPlan.GroupBy(currentPlan, keys, aggs, having, spec.MaintainOrder)
+
+            | QueryOp.Concat spec ->
+                let otherPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame spec.OtherLf, LogicalSchema.Empty)
+                if spec.Prepend then
+                    LogicalPlan.Union(otherPlan, currentPlan, isAll = true)
+                else
+                    LogicalPlan.Union(currentPlan, otherPlan, isAll = true)
+
+            | QueryOp.HorizontalConcat otherLfs ->
+                let otherPlans =
+                    otherLfs
+                    |> Array.map (fun lf -> LogicalPlan.Scan(LogicalPlanSource.LazyFrame lf, LogicalSchema.Empty))
+                    |> Array.toList
+                LogicalPlan.HorizontalConcat(currentPlan :: otherPlans))
+            initialPlan

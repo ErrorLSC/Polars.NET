@@ -10,6 +10,7 @@ open System.Text.Json.Serialization
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
 open Polars.NET.Core.Arrow
+open Polars.NET.Linq.IR
 
 /// Metadata representation of an inferred JSON schema field
 type internal JsonFieldMeta =
@@ -454,4 +455,128 @@ module internal JsonTranslator =
                             | None -> None
 
                     traverseSteps decodedH dtoType steps
+
+    let internal translateJsonInvocationScalar (eval: ScalarExprEvaluator) (ctx: TranslationContext) (invocation: JsonInvocation) : ScalarExpr option =
+        match invocation with
+        | JsonPathMatch(target, path, targetType) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let pathLit = ScalarExpr.Literal(LiteralValue.String path)
+                let matchS = ScalarExpr.Function("str_json_path_match", [ t; pathLit ], PlDataType.String)
+                if targetType = typeof<string> || targetType = typeof<obj> then
+                    Some matchS
+                elif targetType = typeof<bool> || targetType = typeof<Nullable<bool>> then
+                    let lowerS = ScalarExpr.Function("to_lower", [ matchS ], PlDataType.String)
+                    Some(ScalarExpr.Binary(BinaryOp.Eq, lowerS, ScalarExpr.Literal(LiteralValue.String "true")))
+                else
+                    tryTranslateCastScalar targetType matchS)
+
+        | JsonSerialize target ->
+            let unwrappedTarget = unwrap target
+            match unwrappedTarget with
+            | :? NewExpression as ne ->
+                let memberNames =
+                    if not (isNull ne.Members) && ne.Members.Count = ne.Arguments.Count then
+                        ne.Members |> Seq.map (fun m -> m.Name) |> Seq.toArray
+                    elif not (isNull ne.Constructor) then
+                        let ctorParams = ne.Constructor.GetParameters()
+                        ctorParams |> Array.map (fun p -> p.Name)
+                    else
+                        [||]
+
+                let argExprs =
+                    ne.Arguments
+                    |> Seq.mapi (fun i argExpr ->
+                        match eval ctx argExpr with
+                        | Some s ->
+                            let fieldName = if i < memberNames.Length then memberNames.[i] else sprintf "field_%d" i
+                            Some(ScalarExpr.Alias(s, fieldName))
+                        | None -> None)
+                    |> Seq.toList
+
+                if argExprs |> List.forall Option.isSome then
+                    let exprsList = argExprs |> List.map Option.get
+                    let structS = ScalarExpr.Function("as_struct", exprsList, PlDataType.Unknown)
+                    Some(ScalarExpr.Function("struct_json_encode", [ structS ], PlDataType.String))
+                else
+                    None
+
+            | :? MemberInitExpression as mie ->
+                let bindings =
+                    mie.Bindings
+                    |> Seq.choose (fun b ->
+                        match b with
+                        | :? MemberAssignment as ma ->
+                            match eval ctx ma.Expression with
+                            | Some s -> Some(ScalarExpr.Alias(s, ma.Member.Name))
+                            | None -> None
+                        | _ -> None)
+                    |> Seq.toList
+                if bindings.Length = mie.Bindings.Count then
+                    let structS = ScalarExpr.Function("as_struct", bindings, PlDataType.Unknown)
+                    Some(ScalarExpr.Function("struct_json_encode", [ structS ], PlDataType.String))
+                else
+                    None
+
+            | other ->
+                eval ctx other
+                |> Option.map (fun s -> ScalarExpr.Function("struct_json_encode", [ s ], PlDataType.String))
+
+        | JsonDeserialize(target, dtoType, steps) ->
+            match JsonTypeInference.inferPolarsJsonDataType dtoType with
+            | None -> None
+            | Some dtypeHandle ->
+                dtypeHandle.Dispose()
+
+                match eval ctx target with
+                | None -> None
+                | Some targetS ->
+                    let decodedS =
+                        ScalarExpr.Function(
+                            "str_json_decode",
+                            [ targetS; ScalarExpr.Literal(LiteralValue.String dtoType.AssemblyQualifiedName) ],
+                            PlDataType.Unknown
+                        )
+
+                    let rec traverseSteps (currentS: ScalarExpr) (currType: Type) (remainingSteps: JsonAccessStep list) : ScalarExpr option =
+                        match remainingSteps with
+                        | [] -> Some currentS
+
+                        | PropertyStep m :: rest when
+                            (m.Name = "Length" || m.Name = "Count")
+                            && not (isNull (PolarsTypeHelper.TryGetEnumerableElementType currType)) ->
+                            let lenS = ScalarExpr.Function("list_len", [ currentS ], PlDataType.UInt32)
+                            traverseSteps lenS typeof<int> rest
+
+                        | PropertyStep m :: rest ->
+                            let memberType =
+                                match m with
+                                | :? PropertyInfo as p -> p.PropertyType
+                                | :? FieldInfo as f -> f.FieldType
+                                | _ -> typeof<obj>
+
+                            let fieldName =
+                                match JsonTypeInference.tryResolveJsonFieldName currType m.Name with
+                                | Some jsonFieldName -> jsonFieldName
+                                | None -> m.Name
+
+                            let fieldS = ScalarExpr.Function("struct_field_by_name", [ currentS; ScalarExpr.Literal(LiteralValue.String fieldName) ], PlDataType.Unknown)
+                            traverseSteps fieldS memberType rest
+
+                        | IndexStep indexExpr :: rest ->
+                            let elemType =
+                                let elemOpt = PolarsTypeHelper.TryGetEnumerableElementType currType
+                                if not (isNull elemOpt) then elemOpt
+                                elif currType.IsArray then currType.GetElementType()
+                                elif currType.IsGenericType then currType.GetGenericArguments().[0]
+                                else typeof<obj>
+
+                            match eval ctx indexExpr with
+                            | Some idxS ->
+                                let itemS = ScalarExpr.Function("list_get", [ currentS; idxS ], PlDataType.Unknown)
+                                traverseSteps itemS elemType rest
+                            | None -> None
+
+                    traverseSteps decodedS dtoType steps
+
 

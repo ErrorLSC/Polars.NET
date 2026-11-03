@@ -2,7 +2,6 @@ namespace Polars.NET.Linq.IR
 
 open System
 open System.Text
-open Polars.NET.Core
 
 /// Construction helpers, visitors, and graph visualization for LogicalPlan
 module internal LogicalPlanOps =
@@ -176,6 +175,117 @@ module internal LogicalPlanOps =
     // 3. Plan Graph Formatter / Pretty Printer
     // =========================================================================
 
+    /// Formats a ScalarExpr purely symbolically into a human-readable algebraic representation.
+    let rec formatScalar (expr: ScalarExpr) : string =
+        match expr with
+        | ScalarExpr.Column name -> sprintf "col(\"%s\")" name
+        | ScalarExpr.Literal lit ->
+            match lit with
+            | LiteralValue.Null dt -> sprintf "null(%A)" dt
+            | LiteralValue.Bool b -> sprintf "%b" b
+            | LiteralValue.Int8 sb -> sprintf "%dy" sb
+            | LiteralValue.Int16 s -> sprintf "%ds" s
+            | LiteralValue.Int32 i -> sprintf "%d" i
+            | LiteralValue.Int64 l -> sprintf "%dL" l
+            | LiteralValue.UInt8 b -> sprintf "%duy" b
+            | LiteralValue.UInt16 us -> sprintf "%dus" us
+            | LiteralValue.UInt32 ui -> sprintf "%du" ui
+            | LiteralValue.UInt64 ul -> sprintf "%dUL" ul
+            | LiteralValue.Float32 f -> sprintf "%gf" f
+            | LiteralValue.Float64 d -> sprintf "%g" d
+            | LiteralValue.Decimal m -> sprintf "%sM" (m.ToString())
+            | LiteralValue.String s -> sprintf "\"%s\"" s
+            | LiteralValue.Date d -> sprintf "date(\"%s\")" (d.ToString "yyyy-MM-dd")
+            | LiteralValue.DateTime dt -> sprintf "datetime(\"%s\")" (dt.ToString "o")
+            | LiteralValue.DateTimeOffset dto -> sprintf "datetimeoffset(\"%s\")" (dto.ToString "o")
+            | LiteralValue.TimeSpan ts -> sprintf "timespan(\"%s\")" (ts.ToString())
+            | LiteralValue.TimeOnly to' -> sprintf "time(\"%s\")" (to'.ToString "o")
+
+        | ScalarExpr.Binary(op, left, right) ->
+            let opStr =
+                match op with
+                | BinaryOp.Eq -> "=="
+                | BinaryOp.NotEq -> "!="
+                | BinaryOp.Lt -> "<"
+                | BinaryOp.LtEq -> "<="
+                | BinaryOp.Gt -> ">"
+                | BinaryOp.GtEq -> ">="
+                | BinaryOp.And -> "AND"
+                | BinaryOp.Or -> "OR"
+                | BinaryOp.Xor -> "XOR"
+                | BinaryOp.Add -> "+"
+                | BinaryOp.Subtract -> "-"
+                | BinaryOp.Multiply -> "*"
+                | BinaryOp.Divide -> "/"
+                | BinaryOp.Modulo -> "%"
+                | BinaryOp.FloorDivide -> "//"
+                | BinaryOp.Power -> "**"
+                | BinaryOp.StringConcat -> "+"
+                | BinaryOp.Like -> "LIKE"
+                | BinaryOp.Contains -> "CONTAINS"
+                | BinaryOp.StartsWith -> "STARTS_WITH"
+                | BinaryOp.EndsWith -> "ENDS_WITH"
+                | BinaryOp.RegexMatch -> "MATCHES"
+
+            sprintf "(%s %s %s)" (formatScalar left) opStr (formatScalar right)
+
+        | ScalarExpr.Unary(op, inner) ->
+            match op with
+            | UnaryOp.Not -> sprintf "NOT(%s)" (formatScalar inner)
+            | UnaryOp.Negate -> sprintf "-(%s)" (formatScalar inner)
+            | UnaryOp.IsNull -> sprintf "(%s IS NULL)" (formatScalar inner)
+            | UnaryOp.IsNotNull -> sprintf "(%s IS NOT NULL)" (formatScalar inner)
+            | UnaryOp.Abs -> sprintf "ABS(%s)" (formatScalar inner)
+
+        | ScalarExpr.Cast(inner, targetType, isStrict) ->
+            sprintf "CAST(%s AS %A%s)" (formatScalar inner) targetType (if isStrict then " STRICT" else "")
+
+        | ScalarExpr.Function(name, args, _) ->
+            let argsStr = args |> List.map formatScalar |> String.concat ", "
+            sprintf "%s(%s)" name argsStr
+
+        | ScalarExpr.Aggregation(kind, exprOpt, isDistinct) ->
+            let innerStr =
+                match exprOpt with
+                | Some e -> (if isDistinct then "DISTINCT " else "") + formatScalar e
+                | None -> "*"
+            sprintf "%A(%s)" kind innerStr
+
+        | ScalarExpr.Window(inner, partitionBy, orderBy) ->
+            let partStr =
+                if partitionBy.IsEmpty then ""
+                else " PARTITION BY " + (partitionBy |> List.map formatScalar |> String.concat ", ")
+            let orderStr =
+                if orderBy.IsEmpty then ""
+                else " ORDER BY " + (orderBy |> List.map (fun o -> formatScalar o.Expr + (if o.Descending then " DESC" else " ASC")) |> String.concat ", ")
+            sprintf "%s OVER (%s%s)" (formatScalar inner) partStr orderStr
+
+        | ScalarExpr.Conditional(test, ifTrue, ifFalse) ->
+            sprintf "CASE WHEN %s THEN %s ELSE %s END" (formatScalar test) (formatScalar ifTrue) (formatScalar ifFalse)
+
+        | ScalarExpr.Coalesce exprs ->
+            sprintf "COALESCE(%s)" (exprs |> List.map formatScalar |> String.concat ", ")
+
+        | ScalarExpr.ItemAccess(target, index) ->
+            sprintf "%s[%s]" (formatScalar target) (formatScalar index)
+
+        | ScalarExpr.Slice(target, offset, length) ->
+            sprintf "%s[%d:%d]" (formatScalar target) offset (offset + int64 length)
+
+        | ScalarExpr.Alias(inner, alias) ->
+            sprintf "%s AS %s" (formatScalar inner) alias
+
+        | ScalarExpr.Subquery(_, kind) ->
+            sprintf "SUBQUERY(%A)" kind
+
+        | ScalarExpr.Opaque(_, cols, desc) ->
+            if String.IsNullOrEmpty desc || desc = "Filter" || desc = "Select" || desc = "WithColumns" || desc = "Sort" || desc = "LeftOn" || desc = "RightOn" then
+                if cols.IsEmpty then sprintf "Opaque(%s)" desc
+                else sprintf "Opaque(%s, cols=[%s])" desc (String.concat ", " cols)
+            else
+                if cols.IsEmpty then sprintf "Opaque(\"%s\")" desc
+                else sprintf "Opaque(\"%s\", cols=[%s])" desc (String.concat ", " cols)
+
     let formatPlan (root: LogicalPlan) : string =
         let sb = StringBuilder()
 
@@ -198,44 +308,52 @@ module internal LogicalPlanOps =
                 |> ignore
 
             | LogicalPlan.Filter(input, pred) ->
-                sb.AppendLine(sprintf "Filter: %A" pred) |> ignore
+                sb.AppendLine(sprintf "Filter: %s" (formatScalar pred)) |> ignore
                 formatNode nextIndent true input
 
             | LogicalPlan.Project(input, projs) ->
                 let projStr =
-                    projs |> List.map (fun (n, e) -> sprintf "%s=%A" n e) |> String.concat ", "
+                    projs |> List.map (fun (n, e) -> sprintf "%s=%s" n (formatScalar e)) |> String.concat ", "
 
                 sb.AppendLine(sprintf "Project: [%s]" projStr) |> ignore
                 formatNode nextIndent true input
 
             | LogicalPlan.WithColumns(input, cols) ->
                 let colStr =
-                    cols |> List.map (fun (n, e) -> sprintf "%s=%A" n e) |> String.concat ", "
+                    cols |> List.map (fun (n, e) -> sprintf "%s=%s" n (formatScalar e)) |> String.concat ", "
 
                 sb.AppendLine(sprintf "WithColumns: [%s]" colStr) |> ignore
                 formatNode nextIndent true input
 
             | LogicalPlan.Join(left, right, lOn, rOn, how, sfx, _, _) ->
-                sb.AppendLine(sprintf "Join: how=%A suffix=%A leftOn=%A rightOn=%A" how sfx lOn rOn) |> ignore
+                let lStr = lOn |> List.map formatScalar |> String.concat ", "
+                let rStr = rOn |> List.map formatScalar |> String.concat ", "
+                sb.AppendLine(sprintf "Join: how=%A suffix=%A leftOn=[%s] rightOn=[%s]" how sfx lStr rStr) |> ignore
                 formatNode nextIndent false left
                 formatNode nextIndent true right
 
             | LogicalPlan.JoinAsOf(left, right, spec) ->
-                sb.AppendLine(sprintf "JoinAsOf: strategy=%A leftOn=%A rightOn=%A" spec.Strategy spec.LeftOn spec.RightOn)
+                sb.AppendLine(sprintf "JoinAsOf: strategy=%A leftOn=%s rightOn=%s" spec.Strategy (formatScalar spec.LeftOn) (formatScalar spec.RightOn))
                 |> ignore
                 formatNode nextIndent false left
                 formatNode nextIndent true right
 
             | LogicalPlan.GroupBy(input, keys, aggs, having, ord) ->
+                let keyStr = keys |> List.map formatScalar |> String.concat ", "
                 let aggStr =
-                    aggs |> List.map (fun (n, e) -> sprintf "%s=%A" n e) |> String.concat ", "
+                    aggs |> List.map (fun (n, e) -> sprintf "%s=%s" n (formatScalar e)) |> String.concat ", "
+                let havingStr = having |> Option.map formatScalar |> Option.defaultValue "None"
 
-                sb.AppendLine(sprintf "GroupBy: keys=%A aggs=[%s] having=%A maintainOrder=%b" keys aggStr having ord)
+                sb.AppendLine(sprintf "GroupBy: keys=[%s] aggs=[%s] having=%s maintainOrder=%b" keyStr aggStr havingStr ord)
                 |> ignore
                 formatNode nextIndent true input
 
             | LogicalPlan.Sort(input, orderings) ->
-                sb.AppendLine(sprintf "Sort: orderings=%A" orderings) |> ignore
+                let ordStr =
+                    orderings
+                    |> List.map (fun o -> sprintf "%s %s" (formatScalar o.Expr) (if o.Descending then "DESC" else "ASC"))
+                    |> String.concat ", "
+                sb.AppendLine(sprintf "Sort: [%s]" ordStr) |> ignore
                 formatNode nextIndent true input
 
             | LogicalPlan.Limit(input, off, cnt) ->

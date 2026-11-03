@@ -1,9 +1,7 @@
 namespace Polars.NET.Linq
 
 open System
-open System.Linq.Expressions
 open Polars.NET.Core
-open Polars.NET.Core.Helpers
 
 [<AutoOpen>]
 module internal NativeOpsApplier =
@@ -190,5 +188,3 @@ module internal NativeOpsApplier =
 
                 | QueryOp.SelectPassthrough -> currentLf)
             (PolarsWrapper.LazyClone sourceLf)
-
-

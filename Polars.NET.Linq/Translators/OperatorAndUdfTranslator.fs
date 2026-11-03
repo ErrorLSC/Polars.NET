@@ -2,6 +2,7 @@ namespace Polars.NET.Linq
 
 open Polars.NET.Core
 open Polars.NET.Core.Arrow
+open Polars.NET.Linq.IR
 open System
 open System.Linq.Expressions
 open System.Reflection
@@ -9,6 +10,28 @@ open Polars.NET.Core.Helpers
 
 [<AutoOpen>]
 module internal OperatorAndUdfTranslator =
+
+    let internal translateBinaryScalar (nodeType: ExpressionType) (left: ScalarExpr) (right: ScalarExpr) : ScalarExpr =
+        match nodeType with
+        | ExpressionType.Equal -> ScalarExpr.Binary(BinaryOp.Eq, left, right)
+        | ExpressionType.NotEqual -> ScalarExpr.Binary(BinaryOp.NotEq, left, right)
+        | ExpressionType.GreaterThan -> ScalarExpr.Binary(BinaryOp.Gt, left, right)
+        | ExpressionType.GreaterThanOrEqual -> ScalarExpr.Binary(BinaryOp.GtEq, left, right)
+        | ExpressionType.LessThan -> ScalarExpr.Binary(BinaryOp.Lt, left, right)
+        | ExpressionType.LessThanOrEqual -> ScalarExpr.Binary(BinaryOp.LtEq, left, right)
+        | ExpressionType.Add -> ScalarExpr.Binary(BinaryOp.Add, left, right)
+        | ExpressionType.Subtract -> ScalarExpr.Binary(BinaryOp.Subtract, left, right)
+        | ExpressionType.Multiply -> ScalarExpr.Binary(BinaryOp.Multiply, left, right)
+        | ExpressionType.Divide -> ScalarExpr.Binary(BinaryOp.Divide, left, right)
+        | ExpressionType.Modulo -> ScalarExpr.Binary(BinaryOp.Modulo, left, right)
+        | ExpressionType.Power -> ScalarExpr.Binary(BinaryOp.Power, left, right)
+        | ExpressionType.And
+        | ExpressionType.AndAlso -> ScalarExpr.Binary(BinaryOp.And, left, right)
+        | ExpressionType.Or
+        | ExpressionType.OrElse -> ScalarExpr.Binary(BinaryOp.Or, left, right)
+        | ExpressionType.ExclusiveOr -> ScalarExpr.Binary(BinaryOp.Xor, left, right)
+        | ExpressionType.Coalesce -> ScalarExpr.Coalesce [ left; right ]
+        | other -> failwithf "Binary operator '%A' is not currently supported in Polars LINQ" other
 
     let internal translateBinary (nodeType: ExpressionType) (left: ExprHandle) (right: ExprHandle) : ExprHandle =
         match nodeType with
@@ -32,6 +55,14 @@ module internal OperatorAndUdfTranslator =
         | ExpressionType.Coalesce -> PolarsWrapper.Coalesce [| left; right |]
         | other -> failwithf "Binary operator '%A' is not currently supported in Polars LINQ" other
 
+    let internal translateUnaryScalar (nodeType: ExpressionType) (operand: ScalarExpr) : ScalarExpr option =
+        match nodeType with
+        | ExpressionType.Not -> Some(ScalarExpr.Unary(UnaryOp.Not, operand))
+        | ExpressionType.Negate
+        | ExpressionType.NegateChecked -> Some(ScalarExpr.Unary(UnaryOp.Negate, operand))
+        | ExpressionType.UnaryPlus -> Some operand
+        | _ -> None
+
     let internal translateUnary (nodeType: ExpressionType) (operand: ExprHandle) : ExprHandle option =
         match nodeType with
         | ExpressionType.Not -> Some(PolarsWrapper.Not operand)
@@ -40,7 +71,7 @@ module internal OperatorAndUdfTranslator =
         | ExpressionType.UnaryPlus -> Some operand
         | _ -> None
 
-    let internal tryResolveEntityNullTarget (ctx: TranslationContext) (expr: Expression) : ExprHandle option =
+    let internal tryResolveEntityNullTargetScalar (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
         let cleanE = unwrap expr
         let scopeOpt = tryExtractScopeName cleanE
         match scopeOpt with
@@ -61,12 +92,12 @@ module internal OperatorAndUdfTranslator =
                     else
                         None
                 match nonNullablePropCol with
-                | Some col -> Some(PolarsWrapper.Col col)
+                | Some col -> Some(ScalarExpr.Column col)
                 | None ->
                     scopeMap
                     |> Map.toList
                     |> List.tryPick (fun ((s, _), physicalCol) ->
-                        if s = scope then Some(PolarsWrapper.Col physicalCol) else None)
+                        if s = scope then Some(ScalarExpr.Column physicalCol) else None)
 
             match ctx with
             | TranslationContext.ScopedEntity(_, scopeMap, _)
@@ -74,16 +105,73 @@ module internal OperatorAndUdfTranslator =
                 findColInScopeMap scopeMap
             | TranslationContext.BinaryJoin(leftParam, rightParam, leftCols, rightSuffix) ->
                 if scope = leftParam then
-                    leftCols |> Seq.tryHead |> Option.map PolarsWrapper.Col
+                    leftCols |> Seq.tryHead |> Option.map ScalarExpr.Column
                 elif scope = rightParam then
-                    leftCols |> Seq.tryHead |> Option.map (fun c -> PolarsWrapper.Col(c + rightSuffix))
+                    leftCols |> Seq.tryHead |> Option.map (fun c -> ScalarExpr.Column(c + rightSuffix))
                 else None
             | TranslationContext.Merge(target, source, suffix) ->
-                if scope = target then Some(PolarsWrapper.Col "")
-                elif scope = source then Some(PolarsWrapper.Col suffix)
+                if scope = target then Some(ScalarExpr.Column "")
+                elif scope = source then Some(ScalarExpr.Column suffix)
                 else None
             | _ -> None
         | None -> None
+
+    let internal tryResolveEntityNullTarget (ctx: TranslationContext) (expr: Expression) : ExprHandle option =
+        tryResolveEntityNullTargetScalar ctx expr
+        |> Option.map (function
+            | ScalarExpr.Column col -> PolarsWrapper.Col col
+            | _ -> PolarsWrapper.Col "")
+
+    let internal translateBinaryExprScalar
+        (eval: ScalarExprEvaluator)
+        (ctx: TranslationContext)
+        (op: ExpressionType)
+        (left: Expression)
+        (right: Expression)
+        : ScalarExpr option =
+        let translateNullCheckTarget targetExpr =
+            eval ctx targetExpr
+            |> Option.orElseWith (fun () -> tryResolveEntityNullTargetScalar ctx targetExpr)
+
+        if op = ExpressionType.NotEqual && isNullConstantExpr right then
+            translateNullCheckTarget left |> Option.map (fun x -> ScalarExpr.Unary(UnaryOp.IsNotNull, x))
+        elif op = ExpressionType.NotEqual && isNullConstantExpr left then
+            translateNullCheckTarget right |> Option.map (fun x -> ScalarExpr.Unary(UnaryOp.IsNotNull, x))
+        elif op = ExpressionType.Equal && isNullConstantExpr right then
+            translateNullCheckTarget left |> Option.map (fun x -> ScalarExpr.Unary(UnaryOp.IsNull, x))
+        elif op = ExpressionType.Equal && isNullConstantExpr left then
+            translateNullCheckTarget right |> Option.map (fun x -> ScalarExpr.Unary(UnaryOp.IsNull, x))
+        elif op = ExpressionType.LeftShift then
+            match eval ctx left, tryEvaluate right with
+            | Some leftS, Some nVal ->
+                try
+                    let n = Convert.ToInt32 nVal
+                    Some(ScalarExpr.Function("bit_left_shift", [ leftS; ScalarExpr.Literal(LiteralValue.Int32 n) ], PlDataType.Unknown))
+                with _ ->
+                    None
+            | _ -> None
+
+        elif op = ExpressionType.RightShift then
+            match eval ctx left, tryEvaluate right with
+            | Some leftS, Some nVal ->
+                try
+                    let n = Convert.ToInt32 nVal
+                    Some(ScalarExpr.Function("bit_right_shift", [ leftS; ScalarExpr.Literal(LiteralValue.Int32 n) ], PlDataType.Unknown))
+                with _ ->
+                    None
+            | _ -> None
+        // Intercept String concatenation (+) to synthesize native string concatenation
+        elif
+            op = ExpressionType.Add
+            && (left.Type = typeof<string> || right.Type = typeof<string>)
+        then
+            match eval ctx left, eval ctx right with
+            | Some l, Some r -> Some(ScalarExpr.Binary(BinaryOp.StringConcat, l, r))
+            | _ -> None
+        else
+            match eval ctx left, eval ctx right with
+            | Some l, Some r -> Some(translateBinaryScalar op l r)
+            | _ -> None
 
     let internal translateBinaryExpr
         (eval: ExprEvaluator)
@@ -135,6 +223,19 @@ module internal OperatorAndUdfTranslator =
             match eval ctx left, eval ctx right with
             | Some l, Some r -> Some(translateBinary op l r)
             | _ -> None
+
+    let internal translateUnaryExprScalar
+        (eval: ScalarExprEvaluator)
+        (ctx: TranslationContext)
+        (op: ExpressionType)
+        (operand: Expression)
+        (targetType: Type)
+        : ScalarExpr option =
+        match op with
+        | ExpressionType.Convert
+        | ExpressionType.ConvertChecked ->
+            eval ctx operand |> Option.bind (tryTranslateCastScalar targetType)
+        | _ -> eval ctx operand |> Option.bind (translateUnaryScalar op)
 
     let internal translateUnaryExpr
         (eval: ExprEvaluator)

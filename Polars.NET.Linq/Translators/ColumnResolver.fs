@@ -2,6 +2,7 @@ namespace Polars.NET.Linq
 
 open Polars.NET.Core
 open Polars.NET.Core.Arrow
+open Polars.NET.Linq.IR
 open System
 open System.Linq
 open System.Reflection
@@ -36,6 +37,25 @@ module internal ColumnResolver =
         | "Variance" -> Some(PolarsWrapper.Var(targetColExpr, 1uy))
         | _ -> None
 
+    /// Pure symbolic translation of standard LINQ reduction method names to ScalarExpr.Aggregation nodes.
+    let internal translateReductionOpScalar (methodName: string) (targetColExpr: ScalarExpr) : ScalarExpr option =
+        match methodName with
+        | "Sum" -> Some(ScalarExpr.Aggregation(AggKind.Sum, Some targetColExpr, false))
+        | "Mean"
+        | "Average" -> Some(ScalarExpr.Aggregation(AggKind.Mean, Some targetColExpr, false))
+        | "Min" -> Some(ScalarExpr.Aggregation(AggKind.Min, Some targetColExpr, false))
+        | "Max" -> Some(ScalarExpr.Aggregation(AggKind.Max, Some targetColExpr, false))
+        | "Median" -> Some(ScalarExpr.Aggregation(AggKind.Median, Some targetColExpr, false))
+        | "First"
+        | "FirstOrDefault" -> Some(ScalarExpr.Aggregation(AggKind.First, Some targetColExpr, false))
+        | "Last"
+        | "LastOrDefault" -> Some(ScalarExpr.Aggregation(AggKind.Last, Some targetColExpr, false))
+        | "Std"
+        | "StdDev" -> Some(ScalarExpr.Aggregation(AggKind.Std, Some targetColExpr, false))
+        | "Var"
+        | "Variance" -> Some(ScalarExpr.Aggregation(AggKind.Var, Some targetColExpr, false))
+        | _ -> None
+
     /// Maps statistical dispersion reduction operations with explicit degree of freedom (ddof).
     let internal translateDispersionOp
         (methodName: string)
@@ -47,6 +67,19 @@ module internal ColumnResolver =
         | "StdDev" -> Some(PolarsWrapper.Std(targetColExpr, ddof))
         | "Var"
         | "Variance" -> Some(PolarsWrapper.Var(targetColExpr, ddof))
+        | _ -> None
+
+    /// Pure symbolic translation of statistical dispersion reduction operations.
+    let internal translateDispersionOpScalar
+        (methodName: string)
+        (_ddof: byte)
+        (targetColExpr: ScalarExpr)
+        : ScalarExpr option =
+        match methodName with
+        | "Std"
+        | "StdDev" -> Some(ScalarExpr.Aggregation(AggKind.Std, Some targetColExpr, false))
+        | "Var"
+        | "Variance" -> Some(ScalarExpr.Aggregation(AggKind.Var, Some targetColExpr, false))
         | _ -> None
 
     let internal isTemporalType (t: Type) =
@@ -113,6 +146,51 @@ module internal ColumnResolver =
                     failwithf
                         "Type '%s' is not supported as a constant literal in Polars LINQ"
                         (other.GetType().FullName)
+
+    let internal tryGetPlDataType (t: Type) : PlDataType option =
+        let core = PolarsTypeHelper.UnwrapCoreType t
+        if core = typeof<bool> then Some PlDataType.Boolean
+        elif core = typeof<sbyte> then Some PlDataType.Int8
+        elif core = typeof<int16> then Some PlDataType.Int16
+        elif core = typeof<int> then Some PlDataType.Int32
+        elif core = typeof<int64> then Some PlDataType.Int64
+        elif core = typeof<byte> then Some PlDataType.UInt8
+        elif core = typeof<uint16> then Some PlDataType.UInt16
+        elif core = typeof<uint32> then Some PlDataType.UInt32
+        elif core = typeof<uint64> then Some PlDataType.UInt64
+        elif core = typeof<float32> then Some PlDataType.Float32
+        elif core = typeof<double> then Some PlDataType.Float64
+        elif core = typeof<decimal> then Some PlDataType.Decimal
+        elif core = typeof<string> then Some PlDataType.String
+        elif core = typeof<DateOnly> then Some PlDataType.Date
+        elif core = typeof<DateTime> || core = typeof<DateTimeOffset> then Some PlDataType.Datetime
+        elif core = typeof<TimeSpan> then Some PlDataType.Duration
+        elif core = typeof<TimeOnly> then Some PlDataType.Time
+        else None
+
+    [<TailCall>]
+    let rec internal toLiteralScalar (value: obj) (t: Type) : ScalarExpr =
+        match value with
+        | null ->
+            let dt = tryGetPlDataType t |> Option.defaultValue PlDataType.Null
+            ScalarExpr.Literal(LiteralValue.Null dt)
+        | _ ->
+            let coreType = PolarsTypeHelper.UnwrapCoreType t
+            if coreType.IsEnum then
+                let underlyingType = Enum.GetUnderlyingType coreType
+                let underlyingVal = Convert.ChangeType(value, underlyingType)
+                toLiteralScalar underlyingVal underlyingType
+            else
+                match value with
+                | :? char as c -> ScalarExpr.Literal(LiteralValue.String(string c))
+                | _ -> ScalarExpr.Literal(LiteralValue.OfObject value)
+
+    let internal tryTranslateCastScalar (targetType: Type) (operand: ScalarExpr) : ScalarExpr option =
+        if targetType = typeof<obj> then
+            Some operand
+        else
+            tryGetPlDataType targetType
+            |> Option.map (fun dt -> ScalarExpr.Cast(operand, dt, isStrict = false))
 
     let internal tryTranslateCast (targetType: Type) (operand: ExprHandle) : ExprHandle option =
         if targetType = typeof<obj> then

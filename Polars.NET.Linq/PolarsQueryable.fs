@@ -11,6 +11,7 @@ open System.Runtime.CompilerServices
 open System.Threading
 open System.Threading.Tasks
 open Polars.NET.Linq.IR
+open Polars.NET.Linq.Backend.Polars
 
 /// Strongly-typed IQueryProvider backed by Polars.NET.Core
 type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer) =
@@ -181,17 +182,18 @@ and PolarsQuery<'T>
             clientPredsWithAst
             (expression.ToString())
 
-        let logicalPlan = TreeBuilder.fromOps baseLf ops
-        let optimizedPlan = LogicalOptimizer.optimize logicalPlan
-        let loweredLf, loweredOps = PhysicalLowerer.lowerToOps optimizedPlan
-        let nativeLf = applyNativeOps loweredLf loweredOps
+        let nativeLf = applyNativeOps baseLf ops
         let clientPredicates = clientPredsWithAst |> List.map fst
         nativeLf, clientPredicates, clientProjOpt, requiresClientFallback, stages
 
     /// Compiles pipeline and builds the target LogicalPlan IR tree.
     member this.GetLogicalPlan() : LogicalPlan =
-        let baseLf, ops, _, _, _, _ = this.CompilePipeline()
-        let logicalPlan = TreeBuilder.fromOps baseLf ops
+        let baseLf, ops, _, _, _, stages = this.CompilePipeline()
+        let logicalPlan =
+            if not stages.IsEmpty then
+                TreeBuilder.fromStages baseLf stages targetType
+            else
+                PolarsPhysicalLowerer.fromOps baseLf ops
         LogicalOptimizer.optimize logicalPlan
 
     /// Explains the intermediate representation (IR) LogicalPlan tree.
@@ -563,11 +565,15 @@ and PolarsQuery<'T>
         let baseLf, ops, clientPreds, clientProjOpt, requiresClientFallback, stages =
             this.CompilePipeline()
 
-        let logicalPlan = TreeBuilder.fromOps baseLf ops
-        let optimizedPlan = LogicalOptimizer.optimize logicalPlan
-        let loweredLf, loweredOps = PhysicalLowerer.lowerToOps optimizedPlan
-        let nativeLf = applyNativeOps loweredLf loweredOps
+        let nativeLf = applyNativeOps baseLf ops
         let planStr = PolarsWrapper.Explain(nativeLf, optimized)
+
+        let logicalPlan =
+            if not stages.IsEmpty then
+                TreeBuilder.fromStages baseLf stages targetType
+            else
+                PolarsPhysicalLowerer.fromOps baseLf ops
+        let optimizedLogicalPlan = LogicalOptimizer.optimize logicalPlan
         let chunkSizeOpt = stages |> List.tryPick (function LinqStage.Chunk s -> Some s | _ -> None)
         let shouldShuffle = stages |> List.exists (function LinqStage.Shuffle -> true | _ -> false)
         let mutable postOps = []
@@ -599,7 +605,7 @@ and PolarsQuery<'T>
 
         {
             NativePlan = planWithPostOps
-            LogicalPlan = Some(LogicalPlanOps.formatPlan optimizedPlan)
+            LogicalPlan = Some(LogicalPlanOps.formatPlan optimizedLogicalPlan)
             HasClientPredicates = not clientPreds.IsEmpty
             ClientPredicateExpressions = clientPreds |> List.map snd
             HasClientProjection = clientProjOpt.IsSome || chunkSizeOpt.IsSome || shouldShuffle || isGrouping

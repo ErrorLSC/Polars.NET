@@ -253,6 +253,35 @@ public partial class LinqTests
         Assert.Contains("Filter", logicalPlan);
         Assert.Contains("Sort", logicalPlan);
         Assert.Contains("Project", logicalPlan);
+        Assert.DoesNotContain("Opaque", logicalPlan);
+    }
+
+    [Fact]
+    [Trait("LINQ", "IR")]
+    public void Test_CSharp_Linq_ExplainLogicalPlan_ComplexExpressions_NoOpaque()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000),
+            new Employee("Charlie", 35, 70000)
+        };
+
+        using var dfEmps = DataFrame.FromRows(emps);
+        var empQuery = dfEmps.AsQueryable(emps);
+
+        var query = empQuery
+            .Where(e => e.Age > 26 && e.Name.StartsWith("C"))
+            .Select(e => new {
+                NameUpper = e.Name.ToUpper(),
+                Bonus = Math.Round(e.Salary * 0.1, 2)
+            });
+
+        string logicalPlan = query.ExplainLogicalPlan();
+        Assert.False(string.IsNullOrWhiteSpace(logicalPlan));
+        Assert.DoesNotContain("Opaque", logicalPlan);
+        Assert.Contains("starts_with", logicalPlan);
+        Assert.Contains("to_upper", logicalPlan);
     }
     [Fact]
     [Trait("LINQ", "Scalar_Projection")]

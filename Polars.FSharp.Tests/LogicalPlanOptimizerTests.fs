@@ -165,6 +165,7 @@ type LogicalPlanOptimizerTests() =
         Assert.Contains("Filter", logicalPlanAscii)
         Assert.Contains("Sort", logicalPlanAscii)
         Assert.Contains("Project", logicalPlanAscii)
+        Assert.False(logicalPlanAscii.Contains("Opaque"))
 
         let inspection = (q :?> IPolarsExplainable).InspectPlan(optimized = true)
         Assert.True(inspection.LogicalPlan.IsSome)
@@ -172,3 +173,23 @@ type LogicalPlanOptimizerTests() =
         Assert.Contains("Filter", lpStr)
         Assert.Contains("Sort", lpStr)
         Assert.Contains("Project", lpStr)
+        Assert.False(lpStr.Contains("Opaque"))
+
+    [<Fact>]
+    member _.``LogicalPlan IR is completely symbolized without Opaque nodes on complex operations``() =
+        let rows = [ { Id = 1; Val = 10 }; { Id = 2; Val = 20 }; { Id = 3; Val = 30 } ]
+        use df = DataFrame.ofRecords rows
+
+        let q =
+            query {
+                for r in df.AsQueryable<TestRow>() do
+                where (r.Id > 1 && r.Val <= 25)
+                sortBy r.Id
+                select (r.Id + r.Val)
+            }
+
+        let planStr = q.ExplainLogicalPlan()
+        Assert.False(planStr.Contains("Opaque"))
+        Assert.Contains("col(\"Id\") > 1", planStr)
+        Assert.Contains("col(\"Val\") <= 25", planStr)
+        Assert.Contains("col(\"Id\") + col(\"Val\")", planStr)

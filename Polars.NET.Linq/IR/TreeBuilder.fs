@@ -9,208 +9,160 @@ open Polars.NET.Linq
 module internal TreeBuilder =
 
     /// Translates an Expression into a ScalarExpr using available scope and column resolution context.
-    let rec tryBuildScalar (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
-        match ExprTranslator.unwrap expr with
-        | :? ConstantExpression as ce ->
-            Some(ScalarExpr.Literal(LiteralValue.OfObject ce.Value))
-
-        | MemberAccess(target, m) when isNavigationMember m ->
-            match ColumnResolver.tryResolveColumnNameWithContext ctx expr with
-            | Some colName -> Some(ScalarExpr.Column colName)
-            | None ->
-                ExprTranslator.tryTranslateWithContext ctx expr
-                |> Option.map (fun h ->
-                    let name = defaultArg (Option.ofObj (PolarsWrapper.ExprGetOutputName h)) m.Name
-                    ScalarExpr.Opaque(h, [ name ], expr.ToString()))
-
-        | MemberAccess(_, m) when not (isNavigationMember m) ->
-            match ColumnResolver.tryResolveColumnNameWithContext ctx expr with
-            | Some colName -> Some(ScalarExpr.Column colName)
-            | None ->
-                ExprTranslator.tryTranslateWithContext ctx expr
-                |> Option.map (fun h -> ScalarExpr.Opaque(h, [ m.Name ], expr.ToString()))
-
-        | Binary(opType, left, right) ->
-            let opOpt =
-                match opType with
-                | ExpressionType.Equal -> Some BinaryOp.Eq
-                | ExpressionType.NotEqual -> Some BinaryOp.NotEq
-                | ExpressionType.LessThan -> Some BinaryOp.Lt
-                | ExpressionType.LessThanOrEqual -> Some BinaryOp.LtEq
-                | ExpressionType.GreaterThan -> Some BinaryOp.Gt
-                | ExpressionType.GreaterThanOrEqual -> Some BinaryOp.GtEq
-                | ExpressionType.AndAlso
-                | ExpressionType.And -> Some BinaryOp.And
-                | ExpressionType.OrElse
-                | ExpressionType.Or -> Some BinaryOp.Or
-                | ExpressionType.ExclusiveOr -> Some BinaryOp.Xor
-                | ExpressionType.Add -> Some BinaryOp.Add
-                | ExpressionType.Subtract -> Some BinaryOp.Subtract
-                | ExpressionType.Multiply -> Some BinaryOp.Multiply
-                | ExpressionType.Divide -> Some BinaryOp.Divide
-                | ExpressionType.Modulo -> Some BinaryOp.Modulo
-                | _ -> None
-
-            match opOpt with
-            | Some op ->
-                match tryBuildScalar ctx left, tryBuildScalar ctx right with
-                | Some l, Some r -> Some(ScalarExpr.Binary(op, l, r))
-                | _ ->
-                    ExprTranslator.tryTranslateWithContext ctx expr
-                    |> Option.map (fun h -> ScalarExpr.Opaque(h, [], expr.ToString()))
-            | None ->
-                ExprTranslator.tryTranslateWithContext ctx expr
-                |> Option.map (fun h -> ScalarExpr.Opaque(h, [], expr.ToString()))
-
-        | Unary(ExpressionType.Not, inner) ->
-            tryBuildScalar ctx inner |> Option.map (fun i -> ScalarExpr.Unary(UnaryOp.Not, i))
-
-        | Unary(ExpressionType.Negate, inner) ->
-            tryBuildScalar ctx inner |> Option.map (fun i -> ScalarExpr.Unary(UnaryOp.Negate, i))
-
-        | other ->
-            ExprTranslator.tryTranslateWithContext ctx other
+    let tryBuildScalar (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
+        match ExprTranslator.tryTranslateToScalar ctx expr with
+        | Some s -> Some s
+        | None ->
+            ExprTranslator.tryTranslateWithContext ctx expr
             |> Option.map (fun h ->
                 let cols =
-                    match ColumnResolver.tryResolveColumnNameWithContext ctx other with
+                    match ColumnResolver.tryResolveColumnNameWithContext ctx expr with
                     | Some c -> [ c ]
-                    | None ->
-                        match Option.ofObj (PolarsWrapper.ExprGetOutputName h) with
-                        | Some n when not (String.IsNullOrEmpty n) -> [ n ]
-                        | _ -> []
-                ScalarExpr.Opaque(h, cols, other.ToString()))
+                    | None -> []
+                ScalarExpr.Opaque(h, cols, expr.ToString()))
 
-    /// Constructs a LogicalPlan tree from a base LazyFrameHandle and a sequence of QueryOps.
-    let fromOps (baseLf: LazyFrameHandle) (ops: QueryOp list) : LogicalPlan =
+    /// Extracts projection bindings (name * ScalarExpr) from a projection LambdaExpression.
+    let private extractProjections (ctx: TranslationContext) (body: Expression) : (string * ScalarExpr) list option =
+        match ExprTranslator.unwrap body with
+        | :? MemberInitExpression as mie ->
+            let bindings =
+                mie.Bindings
+                |> Seq.choose (function
+                    | :? MemberAssignment as ma ->
+                        tryBuildScalar ctx ma.Expression
+                        |> Option.map (fun s -> ma.Member.Name, s)
+                    | _ -> None)
+                |> Seq.toList
+            if bindings.Length = mie.Bindings.Count then Some bindings else None
+
+        | :? NewExpression as ne ->
+            let names =
+                if not (isNull ne.Members) && ne.Members.Count = ne.Arguments.Count then
+                    ne.Members |> Seq.map (fun m -> m.Name) |> Seq.toList
+                elif not (isNull ne.Constructor) then
+                    ne.Constructor.GetParameters() |> Seq.map (fun p -> p.Name) |> Seq.toList
+                else
+                    []
+
+            let bindings =
+                ne.Arguments
+                |> Seq.mapi (fun i arg ->
+                    let name = if i < names.Length then names.[i] else sprintf "col_%d" i
+                    tryBuildScalar ctx arg |> Option.map (fun s -> name, s))
+                |> Seq.toList
+
+            if bindings |> List.forall Option.isSome then
+                Some(bindings |> List.map Option.get)
+            else
+                None
+
+        | other ->
+            tryBuildScalar ctx other
+            |> Option.map (fun s -> [ ("value", s) ])
+
+    /// Constructs a LogicalPlan tree directly from a base LazyFrameHandle and a sequence of LinqStages.
+    let fromStages (baseLf: LazyFrameHandle) (stages: LinqStage list) (_targetType: Type) : LogicalPlan =
         let initialPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame baseLf, LogicalSchema.Empty)
-        ops
-        |> List.fold (fun currentPlan op ->
-            match op with
-            | QueryOp.Filter exprH ->
-                let scalar = ScalarExpr.Opaque(exprH, [], "Filter")
-                LogicalPlan.Filter(currentPlan, scalar)
+        stages
+        |> List.fold (fun currentPlan stage ->
+            match stage with
+            | LinqStage.Filter lam ->
+                let p = lam.Parameters.[0]
+                let ctx = TranslationContext.Entity p.Name
+                match tryBuildScalar ctx lam.Body with
+                | Some pred -> LogicalPlan.Filter(currentPlan, pred)
+                | None -> currentPlan
 
-            | QueryOp.Select exprs ->
-                let projs =
-                    exprs
-                    |> Array.mapi (fun i h ->
-                        let name = defaultArg (Option.ofObj (PolarsWrapper.ExprGetOutputName h)) (sprintf "col_%d" i)
-                        name, ScalarExpr.Opaque(h, [ name ], "Select"))
-                    |> Array.toList
-                LogicalPlan.Project(currentPlan, projs)
+            | LinqStage.Project lam ->
+                let p = lam.Parameters.[0]
+                let ctx = TranslationContext.Entity p.Name
+                match extractProjections ctx lam.Body with
+                | Some projs -> LogicalPlan.Project(currentPlan, projs)
+                | None -> currentPlan
 
-            | QueryOp.WithColumns exprs ->
-                let cols =
-                    exprs
-                    |> Array.mapi (fun i h ->
-                        let name = defaultArg (Option.ofObj (PolarsWrapper.ExprGetOutputName h)) (sprintf "col_%d" i)
-                        name, ScalarExpr.Opaque(h, [ name ], "WithColumns"))
-                    |> Array.toList
-                LogicalPlan.WithColumns(currentPlan, cols)
+            | LinqStage.Sort(lam, isDesc, nullsLast) ->
+                let p = lam.Parameters.[0]
+                let ctx = TranslationContext.Entity p.Name
+                match tryBuildScalar ctx lam.Body with
+                | Some s ->
+                    let newOrder = { SortOrder.Expr = s; Descending = isDesc; NullsLast = nullsLast }
+                    match currentPlan with
+                    | LogicalPlan.Sort(input, prevOrders) ->
+                        LogicalPlan.Sort(input, prevOrders @ [ newOrder ])
+                    | _ ->
+                        LogicalPlan.Sort(currentPlan, [ newOrder ])
+                | None -> currentPlan
 
-            | QueryOp.Sort specs ->
-                let orderings =
-                    specs
-                    |> List.map (fun s ->
-                        {
-                            SortOrder.Expr = ScalarExpr.Opaque(s.Expr, [], "Sort")
-                            Descending = s.Descending
-                            NullsLast = s.NullsLast
-                        })
-                LogicalPlan.Sort(currentPlan, orderings)
+            | LinqStage.SortDefault(isDesc, nullsLast) ->
+                let newOrder = { SortOrder.Expr = ScalarExpr.Column ""; Descending = isDesc; NullsLast = nullsLast }
+                match currentPlan with
+                | LogicalPlan.Sort(input, prevOrders) ->
+                    LogicalPlan.Sort(input, prevOrders @ [ newOrder ])
+                | _ ->
+                    LogicalPlan.Sort(currentPlan, [ newOrder ])
 
-            | QueryOp.Slice(offset, len) ->
-                LogicalPlan.Limit(currentPlan, offset, len)
+            | LinqStage.Take count ->
+                LogicalPlan.Limit(currentPlan, 0L, count)
 
-            | QueryOp.SkipLast count ->
+            | LinqStage.Skip count ->
+                LogicalPlan.Limit(currentPlan, int64 count, UInt32.MaxValue)
+
+            | LinqStage.SkipLast count ->
                 LogicalPlan.SkipLast(currentPlan, count)
 
-            | QueryOp.Unique spec ->
-                let subset = spec.SubsetCols |> Option.map Array.toList
-                LogicalPlan.Distinct(currentPlan, subset, spec.Keep)
+            | LinqStage.Distinct ->
+                LogicalPlan.Distinct(currentPlan, None, PlUniqueKeepStrategy.First)
 
-            | QueryOp.WithRowIndex(name, offsetOpt) ->
-                LogicalPlan.WithRowIndex(currentPlan, name, offsetOpt)
+            | LinqStage.DistinctBy lam ->
+                let p = lam.Parameters.[0]
+                let ctx = TranslationContext.Entity p.Name
+                match tryBuildScalar ctx lam.Body with
+                | Some (ScalarExpr.Column col) -> LogicalPlan.Distinct(currentPlan, Some [ col ], PlUniqueKeepStrategy.First)
+                | _ -> currentPlan
 
-            | QueryOp.Rename spec ->
-                LogicalPlan.Rename(currentPlan, Array.toList spec.ExistingNames, Array.toList spec.NewNames)
-
-            | QueryOp.Explode spec ->
-                LogicalPlan.Explode(currentPlan, Array.toList spec.ColumnNames, spec.EmptyAsNull, spec.KeepNulls)
-
-            | QueryOp.Unpivot spec ->
-                LogicalPlan.Unpivot(currentPlan, Array.toList spec.Index, spec.On |> Option.map Array.toList, spec.VariableName, spec.ValueName)
-
-            | QueryOp.Reverse ->
+            | LinqStage.Reverse ->
                 LogicalPlan.Reverse currentPlan
 
-            | QueryOp.SelectPassthrough ->
+            | LinqStage.Index ->
+                LogicalPlan.WithRowIndex(currentPlan, "index", None)
+
+            | LinqStage.CountBy lam ->
+                let p = lam.Parameters.[0]
+                let ctx = TranslationContext.Entity p.Name
+                match tryBuildScalar ctx lam.Body with
+                | Some keyExpr -> LogicalPlan.GroupBy(currentPlan, [ keyExpr ], [ ("Count", ScalarExpr.Aggregation(AggKind.Len, None, false)) ], None, false)
+                | None -> currentPlan
+
+            | LinqStage.GroupByKey lam ->
+                let p = lam.Parameters.[0]
+                let ctx = TranslationContext.Entity p.Name
+                match tryBuildScalar ctx lam.Body with
+                | Some keyExpr -> LogicalPlan.GroupBy(currentPlan, [ keyExpr ], [], None, false)
+                | None -> currentPlan
+
+            | LinqStage.GroupByWithResult(keyLam, resLam) ->
+                let keyP = keyLam.Parameters.[0]
+                let keyCtx = TranslationContext.Entity keyP.Name
+                let keyExpr = tryBuildScalar keyCtx keyLam.Body |> Option.defaultValue (ScalarExpr.Column "Key")
+                let resP = resLam.Parameters.[0]
+                let resCtx = TranslationContext.Entity resP.Name
+                match extractProjections resCtx resLam.Body with
+                | Some aggs -> LogicalPlan.GroupBy(currentPlan, [ keyExpr ], aggs, None, false)
+                | None -> currentPlan
+
+            | LinqStage.Explode(colLam, _) ->
+                let p = colLam.Parameters.[0]
+                let ctx = TranslationContext.Entity p.Name
+                match ColumnResolver.tryResolveColumnNameWithContext ctx colLam.Body with
+                | Some col -> LogicalPlan.Explode(currentPlan, [ col ], false, false)
+                | None -> currentPlan
+
+            | LinqStage.Cast _
+            | LinqStage.OfType _
+            | LinqStage.DefaultIfEmpty _ ->
                 currentPlan
 
-            | QueryOp.Join spec ->
-                let rightPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame spec.RightLf, LogicalSchema.Empty)
-                let leftOn = spec.LeftOn |> Array.map (fun h -> ScalarExpr.Opaque(h, [], "LeftOn")) |> Array.toList
-                let rightOn = spec.RightOn |> Array.map (fun h -> ScalarExpr.Opaque(h, [], "RightOn")) |> Array.toList
-                if spec.InvertSides then
-                    LogicalPlan.Join(rightPlan, currentPlan, rightOn, leftOn, spec.How, spec.Suffix, spec.Coalesce, spec.NullsEqual)
-                else
-                    LogicalPlan.Join(currentPlan, rightPlan, leftOn, rightOn, spec.How, spec.Suffix, spec.Coalesce, spec.NullsEqual)
-
-            | QueryOp.JoinAsOf spec ->
-                let rightPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame spec.RightLf, LogicalSchema.Empty)
-                let leftOn = spec.LeftOn |> Array.head |> fun h -> ScalarExpr.Opaque(h, [], "LeftOn")
-                let rightOn = spec.RightOn |> Array.head |> fun h -> ScalarExpr.Opaque(h, [], "RightOn")
-                let leftBy =
-                    match spec.LeftBy with
-                    | Some hs -> hs |> Array.map (fun h -> ScalarExpr.Opaque(h, [], "LeftBy")) |> Array.toList
-                    | None -> []
-                let rightBy =
-                    match spec.RightBy with
-                    | Some hs -> hs |> Array.map (fun h -> ScalarExpr.Opaque(h, [], "RightBy")) |> Array.toList
-                    | None -> []
-                let logicalSpec =
-                    {
-                        LeftOn = leftOn
-                        RightOn = rightOn
-                        LeftBy = leftBy
-                        RightBy = rightBy
-                        Strategy = spec.Strategy
-                        ToleranceStr = spec.ToleranceStr
-                        ToleranceInt = spec.ToleranceInt
-                        ToleranceFloat = spec.ToleranceFloat
-                        AllowEq = spec.AllowEq
-                        CheckSorted = spec.CheckSorted
-                        Suffix = spec.Suffix
-                        Validation = spec.Validation
-                        Coalesce = spec.Coalesce
-                        MaintainOrder = spec.MaintainOrder
-                        JoinSide = spec.JoinSide
-                        NullsEqual = spec.NullsEqual
-                    }
-                LogicalPlan.JoinAsOf(currentPlan, rightPlan, logicalSpec)
-
-            | QueryOp.GroupBy spec ->
-                let keys = spec.Keys |> Array.map (fun h -> ScalarExpr.Opaque(h, [], "GroupKey")) |> Array.toList
-                let aggs =
-                    spec.Aggs
-                    |> Array.mapi (fun i h ->
-                        let name = defaultArg (Option.ofObj (PolarsWrapper.ExprGetOutputName h)) (sprintf "agg_%d" i)
-                        name, ScalarExpr.Opaque(h, [ name ], "Agg"))
-                    |> Array.toList
-                let having = spec.Having |> Option.map (fun h -> ScalarExpr.Opaque(h, [], "Having"))
-                LogicalPlan.GroupBy(currentPlan, keys, aggs, having, spec.MaintainOrder)
-
-            | QueryOp.Concat spec ->
-                let otherPlan = LogicalPlan.Scan(LogicalPlanSource.LazyFrame spec.OtherLf, LogicalSchema.Empty)
-                if spec.Prepend then
-                    LogicalPlan.Union(otherPlan, currentPlan, isAll = true)
-                else
-                    LogicalPlan.Union(currentPlan, otherPlan, isAll = true)
-
-            | QueryOp.HorizontalConcat otherLfs ->
-                let otherPlans =
-                    otherLfs
-                    |> Array.map (fun lf -> LogicalPlan.Scan(LogicalPlanSource.LazyFrame lf, LogicalSchema.Empty))
-                    |> Array.toList
-                LogicalPlan.HorizontalConcat(currentPlan :: otherPlans))
+            | _ ->
+                currentPlan)
             initialPlan
+

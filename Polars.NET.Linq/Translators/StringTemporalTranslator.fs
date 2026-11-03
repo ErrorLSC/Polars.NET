@@ -1,6 +1,7 @@
 namespace Polars.NET.Linq
 
 open Polars.NET.Core
+open Polars.NET.Linq.IR
 open System
 open System.Text
 open System.Reflection
@@ -566,3 +567,469 @@ module internal StringTemporalTranslator =
                 Some(PolarsWrapper.DtOffsetBy(t, PolarsWrapper.Lit(sprintf "%g%s" (Convert.ToDouble v) unitSuffix)))
             | _ -> None
         | _ -> None
+
+
+    let internal translateStringMethodScalar
+        (eval: ScalarExprEvaluator)
+        (ctx: TranslationContext)
+        (m: MethodInfo)
+        (target: Expression)
+        (args: Expression list)
+        : ScalarExpr option =
+        let targetS () = eval ctx target
+
+        match m.Name, args with
+        // --- 1. String.Concat ---
+        | "Concat", _ when isNull target ->
+            let flatArgs =
+                match args with
+                | [ single ] ->
+                    match unwrap single with
+                    | :? NewArrayExpression as nae when nae.NodeType = ExpressionType.NewArrayInit ->
+                        nae.Expressions |> Seq.toList
+                    | _ -> args
+                | other -> other
+
+            if flatArgs.IsEmpty then
+                Some(ScalarExpr.Literal(LiteralValue.String ""))
+            elif flatArgs.Length = 1 then
+                eval ctx flatArgs.Head
+            else
+                let argExprs = flatArgs |> List.choose (eval ctx)
+                if argExprs.Length = flatArgs.Length then
+                    let rustFmt = String.replicate argExprs.Length "{}"
+                    Some(ScalarExpr.Function("format_string", ScalarExpr.Literal(LiteralValue.String rustFmt) :: argExprs, PlDataType.String))
+                else
+                    None
+
+        // --- 1b. String.Join ---
+        | "Join", sepExpr :: rawItems when isNull target && not rawItems.IsEmpty ->
+            let flatItems =
+                match rawItems with
+                | [ single ] ->
+                    match unwrap single with
+                    | :? NewArrayExpression as nae when nae.NodeType = ExpressionType.NewArrayInit ->
+                        nae.Expressions |> Seq.toList
+                    | _ -> [ single ]
+                | other -> other
+
+            let sepStrOpt =
+                match tryEvaluate sepExpr with
+                | Some(:? string as sep) -> Some sep
+                | Some(:? char as sep) -> Some(string sep)
+                | _ -> None
+
+            match sepStrOpt with
+            | Some sep ->
+                let itemExprs = flatItems |> List.choose (eval ctx)
+                if itemExprs.Length = flatItems.Length && not itemExprs.IsEmpty then
+                    Some(ScalarExpr.Function("concat_str", ScalarExpr.Literal(LiteralValue.String sep) :: itemExprs, PlDataType.String))
+                else
+                    None
+            | None -> None
+
+        // --- 2. String.Format ---
+        | "Format", _ when isNull target ->
+            let formatExprOpt, rawItems =
+                match args with
+                | providerExpr :: formatExpr :: rest when typeof<IFormatProvider>.IsAssignableFrom(providerExpr.Type) ->
+                    let items =
+                        match rest with
+                        | [ :? NewArrayExpression as nae ] when nae.NodeType = ExpressionType.NewArrayInit ->
+                            nae.Expressions |> Seq.toList
+                        | other -> other
+                    Some formatExpr, items
+                | formatExpr :: rest ->
+                    let items =
+                        match rest with
+                        | [ :? NewArrayExpression as nae ] when nae.NodeType = ExpressionType.NewArrayInit ->
+                            nae.Expressions |> Seq.toList
+                        | other -> other
+                    Some formatExpr, items
+                | [] -> None, []
+
+            match formatExprOpt with
+            | Some formatExpr ->
+                match tryEvaluate formatExpr with
+                | Some(:? string as netFormat) ->
+                    let matches = Regex.Matches(netFormat, @"\{(\d+)(?::[^}]+)?\}")
+                    let referencedIndices =
+                        matches |> Seq.map (fun m -> Int32.Parse(m.Groups.[1].Value)) |> Seq.toList
+
+                    if referencedIndices.IsEmpty then
+                        Some(ScalarExpr.Literal(LiteralValue.String netFormat))
+                    elif referencedIndices |> List.forall (fun idx -> idx >= 0 && idx < rawItems.Length) then
+                        let orderedExprs = referencedIndices |> List.map (fun idx -> rawItems.[idx])
+                        let argExprs = orderedExprs |> List.choose (eval ctx)
+                        if argExprs.Length = orderedExprs.Length then
+                            let rustFmt = Regex.Replace(netFormat, @"\{(\d+)(?::[^}]+)?\}", "{}")
+                            Some(ScalarExpr.Function("format_string", ScalarExpr.Literal(LiteralValue.String rustFmt) :: argExprs, PlDataType.String))
+                        else
+                            None
+                    else
+                        None
+                | _ -> None
+            | None -> None
+
+        | "IsNullOrEmpty", [ arg ] when isNull target ->
+            eval ctx arg
+            |> Option.map (fun expr ->
+                let isNull = ScalarExpr.Unary(UnaryOp.IsNull, expr)
+                let isEmpty = ScalarExpr.Binary(BinaryOp.Eq, expr, ScalarExpr.Literal(LiteralValue.String ""))
+                ScalarExpr.Binary(BinaryOp.Or, isNull, isEmpty))
+
+        | "IsNullOrWhiteSpace", [ arg ] when isNull target ->
+            eval ctx arg
+            |> Option.map (fun expr ->
+                let isNull = ScalarExpr.Unary(UnaryOp.IsNull, expr)
+                let stripped = ScalarExpr.Function("strip", [ expr; ScalarExpr.Literal(LiteralValue.Null PlDataType.String) ], PlDataType.String)
+                let isEmpty = ScalarExpr.Binary(BinaryOp.Eq, stripped, ScalarExpr.Literal(LiteralValue.String ""))
+                ScalarExpr.Binary(BinaryOp.Or, isNull, isEmpty))
+
+        // --- Contains / StartsWith / EndsWith / IndexOf ---
+        | ("Contains" | "StartsWith" | "EndsWith" | "IndexOf") as opName, arg :: rest when
+            rest.IsEmpty || opName <> "Contains" || rest.Length = 1 ->
+            let applyOp (t: ScalarExpr) (p: ScalarExpr) =
+                match opName with
+                | "Contains" -> ScalarExpr.Function("str_contains", [ t; p; ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.Boolean)
+                | "StartsWith" -> ScalarExpr.Function("starts_with", [ t; p ], PlDataType.Boolean)
+                | "EndsWith" -> ScalarExpr.Function("ends_with", [ t; p ], PlDataType.Boolean)
+                | _ ->
+                    let findExpr = ScalarExpr.Function("str_find", [ t; p; ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.Int64)
+                    let castedExpr = tryTranslateCastScalar typeof<int> findExpr |> Option.defaultValue findExpr
+                    ScalarExpr.Function("fill_null", [ castedExpr; ScalarExpr.Literal(LiteralValue.Int32 -1) ], PlDataType.Int32)
+
+            match rest with
+            | [] ->
+                match targetS (), eval ctx arg with
+                | Some t, Some p -> Some(applyOp t p)
+                | _ -> None
+            | compExpr :: _ ->
+                match targetS (), eval ctx arg, tryEvaluateCaseInsensitive compExpr with
+                | Some t, Some p, Some true ->
+                    let tLower = ScalarExpr.Function("to_lower", [ t ], PlDataType.String)
+                    let pLower = ScalarExpr.Function("to_lower", [ p ], PlDataType.String)
+                    Some(applyOp tLower pLower)
+                | Some t, Some p, Some false -> Some(applyOp t p)
+                | _ -> None
+
+        // --- IndexOfAny ---
+        | "IndexOfAny", anyOfExpr :: rest ->
+            match tryExtractCharSet anyOfExpr with
+            | Some chars when chars.Length = 0 ->
+                Some(ScalarExpr.Literal(LiteralValue.Int32 -1))
+            | Some chars ->
+                let regexPat = buildCharClassRegex chars
+                let patExpr = ScalarExpr.Literal(LiteralValue.String regexPat)
+
+                match rest with
+                | [] ->
+                    targetS ()
+                    |> Option.map (fun t ->
+                        let findExpr = ScalarExpr.Function("str_find", [ t; patExpr; ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.Int64)
+                        let casted = tryTranslateCastScalar typeof<int> findExpr |> Option.defaultValue findExpr
+                        ScalarExpr.Function("fill_null", [ casted; ScalarExpr.Literal(LiteralValue.Int32 -1) ], PlDataType.Int32))
+
+                | [ startExpr ] ->
+                    match targetS (), eval ctx startExpr with
+                    | Some t, Some startS ->
+                        let startInt = tryTranslateCastScalar typeof<int> startS |> Option.defaultValue startS
+                        let sliced = ScalarExpr.Function("slice", [ t; startInt; ScalarExpr.Literal(LiteralValue.Null PlDataType.Int64) ], PlDataType.String)
+                        let findExpr = ScalarExpr.Function("str_find", [ sliced; patExpr; ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.Int64)
+                        let casted = tryTranslateCastScalar typeof<int> findExpr |> Option.defaultValue findExpr
+                        let fullIdx = ScalarExpr.Binary(BinaryOp.Add, startInt, casted)
+                        Some(ScalarExpr.Function("fill_null", [ fullIdx; ScalarExpr.Literal(LiteralValue.Int32 -1) ], PlDataType.Int32))
+                    | _ -> None
+
+                | [ startExpr; countExpr ] ->
+                    match targetS (), eval ctx startExpr, eval ctx countExpr with
+                    | Some t, Some startS, Some countS ->
+                        let startInt = tryTranslateCastScalar typeof<int> startS |> Option.defaultValue startS
+                        let countInt = tryTranslateCastScalar typeof<int> countS |> Option.defaultValue countS
+                        let sliced = ScalarExpr.Function("slice", [ t; startInt; countInt ], PlDataType.String)
+                        let findExpr = ScalarExpr.Function("str_find", [ sliced; patExpr; ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.Int64)
+                        let casted = tryTranslateCastScalar typeof<int> findExpr |> Option.defaultValue findExpr
+                        let fullIdx = ScalarExpr.Binary(BinaryOp.Add, startInt, casted)
+                        Some(ScalarExpr.Function("fill_null", [ fullIdx; ScalarExpr.Literal(LiteralValue.Int32 -1) ], PlDataType.Int32))
+                    | _ -> None
+                | _ -> None
+            | None -> None
+
+        | "ToUpper", []
+        | "ToUpperInvariant", [] -> targetS () |> Option.map (fun t -> ScalarExpr.Function("to_upper", [ t ], PlDataType.String))
+        | "ToLower", []
+        | "ToLowerInvariant", [] -> targetS () |> Option.map (fun t -> ScalarExpr.Function("to_lower", [ t ], PlDataType.String))
+        | "Substring", [ startExpr ] ->
+            match targetS (), eval ctx startExpr with
+            | Some t, Some startS -> Some(ScalarExpr.Function("slice", [ t; startS; ScalarExpr.Literal(LiteralValue.Null PlDataType.Int64) ], PlDataType.String))
+            | _ -> None
+        | "Substring", [ startExpr; lenExpr ] ->
+            match targetS (), eval ctx startExpr, eval ctx lenExpr with
+            | Some t, Some startS, Some lenS -> Some(ScalarExpr.Function("slice", [ t; startS; lenS ], PlDataType.String))
+            | _ -> None
+
+        // --- Replace ---
+        | "Replace", [ oldExpr; newExpr ] ->
+            match targetS (), eval ctx oldExpr, eval ctx newExpr with
+            | Some t, Some o, Some n -> Some(ScalarExpr.Function("str_replace_all", [ t; o; n; ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.String))
+            | _ -> None
+
+        | "Replace", [ oldExpr; newExpr; compExpr ] ->
+            match targetS (), eval ctx newExpr, tryEvaluateCaseInsensitive compExpr with
+            | Some t, Some n, Some false ->
+                match eval ctx oldExpr with
+                | Some o -> Some(ScalarExpr.Function("str_replace_all", [ t; o; n; ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.String))
+                | _ -> None
+            | Some t, Some n, Some true ->
+                match tryEvaluate oldExpr with
+                | Some(:? string as oldStr) ->
+                    let escapedPattern = sprintf "(?i)%s" (Regex.Escape oldStr)
+                    Some(ScalarExpr.Function("str_replace_all", [ t; ScalarExpr.Literal(LiteralValue.String escapedPattern); n; ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.String))
+                | _ -> None
+            | _ -> None
+
+        // --- PadLeft / PadRight ---
+        | "PadLeft", [ widthExpr ] ->
+            match targetS (), eval ctx widthExpr with
+            | Some t, Some w -> Some(ScalarExpr.Function("pad_start", [ t; w; ScalarExpr.Literal(LiteralValue.String " ") ], PlDataType.String))
+            | _ -> None
+
+        | "PadLeft", [ widthExpr; padCharExpr ] ->
+            match targetS (), eval ctx widthExpr with
+            | Some t, Some w ->
+                match tryEvaluate padCharExpr with
+                | Some(:? char as c) -> Some(ScalarExpr.Function("pad_start", [ t; w; ScalarExpr.Literal(LiteralValue.String(string c)) ], PlDataType.String))
+                | Some(:? string as s) -> Some(ScalarExpr.Function("pad_start", [ t; w; ScalarExpr.Literal(LiteralValue.String s) ], PlDataType.String))
+                | _ -> None
+            | _ -> None
+
+        | "PadRight", [ widthExpr ] ->
+            match targetS (), eval ctx widthExpr with
+            | Some t, Some w -> Some(ScalarExpr.Function("pad_end", [ t; w; ScalarExpr.Literal(LiteralValue.String " ") ], PlDataType.String))
+            | _ -> None
+
+        | "PadRight", [ widthExpr; padCharExpr ] ->
+            match targetS (), eval ctx widthExpr with
+            | Some t, Some w ->
+                match tryEvaluate padCharExpr with
+                | Some(:? char as c) -> Some(ScalarExpr.Function("pad_end", [ t; w; ScalarExpr.Literal(LiteralValue.String(string c)) ], PlDataType.String))
+                | Some(:? string as s) -> Some(ScalarExpr.Function("pad_end", [ t; w; ScalarExpr.Literal(LiteralValue.String s) ], PlDataType.String))
+                | _ -> None
+            | _ -> None
+
+        // --- Normalize ---
+        | "Normalize", [] ->
+            targetS () |> Option.map (fun t -> ScalarExpr.Function("normalize", [ t; ScalarExpr.Literal(LiteralValue.Int32(int NormalizationForm.FormC)) ], PlDataType.String))
+
+        | "Normalize", [ formExpr ] ->
+            match targetS (), tryEvaluate formExpr with
+            | Some t, Some(:? NormalizationForm as form) ->
+                Some(ScalarExpr.Function("normalize", [ t; ScalarExpr.Literal(LiteralValue.Int32(int form)) ], PlDataType.String))
+            | _ -> None
+
+        // --- Indexer: s[i] (get_Chars) ---
+        | "get_Chars", [ idxExpr ] ->
+            match targetS (), eval ctx idxExpr with
+            | Some t, Some idxS ->
+                Some(ScalarExpr.Function("slice", [ t; idxS; ScalarExpr.Literal(LiteralValue.Int32 1) ], PlDataType.String))
+            | _ -> None
+
+        // --- Split ---
+        | "Split", [ sepExpr ] ->
+            let sepOpt =
+                match tryEvaluate sepExpr with
+                | Some(:? char as c) -> Some(string c)
+                | Some(:? string as s) -> Some s
+                | Some(:? (char array) as ca) when ca.Length = 1 -> Some(string ca.[0])
+                | Some(:? (string array) as sa) when sa.Length = 1 -> Some sa.[0]
+                | _ -> None
+
+            match targetS (), sepOpt with
+            | Some t, Some s ->
+                Some(ScalarExpr.Function("str_split", [ t; ScalarExpr.Literal(LiteralValue.String s); ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.List))
+            | _ -> None
+
+        | "Split", [ sepExpr; countExpr ]
+        | "Split", sepExpr :: countExpr :: _ when args.Length <= 3 ->
+            let sepOpt =
+                match tryEvaluate sepExpr with
+                | Some(:? char as c) -> Some(string c)
+                | Some(:? string as s) -> Some s
+                | Some(:? (char array) as ca) when ca.Length = 1 -> Some(string ca.[0])
+                | Some(:? (string array) as sa) when sa.Length = 1 -> Some sa.[0]
+                | _ -> None
+
+            let countOpt =
+                match tryEvaluate countExpr with
+                | Some(:? int as n) -> Some n
+                | _ -> None
+
+            match targetS (), sepOpt, countOpt with
+            | Some t, Some s, Some n ->
+                Some(ScalarExpr.Function("str_split_n", [ t; ScalarExpr.Literal(LiteralValue.String s); ScalarExpr.Literal(LiteralValue.Int32 n) ], PlDataType.List))
+            | _ -> None
+
+        // --- Trim / TrimStart / TrimEnd ---
+        | ("Trim" | "TrimStart" | "TrimEnd") as trimOp, ([] | [ _ ]) ->
+            let fnName =
+                match trimOp with
+                | "TrimStart" -> "trim_start"
+                | "TrimEnd" -> "trim_end"
+                | _ -> "strip"
+
+            match args with
+            | [] -> targetS () |> Option.map (fun t -> ScalarExpr.Function(fnName, [ t; ScalarExpr.Literal(LiteralValue.Null PlDataType.String) ], PlDataType.String))
+            | [ arg ] ->
+                match unwrap arg with
+                | :? ConstantExpression as ce when isNull ce.Value ->
+                    targetS () |> Option.map (fun t -> ScalarExpr.Function(fnName, [ t; ScalarExpr.Literal(LiteralValue.Null PlDataType.String) ], PlDataType.String))
+                | :? NewArrayExpression as nae when nae.Expressions.Count = 0 ->
+                    targetS () |> Option.map (fun t -> ScalarExpr.Function(fnName, [ t; ScalarExpr.Literal(LiteralValue.Null PlDataType.String) ], PlDataType.String))
+                | other ->
+                    let charsOpt =
+                        match tryEvaluate other with
+                        | Some(:? (char array) as chars) -> Some(ScalarExpr.Literal(LiteralValue.String(String(chars))))
+                        | Some(:? char as c) -> Some(ScalarExpr.Literal(LiteralValue.String(string c)))
+                        | Some(:? string as s) -> Some(ScalarExpr.Literal(LiteralValue.String s))
+                        | _ -> eval ctx other
+
+                    match targetS (), charsOpt with
+                    | Some t, Some p -> Some(ScalarExpr.Function(fnName, [ t; p ], PlDataType.String))
+                    | _ -> None
+            | _ -> None
+
+        // --- Equals ---
+        | "Equals", [ aExpr; bExpr ] when isNull target ->
+            match eval ctx aExpr, eval ctx bExpr with
+            | Some a, Some b -> Some(ScalarExpr.Binary(BinaryOp.Eq, a, b))
+            | _ -> None
+
+        | "Equals", [ aExpr; bExpr; compExpr ] when isNull target ->
+            match eval ctx aExpr, eval ctx bExpr, tryEvaluateCaseInsensitive compExpr with
+            | Some a, Some b, Some true ->
+                Some(ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Function("to_lower", [ a ], PlDataType.String), ScalarExpr.Function("to_lower", [ b ], PlDataType.String)))
+            | Some a, Some b, Some false ->
+                Some(ScalarExpr.Binary(BinaryOp.Eq, a, b))
+            | _ -> None
+
+        | "Equals", [ otherExpr ] ->
+            match targetS (), eval ctx otherExpr with
+            | Some t, Some o -> Some(ScalarExpr.Binary(BinaryOp.Eq, t, o))
+            | _ -> None
+
+        | "Equals", [ otherExpr; compExpr ] ->
+            match targetS (), eval ctx otherExpr, tryEvaluateCaseInsensitive compExpr with
+            | Some t, Some o, Some true ->
+                Some(ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Function("to_lower", [ t ], PlDataType.String), ScalarExpr.Function("to_lower", [ o ], PlDataType.String)))
+            | Some t, Some o, Some false ->
+                Some(ScalarExpr.Binary(BinaryOp.Eq, t, o))
+            | _ -> None
+
+        // --- CompareTo ---
+        | "CompareTo", [ otherExpr ] ->
+            match targetS (), eval ctx otherExpr with
+            | Some t, Some o ->
+                let gtCond = ScalarExpr.Binary(BinaryOp.Gt, t, o)
+                let ltCond = ScalarExpr.Binary(BinaryOp.Lt, t, o)
+                Some(ScalarExpr.Conditional(gtCond, ScalarExpr.Literal(LiteralValue.Int32 1), ScalarExpr.Conditional(ltCond, ScalarExpr.Literal(LiteralValue.Int32 -1), ScalarExpr.Literal(LiteralValue.Int32 0))))
+            | _ -> None
+
+        // --- Remove ---
+        | "Remove", [ startExpr ] ->
+            match targetS (), eval ctx startExpr with
+            | Some t, Some startS ->
+                Some(ScalarExpr.Function("slice", [ t; ScalarExpr.Literal(LiteralValue.Int32 0); startS ], PlDataType.String))
+            | _ -> None
+
+        | "Remove", [ startExpr; countExpr ] ->
+            match targetS (), eval ctx startExpr, eval ctx countExpr with
+            | Some t, Some startS, Some countS ->
+                let prefix = ScalarExpr.Function("slice", [ t; ScalarExpr.Literal(LiteralValue.Int32 0); startS ], PlDataType.String)
+                let suffixOffset = ScalarExpr.Binary(BinaryOp.Add, startS, countS)
+                let suffix = ScalarExpr.Function("slice", [ t; suffixOffset; ScalarExpr.Literal(LiteralValue.Null PlDataType.Int64) ], PlDataType.String)
+                Some(ScalarExpr.Function("format_string", [ ScalarExpr.Literal(LiteralValue.String "{}{}"); prefix; suffix ], PlDataType.String))
+            | _ -> None
+
+        | _ -> None
+
+
+    let internal translateTemporalMethodScalar
+        (eval: ScalarExprEvaluator)
+        (ctx: TranslationContext)
+        (m: MethodInfo)
+        (target: Expression)
+        (args: Expression list)
+        : ScalarExpr option =
+        let targetS () = eval ctx target
+
+        match m.Name, args with
+        | "ParseExact", strExpr :: formatExpr :: _ when isNull target && m.DeclaringType = typeof<DateTime> ->
+            match eval ctx strExpr, tryEvaluate formatExpr with
+            | Some strS, Some(:? string as netFormat) ->
+                let chronoFormat = DateTimeFormatHelper.ToChronoFormat netFormat
+                Some(ScalarExpr.Function("str_to_datetime", [ strS; ScalarExpr.Literal(LiteralValue.String chronoFormat); ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.Datetime))
+            | _ -> None
+
+        | "Parse", [ strExpr ]
+        | "Parse", strExpr :: _ when isNull target && m.DeclaringType = typeof<DateTime> ->
+            eval ctx strExpr
+            |> Option.map (fun strS ->
+                ScalarExpr.Function("str_to_datetime", [ strS; ScalarExpr.Literal(LiteralValue.Null PlDataType.String); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.Datetime))
+
+        | "ParseExact", strExpr :: formatExpr :: _ when isNull target && m.DeclaringType = typeof<DateOnly> ->
+            match eval ctx strExpr, tryEvaluate formatExpr with
+            | Some strS, Some(:? string as netFormat) ->
+                let chronoFormat = DateTimeFormatHelper.ToChronoFormat netFormat
+                Some(ScalarExpr.Function("str_to_date", [ strS; ScalarExpr.Literal(LiteralValue.String chronoFormat); ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.Date))
+            | _ -> None
+
+        | "Parse", [ strExpr ]
+        | "Parse", strExpr :: _ when isNull target && m.DeclaringType = typeof<DateOnly> ->
+            eval ctx strExpr
+            |> Option.map (fun strS ->
+                ScalarExpr.Function("str_to_date", [ strS; ScalarExpr.Literal(LiteralValue.Null PlDataType.String); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.Date))
+
+        | "ParseExact", strExpr :: formatExpr :: _ when isNull target && m.DeclaringType = typeof<TimeOnly> ->
+            match eval ctx strExpr, tryEvaluate formatExpr with
+            | Some strS, Some(:? string as netFormat) ->
+                let chronoFormat = DateTimeFormatHelper.ToChronoFormat netFormat
+                Some(ScalarExpr.Function("str_to_time", [ strS; ScalarExpr.Literal(LiteralValue.String chronoFormat); ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.Time))
+            | _ -> None
+
+        | "Parse", [ strExpr ]
+        | "Parse", strExpr :: _ when isNull target && m.DeclaringType = typeof<TimeOnly> ->
+            eval ctx strExpr
+            |> Option.map (fun strS ->
+                ScalarExpr.Function("str_to_time", [ strS; ScalarExpr.Literal(LiteralValue.Null PlDataType.String); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.Time))
+
+        | "IsLeapYear", [ yearExpr ] when isNull target && m.DeclaringType = typeof<DateTime> ->
+            eval ctx yearExpr
+            |> Option.map (fun yearS ->
+                let dateStrExpr = ScalarExpr.Function("format_string", [ ScalarExpr.Literal(LiteralValue.String "{}-01-01"); yearS ], PlDataType.String)
+                let dtExpr = ScalarExpr.Function("str_to_date", [ dateStrExpr; ScalarExpr.Literal(LiteralValue.String "%Y-%m-%d"); ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.Date)
+                ScalarExpr.Function("dt_is_leap_year", [ dtExpr ], PlDataType.Boolean))
+
+        | "ToString", [ formatExpr ] ->
+            match targetS (), tryEvaluate formatExpr with
+            | Some t, Some(:? string as netFormat) ->
+                let chronoFormat = DateTimeFormatHelper.ToChronoFormat netFormat
+                if not (String.IsNullOrEmpty chronoFormat) then
+                    Some(ScalarExpr.Function("dt_to_string", [ t; ScalarExpr.Literal(LiteralValue.String chronoFormat) ], PlDataType.String))
+                else
+                    None
+            | _ -> None
+
+        | "AddDays" | "AddHours" | "AddMinutes" | "AddSeconds" as addOp, [ offsetExpr ] ->
+            let unitSuffix =
+                match addOp with
+                | "AddDays" -> "d"
+                | "AddHours" -> "h"
+                | "AddMinutes" -> "m"
+                | _ -> "s"
+
+            match targetS (), tryEvaluate offsetExpr with
+            | Some t, Some v ->
+                Some(ScalarExpr.Function("dt_offset_by", [ t; ScalarExpr.Literal(LiteralValue.String (sprintf "%g%s" (Convert.ToDouble v) unitSuffix)) ], PlDataType.Datetime))
+            | _ -> None
+        | _ -> None
+

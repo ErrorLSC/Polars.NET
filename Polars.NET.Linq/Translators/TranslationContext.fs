@@ -1,6 +1,7 @@
 namespace Polars.NET.Linq
 
 open Polars.NET.Core
+open Polars.NET.Linq.IR
 open System
 open System.Linq.Expressions
 
@@ -64,6 +65,15 @@ type internal TranslationContext =
             Some(PolarsWrapper.Col "")
         | _ -> None
 
+    /// Attempts to resolve the parameter expression node itself to a pure symbolic ScalarExpr.
+    member this.TryResolveParameterScalar(name: string) : ScalarExpr option =
+        match this with
+        | TranslationContext.Scalar(p, physicalCol) when p = name && not (String.IsNullOrEmpty physicalCol) ->
+            Some(ScalarExpr.Column physicalCol)
+        | TranslationContext.ListElement p when p = name ->
+            Some(ScalarExpr.Column "")
+        | _ -> None
+
     /// Indicates whether member/property accesses are eligible to be resolved as DataFrame columns.
     member this.AllowsColumnMemberLookup: bool =
         match this with
@@ -72,3 +82,6 @@ type internal TranslationContext =
 
 /// Signature for higher-order recursive expression evaluation across translator modules.
 type internal ExprEvaluator = TranslationContext -> Expression -> ExprHandle option
+
+/// Signature for higher-order recursive scalar expression evaluation across translator modules.
+type internal ScalarExprEvaluator = TranslationContext -> Expression -> ScalarExpr option

@@ -1,6 +1,7 @@
 namespace Polars.NET.Linq
 
 open Polars.NET.Core
+open Polars.NET.Linq.IR
 open System
 open System.Linq.Expressions
 
@@ -9,10 +10,14 @@ module internal ExprTranslator =
 
     let internal unwrap e = ColumnResolver.unwrap e
     let internal toLiteralHandle (value: obj) (t: Type) = ColumnResolver.toLiteralHandle value t
+    let internal toLiteralScalar (value: obj) (t: Type) = ColumnResolver.toLiteralScalar value t
     let internal tryTranslateCast targetType operand = ColumnResolver.tryTranslateCast targetType operand
+    let internal tryTranslateCastScalar targetType operand = ColumnResolver.tryTranslateCastScalar targetType operand
     let internal tryResolveColumnNameWithContext ctx expr = ColumnResolver.tryResolveColumnNameWithContext ctx expr
     let internal translateReductionOp methodName targetColExpr = ColumnResolver.translateReductionOp methodName targetColExpr
+    let internal translateReductionOpScalar methodName targetColExpr = ColumnResolver.translateReductionOpScalar methodName targetColExpr
     let internal translateDispersionOp methodName ddof targetColExpr = ColumnResolver.translateDispersionOp methodName ddof targetColExpr
+    let internal translateDispersionOpScalar methodName ddof targetColExpr = ColumnResolver.translateDispersionOpScalar methodName ddof targetColExpr
 
     let internal translateBinary nodeType left right = OperatorAndUdfTranslator.translateBinary nodeType left right
     let internal translateUnary nodeType operand = OperatorAndUdfTranslator.translateUnary nodeType operand
@@ -103,6 +108,102 @@ module internal ExprTranslator =
                     Some(PolarsWrapper.Col(p.Name.Substring 10))
                 else
                     ctx.TryResolveParameterHandle p.Name
+
+            | _ -> None
+        with _ ->
+            None
+
+    /// Root entrypoint for translating LINQ Expression AST nodes to pure, symbolic ScalarExpr trees.
+    let rec tryTranslateToScalar (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
+        let eval = tryTranslateToScalar
+        try
+            match expr with
+            // 0. Row-level String Split exact index access: s.Split(sep)[idx] -> StrSplitExact + StructFieldByIndex
+            | SplitIndexAccess(target, sep, idx) ->
+                let n =
+                    match SplitOptContext.Current with
+                    | Some map ->
+                        match map.TryFind(target.ToString(), sep) with
+                        | Some maxIdx -> maxIdx
+                        | None -> idx
+                    | None -> idx
+
+                match eval ctx target with
+                | Some t ->
+                    let splitS = ScalarExpr.Function("split_exact", [ t; ScalarExpr.Literal(LiteralValue.String sep); ScalarExpr.Literal(LiteralValue.Int32 n) ], PlDataType.Unknown)
+                    Some(ScalarExpr.Function("struct_field_by_index", [ splitS; ScalarExpr.Literal(LiteralValue.Int32 idx) ], PlDataType.String))
+                | _ -> None
+
+            // 1. Row-level List / Array operations
+            | ArrayIndexOp(target, indexExpr) ->
+                match eval ctx target, eval ctx indexExpr with
+                | Some t, Some idx -> Some(ScalarExpr.ItemAccess(t, idx))
+                | _ -> None
+
+            // 1. Regex operations
+            | RegexInvocation invocation -> RegexTranslator.translateRegexInvocationScalar eval ctx invocation
+
+            // 1b. Row-level List / Array method or property invocations
+            | ListInvocation invocation -> ListTranslator.translateListInvocationScalar eval ctx invocation
+
+            // 1c. JSON operations (System.Text.Json)
+            | JsonInvocation invocation -> JsonTranslator.translateJsonInvocationScalar eval ctx invocation
+
+            // 2. Struct Field Access
+            | StructFieldAccess(parentExpr, fieldName) ->
+                match eval ctx parentExpr with
+                | Some parentS -> Some(ScalarExpr.Function("struct_field_by_name", [ parentS; ScalarExpr.Literal(LiteralValue.String fieldName) ], PlDataType.Unknown))
+                | None -> None
+
+            // 3. Constants and Literals
+            | :? ConstantExpression as constExpr ->
+                if isNull constExpr.Value then
+                    Some(ScalarExpr.Literal(LiteralValue.Null PlDataType.Null))
+                else
+                    Some(toLiteralScalar constExpr.Value constExpr.Type)
+
+            // 4. Member / Property Access
+            | MemberAccess _ as memberExpr -> MemberAccessTranslator.translateMemberAccessScalar eval ctx memberExpr
+
+            // 5. Method Calls (Strings, DateTime, Math, Windows, Reductions, etc.)
+            | MethodCall(m, target, args) ->
+                match WindowAndMethodTranslator.translateMethodCallScalar eval ctx m target args with
+                | Some s -> Some s
+                | None ->
+                    match OperatorAndUdfTranslator.tryTranslateUdfInvocation (fun c e -> tryTranslateWithContext c e) ctx expr with
+                    | Some h ->
+                        let desc = expr.ToString()
+                        Some(ScalarExpr.Opaque(h, [], desc))
+                    | None -> None
+
+            // 5b. Delegate Invocations (e.g. myFunc(x.A, x.B))
+            | :? InvocationExpression ->
+                match OperatorAndUdfTranslator.tryTranslateUdfInvocation (fun c e -> tryTranslateWithContext c e) ctx expr with
+                | Some h ->
+                    let desc = expr.ToString()
+                    Some(ScalarExpr.Opaque(h, [], desc))
+                | None -> None
+
+            // 6. Binary operations
+            | Binary(op, left, right) -> OperatorAndUdfTranslator.translateBinaryExprScalar eval ctx op left right
+
+            // 7. Unary operations
+            | Unary(op, operand) -> OperatorAndUdfTranslator.translateUnaryExprScalar eval ctx op operand expr.Type
+
+            // 8. Conditional Expression (Ternary: cond ? ifTrue : ifFalse)
+            | :? ConditionalExpression as cond ->
+                match eval ctx cond.Test, eval ctx cond.IfTrue, eval ctx cond.IfFalse with
+                | Some testS, Some trueS, Some falseS -> Some(ScalarExpr.Conditional(testS, trueS, falseS))
+                | _ -> None
+
+            // 9. Parameter mapping: delegate physical column resolution directly to TranslationContext
+            | :? ParameterExpression as p ->
+                if not (isNull p.Name) && (p.Name.StartsWith "__subquery_agg_" || p.Name.StartsWith "__subquery_col_") then
+                    Some(ScalarExpr.Column p.Name)
+                elif not (isNull p.Name) && p.Name.StartsWith "__key_col_" then
+                    Some(ScalarExpr.Column(p.Name.Substring 10))
+                else
+                    ctx.TryResolveParameterScalar p.Name
 
             | _ -> None
         with _ ->
