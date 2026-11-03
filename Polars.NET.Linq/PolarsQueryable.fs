@@ -191,16 +191,16 @@ and PolarsQuery<'T>
         let clientPredicates = clientPredsWithAst |> List.map fst
         nativeLf, clientPredicates, clientProjOpt, requiresClientFallback, stages
 
+    /// Compiles pipeline into a pure symbolic CompiledLogicalQuery.
+    member this.CompileLogicalQuery() : CompiledLogicalQuery =
+        let baseLf, _, _, _, _, stages = this.CompilePipeline()
+        let initialPlan = PolarsPhysicalLowerer.scanLazyFrame baseLf
+        let compiled = TreeBuilder.buildCompiledQuery initialPlan stages
+        { compiled with Plan = LogicalOptimizer.optimize compiled.Plan }
+
     /// Compiles pipeline and builds the target LogicalPlan IR tree.
     member this.GetLogicalPlan() : LogicalPlan =
-        let baseLf, ops, _, _, _, stages = this.CompilePipeline()
-        let initialPlan = PolarsPhysicalLowerer.scanLazyFrame baseLf
-        let logicalPlan =
-            if not stages.IsEmpty then
-                TreeBuilder.fromStages initialPlan stages
-            else
-                PolarsPhysicalLowerer.fromOpsOnPlan initialPlan ops
-        LogicalOptimizer.optimize logicalPlan
+        (this.CompileLogicalQuery()).Plan
 
     /// Explains the intermediate representation (IR) LogicalPlan tree.
     member this.ExplainLogicalPlan() : string =
@@ -631,6 +631,8 @@ and PolarsQuery<'T>
         member this.ExplainLogicalPlan() = this.ExplainLogicalPlan()
 
         member this.GetLogicalPlan() = this.GetLogicalPlan()
+
+        member this.CompileLogicalQuery() = this.CompileLogicalQuery()
 
     interface IAsyncEnumerable<'T> with
         member this.GetAsyncEnumerator(cancellationToken: CancellationToken) : IAsyncEnumerator<'T> =

@@ -325,6 +325,47 @@ public partial class LinqTests
         Assert.Contains("GroupBy", groupPlan);
         Assert.DoesNotContain("Opaque", groupPlan);
     }
+
+    [Fact]
+    [Trait("LINQ", "IR")]
+    public void Test_CSharp_Linq_CompileLogicalQuery_PureClassification()
+    {
+        var emps = new[]
+        {
+            new Employee("Alice", 25, 50000),
+            new Employee("Bob", 30, 60000),
+        };
+
+        using var df = DataFrame.FromRows(emps);
+        var q = df.AsQueryable(emps);
+
+        // 1. Pure Native Pushdown Query
+        var nativeQuery = q.Where(e => e.Age > 26).Select(e => new { e.Name });
+        var nativeCompiled = nativeQuery.CompileLogicalQuery();
+        Assert.NotNull(nativeCompiled);
+        Assert.Empty(nativeCompiled.ClientPredicates);
+        Assert.Null(nativeCompiled.ClientProjection);
+        Assert.False(nativeCompiled.RequiresClientFallback);
+        Assert.True(nativeCompiled.Plan.IsProject);
+
+        // 2. Client Predicate Boundary (Hybrid Execution)
+        var clientPredQuery = q.Where(e => CustomNonNativeFilter(e));
+        var hybridCompiled = clientPredQuery.CompileLogicalQuery();
+        Assert.NotNull(hybridCompiled);
+        Assert.Single(hybridCompiled.ClientPredicates);
+        Assert.Null(hybridCompiled.ClientProjection);
+        Assert.False(hybridCompiled.RequiresClientFallback);
+
+        // 3. Post-Client Relational Stage Triggers Full Fallback Flag
+        var fallbackQuery = q
+            .Where(e => CustomNonNativeFilter(e))
+            .OrderBy(e => e.Salary);
+        var fallbackCompiled = fallbackQuery.CompileLogicalQuery();
+        Assert.NotNull(fallbackCompiled);
+        Assert.True(fallbackCompiled.RequiresClientFallback);
+    }
+
+    private static bool CustomNonNativeFilter(Employee e) => e.Name.StartsWith("A");
     [Fact]
     [Trait("LINQ", "Scalar_Projection")]
     public void Test_CSharp_Linq_Scalar_Projection_Any_All()

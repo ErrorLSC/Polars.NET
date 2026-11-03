@@ -1,6 +1,7 @@
 namespace Polars.NET.Linq.IR
 
 open System
+open System.Linq.Expressions
 open Polars.NET.Core
 
 /// Strongly-typed literal representation eliminating heap boxing and type ambiguity
@@ -741,3 +742,13 @@ and [<RequireQualifiedAccess>] LogicalPlan =
     | SkipLast of input: LogicalPlan * count: uint32
     | HorizontalConcat of inputs: LogicalPlan list
     | Empty of schema: LogicalSchema
+
+/// Represents a compiled logical query containing the pure symbolic LogicalPlan IR tree
+/// alongside pure managed boundary classifications (client predicates, projection, fallback flags).
+type CompiledLogicalQuery =
+    {
+        Plan: LogicalPlan
+        ClientPredicates: (Func<obj, bool> * LambdaExpression) list
+        ClientProjection: (Type * Func<obj, obj>) option
+        RequiresClientFallback: bool
+    }

@@ -7,6 +7,7 @@ using Microsoft.FSharp.Core;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Linq;
+using Polars.NET.Linq.IR;
 
 namespace Polars.CSharp.Linq;
 
@@ -1050,6 +1051,22 @@ public static class LinqExtensions
         }
 
         return "[Polars.NET] Query source is not a native PolarsQueryable. Logical plan inspection unavailable.";
+    }
+
+    /// <summary>
+    /// Compiles the query pipeline into a pure symbolic CompiledLogicalQuery IR.
+    /// </summary>
+    /// <param name="source">The source queryable.</param>
+    public static CompiledLogicalQuery? CompileLogicalQuery<T>(this IQueryable<T> source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        if (source is IPolarsExplainable explainable)
+        {
+            return explainable.CompileLogicalQuery();
+        }
+
+        return null;
     }
     /// <summary>
     /// Gets or sets the default plan inspector action used when none is explicitly specified.

@@ -157,6 +157,7 @@ type IPolarsExplainable =
     abstract member Explain: optimized: bool -> string
     abstract member ExplainLogicalPlan: unit -> string
     abstract member GetLogicalPlan: unit -> LogicalPlan
+    abstract member CompileLogicalQuery: unit -> CompiledLogicalQuery
 
 type internal FallbackTracker =
     [<ThreadStatic; DefaultValue>]
