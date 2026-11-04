@@ -72,7 +72,17 @@ module internal SchemaInference =
                 else
                     rightType
 
-        | ScalarExpr.Function(_, _, returnType) -> returnType
+        | ScalarExpr.Function(fn, args, returnType) ->
+            if returnType <> PlDataType.Unknown then
+                returnType
+            else
+                match fn with
+                | ScalarFunction.BitLeftShift
+                | ScalarFunction.BitRightShift ->
+                    match args with
+                    | left :: _ -> inferScalarType schema left
+                    | [] -> PlDataType.Unknown
+                | _ -> returnType
 
         | ScalarExpr.Aggregation(kind, innerOpt, _) ->
             match kind with

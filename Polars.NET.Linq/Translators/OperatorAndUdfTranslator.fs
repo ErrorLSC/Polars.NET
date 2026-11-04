@@ -67,7 +67,8 @@ module internal OperatorAndUdfTranslator =
             | Some leftS, Some nVal ->
                 try
                     let n = Convert.ToInt32 nVal
-                    Some(ScalarExpr.Function(ScalarFunction.BitLeftShift, [ leftS; ScalarExpr.Literal(LiteralValue.Int32 n) ], PlDataType.Unknown))
+                    let dt = Option.ofNullable (ArrowTypeResolver.TryGetPlDataType left.Type) |> Option.defaultValue PlDataType.Unknown
+                    Some(ScalarExpr.Function(ScalarFunction.BitLeftShift, [ leftS; ScalarExpr.Literal(LiteralValue.Int32 n) ], dt))
                 with _ ->
                     None
             | _ -> None
@@ -77,7 +78,8 @@ module internal OperatorAndUdfTranslator =
             | Some leftS, Some nVal ->
                 try
                     let n = Convert.ToInt32 nVal
-                    Some(ScalarExpr.Function(ScalarFunction.BitRightShift, [ leftS; ScalarExpr.Literal(LiteralValue.Int32 n) ], PlDataType.Unknown))
+                    let dt = Option.ofNullable (ArrowTypeResolver.TryGetPlDataType left.Type) |> Option.defaultValue PlDataType.Unknown
+                    Some(ScalarExpr.Function(ScalarFunction.BitRightShift, [ leftS; ScalarExpr.Literal(LiteralValue.Int32 n) ], dt))
                 with _ ->
                     None
             | _ -> None

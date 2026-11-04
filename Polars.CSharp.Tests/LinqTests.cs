@@ -3,12 +3,15 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using System.Numerics;
 using Polars.CSharp.Linq;
 using Polars.NET.Core;
 using Polars.NET.Linq;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
+
+public record LinqBitwiseRecord(int Id, int A, int B);
 
 public readonly record struct JsonOpsTestRecord(
     int Id,
@@ -366,6 +369,101 @@ public partial class LinqTests
     }
 
     private static bool CustomNonNativeFilter(Employee e) => e.Name.StartsWith("A");
+
+    [Fact]
+    [Trait("LINQ", "IR")]
+    public void Test_CSharp_Linq_Bitwise_Shift_And_Bitwise_Operators_IR()
+    {
+        var records = new[]
+        {
+            new LinqBitwiseRecord(1, 5, 3),   // 5: 0101, 3: 0011
+            new LinqBitwiseRecord(2, 12, 10), // 12: 1100, 10: 1010
+            new LinqBitwiseRecord(3, 20, 6)   // 20: 0001 0100, 6: 0110
+        };
+
+        using var df = DataFrame.FromRows(records);
+        var q = df.AsQueryable(records);
+
+        int shiftVar = 1;
+
+        // Test shift operators (<<, >>) in both Where and Select, as well as bitwise &, |, ^, ~, PopCount
+        var query = q
+            .Where(x => (x.A << 1) >= 10 && (x.B >> 1) >= 1)
+            .OrderBy(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                ShlLit = x.A << 1,
+                ShrLit = x.A >> 1,
+                ShlVar = x.A << shiftVar,
+                ShrVar = x.A >> shiftVar,
+                BitAnd = x.A & x.B,
+                BitOr  = x.A | x.B,
+                BitXor = x.A ^ x.B,
+                BitNot = ~x.A,
+                PopCount = BitOperations.PopCount((uint)x.A)
+            });
+
+        // 1. Verify Logical IR is 100% symbolic (contains shift functions, no opaque/UDF nodes)
+        string logicalPlan = query.ExplainLogicalPlan();
+        Assert.False(string.IsNullOrWhiteSpace(logicalPlan));
+        Assert.DoesNotContain("Opaque", logicalPlan);
+        Assert.Contains("bit_left_shift", logicalPlan);
+        Assert.Contains("bit_right_shift", logicalPlan);
+
+        // 2. Verify CompileLogicalQuery classifies as 100% pure native pushdown
+        var compiled = query.CompileLogicalQuery();
+        Assert.NotNull(compiled);
+        Assert.Empty(compiled.ClientPredicates);
+        Assert.Null(compiled.ClientProjection);
+        Assert.False(compiled.RequiresClientFallback);
+
+        // 3. Verify native explain report does NOT have C# UDF callbacks
+        string explainPlan = query.Explain();
+        Assert.Contains(NativePushdown, explainPlan);
+        Assert.DoesNotContain("with C# UDF Callback", explainPlan);
+
+        // 4. Execute and verify data correctness
+        var results = query.ToList();
+        Assert.Equal(3, results.Count);
+
+        // Row 1: A=5, B=3 -> (5<<1)=10 >= 10, (3>>1)=1 >= 1 (passes filter)
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal(10, results[0].ShlLit);
+        Assert.Equal(2, results[0].ShrLit);
+        Assert.Equal(10, results[0].ShlVar);
+        Assert.Equal(2, results[0].ShrVar);
+        Assert.Equal(5 & 3, results[0].BitAnd);
+        Assert.Equal(5 | 3, results[0].BitOr);
+        Assert.Equal(5 ^ 3, results[0].BitXor);
+        Assert.Equal(~5, results[0].BitNot);
+        Assert.Equal(2, results[0].PopCount);
+
+        // Row 2: A=12, B=10 -> (12<<1)=24 >= 10, (10>>1)=5 >= 1 (passes filter)
+        Assert.Equal(2, results[1].Id);
+        Assert.Equal(24, results[1].ShlLit);
+        Assert.Equal(6, results[1].ShrLit);
+        Assert.Equal(24, results[1].ShlVar);
+        Assert.Equal(6, results[1].ShrVar);
+        Assert.Equal(12 & 10, results[1].BitAnd);
+        Assert.Equal(12 | 10, results[1].BitOr);
+        Assert.Equal(12 ^ 10, results[1].BitXor);
+        Assert.Equal(~12, results[1].BitNot);
+        Assert.Equal(2, results[1].PopCount);
+
+        // Row 3: A=20, B=6 -> (20<<1)=40 >= 10, (6>>1)=3 >= 1 (passes filter)
+        Assert.Equal(3, results[2].Id);
+        Assert.Equal(40, results[2].ShlLit);
+        Assert.Equal(10, results[2].ShrLit);
+        Assert.Equal(40, results[2].ShlVar);
+        Assert.Equal(10, results[2].ShrVar);
+        Assert.Equal(20 & 6, results[2].BitAnd);
+        Assert.Equal(20 | 6, results[2].BitOr);
+        Assert.Equal(20 ^ 6, results[2].BitXor);
+        Assert.Equal(~20, results[2].BitNot);
+        Assert.Equal(2, results[2].PopCount);
+    }
+
     [Fact]
     [Trait("LINQ", "Scalar_Projection")]
     public void Test_CSharp_Linq_Scalar_Projection_Any_All()
