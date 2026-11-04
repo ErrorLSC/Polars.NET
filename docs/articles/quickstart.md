@@ -132,7 +132,7 @@ let aggDf =
 
 ```csharp [C# (LINQ)]
 // Strongly-typed LINQ to Polars expression
-var aggDf = (from r in df.AsQueryable()
+var aggDf = (from r in df.AsQueryable<>(data)
              where r.Temperature > 9.5
              group r by r.City into g
              select new {
@@ -174,7 +174,7 @@ let windowDf = df |> DataFrame.withColumn diffExpr
 
 ```csharp [C# (LINQ)]
 // Over() extension operator in LINQ
-var windowDf = df.AsQueryable()
+var windowDf = df.AsQueryable(data)
     .Select(r => new {
         r.City,
         r.Temperature,

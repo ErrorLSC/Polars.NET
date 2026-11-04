@@ -117,17 +117,6 @@ use resultDf = q.ToDataFrame()
 printfn "%s" (q.Explain())
 ```
 
-```fsharp [F# (Pipeline API)]
-open Polars.FSharp
-open Polars.FSharp.Query
-
-// Idiomatic F# pipeline combinators over Query
-let resultDf =
-    df.AsQueryable<OrderDto>()
-    |> Query.where (fun o -> o.Revenue >= 500.0 && o.Region <> "Test")
-    |> Query.toDataFrame
-```
-
 :::
 
 ### Real Engine Plan & Output
