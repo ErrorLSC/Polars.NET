@@ -24,7 +24,11 @@ module internal PolarsQueryHelpers =
 
 /// Strongly-typed IQueryProvider backed by Polars.NET.Core
 type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer) =
-    member _.RootLazyFrame = PolarsWrapper.LazyClone initialLazyFrame
+    // The root frame's schema is read once per provider. Lowering clones the handle, so the binding never hands it out.
+    let rootSource = lazy (PolarsPhysicalLowerer.tableSourceOfLazyFrame initialLazyFrame)
+
+    /// Root table source, bound to slot 0 of every query this provider compiles.
+    member _.RootSource : ILogicalTableSource = rootSource.Value
     member _.Materializer = materializer
 
     interface IQueryProvider with
@@ -115,75 +119,116 @@ and PolarsQuery<'T>
     new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer) =
         PolarsQuery<'T>(PolarsQueryProvider(lazyFrameHandle, materializer), None)
 
-    /// Extracts normalized stages from the query expression (using the QueryPlanCache).
-    member private _.ExtractStages() : LinqStage list =
-        let rewrittenExpr = getEffectiveExpr ()
-        let extraction = PartialEvaluator.extract rewrittenExpr
-        let cacheKey = QueryCacheKey.Create(typeof<'T>, extraction.NormalizedExpression)
+    /// Compiles the pipeline to optimized IR, reusing the cached compilation of an identical query
+    /// (same expression shape, parameter values, root columns and configuration) when one exists.
+    /// The thread's fallback and UDF diagnostics are replaced by the pipeline's own, or, with
+    /// `mergeDiagnostics` (grafting this query into another one), merged into the outer ones.
+    member private _.CompilePipeline(mergeDiagnostics: bool) : CompiledPipeline =
+        let extraction = PartialEvaluator.extract (getEffectiveExpr ())
+        let root = provider.RootSource
+        let rootBinding = SourceBinding.Table root
 
-        let cached =
-            QueryPlanCache.GetOrAdd(
-                cacheKey,
-                fun _ ->
-                    let normalizedStages =
-                        try
-                            let s = flattenStages extraction.NormalizedExpression []
-                            let hasSecondarySource =
-                                s |> List.exists (function
-                                    | LinqStage.Join _
-                                    | LinqStage.JoinAsOf _
-                                    | LinqStage.GroupJoin _
-                                    | LinqStage.CrossJoin _
-                                    | LinqStage.Zip _
-                                    | LinqStage.Zip3 _
-                                    | LinqStage.SetOp _
-                                    | LinqStage.Union _
-                                    | LinqStage.Concat _ -> true
-                                    | _ -> false)
-                            if hasSecondarySource then [] else s
-                        with _ ->
-                            []
+        let keyOpt =
+            QueryPlanCache.TryCreateKey(typeof<'T>, extraction.NormalizedExpression, extraction.Parameters, root.Schema.ColumnNames)
+
+        let outerDiagnostic = FallbackTracker.Diagnostic
+        let outerUdfs = UdfTracker.DetectedUdfs
+
+        let pipeline =
+            match keyOpt |> Option.bind QueryPlanCache.TryGet with
+            | Some cached ->
+                { cached.Pipeline with Compiled = { cached.Pipeline.Compiled with Sources = [| rootBinding |] } }
+            | None ->
+                let bound =
+                    if extraction.Parameters.Count = 0 then
+                        extraction.NormalizedExpression
+                    else
+                        PartialEvaluator.substituteExtracted extraction.NormalizedExpression extraction.Parameters
+
+                let stages = flattenStages bound []
+                FallbackTracker.Diagnostic <- None
+                UdfTracker.Reset()
+
+                let compiled = TreeBuilder.buildCompiledQuery PolarsQueryBackend.Instance rootBinding root.Schema isGrouping stages
+
+                let pipeline =
                     {
-                        Key = cacheKey
-                        NormalizedExpression = extraction.NormalizedExpression
-                        ParamNames = extraction.Parameters.Keys |> Seq.toArray
-                        NormalizedStages = normalizedStages
-                        LastAccessTick = Environment.TickCount64
+                        Compiled = { compiled with Plan = LogicalOptimizer.optimize compiled.Plan }
+                        Stages = stages
+                        FallbackDiagnostic = FallbackTracker.Diagnostic
+                        Udfs = UdfTracker.DetectedUdfs
                     }
-            )
 
-        if not cached.NormalizedStages.IsEmpty then
-            if extraction.Parameters.Count = 0 then
-                cached.NormalizedStages
-            else
-                cached.NormalizedStages
-                |> List.map (QueryPlanCache.SubstituteStage extraction.Parameters)
+                // Only root-only pipelines are cached: any other source is bound from this query's values.
+                match keyOpt with
+                | Some key when compiled.Sources.Length = 1 ->
+                    QueryPlanCache.Admit
+                        {
+                            Key = key
+                            Pipeline = { pipeline with Compiled = { pipeline.Compiled with Sources = [||] } }
+                            LastAccessTick = 0L
+                        }
+                | _ -> ()
+
+                pipeline
+
+        UdfTracker.Reset()
+
+        if mergeDiagnostics then
+            FallbackTracker.Diagnostic <- pipeline.FallbackDiagnostic |> Option.orElse outerDiagnostic
+            for udf in outerUdfs do UdfTracker.Record udf
         else
-            let bound =
-                if extraction.Parameters.Count = 0 then
-                    extraction.NormalizedExpression
-                else
-                    PartialEvaluator.substituteExtracted extraction.NormalizedExpression extraction.Parameters
-            flattenStages bound []
+            FallbackTracker.Diagnostic <- pipeline.FallbackDiagnostic
+
+        for udf in pipeline.Udfs do UdfTracker.Record udf
+        pipeline
 
     /// Compiles pipeline into a pure symbolic CompiledLogicalQuery IR.
     member internal this.CompileLogicalQuery() : CompiledLogicalQuery =
-        let lfCloned = provider.RootLazyFrame
-        let stages = this.ExtractStages()
-        FallbackTracker.Diagnostic <- None
-        UdfTracker.Reset()
+        (this.CompilePipeline false).Compiled
 
-        let initialPlan = PolarsPhysicalLowerer.scanLazyFrame lfCloned
-        let compiled = TreeBuilder.buildCompiledQuery PolarsQueryBackend.Instance initialPlan isGrouping stages
-        { compiled with Plan = LogicalOptimizer.optimize compiled.Plan }
+    /// For a pipeline that needs full LINQ-to-Objects fallback, finds the longest prefix of its
+    /// method-call chain that compiles without it. Returns the call at which LINQ-to-Objects takes over
+    /// and the prefix expression that call consumes, or None when no non-trivial prefix runs natively.
+    /// `effectiveExpr` must be the tree the caller later rewrites, since the prefix is identified by reference.
+    /// Compiling candidate prefixes overwrites the thread's fallback and UDF diagnostics.
+    member internal _.TryFindNativePrefix(effectiveExpr: Expression) : (MethodCallExpression * Expression) option =
+        let isQueryable (t: Type) = typeof<IQueryable>.IsAssignableFrom t
 
-    /// Attempts to extract a pure symbolic LogicalPlan without resetting outer diagnostics or lowering to native handles.
-    member internal this.TryGetPureLogicalPlan() : LogicalPlan option =
-        let lfCloned = provider.RootLazyFrame
-        let stages = this.ExtractStages()
-        let initialPlan = PolarsPhysicalLowerer.scanLazyFrame lfCloned
-        let compiled = TreeBuilder.buildCompiledQuery PolarsQueryBackend.Instance initialPlan isGrouping stages
-        let optimizedPlan = LogicalOptimizer.optimize compiled.Plan
+        // Method calls along the source spine, outermost first.
+        let rec spine (e: Expression) =
+            match e with
+            | :? MethodCallExpression as call when
+                isNull call.Object && call.Arguments.Count > 0 && isQueryable call.Arguments.[0].Type
+                ->
+                call :: spine call.Arguments.[0]
+            | _ -> []
+
+        let compilesNatively (prefix: Expression) =
+            try
+                match (provider :> IQueryProvider).CreateQuery prefix with
+                | :? IPolarsInternalExplainable as q -> q.CompileLogicalQuery().Residual <> ClientResidual.LinqToObjects
+                | _ -> false
+            with _ ->
+                false
+
+        effectiveExpr
+        |> spine
+        |> List.tryPick (fun consumer ->
+            let prefix = consumer.Arguments.[0]
+            // ThenBy needs the ordered sequence its OrderBy produced, so the two are never split.
+            let splitsOrdering = consumer.Method.Name = "ThenBy" || consumer.Method.Name = "ThenByDescending"
+            match prefix with
+            | :? MethodCallExpression when not splitsOrdering && compilesNatively prefix -> Some(consumer, prefix)
+            | _ -> None)
+
+    /// Attempts to extract a pure symbolic LogicalPlan (with its source bindings) for grafting into another
+    /// query, merging its diagnostics into the outer ones and never lowering to native handles.
+    member internal this.TryGetPureLogicalPlan() : (LogicalPlan * SourceBinding array) option =
+        let pipeline = this.CompilePipeline true
+        let compiled = pipeline.Compiled
+        let stages = pipeline.Stages
+        let optimizedPlan = compiled.Plan
         let schema = SchemaInference.inferPlanSchema optimizedPlan
         let canUsePurePlan =
             ClientResidualOps.isNative compiled.Residual
@@ -191,15 +236,16 @@ and PolarsQuery<'T>
             && not isGrouping
             && not (stages |> List.exists (function LinqStage.Shuffle | LinqStage.Chunk _ | LinqStage.AggregateBy _ | LinqStage.DefaultIfEmpty _ -> true | _ -> false))
         if canUsePurePlan then
-            Some optimizedPlan
+            Some(optimizedPlan, compiled.Sources)
         else
             None
 
     /// Compiles the pipeline into the native LazyFrameHandle, the managed residual and the normalized stages,
     /// enforcing the client evaluation policy.
     member private this.GetCompiledPlan() : LazyFrameHandle * ClientResidual * LinqStage list =
-        let compiled = this.CompileLogicalQuery()
-        let nativeLf = PolarsPhysicalLowerer.lowerPlan compiled.Plan
+        let pipeline = this.CompilePipeline false
+        let compiled = pipeline.Compiled
+        let nativeLf = PolarsPhysicalLowerer.lowerPlan compiled.Sources compiled.Plan
 
         enforcePipelinePolicy
             "QueryExecution"
@@ -207,7 +253,7 @@ and PolarsQuery<'T>
             (ClientResidualOps.filters compiled.Residual)
             (expression.ToString())
 
-        nativeLf, compiled.Residual, this.ExtractStages()
+        nativeLf, compiled.Residual, pipeline.Stages
 
     /// Compiles pipeline and builds the target LogicalPlan IR tree.
     member this.GetLogicalPlan() : LogicalPlan =
@@ -233,8 +279,46 @@ and PolarsQuery<'T>
         && not (isScalar && width > 1UL)
         && not isGrouping
 
+    /// Executes a pipeline that needs LINQ-to-Objects: the longest natively compilable prefix runs in Polars,
+    /// and the rest of the pipeline runs via EnumerableQuery over the materialized prefix rows.
+    /// Falls back to replaying the whole pipeline over the in-memory root when no prefix runs natively.
+    member private this.ExecuteInMemory() : IEnumerable<'T> =
+        let effectiveExpr = getEffectiveExpr ()
+
+        let split =
+            this.TryFindNativePrefix effectiveExpr
+            |> Option.bind (fun (_, prefix) ->
+                match PolarsTypeHelper.TryGetEnumerableElementType prefix.Type with
+                | null -> None
+                | rowType -> Some(prefix, rowType))
+
+        match split with
+        | Some(prefix, rowType) ->
+            let prefixQuery = (provider :> IQueryProvider).CreateQuery prefix
+            let toArrayMethod = LinqReflectionCache.GetEnumerableMethod("ToArray", 1, [| rowType |])
+            let rows = toArrayMethod.Invoke(null, [| box prefixQuery |])
+
+            let asQueryableMethod = LinqReflectionCache.GetQueryableMethod("AsQueryable", 1, [| rowType |])
+            let localRows = asQueryableMethod.Invoke(null, [| rows |]) :?> IQueryable
+
+            if prefix.Type.IsAssignableFrom(localRows.GetType()) then
+                let replacement = Expression.Constant(localRows, prefix.Type)
+
+                let replacer =
+                    { new ExpressionVisitor() with
+                        override _.Visit(node: Expression) =
+                            if obj.ReferenceEquals(node, prefix) then replacement :> Expression
+                            else base.Visit(node)
+                    }
+
+                let suffixExpr = replacer.Visit effectiveExpr
+                localRows.Provider.CreateQuery<'T>(suffixExpr) :> IEnumerable<'T>
+            else
+                this.ExecuteRootInMemory()
+        | None -> this.ExecuteRootInMemory()
+
     /// Executes the full LINQ expression pipeline in-memory via .NET EnumerableQuery LINQ-to-Objects engine
-    member private _.ExecuteInMemory() : IEnumerable<'T> =
+    member private _.ExecuteRootInMemory() : IEnumerable<'T> =
         let effectiveExpr = getEffectiveExpr ()
 
         match tryFindRootQueryable effectiveExpr with
@@ -535,8 +619,8 @@ and PolarsQuery<'T>
             let compiled = this.CompileLogicalQuery()
 
             match ClientResidualOps.tryProjectionOnly compiled.Residual with
-            | Some projection -> compiled.Plan, false, Some projection
-            | None -> compiled.Plan, not (ClientResidualOps.isNative compiled.Residual), None
+            | Some projection -> compiled, false, Some projection
+            | None -> compiled, not (ClientResidualOps.isNative compiled.Residual), None
 
     interface IEnumerable<'T> with
         member this.GetEnumerator() : IEnumerator<'T> = (this.ExecuteQuery()).GetEnumerator()
@@ -558,10 +642,11 @@ and PolarsQuery<'T>
         member this.GetCompiledLazyFrameHandle() = this.CompileToLazyFrameHandle()
 
     member this.GetPlanInspection(optimized: bool) : PlanInspection =
-        let compiled = this.CompileLogicalQuery()
-        let nativeLf = PolarsPhysicalLowerer.lowerPlan compiled.Plan
+        let pipeline = this.CompilePipeline false
+        let compiled = pipeline.Compiled
+        let nativeLf = PolarsPhysicalLowerer.lowerPlan compiled.Sources compiled.Plan
         let planStr = PolarsWrapper.Explain(nativeLf, optimized)
-        let stages = this.ExtractStages()
+        let stages = pipeline.Stages
 
         let chunkSizeOpt = stages |> List.tryPick (function LinqStage.Chunk s -> Some s | _ -> None)
         let shouldShuffle = stages |> List.exists (function LinqStage.Shuffle -> true | _ -> false)
@@ -591,6 +676,16 @@ and PolarsQuery<'T>
                 planStr + "\n" + String.concat "\n" (List.rev postOps)
 
         let detectedUdfs = UdfTracker.DetectedUdfs
+        let fallbackReason = FallbackTracker.Diagnostic
+        let isFullFallback = compiled.Residual = ClientResidual.LinqToObjects
+
+        let fallbackBoundary =
+            if isFullFallback then
+                this.TryFindNativePrefix(getEffectiveExpr ()) |> Option.map (fun (consumer, _) -> consumer.Method.Name)
+            else
+                None
+
+        FallbackTracker.Diagnostic <- fallbackReason
 
         {
             NativePlan = planWithPostOps
@@ -602,8 +697,9 @@ and PolarsQuery<'T>
                  | ClientResidual.RowOps ops -> ops |> List.exists (function ClientRowOp.Map _ -> true | _ -> false)
                  | _ -> false)
                 || chunkSizeOpt.IsSome || shouldShuffle || isGrouping
-            IsFullFallback = (compiled.Residual = ClientResidual.LinqToObjects)
-            FallbackReason = FallbackTracker.Diagnostic
+            IsFullFallback = isFullFallback
+            FallbackBoundary = fallbackBoundary
+            FallbackReason = fallbackReason
             HasUdf = not detectedUdfs.IsEmpty
             UdfExpressions = detectedUdfs
         }

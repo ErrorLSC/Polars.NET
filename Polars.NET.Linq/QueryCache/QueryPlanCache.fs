@@ -6,24 +6,51 @@ open System.Collections.Generic
 open System.Linq.Expressions
 open System.Threading
 open Polars.NET.Core.Config
+open Polars.NET.Linq.IR
 
-/// Represents a compiled query plan template stored in the Query Plan Cache.
+/// A compiled pipeline: the optimized IR, the bound stages it was built from, and the diagnostics
+/// recorded while building it.
+[<NoEquality; NoComparison>]
+type internal CompiledPipeline =
+    {
+        Compiled: CompiledLogicalQuery
+        Stages: LinqStage list
+        FallbackDiagnostic: string option
+        Udfs: string list
+    }
+
+/// Identity of a compiled pipeline: the expression shape plus every input the IR compilation depends on.
+/// Parameter values are part of the key, so a hit reuses a pipeline compiled for exactly these values.
+[<NoComparison>]
+type internal CompiledQueryKey =
+    {
+        Shape: QueryCacheKey
+        /// Normalized (declared type, runtime type, value) of each extracted parameter, ordered by name.
+        Values: obj list
+        RootColumns: string list
+        DisallowUdfPushdown: bool
+    }
+
 [<NoEquality; NoComparison>]
 type internal CachedQueryPlan =
     {
-        Key: QueryCacheKey
-        NormalizedExpression: Expression
-        ParamNames: string array
-        NormalizedStages: LinqStage list
+        Key: CompiledQueryKey
+        /// The pipeline with no source bindings; the caller binds its own root to slot 0.
+        Pipeline: CompiledPipeline
         mutable LastAccessTick: int64
     }
 
 /// Global thread-safe Query Plan Cache for Polars.NET LINQ queries.
-/// Caches normalized query pipelines keyed by alpha-equivalent QueryCacheKey.
+/// Caches compiled pipelines keyed by CompiledQueryKey: alpha-equivalent expression shape, parameter values,
+/// root columns and the translation-relevant configuration.
 [<AbstractClass; Sealed>]
 type QueryPlanCache private () =
 
-    static let cache = ConcurrentDictionary<QueryCacheKey, CachedQueryPlan>()
+    static let cache = ConcurrentDictionary<CompiledQueryKey, CachedQueryPlan>()
+    // Admission doorkeeper: hashes of keys compiled once but not yet admitted, direct-mapped by hash.
+    // Fixed size and lock-free (ConcurrentDictionary.Count takes every lock, ~20us per call).
+    // A slot collision only overwrites the older sighting, so that key needs one more sighting.
+    static let seenOnce: int array = Array.zeroCreate 4096
     static let evictionLock = obj ()
     static let mutable hits = 0L
     static let mutable misses = 0L
@@ -50,6 +77,7 @@ type QueryPlanCache private () =
     /// Resets all cache statistics and clears all cached query plans.
     static member Clear() =
         cache.Clear()
+        Array.Clear seenOnce
         Interlocked.Exchange(&hits, 0L) |> ignore
         Interlocked.Exchange(&misses, 0L) |> ignore
 
@@ -73,7 +101,7 @@ type QueryPlanCache private () =
                     cache.TryRemove(key) |> ignore)
 
     /// Attempts to retrieve a cached query plan for the given cache key.
-    static member internal TryGet(key: QueryCacheKey) : CachedQueryPlan option =
+    static member internal TryGet(key: CompiledQueryKey) : CachedQueryPlan option =
         if not QueryPlanCache.Enabled then
             None
         else
@@ -86,102 +114,100 @@ type QueryPlanCache private () =
                 Interlocked.Increment(&misses) |> ignore
                 None
 
-    /// Attempts to retrieve a cached query plan for C# callers using the standard TryGet pattern without affecting hit/miss metrics.
-    static member internal TryGetPlan
-        (key: QueryCacheKey, [<System.Runtime.InteropServices.Out>] plan: byref<CachedQueryPlan>)
-        : bool =
-        if not QueryPlanCache.Enabled then
-            plan <- Unchecked.defaultof<CachedQueryPlan>
-            false
-        elif cache.TryGetValue(key, &plan) then
-            Volatile.Write(&plan.LastAccessTick, Environment.TickCount64)
-            true
-        else
-            false
-
-    /// Stores or replaces a cached query plan.
-    static member internal Set(plan: CachedQueryPlan) : unit =
+    /// Offers a freshly compiled plan to the cache. A key is admitted on its second sighting only, so
+    /// pipelines compiled once (e.g. with a one-off parameter value) never occupy the cache.
+    static member internal Admit(plan: CachedQueryPlan) : unit =
         if QueryPlanCache.Enabled then
-            if cache.Count >= QueryPlanCache.MaxCapacity then
-                QueryPlanCache.PruneOldestEntries()
+            // 0 marks an empty slot, so a zero hash is stored as 1.
+            let hash = match plan.Key.GetHashCode() with 0 -> 1 | h -> h
+            let slot = hash &&& (seenOnce.Length - 1)
 
-            plan.LastAccessTick <- Environment.TickCount64
-            cache.[plan.Key] <- plan
-
-    /// Gets an existing plan or computes and adds it atomically with capacity bounds.
-    static member internal GetOrAdd(key: QueryCacheKey, factory: QueryCacheKey -> CachedQueryPlan) : CachedQueryPlan =
-        if not QueryPlanCache.Enabled then
-            factory key
-        else
-            match cache.TryGetValue key with
-            | true, existingPlan ->
-                Interlocked.Increment(&hits) |> ignore
-                Volatile.Write(&existingPlan.LastAccessTick, Environment.TickCount64)
-                existingPlan
-            | false, _ ->
-                Interlocked.Increment(&misses) |> ignore
-                let newPlan = factory key
-                newPlan.LastAccessTick <- Environment.TickCount64
+            if Volatile.Read(&seenOnce.[slot]) = hash then
+                Volatile.Write(&seenOnce.[slot], 0)
 
                 if cache.Count >= QueryPlanCache.MaxCapacity then
                     QueryPlanCache.PruneOldestEntries()
 
-                cache.GetOrAdd(key, newPlan)
+                plan.LastAccessTick <- Environment.TickCount64
+                cache.[plan.Key] <- plan
+            else
+                Volatile.Write(&seenOnce.[slot], hash)
 
-    /// Substitutes extracted runtime parameter values into a LinqStage.
-    static member internal SubstituteStage
-        (paramsDict: IReadOnlyDictionary<string, ExtractedParameter>)
-        (stage: LinqStage)
-        : LinqStage =
-        if isNull paramsDict || paramsDict.Count = 0 then
-            stage
+    /// Normalizes a parameter value into an equality key, or None when the value is not an immutable scalar
+    /// (collections, closures, queryables, arbitrary objects), in which case the query is not cached.
+    /// Normalization is strict where Equals is lenient: DateTime Kind, DateTimeOffset offset, decimal scale
+    /// and the sign of floating-point zero all stay distinguishable.
+    static member private TryNormalizeValue(declaredType: Type, value: obj) : obj option =
+        let keyed (normalized: obj) =
+            let runtimeType = if isNull value then null else value.GetType()
+            Some(box (struct (declaredType, runtimeType, normalized)))
+
+        match value with
+        | null -> keyed null
+        | :? string
+        | :? bool
+        | :? char
+        | :? sbyte
+        | :? byte
+        | :? int16
+        | :? uint16
+        | :? int
+        | :? uint32
+        | :? int64
+        | :? uint64
+        | :? DateOnly
+        | :? TimeOnly
+        | :? TimeSpan
+        | :? Guid -> keyed value
+        | :? double as d -> keyed (box (BitConverter.DoubleToInt64Bits d))
+        | :? float32 as f -> keyed (box (BitConverter.SingleToInt32Bits f))
+        | :? decimal as m -> keyed (box (String.Join(",", Decimal.GetBits m)))
+        | :? DateTime as dt -> keyed (box (struct (dt.Ticks, dt.Kind)))
+        | :? DateTimeOffset as dto -> keyed (box (struct (dto.Ticks, dto.Offset)))
+        | v when v.GetType().IsEnum -> keyed value
+        | _ -> None
+
+    /// Number of inline queryable constants (query roots) in the expression. The shape key identifies them
+    /// by element type only, so a pipeline with more than one root cannot be told apart from another by its key.
+    static member private CountQueryableRoots(expression: Expression) : int =
+        let mutable count = 0
+
+        let visitor =
+            { new ExpressionVisitor() with
+                override _.VisitConstant(node: ConstantExpression) =
+                    if node.Value :? System.Linq.IQueryable then
+                        count <- count + 1
+                    base.VisitConstant node
+            }
+
+        visitor.Visit expression |> ignore
+        count
+
+    /// Builds the cache key for a pipeline, or None when caching is disabled, a parameter value is not
+    /// cacheable, or the pipeline reads more than one queryable root.
+    static member internal TryCreateKey
+        (
+            sourceType: Type,
+            normalizedExpression: Expression,
+            parameters: IReadOnlyDictionary<string, ExtractedParameter>,
+            rootColumns: string list
+        ) : CompiledQueryKey option =
+        if not QueryPlanCache.Enabled || QueryPlanCache.CountQueryableRoots normalizedExpression > 1 then
+            None
         else
-            let subExpr (e: Expression) =
-                if isNull e then
-                    null
-                else
-                    PartialEvaluator.substituteExtracted e paramsDict
+            let values =
+                parameters
+                |> Seq.sortBy (fun kv -> kv.Key)
+                |> Seq.map (fun kv -> QueryPlanCache.TryNormalizeValue(kv.Value.Type, kv.Value.Value))
+                |> Seq.toList
 
-            let subLambda (l: LambdaExpression) =
-                if isNull l then null else subExpr l :?> LambdaExpression
-
-            let subLambdaOpt (lo: LambdaExpression option) = lo |> Option.map subLambda
-            let subExprOpt (eo: Expression option) = eo |> Option.map subExpr
-
-            match stage with
-            | LinqStage.Filter l -> LinqStage.Filter(subLambda l)
-            | LinqStage.Sort(l, desc, nullsLast) -> LinqStage.Sort(subLambda l, desc, nullsLast)
-            | LinqStage.Project l -> LinqStage.Project(subLambda l)
-            | LinqStage.Join(m, inner, ok, ik, rs) ->
-                LinqStage.Join(m, subExpr inner, subLambda ok, subLambda ik, subLambdaOpt rs)
-            | LinqStage.JoinAsOf(m, inner, ok, ik, obOpt, ibOpt, rsOpt, ts, ti, tf, strat) ->
-                LinqStage.JoinAsOf(m, subExpr inner, subLambda ok, subLambda ik, subLambdaOpt obOpt, subLambdaOpt ibOpt, subLambdaOpt rsOpt, ts, ti, tf, strat)
-            | LinqStage.GroupJoin(m, inner, ok, ik, rs) ->
-                LinqStage.GroupJoin(m, subExpr inner, subLambda ok, subLambda ik, subLambdaOpt rs)
-            | LinqStage.CrossJoin(inner, rs) -> LinqStage.CrossJoin(subExpr inner, subLambdaOpt rs)
-            | LinqStage.Explode(col, rs) -> LinqStage.Explode(subLambda col, subLambdaOpt rs)
-            | LinqStage.Unpivot(col, rs) -> LinqStage.Unpivot(subLambda col, subLambdaOpt rs)
-            | LinqStage.Zip(sec, rs) -> LinqStage.Zip(subExpr sec, subLambdaOpt rs)
-            | LinqStage.Zip3(sec, thd) -> LinqStage.Zip3(subExpr sec, subExpr thd)
-            | LinqStage.SetOp(m, sec, k1, k2) -> LinqStage.SetOp(m, subExpr sec, subLambdaOpt k1, subLambdaOpt k2)
-            | LinqStage.Union(sec, kl) -> LinqStage.Union(subExpr sec, subLambdaOpt kl)
-            | LinqStage.Concat sec -> LinqStage.Concat(subExpr sec)
-            | LinqStage.Append elem -> LinqStage.Append(subExpr elem)
-            | LinqStage.Prepend elem -> LinqStage.Prepend(subExpr elem)
-            | LinqStage.TakeWhile l -> LinqStage.TakeWhile(subLambda l)
-            | LinqStage.SkipWhile l -> LinqStage.SkipWhile(subLambda l)
-            | LinqStage.DistinctBy l -> LinqStage.DistinctBy(subLambda l)
-            | LinqStage.CountBy l -> LinqStage.CountBy(subLambda l)
-            | LinqStage.GroupByKey l -> LinqStage.GroupByKey(subLambda l)
-            | LinqStage.GroupPartitionSlice(kl, inner, resOpt) ->
-                LinqStage.GroupPartitionSlice(subLambda kl, inner |> List.map (QueryPlanCache.SubstituteStage paramsDict), subLambdaOpt resOpt)
-            | LinqStage.GroupByWithResult(kl, rl) -> LinqStage.GroupByWithResult(subLambda kl, subLambda rl)
-            | LinqStage.GroupByWithElementAndResult(kl, el, rl) ->
-                LinqStage.GroupByWithElementAndResult(subLambda kl, subLambda el, subLambda rl)
-            | LinqStage.GroupByRollup(kl, rl) -> LinqStage.GroupByRollup(subLambda kl, subLambda rl)
-            | LinqStage.GroupByCube(kl, rl) -> LinqStage.GroupByCube(subLambda kl, subLambda rl)
-            | LinqStage.GroupByGroupingSets(kl, se, rl) -> LinqStage.GroupByGroupingSets(subLambda kl, subExpr se, subLambda rl)
-            | LinqStage.AggregateBy(kl, seed, factoryOpt, f) ->
-                LinqStage.AggregateBy(subLambda kl, subExpr seed, subLambdaOpt factoryOpt, subLambda f)
-            | LinqStage.DefaultIfEmpty defOpt -> LinqStage.DefaultIfEmpty(subExprOpt defOpt)
-            | other -> other
+            if values |> List.forall Option.isSome then
+                Some
+                    {
+                        Shape = QueryCacheKey.Create(sourceType, normalizedExpression)
+                        Values = values |> List.map Option.get
+                        RootColumns = rootColumns
+                        DisallowUdfPushdown = CoreConfig.DisallowUdfPushdown
+                    }
+            else
+                None

@@ -46,3 +46,6 @@ docs/.vitepress/cache/
 
 # --- Zed Config ---
 .zed/
+
+# BenchmarkDotNet results
+**/BenchmarkDotNet.Artifacts/

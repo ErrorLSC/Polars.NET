@@ -8,8 +8,9 @@ open Polars.NET.Core.Helpers
 open Polars.NET.Linq.IR
 
 /// Pure symbolic resolution of sequence operands (Join/Concat/Union/Zip inputs, subquery roots, Append/Prepend
-/// elements) into LogicalPlan subtrees. Backend-native objects are bound through ISourceBinder; in-memory
-/// collections become deferred LogicalPlanSource.InMemory snapshots. No native resources are allocated here.
+/// elements) into LogicalPlan subtrees. Every source is registered in the caller's SourceRegistry and scanned
+/// by slot: backend-native objects are bound through ISourceBinder, in-memory collections become deferred
+/// SourceBinding.InMemory snapshots. No native resources are allocated here.
 module internal SourceResolver =
 
     let rec private findRootQueryable (e: Expression) : IQueryable option =
@@ -67,9 +68,13 @@ module internal SourceResolver =
             |> Array.map (fun p -> p.Name)
             |> LogicalSchema.OfNames
 
-    /// Builds a Scan over an in-memory typed row array.
-    let inMemoryPlan (rows: Array) (elemType: Type) : LogicalPlan =
-        LogicalPlan.Scan(LogicalPlanSource.InMemory(rows, elemType), inMemorySchema elemType)
+    /// Registers an in-memory typed row array and builds a Scan over it.
+    let inMemoryPlan (sources: SourceRegistry) (rows: Array) (elemType: Type) : LogicalPlan =
+        sources.Scan(SourceBinding.InMemory(rows, elemType), inMemorySchema elemType)
+
+    /// Registers a backend table source and builds a Scan over it.
+    let tablePlan (sources: SourceRegistry) (table: ILogicalTableSource) : LogicalPlan =
+        sources.Scan(SourceBinding.Table table, table.Schema)
 
     /// Snapshots an in-memory collection into a fresh typed array (enumerated exactly once, at IR construction).
     let private snapshot (values: IEnumerable) (elemType: Type) : Array =
@@ -82,34 +87,36 @@ module internal SourceResolver =
         rows
 
     /// Binds a non-string IEnumerable<T> value as a deferred InMemory scan.
-    let tryBindInMemory (value: obj) : LogicalPlan option =
+    let tryBindInMemory (sources: SourceRegistry) (value: obj) : LogicalPlan option =
         match value with
         | null
         | :? string -> None
         | :? IEnumerable as values ->
             match PolarsTypeHelper.TryGetEnumerableElementType(value.GetType()) with
             | null -> None
-            | elemType -> Some(inMemoryPlan (snapshot values elemType) elemType)
+            | elemType -> Some(inMemoryPlan sources (snapshot values elemType) elemType)
         | _ -> None
 
     /// Builds a 1-row InMemory scan from a single element (Append / Prepend).
-    let singleRowPlan (elem: obj) (elemType: Type) : LogicalPlan option =
+    let singleRowPlan (sources: SourceRegistry) (elem: obj) (elemType: Type) : LogicalPlan option =
         if isNull elem then
             None
         else
             let rows = Array.CreateInstance(elemType, 1)
             rows.SetValue(elem, 0)
-            Some(inMemoryPlan rows elemType)
+            Some(inMemoryPlan sources rows elemType)
 
     /// Resolves a sequence expression into a LogicalPlan:
-    /// 1. Polars queryables with a pure plan are grafted as IR subtrees.
+    /// 1. Polars queryables with a pure plan are grafted as IR subtrees (their sources join the registry).
     /// 2. Other Polars queryables and backend-native objects are bound as opaque table sources by the backend.
     /// 3. In-memory collections become deferred InMemory snapshots.
-    let resolveSequencePlan (binder: ISourceBinder) (expr: Expression) : LogicalPlan option =
+    let resolveSequencePlan (binder: ISourceBinder) (sources: SourceRegistry) (expr: Expression) : LogicalPlan option =
         let queryableOpt = tryResolvePolarsQueryable expr
 
         let purePlanOpt =
-            queryableOpt |> Option.bind (fun q -> q.TryGetPureLogicalPlan())
+            queryableOpt
+            |> Option.bind (fun q -> q.TryGetPureLogicalPlan())
+            |> Option.map sources.Graft
 
         purePlanOpt
         |> Option.orElseWith (fun () ->
@@ -121,5 +128,5 @@ module internal SourceResolver =
             valueOpt
             |> Option.bind (fun value ->
                 match binder.TryBindExternalSource value with
-                | Some source -> Some(LogicalPlan.Scan(LogicalPlanSource.Table source, source.Schema))
-                | None -> tryBindInMemory value))
+                | Some table -> Some(tablePlan sources table)
+                | None -> tryBindInMemory sources value))

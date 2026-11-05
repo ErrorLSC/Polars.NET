@@ -10,10 +10,10 @@ open Polars.NET.Linq.IR
 /// the collected DataFrames to the IDataFrameMaterializer.
 module internal PolarsScalarRunner =
 
-    let private collect (plan: LogicalPlan) : DataFrameHandle =
-        PolarsWrapper.LazyCollect(PolarsPhysicalLowerer.lowerPlan plan, PlEngine.Auto)
+    let private collect (sources: SourceBinding array) (plan: LogicalPlan) : DataFrameHandle =
+        PolarsWrapper.LazyCollect(PolarsPhysicalLowerer.lowerPlan sources plan, PlEngine.Auto)
 
-    let private runRowsOp (mat: IDataFrameMaterializer) (df: DataFrameHandle) (op: RowsOp) : ScalarOutcome =
+    let private runRowsOp (mat: IDataFrameMaterializer) (sources: SourceBinding array) (df: DataFrameHandle) (op: RowsOp) : ScalarOutcome =
         match op with
         | RowsOp.Count(sourceType, pred) ->
             let invoker = MaterializerInvokers.GetMaterializerCountInvoker sourceType
@@ -68,7 +68,7 @@ module internal PolarsScalarRunner =
             ScalarOutcome.Value(invoker.Invoke(mat, df, keySelector, comparer))
 
         | RowsOp.SequenceEqualPlan(other, elemType, comparer) ->
-            let otherDf = collect other
+            let otherDf = collect sources other
             let invoker = MaterializerInvokers.GetMaterializerSeqEqualDfInvoker elemType
             ScalarOutcome.Value(box (invoker.Invoke(mat, df, otherDf, comparer)))
 
@@ -77,22 +77,22 @@ module internal PolarsScalarRunner =
             ScalarOutcome.Value(box (invoker.Invoke(mat, df, other, comparer)))
 
     /// Executes a planned scalar terminal against Polars and returns its raw outcome.
-    let run (mat: IDataFrameMaterializer) (terminal: ScalarTerminal) : ScalarOutcome =
+    let run (mat: IDataFrameMaterializer) (sources: SourceBinding array) (terminal: ScalarTerminal) : ScalarOutcome =
         match terminal with
-        | ScalarTerminal.RowCount plan -> ScalarOutcome.Value(box (mat.MaterializeScalar<int64>(collect plan)))
-        | ScalarTerminal.ScalarValue plan -> ScalarOutcome.Value(mat.MaterializeScalar<obj>(collect plan))
-        | ScalarTerminal.HasRows plan -> ScalarOutcome.Value(box (PolarsWrapper.DataFrameHeight(collect plan) > 0L))
+        | ScalarTerminal.RowCount plan -> ScalarOutcome.Value(box (mat.MaterializeScalar<int64>(collect sources plan)))
+        | ScalarTerminal.ScalarValue plan -> ScalarOutcome.Value(mat.MaterializeScalar<obj>(collect sources plan))
+        | ScalarTerminal.HasRows plan -> ScalarOutcome.Value(box (PolarsWrapper.DataFrameHeight(collect sources plan) > 0L))
         | ScalarTerminal.FramesEqual(left, right) ->
-            let leftDf = collect left
-            let rightDf = collect right
+            let leftDf = collect sources left
+            let rightDf = collect sources right
             if PolarsWrapper.DataFrameHeight leftDf <> PolarsWrapper.DataFrameHeight rightDf then
                 ScalarOutcome.Value(box false)
             else
                 ScalarOutcome.Value(box (PolarsWrapper.DataFrameEquals(leftDf, rightDf, nullEqual = true)))
-        | ScalarTerminal.Rows(plan, op) -> runRowsOp mat (collect plan) op
+        | ScalarTerminal.Rows(plan, op) -> runRowsOp mat sources (collect sources plan) op
         | ScalarTerminal.Deferred compute -> ScalarOutcome.Value(compute ())
         | ScalarTerminal.Constant value -> ScalarOutcome.Value value
 
     /// Executes a planned scalar query and applies its managed post-processing.
-    let execute<'T> (mat: IDataFrameMaterializer) (query: ScalarQuery<'T>) : 'T =
-        query.Finish(run mat query.Terminal)
+    let execute<'T> (mat: IDataFrameMaterializer) (planned: PlannedScalar<'T>) : 'T =
+        planned.Query.Finish(run mat planned.Sources planned.Query.Terminal)

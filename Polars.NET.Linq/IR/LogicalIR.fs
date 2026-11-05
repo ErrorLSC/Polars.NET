@@ -723,11 +723,17 @@ and ILogicalTableSource =
 
 /// Input source for Leaf Scan nodes
 and [<RequireQualifiedAccess>] LogicalPlanSource =
-    | Table of source: ILogicalTableSource
+    /// Index into the source bindings of the compiled query that owns the plan.
+    | Slot of index: int
     | SubqueryRef of subqueryId: string
+    | Empty
+
+/// Data a Scan slot reads at execution time. Bindings live beside the plan, never inside it,
+/// so a LogicalPlan carries no source instances.
+and [<RequireQualifiedAccess>] SourceBinding =
+    | Table of source: ILogicalTableSource
     /// Snapshot of an in-memory .NET collection (typed array of elementType). Materialized by the backend at lowering time.
     | InMemory of rows: Array * elementType: Type
-    | Empty
 
 /// Specification for multi-dimensional Grouping Sets (ROLLUP, CUBE, GROUPING SETS)
 and LogicalGroupingSetsSpec =
@@ -862,14 +868,16 @@ module ClientResidualOps =
         | ClientResidual.None -> true
         | _ -> false
 
-/// A compiled logical query: the native LogicalPlan plus the managed residual evaluated on its rows.
+/// A compiled logical query: the native LogicalPlan, the sources its Scan slots refer to,
+/// and the managed residual evaluated on its rows.
 type CompiledLogicalQuery =
     {
         Plan: LogicalPlan
+        Sources: SourceBinding array
         Residual: ClientResidual
     }
 
 /// Internal interface implemented by PolarsQueryable to expose IR compilation for testing, inspection, and subtree grafting.
 type internal IPolarsInternalExplainable =
     abstract member CompileLogicalQuery: unit -> CompiledLogicalQuery
-    abstract member TryGetPureLogicalPlan: unit -> LogicalPlan option
+    abstract member TryGetPureLogicalPlan: unit -> (LogicalPlan * SourceBinding array) option

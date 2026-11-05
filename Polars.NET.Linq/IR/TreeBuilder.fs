@@ -1575,18 +1575,23 @@ module internal TreeBuilder =
 
     /// Compiles a sequence of LinqStages into a CompiledLogicalQuery, determining pure symbolic
     /// pushdown into LogicalPlan versus client-side fallback boundaries (client predicates, projections, full fallback).
+    /// The root source is registered as slot 0; every other source the pipeline reads gets the next slot.
     let buildCompiledQuery
         (backend: IQueryBackend)
-        (initialPlan: LogicalPlan)
+        (root: SourceBinding)
+        (rootSchema: LogicalSchema)
         (isGrouping: bool)
         (stages: LinqStage list)
         : CompiledLogicalQuery =
         use _scope = BackendScope.Enter backend
-        let resolveSequence = SourceResolver.resolveSequencePlan backend
+        let sources = SourceRegistry()
+        let initialPlan = sources.Scan(root, rootSchema)
+        let resolveSequence = SourceResolver.resolveSequencePlan backend sources
 
         let initState: CompiledLogicalQuery =
             {
                 Plan = initialPlan
+                Sources = [||]
                 Residual = ClientResidual.None
             }
 
@@ -2138,7 +2143,7 @@ module internal TreeBuilder =
                     | LinqStage.Append elemExpr ->
                         match tryEvaluate elemExpr with
                         | Some elem when not (isNull elem) ->
-                            match SourceResolver.singleRowPlan elem (elem.GetType()) with
+                            match SourceResolver.singleRowPlan sources elem (elem.GetType()) with
                             | Some otherPlan ->
                                 processStages { state with Plan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true) } scopeMap tail
                             | None ->
@@ -2149,7 +2154,7 @@ module internal TreeBuilder =
                     | LinqStage.Prepend elemExpr ->
                         match tryEvaluate elemExpr with
                         | Some elem when not (isNull elem) ->
-                            match SourceResolver.singleRowPlan elem (elem.GetType()) with
+                            match SourceResolver.singleRowPlan sources elem (elem.GetType()) with
                             | Some otherPlan ->
                                 processStages { state with Plan = LogicalPlan.Union(otherPlan, state.Plan, isAll = true) } scopeMap tail
                             | None ->
@@ -2389,14 +2394,9 @@ module internal TreeBuilder =
                 | LinqStage.Chunk _ | LinqStage.AggregateBy _ | LinqStage.DefaultIfEmpty _ | LinqStage.OfType _ -> true
                 | _ -> false)
 
-        match finalState.Residual with
-        | ClientResidual.RowOps _ when needsLinqToObjects -> fallback finalState
-        | _ -> finalState
+        let completed =
+            match finalState.Residual with
+            | ClientResidual.RowOps _ when needsLinqToObjects -> fallback finalState
+            | _ -> finalState
 
-    /// Constructs a LogicalPlan tree by applying a sequence of LinqStages to an initial LogicalPlan.
-    let fromStages (backend: IQueryBackend) (initialPlan: LogicalPlan) (stages: LinqStage list) : LogicalPlan =
-        (buildCompiledQuery backend initialPlan false stages).Plan
-
-    /// Constructs a LogicalPlan tree from an initial LogicalPlanSource, schema, and sequence of LinqStages.
-    let fromScan (backend: IQueryBackend) (source: LogicalPlanSource) (schema: LogicalSchema) (stages: LinqStage list) : LogicalPlan =
-        fromStages backend (LogicalPlan.Scan(source, schema)) stages
+        { completed with Sources = sources.ToArray() }

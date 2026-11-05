@@ -66,6 +66,13 @@ type internal ScalarQuery<'T> =
         Finish: ScalarOutcome -> 'T
     }
 
+/// A planned scalar terminal together with the sources its plans scan, indexed by slot.
+type internal PlannedScalar<'T> =
+    {
+        Query: ScalarQuery<'T>
+        Sources: SourceBinding array
+    }
+
 /// Resolved predicate: native pushdown as a symbolic ScalarExpr, or a composed managed predicate.
 type internal ResolvedPredicate =
     | Pushdown of ScalarExpr
@@ -285,10 +292,12 @@ module internal ScalarPlanner =
                 Finish = fun outcome -> projectClientResult<'TResult> src.ClientProjection userDefVal (valueOf outcome)
             }
 
-    /// Plans a scalar / single-row LINQ terminal expression into a backend-agnostic ScalarQuery.
-    /// Opens the backend scope for the duration of expression translation.
-    let plan<'TResult> (backend: IQueryBackend) (provider: IQueryProvider) (expression: Expression) : ScalarQuery<'TResult> =
-        use _scope = BackendScope.Enter backend
+    let private planWith<'TResult>
+        (backend: IQueryBackend)
+        (sources: SourceRegistry)
+        (provider: IQueryProvider)
+        (expression: Expression)
+        : ScalarQuery<'TResult> =
         let targetType = typeof<'TResult>
 
         let sourceCache = Dictionary<Expression, ScalarSource>(HashIdentity.Reference)
@@ -300,8 +309,12 @@ module internal ScalarPlanner =
                 let resolved =
                     match provider.CreateQuery src with
                     | :? IInternalPlanSource as ps ->
-                        let plan, requiresClientEvaluation, clientProjOpt = ps.GetLogicalPlanInfo()
-                        { Plan = plan; RequiresClientEvaluation = requiresClientEvaluation; ClientProjection = clientProjOpt }
+                        let compiled, requiresClientEvaluation, clientProjOpt = ps.GetLogicalPlanInfo()
+                        {
+                            Plan = sources.Graft(compiled.Plan, compiled.Sources)
+                            RequiresClientEvaluation = requiresClientEvaluation
+                            ClientProjection = clientProjOpt
+                        }
                     | _ -> failwithf "Unable to extract a logical plan from query source: %A" src
                 sourceCache.[src] <- resolved
                 resolved
@@ -626,7 +639,7 @@ module internal ScalarPlanner =
             let compObj = tryExtractComparer rest
             let src = resolveSource source
 
-            match SourceResolver.resolveSequencePlan backend secondExpr with
+            match SourceResolver.resolveSequencePlan backend sources secondExpr with
             | Some secondPlan when src.ClientProjection.IsNone && isNull compObj ->
                 { Terminal = ScalarTerminal.FramesEqual(src.Plan, secondPlan); Finish = castFinish<'TResult> }
 
@@ -720,3 +733,11 @@ module internal ScalarPlanner =
             { Terminal = ScalarTerminal.Deferred compute; Finish = castFinish<'TResult> }
 
         | _ -> failwithf "Scalar execution for expression is not supported: %A" expression
+
+    /// Plans a scalar / single-row LINQ terminal expression into a backend-agnostic ScalarQuery.
+    /// Opens the backend scope for the duration of expression translation.
+    let plan<'TResult> (backend: IQueryBackend) (provider: IQueryProvider) (expression: Expression) : PlannedScalar<'TResult> =
+        use _scope = BackendScope.Enter backend
+        let sources = SourceRegistry()
+        let query = planWith<'TResult> backend sources provider expression
+        { Query = query; Sources = sources.ToArray() }

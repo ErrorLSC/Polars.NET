@@ -23,6 +23,7 @@
     <Compile Include="IR/ScalarExpr.fs" />
     <Compile Include="IR/BackendContracts.fs" />
     <Compile Include="IR/LogicalPlan.fs" />
+    <Compile Include="IR/SourceRegistry.fs" />
     <Compile Include="IR/SchemaInference.fs" />
     <Compile Include="QueryCache/QueryCacheKey.fs" />
     <Compile Include="ExpressionPatterns.fs" />

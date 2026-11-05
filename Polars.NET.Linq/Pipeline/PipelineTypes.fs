@@ -14,9 +14,9 @@ type internal RowFetchKind =
     | Single
 
 /// Internal interface allowing direct zero-reflection plan querying between Provider and Query instances.
-/// Returns the compiled, optimized LogicalPlan, whether client-side predicates / fallback apply, and the client projection.
+/// Returns the compiled, optimized query, whether client-side predicates / fallback apply, and the client projection.
 type internal IInternalPlanSource =
-    abstract member GetLogicalPlanInfo: unit -> LogicalPlan * bool * (Type * Func<obj, obj>) option
+    abstract member GetLogicalPlanInfo: unit -> CompiledLogicalQuery * bool * (Type * Func<obj, obj>) option
 
 /// Internal normalized context capturing all GroupBy variants (C# 4-args, F# pipeline, Having, Sorts)
 type internal GroupFoldContext =
@@ -60,6 +60,9 @@ type PlanInspection =
         ClientPredicateExpressions: LambdaExpression list
         HasClientProjection: bool
         IsFullFallback: bool
+        /// Under full fallback, the LINQ method at which LINQ-to-Objects takes over from a native prefix;
+        /// None when no prefix of the pipeline can run natively.
+        FallbackBoundary: string option
         FallbackReason: string option
         HasUdf: bool
         UdfExpressions: string list
@@ -84,8 +87,13 @@ type PlanInspection =
                 sb.AppendLine(sprintf "   Diagnostic reason: %s" reason) |> ignore
             | None -> ()
 
-            sb.AppendLine "   The entire pipeline will be executed in managed memory via LINQ-to-Objects."
-            |> ignore
+            match this.FallbackBoundary with
+            | Some boundary ->
+                sb.AppendLine(sprintf "   The pipeline runs natively up to '%s'; from there on it is executed in managed memory via LINQ-to-Objects." boundary)
+                |> ignore
+            | None ->
+                sb.AppendLine "   The entire pipeline will be executed in managed memory via LINQ-to-Objects."
+                |> ignore
         elif not this.HasClientPredicates && not this.HasClientProjection then
             if this.HasUdf then
                 sb.AppendLine "[Polars.NET Query Plan - 100% Native Pushdown (with C# UDF Callback)]"

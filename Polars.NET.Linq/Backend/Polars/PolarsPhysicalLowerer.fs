@@ -27,11 +27,6 @@ module internal PolarsPhysicalLowerer =
         let cols = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
         PolarsTableSource(lf, LogicalSchema.OfNames cols)
 
-    /// Creates a LogicalPlan Scan leaf node from a physical LazyFrameHandle.
-    let scanLazyFrame (lf: LazyFrameHandle) : LogicalPlan =
-        let source = tableSourceOfLazyFrame lf
-        LogicalPlan.Scan(LogicalPlanSource.Table source, source.Schema)
-
     /// Materializes an in-memory row snapshot into a LazyFrame, verifying that the transposed columns
     /// match the schema the frontend declared for the Scan node.
     let private materializeInMemory (rows: Array) (elemType: Type) (declared: LogicalSchema) : LazyFrameHandle =
@@ -46,24 +41,28 @@ module internal PolarsPhysicalLowerer =
                 (String.concat ", " actual)
         lf
 
-    /// Recursively lowers a LogicalPlan into an optimized LazyFrameHandle.
-    let rec lowerPlan (plan: LogicalPlan) : LazyFrameHandle =
+    /// Recursively lowers a LogicalPlan into an optimized LazyFrameHandle, reading each Scan slot from `sources`.
+    let rec lowerPlan (sources: SourceBinding array) (plan: LogicalPlan) : LazyFrameHandle =
         match plan with
         | LogicalPlan.Scan(source, schema) ->
             match source with
-            | LogicalPlanSource.Table(:? PolarsTableSource as pts) -> PolarsWrapper.LazyClone pts.Handle
-            | LogicalPlanSource.Table other -> failwithf "Unsupported table source in PolarsPhysicalLowerer: %s" other.Name
+            | LogicalPlanSource.Slot index ->
+                if index < 0 || index >= sources.Length then
+                    failwithf "[Polars.NET.Linq Bug] Scan slot %d has no source binding (%d bound)." index sources.Length
+                match sources.[index] with
+                | SourceBinding.Table(:? PolarsTableSource as pts) -> PolarsWrapper.LazyClone pts.Handle
+                | SourceBinding.Table other -> failwithf "Unsupported table source in PolarsPhysicalLowerer: %s" other.Name
+                | SourceBinding.InMemory(rows, elemType) -> materializeInMemory rows elemType schema
             | LogicalPlanSource.SubqueryRef id -> failwithf "Unresolved SubqueryRef: %s" id
-            | LogicalPlanSource.InMemory(rows, elemType) -> materializeInMemory rows elemType schema
             | LogicalPlanSource.Empty -> createEmptyLazyFrame ()
 
         | LogicalPlan.Filter(input, pred) ->
-            let lf = lowerPlan input
+            let lf = lowerPlan sources input
             let exprH = PolarsScalarLowerer.lower pred
             PolarsWrapper.LazyFilter(lf, exprH)
 
         | LogicalPlan.Project(input, projs) ->
-            let lf = lowerPlan input
+            let lf = lowerPlan sources input
             let exprs =
                 projs
                 |> List.map (fun (name, expr) ->
@@ -73,7 +72,7 @@ module internal PolarsPhysicalLowerer =
             PolarsWrapper.LazySelect(lf, exprs)
 
         | LogicalPlan.WithColumns(input, cols) ->
-            let lf = lowerPlan input
+            let lf = lowerPlan sources input
             let exprs =
                 cols
                 |> List.map (fun (name, expr) ->
@@ -83,8 +82,8 @@ module internal PolarsPhysicalLowerer =
             PolarsWrapper.LazyWithColumns(lf, exprs)
 
         | LogicalPlan.Join(left, right, leftOn, rightOn, how, suffix, coalesce, nullsEqual) ->
-            let leftLf = lowerPlan left
-            let rightLf = lowerPlan right
+            let leftLf = lowerPlan sources left
+            let rightLf = lowerPlan sources right
             let leftOnHs = leftOn |> List.map PolarsScalarLowerer.lower |> List.toArray
             let rightOnHs = rightOn |> List.map PolarsScalarLowerer.lower |> List.toArray
             PolarsWrapper.Join(
@@ -104,8 +103,8 @@ module internal PolarsPhysicalLowerer =
             )
 
         | LogicalPlan.JoinAsOf(left, right, spec) ->
-            let leftLf = lowerPlan left
-            let rightLf = lowerPlan right
+            let leftLf = lowerPlan sources left
+            let rightLf = lowerPlan sources right
             let leftOnH = [| PolarsScalarLowerer.lower spec.LeftOn |]
             let rightOnH = [| PolarsScalarLowerer.lower spec.RightOn |]
             let leftByHs =
@@ -138,7 +137,7 @@ module internal PolarsPhysicalLowerer =
             )
 
         | LogicalPlan.GroupBy(input, keys, aggs, having, maintainOrder) ->
-            let lf = lowerPlan input
+            let lf = lowerPlan sources input
             let keyHs = keys |> List.map PolarsScalarLowerer.lower |> List.toArray
             let aggHs =
                 aggs
@@ -150,7 +149,7 @@ module internal PolarsPhysicalLowerer =
             PolarsWrapper.LazyGroupByAgg(lf, keyHs, aggHs, havingH, maintainOrder)
 
         | LogicalPlan.GroupingSets(input, spec) ->
-            let activeLf = lowerPlan input
+            let activeLf = lowerPlan sources input
             let numKeys = spec.KeyAliases.Length
             let keyAliasedHandles =
                 spec.KeyAliases
@@ -224,18 +223,18 @@ module internal PolarsPhysicalLowerer =
             PolarsWrapper.LazyConcat(levelLfs, PlConcatType.Vertical, false, true)
 
         | LogicalPlan.Sort(input, orderings) ->
-            let lf = lowerPlan input
+            let lf = lowerPlan sources input
             let exprs = orderings |> List.map (fun o -> PolarsScalarLowerer.lower o.Expr) |> List.toArray
             let desc = orderings |> List.map (fun o -> o.Descending) |> List.toArray
             let nullsLast = orderings |> List.map (fun o -> o.NullsLast) |> List.toArray
             PolarsWrapper.LazyFrameSort(lf, exprs, desc, nullsLast, maintainOrder = false)
 
         | LogicalPlan.Limit(input, offset, count) ->
-            let lf = lowerPlan input
+            let lf = lowerPlan sources input
             PolarsWrapper.LazySlice(lf, offset, count)
 
         | LogicalPlan.Distinct(input, subsetOpt, keep, maintainOrder) ->
-            let lf = lowerPlan input
+            let lf = lowerPlan sources input
             let selector =
                 match subsetOpt with
                 | Some cols when not cols.IsEmpty -> PolarsWrapper.SelectorCols(List.toArray cols)
@@ -243,12 +242,12 @@ module internal PolarsPhysicalLowerer =
             PolarsWrapper.LazyUnique(lf, selector, PolarsVocabulary.uniqueKeep keep, maintainOrder = maintainOrder)
 
         | LogicalPlan.Explode(input, cols, emptyAsNull, keepNulls) ->
-            let lf = lowerPlan input
+            let lf = lowerPlan sources input
             let selector = PolarsWrapper.SelectorCols(List.toArray cols)
             PolarsWrapper.LazyExplode(lf, selector, emptyAsNull, keepNulls)
 
         | LogicalPlan.Unpivot(input, index, onOpt, varName, valName) ->
-            let lf = lowerPlan input
+            let lf = lowerPlan sources input
             let indexSel = PolarsWrapper.SelectorCols(List.toArray index)
             let onSel =
                 match onOpt with
@@ -257,13 +256,13 @@ module internal PolarsPhysicalLowerer =
             PolarsWrapper.LazyUnpivot(lf, indexSel, onSel, varName, valName)
 
         | LogicalPlan.Union(left, right, isAll) ->
-            let leftLf = lowerPlan left
-            let rightLf = lowerPlan right
+            let leftLf = lowerPlan sources left
+            let rightLf = lowerPlan sources right
             let alignedRightLf = alignSchema leftLf rightLf
             PolarsWrapper.LazyConcat([| leftLf; alignedRightLf |], PlConcatType.Vertical, false, isAll)
 
         | LogicalPlan.WithRowIndex(input, name, offsetOpt) ->
-            let lf = lowerPlan input
+            let lf = lowerPlan sources input
             let offsetNullable =
                 match offsetOpt with
                 | Some o -> Nullable(int o)
@@ -271,15 +270,15 @@ module internal PolarsPhysicalLowerer =
             PolarsWrapper.LazyFrameWithRowIndex(lf, name, offsetNullable)
 
         | LogicalPlan.Rename(input, existingNames, newNames) ->
-            let lf = lowerPlan input
+            let lf = lowerPlan sources input
             PolarsWrapper.LazyRename(lf, List.toArray existingNames, List.toArray newNames, strict = false)
 
         | LogicalPlan.Reverse input ->
-            let lf = lowerPlan input
+            let lf = lowerPlan sources input
             PolarsWrapper.LazyFrameReverse lf
 
         | LogicalPlan.SkipLast(input, count) ->
-            let lf = lowerPlan input
+            let lf = lowerPlan sources input
             let withIndexLf = PolarsWrapper.LazyFrameWithRowIndex(lf, "__row_idx", Nullable 0)
             let rowIdxCol = PolarsWrapper.Col "__row_idx"
             let countLit = PolarsWrapper.Lit(uint32 count)
@@ -291,7 +290,7 @@ module internal PolarsPhysicalLowerer =
             PolarsWrapper.LazyFrameDrop(filteredLf, dropSelector)
 
         | LogicalPlan.HorizontalConcat inputs ->
-            let allHandles = inputs |> List.map lowerPlan |> List.toArray
+            let allHandles = inputs |> List.map (lowerPlan sources) |> List.toArray
             PolarsWrapper.LazyConcat(allHandles, PlConcatType.Horizontal, false, true)
 
         | LogicalPlan.Empty _ ->

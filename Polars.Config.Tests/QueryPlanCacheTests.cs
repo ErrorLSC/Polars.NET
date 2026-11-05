@@ -1,4 +1,7 @@
+using System.Linq.Expressions;
+using Microsoft.FSharp.Collections;
 using Polars.CSharp.Linq;
+using Polars.NET.Core.Enums;
 using Polars.NET.Linq;
 
 using Pl = Polars.CSharp.Polars;
@@ -14,55 +17,218 @@ public class QueryPlanCacheTests
         public decimal Balance { get; set; }
     }
 
+    private static readonly Customer[] Customers =
+    [
+        new Customer { Id = 1, City = "Beijing", Balance = 100m },
+        new Customer { Id = 2, City = "Shanghai", Balance = 200m },
+        new Customer { Id = 3, City = "Tokyo", Balance = 300m },
+    ];
+
+    private static IQueryable<Customer> FilterByCity(DataFrame df, string city) =>
+        df.AsQueryable<Customer>().Where(c => c.City == city);
+
     [Fact]
     [Trait("LINQ", "QueryPlanCache")]
-    public void CacheHits_MultipleExecutionsWithDifferentParameters_IncrementsHitsAndReturnsCorrectResults()
+    public void CacheHit_Same_Query_And_Values_Reuses_The_Compiled_Pipeline()
     {
-        using var df = DataFrame.FromRows(
+        QueryPlanCache.Clear();
+        using var df = DataFrame.FromRows(Customers);
+
+        // First sighting: compiled, not admitted.
+        Assert.Equal("Beijing", Assert.Single(FilterByCity(df, "Beijing").ToList()).City);
+        Assert.Equal(0, QueryPlanCache.Count);
+
+        // Second sighting: compiled again and admitted.
+        Assert.Equal("Beijing", Assert.Single(FilterByCity(df, "Beijing").ToList()).City);
+        Assert.Equal(0, QueryPlanCache.Hits);
+        Assert.Equal(1, QueryPlanCache.Count);
+
+        // From then on: hits.
+        Assert.Equal("Beijing", Assert.Single(FilterByCity(df, "Beijing").ToList()).City);
+        Assert.Equal(1, QueryPlanCache.Hits);
+        Assert.Equal(1, QueryPlanCache.Count);
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void One_Off_Parameter_Values_Never_Enter_The_Cache()
+    {
+        QueryPlanCache.Clear();
+        using var df = DataFrame.FromRows(Customers);
+
+        for (int id = 100; id < 150; id++)
+        {
+            var captured = id;
+            Assert.Empty(df.AsQueryable<Customer>().Where(c => c.Id == captured).ToList());
+        }
+        Assert.Equal(0, QueryPlanCache.Count);
+
+        var repeated = 2;
+        _ = df.AsQueryable<Customer>().Where(c => c.Id == repeated).ToList();
+        _ = df.AsQueryable<Customer>().Where(c => c.Id == repeated).ToList();
+        Assert.Equal(1, QueryPlanCache.Count);
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void CacheMiss_Different_Parameter_Values_Compile_Separately()
+    {
+        QueryPlanCache.Clear();
+        using var df = DataFrame.FromRows(Customers);
+
+        Assert.Equal("Beijing", Assert.Single(FilterByCity(df, "Beijing").ToList()).City);
+        Assert.Equal("Shanghai", Assert.Single(FilterByCity(df, "Shanghai").ToList()).City);
+        Assert.Equal("Tokyo", Assert.Single(FilterByCity(df, "Tokyo").ToList()).City);
+
+        Assert.Equal(0, QueryPlanCache.Hits);
+        Assert.Equal(0, QueryPlanCache.Count);
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void CacheHit_Over_Another_Frame_Binds_That_Frame()
+    {
+        QueryPlanCache.Clear();
+        using var dfA = DataFrame.FromRows(Customers);
+        using var dfB = DataFrame.FromRows(
         [
-            new Customer { Id = 1, City = "Beijing", Balance = 100m },
-            new Customer { Id = 2, City = "Shanghai", Balance = 200m },
-            new Customer { Id = 3, City = "Tokyo", Balance = 300m },
+            new Customer { Id = 7, City = "Beijing", Balance = 700m },
+            new Customer { Id = 8, City = "Beijing", Balance = 800m },
         ]);
 
-        IQueryable<Customer> FilterByCity(string city)
+        Assert.Equal([1], FilterByCity(dfA, "Beijing").Select(c => c.Id).ToList());
+        Assert.Equal([1], FilterByCity(dfA, "Beijing").Select(c => c.Id).ToList());
+        Assert.Equal([7, 8], FilterByCity(dfB, "Beijing").Select(c => c.Id).ToList());
+        Assert.Equal(1, QueryPlanCache.Hits);
+        Assert.Equal(900m, FilterByCity(dfB, "Beijing").Max(c => c.Balance) + 100m);
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void CacheMiss_Root_With_Different_Columns()
+    {
+        QueryPlanCache.Clear();
+        using var df = DataFrame.FromRows(Customers);
+        using var reordered = df.Select("City", "Id", "Balance");
+
+        for (int i = 0; i < 2; i++)
         {
-            return df.AsQueryable<Customer>().Where(c => c.City == city);
+            Assert.Equal([1], FilterByCity(df, "Beijing").Select(c => c.Id).ToList());
+            Assert.Equal([1], FilterByCity(reordered, "Beijing").Select(c => c.Id).ToList());
+        }
+        Assert.Equal(0, QueryPlanCache.Hits);
+        Assert.Equal(2, QueryPlanCache.Count);
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void CacheMiss_When_Udf_Pushdown_Setting_Changes()
+    {
+        QueryPlanCache.Clear();
+        using var df = DataFrame.FromRows(Customers);
+        IQueryable<Customer> Shape() => df.AsQueryable<Customer>().Where(c => Mask(c.City).StartsWith('S'));
+
+        var pushed = (IPolarsExplainable)Shape();
+        Assert.True(pushed.InspectPlan(true).HasUdf);
+
+        using (Pl.Config.SetDisallowUdfPushdown(true).BeginScope())
+        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
+        {
+            var inspection = ((IPolarsExplainable)Shape()).InspectPlan(true);
+            Assert.False(inspection.HasUdf);
+            Assert.True(inspection.HasClientPredicates);
+            Assert.Equal(["Shanghai"], Shape().Select(c => c.City).ToList());
         }
 
-        // Run 1: First time compilation (Cache Miss)
-        var q1 = FilterByCity("Beijing");
-        var res1 = q1.ToList();
-        _ = Assert.Single(res1);
-        Assert.Equal("Beijing", res1[0].City);
+        // Back to the default: the cached pushed-down compilation is reused, UDF diagnostics included.
+        Assert.True(((IPolarsExplainable)Shape()).InspectPlan(true).HasUdf);
+        Assert.Equal(["Shanghai"], Shape().Select(c => c.City).ToList());
+    }
 
-        var ext1 = PartialEvaluator.extract(q1.Expression);
-        var key1 = QueryCacheKey.Create(typeof(Customer), ext1.NormalizedExpression);
-        bool found1 = QueryPlanCache.TryGetPlan(key1, out var cachedPlan);
-        Assert.True(found1);
-        Assert.NotNull(cachedPlan);
+    private static string Mask(string city) => city.ToUpperInvariant();
 
-        // Run 2: Second execution with different parameter (Cache Hit!)
-        var q2 = FilterByCity("Shanghai");
-        var ext2 = PartialEvaluator.extract(q2.Expression);
-        var key2 = QueryCacheKey.Create(typeof(Customer), ext2.NormalizedExpression);
-        Assert.Equal(key1, key2);
-        Assert.Equal(key1.GetHashCode(), key2.GetHashCode());
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void CacheHit_Replays_Fallback_Diagnostics()
+    {
+        QueryPlanCache.Clear();
+        using var df = DataFrame.FromRows(Customers);
+        IQueryable<string> Shape() => df.AsQueryable<Customer>()
+            .Select(c => new { c.City, c.Balance })
+            .Where(x => TestUdfMethods.MaskName(x.City) == "S***")
+            .Select(x => x.City);
 
-        var res2 = q2.ToList();
-        _ = Assert.Single(res2);
-        Assert.Equal("Shanghai", res2[0].City);
+        using (Pl.Config.SetDisallowUdfPushdown(true).BeginScope())
+        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
+        {
+            var first = ((IPolarsExplainable)Shape()).InspectPlan(true);
+            _ = ((IPolarsExplainable)Shape()).InspectPlan(true);
+            var hitsBefore = QueryPlanCache.Hits;
+            var second = ((IPolarsExplainable)Shape()).InspectPlan(true);
 
-        // Run 3: Third execution with different parameter (Cache Hit!)
-        var q3 = FilterByCity("Tokyo");
-        var ext3 = PartialEvaluator.extract(q3.Expression);
-        var key3 = QueryCacheKey.Create(typeof(Customer), ext3.NormalizedExpression);
-        Assert.Equal(key1, key3);
+            Assert.True(QueryPlanCache.Hits > hitsBefore);
+            Assert.True(second.IsFullFallback);
+            Assert.Equal(first.FallbackReason, second.FallbackReason);
+            Assert.Equal(first.FallbackBoundary, second.FallbackBoundary);
+            Assert.Equal(["Shanghai"], Shape().ToList());
+        }
+    }
 
-        var res3 = q3.ToList();
-        _ = Assert.Single(res3);
-        Assert.Equal("Tokyo", res3[0].City);
-        Assert.True(QueryPlanCache.Hits > 0);
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void Collection_Parameters_Are_Not_Cached()
+    {
+        QueryPlanCache.Clear();
+        using var df = DataFrame.FromRows(Customers);
+
+        var ids = new List<int> { 1, 3 };
+        Assert.Equal([1, 3], df.AsQueryable<Customer>().Where(c => ids.Contains(c.Id)).Select(c => c.Id).ToList());
+
+        // The list is mutable: a cached compilation would keep the old contents.
+        ids.Add(2);
+        Assert.Equal([1, 2, 3], df.AsQueryable<Customer>().Where(c => ids.Contains(c.Id)).Select(c => c.Id).ToList());
+        Assert.Equal(0, QueryPlanCache.Count);
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void Pipelines_With_A_Second_Root_Are_Not_Cached()
+    {
+        QueryPlanCache.Clear();
+        using var dfA = DataFrame.FromRows(Customers);
+        using var dfB = DataFrame.FromRows([new Customer { Id = 9, City = "Oslo", Balance = 1m }]);
+        using var dfC = DataFrame.FromRows([new Customer { Id = 10, City = "Rome", Balance = 2m }]);
+
+        Assert.Equal([1, 2, 3, 9], dfA.AsQueryable<Customer>().Concat(dfB.AsQueryable<Customer>()).Select(c => c.Id).ToList());
+        Assert.Equal([1, 2, 3, 10], dfA.AsQueryable<Customer>().Concat(dfC.AsQueryable<Customer>()).Select(c => c.Id).ToList());
+
+        // Only the grafted single-root operand (seen twice: for dfB and dfC) is cached; the Concat itself never is.
+        Assert.Equal(1, QueryPlanCache.Count);
+        Assert.Equal(0, QueryPlanCache.Hits);
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void Key_Distinguishes_Values_That_Equals_Conflates()
+    {
+        static CompiledQueryKey? KeyOf(object value)
+        {
+            Expression<Func<int>> shape = () => 0;
+            var parameters = new Dictionary<string, ExtractedParameter>
+            {
+                ["@p0"] = new ExtractedParameter("@p0", value.GetType(), value),
+            };
+            var key = QueryPlanCache.TryCreateKey(typeof(int), shape, parameters, ListModule.OfSeq(["a"]));
+            return key?.Value;
+        }
+
+        var ticks = new DateTime(2024, 1, 1).Ticks;
+        Assert.NotEqual(KeyOf(new DateTime(ticks, DateTimeKind.Utc)), KeyOf(new DateTime(ticks, DateTimeKind.Local)));
+        Assert.NotEqual(KeyOf(1.0m), KeyOf(1.00m));
+        Assert.NotEqual(KeyOf(0.0), KeyOf(-0.0));
+        Assert.NotEqual(KeyOf(1), KeyOf(1L));
+        Assert.Equal(KeyOf("x"), KeyOf("x"));
+        Assert.Null(KeyOf(new List<int>()));
     }
 
     [Fact]
@@ -77,16 +243,21 @@ public class QueryPlanCacheTests
 
         int initialCount = QueryPlanCache.Count;
 
-        // Query 1: Where City == param
         var city = "Beijing";
-        var q1 = df.AsQueryable<Customer>().Where(c => c.City == city).ToList();
-
-        // Query 2: Where Balance > param (different property & condition)
         var minBalance = 150m;
-        var q2 = df.AsQueryable<Customer>().Where(c => c.Balance > minBalance).ToList();
 
-        // Query 3: Where City == param and Balance > param
-        var q3 = df.AsQueryable<Customer>().Where(c => c.City == city && c.Balance > minBalance).ToList();
+        // Each query runs twice so that the admission rule lets it into the cache.
+        for (int i = 0; i < 2; i++)
+        {
+            // Query 1: Where City == param
+            _ = df.AsQueryable<Customer>().Where(c => c.City == city).ToList();
+
+            // Query 2: Where Balance > param (different property & condition)
+            _ = df.AsQueryable<Customer>().Where(c => c.Balance > minBalance).ToList();
+
+            // Query 3: Where City == param and Balance > param
+            _ = df.AsQueryable<Customer>().Where(c => c.City == city && c.Balance > minBalance).ToList();
+        }
 
         Assert.True(QueryPlanCache.Count >= initialCount + 2);
     }
@@ -138,16 +309,20 @@ public class QueryPlanCacheTests
                 new Customer { Id = 1, City = "Beijing", Balance = 100m },
             ]);
 
-            // Insert 6 structurally different queries
-            _ = df.AsQueryable<Customer>().Where(c => c.Id == 1).ToList();
-            _ = df.AsQueryable<Customer>().Where(c => c.Id > 1).ToList();
-            _ = df.AsQueryable<Customer>().Where(c => c.Id < 1).ToList();
-            _ = df.AsQueryable<Customer>().Where(c => c.Id >= 1).ToList();
-            _ = df.AsQueryable<Customer>().Where(c => c.Id <= 1).ToList();
+            // Insert 5 structurally different queries, each twice so that it is admitted.
+            for (int i = 0; i < 2; i++)
+            {
+                _ = df.AsQueryable<Customer>().Where(c => c.Id == 1).ToList();
+                _ = df.AsQueryable<Customer>().Where(c => c.Id > 1).ToList();
+                _ = df.AsQueryable<Customer>().Where(c => c.Id < 1).ToList();
+                _ = df.AsQueryable<Customer>().Where(c => c.Id >= 1).ToList();
+                _ = df.AsQueryable<Customer>().Where(c => c.Id <= 1).ToList();
+            }
 
-            Assert.True(QueryPlanCache.Count <= 5);
+            Assert.Equal(5, QueryPlanCache.Count);
 
-            // Adding a 6th unique query triggers prune
+            // Admitting a 6th unique query triggers prune
+            _ = df.AsQueryable<Customer>().Where(c => c.Id != 1).ToList();
             _ = df.AsQueryable<Customer>().Where(c => c.Id != 1).ToList();
 
             // After prune of oldest 20%, cache should remain <= 5

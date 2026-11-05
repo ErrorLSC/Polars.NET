@@ -323,9 +323,8 @@ module internal LogicalPlanOps =
             | LogicalPlan.Scan(source, schema) ->
                 let srcDesc =
                     match source with
-                    | LogicalPlanSource.Table src -> src.Name
+                    | LogicalPlanSource.Slot index -> sprintf "Source[%d]" index
                     | LogicalPlanSource.SubqueryRef id -> sprintf "SubqueryRef(%s)" id
-                    | LogicalPlanSource.InMemory(rows, elemType) -> sprintf "InMemory(%s[%d])" elemType.Name rows.Length
                     | LogicalPlanSource.Empty -> "Empty"
 
                 sb.AppendLine(sprintf "Scan: %s columns=[%s]" srcDesc (String.concat ", " schema.ColumnNames))

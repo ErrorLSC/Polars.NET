@@ -30,7 +30,7 @@ type ScalarLitMechanism = ScalarLitMechanism
         static member ($)(ScalarLitMechanism, v: TimeOnly) = ScalarExpr.Literal(LiteralValue.TimeOnly v)
         static member ($)(ScalarLitMechanism, v: LiteralValue) = ScalarExpr.Literal v
 
-/// Construction helpers, active patterns, and visitors for ScalarExpr
+/// Construction helpers and visitors for ScalarExpr
 [<AutoOpen>]
 [<EditorBrowsable(EditorBrowsableState.Never)>]
 module ScalarExprOps =
@@ -279,57 +279,3 @@ module ScalarExprOps =
     /// Renames column references in an expression according to a rename dictionary.
     let renameColumns (renameMap: Map<string, string>) (expr: ScalarExpr) : ScalarExpr =
         substitute (fun name -> renameMap |> Map.tryFind name |> Option.map ScalarExpr.Column) expr
-
-    // =========================================================================
-    // 3. Active Patterns
-    // =========================================================================
-
-    let (|LiteralBool|_|) (expr: ScalarExpr) =
-        match expr with
-        | ScalarExpr.Literal(LiteralValue.Bool b) -> Some b
-        | _ -> None
-
-    let (|LiteralInt|_|) (expr: ScalarExpr) =
-        match expr with
-        | ScalarExpr.Literal(LiteralValue.Int32 i) -> Some i
-        | ScalarExpr.Literal(LiteralValue.Int64 i) -> Some(int i)
-        | ScalarExpr.Literal(LiteralValue.Int16 s) -> Some(int s)
-        | ScalarExpr.Literal(LiteralValue.Int8 b) -> Some(int b)
-        | _ -> None
-
-    let (|LiteralInt64|_|) (expr: ScalarExpr) =
-        match expr with
-        | ScalarExpr.Literal(LiteralValue.Int64 i) -> Some i
-        | ScalarExpr.Literal(LiteralValue.Int32 i) -> Some(int64 i)
-        | _ -> None
-
-    let (|LiteralFloat|_|) (expr: ScalarExpr) =
-        match expr with
-        | ScalarExpr.Literal(LiteralValue.Float64 d) -> Some d
-        | ScalarExpr.Literal(LiteralValue.Float32 f) -> Some(double f)
-        | _ -> None
-
-    let (|LiteralString|_|) (expr: ScalarExpr) =
-        match expr with
-        | ScalarExpr.Literal(LiteralValue.String s) -> Some s
-        | _ -> None
-
-    let (|LiteralNull|_|) (expr: ScalarExpr) =
-        match expr with
-        | ScalarExpr.Literal(LiteralValue.Null dt) -> Some dt
-        | _ -> None
-
-    let (|ColumnRef|_|) (expr: ScalarExpr) =
-        match expr with
-        | ScalarExpr.Column name -> Some name
-        | _ -> None
-
-    let (|BinaryComparison|_|) (expr: ScalarExpr) =
-        match expr with
-        | ScalarExpr.Binary(BinaryOp.Eq, l, r) -> Some(BinaryOp.Eq, l, r)
-        | ScalarExpr.Binary(BinaryOp.NotEq, l, r) -> Some(BinaryOp.NotEq, l, r)
-        | ScalarExpr.Binary(BinaryOp.Lt, l, r) -> Some(BinaryOp.Lt, l, r)
-        | ScalarExpr.Binary(BinaryOp.LtEq, l, r) -> Some(BinaryOp.LtEq, l, r)
-        | ScalarExpr.Binary(BinaryOp.Gt, l, r) -> Some(BinaryOp.Gt, l, r)
-        | ScalarExpr.Binary(BinaryOp.GtEq, l, r) -> Some(BinaryOp.GtEq, l, r)
-        | _ -> None
