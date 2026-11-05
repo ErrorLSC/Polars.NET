@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Numerics;
 using Polars.NET.Core.Enums;
+using Polars.NET.Core.Exceptions;
 using Polars.CSharp.Linq;
 using Polars.NET.Core;
 using Polars.NET.Linq;
@@ -6818,7 +6819,7 @@ public partial class LinqTests
         ]);
 
         // Polars doesn't support decimal prod
-        var ex = Assert.Throws<NET.Core.PolarsException>(() =>
+        var ex = Assert.Throws<PolarsException>(() =>
         {
             _ = df.AsQueryable<OrderItem>()
                 .Select(x => new

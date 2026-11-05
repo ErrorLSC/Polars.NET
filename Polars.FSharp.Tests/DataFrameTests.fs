@@ -3,7 +3,7 @@ namespace Polars.FSharp.Tests
 open System
 open Xunit
 open Polars.FSharp
-open Polars.NET.Core
+open Polars.NET.Core.Exceptions
 
 type SliceKey = { Department: string; Year: int }
 

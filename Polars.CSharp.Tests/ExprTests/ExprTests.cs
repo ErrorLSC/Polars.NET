@@ -2,6 +2,7 @@ using Apache.Arrow;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
+using Polars.NET.Core.Exceptions;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp.Tests;

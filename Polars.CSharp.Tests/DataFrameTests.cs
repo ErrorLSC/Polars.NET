@@ -4,7 +4,7 @@ using Apache.Arrow;
 using Apache.Arrow.Memory;
 using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
-using Polars.NET.Core;
+using Polars.NET.Core.Exceptions;
 using System.Text.Json;
 
 namespace Polars.CSharp.Tests;

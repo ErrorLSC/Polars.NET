@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Polars.NET.Core.Native;
+using Polars.NET.Core.Exceptions;
 
 namespace Polars.NET.Core;
 

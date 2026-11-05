@@ -2,7 +2,7 @@ namespace Polars.FSharp.Tests
 
 open Xunit
 open Polars.FSharp
-open Polars.NET.Core
+open Polars.NET.Core.Exceptions
 
 type ``Safety Tests`` () =
 

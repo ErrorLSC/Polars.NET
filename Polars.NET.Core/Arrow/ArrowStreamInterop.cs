@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using Apache.Arrow.C;
 using Apache.Arrow;
+using Polars.NET.Core.Exceptions;
 using Apache.Arrow.Ipc;
 using System.Reflection;
 using Polars.NET.Core.Native;

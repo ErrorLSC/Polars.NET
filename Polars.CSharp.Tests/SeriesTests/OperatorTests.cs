@@ -1,6 +1,5 @@
 using Pl = Polars.CSharp.Polars;
-using Polars.NET.Core;
-using System.Globalization;
+using Polars.NET.Core.Exceptions;
 
 namespace Polars.CSharp.Tests;
 

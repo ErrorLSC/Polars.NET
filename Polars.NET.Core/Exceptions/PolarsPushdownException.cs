@@ -1,4 +1,4 @@
-namespace Polars.NET.Core;
+namespace Polars.NET.Core.Exceptions;
 
 /// <summary>
 /// Exception thrown when a LINQ expression or query stage cannot be pushed down

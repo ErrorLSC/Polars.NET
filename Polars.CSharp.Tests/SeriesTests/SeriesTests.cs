@@ -3,7 +3,7 @@
 using System.Numerics.Tensors;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Polars.NET.Core;
+using Polars.NET.Core.Exceptions;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;

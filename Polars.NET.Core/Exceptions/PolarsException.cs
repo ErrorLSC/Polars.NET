@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Polars.NET.Core.Native;
 
-namespace Polars.NET.Core;
+namespace Polars.NET.Core.Exceptions;
 
 [Serializable]
 public class PolarsException : Exception

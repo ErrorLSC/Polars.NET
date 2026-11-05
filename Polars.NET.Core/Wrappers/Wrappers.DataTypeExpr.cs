@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Runtime.InteropServices;
+using Polars.NET.Core.Exceptions;
 using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;

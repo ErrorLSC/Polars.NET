@@ -1,5 +1,7 @@
 namespace Polars.FSharp.Tests
 
+open Polars.NET.Core.Exceptions
+
 module UdfLogic =
     open Apache.Arrow
 

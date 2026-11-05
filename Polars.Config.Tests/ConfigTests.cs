@@ -1,5 +1,6 @@
 using Pl = Polars.CSharp.Polars;
 using Polars.NET.Core.Enums;
+using Polars.NET.Core.Exceptions;
 
 namespace Polars.Config.Tests;
 
@@ -555,7 +556,7 @@ public class ConfigTests
             Assert.Equal(ClientEvaluationPolicy.Warn, Pl.Config.ClientEvaluationPolicy);
 
             // 4. Test exception formatting
-            var ex = new Polars.NET.Core.PolarsPushdownException(
+            var ex = new PolarsPushdownException(
                 stage: "Where",
                 expressionText: "(x.Score + CustomFunc(x.Id)) > 100",
                 unsupportedFeature: "CustomFunc(x.Id)");

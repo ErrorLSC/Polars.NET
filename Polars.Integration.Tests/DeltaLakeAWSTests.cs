@@ -5,7 +5,7 @@ using Polars.CSharp;
 using Polars.CSharp.Linq;
 using Polars.Integration.Tests.Fixtures;
 using Polars.Integration.Tests.Utils;
-using Polars.NET.Core;
+using Polars.NET.Core.Exceptions;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.Integration.Tests;

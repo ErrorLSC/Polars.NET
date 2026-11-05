@@ -3,7 +3,7 @@
 using System.Text.RegularExpressions;
 using Polars.CSharp.Linq;
 using Polars.NET.Core.Enums;
-using Polars.NET.Core;
+using Polars.NET.Core.Exceptions;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;

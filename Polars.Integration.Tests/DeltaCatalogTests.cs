@@ -1,6 +1,6 @@
 using Polars.CSharp;
 using Polars.Integration.Tests.Fixtures;
-using Polars.NET.Core;
+using Polars.NET.Core.Exceptions;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
