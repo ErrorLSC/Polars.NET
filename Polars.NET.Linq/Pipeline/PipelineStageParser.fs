@@ -9,6 +9,7 @@ open Polars.NET.Core.Exceptions
 open Polars.NET.Core.Config
 open Polars.NET.Core.Helpers
 open Polars.NET.Core.Enums
+open Polars.NET.Linq.IR
 
 [<AutoOpen>]
 module internal PipelineStageParser =
@@ -265,13 +266,13 @@ module internal PipelineStageParser =
         | MethodCall(_, null, args) -> args |> List.tryPick tryExtractSortSelector
         | _ -> None
 
-    /// Recursively locates the root IQueryable / IPolarsPlanSource ConstantExpression in a LINQ pipeline.
+    /// Recursively locates the root IQueryable / IPolarsInternalExplainable ConstantExpression in a LINQ pipeline.
     let rec tryFindRootQueryable (e: Expression) : (Expression * Type) option =
         match e with
         | null -> None
         | :? ConstantExpression as ce when
             typeof<IQueryable>.IsAssignableFrom(ce.Type)
-            || typeof<IPolarsPlanSource>.IsAssignableFrom(ce.Type)
+            || typeof<IPolarsInternalExplainable>.IsAssignableFrom(ce.Type)
             ->
             Some(ce :> Expression, ce.Type)
         | :? MethodCallExpression as mc when mc.Arguments.Count > 0 -> tryFindRootQueryable mc.Arguments.[0]

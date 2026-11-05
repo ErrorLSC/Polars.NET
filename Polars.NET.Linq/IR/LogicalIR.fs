@@ -729,7 +729,8 @@ and ILogicalTableSource =
 and [<RequireQualifiedAccess>] LogicalPlanSource =
     | Table of source: ILogicalTableSource
     | SubqueryRef of subqueryId: string
-    | InMemoryTable of name: string * rows: obj list
+    /// Snapshot of an in-memory .NET collection (typed array of elementType). Materialized by the backend at lowering time.
+    | InMemory of rows: Array * elementType: Type
     | Empty
 
 /// Specification for multi-dimensional Grouping Sets (ROLLUP, CUBE, GROUPING SETS)

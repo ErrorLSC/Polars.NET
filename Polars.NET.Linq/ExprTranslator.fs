@@ -1,14 +1,11 @@
 namespace Polars.NET.Linq
 
 open Polars.NET.Linq.IR
-open Polars.NET.Linq.Backend.Polars
 open System
 open System.Linq.Expressions
 
 [<AutoOpen>]
 module internal ExprTranslator =
-
-    let internal toLiteralHandle (value: obj) (t: Type) = ScalarExprOps.toLiteral value t |> PolarsScalarLowerer.lower
 
     /// Root entrypoint for translating LINQ Expression AST nodes to pure, symbolic ScalarExpr trees.
     let rec tryTranslateToScalar (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =

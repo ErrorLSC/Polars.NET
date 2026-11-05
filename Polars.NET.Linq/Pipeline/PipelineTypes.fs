@@ -5,13 +5,7 @@ open System.Collections
 open System.Collections.Generic
 open System.Linq
 open System.Linq.Expressions
-open Polars.NET.Core
 open Polars.NET.Linq.IR
-
-/// Internal classification of resolved predicate pushdown state
-type internal ResolvedPredicate =
-    | Pushdown of ExprHandle
-    | Client of effectiveType: Type * pred: Delegate
 
 /// Row selection strategy for scalar single-row operations
 type internal RowFetchKind =
@@ -19,16 +13,10 @@ type internal RowFetchKind =
     | Last
     | Single
 
-type internal ExecutionPlan<'T> =
-    {
-        NativePlan: LazyFrameHandle
-        ClientPredicates: Func<obj, bool> list
-        ClientProjection: (Type * Func<obj, obj>) option
-    }
-
-/// Internal interface allowing direct zero-reflection plan querying between Provider and Query instances
+/// Internal interface allowing direct zero-reflection plan querying between Provider and Query instances.
+/// Returns the compiled, optimized LogicalPlan, whether client-side predicates / fallback apply, and the client projection.
 type internal IInternalPlanSource =
-    abstract member GetPlanInfo: unit -> LazyFrameHandle * bool * (Type * Func<obj, obj>) option
+    abstract member GetLogicalPlanInfo: unit -> LogicalPlan * bool * (Type * Func<obj, obj>) option
 
 /// Internal normalized context capturing all GroupBy variants (C# 4-args, F# pipeline, Having, Sorts)
 type internal GroupFoldContext =

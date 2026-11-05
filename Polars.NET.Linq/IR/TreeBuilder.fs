@@ -7,7 +7,6 @@ open System.Linq.Expressions
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Helpers
 open Polars.NET.Linq
-open Polars.NET.Linq.Backend.Polars
 
 /// Constructs pure symbolic LogicalPlan relational trees from LINQ query stages.
 module internal TreeBuilder =
@@ -1316,6 +1315,7 @@ module internal TreeBuilder =
 
     /// Pure symbolic GroupJoin with explicit result selector builder (supporting pre-aggregated group counts and null-filling).
     let private buildGroupJoinWithResultPlan
+        (resolveSequence: Expression -> LogicalPlan option)
         (basePlan: LogicalPlan)
         (innerExpr: Expression)
         (outerKey: LambdaExpression)
@@ -1338,7 +1338,7 @@ module internal TreeBuilder =
                     | _ -> None)
             | _ -> None
 
-        PolarsObjectConverter.resolveSequencePlan innerExpr
+        resolveSequence innerExpr
         |> Option.bind (fun rightPlan ->
             let outerParam = outerKey.Parameters.[0]
             let innerParam = innerKey.Parameters.[0]
@@ -1394,11 +1394,12 @@ module internal TreeBuilder =
 
     /// Pure symbolic 2-way Zip builder into HorizontalConcat and optional column renames.
     let private buildZipPlan
+        (resolveSequence: Expression -> LogicalPlan option)
         (basePlan: LogicalPlan)
         (secondExpr: Expression)
         (resLambdaOpt: LambdaExpression option)
         : LogicalPlan option =
-        PolarsObjectConverter.resolveSequencePlan secondExpr
+        resolveSequence secondExpr
         |> Option.map (fun otherPlan ->
             let baseCols = (SchemaInference.inferPlanSchema basePlan).ColumnNames |> Set.ofList
             let safeSecondPlan, _, suffixMap = disambiguatePlanColumns baseCols otherPlan "_second"
@@ -1415,13 +1416,14 @@ module internal TreeBuilder =
 
     /// Pure symbolic 3-way Zip builder into HorizontalConcat.
     let private buildZip3Plan
+        (resolveSequence: Expression -> LogicalPlan option)
         (basePlan: LogicalPlan)
         (secondExpr: Expression)
         (thirdExpr: Expression)
         : LogicalPlan option =
         match
-            PolarsObjectConverter.resolveSequencePlan secondExpr,
-            PolarsObjectConverter.resolveSequencePlan thirdExpr
+            resolveSequence secondExpr,
+            resolveSequence thirdExpr
         with
         | Some secondPlan, Some thirdPlan ->
             let baseCols = (SchemaInference.inferPlanSchema basePlan).ColumnNames |> Set.ofList
@@ -1574,7 +1576,15 @@ module internal TreeBuilder =
 
     /// Compiles a sequence of LinqStages into a CompiledLogicalQuery, determining pure symbolic
     /// pushdown into LogicalPlan versus client-side fallback boundaries (client predicates, projections, full fallback).
-    let buildCompiledQuery (initialPlan: LogicalPlan) (isGrouping: bool) (stages: LinqStage list) : CompiledLogicalQuery =
+    let buildCompiledQuery
+        (backend: IQueryBackend)
+        (initialPlan: LogicalPlan)
+        (isGrouping: bool)
+        (stages: LinqStage list)
+        : CompiledLogicalQuery =
+        use _scope = BackendScope.Enter backend
+        let resolveSequence = SourceResolver.resolveSequencePlan backend
+
         let initState: CompiledLogicalQuery =
             {
                 Plan = initialPlan
@@ -1624,7 +1634,7 @@ module internal TreeBuilder =
                 else
                     match stage with
                     | LinqStage.Filter lam ->
-                        match SubqueryDecorrelator.tryDecorrelateFilter PolarsObjectConverter.resolveSequencePlan state.Plan lam scopeMap with
+                        match SubqueryDecorrelator.tryDecorrelateFilter resolveSequence state.Plan lam scopeMap with
                         | Some (decorPlan, residualOpt) ->
                             match residualOpt with
                             | Some resLam ->
@@ -1671,7 +1681,7 @@ module internal TreeBuilder =
                         | :? ParameterExpression as p when p.Name = lam.Parameters.[0].Name ->
                             processStages state scopeMap tail
                         | _ ->
-                            match SubqueryDecorrelator.tryDecorrelateProjection PolarsObjectConverter.resolveSequencePlan state.Plan lam scopeMap with
+                            match SubqueryDecorrelator.tryDecorrelateProjection resolveSequence state.Plan lam scopeMap with
                             | Some (decorPlan, rewrittenLam) ->
                                 let p = rewrittenLam.Parameters.[0]
                                 let ctx = makeCtx p.Type p.Name decorPlan
@@ -1872,7 +1882,7 @@ module internal TreeBuilder =
                             processStages { state with RequiresClientFallback = true } scopeMap tail
 
                     | LinqStage.Join(methodInfo, innerExpr, outerKey, innerKey, resSelOpt) ->
-                        match PolarsObjectConverter.resolveSequencePlan innerExpr with
+                        match resolveSequence innerExpr with
                         | Some rightPlan ->
                             let isRightJoin = methodInfo.Name = "RightJoin"
                             let how =
@@ -1932,7 +1942,7 @@ module internal TreeBuilder =
                                         else
                                             TranslationContext.BinaryJoin(pLeft.Name, pRight.Name, leftColSet, uniqueSuffix)
 
-                                    match SubqueryDecorrelator.tryDecorrelateProjection PolarsObjectConverter.resolveSequencePlan joinPlan resSel updatedScopeMap with
+                                    match SubqueryDecorrelator.tryDecorrelateProjection resolveSequence joinPlan resSel updatedScopeMap with
                                     | Some (decorPlan, rewrittenResSel) ->
                                         let postDecorCols = (SchemaInference.inferPlanSchema decorPlan).ColumnNames
                                         let pLeft2 = rewrittenResSel.Parameters.[0]
@@ -1967,7 +1977,7 @@ module internal TreeBuilder =
                         | _ ->
                             match resSelOpt with
                             | Some resSel ->
-                                match buildGroupJoinWithResultPlan state.Plan innerExpr outerKey innerKey resSel with
+                                match buildGroupJoinWithResultPlan resolveSequence state.Plan innerExpr outerKey innerKey resSel with
                                 | Some nextPlan ->
                                     processStages { state with Plan = nextPlan } Map.empty tail
                                 | None ->
@@ -1976,7 +1986,7 @@ module internal TreeBuilder =
                                 processStages state scopeMap (LinqStage.Join(m, innerExpr, outerKey, innerKey, None) :: tail)
 
                     | LinqStage.CrossJoin(innerExpr, resSelOpt) ->
-                        match PolarsObjectConverter.resolveSequencePlan innerExpr with
+                        match resolveSequence innerExpr with
                         | Some rightPlan ->
                             let leftCols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
                             let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
@@ -2008,7 +2018,7 @@ module internal TreeBuilder =
                             processStages { state with RequiresClientFallback = true } scopeMap tail
 
                     | LinqStage.JoinAsOf(_, inner, outerKey, innerKey, outerByOpt, innerByOpt, resSelOpt, toleranceStr, toleranceInt, toleranceFloat, strategy) ->
-                        match PolarsObjectConverter.resolveSequencePlan inner with
+                        match resolveSequence inner with
                         | Some rightPlan ->
                             let leftCols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
                             let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
@@ -2076,7 +2086,7 @@ module internal TreeBuilder =
                             processStages { state with RequiresClientFallback = true } scopeMap tail
 
                     | LinqStage.SetOp(methodInfo, secondExpr, key1Opt, key2Opt) ->
-                        match PolarsObjectConverter.resolveSequencePlan secondExpr with
+                        match resolveSequence secondExpr with
                         | Some rightPlan ->
                             let how =
                                 if methodInfo.Name.StartsWith "Intersect" then
@@ -2120,7 +2130,7 @@ module internal TreeBuilder =
                             processStages { state with RequiresClientFallback = true } scopeMap tail
 
                     | LinqStage.Union(secondExpr, keyLambdaOpt) ->
-                        match PolarsObjectConverter.resolveSequencePlan secondExpr with
+                        match resolveSequence secondExpr with
                         | Some otherPlan ->
                             let subsetOpt = keyLambdaOpt |> Option.bind PipelineStageParser.extractDistinctColumns |> Option.map Array.toList
                             let unionPlan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true)
@@ -2129,7 +2139,7 @@ module internal TreeBuilder =
                             processStages { state with RequiresClientFallback = true } scopeMap tail
 
                     | LinqStage.Concat secondExpr ->
-                        match PolarsObjectConverter.resolveSequencePlan secondExpr with
+                        match resolveSequence secondExpr with
                         | Some otherPlan ->
                             processStages { state with Plan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true) } scopeMap tail
                         | None ->
@@ -2138,7 +2148,7 @@ module internal TreeBuilder =
                     | LinqStage.Append elemExpr ->
                         match tryEvaluate elemExpr with
                         | Some elem when not (isNull elem) ->
-                            match PolarsObjectConverter.fromSingleRowPlan elem (elem.GetType()) with
+                            match SourceResolver.singleRowPlan elem (elem.GetType()) with
                             | Some otherPlan ->
                                 processStages { state with Plan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true) } scopeMap tail
                             | None ->
@@ -2149,7 +2159,7 @@ module internal TreeBuilder =
                     | LinqStage.Prepend elemExpr ->
                         match tryEvaluate elemExpr with
                         | Some elem when not (isNull elem) ->
-                            match PolarsObjectConverter.fromSingleRowPlan elem (elem.GetType()) with
+                            match SourceResolver.singleRowPlan elem (elem.GetType()) with
                             | Some otherPlan ->
                                 processStages { state with Plan = LogicalPlan.Union(otherPlan, state.Plan, isAll = true) } scopeMap tail
                             | None ->
@@ -2158,14 +2168,14 @@ module internal TreeBuilder =
                             processStages { state with RequiresClientFallback = true } scopeMap tail
 
                     | LinqStage.Zip(secondExpr, resSelOpt) ->
-                        match buildZipPlan state.Plan secondExpr resSelOpt with
+                        match buildZipPlan resolveSequence state.Plan secondExpr resSelOpt with
                         | Some nextPlan ->
                             processStages { state with Plan = nextPlan } Map.empty tail
                         | None ->
                             processStages { state with RequiresClientFallback = true } scopeMap tail
 
                     | LinqStage.Zip3(secondExpr, thirdExpr) ->
-                        match buildZip3Plan state.Plan secondExpr thirdExpr with
+                        match buildZip3Plan resolveSequence state.Plan secondExpr thirdExpr with
                         | Some nextPlan ->
                             processStages { state with Plan = nextPlan } Map.empty tail
                         | None ->
@@ -2387,9 +2397,9 @@ module internal TreeBuilder =
         { finalState with ClientPredicates = List.rev finalState.ClientPredicates }
 
     /// Constructs a LogicalPlan tree by applying a sequence of LinqStages to an initial LogicalPlan.
-    let fromStages (initialPlan: LogicalPlan) (stages: LinqStage list) : LogicalPlan =
-        (buildCompiledQuery initialPlan false stages).Plan
+    let fromStages (backend: IQueryBackend) (initialPlan: LogicalPlan) (stages: LinqStage list) : LogicalPlan =
+        (buildCompiledQuery backend initialPlan false stages).Plan
 
     /// Constructs a LogicalPlan tree from an initial LogicalPlanSource, schema, and sequence of LinqStages.
-    let fromScan (source: LogicalPlanSource) (schema: LogicalSchema) (stages: LinqStage list) : LogicalPlan =
-        fromStages (LogicalPlan.Scan(source, schema)) stages
+    let fromScan (backend: IQueryBackend) (source: LogicalPlanSource) (schema: LogicalSchema) (stages: LinqStage list) : LogicalPlan =
+        fromStages backend (LogicalPlan.Scan(source, schema)) stages

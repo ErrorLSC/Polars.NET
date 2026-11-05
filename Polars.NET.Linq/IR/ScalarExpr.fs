@@ -76,6 +76,13 @@ module ScalarExprOps =
             Option.ofNullable (ArrowTypeResolver.TryGetPlDataType targetType)
             |> Option.map (fun dt -> ScalarExpr.Cast(operand, dt, isStrict = false))
 
+    /// Pure check whether a CLR type has an Arrow representation usable as a UDF return type.
+    let isUdfReturnTypeSupported (t: Type) : bool =
+        try
+            not (isNull (ArrowTypeResolver.GetArrowTypeFromNetType t))
+        with _ ->
+            false
+
     /// Pure symbolic translation of standard LINQ reduction method names to ScalarExpr.Aggregation nodes.
     let translateReductionOp (methodName: string) (targetColExpr: ScalarExpr) : ScalarExpr option =
         match methodName with

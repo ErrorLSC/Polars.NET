@@ -16,17 +16,15 @@
   <ItemGroup>
     <Compile Include="PartialEvaluator.fs" />
     <Compile Include="OpsSpecs.fs" />
-    <Compile Include="Backend/Polars/NativeOpsApplier.fs" />
     <Compile Include="IR/LogicalIR.fs" />
     <Compile Include="IR/ScalarExpr.fs" />
+    <Compile Include="IR/JsonDataType.fs" />
+    <Compile Include="IR/BackendContracts.fs" />
     <Compile Include="IR/LogicalPlan.fs" />
     <Compile Include="IR/SchemaInference.fs" />
-    <Compile Include="Backend/Polars/PolarsScalarLowerer.fs" />
-    <Compile Include="Backend/Polars/PolarsPhysicalLowerer.fs" />
     <Compile Include="QueryCache/QueryCacheKey.fs" />
     <Compile Include="ExpressionPatterns.fs" />
     <Compile Include="LinqReflectionCache.fs" />
-    <Compile Include="Backend/Polars/PolarsObjectConverter.fs" />
     <Compile Include="ScopeNavigation.fs" />
     <Compile Include="Translators/TranslationContext.fs" />
     <Compile Include="Translators/ColumnResolver.fs" />
@@ -41,6 +39,7 @@
     <Compile Include="ExprTranslator.fs" />
     <Compile Include="AggTranslator.fs" />
     <Compile Include="FSharpAstRewriter.fs" />
+    <Compile Include="SourceResolver.fs" />
     <Compile Include="SubqueryDecorrelator.fs" />
     <Compile Include="QueryCache/QueryPlanCache.fs" />
     <Compile Include="Pipeline/PipelineTypes.fs" />
@@ -50,7 +49,17 @@
     <Compile Include="IR/Passes/PredicatePushdown.fs" />
     <Compile Include="IR/Passes/ProjectionPruning.fs" />
     <Compile Include="IR/Passes/LogicalOptimizer.fs" />
-    <Compile Include="ScalarExecutor.fs" />
+    <Compile Include="ScalarPlanner.fs" />
+    <!-- Polars execution backend: must stay after the frontend and IR so the compiler enforces the dependency direction -->
+    <Compile Include="Backend/Polars/MaterializerInvokers.fs" />
+    <Compile Include="Backend/Polars/PolarsPlanSource.fs" />
+    <Compile Include="Backend/Polars/NativeOpsApplier.fs" />
+    <Compile Include="Backend/Polars/PolarsScalarLowerer.fs" />
+    <Compile Include="Backend/Polars/PolarsPhysicalLowerer.fs" />
+    <Compile Include="Backend/Polars/PolarsObjectConverter.fs" />
+    <Compile Include="Backend/Polars/PolarsQueryBackend.fs" />
+    <Compile Include="Backend/Polars/PolarsScalarRunner.fs" />
+    <Compile Include="Backend/Polars/PolarsExprCompiler.fs" />
     <Compile Include="PolarsQueryable.fs" />
   </ItemGroup>
 
@@ -63,6 +72,7 @@
     <InternalsVisibleTo Include="Polars.CSharp.Tests" />
     <InternalsVisibleTo Include="Polars.FSharp" />
     <InternalsVisibleTo Include="Polars.FSharp.Tests" />
+    <InternalsVisibleTo Include="Polars.Config.Tests" />
   </ItemGroup>
 
 </Project>

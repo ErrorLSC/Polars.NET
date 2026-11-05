@@ -3,6 +3,7 @@ using Microsoft.FSharp.Core;
 using Polars.CSharp.Linq;
 using Polars.NET.Core;
 using Polars.NET.Linq;
+using Polars.NET.Linq.Backend.Polars;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
@@ -57,7 +58,7 @@ public class TypedMergeUpdateSetterBuilder<TTarget, TSource>
         var ctx = TranslationContext.NewMerge(targetParam, sourceParam, _sourceSuffix);
 
         // 3. Translate expression natively
-        var exprHandleOpt = ScalarExecutor.tryTranslateWithContext(ctx, evaluatedBody);
+        var exprHandleOpt = PolarsExprCompiler.tryCompile(ctx, evaluatedBody);
         if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
         {
             throw new NotSupportedException($"Expression '{valueExpression}' could not be translated to a native Polars expression.");
@@ -84,7 +85,7 @@ public class TypedMergeUpdateSetterBuilder<TTarget, TSource>
         var ctx = TranslationContext.NewMerge("", sourceParam, _sourceSuffix);
 
         // 3. Translate expression natively
-        var exprHandleOpt = ScalarExecutor.tryTranslateWithContext(ctx, evaluatedBody);
+        var exprHandleOpt = PolarsExprCompiler.tryCompile(ctx, evaluatedBody);
         if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
         {
             throw new NotSupportedException($"Expression '{valueExpression}' could not be translated to a native Polars expression.");
@@ -102,7 +103,7 @@ public class TypedMergeUpdateSetterBuilder<TTarget, TSource>
         TProp value)
     {
         string colName = MergePropertyHelper.ExtractPropertyName(targetProperty);
-        var handle = ExprTranslator.toLiteralHandle(value!, typeof(TProp));
+        var handle = PolarsScalarLowerer.lowerConstant(value!, typeof(TProp));
         Setters[colName] = new Expr(handle);
         return this;
     }
@@ -140,7 +141,7 @@ public class TypedMergeInsertSetterBuilder<TTarget, TSource>
         var ctx = TranslationContext.NewMerge("", sourceParam, _sourceSuffix);
 
         // 3. Translate expression natively
-        var exprHandleOpt = ScalarExecutor.tryTranslateWithContext(ctx, evaluatedBody);
+        var exprHandleOpt = PolarsExprCompiler.tryCompile(ctx, evaluatedBody);
         if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
         {
             throw new NotSupportedException($"Expression '{valueExpression}' could not be translated to a native Polars expression.");
@@ -158,7 +159,7 @@ public class TypedMergeInsertSetterBuilder<TTarget, TSource>
         TProp value)
     {
         string colName = MergePropertyHelper.ExtractPropertyName(targetProperty);
-        var handle = ExprTranslator.toLiteralHandle(value!, typeof(TProp));
+        var handle = PolarsScalarLowerer.lowerConstant(value!, typeof(TProp));
         Setters[colName] = new Expr(handle);
         return this;
     }
@@ -276,7 +277,7 @@ public class TypedMergeBuilder<TTarget, TSource> : MergeBuilderBase<TypedMergeBu
         var ctx = TranslationContext.NewMerge(targetParam, sourceParam, _tmpSfx);
 
         // 3. Translate expression natively
-        var exprHandleOpt = ScalarExecutor.tryTranslateWithContext(ctx, evaluatedBody);
+        var exprHandleOpt = PolarsExprCompiler.tryCompile(ctx, evaluatedBody);
         if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
         {
             throw new NotSupportedException($"Condition expression '{condition}' could not be translated natively.");
@@ -321,7 +322,7 @@ public class TypedMergeBuilder<TTarget, TSource> : MergeBuilderBase<TypedMergeBu
         var ctx = TranslationContext.NewMerge("", sourceParam, _tmpSfx);
 
         // 3. Translate expression natively
-        var exprHandleOpt = ScalarExecutor.tryTranslateWithContext(ctx, evaluatedBody);
+        var exprHandleOpt = PolarsExprCompiler.tryCompile(ctx, evaluatedBody);
         if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
         {
             throw new NotSupportedException($"Source condition expression '{condition}' could not be translated natively.");
@@ -366,7 +367,7 @@ public class TypedMergeBuilder<TTarget, TSource> : MergeBuilderBase<TypedMergeBu
         var ctx = TranslationContext.NewEntity(targetParam);
 
         // 3. Translate expression natively
-        var exprHandleOpt = ScalarExecutor.tryTranslateWithContext(ctx, evaluatedBody);
+        var exprHandleOpt = PolarsExprCompiler.tryCompile(ctx, evaluatedBody);
         if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
         {
             throw new NotSupportedException($"Target condition expression '{condition}' could not be translated natively.");

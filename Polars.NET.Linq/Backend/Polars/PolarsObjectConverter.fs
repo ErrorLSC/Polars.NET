@@ -61,30 +61,13 @@ module internal PolarsObjectConverter =
                 | null -> None
                 | elemType ->
                     try
-                        let fromRows = LinqReflectionCache.FromRowsMethod.MakeGenericMethod elemType
+                        let fromRows = MaterializerInvokers.FromRowsMethod.MakeGenericMethod elemType
                         let dfHandle = fromRows.Invoke(null, [| value |]) :?> DataFrameHandle
                         if not (isNull dfHandle || dfHandle.IsInvalid) then Some dfHandle else None
                     with _ ->
                         None
             else
                 None
-
-    /// Creates a 1-row DataFrame / LazyFrame from a single element instance.
-    let fromSingleRow (elem: obj) (elemType: Type) : LazyFrameHandle option =
-        if isNull elem then None
-        else
-            try
-                let fromRows = LinqReflectionCache.FromRowsMethod.MakeGenericMethod elemType
-                let typedArray = Array.CreateInstance(elemType, 1)
-                typedArray.SetValue(elem, 0)
-                let singleDf = fromRows.Invoke(null, [| box typedArray |]) :?> DataFrameHandle
-                Some(PolarsWrapper.DataFrameToLazy singleDf)
-            with _ ->
-                None
-
-    /// Creates a 1-row LogicalPlan.Scan from a single element instance.
-    let fromSingleRowPlan (elem: obj) (elemType: Type) : LogicalPlan option =
-        fromSingleRow elem elemType |> Option.map PolarsPhysicalLowerer.scanLazyFrame
 
     /// Attempts to extract or compile an in-memory object / queryable / handle into a LazyFrameHandle.
     let tryCreateLazyFrameHandle (objVal: obj) : LazyFrameHandle option =
@@ -162,41 +145,23 @@ module internal PolarsObjectConverter =
         compileSubtreeToLazyFrame expr
         |> Option.orElseWith (fun () -> resolveToLazyFrameHandle expr)
 
-    /// Resolves an inner sequence expression to a LogicalPlan (grafting pure LogicalPlan subtrees when possible).
-    let resolveSequencePlan (expr: Expression) : LogicalPlan option =
-        let tryFromExplainable (objVal: obj) : LogicalPlan option =
-            match objVal with
-            | :? IPolarsInternalExplainable as exp -> exp.TryGetPureLogicalPlan()
-            | _ -> None
-
-        let rec findRootQueryable (e: Expression) : IQueryable option =
-            match e with
-            | :? ConstantExpression as c when not (isNull c.Value) ->
-                match c.Value with
-                | :? IQueryable as q -> Some q
-                | _ -> None
-            | :? MethodCallExpression as mc -> mc.Arguments |> Seq.tryPick findRootQueryable
-            | _ -> None
-
-        let purePlanOpt =
-            match expr with
-            | :? ConstantExpression as c when not (isNull c.Value) ->
-                tryFromExplainable c.Value
-            | _ ->
-                match findRootQueryable expr with
-                | Some rootQuery ->
-                    try
-                        let subQuery = rootQuery.Provider.CreateQuery expr
-                        tryFromExplainable subQuery
-                    with _ ->
-                        None
-                | None ->
-                    match tryEvaluate expr with
-                    | Some v when not (isNull v) -> tryFromExplainable v
+    /// Binds a backend-native runtime object (compiled queryable, LazyFrame/DataFrame handle, or a wrapper
+    /// exposing a Handle property) as an opaque table source. In-memory collections return None.
+    let tryBindExternalSource (value: obj) : ILogicalTableSource option =
+        let lfOpt =
+            match value with
+            | null -> None
+            | :? IPolarsPlanSource as plan -> Some(plan.GetCompiledLazyFrameHandle())
+            | :? LazyFrameHandle as lf -> Some(PolarsWrapper.LazyClone lf)
+            | :? DataFrameHandle as df -> Some(PolarsWrapper.DataFrameToLazy df)
+            | v ->
+                let handleProp =
+                    v.GetType().GetProperty("Handle", BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
+                if isNull handleProp then
+                    None
+                else
+                    match handleProp.GetValue v with
+                    | :? LazyFrameHandle as lf -> Some(PolarsWrapper.LazyClone lf)
+                    | :? DataFrameHandle as df -> Some(PolarsWrapper.DataFrameToLazy df)
                     | _ -> None
-
-        purePlanOpt
-        |> Option.orElseWith (fun () ->
-            resolveSequenceLazyFrame expr
-            |> Option.map PolarsPhysicalLowerer.scanLazyFrame)
-
+        lfOpt |> Option.map PolarsPhysicalLowerer.tableSourceOfLazyFrame

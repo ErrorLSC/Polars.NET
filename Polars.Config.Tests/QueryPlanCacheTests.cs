@@ -3,9 +3,8 @@ using Polars.NET.Linq;
 
 using Pl = Polars.CSharp.Polars;
 
-namespace Polars.CSharp.Tests;
+namespace Polars.Config.Tests;
 
-[Collection("QueryPlanCacheTests")]
 public class QueryPlanCacheTests
 {
     private class Customer

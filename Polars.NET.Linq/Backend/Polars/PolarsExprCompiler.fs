@@ -1,0 +1,15 @@
+namespace Polars.NET.Linq.Backend.Polars
+
+open System.Linq.Expressions
+open Polars.NET.Core
+open Polars.NET.Linq
+open Polars.NET.Linq.IR
+
+/// Compiles standalone LINQ expressions (outside a query pipeline) into native Polars expressions,
+/// e.g. for TypedMerge conditions/setters and DataFrame-level key selectors.
+module internal PolarsExprCompiler =
+
+    /// Translates the expression to a symbolic ScalarExpr under the Polars backend scope, then lowers it to an ExprHandle.
+    let tryCompile (ctx: TranslationContext) (expr: Expression) : ExprHandle option =
+        use _scope = BackendScope.Enter PolarsQueryBackend.Instance
+        tryTranslateToScalar ctx expr |> Option.map PolarsScalarLowerer.lower

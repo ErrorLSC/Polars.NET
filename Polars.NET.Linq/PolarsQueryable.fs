@@ -55,10 +55,12 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
             let targetType = typeof<'TResult>
 
             match expression with
-            | MethodCall(m, _, _) when ScalarExecutor.isScalarReductionMethod m ->
-                ScalarExecutor.executeScalar<'TResult> (this :> IQueryProvider) materializer expression
+            | MethodCall(m, _, _) when ScalarPlanner.isScalarReductionMethod m ->
+                ScalarPlanner.plan<'TResult> PolarsQueryBackend.Instance (this :> IQueryProvider) expression
+                |> PolarsScalarRunner.execute materializer
             | _ when PolarsTypeHelper.IsScalarType targetType ->
-                ScalarExecutor.executeScalar<'TResult> (this :> IQueryProvider) materializer expression
+                ScalarPlanner.plan<'TResult> PolarsQueryBackend.Instance (this :> IQueryProvider) expression
+                |> PolarsScalarRunner.execute materializer
             | _ ->
                 let query = (this :> IQueryProvider).CreateQuery expression
 
@@ -172,7 +174,7 @@ and PolarsQuery<'T>
         UdfTracker.Reset()
 
         let initialPlan = PolarsPhysicalLowerer.scanLazyFrame lfCloned
-        let compiled = TreeBuilder.buildCompiledQuery initialPlan isGrouping stages
+        let compiled = TreeBuilder.buildCompiledQuery PolarsQueryBackend.Instance initialPlan isGrouping stages
         { compiled with Plan = LogicalOptimizer.optimize compiled.Plan }
 
     /// Attempts to extract a pure symbolic LogicalPlan without resetting outer diagnostics or lowering to native handles.
@@ -180,7 +182,7 @@ and PolarsQuery<'T>
         let lfCloned = provider.RootLazyFrame
         let stages = this.ExtractStages()
         let initialPlan = PolarsPhysicalLowerer.scanLazyFrame lfCloned
-        let compiled = TreeBuilder.buildCompiledQuery initialPlan isGrouping stages
+        let compiled = TreeBuilder.buildCompiledQuery PolarsQueryBackend.Instance initialPlan isGrouping stages
         let optimizedPlan = LogicalOptimizer.optimize compiled.Plan
         let schema = SchemaInference.inferPlanSchema optimizedPlan
         let canUsePurePlan =
@@ -225,7 +227,7 @@ and PolarsQuery<'T>
         : IEnumerable<'T> =
         match clientProjOpt with
         | Some(sourceType, func) ->
-            let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
+            let invoker = MaterializerInvokers.GetMaterializerInvoker sourceType
             let rawSourceRows = invoker.Invoke(materializer, dfHandle)
 
             seq {
@@ -370,7 +372,7 @@ and PolarsQuery<'T>
                             match elemLambdaOpt with
                             | Some elemLambda ->
                                 let sourceType = elemLambda.Parameters.[0].Type
-                                let invoker = LinqReflectionCache.GetMaterializerInvoker sourceType
+                                let invoker = MaterializerInvokers.GetMaterializerInvoker sourceType
                                 let rawRows = invoker.Invoke(materializer, dfHandle)
                                 let compiledElemSelector = elemLambda.Compile()
 
@@ -383,7 +385,7 @@ and PolarsQuery<'T>
                                 )
                                 :?> IEnumerable<'T>
                             | None ->
-                                let invoker = LinqReflectionCache.GetMaterializerInvoker elemType
+                                let invoker = MaterializerInvokers.GetMaterializerInvoker elemType
                                 let rawRows = invoker.Invoke(materializer, dfHandle)
 
                                 let groupByMethod =
@@ -411,7 +413,7 @@ and PolarsQuery<'T>
                         let pairType =
                             typedefof<ValueTuple<_, _>>.MakeGenericType(keyType, innerNullableType)
 
-                        let invoker = LinqReflectionCache.GetMaterializerInvoker pairType
+                        let invoker = MaterializerInvokers.GetMaterializerInvoker pairType
                         let rawPairs = invoker.Invoke(materializer, dfHandle)
 
                         let keyOrder = List<obj>()
@@ -464,7 +466,7 @@ and PolarsQuery<'T>
                     let chunkSize = chunkSizeOpt.Value
                     let elemType = targetType.GetElementType()
 
-                    let invoker = LinqReflectionCache.GetMaterializerChunkInvoker elemType
+                    let invoker = MaterializerInvokers.GetMaterializerChunkInvoker elemType
                     let chunkedSeq = invoker.Invoke(materializer, dfHandle, chunkSize)
                     chunkedSeq.Cast<'T>()
 
@@ -483,7 +485,7 @@ and PolarsQuery<'T>
                         match seedLambdaOpt with
                         | Some seedLambda ->
                             let invoker =
-                                LinqReflectionCache.GetMaterializerAggByFactoryInvoker(sourceElemType, keyType, accumType)
+                                MaterializerInvokers.GetMaterializerAggByFactoryInvoker(sourceElemType, keyType, accumType)
 
                             invoker.Invoke(materializer, dfHandle, compiledKey, seedLambda.Compile(), compiledFunc, null)
                         | None ->
@@ -493,7 +495,7 @@ and PolarsQuery<'T>
                                 | None -> failwith "Failed to evaluate static seed for AggregateBy."
 
                             let invoker =
-                                LinqReflectionCache.GetMaterializerAggBySeedInvoker(sourceElemType, keyType, accumType)
+                                MaterializerInvokers.GetMaterializerAggBySeedInvoker(sourceElemType, keyType, accumType)
 
                             invoker.Invoke(materializer, dfHandle, compiledKey, seedVal, compiledFunc, null)
 
@@ -556,11 +558,11 @@ and PolarsQuery<'T>
             DataFrameBuilder.FromRows<'T>(rows)
 
     interface IInternalPlanSource with
-        member this.GetPlanInfo() =
-            let nativeLf, clientPreds, clientProjOpt, requiresClientFallback, _ =
-                this.GetCompiledPlan()
-
-            nativeLf, requiresClientFallback || not clientPreds.IsEmpty, clientProjOpt
+        member this.GetLogicalPlanInfo() =
+            // No policy check here: sources needing client evaluation are enumerated by the scalar planner,
+            // and enumeration (GetCompiledPlan) enforces the pipeline policy; for pure native sources it is a no-op.
+            let compiled = this.CompileLogicalQuery()
+            compiled.Plan, compiled.RequiresClientFallback || not compiled.ClientPredicates.IsEmpty, compiled.ClientProjection
 
     interface IEnumerable<'T> with
         member this.GetEnumerator() : IEnumerator<'T> = (this.ExecuteQuery()).GetEnumerator()

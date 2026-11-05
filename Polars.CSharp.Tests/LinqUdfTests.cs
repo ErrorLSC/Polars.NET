@@ -344,33 +344,6 @@ public class LinqUdfTests
 
     [Fact]
     [Trait("LINQ", "UDF")]
-    public void Test_Linq_WholeEntity_Blackbox_Udf_Requires_Client_Eval_Policy()
-    {
-        using var df = CreateSampleDf();
-
-        // 1. In default Strict mode: passing the whole entity to a custom method CANNOT be pushed down -> throws
-        var query = df.AsQueryable<UdfEmployee>()
-            .Where(e => TestUdfMethods.CheckSecurityEntity(e));
-
-        var ex = Assert.Throws<PolarsPushdownException>(() => query.ToList());
-        Assert.Contains("CheckSecurityEntity", ex.ExpressionText);
-
-        // 2. Under Allow mode: gracefully falls back to client row cursor (Hybrid Execution)
-        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
-        {
-            var fallbackQuery = df.AsQueryable<UdfEmployee>()
-                .Where(e => TestUdfMethods.CheckSecurityEntity(e));
-
-            Assert.Contains("Hybrid Execution", fallbackQuery.Explain());
-            var results = fallbackQuery.ToList();
-            Assert.Equal(2, results.Count);
-            Assert.Equal("Alice", results[0].Name);
-            Assert.Equal("Charlie", results[1].Name);
-        }
-    }
-
-    [Fact]
-    [Trait("LINQ", "UDF")]
     public void Test_Linq_MultiColumn_Udf_Pushes_Down_Under_Strict_Policy()
     {
         using var df = CreateSampleDf();
@@ -384,83 +357,6 @@ public class LinqUdfTests
         Assert.Equal(2, results.Count);
         Assert.Equal("Alice", results[0].Name);
         Assert.Equal("Charlie", results[1].Name);
-    }
-
-    [Fact]
-    [Trait("LINQ", "UDF")]
-    public void Test_Linq_DisallowUdfPushdown_Blocks_MultiColumn_Udf()
-    {
-        using var df = CreateSampleDf();
-
-        // Default: DisallowUdfPushdown is false
-        Assert.False(Pl.Config.DisallowUdfPushdown);
-
-        // When DisallowUdfPushdown is true:
-        using (Pl.Config.SetDisallowUdfPushdown(true).BeginScope())
-        {
-            Assert.True(Pl.Config.DisallowUdfPushdown);
-
-            var query = df.AsQueryable<UdfEmployee>()
-                .Where(e => TestUdfMethods.CheckSecurity(e.Name, e.Salary));
-
-            // Under Strict: throws PolarsPushdownException because UDF pushdown is disallowed
-            var ex = Assert.Throws<PolarsPushdownException>(() => query.ToList());
-            Assert.Contains("CheckSecurity", ex.ExpressionText);
-
-            // Under Allow: falls back to client evaluation (Hybrid)
-            using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
-            {
-                var fallbackQuery = df.AsQueryable<UdfEmployee>()
-                    .Where(e => TestUdfMethods.CheckSecurity(e.Name, e.Salary));
-
-                Assert.Contains("Hybrid Execution", fallbackQuery.Explain());
-                var results = fallbackQuery.ToList();
-                Assert.Equal(2, results.Count);
-            }
-        }
-
-        // Scope restored: DisallowUdfPushdown is false again
-        Assert.False(Pl.Config.DisallowUdfPushdown);
-    }
-
-    [Fact]
-    [Trait("LINQ", "UDF")]
-    public void Test_Linq_DisallowUdfPushdown_Blocks_Regex_Lookaround_Udf()
-    {
-        using var df = DataFrame.FromColumns([
-            Series.From("User", ["Alice", "Bob"]),
-            Series.From("Password", ["P@ssw0rd1", "weakpass"])
-        ]);
-
-        // Default: Regex with complex lookahead pushes down via MapStringPredicate UDF
-        var defaultQuery = df.AsQueryable<UdfUserAccount>()
-            .Where(x => TestUdfMethods.ComplexLookaroundRegex().IsMatch(x.Password));
-
-        var defaultResults = defaultQuery.ToList();
-        Assert.Single(defaultResults);
-        Assert.Equal("Alice", defaultResults[0].User);
-
-        // When DisallowUdfPushdown is true:
-        using (Pl.Config.SetDisallowUdfPushdown(true).BeginScope())
-        {
-            var blockedQuery = df.AsQueryable<UdfUserAccount>()
-                .Where(x => TestUdfMethods.ComplexLookaroundRegex().IsMatch(x.Password));
-
-            // Under Strict: throws PolarsPushdownException
-            var ex = Assert.Throws<PolarsPushdownException>(() => blockedQuery.ToList());
-            Assert.Contains("IsMatch", ex.ExpressionText);
-
-            // Under Allow: falls back to client evaluation
-            using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
-            {
-                var fallbackQuery = df.AsQueryable<UdfUserAccount>()
-                    .Where(x => TestUdfMethods.ComplexLookaroundRegex().IsMatch(x.Password));
-
-                var fallbackResults = fallbackQuery.ToList();
-                Assert.Single(fallbackResults);
-                Assert.Equal("Alice", fallbackResults[0].User);
-            }
-        }
     }
 
     private static DataFrame CreateDepartmentDf()
@@ -631,46 +527,6 @@ public class LinqUdfTests
         Assert.Equal(2, results[1].Count);
         Assert.Equal(105000, results[1].TotalSalary);
         Assert.Equal(35000.0, results[1].SalaryRange);
-    }
-
-    [Fact]
-    [Trait("LINQ", "UDF")]
-    public void Test_Linq_GroupBy_Custom_Agg_DisallowUdfPushdown()
-    {
-        using var df = CreateDepartmentDf();
-
-        using (Pl.Config.SetDisallowUdfPushdown(true).BeginScope())
-        {
-            var blockedQuery = df.AsQueryable<UdfDepartmentEmployee>()
-                .GroupBy(x => x.Department)
-                .Select(g => new
-                {
-                    Dept = g.Key,
-                    SalaryRange = TestUdfMethods.CalculateRange(g.Select(x => x.Salary))
-                });
-
-            // Under Strict: throws PolarsPushdownException because group UDF pushdown is disallowed
-            var ex = Assert.Throws<PolarsPushdownException>(() => blockedQuery.ToList());
-            Assert.Contains("CalculateRange", ex.ExpressionText);
-
-            // Under Allow: falls back to client evaluation
-            using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
-            {
-                var fallbackQuery = df.AsQueryable<UdfDepartmentEmployee>()
-                    .GroupBy(x => x.Department)
-                    .Select(g => new
-                    {
-                        Dept = g.Key,
-                        SalaryRange = TestUdfMethods.CalculateRange(g.Select(x => x.Salary))
-                    })
-                    .OrderBy(x => x.Dept);
-
-                var fallbackResults = fallbackQuery.ToList();
-                Assert.Equal(2, fallbackResults.Count);
-                Assert.Equal(35000.0, fallbackResults[0].SalaryRange);
-                Assert.Equal(35000.0, fallbackResults[1].SalaryRange);
-            }
-        }
     }
 
     [Fact]

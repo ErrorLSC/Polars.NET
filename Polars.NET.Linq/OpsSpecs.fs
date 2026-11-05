@@ -1,6 +1,5 @@
 namespace Polars.NET.Linq
 
-open Polars.NET.Core
 open Polars.NET.Core.Enums
 open System.Linq.Expressions
 open System.Reflection
@@ -38,11 +37,6 @@ type internal SplitOptContext =
     static member Current
         with get () = SplitOptContext.maxMap
         and set (v) = SplitOptContext.maxMap <- v
-
-/// Uniform contract to expose internal LazyFrameHandle without leaking generic parameters
-type internal IPolarsPlanSource =
-    /// Compiles the queryable pipeline stages and returns the final optimized LazyFrameHandle
-    abstract member GetCompiledLazyFrameHandle: unit -> LazyFrameHandle
 
 /// Linear representation of query expressions before optimization/fusion
 [<RequireQualifiedAccess>]

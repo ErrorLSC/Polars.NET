@@ -7,6 +7,7 @@ using Microsoft.FSharp.Core;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Linq;
+using Polars.NET.Linq.Backend.Polars;
 using Polars.NET.Linq.IR;
 
 namespace Polars.CSharp.Linq;
@@ -872,7 +873,7 @@ public static class LinqExtensions
         var keyParam = keySelector.Parameters[0].Name ?? "x";
         var keyCtx = CreateContext(keyParam);
 
-        var keyOpt = ScalarExecutor.tryTranslateWithContext(keyCtx, evaluatedKeyBody);
+        var keyOpt = PolarsExprCompiler.tryCompile(keyCtx, evaluatedKeyBody);
         if (!FSharpOption<ExprHandle>.get_IsSome(keyOpt))
         {
             throw new NotSupportedException($"Key selector '{keySelector}' could not be translated to a Polars expression.");
@@ -891,7 +892,7 @@ public static class LinqExtensions
             var elemParam = elementSelector.Parameters[0].Name ?? "x";
             var elemCtx = CreateContext(elemParam);
 
-            var elemOpt = ScalarExecutor.tryTranslateWithContext(elemCtx, evaluatedElemBody);
+            var elemOpt = PolarsExprCompiler.tryCompile(elemCtx, evaluatedElemBody);
             if (FSharpOption<ExprHandle>.get_IsSome(elemOpt))
             {
                 elemExpr = new Expr(elemOpt.Value);

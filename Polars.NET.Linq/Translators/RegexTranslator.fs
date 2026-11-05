@@ -1,7 +1,6 @@
 namespace Polars.NET.Linq
 
 open Polars.NET.Core.Config
-open Polars.NET.Core.Wrappers
 open Polars.NET.Linq.IR
 open System
 open System.Linq.Expressions
@@ -234,8 +233,8 @@ module internal RegexTranslator =
                 else
                     sprintf "(?%s:%s)" flags pat
 
-            // Validate that Rust's regex compiler can parse the candidate (e.g. rejects lookaround)
-            if PolarsWrapper.RegexIsValid candidate then
+            // Ask the backend whether its native regex engine accepts the candidate (e.g. Rust regex rejects lookaround)
+            if BackendScope.Current.IsRegexPatternSupported candidate then
                 Some candidate
             else
                 None

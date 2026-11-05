@@ -237,12 +237,7 @@ module internal OperatorAndUdfTranslator =
                     if translatedDependentArgs |> List.exists Option.isNone then
                         None
                     else
-                        let isSupportedReturn =
-                            try
-                                let h = ArrowUdfBatchAdapter.GetDataTypeHandle(expr.Type)
-                                not (isNull h || h.IsInvalid)
-                            with _ ->
-                                false
+                        let isSupportedReturn = ScalarExprOps.isUdfReturnTypeSupported expr.Type
 
                         if not isSupportedReturn then
                             None

@@ -7,6 +7,7 @@ open System.Linq
 open System.Linq.Expressions
 open System.Reflection
 open Polars.NET.Core.Helpers
+open Polars.NET.Linq.IR
 
 module internal ExpressionEquality =
 
@@ -47,7 +48,7 @@ module internal ExpressionEquality =
                     hc.Add 0
                 elif
                     typeof<IQueryable>.IsAssignableFrom ce.Type
-                    || typeof<IPolarsPlanSource>.IsAssignableFrom ce.Type
+                    || typeof<IPolarsInternalExplainable>.IsAssignableFrom ce.Type
                 then
                     // Treat queryable root sources by their element type rather than object identity
                     let elemType =
@@ -191,9 +192,9 @@ module internal ExpressionEquality =
                     false
                 elif
                     (typeof<IQueryable>.IsAssignableFrom ca.Type
-                     || typeof<IPolarsPlanSource>.IsAssignableFrom ca.Type)
+                     || typeof<IPolarsInternalExplainable>.IsAssignableFrom ca.Type)
                     && (typeof<IQueryable>.IsAssignableFrom cb.Type
-                        || typeof<IPolarsPlanSource>.IsAssignableFrom cb.Type)
+                        || typeof<IPolarsInternalExplainable>.IsAssignableFrom cb.Type)
                 then
                     let elemA =
                         match PolarsTypeHelper.TryGetEnumerableElementType ca.Type with

@@ -41,36 +41,19 @@ module internal PolarsScalarLowerer =
                 None
         | _ -> None
 
-    let rec internal inferPolarsJsonDataType (t: Type) : DataTypeHandle option =
-        let coreType = PolarsTypeHelper.UnwrapCoreType t
-        if PolarsTypeHelper.IsScalarType coreType then
-            if coreType = typeof<Guid> then
-                Some(PolarsWrapper.NewPrimitiveType(int PlDataType.String))
-            else
-                try
-                    let arrowType = ArrowTypeResolver.GetArrowTypeFromNetType coreType
-                    Some(PolarsWrapper.MapArrowToDataTypeHandle arrowType)
-                with _ ->
-                    None
-        elif not (isNull (PolarsTypeHelper.TryGetEnumerableElementType coreType)) then
-            let elemType = PolarsTypeHelper.TryGetEnumerableElementType coreType
-            inferPolarsJsonDataType elemType |> Option.map PolarsWrapper.NewListType
-        elif PolarsTypeHelper.IsStructType coreType then
-            let members = ArrowTypeResolver.GetReadableMembers coreType
-            let fields =
-                members
-                |> Array.map (fun m ->
-                    let memberType = ArrowTypeResolver.GetMemberType m
-                    let jsonName = PolarsTypeHelper.GetSerializedName m
-                    jsonName, inferPolarsJsonDataType memberType)
-            if fields |> Array.forall (fun (_, opt) -> opt.IsSome) then
-                let names = fields |> Array.map fst
-                let handles = fields |> Array.map (snd >> Option.get)
-                Some(PolarsWrapper.NewStructType(names, handles))
-            else
-                None
-        else
-            None
+    /// Materializes a symbolic JsonDataType into a native Polars DataTypeHandle.
+    let rec internal lowerJsonDataType (dt: JsonDataType) : DataTypeHandle =
+        match dt with
+        | JsonDataType.Primitive arrowType -> PolarsWrapper.MapArrowToDataTypeHandle arrowType
+        | JsonDataType.List elem -> PolarsWrapper.NewListType(lowerJsonDataType elem)
+        | JsonDataType.Struct fields ->
+            let names = fields |> List.map fst |> List.toArray
+            let handles = fields |> List.map (snd >> lowerJsonDataType) |> List.toArray
+            PolarsWrapper.NewStructType(names, handles)
+
+    /// Infers the JSON decode schema for a .NET type and materializes it into a native DataTypeHandle.
+    let internal inferPolarsJsonDataType (t: Type) : DataTypeHandle option =
+        JsonDataTypeInference.tryInfer t |> Option.map lowerJsonDataType
 
     /// Strongly-typed zero-boxing conversion from LiteralValue to Polars ExprHandle
     let lowerLiteral (value: LiteralValue) : ExprHandle =
@@ -546,3 +529,7 @@ module internal PolarsScalarLowerer =
         | ScalarExpr.Subquery(_, kind) ->
             failwithf "Subquery scalar expression must be decorrelated into relational join before physical lowering: %A" kind
 
+
+    /// Lowers a CLR constant of the given type directly to a native literal ExprHandle.
+    let lowerConstant (value: obj) (t: Type) : ExprHandle =
+        ScalarExprOps.toLiteral value t |> lower

@@ -325,7 +325,7 @@ module internal LogicalPlanOps =
                     match source with
                     | LogicalPlanSource.Table src -> src.Name
                     | LogicalPlanSource.SubqueryRef id -> sprintf "SubqueryRef(%s)" id
-                    | LogicalPlanSource.InMemoryTable(name, _) -> sprintf "InMemoryTable(%s)" name
+                    | LogicalPlanSource.InMemory(rows, elemType) -> sprintf "InMemory(%s[%d])" elemType.Name rows.Length
                     | LogicalPlanSource.Empty -> "Empty"
 
                 sb.AppendLine(sprintf "Scan: %s columns=[%s]" srcDesc (String.concat ", " schema.ColumnNames))

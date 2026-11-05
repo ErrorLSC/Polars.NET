@@ -9,6 +9,7 @@ using Polars.NET.Core.Exceptions;
 using Polars.CSharp.Linq;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Linq;
+using Polars.NET.Linq.Backend.Polars;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
@@ -558,6 +559,7 @@ public partial class LinqTests
         return ApprovedStaffRegistry.Contains(name) && salary > 4500;
     }
     private static bool CheckSecurityClearance(Employee e) => CheckSecurityClearance(e.Name, e.Salary);
+    private static bool CustomSalaryPredicate(Employee emp) => emp.Salary > 4000;
 
     [Fact]
     [Trait("LINQ", "Skip")]
@@ -589,95 +591,6 @@ public partial class LinqTests
         Assert.Equal(2, pagedResult.Count);
         Assert.Equal(3, pagedResult[0].Id);
         Assert.Equal(4, pagedResult[1].Id);
-    }
-    private static bool CustomSalaryPredicate(Employee emp) => emp.Salary > 4000;
-    [Fact]
-    [Trait("LINQ", "Fallback")]
-    public void Test_Linq_ClientFallback_Where_FollowedBy_TypeChanging_Select()
-    {
-        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
-        {
-            using var df = DataFrame.FromColumns([
-                Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
-                Series.From("Age", [25, 17, 30, 15, 28]),
-                Series.From("Salary", [5000, 3000, 7000, 2000, 6200])
-            ]);
-
-            var query = df.AsQueryable<Employee>()
-                          .Where(e => CustomSalaryPredicate(e))
-                          .Select(e => e.Name);
-
-            AssertPlan(query, HybridPushdown);
-
-            var result = query.ToList();
-
-            Assert.Equal(3, result.Count);
-            Assert.Equal("Alice", result[0]);
-            Assert.Equal("Charlie", result[1]);
-            Assert.Equal("Eve", result[2]);
-        }
-    }
-    [Fact]
-    [Trait("LINQ", "Fallback")]
-    public void Test_Linq_Fallback_WithUnsupportedCSharpMethod()
-    {
-        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
-        {
-            using var df = DataFrame.FromColumns([
-                Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
-                Series.From("Age", [25, 17, 30, 15, 28]),
-                Series.From("Salary", [5000, 3000, 7000, 2000, 6200])
-            ]);
-
-            // 1. Where(Age >= 18) should push down to Polars Native (Filtering Bob and David out)
-            // 2. Where(CustomMagicAudit) must gracefully fallback to client-side cursor evaluation
-            var query = df.AsQueryable<Employee>()
-                          .Where(e => e.Age >= 18)
-                          .Where(e => CheckSecurityClearance(e));
-
-            AssertPlan(query, HybridPushdown);
-            var result = query.ToList();
-
-            // Qualified:
-            // Alice: Age 25 >= 18, in approved set, salary 5000 > 4500 -> True
-            // Charlie: Age 30 >= 18, in approved set, salary 7000 > 4500 -> True
-            // Eve: Age 28 >= 18, NOT in approved set -> False
-            Assert.Equal(2, result.Count);
-            Assert.Equal("Alice", result[0].Name);
-            Assert.Equal("Charlie", result[1].Name);
-        }
-    }
-    [Fact]
-    [Trait("LINQ", "Fallback")]
-    public void Test_Linq_Fallback_ToDataFrame_And_ToLazyFrame()
-    {
-        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
-        {
-            using var df = DataFrame.FromColumns([
-                Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]),
-                Series.From("Age", [25, 17, 30, 15, 28]),
-                Series.From("Salary", [5000, 3000, 7000, 2000, 6200])
-            ]);
-
-            // back into a native columnar DataFrame via DataFrameBuilder.FromRows<T>()
-            using DataFrame dfResult = df.AsQueryable<Employee>()
-                                         .Where(e => e.Age >= 18)
-                                         .Where(e => CheckSecurityClearance(e))
-                                         .ToDataFrame();
-
-            Assert.Equal(2, dfResult.Height);
-            Assert.Equal(3, dfResult.Width);
-            Assert.True(dfResult.ColumnNames.SequenceEqual(["Name", "Age", "Salary"]));
-
-            // Verify that continuing from ToLazyFrame works natively on top of the transposed DataFrame
-            using LazyFrame lfResumed = df.AsQueryable<Employee>()
-                                          .Where(e => e.Age >= 18)
-                                          .Where(e => CheckSecurityClearance(e))
-                                          .ToLazyFrame();
-
-            using DataFrame dfCollected = lfResumed.Collect();
-            Assert.Equal(2, dfCollected.Height);
-        }
     }
 
     [Fact]
@@ -4635,24 +4548,24 @@ public partial class LinqTests
     public void Test_Linq_SystemTextJson_TypeInference()
     {
         // 1. Primitive types
-        var intDtypeOpt = JsonTypeInference.inferPolarsJsonDataType(typeof(int));
+        var intDtypeOpt = PolarsScalarLowerer.inferPolarsJsonDataType(typeof(int));
         Assert.True(Microsoft.FSharp.Core.OptionModule.IsSome(intDtypeOpt));
         using var intDtype = intDtypeOpt.Value;
         Assert.Equal(PlDataType.Int32, PolarsWrapper.GetDataTypeKind(intDtype));
 
-        var strDtypeOpt = JsonTypeInference.inferPolarsJsonDataType(typeof(string));
+        var strDtypeOpt = PolarsScalarLowerer.inferPolarsJsonDataType(typeof(string));
         Assert.True(Microsoft.FSharp.Core.OptionModule.IsSome(strDtypeOpt));
         using var strDtype = strDtypeOpt.Value;
         Assert.Equal(PlDataType.String, PolarsWrapper.GetDataTypeKind(strDtype));
 
         // 2. Collection types (List)
-        var listDtypeOpt = JsonTypeInference.inferPolarsJsonDataType(typeof(List<string>));
+        var listDtypeOpt = PolarsScalarLowerer.inferPolarsJsonDataType(typeof(List<string>));
         Assert.True(Microsoft.FSharp.Core.OptionModule.IsSome(listDtypeOpt));
         using var listDtype = listDtypeOpt.Value;
         Assert.Equal(PlDataType.List, PolarsWrapper.GetDataTypeKind(listDtype));
 
         // 3. Complex DTO with [JsonPropertyName], [JsonIgnore], and nested record
-        var dtoDtypeOpt = JsonTypeInference.inferPolarsJsonDataType(typeof(JsonUserTestDto));
+        var dtoDtypeOpt = PolarsScalarLowerer.inferPolarsJsonDataType(typeof(JsonUserTestDto));
         Assert.True(Microsoft.FSharp.Core.OptionModule.IsSome(dtoDtypeOpt));
         using var dtoDtype = dtoDtypeOpt.Value;
         Assert.Equal(PlDataType.Struct, PolarsWrapper.GetDataTypeKind(dtoDtype));

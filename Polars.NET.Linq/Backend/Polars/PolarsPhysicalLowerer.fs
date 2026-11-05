@@ -22,21 +22,39 @@ module internal PolarsPhysicalLowerer =
         let df = PolarsWrapper.DataFrameNew ReadOnlySpan.Empty
         PolarsWrapper.DataFrameToLazy df
 
+    /// Wraps a physical LazyFrameHandle as an opaque ILogicalTableSource (schema read from the frame).
+    let tableSourceOfLazyFrame (lf: LazyFrameHandle) : ILogicalTableSource =
+        let cols = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
+        PolarsTableSource(lf, LogicalSchema.OfNames cols)
+
     /// Creates a LogicalPlan Scan leaf node from a physical LazyFrameHandle.
     let scanLazyFrame (lf: LazyFrameHandle) : LogicalPlan =
-        let cols = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
-        let schema = LogicalSchema.OfNames cols
-        LogicalPlan.Scan(LogicalPlanSource.Table(PolarsTableSource(lf, schema)), schema)
+        let source = tableSourceOfLazyFrame lf
+        LogicalPlan.Scan(LogicalPlanSource.Table source, source.Schema)
+
+    /// Materializes an in-memory row snapshot into a LazyFrame, verifying that the transposed columns
+    /// match the schema the frontend declared for the Scan node.
+    let private materializeInMemory (rows: Array) (elemType: Type) (declared: LogicalSchema) : LazyFrameHandle =
+        let df = MaterializerInvokers.FromRowsMethod.MakeGenericMethod(elemType).Invoke(null, [| box rows |]) :?> DataFrameHandle
+        let lf = PolarsWrapper.DataFrameToLazy df
+        let actual = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
+        if actual <> declared.ColumnNames then
+            failwithf
+                "[Polars.NET.Linq Bug] InMemory(%s) declared columns [%s] but FromRows produced [%s]."
+                elemType.Name
+                (String.concat ", " declared.ColumnNames)
+                (String.concat ", " actual)
+        lf
 
     /// Recursively lowers a LogicalPlan into an optimized LazyFrameHandle.
     let rec lowerPlan (plan: LogicalPlan) : LazyFrameHandle =
         match plan with
-        | LogicalPlan.Scan(source, _) ->
+        | LogicalPlan.Scan(source, schema) ->
             match source with
             | LogicalPlanSource.Table(:? PolarsTableSource as pts) -> PolarsWrapper.LazyClone pts.Handle
             | LogicalPlanSource.Table other -> failwithf "Unsupported table source in PolarsPhysicalLowerer: %s" other.Name
             | LogicalPlanSource.SubqueryRef id -> failwithf "Unresolved SubqueryRef: %s" id
-            | LogicalPlanSource.InMemoryTable(name, _) -> failwithf "InMemoryTable not yet supported directly: %s" name
+            | LogicalPlanSource.InMemory(rows, elemType) -> materializeInMemory rows elemType schema
             | LogicalPlanSource.Empty -> createEmptyLazyFrame ()
 
         | LogicalPlan.Filter(input, pred) ->

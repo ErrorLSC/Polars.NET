@@ -1,4 +1,4 @@
-namespace Polars.NET.Linq
+namespace Polars.NET.Linq.Backend.Polars
 
 open Polars.NET.Core
 open Polars.NET.Core.Wrappers

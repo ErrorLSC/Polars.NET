@@ -13,46 +13,6 @@ open System.Collections.Generic
 /// and embedded projection subqueries) into native Polars pushdown operations.
 module internal SubqueryDecorrelator =
 
-    /// Resolves a sequence expression to a pure LogicalPlan by first inspecting IPolarsInternalExplainable
-    /// queryables (grafting their LogicalPlan subtree directly without physical lowering), and falling back
-    /// to the provided fallbackResolver for in-memory collections or hybrid sequences.
-    let internal resolveQueryableOrFallbackPlan
-        (fallbackResolver: Expression -> LogicalPlan option)
-        (expr: Expression)
-        : LogicalPlan option =
-        let tryFromExplainable (objVal: obj) : LogicalPlan option =
-            match objVal with
-            | :? IPolarsInternalExplainable as exp -> exp.TryGetPureLogicalPlan()
-            | _ -> None
-
-        let rec findRootQueryable (e: Expression) : IQueryable option =
-            match e with
-            | :? ConstantExpression as c when not (isNull c.Value) ->
-                match c.Value with
-                | :? IQueryable as q -> Some q
-                | _ -> None
-            | :? MethodCallExpression as mc -> mc.Arguments |> Seq.tryPick findRootQueryable
-            | _ -> None
-
-        let purePlanOpt =
-            match expr with
-            | :? ConstantExpression as c when not (isNull c.Value) ->
-                tryFromExplainable c.Value
-            | _ ->
-                match findRootQueryable expr with
-                | Some rootQuery ->
-                    try
-                        let subQuery = rootQuery.Provider.CreateQuery expr
-                        tryFromExplainable subQuery
-                    with _ ->
-                        None
-                | None ->
-                    match tryEvaluate expr with
-                    | Some v when not (isNull v) -> tryFromExplainable v
-                    | _ -> None
-
-        purePlanOpt |> Option.orElseWith (fun () -> fallbackResolver expr)
-
     // =========================================================================
     // 1. AST Inspection & Reflection Helpers
     // =========================================================================
@@ -91,7 +51,7 @@ module internal SubqueryDecorrelator =
         | :? ConstantExpression as c ->
             match c.Value with
             | :? IQueryable
-            | :? IPolarsPlanSource -> true
+            | :? IPolarsInternalExplainable -> true
             | _ -> false
         | :? NewExpression as ne -> ne.Arguments |> Seq.exists containsSubquery
         | :? MemberInitExpression as mie ->
@@ -719,13 +679,12 @@ module internal SubqueryDecorrelator =
 
     /// Tries to decorrelate a single conjunct expression relative to outerParam into Semi/Anti join operations.
     let internal tryDecorrelateConjunct
-        (fallbackResolver: Expression -> LogicalPlan option)
+        (resolveSequencePlan: Expression -> LogicalPlan option)
         (outerPlan: LogicalPlan)
         (outerParam: ParameterExpression)
         (conjunctExpr: Expression)
         (scopeMap: Map<string * string, string>)
         : LogicalPlan option =
-        let resolveSequencePlan = resolveQueryableOrFallbackPlan fallbackResolver
         let outerName = outerParam.Name
         let outerNames =
             Set.ofSeq (outerName :: (scopeMap |> Map.toList |> List.map (fun ((s, _), _) -> s)))
@@ -884,13 +843,12 @@ module internal SubqueryDecorrelator =
     /// Tries to decorrelate a correlated scalar aggregate expression (e.g. Min, Max, Average, Sum, Count)
     /// within a filter conjunct into a pre-aggregated GroupBy LogicalPlan, Left-Join, and pushdown comparison filter.
     let internal tryDecorrelateCorrelatedScalarAgg
-        (fallbackResolver: Expression -> LogicalPlan option)
+        (resolveSequencePlan: Expression -> LogicalPlan option)
         (outerPlan: LogicalPlan)
         (outerParam: ParameterExpression)
         (conjunctExpr: Expression)
         (scopeMap: Map<string * string, string>)
         : LogicalPlan option =
-        let resolveSequencePlan = resolveQueryableOrFallbackPlan fallbackResolver
         let outerName = outerParam.Name
         let outerNames =
             Set.ofSeq (outerName :: (scopeMap |> Map.toList |> List.map (fun ((s, _), _) -> s)))
@@ -1133,7 +1091,7 @@ module internal SubqueryDecorrelator =
     /// Attempts to decorrelate one or more subquery expressions within a filter lambda,
     /// returning the rewritten LogicalPlan and any residual outer filter lambda.
     let tryDecorrelateFilter
-        (fallbackResolver: Expression -> LogicalPlan option)
+        (resolveSequencePlan: Expression -> LogicalPlan option)
         (outerPlan: LogicalPlan)
         (filterLambda: LambdaExpression)
         (scopeMap: Map<string * string, string>)
@@ -1150,10 +1108,10 @@ module internal SubqueryDecorrelator =
                 conjuncts
                 |> List.fold
                     (fun (currPlan, resAcc, decorrelatedAny) cond ->
-                        match tryDecorrelateConjunct fallbackResolver currPlan outerParam cond scopeMap with
+                        match tryDecorrelateConjunct resolveSequencePlan currPlan outerParam cond scopeMap with
                         | Some nextPlan -> nextPlan, resAcc, true
                         | None ->
-                            match tryDecorrelateCorrelatedScalarAgg fallbackResolver currPlan outerParam cond scopeMap with
+                            match tryDecorrelateCorrelatedScalarAgg resolveSequencePlan currPlan outerParam cond scopeMap with
                             | Some nextPlan -> nextPlan, resAcc, true
                             | None ->
                                 let foldedCond, changed = foldUncorrelatedSubqueries outerNames cond
@@ -1377,12 +1335,11 @@ module internal SubqueryDecorrelator =
     /// and keys into unified GroupBy aggregations, emitting Left Outer Joins and null-coalescing operations,
     /// and returns the rewritten LogicalPlan with the rewritten projection lambda.
     let tryDecorrelateProjection
-        (fallbackResolver: Expression -> LogicalPlan option)
+        (resolveSequencePlan: Expression -> LogicalPlan option)
         (outerPlan: LogicalPlan)
         (projLambda: LambdaExpression)
         (scopeMap: Map<string * string, string>)
         : (LogicalPlan * LambdaExpression) option =
-        let resolveSequencePlan = resolveQueryableOrFallbackPlan fallbackResolver
         if projLambda.Parameters.Count < 1 then
             None
         elif not (containsSubquery projLambda.Body) then

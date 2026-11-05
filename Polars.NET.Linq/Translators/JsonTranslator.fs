@@ -7,7 +7,6 @@ open System.Linq.Expressions
 open System.Text.Json
 open System.Text.Json.Nodes
 open System.Text.Json.Serialization
-open Polars.NET.Core
 open Polars.NET.Core.Helpers
 open Polars.NET.Linq.IR
 
@@ -54,9 +53,9 @@ module internal JsonTypeInference =
                 else
                     Some { TargetType = coreType; Fields = props })
 
-    /// Recursively synthesizes a fresh Polars DataTypeHandle for a .NET Type.
-    let inferPolarsJsonDataType (t: Type) : DataTypeHandle option =
-        Polars.NET.Linq.Backend.Polars.PolarsScalarLowerer.inferPolarsJsonDataType t
+    /// Recursively infers a pure symbolic JSON decode schema for a .NET Type.
+    let inferJsonDataType (t: Type) : JsonDataType option =
+        JsonDataTypeInference.tryInfer t
 
     /// Resolves the actual JSON field name corresponding to a C# member/property name.
     let tryResolveJsonFieldName (t: Type) (csharpPropName: string) : string option =
@@ -364,7 +363,7 @@ module internal JsonTranslator =
                 |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.StructJsonEncode, [ s ], PlDataType.String))
 
         | JsonDeserialize(target, dtoType, steps) ->
-            if Polars.NET.Linq.Backend.Polars.PolarsScalarLowerer.inferPolarsJsonDataType dtoType |> Option.isNone then None
+            if JsonDataTypeInference.tryInfer dtoType |> Option.isNone then None
             else
                 match eval ctx target with
                 | None -> None
