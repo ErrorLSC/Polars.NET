@@ -1,7 +1,6 @@
 namespace Polars.NET.Linq.IR
 
 open System
-open Apache.Arrow.Types
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Helpers
 
@@ -9,7 +8,7 @@ open Polars.NET.Core.Helpers
 /// Backends materialize it into their own physical data type representation.
 [<RequireQualifiedAccess>]
 type JsonDataType =
-    | Primitive of arrowType: IArrowType
+    | Primitive of primitiveType: LogicalType
     | List of element: JsonDataType
     | Struct of fields: (string * JsonDataType) list
 
@@ -21,10 +20,10 @@ module internal JsonDataTypeInference =
         let coreType = PolarsTypeHelper.UnwrapCoreType t
         if PolarsTypeHelper.IsScalarType coreType then
             if coreType = typeof<Guid> then
-                Some(JsonDataType.Primitive StringViewType.Default)
+                Some(JsonDataType.Primitive LogicalTypes.String)
             else
                 try
-                    Some(JsonDataType.Primitive(ArrowTypeResolver.GetArrowTypeFromNetType coreType))
+                    Some(JsonDataType.Primitive(LogicalType.Arrow(ArrowTypeResolver.GetArrowTypeFromNetType coreType)))
                 with _ ->
                     None
         else

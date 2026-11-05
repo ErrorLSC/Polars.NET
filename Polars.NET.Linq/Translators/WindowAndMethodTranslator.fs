@@ -692,7 +692,7 @@ module internal WindowAndMethodTranslator =
                             match Int32.TryParse(s) with
                             | true, v -> v
                             | false, _ -> 2
-                        let scaled = ScalarExpr.Function(ScalarFunction.CastDecimal, [ t; ScalarExpr.Literal(LiteralValue.Int32 scale) ], LogicalTypes.Decimal)
+                        let scaled = ScalarExpr.Cast(t, LogicalTypes.decimalOf 38 scale, false)
                         tryTranslateCast typeof<string> scaled
                     else
                         None

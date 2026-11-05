@@ -3826,4 +3826,16 @@ TooShort,1990-05-20,1.60";
         using var res2 = df2.Select(n1, n2, n3, n4);
         Assert.Equal(["pre_name", "name_post", "NAME", "name_mapped"], res2.Columns);
     }
+
+    [Fact]
+    public void Test_Expr_Gather_InBounds_And_OutOfBounds()
+    {
+        using var df = DataFrame.FromColumns([Series.From("a", [10, 20, 30])]);
+
+        using var picked = df.Select(Pl.Col("a").Gather([2, 0]));
+        Assert.Equal([30, 10], picked["a"].ToArray<int>());
+
+        // Polars semantics: an out-of-bounds index is an error, not a silent null.
+        Assert.ThrowsAny<Exception>(() => df.Select(Pl.Col("a").Gather([5])));
+    }
 }

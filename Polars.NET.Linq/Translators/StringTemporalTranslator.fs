@@ -310,12 +310,12 @@ module internal StringTemporalTranslator =
 
         // --- Normalize ---
         | "Normalize", [] ->
-            targetS () |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.Normalize, [ t; ScalarExpr.Literal(LiteralValue.Int32(int NormalizationForm.FormC)) ], LogicalTypes.String))
+            targetS () |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.Normalize NormalizationForm.FormC, [ t ], LogicalTypes.String))
 
         | "Normalize", [ formExpr ] ->
             match targetS (), tryEvaluate formExpr with
             | Some t, Some(:? NormalizationForm as form) ->
-                Some(ScalarExpr.Function(ScalarFunction.Normalize, [ t; ScalarExpr.Literal(LiteralValue.Int32(int form)) ], LogicalTypes.String))
+                Some(ScalarExpr.Function(ScalarFunction.Normalize form, [ t ], LogicalTypes.String))
             | _ -> None
 
         // --- Indexer: s[i] (get_Chars) ---

@@ -719,7 +719,8 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     public static ExprHandle Median(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_median, e);
-    public static ExprHandle Mode(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_mode, e);
+    /// <summary>Most frequent value(s). <paramref name="maintainOrder"/> keeps ties in first-appearance order (Polars default: false).</summary>
+    public static ExprHandle Mode(ExprHandle e, bool maintainOrder = false) => UnaryOp(h => NativeBindings.pl_expr_mode(h, maintainOrder), e);
 
     public static ExprHandle Quantile(ExprHandle e, double quantile, PlQuantileMethod method)
     {
@@ -1392,8 +1393,9 @@ public readonly partial struct PolarsWrapper
     }
     public static ExprHandle SqlExpr(string sql)
         => ErrorHelper.Check(NativeBindings.pl_expr_sql(sql));
-    public static ExprHandle Gather(ExprHandle expr, ExprHandle idx)
-        => BinaryOp(NativeBindings.pl_expr_gather, expr, idx);
+    /// <summary>Gathers values by index. Out-of-bounds indices raise unless <paramref name="nullOnOob"/> is set (Polars default: false).</summary>
+    public static ExprHandle Gather(ExprHandle expr, ExprHandle idx, bool nullOnOob = false)
+        => BinaryOp((e, i) => NativeBindings.pl_expr_gather(e, i, nullOnOob), expr, idx);
     public static ExprHandle GatherEvery(ExprHandle expr, nuint n, nuint offset)
     {
         var h = NativeBindings.pl_expr_gather_every(expr, n, offset);

@@ -22,7 +22,7 @@ module internal LogicalPlanOps =
         | LogicalPlan.GroupingSets(input, _)
         | LogicalPlan.Sort(input, _)
         | LogicalPlan.Limit(input, _, _)
-        | LogicalPlan.Distinct(input, _, _)
+        | LogicalPlan.Distinct(input, _, _, _)
         | LogicalPlan.Explode(input, _, _, _)
         | LogicalPlan.Unpivot(input, _, _, _, _)
         | LogicalPlan.WithRowIndex(input, _, _)
@@ -51,7 +51,7 @@ module internal LogicalPlanOps =
             LogicalPlan.GroupingSets(f input, spec)
         | LogicalPlan.Sort(input, orderings) -> LogicalPlan.Sort(f input, orderings)
         | LogicalPlan.Limit(input, off, cnt) -> LogicalPlan.Limit(f input, off, cnt)
-        | LogicalPlan.Distinct(input, sub, keep) -> LogicalPlan.Distinct(f input, sub, keep)
+        | LogicalPlan.Distinct(input, sub, keep, ord) -> LogicalPlan.Distinct(f input, sub, keep, ord)
         | LogicalPlan.Explode(input, cols, emAsNull, kpNulls) ->
             LogicalPlan.Explode(f input, cols, emAsNull, kpNulls)
         | LogicalPlan.Unpivot(input, idx, on, varN, valN) ->
@@ -168,7 +168,7 @@ module internal LogicalPlanOps =
                 Set.union kCols aCols
             | LogicalPlan.Sort(_, orderings) ->
                 orderings |> List.map (fun o -> ScalarExprOps.collectColumns o.Expr) |> Set.unionMany
-            | LogicalPlan.Distinct(_, subsetOpt, _) ->
+            | LogicalPlan.Distinct(_, subsetOpt, _, _) ->
                 subsetOpt |> Option.map Set.ofList |> Option.defaultValue Set.empty
             | LogicalPlan.Explode(_, cols, _, _) -> Set.ofList cols
             | LogicalPlan.Unpivot(_, idx, onOpt, _, _) ->
@@ -391,8 +391,8 @@ module internal LogicalPlanOps =
                 sb.AppendLine(sprintf "Limit: offset=%d count=%u" off cnt) |> ignore
                 formatNode nextIndent true input
 
-            | LogicalPlan.Distinct(input, subOpt, keep) ->
-                sb.AppendLine(sprintf "Distinct: subset=%A keep=%A" subOpt keep) |> ignore
+            | LogicalPlan.Distinct(input, subOpt, keep, ord) ->
+                sb.AppendLine(sprintf "Distinct: subset=%A keep=%A maintainOrder=%b" subOpt keep ord) |> ignore
                 formatNode nextIndent true input
 
             | LogicalPlan.Explode(input, cols, _, _) ->

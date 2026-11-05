@@ -1,4 +1,3 @@
-using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp.Tests;
 

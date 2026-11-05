@@ -758,7 +758,7 @@ module internal TreeBuilder =
 
                         let lateSortOrders = if hasLateSort then allSortOrders else []
 
-                        let groupPlan = LogicalPlan.GroupBy(basePlan, keyAliasedExprs, allAggs, None, false)
+                        let groupPlan = LogicalPlan.GroupBy(basePlan, keyAliasedExprs, allAggs, None, true)
 
                         let afterEarlySortPlan =
                             if earlySortOrders.IsEmpty then groupPlan
@@ -1557,7 +1557,7 @@ module internal TreeBuilder =
                     if isKey then None
                     else Some(name, s))
 
-            let groupPlan = LogicalPlan.GroupBy(currentPlan, keyExprs, aggs, None, false)
+            let groupPlan = LogicalPlan.GroupBy(currentPlan, keyExprs, aggs, None, true)
 
             let finalProjs =
                 bindings
@@ -1765,12 +1765,12 @@ module internal TreeBuilder =
                         processStages { state with Plan = LogicalPlan.SkipLast(state.Plan, count) } scopeMap tail
 
                     | LinqStage.Distinct ->
-                        processStages { state with Plan = LogicalPlan.Distinct(state.Plan, None, DistinctKeep.First) } scopeMap tail
+                        processStages { state with Plan = LogicalPlan.Distinct(state.Plan, None, DistinctKeep.First, true) } scopeMap tail
 
                     | LinqStage.DistinctBy lam ->
                         match PipelineStageParser.extractDistinctColumns lam with
                         | Some cols ->
-                            processStages { state with Plan = LogicalPlan.Distinct(state.Plan, Some (Array.toList cols), DistinctKeep.First) } scopeMap tail
+                            processStages { state with Plan = LogicalPlan.Distinct(state.Plan, Some (Array.toList cols), DistinctKeep.First, true) } scopeMap tail
                         | None ->
                             processStages (fallback state) scopeMap tail
 
@@ -1785,7 +1785,7 @@ module internal TreeBuilder =
                         let ctx = makeCtx p.Type p.Name state.Plan
                         match ExprTranslator.tryTranslateToScalar ctx lam.Body with
                         | Some keyExpr ->
-                            let groupPlan = LogicalPlan.GroupBy(state.Plan, [ keyExpr ], [ ("Value", ScalarExpr.Aggregation(AggKind.Len, None, false)) ], None, false)
+                            let groupPlan = LogicalPlan.GroupBy(state.Plan, [ keyExpr ], [ ("Value", ScalarExpr.Aggregation(AggKind.Len, None, false)) ], None, true)
                             let keyCol = match keyExpr with ScalarExpr.Column c -> c | _ -> "Key"
                             let projs = [ ("Key", ScalarExpr.Column keyCol); ("Value", ScalarExpr.Column "Value") ]
                             processStages { state with Plan = LogicalPlan.Project(groupPlan, projs) } Map.empty tail
@@ -2124,7 +2124,7 @@ module internal TreeBuilder =
                         | Some otherPlan ->
                             let subsetOpt = keyLambdaOpt |> Option.bind PipelineStageParser.extractDistinctColumns |> Option.map Array.toList
                             let unionPlan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true)
-                            processStages { state with Plan = LogicalPlan.Distinct(unionPlan, subsetOpt, DistinctKeep.First) } scopeMap tail
+                            processStages { state with Plan = LogicalPlan.Distinct(unionPlan, subsetOpt, DistinctKeep.First, true) } scopeMap tail
                         | None ->
                             processStages (fallback state) scopeMap tail
 

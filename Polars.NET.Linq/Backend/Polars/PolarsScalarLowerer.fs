@@ -44,7 +44,7 @@ module internal PolarsScalarLowerer =
     /// Materializes a symbolic JsonDataType into a native Polars DataTypeHandle.
     let rec internal lowerJsonDataType (dt: JsonDataType) : DataTypeHandle =
         match dt with
-        | JsonDataType.Primitive arrowType -> PolarsWrapper.MapArrowToDataTypeHandle arrowType
+        | JsonDataType.Primitive primitiveType -> PolarsVocabulary.toDataTypeHandle primitiveType
         | JsonDataType.List elem -> PolarsWrapper.NewListType(lowerJsonDataType elem)
         | JsonDataType.Struct fields ->
             let names = fields |> List.map fst |> List.toArray
@@ -222,11 +222,6 @@ module internal PolarsScalarLowerer =
                     | LiteralValue.Int16 d -> uint32 (max 0s d)
                     | _ -> 0u
                 PolarsWrapper.Round(lower a, decimals, PolarsVocabulary.roundMode mode)
-            | ScalarFunction.CastDecimal, [ t; ScalarExpr.Literal(LiteralValue.Int32 scale) ] ->
-                let decType = PolarsWrapper.NewDecimalType(38, scale)
-                use _h = decType
-                let decTypeExpr = PolarsWrapper.DataTypeExprFromDataType decType
-                PolarsWrapper.ExprCast(lower t, decTypeExpr, strict = false, wrapNumerical = false)
             | ScalarFunction.Floor, [ a ] -> PolarsWrapper.Floor(lower a)
             | ScalarFunction.Ceil, [ a ] -> PolarsWrapper.Ceil(lower a)
             | ScalarFunction.Truncate, [ a ] -> PolarsWrapper.Truncate(lower a, 0u)
@@ -282,8 +277,8 @@ module internal PolarsScalarLowerer =
                 PolarsWrapper.StrPadStart(lower t, lower w, pad)
             | ScalarFunction.PadEnd, [ t; w; ScalarExpr.Literal(LiteralValue.String pad) ] ->
                 PolarsWrapper.StrPadEnd(lower t, lower w, pad)
-            | ScalarFunction.Normalize, [ t; ScalarExpr.Literal(LiteralValue.Int32 form) ] ->
-                PolarsWrapper.StrNormalize(lower t, LanguagePrimitives.EnumOfValue<int, System.Text.NormalizationForm> form)
+            | ScalarFunction.Normalize form, [ t ] ->
+                PolarsWrapper.StrNormalize(lower t, form)
             | ScalarFunction.StrContains, [ t; p; ScalarExpr.Literal(LiteralValue.Bool literal) ] ->
                 PolarsWrapper.StrContains(lower t, lower p, literal = literal, strict = false)
             | ScalarFunction.StartsWith, [ t; p ] ->
@@ -387,9 +382,8 @@ module internal PolarsScalarLowerer =
             | ScalarFunction.StrJsonPathMatch, [ a; b ] -> PolarsWrapper.StrJsonPathMatch(lower a, lower b)
             | ScalarFunction.StructJsonEncode, [ a ] -> PolarsWrapper.StructJsonEncode(lower a)
             | ScalarFunction.AsStruct, items -> PolarsWrapper.AsStruct(items |> List.map lower |> List.toArray)
-            | ScalarFunction.StrJsonDecode, [ a; ScalarExpr.Literal(LiteralValue.String typeName) ] ->
-                let dtoType = Type.GetType typeName
-                let dtypeHandle = inferPolarsJsonDataType dtoType |> Option.get
+            | ScalarFunction.StrJsonDecode jsonType, [ a ] ->
+                let dtypeHandle = lowerJsonDataType jsonType
                 use _h = dtypeHandle
                 let dtypeExpr = PolarsWrapper.DataTypeExprFromDataType dtypeHandle
                 PolarsWrapper.StrJsonDecode(lower a, dtypeExpr)

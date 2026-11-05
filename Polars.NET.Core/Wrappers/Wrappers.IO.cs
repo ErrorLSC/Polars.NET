@@ -1463,7 +1463,7 @@ public readonly partial struct PolarsWrapper
     {
         nuint batchSize = recordBatchSize > 0 ? (nuint)recordBatchSize : 0;
         nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-        NativeBindings.pl_lazyframe_sink_ipc_partitioned(
+        NativeBindings.pl_sink_ipc_partitioned(
             lf,
             path,
             // Partition Params

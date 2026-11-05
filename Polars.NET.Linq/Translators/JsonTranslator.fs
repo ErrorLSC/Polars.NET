@@ -363,15 +363,16 @@ module internal JsonTranslator =
                 |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.StructJsonEncode, [ s ], LogicalTypes.String))
 
         | JsonDeserialize(target, dtoType, steps) ->
-            if JsonDataTypeInference.tryInfer dtoType |> Option.isNone then None
-            else
+            match JsonDataTypeInference.tryInfer dtoType with
+            | None -> None
+            | Some jsonType ->
                 match eval ctx target with
                 | None -> None
                 | Some targetS ->
                     let decodedS =
                         ScalarExpr.Function(
-                            ScalarFunction.StrJsonDecode,
-                            [ targetS; ScalarExpr.Literal(LiteralValue.String dtoType.AssemblyQualifiedName) ],
+                            ScalarFunction.StrJsonDecode jsonType,
+                            [ targetS ],
                             LogicalType.Unknown
                         )
 

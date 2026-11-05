@@ -138,7 +138,7 @@ module internal SchemaInference =
         | LogicalPlan.Filter(input, _)
         | LogicalPlan.Sort(input, _)
         | LogicalPlan.Limit(input, _, _)
-        | LogicalPlan.Distinct(input, _, _)
+        | LogicalPlan.Distinct(input, _, _, _)
         | LogicalPlan.Reverse input
         | LogicalPlan.SkipLast(input, _)
         | LogicalPlan.Explode(input, _, _, _) -> inferPlanSchema input

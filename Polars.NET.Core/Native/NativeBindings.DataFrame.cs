@@ -52,12 +52,6 @@ unsafe internal partial class NativeBindings
     public static partial DataFrameHandle pl_head(DataFrameHandle df, UIntPtr n);
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_tail(DataFrameHandle df, UIntPtr n);
-
-    [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_filter(DataFrameHandle df, ExprHandle expr);
-
-    [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_with_columns(DataFrameHandle df, IntPtr[] exprs, UIntPtr len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataFrameHandle pl_dataframe_drop_many(DataFrameHandle df, string[] columns, nuint len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
@@ -67,9 +61,6 @@ unsafe internal partial class NativeBindings
     public static partial DataFrameHandle pl_dataframe_rename(DataFrameHandle df, string oldName, string newName);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataFrameHandle pl_dataframe_rename_many(DataFrameHandle df, string[] oldNames, string[] newNames, nuint count);
-
-    [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_dataframe_drop_nulls(DataFrameHandle df, IntPtr[] subset, UIntPtr len);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataFrameHandle pl_df_unique(
@@ -104,8 +95,6 @@ unsafe internal partial class NativeBindings
         UIntPtr len,
         [MarshalAs(UnmanagedType.U1)] bool emptyAsNull,
         [MarshalAs(UnmanagedType.U1)] bool keepNulls);
-    [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_select(DataFrameHandle df, IntPtr[] exprs, UIntPtr len);
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_dataframe_slice(DataFrameHandle df, long offset, UIntPtr length);
     [LibraryImport(LibName)]

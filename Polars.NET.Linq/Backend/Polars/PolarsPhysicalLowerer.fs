@@ -167,7 +167,7 @@ module internal PolarsPhysicalLowerer =
 
             let level0Keys = keyAliasedHandles |> Array.map PolarsWrapper.CloneExpr
             let level0Aggs = aggHandles |> Array.map PolarsWrapper.CloneExpr
-            let level0GroupedLf = PolarsWrapper.LazyGroupByAgg(PolarsWrapper.LazyClone activeLf, level0Keys, level0Aggs, null, false)
+            let level0GroupedLf = PolarsWrapper.LazyGroupByAgg(PolarsWrapper.LazyClone activeLf, level0Keys, level0Aggs, null, true)
             let level0SelectExprs =
                 spec.OutputColumns
                 |> List.map (fun name ->
@@ -190,7 +190,7 @@ module internal PolarsPhysicalLowerer =
                         else
                             let levelKeys = [| for i in subsetIndices -> PolarsWrapper.CloneExpr keyAliasedHandles.[i] |]
                             let levelAggs = aggHandles |> Array.map PolarsWrapper.CloneExpr
-                            PolarsWrapper.LazyGroupByAgg(PolarsWrapper.LazyClone activeLf, levelKeys, levelAggs, null, false)
+                            PolarsWrapper.LazyGroupByAgg(PolarsWrapper.LazyClone activeLf, levelKeys, levelAggs, null, true)
 
                     let subsetSet = Set.ofList subsetIndices
                     let projectedExprs =
@@ -234,13 +234,13 @@ module internal PolarsPhysicalLowerer =
             let lf = lowerPlan input
             PolarsWrapper.LazySlice(lf, offset, count)
 
-        | LogicalPlan.Distinct(input, subsetOpt, keep) ->
+        | LogicalPlan.Distinct(input, subsetOpt, keep, maintainOrder) ->
             let lf = lowerPlan input
             let selector =
                 match subsetOpt with
                 | Some cols when not cols.IsEmpty -> PolarsWrapper.SelectorCols(List.toArray cols)
                 | _ -> null
-            PolarsWrapper.LazyUnique(lf, selector, PolarsVocabulary.uniqueKeep keep, maintainOrder = false)
+            PolarsWrapper.LazyUnique(lf, selector, PolarsVocabulary.uniqueKeep keep, maintainOrder = maintainOrder)
 
         | LogicalPlan.Explode(input, cols, emptyAsNull, keepNulls) ->
             let lf = lowerPlan input

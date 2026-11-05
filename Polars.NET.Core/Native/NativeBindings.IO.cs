@@ -672,7 +672,7 @@ unsafe internal partial class NativeBindings
     );
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial void pl_lazyframe_sink_ipc_partitioned(
+    public static partial void pl_sink_ipc_partitioned(
         LazyFrameHandle lf,
         string path,
         // --- Partition Params ---

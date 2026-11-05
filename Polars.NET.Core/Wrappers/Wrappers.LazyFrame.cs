@@ -374,10 +374,24 @@ public readonly partial struct PolarsWrapper
         index.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static LazyFrameHandle LazyConcat(LazyFrameHandle[] handles, PlConcatType how, bool rechunk = false, bool parallel = true)
+    /// <summary>
+    /// Lazily concatenates LazyFrames. Defaults mirror Polars' UnionArgs / HConcatOptions defaults;
+    /// in particular vertical concatenation keeps input order (<paramref name="maintainOrder"/> = true).
+    /// </summary>
+    public static LazyFrameHandle LazyConcat(
+        LazyFrameHandle[] handles,
+        PlConcatType how,
+        bool rechunk = false,
+        bool parallel = true,
+        bool toSupertypes = false,
+        bool maintainOrder = true,
+        bool strict = false,
+        bool broadcastUnitLength = false)
     {
         var ptrs = HandlesToPtrs(handles);
-        var h = NativeBindings.pl_lazy_concat(ptrs, (UIntPtr)ptrs.Length, (int)how, rechunk, parallel);
+        var h = NativeBindings.pl_lazy_concat(
+            ptrs, (UIntPtr)ptrs.Length, (int)how,
+            parallel, rechunk, toSupertypes, maintainOrder, strict, broadcastUnitLength);
         foreach (var handle in handles)
         {
             handle.TransferOwnership();
@@ -595,7 +609,7 @@ public readonly partial struct PolarsWrapper
         string[] key,
         bool maintainOrder)
     {
-        var h = NativeBindings.pl_lazyframe_merge_sorted(lf, other, key, maintainOrder);
+        var h = NativeBindings.pl_lazyframe_merge_sorted(lf, other, key, (UIntPtr)key.Length, maintainOrder);
         lf.TransferOwnership();
         other.TransferOwnership();
         return ErrorHelper.Check(h);

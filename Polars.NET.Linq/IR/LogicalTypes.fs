@@ -80,8 +80,10 @@ module LogicalTypes =
     let UInt64 = LogicalType.Arrow UInt64Type.Default
     let Float32 = LogicalType.Arrow FloatType.Default
     let Float64 = LogicalType.Arrow DoubleType.Default
+    /// Fixed-point decimal with the given precision and scale.
+    let decimalOf (precision: int) (scale: int) = LogicalType.Arrow(Decimal128Type(precision, scale))
     /// Matches DataFrameBuilder / ArrowTypeResolver for System.Decimal.
-    let Decimal = LogicalType.Arrow(Decimal128Type(38, 18))
+    let Decimal = decimalOf 38 18
     let String = LogicalType.Arrow StringViewType.Default
     let Binary = LogicalType.Arrow BinaryViewType.Default
     let Date = LogicalType.Arrow Date32Type.Default

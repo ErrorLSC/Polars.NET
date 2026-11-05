@@ -46,8 +46,9 @@ module ExprAggregation =
         /// <summary>
         /// Get the mode value.
         /// </summary>
-        member this.Mode() =
-            new Expr(PolarsWrapper.Mode(this.CloneHandle()))
+        member this.Mode(?maintainOrder: bool) =
+            let maintainOrder = defaultArg maintainOrder false
+            new Expr(PolarsWrapper.Mode(this.CloneHandle(), maintainOrder))
 
         /// <summary>
         /// Get the max value.

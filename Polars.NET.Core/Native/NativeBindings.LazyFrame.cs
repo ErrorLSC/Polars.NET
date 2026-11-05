@@ -225,8 +225,12 @@ unsafe internal partial class NativeBindings
         IntPtr[] lfs,
         UIntPtr len,
         int how,
+        [MarshalAs(UnmanagedType.U1)] bool parallel,
         [MarshalAs(UnmanagedType.U1)] bool rechunk,
-        [MarshalAs(UnmanagedType.U1)] bool parallel
+        [MarshalAs(UnmanagedType.U1)] bool toSupertypes,
+        [MarshalAs(UnmanagedType.U1)] bool maintainOrder,
+        [MarshalAs(UnmanagedType.U1)] bool strict,
+        [MarshalAs(UnmanagedType.U1)] bool broadcastUnitLength
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_lazyframe_unnest(
@@ -283,6 +287,7 @@ unsafe internal partial class NativeBindings
         LazyFrameHandle lf,
         LazyFrameHandle other,
         string[] key,
+        UIntPtr keyLen,
         [MarshalAs(UnmanagedType.U1)] bool maintainOrder);
     [LibraryImport(LibName)]
     public static partial void pl_collect_batches_free(nint handle);

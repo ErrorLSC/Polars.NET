@@ -234,7 +234,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <summary>
     /// Get the mode value.
     /// </summary>
-    public Expr Mode() => new(PolarsWrapper.Mode(CloneHandle()));
+    public Expr Mode(bool maintainOrder = false) => new(PolarsWrapper.Mode(CloneHandle(), maintainOrder));
     /// <summary>
     /// Get the quantile value.
     /// </summary>

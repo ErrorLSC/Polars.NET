@@ -245,7 +245,6 @@ type ScalarFunction =
     | Cosh
     | Tanh
     | Clamp
-    | CastDecimal
 
     // --- String ---
     | ToUpper
@@ -265,7 +264,7 @@ type ScalarFunction =
     | ConcatString
     | PadStart
     | PadEnd
-    | Normalize
+    | Normalize of form: System.Text.NormalizationForm
     | StrContains
     | StartsWith
     | EndsWith
@@ -347,7 +346,7 @@ type ScalarFunction =
     // --- JSON ---
     | StrJsonPathMatch
     | StructJsonEncode
-    | StrJsonDecode
+    | StrJsonDecode of targetType: JsonDataType
 
     // --- Window & Series ---
     | Shift
@@ -406,7 +405,6 @@ type ScalarFunction =
         | ScalarFunction.Cosh -> "cosh"
         | ScalarFunction.Tanh -> "tanh"
         | ScalarFunction.Clamp -> "clamp"
-        | ScalarFunction.CastDecimal -> "cast_decimal"
         | ScalarFunction.ToUpper -> "to_upper"
         | ScalarFunction.ToLower -> "to_lower"
         | ScalarFunction.ToTitlecase -> "to_titlecase"
@@ -424,7 +422,7 @@ type ScalarFunction =
         | ScalarFunction.ConcatString -> "concat_str"
         | ScalarFunction.PadStart -> "pad_start"
         | ScalarFunction.PadEnd -> "pad_end"
-        | ScalarFunction.Normalize -> "normalize"
+        | ScalarFunction.Normalize _ -> "normalize"
         | ScalarFunction.StrContains -> "str_contains"
         | ScalarFunction.StartsWith -> "starts_with"
         | ScalarFunction.EndsWith -> "ends_with"
@@ -498,7 +496,7 @@ type ScalarFunction =
         | ScalarFunction.ListEval -> "list_eval"
         | ScalarFunction.StrJsonPathMatch -> "str_json_path_match"
         | ScalarFunction.StructJsonEncode -> "struct_json_encode"
-        | ScalarFunction.StrJsonDecode -> "str_json_decode"
+        | ScalarFunction.StrJsonDecode _ -> "str_json_decode"
         | ScalarFunction.Shift -> "shift"
         | ScalarFunction.Diff _ -> "diff"
         | ScalarFunction.Rank _ -> "rank"
@@ -549,7 +547,6 @@ type ScalarFunction =
         | "cosh" -> ScalarFunction.Cosh
         | "tanh" -> ScalarFunction.Tanh
         | "clamp" | "clip" -> ScalarFunction.Clamp
-        | "cast_decimal" -> ScalarFunction.CastDecimal
         | "to_upper" -> ScalarFunction.ToUpper
         | "to_lower" -> ScalarFunction.ToLower
         | "to_titlecase" -> ScalarFunction.ToTitlecase
@@ -569,7 +566,7 @@ type ScalarFunction =
         | "coalesce" -> ScalarFunction.Coalesce
         | "pad_start" -> ScalarFunction.PadStart
         | "pad_end" -> ScalarFunction.PadEnd
-        | "normalize" -> ScalarFunction.Normalize
+        | "normalize" -> ScalarFunction.Normalize System.Text.NormalizationForm.FormC
         | "str_contains" -> ScalarFunction.StrContains
         | "starts_with" -> ScalarFunction.StartsWith
         | "ends_with" -> ScalarFunction.EndsWith
@@ -641,7 +638,7 @@ type ScalarFunction =
         | "list_eval" -> ScalarFunction.ListEval
         | "str_json_path_match" -> ScalarFunction.StrJsonPathMatch
         | "struct_json_encode" -> ScalarFunction.StructJsonEncode
-        | "str_json_decode" -> ScalarFunction.StrJsonDecode
+        | "str_json_decode" -> raise (NotSupportedException "str_json_decode carries its target schema and cannot be created from a function name.")
         | "shift" -> ScalarFunction.Shift
         | "diff" -> ScalarFunction.Diff NullBehavior.Ignore
         | "rank" -> ScalarFunction.Rank RankMethod.Average
@@ -785,7 +782,7 @@ and [<RequireQualifiedAccess>] LogicalPlan =
     | GroupingSets of input: LogicalPlan * spec: LogicalGroupingSetsSpec
     | Sort of input: LogicalPlan * orderings: SortOrder list
     | Limit of input: LogicalPlan * offset: int64 * count: uint32
-    | Distinct of input: LogicalPlan * subset: string list option * keep: DistinctKeep
+    | Distinct of input: LogicalPlan * subset: string list option * keep: DistinctKeep * maintainOrder: bool
     | Explode of input: LogicalPlan * columns: string list * emptyAsNull: bool * keepNulls: bool
     | Unpivot of
         input: LogicalPlan *

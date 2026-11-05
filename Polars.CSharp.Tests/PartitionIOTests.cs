@@ -61,4 +61,42 @@ public class ParquetPartitionTests : IDisposable
         var actualGroups = dfActual["Group"].ToArray<string>();
         Assert.Equal(expectedGroups, actualGroups);
     }
+    [Fact]
+    [Trait("IO","Partitioned")]
+    public void SinkIpcPartitioned_ScanIpc_EndToEnd()
+    {
+        var df = new DataFrame(
+            new Series("Group", ["A", "A", "B", "B", "C"]),
+            new Series("Value", [1, 2, 3, 4, 5]));
+
+        df.Lazy().SinkIpcPartitioned(_testBaseDir, partitionBy: Cs.ByName("Group"), includeKeys: true);
+
+        foreach (var g in new[] { "A", "B", "C" })
+            Assert.True(Directory.Exists(Path.Combine(_testBaseDir, $"Group={g}")), $"Partition directory Group={g} missing");
+
+        var dfActual = LazyFrame.ScanIpc(Path.Combine(_testBaseDir, "**", "*.ipc"), hivePartitioning: true)
+            .Collect()
+            .Sort("Value");
+
+        Assert.Equal([1, 2, 3, 4, 5], dfActual["Value"].ToArray<int>());
+        Assert.Equal(new[] { "A", "A", "B", "B", "C" }, dfActual["Group"].ToArray<string>());
+    }
+
+    [Fact]
+    [Trait("IO","Partitioned")]
+    public void WriteIpcPartitioned_DataFrame_Writes_Every_Partition()
+    {
+        var df = new DataFrame(
+            new Series("Group", ["X", "Y", "X"]),
+            new Series("Value", [10, 20, 30]));
+
+        df.WriteIpcPartitioned(_testBaseDir, partitionBy: Cs.ByName("Group"));
+
+        var files = Directory.GetFiles(_testBaseDir, "*", SearchOption.AllDirectories);
+        Assert.Contains(files, f => f.Contains("Group=X"));
+        Assert.Contains(files, f => f.Contains("Group=Y"));
+
+        var total = files.Sum(f => DataFrame.ReadIpc(f).Height);
+        Assert.Equal(3, total);
+    }
 }

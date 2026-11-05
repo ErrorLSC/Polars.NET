@@ -745,7 +745,7 @@ module internal SubqueryDecorrelator =
 
                     let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
                     let selectedPlan = LogicalPlan.Project(filteredPlan, [ (ridCol, ScalarExpr.Column ridCol) ])
-                    let matchedRidsPlan = LogicalPlan.Distinct(selectedPlan, None, DistinctKeep.Any)
+                    let matchedRidsPlan = LogicalPlan.Distinct(selectedPlan, None, DistinctKeep.Any, false)
 
                     let semiJoinPlan =
                         LogicalPlan.Join(withRidPlan, matchedRidsPlan, [ ScalarExpr.Column ridCol ], [ ScalarExpr.Column ridCol ], joinHow, None, JoinKeyCoalescing.Default, false)

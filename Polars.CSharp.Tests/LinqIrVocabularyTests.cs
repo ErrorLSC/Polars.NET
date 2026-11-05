@@ -1,3 +1,7 @@
+using System.Linq.Expressions;
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Text.Json;
 using Polars.CSharp.Linq;
 
 namespace Polars.CSharp.Tests;
@@ -6,6 +10,8 @@ public record AsOfTrade(long Time, string Sym);
 public record AsOfQuote(long Time, string Sym, int? Price);
 public record AsOfRow(long Time, int? Price);
 public record StampRow(int Id, DateTime Ts);
+public record JsonRow(int Seq, string Json);
+public record OrderRow(int Seq, string Key, int Amount);
 public record TaggedRow(int Id, List<string> Tags, int[] Scores);
 
 /// <summary>
@@ -179,4 +185,130 @@ public class LinqIrVocabularyTests
 
         Assert.Equal([2, 0, 1], counts);
     }
+
+    // Keys first appear in the order c, a, d, b: neither sorted nor insertion-hash friendly.
+    private static DataFrame OrderRows() =>
+        DataFrame.FromRows([
+            new OrderRow(1, "c", 10), new OrderRow(2, "a", 20), new OrderRow(3, "c", 30),
+            new OrderRow(4, "d", 40), new OrderRow(5, "a", 50), new OrderRow(6, "b", 60),
+            new OrderRow(7, "d", 70), new OrderRow(8, "b", 80), new OrderRow(9, "c", 90),
+        ]);
+
+    private static readonly string[] FirstAppearance = ["c", "a", "d", "b"];
+
+    // LINQ GroupBy / CountBy yield groups in order of first key appearance. Native group-by order is
+    // otherwise nondeterministic, so repeat the query to make an unordered implementation fail reliably.
+    private static void AssertStableFirstAppearance(Func<IQueryable<OrderRow>, IEnumerable<string>> keysOf)
+    {
+        using var df = OrderRows();
+        for (int run = 0; run < 30; run++)
+            Assert.Equal(FirstAppearance, keysOf(df.AsQueryable<OrderRow>()).ToArray());
+    }
+
+    [Fact]
+    [Trait("LINQ", "IrVocabulary")]
+    public void GroupBy_Yields_Groups_In_First_Appearance_Order() =>
+        AssertStableFirstAppearance(q => q.GroupBy(r => r.Key).Select(g => new { g.Key, Total = g.Sum(r => r.Amount) }).Select(x => x.Key));
+
+    [Fact]
+    [Trait("LINQ", "IrVocabulary")]
+    public void GroupBy_ResultSelector_Yields_Groups_In_First_Appearance_Order() =>
+        AssertStableFirstAppearance(q => q.GroupBy(r => r.Key, (k, rows) => new { Key = k, Count = rows.Count() }).Select(x => x.Key));
+
+    [Fact]
+    [Trait("LINQ", "IrVocabulary")]
+    public void CountBy_Yields_Keys_In_First_Appearance_Order() =>
+        AssertStableFirstAppearance(q => q.CountBy(r => r.Key).Select(kv => kv.Key));
+
+    // A DTO emitted into a dynamic assembly, like types compiled by LINQPad or scripting hosts:
+    // Type.GetType(AssemblyQualifiedName) cannot resolve it, so the IR must not round-trip it by name.
+    private static Type EmitDynamicDto()
+    {
+        var assembly = AssemblyBuilder.DefineDynamicAssembly(
+            new AssemblyName("PolarsDynamicDtos_" + Guid.NewGuid().ToString("N")), AssemblyBuilderAccess.Run);
+        var type = assembly.DefineDynamicModule("Main").DefineType("DynamicJsonDto", TypeAttributes.Public | TypeAttributes.Class);
+        type.DefineDefaultConstructor(MethodAttributes.Public);
+        AddAutoProperty(type, "Id", typeof(int));
+        AddAutoProperty(type, "Name", typeof(string));
+        return type.CreateType();
+    }
+
+    private static void AddAutoProperty(TypeBuilder type, string name, Type propertyType)
+    {
+        const MethodAttributes accessor = MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig;
+        var field = type.DefineField("_" + name, propertyType, FieldAttributes.Private);
+
+        var getter = type.DefineMethod("get_" + name, accessor, propertyType, Type.EmptyTypes);
+        var gil = getter.GetILGenerator();
+        gil.Emit(OpCodes.Ldarg_0);
+        gil.Emit(OpCodes.Ldfld, field);
+        gil.Emit(OpCodes.Ret);
+
+        var setter = type.DefineMethod("set_" + name, accessor, null, [propertyType]);
+        var sil = setter.GetILGenerator();
+        sil.Emit(OpCodes.Ldarg_0);
+        sil.Emit(OpCodes.Ldarg_1);
+        sil.Emit(OpCodes.Stfld, field);
+        sil.Emit(OpCodes.Ret);
+
+        var property = type.DefineProperty(name, PropertyAttributes.None, propertyType, null);
+        property.SetGetMethod(getter);
+        property.SetSetMethod(setter);
+    }
+
+    [Fact]
+    [Trait("LINQ", "IrVocabulary")]
+    public void JsonDeserialize_Of_Dynamically_Emitted_Dto_Pushes_Down()
+    {
+        var dtoType = EmitDynamicDto();
+        Assert.Null(Type.GetType(dtoType.AssemblyQualifiedName!)); // precondition: not resolvable by name
+
+        using var df = DataFrame.FromRows([
+            new JsonRow(1, """{"Id":1,"Name":"alpha"}"""),
+            new JsonRow(2, """{"Id":2,"Name":"beta"}"""),
+        ]);
+
+        // r => JsonSerializer.Deserialize<DynamicJsonDto>(r.Json, (JsonSerializerOptions)null).Name
+        var deserialize = typeof(JsonSerializer).GetMethods()
+            .Single(m => m.Name == nameof(JsonSerializer.Deserialize)
+                && m.IsGenericMethodDefinition
+                && m.GetParameters() is [{ ParameterType: var p0 }, { ParameterType: var p1 }]
+                && p0 == typeof(string) && p1 == typeof(JsonSerializerOptions))
+            .MakeGenericMethod(dtoType);
+        var row = Expression.Parameter(typeof(JsonRow), "r");
+        var name = Expression.Property(
+            Expression.Call(deserialize, Expression.Property(row, nameof(JsonRow.Json)), Expression.Constant(null, typeof(JsonSerializerOptions))),
+            "Name");
+        var selector = Expression.Lambda<Func<JsonRow, string>>(name, row);
+
+        var query = df.AsQueryable<JsonRow>().OrderBy(r => r.Seq).Select(selector);
+
+        Assert.Contains("100% Native Pushdown", query.Explain());
+        Assert.Equal(["alpha", "beta"], query.ToList());
+    }
+
+    // LINQ Distinct / DistinctBy / Union keep the first occurrence of each element, in source order.
+    [Fact]
+    [Trait("LINQ", "IrVocabulary")]
+    public void Distinct_Yields_Elements_In_First_Appearance_Order() =>
+        AssertStableFirstAppearance(q => q.Select(r => r.Key).Distinct());
+
+    [Fact]
+    [Trait("LINQ", "IrVocabulary")]
+    public void DistinctBy_Keeps_First_Row_Per_Key_In_Source_Order()
+    {
+        using var df = OrderRows();
+        for (int run = 0; run < 30; run++)
+        {
+            var firstRows = df.AsQueryable<OrderRow>().DistinctBy(r => r.Key).Select(r => r.Seq).ToArray();
+            Assert.Equal([1, 2, 4, 6], firstRows);
+        }
+    }
+
+    [Fact]
+    [Trait("LINQ", "IrVocabulary")]
+    public void Union_Yields_Elements_In_First_Appearance_Order() =>
+        AssertStableFirstAppearance(q =>
+            q.Where(r => r.Seq <= 3).Select(r => r.Key)
+                .Union(q.Where(r => r.Seq > 3).Select(r => r.Key)));
 }

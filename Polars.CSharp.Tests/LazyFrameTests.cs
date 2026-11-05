@@ -1370,17 +1370,53 @@ David,40,80000";
         // 2. Branch 1: Filter on same baseLf
         using var branch1 = baseLf.Filter(Pl.Col("id") > 2).Collect();
         Assert.Equal(3, branch1.Height);
-        Assert.Equal(new[] { 3, 4, 5 }, branch1["id"].ToArray<int>());
+        Assert.Equal([3, 4, 5], branch1["id"].ToArray<int>());
 
         // 3. Branch 2: Select + rename on same baseLf
         using var branch2 = baseLf.Select(Pl.Col("val") * 2).Rename(["val"], ["val_doubled"]).Collect();
         Assert.Equal(5, branch2.Height);
         Assert.Equal("val_doubled", branch2.Columns[0]);
-        Assert.Equal(new[] { 20, 40, 60, 80, 100 }, branch2[0].ToArray<int>());
+        Assert.Equal([20, 40, 60, 80, 100], branch2[0].ToArray<int>());
 
         // 4. Repeated direct collect on baseLf
         using var res2 = baseLf.Collect();
         Assert.Equal(5, res2.Height);
-        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, res2["id"].ToArray<int>());
+        Assert.Equal([1, 2, 3, 4, 5], res2["id"].ToArray<int>());
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "Concat")]
+    public void Test_Lazy_Concat_Vertical_Preserves_Input_Order()
+    {
+        // Several inputs so that an unordered (parallel, non-order-maintaining) union would reorder them.
+        var parts = Enumerable.Range(0, 6)
+            .Select(i => DataFrame.FromColumns([Series.From("id", Enumerable.Range(i * 3, 3).ToArray())]))
+            .ToList();
+        try
+        {
+            for (int run = 0; run < 30; run++)
+            {
+                using var lf = LazyFrame.Concat(parts.Select(df => df.Lazy()));
+                using var result = lf.Collect();
+                Assert.Equal(Enumerable.Range(0, 18), result["id"].ToArray<int>());
+            }
+        }
+        finally
+        {
+            parts.ForEach(df => df.Dispose());
+        }
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "MergeSorted")]
+    public void Test_Lazy_MergeSorted_With_Default_MaintainOrder()
+    {
+        using var left = DataFrame.FromColumns([Series.From("id", [1, 3, 5]), Series.From("side", ["L", "L", "L"])]);
+        using var right = DataFrame.FromColumns([Series.From("id", [2, 4, 6]), Series.From("side", ["R", "R", "R"])]);
+
+        using var merged = left.Lazy().MergeSorted(right.Lazy(), "id").Collect();
+
+        Assert.Equal([1, 2, 3, 4, 5, 6], merged["id"].ToArray<int>());
+        Assert.Equal(["L", "R", "L", "R", "L", "R"], merged["side"].ToArray<string>());
     }
 }

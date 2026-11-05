@@ -734,7 +734,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_append(ExprHandle e, ExprHandle other, [MarshalAs(UnmanagedType.U1)]bool upcast);
     // Statistical
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_count(ExprHandle e);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_mode(ExprHandle e);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_mode(ExprHandle e, [MarshalAs(UnmanagedType.U1)] bool maintainOrder);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_std(ExprHandle e, byte ddof);
 
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_var(ExprHandle e, byte ddof);
@@ -745,7 +745,7 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_quantile(ExprHandle e, double quantile, PlQuantileMethod interpol);
 
     [LibraryImport(LibName)]
-    public static partial ExprHandle pl_expr_gather(ExprHandle expr, ExprHandle idx);
+    public static partial ExprHandle pl_expr_gather(ExprHandle expr, ExprHandle idx, [MarshalAs(UnmanagedType.U1)] bool nullOnOob);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_gather_every(ExprHandle expr, nuint n, nuint offset);
     [LibraryImport(LibName)]
