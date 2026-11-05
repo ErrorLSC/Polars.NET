@@ -3,11 +3,9 @@ namespace Polars.NET.Linq
 open Polars.NET.Core
 open Polars.NET.Core.Arrow
 open Polars.NET.Linq.IR
-open Polars.NET.Linq.Backend.Polars
 open System
 open System.Linq.Expressions
 open System.Reflection
-open Polars.NET.Core.Helpers
 
 [<AutoOpen>]
 module internal OperatorAndUdfTranslator =
@@ -158,7 +156,7 @@ module internal OperatorAndUdfTranslator =
         if isNull m || isNull m.DeclaringType then false
         else
             let asm = m.DeclaringType.Assembly
-            asm = typeof<ExprHandle>.Assembly
+            asm = typeof<PlDataType>.Assembly
             || asm = typeof<TranslationContext>.Assembly
             || let name = asm.GetName().Name in name = "Polars.CSharp" || name = "Polars.FSharp"
 
@@ -228,48 +226,50 @@ module internal OperatorAndUdfTranslator =
                         rawArgs
                         |> List.filter (exprDependsOnContext ctx)
 
-                    // Every dependent argument must be translatable to a Polars ExprHandle
+                    // Every dependent argument must be translatable to a symbolic ScalarExpr
                     let translatedDependentArgs =
                         dependentArgs
                         |> List.map (fun a ->
-                            match eval ctx a |> Option.map PolarsScalarLowerer.lower with
-                            | Some h -> Some(a, h)
+                            match eval ctx a with
+                            | Some s -> Some(a, s)
                             | None -> None)
 
                     if translatedDependentArgs |> List.exists Option.isNone then
                         None
                     else
-                        let outDataTypeOpt =
+                        let isSupportedReturn =
                             try
                                 let h = ArrowUdfBatchAdapter.GetDataTypeHandle(expr.Type)
-                                if isNull h || h.IsInvalid then None else Some h
+                                not (isNull h || h.IsInvalid)
                             with _ ->
-                                None
+                                false
 
-                        match outDataTypeOpt with
-                        | None -> None
-                        | Some outDataType ->
+                        if not isSupportedReturn then
+                            None
+                        else
+                            let retPlType =
+                                Option.ofNullable (ArrowTypeResolver.TryGetPlDataType expr.Type)
+                                |> Option.defaultValue PlDataType.Unknown
                             let dynArgs = translatedDependentArgs |> List.choose id
                             let dynCount = dynArgs.Length
 
                             if dynCount = 1 then
-                                let argExpr, handle = dynArgs.[0]
+                                let argExpr, scalarArg = dynArgs.[0]
                                 let userFunc = compileSingleArgUdfDelegate argExpr expr
                                 let arrowCallback = ArrowUdfBatchAdapter.CreateSingle(userFunc, argExpr.Type, expr.Type)
                                 ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
                                 UdfTracker.Record(sprintf "%s: %s" methodName (expr.ToString()))
-                                Some(ScalarExpr.Opaque(PolarsWrapper.Map(handle, arrowCallback, outDataType), [], "UDF"))
+                                Some(ScalarExpr.Udf(methodName, [ scalarArg ], retPlType, UdfInvoker.SingleBatch(box arrowCallback, expr.Type)))
 
                             elif dynCount > 1 then
                                 let userFunc = compileMultiArgUdfDelegate dynArgs expr
                                 let inputTypes = dynArgs |> List.map (fun (a, _) -> a.Type) |> List.toArray
                                 let arrowCallback = ArrowUdfBatchAdapter.CreateMulti(userFunc, inputTypes, expr.Type)
-                                let mainHandle = snd dynArgs.[0]
-                                let otherHandles = dynArgs |> List.tail |> List.map snd |> List.toArray
+                                let scalarArgs = dynArgs |> List.map snd
 
                                 ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
                                 UdfTracker.Record(sprintf "%s: %s" methodName (expr.ToString()))
-                                Some(ScalarExpr.Opaque(PolarsWrapper.MapMany(mainHandle, otherHandles, arrowCallback, outDataType), [], "UDF"))
+                                Some(ScalarExpr.Udf(methodName, scalarArgs, retPlType, UdfInvoker.MultiBatch(box arrowCallback, expr.Type)))
                             else
                                 None
         with _ ->

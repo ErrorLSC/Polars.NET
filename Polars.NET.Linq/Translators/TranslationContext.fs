@@ -1,6 +1,5 @@
 namespace Polars.NET.Linq
 
-open Polars.NET.Core
 open Polars.NET.Linq.IR
 open System
 open System.Linq.Expressions
@@ -73,6 +72,3 @@ type internal TranslationContext =
 
 /// Signature for higher-order recursive scalar expression evaluation across translator modules.
 type internal ScalarExprEvaluator = TranslationContext -> Expression -> ScalarExpr option
-
-/// Signature for legacy higher-order recursive expression evaluation.
-type internal ExprEvaluator = TranslationContext -> Expression -> ExprHandle option

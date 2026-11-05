@@ -9,7 +9,6 @@ open System.Text.Json.Nodes
 open System.Text.Json.Serialization
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
-open Polars.NET.Core.Arrow
 open Polars.NET.Linq.IR
 
 /// Metadata representation of an inferred JSON schema field

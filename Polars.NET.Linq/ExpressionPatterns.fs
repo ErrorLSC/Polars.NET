@@ -1,8 +1,6 @@
 namespace Polars.NET.Linq
 
-open System
 open System.Linq.Expressions
-open Polars.NET.Core.Helpers
 
 [<AutoOpen>]
 module internal OptionComputationExpression =

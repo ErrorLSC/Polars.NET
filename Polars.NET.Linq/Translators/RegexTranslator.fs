@@ -268,12 +268,9 @@ module internal RegexTranslator =
                     if CoreConfig.DisallowUdfPushdown then
                         None
                     else
-                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
-                        | Some colName ->
-                            let rx = getRegex rxOpt pat
-                            let h = PolarsWrapper.MapStringPredicate(PolarsWrapper.Col colName, Func<string, bool>(rx.IsMatch))
-                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.IsMatch UDF"))
-                        | None -> None)
+                        let rx = getRegex rxOpt pat
+                        let invoker = UdfInvoker.StringPredicate(Func<string, bool>(rx.IsMatch))
+                        Some(ScalarExpr.Udf("Regex.IsMatch", [ t ], PlDataType.Boolean, invoker)))
 
         // --- 2. ReplaceLiteral ---
         | ReplaceLiteral(target, pat, rep, rxOpt) ->
@@ -287,12 +284,9 @@ module internal RegexTranslator =
                     if CoreConfig.DisallowUdfPushdown then
                         None
                     else
-                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
-                        | Some colName ->
-                            let rx = getRegex rxOpt pat
-                            let h = PolarsWrapper.MapStringTransform(PolarsWrapper.Col colName, Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep)))
-                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.Replace UDF"))
-                        | None -> None)
+                        let rx = getRegex rxOpt pat
+                        let invoker = UdfInvoker.StringTransform(Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep)))
+                        Some(ScalarExpr.Udf("Regex.Replace", [ t ], PlDataType.String, invoker)))
 
         // --- 2b. ReplaceLiteralN ---
         | ReplaceLiteralN(target, pat, rep, count, rxOpt) ->
@@ -306,24 +300,20 @@ module internal RegexTranslator =
                     if CoreConfig.DisallowUdfPushdown then
                         None
                     else
-                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
-                        | Some colName ->
-                            let rx = getRegex rxOpt pat
-                            let h = PolarsWrapper.MapStringTransform(PolarsWrapper.Col colName, Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep, count)))
-                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.ReplaceN UDF"))
-                        | None -> None)
+                        let rx = getRegex rxOpt pat
+                        let invoker = UdfInvoker.StringTransform(Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep, count)))
+                        Some(ScalarExpr.Udf("Regex.ReplaceN", [ t ], PlDataType.String, invoker)))
 
         // --- 3. ReplaceEvaluator ---
         | ReplaceEvaluator(target, pat, evaluator, rxOpt) ->
             if CoreConfig.DisallowUdfPushdown then
                 None
             else
-                match ColumnResolver.tryResolveColumnNameWithContext ctx target with
-                | Some colName ->
+                eval ctx target
+                |> Option.map (fun t ->
                     let rx = getRegex rxOpt pat
-                    let h = PolarsWrapper.MapStringTransform(PolarsWrapper.Col colName, Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, evaluator)))
-                    Some(ScalarExpr.Opaque(h, [ colName ], "Regex.ReplaceEvaluator UDF"))
-                | None -> None
+                    let invoker = UdfInvoker.StringTransform(Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, evaluator)))
+                    ScalarExpr.Udf("Regex.ReplaceEvaluator", [ t ], PlDataType.String, invoker))
 
         // --- 4. MatchValue & Groups[i].Value ---
         | MatchValue(target, pat, groupIndex, rxOpt) ->
@@ -340,20 +330,16 @@ module internal RegexTranslator =
                     if CoreConfig.DisallowUdfPushdown then
                         None
                     else
-                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
-                        | Some colName ->
-                            let rx = getRegex rxOpt pat
-                            let h =
-                                PolarsWrapper.MapStringTransform(
-                                    PolarsWrapper.Col colName,
-                                    Func<string, string>(fun s ->
-                                        if isNull s then null
-                                        else
-                                            let m = rx.Match(s)
-                                            if m.Success && groupIndex < m.Groups.Count then m.Groups.[groupIndex].Value else "")
-                                )
-                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.MatchValue UDF"))
-                        | None -> None)
+                        let rx = getRegex rxOpt pat
+                        let invoker =
+                            UdfInvoker.StringTransform(
+                                Func<string, string>(fun s ->
+                                    if isNull s then null
+                                    else
+                                        let m = rx.Match(s)
+                                        if m.Success && groupIndex < m.Groups.Count then m.Groups.[groupIndex].Value else "")
+                            )
+                        Some(ScalarExpr.Udf("Regex.MatchValue", [ t ], PlDataType.String, invoker)))
 
         // --- 4b. MatchGroupNamed ---
         | MatchGroupNamed(target, pat, groupName, rxOpt) ->
@@ -371,20 +357,16 @@ module internal RegexTranslator =
                     if CoreConfig.DisallowUdfPushdown then
                         None
                     else
-                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
-                        | Some colName ->
-                            let rx = getRegex rxOpt pat
-                            let h =
-                                PolarsWrapper.MapStringTransform(
-                                    PolarsWrapper.Col colName,
-                                    Func<string, string>(fun s ->
-                                        if isNull s then null
-                                        else
-                                            let m = rx.Match(s)
-                                            if m.Success && m.Groups.[groupName].Success then m.Groups.[groupName].Value else "")
-                                )
-                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.MatchGroupNamed UDF"))
-                        | None -> None)
+                        let rx = getRegex rxOpt pat
+                        let invoker =
+                            UdfInvoker.StringTransform(
+                                Func<string, string>(fun s ->
+                                    if isNull s then null
+                                    else
+                                        let m = rx.Match(s)
+                                        if m.Success && m.Groups.[groupName].Success then m.Groups.[groupName].Value else "")
+                            )
+                        Some(ScalarExpr.Udf("Regex.MatchGroupNamed", [ t ], PlDataType.String, invoker)))
 
         // --- 5. MatchesAll ---
         | MatchesAll(target, pat, rxOpt) ->
@@ -398,16 +380,12 @@ module internal RegexTranslator =
                     if CoreConfig.DisallowUdfPushdown then
                         None
                     else
-                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
-                        | Some colName ->
-                            let rx = getRegex rxOpt pat
-                            let h =
-                                PolarsWrapper.MapStringToList(
-                                    PolarsWrapper.Col colName,
-                                    Func<string, seq<string>>(fun s -> if isNull s then null else rx.Matches(s) |> Seq.map (fun m -> m.Value))
-                                )
-                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.MatchesAll UDF"))
-                        | None -> None)
+                        let rx = getRegex rxOpt pat
+                        let invoker =
+                            UdfInvoker.StringToList(
+                                Func<string, seq<string>>(fun s -> if isNull s then null else rx.Matches(s) |> Seq.map (fun m -> m.Value))
+                            )
+                        Some(ScalarExpr.Udf("Regex.MatchesAll", [ t ], PlDataType.List, invoker)))
 
         // --- 6. MatchesCount ---
         | MatchesCount(target, pat, rxOpt) ->
@@ -421,26 +399,19 @@ module internal RegexTranslator =
                     if CoreConfig.DisallowUdfPushdown then
                         None
                     else
-                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
-                        | Some colName ->
-                            let rx = getRegex rxOpt pat
-                            let intDtype = PolarsWrapper.NewPrimitiveType(int PlDataType.Int32)
-                            let h =
-                                PolarsWrapper.Map(
-                                    PolarsWrapper.Col colName,
-                                    Func<Apache.Arrow.IArrowArray, Apache.Arrow.IArrowArray>(fun arr ->
-                                        let strViewArr = arr :?> Apache.Arrow.StringViewArray
-                                        let builder = Apache.Arrow.Int32Array.Builder()
-                                        for i in 0 .. strViewArr.Length - 1 do
-                                            if strViewArr.IsNull(i) then
-                                                builder.AppendNull() |> ignore
-                                            else
-                                                builder.Append(rx.Matches(strViewArr.GetString(i)).Count) |> ignore
-                                        builder.Build() :> Apache.Arrow.IArrowArray),
-                                    intDtype
-                                )
-                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.MatchesCount UDF"))
-                        | None -> None)
+                        let rx = getRegex rxOpt pat
+                        let cb =
+                            Func<Apache.Arrow.IArrowArray, Apache.Arrow.IArrowArray>(fun arr ->
+                                let strViewArr = arr :?> Apache.Arrow.StringViewArray
+                                let builder = Apache.Arrow.Int32Array.Builder()
+                                for i in 0 .. strViewArr.Length - 1 do
+                                    if strViewArr.IsNull(i) then
+                                        builder.AppendNull() |> ignore
+                                    else
+                                        builder.Append(rx.Matches(strViewArr.GetString(i)).Count) |> ignore
+                                builder.Build() :> Apache.Arrow.IArrowArray)
+                        let invoker = UdfInvoker.SingleBatch(box cb, typeof<int>)
+                        Some(ScalarExpr.Udf("Regex.MatchesCount", [ t ], PlDataType.Int32, invoker)))
 
         // --- 7. Split ---
         | Split(target, pat, rxOpt) ->
@@ -454,13 +425,9 @@ module internal RegexTranslator =
                     if CoreConfig.DisallowUdfPushdown then
                         None
                     else
-                        match ColumnResolver.tryResolveColumnNameWithContext ctx target with
-                        | Some colName ->
-                            let rx = getRegex rxOpt pat
-                            let h =
-                                PolarsWrapper.MapStringToList(
-                                    PolarsWrapper.Col colName,
-                                    Func<string, seq<string>>(fun s -> if isNull s then null else rx.Split(s) :> seq<string>)
-                                )
-                            Some(ScalarExpr.Opaque(h, [ colName ], "Regex.Split UDF"))
-                        | None -> None)
+                        let rx = getRegex rxOpt pat
+                        let invoker =
+                            UdfInvoker.StringToList(
+                                Func<string, seq<string>>(fun s -> if isNull s then null else rx.Split(s) :> seq<string>)
+                            )
+                        Some(ScalarExpr.Udf("Regex.Split", [ t ], PlDataType.List, invoker)))

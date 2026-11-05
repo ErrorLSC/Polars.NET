@@ -45,9 +45,6 @@
     <Compile Include="QueryCache/QueryPlanCache.fs" />
     <Compile Include="Pipeline/PipelineTypes.fs" />
     <Compile Include="Pipeline/PipelineStageParser.fs" />
-    <Compile Include="Pipeline/RelationalCompilers.fs" />
-    <Compile Include="Pipeline/GroupByCompiler.fs" />
-    <Compile Include="Pipeline/GroupingSetsCompiler.fs" />
     <Compile Include="IR/TreeBuilder.fs" />
     <Compile Include="IR/Passes/SortSliceFusion.fs" />
     <Compile Include="IR/Passes/PredicatePushdown.fs" />

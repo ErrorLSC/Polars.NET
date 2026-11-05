@@ -7,7 +7,6 @@ open Polars.NET.Core
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Helpers
 open Polars.NET.Linq.IR
-open Polars.NET.Linq.Backend.Polars
 
 module AggTranslator =
     open ExprTranslator
@@ -16,7 +15,7 @@ module AggTranslator =
     // 1. Data Type & Casting Helpers
     // =========================================================================
 
-    let private castCountExpr (isLong: bool) (expr: ExprHandle) =
+    let private castCountExpr (isLong: bool) (expr: ScalarExpr) : ScalarExpr =
         let t = if isLong then typeof<int64> else typeof<int>
         tryTranslateCast t expr |> Option.defaultValue expr
 
@@ -44,7 +43,7 @@ module AggTranslator =
         (scalarColOpt: string option)
         (scopeMap: Map<string * string, string>)
         (lambda: LambdaExpression)
-        : ExprHandle option =
+        : ScalarExpr option =
         if lambda.Parameters.Count <> 1 then
             None
         else
@@ -52,8 +51,8 @@ module AggTranslator =
             let ctx = getParamContext scalarColOpt scopeMap p
 
             match tryResolveColumnNameWithContext ctx lambda.Body with
-            | Some cName -> Some(PolarsWrapper.Col cName)
-            | None -> tryTranslateWithContext ctx lambda.Body
+            | Some cName -> Some(ScalarExpr.Column cName)
+            | None -> tryTranslateToScalar ctx lambda.Body
 
     // =========================================================================
     // 3. Composable Sequence Pipeline over Group Source
@@ -110,24 +109,36 @@ module AggTranslator =
 
     type private SortKey =
         {
-            Expr: ExprHandle
+            Expr: ScalarExpr
             IsDescending: bool
         }
 
     type private ResolvedGroupSeq =
         {
-            Target: ExprHandle option
-            Filter: ExprHandle option
+            Target: ScalarExpr option
+            Filter: ScalarExpr option
             IsDistinct: bool
             SortKeys: SortKey list
             Slice: (int64 option * int64 option) option
         }
 
-    let private getCurrentScalar (scalarColOpt: string option) (targetOpt: ExprHandle option) =
+    let rec private tryGetOutputName (expr: ScalarExpr) : string option =
+        match expr with
+        | ScalarExpr.Column name when not (String.IsNullOrEmpty name) -> Some name
+        | ScalarExpr.Alias(_, alias) when not (String.IsNullOrEmpty alias) -> Some alias
+        | ScalarExpr.Unary(_, inner)
+        | ScalarExpr.Cast(inner, _, _)
+        | ScalarExpr.Slice(inner, _, _)
+        | ScalarExpr.SortBy(inner, _) -> tryGetOutputName inner
+        | ScalarExpr.Binary(_, left, _) -> tryGetOutputName left
+        | _ -> None
+
+    let private getCurrentScalar (scalarColOpt: string option) (targetOpt: ScalarExpr option) =
         match targetOpt with
-        | Some h ->
-            let name = PolarsWrapper.ExprGetOutputName h
-            if String.IsNullOrEmpty name then scalarColOpt else Some name
+        | Some e ->
+            match tryGetOutputName e with
+            | Some name -> Some name
+            | None -> scalarColOpt
         | None -> scalarColOpt
 
     let private resolveKeyExpr
@@ -135,10 +146,10 @@ module AggTranslator =
         (scopeMap: Map<string * string, string>)
         (prev: ResolvedGroupSeq)
         (keySelector: LambdaExpression)
-        : ExprHandle option =
+        : ScalarExpr option =
         let cleanBody = unwrap keySelector.Body
         if cleanBody = (keySelector.Parameters.[0] :> Expression) then
-            prev.Target |> Option.map PolarsWrapper.CloneExpr
+            prev.Target
         else
             let currentScalar = getCurrentScalar scalarColOpt prev.Target
             resolveLambda currentScalar scopeMap keySelector
@@ -146,7 +157,7 @@ module AggTranslator =
     let rec private evalGroupSeq
         (groupParamName: string)
         (scalarColOpt: string option)
-        (wholeRowStructOpt: ExprHandle option)
+        (wholeRowStructOpt: ScalarExpr option)
         (scopeMap: Map<string * string, string>)
         (seq: GroupSeq)
         : ResolvedGroupSeq option =
@@ -154,8 +165,8 @@ module AggTranslator =
         | Root ->
             let targetOpt =
                 match scalarColOpt with
-                | Some col when not (String.IsNullOrEmpty col) -> Some(PolarsWrapper.Col col)
-                | _ -> wholeRowStructOpt |> Option.map PolarsWrapper.CloneExpr
+                | Some col when not (String.IsNullOrEmpty col) -> Some(ScalarExpr.Column col)
+                | _ -> wholeRowStructOpt
 
             Some
                 {
@@ -180,12 +191,12 @@ module AggTranslator =
                 let p = predicate.Parameters.[0]
                 let ctx = getParamContext currentScalar scopeMap p
 
-                tryTranslateWithContext ctx predicate.Body
+                tryTranslateToScalar ctx predicate.Body
                 |> Option.map (fun predExpr ->
                     let combinedFilter =
                         match prev.Filter with
                         | None -> predExpr
-                        | Some f -> ExprTranslator.translateBinary ExpressionType.AndAlso f predExpr
+                        | Some f -> ScalarExpr.Binary(BinaryOp.And, f, predExpr)
 
                     { prev with Filter = Some combinedFilter }))
 
@@ -223,7 +234,7 @@ module AggTranslator =
             |> Option.bind (fun prev ->
                 prev.Target
                 |> Option.map (fun t ->
-                    { prev with SortKeys = [ { Expr = PolarsWrapper.CloneExpr t; IsDescending = isDesc } ] }))
+                    { prev with SortKeys = [ { Expr = t; IsDescending = isDesc } ] }))
 
         | Take(source, countExpr) ->
             evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
@@ -254,7 +265,7 @@ module AggTranslator =
             evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
 
     /// Combines the resolved target column expression with any sequence filter predicates, sorting, and slicing.
-    let private getFilteredTarget (resolved: ResolvedGroupSeq) : ExprHandle option =
+    let private getFilteredTarget (resolved: ResolvedGroupSeq) : ScalarExpr option =
         match resolved.Target with
         | None -> None
         | Some initialTarget ->
@@ -262,11 +273,11 @@ module AggTranslator =
             let targetAfterFilter, sortKeysAfterFilter =
                 match resolved.Filter with
                 | Some f ->
-                    let filteredTarget = PolarsWrapper.Filter(initialTarget, PolarsWrapper.CloneExpr f)
+                    let filteredTarget = ScalarExpr.Function(ScalarFunction.Filter, [ initialTarget; f ], PlDataType.Unknown)
                     let filteredSortKeys =
                         resolved.SortKeys
                         |> List.map (fun sk ->
-                            { sk with Expr = PolarsWrapper.Filter(sk.Expr, PolarsWrapper.CloneExpr f) })
+                            { sk with Expr = ScalarExpr.Function(ScalarFunction.Filter, [ sk.Expr; f ], PlDataType.Unknown) })
                     filteredTarget, filteredSortKeys
                 | None ->
                     initialTarget, resolved.SortKeys
@@ -276,27 +287,32 @@ module AggTranslator =
                 if sortKeysAfterFilter.IsEmpty then
                     targetAfterFilter
                 else
-                    let byExprs = sortKeysAfterFilter |> List.map (fun sk -> sk.Expr) |> List.toArray
-                    let desc = sortKeysAfterFilter |> List.map (fun sk -> sk.IsDescending) |> List.toArray
-                    let nullsLast = Array.create byExprs.Length false
-                    PolarsWrapper.SortBy(targetAfterFilter, byExprs, desc, nullsLast, multithreaded = true, maintainOrder = true)
+                    let orderings =
+                        sortKeysAfterFilter
+                        |> List.map (fun sk ->
+                            {
+                                SortOrder.Expr = sk.Expr
+                                Descending = sk.IsDescending
+                                NullsLast = false
+                            })
+                    ScalarExpr.SortBy(targetAfterFilter, orderings)
 
             // 3. Slice (Skip / Take)
             let targetAfterSlice =
                 match resolved.Slice with
                 | Some(Some skip, Some take) ->
-                    PolarsWrapper.ExprSlice(targetAfterSort, PolarsWrapper.Lit skip, PolarsWrapper.Lit take)
+                    ScalarExpr.Slice(targetAfterSort, skip, uint32 take)
                 | Some(None, Some take) ->
-                    PolarsWrapper.Head(targetAfterSort, int take)
+                    ScalarExpr.Slice(targetAfterSort, 0L, uint32 take)
                 | Some(Some skip, None) ->
-                    PolarsWrapper.ExprSlice(targetAfterSort, PolarsWrapper.Lit skip, PolarsWrapper.Lit Int64.MaxValue)
+                    ScalarExpr.Slice(targetAfterSort, skip, UInt32.MaxValue)
                 | _ ->
                     targetAfterSort
 
             // 4. Distinct
             let finalTarget =
                 if resolved.IsDistinct then
-                    PolarsWrapper.ExprUnique targetAfterSlice
+                    ScalarExpr.Function(ScalarFunction.Unique, [ targetAfterSlice ], PlDataType.Unknown)
                 else
                     targetAfterSlice
 
@@ -308,7 +324,7 @@ module AggTranslator =
         | Some(:? char as sep) -> Some(string sep)
         | _ -> None
 
-    let private translateQuantileCall (targetH: ExprHandle) (qExpr: Expression) (methodExprOpt: Expression option) =
+    let private translateQuantileCall (targetS: ScalarExpr) (qExpr: Expression) (methodExprOpt: Expression option) : ScalarExpr option =
         match tryEvaluate qExpr with
         | Some qVal ->
             try
@@ -319,7 +335,13 @@ module AggTranslator =
                     |> Option.map tryExtractQuantileMethod
                     |> Option.defaultValue PlQuantileMethod.Nearest
 
-                Some(PolarsWrapper.Quantile(targetH, q, method))
+                Some(
+                    ScalarExpr.Function(
+                        ScalarFunction.Quantile,
+                        [ targetS; ScalarExpr.Literal(LiteralValue.Float64 q); ScalarExpr.Literal(LiteralValue.Int32(int method)) ],
+                        PlDataType.Float64
+                    )
+                )
             with _ ->
                 None
         | _ -> None
@@ -360,10 +382,10 @@ module AggTranslator =
     let rec private tryTranslateAggCore
         (groupParamName: string)
         (scalarColOpt: string option)
-        (wholeRowStructOpt: ExprHandle option)
+        (wholeRowStructOpt: ScalarExpr option)
         (scopeMap: Map<string * string, string>)
         (expr: Expression)
-        : ExprHandle option =
+        : ScalarExpr option =
 
         let cleanExpr = unwrapQuoteOnly expr
 
@@ -376,11 +398,11 @@ module AggTranslator =
             ->
             evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq
             |> Option.bind getFilteredTarget
-            |> Option.bind (fun colH ->
+            |> Option.bind (fun colS ->
                 tryExtractSep sepExpr
                 |> Option.map (fun sep ->
-                    let listExpr = PolarsWrapper.Implode(colH, maintainOrder = true)
-                    PolarsWrapper.ListJoin(listExpr, sep, ignoreNulls = true)))
+                    let listExpr = ScalarExpr.Function(ScalarFunction.Implode, [ colS; ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.List)
+                    ScalarExpr.Function(ScalarFunction.ListJoin, [ listExpr; ScalarExpr.Literal(LiteralValue.String sep) ], PlDataType.String)))
 
         // ---------------------------------------------------------------------
         // Count / LongCount over Sequence Chain (e.g. g.Count(), g.Distinct().Count(), g.Count(predicate))
@@ -398,15 +420,15 @@ module AggTranslator =
                 match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq with
                 | Some resolved when resolved.IsDistinct ->
                     getFilteredTarget resolved
-                    |> Option.map (fun t -> PolarsWrapper.NUnique t |> castCountExpr isLong)
+                    |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.NUnique, [ t ], PlDataType.UInt32) |> castCountExpr isLong)
                 | Some resolved when resolved.Slice.IsSome ->
                     getFilteredTarget resolved
-                    |> Option.map (fun t -> PolarsWrapper.Count t |> castCountExpr isLong)
+                    |> Option.map (fun t -> ScalarExpr.Aggregation(AggKind.Count, Some t, false) |> castCountExpr isLong)
                 | Some resolved when resolved.Filter.IsSome ->
-                    let castH = castCountExpr true resolved.Filter.Value
-                    Some(PolarsWrapper.Sum castH)
+                    let castS = castCountExpr true resolved.Filter.Value
+                    Some(ScalarExpr.Aggregation(AggKind.Sum, Some castS, false))
                 | Some _ ->
-                    Some(PolarsWrapper.Len())
+                    Some(ScalarExpr.Aggregation(AggKind.Len, None, false))
                 | None -> None
             | None -> None
 
@@ -417,12 +439,12 @@ module AggTranslator =
                        memberInfo) when m.Name = "MinBy" || m.Name = "MaxBy" ->
             let ctx = getParamContext scalarColOpt scopeMap p
 
-            tryTranslateWithContext ctx byBody
+            tryTranslateToScalar ctx byBody
             |> Option.bind (fun byExpr ->
-                let targetExpr = PolarsWrapper.Col memberInfo.Name
+                let targetExpr = ScalarExpr.Column memberInfo.Name
                 match m.Name with
-                | "MinBy" -> Some(PolarsWrapper.MinBy(targetExpr, byExpr))
-                | "MaxBy" -> Some(PolarsWrapper.MaxBy(targetExpr, byExpr))
+                | "MinBy" -> Some(ScalarExpr.Function(ScalarFunction.MinBy, [ targetExpr; byExpr ], PlDataType.Unknown))
+                | "MaxBy" -> Some(ScalarExpr.Function(ScalarFunction.MaxBy, [ targetExpr; byExpr ], PlDataType.Unknown))
                 | _ -> None)
 
         // ---------------------------------------------------------------------
@@ -445,7 +467,7 @@ module AggTranslator =
             | Some(seq, qExpr, methodExprOpt) ->
                 evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq
                 |> Option.bind getFilteredTarget
-                |> Option.bind (fun colH -> translateQuantileCall colH qExpr methodExprOpt)
+                |> Option.bind (fun colS -> translateQuantileCall colS qExpr methodExprOpt)
             | None -> None
 
         // ---------------------------------------------------------------------
@@ -479,12 +501,12 @@ module AggTranslator =
             match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq with
             | Some resolved ->
                 match getFilteredTarget resolved with
-                | Some colH -> Some(PolarsWrapper.Implode(colH, maintainOrder = true))
+                | Some colS ->
+                    Some(ScalarExpr.Function(ScalarFunction.Implode, [ colS; ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.List))
                 | None ->
                     wholeRowStructOpt
                     |> Option.map (fun rowStruct ->
-                        let cloned = PolarsWrapper.CloneExpr rowStruct
-                        PolarsWrapper.Implode(cloned, maintainOrder = true))
+                        ScalarExpr.Function(ScalarFunction.Implode, [ rowStruct; ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.List))
             | None -> None
 
         // ---------------------------------------------------------------------
@@ -512,7 +534,7 @@ module AggTranslator =
             ->
             match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq with
             | Some resolved ->
-                let memberCol = PolarsWrapper.Col memberInfo.Name
+                let memberCol = ScalarExpr.Column memberInfo.Name
                 let resolvedWithTarget = { resolved with Target = Some memberCol }
                 getFilteredTarget resolvedWithTarget
                 |> Option.bind (translateReductionOp m.Name)
@@ -528,21 +550,18 @@ module AggTranslator =
             | Some resolved, Some idxVal ->
                 let idx = Convert.ToInt64 idxVal
                 getFilteredTarget resolved
-                |> Option.map (fun colH -> PolarsWrapper.Get(colH, PolarsWrapper.Lit idx, nullOnOob = true))
+                |> Option.map (fun colS ->
+                    ScalarExpr.Function(ScalarFunction.SeriesGet, [ colS; ScalarExpr.Literal(LiteralValue.Int64 idx) ], PlDataType.Unknown))
             | _ -> None
 
         // ---------------------------------------------------------------------
         // Composite Expressions: Binary, Unary, Constant, Conditional, MethodCall
         // ---------------------------------------------------------------------
         | MethodCall(m, target, args) when isNumericDeclaringType m.DeclaringType && isNull target ->
-            let translateScalar expr =
-                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap expr
-                |> Option.map (fun h -> ScalarExpr.Opaque(h, [], ""))
             translateNumericMethod
-                translateScalar
+                (tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap)
                 m
                 args
-            |> Option.map PolarsScalarLowerer.lower
 
         | :? ConditionalExpression as cond ->
             match
@@ -550,8 +569,8 @@ module AggTranslator =
                 tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap cond.IfTrue,
                 tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap cond.IfFalse
             with
-            | Some testH, Some trueH, Some falseH ->
-                Some(PolarsWrapper.IfElse(testH, trueH, falseH))
+            | Some testS, Some trueS, Some falseS ->
+                Some(ScalarExpr.Conditional(testS, trueS, falseS))
             | _ -> None
 
         | Binary(op, left, right) ->
@@ -559,21 +578,21 @@ module AggTranslator =
                 tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap left,
                 tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap right
             with
-            | Some leftH, Some rightH -> Some(ExprTranslator.translateBinary op leftH rightH)
+            | Some leftS, Some rightS -> Some(OperatorAndUdfTranslator.translateBinary op leftS rightS)
             | _ -> None
 
         | Unary(op, operand) ->
             tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap operand
-            |> Option.bind (fun innerH ->
+            |> Option.bind (fun innerS ->
                 match op with
                 | ExpressionType.Convert
                 | ExpressionType.ConvertChecked ->
-                    tryTranslateCast cleanExpr.Type innerH
+                    tryTranslateCast cleanExpr.Type innerS
                 | _ ->
-                    translateUnary op innerH)
+                    OperatorAndUdfTranslator.translateUnary op innerS)
 
         | Constant(v, t) ->
-            Some(toLiteralHandle v t)
+            Some(toLiteral v t)
 
         | _ ->
             tryTranslateGroupUdf groupParamName scalarColOpt wholeRowStructOpt scopeMap cleanExpr
@@ -581,10 +600,10 @@ module AggTranslator =
     and private tryTranslateGroupUdf
         (groupParamName: string)
         (scalarColOpt: string option)
-        (wholeRowStructOpt: ExprHandle option)
+        (wholeRowStructOpt: ScalarExpr option)
         (scopeMap: Map<string * string, string>)
         (expr: Expression)
-        : ExprHandle option =
+        : ScalarExpr option =
         try
             if CoreConfig.DisallowUdfPushdown || isNull expr || expr.Type = typeof<System.Void> then
                 None
@@ -620,7 +639,7 @@ module AggTranslator =
                         |> List.filter (OperatorAndUdfTranslator.exprDependsOnParam groupParamName)
 
                     // Every dependent argument must be a sequence or rows from the group (GroupSeqChain)
-                    let resolveArgHandle (arg: Expression) : ExprHandle option =
+                    let resolveArgScalar (arg: Expression) : ScalarExpr option =
                         match (|GroupSeqChain|_|) groupParamName arg with
                         | Some seq ->
                             evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq
@@ -630,23 +649,26 @@ module AggTranslator =
                     let translatedDependentArgs =
                         dependentArgs
                         |> List.map (fun a ->
-                            match resolveArgHandle a with
-                            | Some h -> Some(a, h)
+                            match resolveArgScalar a with
+                            | Some s -> Some(a, s)
                             | None -> None)
 
                     if translatedDependentArgs |> List.exists Option.isNone then
                         None
                     else
-                        let outDataTypeOpt =
+                        let isSupportedReturn =
                             try
                                 let h = ArrowUdfBatchAdapter.GetDataTypeHandle(expr.Type)
-                                if isNull h || h.IsInvalid then None else Some h
+                                not (isNull h || h.IsInvalid)
                             with _ ->
-                                None
+                                false
 
-                        match outDataTypeOpt with
-                        | None -> None
-                        | Some outDataType ->
+                        if not isSupportedReturn then
+                            None
+                        else
+                            let retPlType =
+                                Option.ofNullable (ArrowTypeResolver.TryGetPlDataType expr.Type)
+                                |> Option.defaultValue PlDataType.Unknown
                             let dynArgs = translatedDependentArgs |> List.choose id
                             let dynCount = dynArgs.Length
                             let returnsScalar = isScalarLikeResultType expr.Type
@@ -655,18 +677,17 @@ module AggTranslator =
                             UdfTracker.Record(sprintf "%s: %s" methodName (expr.ToString()))
 
                             if dynCount = 1 then
-                                let argExpr, handle = dynArgs.[0]
+                                let argExpr, scalarArg = dynArgs.[0]
                                 let userFunc = OperatorAndUdfTranslator.compileSingleArgUdfDelegate argExpr expr
                                 let arrowCallback = ArrowUdfBatchAdapter.CreateGroupAggregationSingle(userFunc, argExpr.Type, expr.Type)
-                                Some(PolarsWrapper.Apply(handle, arrowCallback, outDataType, returnsScalar = returnsScalar))
+                                Some(ScalarExpr.Udf(methodName, [ scalarArg ], retPlType, UdfInvoker.GroupSingleBatch(box arrowCallback, expr.Type, returnsScalar)))
 
                             elif dynCount > 1 then
                                 let userFunc = OperatorAndUdfTranslator.compileMultiArgUdfDelegate dynArgs expr
                                 let inputTypes = dynArgs |> List.map (fun (a, _) -> a.Type) |> List.toArray
                                 let arrowCallback = ArrowUdfBatchAdapter.CreateGroupAggregationMulti(userFunc, inputTypes, expr.Type)
-                                let mainHandle = snd dynArgs.[0]
-                                let otherHandles = dynArgs |> List.tail |> List.map snd |> List.toArray
-                                Some(PolarsWrapper.ApplyMany(mainHandle, otherHandles, arrowCallback, outDataType, returnsScalar = returnsScalar))
+                                let scalarArgs = dynArgs |> List.map snd
+                                Some(ScalarExpr.Udf(methodName, scalarArgs, retPlType, UdfInvoker.GroupMultiBatch(box arrowCallback, expr.Type, returnsScalar)))
                             else
                                 None
         with _ ->
@@ -676,17 +697,17 @@ module AggTranslator =
     // 5. Public API: Group Aggregation Translation with Alias
     // =========================================================================
 
-    /// Attempts to translate group collection operations into native Polars ExprHandle with optional alias.
+    /// Attempts to translate group collection operations into pure symbolic ScalarExpr with optional alias.
     let tryTranslateAggWithScalarColAndScope
         (groupParamName: string)
         (scalarColOpt: string option)
-        (wholeRowStructOpt: ExprHandle option)
+        (wholeRowStructOpt: ScalarExpr option)
         (scopeMap: Map<string * string, string>)
         (expr: Expression)
         (aliasName: string)
-        : ExprHandle option =
+        : ScalarExpr option =
 
         tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap expr
-        |> Option.map (fun h ->
-            if String.IsNullOrEmpty aliasName then h
-            else PolarsWrapper.Alias(h, aliasName))
+        |> Option.map (fun s ->
+            if String.IsNullOrEmpty aliasName then s
+            else ScalarExpr.Alias(s, aliasName))

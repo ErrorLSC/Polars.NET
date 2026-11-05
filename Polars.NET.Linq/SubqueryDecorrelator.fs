@@ -3,7 +3,6 @@ namespace Polars.NET.Linq
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
 open Polars.NET.Linq.IR
-open Polars.NET.Linq.Backend.Polars
 open System
 open System.Reflection
 open System.Linq.Expressions

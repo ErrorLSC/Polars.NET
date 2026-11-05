@@ -1,12 +1,9 @@
 namespace Polars.NET.Linq
 
 open System
-open System.Reflection
 open System.Linq.Expressions
-open Polars.NET.Core
 open Polars.NET.Core.Helpers
 open Polars.NET.Linq.IR
-open Polars.NET.Linq.Backend.Polars
 
 [<AutoOpen>]
 module internal ListTranslator =
@@ -201,10 +198,11 @@ module internal ListTranslator =
 
                     match evaluated with
                     | :? System.Collections.IEnumerable as coll when coll.GetType() <> typeof<string> ->
-                        let! seriesHandle = PolarsObjectConverter.tryCreateSeriesHandle "" coll
-                        let litH = PolarsWrapper.Lit seriesHandle
-                        let implodedH = PolarsWrapper.Implode(litH, maintainOrder = false)
-                        return ScalarExpr.Function(ScalarFunction.IsIn, [ itemS; ScalarExpr.Opaque(implodedH, [], "in-memory list") ], PlDataType.Boolean)
+                        let elemType = PolarsTypeHelper.TryGetEnumerableElementType(coll.GetType())
+                        if not (isNull elemType) && PolarsTypeHelper.IsScalarType elemType then
+                            return ScalarExpr.InList(itemS, InListSource.Collection(coll, elemType), false)
+                        else
+                            return! None
                     | _ -> return! None
                 }
         | ListGet(target, indexExpr) ->

@@ -19,6 +19,7 @@ module internal LogicalPlanOps =
         | LogicalPlan.Project(input, _)
         | LogicalPlan.WithColumns(input, _)
         | LogicalPlan.GroupBy(input, _, _, _, _)
+        | LogicalPlan.GroupingSets(input, _)
         | LogicalPlan.Sort(input, _)
         | LogicalPlan.Limit(input, _, _)
         | LogicalPlan.Distinct(input, _, _)
@@ -46,6 +47,8 @@ module internal LogicalPlanOps =
         | LogicalPlan.JoinAsOf(left, right, spec) -> LogicalPlan.JoinAsOf(f left, f right, spec)
         | LogicalPlan.GroupBy(input, keys, aggs, having, ord) ->
             LogicalPlan.GroupBy(f input, keys, aggs, having, ord)
+        | LogicalPlan.GroupingSets(input, spec) ->
+            LogicalPlan.GroupingSets(f input, spec)
         | LogicalPlan.Sort(input, orderings) -> LogicalPlan.Sort(f input, orderings)
         | LogicalPlan.Limit(input, off, cnt) -> LogicalPlan.Limit(f input, off, cnt)
         | LogicalPlan.Distinct(input, sub, keep) -> LogicalPlan.Distinct(f input, sub, keep)
@@ -90,6 +93,16 @@ module internal LogicalPlanOps =
                 aggs |> List.map (fun (name, e) -> name, f e),
                 having |> Option.map f,
                 ord
+            )
+        | LogicalPlan.GroupingSets(input, spec) ->
+            LogicalPlan.GroupingSets(
+                input,
+                { spec with
+                    KeyAliases = spec.KeyAliases |> List.map (fun (name, e) -> name, f e)
+                    Aggs = spec.Aggs |> List.map (fun (name, e) -> name, f e)
+                    Level0Literals = spec.Level0Literals |> Map.map (fun _ e -> f e)
+                    Levels = spec.Levels |> List.map (fun (idxs, m) -> idxs, m |> Map.map (fun _ e -> f e))
+                }
             )
         | LogicalPlan.Sort(input, orderings) ->
             LogicalPlan.Sort(
@@ -149,6 +162,10 @@ module internal LogicalPlanOps =
                 let aCols = aggs |> List.map (snd >> ScalarExprOps.collectColumns) |> Set.unionMany
                 let hCols = having |> Option.map ScalarExprOps.collectColumns |> Option.defaultValue Set.empty
                 Set.unionMany [ kCols; aCols; hCols ]
+            | LogicalPlan.GroupingSets(_, spec) ->
+                let kCols = spec.KeyAliases |> List.map (snd >> ScalarExprOps.collectColumns) |> Set.unionMany
+                let aCols = spec.Aggs |> List.map (snd >> ScalarExprOps.collectColumns) |> Set.unionMany
+                Set.union kCols aCols
             | LogicalPlan.Sort(_, orderings) ->
                 orderings |> List.map (fun o -> ScalarExprOps.collectColumns o.Expr) |> Set.unionMany
             | LogicalPlan.Distinct(_, subsetOpt, _) ->
@@ -260,6 +277,13 @@ module internal LogicalPlanOps =
                 else " ORDER BY " + (orderBy |> List.map (fun o -> formatScalar o.Expr + (if o.Descending then " DESC" else " ASC")) |> String.concat ", ")
             sprintf "%s OVER (%s%s)" (formatScalar inner) partStr orderStr
 
+        | ScalarExpr.SortBy(inner, orderBy) ->
+            let orderStr =
+                orderBy
+                |> List.map (fun o -> formatScalar o.Expr + (if o.Descending then " DESC" else " ASC"))
+                |> String.concat ", "
+            sprintf "%s.sort_by([%s])" (formatScalar inner) orderStr
+
         | ScalarExpr.Conditional(test, ifTrue, ifFalse) ->
             sprintf "CASE WHEN %s THEN %s ELSE %s END" (formatScalar test) (formatScalar ifTrue) (formatScalar ifFalse)
 
@@ -278,13 +302,13 @@ module internal LogicalPlanOps =
         | ScalarExpr.Subquery(_, kind) ->
             sprintf "SUBQUERY(%A)" kind
 
-        | ScalarExpr.Opaque(_, cols, desc) ->
-            if String.IsNullOrEmpty desc || desc = "Filter" || desc = "Select" || desc = "WithColumns" || desc = "Sort" || desc = "LeftOn" || desc = "RightOn" then
-                if cols.IsEmpty then sprintf "Opaque(%s)" desc
-                else sprintf "Opaque(%s, cols=[%s])" desc (String.concat ", " cols)
-            else
-                if cols.IsEmpty then sprintf "Opaque(\"%s\")" desc
-                else sprintf "Opaque(\"%s\", cols=[%s])" desc (String.concat ", " cols)
+        | ScalarExpr.Udf(name, args, _, _) ->
+            let argsStr = args |> List.map formatScalar |> String.concat ", "
+            sprintf "UDF:%s(%s)" name argsStr
+
+        | ScalarExpr.InList(target, _, negated) ->
+            let op = if negated then "NOT IN" else "IN"
+            sprintf "(%s %s [...])" (formatScalar target) op
 
     let formatPlan (root: LogicalPlan) : string =
         let sb = StringBuilder()
@@ -299,7 +323,7 @@ module internal LogicalPlanOps =
             | LogicalPlan.Scan(source, schema) ->
                 let srcDesc =
                     match source with
-                    | LogicalPlanSource.LazyFrame _ -> "LazyFrame"
+                    | LogicalPlanSource.Table src -> src.Name
                     | LogicalPlanSource.SubqueryRef id -> sprintf "SubqueryRef(%s)" id
                     | LogicalPlanSource.InMemoryTable(name, _) -> sprintf "InMemoryTable(%s)" name
                     | LogicalPlanSource.Empty -> "Empty"
@@ -345,6 +369,13 @@ module internal LogicalPlanOps =
                 let havingStr = having |> Option.map formatScalar |> Option.defaultValue "None"
 
                 sb.AppendLine(sprintf "GroupBy: keys=[%s] aggs=[%s] having=%s maintainOrder=%b" keyStr aggStr havingStr ord)
+                |> ignore
+                formatNode nextIndent true input
+
+            | LogicalPlan.GroupingSets(input, spec) ->
+                let keyStr = spec.KeyAliases |> List.map fst |> String.concat ", "
+                let aggStr = spec.Aggs |> List.map (fun (n, e) -> sprintf "%s=%s" n (formatScalar e)) |> String.concat ", "
+                sb.AppendLine(sprintf "GroupingSets: keys=[%s] aggs=[%s] levels=%d" keyStr aggStr spec.Levels.Length)
                 |> ignore
                 formatNode nextIndent true input
 

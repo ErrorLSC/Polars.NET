@@ -81,6 +81,10 @@ module internal PolarsObjectConverter =
             with _ ->
                 None
 
+    /// Creates a 1-row LogicalPlan.Scan from a single element instance.
+    let fromSingleRowPlan (elem: obj) (elemType: Type) : LogicalPlan option =
+        fromSingleRow elem elemType |> Option.map PolarsPhysicalLowerer.scanLazyFrame
+
     /// Attempts to extract or compile an in-memory object / queryable / handle into a LazyFrameHandle.
     let tryCreateLazyFrameHandle (objVal: obj) : LazyFrameHandle option =
         match objVal with
@@ -164,18 +168,11 @@ module internal PolarsObjectConverter =
             match c.Value with
             | :? IPolarsPlanSource as planSource ->
                 let lf = planSource.GetCompiledLazyFrameHandle()
-                let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
-                Some(LogicalPlan.Scan(LogicalPlanSource.LazyFrame lf, LogicalSchema.OfNames colNames))
+                Some(PolarsPhysicalLowerer.scanLazyFrame lf)
             | _ ->
-                match resolveSequenceLazyFrame expr with
-                | Some lf ->
-                    let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
-                    Some(LogicalPlan.Scan(LogicalPlanSource.LazyFrame lf, LogicalSchema.OfNames colNames))
-                | None -> None
+                resolveSequenceLazyFrame expr
+                |> Option.map PolarsPhysicalLowerer.scanLazyFrame
         | _ ->
-            match resolveSequenceLazyFrame expr with
-            | Some lf ->
-                let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
-                Some(LogicalPlan.Scan(LogicalPlanSource.LazyFrame lf, LogicalSchema.OfNames colNames))
-            | None -> None
+            resolveSequenceLazyFrame expr
+            |> Option.map PolarsPhysicalLowerer.scanLazyFrame
 

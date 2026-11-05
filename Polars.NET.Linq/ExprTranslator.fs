@@ -11,26 +11,6 @@ module internal ExprTranslator =
 
     let internal toLiteralHandle (value: obj) (t: Type) = ScalarExprOps.toLiteral value t |> PolarsScalarLowerer.lower
 
-    let internal tryTranslateCast targetType (operand: ExprHandle) =
-        ScalarExprOps.tryTranslateCast targetType (ScalarExpr.Opaque(operand, [], ""))
-        |> Option.map PolarsScalarLowerer.lower
-
-    let internal translateReductionOp methodName (targetColExpr: ExprHandle) =
-        ScalarExprOps.translateReductionOp methodName (ScalarExpr.Opaque(targetColExpr, [], ""))
-        |> Option.map PolarsScalarLowerer.lower
-
-    let internal translateDispersionOp methodName ddof (targetColExpr: ExprHandle) =
-        ScalarExprOps.translateDispersionOp methodName ddof (ScalarExpr.Opaque(targetColExpr, [], ""))
-        |> Option.map PolarsScalarLowerer.lower
-
-    let internal translateBinary nodeType (left: ExprHandle) (right: ExprHandle) : ExprHandle =
-        OperatorAndUdfTranslator.translateBinary nodeType (ScalarExpr.Opaque(left, [], "")) (ScalarExpr.Opaque(right, [], ""))
-        |> PolarsScalarLowerer.lower
-
-    let internal translateUnary nodeType (operand: ExprHandle) : ExprHandle option =
-        translateUnary nodeType (ScalarExpr.Opaque(operand, [], ""))
-        |> Option.map PolarsScalarLowerer.lower
-
     /// Root entrypoint for translating LINQ Expression AST nodes to pure, symbolic ScalarExpr trees.
     let rec tryTranslateToScalar (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
         let eval = tryTranslateToScalar

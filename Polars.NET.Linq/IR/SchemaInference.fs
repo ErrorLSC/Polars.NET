@@ -103,7 +103,8 @@ module internal SchemaInference =
                 | Some inner -> inferScalarType schema inner
                 | None -> PlDataType.Unknown
 
-        | ScalarExpr.Window(inner, _, _) -> inferScalarType schema inner
+        | ScalarExpr.Window(inner, _, _)
+        | ScalarExpr.SortBy(inner, _) -> inferScalarType schema inner
 
         | ScalarExpr.Conditional(_, ifTrue, _) -> inferScalarType schema ifTrue
 
@@ -122,7 +123,8 @@ module internal SchemaInference =
             | SubqueryKind.ScalarScalar -> PlDataType.Unknown
 
         | ScalarExpr.Alias(inner, _) -> inferScalarType schema inner
-        | ScalarExpr.Opaque _ -> PlDataType.Unknown
+        | ScalarExpr.Udf(_, _, returnType, _) -> returnType
+        | ScalarExpr.InList _ -> PlDataType.Boolean
 
     // =========================================================================
     // 2. Relational Plan Schema Inference
@@ -270,6 +272,27 @@ module internal SchemaInference =
             {
                 Fields = keyFields @ aggFields
             }
+
+        | LogicalPlan.GroupingSets(input, spec) ->
+            let inSchema = inferPlanSchema input
+            let keyMap = spec.KeyAliases |> Map.ofList
+            let aggMap = spec.Aggs |> Map.ofList
+            let fields =
+                spec.OutputColumns
+                |> List.map (fun name ->
+                    let dt =
+                        match keyMap.TryFind name with
+                        | Some e -> inferScalarType inSchema e
+                        | None ->
+                            match aggMap.TryFind name with
+                            | Some e -> inferScalarType inSchema e
+                            | None -> PlDataType.Int32
+                    {
+                        Name = name
+                        DataType = dt
+                        Nullable = true
+                    })
+            { Fields = fields }
 
         | LogicalPlan.Union(left, _, _) -> inferPlanSchema left
 

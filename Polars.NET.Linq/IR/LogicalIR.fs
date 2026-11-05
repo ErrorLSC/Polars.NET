@@ -370,6 +370,16 @@ type ScalarFunction =
     | BitwiseLeadingZeros
     | BitwiseTrailingZeros
 
+    // --- Group / Sequence Expression Modifiers ---
+    | Implode
+    | NUnique
+    | Unique
+    | MinBy
+    | MaxBy
+    | Filter
+    | Quantile
+    | SeriesGet
+
     // --- Custom / Extension Function ---
     | Custom of name: string
 
@@ -506,6 +516,14 @@ type ScalarFunction =
         | ScalarFunction.BitwiseCountOnes -> "bitwise_count_ones"
         | ScalarFunction.BitwiseLeadingZeros -> "bitwise_leading_zeros"
         | ScalarFunction.BitwiseTrailingZeros -> "bitwise_trailing_zeros"
+        | ScalarFunction.Implode -> "implode"
+        | ScalarFunction.NUnique -> "n_unique"
+        | ScalarFunction.Unique -> "unique"
+        | ScalarFunction.MinBy -> "min_by"
+        | ScalarFunction.MaxBy -> "max_by"
+        | ScalarFunction.Filter -> "filter"
+        | ScalarFunction.Quantile -> "quantile"
+        | ScalarFunction.SeriesGet -> "series_get"
         | ScalarFunction.Custom name -> name
 
     static member FromString(str: string) : ScalarFunction =
@@ -641,7 +659,32 @@ type ScalarFunction =
         | "bitwise_count_ones" | "popcnt" | "popcount" -> ScalarFunction.BitwiseCountOnes
         | "bitwise_leading_zeros" | "leading_zeros" | "leadingzerocount" -> ScalarFunction.BitwiseLeadingZeros
         | "bitwise_trailing_zeros" | "trailing_zeros" | "trailingzerocount" -> ScalarFunction.BitwiseTrailingZeros
+        | "implode" -> ScalarFunction.Implode
+        | "n_unique" -> ScalarFunction.NUnique
+        | "unique" -> ScalarFunction.Unique
+        | "min_by" -> ScalarFunction.MinBy
+        | "max_by" -> ScalarFunction.MaxBy
+        | "filter" -> ScalarFunction.Filter
+        | "quantile" -> ScalarFunction.Quantile
+        | "series_get" -> ScalarFunction.SeriesGet
         | other -> ScalarFunction.Custom other
+
+/// Strongly-typed descriptor for managed UDF execution strategies
+[<RequireQualifiedAccess>]
+type UdfInvoker =
+    | SingleBatch of callback: obj * clrReturnType: Type
+    | MultiBatch of callback: obj * clrReturnType: Type
+    | GroupSingleBatch of callback: obj * clrReturnType: Type * returnsScalar: bool
+    | GroupMultiBatch of callback: obj * clrReturnType: Type * returnsScalar: bool
+    | StringPredicate of predicate: Func<string, bool>
+    | StringTransform of transform: Func<string, string>
+    | StringToList of mapper: Func<string, seq<string>>
+
+/// In-memory collection source for IN predicates
+[<RequireQualifiedAccess>]
+type InListSource =
+    | Literals of LiteralValue list
+    | Collection of values: System.Collections.IEnumerable * elementType: Type
 
 /// Pure symbolic scalar and column expression tree
 type [<RequireQualifiedAccess>] ScalarExpr =
@@ -653,13 +696,15 @@ type [<RequireQualifiedAccess>] ScalarExpr =
     | Function of func: ScalarFunction * args: ScalarExpr list * returnType: PlDataType
     | Aggregation of kind: AggKind * expr: ScalarExpr option * isDistinct: bool
     | Window of expr: ScalarExpr * partitionBy: ScalarExpr list * orderBy: SortOrder list
+    | SortBy of expr: ScalarExpr * by: SortOrder list
     | Conditional of test: ScalarExpr * ifTrue: ScalarExpr * ifFalse: ScalarExpr
     | Coalesce of exprs: ScalarExpr list
     | ItemAccess of target: ScalarExpr * index: ScalarExpr
     | Slice of target: ScalarExpr * offset: int64 * length: uint32
     | Subquery of plan: LogicalPlan * kind: SubqueryKind
     | Alias of expr: ScalarExpr * alias: string
-    | Opaque of handle: ExprHandle * referencedCols: string list * description: string
+    | Udf of name: string * args: ScalarExpr list * returnType: PlDataType * invoker: UdfInvoker
+    | InList of expr: ScalarExpr * source: InListSource * negated: bool
 
 /// Subquery semantics when a scalar expression embeds a logical plan
 and [<RequireQualifiedAccess>] SubqueryKind =
@@ -675,12 +720,27 @@ and SortOrder =
         NullsLast: bool
     }
 
+/// Abstract representation of external or physical table scan sources
+and ILogicalTableSource =
+    abstract member Name: string
+    abstract member Schema: LogicalSchema
+
 /// Input source for Leaf Scan nodes
 and [<RequireQualifiedAccess>] LogicalPlanSource =
-    | LazyFrame of LazyFrameHandle
+    | Table of source: ILogicalTableSource
     | SubqueryRef of subqueryId: string
     | InMemoryTable of name: string * rows: obj list
     | Empty
+
+/// Specification for multi-dimensional Grouping Sets (ROLLUP, CUBE, GROUPING SETS)
+and LogicalGroupingSetsSpec =
+    {
+        KeyAliases: (string * ScalarExpr) list
+        Aggs: (string * ScalarExpr) list
+        Level0Literals: Map<string, ScalarExpr>
+        Levels: (int list * Map<string, ScalarExpr>) list
+        OutputColumns: string list
+    }
 
 /// Specification for Logical AsOf join operations
 and LogicalAsOfJoinSpec =
@@ -725,6 +785,7 @@ and [<RequireQualifiedAccess>] LogicalPlan =
         aggs: (string * ScalarExpr) list *
         having: ScalarExpr option *
         maintainOrder: bool
+    | GroupingSets of input: LogicalPlan * spec: LogicalGroupingSetsSpec
     | Sort of input: LogicalPlan * orderings: SortOrder list
     | Limit of input: LogicalPlan * offset: int64 * count: uint32
     | Distinct of input: LogicalPlan * subset: string list option * keep: PlUniqueKeepStrategy

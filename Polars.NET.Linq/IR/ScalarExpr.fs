@@ -129,6 +129,10 @@ module ScalarExprOps =
             let partCols = partitionBy |> List.map collectColumns |> Set.unionMany
             let orderCols = orderBy |> List.map (fun o -> collectColumns o.Expr) |> Set.unionMany
             Set.unionMany [ innerCols; partCols; orderCols ]
+        | ScalarExpr.SortBy(inner, orderBy) ->
+            let innerCols = collectColumns inner
+            let orderCols = orderBy |> List.map (fun o -> collectColumns o.Expr) |> Set.unionMany
+            Set.union innerCols orderCols
         | ScalarExpr.Conditional(test, ifTrue, ifFalse) ->
             Set.unionMany [ collectColumns test; collectColumns ifTrue; collectColumns ifFalse ]
         | ScalarExpr.Coalesce exprs -> exprs |> List.map collectColumns |> Set.unionMany
@@ -139,7 +143,8 @@ module ScalarExprOps =
             | SubqueryKind.InSubquery(target, _) -> collectColumns target
             | _ -> Set.empty
         | ScalarExpr.Alias(inner, _) -> collectColumns inner
-        | ScalarExpr.Opaque(_, cols, _) -> Set.ofList cols
+        | ScalarExpr.Udf(_, args, _, _) -> args |> List.map collectColumns |> Set.unionMany
+        | ScalarExpr.InList(target, _, _) -> collectColumns target
 
     /// Checks whether an expression contains an aggregate function.
     let rec containsAggregation (expr: ScalarExpr) : bool =
@@ -149,13 +154,20 @@ module ScalarExprOps =
         | ScalarExpr.Unary(_, inner)
         | ScalarExpr.Cast(inner, _, _) -> containsAggregation inner
         | ScalarExpr.Function(_, args, _) -> args |> List.exists containsAggregation
-        | ScalarExpr.Window(inner, _, _) -> containsAggregation inner
+        | ScalarExpr.Window(inner, _, _)
+        | ScalarExpr.SortBy(inner, _) -> containsAggregation inner
         | ScalarExpr.Conditional(test, ifTrue, ifFalse) ->
             containsAggregation test || containsAggregation ifTrue || containsAggregation ifFalse
         | ScalarExpr.Coalesce exprs -> exprs |> List.exists containsAggregation
         | ScalarExpr.ItemAccess(target, idx) -> containsAggregation target || containsAggregation idx
         | ScalarExpr.Slice(target, _, _) -> containsAggregation target
         | ScalarExpr.Alias(inner, _) -> containsAggregation inner
+        | ScalarExpr.Udf(_, args, _, invoker) ->
+            match invoker with
+            | UdfInvoker.GroupSingleBatch _
+            | UdfInvoker.GroupMultiBatch _ -> true
+            | _ -> args |> List.exists containsAggregation
+        | ScalarExpr.InList(target, _, _) -> containsAggregation target
         | _ -> false
 
     /// Checks whether an expression embeds a subquery.
@@ -172,12 +184,17 @@ module ScalarExprOps =
             containsSubquery inner
             || partitionBy |> List.exists containsSubquery
             || orderBy |> List.exists (fun o -> containsSubquery o.Expr)
+        | ScalarExpr.SortBy(inner, orderBy) ->
+            containsSubquery inner
+            || orderBy |> List.exists (fun o -> containsSubquery o.Expr)
         | ScalarExpr.Conditional(test, ifTrue, ifFalse) ->
             containsSubquery test || containsSubquery ifTrue || containsSubquery ifFalse
         | ScalarExpr.Coalesce exprs -> exprs |> List.exists containsSubquery
         | ScalarExpr.ItemAccess(target, idx) -> containsSubquery target || containsSubquery idx
         | ScalarExpr.Slice(target, _, _) -> containsSubquery target
         | ScalarExpr.Alias(inner, _) -> containsSubquery inner
+        | ScalarExpr.Udf(_, args, _, _) -> args |> List.exists containsSubquery
+        | ScalarExpr.InList(target, _, _) -> containsSubquery target
         | _ -> false
 
     /// Checks whether an expression embeds a window expression.
@@ -190,12 +207,16 @@ module ScalarExprOps =
         | ScalarExpr.Function(_, args, _) -> args |> List.exists containsWindow
         | ScalarExpr.Aggregation(_, innerOpt, _) ->
             innerOpt |> Option.map containsWindow |> Option.defaultValue false
+        | ScalarExpr.SortBy(inner, orderBy) ->
+            containsWindow inner || orderBy |> List.exists (fun o -> containsWindow o.Expr)
         | ScalarExpr.Conditional(test, ifTrue, ifFalse) ->
             containsWindow test || containsWindow ifTrue || containsWindow ifFalse
         | ScalarExpr.Coalesce exprs -> exprs |> List.exists containsWindow
         | ScalarExpr.ItemAccess(target, idx) -> containsWindow target || containsWindow idx
         | ScalarExpr.Slice(target, _, _) -> containsWindow target
         | ScalarExpr.Alias(inner, _) -> containsWindow inner
+        | ScalarExpr.Udf(_, args, _, _) -> args |> List.exists containsWindow
+        | ScalarExpr.InList(target, _, _) -> containsWindow target
         | _ -> false
 
     /// Substitutes column references in an expression using a mapping function.
@@ -224,6 +245,15 @@ module ScalarExprOps =
                         Expr = substitute subst o.Expr
                     })
             )
+        | ScalarExpr.SortBy(inner, orderBy) ->
+            ScalarExpr.SortBy(
+                substitute subst inner,
+                orderBy
+                |> List.map (fun o ->
+                    { o with
+                        Expr = substitute subst o.Expr
+                    })
+            )
         | ScalarExpr.Conditional(test, ifTrue, ifFalse) ->
             ScalarExpr.Conditional(substitute subst test, substitute subst ifTrue, substitute subst ifFalse)
         | ScalarExpr.Coalesce exprs -> ScalarExpr.Coalesce(exprs |> List.map (substitute subst))
@@ -237,7 +267,10 @@ module ScalarExprOps =
                 | other -> other
             ScalarExpr.Subquery(plan, newKind)
         | ScalarExpr.Alias(inner, name) -> ScalarExpr.Alias(substitute subst inner, name)
-        | ScalarExpr.Opaque _ -> expr
+        | ScalarExpr.Udf(name, args, ret, inv) ->
+            ScalarExpr.Udf(name, args |> List.map (substitute subst), ret, inv)
+        | ScalarExpr.InList(target, src, neg) ->
+            ScalarExpr.InList(substitute subst target, src, neg)
 
     /// Renames column references in an expression according to a rename dictionary.
     let renameColumns (renameMap: Map<string, string>) (expr: ScalarExpr) : ScalarExpr =

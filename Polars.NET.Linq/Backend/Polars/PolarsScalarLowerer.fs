@@ -1,6 +1,8 @@
 namespace Polars.NET.Linq.Backend.Polars
 
 open System
+open System.Collections
+open System.Reflection
 open Polars.NET.Core
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Helpers
@@ -8,6 +10,34 @@ open Polars.NET.Linq.IR
 
 /// Lowers pure symbolic ScalarExpr AST nodes to unmanaged Polars ExprHandle pointers.
 module internal PolarsScalarLowerer =
+
+    /// Attempts to convert an in-memory object (array or IEnumerable) into a native SeriesHandle.
+    let internal tryCreateSeriesHandle (name: string) (objVal: obj) : SeriesHandle option =
+        match objVal with
+        | null -> None
+        | :? Array as arr ->
+            try
+                let h = SeriesFactory.Create(name, arr)
+                if not (isNull h || h.IsInvalid) then Some h else None
+            with _ ->
+                None
+        | :? IEnumerable as seq when seq.GetType() <> typeof<string> ->
+            try
+                let elemType =
+                    match PolarsTypeHelper.TryGetEnumerableElementType(seq.GetType()) with
+                    | null -> typeof<obj>
+                    | t -> t
+
+                let createGeneric =
+                    typeof<SeriesFactory>
+                        .GetMethod("CreateGenericType", BindingFlags.Public ||| BindingFlags.Static)
+                        .MakeGenericMethod(elemType)
+
+                let h = createGeneric.Invoke(null, [| box name; seq |]) :?> SeriesHandle
+                if not (isNull h || h.IsInvalid) then Some h else None
+            with _ ->
+                None
+        | _ -> None
 
     let rec internal inferPolarsJsonDataType (t: Type) : DataTypeHandle option =
         let coreType = PolarsTypeHelper.UnwrapCoreType t
@@ -137,7 +167,19 @@ module internal PolarsScalarLowerer =
 
         | ScalarExpr.Slice(target, offset, length) ->
             let targetH = lower target
-            PolarsWrapper.ExprSlice(targetH, PolarsWrapper.Lit offset, PolarsWrapper.Lit length)
+            if offset = 0L && length < UInt32.MaxValue then
+                PolarsWrapper.Head(targetH, int length)
+            elif length = UInt32.MaxValue then
+                PolarsWrapper.ExprSlice(targetH, PolarsWrapper.Lit offset, PolarsWrapper.Lit Int64.MaxValue)
+            else
+                PolarsWrapper.ExprSlice(targetH, PolarsWrapper.Lit offset, PolarsWrapper.Lit(int64 length))
+
+        | ScalarExpr.SortBy(inner, orderBy) ->
+            let innerH = lower inner
+            let byExprs = orderBy |> List.map (fun o -> lower o.Expr) |> List.toArray
+            let desc = orderBy |> List.map (fun o -> o.Descending) |> List.toArray
+            let nullsLast = orderBy |> List.map (fun o -> o.NullsLast) |> List.toArray
+            PolarsWrapper.SortBy(innerH, byExprs, desc, nullsLast, multithreaded = true, maintainOrder = true)
 
         | ScalarExpr.Alias(inner, alias) ->
             let innerH = lower inner
@@ -431,11 +473,74 @@ module internal PolarsScalarLowerer =
             | ScalarFunction.BitwiseTrailingZeros, [ a ] ->
                 PolarsWrapper.BitwiseTrailingZeros(lower a)
 
+            // Series & Group-Level Operations
+            | ScalarFunction.Implode, [ a ] ->
+                PolarsWrapper.Implode(lower a, maintainOrder = true)
+            | ScalarFunction.Implode, [ a; ScalarExpr.Literal(LiteralValue.Bool maintainOrder) ] ->
+                PolarsWrapper.Implode(lower a, maintainOrder = maintainOrder)
+            | ScalarFunction.NUnique, [ a ] ->
+                PolarsWrapper.NUnique(lower a)
+            | ScalarFunction.Unique, [ a ] ->
+                PolarsWrapper.ExprUnique(lower a)
+            | ScalarFunction.MinBy, [ a; by ] ->
+                PolarsWrapper.MinBy(lower a, lower by)
+            | ScalarFunction.MaxBy, [ a; by ] ->
+                PolarsWrapper.MaxBy(lower a, lower by)
+            | ScalarFunction.Filter, [ a; pred ] ->
+                PolarsWrapper.Filter(lower a, lower pred)
+            | ScalarFunction.Quantile, [ a; ScalarExpr.Literal(LiteralValue.Float64 q); ScalarExpr.Literal(LiteralValue.Int32 m) ] ->
+                PolarsWrapper.Quantile(lower a, q, LanguagePrimitives.EnumOfValue<byte, PlQuantileMethod> (byte m))
+            | ScalarFunction.SeriesGet, [ a; idx ] ->
+                PolarsWrapper.Get(lower a, lower idx, nullOnOob = true)
+
             | other, _ -> failwithf "Unsupported function in PolarsScalarLowerer: %s" other.Name
+
+        | ScalarExpr.Udf(_, args, _, invoker) ->
+            let argHs = args |> List.map lower |> List.toArray
+            match invoker with
+            | UdfInvoker.SingleBatch(cbObj, clrReturnType) ->
+                let outDataType = ArrowUdfBatchAdapter.GetDataTypeHandle clrReturnType
+                let func = cbObj :?> Func<Apache.Arrow.IArrowArray, Apache.Arrow.IArrowArray>
+                PolarsWrapper.Map(argHs.[0], func, outDataType)
+            | UdfInvoker.MultiBatch(cbObj, clrReturnType) ->
+                let outDataType = ArrowUdfBatchAdapter.GetDataTypeHandle clrReturnType
+                let func = cbObj :?> Func<System.Collections.Generic.IReadOnlyList<Apache.Arrow.IArrowArray>, Apache.Arrow.IArrowArray>
+                let mainH = argHs.[0]
+                let otherHs = argHs.[1..]
+                PolarsWrapper.MapMany(mainH, otherHs, func, outDataType)
+            | UdfInvoker.GroupSingleBatch(cbObj, clrReturnType, returnsScalar) ->
+                let outDataType = ArrowUdfBatchAdapter.GetDataTypeHandle clrReturnType
+                let func = cbObj :?> Func<Apache.Arrow.IArrowArray, Apache.Arrow.IArrowArray>
+                PolarsWrapper.Apply(argHs.[0], func, outDataType, returnsScalar = returnsScalar)
+            | UdfInvoker.GroupMultiBatch(cbObj, clrReturnType, returnsScalar) ->
+                let outDataType = ArrowUdfBatchAdapter.GetDataTypeHandle clrReturnType
+                let func = cbObj :?> Func<System.Collections.Generic.IReadOnlyList<Apache.Arrow.IArrowArray>, Apache.Arrow.IArrowArray>
+                let mainH = argHs.[0]
+                let otherHs = argHs.[1..]
+                PolarsWrapper.ApplyMany(mainH, otherHs, func, outDataType, returnsScalar = returnsScalar)
+            | UdfInvoker.StringPredicate pred ->
+                PolarsWrapper.MapStringPredicate(argHs.[0], pred)
+            | UdfInvoker.StringTransform trans ->
+                PolarsWrapper.MapStringTransform(argHs.[0], trans)
+            | UdfInvoker.StringToList toList ->
+                PolarsWrapper.MapStringToList(argHs.[0], toList)
+
+        | ScalarExpr.InList(inner, source, negated) ->
+            let innerH = lower inner
+            let listH =
+                match source with
+                | InListSource.Collection(coll, _) ->
+                    match tryCreateSeriesHandle "in_vals" coll with
+                    | Some seriesHandle ->
+                        let seriesLit = PolarsWrapper.Lit seriesHandle
+                        PolarsWrapper.Implode(seriesLit, maintainOrder = false)
+                    | None ->
+                        failwith "Failed to convert collection to Polars Series in InList lowering"
+                | InListSource.Literals _ ->
+                    failwith "InListSource.Literals must be lowered via Disjunction or Collection"
+            let isInH = PolarsWrapper.IsIn(innerH, listH, nullsEqual = true)
+            if negated then PolarsWrapper.Not isInH else isInH
 
         | ScalarExpr.Subquery(_, kind) ->
             failwithf "Subquery scalar expression must be decorrelated into relational join before physical lowering: %A" kind
-
-        | ScalarExpr.Opaque(handle, _, _) ->
-            PolarsWrapper.CloneExpr handle
 
