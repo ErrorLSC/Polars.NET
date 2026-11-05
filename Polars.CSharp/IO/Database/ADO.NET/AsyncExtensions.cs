@@ -53,23 +53,21 @@ public static partial class DatabaseExtensions
         ArgumentNullException.ThrowIfNull(reader);
         cancellationToken.ThrowIfCancellationRequested();
 
-        Func<DataFrame, long, T>? mapper = null;
-
-        await foreach (var chunkDf in reader.ReadDatabaseBatchesAsync(batchSize, cancellationToken).ConfigureAwait(false))
+        await foreach (var batch in DbToArrowStream.ToArrowBatchesAsync(reader, batchSize, cancellationToken).ConfigureAwait(false))
         {
-            using (chunkDf)
+            using (batch)
             {
-                if (chunkDf.Height == 0)
+                if (batch.Length == 0)
                 {
                     continue;
                 }
 
-                mapper ??= RowMapper<T>.GetOrCreate(chunkDf);
-                long height = chunkDf.Height;
+                using var cursor = ArrowRowMapper<T>.CreateCursor(batch, ownsBatch: false);
+                int height = cursor.Length;
 
-                for (long i = 0L; i < height; i++)
+                for (int i = 0; i < height; i++)
                 {
-                    yield return mapper(chunkDf, i);
+                    yield return cursor.ReadRow(i);
                 }
             }
         }

@@ -2,518 +2,26 @@ namespace Polars.FSharp
 
 open System.Reflection
 open Microsoft.FSharp.Reflection
-open System.Linq.Expressions
 open System.Collections.Generic
 open Polars.NET.Core
+open Polars.NET.Core.Data
 open Polars.NET.Core.Wrappers
 open System
 open System.Runtime.CompilerServices
 open Polars.NET.Core.Helpers
-open System.Collections.Concurrent
-
-/// <summary>
-/// Fast typed field extractor that enforces null checking on non-Option fields.
-/// Marked public inside assembly to guarantee reflection accessibility.
-/// </summary>
-type FSharpRowExtractor =
-    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    static member ExtractField<'Field>(col: Series, rowIdx: int64, acceptsNull: bool, fieldName: string) : 'Field =
-        if not acceptsNull && col.IsNullAt(rowIdx, uncheck = true) then
-            invalidOp
-                $"Record field '{fieldName}' does not accept Option, but column '{col.Name}' contains null at row {rowIdx}."
-
-        col.GetValue<'Field>(rowIdx, true)
-
-    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    static member IsNull(col: Series, rowIdx: int64) : bool = col.IsNullAt(rowIdx, uncheck = true)
 
 type internal FSharpRowMapper<'T>() =
 
-    // Cache compiled hydrators per schema signature for optimal high-throughput execution
-    static let cache = ConcurrentDictionary<string, Func<Series[], int64, 'T>>()
-
-    static let extractFieldMethodDef: MethodInfo =
-        let methods =
-            typeof<FSharpRowExtractor>
-                .GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
-
-        methods
-        |> Array.find (fun m -> m.Name = "ExtractField" && m.IsGenericMethodDefinition)
-
-    // Resolved reliably from FSharpRowExtractor, eliminating extension method reflection failures
-    static let isNullMethodDef: MethodInfo =
-        typeof<FSharpRowExtractor>.GetMethod("IsNull", BindingFlags.Public ||| BindingFlags.Static)
-
-    static let isFSharpAnonymousObject (t: Type) =
-        not (isNull t || isNull t.FullName)
-        && (t.FullName.StartsWith "Microsoft.FSharp.Linq.RuntimeHelpers.AnonymousObject"
-            || t.IsGenericType && t.Name.StartsWith("AnonymousObject`"))
-
-    /// Helper to identify all scalar/primitive types including string, DateTime, Guid, etc.
-    static let isScalarOrString (t: Type) =
-        PolarsTypeHelper.IsScalarType t || t = typeof<string> || t.IsEnum
-
-    static let isOptionType (t: Type) =
-        t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<option<_>>
-
-    static let isValueOptionType (t: Type) =
-        t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<voption<_>>
-
-    static let isNullableType (t: Type) =
-        not (isNull (Nullable.GetUnderlyingType t))
-
-    /// Identifies whether a type represents a single scalar value, optionally wrapped in Nullable/Option/ValueOption
-    static let rec isScalarLike (t: Type) =
-        if isScalarOrString t then
-            true
-        elif isNullableType t then
-            isScalarLike (Nullable.GetUnderlyingType t)
-        elif isOptionType t then
-            isScalarLike (t.GetGenericArguments().[0])
-        elif isValueOptionType t then
-            isScalarLike (t.GetGenericArguments().[0])
-        else
-            false
-
-    /// Computes schema signature for caching
-    static let computeSchemaSignature (colNames: string[]) (dataTypes: string[]) =
-        Array.map2 (fun n d -> $"{n}:{d}") colNames dataTypes |> String.concat "|"
-
-    /// Builds a compiled Func<Series[], int64, 'T> based on the actual physical DataFrame columns
-    static let buildHydrator (actualColNames: string[]) : Func<Series[], int64, 'T> =
-        let targetType = typeof<'T>
-        let colsParam = Expression.Parameter(typeof<Series[]>, "cols")
-        let rowIdxParam = Expression.Parameter(typeof<int64>, "rowIdx")
-
-        let colMap = Dictionary<string, int> StringComparer.OrdinalIgnoreCase
-        actualColNames |> Array.iteri (fun i name -> colMap.[name] <- i)
-
-        // Checks whether a physical column is null at the specified row via FSharpRowExtractor.IsNull
-        let createIsNullExpr (colIdx: int) : Expression =
-            let colAccess = Expression.ArrayIndex(colsParam, Expression.Constant(colIdx))
-            Expression.Call(isNullMethodDef, colAccess, rowIdxParam) :> Expression
-
-        // Helper to extract a single primitive/scalar column value by column index
-        let createExtractExpr (colIdx: int) (propType: Type) (fieldName: string) : Expression =
-            let isOption = isOptionType propType || isValueOptionType propType
-
-            let isList =
-                propType.IsGenericType
-                && propType.GetGenericTypeDefinition() = typedefof<list<_>>
-
-            let isArray = propType.IsArray
-            let isNullable = isNullableType propType
-            let acceptsNull = isOption || isList || isArray || isNullable
-
-            let colAccess = Expression.ArrayIndex(colsParam, Expression.Constant(colIdx))
-            let acceptsNullConst = Expression.Constant(acceptsNull, typeof<bool>)
-            let fieldNameConst = Expression.Constant(fieldName, typeof<string>)
-
-            if propType.IsEnum then
-                let underlyingType = Enum.GetUnderlyingType propType
-
-                let closedExtractMethod =
-                    extractFieldMethodDef.MakeGenericMethod [| underlyingType |]
-
-                let call =
-                    Expression.Call(closedExtractMethod, colAccess, rowIdxParam, acceptsNullConst, fieldNameConst)
-
-                Expression.Convert(call, propType) :> Expression
-            elif isNullable && (Nullable.GetUnderlyingType propType).IsEnum then
-                let underlyingEnum = Nullable.GetUnderlyingType propType
-                let underlyingType = Enum.GetUnderlyingType underlyingEnum
-                let nullableUnderlying = typedefof<Nullable<_>>.MakeGenericType underlyingType
-
-                let closedExtractMethod =
-                    extractFieldMethodDef.MakeGenericMethod [| nullableUnderlying |]
-
-                let call =
-                    Expression.Call(closedExtractMethod, colAccess, rowIdxParam, acceptsNullConst, fieldNameConst)
-
-                Expression.Convert(call, propType) :> Expression
-            else
-                let closedExtractMethod = extractFieldMethodDef.MakeGenericMethod [| propType |]
-
-                Expression.Call(closedExtractMethod, colAccess, rowIdxParam, acceptsNullConst, fieldNameConst)
-                :> Expression
-
-        // Resolves column index by considering scope suffixes (_left, _right, _second, _third) across joins
-        let tryFindCol (propName: string) (tupleIdx: int) : int option =
-            let candidates =
-                [
-                    if tupleIdx = 0 then
-                        propName + "_left"
-                        propName + "_first"
-                    elif tupleIdx = 1 then
-                        propName + "_second"
-                        propName + "_right"
-                    elif tupleIdx = 2 then
-                        propName + "_third"
-                    propName
-                ]
-
-            candidates
-            |> List.tryPick (fun candidate ->
-                match colMap.TryGetValue candidate with
-                | true, idx -> Some idx
-                | false, _ -> None)
-
-        // Helper to construct a single non-tuple instance (Record or Class/Struct), with Outer Join Null Folding
-        let rec buildSingleObjectExpr (t: Type) (tupleIdx: int) : Expression =
-            let underlyingTypeOpt = Nullable.GetUnderlyingType(t) |> Option.ofObj
-            let isOpt = isOptionType t
-            let isVOpt = isValueOptionType t
-            let isNullable = underlyingTypeOpt.IsSome || isOpt || isVOpt || not t.IsValueType
-
-            let actualType =
-                if isOpt || isVOpt then t.GetGenericArguments().[0]
-                elif underlyingTypeOpt.IsSome then underlyingTypeOpt.Value
-                else t
-
-            let usedColIndices = List<int>()
-
-            let instanceExpr =
-                if FSharpType.IsRecord(actualType, true) then
-                    let fields = FSharpType.GetRecordFields(actualType, true)
-
-                    let ctors =
-                        actualType.GetConstructors(
-                            BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance
-                        )
-
-                    let recordCtor =
-                        ctors
-                        |> Array.tryFind (fun c -> c.GetParameters().Length = fields.Length)
-                        |> Option.defaultWith (fun () -> ctors.[0])
-
-                    let ctorArgs =
-                        fields
-                        |> Array.mapi (fun i f ->
-                            match tryFindCol f.Name tupleIdx with
-                            | Some colIdx ->
-                                usedColIndices.Add colIdx
-                                createExtractExpr colIdx f.PropertyType f.Name
-                            | None ->
-                                if tupleIdx = 0 && i < actualColNames.Length then
-                                    usedColIndices.Add i
-                                    createExtractExpr i f.PropertyType f.Name
-                                else
-                                    Expression.Default(f.PropertyType) :> Expression)
-
-                    Expression.New(recordCtor, ctorArgs) :> Expression
-
-                else
-                    // Positional constructor (C# Record / AnonymousObject / Immutable DTO fallback)
-                    let ctors =
-                        actualType.GetConstructors(
-                            BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance
-                        )
-
-                    let primaryCtorOpt =
-                        ctors
-                        |> Array.filter (fun c ->
-                            // Exclude copy constructor: e.g. T(T original)
-                            not (c.GetParameters().Length = 1 && c.GetParameters().[0].ParameterType = actualType)
-                            && c.GetParameters().Length > 0)
-                        |> Array.sortByDescending (fun c -> c.GetParameters().Length)
-                        |> Array.tryHead
-
-                    match primaryCtorOpt with
-                    | Some primaryCtor ->
-                        let ctorParams = primaryCtor.GetParameters()
-
-                        let ctorArgs =
-                            ctorParams
-                            |> Array.mapi (fun i p ->
-                                let cleanName = p.Name.TrimStart('@')
-
-                                let colIdxOpt =
-                                    match tryFindCol cleanName tupleIdx with
-                                    | Some idx -> Some idx
-                                    | None ->
-                                        actualType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-                                        |> Array.tryFind (fun prop ->
-                                            String.Equals(prop.Name, cleanName, StringComparison.OrdinalIgnoreCase))
-                                        |> Option.bind (fun prop -> tryFindCol prop.Name tupleIdx)
-
-                                match colIdxOpt with
-                                | Some colIdx ->
-                                    usedColIndices.Add colIdx
-                                    createExtractExpr colIdx p.ParameterType p.Name
-                                | None ->
-                                    if tupleIdx = 0 && i < actualColNames.Length then
-                                        usedColIndices.Add i
-                                        createExtractExpr i p.ParameterType p.Name
-                                    else
-                                        Expression.Default p.ParameterType :> Expression)
-
-                        Expression.New(primaryCtor, ctorArgs) :> Expression
-
-                    | None ->
-                        // Parameterless constructor + mutable properties/fields fallback
-                        let defaultCtor =
-                            actualType.GetConstructor(
-                                BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance,
-                                null,
-                                Type.EmptyTypes,
-                                null
-                            )
-
-                        let instanceVar = Expression.Variable(actualType, "subInstance")
-
-                        let createInstanceExpr =
-                            if not (isNull defaultCtor) then
-                                Expression.New defaultCtor
-                            else
-                                Expression.New actualType
-
-                        let blockExpressions = List<Expression>()
-                        blockExpressions.Add(Expression.Assign(instanceVar, createInstanceExpr))
-
-                        // 1. Bind Properties (Standard and init-only)
-                        let props =
-                            actualType.GetProperties(
-                                BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance
-                            )
-
-                        for prop in props do
-                            if prop.Name <> "EqualityContract" then
-                                match tryFindCol prop.Name tupleIdx with
-                                | Some colIdx ->
-                                    usedColIndices.Add colIdx
-                                    let readExpr = createExtractExpr colIdx prop.PropertyType prop.Name
-
-                                    if not (isNull prop.SetMethod) then
-                                        blockExpressions.Add(Expression.Call(instanceVar, prop.SetMethod, readExpr))
-                                    else
-                                        let backingField =
-                                            actualType.GetField(
-                                                $"<{prop.Name}>k__BackingField",
-                                                BindingFlags.Instance ||| BindingFlags.NonPublic
-                                            )
-
-                                        if not (isNull backingField) then
-                                            blockExpressions.Add(
-                                                Expression.Assign(Expression.Field(instanceVar, backingField), readExpr)
-                                            )
-                                | None -> ()
-
-                        // 2. Bind Public Instance Fields
-                        let fields = actualType.GetFields(BindingFlags.Public ||| BindingFlags.Instance)
-
-                        for field in fields do
-                            match tryFindCol field.Name tupleIdx with
-                            | Some colIdx ->
-                                usedColIndices.Add colIdx
-                                let readExpr = createExtractExpr colIdx field.FieldType field.Name
-                                blockExpressions.Add(Expression.Assign(Expression.Field(instanceVar, field), readExpr))
-                            | None -> ()
-
-                        blockExpressions.Add instanceVar
-                        Expression.Block([| instanceVar |], blockExpressions) :> Expression
-
-            // Outer Join Null folding: If target accepts null and all mapped columns are null in current row, fold to null/None/ValueNone
-            if isNullable && usedColIndices.Count > 0 then
-                let distinctCols = usedColIndices |> Seq.distinct |> Seq.toArray
-
-                let allNullExpr =
-                    distinctCols
-                    |> Array.map createIsNullExpr
-                    |> Array.reduce (fun acc e -> Expression.AndAlso(acc, e) :> Expression)
-
-                if isOpt then
-                    let noneExpr = Expression.Default(t)
-                    let someMethod = t.GetMethod("Some", [| actualType |])
-                    let someExpr = Expression.Call(someMethod, instanceExpr)
-                    Expression.Condition(allNullExpr, noneExpr, someExpr) :> Expression
-                elif isVOpt then
-                    let vnoneExpr = Expression.Default(t)
-                    let vsomeMethod = t.GetMethod("NewValueSome", [| actualType |])
-                    let vsomeExpr = Expression.Call(vsomeMethod, instanceExpr)
-                    Expression.Condition(allNullExpr, vnoneExpr, vsomeExpr) :> Expression
-                elif underlyingTypeOpt.IsSome then
-                    let nullConst = Expression.Constant(null, t)
-                    let valueExpr = Expression.Convert(instanceExpr, t)
-                    Expression.Condition(allNullExpr, nullConst, valueExpr) :> Expression
-                else
-                    let nullConst = Expression.Constant(null, t)
-                    Expression.Condition(allNullExpr, nullConst, instanceExpr) :> Expression
-            else if isOpt then
-                let someMethod = t.GetMethod("Some", [| actualType |])
-                Expression.Call(someMethod, instanceExpr) :> Expression
-            elif isVOpt then
-                let vsomeMethod = t.GetMethod("NewValueSome", [| actualType |])
-                Expression.Call(vsomeMethod, instanceExpr) :> Expression
-            elif underlyingTypeOpt.IsSome then
-                Expression.Convert(instanceExpr, t) :> Expression
-            else
-                instanceExpr
-
-        // Builds an argument for tuple elements (supports scalar aliases like "Outer", "Inner", "Item1" and scope suffixes)
-        let buildTupleElementExpr (subType: Type) (tupleIdx: int) : Expression =
-            if isScalarLike subType then
-                let candidateNames =
-                    [
-                        $"Item{tupleIdx + 1}"
-                        if tupleIdx = 0 then
-                            "Outer"
-                            "Index"
-                            "First"
-                        elif tupleIdx = 1 then
-                            "Inner"
-                            "Item"
-                            "Second"
-                        elif tupleIdx = 2 then
-                            "Third"
-                    ]
-
-                let resolvedColIdx =
-                    candidateNames
-                    |> List.tryPick (fun name ->
-                        match colMap.TryGetValue name with
-                        | true, idx -> Some idx
-                        | false, _ -> None)
-                    |> Option.orElseWith (fun () ->
-                        if tupleIdx < actualColNames.Length then
-                            Some tupleIdx
-                        else
-                            None)
-
-                match resolvedColIdx with
-                | Some colIdx -> createExtractExpr colIdx subType candidateNames.Head
-                | None -> Expression.Default subType :> Expression
-            else
-                // Forward tupleIdx so child records prioritize their join scope suffixes (_left, _second, _right, etc.)
-                buildSingleObjectExpr subType tupleIdx
-
-        // Top-level build branch
-        let isTuple =
-            FSharpType.IsTuple targetType
-            || not (isNull targetType.FullName)
-               && (targetType.FullName.StartsWith "System.ValueTuple`"
-                   || targetType.FullName.StartsWith "System.Tuple`")
-
-        let rootExpr: Expression =
-            // 0. Primitive / Scalar / Enum -> Read directly from column 0
-            if isScalarOrString targetType then
-                createExtractExpr 0 targetType (if actualColNames.Length > 0 then actualColNames.[0] else "")
-
-            // 1. Reference Tuple (F# Standard Tuple)
-            elif FSharpType.IsTuple targetType then
-                let elemTypes = FSharpType.GetTupleElements targetType
-                let tupleCtor = targetType.GetConstructor elemTypes
-                let subArgs = elemTypes |> Array.mapi (fun i subT -> buildTupleElementExpr subT i)
-                Expression.New(tupleCtor, subArgs) :> Expression
-
-            // 2. Struct Tuple (System.ValueTuple<...>)
-            elif
-                targetType.IsValueType
-                && not (isNull targetType.FullName)
-                && targetType.FullName.StartsWith "System.ValueTuple`"
-            then
-                let elemTypes = targetType.GetGenericArguments()
-
-                let tupleCtor =
-                    targetType.GetConstructor elemTypes
-                    |> Option.ofObj
-                    |> Option.defaultWith (fun () ->
-                        targetType.GetConstructors(BindingFlags.Public ||| BindingFlags.Instance).[0])
-
-                let subArgs = elemTypes |> Array.mapi (fun i subT -> buildTupleElementExpr subT i)
-                Expression.New(tupleCtor, subArgs) :> Expression
-
-            // 3. System.Tuple<...> (Reference Tuple matching C# Tuple)
-            elif
-                not (isNull targetType.FullName)
-                && targetType.FullName.StartsWith "System.Tuple`"
-            then
-                let elemTypes = targetType.GetGenericArguments()
-                let tupleCtor = targetType.GetConstructor elemTypes
-                let subArgs = elemTypes |> Array.mapi (fun i subT -> buildTupleElementExpr subT i)
-                Expression.New(tupleCtor, subArgs) :> Expression
-
-            // 4. F# AnonymousObject: treat positional arguments like a Tuple
-            elif isFSharpAnonymousObject targetType then
-                let ctors =
-                    targetType.GetConstructors(BindingFlags.Public ||| BindingFlags.Instance)
-
-                let primaryCtor = ctors.[0]
-                let ctorParams = primaryCtor.GetParameters()
-
-                let subArgs =
-                    ctorParams
-                    |> Array.mapi (fun i p ->
-                        let colIdx = if i < actualColNames.Length then i else 0
-                        createExtractExpr colIdx p.ParameterType p.Name)
-
-                Expression.New(primaryCtor, subArgs) :> Expression
-
-            // 5. Single record or object
-            else
-                buildSingleObjectExpr targetType 0
-
-        let lambda =
-            Expression.Lambda<Func<Series[], int64, 'T>>(rootExpr, colsParam, rowIdxParam)
-
-        lambda.Compile()
-
-    /// Collects static required field names (fallback compatibility)
-    static let rec collectRequiredNames (t: Type) : string[] =
-        if isScalarOrString t then
-            [||]
-        elif FSharpType.IsTuple(t) then
-            FSharpType.GetTupleElements(t) |> Array.collect collectRequiredNames
-        elif
-            t.IsValueType
-            && not (isNull t.FullName)
-            && t.FullName.StartsWith "System.ValueTuple`"
-        then
-            t.GetGenericArguments() |> Array.collect collectRequiredNames
-        elif FSharpType.IsRecord(t, true) then
-            FSharpType.GetRecordFields(t, true) |> Array.map (fun f -> f.Name)
-        elif isFSharpAnonymousObject t then
-            t.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-            |> Array.map (fun p -> p.Name)
-        else
-            let writeable =
-                t.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-                |> Array.filter (fun p -> p.CanWrite)
-                |> Array.map (fun p -> p.Name)
-
-            if writeable.Length > 0 then
-                writeable
-            else
-                t.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-                |> Array.map (fun p -> p.Name)
-
-    static let defaultColumnNames: string[] = collectRequiredNames typeof<'T>
-
-    /// Gets or compiles a hydrator delegate tailored to the schema of the provided DataFrame
-    static member GetOrCreate(df: DataFrame) : Func<Series[], int64, 'T> =
-        let names = df.ColumnNames
-        let types = names |> Array.map (fun n -> df.[n].DataType.ToString())
-        let sigKey = computeSchemaSignature names types
-
-        match cache.TryGetValue sigKey with
-        | true, h -> h
-        | false, _ -> cache.GetOrAdd(sigKey, fun _ -> buildHydrator names)
-
-    /// Gets or compiles a hydrator delegate tailored to the column array schema
-    static member GetOrCreate(cols: Series[]) : Func<Series[], int64, 'T> =
-        let names = cols |> Array.map (fun c -> c.Name)
-        let types = cols |> Array.map (fun c -> c.DataType.ToString())
-        let sigKey = computeSchemaSignature names types
-
-        match cache.TryGetValue sigKey with
-        | true, h -> h
-        | false, _ -> cache.GetOrAdd(sigKey, fun _ -> buildHydrator names)
-
-    static member ColumnNames = defaultColumnNames
+    static member ColumnNames: string[] = ArrowRowMapper<'T>.ColumnNames
 
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    static member Hydrate(cols: Series[], rowIdx: int64) : 'T =
-        let hydrator = FSharpRowMapper<'T>.GetOrCreate cols
-        hydrator.Invoke(cols, rowIdx)
+    static member CreateCursor(df: DataFrame) : ArrowBatchCursor<'T> =
+        ArrowRowMapper<'T>.CreateCursor df.Handle
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    static member ReadRow(df: DataFrame, rowIdx: int64) : 'T =
+        use cursor = ArrowRowMapper<'T>.CreateCursor df.Handle
+        cursor.ReadRow(int rowIdx)
 
 /// <summary>
 /// Stack-only, zero-allocation struct enumerator for F# DataFrame row iteration.
@@ -522,23 +30,19 @@ type internal FSharpRowMapper<'T>() =
 [<Struct>]
 type RowEnumerator<'T> =
     val private _df: DataFrame
-    val private _cols: Series[]
-    val private _hydrator: Func<Series[], int64, 'T>
+    val private _cursor: ArrowBatchCursor<'T>
     val private _height: int64
     val mutable private _index: int64
     val mutable private _current: 'T
 
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     internal new(df: DataFrame) =
-        let width = int df.Width
-        let cols = Array.init width (fun i -> df.[i])
-        let hydrator = FSharpRowMapper<'T>.GetOrCreate(df)
+        let cursor = ArrowRowMapper<'T>.CreateCursor df.Handle
 
         {
             _df = df
-            _cols = cols
-            _hydrator = hydrator
-            _height = df.Height
+            _cursor = cursor
+            _height = int64 cursor.Length
             _index = -1L
             _current = Unchecked.defaultof<'T>
         }
@@ -552,7 +56,7 @@ type RowEnumerator<'T> =
 
         if nextIndex < this._height then
             this._index <- nextIndex
-            this._current <- this._hydrator.Invoke(this._cols, this._index)
+            this._current <- this._cursor.ReadRow(int nextIndex)
             true
         else
             this._current <- Unchecked.defaultof<'T>
@@ -606,7 +110,7 @@ type RowEnumerator<'T> =
         if this._height = 0L then
             invalidOp "The DataFrame sequence contains no elements."
 
-        this._hydrator.Invoke(this._cols, 0L)
+        this._cursor.ReadRow 0
 
     /// <summary>
     /// Returns the first mapped row as an option without mutating the enumerator cursor.
@@ -615,7 +119,7 @@ type RowEnumerator<'T> =
         if this._height = 0L then
             None
         else
-            Some(this._hydrator.Invoke(this._cols, 0L))
+            Some(this._cursor.ReadRow 0)
 
     /// <summary>
     /// Returns the first mapped row as a ValueOption without mutating the enumerator cursor.
@@ -624,7 +128,7 @@ type RowEnumerator<'T> =
         if this._height = 0L then
             ValueNone
         else
-            ValueSome(this._hydrator.Invoke(this._cols, 0L))
+            ValueSome(this._cursor.ReadRow 0)
 
     /// <summary>
     /// Returns the last mapped row without mutating the enumerator cursor.
@@ -634,7 +138,7 @@ type RowEnumerator<'T> =
         if this._height = 0L then
             invalidOp "The DataFrame sequence contains no elements."
 
-        this._hydrator.Invoke(this._cols, this._height - 1L)
+        this._cursor.ReadRow(int (this._height - 1L))
 
     /// <summary>
     /// Returns the last mapped row as an option without mutating the enumerator cursor.
@@ -643,7 +147,7 @@ type RowEnumerator<'T> =
         if this._height = 0L then
             None
         else
-            Some(this._hydrator.Invoke(this._cols, this._height - 1L))
+            Some(this._cursor.ReadRow(int (this._height - 1L)))
 
     /// <summary>
     /// Returns the last mapped row as a ValueOption without mutating the enumerator cursor.
@@ -652,7 +156,7 @@ type RowEnumerator<'T> =
         if this._height = 0L then
             ValueNone
         else
-            ValueSome(this._hydrator.Invoke(this._cols, this._height - 1L))
+            ValueSome(this._cursor.ReadRow(int (this._height - 1L)))
 
     /// <summary>
     /// Fetches a specific row directly by 64-bit index without sequential stepping.
@@ -661,7 +165,7 @@ type RowEnumerator<'T> =
         if index < 0L || index >= this._height then
             raise (InvalidOperationException $"Index {index} is out of bounds for DataFrame height {this._height}.")
 
-        this._hydrator.Invoke(this._cols, index)
+        this._cursor.ReadRow(int index)
 
     /// <summary>
     /// Fetches a specific row directly by index, or None if out of bounds.
@@ -671,7 +175,7 @@ type RowEnumerator<'T> =
         if index < 0L || index >= this._height then
             None
         else
-            Some(this._hydrator.Invoke(this._cols, index))
+            Some(this._cursor.ReadRow(int index))
 
     /// <summary>
     /// Fetches a specific row directly by index, or ValueNone if out of bounds.
@@ -681,7 +185,7 @@ type RowEnumerator<'T> =
         if index < 0L || index >= this._height then
             ValueNone
         else
-            ValueSome(this._hydrator.Invoke(this._cols, index))
+            ValueSome(this._cursor.ReadRow(int index))
 
     /// <summary>
     /// Copies all mapped rows directly into the destination span without modifying enumerator state.
@@ -696,7 +200,7 @@ type RowEnumerator<'T> =
         let total = int this._height
 
         for i = 0 to total - 1 do
-            destination.[i] <- this._hydrator.Invoke(this._cols, int64 i)
+            destination.[i] <- this._cursor.ReadRow i
 
         total
 
@@ -711,7 +215,7 @@ type RowEnumerator<'T> =
             let total = int this._height
 
             for i = 0 to total - 1 do
-                destination.[i] <- this._hydrator.Invoke(this._cols, int64 i)
+                destination.[i] <- this._cursor.ReadRow i
 
             written <- total
             true
@@ -729,7 +233,7 @@ type RowEnumerator<'T> =
             let arr = Array.zeroCreate<'T> total
 
             for i = 0 to total - 1 do
-                arr.[i] <- this._hydrator.Invoke(this._cols, int64 i)
+                arr.[i] <- this._cursor.ReadRow i
 
             arr
         else
@@ -1212,14 +716,12 @@ module DataFrameConversions =
             if not (FSharpType.IsRecord(typeof<'T>, true)) then
                 raise (ArgumentException $"Type '{typeof<'T>.FullName}' is not an F# Record type.")
 
-            let hydrator = FSharpRowMapper<'T>.GetOrCreate this
-            let width = int this.Width
-            let cols = Array.init width (fun i -> this.[i])
-            let height = this.Height
-
             seq {
-                for r = 0L to height - 1L do
-                    yield hydrator.Invoke(cols, r)
+                use cursor = ArrowRowMapper<'T>.CreateCursor this.Handle
+                let len = cursor.Length
+
+                for r = 0 to len - 1 do
+                    yield cursor.ReadRow r
             }
 
         /// <summary>
@@ -1244,20 +746,12 @@ type FSharpRowCursorMaterializer() =
 
     interface IDataFrameMaterializer with
         member _.Materialize<'T>(handle: DataFrameHandle) : IEnumerable<'T> =
-            let height = PolarsWrapper.DataFrameHeight handle
-            let width = int (PolarsWrapper.DataFrameWidth handle)
-
             seq {
-                let cols =
-                    Array.init width (fun i ->
-                        let colHandle = PolarsWrapper.DataFrameGetColumnAt(handle, int64 i)
-                        new Series(colHandle))
+                use cursor = ArrowRowMapper<'T>.CreateCursor handle
+                let len = cursor.Length
 
-                let hydrator = FSharpRowMapper<'T>.GetOrCreate cols
-
-                for rowIdx in 0L .. (height - 1L) do
-                    let item = hydrator.Invoke(cols, rowIdx)
-                    yield item
+                for rowIdx = 0 to len - 1 do
+                    yield cursor.ReadRow rowIdx
             }
 
         member _.MaterializeScalar<'T>(handle: DataFrameHandle) : 'T =

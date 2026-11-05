@@ -917,8 +917,6 @@ public static class LinqExtensions
             _ => null
         };
 
-        Func<DataFrame, long, TKey>? compositeKeyMapper = null;
-
         foreach (var partDf in partitions)
         {
             if (partDf.Height == 0L) continue;
@@ -932,9 +930,8 @@ public static class LinqExtensions
             }
             else
             {
-                // Composite key fallback: compile RowMapper once
-                compositeKeyMapper ??= RowMapper<TKey>.GetOrCreate(partDf);
-                key = compositeKeyMapper(partDf, 0L);
+                // Composite key fallback: hydrate row 0 via ArrowRowMapper
+                key = RowMapper<TKey>.ReadRow(partDf, 0L);
             }
 
             var finalDf = elemExpr is not null ? partDf.Select(elemExpr) : partDf;

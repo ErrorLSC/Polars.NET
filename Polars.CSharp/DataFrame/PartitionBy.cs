@@ -146,12 +146,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             }
             else
             {
-                // Composite domain key: Compile RowMapper once against schema of partition 0
-                var keyMapper = RowMapper<TKey>.GetOrCreate(partitions[0]);
+                // Composite domain key: hydrate row 0 of each partition
                 foreach (var p in partitions)
                 {
                     if (p.Height == 0L) continue;
-                    var key = keyMapper(p, 0L);
+                    var key = RowMapper<TKey>.ReadRow(p, 0L);
                     dict.Add(key, p);
                 }
             }
@@ -174,10 +173,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             }
             else
             {
-                var keyMapper = RowMapper<TKey>.GetOrCreate(uniqueKeysDf);
-                for (long i = 0L; i < keyHeight; i++)
+                using var keyCursor = RowMapper<TKey>.CreateCursor(uniqueKeysDf);
+                for (int i = 0; i < (int)keyHeight; i++)
                 {
-                    var key = keyMapper(uniqueKeysDf, i);
+                    var key = keyCursor.ReadRow(i);
                     dict.Add(key, partitions[i]);
                 }
             }

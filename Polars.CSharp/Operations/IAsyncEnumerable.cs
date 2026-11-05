@@ -3,6 +3,7 @@ using Polars.NET.Core.Enums;
 using System.Threading.Channels;
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
+using Polars.NET.Core.Data;
 using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
@@ -39,25 +40,26 @@ public static class AsyncExtensions
             yield break;
         }
 
-        var mapper = RowMapper<T>.GetOrCreate(df);
-        long offset = 0L;
+        using var cursor = ArrowRowMapper<T>.CreateCursor(df.Handle);
+        int offset = 0;
+        int length = cursor.Length;
 
-        while (offset < totalRows)
+        while (offset < length)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            long currentChunkLimit = Math.Min(offset + chunkSize, totalRows);
+            int currentChunkLimit = Math.Min(offset + chunkSize, length);
 
             // Fast-path: Tight, synchronous, zero-allocation loop within current batch
-            for (long i = offset; i < currentChunkLimit; i++)
+            for (int i = offset; i < currentChunkLimit; i++)
             {
-                yield return mapper(df, i);
+                yield return cursor.ReadRow(i);
             }
 
             offset = currentChunkLimit;
 
             // Yield execution slot to prevent starving thread pool during massive iterations
-            if (offset < totalRows)
+            if (offset < length)
             {
                 await Task.Yield();
             }
@@ -77,8 +79,6 @@ public static class AsyncExtensions
     {
         ArgumentNullException.ThrowIfNull(stream);
 
-        Func<DataFrame, long, T>? mapper = null;
-
         while (!cancellationToken.IsCancellationRequested)
         {
             using RecordBatch? batch = await stream.ReadNextRecordBatchAsync(cancellationToken).ConfigureAwait(false);
@@ -93,17 +93,12 @@ public static class AsyncExtensions
                 continue;
             }
 
-            // Zero-copy bridge: Import managed RecordBatch into Polars DataFrame
-            using var chunkDf = DataFrame.FromArrow(batch);
+            using var cursor = ArrowRowMapper<T>.CreateCursor(batch, ownsBatch: false);
+            int height = cursor.Length;
 
-            // Cache row mapper once as Schema is invariant across batches within the same stream
-            mapper ??= RowMapper<T>.GetOrCreate(chunkDf);
-
-            long height = chunkDf.Height;
-
-            for (long i = 0L; i < height; i++)
+            for (int i = 0; i < height; i++)
             {
-                yield return mapper(chunkDf, i);
+                yield return cursor.ReadRow(i);
             }
         }
     }
@@ -134,8 +129,6 @@ public static class AsyncExtensions
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        Func<DataFrame, long, T>? mapper = null;
-
         await foreach (var chunkDf in lazyDf.ToBatchAsyncEnumerable(chunkSize, engine, maintainOrder, cancellationToken)
                                             .ConfigureAwait(false))
         {
@@ -146,12 +139,12 @@ public static class AsyncExtensions
                     continue;
                 }
 
-                mapper ??= RowMapper<T>.GetOrCreate(chunkDf);
-                long height = chunkDf.Height;
+                using var cursor = ArrowRowMapper<T>.CreateCursor(chunkDf.Handle);
+                int height = cursor.Length;
 
-                for (long i = 0L; i < height; i++)
+                for (int i = 0; i < height; i++)
                 {
-                    yield return mapper(chunkDf, i);
+                    yield return cursor.ReadRow(i);
                 }
             }
         }

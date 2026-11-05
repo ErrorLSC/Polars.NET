@@ -20,10 +20,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public PolarsRowEnumerable<T> AsEnumerable<T>()
-    {
-        var mapper = RowMapper<T>.GetOrCreate(this);
-        return new(this, mapper);
-    }
+        => new(this);
     /// <summary>
     /// Convert a DataFrame to a Series of type Struct.
     /// </summary>

@@ -1,5 +1,6 @@
 #pragma warning disable CS1591
 using System.Collections;
+using Polars.NET.Core.Data;
 
 namespace Polars.CSharp.Linq;
 
@@ -9,17 +10,15 @@ namespace Polars.CSharp.Linq;
 /// </summary>
 internal sealed class PolarsPartitionEnumerator<TElement> : IEnumerator<TElement>
 {
-    private readonly DataFrame _df;
-    private readonly Func<DataFrame, long, TElement> _mapper;
+    private readonly ArrowBatchCursor<TElement> _cursor;
     private readonly long _height;
     private long _index = -1L;
     private TElement? _current;
 
-    internal PolarsPartitionEnumerator(DataFrame df, Func<DataFrame, long, TElement> mapper)
+    internal PolarsPartitionEnumerator(ArrowBatchCursor<TElement> cursor)
     {
-        _df = df;
-        _mapper = mapper;
-        _height = df.Height;
+        _cursor = cursor;
+        _height = cursor.Length;
     }
 
     public bool MoveNext()
@@ -28,7 +27,7 @@ internal sealed class PolarsPartitionEnumerator<TElement> : IEnumerator<TElement
         if (next < _height)
         {
             _index = next;
-            _current = _mapper(_df, _index);
+            _current = _cursor.ReadRow((int)next);
             return true;
         }
 
@@ -47,7 +46,7 @@ internal sealed class PolarsPartitionEnumerator<TElement> : IEnumerator<TElement
 /// </summary>
 public sealed class PolarsGrouping<TKey, TElement> : IGrouping<TKey, TElement>, IReadOnlyList<TElement>
 {
-    private readonly Func<DataFrame, long, TElement> _mapper;
+    private ArrowBatchCursor<TElement>? _cursor;
 
     public TKey Key { get; }
 
@@ -61,13 +60,16 @@ public sealed class PolarsGrouping<TKey, TElement> : IGrouping<TKey, TElement>, 
     /// </summary>
     public int Count => checked((int)DataFrame.Height);
 
+    private ArrowBatchCursor<TElement> EnsureCursor()
+        => _cursor ??= ArrowRowMapper<TElement>.CreateCursor(DataFrame.Handle);
+
     public TElement this[int index]
     {
         get
         {
             if ((uint)index >= (uint)DataFrame.Height)
                 throw new ArgumentOutOfRangeException(nameof(index), $"Index {index} is out of bounds for partition height {DataFrame.Height}.");
-            return _mapper(DataFrame, index);
+            return EnsureCursor().ReadRow(index);
         }
     }
 
@@ -75,12 +77,11 @@ public sealed class PolarsGrouping<TKey, TElement> : IGrouping<TKey, TElement>, 
     {
         Key = key;
         DataFrame = df;
-        _mapper = RowMapper<TElement>.GetOrCreate(df);
     }
 
     public IEnumerator<TElement> GetEnumerator()
     {
-        return new PolarsPartitionEnumerator<TElement>(DataFrame, _mapper);
+        return new PolarsPartitionEnumerator<TElement>(EnsureCursor());
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
@@ -121,11 +122,9 @@ public sealed class PolarsLookup<TKey, TElement> : ILookup<TKey, TElement>
     /// </summary>
     public Dictionary<TKey, PolarsGrouping<TKey, TElement>>.ValueCollection.Enumerator GetEnumerator()
         => _groups.Values.GetEnumerator();
-    
 
     IEnumerator<IGrouping<TKey, TElement>> IEnumerable<IGrouping<TKey, TElement>>.GetEnumerator()
         => _groups.Values.GetEnumerator();
-    
 
     IEnumerator IEnumerable.GetEnumerator()
         => _groups.Values.GetEnumerator();

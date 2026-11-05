@@ -1,325 +1,21 @@
 #pragma warning disable CS1591
-using System.Linq.Expressions;
-using System.Reflection;
-using System.Collections.Concurrent;
 using System.Collections;
 using System.Runtime.CompilerServices;
-using Polars.NET.Core.Helpers;
+using Polars.NET.Core.Data;
 
 namespace Polars.CSharp;
 
 internal static class RowMapper<T>
 {
-    // Cache compiled mapper per schema signature
-    private static readonly ConcurrentDictionary<string, Func<DataFrame, long, T>> Cache = new();
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static ArrowBatchCursor<T> CreateCursor(DataFrame df)
+        => ArrowRowMapper<T>.CreateCursor(df.Handle);
 
-    private static string ComputeSchemaSignature(DataFrame df)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T ReadRow(DataFrame df, long index)
     {
-        return string.Join("|", df.ColumnNames.Select(c => $"{c}:{df[c].DataTypeName}"));
-    }
-
-    public static Func<DataFrame, long, T> GetOrCreate(DataFrame df)
-    {
-        string signature = ComputeSchemaSignature(df);
-        if (Cache.TryGetValue(signature, out var cachedMapper))
-        {
-            return cachedMapper;
-        }
-
-        var mapper = BuildMapper(df);
-        Cache.TryAdd(signature, mapper);
-        return mapper;
-    }
-
-    private static Func<DataFrame, long, T> BuildMapper(DataFrame df)
-    {
-        var targetType = typeof(T);
-        var dfParam = Expression.Parameter(typeof(DataFrame), "df");
-        var idxParam = Expression.Parameter(typeof(long), "rowIndex");
-
-        var getValueMethodDef = typeof(Series).GetMethod(nameof(Series.GetValue), [typeof(long), typeof(bool)])!;
-        var columnIndexerMethod = typeof(DataFrame).GetMethod("get_Item", [typeof(int)])!;
-        var isNullMethod = typeof(Series).GetMethod("IsNull", [typeof(long)])
-                           ?? typeof(Series).GetMethod("is_null", [typeof(long)]);
-
-        // Checks whether a physical column value is null at the specified row index
-        Expression CreateIsNullExpr(int colIdx)
-        {
-            var colExpr = Expression.Call(dfParam, columnIndexerMethod, Expression.Constant(colIdx));
-            if (isNullMethod != null)
-            {
-                return Expression.Call(colExpr, isNullMethod, idxParam);
-            }
-
-            var getObjMethod = getValueMethodDef.MakeGenericMethod(typeof(object));
-            var readObjExpr = Expression.Call(colExpr, getObjMethod, idxParam, Expression.Constant(true, typeof(bool)));
-            return Expression.Equal(readObjExpr, Expression.Constant(null, typeof(object)));
-        }
-
-        Expression CreateReadExpr(int colIdx, Type returnType)
-        {
-            var colExpr = Expression.Call(dfParam, columnIndexerMethod, Expression.Constant(colIdx));
-
-            // Handle Enum and Nullable<Enum> types
-            var nonNullType = Nullable.GetUnderlyingType(returnType);
-            if (returnType.IsEnum)
-            {
-                var underlyingType = Enum.GetUnderlyingType(returnType);
-                var getValueMethod = getValueMethodDef.MakeGenericMethod(underlyingType);
-                var readExpr = Expression.Call(colExpr, getValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
-                return Expression.Convert(readExpr, returnType);
-            }
-            if (nonNullType?.IsEnum is true)
-            {
-                var underlyingType = Enum.GetUnderlyingType(nonNullType);
-                var nullableUnderlying = typeof(Nullable<>).MakeGenericType(underlyingType);
-                var getValueMethod = getValueMethodDef.MakeGenericMethod(nullableUnderlying);
-                var readExpr = Expression.Call(colExpr, getValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
-                return Expression.Convert(readExpr, returnType);
-            }
-
-            var standardGetValueMethod = getValueMethodDef.MakeGenericMethod(returnType);
-            return Expression.Call(colExpr, standardGetValueMethod, idxParam, Expression.Constant(true, typeof(bool)));
-        }
-
-        // Branch 0: Target is a primitive / scalar (e.g. IQueryable<int>, IQueryable<string>)
-        if (PolarsTypeHelper.IsScalarType(targetType))
-        {
-            var scalarReadExpr = CreateReadExpr(0, targetType);
-            return Expression.Lambda<Func<DataFrame, long, T>>(scalarReadExpr, dfParam, idxParam).Compile();
-        }
-
-        var colMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int i = 0; i < (int)df.Width; i++)
-        {
-            colMap[df.ColumnNames[i]] = i;
-        }
-
-        // Resolves column index by considering scope suffixes (_left, _right, _second, _third) across joins
-        bool TryFindCol(string propName, int tupleIndex, out int resolvedColIdx)
-        {
-            var candidates = new List<string>();
-            if (tupleIndex == 0)
-            {
-                candidates.Add($"{propName}_left");
-                candidates.Add($"{propName}_first");
-            }
-            else if (tupleIndex == 1)
-            {
-                candidates.Add($"{propName}_second");
-                candidates.Add($"{propName}_right");
-            }
-            else if (tupleIndex == 2)
-            {
-                candidates.Add($"{propName}_third");
-            }
-            candidates.Add(propName);
-
-            foreach (var candidate in candidates)
-            {
-                if (colMap.TryGetValue(candidate, out resolvedColIdx))
-                {
-                    return true;
-                }
-            }
-
-            resolvedColIdx = -1;
-            return false;
-        }
-
-        Expression BuildSingleObjectExpr(Type targetType, int tupleIndex)
-        {
-            // Unpack Nullable<TStruct> if target is a nullable value type
-            var underlyingType = Nullable.GetUnderlyingType(targetType);
-            bool isNullable = underlyingType != null || !targetType.IsValueType;
-            var type = underlyingType ?? targetType;
-
-            var usedColIndices = new List<int>();
-            var ctors = type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-
-            // Exclude copy constructor: e.g. T(T original)
-            var primaryCtor = ctors
-                .Where(c => !(c.GetParameters().Length == 1 && c.GetParameters()[0].ParameterType == type))
-                .OrderByDescending(c => c.GetParameters().Length)
-                .FirstOrDefault();
-
-            Expression instanceExpr;
-
-            if (primaryCtor?.GetParameters().Length > 0)
-            {
-                var ctorParams = primaryCtor.GetParameters();
-                var ctorArgs = new Expression[ctorParams.Length];
-                for (int i = 0; i < ctorParams.Length; i++)
-                {
-                    var param = ctorParams[i];
-                    var cleanParamName = param.Name?.TrimStart('@') ?? string.Empty;
-
-                    if (TryFindCol(cleanParamName, tupleIndex, out int colIdx))
-                    {
-                        usedColIndices.Add(colIdx);
-                        ctorArgs[i] = CreateReadExpr(colIdx, param.ParameterType);
-                    }
-                    else
-                    {
-                        // Fallback: match by property name
-                        var matchingProp = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                            .FirstOrDefault(p => string.Equals(p.Name, cleanParamName, StringComparison.OrdinalIgnoreCase));
-
-                        if (matchingProp != null && TryFindCol(matchingProp.Name, tupleIndex, out int propColIdx))
-                        {
-                            usedColIndices.Add(propColIdx);
-                            ctorArgs[i] = CreateReadExpr(propColIdx, param.ParameterType);
-                        }
-                        else
-                        {
-                            ctorArgs[i] = Expression.Default(param.ParameterType);
-                        }
-                    }
-                }
-                instanceExpr = Expression.New(primaryCtor, ctorArgs);
-            }
-            else
-            {
-                // Fallback: Default constructor + property/field bindings
-                var defaultCtor = type.GetConstructor(
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-                    null,
-                    Type.EmptyTypes,
-                    null);
-
-                var instanceVar = Expression.Variable(type, "subInstance");
-                Expression createInstanceExpr = defaultCtor != null
-                    ? Expression.New(defaultCtor)
-                    : Expression.New(type);
-
-                var blockExpressions = new List<Expression> { Expression.Assign(instanceVar, createInstanceExpr) };
-
-                // 1. Bind Properties (Standard and init-only)
-                var props = type.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                foreach (var prop in props)
-                {
-                    if (prop.Name == "EqualityContract") continue;
-
-                    if (TryFindCol(prop.Name, tupleIndex, out int colIdx))
-                    {
-                        usedColIndices.Add(colIdx);
-                        var readExpr = CreateReadExpr(colIdx, prop.PropertyType);
-
-                        if (prop.SetMethod != null)
-                        {
-                            blockExpressions.Add(Expression.Call(instanceVar, prop.SetMethod, readExpr));
-                        }
-                        else
-                        {
-                            var backingField = type.GetField($"<{prop.Name}>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
-                            if (backingField != null)
-                            {
-                                blockExpressions.Add(Expression.Assign(Expression.Field(instanceVar, backingField), readExpr));
-                            }
-                        }
-                    }
-                }
-
-                // 2. Bind Public Instance Fields (Supports public fields in records/classes/structs)
-                var fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance);
-                foreach (var field in fields)
-                {
-                    if (TryFindCol(field.Name, tupleIndex, out int colIdx))
-                    {
-                        usedColIndices.Add(colIdx);
-                        var readExpr = CreateReadExpr(colIdx, field.FieldType);
-                        blockExpressions.Add(Expression.Assign(Expression.Field(instanceVar, field), readExpr));
-                    }
-                }
-
-                blockExpressions.Add(instanceVar);
-                instanceExpr = Expression.Block([instanceVar], blockExpressions);
-            }
-
-            // Outer Join Null folding: If target is nullable and all mapped columns are null in current row, fold to null
-            if (isNullable && usedColIndices.Count > 0)
-            {
-                var distinctCols = usedColIndices.Distinct().ToList();
-                var allNullExpr = distinctCols
-                    .Select(CreateIsNullExpr)
-                    .Aggregate(Expression.AndAlso);
-
-                var nullConst = Expression.Constant(null, targetType);
-                var valueExpr = underlyingType != null
-                    ? Expression.Convert(instanceExpr, targetType)
-                    : instanceExpr;
-
-                return Expression.Condition(allNullExpr, nullConst, valueExpr);
-            }
-
-            if (underlyingType != null)
-            {
-                return Expression.Convert(instanceExpr, targetType);
-            }
-
-            return instanceExpr;
-        }
-
-        // Branch 1: Tuple composite mapping (Supports both System.ValueTuple and System.Tuple)
-        bool isTuple = targetType.FullName != null &&
-            (targetType.FullName.StartsWith("System.ValueTuple`") || targetType.FullName.StartsWith("System.Tuple`"));
-
-        if (isTuple)
-        {
-            var genericArgs = targetType.GetGenericArguments();
-            var tupleCtor = targetType.GetConstructor(genericArgs)
-                ?? throw new NotSupportedException($"Tuple constructor matching arguments could not be resolved for '{targetType.FullName}'.");
-
-            var tupleArgs = new Expression[genericArgs.Length];
-            for (int i = 0; i < genericArgs.Length; i++)
-            {
-                var subType = genericArgs[i];
-
-                if (PolarsTypeHelper.IsScalarType(subType))
-                {
-                    var candidateNames = new List<string> { $"Item{i + 1}" };
-                    if (i == 0) { candidateNames.Add("Outer"); candidateNames.Add("Index"); candidateNames.Add("First"); }
-                    else if (i == 1) { candidateNames.Add("Inner"); candidateNames.Add("Item"); candidateNames.Add("Second"); }
-                    else if (i == 2) { candidateNames.Add("Third"); }
-
-                    int colIdx = -1;
-                    foreach (var name in candidateNames)
-                    {
-                        if (colMap.TryGetValue(name, out int idx))
-                        {
-                            colIdx = idx;
-                            break;
-                        }
-                    }
-
-                    if (colIdx == -1 && i < df.Width)
-                    {
-                        colIdx = i;
-                    }
-
-                    if (colIdx != -1)
-                    {
-                        tupleArgs[i] = CreateReadExpr(colIdx, subType);
-                    }
-                    else
-                    {
-                        tupleArgs[i] = Expression.Default(subType);
-                    }
-                }
-                else
-                {
-                    // Correctly forward the tuple element index 'i' so nested records resolve scope suffixes
-                    tupleArgs[i] = BuildSingleObjectExpr(subType, i);
-                }
-            }
-
-            var tupleNewExpr = Expression.New(tupleCtor, tupleArgs);
-            return Expression.Lambda<Func<DataFrame, long, T>>(tupleNewExpr, dfParam, idxParam).Compile();
-        }
-
-        // Branch 2: Standard single object or record
-        var singleObjExpr = BuildSingleObjectExpr(targetType, 0);
-        return Expression.Lambda<Func<DataFrame, long, T>>(singleObjExpr, dfParam, idxParam).Compile();
+        using var cursor = ArrowRowMapper<T>.CreateCursor(df.Handle);
+        return cursor.ReadRow(checked((int)index));
     }
 }
 
@@ -329,17 +25,15 @@ internal static class RowMapper<T>
 /// </summary>
 public ref struct DataFrameRowEnumerator<T>
 {
-    private readonly DataFrame _df;
-    private readonly Func<DataFrame, long, T> _mapper;
+    private readonly ArrowBatchCursor<T> _cursor;
     private long _index;
     private T? _current;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal DataFrameRowEnumerator(DataFrame df, Func<DataFrame, long, T> mapper)
+    internal DataFrameRowEnumerator(DataFrame df)
     {
-        _df = df;
-        _mapper = mapper;
-        Length = df.Height;
+        _cursor = ArrowRowMapper<T>.CreateCursor(df.Handle);
+        Length = _cursor.Length;
         _index = -1L;
         _current = default;
     }
@@ -354,7 +48,7 @@ public ref struct DataFrameRowEnumerator<T>
         if (next < Length)
         {
             _index = next;
-            _current = _mapper(_df, _index);
+            _current = _cursor.ReadRow((int)next);
             return true;
         }
 
@@ -370,24 +64,29 @@ public ref struct DataFrameRowEnumerator<T>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get => _current!;
     }
+
     /// <summary>
     /// Returns the enumerator itself, for use in foreach loops.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public readonly DataFrameRowEnumerator<T> GetEnumerator() => this;
+
     /// <summary>
     /// Gets a value indicating whether the DataFrame is empty.
     /// </summary>
     public readonly bool IsEmpty => Length == 0;
+
     /// <summary>
     /// Gets the total number of rows as an integer.
     /// Throws <see cref="OverflowException"/> if row count exceeds <see cref="int.MaxValue"/>.
     /// </summary>
     public readonly int Count => checked((int)Length);
+
     /// <summary>
     /// Gets the total number of rows as a long.
     /// </summary>
     public readonly long Length { get; }
+
     /// <summary>
     /// Reads a mapped row at the specified physical index directly without looping through previous rows.
     /// </summary>
@@ -395,8 +94,9 @@ public ref struct DataFrameRowEnumerator<T>
     {
         if (index < 0 || index >= Length)
             throw new ArgumentOutOfRangeException(nameof(index), $"Index {index} is out of bounds for DataFrame height {Length}.");
-        return _mapper(_df, index);
+        return _cursor.ReadRow((int)index);
     }
+
     /// <summary>
     /// Reads a mapped row at the specified physical index, or returns the default value if out of bounds.
     /// </summary>
@@ -405,7 +105,7 @@ public ref struct DataFrameRowEnumerator<T>
     {
         if (index < 0 || index >= Length)
             return defaultValue;
-        return _mapper(_df, index);
+        return _cursor.ReadRow((int)index);
     }
 
     /// <summary>
@@ -420,10 +120,11 @@ public ref struct DataFrameRowEnumerator<T>
         int total = (int)Length;
         for (int i = 0; i < total; i++)
         {
-            destination[i] = _mapper(_df, i);
+            destination[i] = _cursor.ReadRow(i);
         }
         return total;
     }
+
     /// <summary>
     /// Attempts to copy all mapped rows into the destination span without heap allocation.
     /// </summary>
@@ -438,7 +139,7 @@ public ref struct DataFrameRowEnumerator<T>
         int total = (int)Length;
         for (int i = 0; i < total; i++)
         {
-            destination[i] = _mapper(_df, i);
+            destination[i] = _cursor.ReadRow(i);
         }
         written = total;
         return true;
@@ -498,6 +199,7 @@ public ref struct DataFrameRowEnumerator<T>
 
         return ElementAt(Length - 1);
     }
+
     /// <summary>
     /// Materializes all mapped rows into an array with exact pre-allocation.
     /// </summary>
@@ -541,39 +243,35 @@ public ref struct DataFrameRowEnumerator<T>
 /// </summary>
 public sealed class PolarsRowEnumerable<T> : IReadOnlyCollection<T>
 {
-private readonly DataFrame _df;
-    private readonly Func<DataFrame, long, T> _mapper;
+    private readonly DataFrame _df;
 
     public int Count => checked((int)_df.Height);
 
-    internal PolarsRowEnumerable(DataFrame df, Func<DataFrame, long, T> mapper)
+    internal PolarsRowEnumerable(DataFrame df)
     {
         _df = df;
-        _mapper = mapper;
     }
 
     // Fast-path: duck-typed struct enumerator for foreach loops (Zero heap allocation)
-    public Enumerator GetEnumerator() => new(_df, _mapper);
+    public Enumerator GetEnumerator() => new(_df);
 
     // Generic interface fallback
-    IEnumerator<T> IEnumerable<T>.GetEnumerator() => new Enumerator(_df, _mapper);
+    IEnumerator<T> IEnumerable<T>.GetEnumerator() => new Enumerator(_df);
 
     // Non-generic interface fallback
-    IEnumerator IEnumerable.GetEnumerator() => new Enumerator(_df, _mapper);
+    IEnumerator IEnumerable.GetEnumerator() => new Enumerator(_df);
 
     public struct Enumerator : IEnumerator<T>
     {
-        private readonly DataFrame _df;
-        private readonly Func<DataFrame, long, T> _mapper;
+        private readonly ArrowBatchCursor<T> _cursor;
         private readonly long _height;
         private long _index;
         private T? _current;
 
-        internal Enumerator(DataFrame df, Func<DataFrame, long, T> mapper)
+        internal Enumerator(DataFrame df)
         {
-            _df = df;
-            _mapper = mapper;
-            _height = df.Height;
+            _cursor = ArrowRowMapper<T>.CreateCursor(df.Handle);
+            _height = _cursor.Length;
             _index = -1L;
             _current = default;
         }
@@ -584,7 +282,7 @@ private readonly DataFrame _df;
             if (next < _height)
             {
                 _index = next;
-                _current = _mapper(_df, _index);
+                _current = _cursor.ReadRow((int)next);
                 return true;
             }
 
@@ -595,8 +293,7 @@ private readonly DataFrame _df;
         public readonly T Current => _current!;
         readonly object? IEnumerator.Current => Current;
         public void Reset() { _index = -1L; _current = default; }
-        public readonly void Dispose() { }
-    
+        public readonly void Dispose() => _cursor?.Dispose();
     }
 }
 
@@ -613,10 +310,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// <returns>An IEnumerable of hydrated objects.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public DataFrameRowEnumerator<T> Rows<T>()
-    {
-        var mapper = RowMapper<T>.GetOrCreate(this);
-        return new DataFrameRowEnumerator<T>(this, mapper);
-    }
+        => new(this);
 
     /// <summary>
     /// Get data for selected row.
@@ -632,6 +326,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         GetRow(index, rowData.AsSpan());
         return rowData;
     }
+
     /// <summary>
     /// Fills the destination span with all values of a single row.
     /// </summary>

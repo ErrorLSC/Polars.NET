@@ -250,17 +250,12 @@ module DataFramePartitionBy =
             let partitions =
                 this.PartitionBy(byArr, ?maintainOrder = maintainOrder, includeKey = true)
 
-            let mapperCols = FSharpRowMapper<'Key>.ColumnNames
-            let colsToExtract = if mapperCols.Length > 0 then mapperCols else byArr
-
             partitions
             |> Array.choose (fun partDf ->
                 if partDf.Height = 0L then
                     None
                 else
-                    // Hoist Series instances in the exact layout expected by FSharpRowMapper
-                    let seriesArr = colsToExtract |> Array.map (fun name -> partDf.[name])
-                    let key = FSharpRowMapper<'Key>.Hydrate(seriesArr, 0L)
+                    let key = FSharpRowMapper<'Key>.ReadRow(partDf, 0L)
                     Some(key, partDf))
             |> Map.ofArray
 
