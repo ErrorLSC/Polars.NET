@@ -133,6 +133,9 @@ internal static class ArrowRowMapperHelpers
     public static readonly MethodInfo IsNullMethod =
         typeof(ColumnAccessor).GetMethod(nameof(ColumnAccessor.IsNull), [typeof(int)])!;
 
+    public static readonly MethodInfo IsNullFastMethod =
+        typeof(ColumnAccessor).GetMethod(nameof(ColumnAccessor.IsNullFast), [typeof(int)])!;
+
     public static readonly MethodInfo GetValueMethod =
         typeof(ColumnAccessor).GetMethod(nameof(ColumnAccessor.GetValue), [typeof(int)])!;
 }
@@ -326,10 +329,12 @@ public static class ArrowRowMapper<T>
 
         var accessorFactories = new List<Func<ColumnAccessor>>();
         var arrowColIndices = new List<int>();
-        var slotMap = new Dictionary<(int ColIdx, Type TargetType), (int SlotIdx, ColumnAccessor Sample)>();
-        var firstSlotByCol = new Dictionary<int, int>();
+        var slotVars = new List<ParameterExpression>();
+        var slotInitExprs = new List<Expression>();
+        var slotMap = new Dictionary<(int ColIdx, Type TargetType), (int SlotIdx, ColumnAccessor Sample, ParameterExpression SlotVar)>();
+        var firstSlotByCol = new Dictionary<int, (int SlotIdx, ColumnAccessor Sample, ParameterExpression SlotVar)>();
 
-        (int SlotIdx, ColumnAccessor Sample) GetOrAddSlot(int colIdx, Type memberType)
+        (int SlotIdx, ColumnAccessor Sample, ParameterExpression SlotVar) GetOrAddSlot(int colIdx, Type memberType)
         {
             var key = (colIdx, memberType);
             if (slotMap.TryGetValue(key, out var existing))
@@ -343,38 +348,59 @@ public static class ArrowRowMapper<T>
             accessorFactories.Add(() => ColumnAccessorFactory.Create(field, memberType));
             arrowColIndices.Add(colIdx);
 
-            var entry = (slotIdx, sample);
+            Type concreteAccessorType = sample.GetType();
+            var slotVar = Expression.Variable(concreteAccessorType, $"slot{slotIdx}");
+            slotVars.Add(slotVar);
+            slotInitExprs.Add(
+                Expression.Assign(
+                    slotVar,
+                    Expression.Convert(Expression.ArrayIndex(accessorsParam, Expression.Constant(slotIdx)), concreteAccessorType)));
+
+            var entry = (slotIdx, sample, slotVar);
             slotMap[key] = entry;
             if (!firstSlotByCol.ContainsKey(colIdx))
             {
-                firstSlotByCol[colIdx] = slotIdx;
+                firstSlotByCol[colIdx] = entry;
             }
             return entry;
         }
 
         Expression CreateIsNullExpr(int colIdx)
         {
-            if (!firstSlotByCol.TryGetValue(colIdx, out int slotIdx))
+            if (!firstSlotByCol.TryGetValue(colIdx, out var entry))
             {
                 var defaultNetType = ArrowTypeResolver.GetNetTypeFromArrowType(schema.GetFieldByIndex(colIdx).DataType);
-                (slotIdx, _) = GetOrAddSlot(colIdx, defaultNetType);
+                entry = GetOrAddSlot(colIdx, defaultNetType);
             }
 
-            var slotAccess = Expression.ArrayIndex(accessorsParam, Expression.Constant(slotIdx));
-            return Expression.Call(slotAccess, ArrowRowMapperHelpers.IsNullMethod, idxParam);
+            var isNullMethod = entry.Sample.UsesFastNullBitmap
+                ? ArrowRowMapperHelpers.IsNullFastMethod
+                : ArrowRowMapperHelpers.IsNullMethod;
+            return Expression.Call(entry.SlotVar, isNullMethod, idxParam);
         }
 
-        Expression CreateRawValueReadExpr(Expression slotAccess, ColumnAccessor sample, Type desiredType)
+        Expression CreateRawValueReadExpr(ParameterExpression slotVar, ColumnAccessor sample, Type desiredType)
         {
+            var directMethod = sample.GetType().GetMethod(
+                nameof(ITypedAccessor<int>.GetTypedValue),
+                BindingFlags.Public | BindingFlags.Instance,
+                null,
+                [typeof(int)],
+                null);
+            if (directMethod != null && directMethod.ReturnType == desiredType)
+            {
+                return Expression.Call(slotVar, directMethod, idxParam);
+            }
+
             Type typedInterface = typeof(ITypedAccessor<>).MakeGenericType(desiredType);
             if (typedInterface.IsAssignableFrom(sample.GetType()))
             {
-                var typedAccessor = Expression.Convert(slotAccess, typedInterface);
+                var typedAccessor = Expression.Convert(slotVar, typedInterface);
                 var getMethod = typedInterface.GetMethod(nameof(ITypedAccessor<int>.GetTypedValue))!;
                 return Expression.Call(typedAccessor, getMethod, idxParam);
             }
 
-            var callGetValue = Expression.Call(slotAccess, ArrowRowMapperHelpers.GetValueMethod, idxParam);
+            var callGetValue = Expression.Call(slotVar, ArrowRowMapperHelpers.GetValueMethod, idxParam);
             return Expression.Convert(callGetValue, desiredType);
         }
 
@@ -383,42 +409,34 @@ public static class ArrowRowMapper<T>
             // 1. FSharpOption<U> or FSharpValueOption<U>
             if (IsFSharpOption(returnType) || IsFSharpValueOption(returnType))
             {
-                var (slotIdx, sample) = GetOrAddSlot(colIdx, returnType);
-                var slotAccess = Expression.ArrayIndex(accessorsParam, Expression.Constant(slotIdx));
-                return CreateRawValueReadExpr(slotAccess, sample, returnType);
+                var (_, sample, slotVar) = GetOrAddSlot(colIdx, returnType);
+                return CreateRawValueReadExpr(slotVar, sample, returnType);
             }
 
             // 2. Nullable<TValue>
             var underlyingNullable = Nullable.GetUnderlyingType(returnType);
             if (underlyingNullable != null)
             {
-                var (slotIdx, sample) = GetOrAddSlot(colIdx, underlyingNullable);
-                var slotAccess = Expression.ArrayIndex(accessorsParam, Expression.Constant(slotIdx));
-                var isNullCall = Expression.Call(slotAccess, ArrowRowMapperHelpers.IsNullMethod, idxParam);
+                var (_, sample, slotVar) = GetOrAddSlot(colIdx, underlyingNullable);
+                var isNullMethod = sample.UsesFastNullBitmap
+                    ? ArrowRowMapperHelpers.IsNullFastMethod
+                    : ArrowRowMapperHelpers.IsNullMethod;
+                var isNullCall = Expression.Call(slotVar, isNullMethod, idxParam);
 
-                Expression nonNullValExpr;
-                Type nullableTypedInterface = typeof(ITypedAccessor<>).MakeGenericType(returnType);
-                if (nullableTypedInterface.IsAssignableFrom(sample.GetType()))
-                {
-                    var typedAccessor = Expression.Convert(slotAccess, nullableTypedInterface);
-                    var getMethod = nullableTypedInterface.GetMethod(nameof(ITypedAccessor<int>.GetTypedValue))!;
-                    nonNullValExpr = Expression.Call(typedAccessor, getMethod, idxParam);
-                }
-                else
-                {
-                    var rawVal = CreateRawValueReadExpr(slotAccess, sample, underlyingNullable);
-                    nonNullValExpr = Expression.Convert(rawVal, returnType);
-                }
+                var rawVal = CreateRawValueReadExpr(slotVar, sample, underlyingNullable);
+                var nonNullValExpr = Expression.Convert(rawVal, returnType);
 
                 return Expression.Condition(isNullCall, Expression.Default(returnType), nonNullValExpr);
             }
 
             // 3. Standard non-nullable value type or reference type
             {
-                var (slotIdx, sample) = GetOrAddSlot(colIdx, returnType);
-                var slotAccess = Expression.ArrayIndex(accessorsParam, Expression.Constant(slotIdx));
-                var isNullCall = Expression.Call(slotAccess, ArrowRowMapperHelpers.IsNullMethod, idxParam);
-                var valExpr = CreateRawValueReadExpr(slotAccess, sample, returnType);
+                var (_, sample, slotVar) = GetOrAddSlot(colIdx, returnType);
+                var isNullMethod = sample.UsesFastNullBitmap
+                    ? ArrowRowMapperHelpers.IsNullFastMethod
+                    : ArrowRowMapperHelpers.IsNullMethod;
+                var isNullCall = Expression.Call(slotVar, isNullMethod, idxParam);
+                var valExpr = CreateRawValueReadExpr(slotVar, sample, returnType);
 
                 Expression onNullExpr;
                 if (strictNonOptionNullCheck)
@@ -834,7 +852,11 @@ public static class ArrowRowMapper<T>
             rootExpr = BuildSingleObjectExpr(targetType, 0);
         }
 
-        var hydrateDelegate = Expression.Lambda<Func<ColumnAccessor[], int, T>>(rootExpr, accessorsParam, idxParam).Compile();
+        Expression bodyExpr = slotVars.Count > 0
+            ? Expression.Block(slotVars, [.. slotInitExprs, rootExpr])
+            : rootExpr;
+
+        var hydrateDelegate = Expression.Lambda<Func<ColumnAccessor[], int, T>>(bodyExpr, accessorsParam, idxParam).Compile();
         return new CompiledArrowRowMapper<T>([.. accessorFactories], [.. arrowColIndices], hydrateDelegate);
     }
 }

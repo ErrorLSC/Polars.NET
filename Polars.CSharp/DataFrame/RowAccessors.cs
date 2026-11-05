@@ -241,16 +241,36 @@ public ref struct DataFrameRowEnumerator<T>
 /// Defers row hydration to iteration time and avoids full eager array allocations.
 /// Implements IReadOnlyCollection for O(1) Count inspection.
 /// </summary>
-public sealed class PolarsRowEnumerable<T> : IReadOnlyCollection<T>
+public sealed class PolarsRowEnumerable<T> : IReadOnlyCollection<T>, ICollection<T>
 {
     private readonly DataFrame _df;
 
     public int Count => checked((int)_df.Height);
+    public bool IsReadOnly => true;
 
     internal PolarsRowEnumerable(DataFrame df)
     {
         _df = df;
     }
+
+    public void CopyTo(T[] array, int arrayIndex)
+    {
+        ArgumentNullException.ThrowIfNull(array);
+        using var cursor = ArrowRowMapper<T>.CreateCursor(_df.Handle);
+        int len = cursor.Length;
+        if (arrayIndex < 0 || arrayIndex + len > array.Length)
+            throw new ArgumentOutOfRangeException(nameof(arrayIndex));
+
+        for (int i = 0; i < len; i++)
+        {
+            array[arrayIndex + i] = cursor.ReadRow(i);
+        }
+    }
+
+    public void Add(T item) => throw new NotSupportedException();
+    public void Clear() => throw new NotSupportedException();
+    public bool Contains(T item) => System.Linq.Enumerable.Contains(this, item);
+    public bool Remove(T item) => throw new NotSupportedException();
 
     // Fast-path: duck-typed struct enumerator for foreach loops (Zero heap allocation)
     public Enumerator GetEnumerator() => new(_df);
