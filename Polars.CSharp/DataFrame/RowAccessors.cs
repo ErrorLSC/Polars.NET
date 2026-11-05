@@ -205,17 +205,24 @@ public ref struct DataFrameRowEnumerator<T>
     /// </summary>
     public T[] ToArray()
     {
-        if (Length == 0) return [];
-        if (Length > int.MaxValue)
-            throw new OverflowException($"DataFrame row count ({Length}) exceeds Int32.MaxValue.");
-
-        var array = new T[(int)Length];
-        int idx = 0;
-        while (MoveNext())
+        try
         {
-            array[idx++] = Current;
+            if (Length == 0) return [];
+            if (Length > int.MaxValue)
+                throw new OverflowException($"DataFrame row count ({Length}) exceeds Int32.MaxValue.");
+
+            var array = new T[(int)Length];
+            int idx = 0;
+            while (MoveNext())
+            {
+                array[idx++] = Current;
+            }
+            return array;
         }
-        return array;
+        finally
+        {
+            Dispose();
+        }
     }
 
     /// <summary>
@@ -223,17 +230,29 @@ public ref struct DataFrameRowEnumerator<T>
     /// </summary>
     public List<T> ToList()
     {
-        if (Length == 0) return [];
-        if (Length > int.MaxValue)
-            throw new OverflowException($"DataFrame row count ({Length}) exceeds Int32.MaxValue.");
-
-        var list = new List<T>((int)Length);
-        while (MoveNext())
+        try
         {
-            list.Add(Current);
+            if (Length == 0) return [];
+            if (Length > int.MaxValue)
+                throw new OverflowException($"DataFrame row count ({Length}) exceeds Int32.MaxValue.");
+
+            var list = new List<T>((int)Length);
+            while (MoveNext())
+            {
+                list.Add(Current);
+            }
+            return list;
         }
-        return list;
+        finally
+        {
+            Dispose();
+        }
     }
+
+    /// <summary>
+    /// Releases the underlying Arrow batch cursor and pinned buffers.
+    /// </summary>
+    public readonly void Dispose() => _cursor?.Dispose();
 }
 
 /// <summary>

@@ -69,8 +69,18 @@ public sealed class CompiledArrowRowMapper<T>
     public T HydrateSingleRow(RecordBatch batch, int rowIndex)
     {
         var accessors = CreateAccessors();
-        BindBatch(accessors, batch);
-        return HydrateRow(accessors, rowIndex);
+        try
+        {
+            BindBatch(accessors, batch);
+            return HydrateRow(accessors, rowIndex);
+        }
+        finally
+        {
+            for (int i = 0; i < accessors.Length; i++)
+            {
+                accessors[i]?.Dispose();
+            }
+        }
     }
 }
 
@@ -84,6 +94,7 @@ public sealed class ArrowBatchCursor<T> : IDisposable
     private readonly bool _ownsBatch;
     private readonly ColumnAccessor[] _accessors;
     private readonly Func<ColumnAccessor[], int, T> _hydrateRow;
+    private bool _disposed;
 
     public int Length { get; }
 
@@ -106,6 +117,8 @@ public sealed class ArrowBatchCursor<T> : IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         for (int i = 0; i < _accessors.Length; i++)
         {
             _accessors[i]?.Dispose();
@@ -647,23 +660,26 @@ public static class ArrowRowMapper<T>
                     {
                         if (prop.Name == "EqualityContract" || prop.GetIndexParameters().Length > 0) continue;
 
+                        var setMethod = prop.SetMethod;
+                        var backingField = setMethod == null
+                            ? actualType.GetField($"<{prop.Name}>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)
+                            : null;
+                        if (setMethod == null && (backingField == null || backingField.IsInitOnly))
+                            continue;
+
                         string serializedPropName = PolarsTypeHelper.GetSerializedName(prop);
                         if (TryFindCol(prop.Name, serializedPropName, tupleIndex, out int colIdx))
                         {
                             usedColIndices.Add(colIdx);
                             var readExpr = CreateReadExpr(colIdx, prop.PropertyType, prop.Name, strictNonOptionNullCheck: false);
 
-                            if (prop.SetMethod != null)
+                            if (setMethod != null)
                             {
-                                blockExpressions.Add(Expression.Call(instanceVar, prop.SetMethod, readExpr));
+                                blockExpressions.Add(Expression.Call(instanceVar, setMethod, readExpr));
                             }
                             else
                             {
-                                var backingField = actualType.GetField($"<{prop.Name}>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
-                                if (backingField != null)
-                                {
-                                    blockExpressions.Add(Expression.Assign(Expression.Field(instanceVar, backingField), readExpr));
-                                }
+                                blockExpressions.Add(Expression.Assign(Expression.Field(instanceVar, backingField!), readExpr));
                             }
                         }
                     }
@@ -672,6 +688,8 @@ public static class ArrowRowMapper<T>
                     var fields = actualType.GetFields(BindingFlags.Public | BindingFlags.Instance);
                     foreach (var field in fields)
                     {
+                        if (field.IsInitOnly || field.IsLiteral) continue;
+
                         string serializedFieldName = PolarsTypeHelper.GetSerializedName(field);
                         if (TryFindCol(field.Name, serializedFieldName, tupleIndex, out int colIdx))
                         {
@@ -852,11 +870,21 @@ public static class ArrowRowMapper<T>
             rootExpr = BuildSingleObjectExpr(targetType, 0);
         }
 
-        Expression bodyExpr = slotVars.Count > 0
-            ? Expression.Block(slotVars, [.. slotInitExprs, rootExpr])
-            : rootExpr;
+        try
+        {
+            Expression bodyExpr = slotVars.Count > 0
+                ? Expression.Block(slotVars, [.. slotInitExprs, rootExpr])
+                : rootExpr;
 
-        var hydrateDelegate = Expression.Lambda<Func<ColumnAccessor[], int, T>>(bodyExpr, accessorsParam, idxParam).Compile();
-        return new CompiledArrowRowMapper<T>([.. accessorFactories], [.. arrowColIndices], hydrateDelegate);
+            var hydrateDelegate = Expression.Lambda<Func<ColumnAccessor[], int, T>>(bodyExpr, accessorsParam, idxParam).Compile();
+            return new CompiledArrowRowMapper<T>([.. accessorFactories], [.. arrowColIndices], hydrateDelegate);
+        }
+        finally
+        {
+            foreach (var (SlotIdx, Sample, SlotVar) in slotMap.Values)
+            {
+                Sample.Dispose();
+            }
+        }
     }
 }

@@ -42,7 +42,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         Func<TAccum, TSource, TAccum> folder)
     {
         var df = new DataFrame(handle);
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
 
         TAccum acc = seed;
         while (enumerator.MoveNext())
@@ -62,7 +62,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         var df = new DataFrame(handle);
         var dict = new Dictionary<TKey, TAccum>(comparer);
 
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
         while (enumerator.MoveNext())
         {
             TSource current = enumerator.Current;
@@ -105,7 +105,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         }
 
         // Stream rows using zero-heap ref struct enumerator
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
         while (enumerator.MoveNext())
         {
             TSource current = enumerator.Current;
@@ -160,7 +160,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         if (height == 0)
             return 0L;
 
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
         long count = 0L;
 
         while (enumerator.MoveNext())
@@ -181,7 +181,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         // Slice the DataFrame for the current batch or initialize enumerator for this range
         using var batchDf = df.Slice(offset, (ulong)count);
-        var enumerator = batchDf.Rows<T>();
+        using var enumerator = batchDf.Rows<T>();
 
         int idx = 0;
         while (enumerator.MoveNext() && idx < count)
@@ -197,7 +197,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         if (df.Height == 0)
             return false;
 
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
 
         // Case 1: Any() without predicate - simply checks if there is at least one row
         if (predicate == null)
@@ -220,7 +220,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         if (df.Height == 0)
             return true;
 
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
         while (enumerator.MoveNext())
         {
             // Early exit if any row violates the predicate
@@ -233,7 +233,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
     public TSource First<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
     {
         var df = new DataFrame(handle);
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
 
         if (predicate == null)
         {
@@ -252,7 +252,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
     public TSource? FirstOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default)
     {
         var df = new DataFrame(handle);
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
 
         if (predicate == null)
         {
@@ -271,7 +271,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
     {
         var df = new DataFrame(handle);
 
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
 
         if (predicate == null)
         {
@@ -300,7 +300,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
     {
         var df = new DataFrame(handle);
 
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
 
         if (predicate == null)
         {
@@ -333,14 +333,14 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
             if (height > 1)
                 throw new InvalidOperationException("Sequence contains more than one element.");
 
-            var enumerator = df.Rows<TSource>();
+            using var enumerator = df.Rows<TSource>();
             return enumerator.ElementAt(0);
         }
 
         if (height == 0)
             throw new InvalidOperationException("Sequence contains no matching element.");
 
-        var scanEnumerator = df.Rows<TSource>();
+        using var scanEnumerator = df.Rows<TSource>();
         bool found = false;
         TSource match = default!;
 
@@ -374,14 +374,14 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
             if (height > 1)
                 throw new InvalidOperationException("Sequence contains more than one element.");
 
-            var enumerator = df.Rows<TSource>();
+            using var enumerator = df.Rows<TSource>();
             return enumerator.ElementAt(0);
         }
 
         if (height == 0)
             return defaultValue;
 
-        var scanEnumerator = df.Rows<TSource>();
+        using var scanEnumerator = df.Rows<TSource>();
         bool found = false;
         TSource? match = defaultValue;
 
@@ -406,7 +406,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         var df = new DataFrame(handle);
 
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
         return enumerator.ElementAt(index);
     }
 
@@ -417,7 +417,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         var df = new DataFrame(handle);
 
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
         return enumerator.ElementAtOrDefault(index);
     }
     public bool Contains<TSource>(DataFrameHandle handle, TSource item, IEqualityComparer<TSource>? comparer = null)
@@ -427,7 +427,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
             return false;
 
         var comp = comparer ?? EqualityComparer<TSource>.Default;
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
 
         while (enumerator.MoveNext())
         {
@@ -450,8 +450,8 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         var comp = comparer ?? EqualityComparer<TSource>.Default;
 
-        var enum1 = df1.Rows<TSource>();
-        var enum2 = df2.Rows<TSource>();
+        using var enum1 = df1.Rows<TSource>();
+        using var enum2 = df2.Rows<TSource>();
 
         while (enum1.MoveNext() && enum2.MoveNext())
         {
@@ -474,7 +474,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         if (second is IReadOnlyCollection<TSource> rCol && df.Height != rCol.Count)
             return false;
 
-        var enum1 = df.Rows<TSource>();
+        using var enum1 = df.Rows<TSource>();
         using var enum2 = second.GetEnumerator();
 
         while (enum1.MoveNext())
@@ -501,7 +501,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
             return HandleEmptySequence<TSource>();
 
         var comp = comparer ?? Comparer<TKey>.Default;
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
 
         if (!enumerator.MoveNext())
             return HandleEmptySequence<TSource>();
@@ -532,7 +532,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
             return HandleEmptySequence<TSource>();
 
         var comp = comparer ?? Comparer<TKey>.Default;
-        var enumerator = df.Rows<TSource>();
+        using var enumerator = df.Rows<TSource>();
 
         if (!enumerator.MoveNext())
             return HandleEmptySequence<TSource>();

@@ -261,6 +261,11 @@ type RowEnumerator<'T> =
     /// </summary>
     member this.ToResizeArray() : ResizeArray<'T> = ResizeArray<'T>(this.ToArray())
 
+    /// <summary>
+    /// Releases the underlying Arrow batch cursor and pinned buffers.
+    /// </summary>
+    member this.Dispose() : unit = this._cursor.Dispose()
+
 [<RequireQualifiedAccess>]
 module Rows =
 

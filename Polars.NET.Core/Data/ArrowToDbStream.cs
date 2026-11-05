@@ -56,11 +56,6 @@ public sealed class ArrowToDbStream : DbDataReader
             {
                 _schema = _currentBatch.Schema;
                 InitializeAccessors();
-
-                for (int i = 0; i < _accessors.Length; i++)
-                {
-                    _ = _schema.GetFieldByIndex(i);
-                }
             }
 
             UpdateAccessorData();
@@ -72,11 +67,23 @@ public sealed class ArrowToDbStream : DbDataReader
             }
             return true;
         }
+        DisposeAccessors();
+        _currentBatch?.Dispose();
+        _currentBatch = null;
         return false;
+    }
+
+    private void DisposeAccessors()
+    {
+        for (int i = 0; i < _accessors.Length; i++)
+        {
+            _accessors[i]?.Dispose();
+        }
     }
 
     private void InitializeAccessors()
     {
+        DisposeAccessors();
         int count = _schema!.FieldsList.Count;
         if (_accessors.Length != count)
         {
@@ -260,7 +267,20 @@ public sealed class ArrowToDbStream : DbDataReader
         }
     }
     public override string GetName(int ordinal) { EnsureSchema(); return _schema!.GetFieldByIndex(ordinal).Name; }
-    public override int GetOrdinal(string name) { EnsureSchema(); return _schema!.GetFieldIndex(name); }
+    public override int GetOrdinal(string name)
+    {
+        EnsureSchema();
+        int idx = _schema!.GetFieldIndex(name);
+        if (idx < 0)
+        {
+            idx = _schema.GetFieldIndex(name, StringComparer.OrdinalIgnoreCase);
+        }
+        if (idx < 0)
+        {
+            throw new IndexOutOfRangeException($"Column '{name}' does not exist in current Arrow schema.");
+        }
+        return idx;
+    }
     public override Type GetFieldType(int ordinal)
     {
         EnsureSchema();
@@ -281,6 +301,7 @@ public sealed class ArrowToDbStream : DbDataReader
     public override void Close()
     {
         _isClosed = true;
+        DisposeAccessors();
         _batchEnumerator.Dispose();
         _currentBatch?.Dispose();
         _currentBatch = null;
@@ -320,7 +341,17 @@ public sealed class ArrowToDbStream : DbDataReader
             row["ColumnName"] = field.Name;
             row["ColumnOrdinal"] = i;
             row["DataType"] = GetFieldType(i);
-            row["ColumnSize"] = -1;
+            row["ColumnSize"] = field.DataType is FixedSizeBinaryType fsb ? fsb.ByteWidth : -1;
+            if (field.DataType is Decimal128Type d128)
+            {
+                row["NumericPrecision"] = (short)d128.Precision;
+                row["NumericScale"] = (short)d128.Scale;
+            }
+            else if (field.DataType is Decimal256Type d256)
+            {
+                row["NumericPrecision"] = (short)d256.Precision;
+                row["NumericScale"] = (short)d256.Scale;
+            }
             row["AllowDBNull"] = field.IsNullable;
             row["IsReadOnly"] = true;
             row["IsLong"] = false;
