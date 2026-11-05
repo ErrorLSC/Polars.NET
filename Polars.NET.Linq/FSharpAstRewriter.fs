@@ -167,27 +167,17 @@ module internal FSharpAst =
         else
             let p1 = lam.Parameters.[0]
             let p2 = lam.Parameters.[1]
-            let rec unwrapAll (e: Expression) =
-                match e with
-                | null -> null
-                | :? UnaryExpression as u when
-                    u.NodeType = ExpressionType.Quote
-                    || u.NodeType = ExpressionType.Convert
-                    || u.NodeType = ExpressionType.ConvertChecked ->
-                    unwrapAll u.Operand
-                | _ -> e
-
             let isP1 (e: Expression) =
-                match unwrapAll e with
+                match ExpressionPatterns.unwrap e with
                 | :? ParameterExpression as p -> p = p1
                 | _ -> false
 
             let isP2 (e: Expression) =
-                match unwrapAll e with
+                match ExpressionPatterns.unwrap e with
                 | :? ParameterExpression as p -> p = p2
                 | _ -> false
 
-            match unwrapAll lam.Body with
+            match ExpressionPatterns.unwrap lam.Body with
             | :? NewExpression as ne when ne.Arguments.Count = 2 ->
                 isP1 ne.Arguments.[0] && isP2 ne.Arguments.[1]
             | :? MemberInitExpression as mie when mie.Bindings.Count = 2 ->

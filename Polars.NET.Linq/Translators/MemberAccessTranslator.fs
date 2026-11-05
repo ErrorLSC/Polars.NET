@@ -92,5 +92,5 @@ module internal MemberAccessTranslator =
                     | _ -> None
 
             | _ ->
-                tryEvaluate memberExpr
+                PartialEvaluator.tryEvaluate memberExpr
                 |> Option.map (fun value -> ScalarExprOps.toLiteral value memberExpr.Type)

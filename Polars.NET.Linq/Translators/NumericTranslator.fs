@@ -25,7 +25,7 @@ module internal NumericTranslator =
         | _ -> None
 
     let private tryExtractRoundMode (expr: Expression) : RoundMode option =
-        match tryEvaluate expr with
+        match PartialEvaluator.tryEvaluate expr with
         | Some (:? MidpointRounding as m) -> tryMapRoundMode m
         | Some (:? PlRoundMode as m) -> ofPlRoundMode m
         | Some other when expr.Type = typeof<MidpointRounding> ->
@@ -33,21 +33,21 @@ module internal NumericTranslator =
                 let intVal = Convert.ToInt32 other
                 let m = LanguagePrimitives.EnumOfValue<int, MidpointRounding> intVal
                 tryMapRoundMode m
-            with _ -> None
+            with ConversionFailure -> None
         | Some other when expr.Type = typeof<PlRoundMode> ->
             try
                 let byteVal = Convert.ToByte other
                 let m = LanguagePrimitives.EnumOfValue<byte, PlRoundMode> byteVal
                 ofPlRoundMode m
-            with _ -> None
+            with ConversionFailure -> None
         | _ -> None
 
     let private tryExtractDecimals (expr: Expression) : int option =
-        match tryEvaluate expr with
+        match PartialEvaluator.tryEvaluate expr with
         | Some d ->
             try
                 Some(Convert.ToInt32 d)
-            with _ -> None
+            with ConversionFailure -> None
         | None -> None
 
     let internal isNumericDeclaringType (t: Type) =

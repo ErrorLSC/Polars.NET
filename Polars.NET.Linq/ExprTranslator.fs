@@ -117,7 +117,8 @@ module internal ExprTranslator =
                     ctx.TryResolveParameter p.Name
 
             | _ -> None
-        with _ ->
-            None
+        with
+        | :? InvalidQueryArgumentException -> reraise ()
+        | _ -> None
 
 

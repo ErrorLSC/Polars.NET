@@ -208,7 +208,7 @@ module internal ScalarPlanner =
     /// Extracts the optional comparer instance from arguments if supplied.
     let private tryExtractComparer (rest: Expression list) : obj =
         match rest with
-        | [ comparerExpr ] -> tryEvaluate comparerExpr |> Option.toObj
+        | [ comparerExpr ] -> PartialEvaluator.tryEvaluate comparerExpr |> Option.toObj
         | _ -> null
 
     /// Projects a raw materializer result object through client projection, applying default fallback for null if needed.
@@ -324,7 +324,7 @@ module internal ScalarPlanner =
         let requiresClientEvaluation (m: MethodInfo) (source: Expression) : bool =
             let elemType = getSequenceElementType source.Type
             m.Name <> "Aggregate"
-            && not (elemType.IsGenericType && elemType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>)
+            && not (isGroupingType elemType)
             && (resolveSource source).RequiresClientEvaluation
 
         /// Evaluates the terminal with LINQ-to-Objects over the rows produced by enumerating the source query.
@@ -449,14 +449,11 @@ module internal ScalarPlanner =
             let predLambdaOpt, defValOpt =
                 match rest with
                 | [ CleanLambda p ] -> Some p, None
-                | [ CleanLambda p; defExpr ] -> Some p, tryEvaluate defExpr
-                | [ defExpr ] when not (typeof<LambdaExpression>.IsAssignableFrom defExpr.Type) -> None, tryEvaluate defExpr
+                | [ CleanLambda p; defExpr ] -> Some p, PartialEvaluator.tryEvaluate defExpr
+                | [ defExpr ] when not (typeof<LambdaExpression>.IsAssignableFrom defExpr.Type) -> None, PartialEvaluator.tryEvaluate defExpr
                 | _ -> None, None
 
-            if
-                elemType.IsGenericType
-                && elemType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
-            then
+            if isGroupingType elemType then
                 let compute () : obj =
                     let query = provider.CreateQuery source :> IEnumerable
                     let castMethod = LinqReflectionCache.GetEnumerableMethod("Cast", 1, [| elemType |])
@@ -549,7 +546,7 @@ module internal ScalarPlanner =
             let elemType = getSequenceElementType source.Type
 
             let isFromEnd, rawIndexVal =
-                match tryEvaluate indexExpr with
+                match PartialEvaluator.tryEvaluate indexExpr with
                 | Some(:? Index as idx) -> idx.IsFromEnd, int64 idx.Value
                 | Some idxVal -> false, Convert.ToInt64 idxVal
                 | None -> failwithf "Failed to evaluate index for %s." m.Name
@@ -585,7 +582,7 @@ module internal ScalarPlanner =
             let elemType = getSequenceElementType source.Type
 
             let itemVal =
-                match tryEvaluate itemExpr with
+                match PartialEvaluator.tryEvaluate itemExpr with
                 | Some v -> v
                 | None -> failwith "Failed to evaluate item parameter for Contains."
 
@@ -648,7 +645,7 @@ module internal ScalarPlanner =
 
             | None ->
                 let secondSeq =
-                    match tryEvaluate secondExpr with
+                    match PartialEvaluator.tryEvaluate secondExpr with
                     | Some(:? IEnumerable as seq) -> seq
                     | _ -> provider.CreateQuery(secondExpr) :> IEnumerable
 
@@ -708,7 +705,7 @@ module internal ScalarPlanner =
             let elemType = getSequenceElementType source.Type
 
             let evalSeed (seedExpr: Expression) =
-                match tryEvaluate seedExpr with
+                match PartialEvaluator.tryEvaluate seedExpr with
                 | Some s -> s
                 | None -> failwith "Failed to evaluate seed parameter for Aggregate."
 

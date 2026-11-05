@@ -1,6 +1,24 @@
 namespace Polars.NET.Linq
 
+open System
 open System.Linq.Expressions
+
+[<AutoOpen>]
+module internal ExceptionPatterns =
+    /// Failures of Convert.ToXxx / Enum conversions on an evaluated argument value. Translators treat these
+    /// (and only these) as "this value cannot be used natively"; anything else is a bug and must surface.
+    let (|ConversionFailure|_|) (e: exn) =
+        match e with
+        | :? FormatException
+        | :? InvalidCastException
+        | :? OverflowException -> Some()
+        | _ -> None
+
+/// A LINQ method argument whose value the method does not accept (e.g. an undefined enum member).
+/// Translation never treats it as "untranslatable": it reaches the caller instead of falling back
+/// to client evaluation or being replaced by a default.
+type internal InvalidQueryArgumentException(paramName: string, message: string) =
+    inherit ArgumentOutOfRangeException(paramName, message)
 
 [<AutoOpen>]
 module internal OptionComputationExpression =
@@ -23,10 +41,6 @@ module internal OptionComputationExpression =
 
 [<AutoOpen>]
 module internal ExpressionPatterns =
-
-    /// Evaluates expressions that resolve to values (e.g., closures, captured variables, local props, method calls)
-    let internal tryEvaluate (expr: Expression) : obj option =
-        PartialEvaluator.tryEvaluate expr
 
     /// Active pattern for MethodCallExpression
     let (|MethodCall|_|) (expr: Expression) =

@@ -12,6 +12,10 @@ module internal ScopeNavigation =
     let internal isTupleOrAnonType (t: Type) : bool =
         PolarsTypeHelper.IsTupleOrAnonymousType t
 
+    /// Checks if a Type is a closed IGrouping<TKey, TElement>.
+    let internal isGroupingType (t: Type) : bool =
+        not (isNull t) && t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<System.Linq.IGrouping<_, _>>
+
     /// Checks if a member access is for Nullable<T>.Value or F# option.Value
     let internal isNullableValue (m: MemberInfo) : bool =
         not (isNull m)

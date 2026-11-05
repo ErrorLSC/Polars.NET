@@ -108,3 +108,31 @@ type internal LinqStage =
     | OfType of sourceType: Type * targetType: Type
     | DefaultIfEmpty of defaultValExprOpt: Expression option
     | Project of LambdaExpression
+
+/// Execution traits of pipeline stages that several components must agree on.
+[<RequireQualifiedAccess>]
+module internal LinqStageTraits =
+
+    /// Stages applied to the collected frame or during materialization rather than in the native plan
+    /// (Shuffle after collect; Chunk, AggregateBy, DefaultIfEmpty while materializing). A pipeline containing
+    /// one does not end in a plain native frame: its plan cannot be grafted into another query, and its rows
+    /// cannot be streamed batch by batch.
+    let isPostCollect (stage: LinqStage) : bool =
+        match stage with
+        | LinqStage.Shuffle
+        | LinqStage.Chunk _
+        | LinqStage.AggregateBy _
+        | LinqStage.DefaultIfEmpty _ -> true
+        | _ -> false
+
+    /// Stages whose materialization is not a flat row stream. Client row operations (a client Where / Select)
+    /// stream over flat native rows, so once one is present these stages are only correct under LINQ-to-Objects.
+    /// Shuffle is absent: it permutes the collected frame before the row operations run. OfType is present:
+    /// it filters materialized objects by runtime type.
+    let breaksRowStream (stage: LinqStage) : bool =
+        match stage with
+        | LinqStage.Chunk _
+        | LinqStage.AggregateBy _
+        | LinqStage.DefaultIfEmpty _
+        | LinqStage.OfType _ -> true
+        | _ -> false

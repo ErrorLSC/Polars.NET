@@ -97,9 +97,7 @@ and PolarsQuery<'T>
     let materializer = provider.Materializer
     let targetType = typeof<'T>
     let isScalar = PolarsTypeHelper.IsScalarType targetType
-    let isGrouping =
-        targetType.IsGenericType
-        && targetType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
+    let isGrouping = isGroupingType targetType
 
     let expression =
         match exprOpt with
@@ -234,7 +232,7 @@ and PolarsQuery<'T>
             ClientResidualOps.isNative compiled.Residual
             && not (isScalar && schema.Fields.Length > 1)
             && not isGrouping
-            && not (stages |> List.exists (function LinqStage.Shuffle | LinqStage.Chunk _ | LinqStage.AggregateBy _ | LinqStage.DefaultIfEmpty _ -> true | _ -> false))
+            && not (stages |> List.exists LinqStageTraits.isPostCollect)
         if canUsePurePlan then
             Some(optimizedPlan, compiled.Sources)
         else
@@ -547,7 +545,7 @@ and PolarsQuery<'T>
                             invoker.Invoke(materializer, dfHandle, compiledKey, seedLambda.Compile(), compiledFunc, null)
                         | None ->
                             let seedVal =
-                                match tryEvaluate seedExpr with
+                                match PartialEvaluator.tryEvaluate seedExpr with
                                 | Some s -> s
                                 | None -> failwith "Failed to evaluate static seed for AggregateBy."
 
@@ -568,7 +566,7 @@ and PolarsQuery<'T>
                         let defaultItem =
                             match customDefaultOpt with
                             | Some expr ->
-                                match tryEvaluate expr with
+                                match PartialEvaluator.tryEvaluate expr with
                                 | Some v when not (isNull v) -> v :?> 'T
                                 | _ -> Unchecked.defaultof<'T>
                             | None -> Unchecked.defaultof<'T>
@@ -728,7 +726,7 @@ and PolarsQuery<'T>
             let canStreamBatches =
                 residual <> ClientResidual.LinqToObjects
                 && not isGrouping
-                && not (stages |> List.exists (function LinqStage.Shuffle | LinqStage.DefaultIfEmpty _ | LinqStage.Chunk _ | LinqStage.AggregateBy _ -> true | _ -> false))
+                && not (stages |> List.exists LinqStageTraits.isPostCollect)
 
             if not canStreamBatches then
                 let enumeratorRef = ref (None: IEnumerator<'T> option)

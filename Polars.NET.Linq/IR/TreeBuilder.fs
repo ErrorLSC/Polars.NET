@@ -150,6 +150,19 @@ module internal TreeBuilder =
         | _ ->
             extractProjections ctx unwrapped
 
+    /// Struct of a group element's columns, used by aggregations over whole rows (g.ToList(), g.Distinct(), ...).
+    /// Built only when every property of the element type is a column of the input plan: a projection's
+    /// anonymous type qualifies, a join's pair of entities (transparent identifier) does not.
+    let private tryWholeRowStruct (elemType: Type) (cols: string list) : ScalarExpr option =
+        let props = PolarsTypeHelper.GetModelProperties elemType
+        let available = set cols
+
+        if props.Length > 0 && props |> Array.forall (fun p -> available.Contains p.Name) then
+            let colExprs = props |> Array.map (fun p -> ScalarExpr.Column p.Name) |> Array.toList
+            Some(ScalarExpr.Function(ScalarFunction.AsStruct, colExprs, LogicalType.Unknown))
+        else
+            None
+
     /// Helper to translate a single group-by reduction/aggregation into a pure ScalarExpr.
     let private tryTranslateGroupByAggScalar
         (groupParamName: string)
@@ -291,16 +304,7 @@ module internal TreeBuilder =
         let effectiveScopeMap = elemScoreMapOpt |> Option.defaultValue scopeMap
         let elemType = keyParam.Type
 
-        let wholeRowStructOpt: ScalarExpr option =
-            try
-                let props = PolarsTypeHelper.GetModelProperties elemType
-                if props.Length > 0 && not (isTupleOrAnonType elemType) then
-                    let colExprs = props |> Array.map (fun p -> ScalarExpr.Column p.Name) |> Array.toList
-                    Some(ScalarExpr.Function(ScalarFunction.AsStruct, colExprs, LogicalType.Unknown))
-                else
-                    None
-            with _ ->
-                None
+        let wholeRowStructOpt = tryWholeRowStruct elemType cols
 
         let translateKeyPart (e: Expression) : ScalarExpr option =
             match ExprTranslator.tryTranslateToScalar keyCtx e with
@@ -469,6 +473,15 @@ module internal TreeBuilder =
                         Some keyNameToOutputAliasMap.[fst keyDefs.[0]]
                     | _ -> None
 
+                /// A parameter that stands for the group key, rewritten as a reference to the key column.
+                /// Inside a larger expression a grouping parameter is its rows (g.Distinct().Count()), never its key.
+                let tryKeyColumnParameter (node: ParameterExpression) : Expression option =
+                    if isGroupingType node.Type then
+                        None
+                    else
+                        tryResolveKeyPropertyCol node
+                        |> Option.map (fun colName -> Expression.Parameter(node.Type, sprintf "__key_col_%s" colName) :> Expression)
+
                 let tryTranslateDerivedKeyExpr (rawArgExpr: Expression) : ScalarExpr option =
                     let rewritten =
                         { new ExpressionVisitor() with
@@ -478,9 +491,8 @@ module internal TreeBuilder =
                                     Expression.Parameter(node.Type, sprintf "__key_col_%s" colName) :> Expression
                                 | None -> base.VisitMember node
                             override _.VisitParameter(node: ParameterExpression) =
-                                match tryResolveKeyPropertyCol node with
-                                | Some colName ->
-                                    Expression.Parameter(node.Type, sprintf "__key_col_%s" colName) :> Expression
+                                match tryKeyColumnParameter node with
+                                | Some rewritten -> rewritten
                                 | None -> base.VisitParameter node
                         }.Visit(rawArgExpr)
                     ExprTranslator.tryTranslateToScalar (TranslationContext.Entity groupParamName) rewritten
@@ -529,7 +541,7 @@ module internal TreeBuilder =
                     | Some target ->
                         let unwrapped = ExpressionPatterns.unwrap target
                         let t = unwrapped.Type
-                        (not (isNull t) && t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>)
+                        isGroupingType t
                         || (match unwrapped with
                             | :? ParameterExpression as p -> p.Name = groupParamName
                             | _ -> false)
@@ -577,9 +589,8 @@ module internal TreeBuilder =
                                 | None ->
                                     base.VisitMember node
                         override _.VisitParameter(node: ParameterExpression) =
-                            match tryResolveKeyPropertyCol node with
-                            | Some colName ->
-                                Expression.Parameter(node.Type, sprintf "__key_col_%s" colName) :> Expression
+                            match tryKeyColumnParameter node with
+                            | Some rewritten -> rewritten
                             | None -> base.VisitParameter node
                     }.Visit(expr)
 
@@ -807,16 +818,7 @@ module internal TreeBuilder =
         let keyCtx = PipelineStageParser.createContextWithScopeAndCols scopeMap keyParam.Type cols keyParam.Name
         let elemType = keyParam.Type
 
-        let wholeRowStructOpt: ScalarExpr option =
-            try
-                let props = PolarsTypeHelper.GetModelProperties elemType
-                if props.Length > 0 then
-                    let colExprs = props |> Array.map (fun p -> ScalarExpr.Column p.Name) |> Array.toList
-                    Some(ScalarExpr.Function(ScalarFunction.AsStruct, colExprs, LogicalType.Unknown))
-                else
-                    None
-            with _ ->
-                None
+        let wholeRowStructOpt = tryWholeRowStruct elemType cols
 
         let translateKeyPart (e: Expression) : ScalarExpr option =
             match ExprTranslator.tryTranslateToScalar keyCtx e with
@@ -1206,7 +1208,7 @@ module internal TreeBuilder =
                 | Some(sortS, isDesc) ->
                     let rankS =
                         ScalarExpr.Function(
-                            ScalarFunction.Rank RankMethod.Ordinal,
+                            ScalarFunction.Rank(RankMethod.Ordinal, None),
                             [ sortS; ScalarExpr.Literal(LiteralValue.Bool isDesc) ],
                             LogicalTypes.UInt32
                         )
@@ -1272,7 +1274,7 @@ module internal TreeBuilder =
                     let translateArg (arg: Expression) : ScalarExpr option =
                         let cleanArg = ExpressionPatterns.unwrap arg
                         match cleanArg with
-                        | MemberAccess(p, m) when p.NodeType = ExpressionType.Parameter && p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>> && m.Name = "Key" ->
+                        | MemberAccess(p, m) when p.NodeType = ExpressionType.Parameter && isGroupingType p.Type && m.Name = "Key" ->
                             singleKeyColOpt |> Option.map ScalarExpr.Column
                         | MemberAccess(MemberAccess(p, k), m) when p.NodeType = ExpressionType.Parameter && k.Name = "Key" ->
                             let colName =
@@ -2141,7 +2143,7 @@ module internal TreeBuilder =
                             processStages (fallback state) scopeMap tail
 
                     | LinqStage.Append elemExpr ->
-                        match tryEvaluate elemExpr with
+                        match PartialEvaluator.tryEvaluate elemExpr with
                         | Some elem when not (isNull elem) ->
                             match SourceResolver.singleRowPlan sources elem (elem.GetType()) with
                             | Some otherPlan ->
@@ -2152,7 +2154,7 @@ module internal TreeBuilder =
                             processStages (fallback state) scopeMap tail
 
                     | LinqStage.Prepend elemExpr ->
-                        match tryEvaluate elemExpr with
+                        match PartialEvaluator.tryEvaluate elemExpr with
                         | Some elem when not (isNull elem) ->
                             match SourceResolver.singleRowPlan sources elem (elem.GetType()) with
                             | Some otherPlan ->
@@ -2313,7 +2315,7 @@ module internal TreeBuilder =
                                     else
                                         match ExpressionPatterns.unwrap expr with
                                         | :? ParameterExpression as p when
-                                            (p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>)
+                                            (isGroupingType p.Type)
                                             || isTupleOrAnonType p.Type
                                             || (not (isNull p.Name) && p.Name.Contains "TransparentIdentifier") ->
                                             true
@@ -2332,7 +2334,7 @@ module internal TreeBuilder =
                         bindings
                         |> List.tryPick (fun (name, expr) ->
                             match ExpressionPatterns.unwrap expr with
-                            | :? ParameterExpression as p when p.Name = param.Name && p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>> ->
+                            | :? ParameterExpression as p when p.Name = param.Name && isGroupingType p.Type ->
                                 Some(name, p :> Expression)
                             | _ -> None)
                     let updatedBindings =
@@ -2362,12 +2364,14 @@ module internal TreeBuilder =
                             not (isNull p) && (p.NodeType = ExpressionType.Parameter || isNavigationMember (match p with :? MemberExpression as me -> me.Member | _ -> null)) && m.Name = "Key"
                             ->
                             true
+                        // A bare projection parameter bound as a member value stands for the key: F# `let` after
+                        // groupBy carries the grouping as Item1 and only reads Item1.Key afterwards.
                         | :? ParameterExpression as p when p.Name = projLambda.Parameters.[0].Name ->
                             true
                         | _ -> false
 
                     let gParamName =
-                        match letBindings |> Map.tryPick (fun _ v -> match ExpressionPatterns.unwrap v with :? ParameterExpression as p when p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>> -> Some p.Name | _ -> None) with
+                        match letBindings |> Map.tryPick (fun _ v -> match ExpressionPatterns.unwrap v with :? ParameterExpression as p when isGroupingType p.Type -> Some p.Name | _ -> None) with
                         | Some name -> name
                         | None -> projLambda.Parameters.[0].Name
 
@@ -2386,13 +2390,7 @@ module internal TreeBuilder =
 
         let finalState = processStages initState Map.empty stages
 
-        // Row operations stream over flat native rows. Stages whose materialization is not a flat row stream
-        // (Chunk, AggregateBy, DefaultIfEmpty, OfType), in any position, are only correct under LINQ-to-Objects.
-        let needsLinqToObjects =
-            stages
-            |> List.exists (function
-                | LinqStage.Chunk _ | LinqStage.AggregateBy _ | LinqStage.DefaultIfEmpty _ | LinqStage.OfType _ -> true
-                | _ -> false)
+        let needsLinqToObjects = stages |> List.exists LinqStageTraits.breaksRowStream
 
         let completed =
             match finalState.Residual with

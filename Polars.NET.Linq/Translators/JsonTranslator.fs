@@ -76,6 +76,7 @@ module internal JsonTypeInference =
 [<AutoOpen>]
 module internal JsonTranslator =
 
+
     type internal JsonAccessStep =
         | PropertyStep of MemberInfo
         | IndexStep of Expression
@@ -117,7 +118,7 @@ module internal JsonTranslator =
             && typeof<JsonElement>.IsAssignableFrom inner.Type
             && m.Name = "GetProperty"
             ->
-            match tryEvaluate arg with
+            match PartialEvaluator.tryEvaluate arg with
             | Some(:? string as propName) ->
                 tryUnrollJsonSegmentsAcc inner ("." + propName :: acc)
             | _ -> None
@@ -130,7 +131,7 @@ module internal JsonTranslator =
             && (m.Name = "get_Item" || m.Name = "GetItem")
             ->
             let segmentOpt =
-                match tryEvaluate arg with
+                match PartialEvaluator.tryEvaluate arg with
                 | Some(:? string as propName) -> Some("." + propName)
                 | Some(:? int as idx) -> Some("[" + string idx + "]")
                 | _ -> None
@@ -146,7 +147,7 @@ module internal JsonTranslator =
                 || typeof<JsonElement>.IsAssignableFrom idx.Object.Type)
             ->
             let segmentOpt =
-                match tryEvaluate idx.Arguments.[0] with
+                match PartialEvaluator.tryEvaluate idx.Arguments.[0] with
                 | Some(:? string as propName) -> Some("." + propName)
                 | Some(:? int as i) -> Some("[" + string i + "]")
                 | _ -> None
@@ -214,7 +215,7 @@ module internal JsonTranslator =
                 let dtoType = m.GetGenericArguments().[0]
                 Some(target, dtoType, acc)
             elif args.Length >= 2 && m.GetParameters().[1].ParameterType = typeof<Type> then
-                match tryEvaluate args.[1] with
+                match PartialEvaluator.tryEvaluate args.[1] with
                 | Some(:? Type as dtoType) -> Some(target, dtoType, acc)
                 | _ -> None
             else

@@ -78,7 +78,7 @@ module internal ListTranslator =
                 && strTarget.Type = typeof<string>
                 ->
                 let sepOpt =
-                    match tryEvaluate sepExpr with
+                    match PartialEvaluator.tryEvaluate sepExpr with
                     | Some(:? char as c) -> Some(string c)
                     | Some(:? string as s) -> Some s
                     | Some(:? (char array) as ca) when ca.Length = 1 -> Some(string ca.[0])
@@ -86,7 +86,7 @@ module internal ListTranslator =
                     | _ -> None
 
                 let idxOpt =
-                    match tryEvaluate indexExpr with
+                    match PartialEvaluator.tryEvaluate indexExpr with
                     | Some(:? int as i) when i >= 0 -> Some i
                     | _ -> None
 
@@ -194,7 +194,7 @@ module internal ListTranslator =
                 option {
                     let! itemS = t1 itemExpr
                     let unwrapped = unwrapSpanOrArray target
-                    let! evaluated = tryEvaluate unwrapped
+                    let! evaluated = PartialEvaluator.tryEvaluate unwrapped
 
                     match evaluated with
                     | :? System.Collections.IEnumerable as coll when coll.GetType() <> typeof<string> ->
@@ -221,7 +221,7 @@ module internal ListTranslator =
 
         | ListJoin(target, separatorExpr) ->
             let sepOpt =
-                match tryEvaluate separatorExpr with
+                match PartialEvaluator.tryEvaluate separatorExpr with
                 | Some(:? string as sep) -> Some sep
                 | Some(:? char as sep) -> Some(string sep)
                 | _ -> None

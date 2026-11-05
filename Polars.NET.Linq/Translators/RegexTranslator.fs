@@ -32,19 +32,19 @@ module internal RegexTranslator =
 
     /// Evaluates RegexOptions from an expression node.
     let private tryEvaluateRegexOptions (expr: Expression) : RegexOptions option =
-        match tryEvaluate expr with
+        match PartialEvaluator.tryEvaluate expr with
         | Some(:? RegexOptions as opt) -> Some opt
         | Some other ->
             try
                 let intVal = Convert.ToInt32 other
                 Some(LanguagePrimitives.EnumOfValue<int, RegexOptions> intVal)
-            with _ ->
+            with ConversionFailure ->
                 None
         | None -> None
 
     /// Evaluates TimeSpan timeout from an expression node.
     let private tryEvaluateTimeout (expr: Expression) : TimeSpan option =
-        match tryEvaluate expr with
+        match PartialEvaluator.tryEvaluate expr with
         | Some(:? TimeSpan as ts) -> Some ts
         | _ -> None
 
@@ -60,24 +60,25 @@ module internal RegexTranslator =
             | Some opt, None -> Some(Regex(pattern, opt))
             | None, Some timeout -> Some(Regex(pattern, RegexOptions.None, timeout))
             | None, None -> None
-        with _ ->
+        with :? ArgumentException ->
+            // Invalid pattern, options or timeout: untranslatable; client evaluation reports the same error.
             None
 
     /// Extracts literal pattern and optional configured Regex instance from static method arguments.
     let private tryExtractStaticPatternAndRegex (args: Expression list) : (string * Regex option) option =
         match args with
         | [ patternExpr ] ->
-            match tryEvaluate patternExpr with
+            match PartialEvaluator.tryEvaluate patternExpr with
             | Some(:? string as pat) -> Some(pat, None)
             | _ -> None
 
         | [ patternExpr; optionsExpr ] ->
-            match tryEvaluate patternExpr, tryEvaluateRegexOptions optionsExpr with
+            match PartialEvaluator.tryEvaluate patternExpr, tryEvaluateRegexOptions optionsExpr with
             | Some(:? string as pat), Some opt -> Some(pat, createRegexInstance pat (Some opt) None)
             | _ -> None
 
         | [ patternExpr; optionsExpr; timeoutExpr ] ->
-            match tryEvaluate patternExpr, tryEvaluateRegexOptions optionsExpr, tryEvaluateTimeout timeoutExpr with
+            match PartialEvaluator.tryEvaluate patternExpr, tryEvaluateRegexOptions optionsExpr, tryEvaluateTimeout timeoutExpr with
             | Some(:? string as pat), Some opt, timeoutOpt -> Some(pat, createRegexInstance pat (Some opt) timeoutOpt)
             | _ -> None
 
@@ -85,7 +86,7 @@ module internal RegexTranslator =
 
     /// Resolves group index from expression, supporting both numeric indices and group names.
     let private tryResolveGroupIndex (groupArgExpr: Expression) (pattern: string) (rxOpt: Regex option) : int option =
-        match tryEvaluate groupArgExpr with
+        match PartialEvaluator.tryEvaluate groupArgExpr with
         | Some(:? int as idx) -> Some idx
         | Some(:? string as groupName) ->
             let rx =
@@ -94,7 +95,7 @@ module internal RegexTranslator =
                 | None ->
                     try
                         Regex(pattern)
-                    with _ ->
+                    with :? ArgumentException ->
                         null
 
             if isNull rx then
@@ -105,7 +106,7 @@ module internal RegexTranslator =
         | Some other ->
             try
                 Some(Convert.ToInt32 other)
-            with _ ->
+            with ConversionFailure ->
                 None
         | None -> None
 
@@ -118,13 +119,13 @@ module internal RegexTranslator =
         | MethodCall(m, rxExpr, [ target ]) when
             not (isNull rxExpr) && typeof<Regex>.IsAssignableFrom rxExpr.Type
             ->
-            match tryEvaluate rxExpr with
+            match PartialEvaluator.tryEvaluate rxExpr with
             | Some(:? Regex as rx) -> Some(m.Name, target, rx.ToString(), Some rx)
             | _ -> None
         | _ -> None
 
     let private tryBuildReplace (target: Expression) (pat: string) (repExpr: Expression) (rxOpt: Regex option) =
-        match tryEvaluate repExpr with
+        match PartialEvaluator.tryEvaluate repExpr with
         | Some(:? string as rep) -> Some(ReplaceLiteral(target, pat, rep, rxOpt))
         | Some(:? MatchEvaluator as eval) -> Some(ReplaceEvaluator(target, pat, eval, rxOpt))
         | _ -> None
@@ -149,7 +150,7 @@ module internal RegexTranslator =
             && typeof<Regex>.IsAssignableFrom rxExpr.Type
             && m.Name = "Replace"
             ->
-            match tryEvaluate rxExpr with
+            match PartialEvaluator.tryEvaluate rxExpr with
             | Some(:? Regex as rx) -> tryBuildReplace target (rx.ToString()) repExpr (Some rx)
             | _ -> None
 
@@ -158,7 +159,7 @@ module internal RegexTranslator =
             && typeof<Regex>.IsAssignableFrom rxExpr.Type
             && m.Name = "Replace"
             ->
-            match tryEvaluate rxExpr, tryEvaluate repExpr, tryEvaluate countExpr with
+            match PartialEvaluator.tryEvaluate rxExpr, PartialEvaluator.tryEvaluate repExpr, PartialEvaluator.tryEvaluate countExpr with
             | Some(:? Regex as rx), Some(:? string as rep), Some(:? int as count) ->
                 Some(ReplaceLiteralN(target, rx.ToString(), rep, count, Some rx))
             | _ -> None
@@ -180,7 +181,7 @@ module internal RegexTranslator =
             && valueProp.Name = "Value"
             && indexer.Name = "get_Item"
             ->
-            match tryEvaluate groupIdxExpr with
+            match PartialEvaluator.tryEvaluate groupIdxExpr with
             | Some(:? string as groupName) ->
                 Some(MatchGroupNamed(target, pat, groupName, rxOpt))
             | _ ->

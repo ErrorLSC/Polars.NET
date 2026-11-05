@@ -964,13 +964,13 @@ module internal SubqueryDecorrelator =
                         match scale with
                         | AggScale.Identity -> Some aggColBaseScalar
                         | AggScale.Multiply multExpr ->
-                            match tryEvaluate multExpr with
+                            match PartialEvaluator.tryEvaluate multExpr with
                             | Some v when not (isNull v) ->
                                 let lit = toLiteral v multExpr.Type
                                 Some(ScalarExpr.Binary(BinaryOp.Multiply, lit, aggColBaseScalar))
                             | _ -> None
                         | AggScale.Divide divExpr ->
-                            match tryEvaluate divExpr with
+                            match PartialEvaluator.tryEvaluate divExpr with
                             | Some v when not (isNull v) ->
                                 let lit = toLiteral v divExpr.Type
                                 Some(ScalarExpr.Binary(BinaryOp.Divide, aggColBaseScalar, lit))
@@ -1067,13 +1067,13 @@ module internal SubqueryDecorrelator =
                         match scale with
                         | AggScale.Identity -> Some aggColBaseScalar
                         | AggScale.Multiply multExpr ->
-                            match tryEvaluate multExpr with
+                            match PartialEvaluator.tryEvaluate multExpr with
                             | Some v when not (isNull v) ->
                                 let lit = toLiteral v multExpr.Type
                                 Some(ScalarExpr.Binary(BinaryOp.Multiply, lit, aggColBaseScalar))
                             | _ -> None
                         | AggScale.Divide divExpr ->
-                            match tryEvaluate divExpr with
+                            match PartialEvaluator.tryEvaluate divExpr with
                             | Some v when not (isNull v) ->
                                 let lit = toLiteral v divExpr.Type
                                 Some(ScalarExpr.Binary(BinaryOp.Divide, aggColBaseScalar, lit))

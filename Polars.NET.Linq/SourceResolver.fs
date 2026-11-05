@@ -40,7 +40,7 @@ module internal SourceResolver =
                 with _ ->
                     None
             | None ->
-                match tryEvaluate expr with
+                match PartialEvaluator.tryEvaluate expr with
                 | Some(:? IPolarsInternalExplainable as q) -> Some q
                 | _ -> None
 
@@ -49,7 +49,7 @@ module internal SourceResolver =
         match ExpressionPatterns.unwrap expr with
         | :? ConstantExpression as ce -> Option.ofObj ce.Value
         | other ->
-            match tryEvaluate other with
+            match PartialEvaluator.tryEvaluate other with
             | Some v -> Option.ofObj v
             | None ->
                 try

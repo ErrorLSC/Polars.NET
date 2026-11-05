@@ -32,14 +32,14 @@ module internal ColumnResolver =
     let rec private tryExtractGroupingCarrierMember (e: Expression) : string option =
         match unwrap e with
         | :? ParameterExpression as p when
-            p.Type.IsGenericType && p.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>> ->
+            isGroupingType p.Type ->
             Some p.Name
         | MemberAccess(_, m) when
             (match m with
              | :? PropertyInfo as p ->
-                 p.PropertyType.IsGenericType && p.PropertyType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
+                 isGroupingType p.PropertyType
              | :? FieldInfo as f ->
-                 f.FieldType.IsGenericType && f.FieldType.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>
+                 isGroupingType f.FieldType
              | _ -> false) ->
             Some m.Name
         | MemberAccess(inner, nextM) when isNavigationMember nextM ->

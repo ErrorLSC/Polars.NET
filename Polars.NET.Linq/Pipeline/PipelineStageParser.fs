@@ -212,7 +212,7 @@ module internal PipelineStageParser =
         match e with
         | null -> None
         | MethodCall(m, null, [ _; sizeExpr ]) when m.Name = "Chunk" ->
-            tryEvaluate sizeExpr |> Option.map Convert.ToInt32
+            PartialEvaluator.tryEvaluate sizeExpr |> Option.map Convert.ToInt32
         | MethodCall(_, null, args) -> args |> List.tryPick tryExtractChunkSize
         | _ -> None
 
@@ -240,7 +240,7 @@ module internal PipelineStageParser =
         match e with
         | null -> None
         | MethodCall(m, null, _ :: rest) when m.Name = "DefaultIfEmpty" && rest.Length <= 1 ->
-            Some(true, rest |> List.tryHead |> Option.bind tryEvaluate)
+            Some(true, rest |> List.tryHead |> Option.bind PartialEvaluator.tryEvaluate)
         | MethodCall(_, null, args) -> args |> List.tryPick tryExtractDefaultIfEmpty
         | _ -> None
 
@@ -424,7 +424,7 @@ module internal PipelineStageParser =
                                     | :? ConstantExpression as ce when not (isNull ce.Value) ->
                                         Some(ce.Value.ToString())
                                     | other ->
-                                        match tryEvaluate other with
+                                        match PartialEvaluator.tryEvaluate other with
                                         | Some v when not (isNull v) -> Some(v.ToString())
                                         | _ -> None)
                             if consts.Length = exprs.Length then
@@ -578,6 +578,13 @@ module internal PipelineStageParser =
     // 3. LINQ Expression Stage Flattener
     // =========================================================================
 
+    /// Evaluates an AsOf tolerance / strategy argument. Exceptions thrown by the caller's own code propagate:
+    /// treating them as "no tolerance" or "Backward" would silently change the join.
+    let private evaluateAsOfArgument (expr: Expression) : obj =
+        match expr with
+        | :? ConstantExpression as ce -> ce.Value
+        | _ -> Expression.Lambda<Func<obj>>(Expression.Convert(expr, typeof<obj>)).Compile().Invoke()
+
     let internal extractTolerance (objVal: obj) : string option * int64 option * double option =
         if isNull objVal then
             None, None, None
@@ -614,20 +621,33 @@ module internal PipelineStageParser =
                     let dVal = if isNull dField then Nullable<double>() else dField.GetValue(actualObj) :?> Nullable<double>
                     Option.ofObj sVal, (if iVal.HasValue then Some iVal.Value else None), (if dVal.HasValue then Some dVal.Value else None)
             else
-                None, None, None
+                raise (
+                    InvalidQueryArgumentException(
+                        "tolerance",
+                        sprintf "AsOf tolerance of type %s is not supported; use AsOfTolerance, TimeSpan, string, int, long or double." t.Name
+                    )
+                )
 
+    /// Reads an AsOf strategy argument (the public AsofStrategy enum or its byte value). An undefined value is
+    /// rejected rather than silently replaced by Backward.
     let internal extractStrategy (objVal: obj) : AsofStrategy =
-        if isNull objVal then
-            AsofStrategy.Backward
-        else
-            try
-                let byteVal = Convert.ToByte(objVal)
-                match byteVal with
-                | 0uy -> AsofStrategy.Backward
-                | 1uy -> AsofStrategy.Forward
-                | 2uy -> AsofStrategy.Nearest
-                | _ -> AsofStrategy.Backward
-            with _ -> AsofStrategy.Backward
+        let raw =
+            match objVal with
+            | null -> Some 0L
+            | :? Enum
+            | :? byte
+            | :? sbyte
+            | :? int16
+            | :? uint16
+            | :? int
+            | :? int64 -> Some(Convert.ToInt64 objVal)
+            | _ -> None
+
+        match raw with
+        | Some 0L -> AsofStrategy.Backward
+        | Some 1L -> AsofStrategy.Forward
+        | Some 2L -> AsofStrategy.Nearest
+        | _ -> raise (InvalidQueryArgumentException("strategy", sprintf "%O is not a valid AsOf strategy." objVal))
 
     /// Canonical classification of null-checking predicate expressions for sort fusion
     [<RequireQualifiedAccess>]
@@ -775,7 +795,7 @@ module internal PipelineStageParser =
     /// Recursively flattens a LINQ expression tree into a linear sequence of LinqStage values.
     let rec flattenStages (e: Expression) (acc: LinqStage list) : LinqStage list =
         let evalUInt32 opName (expr: Expression) =
-            match tryEvaluate expr with
+            match PartialEvaluator.tryEvaluate expr with
             | Some c -> Convert.ToUInt32 c
             | None -> failwithf "Could not evaluate %s count argument: %A" opName expr
 
@@ -973,24 +993,14 @@ module internal PipelineStageParser =
             let tolStr, tolInt, tolFloat =
                 match tolExprOpt with
                 | Some expr ->
-                    let objVal =
-                        match expr with
-                        | :? ConstantExpression as ce -> ce.Value
-                        | _ ->
-                            try Expression.Lambda(expr).Compile().DynamicInvoke()
-                            with _ -> null
+                    let objVal = evaluateAsOfArgument expr
                     extractTolerance objVal
                 | None -> None, None, None
 
             let strat =
                 match stratExprOpt with
                 | Some expr ->
-                    let objVal =
-                        match expr with
-                        | :? ConstantExpression as ce -> ce.Value
-                        | _ ->
-                            try Expression.Lambda(expr).Compile().DynamicInvoke()
-                            with _ -> null
+                    let objVal = evaluateAsOfArgument expr
                     extractStrategy objVal
                 | None -> AsofStrategy.Backward
 
@@ -1090,7 +1100,7 @@ module internal PipelineStageParser =
             flattenStages first (LinqStage.Zip3(second, third) :: acc)
 
         | MethodCall(m, null, [ source; sizeExpr ]) when m.Name = "Chunk" ->
-            match tryEvaluate sizeExpr with
+            match PartialEvaluator.tryEvaluate sizeExpr with
             | Some s ->
                 let size = Convert.ToInt32 s
 

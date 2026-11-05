@@ -351,7 +351,7 @@ type ScalarFunction =
     // --- Window & Series ---
     | Shift
     | Diff of nullBehavior: NullBehavior
-    | Rank of method: RankMethod
+    | Rank of method: RankMethod * seed: uint64 option
     | PctChange
     | Interpolate of method: InterpolationMethod
     | InterpolateBy
@@ -641,7 +641,7 @@ type ScalarFunction =
         | "str_json_decode" -> raise (NotSupportedException "str_json_decode carries its target schema and cannot be created from a function name.")
         | "shift" -> ScalarFunction.Shift
         | "diff" -> ScalarFunction.Diff NullBehavior.Ignore
-        | "rank" -> ScalarFunction.Rank RankMethod.Average
+        | "rank" -> ScalarFunction.Rank(RankMethod.Average, None)
         | "pct_change" -> ScalarFunction.PctChange
         | "interpolate" -> ScalarFunction.Interpolate InterpolationMethod.Linear
         | "interpolate_by" -> ScalarFunction.InterpolateBy

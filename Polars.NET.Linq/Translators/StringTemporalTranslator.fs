@@ -13,7 +13,7 @@ module internal StringTemporalTranslator =
 
     /// Evaluates StringComparison expression to determine case insensitivity.
     let private tryEvaluateCaseInsensitive (compExpr: Expression) : bool option =
-        match tryEvaluate compExpr with
+        match PartialEvaluator.tryEvaluate compExpr with
         | Some(:? StringComparison as sc) ->
             match sc with
             | StringComparison.OrdinalIgnoreCase
@@ -30,7 +30,7 @@ module internal StringTemporalTranslator =
                 | StringComparison.InvariantCultureIgnoreCase
                 | StringComparison.CurrentCultureIgnoreCase -> Some true
                 | _ -> Some false
-            with _ ->
+            with ConversionFailure ->
                 None
         | None -> None
 
@@ -40,14 +40,14 @@ module internal StringTemporalTranslator =
             let chars =
                 nae.Expressions
                 |> Seq.choose (fun e ->
-                    match tryEvaluate e with
+                    match PartialEvaluator.tryEvaluate e with
                     | Some(:? char as c) -> Some c
                     | Some(:? string as s) when s.Length = 1 -> Some s.[0]
                     | _ -> None)
                 |> Seq.toArray
             if chars.Length = nae.Expressions.Count then Some chars else None
         | other ->
-            match tryEvaluate other with
+            match PartialEvaluator.tryEvaluate other with
             | Some(:? (char array) as ca) -> Some ca
             | Some(:? string as s) -> Some(s.ToCharArray())
             | Some(:? (string array) as sa) ->
@@ -105,7 +105,7 @@ module internal StringTemporalTranslator =
                 | other -> other
 
             let sepStrOpt =
-                match tryEvaluate sepExpr with
+                match PartialEvaluator.tryEvaluate sepExpr with
                 | Some(:? string as sep) -> Some sep
                 | Some(:? char as sep) -> Some(string sep)
                 | _ -> None
@@ -141,7 +141,7 @@ module internal StringTemporalTranslator =
 
             match formatExprOpt with
             | Some formatExpr ->
-                match tryEvaluate formatExpr with
+                match PartialEvaluator.tryEvaluate formatExpr with
                 | Some(:? string as netFormat) ->
                     let matches = Regex.Matches(netFormat, @"\{(\d+)(?::[^}]+)?\}")
                     let referencedIndices =
@@ -272,7 +272,7 @@ module internal StringTemporalTranslator =
                 | Some o -> Some(ScalarExpr.Function(ScalarFunction.ReplaceAll, [ t; o; n; ScalarExpr.Literal(LiteralValue.Bool true) ], LogicalTypes.String))
                 | _ -> None
             | Some t, Some n, Some true ->
-                match tryEvaluate oldExpr with
+                match PartialEvaluator.tryEvaluate oldExpr with
                 | Some(:? string as oldStr) ->
                     let escapedPattern = sprintf "(?i)%s" (Regex.Escape oldStr)
                     Some(ScalarExpr.Function(ScalarFunction.ReplaceAll, [ t; ScalarExpr.Literal(LiteralValue.String escapedPattern); n; ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.String))
@@ -288,7 +288,7 @@ module internal StringTemporalTranslator =
         | "PadLeft", [ widthExpr; padCharExpr ] ->
             match targetS (), eval ctx widthExpr with
             | Some t, Some w ->
-                match tryEvaluate padCharExpr with
+                match PartialEvaluator.tryEvaluate padCharExpr with
                 | Some(:? char as c) -> Some(ScalarExpr.Function(ScalarFunction.PadStart, [ t; w; ScalarExpr.Literal(LiteralValue.String(string c)) ], LogicalTypes.String))
                 | Some(:? string as s) -> Some(ScalarExpr.Function(ScalarFunction.PadStart, [ t; w; ScalarExpr.Literal(LiteralValue.String s) ], LogicalTypes.String))
                 | _ -> None
@@ -302,7 +302,7 @@ module internal StringTemporalTranslator =
         | "PadRight", [ widthExpr; padCharExpr ] ->
             match targetS (), eval ctx widthExpr with
             | Some t, Some w ->
-                match tryEvaluate padCharExpr with
+                match PartialEvaluator.tryEvaluate padCharExpr with
                 | Some(:? char as c) -> Some(ScalarExpr.Function(ScalarFunction.PadEnd, [ t; w; ScalarExpr.Literal(LiteralValue.String(string c)) ], LogicalTypes.String))
                 | Some(:? string as s) -> Some(ScalarExpr.Function(ScalarFunction.PadEnd, [ t; w; ScalarExpr.Literal(LiteralValue.String s) ], LogicalTypes.String))
                 | _ -> None
@@ -313,7 +313,7 @@ module internal StringTemporalTranslator =
             targetS () |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.Normalize NormalizationForm.FormC, [ t ], LogicalTypes.String))
 
         | "Normalize", [ formExpr ] ->
-            match targetS (), tryEvaluate formExpr with
+            match targetS (), PartialEvaluator.tryEvaluate formExpr with
             | Some t, Some(:? NormalizationForm as form) ->
                 Some(ScalarExpr.Function(ScalarFunction.Normalize form, [ t ], LogicalTypes.String))
             | _ -> None
@@ -328,7 +328,7 @@ module internal StringTemporalTranslator =
         // --- Split ---
         | "Split", [ sepExpr ] ->
             let sepOpt =
-                match tryEvaluate sepExpr with
+                match PartialEvaluator.tryEvaluate sepExpr with
                 | Some(:? char as c) -> Some(string c)
                 | Some(:? string as s) -> Some s
                 | Some(:? (char array) as ca) when ca.Length = 1 -> Some(string ca.[0])
@@ -343,7 +343,7 @@ module internal StringTemporalTranslator =
         | "Split", [ sepExpr; countExpr ]
         | "Split", sepExpr :: countExpr :: _ when args.Length <= 3 ->
             let sepOpt =
-                match tryEvaluate sepExpr with
+                match PartialEvaluator.tryEvaluate sepExpr with
                 | Some(:? char as c) -> Some(string c)
                 | Some(:? string as s) -> Some s
                 | Some(:? (char array) as ca) when ca.Length = 1 -> Some(string ca.[0])
@@ -351,7 +351,7 @@ module internal StringTemporalTranslator =
                 | _ -> None
 
             let countOpt =
-                match tryEvaluate countExpr with
+                match PartialEvaluator.tryEvaluate countExpr with
                 | Some(:? int as n) -> Some n
                 | _ -> None
 
@@ -378,7 +378,7 @@ module internal StringTemporalTranslator =
                     targetS () |> Option.map (fun t -> ScalarExpr.Function(trimFn, [ t; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String) ], LogicalTypes.String))
                 | other ->
                     let charsOpt =
-                        match tryEvaluate other with
+                        match PartialEvaluator.tryEvaluate other with
                         | Some(:? (char array) as chars) -> Some(ScalarExpr.Literal(LiteralValue.String(String(chars))))
                         | Some(:? char as c) -> Some(ScalarExpr.Literal(LiteralValue.String(string c)))
                         | Some(:? string as s) -> Some(ScalarExpr.Literal(LiteralValue.String s))
@@ -455,7 +455,7 @@ module internal StringTemporalTranslator =
 
         match m.Name, args with
         | "ParseExact", strExpr :: formatExpr :: _ when isNull target && m.DeclaringType = typeof<DateTime> ->
-            match eval ctx strExpr, tryEvaluate formatExpr with
+            match eval ctx strExpr, PartialEvaluator.tryEvaluate formatExpr with
             | Some strS, Some(:? string as netFormat) ->
                 let chronoFormat = DateTimeFormatHelper.ToChronoFormat netFormat
                 Some(ScalarExpr.Function(ScalarFunction.StrToDatetime, [ strS; ScalarExpr.Literal(LiteralValue.String chronoFormat); ScalarExpr.Literal(LiteralValue.Bool true) ], LogicalTypes.Datetime))
@@ -468,7 +468,7 @@ module internal StringTemporalTranslator =
                 ScalarExpr.Function(ScalarFunction.StrToDatetime, [ strS; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.Datetime))
 
         | "ParseExact", strExpr :: formatExpr :: _ when isNull target && m.DeclaringType = typeof<DateOnly> ->
-            match eval ctx strExpr, tryEvaluate formatExpr with
+            match eval ctx strExpr, PartialEvaluator.tryEvaluate formatExpr with
             | Some strS, Some(:? string as netFormat) ->
                 let chronoFormat = DateTimeFormatHelper.ToChronoFormat netFormat
                 Some(ScalarExpr.Function(ScalarFunction.StrToDate, [ strS; ScalarExpr.Literal(LiteralValue.String chronoFormat); ScalarExpr.Literal(LiteralValue.Bool true) ], LogicalTypes.Date))
@@ -481,7 +481,7 @@ module internal StringTemporalTranslator =
                 ScalarExpr.Function(ScalarFunction.StrToDate, [ strS; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.Date))
 
         | "ParseExact", strExpr :: formatExpr :: _ when isNull target && m.DeclaringType = typeof<TimeOnly> ->
-            match eval ctx strExpr, tryEvaluate formatExpr with
+            match eval ctx strExpr, PartialEvaluator.tryEvaluate formatExpr with
             | Some strS, Some(:? string as netFormat) ->
                 let chronoFormat = DateTimeFormatHelper.ToChronoFormat netFormat
                 Some(ScalarExpr.Function(ScalarFunction.StrToTime, [ strS; ScalarExpr.Literal(LiteralValue.String chronoFormat); ScalarExpr.Literal(LiteralValue.Bool true) ], LogicalTypes.Time))
@@ -501,7 +501,7 @@ module internal StringTemporalTranslator =
                 ScalarExpr.Function(ScalarFunction.DtIsLeapYear, [ dtExpr ], LogicalTypes.Boolean))
 
         | "ToString", [ formatExpr ] ->
-            match targetS (), tryEvaluate formatExpr with
+            match targetS (), PartialEvaluator.tryEvaluate formatExpr with
             | Some t, Some(:? string as netFormat) ->
                 let chronoFormat = DateTimeFormatHelper.ToChronoFormat netFormat
                 if not (String.IsNullOrEmpty chronoFormat) then
@@ -518,7 +518,7 @@ module internal StringTemporalTranslator =
                 | "AddMinutes" -> "m"
                 | _ -> "s"
 
-            match targetS (), tryEvaluate offsetExpr with
+            match targetS (), PartialEvaluator.tryEvaluate offsetExpr with
             | Some t, Some v ->
                 Some(ScalarExpr.Function(ScalarFunction.DtOffsetBy, [ t; ScalarExpr.Literal(LiteralValue.String (sprintf "%g%s" (Convert.ToDouble v) unitSuffix)) ], LogicalTypes.Datetime))
             | _ -> None

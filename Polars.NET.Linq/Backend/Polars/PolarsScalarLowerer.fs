@@ -13,33 +13,34 @@ open Polars.NET.Linq.IR
 /// Lowers pure symbolic ScalarExpr AST nodes to unmanaged Polars ExprHandle pointers.
 module internal PolarsScalarLowerer =
 
-    /// Attempts to convert an in-memory object (array or IEnumerable) into a native SeriesHandle.
-    let internal tryCreateSeriesHandle (name: string) (objVal: obj) : SeriesHandle option =
+    /// Converts an in-memory collection (array or IEnumerable) into a native SeriesHandle.
+    /// Conversion errors propagate with their original message instead of being reduced to a generic failure.
+    let internal createSeriesHandle (name: string) (objVal: obj) : SeriesHandle =
+        let checkedHandle (h: SeriesHandle) =
+            if isNull h || h.IsInvalid then
+                invalidOp (sprintf "Converting a %s to a Polars Series produced no series." (objVal.GetType().Name))
+            h
+
         match objVal with
-        | null -> None
-        | :? Array as arr ->
-            try
-                let h = SeriesFactory.Create(name, arr)
-                if not (isNull h || h.IsInvalid) then Some h else None
-            with _ ->
-                None
-        | :? IEnumerable as seq when seq.GetType() <> typeof<string> ->
-            try
-                let elemType =
-                    match PolarsTypeHelper.TryGetEnumerableElementType(seq.GetType()) with
-                    | null -> typeof<obj>
-                    | t -> t
+        | :? Array as arr -> SeriesFactory.Create(name, arr) |> checkedHandle
+        | :? IEnumerable as seq when not (seq :? string) ->
+            let elemType =
+                match PolarsTypeHelper.TryGetEnumerableElementType(seq.GetType()) with
+                | null -> typeof<obj>
+                | t -> t
 
-                let createGeneric =
-                    typeof<SeriesFactory>
-                        .GetMethod("CreateGenericType", BindingFlags.Public ||| BindingFlags.Static)
-                        .MakeGenericMethod(elemType)
+            let createGeneric =
+                typeof<SeriesFactory>
+                    .GetMethod("CreateGenericType", BindingFlags.Public ||| BindingFlags.Static)
+                    .MakeGenericMethod(elemType)
 
-                let h = createGeneric.Invoke(null, [| box name; seq |]) :?> SeriesHandle
-                if not (isNull h || h.IsInvalid) then Some h else None
-            with _ ->
-                None
-        | _ -> None
+            try
+                createGeneric.Invoke(null, [| box name; seq |]) :?> SeriesHandle |> checkedHandle
+            with :? TargetInvocationException as e when not (isNull e.InnerException) ->
+                Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw()
+                Unchecked.defaultof<_>
+        | null -> invalidArg (nameof objVal) "Cannot convert null to a Polars Series."
+        | other -> invalidArg (nameof objVal) (sprintf "Cannot convert a %s to a Polars Series." (other.GetType().Name))
 
     /// Materializes a symbolic JsonDataType into a native Polars DataTypeHandle.
     let rec internal lowerJsonDataType (dt: JsonDataType) : DataTypeHandle =
@@ -392,8 +393,8 @@ module internal PolarsScalarLowerer =
             | ScalarFunction.Shift, [ a; b ] -> PolarsWrapper.Shift(lower a, lower b)
             | ScalarFunction.Diff nb, [ a; b ] ->
                 PolarsWrapper.Diff(lower a, lower b, PolarsVocabulary.nullBehavior nb)
-            | ScalarFunction.Rank m, [ a; ScalarExpr.Literal(LiteralValue.Bool desc) ] ->
-                PolarsWrapper.Rank(lower a, PolarsVocabulary.rankMethod m, desc, Nullable())
+            | ScalarFunction.Rank(m, seed), [ a; ScalarExpr.Literal(LiteralValue.Bool desc) ] ->
+                PolarsWrapper.Rank(lower a, PolarsVocabulary.rankMethod m, desc, Option.toNullable seed)
             | ScalarFunction.PctChange, [ a; ScalarExpr.Literal(LiteralValue.Int64 n) ] -> PolarsWrapper.PctChange(lower a, n)
             | ScalarFunction.Interpolate m, [ a ] ->
                 PolarsWrapper.Interpolate(lower a, PolarsVocabulary.interpolationMethod m)
@@ -490,12 +491,8 @@ module internal PolarsScalarLowerer =
             let listH =
                 match source with
                 | InListSource.Collection(coll, _) ->
-                    match tryCreateSeriesHandle "in_vals" coll with
-                    | Some seriesHandle ->
-                        let seriesLit = PolarsWrapper.Lit seriesHandle
-                        PolarsWrapper.Implode(seriesLit, maintainOrder = false)
-                    | None ->
-                        failwith "Failed to convert collection to Polars Series in InList lowering"
+                    let seriesLit = PolarsWrapper.Lit(createSeriesHandle "in_vals" coll)
+                    PolarsWrapper.Implode(seriesLit, maintainOrder = false)
                 | InListSource.Literals _ ->
                     failwith "InListSource.Literals must be lowered via Disjunction or Collection"
             let isInH = PolarsWrapper.IsIn(innerH, listH, nullsEqual = true)

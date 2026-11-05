@@ -61,24 +61,24 @@ module internal OperatorAndUdfTranslator =
         elif op = ExpressionType.Equal && isNullConstantExpr left then
             translateNullCheckTarget right |> Option.map (fun x -> ScalarExpr.Unary(UnaryOp.IsNull, x))
         elif op = ExpressionType.LeftShift then
-            match eval ctx left, tryEvaluate right with
+            match eval ctx left, PartialEvaluator.tryEvaluate right with
             | Some leftS, Some nVal ->
                 try
                     let n = Convert.ToInt32 nVal
                     let dt = (LogicalTypes.tryOfClrType left.Type) |> Option.defaultValue LogicalType.Unknown
                     Some(ScalarExpr.Function(ScalarFunction.BitLeftShift, [ leftS; ScalarExpr.Literal(LiteralValue.Int32 n) ], dt))
-                with _ ->
+                with ConversionFailure ->
                     None
             | _ -> None
 
         elif op = ExpressionType.RightShift then
-            match eval ctx left, tryEvaluate right with
+            match eval ctx left, PartialEvaluator.tryEvaluate right with
             | Some leftS, Some nVal ->
                 try
                     let n = Convert.ToInt32 nVal
                     let dt = (LogicalTypes.tryOfClrType left.Type) |> Option.defaultValue LogicalType.Unknown
                     Some(ScalarExpr.Function(ScalarFunction.BitRightShift, [ leftS; ScalarExpr.Literal(LiteralValue.Int32 n) ], dt))
-                with _ ->
+                with ConversionFailure ->
                     None
             | _ -> None
         // Intercept String concatenation (+) to synthesize native string concatenation

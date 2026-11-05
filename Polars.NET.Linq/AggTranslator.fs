@@ -239,7 +239,7 @@ module AggTranslator =
         | Take(source, countExpr) ->
             evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
             |> Option.bind (fun prev ->
-                tryEvaluate countExpr
+                PartialEvaluator.tryEvaluate countExpr
                 |> Option.map (fun c ->
                     let count = Convert.ToInt64 c
                     let newSlice =
@@ -251,7 +251,7 @@ module AggTranslator =
         | Skip(source, countExpr) ->
             evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
             |> Option.bind (fun prev ->
-                tryEvaluate countExpr
+                PartialEvaluator.tryEvaluate countExpr
                 |> Option.map (fun c ->
                     let count = Convert.ToInt64 c
                     let newSlice =
@@ -319,42 +319,43 @@ module AggTranslator =
             Some finalTarget
 
     let private tryExtractSep (sepExpr: Expression) : string option =
-        match tryEvaluate sepExpr with
+        match PartialEvaluator.tryEvaluate sepExpr with
         | Some(:? string as sep) -> Some sep
         | Some(:? char as sep) -> Some(string sep)
         | _ -> None
 
     let private translateQuantileCall (targetS: ScalarExpr) (qExpr: Expression) (methodExprOpt: Expression option) : ScalarExpr option =
-        match tryEvaluate qExpr with
-        | Some qVal ->
-            try
-                let q = Convert.ToDouble qVal
-                let method =
-                    methodExprOpt
-                    |> Option.bind tryEvaluate
-                    |> Option.map tryExtractQuantileMethod
-                    |> Option.defaultValue QuantileMethod.Nearest
+        let qOpt =
+            match PartialEvaluator.tryEvaluate qExpr with
+            | Some(:? IConvertible as qVal) ->
+                try
+                    Some(Convert.ToDouble qVal)
+                with
+                | :? FormatException
+                | :? InvalidCastException
+                | :? OverflowException -> None
+            | _ -> None
 
-                Some(
-                    ScalarExpr.Function(
-                        ScalarFunction.Quantile method,
-                        [ targetS; ScalarExpr.Literal(LiteralValue.Float64 q) ],
-                        LogicalTypes.Float64
-                    )
+        // An explicit method that cannot be evaluated is untranslatable, never replaced by the default.
+        let methodOpt =
+            match methodExprOpt with
+            | None -> Some QuantileMethod.Nearest
+            | Some methodExpr -> PartialEvaluator.tryEvaluate methodExpr |> Option.map quantileMethodOf
+
+        match qOpt, methodOpt with
+        | Some q, Some method ->
+            Some(
+                ScalarExpr.Function(
+                    ScalarFunction.Quantile method,
+                    [ targetS; ScalarExpr.Literal(LiteralValue.Float64 q) ],
+                    LogicalTypes.Float64
                 )
-            with _ ->
-                None
+            )
         | _ -> None
 
     // =========================================================================
     // 4. Core Recursive Aggregation Translator
     // =========================================================================
-
-    let rec private unwrapQuoteOnly (e: Expression) =
-        match e with
-        | null -> null
-        | Unary(ExpressionType.Quote, inner) -> unwrapQuoteOnly inner
-        | other -> other
 
     let private isIntermediateSequenceMethod (m: MethodInfo) =
         if isNull m then false
@@ -387,7 +388,7 @@ module AggTranslator =
         (expr: Expression)
         : ScalarExpr option =
 
-        let cleanExpr = unwrapQuoteOnly expr
+        let (StripQuotes cleanExpr) = expr
 
         match cleanExpr with
         // ---------------------------------------------------------------------
@@ -475,7 +476,7 @@ module AggTranslator =
         // ---------------------------------------------------------------------
         | MethodCall(m, null, [ GroupSeqChain groupParamName seq; CleanLambda selector; ddof ]) when
             m.Name = "Std" || m.Name = "StdDev" || m.Name = "Var" || m.Name = "Variance" ->
-            match tryEvaluate ddof with
+            match PartialEvaluator.tryEvaluate ddof with
             | Some ddofVal ->
                 let ddofByte = Convert.ToByte ddofVal
                 evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap (Select(seq, selector))
@@ -486,7 +487,7 @@ module AggTranslator =
         | MethodCall(m, null, [ GroupSeqChain groupParamName seq; ddof ]) when
             (m.Name = "Std" || m.Name = "StdDev" || m.Name = "Var" || m.Name = "Variance")
             && not (match ddof with CleanLambda _ -> true | _ -> false) ->
-            match tryEvaluate ddof with
+            match PartialEvaluator.tryEvaluate ddof with
             | Some ddofVal ->
                 let ddofByte = Convert.ToByte ddofVal
                 evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq
@@ -546,7 +547,7 @@ module AggTranslator =
         | MethodCall(m, null, [ GroupSeqChain groupParamName seq; indexExpr ]) when
             m.Name = "ElementAt" || m.Name = "ElementAtOrDefault"
             ->
-            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq, tryEvaluate indexExpr with
+            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq, PartialEvaluator.tryEvaluate indexExpr with
             | Some resolved, Some idxVal ->
                 let idx = Convert.ToInt64 idxVal
                 getFilteredTarget resolved
@@ -685,8 +686,9 @@ module AggTranslator =
                                 Some(ScalarExpr.Udf(methodName, scalarArgs, retPlType, UdfInvoker.GroupMultiBatch(box arrowCallback, expr.Type, returnsScalar)))
                             else
                                 None
-        with _ ->
-            None
+        with
+        | :? InvalidQueryArgumentException -> reraise ()
+        | _ -> None
 
     // =========================================================================
     // 5. Public API: Group Aggregation Translation with Alias

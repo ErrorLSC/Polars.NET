@@ -14,78 +14,65 @@ open System.Reflection
 [<AutoOpen>]
 module internal WindowAndMethodTranslator =
 
-    /// Maps the user-facing Polars rank method to the IR vocabulary.
-    let private ofPlRankMethod (m: PlRankMethod) : RankMethod =
-        match m with
+    /// Reads a method-enum argument as a defined member of the Polars enum `'E`.
+    /// The public Polars.CSharp enums mirror the Pl* enums value for value, so any enum or integer whose value
+    /// is a defined member is accepted. Anything else is rejected: silently substituting a default method
+    /// would compute a different result than the one the caller asked for.
+    let private toPlEnum<'E when 'E: enum<byte> and 'E: struct and 'E: (new: unit -> 'E) and 'E :> ValueType>
+        (what: string)
+        (value: obj)
+        : 'E =
+        let invalid () =
+            InvalidQueryArgumentException(what, sprintf "%O is not a valid %s." value what) |> raise
+
+        let raw =
+            match value with
+            | :? Enum
+            | :? byte
+            | :? sbyte
+            | :? int16
+            | :? uint16
+            | :? int
+            | :? uint32
+            | :? int64 -> Convert.ToInt64 value
+            | _ -> invalid ()
+
+        if raw < 0L || raw > 255L || not (Enum.IsDefined(typeof<'E>, byte raw)) then
+            invalid ()
+
+        LanguagePrimitives.EnumOfValue<byte, 'E>(byte raw)
+
+    let private rankMethodOf (value: obj) : RankMethod =
+        match toPlEnum<PlRankMethod> "rank method" value with
+        | PlRankMethod.Average -> RankMethod.Average
         | PlRankMethod.Min -> RankMethod.Min
         | PlRankMethod.Max -> RankMethod.Max
         | PlRankMethod.Dense -> RankMethod.Dense
         | PlRankMethod.Ordinal -> RankMethod.Ordinal
         | PlRankMethod.Random -> RankMethod.Random
-        | _ -> RankMethod.Average
+        | other -> invalidOp (sprintf "[Polars.NET.Linq Bug] Rank method %O has no IR mapping." other)
 
-    /// Maps the user-facing Polars interpolation method to the IR vocabulary.
-    let private ofPlInterpolationMethod (m: PlInterpolationMethod) : InterpolationMethod =
-        match m with
+    let private interpolationMethodOf (value: obj) : InterpolationMethod =
+        match toPlEnum<PlInterpolationMethod> "interpolation method" value with
+        | PlInterpolationMethod.Linear -> InterpolationMethod.Linear
         | PlInterpolationMethod.Nearest -> InterpolationMethod.Nearest
-        | _ -> InterpolationMethod.Linear
+        | other -> invalidOp (sprintf "[Polars.NET.Linq Bug] Interpolation method %O has no IR mapping." other)
 
-    /// Maps the user-facing Polars quantile method to the IR vocabulary.
-    let private ofPlQuantileMethod (m: PlQuantileMethod) : QuantileMethod =
-        match m with
+    let private nullBehaviorOf (value: obj) : NullBehavior =
+        match toPlEnum<PlNullBehavior> "null behavior" value with
+        | PlNullBehavior.Ignore -> NullBehavior.Ignore
+        | PlNullBehavior.Drop -> NullBehavior.Drop
+        | other -> invalidOp (sprintf "[Polars.NET.Linq Bug] Null behavior %O has no IR mapping." other)
+
+    let internal quantileMethodOf (value: obj) : QuantileMethod =
+        match toPlEnum<PlQuantileMethod> "quantile method" value with
+        | PlQuantileMethod.Nearest -> QuantileMethod.Nearest
         | PlQuantileMethod.Higher -> QuantileMethod.Higher
         | PlQuantileMethod.Lower -> QuantileMethod.Lower
         | PlQuantileMethod.Midpoint -> QuantileMethod.Midpoint
         | PlQuantileMethod.Linear -> QuantileMethod.Linear
         | PlQuantileMethod.Equiprobable -> QuantileMethod.Equiprobable
-        | _ -> QuantileMethod.Nearest
-
-    /// Maps the user-facing Polars null behavior to the IR vocabulary.
-    let private ofPlNullBehavior (nb: PlNullBehavior) : NullBehavior =
-        match nb with
-        | PlNullBehavior.Drop -> NullBehavior.Drop
-        | _ -> NullBehavior.Ignore
-
-    let private tryExtractPlRankMethod (value: obj) : PlRankMethod =
-        match value with
-        | :? PlRankMethod as pm -> pm
-        | null -> PlRankMethod.Average
-        | other ->
-            try
-                let byteVal = Convert.ToByte other
-                LanguagePrimitives.EnumOfValue<byte, PlRankMethod> byteVal
-            with _ ->
-                PlRankMethod.Average
-
-    let private tryExtractPlInterpolationMethod (value: obj) : PlInterpolationMethod =
-        match value with
-        | :? PlInterpolationMethod as pm -> pm
-        | null -> PlInterpolationMethod.Linear
-        | other ->
-            try
-                let byteVal = Convert.ToByte other
-                LanguagePrimitives.EnumOfValue<byte, PlInterpolationMethod> byteVal
-            with _ ->
-                PlInterpolationMethod.Linear
-
-    let private tryExtractPlQuantileMethod (value: obj) : PlQuantileMethod =
-        match value with
-        | :? PlQuantileMethod as pm -> pm
-        | null -> PlQuantileMethod.Nearest
-        | other ->
-            try
-                let byteVal = Convert.ToByte other
-                LanguagePrimitives.EnumOfValue<byte, PlQuantileMethod> byteVal
-            with _ ->
-                PlQuantileMethod.Nearest
-
-    let private tryExtractRankMethod (value: obj) : RankMethod = tryExtractPlRankMethod value |> ofPlRankMethod
-
-    let private tryExtractInterpolationMethod (value: obj) : InterpolationMethod =
-        tryExtractPlInterpolationMethod value |> ofPlInterpolationMethod
-
-    let internal tryExtractQuantileMethod (value: obj) : QuantileMethod =
-        tryExtractPlQuantileMethod value |> ofPlQuantileMethod
+        | other -> invalidOp (sprintf "[Polars.NET.Linq Bug] Quantile method %O has no IR mapping." other)
 
     let private isIntegerType (t: Type) =
         t = typeof<int>
@@ -105,12 +92,12 @@ module internal WindowAndMethodTranslator =
         let targetS () = eval ctx target
 
         let resolveOffset (expr: Expression) : ScalarExpr option =
-            match tryEvaluate expr with
+            match PartialEvaluator.tryEvaluate expr with
             | Some nVal ->
                 try
                     let intVal = Convert.ToInt64 nVal
                     Some(ScalarExpr.Literal(LiteralValue.Int64 intVal))
-                with _ ->
+                with ConversionFailure ->
                     eval ctx expr
             | None ->
                 eval ctx expr
@@ -133,12 +120,12 @@ module internal WindowAndMethodTranslator =
         let targetS () = eval ctx target
 
         let resolveN nExpr =
-            match tryEvaluate nExpr with
+            match PartialEvaluator.tryEvaluate nExpr with
             | Some nVal ->
                 try
                     let intVal = Convert.ToInt64 nVal
                     Some(ScalarExpr.Literal(LiteralValue.Int64 intVal))
-                with _ ->
+                with ConversionFailure ->
                     eval ctx nExpr
             | None -> eval ctx nExpr
 
@@ -153,9 +140,9 @@ module internal WindowAndMethodTranslator =
                 Some(ScalarExpr.Function(ScalarFunction.Diff NullBehavior.Ignore, [ eS; nS ], LogicalType.Unknown))
             | _ -> None
         | [ nExpr; nbExpr ] ->
-            match targetS (), resolveN nExpr, tryEvaluate nbExpr with
-            | Some eS, Some nS, Some(:? PlNullBehavior as nb) ->
-                Some(ScalarExpr.Function(ScalarFunction.Diff(ofPlNullBehavior nb), [ eS; nS ], LogicalType.Unknown))
+            match targetS (), resolveN nExpr, PartialEvaluator.tryEvaluate nbExpr with
+            | Some eS, Some nS, Some nb ->
+                Some(ScalarExpr.Function(ScalarFunction.Diff(nullBehaviorOf nb), [ eS; nS ], LogicalType.Unknown))
             | _ -> None
         | _ -> None
 
@@ -170,33 +157,37 @@ module internal WindowAndMethodTranslator =
         | [] ->
             targetS ()
             |> Option.map (fun eS ->
-                ScalarExpr.Function(ScalarFunction.Rank RankMethod.Average, [ eS; ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalType.Unknown))
+                ScalarExpr.Function(ScalarFunction.Rank(RankMethod.Average, None), [ eS; ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalType.Unknown))
 
         | [ descExpr ] when descExpr.Type = typeof<bool> ->
-            match targetS (), tryEvaluate descExpr with
+            match targetS (), PartialEvaluator.tryEvaluate descExpr with
             | Some eS, Some(:? bool as desc) ->
-                Some(ScalarExpr.Function(ScalarFunction.Rank RankMethod.Average, [ eS; ScalarExpr.Literal(LiteralValue.Bool desc) ], LogicalType.Unknown))
+                Some(ScalarExpr.Function(ScalarFunction.Rank(RankMethod.Average, None), [ eS; ScalarExpr.Literal(LiteralValue.Bool desc) ], LogicalType.Unknown))
             | _ -> None
 
         | [ methodExpr ] ->
-            match targetS (), tryEvaluate methodExpr with
+            match targetS (), PartialEvaluator.tryEvaluate methodExpr with
             | Some eS, Some mObj ->
-                let m = tryExtractRankMethod mObj
-                Some(ScalarExpr.Function(ScalarFunction.Rank m, [ eS; ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalType.Unknown))
+                Some(ScalarExpr.Function(ScalarFunction.Rank(rankMethodOf mObj, None), [ eS; ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalType.Unknown))
             | _ -> None
 
         | [ methodExpr; descExpr ] ->
-            match targetS (), tryEvaluate methodExpr, tryEvaluate descExpr with
+            match targetS (), PartialEvaluator.tryEvaluate methodExpr, PartialEvaluator.tryEvaluate descExpr with
             | Some eS, Some mObj, Some(:? bool as desc) ->
-                let m = tryExtractRankMethod mObj
-                Some(ScalarExpr.Function(ScalarFunction.Rank m, [ eS; ScalarExpr.Literal(LiteralValue.Bool desc) ], LogicalType.Unknown))
+                Some(ScalarExpr.Function(ScalarFunction.Rank(rankMethodOf mObj, None), [ eS; ScalarExpr.Literal(LiteralValue.Bool desc) ], LogicalType.Unknown))
             | _ -> None
 
         | [ methodExpr; descExpr; seedExpr ] ->
-            match targetS (), tryEvaluate methodExpr, tryEvaluate descExpr, tryEvaluate seedExpr with
-            | Some eS, Some mObj, Some(:? bool as desc), Some _seedObj ->
-                let m = tryExtractRankMethod mObj
-                Some(ScalarExpr.Function(ScalarFunction.Rank m, [ eS; ScalarExpr.Literal(LiteralValue.Bool desc) ], LogicalType.Unknown))
+            // Some(Some seed) for a value, Some None for a null ulong?; None when the seed cannot be evaluated.
+            let seedOpt =
+                match PartialEvaluator.tryEvaluate seedExpr with
+                | Some(:? uint64 as seed) -> Some(Some seed)
+                | Some null -> Some None
+                | _ -> None
+
+            match targetS (), PartialEvaluator.tryEvaluate methodExpr, PartialEvaluator.tryEvaluate descExpr, seedOpt with
+            | Some eS, Some mObj, Some(:? bool as desc), Some seed ->
+                Some(ScalarExpr.Function(ScalarFunction.Rank(rankMethodOf mObj, seed), [ eS; ScalarExpr.Literal(LiteralValue.Bool desc) ], LogicalType.Unknown))
             | _ -> None
 
         | _ -> None
@@ -211,7 +202,7 @@ module internal WindowAndMethodTranslator =
         match args with
         | [] -> targetS () |> Option.map (fun eS -> ScalarExpr.Function(ScalarFunction.PctChange, [ eS; ScalarExpr.Literal(LiteralValue.Int64 1L) ], LogicalType.Unknown))
         | [ nExpr ] ->
-            match targetS (), tryEvaluate nExpr with
+            match targetS (), PartialEvaluator.tryEvaluate nExpr with
             | Some eS, Some nVal -> Some(ScalarExpr.Function(ScalarFunction.PctChange, [ eS; ScalarExpr.Literal(LiteralValue.Int64(Convert.ToInt64 nVal)) ], LogicalType.Unknown))
             | _ -> None
         | _ -> None
@@ -224,13 +215,8 @@ module internal WindowAndMethodTranslator =
         match eval ctx target with
         | None -> None
         | Some targetS ->
-            let unwrapArg (arg: Expression) : Expression =
-                match unwrap arg with
-                | null -> null
-                | other -> other
-
             let extractList (arg: Expression) : Expression list =
-                match unwrapArg arg with
+                match unwrap arg with
                 | null -> []
                 | :? NewExpression as ne -> ne.Arguments |> Seq.toList
                 | :? NewArrayExpression as nae -> nae.Expressions |> Seq.toList
@@ -273,7 +259,7 @@ module internal WindowAndMethodTranslator =
                 | [ pArg ] ->
                     extractList pArg, [], false
                 | [ pArg; oArg ] when oArg.Type = typeof<bool> ->
-                    let desc = match tryEvaluate oArg with Some (:? bool as b) -> b | _ -> false
+                    let desc = match PartialEvaluator.tryEvaluate oArg with Some (:? bool as b) -> b | _ -> false
                     extractList pArg, [], desc
                 | [ pArg; oArg ] ->
                     if isOrderSensitive target then
@@ -281,7 +267,7 @@ module internal WindowAndMethodTranslator =
                     else
                         extractList pArg @ extractList oArg, [], false
                 | pArg :: oArg :: descArg :: _ when descArg.Type = typeof<bool> ->
-                    let desc = match tryEvaluate descArg with Some (:? bool as b) -> b | _ -> false
+                    let desc = match PartialEvaluator.tryEvaluate descArg with Some (:? bool as b) -> b | _ -> false
                     if desc || isOrderSensitive target then
                         extractList pArg, extractList oArg, desc
                     else
@@ -332,7 +318,7 @@ module internal WindowAndMethodTranslator =
             |> Option.bind (translateDispersionOp m.Name 1uy)
 
         | ("Std" | "StdDev" | "Var" | "Variance"), [ ddofExpr ] ->
-            match eval ctx effectiveTarget, tryEvaluate ddofExpr with
+            match eval ctx effectiveTarget, PartialEvaluator.tryEvaluate ddofExpr with
             | Some colS, Some ddofVal ->
                 let ddof = Convert.ToByte ddofVal
                 translateDispersionOp m.Name ddof colS
@@ -355,7 +341,7 @@ module internal WindowAndMethodTranslator =
         let reverse =
             match effectiveArgs with
             | [ revExpr ] ->
-                match tryEvaluate revExpr with
+                match PartialEvaluator.tryEvaluate revExpr with
                 | Some(:? bool as r) -> r
                 | _ -> false
             | _ -> false
@@ -388,12 +374,9 @@ module internal WindowAndMethodTranslator =
             |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.Interpolate InterpolationMethod.Linear, [ s ], LogicalType.Unknown))
 
         | "Interpolate", [ methodExpr ] ->
-            match eval ctx effectiveTarget, tryEvaluate methodExpr with
+            match eval ctx effectiveTarget, PartialEvaluator.tryEvaluate methodExpr with
             | Some targetS, Some methodVal ->
-                let method = tryExtractInterpolationMethod methodVal
-                Some(ScalarExpr.Function(ScalarFunction.Interpolate method, [ targetS ], LogicalType.Unknown))
-            | Some targetS, None ->
-                Some(ScalarExpr.Function(ScalarFunction.Interpolate InterpolationMethod.Linear, [ targetS ], LogicalType.Unknown))
+                Some(ScalarExpr.Function(ScalarFunction.Interpolate(interpolationMethodOf methodVal), [ targetS ], LogicalType.Unknown))
             | _ -> None
 
         | "InterpolateBy", [ byExpr ] ->
@@ -416,22 +399,22 @@ module internal WindowAndMethodTranslator =
 
         match effectiveArgs with
         | [ qExpr ] ->
-            match eval ctx effectiveTarget, tryEvaluate qExpr with
+            match eval ctx effectiveTarget, PartialEvaluator.tryEvaluate qExpr with
             | Some targetS, Some qVal ->
                 try
                     let q = Convert.ToDouble qVal
                     Some(ScalarExpr.Aggregation(AggKind.Quantile q, Some targetS, false))
-                with _ ->
+                with ConversionFailure ->
                     None
             | _ -> None
 
         | [ qExpr; _methodExpr ] ->
-            match eval ctx effectiveTarget, tryEvaluate qExpr with
+            match eval ctx effectiveTarget, PartialEvaluator.tryEvaluate qExpr with
             | Some targetS, Some qVal ->
                 try
                     let q = Convert.ToDouble qVal
                     Some(ScalarExpr.Aggregation(AggKind.Quantile q, Some targetS, false))
-                with _ ->
+                with ConversionFailure ->
                     None
             | _ -> None
 
@@ -684,7 +667,7 @@ module internal WindowAndMethodTranslator =
                 |> Option.bind (tryTranslateCast typeof<string>)
 
             | "ToString", [ formatExpr ] ->
-                match eval ctx target, tryEvaluate formatExpr with
+                match eval ctx target, PartialEvaluator.tryEvaluate formatExpr with
                 | Some t, Some(:? string as fmt) ->
                     if fmt.StartsWith("F", StringComparison.OrdinalIgnoreCase) then
                         let scale =
