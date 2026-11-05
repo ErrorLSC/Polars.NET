@@ -86,6 +86,9 @@ type internal ScalarSource =
         /// evaluated with LINQ-to-Objects over the enumerated rows and never reach the native terminal paths.
         RequiresClientEvaluation: bool
         ClientProjection: (Type * Func<obj, obj>) option
+        /// True when the plan's rows are a transparent identifier whose entities are still flat columns
+        /// (CompiledLogicalQuery.RowScopes): its rows are read through the enumerated source, which packs them.
+        HasRowScopes: bool
     }
 
 /// Pure planner for LINQ scalar & single-row terminal operations
@@ -314,18 +317,24 @@ module internal ScalarPlanner =
                             Plan = sources.Graft(compiled.Plan, compiled.Sources)
                             RequiresClientEvaluation = requiresClientEvaluation
                             ClientProjection = clientProjOpt
+                            HasRowScopes = not compiled.RowScopes.IsEmpty
                         }
                     | _ -> failwithf "Unable to extract a logical plan from query source: %A" src
                 sourceCache.[src] <- resolved
                 resolved
 
-        /// Whether the terminal's source has client predicates or full client fallback. Grouping sources and
-        /// Aggregate already evaluate over the enumerated source and are excluded.
+        /// Whether the terminal's source has client predicates or full client fallback, or reads rows whose
+        /// entities are still flat join scopes (only a plain count or existence check does not). Grouping
+        /// sources and Aggregate already evaluate over the enumerated source and are excluded.
         let requiresClientEvaluation (m: MethodInfo) (source: Expression) : bool =
             let elemType = getSequenceElementType source.Type
+            let src = resolveSource source
+            let isRowCountOnly =
+                (m.Name = "Count" || m.Name = "LongCount" || m.Name = "Any") && m.GetParameters().Length = 1
+
             m.Name <> "Aggregate"
             && not (isGroupingType elemType)
-            && (resolveSource source).RequiresClientEvaluation
+            && (src.RequiresClientEvaluation || src.HasRowScopes && not isRowCountOnly)
 
         /// Evaluates the terminal with LINQ-to-Objects over the rows produced by enumerating the source query.
         /// Enumeration applies client predicates / full fallback (and the pipeline policy) exactly like ToList().

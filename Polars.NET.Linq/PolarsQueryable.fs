@@ -99,6 +99,30 @@ and PolarsQuery<'T>
     let isScalar = PolarsTypeHelper.IsScalarType targetType
     let isGrouping = isGroupingType targetType
 
+    /// The type the rows of the native plan are materialized as: the grouped element when the query yields
+    /// groups, the source of AggregateBy, the element of Chunk's arrays, otherwise the query's element type.
+    let materializedRowType (stages: LinqStage list) : Type =
+        stages
+        |> List.tryPick (function
+            | LinqStage.GroupByKey k
+            | LinqStage.GroupByWithResult(k, _)
+            | LinqStage.GroupByWithElementAndResult(k, _, _) when isGrouping -> Some k.Parameters.[0].Type
+            | LinqStage.AggregateBy(k, _, _, _) -> Some k.Parameters.[0].Type
+            | LinqStage.Chunk _ when targetType.IsArray -> Some(targetType.GetElementType())
+            | _ -> None)
+        |> Option.defaultValue targetType
+
+    /// Packs the entities of the join scopes still in effect over the plan's rows into struct columns, so the
+    /// rows materialize as their element type; escalates to LINQ-to-Objects when an entity has no columns.
+    let forMaterialization (stages: LinqStage list) (compiled: CompiledLogicalQuery) : CompiledLogicalQuery =
+        if compiled.RowScopes.IsEmpty then
+            compiled
+        else
+            match EntityPacking.packRow compiled.RowScopes compiled.Plan (materializedRowType stages) with
+            | RowPacking.NotNeeded -> compiled
+            | RowPacking.Packed plan -> { compiled with Plan = plan; RowScopes = Map.empty }
+            | RowPacking.Unresolvable -> { compiled with Residual = ClientResidual.LinqToObjects }
+
     let expression =
         match exprOpt with
         | Some e -> e
@@ -205,7 +229,7 @@ and PolarsQuery<'T>
         let compilesNatively (prefix: Expression) =
             try
                 match (provider :> IQueryProvider).CreateQuery prefix with
-                | :? IPolarsInternalExplainable as q -> q.CompileLogicalQuery().Residual <> ClientResidual.LinqToObjects
+                | :? IPolarsInternalExplainable as q -> q.IsNativelyExecutable()
                 | _ -> false
             with _ ->
                 false
@@ -242,7 +266,7 @@ and PolarsQuery<'T>
     /// enforcing the client evaluation policy.
     member private this.GetCompiledPlan() : LazyFrameHandle * ClientResidual * LinqStage list =
         let pipeline = this.CompilePipeline false
-        let compiled = pipeline.Compiled
+        let compiled = forMaterialization pipeline.Stages pipeline.Compiled
         let nativeLf = PolarsPhysicalLowerer.lowerPlan compiled.Sources compiled.Plan
 
         enforcePipelinePolicy
@@ -641,7 +665,7 @@ and PolarsQuery<'T>
 
     member this.GetPlanInspection(optimized: bool) : PlanInspection =
         let pipeline = this.CompilePipeline false
-        let compiled = pipeline.Compiled
+        let compiled = forMaterialization pipeline.Stages pipeline.Compiled
         let nativeLf = PolarsPhysicalLowerer.lowerPlan compiled.Sources compiled.Plan
         let planStr = PolarsWrapper.Explain(nativeLf, optimized)
         let stages = pipeline.Stages
@@ -715,6 +739,10 @@ and PolarsQuery<'T>
     interface IPolarsInternalExplainable with
         member this.CompileLogicalQuery() = this.CompileLogicalQuery()
         member this.TryGetPureLogicalPlan() = this.TryGetPureLogicalPlan()
+
+        member this.IsNativelyExecutable() =
+            let pipeline = this.CompilePipeline false
+            (forMaterialization pipeline.Stages pipeline.Compiled).Residual <> ClientResidual.LinqToObjects
 
     interface IAsyncEnumerable<'T> with
         member this.GetAsyncEnumerator(cancellationToken: CancellationToken) : IAsyncEnumerator<'T> =

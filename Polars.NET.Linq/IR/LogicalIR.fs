@@ -875,9 +875,16 @@ type CompiledLogicalQuery =
         Plan: LogicalPlan
         Sources: SourceBinding array
         Residual: ClientResidual
+        /// Join scopes still in effect over the plan's rows: (scope, member) -> physical column. Non-empty when
+        /// the rows are a transparent identifier whose entities are kept as flat columns; a consumer that
+        /// materializes the elements packs those entities first (EntityPacking.packRow), while one that grafts
+        /// the plan reads the flat columns.
+        RowScopes: Map<string * string, string>
     }
 
 /// Internal interface implemented by PolarsQueryable to expose IR compilation for testing, inspection, and subtree grafting.
 type internal IPolarsInternalExplainable =
     abstract member CompileLogicalQuery: unit -> CompiledLogicalQuery
     abstract member TryGetPureLogicalPlan: unit -> (LogicalPlan * SourceBinding array) option
+    /// Whether the query's rows can be produced by a native plan, without full LINQ-to-Objects fallback.
+    abstract member IsNativelyExecutable: unit -> bool

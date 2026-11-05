@@ -33,6 +33,73 @@ module internal TreeBuilder =
         | Some resSel when not (isTransparentJoinResSelector resSel) -> ConcreteResSelector resSel
         | _ -> TransparentOrNoResSelector
 
+    /// Registers the names a two-parameter result selector gives the joined sides as scopes: its parameters,
+    /// which may differ from the key selectors', and the members a transparent selector binds them to
+    /// (`new { E = x, D = y }`), so that `t.D.Name` resolves to the right side's column. `leftScope` is None
+    /// when the left side is itself a transparent identifier rather than one entity.
+    let private aliasResultSelectorScopes
+        (leftScope: string option)
+        (rightScope: string)
+        (resSelOpt: LambdaExpression option)
+        (scopeMap: Map<string * string, string>)
+        : Map<string * string, string> =
+        let copyScope (fromScope: string) (toScope: string) (m: Map<string * string, string>) =
+            if fromScope = toScope then
+                m
+            else
+                m |> Map.fold (fun acc (s, c) phys -> if s = fromScope then Map.add (toScope, c) phys acc else acc) m
+
+        match resSelOpt with
+        | Some resSel when resSel.Parameters.Count >= 2 ->
+            let pLeft, pRight = resSel.Parameters.[0].Name, resSel.Parameters.[1].Name
+            let withParams =
+                match leftScope with
+                | Some l -> scopeMap |> copyScope l pLeft |> copyScope rightScope pRight
+                | None -> scopeMap |> copyScope rightScope pRight
+
+            match tryExtractMemberBindings resSel.Body with
+            | Some bindings ->
+                bindings
+                |> List.fold (fun acc (memberName, expr) ->
+                    match ExpressionPatterns.unwrap expr with
+                    | :? ParameterExpression as p when p.Name = pRight -> copyScope pRight memberName acc
+                    | :? ParameterExpression as p when p.Name = pLeft && leftScope.IsSome -> copyScope pLeft memberName acc
+                    | _ -> acc) withParams
+            | None -> withParams
+        | _ -> scopeMap
+
+    /// Scopes of a transparent `let` projection (`x => new { x, f = ... }`), which keeps the row's columns and
+    /// appends the computed ones: a member bound to the row parameter becomes a scope over the row's columns,
+    /// and a member bound to an existing scope under another name aliases it.
+    let private registerLetScopes
+        (scopeMap: Map<string * string, string>)
+        (plan: LogicalPlan)
+        (lam: LambdaExpression)
+        : Map<string * string, string> =
+        match tryExtractMemberBindings lam.Body with
+        | Some bindings when EntityPacking.isAnonymousType lam.ReturnType ->
+            let rowParam = lam.Parameters.[0]
+            let rowCols = (SchemaInference.inferPlanSchema plan).ColumnNames
+
+            bindings
+            |> List.fold (fun acc (memberName, expr) ->
+                match ExpressionPatterns.unwrap expr with
+                | :? ParameterExpression as p when p.Name = rowParam.Name && scopeMap.IsEmpty && not (isTupleOrAnonType p.Type) ->
+                    rowCols |> List.fold (fun m c -> Map.add (memberName, c) c m) acc
+                | e when not scopeMap.IsEmpty ->
+                    match ColumnResolver.tryExtractScopeName e with
+                    | Some scope when scope <> memberName ->
+                        scopeMap |> Map.fold (fun m (s, c) phys -> if s = scope then Map.add (memberName, c) phys m else m) acc
+                    | _ -> acc
+                | _ -> acc) scopeMap
+        | _ -> scopeMap
+
+    /// Rows a client predicate cannot receive from the native plan: tuples and F# AnonymousObject, which the
+    /// materializer reads by position and suffix conventions. A C# anonymous type, transparent identifiers
+    /// included, materializes once its scope entities are packed (EntityPacking.packRow).
+    let private isUnmaterializableClientRow (t: Type) =
+        isTupleOrAnonType t && not (EntityPacking.isAnonymousType t)
+
     /// Disambiguates duplicate column names in a LogicalPlan against an existing set of columns by appending a suffix.
     let private disambiguatePlanColumns
         (existingCols: Set<string>)
@@ -65,7 +132,8 @@ module internal TreeBuilder =
             |> Option.map (fun s -> [ s ])
 
     /// Extracts projection bindings (name * ScalarExpr) from a projection LambdaExpression.
-    let private extractProjections (ctx: TranslationContext) (body: Expression) : (string * ScalarExpr) list option =
+    /// Whole entities among the members (a join scope, or the row parameter itself) become struct columns.
+    let private extractProjections (ctx: TranslationContext) (plan: LogicalPlan) (body: Expression) : (string * ScalarExpr) list option =
         match tryExtractMemberBindings (ExpressionPatterns.unwrap body) with
         | Some bindings ->
             let splitMaxMap =
@@ -83,7 +151,7 @@ module internal TreeBuilder =
                 let exprOpts =
                     bindings
                     |> List.map (fun (name, expr) ->
-                        name, expr, ExprTranslator.tryTranslateToScalar ctx expr)
+                        name, expr, EntityPacking.tryTranslateMember ctx plan expr)
                 let failed = exprOpts |> List.filter (fun (_, _, opt) -> opt.IsNone)
                 if failed.IsEmpty then
                     Some(exprOpts |> List.map (fun (name, _, opt) -> name, opt.Value))
@@ -124,6 +192,7 @@ module internal TreeBuilder =
 
     let private tryExtractJoinProjections
         (ctx: TranslationContext)
+        (plan: LogicalPlan)
         (pLeft: ParameterExpression)
         (pRight: ParameterExpression)
         (leftCols: string list)
@@ -148,20 +217,7 @@ module internal TreeBuilder =
                 let physCol = if firstColSet.Contains c then c + secondSuffix else c
                 c, ScalarExpr.Column physCol))
         | _ ->
-            extractProjections ctx unwrapped
-
-    /// Struct of a group element's columns, used by aggregations over whole rows (g.ToList(), g.Distinct(), ...).
-    /// Built only when every property of the element type is a column of the input plan: a projection's
-    /// anonymous type qualifies, a join's pair of entities (transparent identifier) does not.
-    let private tryWholeRowStruct (elemType: Type) (cols: string list) : ScalarExpr option =
-        let props = PolarsTypeHelper.GetModelProperties elemType
-        let available = set cols
-
-        if props.Length > 0 && props |> Array.forall (fun p -> available.Contains p.Name) then
-            let colExprs = props |> Array.map (fun p -> ScalarExpr.Column p.Name) |> Array.toList
-            Some(ScalarExpr.Function(ScalarFunction.AsStruct, colExprs, LogicalType.Unknown))
-        else
-            None
+            extractProjections ctx plan unwrapped
 
     /// Helper to translate a single group-by reduction/aggregation into a pure ScalarExpr.
     let private tryTranslateGroupByAggScalar
@@ -304,7 +360,7 @@ module internal TreeBuilder =
         let effectiveScopeMap = elemScoreMapOpt |> Option.defaultValue scopeMap
         let elemType = keyParam.Type
 
-        let wholeRowStructOpt = tryWholeRowStruct elemType cols
+        let wholeRowStructOpt = EntityPacking.tryWholeRowStruct elemType cols
 
         let translateKeyPart (e: Expression) : ScalarExpr option =
             match ExprTranslator.tryTranslateToScalar keyCtx e with
@@ -818,7 +874,7 @@ module internal TreeBuilder =
         let keyCtx = PipelineStageParser.createContextWithScopeAndCols scopeMap keyParam.Type cols keyParam.Name
         let elemType = keyParam.Type
 
-        let wholeRowStructOpt = tryWholeRowStruct elemType cols
+        let wholeRowStructOpt = EntityPacking.tryWholeRowStruct elemType cols
 
         let translateKeyPart (e: Expression) : ScalarExpr option =
             match ExprTranslator.tryTranslateToScalar keyCtx e with
@@ -1595,22 +1651,30 @@ module internal TreeBuilder =
                 Plan = initialPlan
                 Sources = [||]
                 Residual = ClientResidual.None
+                RowScopes = Map.empty
             }
 
         let fallback (state: CompiledLogicalQuery) : CompiledLogicalQuery =
             { state with Residual = ClientResidual.LinqToObjects }
 
-        let appendClientOp (op: ClientRowOp) (state: CompiledLogicalQuery) : CompiledLogicalQuery =
+        /// Appends a client row operation. The first one ends the native plan, whose rows are then
+        /// materialized as the operation's input type, so the entities of the join scopes still in effect
+        /// are packed into struct columns first.
+        let appendClientOp (scopeMap: Map<string * string, string>) (op: ClientRowOp) (state: CompiledLogicalQuery) : CompiledLogicalQuery =
             match state.Residual with
-            | ClientResidual.None -> { state with Residual = ClientResidual.RowOps [ op ] }
+            | ClientResidual.None ->
+                match EntityPacking.packRow scopeMap state.Plan op.Lambda.Parameters.[0].Type with
+                | RowPacking.NotNeeded -> { state with Residual = ClientResidual.RowOps [ op ] }
+                | RowPacking.Packed plan -> { state with Plan = plan; Residual = ClientResidual.RowOps [ op ] }
+                | RowPacking.Unresolvable -> fallback state
             | ClientResidual.RowOps ops -> { state with Residual = ClientResidual.RowOps(ops @ [ op ]) }
             | ClientResidual.LinqToObjects -> state
 
-        let clientFilter (lam: LambdaExpression) (state: CompiledLogicalQuery) : CompiledLogicalQuery =
-            appendClientOp (ClientRowOp.Filter(PipelineStageParser.compileClientPredicate lam, lam)) state
+        let clientFilter (scopeMap: Map<string * string, string>) (lam: LambdaExpression) (state: CompiledLogicalQuery) : CompiledLogicalQuery =
+            appendClientOp scopeMap (ClientRowOp.Filter(PipelineStageParser.compileClientPredicate lam, lam)) state
 
-        let clientMap (lam: LambdaExpression) (state: CompiledLogicalQuery) : CompiledLogicalQuery =
-            appendClientOp (ClientRowOp.Map(PipelineStageParser.compileToBoxedFunc lam, lam)) state
+        let clientMap (scopeMap: Map<string * string, string>) (lam: LambdaExpression) (state: CompiledLogicalQuery) : CompiledLogicalQuery =
+            appendClientOp scopeMap (ClientRowOp.Map(PipelineStageParser.compileToBoxedFunc lam, lam)) state
 
         let rec processStages (state: CompiledLogicalQuery) (scopeMap: Map<string * string, string>) (remainingStages: LinqStage list) : CompiledLogicalQuery =
             let makeCtx (t: Type) (pName: string) (plan: LogicalPlan) =
@@ -1618,7 +1682,10 @@ module internal TreeBuilder =
                 PipelineStageParser.createContextWithScopeAndCols scopeMap t cols pName
 
             match remainingStages with
-            | [] -> state
+            | [] ->
+                match state.Residual with
+                | ClientResidual.None -> { state with RowScopes = scopeMap }
+                | _ -> state
             | stage :: tail ->
                 let canPushdown = ClientResidualOps.isNative state.Residual
 
@@ -1628,8 +1695,8 @@ module internal TreeBuilder =
                     processStages state scopeMap tail
                 | ClientResidual.RowOps _ ->
                     match stage with
-                    | LinqStage.Filter lam -> processStages (clientFilter lam state) scopeMap tail
-                    | LinqStage.Project lam -> processStages (clientMap lam state) scopeMap tail
+                    | LinqStage.Filter lam -> processStages (clientFilter scopeMap lam state) scopeMap tail
+                    | LinqStage.Project lam -> processStages (clientMap scopeMap lam state) scopeMap tail
                     // Order-insensitive or handled at materialization; the end-of-build check below
                     // escalates combinations the row-op executor cannot express.
                     | LinqStage.Cast _ | LinqStage.OfType _ | LinqStage.DefaultIfEmpty _ | LinqStage.Chunk _ | LinqStage.Shuffle | LinqStage.AggregateBy _ ->
@@ -1647,10 +1714,10 @@ module internal TreeBuilder =
                                 match ExprTranslator.tryTranslateToScalar ctx resLam.Body with
                                 | Some pred -> processStages { state with Plan = LogicalPlan.Filter(decorPlan, pred) } scopeMap tail
                                 | None ->
-                                    if isTupleOrAnonType p.Type then
+                                    if isUnmaterializableClientRow p.Type then
                                         processStages (fallback { state with Plan = decorPlan }) scopeMap tail
                                     else
-                                        processStages (clientFilter resLam { state with Plan = decorPlan }) scopeMap tail
+                                        processStages (clientFilter scopeMap resLam { state with Plan = decorPlan }) scopeMap tail
                             | None ->
                                 processStages { state with Plan = decorPlan } scopeMap tail
                         | None ->
@@ -1660,10 +1727,10 @@ module internal TreeBuilder =
                             | Some pred ->
                                 processStages { state with Plan = LogicalPlan.Filter(state.Plan, pred) } scopeMap tail
                             | None ->
-                                if isTupleOrAnonType p.Type then
+                                if isUnmaterializableClientRow p.Type then
                                     processStages (fallback state) scopeMap tail
                                 else
-                                    processStages (clientFilter lam state) scopeMap tail
+                                    processStages (clientFilter scopeMap lam state) scopeMap tail
 
                     | LinqStage.TakeWhile lam | LinqStage.SkipWhile lam as sStage ->
                         let isSkip = match sStage with LinqStage.SkipWhile _ -> true | _ -> false
@@ -1678,7 +1745,7 @@ module internal TreeBuilder =
                                     ScalarExpr.Function(ScalarFunction.CumMin, [ boolExpr ], LogicalTypes.Boolean)
                             processStages { state with Plan = LogicalPlan.Filter(state.Plan, mask) } scopeMap tail
                         | None ->
-                            processStages (clientFilter lam state) scopeMap tail
+                            processStages (clientFilter scopeMap lam state) scopeMap tail
 
                     | LinqStage.Project lam ->
                         match ExpressionPatterns.unwrap lam.Body with
@@ -1689,11 +1756,11 @@ module internal TreeBuilder =
                             | Some (decorPlan, rewrittenLam) ->
                                 let p = rewrittenLam.Parameters.[0]
                                 let ctx = makeCtx p.Type p.Name decorPlan
-                                match extractProjections ctx rewrittenLam.Body with
+                                match extractProjections ctx decorPlan rewrittenLam.Body with
                                 | Some projs ->
                                     processStages { state with Plan = LogicalPlan.Project(decorPlan, projs) } Map.empty tail
                                 | None ->
-                                    processStages (clientMap rewrittenLam { state with Plan = decorPlan }) Map.empty tail
+                                    processStages (clientMap scopeMap rewrittenLam { state with Plan = decorPlan }) Map.empty tail
                             | None ->
                                 let p = lam.Parameters.[0]
                                 let ctx = makeCtx p.Type p.Name state.Plan
@@ -1706,7 +1773,11 @@ module internal TreeBuilder =
                                             | MemberAccess(_, m) when isNavigationMember m -> true
                                             | _ -> false
                                         let navBindings, computedBindings = bindings |> List.partition isNav
-                                        if not navBindings.IsEmpty && not computedBindings.IsEmpty then
+                                        // A computed member replacing an existing column would change the
+                                        // entity that column belongs to; such a projection is not a `let`.
+                                        let rowCols = set (SchemaInference.inferPlanSchema state.Plan).ColumnNames
+                                        let shadowsColumn = computedBindings |> List.exists (fun (name, _) -> rowCols.Contains name)
+                                        if not navBindings.IsEmpty && not computedBindings.IsEmpty && not shadowsColumn then
                                             let translated =
                                                 computedBindings
                                                 |> List.choose (fun (name, expr) ->
@@ -1720,13 +1791,14 @@ module internal TreeBuilder =
 
                                 match isTransparentLetOpt with
                                 | Some withCols ->
-                                    processStages { state with Plan = LogicalPlan.WithColumns(state.Plan, withCols) } scopeMap tail
+                                    let letScopeMap = registerLetScopes scopeMap state.Plan lam
+                                    processStages { state with Plan = LogicalPlan.WithColumns(state.Plan, withCols) } letScopeMap tail
                                 | None ->
-                                    match extractProjections ctx lam.Body with
+                                    match extractProjections ctx state.Plan lam.Body with
                                     | Some projs ->
                                         processStages { state with Plan = LogicalPlan.Project(state.Plan, projs) } Map.empty tail
                                     | None ->
-                                        processStages (clientMap lam state) Map.empty tail
+                                        processStages (clientMap scopeMap lam state) Map.empty tail
 
                     | LinqStage.Sort(lam, isDesc, nullsLast) ->
                         if isGrouping then
@@ -1928,6 +2000,7 @@ module internal TreeBuilder =
 
                                 let updatedScopeMap =
                                     PipelineStageParser.updateJoinScopeMap scopeMap leftScope (List.toArray leftCols) rightScope (List.toArray rightCols) uniqueSuffix isRightJoin
+                                    |> aliasResultSelectorScopes (if scopeMap.IsEmpty then Some leftScope else None) rightScope resSelOpt
 
                                 match resSelOpt with
                                 | TransparentOrNoResSelector ->
@@ -1953,11 +2026,11 @@ module internal TreeBuilder =
                                             else
                                                 TranslationContext.BinaryJoin(pLeft2.Name, pRight2.Name, leftColSet, uniqueSuffix)
 
-                                        match tryExtractJoinProjections resCtx2 pLeft2 pRight2 leftCols rightCols uniqueSuffix isRightJoin rewrittenResSel.Body with
+                                        match tryExtractJoinProjections resCtx2 decorPlan pLeft2 pRight2 leftCols rightCols uniqueSuffix isRightJoin rewrittenResSel.Body with
                                         | Some projs -> processStages { state with Plan = LogicalPlan.Project(decorPlan, projs) } Map.empty tail
                                         | None -> processStages { state with Plan = decorPlan } updatedScopeMap tail
                                     | None ->
-                                        match tryExtractJoinProjections resCtx pLeft pRight leftCols rightCols uniqueSuffix isRightJoin resSel.Body with
+                                        match tryExtractJoinProjections resCtx joinPlan pLeft pRight leftCols rightCols uniqueSuffix isRightJoin resSel.Body with
                                         | Some projs -> processStages { state with Plan = LogicalPlan.Project(joinPlan, projs) } Map.empty tail
                                         | None -> processStages { state with Plan = joinPlan } updatedScopeMap tail
                             | _ ->
@@ -1998,6 +2071,7 @@ module internal TreeBuilder =
                             let rightScope = "inner"
                             let updatedScopeMap =
                                 PipelineStageParser.updateJoinScopeMap scopeMap leftScope (List.toArray leftCols) rightScope (List.toArray rightCols) uniqueSuffix false
+                                |> aliasResultSelectorScopes (if scopeMap.IsEmpty then Some leftScope else None) rightScope resSelOpt
 
                             match resSelOpt with
                             | TransparentOrNoResSelector ->
@@ -2011,7 +2085,7 @@ module internal TreeBuilder =
                                         TranslationContext.ScopedEntity([ pLeft.Name; pRight.Name ], updatedScopeMap, postJoinCols)
                                     else
                                         TranslationContext.BinaryJoin(pLeft.Name, pRight.Name, leftColSet, uniqueSuffix)
-                                match tryExtractJoinProjections resCtx pLeft pRight leftCols rightCols uniqueSuffix false resSel.Body with
+                                match tryExtractJoinProjections resCtx joinPlan pLeft pRight leftCols rightCols uniqueSuffix false resSel.Body with
                                 | Some projs -> processStages { state with Plan = LogicalPlan.Project(joinPlan, projs) } Map.empty tail
                                 | None -> processStages { state with Plan = joinPlan } updatedScopeMap tail
                         | None ->
@@ -2061,6 +2135,7 @@ module internal TreeBuilder =
 
                                 let updatedScopeMap =
                                     PipelineStageParser.updateJoinScopeMap scopeMap leftScope (List.toArray leftCols) rightScope (List.toArray rightCols) uniqueSuffix false
+                                    |> aliasResultSelectorScopes (if scopeMap.IsEmpty then Some leftScope else None) rightScope resSelOpt
 
                                 match resSelOpt with
                                 | TransparentOrNoResSelector ->
@@ -2074,7 +2149,7 @@ module internal TreeBuilder =
                                             TranslationContext.ScopedEntity([ pLeft.Name; pRight.Name ], updatedScopeMap, postJoinCols)
                                         else
                                             TranslationContext.BinaryJoin(pLeft.Name, pRight.Name, leftColSet, uniqueSuffix)
-                                    match tryExtractJoinProjections resCtx pLeft pRight leftCols rightCols uniqueSuffix false resSel.Body with
+                                    match tryExtractJoinProjections resCtx asOfPlan pLeft pRight leftCols rightCols uniqueSuffix false resSel.Body with
                                     | Some projs -> processStages { state with Plan = LogicalPlan.Project(asOfPlan, projs) } Map.empty tail
                                     | None -> processStages { state with Plan = asOfPlan } updatedScopeMap tail
                             | _ ->
@@ -2217,11 +2292,11 @@ module internal TreeBuilder =
                                     processStages { state with Plan = unpivotPlan } updatedScopeMap tail
                                 | ConcreteResSelector resSel ->
                                     let resCtx = TranslationContext.ScopedEntity([ leftScope; innerScope ], updatedScopeMap, postUnpivotCols)
-                                    match extractProjections resCtx resSel.Body with
+                                    match extractProjections resCtx unpivotPlan resSel.Body with
                                     | Some projs ->
                                         processStages { state with Plan = LogicalPlan.Project(unpivotPlan, projs) } Map.empty tail
                                     | None ->
-                                        processStages (clientMap resSel { state with Plan = unpivotPlan }) Map.empty tail
+                                        processStages (clientMap Map.empty resSel { state with Plan = unpivotPlan }) Map.empty tail
                         | None ->
                             processStages (fallback state) scopeMap tail
 
@@ -2382,7 +2457,10 @@ module internal TreeBuilder =
                         processStages (fallback state) scopeMap next
             | [] ->
                 if isGrouping then
-                    ctx.HavingPreds |> List.fold (fun acc havingPred -> clientFilter havingPred acc) state
+                    // The rows are the grouped elements, materialized as the key selector's input type; the
+                    // residual having predicates run over the groups.
+                    let grouped = { state with RowScopes = scopeMap }
+                    ctx.HavingPreds |> List.fold (fun acc havingPred -> clientFilter Map.empty havingPred acc) grouped
                 else
                     (fallback state)
             | otherHead :: otherTail ->

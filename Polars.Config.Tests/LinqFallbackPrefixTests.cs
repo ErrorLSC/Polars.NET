@@ -36,12 +36,13 @@ public class LinqFallbackPrefixTests
 
     private static readonly Dictionary<string, Pipeline> Pipelines = new()
     {
-        // Client step (anonymous row type) forces full fallback; native Where + Select before it.
-        ["NativeWhere_AnonSelect_ClientWhere"] = (q, _) => q
+        // Client step over tuple rows (not materialized from a native plan) forces full fallback;
+        // native Where + Select before it.
+        ["NativeWhere_TupleSelect_ClientWhere"] = (q, _) => q
             .Where(e => e.Age > 24)
-            .Select(e => new { e.Name, e.Salary })
-            .Where(x => TestUdfMethods.CheckSecurity(x.Name, x.Salary))
-            .Select(x => x.Name),
+            .Select(e => Tuple.Create(e.Name, e.Salary))
+            .Where(x => TestUdfMethods.CheckSecurity(x.Item1, x.Item2))
+            .Select(x => x.Item1),
 
         // Row-op client Where followed by paging: native prefix, client Where, then Take.
         ["NativeWhere_OrderBy_ClientWhere_Take"] = (q, _) => q
@@ -73,7 +74,8 @@ public class LinqFallbackPrefixTests
             .OrderBy(x => x.Key)
             .Select(x => x.Key + ":" + x.Masked),
 
-        // Native join with a second source, then a client step over the joined anonymous rows.
+        // Native join with a second source, then a client row step over the joined anonymous rows;
+        // the OrderBy after it cannot follow a client row step.
         ["NativeJoin_ClientWhere"] = (q, d) => q
             .Join(d, e => e.Name, x => x.Name, (e, x) => new { e.Name, e.Salary, x.Dept })
             .Where(r => TestUdfMethods.CheckSecurity(r.Name, r.Salary))
@@ -83,9 +85,9 @@ public class LinqFallbackPrefixTests
         // Client step that references the second source inside its lambda.
         ["NativeWhere_ClientWhere_ReferencesSecondSource"] = (q, d) => q
             .Where(e => e.Age > 20)
-            .Select(e => new { e.Name, e.Salary })
-            .Where(x => TestUdfMethods.CheckSecurity(x.Name, x.Salary) && d.Any(o => o.Name == x.Name && o.Dept == "Eng"))
-            .Select(x => x.Name),
+            .Select(e => Tuple.Create(e.Name, e.Salary))
+            .Where(x => TestUdfMethods.CheckSecurity(x.Item1, x.Item2) && d.Any(o => o.Name == x.Item1 && o.Dept == "Eng"))
+            .Select(x => x.Item1),
 
         // Client Where then Chunk escalates row ops to full fallback.
         ["NativeWhere_ClientWhere_Chunk"] = (q, _) => q
@@ -94,7 +96,7 @@ public class LinqFallbackPrefixTests
             .Select(e => e.Name)
             .Chunk(1),
 
-        // Only a native projection precedes the client step.
+        // Only a native projection precedes the client row step; the OrderByDescending after it falls back.
         ["AnonSelect_ClientWhere_OrderByDescending"] = (q, _) => q
             .Select(e => new { e.Name, e.Salary })
             .Where(x => TestUdfMethods.CheckSecurity(x.Name, x.Salary))
@@ -110,15 +112,15 @@ public class LinqFallbackPrefixTests
     /// The LINQ method at which LINQ-to-Objects takes over; null when no prefix runs natively.
     private static readonly Dictionary<string, string?> ExpectedBoundary = new()
     {
-        ["NativeWhere_AnonSelect_ClientWhere"] = "Where",
+        ["NativeWhere_TupleSelect_ClientWhere"] = "Where",
         ["NativeWhere_OrderBy_ClientWhere_Take"] = "Take",
         ["NativeWhere_OrderBy_ClientThenBy"] = "OrderBy",
         ["NativeWhere_OrderByDescending_ClientThenByDescending_Skip"] = "OrderByDescending",
         ["NativeWhere_GroupBy_ClientSelect_OrderBy"] = "Select",
-        ["NativeJoin_ClientWhere"] = "Where",
+        ["NativeJoin_ClientWhere"] = "OrderBy",
         ["NativeWhere_ClientWhere_ReferencesSecondSource"] = "Where",
         ["NativeWhere_ClientWhere_Chunk"] = "Chunk",
-        ["AnonSelect_ClientWhere_OrderByDescending"] = "Where",
+        ["AnonSelect_ClientWhere_OrderByDescending"] = "OrderByDescending",
         ["ClientOrderBy_First_Stage"] = null,
     };
 
@@ -230,7 +232,8 @@ public class LinqFallbackPrefixTests
     public void Native_Prefix_Runs_In_Polars_Not_In_LinqToObjects()
     {
         // Integer division by zero throws in .NET but not in Polars, so the pipeline only succeeds
-        // when the Where before the fallback point is executed natively.
+        // when the Where before the fallback point is executed natively. The client Where is a row step;
+        // LINQ-to-Objects takes over at the OrderBy after it.
         static IQueryable<string> Shape(IQueryable<UdfEmployee> q) => q
             .Where(e => e.Salary / (e.Age - 25) > 1000)
             .Select(e => new { e.Name, e.Salary })
@@ -244,7 +247,7 @@ public class LinqFallbackPrefixTests
         using (ClientEvaluationScope())
         {
             var query = Shape(df.AsQueryable<UdfEmployee>());
-            Assert.Equal("Where", ((IPolarsExplainable)query).InspectPlan(true).FallbackBoundary?.Value);
+            Assert.Equal("OrderBy", ((IPolarsExplainable)query).InspectPlan(true).FallbackBoundary?.Value);
             Assert.Equal(["Alice", "Charlie"], query.ToList());
             Assert.Equal(2, query.Count());
         }
