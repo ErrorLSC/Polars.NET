@@ -158,10 +158,6 @@ type IPolarsExplainable =
     abstract member ExplainLogicalPlan: unit -> string
     abstract member GetLogicalPlan: unit -> LogicalPlan
 
-/// Internal interface implemented by PolarsQueryable to expose IR compilation for testing and inspection.
-type internal IPolarsInternalExplainable =
-    abstract member CompileLogicalQuery: unit -> CompiledLogicalQuery
-
 type internal FallbackTracker =
     [<ThreadStatic; DefaultValue>]
     static val mutable private diagnostic: string option

@@ -161,18 +161,41 @@ module internal PolarsObjectConverter =
         compileSubtreeToLazyFrame expr
         |> Option.orElseWith (fun () -> resolveToLazyFrameHandle expr)
 
-    /// Resolves an inner sequence expression to a LogicalPlan.Scan.
+    /// Resolves an inner sequence expression to a LogicalPlan (grafting pure LogicalPlan subtrees when possible).
     let resolveSequencePlan (expr: Expression) : LogicalPlan option =
-        match expr with
-        | :? ConstantExpression as c when not (isNull c.Value) ->
-            match c.Value with
-            | :? IPolarsPlanSource as planSource ->
-                let lf = planSource.GetCompiledLazyFrameHandle()
-                Some(PolarsPhysicalLowerer.scanLazyFrame lf)
+        let tryFromExplainable (objVal: obj) : LogicalPlan option =
+            match objVal with
+            | :? IPolarsInternalExplainable as exp -> exp.TryGetPureLogicalPlan()
+            | _ -> None
+
+        let rec findRootQueryable (e: Expression) : IQueryable option =
+            match e with
+            | :? ConstantExpression as c when not (isNull c.Value) ->
+                match c.Value with
+                | :? IQueryable as q -> Some q
+                | _ -> None
+            | :? MethodCallExpression as mc -> mc.Arguments |> Seq.tryPick findRootQueryable
+            | _ -> None
+
+        let purePlanOpt =
+            match expr with
+            | :? ConstantExpression as c when not (isNull c.Value) ->
+                tryFromExplainable c.Value
             | _ ->
-                resolveSequenceLazyFrame expr
-                |> Option.map PolarsPhysicalLowerer.scanLazyFrame
-        | _ ->
+                match findRootQueryable expr with
+                | Some rootQuery ->
+                    try
+                        let subQuery = rootQuery.Provider.CreateQuery expr
+                        tryFromExplainable subQuery
+                    with _ ->
+                        None
+                | None ->
+                    match tryEvaluate expr with
+                    | Some v when not (isNull v) -> tryFromExplainable v
+                    | _ -> None
+
+        purePlanOpt
+        |> Option.orElseWith (fun () ->
             resolveSequenceLazyFrame expr
-            |> Option.map PolarsPhysicalLowerer.scanLazyFrame
+            |> Option.map PolarsPhysicalLowerer.scanLazyFrame)
 

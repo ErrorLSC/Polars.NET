@@ -173,6 +173,26 @@ and PolarsQuery<'T>
         let compiled = TreeBuilder.buildCompiledQuery initialPlan isGrouping stages
         { compiled with Plan = LogicalOptimizer.optimize compiled.Plan }
 
+    /// Attempts to extract a pure symbolic LogicalPlan without resetting outer diagnostics or lowering to native handles.
+    member internal this.TryGetPureLogicalPlan() : LogicalPlan option =
+        let lfCloned = provider.RootLazyFrame
+        let stages = this.ExtractStages()
+        let initialPlan = PolarsPhysicalLowerer.scanLazyFrame lfCloned
+        let compiled = TreeBuilder.buildCompiledQuery initialPlan isGrouping stages
+        let optimizedPlan = LogicalOptimizer.optimize compiled.Plan
+        let schema = SchemaInference.inferPlanSchema optimizedPlan
+        let canUsePurePlan =
+            not compiled.RequiresClientFallback
+            && compiled.ClientPredicates.IsEmpty
+            && compiled.ClientProjection.IsNone
+            && not (isScalar && schema.Fields.Length > 1)
+            && not isGrouping
+            && not (stages |> List.exists (function LinqStage.Shuffle | LinqStage.Chunk _ | LinqStage.AggregateBy _ | LinqStage.DefaultIfEmpty _ -> true | _ -> false))
+        if canUsePurePlan then
+            Some optimizedPlan
+        else
+            None
+
     /// Compiles pipeline and builds the target native LazyFrameHandle alongside client predicates, projection, fallback signal, and normalized stages
     member private this.GetCompiledPlan
         ()
@@ -618,6 +638,7 @@ and PolarsQuery<'T>
 
     interface IPolarsInternalExplainable with
         member this.CompileLogicalQuery() = this.CompileLogicalQuery()
+        member this.TryGetPureLogicalPlan() = this.TryGetPureLogicalPlan()
 
     interface IAsyncEnumerable<'T> with
         member this.GetAsyncEnumerator(cancellationToken: CancellationToken) : IAsyncEnumerator<'T> =

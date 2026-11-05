@@ -1624,7 +1624,7 @@ module internal TreeBuilder =
                 else
                     match stage with
                     | LinqStage.Filter lam ->
-                        match SubqueryDecorrelator.tryDecorrelateFilter state.Plan lam scopeMap with
+                        match SubqueryDecorrelator.tryDecorrelateFilter PolarsObjectConverter.resolveSequencePlan state.Plan lam scopeMap with
                         | Some (decorPlan, residualOpt) ->
                             match residualOpt with
                             | Some resLam ->
@@ -1671,7 +1671,7 @@ module internal TreeBuilder =
                         | :? ParameterExpression as p when p.Name = lam.Parameters.[0].Name ->
                             processStages state scopeMap tail
                         | _ ->
-                            match SubqueryDecorrelator.tryDecorrelateProjection state.Plan lam scopeMap with
+                            match SubqueryDecorrelator.tryDecorrelateProjection PolarsObjectConverter.resolveSequencePlan state.Plan lam scopeMap with
                             | Some (decorPlan, rewrittenLam) ->
                                 let p = rewrittenLam.Parameters.[0]
                                 let ctx = makeCtx p.Type p.Name decorPlan
@@ -1932,7 +1932,7 @@ module internal TreeBuilder =
                                         else
                                             TranslationContext.BinaryJoin(pLeft.Name, pRight.Name, leftColSet, uniqueSuffix)
 
-                                    match SubqueryDecorrelator.tryDecorrelateProjection joinPlan resSel updatedScopeMap with
+                                    match SubqueryDecorrelator.tryDecorrelateProjection PolarsObjectConverter.resolveSequencePlan joinPlan resSel updatedScopeMap with
                                     | Some (decorPlan, rewrittenResSel) ->
                                         let postDecorCols = (SchemaInference.inferPlanSchema decorPlan).ColumnNames
                                         let pLeft2 = rewrittenResSel.Parameters.[0]

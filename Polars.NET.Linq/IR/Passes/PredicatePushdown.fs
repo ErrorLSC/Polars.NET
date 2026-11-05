@@ -85,7 +85,7 @@ module internal PredicatePushdown =
                     if not refCols.IsEmpty && refCols |> Set.isSubset leftCols then
                         let pushedLeft = pushdownConjunct pred left
                         LogicalPlan.Join(pushedLeft, right, lOn, rOn, how, suffix, coalesce, nullEq)
-                    elif not refCols.IsEmpty && refCols |> Set.isSubset rightCols then
+                    elif not refCols.IsEmpty && refCols |> Set.isSubset rightCols && (Set.intersect refCols leftCols).IsEmpty then
                         let pushedRight = pushdownConjunct pred right
                         LogicalPlan.Join(left, pushedRight, lOn, rOn, how, suffix, coalesce, nullEq)
                     else

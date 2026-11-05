@@ -2,7 +2,6 @@ namespace Polars.NET.Linq.IR
 
 open System
 open System.ComponentModel
-open Polars.NET.Core
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Helpers
 

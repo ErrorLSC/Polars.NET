@@ -813,3 +813,8 @@ type CompiledLogicalQuery =
         ClientProjection: (Type * Func<obj, obj>) option
         RequiresClientFallback: bool
     }
+
+/// Internal interface implemented by PolarsQueryable to expose IR compilation for testing, inspection, and subtree grafting.
+type internal IPolarsInternalExplainable =
+    abstract member CompileLogicalQuery: unit -> CompiledLogicalQuery
+    abstract member TryGetPureLogicalPlan: unit -> LogicalPlan option
