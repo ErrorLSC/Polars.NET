@@ -616,18 +616,18 @@ module internal PipelineStageParser =
             else
                 None, None, None
 
-    let internal extractStrategy (objVal: obj) : PlAsofStrategy =
+    let internal extractStrategy (objVal: obj) : AsofStrategy =
         if isNull objVal then
-            PlAsofStrategy.Backward
+            AsofStrategy.Backward
         else
             try
                 let byteVal = Convert.ToByte(objVal)
                 match byteVal with
-                | 0uy -> PlAsofStrategy.Backward
-                | 1uy -> PlAsofStrategy.Forward
-                | 2uy -> PlAsofStrategy.Nearest
-                | _ -> PlAsofStrategy.Backward
-            with _ -> PlAsofStrategy.Backward
+                | 0uy -> AsofStrategy.Backward
+                | 1uy -> AsofStrategy.Forward
+                | 2uy -> AsofStrategy.Nearest
+                | _ -> AsofStrategy.Backward
+            with _ -> AsofStrategy.Backward
 
     /// Canonical classification of null-checking predicate expressions for sort fusion
     [<RequireQualifiedAccess>]
@@ -992,7 +992,7 @@ module internal PipelineStageParser =
                             try Expression.Lambda(expr).Compile().DynamicInvoke()
                             with _ -> null
                     extractStrategy objVal
-                | None -> PlAsofStrategy.Backward
+                | None -> AsofStrategy.Backward
 
             let stage =
                 LinqStage.JoinAsOf(

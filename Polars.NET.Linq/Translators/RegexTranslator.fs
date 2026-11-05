@@ -263,14 +263,14 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    Some(ScalarExpr.Function(ScalarFunction.StrContains, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.Boolean))
+                    Some(ScalarExpr.Function(ScalarFunction.StrContains, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.Boolean))
                 | None ->
                     if CoreConfig.DisallowUdfPushdown then
                         None
                     else
                         let rx = getRegex rxOpt pat
                         let invoker = UdfInvoker.StringPredicate(Func<string, bool>(rx.IsMatch))
-                        Some(ScalarExpr.Udf("Regex.IsMatch", [ t ], PlDataType.Boolean, invoker)))
+                        Some(ScalarExpr.Udf("Regex.IsMatch", [ t ], LogicalTypes.Boolean, invoker)))
 
         // --- 2. ReplaceLiteral ---
         | ReplaceLiteral(target, pat, rep, rxOpt) ->
@@ -279,14 +279,14 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    Some(ScalarExpr.Function(ScalarFunction.ReplaceAll, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.String rep); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.String))
+                    Some(ScalarExpr.Function(ScalarFunction.ReplaceAll, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.String rep); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.String))
                 | None ->
                     if CoreConfig.DisallowUdfPushdown then
                         None
                     else
                         let rx = getRegex rxOpt pat
                         let invoker = UdfInvoker.StringTransform(Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep)))
-                        Some(ScalarExpr.Udf("Regex.Replace", [ t ], PlDataType.String, invoker)))
+                        Some(ScalarExpr.Udf("Regex.Replace", [ t ], LogicalTypes.String, invoker)))
 
         // --- 2b. ReplaceLiteralN ---
         | ReplaceLiteralN(target, pat, rep, count, rxOpt) ->
@@ -295,14 +295,14 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    Some(ScalarExpr.Function(ScalarFunction.Replace, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.String rep); ScalarExpr.Literal(LiteralValue.Int64 (int64 count)) ], PlDataType.String))
+                    Some(ScalarExpr.Function(ScalarFunction.Replace, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.String rep); ScalarExpr.Literal(LiteralValue.Int64 (int64 count)) ], LogicalTypes.String))
                 | None ->
                     if CoreConfig.DisallowUdfPushdown then
                         None
                     else
                         let rx = getRegex rxOpt pat
                         let invoker = UdfInvoker.StringTransform(Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep, count)))
-                        Some(ScalarExpr.Udf("Regex.ReplaceN", [ t ], PlDataType.String, invoker)))
+                        Some(ScalarExpr.Udf("Regex.ReplaceN", [ t ], LogicalTypes.String, invoker)))
 
         // --- 3. ReplaceEvaluator ---
         | ReplaceEvaluator(target, pat, evaluator, rxOpt) ->
@@ -313,7 +313,7 @@ module internal RegexTranslator =
                 |> Option.map (fun t ->
                     let rx = getRegex rxOpt pat
                     let invoker = UdfInvoker.StringTransform(Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, evaluator)))
-                    ScalarExpr.Udf("Regex.ReplaceEvaluator", [ t ], PlDataType.String, invoker))
+                    ScalarExpr.Udf("Regex.ReplaceEvaluator", [ t ], LogicalTypes.String, invoker))
 
         // --- 4. MatchValue & Groups[i].Value ---
         | MatchValue(target, pat, groupIndex, rxOpt) ->
@@ -322,10 +322,10 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    let extracted = ScalarExpr.Function(ScalarFunction.StrExtract, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Int32 groupIndex) ], PlDataType.String)
+                    let extracted = ScalarExpr.Function(ScalarFunction.StrExtract, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Int32 groupIndex) ], LogicalTypes.String)
                     let nonNullExtracted = ScalarExpr.Coalesce [ extracted; ScalarExpr.Literal(LiteralValue.String "") ]
                     let isTargetNull = ScalarExpr.Unary(UnaryOp.IsNull, t)
-                    Some(ScalarExpr.Conditional(isTargetNull, ScalarExpr.Literal(LiteralValue.Null PlDataType.String), nonNullExtracted))
+                    Some(ScalarExpr.Conditional(isTargetNull, ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String), nonNullExtracted))
                 | None ->
                     if CoreConfig.DisallowUdfPushdown then
                         None
@@ -339,7 +339,7 @@ module internal RegexTranslator =
                                         let m = rx.Match(s)
                                         if m.Success && groupIndex < m.Groups.Count then m.Groups.[groupIndex].Value else "")
                             )
-                        Some(ScalarExpr.Udf("Regex.MatchValue", [ t ], PlDataType.String, invoker)))
+                        Some(ScalarExpr.Udf("Regex.MatchValue", [ t ], LogicalTypes.String, invoker)))
 
         // --- 4b. MatchGroupNamed ---
         | MatchGroupNamed(target, pat, groupName, rxOpt) ->
@@ -348,11 +348,11 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    let structExpr = ScalarExpr.Function(ScalarFunction.StrExtractGroups, [ t; ScalarExpr.Literal(LiteralValue.String validPat) ], PlDataType.Unknown)
-                    let fieldExpr = ScalarExpr.Function(ScalarFunction.StructFieldByName, [ structExpr; ScalarExpr.Literal(LiteralValue.String groupName) ], PlDataType.String)
+                    let structExpr = ScalarExpr.Function(ScalarFunction.StrExtractGroups, [ t; ScalarExpr.Literal(LiteralValue.String validPat) ], LogicalType.Unknown)
+                    let fieldExpr = ScalarExpr.Function(ScalarFunction.StructFieldByName, [ structExpr; ScalarExpr.Literal(LiteralValue.String groupName) ], LogicalTypes.String)
                     let nonNullExtracted = ScalarExpr.Coalesce [ fieldExpr; ScalarExpr.Literal(LiteralValue.String "") ]
                     let isTargetNull = ScalarExpr.Unary(UnaryOp.IsNull, t)
-                    Some(ScalarExpr.Conditional(isTargetNull, ScalarExpr.Literal(LiteralValue.Null PlDataType.String), nonNullExtracted))
+                    Some(ScalarExpr.Conditional(isTargetNull, ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String), nonNullExtracted))
                 | None ->
                     if CoreConfig.DisallowUdfPushdown then
                         None
@@ -366,7 +366,7 @@ module internal RegexTranslator =
                                         let m = rx.Match(s)
                                         if m.Success && m.Groups.[groupName].Success then m.Groups.[groupName].Value else "")
                             )
-                        Some(ScalarExpr.Udf("Regex.MatchGroupNamed", [ t ], PlDataType.String, invoker)))
+                        Some(ScalarExpr.Udf("Regex.MatchGroupNamed", [ t ], LogicalTypes.String, invoker)))
 
         // --- 5. MatchesAll ---
         | MatchesAll(target, pat, rxOpt) ->
@@ -375,7 +375,7 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    Some(ScalarExpr.Function(ScalarFunction.StrExtractAll, [ t; ScalarExpr.Literal(LiteralValue.String validPat) ], PlDataType.List))
+                    Some(ScalarExpr.Function(ScalarFunction.StrExtractAll, [ t; ScalarExpr.Literal(LiteralValue.String validPat) ], LogicalTypes.ListOfUnknown))
                 | None ->
                     if CoreConfig.DisallowUdfPushdown then
                         None
@@ -385,7 +385,7 @@ module internal RegexTranslator =
                             UdfInvoker.StringToList(
                                 Func<string, seq<string>>(fun s -> if isNull s then null else rx.Matches(s) |> Seq.map (fun m -> m.Value))
                             )
-                        Some(ScalarExpr.Udf("Regex.MatchesAll", [ t ], PlDataType.List, invoker)))
+                        Some(ScalarExpr.Udf("Regex.MatchesAll", [ t ], LogicalTypes.ListOfUnknown, invoker)))
 
         // --- 6. MatchesCount ---
         | MatchesCount(target, pat, rxOpt) ->
@@ -394,7 +394,7 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    Some(ScalarExpr.Function(ScalarFunction.StrCountMatches, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.UInt32))
+                    Some(ScalarExpr.Function(ScalarFunction.StrCountMatches, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.UInt32))
                 | None ->
                     if CoreConfig.DisallowUdfPushdown then
                         None
@@ -411,7 +411,7 @@ module internal RegexTranslator =
                                         builder.Append(rx.Matches(strViewArr.GetString(i)).Count) |> ignore
                                 builder.Build() :> Apache.Arrow.IArrowArray)
                         let invoker = UdfInvoker.SingleBatch(box cb, typeof<int>)
-                        Some(ScalarExpr.Udf("Regex.MatchesCount", [ t ], PlDataType.Int32, invoker)))
+                        Some(ScalarExpr.Udf("Regex.MatchesCount", [ t ], LogicalTypes.Int32, invoker)))
 
         // --- 7. Split ---
         | Split(target, pat, rxOpt) ->
@@ -420,7 +420,7 @@ module internal RegexTranslator =
                 let options = getOptions rxOpt
                 match tryBuildRustRegexPattern pat options with
                 | Some validPat ->
-                    Some(ScalarExpr.Function(ScalarFunction.StrSplit, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], PlDataType.List))
+                    Some(ScalarExpr.Function(ScalarFunction.StrSplit, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.ListOfUnknown))
                 | None ->
                     if CoreConfig.DisallowUdfPushdown then
                         None
@@ -430,4 +430,4 @@ module internal RegexTranslator =
                             UdfInvoker.StringToList(
                                 Func<string, seq<string>>(fun s -> if isNull s then null else rx.Split(s) :> seq<string>)
                             )
-                        Some(ScalarExpr.Udf("Regex.Split", [ t ], PlDataType.List, invoker)))
+                        Some(ScalarExpr.Udf("Regex.Split", [ t ], LogicalTypes.ListOfUnknown, invoker)))

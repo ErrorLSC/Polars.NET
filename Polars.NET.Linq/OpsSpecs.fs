@@ -1,6 +1,6 @@
 namespace Polars.NET.Linq
 
-open Polars.NET.Core.Enums
+open Polars.NET.Linq.IR
 open System.Linq.Expressions
 open System.Reflection
 open System
@@ -76,7 +76,7 @@ type internal LinqStage =
         toleranceStr: string option *
         toleranceInt: int64 option *
         toleranceFloat: double option *
-        strategy: PlAsofStrategy
+        strategy: AsofStrategy
     | Explode of collectionLambda: LambdaExpression * resultLambdaOpt: LambdaExpression option
     | Unpivot of collectionLambda: LambdaExpression * resultLambdaOpt: LambdaExpression option
     | CrossJoin of innerExpr: Expression * resultLambdaOpt: LambdaExpression option

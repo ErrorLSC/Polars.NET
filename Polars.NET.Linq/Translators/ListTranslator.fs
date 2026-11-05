@@ -185,10 +185,10 @@ module internal ListTranslator =
             | _ -> None
 
         match invocation with
-        | ListLen target -> t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListLen, [ t ], PlDataType.UInt32))
+        | ListLen target -> t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListLen, [ t ], LogicalTypes.UInt32))
         | ListContains(target, itemExpr) ->
             match t2 target itemExpr with
-            | Some(t, item) -> Some(ScalarExpr.Function(ScalarFunction.ListContains, [ t; item ], PlDataType.Boolean))
+            | Some(t, item) -> Some(ScalarExpr.Function(ScalarFunction.ListContains, [ t; item ], LogicalTypes.Boolean))
             | None ->
                 // Check if target is an in-memory collection (IN predicate: item IN target)
                 option {
@@ -207,17 +207,17 @@ module internal ListTranslator =
                 }
         | ListGet(target, indexExpr) ->
             t2 target indexExpr
-            |> Option.map (fun (t, idx) -> ScalarExpr.Function(ScalarFunction.ListGet, [ t; idx ], PlDataType.Unknown))
+            |> Option.map (fun (t, idx) -> ScalarExpr.Function(ScalarFunction.ListGet, [ t; idx ], LogicalType.Unknown))
         | ListFirst target ->
             t1 target
-            |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListGet, [ t; ScalarExpr.Literal(LiteralValue.Int32 0) ], PlDataType.Unknown))
+            |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListGet, [ t; ScalarExpr.Literal(LiteralValue.Int32 0) ], LogicalType.Unknown))
         | ListLast target ->
             t1 target
-            |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListGet, [ t; ScalarExpr.Literal(LiteralValue.Int32 -1) ], PlDataType.Unknown))
-        | ListSum target -> t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListSum, [ t ], PlDataType.Unknown))
-        | ListMean target -> t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListMean, [ t ], PlDataType.Float64))
-        | ListMin target -> t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListMin, [ t ], PlDataType.Unknown))
-        | ListMax target -> t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListMax, [ t ], PlDataType.Unknown))
+            |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListGet, [ t; ScalarExpr.Literal(LiteralValue.Int32 -1) ], LogicalType.Unknown))
+        | ListSum target -> t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListSum, [ t ], LogicalType.Unknown))
+        | ListMean target -> t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListMean, [ t ], LogicalTypes.Float64))
+        | ListMin target -> t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListMin, [ t ], LogicalType.Unknown))
+        | ListMax target -> t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListMax, [ t ], LogicalType.Unknown))
 
         | ListJoin(target, separatorExpr) ->
             let sepOpt =
@@ -233,42 +233,42 @@ module internal ListTranslator =
                     let items = nae.Expressions |> Seq.toList
                     let itemExprs = items |> List.choose (eval ctx)
                     if itemExprs.Length = items.Length && not itemExprs.IsEmpty then
-                        Some(ScalarExpr.Function(ScalarFunction.ConcatString, ScalarExpr.Literal(LiteralValue.String sep) :: itemExprs, PlDataType.String))
+                        Some(ScalarExpr.Function(ScalarFunction.ConcatString, ScalarExpr.Literal(LiteralValue.String sep) :: itemExprs, LogicalTypes.String))
                     else
                         None
                 | None -> None
             | _ ->
                 match t1 target, sepOpt with
-                | Some t, Some sep -> Some(ScalarExpr.Function(ScalarFunction.ListJoin, [ t; ScalarExpr.Literal(LiteralValue.String sep) ], PlDataType.String))
+                | Some t, Some sep -> Some(ScalarExpr.Function(ScalarFunction.ListJoin, [ t; ScalarExpr.Literal(LiteralValue.String sep) ], LogicalTypes.String))
                 | _ -> None
 
-        | ListHead(target, countExpr) -> t2 target countExpr |> Option.map (fun (t, c) -> ScalarExpr.Function(ScalarFunction.ListHead, [ t; c ], PlDataType.List))
-        | ListTail(target, countExpr) -> t2 target countExpr |> Option.map (fun (t, c) -> ScalarExpr.Function(ScalarFunction.ListTail, [ t; c ], PlDataType.List))
+        | ListHead(target, countExpr) -> t2 target countExpr |> Option.map (fun (t, c) -> ScalarExpr.Function(ScalarFunction.ListHead, [ t; c ], LogicalTypes.ListOfUnknown))
+        | ListTail(target, countExpr) -> t2 target countExpr |> Option.map (fun (t, c) -> ScalarExpr.Function(ScalarFunction.ListTail, [ t; c ], LogicalTypes.ListOfUnknown))
 
         | ListSlice(target, offsetExpr, lengthOpt) ->
             match t2 target offsetExpr with
             | Some(t, offset) ->
                 match lengthOpt with
-                | Some lenExpr -> t1 lenExpr |> Option.map (fun len -> ScalarExpr.Function(ScalarFunction.ListSlice, [ t; offset; len ], PlDataType.List))
-                | None -> Some(ScalarExpr.Function(ScalarFunction.ListSlice, [ t; offset; ScalarExpr.Literal(LiteralValue.Int64 Int64.MaxValue) ], PlDataType.List))
+                | Some lenExpr -> t1 lenExpr |> Option.map (fun len -> ScalarExpr.Function(ScalarFunction.ListSlice, [ t; offset; len ], LogicalTypes.ListOfUnknown))
+                | None -> Some(ScalarExpr.Function(ScalarFunction.ListSlice, [ t; offset; ScalarExpr.Literal(LiteralValue.Int64 Int64.MaxValue) ], LogicalTypes.ListOfUnknown))
             | None -> None
 
         | ListUnique target ->
-            t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListUnique, [ t ], PlDataType.List))
+            t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListUnique, [ t ], LogicalTypes.ListOfUnknown))
         | ListReverse target ->
-            t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListReverse, [ t ], PlDataType.List))
+            t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListReverse, [ t ], LogicalTypes.ListOfUnknown))
         | ListSort(target, descending) ->
             t1 target
-            |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListSort, [ t; ScalarExpr.Literal(LiteralValue.Bool descending) ], PlDataType.List))
+            |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListSort, [ t; ScalarExpr.Literal(LiteralValue.Bool descending) ], LogicalTypes.ListOfUnknown))
 
-        | ListSetIntersection(target, otherExpr) -> t2 target otherExpr |> Option.map (fun (t, o) -> ScalarExpr.Function(ScalarFunction.ListIntersection, [ t; o ], PlDataType.List))
-        | ListSetUnion(target, otherExpr) -> t2 target otherExpr |> Option.map (fun (t, o) -> ScalarExpr.Function(ScalarFunction.ListUnion, [ t; o ], PlDataType.List))
-        | ListSetDifference(target, otherExpr) -> t2 target otherExpr |> Option.map (fun (t, o) -> ScalarExpr.Function(ScalarFunction.ListDifference, [ t; o ], PlDataType.List))
+        | ListSetIntersection(target, otherExpr) -> t2 target otherExpr |> Option.map (fun (t, o) -> ScalarExpr.Function(ScalarFunction.ListIntersection, [ t; o ], LogicalTypes.ListOfUnknown))
+        | ListSetUnion(target, otherExpr) -> t2 target otherExpr |> Option.map (fun (t, o) -> ScalarExpr.Function(ScalarFunction.ListUnion, [ t; o ], LogicalTypes.ListOfUnknown))
+        | ListSetDifference(target, otherExpr) -> t2 target otherExpr |> Option.map (fun (t, o) -> ScalarExpr.Function(ScalarFunction.ListDifference, [ t; o ], LogicalTypes.ListOfUnknown))
 
         | ListAny(target, None) ->
             t1 target
             |> Option.map (fun t ->
-                let len = ScalarExpr.Function(ScalarFunction.ListLen, [ t ], PlDataType.UInt32)
+                let len = ScalarExpr.Function(ScalarFunction.ListLen, [ t ], LogicalTypes.UInt32)
                 ScalarExpr.Binary(BinaryOp.Gt, len, ScalarExpr.Literal(LiteralValue.Int32 0)))
 
         | ListAny(target, Some lam) when lam.Parameters.Count = 1 ->
@@ -276,7 +276,7 @@ module internal ListTranslator =
             | Some t ->
                 let innerCtx = TranslationContext.ListElement lam.Parameters.[0].Name
                 eval innerCtx lam.Body
-                |> Option.map (fun innerCond -> ScalarExpr.Function(ScalarFunction.ListAny, [ t; innerCond ], PlDataType.Boolean))
+                |> Option.map (fun innerCond -> ScalarExpr.Function(ScalarFunction.ListAny, [ t; innerCond ], LogicalTypes.Boolean))
             | None -> None
         | ListAny _ -> None
 
@@ -285,7 +285,7 @@ module internal ListTranslator =
             | Some t ->
                 let innerCtx = TranslationContext.ListElement lam.Parameters.[0].Name
                 eval innerCtx lam.Body
-                |> Option.map (fun innerCond -> ScalarExpr.Function(ScalarFunction.ListAll, [ t; innerCond ], PlDataType.Boolean))
+                |> Option.map (fun innerCond -> ScalarExpr.Function(ScalarFunction.ListAll, [ t; innerCond ], LogicalTypes.Boolean))
             | None -> None
         | ListAll _ -> None
 
@@ -294,7 +294,7 @@ module internal ListTranslator =
             | Some t ->
                 let innerCtx = TranslationContext.ListElement lam.Parameters.[0].Name
                 eval innerCtx lam.Body
-                |> Option.map (fun mapperExpr -> ScalarExpr.Function(ScalarFunction.ListEval, [ t; mapperExpr ], PlDataType.List))
+                |> Option.map (fun mapperExpr -> ScalarExpr.Function(ScalarFunction.ListEval, [ t; mapperExpr ], LogicalTypes.ListOfUnknown))
             | None -> None
         | ListSelect _ -> None
 

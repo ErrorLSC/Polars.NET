@@ -5,8 +5,6 @@ open System.ComponentModel
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Helpers
 
-type PlDataType = Polars.NET.Core.Enums.PlDataType
-
 
 /// SRTP carrier mechanism for statically resolved scalar literal construction
 [<EditorBrowsable(EditorBrowsableState.Never)>]
@@ -54,8 +52,8 @@ module ScalarExprOps =
         match value with
         | null ->
             let dt =
-                Option.ofNullable (ArrowTypeResolver.TryGetPlDataType t)
-                |> Option.defaultValue PlDataType.Null
+                (LogicalTypes.tryOfClrType t)
+                |> Option.defaultValue LogicalTypes.Null
             ScalarExpr.Literal(LiteralValue.Null dt)
         | _ ->
             let coreType = PolarsTypeHelper.UnwrapCoreType t
@@ -73,7 +71,7 @@ module ScalarExprOps =
         if targetType = typeof<obj> then
             Some operand
         else
-            Option.ofNullable (ArrowTypeResolver.TryGetPlDataType targetType)
+            (LogicalTypes.tryOfClrType targetType)
             |> Option.map (fun dt -> ScalarExpr.Cast(operand, dt, isStrict = false))
 
     /// Pure check whether a CLR type has an Arrow representation usable as a UDF return type.

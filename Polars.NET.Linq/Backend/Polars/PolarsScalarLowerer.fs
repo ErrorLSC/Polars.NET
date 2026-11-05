@@ -127,10 +127,7 @@ module internal PolarsScalarLowerer =
 
         | ScalarExpr.Cast(inner, targetType, isStrict) ->
             let innerH = lower inner
-            let dtHandle =
-                match targetType with
-                | PlDataType.Decimal -> PolarsWrapper.NewDecimalType(38, 18)
-                | other -> PolarsWrapper.NewPrimitiveType(int other)
+            let dtHandle = PolarsVocabulary.toDataTypeHandle targetType
             use _h = dtHandle
             let dtExpr = PolarsWrapper.DataTypeExprFromDataType dtHandle
             PolarsWrapper.ExprCast(innerH, dtExpr, strict = isStrict, wrapNumerical = false)
@@ -214,8 +211,8 @@ module internal PolarsScalarLowerer =
             match fn, args with
             // Math
             | ScalarFunction.Abs, [ a ] -> PolarsWrapper.Abs(lower a)
-            | ScalarFunction.Round, [ a ] -> PolarsWrapper.Round(lower a, 0u, PlRoundMode.HalfToEven)
-            | ScalarFunction.Round, [ a; ScalarExpr.Literal decLit ] ->
+            | ScalarFunction.Round mode, [ a ] -> PolarsWrapper.Round(lower a, 0u, PolarsVocabulary.roundMode mode)
+            | ScalarFunction.Round mode, [ a; ScalarExpr.Literal decLit ] ->
                 let decimals =
                     match decLit with
                     | LiteralValue.Int32 d -> uint32 (max 0 d)
@@ -224,23 +221,7 @@ module internal PolarsScalarLowerer =
                     | LiteralValue.UInt8 d -> uint32 d
                     | LiteralValue.Int16 d -> uint32 (max 0s d)
                     | _ -> 0u
-                PolarsWrapper.Round(lower a, decimals, PlRoundMode.HalfToEven)
-            | ScalarFunction.Round, [ a; ScalarExpr.Literal decLit; ScalarExpr.Literal modeLit ] ->
-                let decimals =
-                    match decLit with
-                    | LiteralValue.Int32 d -> uint32 (max 0 d)
-                    | LiteralValue.Int64 d -> uint32 (max 0L d)
-                    | LiteralValue.UInt32 d -> d
-                    | LiteralValue.UInt8 d -> uint32 d
-                    | LiteralValue.Int16 d -> uint32 (max 0s d)
-                    | _ -> 0u
-                let plMode =
-                    match modeLit with
-                    | LiteralValue.Int32 m -> LanguagePrimitives.EnumOfValue<byte, PlRoundMode> (byte m)
-                    | LiteralValue.UInt8 m -> LanguagePrimitives.EnumOfValue<byte, PlRoundMode> m
-                    | LiteralValue.Int64 m -> LanguagePrimitives.EnumOfValue<byte, PlRoundMode> (byte m)
-                    | _ -> PlRoundMode.HalfToEven
-                PolarsWrapper.Round(lower a, decimals, plMode)
+                PolarsWrapper.Round(lower a, decimals, PolarsVocabulary.roundMode mode)
             | ScalarFunction.CastDecimal, [ t; ScalarExpr.Literal(LiteralValue.Int32 scale) ] ->
                 let decType = PolarsWrapper.NewDecimalType(38, scale)
                 use _h = decType
@@ -415,13 +396,13 @@ module internal PolarsScalarLowerer =
 
             // Window & Extensions
             | ScalarFunction.Shift, [ a; b ] -> PolarsWrapper.Shift(lower a, lower b)
-            | ScalarFunction.Diff, [ a; b; ScalarExpr.Literal(LiteralValue.Int32 nb) ] ->
-                PolarsWrapper.Diff(lower a, lower b, LanguagePrimitives.EnumOfValue<byte, PlNullBehavior> (byte nb))
-            | ScalarFunction.Rank, [ a; ScalarExpr.Literal(LiteralValue.Int32 m); ScalarExpr.Literal(LiteralValue.Bool desc) ] ->
-                PolarsWrapper.Rank(lower a, LanguagePrimitives.EnumOfValue<byte, PlRankMethod> (byte m), desc, Nullable())
+            | ScalarFunction.Diff nb, [ a; b ] ->
+                PolarsWrapper.Diff(lower a, lower b, PolarsVocabulary.nullBehavior nb)
+            | ScalarFunction.Rank m, [ a; ScalarExpr.Literal(LiteralValue.Bool desc) ] ->
+                PolarsWrapper.Rank(lower a, PolarsVocabulary.rankMethod m, desc, Nullable())
             | ScalarFunction.PctChange, [ a; ScalarExpr.Literal(LiteralValue.Int64 n) ] -> PolarsWrapper.PctChange(lower a, n)
-            | ScalarFunction.Interpolate, [ a; ScalarExpr.Literal(LiteralValue.Int32 m) ] ->
-                PolarsWrapper.Interpolate(lower a, LanguagePrimitives.EnumOfValue<byte, PlInterpolationMethod> (byte m))
+            | ScalarFunction.Interpolate m, [ a ] ->
+                PolarsWrapper.Interpolate(lower a, PolarsVocabulary.interpolationMethod m)
             | ScalarFunction.InterpolateBy, [ a; b ] -> PolarsWrapper.InterpolateBy(lower a, lower b)
             | ScalarFunction.CumSum, [ a ] -> PolarsWrapper.CumSum(lower a, false)
             | ScalarFunction.CumSum, [ a; ScalarExpr.Literal(LiteralValue.Bool rev) ] -> PolarsWrapper.CumSum(lower a, rev)
@@ -436,8 +417,8 @@ module internal PolarsScalarLowerer =
             | ScalarFunction.RegexEscape, [ a ] -> PolarsWrapper.StrEscapeRegex(lower a)
             | ScalarFunction.Head, [ a; b ] -> PolarsWrapper.StrHead(lower a, lower b)
             | ScalarFunction.Tail, [ a; b ] -> PolarsWrapper.StrTail(lower a, lower b)
-            | ScalarFunction.StrToInteger, [ a; b; ScalarExpr.Literal(LiteralValue.Int32 dtypeVal) ] ->
-                let dtHandle = PolarsWrapper.NewPrimitiveType dtypeVal
+            | ScalarFunction.StrToInteger targetType, [ a; b ] ->
+                let dtHandle = PolarsVocabulary.toDataTypeHandle targetType
                 PolarsWrapper.StrToInteger(lower a, lower b, dtHandle, strict = false)
             | ScalarFunction.StrToDecimal, [ a; ScalarExpr.Literal(LiteralValue.Int32 scale) ] ->
                 PolarsWrapper.StrToDecimal(lower a, scale)
@@ -473,8 +454,8 @@ module internal PolarsScalarLowerer =
                 PolarsWrapper.MaxBy(lower a, lower by)
             | ScalarFunction.Filter, [ a; pred ] ->
                 PolarsWrapper.Filter(lower a, lower pred)
-            | ScalarFunction.Quantile, [ a; ScalarExpr.Literal(LiteralValue.Float64 q); ScalarExpr.Literal(LiteralValue.Int32 m) ] ->
-                PolarsWrapper.Quantile(lower a, q, LanguagePrimitives.EnumOfValue<byte, PlQuantileMethod> (byte m))
+            | ScalarFunction.Quantile m, [ a; ScalarExpr.Literal(LiteralValue.Float64 q) ] ->
+                PolarsWrapper.Quantile(lower a, q, PolarsVocabulary.quantileMethod m)
             | ScalarFunction.SeriesGet, [ a; idx ] ->
                 PolarsWrapper.Get(lower a, lower idx, nullOnOob = true)
 

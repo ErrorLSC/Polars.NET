@@ -2,12 +2,11 @@ namespace Polars.NET.Linq.IR
 
 open System
 open System.Linq.Expressions
-open Polars.NET.Core.Enums
 
 /// Strongly-typed literal representation eliminating heap boxing and type ambiguity
 [<RequireQualifiedAccess>]
 type LiteralValue =
-    | Null of PlDataType
+    | Null of LogicalType
     | Bool of bool
     | Int8 of sbyte
     | Int16 of int16
@@ -28,27 +27,27 @@ type LiteralValue =
     | TimeOnly of TimeOnly
     with
         /// Returns the exact Polars data type for this literal value.
-        member this.DataType: PlDataType =
+        member this.DataType: LogicalType =
             match this with
             | Null dt -> dt
-            | Bool _ -> PlDataType.Boolean
-            | Int8 _ -> PlDataType.Int8
-            | Int16 _ -> PlDataType.Int16
-            | Int32 _ -> PlDataType.Int32
-            | Int64 _ -> PlDataType.Int64
-            | UInt8 _ -> PlDataType.UInt8
-            | UInt16 _ -> PlDataType.UInt16
-            | UInt32 _ -> PlDataType.UInt32
-            | UInt64 _ -> PlDataType.UInt64
-            | Float32 _ -> PlDataType.Float32
-            | Float64 _ -> PlDataType.Float64
-            | Decimal _ -> PlDataType.Decimal
-            | String _ -> PlDataType.String
-            | Date _ -> PlDataType.Date
-            | DateTime _ -> PlDataType.Datetime
-            | DateTimeOffset _ -> PlDataType.Datetime
-            | TimeSpan _ -> PlDataType.Duration
-            | TimeOnly _ -> PlDataType.Time
+            | Bool _ -> LogicalTypes.Boolean
+            | Int8 _ -> LogicalTypes.Int8
+            | Int16 _ -> LogicalTypes.Int16
+            | Int32 _ -> LogicalTypes.Int32
+            | Int64 _ -> LogicalTypes.Int64
+            | UInt8 _ -> LogicalTypes.UInt8
+            | UInt16 _ -> LogicalTypes.UInt16
+            | UInt32 _ -> LogicalTypes.UInt32
+            | UInt64 _ -> LogicalTypes.UInt64
+            | Float32 _ -> LogicalTypes.Float32
+            | Float64 _ -> LogicalTypes.Float64
+            | Decimal _ -> LogicalTypes.Decimal
+            | String _ -> LogicalTypes.String
+            | Date _ -> LogicalTypes.Date
+            | DateTime _ -> LogicalTypes.Datetime
+            | DateTimeOffset _ -> LogicalTypes.DatetimeUtc
+            | TimeSpan _ -> LogicalTypes.Duration
+            | TimeOnly _ -> LogicalTypes.Time
 
         /// Extracts the boxed object representation on demand for FFI boundaries.
         member this.BoxedValue: obj =
@@ -76,7 +75,7 @@ type LiteralValue =
         /// Converts a dynamic runtime object into a strongly-typed LiteralValue.
         static member OfObject(raw: obj) : LiteralValue =
             match raw with
-            | null -> LiteralValue.Null PlDataType.Null
+            | null -> LiteralValue.Null LogicalTypes.Null
             | :? bool as b -> LiteralValue.Bool b
             | :? int as i -> LiteralValue.Int32 i
             | :? int64 as i -> LiteralValue.Int64 i
@@ -157,7 +156,7 @@ type AggKind =
 type LogicalField =
     {
         Name: string
-        DataType: PlDataType
+        DataType: LogicalType
         Nullable: bool
     }
 
@@ -176,13 +175,13 @@ type LogicalSchema =
                     |> Seq.map (fun n ->
                         {
                             Name = n
-                            DataType = PlDataType.Unknown
+                            DataType = LogicalType.Unknown
                             Nullable = true
                         })
                     |> Seq.toList
             }
 
-        static member OfFields(fields: (string * PlDataType) seq) =
+        static member OfFields(fields: (string * LogicalType) seq) =
             {
                 Fields =
                     fields
@@ -225,7 +224,7 @@ type LogicalSchema =
 type ScalarFunction =
     // --- Math / Numeric ---
     | Abs
-    | Round
+    | Round of mode: RoundMode
     | Floor
     | Ceil
     | Truncate
@@ -284,7 +283,7 @@ type ScalarFunction =
     | HexDecode
     | Base64Encode
     | Base64Decode
-    | StrToInteger
+    | StrToInteger of targetType: LogicalType
     | StrToDecimal
 
     // --- Temporal ---
@@ -352,10 +351,10 @@ type ScalarFunction =
 
     // --- Window & Series ---
     | Shift
-    | Diff
-    | Rank
+    | Diff of nullBehavior: NullBehavior
+    | Rank of method: RankMethod
     | PctChange
-    | Interpolate
+    | Interpolate of method: InterpolationMethod
     | InterpolateBy
     | CumSum
     | CumMin
@@ -377,7 +376,7 @@ type ScalarFunction =
     | MinBy
     | MaxBy
     | Filter
-    | Quantile
+    | Quantile of method: QuantileMethod
     | SeriesGet
 
     // --- Custom / Extension Function ---
@@ -386,7 +385,7 @@ type ScalarFunction =
     member this.Name: string =
         match this with
         | ScalarFunction.Abs -> "abs"
-        | ScalarFunction.Round -> "round"
+        | ScalarFunction.Round _ -> "round"
         | ScalarFunction.Floor -> "floor"
         | ScalarFunction.Ceil -> "ceil"
         | ScalarFunction.Truncate -> "truncate"
@@ -443,7 +442,7 @@ type ScalarFunction =
         | ScalarFunction.HexDecode -> "hex_decode"
         | ScalarFunction.Base64Encode -> "base64_encode"
         | ScalarFunction.Base64Decode -> "base64_decode"
-        | ScalarFunction.StrToInteger -> "str_to_integer"
+        | ScalarFunction.StrToInteger _ -> "str_to_integer"
         | ScalarFunction.StrToDecimal -> "str_to_decimal"
         | ScalarFunction.DtYear -> "dt_year"
         | ScalarFunction.DtMonth -> "dt_month"
@@ -501,10 +500,10 @@ type ScalarFunction =
         | ScalarFunction.StructJsonEncode -> "struct_json_encode"
         | ScalarFunction.StrJsonDecode -> "str_json_decode"
         | ScalarFunction.Shift -> "shift"
-        | ScalarFunction.Diff -> "diff"
-        | ScalarFunction.Rank -> "rank"
+        | ScalarFunction.Diff _ -> "diff"
+        | ScalarFunction.Rank _ -> "rank"
         | ScalarFunction.PctChange -> "pct_change"
-        | ScalarFunction.Interpolate -> "interpolate"
+        | ScalarFunction.Interpolate _ -> "interpolate"
         | ScalarFunction.InterpolateBy -> "interpolate_by"
         | ScalarFunction.CumSum -> "cum_sum"
         | ScalarFunction.CumMin -> "cum_min"
@@ -522,14 +521,14 @@ type ScalarFunction =
         | ScalarFunction.MinBy -> "min_by"
         | ScalarFunction.MaxBy -> "max_by"
         | ScalarFunction.Filter -> "filter"
-        | ScalarFunction.Quantile -> "quantile"
+        | ScalarFunction.Quantile _ -> "quantile"
         | ScalarFunction.SeriesGet -> "series_get"
         | ScalarFunction.Custom name -> name
 
     static member FromString(str: string) : ScalarFunction =
         match str.ToLowerInvariant() with
         | "abs" -> ScalarFunction.Abs
-        | "round" -> ScalarFunction.Round
+        | "round" -> ScalarFunction.Round RoundMode.HalfToEven
         | "floor" -> ScalarFunction.Floor
         | "ceil" | "ceiling" -> ScalarFunction.Ceil
         | "truncate" -> ScalarFunction.Truncate
@@ -588,7 +587,7 @@ type ScalarFunction =
         | "hex_decode" -> ScalarFunction.HexDecode
         | "base64_encode" -> ScalarFunction.Base64Encode
         | "base64_decode" -> ScalarFunction.Base64Decode
-        | "str_to_integer" -> ScalarFunction.StrToInteger
+        | "str_to_integer" -> ScalarFunction.StrToInteger LogicalTypes.Int64
         | "str_to_decimal" -> ScalarFunction.StrToDecimal
         | "dt_year" -> ScalarFunction.DtYear
         | "dt_month" -> ScalarFunction.DtMonth
@@ -644,10 +643,10 @@ type ScalarFunction =
         | "struct_json_encode" -> ScalarFunction.StructJsonEncode
         | "str_json_decode" -> ScalarFunction.StrJsonDecode
         | "shift" -> ScalarFunction.Shift
-        | "diff" -> ScalarFunction.Diff
-        | "rank" -> ScalarFunction.Rank
+        | "diff" -> ScalarFunction.Diff NullBehavior.Ignore
+        | "rank" -> ScalarFunction.Rank RankMethod.Average
         | "pct_change" -> ScalarFunction.PctChange
-        | "interpolate" -> ScalarFunction.Interpolate
+        | "interpolate" -> ScalarFunction.Interpolate InterpolationMethod.Linear
         | "interpolate_by" -> ScalarFunction.InterpolateBy
         | "cum_sum" -> ScalarFunction.CumSum
         | "cum_min" -> ScalarFunction.CumMin
@@ -665,7 +664,7 @@ type ScalarFunction =
         | "min_by" -> ScalarFunction.MinBy
         | "max_by" -> ScalarFunction.MaxBy
         | "filter" -> ScalarFunction.Filter
-        | "quantile" -> ScalarFunction.Quantile
+        | "quantile" -> ScalarFunction.Quantile QuantileMethod.Nearest
         | "series_get" -> ScalarFunction.SeriesGet
         | other -> ScalarFunction.Custom other
 
@@ -692,8 +691,8 @@ type [<RequireQualifiedAccess>] ScalarExpr =
     | Literal of value: LiteralValue
     | Binary of op: BinaryOp * left: ScalarExpr * right: ScalarExpr
     | Unary of op: UnaryOp * expr: ScalarExpr
-    | Cast of expr: ScalarExpr * targetType: PlDataType * isStrict: bool
-    | Function of func: ScalarFunction * args: ScalarExpr list * returnType: PlDataType
+    | Cast of expr: ScalarExpr * targetType: LogicalType * isStrict: bool
+    | Function of func: ScalarFunction * args: ScalarExpr list * returnType: LogicalType
     | Aggregation of kind: AggKind * expr: ScalarExpr option * isDistinct: bool
     | Window of expr: ScalarExpr * partitionBy: ScalarExpr list * orderBy: SortOrder list
     | SortBy of expr: ScalarExpr * by: SortOrder list
@@ -703,7 +702,7 @@ type [<RequireQualifiedAccess>] ScalarExpr =
     | Slice of target: ScalarExpr * offset: int64 * length: uint32
     | Subquery of plan: LogicalPlan * kind: SubqueryKind
     | Alias of expr: ScalarExpr * alias: string
-    | Udf of name: string * args: ScalarExpr list * returnType: PlDataType * invoker: UdfInvoker
+    | Udf of name: string * args: ScalarExpr list * returnType: LogicalType * invoker: UdfInvoker
     | InList of expr: ScalarExpr * source: InListSource * negated: bool
 
 /// Subquery semantics when a scalar expression embeds a logical plan
@@ -750,17 +749,14 @@ and LogicalAsOfJoinSpec =
         RightOn: ScalarExpr
         LeftBy: ScalarExpr list
         RightBy: ScalarExpr list
-        Strategy: PlAsofStrategy
+        Strategy: AsofStrategy
         ToleranceStr: string option
         ToleranceInt: int64 option
         ToleranceFloat: double option
         AllowEq: bool
         CheckSorted: bool
         Suffix: string option
-        Validation: PlJoinValidation
-        Coalesce: PlJoinCoalesce
-        MaintainOrder: PlJoinMaintainOrder
-        JoinSide: PlJoinSide
+        Coalesce: JoinKeyCoalescing
         NullsEqual: bool
     }
 
@@ -775,9 +771,9 @@ and [<RequireQualifiedAccess>] LogicalPlan =
         right: LogicalPlan *
         leftOn: ScalarExpr list *
         rightOn: ScalarExpr list *
-        how: PlJoinType *
+        how: JoinKind *
         suffix: string option *
-        coalesce: PlJoinCoalesce *
+        coalesce: JoinKeyCoalescing *
         nullsEqual: bool
     | JoinAsOf of left: LogicalPlan * right: LogicalPlan * spec: LogicalAsOfJoinSpec
     | GroupBy of
@@ -789,7 +785,7 @@ and [<RequireQualifiedAccess>] LogicalPlan =
     | GroupingSets of input: LogicalPlan * spec: LogicalGroupingSetsSpec
     | Sort of input: LogicalPlan * orderings: SortOrder list
     | Limit of input: LogicalPlan * offset: int64 * count: uint32
-    | Distinct of input: LogicalPlan * subset: string list option * keep: PlUniqueKeepStrategy
+    | Distinct of input: LogicalPlan * subset: string list option * keep: DistinctKeep
     | Explode of input: LogicalPlan * columns: string list * emptyAsNull: bool * keepNulls: bool
     | Unpivot of
         input: LogicalPlan *

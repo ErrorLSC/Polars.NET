@@ -24,8 +24,8 @@ module internal ExprTranslator =
 
                 match eval ctx target with
                 | Some t ->
-                    let splitS = ScalarExpr.Function(ScalarFunction.SplitExact, [ t; ScalarExpr.Literal(LiteralValue.String sep); ScalarExpr.Literal(LiteralValue.Int32 n) ], PlDataType.Unknown)
-                    Some(ScalarExpr.Function(ScalarFunction.StructFieldByIndex, [ splitS; ScalarExpr.Literal(LiteralValue.Int32 idx) ], PlDataType.String))
+                    let splitS = ScalarExpr.Function(ScalarFunction.SplitExact, [ t; ScalarExpr.Literal(LiteralValue.String sep); ScalarExpr.Literal(LiteralValue.Int32 n) ], LogicalType.Unknown)
+                    Some(ScalarExpr.Function(ScalarFunction.StructFieldByIndex, [ splitS; ScalarExpr.Literal(LiteralValue.Int32 idx) ], LogicalTypes.String))
                 | _ -> None
 
             // 1. Row-level List / Array operations
@@ -46,13 +46,13 @@ module internal ExprTranslator =
             // 2. Struct Field Access
             | StructFieldAccess(parentExpr, fieldName) ->
                 match eval ctx parentExpr with
-                | Some parentS -> Some(ScalarExpr.Function(ScalarFunction.StructFieldByName, [ parentS; ScalarExpr.Literal(LiteralValue.String fieldName) ], PlDataType.Unknown))
+                | Some parentS -> Some(ScalarExpr.Function(ScalarFunction.StructFieldByName, [ parentS; ScalarExpr.Literal(LiteralValue.String fieldName) ], LogicalType.Unknown))
                 | None -> None
 
             // 3. Constants and Literals
             | :? ConstantExpression as constExpr ->
                 if isNull constExpr.Value then
-                    Some(ScalarExpr.Literal(LiteralValue.Null PlDataType.Null))
+                    Some(ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Null))
                 else
                     Some(ScalarExprOps.toLiteral constExpr.Value constExpr.Type)
 
@@ -103,7 +103,7 @@ module internal ExprTranslator =
                     | Some colExpr, Some fallbackExpr ->
                         match eval ctx colExpr, eval ctx fallbackExpr with
                         | Some colS, Some fallbackS ->
-                            Some(ScalarExpr.Function(ScalarFunction.FillNull, [ colS; fallbackS ], PlDataType.Unknown))
+                            Some(ScalarExpr.Function(ScalarFunction.FillNull, [ colS; fallbackS ], LogicalType.Unknown))
                         | _ -> None
                     | _ -> None
 

@@ -1,7 +1,6 @@
 namespace Polars.NET.Linq.IR
 
 open System
-open Polars.NET.Core.Enums
 open Polars.NET.Linq
 
 /// In-memory schema and data type inference for LogicalPlan and ScalarExpr
@@ -11,12 +10,12 @@ module internal SchemaInference =
     // 1. Scalar Type Inference
     // =========================================================================
 
-    let rec inferScalarType (schema: LogicalSchema) (expr: ScalarExpr) : PlDataType =
+    let rec inferScalarType (schema: LogicalSchema) (expr: ScalarExpr) : LogicalType =
         match expr with
         | ScalarExpr.Column name ->
             match schema.TryFindField name with
             | Some field -> field.DataType
-            | None -> PlDataType.Unknown
+            | None -> LogicalType.Unknown
 
         | ScalarExpr.Literal litVal -> litVal.DataType
 
@@ -26,7 +25,7 @@ module internal SchemaInference =
             match op with
             | UnaryOp.Not
             | UnaryOp.IsNull
-            | UnaryOp.IsNotNull -> PlDataType.Boolean
+            | UnaryOp.IsNotNull -> LogicalTypes.Boolean
             | UnaryOp.Negate
             | UnaryOp.Abs -> inferScalarType schema inner
 
@@ -45,9 +44,9 @@ module internal SchemaInference =
             | BinaryOp.StartsWith
             | BinaryOp.EndsWith
             | BinaryOp.Like
-            | BinaryOp.RegexMatch -> PlDataType.Boolean
+            | BinaryOp.RegexMatch -> LogicalTypes.Boolean
 
-            | BinaryOp.StringConcat -> PlDataType.String
+            | BinaryOp.StringConcat -> LogicalTypes.String
 
             | BinaryOp.Add
             | BinaryOp.Subtract
@@ -59,21 +58,21 @@ module internal SchemaInference =
                 let leftType = inferScalarType schema left
                 let rightType = inferScalarType schema right
 
-                if leftType = PlDataType.Float64 || rightType = PlDataType.Float64 then
-                    PlDataType.Float64
-                elif leftType = PlDataType.Float32 || rightType = PlDataType.Float32 then
-                    PlDataType.Float32
-                elif leftType = PlDataType.Int64 || rightType = PlDataType.Int64 then
-                    PlDataType.Int64
-                elif leftType = PlDataType.Int32 || rightType = PlDataType.Int32 then
-                    PlDataType.Int32
-                elif leftType <> PlDataType.Unknown then
+                if leftType = LogicalTypes.Float64 || rightType = LogicalTypes.Float64 then
+                    LogicalTypes.Float64
+                elif leftType = LogicalTypes.Float32 || rightType = LogicalTypes.Float32 then
+                    LogicalTypes.Float32
+                elif leftType = LogicalTypes.Int64 || rightType = LogicalTypes.Int64 then
+                    LogicalTypes.Int64
+                elif leftType = LogicalTypes.Int32 || rightType = LogicalTypes.Int32 then
+                    LogicalTypes.Int32
+                elif leftType <> LogicalType.Unknown then
                     leftType
                 else
                     rightType
 
         | ScalarExpr.Function(fn, args, returnType) ->
-            if returnType <> PlDataType.Unknown then
+            if returnType <> LogicalType.Unknown then
                 returnType
             else
                 match fn with
@@ -81,17 +80,17 @@ module internal SchemaInference =
                 | ScalarFunction.BitRightShift ->
                     match args with
                     | left :: _ -> inferScalarType schema left
-                    | [] -> PlDataType.Unknown
+                    | [] -> LogicalType.Unknown
                 | _ -> returnType
 
         | ScalarExpr.Aggregation(kind, innerOpt, _) ->
             match kind with
             | AggKind.Count
-            | AggKind.Len -> PlDataType.Int64
-            | AggKind.Mean -> PlDataType.Float64
-            | AggKind.Median -> PlDataType.Float64
+            | AggKind.Len -> LogicalTypes.Int64
+            | AggKind.Mean -> LogicalTypes.Float64
+            | AggKind.Median -> LogicalTypes.Float64
             | AggKind.Std _
-            | AggKind.Var _ -> PlDataType.Float64
+            | AggKind.Var _ -> LogicalTypes.Float64
             | AggKind.Sum
             | AggKind.Min
             | AggKind.Max
@@ -101,7 +100,7 @@ module internal SchemaInference =
             | AggKind.List ->
                 match innerOpt with
                 | Some inner -> inferScalarType schema inner
-                | None -> PlDataType.Unknown
+                | None -> LogicalType.Unknown
 
         | ScalarExpr.Window(inner, _, _)
         | ScalarExpr.SortBy(inner, _) -> inferScalarType schema inner
@@ -111,20 +110,20 @@ module internal SchemaInference =
         | ScalarExpr.Coalesce exprs ->
             match exprs with
             | first :: _ -> inferScalarType schema first
-            | [] -> PlDataType.Unknown
+            | [] -> LogicalType.Unknown
 
-        | ScalarExpr.ItemAccess _ -> PlDataType.Unknown
-        | ScalarExpr.Slice _ -> PlDataType.Unknown
+        | ScalarExpr.ItemAccess _ -> LogicalType.Unknown
+        | ScalarExpr.Slice _ -> LogicalType.Unknown
 
         | ScalarExpr.Subquery(_, kind) ->
             match kind with
             | SubqueryKind.Exists _
-            | SubqueryKind.InSubquery _ -> PlDataType.Boolean
-            | SubqueryKind.ScalarScalar -> PlDataType.Unknown
+            | SubqueryKind.InSubquery _ -> LogicalTypes.Boolean
+            | SubqueryKind.ScalarScalar -> LogicalType.Unknown
 
         | ScalarExpr.Alias(inner, _) -> inferScalarType schema inner
         | ScalarExpr.Udf(_, _, returnType, _) -> returnType
-        | ScalarExpr.InList _ -> PlDataType.Boolean
+        | ScalarExpr.InList _ -> LogicalTypes.Boolean
 
     // =========================================================================
     // 2. Relational Plan Schema Inference
@@ -190,8 +189,8 @@ module internal SchemaInference =
 
         | LogicalPlan.Join(left, right, _, _, how, suffixOpt, _, _) ->
             match how with
-            | PlJoinType.Semi
-            | PlJoinType.Anti -> inferPlanSchema left
+            | JoinKind.Semi
+            | JoinKind.Anti -> inferPlanSchema left
             | _ ->
                 let leftSchema = inferPlanSchema left
                 let rightSchema = inferPlanSchema right
@@ -242,7 +241,7 @@ module internal SchemaInference =
                         Some
                             {
                                 Name = name
-                                DataType = inSchema.TryFindField name |> Option.map (fun f -> f.DataType) |> Option.defaultValue PlDataType.Unknown
+                                DataType = inSchema.TryFindField name |> Option.map (fun f -> f.DataType) |> Option.defaultValue LogicalType.Unknown
                                 Nullable = true
                             }
                     | ScalarExpr.Alias(inner, name) ->
@@ -286,7 +285,7 @@ module internal SchemaInference =
                         | None ->
                             match aggMap.TryFind name with
                             | Some e -> inferScalarType inSchema e
-                            | None -> PlDataType.Int32
+                            | None -> LogicalTypes.Int32
                     {
                         Name = name
                         DataType = dt
@@ -306,14 +305,14 @@ module internal SchemaInference =
             let varField =
                 {
                     Name = varName
-                    DataType = PlDataType.String
+                    DataType = LogicalTypes.String
                     Nullable = false
                 }
 
             let valField =
                 {
                     Name = valName
-                    DataType = PlDataType.Unknown
+                    DataType = LogicalType.Unknown
                     Nullable = true
                 }
 
@@ -327,7 +326,7 @@ module internal SchemaInference =
             let ridField =
                 {
                     Name = name
-                    DataType = PlDataType.UInt32
+                    DataType = LogicalTypes.UInt32
                     Nullable = false
                 }
 

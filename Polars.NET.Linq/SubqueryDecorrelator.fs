@@ -1,6 +1,5 @@
 namespace Polars.NET.Linq
 
-open Polars.NET.Core.Enums
 open Polars.NET.Core.Helpers
 open Polars.NET.Linq.IR
 open System
@@ -712,11 +711,11 @@ module internal SubqueryDecorrelator =
                 let innerCtx =
                     createContextForTypeWithCols parts.InnerParam.Type rightCols parts.InnerParam.Name
 
-                let joinHow = if isNegated then PlJoinType.Anti else PlJoinType.Semi
+                let joinHow = if isNegated then JoinKind.Anti else JoinKind.Semi
 
                 if parts.ThetaConditions.IsEmpty then
                     let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
-                    return LogicalPlan.Join(outerPlan, rightPlan, keys.OuterKeys, keys.InnerKeys, joinHow, None, PlJoinCoalesce.JoinSpecific, false)
+                    return LogicalPlan.Join(outerPlan, rightPlan, keys.OuterKeys, keys.InnerKeys, joinHow, None, JoinKeyCoalescing.Default, false)
                 else
                     let leftCols = outerCols |> Set.ofList
                     let originalCols = outerCols
@@ -740,16 +739,16 @@ module internal SubqueryDecorrelator =
                     let withRidPlan = LogicalPlan.WithRowIndex(outerPlan, ridCol, Some 0u)
                     let joinedPlan =
                         if outerKeys.IsEmpty then
-                            LogicalPlan.Join(withRidPlan, rightPlan, [], [], PlJoinType.Cross, Some LinqConstants.DefaultRightSuffix, PlJoinCoalesce.KeepColumns, false)
+                            LogicalPlan.Join(withRidPlan, rightPlan, [], [], JoinKind.Cross, Some LinqConstants.DefaultRightSuffix, JoinKeyCoalescing.KeepBoth, false)
                         else
-                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, PlJoinType.Inner, Some LinqConstants.DefaultRightSuffix, PlJoinCoalesce.JoinSpecific, false)
+                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some LinqConstants.DefaultRightSuffix, JoinKeyCoalescing.Default, false)
 
                     let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
                     let selectedPlan = LogicalPlan.Project(filteredPlan, [ (ridCol, ScalarExpr.Column ridCol) ])
-                    let matchedRidsPlan = LogicalPlan.Distinct(selectedPlan, None, PlUniqueKeepStrategy.Any)
+                    let matchedRidsPlan = LogicalPlan.Distinct(selectedPlan, None, DistinctKeep.Any)
 
                     let semiJoinPlan =
-                        LogicalPlan.Join(withRidPlan, matchedRidsPlan, [ ScalarExpr.Column ridCol ], [ ScalarExpr.Column ridCol ], joinHow, None, PlJoinCoalesce.JoinSpecific, false)
+                        LogicalPlan.Join(withRidPlan, matchedRidsPlan, [ ScalarExpr.Column ridCol ], [ ScalarExpr.Column ridCol ], joinHow, None, JoinKeyCoalescing.Default, false)
 
                     let restoreSchemaPlan =
                         LogicalPlan.Project(semiJoinPlan, originalCols |> List.map (fun c -> c, ScalarExpr.Column c))
@@ -777,8 +776,8 @@ module internal SubqueryDecorrelator =
                         else
                             None
 
-                let joinHow = if isNegated then PlJoinType.Anti else PlJoinType.Semi
-                return LogicalPlan.Join(outerPlan, rightPlan, [ leftKey ], [ rightKey ], joinHow, None, PlJoinCoalesce.JoinSpecific, false)
+                let joinHow = if isNegated then JoinKind.Anti else JoinKind.Semi
+                return LogicalPlan.Join(outerPlan, rightPlan, [ leftKey ], [ rightKey ], joinHow, None, JoinKeyCoalescing.Default, false)
             }
 
         let rec tryDisjunctiveAny (disjExpr: Expression) : LogicalPlan option =
@@ -826,8 +825,8 @@ module internal SubqueryDecorrelator =
                             ExpressionEqualityComparer.Instance.Equals(fst p.EquiPairs.[0], firstOuterKeyExpr))
                     if allSameOuterKey then
                         let unionPlan = branchPlans |> List.reduce (fun acc p -> LogicalPlan.Union(acc, p, true))
-                        let joinHow = if isNegated then PlJoinType.Anti else PlJoinType.Semi
-                        Some (LogicalPlan.Join(outerPlan, unionPlan, [ branchOuterKeys.[0] ], [ ScalarExpr.Column "__disj_any_key__" ], joinHow, None, PlJoinCoalesce.JoinSpecific, false))
+                        let joinHow = if isNegated then JoinKind.Anti else JoinKind.Semi
+                        Some (LogicalPlan.Join(outerPlan, unionPlan, [ branchOuterKeys.[0] ], [ ScalarExpr.Column "__disj_any_key__" ], joinHow, None, JoinKeyCoalescing.Default, false))
                     else
                         None
                 else
@@ -938,14 +937,14 @@ module internal SubqueryDecorrelator =
 
                 let buildAggColBase (colName: string) : ScalarExpr =
                     if isCount then
-                        ScalarExpr.Function(ScalarFunction.FillNull, [ ScalarExpr.Column colName; ScalarExpr.Literal(LiteralValue.UInt32 0u) ], PlDataType.UInt32)
+                        ScalarExpr.Function(ScalarFunction.FillNull, [ ScalarExpr.Column colName; ScalarExpr.Literal(LiteralValue.UInt32 0u) ], LogicalTypes.UInt32)
                     elif aggCall.MethodName = "Sum" then
                         match PolarsTypeHelper.GetNumericZeroValue aggCall.TargetType with
                         | null -> ScalarExpr.Column colName
                         | zeroVal ->
                             let core = PolarsTypeHelper.UnwrapCoreType aggCall.TargetType
                             let zeroLit = toLiteral zeroVal core
-                            ScalarExpr.Function(ScalarFunction.FillNull, [ ScalarExpr.Column colName; zeroLit ], PlDataType.Unknown)
+                            ScalarExpr.Function(ScalarFunction.FillNull, [ ScalarExpr.Column colName; zeroLit ], LogicalType.Unknown)
                     else
                         ScalarExpr.Column colName
 
@@ -979,7 +978,7 @@ module internal SubqueryDecorrelator =
 
                     let cmpScalar = OperatorAndUdfTranslator.translateBinary effectiveOp outerSideScalar scaledAggScalar
 
-                    let joinedPlan = LogicalPlan.Join(outerPlan, groupedPlan, keys.OuterKeys, keys.InnerKeys, PlJoinType.Left, None, PlJoinCoalesce.JoinSpecific, false)
+                    let joinedPlan = LogicalPlan.Join(outerPlan, groupedPlan, keys.OuterKeys, keys.InnerKeys, JoinKind.Left, None, JoinKeyCoalescing.Default, false)
                     let filterPlan = LogicalPlan.Filter(joinedPlan, cmpScalar)
                     let originalCols = (SchemaInference.inferPlanSchema outerPlan).ColumnNames
                     let restorePlan =
@@ -1034,9 +1033,9 @@ module internal SubqueryDecorrelator =
                     let withRidPlan = LogicalPlan.WithRowIndex(outerPlan, ridCol, Some 0u)
                     let joinedPlan =
                         if outerKeys.IsEmpty then
-                            LogicalPlan.Join(withRidPlan, rightPlan, [], [], PlJoinType.Cross, Some rightSuffix, PlJoinCoalesce.KeepColumns, false)
+                            LogicalPlan.Join(withRidPlan, rightPlan, [], [], JoinKind.Cross, Some rightSuffix, JoinKeyCoalescing.KeepBoth, false)
                         else
-                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, PlJoinType.Inner, Some rightSuffix, PlJoinCoalesce.JoinSpecific, false)
+                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some rightSuffix, JoinKeyCoalescing.Default, false)
 
                     let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
                     let groupedPlan =
@@ -1054,9 +1053,9 @@ module internal SubqueryDecorrelator =
                             groupedPlan,
                             [ ScalarExpr.Column ridCol ],
                             [ ScalarExpr.Column ridCol ],
-                            PlJoinType.Left,
+                            JoinKind.Left,
                             None,
-                            PlJoinCoalesce.JoinSpecific,
+                            JoinKeyCoalescing.Default,
                             false
                         )
 
@@ -1419,7 +1418,7 @@ module internal SubqueryDecorrelator =
                             match defaultValOpt with
                             | Some defVal when handledCols.Add colName ->
                                 let filled =
-                                    ScalarExpr.Function(ScalarFunction.FillNull, [ ScalarExpr.Column colName; defVal ], PlDataType.Unknown)
+                                    ScalarExpr.Function(ScalarFunction.FillNull, [ ScalarExpr.Column colName; defVal ], LogicalType.Unknown)
                                 Some(colName, filled)
                             | _ -> None)
 
@@ -1470,9 +1469,9 @@ module internal SubqueryDecorrelator =
                                     groupedPlan,
                                     keys.OuterKeys,
                                     keys.InnerKeys,
-                                    PlJoinType.Left,
+                                    JoinKind.Left,
                                     None,
-                                    PlJoinCoalesce.JoinSpecific,
+                                    JoinKeyCoalescing.Default,
                                     false
                                 )
 
@@ -1522,9 +1521,9 @@ module internal SubqueryDecorrelator =
                                         rightPlan,
                                         [],
                                         [],
-                                        PlJoinType.Cross,
+                                        JoinKind.Cross,
                                         Some rightSuffix,
-                                        PlJoinCoalesce.KeepColumns,
+                                        JoinKeyCoalescing.KeepBoth,
                                         false
                                     )
                                 else
@@ -1533,9 +1532,9 @@ module internal SubqueryDecorrelator =
                                         rightPlan,
                                         outerKeys,
                                         innerKeys,
-                                        PlJoinType.Inner,
+                                        JoinKind.Inner,
                                         Some rightSuffix,
-                                        PlJoinCoalesce.JoinSpecific,
+                                        JoinKeyCoalescing.Default,
                                         false
                                     )
 
@@ -1573,9 +1572,9 @@ module internal SubqueryDecorrelator =
                                     groupedMatchesPlan,
                                     [ ScalarExpr.Column ridCol ],
                                     [ ScalarExpr.Column ridCol ],
-                                    PlJoinType.Left,
+                                    JoinKind.Left,
                                     None,
-                                    PlJoinCoalesce.JoinSpecific,
+                                    JoinKeyCoalescing.Default,
                                     false
                                 )
 

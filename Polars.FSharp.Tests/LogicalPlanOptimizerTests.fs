@@ -16,7 +16,7 @@ type TestRow = { Id: int; Val: int }
 type LogicalPlanOptimizerTests() =
 
     let dummySchema =
-        LogicalSchema.OfFields [ ("x", PlDataType.Int32); ("y", PlDataType.Int32); ("z", PlDataType.String) ]
+        LogicalSchema.OfFields [ ("x", LogicalTypes.Int32); ("y", LogicalTypes.Int32); ("z", LogicalTypes.String) ]
 
     let dummyScan =
         LogicalPlan.Scan(LogicalPlanSource.Empty, dummySchema)

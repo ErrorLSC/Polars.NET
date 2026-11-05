@@ -302,11 +302,11 @@ module internal JsonTranslator =
             eval ctx target
             |> Option.bind (fun t ->
                 let pathLit = ScalarExpr.Literal(LiteralValue.String path)
-                let matchS = ScalarExpr.Function(ScalarFunction.StrJsonPathMatch, [ t; pathLit ], PlDataType.String)
+                let matchS = ScalarExpr.Function(ScalarFunction.StrJsonPathMatch, [ t; pathLit ], LogicalTypes.String)
                 if targetType = typeof<string> || targetType = typeof<obj> then
                     Some matchS
                 elif targetType = typeof<bool> || targetType = typeof<Nullable<bool>> then
-                    let lowerS = ScalarExpr.Function(ScalarFunction.ToLower, [ matchS ], PlDataType.String)
+                    let lowerS = ScalarExpr.Function(ScalarFunction.ToLower, [ matchS ], LogicalTypes.String)
                     Some(ScalarExpr.Binary(BinaryOp.Eq, lowerS, ScalarExpr.Literal(LiteralValue.String "true")))
                 else
                     tryTranslateCast targetType matchS)
@@ -336,8 +336,8 @@ module internal JsonTranslator =
 
                 if argExprs |> List.forall Option.isSome then
                     let exprsList = argExprs |> List.map Option.get
-                    let structS = ScalarExpr.Function(ScalarFunction.AsStruct, exprsList, PlDataType.Unknown)
-                    Some(ScalarExpr.Function(ScalarFunction.StructJsonEncode, [ structS ], PlDataType.String))
+                    let structS = ScalarExpr.Function(ScalarFunction.AsStruct, exprsList, LogicalType.Unknown)
+                    Some(ScalarExpr.Function(ScalarFunction.StructJsonEncode, [ structS ], LogicalTypes.String))
                 else
                     None
 
@@ -353,14 +353,14 @@ module internal JsonTranslator =
                         | _ -> None)
                     |> Seq.toList
                 if bindings.Length = mie.Bindings.Count then
-                    let structS = ScalarExpr.Function(ScalarFunction.AsStruct, bindings, PlDataType.Unknown)
-                    Some(ScalarExpr.Function(ScalarFunction.StructJsonEncode, [ structS ], PlDataType.String))
+                    let structS = ScalarExpr.Function(ScalarFunction.AsStruct, bindings, LogicalType.Unknown)
+                    Some(ScalarExpr.Function(ScalarFunction.StructJsonEncode, [ structS ], LogicalTypes.String))
                 else
                     None
 
             | other ->
                 eval ctx other
-                |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.StructJsonEncode, [ s ], PlDataType.String))
+                |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.StructJsonEncode, [ s ], LogicalTypes.String))
 
         | JsonDeserialize(target, dtoType, steps) ->
             if JsonDataTypeInference.tryInfer dtoType |> Option.isNone then None
@@ -372,7 +372,7 @@ module internal JsonTranslator =
                         ScalarExpr.Function(
                             ScalarFunction.StrJsonDecode,
                             [ targetS; ScalarExpr.Literal(LiteralValue.String dtoType.AssemblyQualifiedName) ],
-                            PlDataType.Unknown
+                            LogicalType.Unknown
                         )
 
                     let rec traverseSteps (currentS: ScalarExpr) (currType: Type) (remainingSteps: JsonAccessStep list) : ScalarExpr option =
@@ -382,7 +382,7 @@ module internal JsonTranslator =
                         | PropertyStep m :: rest when
                             (m.Name = "Length" || m.Name = "Count")
                             && not (isNull (PolarsTypeHelper.TryGetEnumerableElementType currType)) ->
-                            let lenS = ScalarExpr.Function(ScalarFunction.ListLen, [ currentS ], PlDataType.UInt32)
+                            let lenS = ScalarExpr.Function(ScalarFunction.ListLen, [ currentS ], LogicalTypes.UInt32)
                             traverseSteps lenS typeof<int> rest
 
                         | PropertyStep m :: rest ->
@@ -397,7 +397,7 @@ module internal JsonTranslator =
                                 | Some jsonFieldName -> jsonFieldName
                                 | None -> m.Name
 
-                            let fieldS = ScalarExpr.Function(ScalarFunction.StructFieldByName, [ currentS; ScalarExpr.Literal(LiteralValue.String fieldName) ], PlDataType.Unknown)
+                            let fieldS = ScalarExpr.Function(ScalarFunction.StructFieldByName, [ currentS; ScalarExpr.Literal(LiteralValue.String fieldName) ], LogicalType.Unknown)
                             traverseSteps fieldS memberType rest
 
                         | IndexStep indexExpr :: rest ->
@@ -410,7 +410,7 @@ module internal JsonTranslator =
 
                             match eval ctx indexExpr with
                             | Some idxS ->
-                                let itemS = ScalarExpr.Function(ScalarFunction.ListGet, [ currentS; idxS ], PlDataType.Unknown)
+                                let itemS = ScalarExpr.Function(ScalarFunction.ListGet, [ currentS; idxS ], LogicalType.Unknown)
                                 traverseSteps itemS elemType rest
                             | None -> None
 

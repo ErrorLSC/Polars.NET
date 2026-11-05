@@ -65,7 +65,7 @@ module internal OperatorAndUdfTranslator =
             | Some leftS, Some nVal ->
                 try
                     let n = Convert.ToInt32 nVal
-                    let dt = Option.ofNullable (ArrowTypeResolver.TryGetPlDataType left.Type) |> Option.defaultValue PlDataType.Unknown
+                    let dt = (LogicalTypes.tryOfClrType left.Type) |> Option.defaultValue LogicalType.Unknown
                     Some(ScalarExpr.Function(ScalarFunction.BitLeftShift, [ leftS; ScalarExpr.Literal(LiteralValue.Int32 n) ], dt))
                 with _ ->
                     None
@@ -76,7 +76,7 @@ module internal OperatorAndUdfTranslator =
             | Some leftS, Some nVal ->
                 try
                     let n = Convert.ToInt32 nVal
-                    let dt = Option.ofNullable (ArrowTypeResolver.TryGetPlDataType left.Type) |> Option.defaultValue PlDataType.Unknown
+                    let dt = (LogicalTypes.tryOfClrType left.Type) |> Option.defaultValue LogicalType.Unknown
                     Some(ScalarExpr.Function(ScalarFunction.BitRightShift, [ leftS; ScalarExpr.Literal(LiteralValue.Int32 n) ], dt))
                 with _ ->
                     None
@@ -156,7 +156,7 @@ module internal OperatorAndUdfTranslator =
         if isNull m || isNull m.DeclaringType then false
         else
             let asm = m.DeclaringType.Assembly
-            asm = typeof<PlDataType>.Assembly
+            asm = typeof<Polars.NET.Core.Arrow.ArrowTypeResolver>.Assembly
             || asm = typeof<TranslationContext>.Assembly
             || let name = asm.GetName().Name in name = "Polars.CSharp" || name = "Polars.FSharp"
 
@@ -243,8 +243,8 @@ module internal OperatorAndUdfTranslator =
                             None
                         else
                             let retPlType =
-                                Option.ofNullable (ArrowTypeResolver.TryGetPlDataType expr.Type)
-                                |> Option.defaultValue PlDataType.Unknown
+                                (LogicalTypes.tryOfClrType expr.Type)
+                                |> Option.defaultValue LogicalType.Unknown
                             let dynArgs = translatedDependentArgs |> List.choose id
                             let dynCount = dynArgs.Length
 

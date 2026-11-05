@@ -4,7 +4,6 @@ open System
 open System.Reflection
 open System.Linq.Expressions
 open Polars.NET.Core.Config
-open Polars.NET.Core.Enums
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Helpers
 open Polars.NET.Linq.IR
@@ -274,11 +273,11 @@ module AggTranslator =
             let targetAfterFilter, sortKeysAfterFilter =
                 match resolved.Filter with
                 | Some f ->
-                    let filteredTarget = ScalarExpr.Function(ScalarFunction.Filter, [ initialTarget; f ], PlDataType.Unknown)
+                    let filteredTarget = ScalarExpr.Function(ScalarFunction.Filter, [ initialTarget; f ], LogicalType.Unknown)
                     let filteredSortKeys =
                         resolved.SortKeys
                         |> List.map (fun sk ->
-                            { sk with Expr = ScalarExpr.Function(ScalarFunction.Filter, [ sk.Expr; f ], PlDataType.Unknown) })
+                            { sk with Expr = ScalarExpr.Function(ScalarFunction.Filter, [ sk.Expr; f ], LogicalType.Unknown) })
                     filteredTarget, filteredSortKeys
                 | None ->
                     initialTarget, resolved.SortKeys
@@ -313,7 +312,7 @@ module AggTranslator =
             // 4. Distinct
             let finalTarget =
                 if resolved.IsDistinct then
-                    ScalarExpr.Function(ScalarFunction.Unique, [ targetAfterSlice ], PlDataType.Unknown)
+                    ScalarExpr.Function(ScalarFunction.Unique, [ targetAfterSlice ], LogicalType.Unknown)
                 else
                     targetAfterSlice
 
@@ -334,13 +333,13 @@ module AggTranslator =
                     methodExprOpt
                     |> Option.bind tryEvaluate
                     |> Option.map tryExtractQuantileMethod
-                    |> Option.defaultValue PlQuantileMethod.Nearest
+                    |> Option.defaultValue QuantileMethod.Nearest
 
                 Some(
                     ScalarExpr.Function(
-                        ScalarFunction.Quantile,
-                        [ targetS; ScalarExpr.Literal(LiteralValue.Float64 q); ScalarExpr.Literal(LiteralValue.Int32(int method)) ],
-                        PlDataType.Float64
+                        ScalarFunction.Quantile method,
+                        [ targetS; ScalarExpr.Literal(LiteralValue.Float64 q) ],
+                        LogicalTypes.Float64
                     )
                 )
             with _ ->
@@ -402,8 +401,8 @@ module AggTranslator =
             |> Option.bind (fun colS ->
                 tryExtractSep sepExpr
                 |> Option.map (fun sep ->
-                    let listExpr = ScalarExpr.Function(ScalarFunction.Implode, [ colS; ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.List)
-                    ScalarExpr.Function(ScalarFunction.ListJoin, [ listExpr; ScalarExpr.Literal(LiteralValue.String sep) ], PlDataType.String)))
+                    let listExpr = ScalarExpr.Function(ScalarFunction.Implode, [ colS; ScalarExpr.Literal(LiteralValue.Bool true) ], LogicalTypes.ListOfUnknown)
+                    ScalarExpr.Function(ScalarFunction.ListJoin, [ listExpr; ScalarExpr.Literal(LiteralValue.String sep) ], LogicalTypes.String)))
 
         // ---------------------------------------------------------------------
         // Count / LongCount over Sequence Chain (e.g. g.Count(), g.Distinct().Count(), g.Count(predicate))
@@ -421,7 +420,7 @@ module AggTranslator =
                 match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq with
                 | Some resolved when resolved.IsDistinct ->
                     getFilteredTarget resolved
-                    |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.NUnique, [ t ], PlDataType.UInt32) |> castCountExpr isLong)
+                    |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.NUnique, [ t ], LogicalTypes.UInt32) |> castCountExpr isLong)
                 | Some resolved when resolved.Slice.IsSome ->
                     getFilteredTarget resolved
                     |> Option.map (fun t -> ScalarExpr.Aggregation(AggKind.Count, Some t, false) |> castCountExpr isLong)
@@ -444,8 +443,8 @@ module AggTranslator =
             |> Option.bind (fun byExpr ->
                 let targetExpr = ScalarExpr.Column memberInfo.Name
                 match m.Name with
-                | "MinBy" -> Some(ScalarExpr.Function(ScalarFunction.MinBy, [ targetExpr; byExpr ], PlDataType.Unknown))
-                | "MaxBy" -> Some(ScalarExpr.Function(ScalarFunction.MaxBy, [ targetExpr; byExpr ], PlDataType.Unknown))
+                | "MinBy" -> Some(ScalarExpr.Function(ScalarFunction.MinBy, [ targetExpr; byExpr ], LogicalType.Unknown))
+                | "MaxBy" -> Some(ScalarExpr.Function(ScalarFunction.MaxBy, [ targetExpr; byExpr ], LogicalType.Unknown))
                 | _ -> None)
 
         // ---------------------------------------------------------------------
@@ -503,11 +502,11 @@ module AggTranslator =
             | Some resolved ->
                 match getFilteredTarget resolved with
                 | Some colS ->
-                    Some(ScalarExpr.Function(ScalarFunction.Implode, [ colS; ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.List))
+                    Some(ScalarExpr.Function(ScalarFunction.Implode, [ colS; ScalarExpr.Literal(LiteralValue.Bool true) ], LogicalTypes.ListOfUnknown))
                 | None ->
                     wholeRowStructOpt
                     |> Option.map (fun rowStruct ->
-                        ScalarExpr.Function(ScalarFunction.Implode, [ rowStruct; ScalarExpr.Literal(LiteralValue.Bool true) ], PlDataType.List))
+                        ScalarExpr.Function(ScalarFunction.Implode, [ rowStruct; ScalarExpr.Literal(LiteralValue.Bool true) ], LogicalTypes.ListOfUnknown))
             | None -> None
 
         // ---------------------------------------------------------------------
@@ -552,7 +551,7 @@ module AggTranslator =
                 let idx = Convert.ToInt64 idxVal
                 getFilteredTarget resolved
                 |> Option.map (fun colS ->
-                    ScalarExpr.Function(ScalarFunction.SeriesGet, [ colS; ScalarExpr.Literal(LiteralValue.Int64 idx) ], PlDataType.Unknown))
+                    ScalarExpr.Function(ScalarFunction.SeriesGet, [ colS; ScalarExpr.Literal(LiteralValue.Int64 idx) ], LogicalType.Unknown))
             | _ -> None
 
         // ---------------------------------------------------------------------
@@ -663,8 +662,8 @@ module AggTranslator =
                             None
                         else
                             let retPlType =
-                                Option.ofNullable (ArrowTypeResolver.TryGetPlDataType expr.Type)
-                                |> Option.defaultValue PlDataType.Unknown
+                                (LogicalTypes.tryOfClrType expr.Type)
+                                |> Option.defaultValue LogicalType.Unknown
                             let dynArgs = translatedDependentArgs |> List.choose id
                             let dynCount = dynArgs.Length
                             let returnsScalar = isScalarLikeResultType expr.Type

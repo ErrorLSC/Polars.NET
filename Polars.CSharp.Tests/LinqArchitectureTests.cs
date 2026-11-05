@@ -20,6 +20,16 @@ public class LinqArchitectureTests
         + @"|Backend\.Polars",
         RegexOptions.Multiline | RegexOptions.Compiled);
 
+    // IR files carry their own vocabulary (LogicalTypes, JoinKind, RankMethod, ...) and must not use Polars enums.
+    private static readonly Regex ForbiddenInIr = new(
+        @"Polars\.NET\.Core\.Enums|\bPl[A-Z]\w*\b",
+        RegexOptions.Compiled);
+
+    // Polars enums that have IR equivalents and never arrive as user-facing LINQ arguments.
+    private static readonly Regex ForbiddenVocabularyInFrontend = new(
+        @"\b(PlDataType|PlJoin\w*|PlUniqueKeepStrategy|PlAsofStrategy)\b",
+        RegexOptions.Compiled);
+
     private static bool IsBackendFile(string path) =>
         path.StartsWith("Backend/", StringComparison.Ordinal) || path == "PolarsQueryable.fs";
 
@@ -80,5 +90,29 @@ public class LinqArchitectureTests
 
         Assert.True(violations.Count == 0,
             "Frontend/IR must not reference PolarsWrapper, native handles or Backend.Polars:\n" + string.Join('\n', violations));
+    }
+
+    [Fact]
+    [Trait("Architecture", "LinqLayering")]
+    public void Linq_IR_Uses_Its_Own_Vocabulary_Instead_Of_Polars_Enums()
+    {
+        var linqDir = Path.Combine(FindRepoRoot(), "Polars.NET.Linq");
+        var violations = new List<string>();
+
+        foreach (var file in GetCompileOrder(linqDir).Where(f => !IsBackendFile(f)))
+        {
+            var rule = file.StartsWith("IR/", StringComparison.Ordinal) ? ForbiddenInIr : ForbiddenVocabularyInFrontend;
+            var lines = StripComments(File.ReadAllText(Path.Combine(linqDir, file))).Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var match = rule.Match(lines[i]);
+                if (match.Success)
+                    violations.Add($"{file}:{i + 1}: '{match.Value}'  ->  {lines[i].Trim()}");
+            }
+        }
+
+        Assert.True(violations.Count == 0,
+            "IR must use its own vocabulary (LogicalType, JoinKind, RankMethod, ...); Polars enums are mapped in Backend/Polars/PolarsVocabulary.fs:\n"
+            + string.Join('\n', violations));
     }
 }

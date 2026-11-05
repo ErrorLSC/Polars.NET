@@ -1,6 +1,5 @@
 namespace Polars.NET.Linq.IR.Passes
 
-open Polars.NET.Core.Enums
 open Polars.NET.Linq.IR
 
 /// Relational optimization pass that pushes Filter predicates down through
@@ -80,7 +79,7 @@ module internal PredicatePushdown =
                 let rightCols = rightSchema.ColumnNames |> Set.ofList
 
                 match how with
-                | PlJoinType.Inner ->
+                | JoinKind.Inner ->
                     if not refCols.IsEmpty && refCols |> Set.isSubset leftCols then
                         let pushedLeft = pushdownConjunct pred left
                         LogicalPlan.Join(pushedLeft, right, lOn, rOn, how, suffix, coalesce, nullEq)
@@ -90,7 +89,7 @@ module internal PredicatePushdown =
                     else
                         LogicalPlan.Filter(plan, pred)
 
-                | PlJoinType.Left ->
+                | JoinKind.Left ->
                     if not refCols.IsEmpty && refCols |> Set.isSubset leftCols then
                         let pushedLeft = pushdownConjunct pred left
                         LogicalPlan.Join(pushedLeft, right, lOn, rOn, how, suffix, coalesce, nullEq)

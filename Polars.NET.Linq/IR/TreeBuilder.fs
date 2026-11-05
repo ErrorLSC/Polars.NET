@@ -4,7 +4,6 @@ open System
 open System.Reflection
 open System.Linq
 open System.Linq.Expressions
-open Polars.NET.Core.Enums
 open Polars.NET.Core.Helpers
 open Polars.NET.Linq
 
@@ -192,7 +191,7 @@ module internal TreeBuilder =
         | MethodCall(m, target, callArgs) when isGroupCountCall m target callArgs ->
             let core =
                 if m.Name = "LongCount" then
-                    ScalarExpr.Cast(ScalarExpr.Aggregation(AggKind.Len, None, false), PlDataType.Int64, false)
+                    ScalarExpr.Cast(ScalarExpr.Aggregation(AggKind.Len, None, false), LogicalTypes.Int64, false)
                 else
                     ScalarExpr.Aggregation(AggKind.Len, None, false)
             Some core
@@ -297,7 +296,7 @@ module internal TreeBuilder =
                 let props = PolarsTypeHelper.GetModelProperties elemType
                 if props.Length > 0 && not (isTupleOrAnonType elemType) then
                     let colExprs = props |> Array.map (fun p -> ScalarExpr.Column p.Name) |> Array.toList
-                    Some(ScalarExpr.Function(ScalarFunction.AsStruct, colExprs, PlDataType.Unknown))
+                    Some(ScalarExpr.Function(ScalarFunction.AsStruct, colExprs, LogicalType.Unknown))
                 else
                     None
             with _ ->
@@ -813,7 +812,7 @@ module internal TreeBuilder =
                 let props = PolarsTypeHelper.GetModelProperties elemType
                 if props.Length > 0 then
                     let colExprs = props |> Array.map (fun p -> ScalarExpr.Column p.Name) |> Array.toList
-                    Some(ScalarExpr.Function(ScalarFunction.AsStruct, colExprs, PlDataType.Unknown))
+                    Some(ScalarExpr.Function(ScalarFunction.AsStruct, colExprs, LogicalType.Unknown))
                 else
                     None
             with _ ->
@@ -1207,9 +1206,9 @@ module internal TreeBuilder =
                 | Some(sortS, isDesc) ->
                     let rankS =
                         ScalarExpr.Function(
-                            ScalarFunction.Rank,
-                            [ sortS; ScalarExpr.Literal(LiteralValue.Int32(int PlRankMethod.Ordinal)); ScalarExpr.Literal(LiteralValue.Bool isDesc) ],
-                            PlDataType.UInt32
+                            ScalarFunction.Rank RankMethod.Ordinal,
+                            [ sortS; ScalarExpr.Literal(LiteralValue.Bool isDesc) ],
+                            LogicalTypes.UInt32
                         )
                     Some(ScalarExpr.Window(rankS, partitionKeys, []))
                 | None when takeOpt.IsSome || skipOpt.IsSome ->
@@ -1219,7 +1218,7 @@ module internal TreeBuilder =
                             ScalarExpr.Function(
                                 ScalarFunction.CumCount,
                                 [ col0; ScalarExpr.Literal(LiteralValue.Bool false) ],
-                                PlDataType.UInt32
+                                LogicalTypes.UInt32
                             )
                         Some(ScalarExpr.Window(cumCountS, partitionKeys, []))
                     else
@@ -1366,9 +1365,9 @@ module internal TreeBuilder =
                         preAggRightPlan,
                         [ leftKey ],
                         [ rightKey ],
-                        PlJoinType.Left,
+                        JoinKind.Left,
                         Some LinqConstants.DefaultRightSuffix,
-                        PlJoinCoalesce.JoinSpecific,
+                        JoinKeyCoalescing.Default,
                         false
                     )
 
@@ -1379,7 +1378,7 @@ module internal TreeBuilder =
                             ScalarExpr.Function(
                                 ScalarFunction.FillNull,
                                 [ ScalarExpr.Column aggCol; ScalarExpr.Literal(LiteralValue.UInt32 0u) ],
-                                PlDataType.UInt32
+                                LogicalTypes.UInt32
                             )
                         LogicalPlan.WithColumns(joinPlan, [ (aggCol, filledExpr) ])
                     | None -> joinPlan
@@ -1479,7 +1478,7 @@ module internal TreeBuilder =
                             | CleanLambda lam ->
                                 let ctx = TranslationContext.Entity lam.Parameters.[0].Name
                                 ExprTranslator.tryTranslateToScalar ctx lam.Body
-                                |> Option.map (fun s -> false, ScalarExpr.Aggregation(AggKind.Sum, Some (ScalarExpr.Cast(s, PlDataType.Int64, false)), false))
+                                |> Option.map (fun s -> false, ScalarExpr.Aggregation(AggKind.Sum, Some (ScalarExpr.Cast(s, LogicalTypes.Int64, false)), false))
                             | _ -> None
                         | "Sum" | "Average" | "Mean" | "Min" | "Max" | "Median"
                         | "First" | "FirstOrDefault" | "Last" | "LastOrDefault"
@@ -1669,9 +1668,9 @@ module internal TreeBuilder =
                         | Some boolExpr ->
                             let mask =
                                 if isSkip then
-                                    ScalarExpr.Function(ScalarFunction.CumMax, [ ScalarExpr.Unary(UnaryOp.Not, boolExpr) ], PlDataType.Boolean)
+                                    ScalarExpr.Function(ScalarFunction.CumMax, [ ScalarExpr.Unary(UnaryOp.Not, boolExpr) ], LogicalTypes.Boolean)
                                 else
-                                    ScalarExpr.Function(ScalarFunction.CumMin, [ boolExpr ], PlDataType.Boolean)
+                                    ScalarExpr.Function(ScalarFunction.CumMin, [ boolExpr ], LogicalTypes.Boolean)
                             processStages { state with Plan = LogicalPlan.Filter(state.Plan, mask) } scopeMap tail
                         | None ->
                             processStages { state with ClientPredicates = (PipelineStageParser.compileClientPredicate lam, lam) :: state.ClientPredicates } scopeMap tail
@@ -1772,12 +1771,12 @@ module internal TreeBuilder =
                         processStages { state with Plan = LogicalPlan.SkipLast(state.Plan, count) } scopeMap tail
 
                     | LinqStage.Distinct ->
-                        processStages { state with Plan = LogicalPlan.Distinct(state.Plan, None, PlUniqueKeepStrategy.First) } scopeMap tail
+                        processStages { state with Plan = LogicalPlan.Distinct(state.Plan, None, DistinctKeep.First) } scopeMap tail
 
                     | LinqStage.DistinctBy lam ->
                         match PipelineStageParser.extractDistinctColumns lam with
                         | Some cols ->
-                            processStages { state with Plan = LogicalPlan.Distinct(state.Plan, Some (Array.toList cols), PlUniqueKeepStrategy.First) } scopeMap tail
+                            processStages { state with Plan = LogicalPlan.Distinct(state.Plan, Some (Array.toList cols), DistinctKeep.First) } scopeMap tail
                         | None ->
                             processStages { state with RequiresClientFallback = true } scopeMap tail
 
@@ -1889,11 +1888,11 @@ module internal TreeBuilder =
                                 match methodInfo.Name with
                                 | "RightJoin"
                                 | "LeftJoin"
-                                | "GroupJoin" -> PlJoinType.Left
-                                | "FullJoin" -> PlJoinType.Outer
-                                | "SemiJoin" -> PlJoinType.Semi
-                                | "AntiJoin" -> PlJoinType.Anti
-                                | _ -> PlJoinType.Inner
+                                | "GroupJoin" -> JoinKind.Left
+                                | "FullJoin" -> JoinKind.Full
+                                | "SemiJoin" -> JoinKind.Semi
+                                | "AntiJoin" -> JoinKind.Anti
+                                | _ -> JoinKind.Inner
 
                             let leftCols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
                             let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
@@ -1916,9 +1915,9 @@ module internal TreeBuilder =
                             | Some leftKeys, Some rightKeys when leftKeys.Length = rightKeys.Length ->
                                 let joinPlan =
                                     if isRightJoin then
-                                        LogicalPlan.Join(rightPlan, state.Plan, rightKeys, leftKeys, how, Some uniqueSuffix, PlJoinCoalesce.KeepColumns, false)
+                                        LogicalPlan.Join(rightPlan, state.Plan, rightKeys, leftKeys, how, Some uniqueSuffix, JoinKeyCoalescing.KeepBoth, false)
                                     else
-                                        LogicalPlan.Join(state.Plan, rightPlan, leftKeys, rightKeys, how, Some uniqueSuffix, PlJoinCoalesce.KeepColumns, false)
+                                        LogicalPlan.Join(state.Plan, rightPlan, leftKeys, rightKeys, how, Some uniqueSuffix, JoinKeyCoalescing.KeepBoth, false)
 
                                 let leftScope = outerKey.Parameters.[0].Name
                                 let rightScope =
@@ -1992,7 +1991,7 @@ module internal TreeBuilder =
                             let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
                             let leftColSet = Set.ofList leftCols
                             let uniqueSuffix = LinqConstants.DefaultRightSuffix
-                            let joinPlan = LogicalPlan.Join(state.Plan, rightPlan, [], [], PlJoinType.Cross, Some uniqueSuffix, PlJoinCoalesce.JoinSpecific, false)
+                            let joinPlan = LogicalPlan.Join(state.Plan, rightPlan, [], [], JoinKind.Cross, Some uniqueSuffix, JoinKeyCoalescing.Default, false)
 
                             let leftScope = "outer"
                             let rightScope = "inner"
@@ -2049,10 +2048,7 @@ module internal TreeBuilder =
                                         AllowEq = true
                                         CheckSorted = true
                                         Suffix = Some uniqueSuffix
-                                        Validation = PlJoinValidation.ManyToMany
-                                        Coalesce = PlJoinCoalesce.KeepColumns
-                                        MaintainOrder = PlJoinMaintainOrder.None
-                                        JoinSide = PlJoinSide.None
+                                        Coalesce = JoinKeyCoalescing.KeepBoth
                                         NullsEqual = false
                                     }
                                 let asOfPlan = LogicalPlan.JoinAsOf(state.Plan, rightPlan, spec)
@@ -2090,9 +2086,9 @@ module internal TreeBuilder =
                         | Some rightPlan ->
                             let how =
                                 if methodInfo.Name.StartsWith "Intersect" then
-                                    PlJoinType.Semi
+                                    JoinKind.Semi
                                 else
-                                    PlJoinType.Anti
+                                    JoinKind.Anti
 
                             let leftCols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
                             let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
@@ -2123,7 +2119,7 @@ module internal TreeBuilder =
 
                             match keysOpt with
                             | Some(leftOn, rightOn) ->
-                                processStages { state with Plan = LogicalPlan.Join(state.Plan, rightPlan, leftOn, rightOn, how, None, PlJoinCoalesce.JoinSpecific, true) } scopeMap tail
+                                processStages { state with Plan = LogicalPlan.Join(state.Plan, rightPlan, leftOn, rightOn, how, None, JoinKeyCoalescing.Default, true) } scopeMap tail
                             | None ->
                                 processStages { state with RequiresClientFallback = true } scopeMap tail
                         | None ->
@@ -2134,7 +2130,7 @@ module internal TreeBuilder =
                         | Some otherPlan ->
                             let subsetOpt = keyLambdaOpt |> Option.bind PipelineStageParser.extractDistinctColumns |> Option.map Array.toList
                             let unionPlan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true)
-                            processStages { state with Plan = LogicalPlan.Distinct(unionPlan, subsetOpt, PlUniqueKeepStrategy.First) } scopeMap tail
+                            processStages { state with Plan = LogicalPlan.Distinct(unionPlan, subsetOpt, DistinctKeep.First) } scopeMap tail
                         | None ->
                             processStages { state with RequiresClientFallback = true } scopeMap tail
 

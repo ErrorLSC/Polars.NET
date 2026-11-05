@@ -92,10 +92,10 @@ module internal PolarsPhysicalLowerer =
                 rightLf,
                 leftOnHs,
                 rightOnHs,
-                how,
+                PolarsVocabulary.joinType how,
                 Option.toObj suffix,
                 PlJoinValidation.ManyToMany,
-                coalesce,
+                PolarsVocabulary.joinCoalesce coalesce,
                 PlJoinMaintainOrder.None,
                 PlJoinSide.None,
                 nullsEqual,
@@ -121,17 +121,17 @@ module internal PolarsPhysicalLowerer =
                 rightOnH,
                 leftByHs,
                 rightByHs,
-                spec.Strategy,
+                PolarsVocabulary.asofStrategy spec.Strategy,
                 Option.toObj spec.ToleranceStr,
                 Option.toNullable spec.ToleranceInt,
                 Option.toNullable spec.ToleranceFloat,
                 spec.AllowEq,
                 spec.CheckSorted,
                 Option.toObj spec.Suffix,
-                spec.Validation,
-                spec.Coalesce,
-                spec.MaintainOrder,
-                spec.JoinSide,
+                PlJoinValidation.ManyToMany,
+                PolarsVocabulary.joinCoalesce spec.Coalesce,
+                PlJoinMaintainOrder.None,
+                PlJoinSide.None,
                 spec.NullsEqual,
                 Nullable(),
                 0UL
@@ -240,7 +240,7 @@ module internal PolarsPhysicalLowerer =
                 match subsetOpt with
                 | Some cols when not cols.IsEmpty -> PolarsWrapper.SelectorCols(List.toArray cols)
                 | _ -> null
-            PolarsWrapper.LazyUnique(lf, selector, keep, maintainOrder = false)
+            PolarsWrapper.LazyUnique(lf, selector, PolarsVocabulary.uniqueKeep keep, maintainOrder = false)
 
         | LogicalPlan.Explode(input, cols, emptyAsNull, keepNulls) ->
             let lf = lowerPlan input
