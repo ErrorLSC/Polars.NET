@@ -24,6 +24,22 @@ module internal PolarsVocabulary =
         | JoinKind.Semi -> PlJoinType.Semi
         | JoinKind.Anti -> PlJoinType.Anti
 
+    /// LINQ joins yield rows in outer order, and the matches of one outer row in inner order. A right join
+    /// reaches the IR with its sides swapped, so this is also the right join's order. Semi and anti joins
+    /// filter the left side and keep its order.
+    ///
+    /// A cross join is left unconstrained: it is produced in outer-then-inner order anyway, and requiring
+    /// the order would stop Polars from rewriting a cross join filtered by inequalities into an IEJoin.
+    /// Such a range join is therefore the one join whose row order is not guaranteed.
+    let joinMaintainOrder (kind: JoinKind) : PlJoinMaintainOrder =
+        match kind with
+        | JoinKind.Semi
+        | JoinKind.Anti -> PlJoinMaintainOrder.Left
+        | JoinKind.Inner
+        | JoinKind.Left
+        | JoinKind.Full -> PlJoinMaintainOrder.LeftRight
+        | JoinKind.Cross -> PlJoinMaintainOrder.None
+
     let joinCoalesce (coalescing: JoinKeyCoalescing) : PlJoinCoalesce =
         match coalescing with
         | JoinKeyCoalescing.Default -> PlJoinCoalesce.JoinSpecific

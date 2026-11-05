@@ -23,11 +23,11 @@ public class LinqNestedEntityTests
     private static bool IsNative<T>(IQueryable<T> query) =>
         !((IPolarsExplainable)query).InspectPlan(true).IsFullFallback;
 
-    /// <summary>Compares results order-insensitively (unordered joins) by their deep string form.</summary>
+    /// <summary>Compares results, in order, by their deep string form.</summary>
     private static void AssertSameRows<T>(IEnumerable<T> expected, IEnumerable<T> actual) =>
         Assert.Equal(
-            expected.Select(r => r?.ToString() ?? "<null>").Order(),
-            actual.Select(r => r?.ToString() ?? "<null>").Order());
+            expected.Select(r => r?.ToString() ?? "<null>"),
+            actual.Select(r => r?.ToString() ?? "<null>"));
 
     private sealed class Sources : IDisposable
     {
@@ -166,7 +166,7 @@ public class LinqNestedEntityTests
 
         var expected = Emps.Join(Depts, x => x.Dept, y => y.Dept, (x, y) => new { x, y }).GroupBy(t => t.y.Floor).ToList();
 
-        Assert.Equal(expected.Select(g => g.Key).Order(), groups.Select(g => g.Key).Order());
+        Assert.Equal(expected.Select(g => g.Key), groups.Select(g => g.Key));
         foreach (var g in groups)
             AssertSameRows(expected.Single(e => e.Key == g.Key), g);
     }
@@ -227,7 +227,7 @@ public class LinqNestedEntityTests
             rows.Add(pair.ToString()!);
 
         var expected = Emps.Join(Depts, x => x.Dept, y => y.Dept, (x, y) => new { x, y }).Select(t => t.ToString()!);
-        Assert.Equal(expected.Order(), rows.Order());
+        Assert.Equal(expected, rows);
     }
 
     [Fact]

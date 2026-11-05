@@ -95,7 +95,7 @@ module internal PolarsPhysicalLowerer =
                 Option.toObj suffix,
                 PlJoinValidation.ManyToMany,
                 PolarsVocabulary.joinCoalesce coalesce,
-                PlJoinMaintainOrder.None,
+                PolarsVocabulary.joinMaintainOrder how,
                 PlJoinSide.None,
                 nullsEqual,
                 Nullable(),
@@ -129,7 +129,8 @@ module internal PolarsPhysicalLowerer =
                 Option.toObj spec.Suffix,
                 PlJoinValidation.ManyToMany,
                 PolarsVocabulary.joinCoalesce spec.Coalesce,
-                PlJoinMaintainOrder.None,
+                // An as-of join keeps every left row once, in left order.
+                PlJoinMaintainOrder.Left,
                 PlJoinSide.None,
                 spec.NullsEqual,
                 Nullable(),

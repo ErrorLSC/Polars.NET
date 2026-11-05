@@ -17,6 +17,14 @@ type internal RowPacking =
     /// An entity member has no columns in the plan: the rows cannot be materialized natively.
     | Unresolvable
 
+/// How a parameter of a projection or join result selector stands for the current row's columns.
+[<RequireQualifiedAccess>]
+type internal RowSide =
+    /// The previous transparent row, whose entities are the row path scopes of the scope map.
+    | Row
+    /// One entity, as (member, physical column) pairs.
+    | Entity of (string * string) list
+
 /// Materializes whole entities held in flat columns as struct columns.
 ///
 /// A transparent join (`(x, y) => new { x, y }`) keeps both entities as flat columns and records, in the
@@ -102,14 +110,23 @@ module internal EntityPacking =
     let private isEntityType (t: Type) =
         not (PolarsTypeHelper.IsScalarType t) && not (isCollectionType t) && not (isTupleOrAnonType t)
 
-    /// A C# anonymous type (including query-syntax transparent identifiers). Tuples and F# AnonymousObject
-    /// are left to the materializer's own positional and suffix conventions.
+    /// A C# anonymous type (including query-syntax transparent identifiers) or an F# anonymous record.
     let isAnonymousType (t: Type) =
         not (isNull t.Name)
         && t.Name.Contains "AnonymousType"
         && t.IsDefined(typeof<CompilerGeneratedAttribute>, false)
 
-    let private isRowElementType (t: Type) = isEntityType t || isAnonymousType t
+    /// The row type F# queries use for tuples, anonymous records and `let`: members Item1..ItemN, which the
+    /// materializer reads by position.
+    let private isFSharpAnonymousObject (t: Type) =
+        not (isNull t.FullName)
+        && t.FullName.StartsWith("Microsoft.FSharp.Linq.RuntimeHelpers.AnonymousObject", StringComparison.Ordinal)
+
+    /// A row type whose members may hold whole entities. System tuples are left to the materializer's
+    /// positional and suffix conventions.
+    let isTransparentRowType (t: Type) = isAnonymousType t || isFSharpAnonymousObject t
+
+    let private isRowElementType (t: Type) = isEntityType t || isTransparentRowType t
 
     let rec private isRootedInScope (ctx: TranslationContext) (e: Expression) =
         match ExpressionPatterns.unwrap e with
@@ -158,9 +175,14 @@ module internal EntityPacking =
             None
         else
             match ctx, e with
-            | TranslationContext.ScopedEntity(_, scopeMap, _), _ when isRootedInScope ctx e ->
-                ColumnResolver.tryExtractScopeName e
-                |> Option.bind (fun scope -> scopeFields scopeMap scope e.Type)
+            | TranslationContext.ScopedEntity(rowParam :: _, scopeMap, _), _ when isRootedInScope ctx e ->
+                // The entity's path in the row identifies it exactly; its name only when names are unique.
+                tryMemberPath rowParam e
+                |> Option.filter (fun path -> not path.IsEmpty)
+                |> Option.bind (fun path -> scopeFields scopeMap (rowPathScope path) e.Type)
+                |> Option.orElseWith (fun () ->
+                    ColumnResolver.tryExtractScopeName e
+                    |> Option.bind (fun scope -> scopeFields scopeMap scope e.Type))
                 |> Option.map (packColumns nullExtended)
             | (TranslationContext.Entity p | TranslationContext.EntityWithCols(p, _)), (:? ParameterExpression as pe) when pe.Name = p ->
                 let available = set cols.Value
@@ -204,7 +226,7 @@ module internal EntityPacking =
             | TranslationContext.ScopedEntity(_, scopeMap, _) -> not scopeMap.IsEmpty
             | _ -> false
 
-        if not (isScoped && isAnonymousType e.Type && isRootedInScope ctx e) then
+        if not (isScoped && isTransparentRowType e.Type && isRootedInScope ctx e) then
             None
         else
             let parts =
@@ -218,6 +240,61 @@ module internal EntityPacking =
                 Some(Some(ScalarExpr.Function(ScalarFunction.AsStruct, fields, LogicalType.Unknown), true))
             else
                 Some None
+
+    /// Whether a member value is a whole entity or a transparent row, rather than a column value.
+    let holdsEntities (expr: Expression) =
+        let t = (ExpressionPatterns.unwrap expr).Type
+        isEntityType t || isTransparentRowType t
+
+    let hasRowPathScopes (scopeMap: Map<string * string, string>) =
+        scopeMap |> Map.exists (fun (s, _) _ -> isRowPathScope s)
+
+    /// How the parameter of a projection over the current row stands for its columns: the previous
+    /// transparent row when the row has path scopes, otherwise one entity over all the row's columns.
+    let rowSideOf (scopeMap: Map<string * string, string>) (rowCols: string list) : RowSide =
+        if hasRowPathScopes scopeMap then RowSide.Row else RowSide.Entity [ for c in rowCols -> c, c ]
+
+    /// The scope map of the row a transparent projection or join result selector builds from `bindings`:
+    /// a member bound to one entity holds that entity, a member bound to the previous row (or a part of it)
+    /// holds that subtree, and the previous row's path scopes are replaced. Members of other types are
+    /// columns. None when a member bound to an entity or a row is not one of `sides`' entities or subtrees.
+    let tryReshapeRow
+        (scopeMap: Map<string * string, string>)
+        (sides: (string * RowSide) list)
+        (bindings: (string * Expression) list)
+        : Map<string * string, string> option =
+        let previous = scopeMap |> Map.toList |> List.filter (fun ((s, _), _) -> isRowPathScope s)
+        let named = scopeMap |> Map.filter (fun (s, _) _ -> not (isRowPathScope s))
+
+        let entriesFor (memberName: string) (expr: Expression) =
+            sides
+            |> List.tryPick (fun (param, side) -> tryMemberPath param expr |> Option.map (fun path -> side, path))
+            |> Option.bind (fun (side, path) ->
+                match side, path with
+                | RowSide.Entity cols, [] -> Some [ for m, phys in cols -> (rowPathScope [ memberName ], m), phys ]
+                | RowSide.Row, _ ->
+                    let moved =
+                        previous
+                        |> List.choose (fun ((s, m), phys) ->
+                            let p = parseRowPathScope s
+                            if p.Length >= path.Length && List.take path.Length p = path then
+                                Some((rowPathScope (memberName :: List.skip path.Length p), m), phys)
+                            else
+                                None)
+                    if moved.IsEmpty then None else Some moved
+                | _ -> None)
+
+        let rec collect acc remaining =
+            match remaining with
+            | [] -> Some acc
+            | (memberName, expr) :: rest when holdsEntities expr ->
+                match entriesFor memberName expr with
+                | Some entries -> collect (entries @ acc) rest
+                | None -> None
+            | _ :: rest -> collect acc rest
+
+        collect [] bindings
+        |> Option.map (List.fold (fun (m: Map<string * string, string>) (k, v) -> Map.add k v m) named)
 
     /// Translates a projected member, packing whole entities (a join scope, a transparent identifier holding
     /// scopes, or the row parameter itself) into struct columns.

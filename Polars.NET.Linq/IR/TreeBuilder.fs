@@ -94,6 +94,30 @@ module internal TreeBuilder =
                 | _ -> acc) scopeMap
         | _ -> scopeMap
 
+    /// The scope map of a join's result row. A result selector binding the sides to members (a transparent
+    /// identifier) places each side's entity, or the left side's previous row, under its member's path;
+    /// without a selector the row is the left side's and keeps its scopes. `updated` is the map after the
+    /// join registered both sides (`leftScope` only when the left side was one entity, i.e. `preJoin` held
+    /// no row path scopes).
+    let private joinResultScopes
+        (preJoin: Map<string * string, string>)
+        (updated: Map<string * string, string>)
+        (leftScope: string)
+        (rightScope: string)
+        (resSelOpt: LambdaExpression option)
+        : Map<string * string, string> =
+        match resSelOpt with
+        | Some resSel when resSel.Parameters.Count >= 2 ->
+            let entries scope =
+                updated |> Map.toList |> List.choose (fun ((s, m), phys) -> if s = scope then Some(m, phys) else None)
+            let leftSide = if EntityPacking.hasRowPathScopes preJoin then RowSide.Row else RowSide.Entity(entries leftScope)
+            let sides = [ resSel.Parameters.[0].Name, leftSide; resSel.Parameters.[1].Name, RowSide.Entity(entries rightScope) ]
+
+            tryExtractMemberBindings resSel.Body
+            |> Option.bind (EntityPacking.tryReshapeRow updated sides)
+            |> Option.defaultWith (fun () -> updated |> Map.filter (fun (s, _) _ -> not (isRowPathScope s)))
+        | _ -> updated
+
     /// Rows a client predicate cannot receive from the native plan: tuples and F# AnonymousObject, which the
     /// materializer reads by position and suffix conventions. A C# anonymous type, transparent identifiers
     /// included, materializes once its scope entities are packed (EntityPacking.packRow).
@@ -1764,35 +1788,37 @@ module internal TreeBuilder =
                             | None ->
                                 let p = lam.Parameters.[0]
                                 let ctx = makeCtx p.Type p.Name state.Plan
-                                let isTransparentLetOpt =
+                                // A projection that keeps the row's entities (a `let`, or F#'s re-wrapping of its
+                                // tuple rows) leaves their columns in place: it appends the computed members and
+                                // moves the entities to their new paths in the row.
+                                let transparentRowOpt =
                                     match tryExtractMemberBindings lam.Body with
-                                    | Some bindings ->
-                                        let isNav (_name: string, expr: Expression) =
-                                            match ExpressionPatterns.unwrap expr with
-                                            | :? ParameterExpression as p when p.Name = lam.Parameters.[0].Name && not (PolarsTypeHelper.IsScalarType p.Type) -> true
-                                            | MemberAccess(_, m) when isNavigationMember m -> true
-                                            | _ -> false
-                                        let navBindings, computedBindings = bindings |> List.partition isNav
-                                        // A computed member replacing an existing column would change the
-                                        // entity that column belongs to; such a projection is not a `let`.
-                                        let rowCols = set (SchemaInference.inferPlanSchema state.Plan).ColumnNames
-                                        let shadowsColumn = computedBindings |> List.exists (fun (name, _) -> rowCols.Contains name)
-                                        if not navBindings.IsEmpty && not computedBindings.IsEmpty && not shadowsColumn then
-                                            let translated =
-                                                computedBindings
-                                                |> List.choose (fun (name, expr) ->
-                                                    ExprTranslator.tryTranslateToScalar ctx expr
-                                                    |> Option.map (fun s -> name, s))
-                                            if translated.Length = computedBindings.Length then
-                                                Some translated
-                                            else None
-                                        else None
+                                    | Some bindings when EntityPacking.isTransparentRowType lam.ReturnType ->
+                                        let rowCols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
+                                        let named = registerLetScopes scopeMap state.Plan lam
+                                        let sides = [ p.Name, EntityPacking.rowSideOf scopeMap rowCols ]
+                                        let computedBindings = bindings |> List.filter (fun (_, e) -> not (EntityPacking.holdsEntities e))
+                                        // A computed member replacing an existing column would change the entity
+                                        // that column belongs to.
+                                        let shadowsColumn = computedBindings |> List.exists (fun (name, _) -> List.contains name rowCols)
+
+                                        if computedBindings.Length = bindings.Length || shadowsColumn then
+                                            None
+                                        else
+                                            match EntityPacking.tryReshapeRow named sides bindings with
+                                            | Some reshaped ->
+                                                let translated =
+                                                    computedBindings
+                                                    |> List.choose (fun (name, expr) ->
+                                                        ExprTranslator.tryTranslateToScalar ctx expr |> Option.map (fun s -> name, s))
+                                                if translated.Length = computedBindings.Length then Some(translated, reshaped) else None
+                                            | None -> None
                                     | _ -> None
 
-                                match isTransparentLetOpt with
-                                | Some withCols ->
-                                    let letScopeMap = registerLetScopes scopeMap state.Plan lam
-                                    processStages { state with Plan = LogicalPlan.WithColumns(state.Plan, withCols) } letScopeMap tail
+                                match transparentRowOpt with
+                                | Some(withCols, reshaped) ->
+                                    let plan = if withCols.IsEmpty then state.Plan else LogicalPlan.WithColumns(state.Plan, withCols)
+                                    processStages { state with Plan = plan } reshaped tail
                                 | None ->
                                     match extractProjections ctx state.Plan lam.Body with
                                     | Some projs ->
@@ -2001,10 +2027,12 @@ module internal TreeBuilder =
                                 let updatedScopeMap =
                                     PipelineStageParser.updateJoinScopeMap scopeMap leftScope (List.toArray leftCols) rightScope (List.toArray rightCols) uniqueSuffix isRightJoin
                                     |> aliasResultSelectorScopes (if scopeMap.IsEmpty then Some leftScope else None) rightScope resSelOpt
+                                // Downstream stages see the result row; the concrete selector itself reads the joined sides.
+                                let rowScopeMap = joinResultScopes scopeMap updatedScopeMap leftScope rightScope resSelOpt
 
                                 match resSelOpt with
                                 | TransparentOrNoResSelector ->
-                                    processStages { state with Plan = joinPlan } updatedScopeMap tail
+                                    processStages { state with Plan = joinPlan } rowScopeMap tail
                                 | ConcreteResSelector resSel ->
                                     let postJoinCols = (SchemaInference.inferPlanSchema joinPlan).ColumnNames
                                     let pLeft = resSel.Parameters.[0]
@@ -2028,11 +2056,11 @@ module internal TreeBuilder =
 
                                         match tryExtractJoinProjections resCtx2 decorPlan pLeft2 pRight2 leftCols rightCols uniqueSuffix isRightJoin rewrittenResSel.Body with
                                         | Some projs -> processStages { state with Plan = LogicalPlan.Project(decorPlan, projs) } Map.empty tail
-                                        | None -> processStages { state with Plan = decorPlan } updatedScopeMap tail
+                                        | None -> processStages { state with Plan = decorPlan } rowScopeMap tail
                                     | None ->
                                         match tryExtractJoinProjections resCtx joinPlan pLeft pRight leftCols rightCols uniqueSuffix isRightJoin resSel.Body with
                                         | Some projs -> processStages { state with Plan = LogicalPlan.Project(joinPlan, projs) } Map.empty tail
-                                        | None -> processStages { state with Plan = joinPlan } updatedScopeMap tail
+                                        | None -> processStages { state with Plan = joinPlan } rowScopeMap tail
                             | _ ->
                                 processStages (fallback state) scopeMap tail
                         | None ->
@@ -2072,10 +2100,12 @@ module internal TreeBuilder =
                             let updatedScopeMap =
                                 PipelineStageParser.updateJoinScopeMap scopeMap leftScope (List.toArray leftCols) rightScope (List.toArray rightCols) uniqueSuffix false
                                 |> aliasResultSelectorScopes (if scopeMap.IsEmpty then Some leftScope else None) rightScope resSelOpt
+                            // Downstream stages see the result row; the concrete selector itself reads the joined sides.
+                            let rowScopeMap = joinResultScopes scopeMap updatedScopeMap leftScope rightScope resSelOpt
 
                             match resSelOpt with
                             | TransparentOrNoResSelector ->
-                                processStages { state with Plan = joinPlan } updatedScopeMap tail
+                                processStages { state with Plan = joinPlan } rowScopeMap tail
                             | ConcreteResSelector resSel ->
                                 let postJoinCols = (SchemaInference.inferPlanSchema joinPlan).ColumnNames
                                 let pLeft = resSel.Parameters.[0]
@@ -2087,7 +2117,7 @@ module internal TreeBuilder =
                                         TranslationContext.BinaryJoin(pLeft.Name, pRight.Name, leftColSet, uniqueSuffix)
                                 match tryExtractJoinProjections resCtx joinPlan pLeft pRight leftCols rightCols uniqueSuffix false resSel.Body with
                                 | Some projs -> processStages { state with Plan = LogicalPlan.Project(joinPlan, projs) } Map.empty tail
-                                | None -> processStages { state with Plan = joinPlan } updatedScopeMap tail
+                                | None -> processStages { state with Plan = joinPlan } rowScopeMap tail
                         | None ->
                             processStages (fallback state) scopeMap tail
 
@@ -2136,10 +2166,12 @@ module internal TreeBuilder =
                                 let updatedScopeMap =
                                     PipelineStageParser.updateJoinScopeMap scopeMap leftScope (List.toArray leftCols) rightScope (List.toArray rightCols) uniqueSuffix false
                                     |> aliasResultSelectorScopes (if scopeMap.IsEmpty then Some leftScope else None) rightScope resSelOpt
+                                // Downstream stages see the result row; the concrete selector itself reads the joined sides.
+                                let rowScopeMap = joinResultScopes scopeMap updatedScopeMap leftScope rightScope resSelOpt
 
                                 match resSelOpt with
                                 | TransparentOrNoResSelector ->
-                                    processStages { state with Plan = asOfPlan } updatedScopeMap tail
+                                    processStages { state with Plan = asOfPlan } rowScopeMap tail
                                 | ConcreteResSelector resSel ->
                                     let postJoinCols = (SchemaInference.inferPlanSchema asOfPlan).ColumnNames
                                     let pLeft = resSel.Parameters.[0]
@@ -2151,7 +2183,7 @@ module internal TreeBuilder =
                                             TranslationContext.BinaryJoin(pLeft.Name, pRight.Name, leftColSet, uniqueSuffix)
                                     match tryExtractJoinProjections resCtx asOfPlan pLeft pRight leftCols rightCols uniqueSuffix false resSel.Body with
                                     | Some projs -> processStages { state with Plan = LogicalPlan.Project(asOfPlan, projs) } Map.empty tail
-                                    | None -> processStages { state with Plan = asOfPlan } updatedScopeMap tail
+                                    | None -> processStages { state with Plan = asOfPlan } rowScopeMap tail
                             | _ ->
                                 processStages (fallback state) scopeMap tail
                         | None ->

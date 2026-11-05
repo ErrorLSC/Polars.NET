@@ -75,6 +75,23 @@ module internal ScopeNavigation =
                    || p.Name.StartsWith "<>h__")
             || isTupleOrAnonType p.Type)
 
+    /// Scope key of the entity at a member path of a transparent row: "/t/x" for row.t.x, "/Item1" for
+    /// row.Item1. Paths identify an entity exactly where member names repeat (F# rows are Item1..ItemN at
+    /// every nesting level); name keys never start with '/'.
+    let internal rowPathScope (path: string list) : string = "/" + String.concat "/" path
+
+    let internal isRowPathScope (scope: string) : bool = scope.StartsWith "/"
+
+    let internal parseRowPathScope (scope: string) : string list =
+        if scope = "/" then [] else scope.Substring(1).Split('/') |> List.ofArray
+
+    /// Member path from the parameter `rootName`: Some ["t"; "x"] for root.t.x, Some [] for root itself.
+    let rec internal tryMemberPath (rootName: string) (expr: Expression) : string list option =
+        match unwrap expr with
+        | :? ParameterExpression as p when p.Name = rootName -> Some []
+        | MemberAccess(target, m) when not (isNull target) -> tryMemberPath rootName target |> Option.map (fun path -> path @ [ m.Name ])
+        | _ -> None
+
     let (|StructFieldAccess|_|) (expr: Expression) : (Expression * string) option =
         match expr with
         | MemberAccess(target, m) when

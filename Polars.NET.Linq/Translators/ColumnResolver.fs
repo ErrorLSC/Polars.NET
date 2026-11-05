@@ -64,6 +64,19 @@ module internal ColumnResolver =
             tryExtractScopeName arg
         | _ -> None
 
+    /// The column of member `memberName` of the entity at `entityExpr`'s path in a transparent row, whose
+    /// parameter is `rowParam`. The path identifies the entity exactly, also where member names repeat
+    /// (F# rows are Item1..ItemN at every level).
+    let internal tryRowPathColumn
+        (scopeMap: Map<string * string, string>)
+        (rowParam: string)
+        (entityExpr: Expression)
+        (memberName: string)
+        : string option =
+        tryMemberPath rowParam entityExpr
+        |> Option.filter (fun path -> not path.IsEmpty)
+        |> Option.bind (fun path -> scopeMap.TryFind(rowPathScope path, memberName))
+
     /// Resolves the underlying physical column name using a strongly-typed TranslationContext.
     let rec internal tryResolveColumnNameWithContext (ctx: TranslationContext) (expr: Expression) : string option =
         if not ctx.AllowsColumnMemberLookup then
@@ -223,6 +236,11 @@ module internal ColumnResolver =
                                 Some m.Name
                             else
                                 Some(m.Name + rightSuffix)
+
+                    | TranslationContext.ScopedEntity(rowParam :: _, scopeMap, _) when
+                        (tryRowPathColumn scopeMap rowParam inner m.Name).IsSome
+                        ->
+                        tryRowPathColumn scopeMap rowParam inner m.Name
 
                     | TranslationContext.ScopedEntity(_, scopeMap, fallbackCols) ->
                         let rec isRootedInParamOrClosure (e: Expression) =
