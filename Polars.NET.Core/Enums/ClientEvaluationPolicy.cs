@@ -1,4 +1,4 @@
-namespace Polars.NET.Core;
+namespace Polars.NET.Core.Enums;
 
 /// <summary>
 /// Defines the policy for handling operations or expressions that cannot be pushed down

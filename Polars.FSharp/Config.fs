@@ -3,6 +3,7 @@ namespace Polars.FSharp
 open System
 open System.Collections.Generic
 open Polars.NET.Core
+open Polars.NET.Core.Enums
 
 [<RequireQualifiedAccess>]
 type Active =

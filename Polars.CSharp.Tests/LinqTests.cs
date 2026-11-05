@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Numerics;
+using Polars.NET.Core.Enums;
 using Polars.CSharp.Linq;
 using Polars.NET.Core;
 using Polars.NET.Linq;

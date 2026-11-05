@@ -7,6 +7,7 @@ open System.Linq
 open System.Linq.Expressions
 open System.Reflection
 open Polars.NET.Core
+open Polars.NET.Core.Enums
 open Polars.NET.Core.Helpers
 open Polars.NET.Linq.Backend.Polars
 

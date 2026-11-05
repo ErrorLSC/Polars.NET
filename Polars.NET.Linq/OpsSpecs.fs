@@ -1,6 +1,7 @@
 namespace Polars.NET.Linq
 
 open Polars.NET.Core
+open Polars.NET.Core.Enums
 open System.Linq.Expressions
 open System.Reflection
 open System

@@ -2,7 +2,7 @@ namespace Polars.NET.Linq.IR
 
 open System
 open System.Linq.Expressions
-open Polars.NET.Core
+open Polars.NET.Core.Enums
 
 /// Strongly-typed literal representation eliminating heap boxing and type ambiguity
 [<RequireQualifiedAccess>]

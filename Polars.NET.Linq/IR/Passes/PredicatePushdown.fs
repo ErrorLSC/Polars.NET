@@ -1,7 +1,6 @@
 namespace Polars.NET.Linq.IR.Passes
 
-open System
-open Polars.NET.Core
+open Polars.NET.Core.Enums
 open Polars.NET.Linq.IR
 
 /// Relational optimization pass that pushes Filter predicates down through

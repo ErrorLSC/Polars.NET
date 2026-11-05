@@ -1,6 +1,7 @@
-namespace Polars.NET.Core.Helpers;
-
+using Polars.NET.Core.Enums;
 using System.Runtime.CompilerServices;
+
+namespace Polars.NET.Core.Helpers;
 
 internal static class RowCursor
 {

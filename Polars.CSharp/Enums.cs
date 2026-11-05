@@ -1,5 +1,5 @@
 #pragma warning disable CS1591
-using CoreEnums = Polars.NET.Core;
+using CoreEnums = Polars.NET.Core.Enums;
 
 namespace Polars.CSharp;
 /// <summary>

@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Polars.NET.Core.Enums;
 
 namespace Polars.NET.Core;
 

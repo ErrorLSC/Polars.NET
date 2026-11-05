@@ -5,6 +5,7 @@ using Apache.Arrow;
 using Apache.Arrow.Types;
 using Microsoft.FSharp.Core;
 using Polars.NET.Core.Helpers;
+using Polars.NET.Core.Enums;
 
 namespace Polars.NET.Core.Arrow;
 

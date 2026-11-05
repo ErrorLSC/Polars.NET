@@ -2,6 +2,8 @@ using Apache.Arrow;
 using Apache.Arrow.C;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Native;
+using Polars.NET.Core.Enums;
+
 namespace Polars.NET.Core;
 
 public readonly partial struct PolarsWrapper

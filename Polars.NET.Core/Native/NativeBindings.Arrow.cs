@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow.C;
 using Polars.NET.Core.Arrow;
+using Polars.NET.Core.Enums;
 
 namespace Polars.NET.Core.Native;
 

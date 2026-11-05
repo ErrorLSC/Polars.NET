@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.Marshalling;
-using Apache.Arrow;
+using Polars.NET.Core.Enums;
 
 [assembly: DisableRuntimeMarshalling]
 

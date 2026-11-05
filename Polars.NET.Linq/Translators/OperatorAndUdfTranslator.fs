@@ -122,8 +122,8 @@ module internal OperatorAndUdfTranslator =
             else paramPredicate p.Name
         | :? MemberExpression as m -> exprDependsOn paramPredicate m.Expression
         | :? MethodCallExpression as mc ->
-            (not (isNull mc.Object) && exprDependsOn paramPredicate mc.Object)
-            || (mc.Arguments |> Seq.exists (exprDependsOn paramPredicate))
+            not (isNull mc.Object) && exprDependsOn paramPredicate mc.Object
+            || mc.Arguments |> Seq.exists (exprDependsOn paramPredicate)
         | :? BinaryExpression as b ->
             exprDependsOn paramPredicate b.Left || exprDependsOn paramPredicate b.Right
         | :? UnaryExpression as u -> exprDependsOn paramPredicate u.Operand

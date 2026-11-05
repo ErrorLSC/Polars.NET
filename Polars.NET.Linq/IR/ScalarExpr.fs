@@ -5,7 +5,7 @@ open System.ComponentModel
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Helpers
 
-type PlDataType = Polars.NET.Core.PlDataType
+type PlDataType = Polars.NET.Core.Enums.PlDataType
 
 
 /// SRTP carrier mechanism for statically resolved scalar literal construction

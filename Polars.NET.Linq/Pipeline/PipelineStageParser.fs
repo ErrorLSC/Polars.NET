@@ -7,7 +7,7 @@ open System.Linq.Expressions
 open System.Reflection
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
-open Polars.NET.Linq.IR
+open Polars.NET.Core.Enums
 
 [<AutoOpen>]
 module internal PipelineStageParser =

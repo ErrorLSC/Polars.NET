@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Polars.NET.Core.Enums;
 using Apache.Arrow.C;
 
 namespace Polars.NET.Core.Native;

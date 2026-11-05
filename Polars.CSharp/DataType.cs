@@ -1,5 +1,6 @@
 #pragma warning disable CS1591
 using System.Collections.Concurrent;
+using Polars.NET.Core.Enums;
 using Apache.Arrow.Types;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;

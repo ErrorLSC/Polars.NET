@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
+using Polars.NET.Core.Enums;
 using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;

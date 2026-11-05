@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using Apache.Arrow.Types;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Native;
+using Polars.NET.Core.Enums;
 
 namespace Polars.NET.Core;
 

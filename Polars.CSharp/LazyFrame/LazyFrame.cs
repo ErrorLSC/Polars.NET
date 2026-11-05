@@ -1,7 +1,5 @@
-#pragma warning disable CS1573
-
 using Polars.NET.Core;
-using Cs = Polars.CSharp.Polars.Selectors;
+using Polars.NET.Core.Enums;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;

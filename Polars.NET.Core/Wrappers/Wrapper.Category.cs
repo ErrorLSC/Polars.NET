@@ -1,4 +1,5 @@
 using Polars.NET.Core.Native;
+using Polars.NET.Core.Enums;
 
 namespace Polars.NET.Core;
 public readonly partial struct PolarsWrapper

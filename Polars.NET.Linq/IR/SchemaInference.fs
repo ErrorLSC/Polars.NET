@@ -1,7 +1,7 @@
 namespace Polars.NET.Linq.IR
 
 open System
-open Polars.NET.Core
+open Polars.NET.Core.Enums
 open Polars.NET.Linq
 
 /// In-memory schema and data type inference for LogicalPlan and ScalarExpr

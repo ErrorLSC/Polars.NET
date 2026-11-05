@@ -3,6 +3,7 @@ namespace Polars.FSharp
 open Polars.NET.Core
 open Polars.NET.Core.Arrow
 open System
+open Polars.NET.Core.Enums
 
 [<RequireQualifiedAccess>]
 type DataTypeKind =

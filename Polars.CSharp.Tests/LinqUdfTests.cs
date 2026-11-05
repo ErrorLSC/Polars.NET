@@ -1,13 +1,9 @@
 #nullable enable
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text.RegularExpressions;
-using Polars.CSharp;
 using Polars.CSharp.Linq;
+using Polars.NET.Core.Enums;
 using Polars.NET.Core;
-using Xunit;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;

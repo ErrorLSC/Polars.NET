@@ -1,4 +1,5 @@
 using Polars.NET.Core;
+using Polars.NET.Core.Enums;
 
 namespace Polars.CSharp;
 
