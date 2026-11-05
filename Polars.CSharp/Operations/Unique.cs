@@ -1,9 +1,9 @@
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Keep unique rows (stable) based on a subset of columns defined by a Selector.
@@ -46,7 +46,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <summary>
     /// Returns a new DataFrame with unique rows based on ALL columns.

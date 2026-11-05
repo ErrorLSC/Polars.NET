@@ -1,4 +1,3 @@
-
 namespace Polars.CSharp;
 
 public readonly partial struct Polars

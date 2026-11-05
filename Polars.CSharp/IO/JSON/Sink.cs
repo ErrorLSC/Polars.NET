@@ -1,5 +1,5 @@
 #pragma warning disable CS1573
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
 public partial class LazyFrame : IDisposable

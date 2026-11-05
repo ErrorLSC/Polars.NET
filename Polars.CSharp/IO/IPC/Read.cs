@@ -1,10 +1,10 @@
 #pragma warning disable CS1573
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     // ---------------------------------------------------------
     // Read IPC (File / Cloud)

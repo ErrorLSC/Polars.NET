@@ -1,5 +1,6 @@
 using Polars.NET.Core;
 using Polars.NET.Core.Enums;
+using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;

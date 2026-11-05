@@ -1,9 +1,10 @@
 using Polars.NET.Core;
 using Polars.NET.Core.Enums;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Lazily concatenate multiple LazyFrames.

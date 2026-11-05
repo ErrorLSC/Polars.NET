@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using Polars.NET.Core.Enums;
 using Apache.Arrow.Types;
 using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Arrow;
 
 namespace Polars.CSharp;

@@ -1,6 +1,7 @@
 #pragma warning disable 1591
 using System.Text;
 using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;

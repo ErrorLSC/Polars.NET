@@ -6,6 +6,7 @@ using Polars.NET.Core.Exceptions;
 using Apache.Arrow.Ipc;
 using System.Reflection;
 using Polars.NET.Core.Native;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.NET.Core.Arrow;
 /// <summary>

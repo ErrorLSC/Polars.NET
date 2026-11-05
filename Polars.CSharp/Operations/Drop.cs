@@ -1,11 +1,10 @@
 #pragma warning disable CS1573
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Cs = Polars.CSharp.Polars.Selectors;
-using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Drop columns based on Strings, Selectors, Types, or Expressions.
@@ -109,7 +108,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         => new(PolarsWrapper.LazyFrameDropNans(CloneHandle(), null));
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <summary>
     /// Drop one or more columns from the DataFrame.

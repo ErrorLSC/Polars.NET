@@ -3,7 +3,7 @@ using Polars.NET.Core.Native;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
 
-namespace Polars.NET.Core;
+namespace Polars.NET.Core.Wrappers;
 
 /// <summary>
 /// Config for Polars.NET

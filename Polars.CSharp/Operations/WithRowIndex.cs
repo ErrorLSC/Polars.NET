@@ -1,7 +1,7 @@
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Add a column at index 0 that counts the rows.
@@ -28,7 +28,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <summary>
     /// Add a column at index 0 that counts the rows.

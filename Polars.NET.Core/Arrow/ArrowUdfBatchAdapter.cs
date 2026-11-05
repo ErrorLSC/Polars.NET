@@ -9,6 +9,7 @@ using System.Reflection;
 using Apache.Arrow;
 using Polars.NET.Core.Data;
 using Polars.NET.Core.Helpers;
+using Polars.NET.Core.Wrappers;
 
 /// <summary>
 /// Vectorized Arrow batch adapter for managed UDF callbacks invoked from Polars native engine.

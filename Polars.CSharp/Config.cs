@@ -1,4 +1,4 @@
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Config;
 using Polars.NET.Core.Enums;
 

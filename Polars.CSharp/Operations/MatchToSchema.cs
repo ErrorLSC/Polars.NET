@@ -1,6 +1,5 @@
-using System.Runtime.InteropServices;
 using Polars.NET.Core;
-using Polars.NET.Core.Native;
+using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Enums;
 
 namespace Polars.CSharp;

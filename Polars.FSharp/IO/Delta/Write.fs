@@ -3,7 +3,7 @@
 
 namespace Polars.FSharp
 
-open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 open System.Runtime.CompilerServices
 
 [<AutoOpen>]

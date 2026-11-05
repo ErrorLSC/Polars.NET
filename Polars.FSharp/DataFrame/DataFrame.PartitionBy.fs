@@ -2,8 +2,7 @@ namespace Polars.FSharp
 
 open System
 open System.Collections
-open System.Collections.Generic
-open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 
 /// <summary>
 /// Helper function to safely compare two boxed objects at runtime without static comparison constraints.

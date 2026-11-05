@@ -3,6 +3,7 @@ namespace Polars.FSharp
 open System
 open System.Text
 open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Enums
 open Apache.Arrow
 open System.ComponentModel

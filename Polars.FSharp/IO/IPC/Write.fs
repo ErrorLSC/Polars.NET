@@ -1,6 +1,6 @@
 namespace Polars.FSharp
 
-open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 
 [<AutoOpen>]
 module IPCWrite =

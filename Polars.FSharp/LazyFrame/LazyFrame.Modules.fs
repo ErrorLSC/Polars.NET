@@ -1,7 +1,7 @@
 namespace Polars.FSharp
 
 open System.Threading.Tasks
-open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Enums
 open System.Collections.Generic
 

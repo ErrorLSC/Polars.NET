@@ -1,7 +1,7 @@
 using Polars.NET.Core.Native;
 using Polars.NET.Core.Exceptions;
 
-namespace Polars.NET.Core;
+namespace Polars.NET.Core.Wrappers;
 public readonly partial struct PolarsWrapper
 {
     public static ExprHandle BinSizeBytes(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_bin_size_bytes, e);

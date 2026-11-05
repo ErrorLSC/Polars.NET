@@ -1,9 +1,10 @@
 using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Get the top k rows according to a single expression, string, or selector.
@@ -162,7 +163,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <summary>
     /// Get the top k rows according to the given expressions.

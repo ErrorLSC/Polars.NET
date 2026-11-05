@@ -2,6 +2,7 @@
 #pragma warning disable 0618
 using System.Text.RegularExpressions;
 using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Config;
 using Polars.NET.Core.Helpers;
 using Cs = Polars.CSharp.Polars.Selectors;

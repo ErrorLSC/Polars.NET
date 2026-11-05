@@ -1,5 +1,5 @@
 #pragma warning disable CS1591
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
@@ -49,7 +49,7 @@ public readonly struct IntoIndexLazyFrame
 }
 
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Selects rows from this LazyFrame at the given indices.

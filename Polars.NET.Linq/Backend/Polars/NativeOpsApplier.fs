@@ -1,7 +1,7 @@
 namespace Polars.NET.Linq
 
-open System
 open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 
 [<AutoOpen>]
 module internal NativeOpsApplier =

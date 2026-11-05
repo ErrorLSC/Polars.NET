@@ -2,6 +2,7 @@
 #pragma warning disable CS1573
 using Apache.Arrow;
 using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;

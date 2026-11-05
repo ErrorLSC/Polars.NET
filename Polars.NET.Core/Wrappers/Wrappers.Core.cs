@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using Polars.NET.Core.Exceptions;
 
-namespace Polars.NET.Core;
+namespace Polars.NET.Core.Wrappers;
 
 public readonly partial struct PolarsWrapper
 {

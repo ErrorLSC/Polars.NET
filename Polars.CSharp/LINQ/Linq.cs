@@ -872,7 +872,7 @@ public static class LinqExtensions
         var keyParam = keySelector.Parameters[0].Name ?? "x";
         var keyCtx = CreateContext(keyParam);
 
-        var keyOpt = ExprTranslator.tryTranslateWithContext(keyCtx, evaluatedKeyBody);
+        var keyOpt = ScalarExecutor.tryTranslateWithContext(keyCtx, evaluatedKeyBody);
         if (!FSharpOption<ExprHandle>.get_IsSome(keyOpt))
         {
             throw new NotSupportedException($"Key selector '{keySelector}' could not be translated to a Polars expression.");
@@ -891,7 +891,7 @@ public static class LinqExtensions
             var elemParam = elementSelector.Parameters[0].Name ?? "x";
             var elemCtx = CreateContext(elemParam);
 
-            var elemOpt = ExprTranslator.tryTranslateWithContext(elemCtx, evaluatedElemBody);
+            var elemOpt = ScalarExecutor.tryTranslateWithContext(elemCtx, evaluatedElemBody);
             if (FSharpOption<ExprHandle>.get_IsSome(elemOpt))
             {
                 elemExpr = new Expr(elemOpt.Value);

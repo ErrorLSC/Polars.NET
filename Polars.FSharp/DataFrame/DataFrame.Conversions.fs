@@ -5,6 +5,7 @@ open Microsoft.FSharp.Reflection
 open System.Linq.Expressions
 open System.Collections.Generic
 open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 open System
 open System.Runtime.CompilerServices
 open Polars.NET.Core.Helpers

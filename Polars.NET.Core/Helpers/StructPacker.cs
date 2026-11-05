@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using System.Reflection;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.NET.Core.Helpers;
 

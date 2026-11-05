@@ -4,6 +4,7 @@ using Apache.Arrow.C;
 using Apache.Arrow.Types;
 using Polars.NET.Core.Native;
 using Polars.NET.Core.Exceptions;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.NET.Core.Arrow;
 

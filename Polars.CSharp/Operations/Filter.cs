@@ -1,9 +1,9 @@
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Filter rows based on a boolean expression.
@@ -73,7 +73,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <summary>
     /// Filter rows based on a boolean expression (predicate).

@@ -1,5 +1,5 @@
 using System.Runtime.CompilerServices;
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;

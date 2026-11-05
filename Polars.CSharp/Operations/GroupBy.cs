@@ -1,10 +1,9 @@
-using Polars.NET.Core;
-using Polars.NET.Core.Helpers;
+using Polars.NET.Core.Wrappers;
 using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Group by multiple expressions, strings, or literals.
@@ -142,7 +141,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <summary>
     /// Start a GroupBy operation to perform aggregations on groups of data.

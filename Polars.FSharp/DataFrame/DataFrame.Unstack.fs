@@ -1,8 +1,9 @@
 namespace Polars.FSharp
 
+open System
+
 [<AutoOpen>]
 module DataFrameUnstackExtension =
-    open System
 
     type DataFrame with
         member this.UnstackInternal

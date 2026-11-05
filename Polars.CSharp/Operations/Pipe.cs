@@ -1,8 +1,6 @@
-using Polars.NET.Core;
-
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Offers a structured way to apply a sequence of user-defined functions (UDFs).
@@ -25,7 +23,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         => function(this, this.Schema);
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <summary>
     /// Offers a structured way to apply a sequence of user-defined functions (UDFs).

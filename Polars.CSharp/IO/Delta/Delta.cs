@@ -2,6 +2,7 @@ using System.Text;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Core.Enums;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
 

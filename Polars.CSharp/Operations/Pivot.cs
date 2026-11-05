@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using Polars.NET.Core.Wrappers;
 using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
 
@@ -34,7 +35,7 @@ public readonly struct IntoPivotHint
     }
 }
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Pivot the LazyFrame.
@@ -203,7 +204,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <summary>
     /// Pivot the DataFrame using Selectors for column selection. 

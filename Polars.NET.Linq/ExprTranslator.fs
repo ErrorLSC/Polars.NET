@@ -1,6 +1,5 @@
 namespace Polars.NET.Linq
 
-open Polars.NET.Core
 open Polars.NET.Linq.IR
 open Polars.NET.Linq.Backend.Polars
 open System
@@ -124,8 +123,4 @@ module internal ExprTranslator =
         with _ ->
             None
 
-    /// Root entrypoint for translating LINQ Expression AST nodes to native Polars Expr handles.
-    /// Pure pipeline: translates Expression -> ScalarExpr -> lowers to ExprHandle.
-    let tryTranslateWithContext (ctx: TranslationContext) (expr: Expression) : ExprHandle option =
-        tryTranslateToScalar ctx expr
-        |> Option.map PolarsScalarLowerer.lower
+

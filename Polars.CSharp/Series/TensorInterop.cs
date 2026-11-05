@@ -1,5 +1,4 @@
 using System.Numerics.Tensors;
-using Polars.NET.Core;
 using Polars.NET.Core.TensorInterop;
 
 namespace Polars.CSharp;
@@ -152,7 +151,7 @@ public partial class Series : IDisposable
     /// </remarks>
     public static Series FromTensor<T>(string name, ReadOnlyTensorSpan<T> tensor) where T : unmanaged
     {
-        SeriesHandle handle = ArrowTensorInterop.ImportTensor(name, tensor);
+        var handle = ArrowTensorInterop.ImportTensor(name, tensor);
         return new Series(handle);
     }
 }

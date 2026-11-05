@@ -1,3 +1,5 @@
+using Polars.NET.Core.Wrappers;
+
 namespace Polars.NET.Core.Helpers;
 
 public static class PolarsSchemaExtractor

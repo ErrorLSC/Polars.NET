@@ -1,5 +1,4 @@
 #pragma warning disable 1573
-using Apache.Arrow;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;

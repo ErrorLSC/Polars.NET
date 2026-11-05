@@ -1,7 +1,8 @@
 namespace Polars.FSharp
 
 open System
-open Polars.NET.Core
+open Polars.NET.Core.Wrappers
+
 [<RequireQualifiedAccess>]
 type Dtype =
     | DataTypeExpr of DataTypeExpr         

@@ -1,9 +1,10 @@
 namespace Polars.FSharp
 
+open Polars.NET.Core.Wrappers
+open System
+
 [<AutoOpen>]
 module DataFrameTranspose =
-    open Polars.NET.Core
-    open System
 
     type DataFrame with
         /// <summary>Transpose a DataFrame over the diagonal.</summary>

@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using Polars.NET.Core.Enums;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.NET.Core.Config;
 

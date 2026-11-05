@@ -1,8 +1,8 @@
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <summary>
     /// Read a JSON file into a DataFrame.

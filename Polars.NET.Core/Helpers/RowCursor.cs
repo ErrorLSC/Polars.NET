@@ -1,5 +1,6 @@
 using Polars.NET.Core.Enums;
 using System.Runtime.CompilerServices;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.NET.Core.Helpers;
 

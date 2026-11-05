@@ -3,7 +3,7 @@ using Polars.NET.Core.Enums;
 using System.Threading.Channels;
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
 

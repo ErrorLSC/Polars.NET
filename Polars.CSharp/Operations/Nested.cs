@@ -1,9 +1,9 @@
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Lazily unnest struct columns using a Selector, String, DataType, or Expr.
@@ -81,7 +81,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         => Explode(Cs.ByName(columns));
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <summary>
     /// Decompose a struct column into multiple columns.

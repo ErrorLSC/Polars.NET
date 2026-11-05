@@ -4,7 +4,7 @@ open Polars.NET.Core.Arrow
 open Apache.Arrow
 open System
 open Polars.NET.Core.Helpers
-open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 open System.Collections.Generic
 
 [<AutoOpen>]

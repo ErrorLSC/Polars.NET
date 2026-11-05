@@ -3,7 +3,7 @@ namespace Polars.FSharp
 open Apache.Arrow
 open System
 open System.Collections.Generic
-open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]

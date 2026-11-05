@@ -2,11 +2,12 @@ using Polars.NET.Core;
 using Polars.NET.Core.Config;
 using Polars.NET.Core.Helpers;
 using System.Text;
+using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable,IEnumerable<Series>
 {
     /// <summary>
     /// True if the DataFrame contains no rows.

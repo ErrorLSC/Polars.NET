@@ -14,4 +14,3 @@ module ExprManipulation =
         /// </summary>
         /// <param name="value">The scalar value to fill nulls with.</param>
         member inline this.FillNull(value: ^T) : Expr = this.FillNull(pl.lit value)
-        // member inline this.IsBetween(lower)

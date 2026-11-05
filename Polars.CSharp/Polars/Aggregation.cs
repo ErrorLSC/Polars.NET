@@ -1,4 +1,4 @@
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Cs = Polars.CSharp.Polars.Selectors;
 namespace Polars.CSharp;
 

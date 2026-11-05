@@ -1,9 +1,8 @@
-using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Update the values in this Frame with the values in other.
@@ -167,7 +166,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <inheritdoc cref="LazyFrame.Update"/>
     public DataFrame Update(

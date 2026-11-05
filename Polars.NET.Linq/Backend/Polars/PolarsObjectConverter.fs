@@ -1,6 +1,7 @@
 namespace Polars.NET.Linq.Backend.Polars
 
 open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Helpers
 open Polars.NET.Linq
 open Polars.NET.Linq.IR

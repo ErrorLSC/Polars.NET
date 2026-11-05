@@ -4,6 +4,7 @@ open System
 open System.Collections
 open System.Reflection
 open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Helpers

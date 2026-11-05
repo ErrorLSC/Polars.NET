@@ -1,7 +1,8 @@
 using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Add or modify columns based on Expressions, Strings, Selectors, or Series.
@@ -52,7 +53,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <summary>
     /// Add new columns to the DataFrame or replace existing ones using expressions.

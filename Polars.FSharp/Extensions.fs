@@ -1,5 +1,7 @@
 namespace Polars.FSharp
 
+open Polars.NET.Core.Wrappers
+
 [<AutoOpen>]
 module Describe =
     open System.Text

@@ -2,6 +2,7 @@ namespace Polars.FSharp
 
 open System
 open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 
 /// <summary>
 /// Defines the type of GroupBy operation and stores specific parameters for each strategy.

@@ -7,6 +7,7 @@ open System.Linq
 open System.Linq.Expressions
 open System.Reflection
 open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Helpers
 open Polars.NET.Linq.Backend.Polars
@@ -25,6 +26,12 @@ module internal ScalarExecutor =
     let tryGetScalarColumnName (elemType: Type) (lf: LazyFrameHandle) : string option =
         let colNames = PolarsSchemaExtractor.GetColumnNames lf
         tryGetScalarColumnNameFromCols elemType colNames
+
+    /// Root entrypoint for translating LINQ Expression AST nodes to native Polars Expr handles.
+    /// Pure pipeline: translates Expression -> ScalarExpr -> lowers to ExprHandle.
+    let tryTranslateWithContext (ctx: TranslationContext) (expr: Expression) : ExprHandle option =
+        tryTranslateToScalar ctx expr
+        |> Option.map PolarsScalarLowerer.lower
 
     /// Checks whether a LINQ method is a scalar or single-element terminal reduction.
     let isScalarReductionMethod (m: MethodInfo) : bool =
@@ -66,7 +73,7 @@ module internal ScalarExecutor =
             let nativeFilterOpt =
                 if not hasClientPreds && clientProjOpt.IsNone then
                     let ctx = createContextForType elemType nativeLf predLambda.Parameters.[0].Name
-                    ExprTranslator.tryTranslateWithContext ctx predLambda.Body
+                    tryTranslateWithContext ctx predLambda.Body
                 else
                     None
 
@@ -459,7 +466,7 @@ module internal ScalarExecutor =
                     match selectorOpt with
                     | Some selector ->
                         let ctx = createContextForType elemType nativeLf selector.Parameters.[0].Name
-                        ExprTranslator.tryTranslateWithContext ctx selector.Body
+                        tryTranslateWithContext ctx selector.Body
                     | None ->
                         tryGetScalarColumnName elemType nativeLf
                         |> Option.map PolarsWrapper.Col
@@ -671,7 +678,7 @@ module internal ScalarExecutor =
             let nativeSortColOpt =
                 if not hasClientPreds && clientProjOpt.IsNone && isNull compObj then
                     let ctx = createContextForType elemType nativeLf keyLambda.Parameters.[0].Name
-                    ExprTranslator.tryTranslateWithContext ctx keyLambda.Body
+                    tryTranslateWithContext ctx keyLambda.Body
                 else
                     None
 

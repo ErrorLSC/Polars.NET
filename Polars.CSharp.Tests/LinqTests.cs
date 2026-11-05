@@ -7,7 +7,7 @@ using System.Numerics;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
 using Polars.CSharp.Linq;
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Polars.NET.Linq;
 using Pl = Polars.CSharp.Polars;
 

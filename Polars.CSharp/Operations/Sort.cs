@@ -1,10 +1,9 @@
-using System.Data;
+using Polars.NET.Core.Wrappers;
 using Polars.NET.Core;
-using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Sort the LazyFrame by a single column name, selector, or column expression.

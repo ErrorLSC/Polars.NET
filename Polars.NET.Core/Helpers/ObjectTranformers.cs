@@ -7,6 +7,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Polars.NET.Core.Wrappers;
 
 /// <summary>
 /// Internal columnar abstraction for buffering row values and exporting to a SeriesHandle.

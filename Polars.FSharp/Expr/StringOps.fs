@@ -2,6 +2,7 @@ namespace Polars.FSharp
 
 open Polars.NET.Core
 open Polars.NET.Core.Helpers
+open Polars.NET.Core.Wrappers
 open System.Text
 
 [<Struct>]

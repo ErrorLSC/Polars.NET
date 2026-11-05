@@ -3,6 +3,7 @@ using Microsoft.FSharp.Core;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Reflection;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.NET.Core.Helpers;
 

@@ -5,14 +5,14 @@ using System.Runtime.InteropServices;
 using System.Threading.Channels;
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
-using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Data;
+using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <summary>
     /// Returns a lazy heap-allocated IEnumerable over DataFrame rows.

@@ -1,12 +1,12 @@
 #pragma warning disable CS1573
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
 
 /// <summary>
 /// DataFrame represents a 2-dimensional labeled data structure similar to a table or spreadsheet.
 /// </summary>
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable,IEnumerable<Series>
 {
     /// <summary>
     /// Transpose a DataFrame over the diagonal.

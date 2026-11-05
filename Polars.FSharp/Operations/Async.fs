@@ -4,6 +4,7 @@ open System.Collections.Generic
 open System.Runtime.ExceptionServices
 open System.Threading
 open System.Threading.Tasks
+open Polars.NET.Core.Wrappers
 open Polars.NET.Core
 
 /// <summary>

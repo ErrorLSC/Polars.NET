@@ -1,5 +1,6 @@
 using Polars.NET.Core;
 using System.Data;
+using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
 #pragma warning disable CS1591

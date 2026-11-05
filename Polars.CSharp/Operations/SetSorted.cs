@@ -1,11 +1,11 @@
 #pragma warning disable CS1591
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame : IDisposable
 {
     /// <summary>
     /// Mark one or multiple columns as sorted. 
@@ -32,7 +32,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <inheritdoc cref="LazyFrame.SetSorted(IntoSelector, bool, bool)"/>
     public DataFrame SetSorted(IntoSelector columns, bool descending = false, bool nullsLast = false) => Lazy().SetSorted(columns, descending, nullsLast).Collect();

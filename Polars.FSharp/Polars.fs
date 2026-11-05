@@ -2,7 +2,7 @@
 namespace Polars.FSharp
 
 open System
-open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Config
 open Polars.NET.Core.Helpers

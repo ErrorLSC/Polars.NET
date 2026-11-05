@@ -6,6 +6,7 @@ open System.Collections.Generic
 open System.Linq
 open System.Linq.Expressions
 open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Helpers
 open System.Runtime.CompilerServices

@@ -1,7 +1,7 @@
 namespace Polars.FSharp
 
 open System.ComponentModel
-open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 open System
 
 [<EditorBrowsable(EditorBrowsableState.Never)>]

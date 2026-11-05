@@ -1,5 +1,5 @@
 using Apache.Arrow;
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
 

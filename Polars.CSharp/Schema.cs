@@ -4,6 +4,7 @@ using System.Collections.Frozen;
 using System.Text;
 using Apache.Arrow.Types;
 using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
 

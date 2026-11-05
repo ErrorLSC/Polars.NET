@@ -1,5 +1,5 @@
 #pragma warning disable 1591
-using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Enums;
 

@@ -1,7 +1,6 @@
 #pragma warning disable CS1591
 using System.Collections.Frozen;
 using System.Text;
-using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
@@ -587,7 +586,7 @@ public partial class LazyFrame
     }
 }
 
-public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
+public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <summary>
     /// Initiates a Merge (Upsert) builder to apply changes from a source DataFrame.

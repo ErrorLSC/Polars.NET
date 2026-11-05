@@ -1,7 +1,6 @@
 namespace Polars.FSharp
 
 open System
-open Polars.NET.Core
 
 [<AutoOpen>]
 module SeriesIterationExtensions =

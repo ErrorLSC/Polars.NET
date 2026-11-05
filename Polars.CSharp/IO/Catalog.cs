@@ -2,6 +2,7 @@
 using System.Text;
 using System.Text.Json;
 using Polars.NET.Core;
+using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Helpers;
 
 namespace Polars.CSharp;

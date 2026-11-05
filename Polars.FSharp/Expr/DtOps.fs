@@ -2,6 +2,7 @@ namespace Polars.FSharp
 
 open System
 open Polars.NET.Core
+open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Helpers
 
 [<RequireQualifiedAccess>]
@@ -12,8 +13,6 @@ type Dur =
 
 [<RequireQualifiedAccess>]
 module Dur =
-    open Polars.NET.Core.Helpers
-
     let internal consume (src: Dur) =
         match src with
         | Dur.String s ->
