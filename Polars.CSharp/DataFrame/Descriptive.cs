@@ -1,8 +1,7 @@
 using Polars.NET.Core;
-using Polars.NET.Core.Arrow;
+using Polars.NET.Core.Config;
 using Polars.NET.Core.Helpers;
 using System.Text;
-using Apache.Arrow.Types;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;

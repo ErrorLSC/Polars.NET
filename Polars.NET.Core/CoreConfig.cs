@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Polars.NET.Core.Enums;
 
-namespace Polars.NET.Core;
+namespace Polars.NET.Core.Config;
 
 /// <summary>
 /// Config for Polars.NET

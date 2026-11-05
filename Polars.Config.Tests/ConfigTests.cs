@@ -1,4 +1,5 @@
 using Pl = Polars.CSharp.Polars;
+using Polars.NET.Core.Enums;
 
 namespace Polars.Config.Tests;
 
@@ -535,23 +536,23 @@ public class ConfigTests
         try
         {
             // 1. Default should be Strict
-            Assert.Equal(Polars.NET.Core.ClientEvaluationPolicy.Strict, Pl.Config.ClientEvaluationPolicy);
+            Assert.Equal(ClientEvaluationPolicy.Strict, Pl.Config.ClientEvaluationPolicy);
 
             // 2. Set to Warn via fluent API
-            Pl.Config.SetClientEvaluationPolicy(Polars.NET.Core.ClientEvaluationPolicy.Warn);
-            Assert.Equal(Polars.NET.Core.ClientEvaluationPolicy.Warn, Pl.Config.ClientEvaluationPolicy);
+            Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Warn);
+            Assert.Equal(ClientEvaluationPolicy.Warn, Pl.Config.ClientEvaluationPolicy);
             Assert.Equal("warn", Pl.Config["POLARS_CLIENT_EVAL"]);
             Assert.Equal("warn", Pl.Config.Status(ifSet: true)["client_evaluation_policy"]);
 
             // 3. Test scope isolation
-            using (Pl.Config.SetClientEvaluationPolicy(Polars.NET.Core.ClientEvaluationPolicy.Allow).BeginScope())
+            using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
             {
-                Assert.Equal(Polars.NET.Core.ClientEvaluationPolicy.Allow, Pl.Config.ClientEvaluationPolicy);
+                Assert.Equal(ClientEvaluationPolicy.Allow, Pl.Config.ClientEvaluationPolicy);
                 Assert.Equal("allow", Pl.Config["POLARS_CLIENT_EVAL"]);
             }
 
             // Scope exited, should revert to Warn
-            Assert.Equal(Polars.NET.Core.ClientEvaluationPolicy.Warn, Pl.Config.ClientEvaluationPolicy);
+            Assert.Equal(ClientEvaluationPolicy.Warn, Pl.Config.ClientEvaluationPolicy);
 
             // 4. Test exception formatting
             var ex = new Polars.NET.Core.PolarsPushdownException(

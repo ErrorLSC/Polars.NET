@@ -1,8 +1,5 @@
 using Apache.Arrow.Adbc;
 using Apache.Arrow.Adbc.C;
-using LinqToDB;
-using LinqToDB.Data;
-using LinqToDB.Mapping;
 using Polars.CSharp;
 
 

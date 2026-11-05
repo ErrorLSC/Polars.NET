@@ -4,6 +4,7 @@ open System
 open System.Collections.Generic
 open Polars.NET.Core
 open Polars.NET.Core.Enums
+open Polars.NET.Core.Config
 
 [<RequireQualifiedAccess>]
 type Active =

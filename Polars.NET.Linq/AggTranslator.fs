@@ -3,7 +3,7 @@ namespace Polars.NET.Linq
 open System
 open System.Reflection
 open System.Linq.Expressions
-open Polars.NET.Core
+open Polars.NET.Core.Config
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Helpers

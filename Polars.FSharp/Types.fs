@@ -6,6 +6,7 @@ namespace Polars.FSharp
 open System
 open System.Text
 open Polars.NET.Core
+open Polars.NET.Core.Config
 open System.Collections.Generic
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Helpers

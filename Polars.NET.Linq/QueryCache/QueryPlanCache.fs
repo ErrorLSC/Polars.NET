@@ -5,7 +5,7 @@ open System.Collections.Concurrent
 open System.Collections.Generic
 open System.Linq.Expressions
 open System.Threading
-open Polars.NET.Core
+open Polars.NET.Core.Config
 
 /// Represents a compiled query plan template stored in the Query Plan Cache.
 [<NoEquality; NoComparison>]

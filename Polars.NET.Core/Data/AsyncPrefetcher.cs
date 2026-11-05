@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Apache.Arrow;
+using Polars.NET.Core.Config;
 
 namespace Polars.NET.Core.Data;
 

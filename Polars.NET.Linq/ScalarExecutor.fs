@@ -15,6 +15,17 @@ open Polars.NET.Linq.Backend.Polars
 /// (Count, LongCount, Any, All, First*, Last*, Single*, Min, Max, Sum, Average, ElementAt*, Contains, SequenceEqual, MinBy, MaxBy, Aggregate).
 module internal ScalarExecutor =
 
+    /// Creates an appropriate TranslationContext based on whether the sequence element type
+    /// is a scalar/primitive (bound to the underlying single physical column) or a composite entity.
+    let createContextForType (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
+        let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
+        SubqueryDecorrelator.createContextForTypeWithCols elemType colNames paramName
+
+    /// Resolves the single physical column name if the sequence is scalar (e.g. string, int, double).
+    let tryGetScalarColumnName (elemType: Type) (lf: LazyFrameHandle) : string option =
+        let colNames = PolarsSchemaExtractor.GetColumnNames lf
+        tryGetScalarColumnNameFromCols elemType colNames
+
     /// Checks whether a LINQ method is a scalar or single-element terminal reduction.
     let isScalarReductionMethod (m: MethodInfo) : bool =
         match m.Name with

@@ -6,6 +6,7 @@ open System.Linq
 open System.Linq.Expressions
 open System.Reflection
 open Polars.NET.Core
+open Polars.NET.Core.Config
 open Polars.NET.Core.Helpers
 open Polars.NET.Core.Enums
 
@@ -16,12 +17,6 @@ module internal PipelineStageParser =
     // 1. Type, Schema & Policy Helpers
     // =========================================================================
 
-    /// Creates an appropriate TranslationContext based on whether the sequence element type
-    /// is a scalar/primitive (bound to the underlying single physical column) or a composite entity.
-    let createContextForType (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
-        let colNames = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
-        SubqueryDecorrelator.createContextForTypeWithCols elemType colNames paramName
-
     /// Creates a TranslationContext with scope and column names.
     let createContextWithScopeAndCols (scopeMap: Map<string * string, string>) (elemType: Type) (cols: string list) (paramName: string) : TranslationContext =
         if PolarsTypeHelper.IsScalarType elemType then
@@ -30,12 +25,6 @@ module internal PipelineStageParser =
             SubqueryDecorrelator.createContextForTypeWithCols elemType cols paramName
         else
             TranslationContext.ScopedEntity([ paramName ], scopeMap, cols)
-
-    /// Creates a TranslationContext that prioritizes registered scope mappings (for deep multi-table joins)
-    /// before falling back to default schema extraction.
-    let createContextWithScope (scopeMap: Map<string * string, string>) (elemType: Type) (lf: LazyFrameHandle) (paramName: string) : TranslationContext =
-        let cols = PolarsSchemaExtractor.GetColumnNames lf |> Array.toList
-        createContextWithScopeAndCols scopeMap elemType cols paramName
 
     let updateJoinScopeMap
         (existingScopeMap: Map<string * string, string>)
@@ -82,11 +71,6 @@ module internal PipelineStageParser =
             if cols.Length = 1 then Some cols.[0] else None
         else
             None
-
-    /// Resolves the single physical column name if the sequence is scalar (e.g. string, int, double).
-    let tryGetScalarColumnName (elemType: Type) (lf: LazyFrameHandle) : string option =
-        let colNames = PolarsSchemaExtractor.GetColumnNames lf
-        tryGetScalarColumnNameFromCols elemType colNames
 
     /// Enforces client evaluation policy on unpushed scalar/terminal predicates (e.g. First(pred), Any(pred))
     let enforceClientPredicatePolicy (stage: string, predLambdaOpt: LambdaExpression option) : unit =

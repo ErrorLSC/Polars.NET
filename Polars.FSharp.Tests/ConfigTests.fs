@@ -2,6 +2,7 @@ namespace Polars.FSharp.Tests
 
 open Xunit
 open Polars.FSharp
+open Polars.NET.Core.Config
 
 type ConfigTests () =
     [<Fact>]

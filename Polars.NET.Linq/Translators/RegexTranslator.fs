@@ -1,5 +1,6 @@
 namespace Polars.NET.Linq
 
+open Polars.NET.Core.Config
 open Polars.NET.Core
 open Polars.NET.Linq.IR
 open System
