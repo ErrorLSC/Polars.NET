@@ -801,14 +801,75 @@ and [<RequireQualifiedAccess>] LogicalPlan =
     | HorizontalConcat of inputs: LogicalPlan list
     | Empty of schema: LogicalSchema
 
-/// Represents a compiled logical query containing the pure symbolic LogicalPlan IR tree
-/// alongside pure managed boundary classifications (client predicates, projection, fallback flags).
+/// One managed row operation applied after the native plan, in pipeline order.
+[<RequireQualifiedAccess>]
+type ClientRowOp =
+    /// Keeps the rows for which the compiled predicate holds.
+    | Filter of Predicate: Func<obj, bool> * Source: LambdaExpression
+    /// Replaces each row with the compiled selector's result.
+    | Map of Selector: Func<obj, obj> * Source: LambdaExpression
+
+    /// The LINQ lambda the operation was compiled from.
+    member this.Lambda: LambdaExpression =
+        match this with
+        | Filter(_, lambda)
+        | Map(_, lambda) -> lambda
+
+/// Managed work that remains after the native LogicalPlan has been executed.
+[<RequireQualifiedAccess>]
+type ClientResidual =
+    /// The whole pipeline runs natively.
+    | None
+    /// Native rows are materialized as the first operation's input type, then the operations
+    /// are applied in pipeline order, row by row.
+    | RowOps of Ops: ClientRowOp list
+    /// The remaining pipeline needs LINQ-to-Objects (ordering, paging, chunking, ... after a client step).
+    | LinqToObjects
+
+/// Shared evaluation of ClientResidual row operations; every execution path applies them through here.
+module ClientResidualOps =
+
+    /// Element type the native rows are materialized as before the first operation.
+    let rowType (ops: ClientRowOp list) : Type =
+        match ops with
+        | first :: _ -> first.Lambda.Parameters.[0].Type
+        | [] -> invalidArg (nameof ops) "ClientResidual.RowOps requires at least one operation."
+
+    /// Applies the operations to the materialized rows, in pipeline order.
+    let apply (ops: ClientRowOp list) (rows: System.Collections.IEnumerable) : seq<obj> =
+        ops
+        |> List.fold
+            (fun (acc: seq<obj>) op ->
+                match op with
+                | ClientRowOp.Filter(predicate, _) -> Seq.filter predicate.Invoke acc
+                | ClientRowOp.Map(selector, _) -> Seq.map selector.Invoke acc)
+            (Seq.cast<obj> rows)
+
+    /// The client predicates (with their source lambdas) the residual evaluates, for policy checks and diagnostics.
+    let filters (residual: ClientResidual) : (Func<obj, bool> * LambdaExpression) list =
+        match residual with
+        | ClientResidual.RowOps ops ->
+            ops |> List.choose (function ClientRowOp.Filter(p, l) -> Some(p, l) | ClientRowOp.Map _ -> Option.None)
+        | _ -> []
+
+    /// When the residual only projects (no filtering, no fallback), the composed projection over the native rows.
+    let tryProjectionOnly (residual: ClientResidual) : (Type * Func<obj, obj>) option =
+        match residual with
+        | ClientResidual.RowOps ops when ops |> List.forall (function ClientRowOp.Map _ -> true | _ -> false) ->
+            let selectors = ops |> List.map (function ClientRowOp.Map(f, _) -> f | ClientRowOp.Filter _ -> null)
+            Some(rowType ops, Func<obj, obj>(fun row -> selectors |> List.fold (fun acc f -> f.Invoke acc) row))
+        | _ -> Option.None
+
+    let isNative (residual: ClientResidual) : bool =
+        match residual with
+        | ClientResidual.None -> true
+        | _ -> false
+
+/// A compiled logical query: the native LogicalPlan plus the managed residual evaluated on its rows.
 type CompiledLogicalQuery =
     {
         Plan: LogicalPlan
-        ClientPredicates: (Func<obj, bool> * LambdaExpression) list
-        ClientProjection: (Type * Func<obj, obj>) option
-        RequiresClientFallback: bool
+        Residual: ClientResidual
     }
 
 /// Internal interface implemented by PolarsQueryable to expose IR compilation for testing, inspection, and subtree grafting.

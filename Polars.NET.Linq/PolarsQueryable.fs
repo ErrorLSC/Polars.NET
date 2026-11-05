@@ -186,9 +186,7 @@ and PolarsQuery<'T>
         let optimizedPlan = LogicalOptimizer.optimize compiled.Plan
         let schema = SchemaInference.inferPlanSchema optimizedPlan
         let canUsePurePlan =
-            not compiled.RequiresClientFallback
-            && compiled.ClientPredicates.IsEmpty
-            && compiled.ClientProjection.IsNone
+            ClientResidualOps.isNative compiled.Residual
             && not (isScalar && schema.Fields.Length > 1)
             && not isGrouping
             && not (stages |> List.exists (function LinqStage.Shuffle | LinqStage.Chunk _ | LinqStage.AggregateBy _ | LinqStage.DefaultIfEmpty _ -> true | _ -> false))
@@ -197,22 +195,19 @@ and PolarsQuery<'T>
         else
             None
 
-    /// Compiles pipeline and builds the target native LazyFrameHandle alongside client predicates, projection, fallback signal, and normalized stages
-    member private this.GetCompiledPlan
-        ()
-        : LazyFrameHandle * (Func<obj, bool> list) * ((Type * Func<obj, obj>) option) * bool * LinqStage list =
+    /// Compiles the pipeline into the native LazyFrameHandle, the managed residual and the normalized stages,
+    /// enforcing the client evaluation policy.
+    member private this.GetCompiledPlan() : LazyFrameHandle * ClientResidual * LinqStage list =
         let compiled = this.CompileLogicalQuery()
         let nativeLf = PolarsPhysicalLowerer.lowerPlan compiled.Plan
 
         enforcePipelinePolicy
             "QueryExecution"
-            compiled.RequiresClientFallback
-            compiled.ClientPredicates
+            (compiled.Residual = ClientResidual.LinqToObjects)
+            (ClientResidualOps.filters compiled.Residual)
             (expression.ToString())
 
-        let clientPredicates = compiled.ClientPredicates |> List.map fst
-        let stages = this.ExtractStages()
-        nativeLf, clientPredicates, compiled.ClientProjection, compiled.RequiresClientFallback, stages
+        nativeLf, compiled.Residual, this.ExtractStages()
 
     /// Compiles pipeline and builds the target LogicalPlan IR tree.
     member this.GetLogicalPlan() : LogicalPlan =
@@ -222,41 +217,19 @@ and PolarsQuery<'T>
     member this.ExplainLogicalPlan() : string =
         LogicalPlanOps.formatPlan (this.GetLogicalPlan())
 
-    member private _.MaterializeFlatRows
-        (dfHandle: DataFrameHandle, clientPredicates: Func<obj, bool> list, clientProjOpt: (Type * Func<obj, obj>) option)
-        : IEnumerable<'T> =
-        match clientProjOpt with
-        | Some(sourceType, func) ->
-            let invoker = MaterializerInvokers.GetMaterializerInvoker sourceType
-            let rawSourceRows = invoker.Invoke(materializer, dfHandle)
+    /// Materializes flat native rows and applies the residual row operations in pipeline order.
+    member private _.MaterializeFlatRows(dfHandle: DataFrameHandle, residual: ClientResidual) : IEnumerable<'T> =
+        match residual with
+        | ClientResidual.RowOps ops ->
+            let invoker = MaterializerInvokers.GetMaterializerInvoker(ClientResidualOps.rowType ops)
+            invoker.Invoke(materializer, dfHandle) |> ClientResidualOps.apply ops |> Seq.cast<'T>
+        | _ -> materializer.Materialize<'T> dfHandle
 
-            seq {
-                for item in rawSourceRows do
-                    if clientPredicates.IsEmpty || clientPredicates |> List.forall (fun p -> p.Invoke item) then
-                        yield func.Invoke item :?> 'T
-            }
-        | None ->
-            let rows = materializer.Materialize<'T> dfHandle
-
-            if clientPredicates.IsEmpty then
-                rows
-            else
-                rows
-                |> Seq.filter (fun item -> clientPredicates |> List.forall (fun p -> p.Invoke(box item)))
-
-    member private _.CanCollectNativeDirectly
-        (
-            nativeLf: LazyFrameHandle,
-            clientPredicates: Func<obj, bool> list,
-            clientProjOpt: (Type * Func<obj, obj>) option,
-            requiresClientFallback: bool
-        ) : bool =
+    member private _.CanCollectNativeDirectly(nativeLf: LazyFrameHandle, residual: ClientResidual) : bool =
         let schema = PolarsWrapper.GetLazySchema nativeLf
         let width = PolarsWrapper.GetSchemaLen schema
 
-        not requiresClientFallback
-        && clientPredicates.IsEmpty
-        && clientProjOpt.IsNone
+        ClientResidualOps.isNative residual
         && not (isScalar && width > 1UL)
         && not isGrouping
 
@@ -313,10 +286,9 @@ and PolarsQuery<'T>
 
     /// Evaluates the complete pipeline, executing native plan first, then materializing
     member private this.ExecuteQuery() : IEnumerable<'T> =
-        let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback, stages =
-            this.GetCompiledPlan()
+        let nativeLf, residual, stages = this.GetCompiledPlan()
 
-        if requiresClientFallback then
+        if residual = ClientResidual.LinqToObjects then
             this.ExecuteInMemory()
         else
             let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
@@ -327,8 +299,10 @@ and PolarsQuery<'T>
                 else
                     collectedDf
 
-            if clientProjOpt.IsSome then
-                this.MaterializeFlatRows(dfHandle, clientPredicates, clientProjOpt)
+            let isRowOps = match residual with ClientResidual.RowOps _ -> true | _ -> false
+
+            if isRowOps && not isGrouping then
+                this.MaterializeFlatRows(dfHandle, residual)
             else
                 let chunkSizeOpt =
                     if targetType.IsArray then
@@ -394,12 +368,11 @@ and PolarsQuery<'T>
                                 groupByMethod.Invoke(null, [| box rawRows; box compiledKeySelector |])
                                 :?> IEnumerable<'T>
 
+                        // Client HAVING predicates are residual filters over the groups.
                         let filtered =
-                            if clientPredicates.IsEmpty then
-                                grouped
-                            else
-                                grouped
-                                |> Seq.filter (fun g -> clientPredicates |> List.forall (fun p -> p.Invoke(box g)))
+                            match residual with
+                            | ClientResidual.RowOps ops -> grouped |> ClientResidualOps.apply ops |> Seq.cast<'T>
+                            | _ -> grouped
 
                         applyGroupSort filtered
 
@@ -518,14 +491,13 @@ and PolarsQuery<'T>
 
                         Seq.singleton defaultItem
                     | _ ->
-                        this.MaterializeFlatRows(dfHandle, clientPredicates, None)
+                        this.MaterializeFlatRows(dfHandle, residual)
 
     /// Compiles pipeline to LazyFrameHandle. If client fallback, predicates or projections exist, materializes and transposes back.
     member this.CompileToLazyFrameHandle() : LazyFrameHandle =
-        let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback, _ =
-            this.GetCompiledPlan()
+        let nativeLf, residual, _ = this.GetCompiledPlan()
 
-        if this.CanCollectNativeDirectly(nativeLf, clientPredicates, clientProjOpt, requiresClientFallback) then
+        if this.CanCollectNativeDirectly(nativeLf, residual) then
             nativeLf
         else
             let filteredRows = this.ExecuteQuery()
@@ -534,8 +506,7 @@ and PolarsQuery<'T>
 
     /// Compiles the query and materializes directly into a native DataFrameHandle
     member this.CompileToDataFrameHandle() : DataFrameHandle =
-        let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback, stages =
-            this.GetCompiledPlan()
+        let nativeLf, residual, stages = this.GetCompiledPlan()
 
         if stages |> List.exists (function LinqStage.Chunk _ -> true | _ -> false) then
             raise (
@@ -546,7 +517,7 @@ and PolarsQuery<'T>
                 )
             )
 
-        if this.CanCollectNativeDirectly(nativeLf, clientPredicates, clientProjOpt, requiresClientFallback) then
+        if this.CanCollectNativeDirectly(nativeLf, residual) then
             let collectedDf = PolarsWrapper.LazyCollect(nativeLf, PlEngine.Auto)
 
             if stages |> List.exists (function LinqStage.Shuffle -> true | _ -> false) then
@@ -562,7 +533,10 @@ and PolarsQuery<'T>
             // No policy check here: sources needing client evaluation are enumerated by the scalar planner,
             // and enumeration (GetCompiledPlan) enforces the pipeline policy; for pure native sources it is a no-op.
             let compiled = this.CompileLogicalQuery()
-            compiled.Plan, compiled.RequiresClientFallback || not compiled.ClientPredicates.IsEmpty, compiled.ClientProjection
+
+            match ClientResidualOps.tryProjectionOnly compiled.Residual with
+            | Some projection -> compiled.Plan, false, Some projection
+            | None -> compiled.Plan, not (ClientResidualOps.isNative compiled.Residual), None
 
     interface IEnumerable<'T> with
         member this.GetEnumerator() : IEnumerator<'T> = (this.ExecuteQuery()).GetEnumerator()
@@ -621,10 +595,14 @@ and PolarsQuery<'T>
         {
             NativePlan = planWithPostOps
             LogicalPlan = Some(LogicalPlanOps.formatPlan compiled.Plan)
-            HasClientPredicates = not compiled.ClientPredicates.IsEmpty
-            ClientPredicateExpressions = compiled.ClientPredicates |> List.map snd
-            HasClientProjection = compiled.ClientProjection.IsSome || chunkSizeOpt.IsSome || shouldShuffle || isGrouping
-            IsFullFallback = compiled.RequiresClientFallback
+            HasClientPredicates = not (ClientResidualOps.filters compiled.Residual).IsEmpty
+            ClientPredicateExpressions = ClientResidualOps.filters compiled.Residual |> List.map snd
+            HasClientProjection =
+                (match compiled.Residual with
+                 | ClientResidual.RowOps ops -> ops |> List.exists (function ClientRowOp.Map _ -> true | _ -> false)
+                 | _ -> false)
+                || chunkSizeOpt.IsSome || shouldShuffle || isGrouping
+            IsFullFallback = (compiled.Residual = ClientResidual.LinqToObjects)
             FallbackReason = FallbackTracker.Diagnostic
             HasUdf = not detectedUdfs.IsEmpty
             UdfExpressions = detectedUdfs
@@ -648,11 +626,11 @@ and PolarsQuery<'T>
         member this.GetAsyncEnumerator(cancellationToken: CancellationToken) : IAsyncEnumerator<'T> =
             cancellationToken.ThrowIfCancellationRequested()
 
-            let nativeLf, clientPredicates, clientProjOpt, requiresClientFallback, stages =
-                this.GetCompiledPlan()
+            let nativeLf, residual, stages = this.GetCompiledPlan()
 
+            // Residual row operations are row-local, so they can be applied batch by batch.
             let canStreamBatches =
-                not requiresClientFallback
+                residual <> ClientResidual.LinqToObjects
                 && not isGrouping
                 && not (stages |> List.exists (function LinqStage.Shuffle | LinqStage.DefaultIfEmpty _ | LinqStage.Chunk _ | LinqStage.AggregateBy _ -> true | _ -> false))
 
@@ -705,7 +683,7 @@ and PolarsQuery<'T>
                 let mutable isDisposed = false
 
                 let materializeBatch (dfHandle: DataFrameHandle) : IEnumerable<'T> =
-                    this.MaterializeFlatRows(dfHandle, clientPredicates, clientProjOpt)
+                    this.MaterializeFlatRows(dfHandle, residual)
 
                 { new IAsyncEnumerator<'T> with
                     member _.Current =

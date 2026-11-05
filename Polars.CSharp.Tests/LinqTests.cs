@@ -10,6 +10,7 @@ using Polars.CSharp.Linq;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Linq;
 using Polars.NET.Linq.Backend.Polars;
+using Polars.NET.Linq.IR;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
@@ -349,18 +350,15 @@ public partial class LinqTests
         var nativeQuery = q.Where(e => e.Age > 26).Select(e => new { e.Name });
         var nativeCompiled = nativeQuery.CompileLogicalQuery();
         Assert.NotNull(nativeCompiled);
-        Assert.Empty(nativeCompiled.ClientPredicates);
-        Assert.Null(nativeCompiled.ClientProjection);
-        Assert.False(nativeCompiled.RequiresClientFallback);
+        Assert.True(nativeCompiled.Residual.IsNone);
         Assert.True(nativeCompiled.Plan.IsProject);
 
         // 2. Client Predicate Boundary (Hybrid Execution)
         var clientPredQuery = q.Where(e => CustomNonNativeFilter(e));
         var hybridCompiled = clientPredQuery.CompileLogicalQuery();
         Assert.NotNull(hybridCompiled);
-        Assert.Single(hybridCompiled.ClientPredicates);
-        Assert.Null(hybridCompiled.ClientProjection);
-        Assert.False(hybridCompiled.RequiresClientFallback);
+        var rowOps = Assert.IsType<ClientResidual.RowOps>(hybridCompiled.Residual);
+        Assert.True(Assert.Single(rowOps.Ops).IsFilter);
 
         // 3. Post-Client Relational Stage Triggers Full Fallback Flag
         var fallbackQuery = q
@@ -368,7 +366,7 @@ public partial class LinqTests
             .OrderBy(e => e.Salary);
         var fallbackCompiled = fallbackQuery.CompileLogicalQuery();
         Assert.NotNull(fallbackCompiled);
-        Assert.True(fallbackCompiled.RequiresClientFallback);
+        Assert.True(fallbackCompiled.Residual.IsLinqToObjects);
     }
 
     private static bool CustomNonNativeFilter(Employee e) => e.Name.StartsWith("A");
@@ -417,9 +415,7 @@ public partial class LinqTests
         // 2. Verify CompileLogicalQuery classifies as 100% pure native pushdown
         var compiled = query.CompileLogicalQuery();
         Assert.NotNull(compiled);
-        Assert.Empty(compiled.ClientPredicates);
-        Assert.Null(compiled.ClientProjection);
-        Assert.False(compiled.RequiresClientFallback);
+        Assert.True(compiled.Residual.IsNone);
 
         // 3. Verify native explain report does NOT have C# UDF callbacks
         string explainPlan = query.Explain();

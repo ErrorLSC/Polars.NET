@@ -1587,10 +1587,23 @@ module internal TreeBuilder =
         let initState: CompiledLogicalQuery =
             {
                 Plan = initialPlan
-                ClientPredicates = []
-                ClientProjection = None
-                RequiresClientFallback = false
+                Residual = ClientResidual.None
             }
+
+        let fallback (state: CompiledLogicalQuery) : CompiledLogicalQuery =
+            { state with Residual = ClientResidual.LinqToObjects }
+
+        let appendClientOp (op: ClientRowOp) (state: CompiledLogicalQuery) : CompiledLogicalQuery =
+            match state.Residual with
+            | ClientResidual.None -> { state with Residual = ClientResidual.RowOps [ op ] }
+            | ClientResidual.RowOps ops -> { state with Residual = ClientResidual.RowOps(ops @ [ op ]) }
+            | ClientResidual.LinqToObjects -> state
+
+        let clientFilter (lam: LambdaExpression) (state: CompiledLogicalQuery) : CompiledLogicalQuery =
+            appendClientOp (ClientRowOp.Filter(PipelineStageParser.compileClientPredicate lam, lam)) state
+
+        let clientMap (lam: LambdaExpression) (state: CompiledLogicalQuery) : CompiledLogicalQuery =
+            appendClientOp (ClientRowOp.Map(PipelineStageParser.compileToBoxedFunc lam, lam)) state
 
         let rec processStages (state: CompiledLogicalQuery) (scopeMap: Map<string * string, string>) (remainingStages: LinqStage list) : CompiledLogicalQuery =
             let makeCtx (t: Type) (pName: string) (plan: LogicalPlan) =
@@ -1600,37 +1613,22 @@ module internal TreeBuilder =
             match remainingStages with
             | [] -> state
             | stage :: tail ->
-                let canPushdown = state.ClientPredicates.IsEmpty && state.ClientProjection.IsNone && not state.RequiresClientFallback
+                let canPushdown = ClientResidualOps.isNative state.Residual
 
-                if state.RequiresClientFallback then
+                match state.Residual with
+                | ClientResidual.LinqToObjects ->
+                    // The remaining stages are evaluated by LINQ-to-Objects; nothing more to record.
+                    processStages state scopeMap tail
+                | ClientResidual.RowOps _ ->
                     match stage with
-                    | LinqStage.Filter lam ->
-                        processStages { state with ClientPredicates = (PipelineStageParser.compileClientPredicate lam, lam) :: state.ClientPredicates } scopeMap tail
-                    | LinqStage.Project lam ->
-                        let currentFunc = PipelineStageParser.compileToBoxedFunc lam
-                        let nextProj =
-                            match state.ClientProjection with
-                            | None -> Some(lam.Parameters.[0].Type, currentFunc)
-                            | Some(prevSrcType, prevFunc) -> Some(prevSrcType, Func<obj, obj>(fun rawItem -> currentFunc.Invoke(prevFunc.Invoke rawItem)))
-                        processStages { state with ClientProjection = nextProj } scopeMap tail
-                    | _ ->
-                        processStages state scopeMap tail
-                elif not canPushdown then
-                    match stage with
-                    | LinqStage.Filter lam ->
-                        processStages { state with ClientPredicates = (PipelineStageParser.compileClientPredicate lam, lam) :: state.ClientPredicates } scopeMap tail
-                    | LinqStage.Project lam ->
-                        let currentFunc = PipelineStageParser.compileToBoxedFunc lam
-                        let nextProj =
-                            match state.ClientProjection with
-                            | None -> Some(lam.Parameters.[0].Type, currentFunc)
-                            | Some(prevSrcType, prevFunc) -> Some(prevSrcType, Func<obj, obj>(fun rawItem -> currentFunc.Invoke(prevFunc.Invoke rawItem)))
-                        processStages { state with ClientProjection = nextProj } scopeMap tail
+                    | LinqStage.Filter lam -> processStages (clientFilter lam state) scopeMap tail
+                    | LinqStage.Project lam -> processStages (clientMap lam state) scopeMap tail
+                    // Order-insensitive or handled at materialization; the end-of-build check below
+                    // escalates combinations the row-op executor cannot express.
                     | LinqStage.Cast _ | LinqStage.OfType _ | LinqStage.DefaultIfEmpty _ | LinqStage.Chunk _ | LinqStage.Shuffle | LinqStage.AggregateBy _ ->
                         processStages state scopeMap tail
-                    | _ ->
-                        processStages { state with RequiresClientFallback = true } scopeMap tail
-                else
+                    | _ -> processStages (fallback state) scopeMap tail
+                | ClientResidual.None ->
                     match stage with
                     | LinqStage.Filter lam ->
                         match SubqueryDecorrelator.tryDecorrelateFilter resolveSequence state.Plan lam scopeMap with
@@ -1643,9 +1641,9 @@ module internal TreeBuilder =
                                 | Some pred -> processStages { state with Plan = LogicalPlan.Filter(decorPlan, pred) } scopeMap tail
                                 | None ->
                                     if isTupleOrAnonType p.Type then
-                                        processStages { state with Plan = decorPlan; RequiresClientFallback = true } scopeMap tail
+                                        processStages (fallback { state with Plan = decorPlan }) scopeMap tail
                                     else
-                                        processStages { state with Plan = decorPlan; ClientPredicates = (PipelineStageParser.compileClientPredicate resLam, resLam) :: state.ClientPredicates } scopeMap tail
+                                        processStages (clientFilter resLam { state with Plan = decorPlan }) scopeMap tail
                             | None ->
                                 processStages { state with Plan = decorPlan } scopeMap tail
                         | None ->
@@ -1656,9 +1654,9 @@ module internal TreeBuilder =
                                 processStages { state with Plan = LogicalPlan.Filter(state.Plan, pred) } scopeMap tail
                             | None ->
                                 if isTupleOrAnonType p.Type then
-                                    processStages { state with RequiresClientFallback = true } scopeMap tail
+                                    processStages (fallback state) scopeMap tail
                                 else
-                                    processStages { state with ClientPredicates = (PipelineStageParser.compileClientPredicate lam, lam) :: state.ClientPredicates } scopeMap tail
+                                    processStages (clientFilter lam state) scopeMap tail
 
                     | LinqStage.TakeWhile lam | LinqStage.SkipWhile lam as sStage ->
                         let isSkip = match sStage with LinqStage.SkipWhile _ -> true | _ -> false
@@ -1673,7 +1671,7 @@ module internal TreeBuilder =
                                     ScalarExpr.Function(ScalarFunction.CumMin, [ boolExpr ], LogicalTypes.Boolean)
                             processStages { state with Plan = LogicalPlan.Filter(state.Plan, mask) } scopeMap tail
                         | None ->
-                            processStages { state with ClientPredicates = (PipelineStageParser.compileClientPredicate lam, lam) :: state.ClientPredicates } scopeMap tail
+                            processStages (clientFilter lam state) scopeMap tail
 
                     | LinqStage.Project lam ->
                         match ExpressionPatterns.unwrap lam.Body with
@@ -1688,9 +1686,7 @@ module internal TreeBuilder =
                                 | Some projs ->
                                     processStages { state with Plan = LogicalPlan.Project(decorPlan, projs) } Map.empty tail
                                 | None ->
-                                    let currentFunc = PipelineStageParser.compileToBoxedFunc rewrittenLam
-                                    let sourceType = rewrittenLam.Parameters.[0].Type
-                                    processStages { state with Plan = decorPlan; ClientProjection = Some(sourceType, currentFunc) } Map.empty tail
+                                    processStages (clientMap rewrittenLam { state with Plan = decorPlan }) Map.empty tail
                             | None ->
                                 let p = lam.Parameters.[0]
                                 let ctx = makeCtx p.Type p.Name state.Plan
@@ -1723,9 +1719,7 @@ module internal TreeBuilder =
                                     | Some projs ->
                                         processStages { state with Plan = LogicalPlan.Project(state.Plan, projs) } Map.empty tail
                                     | None ->
-                                        let currentFunc = PipelineStageParser.compileToBoxedFunc lam
-                                        let sourceType = lam.Parameters.[0].Type
-                                        processStages { state with ClientProjection = Some(sourceType, currentFunc) } Map.empty tail
+                                        processStages (clientMap lam state) Map.empty tail
 
                     | LinqStage.Sort(lam, isDesc, nullsLast) ->
                         if isGrouping then
@@ -1744,7 +1738,7 @@ module internal TreeBuilder =
                                         LogicalPlan.Sort(state.Plan, [ newOrder ])
                                 processStages { state with Plan = newPlan } scopeMap tail
                             | None ->
-                                processStages { state with RequiresClientFallback = true } scopeMap tail
+                                processStages (fallback state) scopeMap tail
 
                     | LinqStage.SortDefault(isDesc, nullsLast) ->
                         let cols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
@@ -1778,7 +1772,7 @@ module internal TreeBuilder =
                         | Some cols ->
                             processStages { state with Plan = LogicalPlan.Distinct(state.Plan, Some (Array.toList cols), DistinctKeep.First) } scopeMap tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.Reverse ->
                         processStages { state with Plan = LogicalPlan.Reverse state.Plan } scopeMap tail
@@ -1796,7 +1790,7 @@ module internal TreeBuilder =
                             let projs = [ ("Key", ScalarExpr.Column keyCol); ("Value", ScalarExpr.Column "Value") ]
                             processStages { state with Plan = LogicalPlan.Project(groupPlan, projs) } Map.empty tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.GroupByKey keyLambda ->
                         if isGrouping then
@@ -1829,7 +1823,7 @@ module internal TreeBuilder =
                                 | Some nextPlan ->
                                     processStages { state with Plan = nextPlan } Map.empty tail
                                 | None ->
-                                    processStages { state with RequiresClientFallback = true } scopeMap tail
+                                    processStages (fallback state) scopeMap tail
 
                     | LinqStage.GroupByWithElementAndResult(keyLam, elemLam, resLam) ->
                         let keyP = keyLam.Parameters.[0]
@@ -1850,35 +1844,35 @@ module internal TreeBuilder =
                             | Some nextPlan ->
                                 processStages { state with Plan = nextPlan } Map.empty tail
                             | None ->
-                                processStages { state with RequiresClientFallback = true } scopeMap tail
+                                processStages (fallback state) scopeMap tail
 
                     | LinqStage.GroupByRollup(keyLambda, resLambda) ->
                         match buildUnifiedGroupingSetsPlan state.Plan GroupingKind.Rollup keyLambda resLambda scopeMap with
                         | Some nextPlan ->
                             processStages { state with Plan = nextPlan } Map.empty tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.GroupByCube(keyLambda, resLambda) ->
                         match buildUnifiedGroupingSetsPlan state.Plan GroupingKind.Cube keyLambda resLambda scopeMap with
                         | Some nextPlan ->
                             processStages { state with Plan = nextPlan } Map.empty tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.GroupByGroupingSets(keyLambda, setsExpr, resLambda) ->
                         match buildUnifiedGroupingSetsPlan state.Plan (GroupingKind.GroupingSets setsExpr) keyLambda resLambda scopeMap with
                         | Some nextPlan ->
                             processStages { state with Plan = nextPlan } Map.empty tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.GroupPartitionSlice(keySelector, innerStages, resSelOpt) ->
                         match buildGroupPartitionSlicePlan state.Plan keySelector innerStages resSelOpt with
                         | Some nextPlan ->
                             processStages { state with Plan = nextPlan } Map.empty tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.Join(methodInfo, innerExpr, outerKey, innerKey, resSelOpt) ->
                         match resolveSequence innerExpr with
@@ -1960,9 +1954,9 @@ module internal TreeBuilder =
                                         | Some projs -> processStages { state with Plan = LogicalPlan.Project(joinPlan, projs) } Map.empty tail
                                         | None -> processStages { state with Plan = joinPlan } updatedScopeMap tail
                             | _ ->
-                                processStages { state with RequiresClientFallback = true } scopeMap tail
+                                processStages (fallback state) scopeMap tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, resSelOpt) ->
                         match tail with
@@ -1980,7 +1974,7 @@ module internal TreeBuilder =
                                 | Some nextPlan ->
                                     processStages { state with Plan = nextPlan } Map.empty tail
                                 | None ->
-                                    processStages { state with RequiresClientFallback = true } scopeMap tail
+                                    processStages (fallback state) scopeMap tail
                             | None ->
                                 processStages state scopeMap (LinqStage.Join(m, innerExpr, outerKey, innerKey, None) :: tail)
 
@@ -2014,7 +2008,7 @@ module internal TreeBuilder =
                                 | Some projs -> processStages { state with Plan = LogicalPlan.Project(joinPlan, projs) } Map.empty tail
                                 | None -> processStages { state with Plan = joinPlan } updatedScopeMap tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.JoinAsOf(_, inner, outerKey, innerKey, outerByOpt, innerByOpt, resSelOpt, toleranceStr, toleranceInt, toleranceFloat, strategy) ->
                         match resolveSequence inner with
@@ -2077,9 +2071,9 @@ module internal TreeBuilder =
                                     | Some projs -> processStages { state with Plan = LogicalPlan.Project(asOfPlan, projs) } Map.empty tail
                                     | None -> processStages { state with Plan = asOfPlan } updatedScopeMap tail
                             | _ ->
-                                processStages { state with RequiresClientFallback = true } scopeMap tail
+                                processStages (fallback state) scopeMap tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.SetOp(methodInfo, secondExpr, key1Opt, key2Opt) ->
                         match resolveSequence secondExpr with
@@ -2121,9 +2115,9 @@ module internal TreeBuilder =
                             | Some(leftOn, rightOn) ->
                                 processStages { state with Plan = LogicalPlan.Join(state.Plan, rightPlan, leftOn, rightOn, how, None, JoinKeyCoalescing.Default, true) } scopeMap tail
                             | None ->
-                                processStages { state with RequiresClientFallback = true } scopeMap tail
+                                processStages (fallback state) scopeMap tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.Union(secondExpr, keyLambdaOpt) ->
                         match resolveSequence secondExpr with
@@ -2132,14 +2126,14 @@ module internal TreeBuilder =
                             let unionPlan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true)
                             processStages { state with Plan = LogicalPlan.Distinct(unionPlan, subsetOpt, DistinctKeep.First) } scopeMap tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.Concat secondExpr ->
                         match resolveSequence secondExpr with
                         | Some otherPlan ->
                             processStages { state with Plan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true) } scopeMap tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.Append elemExpr ->
                         match tryEvaluate elemExpr with
@@ -2148,9 +2142,9 @@ module internal TreeBuilder =
                             | Some otherPlan ->
                                 processStages { state with Plan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true) } scopeMap tail
                             | None ->
-                                processStages { state with RequiresClientFallback = true } scopeMap tail
+                                processStages (fallback state) scopeMap tail
                         | _ ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.Prepend elemExpr ->
                         match tryEvaluate elemExpr with
@@ -2159,23 +2153,23 @@ module internal TreeBuilder =
                             | Some otherPlan ->
                                 processStages { state with Plan = LogicalPlan.Union(otherPlan, state.Plan, isAll = true) } scopeMap tail
                             | None ->
-                                processStages { state with RequiresClientFallback = true } scopeMap tail
+                                processStages (fallback state) scopeMap tail
                         | _ ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.Zip(secondExpr, resSelOpt) ->
                         match buildZipPlan resolveSequence state.Plan secondExpr resSelOpt with
                         | Some nextPlan ->
                             processStages { state with Plan = nextPlan } Map.empty tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.Zip3(secondExpr, thirdExpr) ->
                         match buildZip3Plan resolveSequence state.Plan secondExpr thirdExpr with
                         | Some nextPlan ->
                             processStages { state with Plan = nextPlan } Map.empty tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.Unpivot(colLam, resLambdaOpt) ->
                         let availableCols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
@@ -2188,7 +2182,7 @@ module internal TreeBuilder =
                                 else availableCols |> List.filter (fun c -> not (Array.contains c onCols))
 
                             if indexCols.IsEmpty then
-                                processStages { state with RequiresClientFallback = true } scopeMap tail
+                                processStages (fallback state) scopeMap tail
                             else
                                 let unpivotPlan = LogicalPlan.Unpivot(state.Plan, indexCols, Some (Array.toList onCols), pattern.VariableName, pattern.ValueName)
                                 let postUnpivotCols = indexCols @ [ pattern.VariableName; pattern.ValueName ]
@@ -2220,11 +2214,9 @@ module internal TreeBuilder =
                                     | Some projs ->
                                         processStages { state with Plan = LogicalPlan.Project(unpivotPlan, projs) } Map.empty tail
                                     | None ->
-                                        let currentFunc = PipelineStageParser.compileToBoxedFunc resSel
-                                        let sourceType = resSel.Parameters.[0].Type
-                                        processStages { state with Plan = unpivotPlan; ClientProjection = Some(sourceType, currentFunc) } Map.empty tail
+                                        processStages (clientMap resSel { state with Plan = unpivotPlan }) Map.empty tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.Explode(colLam, resSelOpt) ->
                         let p = colLam.Parameters.[0]
@@ -2246,7 +2238,7 @@ module internal TreeBuilder =
                                 | _ -> explodePlan
                             processStages { state with Plan = finalPlan } scopeMap tail
                         | None ->
-                            processStages { state with RequiresClientFallback = true } scopeMap tail
+                            processStages (fallback state) scopeMap tail
 
                     | LinqStage.OfType(sourceType, targetType) ->
                         if not (targetType.IsAssignableFrom sourceType || sourceType.IsAssignableFrom targetType) then
@@ -2378,19 +2370,28 @@ module internal TreeBuilder =
                     | Some nextPlan ->
                         processStages { state with Plan = nextPlan } Map.empty next
                     | None ->
-                        processStages { state with RequiresClientFallback = true } scopeMap next
+                        processStages (fallback state) scopeMap next
             | [] ->
                 if isGrouping then
-                    let clientHavingPreds =
-                        ctx.HavingPreds |> List.map (fun p -> PipelineStageParser.compileClientPredicate p, p)
-                    { state with ClientPredicates = clientHavingPreds @ state.ClientPredicates }
+                    ctx.HavingPreds |> List.fold (fun acc havingPred -> clientFilter havingPred acc) state
                 else
-                    { state with RequiresClientFallback = true }
+                    (fallback state)
             | otherHead :: otherTail ->
-                processStages { state with RequiresClientFallback = true } scopeMap (otherHead :: otherTail)
+                processStages (fallback state) scopeMap (otherHead :: otherTail)
 
         let finalState = processStages initState Map.empty stages
-        { finalState with ClientPredicates = List.rev finalState.ClientPredicates }
+
+        // Row operations stream over flat native rows. Stages whose materialization is not a flat row stream
+        // (Chunk, AggregateBy, DefaultIfEmpty, OfType), in any position, are only correct under LINQ-to-Objects.
+        let needsLinqToObjects =
+            stages
+            |> List.exists (function
+                | LinqStage.Chunk _ | LinqStage.AggregateBy _ | LinqStage.DefaultIfEmpty _ | LinqStage.OfType _ -> true
+                | _ -> false)
+
+        match finalState.Residual with
+        | ClientResidual.RowOps _ when needsLinqToObjects -> fallback finalState
+        | _ -> finalState
 
     /// Constructs a LogicalPlan tree by applying a sequence of LinqStages to an initial LogicalPlan.
     let fromStages (backend: IQueryBackend) (initialPlan: LogicalPlan) (stages: LinqStage list) : LogicalPlan =
