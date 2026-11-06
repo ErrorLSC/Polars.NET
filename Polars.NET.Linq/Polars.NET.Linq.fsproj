@@ -70,6 +70,11 @@
     <Compile Include="Backend/Polars/PolarsQueryBackend.fs" />
     <Compile Include="Backend/Polars/PolarsScalarRunner.fs" />
     <Compile Include="Backend/Polars/PolarsExprCompiler.fs" />
+    <Compile Include="Execution/PipelineCompilation.fs" />
+    <Compile Include="Execution/RowMaterialization.fs" />
+    <Compile Include="Execution/InMemoryExecution.fs" />
+    <Compile Include="Execution/PlanInspectionReport.fs" />
+    <Compile Include="Execution/AsyncQueryEnumerator.fs" />
     <Compile Include="PolarsQueryable.fs" />
   </ItemGroup>
 

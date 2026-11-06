@@ -30,8 +30,11 @@ public class LinqArchitectureTests
         @"\b(PlDataType|PlJoin\w*|PlUniqueKeepStrategy|PlAsofStrategy)\b",
         RegexOptions.Compiled);
 
+    // The backend, and the query execution layer built on it (Execution/ and the queryable itself).
     private static bool IsBackendFile(string path) =>
-        path.StartsWith("Backend/", StringComparison.Ordinal) || path == "PolarsQueryable.fs";
+        path.StartsWith("Backend/", StringComparison.Ordinal)
+        || path.StartsWith("Execution/", StringComparison.Ordinal)
+        || path == "PolarsQueryable.fs";
 
     private static string FindRepoRoot()
     {
