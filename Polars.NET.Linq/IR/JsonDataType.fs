@@ -22,7 +22,9 @@ module internal JsonDataTypeInference =
             if coreType = typeof<Guid> then
                 Some(JsonDataType.Primitive LogicalTypes.String)
             else
-                Some(JsonDataType.Primitive(LogicalType.Arrow(ArrowTypeResolver.GetArrowTypeFromNetType coreType)))
+                match ArrowTypeResolver.TryGetArrowTypeFromNetType coreType with
+                | null -> None
+                | arrowType -> Some(JsonDataType.Primitive(LogicalType.Arrow arrowType))
         else
             match PolarsTypeHelper.TryGetEnumerableElementType coreType with
             | null ->

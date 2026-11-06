@@ -44,9 +44,32 @@ public static class ArrowTypeResolver
     // =================================================================================
     // 2. .NET Type -> Arrow Type
     // =================================================================================
+    /// <summary>
+    /// The Arrow type of a .NET type. A type (or a nested element, key, value or member type) without an Arrow
+    /// representation is mapped to a string type.
+    /// </summary>
     public static IArrowType GetArrowTypeFromNetType(
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
         Type type)
+        => ResolveArrowType(type, strict: false)!;
+
+    /// <summary>
+    /// The Arrow type of a .NET type, or null when the type, or any nested element, key, value or member type,
+    /// has no Arrow representation (object, enums, types without readable members, ...).
+    /// </summary>
+    public static IArrowType? TryGetArrowTypeFromNetType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        Type type)
+        => ResolveArrowType(type, strict: true);
+
+    /// <summary>
+    /// Maps a .NET type to its Arrow type. A type without an Arrow representation maps to a string type, or,
+    /// when <paramref name="strict"/>, to null, which then also makes every enclosing type null.
+    /// </summary>
+    private static IArrowType? ResolveArrowType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        Type type,
+        bool strict)
     {
         // Handle Nullable<T> and F# Option
         bool isFSharpOption = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(FSharpOption<>);
@@ -92,8 +115,9 @@ public static class ArrowTypeResolver
         if (dictInterface != null)
         {
             var args = dictInterface.GetGenericArguments();
-            var keyArrowType = GetArrowTypeFromNetType(args[0]);
-            var valueArrowType = GetArrowTypeFromNetType(args[1]);
+            var keyArrowType = ResolveArrowType(args[0], strict);
+            var valueArrowType = ResolveArrowType(args[1], strict);
+            if (keyArrowType == null || valueArrowType == null) return null;
 
             return new MapType(keyArrowType, valueArrowType, nullable: true, keySorted: false);
         }
@@ -103,8 +127,8 @@ public static class ArrowTypeResolver
             Type? elementType = PolarsTypeHelper.TryGetEnumerableElementType(coreType);
             if (elementType != null)
             {
-                var innerField = ResolveField("item", elementType);
-                return new LargeListType(innerField);
+                var innerField = ResolveField("item", elementType, strict);
+                return innerField == null ? null : new LargeListType(innerField);
             }
         }
 
@@ -114,13 +138,13 @@ public static class ArrowTypeResolver
             var members = GetReadableMembers(coreType);
             if (members.Length > 0)
             {
-                var fields = members.Select(m => ResolveField(m.Name, GetMemberType(m))).ToList();
-                return new StructType(fields);
+                var fields = members.Select(m => ResolveField(m.Name, GetMemberType(m), strict)).ToList();
+                return fields.Contains(null) ? null : new StructType(fields!);
             }
         }
 
-        // Fallback
-        return StringViewType.Default;
+        // No Arrow representation
+        return strict ? null : StringViewType.Default;
     }
 
     // =================================================================================
@@ -130,11 +154,17 @@ public static class ArrowTypeResolver
     public static Field ResolveField(string name,
     [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
     Type type)
+        => ResolveField(name, type, strict: false)!;
+
+    private static Field? ResolveField(string name,
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+    Type type,
+    bool strict)
     {
         bool isNullable = PolarsTypeHelper.AcceptsNull(type);
-        IArrowType arrowType = GetArrowTypeFromNetType(type);
+        IArrowType? arrowType = ResolveArrowType(type, strict);
 
-        return new Field(name, arrowType, isNullable);
+        return arrowType == null ? null : new Field(name, arrowType, isNullable);
     }
 
     public static MemberInfo[] GetReadableMembers(

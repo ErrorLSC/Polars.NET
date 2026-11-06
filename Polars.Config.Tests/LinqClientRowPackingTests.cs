@@ -81,6 +81,22 @@ public class LinqClientRowPackingTests
             Emps.Join(Depts, x => x.Dept, y => y.Dept, (x, y) => Tuple.Create(x, y)).Where(t => IsEven(t.Item1.Salary)));
     }
 
+    private enum Parity { Even, Odd }
+
+    private static Parity ParityOf(int value) => value % 2 == 0 ? Parity.Even : Parity.Odd;
+
+    [Fact]
+    public void Client_Predicate_Over_An_Enum_Returning_Method()
+    {
+        // An enum result has no Arrow representation, so ParityOf is not pushed down as a UDF.
+        using var _ = AllowClientEvaluation();
+        using var e = DataFrame.FromRows(Emps);
+
+        AssertRowStep(
+            e.AsQueryable<CrEmp>().Where(x => ParityOf(x.Salary) == Parity.Even).Select(x => x.Name),
+            Emps.Where(x => ParityOf(x.Salary) == Parity.Even).Select(x => x.Name));
+    }
+
     [Fact]
     public void Client_Predicate_Over_Flat_Anonymous_Rows()
     {

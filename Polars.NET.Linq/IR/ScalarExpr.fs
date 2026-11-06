@@ -83,7 +83,7 @@ module ScalarExprOps =
 
     /// Pure check whether a CLR type has an Arrow representation usable as a UDF return type.
     let isUdfReturnTypeSupported (t: Type) : bool =
-        not (isNull (ArrowTypeResolver.GetArrowTypeFromNetType t))
+        not (isNull (ArrowTypeResolver.TryGetArrowTypeFromNetType t))
 
     /// Pure symbolic translation of standard LINQ reduction method names to ScalarExpr.Aggregation nodes.
     let translateReductionOp (methodName: string) (targetColExpr: ScalarExpr) : ScalarExpr option =
