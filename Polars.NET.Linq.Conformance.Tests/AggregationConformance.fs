@@ -55,3 +55,19 @@ let ``Ordered groups appear in first-key order and having filters groups`` () =
     let grouped having = LogicalPlan.GroupBy(t.Scan rows, [ col "K" ], [ "n", len; "s", agg AggKind.Sum (col "V") ], having, true)
     Conformance.rowsInOrder t (grouped None) [ [ 3L; 2L; 4L ]; [ 1L; 2L; 2L ]; [ 2L; 1L; 4L ] ]
     Conformance.rowsInOrder t (grouped (Some(bin BinaryOp.Gt len (i64 1L)))) [ [ 3L; 2L; 4L ]; [ 1L; 2L; 2L ] ]
+
+/// First and Last read the order of their input, so the optimizer keeps every order guarantee beneath them
+/// (here, a GroupBy's first-key order), while order-free aggregates let it go.
+[<Fact>]
+let ``The optimizer keeps the order beneath order-reading aggregates`` () =
+    let t = Tables()
+    let rows = [| { K = 3L; V = n 1L }; { K = 1L; V = n 2L } |]
+    let groups = LogicalPlan.GroupBy(t.Scan rows, [ col "K" ], [ "n", len ], None, true)
+    let keepsOrder plan =
+        match LogicalOptimizer.optimize plan with
+        | LogicalPlan.Project(LogicalPlan.GroupBy(_, _, _, _, maintainOrder), _) -> maintainOrder
+        | other -> failwithf "unexpected plan %s" (LogicalPlanOps.formatPlan other)
+    Assert.True(keepsOrder (project groups [ "last", agg AggKind.Last (col "K") ]))
+    Assert.True(keepsOrder (project groups [ "first", agg AggKind.First (col "K") ]))
+    Assert.False(keepsOrder (project groups [ "total", agg AggKind.Sum (col "K") ]))
+    Conformance.rowsInOrder t (project groups [ "last", agg AggKind.Last (col "K") ]) [ [ 1L ] ]

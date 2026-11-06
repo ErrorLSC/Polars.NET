@@ -79,6 +79,9 @@ time and marks the compilation so its plan is not cached.
 that computes them. A `Filter` above that node never changes their values, so predicate pushdown must not
 move a filter below it.
 
+**Order-reading aggregates.** `First`, `Last` and `List` read their input's order, so a pass must keep every order
+guarantee beneath them. `GroupOrderRelaxation` frees order only under order-free aggregates.
+
 **Aggregates skip nulls.**
 - `Sum` over no values is 0.
 - `Mean`, `Min`, `Max`, `First`, `Last` and `Median` over no values are null.
@@ -88,6 +91,27 @@ move a filter below it.
 
 **GroupBy `having`.** `having` is an aggregate predicate over a group's rows. It keeps the groups for
 which it is true, before anything above the GroupBy runs.
+
+## Reshaping
+
+- **`Explode`** produces one row per list element, rows in input order and elements in list order.
+  - An empty list gives one null row with `emptyAsNull`, otherwise no row.
+  - A null list gives one null row with `keepNulls`, otherwise no row.
+- **`Unpivot`** outputs the columns `index..., variable, value`. It produces one block of rows per `on` column,
+  in `on` order, and each block lists rows in input order.
+- **`JoinAsOf`** keeps every left row once, in left order. Each left row gets the right row whose `on` key is
+  nearest by the strategy, among the right rows with equal `by` keys:
+  - Backward: the greatest key <= the left key;
+  - Forward: the least key >=;
+  - Nearest: the closest key.
+
+  Without `AllowEq`, `<=` / `>=` become `<` / `>`. When no row qualifies, the right columns are null. Both
+  inputs are sorted by their `on` keys.
+- **`GroupingSets`** produces one block per level, in `Levels` order.
+  - A level groups by its subset of keys. Groups appear in first-key order, and an empty subset gives one
+    grand-total row.
+  - Keys outside the subset are null.
+  - A level's literals set their columns. A level that holds every key takes `Level0Literals` instead.
 
 ## Joins and keys
 

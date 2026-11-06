@@ -18,6 +18,7 @@
     <Compile Include="AggregationConformance.fs" />
     <Compile Include="OrderingAndJoinConformance.fs" />
     <Compile Include="FrameAndAssertionConformance.fs" />
+    <Compile Include="ReshapeConformance.fs" />
   </ItemGroup>
 
   <ItemGroup>

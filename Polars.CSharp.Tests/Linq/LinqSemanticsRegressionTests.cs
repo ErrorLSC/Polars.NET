@@ -704,4 +704,28 @@ public class LinqSemanticsRegressionTests
         Assert.Equal(Facts.Where(x => x.V > Others.Where(y => y.K == 99).Select(y => y.V).SingleOrDefault()).Select(x => x.K), single.ToList());
         Assert.Equal(Facts.Where(x => x.V > Others.Select(y => y.V).ElementAtOrDefault(7)).Select(x => x.K), elementAt.ToList());
     }
+
+    [Fact]
+    public void Last_Reads_The_Row_Order_And_Raises_On_No_Rows()
+    {
+        using var f = DataFrame.From(Facts);
+        using var o = DataFrame.From(Others);
+        var others = o.AsQueryable<Kv>();
+        var q = f.AsQueryable<Kv>();
+
+        var last = q.Where(x => x.V < others.Last().V).Select(x => x.K);
+        var lastMatching = q.Where(x => x.V > others.Last(y => y.V < 100).V).Select(x => x.K);
+        // Groups keep first-appearance order (LINQ), so the last group key is that of the last new key.
+        var lastGroup = q.Where(x => x.K == others.GroupBy(y => y.K - 5).Select(g => g.Key).Last()).Select(x => x.K);
+        var orDefault = q.Where(x => x.V > others.Where(y => y.K == 99).Select(y => y.V).LastOrDefault()).Select(x => x.K);
+        var none = q.Where(x => x.V > others.Last(y => y.K == 99).V).Select(x => x.K);
+
+        AssertScalarIsPlanned(last);
+        AssertScalarIsPlanned(lastGroup);
+        Assert.Equal(Facts.Where(x => x.V < Others.Last().V).Select(x => x.K), last.ToList());
+        Assert.Equal(Facts.Where(x => x.V > Others.Last(y => y.V < 100).V).Select(x => x.K), lastMatching.ToList());
+        Assert.Equal(Facts.Where(x => x.K == Others.GroupBy(y => y.K - 5).Select(g => g.Key).Last()).Select(x => x.K), lastGroup.ToList());
+        Assert.Equal(Facts.Where(x => x.V > Others.Where(y => y.K == 99).Select(y => y.V).LastOrDefault()).Select(x => x.K), orDefault.ToList());
+        AssertSameFailure(() => Facts.Where(x => x.V > Others.Last(y => y.K == 99).V).ToList(), () => none.ToList());
+    }
 }

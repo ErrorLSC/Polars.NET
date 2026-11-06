@@ -714,8 +714,8 @@ module internal SubqueryDecorrelator =
                 ExprTranslator.tryTranslateToScalar ctx lam.Body |> Option.map (fun s -> LogicalPlan.Filter(acc, s)))) (Some plan)
 
     /// Lowers one uncorrelated scalar subquery (an aggregate, Any, or First/FirstOrDefault over a sequence) to a
-    /// one-row plan, returning the expression that replaces it (a reference to the plan's column). First, Single
-    /// and ElementAt fail on a wrong row count through ScalarFunction.AssertCount; a backend that cannot assert
+    /// one-row plan, returning the expression that replaces it (a reference to the plan's column). First, Last,
+    /// Single and ElementAt fail on a wrong row count through ScalarFunction.AssertCount; a backend that cannot assert
     /// leaves them to eager evaluation.
     let private tryLowerUncorrelatedScalar
         (resolveSequencePlan: Expression -> LogicalPlan option)
@@ -736,34 +736,36 @@ module internal SubqueryDecorrelator =
             let args = mc.Arguments |> Seq.toList
             let seqExpr, predOpt, indexOpt =
                 match baseName, mc.Object, args with
-                | ("First" | "Single"), null, [ s ] -> Some s, None, None
-                | ("First" | "Single"), null, [ s; CleanLambda p ] -> Some s, Some p, None
-                | ("First" | "Single"), t, [] when not (isNull t) -> Some t, None, None
-                | ("First" | "Single"), t, [ CleanLambda p ] when not (isNull t) -> Some t, Some p, None
+                | ("First" | "Last" | "Single"), null, [ s ] -> Some s, None, None
+                | ("First" | "Last" | "Single"), null, [ s; CleanLambda p ] -> Some s, Some p, None
+                | ("First" | "Last" | "Single"), t, [] when not (isNull t) -> Some t, None, None
+                | ("First" | "Last" | "Single"), t, [ CleanLambda p ] when not (isNull t) -> Some t, Some p, None
                 | "ElementAt", null, [ s; i ] when i.Type = typeof<int> ->
                     match PartialEvaluator.tryEvaluate i with
                     | Some(:? int as n) -> Some s, None, Some n
                     | _ -> None, None, None
                 | _ -> None, None, None
 
+            // The rows the element is picked from (a slice, or all for Last) and how it is picked.
             let window, check =
                 let noElements = if predOpt.IsSome then "Sequence contains no matching element" else "Sequence contains no elements"
                 let manyElements = if predOpt.IsSome then "Sequence contains more than one matching element" else "Sequence contains more than one element"
                 let invalid msg = { Kind = QueryErrorKind.InvalidOperation; Message = msg }
                 let atLeastOne error = { Min = 1L; Max = None; TooFew = error; TooMany = error }
                 match baseName, indexOpt with
-                | "First", _ -> Some(0L, 1u), (if isOrDefault then None else Some(atLeastOne (invalid noElements)))
+                | "First", _ -> Some(Some(0L, 1u), AggKind.First), (if isOrDefault then None else Some(atLeastOne (invalid noElements)))
+                | "Last", _ -> Some(None, AggKind.Last), (if isOrDefault then None else Some(atLeastOne (invalid noElements)))
                 | "Single", _ ->
-                    Some(0L, 2u),
+                    Some(Some(0L, 2u), AggKind.First),
                     Some { Min = (if isOrDefault then 0L else 1L); Max = Some 1L; TooFew = invalid noElements; TooMany = invalid manyElements }
                 | "ElementAt", Some n when n >= 0 ->
                     // Enumerable.ElementAt raises the exception's default message.
                     let outOfRange = { Kind = QueryErrorKind.ArgumentOutOfRange; Message = "" }
-                    Some(int64 n, 1u), (if isOrDefault then None else Some(atLeastOne outOfRange))
+                    Some(Some(int64 n, 1u), AggKind.First), (if isOrDefault then None else Some(atLeastOne outOfRange))
                 | _ -> None, None
 
             match seqExpr, window with
-            | Some s, Some(offset, count) when check.IsNone || CompilationScope.Current.Backend.SupportsAssertions ->
+            | Some s, Some(slice, pick) when check.IsNone || CompilationScope.Current.Backend.SupportsAssertions ->
                 let src, selOpt =
                     match ExpressionPatterns.unwrap s with
                     | MethodCall(mSel, null, [ src; CleanLambda selLam ]) when mSel.Name = "Select" -> src, Some selLam
@@ -792,15 +794,19 @@ module internal SubqueryDecorrelator =
                         | None -> None
                     valueOpt
                     |> Option.map (fun v ->
-                        let rows = LogicalPlan.Limit(LogicalPlan.Project(plan, [ (colName, v) ]), offset, count)
-                        let first = ScalarExpr.Aggregation(AggKind.First, Some(ScalarExpr.Column colName), false)
+                        let projected = LogicalPlan.Project(plan, [ (colName, v) ])
+                        let rows =
+                            match slice with
+                            | Some(offset, count) -> LogicalPlan.Limit(projected, offset, count)
+                            | None -> projected
+                        let picked = ScalarExpr.Aggregation(pick, Some(ScalarExpr.Column colName), false)
                         // An OrDefault over no rows is default(T): null, or the zero of a non-nullable value type.
                         // (A member read from a missing element throws in LINQ; here it propagates null.)
                         let element =
                             if isOrDefault && path.IsEmpty && mc.Type.IsValueType && isNull (Nullable.GetUnderlyingType mc.Type) then
-                                ScalarExpr.Coalesce [ first; ScalarExprOps.toLiteral (Activator.CreateInstance mc.Type) mc.Type ]
+                                ScalarExpr.Coalesce [ picked; ScalarExprOps.toLiteral (Activator.CreateInstance mc.Type) mc.Type ]
                             else
-                                first
+                                picked
                         let guarded =
                             match check with
                             | Some c ->
@@ -815,7 +821,8 @@ module internal SubqueryDecorrelator =
 
         let isElementOp (name: string) =
             match name with
-            | "First" | "FirstOrDefault" | "Single" | "SingleOrDefault" | "ElementAt" | "ElementAtOrDefault" -> true
+            | "First" | "FirstOrDefault" | "Last" | "LastOrDefault" | "Single" | "SingleOrDefault" | "ElementAt"
+            | "ElementAtOrDefault" -> true
             | _ -> false
 
         let rec peelMembers (e: Expression) (path: System.Reflection.MemberInfo list) =
