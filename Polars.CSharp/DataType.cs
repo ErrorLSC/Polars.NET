@@ -4,6 +4,7 @@ using Polars.NET.Core.Enums;
 using Apache.Arrow.Types;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
+using Polars.NET.Core.Helpers;
 using Polars.NET.Core.Arrow;
 
 namespace Polars.CSharp;
@@ -588,15 +589,27 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
     /// </summary>
     public Type GetNetType() => ArrowTypeResolver.GetNetTypeFromArrowType(GetArrowType());
     /// <summary>
-    /// Create a DataType from a .NET Type
+    /// Create a DataType from a .NET Type. An enum (or Nullable / F# option of one) is the Enum of its members in
+    /// underlying-value order, or, for a [Flags] enum, its underlying integer type.
     /// </summary>
-    public static DataType FromNetType<T>() => FromArrowType(ArrowTypeResolver.GetArrowTypeFromNetType(typeof(T)));
+    public static DataType FromNetType<T>() => FromNetType(typeof(T));
     /// <summary>
     /// Implicitly convert System.Type to Polars DataType.
     /// Example: DataType dt = typeof(int); // dt is now DataType.Int32
     /// </summary>
-    public static implicit operator DataType(Type type)
-        => FromArrowType(ArrowTypeResolver.GetArrowTypeFromNetType(type));
+    public static implicit operator DataType(Type type) => FromNetType(type);
+
+    private static DataType FromNetType(Type type)
+    {
+        var core = PolarsTypeHelper.UnwrapCoreType(type);
+        if (core.IsEnum)
+        {
+            return global::Polars.NET.Core.Helpers.EnumCategories.UsesEnumDataType(core)
+                ? Enum(global::Polars.NET.Core.Helpers.EnumCategories.GetCategories(core))
+                : FromNetType(System.Enum.GetUnderlyingType(core));
+        }
+        return FromArrowType(ArrowTypeResolver.GetArrowTypeFromNetType(type));
+    }
     /// <summary>
     /// Get Apache Arrow Type
     /// </summary>

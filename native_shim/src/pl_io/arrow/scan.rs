@@ -5,6 +5,7 @@ use polars_arrow::array::StructArray;
 use polars_arrow::datatypes::{ArrowDataType, Field};
 use polars_core::prelude::CompatLevel;
 use crate::types::{DataFrameContext, LazyFrameContext};
+use crate::series::series::{contains_dictionary, series_from_arrow_with_metadata};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_from_arrow_record_batch(
@@ -34,9 +35,9 @@ pub extern "C" fn pl_dataframe_from_arrow_record_batch(
                     .zip(struct_arr.fields())
                     .map(|(arr, field)| {
                         let name = PlSmallStr::from_str(&field.name);
-                        
-                        Series::from_arrow(name, arr.clone())
-                            .map(|s| Column::from(s)) 
+
+                        series_from_arrow_with_metadata(name, arr.clone(), field.metadata.clone())
+                            .map(|s| Column::from(s))
                     })
                     .collect::<PolarsResult<Vec<_>>>()?;
 
@@ -45,7 +46,7 @@ pub extern "C" fn pl_dataframe_from_arrow_record_batch(
             },
             None => {
                 let name = PlSmallStr::from_str(&field.name);
-                let series = Series::from_arrow(name, array)?;
+                let series = series_from_arrow_with_metadata(name, array, field.metadata.clone())?;
 
                 DataFrame::new_infer_height(vec![Column::from(series)])?
             }
@@ -113,7 +114,9 @@ unsafe fn consume_stream_impl(
         let arrow_field = &fields[i];
         let name = PlSmallStr::from_str(&arrow_field.name);
 
-        let final_series = if strict {
+        // Dictionary data must be converted to its Categorical / Enum physical form; the unstrict path's
+        // reinterpretation under the field's dtype would be invalid for it.
+        let final_series = if strict || contains_dictionary(&arrow_field.dtype) {
             // ----------------------------------------
             // Strict Path(with type safety) 
             // ----------------------------------------
@@ -122,7 +125,7 @@ unsafe fn consume_stream_impl(
 
             for arr in chunks {
                 // Logic type kept here
-                let temp_s = Series::from_arrow(name.clone(), arr)?;
+                let temp_s = series_from_arrow_with_metadata(name.clone(), arr, arrow_field.metadata.clone())?;
                 
                 // Lock Polars DataType
                 if safe_dtype.is_none() {

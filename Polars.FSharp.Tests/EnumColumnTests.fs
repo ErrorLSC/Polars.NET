@@ -12,6 +12,8 @@ type EcShade =
 
 type EcOptionRow = { Id: int; Shade: EcShade option }
 type EcRow = { Id: int; Shade: EcShade; Code: int }
+type EcInner = { X: int; Shade: EcShade option }
+type EcNestedRow = { Id: int; Inner: EcInner; Shades: EcShade list; Maybe: EcShade option list }
 type EcValueOptionRow = { Id: int; Shade: EcShade voption }
 
 /// F# option and value option enum fields are stored as Polars Enum columns (categories in underlying-value
@@ -84,3 +86,21 @@ module EnumColumnTests =
     let ``Udf returning an option enum is pushed down`` () =
         assertUdfMatches (fun q -> q.Select(fun r -> tryShade r.Code))
         assertUdfMatches (fun q -> q.Select(fun r -> tryShadeV r.Code))
+
+    [<Fact>]
+    let ``Nested option enums and enum lists are Enum fields`` () =
+        let rows =
+            [ { EcNestedRow.Id = 1; Inner = { X = 1; Shade = Some EcShade.Red }; Shades = [ EcShade.Green; EcShade.Black ]; Maybe = [ None; Some EcShade.Red ] }
+              { Id = 2; Inner = { X = 2; Shade = None }; Shades = []; Maybe = [] } ]
+        use df = DataFrame.ofRecords rows
+
+        // Kind-based: the handles behind nested DataTypes obtained from a Series are not kept alive.
+        let isEnum (dt: DataType) = dt.IsEnum
+        let innerFields =
+            match df.["Inner"].DataType.Kind with
+            | DataTypeKind.Struct fields -> List.ofSeq fields
+            | other -> failwithf "Inner is %A" other
+        Assert.True(innerFields |> List.exists (fun f -> f.Name = "Shade" && f.DataType.IsEnum))
+        Assert.True(isEnum df.["Shades"].DataType.InnerType)
+        Assert.True(isEnum df.["Maybe"].DataType.InnerType)
+        Assert.Equal<EcNestedRow list>(rows, df |> DataFrame.toRows<EcNestedRow> |> Rows.mapToArray id |> List.ofArray)

@@ -1,3 +1,5 @@
+using Pl = Polars.CSharp.Polars;
+using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Linq.Backend.Polars;
 using Polars.NET.Linq.IR;
@@ -164,5 +166,83 @@ public class EnumColumnTests
     {
         Assert.True(FSharpOption<LogicalType>.get_IsNone(LogicalTypes.tryEnumOf(typeof(Access))));
         Assert.True(FSharpOption<LogicalType>.get_IsNone(LogicalTypes.tryEnumOf(typeof(int))));
+    }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // Arrow round trips: Polars writes an Enum's categories into the Arrow field metadata (_PL_ENUM_VALUES2);
+    // importing honors it, so an Enum stays an Enum with the same categories, also nested in structs and lists.
+    // ---------------------------------------------------------------------------------------------------------
+
+    private static DataFrame NestedEnumFrame()
+    {
+        using var flat = DataFrame.FromRows(Rows);
+        return flat.Select(
+            Pl.Col("Id"),
+            Pl.Col("Shade"),
+            Pl.Struct(Pl.Col("Id"), Pl.Col("Shade")).Alias("Pair"),
+            Pl.Col("Shade").Implode().Over("Id").Alias("Shades"));
+    }
+
+    private static void AssertSameEnumColumns(DataFrame expected, DataFrame actual)
+    {
+        Assert.Equal(expected.Schema.ToString(), actual.Schema.ToString());
+        Assert.True(actual.Schema["Shade"].IsEnum);
+        Assert.Equal(["Black", "Green", "Blue", "Red"], actual.Schema["Shade"].EnumCategories!.GetCategories());
+        Assert.True(actual.Schema["Pair"].StructFields!.Single(f => f.Name == "Shade").DataType.IsEnum);
+        Assert.True(actual.Schema["Shades"].InnerType!.IsEnum);
+        Assert.Equal(expected.ToString(), actual.ToString());
+    }
+
+    [Fact]
+    public void Arrow_Record_Batch_Round_Trip_Keeps_Enum_Columns()
+    {
+        using var df = NestedEnumFrame();
+        using var back = DataFrame.FromArrow(df.ToArrow());
+
+        AssertSameEnumColumns(df, back);
+    }
+
+    [Fact]
+    public void Arrow_Stream_Import_Keeps_Enum_Columns()
+    {
+        using var df = NestedEnumFrame();
+        var batch = df.ToArrow();
+        using var back = new DataFrame(ArrowStreamInterop.ImportEager([batch], batch.Schema));
+
+        AssertSameEnumColumns(df, back);
+    }
+
+    [Fact]
+    public void Foreign_Arrow_Stream_Import_Keeps_Enum_Columns()
+    {
+        using var df = NestedEnumFrame();
+        var batch = df.ToArrow();
+
+        using var ipc = new MemoryStream();
+        using (var writer = new Apache.Arrow.Ipc.ArrowStreamWriter(ipc, batch.Schema, leaveOpen: true))
+        {
+            writer.WriteRecordBatch(batch);
+            writer.WriteEnd();
+        }
+        ipc.Position = 0;
+        using var reader = new Apache.Arrow.Ipc.ArrowStreamReader(ipc);
+
+        // A foreign stream arrives through the Arrow C stream interface.
+        unsafe
+        {
+            var cStream = Apache.Arrow.C.CArrowArrayStream.Create();
+            try
+            {
+                Apache.Arrow.C.CArrowArrayStreamExporter.ExportArrayStream(reader, cStream);
+                using var foreign = Apache.Arrow.C.CArrowArrayStreamImporter.ImportArrayStream(cStream);
+                using var back = DataFrame.FromArrowStream(foreign);
+
+                AssertSameEnumColumns(df, back);
+            }
+            finally
+            {
+                Apache.Arrow.C.CArrowArrayStream.Free(cStream);
+            }
+        }
     }
 }

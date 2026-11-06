@@ -227,6 +227,40 @@ pub extern "C" fn pl_series_to_arrow(ptr: *mut SeriesContext) -> *mut ArrowArray
     })
 }
 
+/// Builds a Series from an imported Arrow array, honoring the Arrow field metadata it arrived with.
+///
+/// Polars encodes logical types that Arrow cannot express in field metadata (an Enum's categories in
+/// `_PL_ENUM_VALUES2`, a Categorical's categories in its own key). `Series::from_arrow` sees only the array's
+/// dtype, so an Enum would come back as a global Categorical. Nested fields carry their own metadata inside
+/// the dtype; only the top-level field's metadata has to be passed here.
+pub fn series_from_arrow_with_metadata(
+    name: PlSmallStr,
+    array: Box<dyn Array>,
+    metadata: Option<Arc<polars_arrow::datatypes::Metadata>>,
+) -> PolarsResult<Series> {
+    let field = polars_arrow::datatypes::Field {
+        name,
+        dtype: array.dtype().clone(),
+        is_nullable: true,
+        metadata,
+    };
+    Series::try_from((&field, array))
+}
+
+/// Whether an Arrow dtype is, or nests, a dictionary: such data has to be converted to its Polars
+/// (Categorical / Enum) physical form, never reinterpreted under a Polars dtype.
+pub fn contains_dictionary(dtype: &ArrowDataType) -> bool {
+    match dtype {
+        ArrowDataType::Dictionary(_, _, _) => true,
+        ArrowDataType::List(f) | ArrowDataType::LargeList(f) | ArrowDataType::FixedSizeList(f, _) | ArrowDataType::Map(f, _) => {
+            contains_dictionary(&f.dtype)
+        },
+        ArrowDataType::Struct(fields) => fields.iter().any(|f| contains_dictionary(&f.dtype)),
+        ArrowDataType::Extension(ext) => contains_dictionary(&ext.inner),
+        _ => false,
+    }
+}
+
 pub fn upgrade_to_large_list(array: Box<dyn Array>) -> Box<dyn Array> {
     match array.dtype() {
         ArrowDataType::List(inner_field) => {
@@ -344,7 +378,7 @@ pub unsafe extern "C" fn pl_arrow_to_series(
 
         array = upgrade_to_large_list(array);
 
-        let series = Series::from_arrow(name_str.into(), array)?;
+        let series = series_from_arrow_with_metadata(name_str.into(), array, field.metadata.clone())?;
         Ok(Box::into_raw(Box::new(SeriesContext { series })))
     })
 }

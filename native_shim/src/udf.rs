@@ -6,6 +6,16 @@ use std::{sync::Arc};
 use polars_arrow::datatypes::Field as ArrowField;
 use std::ffi::{CStr,c_void};
 
+/// Aligns a UDF result with a declared Enum / Categorical output type. A managed UDF hands such values back
+/// in a plain form (an enum's member names); without the cast the column would not have the dtype the plan
+/// declared for it.
+fn align_to_declared(s: Series, declared: &DataType) -> PolarsResult<Series> {
+    match declared {
+        DataType::Enum(_, _) | DataType::Categorical(_, _) if s.dtype() != declared => s.strict_cast(declared),
+        _ => Ok(s),
+    }
+}
+
 // Define Cleanup Callback
 type CleanupCallback = extern "C" fn(*mut c_void);
 
@@ -57,7 +67,11 @@ impl CSharpUdf {
         let out_field = unsafe { ffi::import_field_from_c(&c_schema_out).map_err(|e| PolarsError::ComputeError(e.to_string().into()))? };
         let out_array = unsafe { ffi::import_array_from_c(c_array_out, out_field.dtype.clone()).map_err(|e| PolarsError::ComputeError(e.to_string().into()))? };
 
-        let out_series = Series::try_from((s.name().clone(), out_array))?;
+        let out_series = crate::series::series::series_from_arrow_with_metadata(
+            s.name().clone(),
+            out_array,
+            out_field.metadata.clone(),
+        )?;
         
         Ok(Some(out_series))
     }
@@ -77,6 +91,7 @@ pub extern "C" fn pl_expr_map(
         let udf = Arc::new(CSharpUdf { callback,cleanup,user_data });
         let target_dtype = unsafe { &(*output_type_ptr).dtype };
         let target_dtype_owned = target_dtype.clone();
+        let declared_dtype = target_dtype.clone();
 
         let output_map = move |_input_schema: &Schema, input_field: &Field| -> PolarsResult<Field> {
             match &target_dtype_owned {
@@ -99,7 +114,7 @@ pub extern "C" fn pl_expr_map(
                 let out_s = res_series_opt.expect("C# UDF returned None");
                 
                 // Series -> Column
-                Ok(out_s.into_column())
+                Ok(align_to_declared(out_s, &declared_dtype)?.into_column())
             }, 
             output_map
         );
@@ -122,6 +137,7 @@ pub extern "C" fn pl_expr_apply(
         let udf = Arc::new(CSharpUdf { callback, cleanup, user_data });
         let target_dtype = unsafe { &(*output_type_ptr).dtype };
         let target_dtype_owned = target_dtype.clone();
+        let declared_dtype = target_dtype.clone();
 
         let output_map = move |_input_schema: &Schema, input_field: &Field| -> PolarsResult<Field> {
             match &target_dtype_owned {
@@ -142,7 +158,7 @@ pub extern "C" fn pl_expr_apply(
                 let s = c[0].as_materialized_series().clone();
                 let res_series_opt = udf.call(s)?;
                 let out_s = res_series_opt.expect("C# UDF returned None");
-                Ok(out_s.into_column())
+                Ok(align_to_declared(out_s, &declared_dtype)?.into_column())
             },
             move |schema: &Schema, fields: &[Field]| output_map(schema, &fields[0]),
         );
@@ -283,10 +299,12 @@ pub extern "C" fn pl_expr_map_many(
         
         // Clone output dtype for the schema closure
         let target_dtype_owned = unsafe { (*output_type_ptr).dtype.clone() };
+        let declared_dtype = target_dtype_owned.clone();
 
         let new_expr = base_ctx.inner.map_many(
             move |cols: &mut [Column]| -> PolarsResult<Column> {
-                udf.call(cols)
+                let out = udf.call(cols)?;
+                Ok(align_to_declared(out.as_materialized_series().clone(), &declared_dtype)?.into_column())
             },
             &args,
             move |_schema: &Schema, _fields: &[Field]| -> PolarsResult<Field> {
@@ -323,6 +341,7 @@ pub extern "C" fn pl_expr_apply_many(
         
         // Clone output dtype for the schema closure
         let target_dtype_owned = unsafe { (*output_type_ptr).dtype.clone() };
+        let declared_dtype = target_dtype_owned.clone();
 
         let mut input = vec![base_ctx.inner];
         input.extend(args);
@@ -334,7 +353,8 @@ pub extern "C" fn pl_expr_apply_many(
 
         let function = BaseColumnUdf::new(
             move |cols: &mut [Column]| -> PolarsResult<Column> {
-                udf.call(cols)
+                let out = udf.call(cols)?;
+                Ok(align_to_declared(out.as_materialized_series().clone(), &declared_dtype)?.into_column())
             },
             move |_schema: &Schema, _fields: &[Field]| -> PolarsResult<Field> {
                 // Return schema definition for optimizer

@@ -121,6 +121,10 @@ public static class ArrowConverter
         var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
         Type checkType = underlyingType ?? type;
 
+        // Enums: a Polars Enum (a dictionary of the member names; the field carrying it needs
+        // EnumCategories.TryGetArrowFieldMetadata), or the underlying integers of a [Flags] enum.
+        if (checkType.IsEnum) return BuildEnum(data, checkType);
+
         // 4. Primitives & String
         if (checkType == typeof(int)) return BuildInt32(data.Cast<int?>());
         if (checkType == typeof(uint)) return BuildUInt32(data.Cast<uint?>());
@@ -204,7 +208,7 @@ public static class ArrowConverter
             {
                 return StructBuilderHelper.BuildStructArray(data);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not ArgumentException)
             {
                 throw new NotSupportedException($"Type {type.FullName} (Underlying: {checkType.FullName}) is not supported yet.", ex);
             }
@@ -290,7 +294,8 @@ public static class ArrowConverter
         var offsetsArray = offsetsBuilder.Build();
         var validityArray = validityBuilder.Build();
 
-        var listType = new LargeListType(valuesArray.Data.DataType);
+        var itemField = new Field("item", valuesArray.Data.DataType, true, EnumCategories.TryGetArrowFieldMetadata(typeof(U)));
+        var listType = new LargeListType(itemField);
 
         return new LargeListArray(
             listType,
@@ -300,6 +305,46 @@ public static class ArrowConverter
             validityArray.ValueBuffer,
             nullCount
         );
+    }
+
+    /// <summary>
+    /// Builds enum values: for an enum stored as a Polars Enum, a dictionary array whose keys are category
+    /// positions and whose dictionary is the categories; for a [Flags] enum, an array of underlying values.
+    /// </summary>
+    /// <exception cref="ArgumentException">A value of a non-[Flags] enum is not a defined member.</exception>
+    private static IArrowArray BuildEnum<T>(IEnumerable<T> data, Type enumType)
+    {
+        if (!EnumCategories.UsesEnumDataType(enumType))
+        {
+            var underlying = Enum.GetUnderlyingType(enumType);
+            var nullableUnderlying = typeof(Nullable<>).MakeGenericType(underlying);
+            var values = (System.Collections.IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(nullableUnderlying))!;
+            foreach (var item in data)
+            {
+                values.Add(item is null ? null : Convert.ChangeType(item, underlying));
+            }
+
+            return (IArrowArray)typeof(ArrowConverter)
+                .GetMethod(nameof(Build), BindingFlags.Public | BindingFlags.Static)!
+                .MakeGenericMethod(nullableUnderlying)
+                .Invoke(null, [values])!;
+        }
+
+        var keys = new UInt32Array.Builder();
+        foreach (var item in data)
+        {
+            if (item is null) keys.AppendNull();
+            else keys.Append((uint)EnumCategories.GetCategoryIndex(enumType, item));
+        }
+
+        var dictionary = new StringViewArray.Builder();
+        foreach (var category in EnumCategories.GetCategories(enumType))
+        {
+            dictionary.Append(category);
+        }
+
+        var dictionaryType = new DictionaryType(UInt32Type.Default, StringViewType.Default, false);
+        return new DictionaryArray(dictionaryType, keys.Build(), dictionary.Build());
     }
 
     private static HalfFloatArray BuildFloat16(IEnumerable<Half?> data)
@@ -521,65 +566,11 @@ public static class ArrowConverter
 
     public static Schema GetSchemaFromType<T>()
     {
-        var type = typeof(T);
-        var members = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-        var fields = new List<Field>();
-
-        foreach (var member in members)
-        {
-            var memberType = member.PropertyType;
-            var dummyInstance = CreateDummyInstance(memberType);
-
-            var wrapper = System.Array.CreateInstance(memberType, 1);
-            if (dummyInstance != null) wrapper.SetValue(dummyInstance, 0);
-
-            var dummyArr = BuildSingleColumn(wrapper);
-            if (dummyArr == null) continue;
-
-            var field = new Field(member.Name, dummyArr.Data.DataType, true);
-            fields.Add(field);
-        }
-        return new Schema(fields, null);
-    }
-
-    private static object? CreateDummyInstance(Type t)
-    {
-        if (t == typeof(string)) return string.Empty;
-        if (t.IsArray) return System.Array.CreateInstance(t.GetElementType()!, 0);
-
-        // C# List
-        if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(List<>))
-        {
-             return Activator.CreateInstance(t);
-        }
-
-        // F# List (Handling missing constructor)
-        if (t.FullName != null && (t.FullName.StartsWith("Microsoft.FSharp.Collections.FSharpList") || t.Name == "FSharpList`1"))
-        {
-            var emptyProp = t.GetProperty("Empty", BindingFlags.Public | BindingFlags.Static);
-            return emptyProp?.GetValue(null);
-        }
-
-        // F# Option
-        if (t.FullName?.StartsWith("Microsoft.FSharp.Core.FSharpOption") is true) return null;
-
-        if (t.IsValueType) return Activator.CreateInstance(t);
-
-        try
-        {
-            return Activator.CreateInstance(t);
-        }
-        catch
-        {
-            try
-            {
-                return RuntimeHelpers.GetUninitializedObject(t);
-            }
-            catch
-            {
-                return null;
-            }
-        }
+        // The fields of an empty struct array of T: the types (and the field metadata of enum members) are the
+        // ones the row data is built with, without sample instances, whose defaults may not be valid values
+        // (an enum's 0 that is not a member).
+        var emptyStruct = StructBuilderHelper.BuildStructArray(Enumerable.Empty<T>());
+        return new Schema(((StructType)emptyStruct.Data.DataType).Fields, null);
     }
 
     /// <summary>
@@ -633,7 +624,7 @@ public static class ArrowConverter
                 var childArray = ProjectAndBuild(dataList, memberType, getter);
 
                 // [FIX] Use prop.Name directly (Case Sensitive)
-                var finalField = new Field(prop.Name, childArray.Data.DataType, true);
+                var finalField = new Field(prop.Name, childArray.Data.DataType, true, EnumCategories.TryGetArrowFieldMetadata(memberType));
 
                 fields.Add(finalField);
                 childrenArrays.Add(childArray);
@@ -679,7 +670,15 @@ public static class ArrowConverter
                 .GetMethod(nameof(BuildColumn), BindingFlags.NonPublic | BindingFlags.Static)!
                 .MakeGenericMethod(typeof(TParent), targetType);
 
-            return (IArrowArray)method.Invoke(null, [data, getter])!;
+            try
+            {
+                return (IArrowArray)method.Invoke(null, [data, getter])!;
+            }
+            catch (TargetInvocationException ex) when (ex.InnerException is not null)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
+            }
         }
 
         private static IArrowArray BuildColumn<TParent, TProp>(IList<TParent> data, Func<TParent, object?> getter)

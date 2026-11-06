@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using Polars.NET.Core.Arrow;
+using Polars.NET.Core.Helpers;
 
 namespace Polars.NET.Core.Data;
 // =================================================================================
@@ -18,11 +19,51 @@ public static class ArrowColumnBufferFactory
 {
     public static IArrowColumnBuffer Create(Type type,int length)
     {
+        if (PolarsTypeHelper.UnwrapCoreType(type).IsEnum)
+        {
+            return new EnumBuffer(type, length);
+        }
+
         var field = ArrowTypeResolver.ResolveField("udf_result", type);
 
         var builder = ColumnBuilderFactory.Create(field, type,false, length);
 
         return new BuilderAdapter(builder);
+    }
+
+    // =============================================================================
+    // Enum values: their member names (a Polars Enum declared as the output type takes them as its
+    // categories), or the underlying integers of a [Flags] enum.
+    // =============================================================================
+    private sealed class EnumBuffer(Type type, int length) : IArrowColumnBuffer
+    {
+        private readonly Type _enumType = PolarsTypeHelper.UnwrapCoreType(type);
+        private readonly OptionalKind _optionalKind = PolarsTypeHelper.GetOptionalInfo(type).Kind;
+        private readonly List<object?> _values = new(length);
+
+        public void Add(object? value) => _values.Add(PolarsTypeHelper.UnwrapOptionalValue(value, _optionalKind));
+
+        public IArrowArray BuildArray()
+        {
+            if (EnumCategories.UsesEnumDataType(_enumType))
+            {
+                var names = new StringViewArray.Builder();
+                foreach (var value in _values)
+                {
+                    if (value is null) names.AppendNull();
+                    else names.Append(EnumCategories.GetCategory(_enumType, value));
+                }
+                return names.Build();
+            }
+
+            var underlying = Enum.GetUnderlyingType(_enumType);
+            var buffer = Create(underlying, _values.Count);
+            foreach (var value in _values)
+            {
+                buffer.Add(value is null ? null : Convert.ChangeType(value, underlying));
+            }
+            return buffer.BuildArray();
+        }
     }
 
     // =============================================================================

@@ -52,6 +52,19 @@ public static class ArrowUdfBatchAdapter
     /// </summary>
     public static DataTypeHandle GetDataTypeHandle(Type type)
     {
+        // An enum is the Enum of its members, or the underlying integer of a [Flags] enum.
+        var core = PolarsTypeHelper.UnwrapCoreType(type);
+        if (core.IsEnum)
+        {
+            if (!EnumCategories.UsesEnumDataType(core))
+            {
+                return GetDataTypeHandle(Enum.GetUnderlyingType(core));
+            }
+
+            using var frozen = PolarsWrapper.FrozenCategoriesNew(EnumCategories.GetCategories(core));
+            return PolarsWrapper.NewEnumType(frozen);
+        }
+
         var arrowType = ArrowTypeResolver.GetArrowTypeFromNetType(type);
         return PolarsWrapper.MapArrowToDataTypeHandle(arrowType);
     }
