@@ -23,7 +23,7 @@ public class LinqCompileBenchmarks
     private IQueryable<object> _query = null!;
     private int _freshValue;
 
-    [Params("FilterSortTake", "GroupByAggregate", "ThreeWayJoin")]
+    [Params("FilterSortTake", "GroupByAggregate", "ThreeWayJoin", "CapturedSubquery")]
     public string Shape { get; set; } = "";
 
     [Params(false, true)]
@@ -62,6 +62,15 @@ public class LinqCompileBenchmarks
                  select new { o.Id, c.Name, r.Country, Total = o.Qty * o.Price })
                 .Take(20)
                 .Cast<object>(),
+            // A subquery held in a local variable and read from the closure: an IN filter grafted as a semi join.
+            "CapturedSubquery" => minQty =>
+            {
+                var activeNames = _customers.AsQueryable<Customer>().Where(c => c.Tier > 0).Select(c => c.Name);
+                return _df.AsQueryable<Order>()
+                    .Where(o => o.Qty > minQty && activeNames.Contains(o.Customer))
+                    .Select(o => new { o.Id, Total = o.Qty * o.Price })
+                    .Cast<object>();
+            },
             _ => throw new ArgumentOutOfRangeException(nameof(Shape)),
         };
 

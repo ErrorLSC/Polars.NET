@@ -330,7 +330,7 @@ public class QueryPlanCacheTests
         var orders = dfO.AsQueryable<Order>();
         for (int i = 0; i < 3; i++)
             Assert.Equal([3], CustomersIn(orders.Where(o => o.Amount > 100m).Select(o => o.CustomerId)));
-        Assert.True(QueryPlanCache.Hits > 0);
+        Assert.Equal(2, QueryPlanCache.Count);
 
         Assert.Equal([1], CustomersIn(orders.Where(o => o.Amount < 10m).Select(o => o.CustomerId)));
         Assert.Equal([1, 2], CustomersIn(orders.OrderBy(o => o.Amount).Take(2).Select(o => o.CustomerId)));
@@ -340,6 +340,86 @@ public class QueryPlanCacheTests
         var hitsBefore = QueryPlanCache.Hits;
         Assert.Equal([2], CustomersIn(dfO2.AsQueryable<Order>().Where(o => o.Amount > 100m).Select(o => o.CustomerId)));
         Assert.True(QueryPlanCache.Hits > hitsBefore);
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void Closure_Captured_Subquery_Is_Cached_And_Bound_To_The_Captured_Table()
+    {
+        QueryPlanCache.Clear();
+        using var dfA = DataFrame.FromRows(Customers);
+
+        // The subquery is read from a closure, as C# captures a local query variable.
+        List<int> CustomersWithBigOrders(Order[] orders, decimal minimum)
+        {
+            using var dfO = DataFrame.FromRows(orders);
+            var ids = dfO.AsQueryable<Order>().Where(o => o.Amount > minimum).Select(o => o.CustomerId);
+            return dfA.AsQueryable<Customer>().Where(c => ids.Contains(c.Id)).Select(c => c.Id).ToList();
+        }
+
+        Assert.Equal([1], CustomersWithBigOrders([new Order { CustomerId = 1, Amount = 50m }], 10m));
+        Assert.Equal([2], CustomersWithBigOrders([new Order { CustomerId = 2, Amount = 50m }], 10m));
+        Assert.Equal([3], CustomersWithBigOrders([new Order { CustomerId = 3, Amount = 50m }], 10m));
+        // Two entries: the subquery (compiled when grafted) and the outer query. The subquery's own entry alone
+        // would make Hits grow too, so the entry count is what shows the outer query is cached.
+        Assert.Equal(2, QueryPlanCache.Count);
+
+        // A value captured inside the subquery is part of the key.
+        Assert.Empty(CustomersWithBigOrders([new Order { CustomerId = 3, Amount = 50m }], 100m));
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void Closure_Captured_Subqueries_That_Differ_Do_Not_Share_A_Plan()
+    {
+        QueryPlanCache.Clear();
+        using var dfA = DataFrame.FromRows(Customers);
+        using var dfO = DataFrame.FromRows(new[]
+        {
+            new Order { CustomerId = 1, Amount = 5m },
+            new Order { CustomerId = 2, Amount = 50m },
+            new Order { CustomerId = 3, Amount = 500m },
+        });
+        var orders = dfO.AsQueryable<Order>();
+
+        // Typed as IEnumerable<int>, as a query variable often is.
+        List<int> CustomersIn(IEnumerable<int> customerIds) =>
+            dfA.AsQueryable<Customer>().Where(c => customerIds.Contains(c.Id)).Select(c => c.Id).ToList();
+
+        for (int i = 0; i < 3; i++)
+            Assert.Equal([3], CustomersIn(orders.Where(o => o.Amount > 100m).Select(o => o.CustomerId)));
+        Assert.Equal(2, QueryPlanCache.Count);
+
+        Assert.Equal([1], CustomersIn(orders.Where(o => o.Amount < 10m).Select(o => o.CustomerId)));
+        Assert.Equal([1, 2], CustomersIn(orders.OrderBy(o => o.Amount).Take(2).Select(o => o.CustomerId)));
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void Closure_Captured_Root_Inside_A_Client_Predicate_Is_Read_From_The_Query_Being_Run()
+    {
+        QueryPlanCache.Clear();
+        using var dfA = DataFrame.FromRows(Customers);
+
+        // As Root_Inside_A_Client_Predicate_Is_Read_From_The_Query_Being_Run, with the orders query read from the
+        // closure: a cached delegate would keep reading the first (disposed) orders table.
+        List<int> WithOrders(Order[] orders)
+        {
+            using var dfO = DataFrame.FromRows(orders);
+            var ordersQuery = dfO.AsQueryable<Order>();
+            return dfA.AsQueryable<Customer>()
+                .Where(c => ordersQuery.Any(o => o.CustomerId == c.Id && TestUdfMethods.MaskName(c.City) != ""))
+                .Select(c => c.Id)
+                .ToList();
+        }
+
+        using (Pl.Config.SetDisallowUdfPushdown(true).BeginScope())
+        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
+        {
+            Assert.Equal([1], WithOrders([new Order { CustomerId = 1, Amount = 5m }]));
+            Assert.Equal([2], WithOrders([new Order { CustomerId = 2, Amount = 5m }]));
+            Assert.Equal([3], WithOrders([new Order { CustomerId = 3, Amount = 5m }]));
+        }
     }
 
     [Fact]

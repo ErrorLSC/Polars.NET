@@ -197,7 +197,8 @@ type QueryPlanCache private () =
         | _ -> None
 
     /// The expression with every composed Polars query constant (a query built on a root, e.g. the inner side of
-    /// a Join or Concat, or a subquery captured as a value) replaced by that query's own expression, recursively.
+    /// a Join or Concat, or a subquery captured as a value or read from a closure) replaced by that query's own
+    /// expression, recursively.
     /// The shape key identifies a query constant by its element type only, so without this two different
     /// subqueries over the same root would share a key. After inlining, the constants left are the roots
     /// themselves, which read the same tables as the composed queries did.
@@ -214,6 +215,21 @@ type QueryPlanCache private () =
                             if node.Type.IsAssignableFrom inlined.Type then inlined
                             else Expression.Convert(inlined, node.Type) :> Expression
                     | _ -> node :> Expression
+
+                // A query captured in a closure (`var ids = q2...; q.Where(r => ids.Contains(..))`): partial
+                // evaluation leaves IQueryable-typed reads alone and extracts the closure object itself, which no
+                // key can hold. Reading the field here turns it into a query constant, inlined like the others.
+                override this.VisitMember(node: MemberExpression) =
+                    if
+                        typeof<System.Collections.IEnumerable>.IsAssignableFrom node.Type
+                        && node.Type <> typeof<string>
+                    then
+                        match PartialEvaluator.tryFastEvaluate node with
+                        | Some(:? IPolarsInternalExplainable as q) ->
+                            this.VisitConstant(Expression.Constant(q, node.Type))
+                        | _ -> base.VisitMember node
+                    else
+                        base.VisitMember node
             }
 
         visitor.Visit expression

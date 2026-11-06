@@ -458,6 +458,39 @@ module internal FSharpAst =
         else
             None
 
+    /// The F# collection modules whose `contains value source` is a membership test.
+    let private fsharpContainsModules =
+        set [
+            "Microsoft.FSharp.Collections.SeqModule"
+            "Microsoft.FSharp.Collections.ListModule"
+            "Microsoft.FSharp.Collections.ArrayModule"
+            "Microsoft.FSharp.Collections.SetModule"
+        ]
+
+    let private isFSharpContains (m: MethodInfo) =
+        m.Name = "Contains"
+        && not (isNull m.DeclaringType)
+        && fsharpContainsModules.Contains m.DeclaringType.FullName
+
+    /// F# `Seq.contains x source` (and List/Array/Set.contains) takes the value first. Rewritten as
+    /// `Enumerable.Contains(source, x)`, the shape that is translated as an IN filter over a local collection or
+    /// grafted as a semi join over a subquery.
+    let private tryRewriteCollectionContains (mc: MethodCallExpression) : Expression option =
+        if isFSharpContains mc.Method && mc.Arguments.Count = 2 then
+            let value = mc.Arguments.[0]
+            let source = mc.Arguments.[1]
+            let elementType = value.Type
+            let sequenceType = typedefof<seq<_>>.MakeGenericType elementType
+            if sequenceType.IsAssignableFrom source.Type then
+                let contains =
+                    typeof<Enumerable>.GetMethods()
+                    |> Array.find (fun m -> m.Name = "Contains" && m.GetParameters().Length = 2)
+                Some(Expression.Call(contains.MakeGenericMethod elementType, Expression.Convert(source, sequenceType), value) :> Expression)
+            else
+                None
+        else
+            None
+
     // ---------------------------------------------------------------------------------------------
     // Un-nesting a correlated SelectMany
     // ---------------------------------------------------------------------------------------------
@@ -635,7 +668,11 @@ module internal FSharpAst =
         inherit ExpressionVisitor()
 
         override this.VisitMethodCall(mc: MethodCallExpression) =
-            match tryRewriteQuotationToLambda mc |> Option.orElseWith (fun () -> tryRewriteIsNull mc) with
+            match
+                tryRewriteQuotationToLambda mc
+                |> Option.orElseWith (fun () -> tryRewriteIsNull mc)
+                |> Option.orElseWith (fun () -> tryRewriteCollectionContains mc)
+            with
             | Some rewritten -> this.Visit rewritten
             | None ->
                 let visitedMc = base.VisitMethodCall(mc) :?> MethodCallExpression
@@ -928,6 +965,7 @@ module internal FSharpAst =
             if mc.Method.Name = "QuotationToLambdaExpression"
                || isNestedSelectMany mc
                || mc.Method.Name = "Invoke"
+               || isFSharpContains mc.Method
                || not (isNull mc.Method.DeclaringType) && mc.Method.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators"
                || mc.Method.Name = "GroupBy" && mc.Method.GetGenericArguments().Length = 3 then
                 true
