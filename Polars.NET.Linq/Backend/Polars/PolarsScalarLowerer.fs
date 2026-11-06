@@ -103,13 +103,50 @@ module internal PolarsScalarLowerer =
         array
 
     /// Lowers a SortOrder into a tuple of (ExprHandle, isDescending, nullsLast)
+    /// The managed callback of ScalarFunction.AssertCount: true for every count in the check's range, otherwise
+    /// the check's error, relayed to the caller as the .NET exception LINQ raises.
+    let private countChecker (check: CountCheck) : Func<Apache.Arrow.IArrowArray, Apache.Arrow.IArrowArray> =
+        let relayed (error: QueryError) : exn =
+            let exn: exn =
+                match error.Kind with
+                | QueryErrorKind.InvalidOperation -> InvalidOperationException(error.Message)
+                | QueryErrorKind.ArgumentOutOfRange when String.IsNullOrEmpty error.Message -> ArgumentOutOfRangeException("index")
+                | QueryErrorKind.ArgumentOutOfRange -> ArgumentOutOfRangeException("index", error.Message)
+            Polars.NET.Core.Exceptions.ManagedErrorRelay.Capture exn
+
+        Func<_, _>(fun (counts: Apache.Arrow.IArrowArray) ->
+            let valueAt i : int64 =
+                match counts with
+                | :? Apache.Arrow.UInt32Array as a -> int64 (a.GetValue(i).GetValueOrDefault())
+                | :? Apache.Arrow.UInt64Array as a -> int64 (a.GetValue(i).GetValueOrDefault())
+                | :? Apache.Arrow.Int64Array as a -> a.GetValue(i).GetValueOrDefault()
+                | :? Apache.Arrow.Int32Array as a -> int64 (a.GetValue(i).GetValueOrDefault())
+                | other -> failwithf "[Polars.NET.Linq Bug] AssertCount over a %s count" (other.GetType().Name)
+
+            let builder = Apache.Arrow.BooleanArray.Builder()
+            for i in 0 .. counts.Length - 1 do
+                let n = valueAt i
+                if n < check.Min then raise (relayed check.TooFew)
+                match check.Max with
+                | Some max when n > max -> raise (relayed check.TooMany)
+                | _ -> ()
+                builder.Append true |> ignore
+            builder.Build() :> Apache.Arrow.IArrowArray)
+
     let rec lowerSortOrder (order: SortOrder) : ExprHandle * bool * bool =
         lower order.Expr, order.Descending, order.NullsLast
+
+    /// An item of a .NET string concatenation, which reads a null as the empty string.
+    and lowerConcatItem (item: ScalarExpr) : ExprHandle =
+        lower (ScalarExpr.Coalesce [ ScalarExpr.Cast(item, LogicalTypes.String, false); ScalarExpr.Literal(LiteralValue.String "") ])
 
     /// Lowers a ScalarExpr recursively to an ExprHandle
     and lower (expr: ScalarExpr) : ExprHandle =
         match expr with
         | ScalarExpr.Column name -> PolarsWrapper.Col name
+
+        | ScalarExpr.Binary(BinaryOp.StringConcat, left, right) ->
+            PolarsWrapper.ConcatString([| lowerConcatItem left; lowerConcatItem right |], "", ignoreNulls = false)
 
         | ScalarExpr.Literal lit -> lowerLiteral lit
 
@@ -135,7 +172,7 @@ module internal PolarsScalarLowerer =
             | BinaryOp.Modulo -> PolarsWrapper.Rem(leftH, rightH)
             | BinaryOp.FloorDivide -> PolarsWrapper.FloorDiv(leftH, rightH)
             | BinaryOp.Power -> PolarsWrapper.Pow(leftH, rightH)
-            | BinaryOp.StringConcat -> PolarsWrapper.FormatString("{}{}", [| leftH; rightH |])
+            | BinaryOp.StringConcat -> failwith "[Polars.NET.Linq Bug] StringConcat is lowered before its operands"
             | BinaryOp.Contains -> PolarsWrapper.StrContains(leftH, rightH, literal = false, strict = false)
             | BinaryOp.StartsWith -> PolarsWrapper.StrStartsWith(leftH, rightH)
             | BinaryOp.EndsWith -> PolarsWrapper.StrEndsWith(leftH, rightH)
@@ -310,11 +347,11 @@ module internal PolarsScalarLowerer =
             | ScalarFunction.StripEnd, [ a; m ] -> PolarsWrapper.StrStripCharsEnd(lower a, lower m)
             | ScalarFunction.FormatString, formatStrLit :: argExprs ->
                 let fmt = match formatStrLit with ScalarExpr.Literal(LiteralValue.String s) -> s | _ -> failwith "format must be string literal"
-                let argHs = argExprs |> List.map lower |> List.toArray
+                let argHs = argExprs |> List.map lowerConcatItem |> List.toArray
                 PolarsWrapper.FormatString(fmt, argHs)
             | ScalarFunction.ConcatString, sepLit :: itemExprs ->
                 let sep = match sepLit with ScalarExpr.Literal(LiteralValue.String s) -> s | _ -> ""
-                let itemHs = itemExprs |> List.map lower |> List.toArray
+                let itemHs = itemExprs |> List.map lowerConcatItem |> List.toArray
                 PolarsWrapper.ConcatString(itemHs, sep, ignoreNulls = false)
             | ScalarFunction.FillNull, [ e; v ] ->
                 PolarsWrapper.FillNull(lower e, lower v)
@@ -396,14 +433,16 @@ module internal PolarsScalarLowerer =
             | ScalarFunction.StructFieldByName, [ a; ScalarExpr.Literal(LiteralValue.String name) ] ->
                 PolarsWrapper.StructFieldByName(lower a, [| name |])
             | ScalarFunction.ListGet, [ a; idx ] -> PolarsWrapper.ListGet(lower a, lower idx, nullOnOob = true)
-            | ScalarFunction.ListContains, [ a; item ] -> PolarsWrapper.ListContains(lower a, lower item, nullsEqual = true)
+            | ScalarFunction.ListContains nullsEqual, [ a; item ] -> PolarsWrapper.ListContains(lower a, lower item, nullsEqual = nullsEqual)
             | ScalarFunction.ListLen, [ a ] -> PolarsWrapper.ListLen(lower a)
-            | ScalarFunction.IsIn, [ a; b ] -> PolarsWrapper.IsIn(lower a, lower b, nullsEqual = false)
+            | ScalarFunction.IsIn nullsEqual, [ a; b ] -> PolarsWrapper.IsIn(lower a, lower b, nullsEqual = nullsEqual)
             | ScalarFunction.ListSum, [ a ] -> PolarsWrapper.ListSum(lower a)
             | ScalarFunction.ListMean, [ a ] -> PolarsWrapper.ListMean(lower a)
             | ScalarFunction.ListMin, [ a ] -> PolarsWrapper.ListMin(lower a)
             | ScalarFunction.ListMax, [ a ] -> PolarsWrapper.ListMax(lower a)
-            | ScalarFunction.ListJoin, [ a; ScalarExpr.Literal(LiteralValue.String sep) ] -> PolarsWrapper.ListJoin(lower a, sep, ignoreNulls = true)
+            | ScalarFunction.ListJoin, [ a; ScalarExpr.Literal(LiteralValue.String sep) ] ->
+                let emptyForNull = PolarsWrapper.FillNull(PolarsWrapper.Col(""), PolarsWrapper.Lit "")
+                PolarsWrapper.ListJoin(PolarsWrapper.ListEval(lower a, emptyForNull), sep, ignoreNulls = false)
             | ScalarFunction.ListHead, [ a; c ] -> PolarsWrapper.ListHead(lower a, lower c)
             | ScalarFunction.ListTail, [ a; c ] -> PolarsWrapper.ListTail(lower a, lower c)
             | ScalarFunction.ListSlice, [ a; off; len ] -> PolarsWrapper.ListSlice(lower a, lower off, lower len)
@@ -497,6 +536,9 @@ module internal PolarsScalarLowerer =
                 PolarsWrapper.Quantile(lower a, q, PolarsVocabulary.quantileMethod m)
             | ScalarFunction.SeriesGet, [ a; idx ] ->
                 PolarsWrapper.Get(lower a, lower idx, nullOnOob = true)
+            | ScalarFunction.AssertCount check, [ count; value ] ->
+                let okH = PolarsWrapper.Map(lower count, countChecker check, ArrowUdfBatchAdapter.GetDataTypeHandle typeof<bool>)
+                PolarsWrapper.IfElse(okH, lower value, PolarsWrapper.LitNull())
 
             | other, _ -> failwithf "Unsupported function in PolarsScalarLowerer: %s" other.Name
 
@@ -530,7 +572,7 @@ module internal PolarsScalarLowerer =
             | UdfInvoker.StringToList toList ->
                 PolarsWrapper.MapStringToList(argHs.[0], toList)
 
-        | ScalarExpr.InList(inner, source, negated) ->
+        | ScalarExpr.InList(inner, source, negated, nullsEqual) ->
             let innerH = lower inner
             let listH =
                 match source with
@@ -539,7 +581,7 @@ module internal PolarsScalarLowerer =
                     PolarsWrapper.Implode(seriesLit, maintainOrder = false)
                 | InListSource.Literals _ ->
                     failwith "InListSource.Literals must be lowered via Disjunction or Collection"
-            let isInH = PolarsWrapper.IsIn(innerH, listH, nullsEqual = true)
+            let isInH = PolarsWrapper.IsIn(innerH, listH, nullsEqual = nullsEqual)
             if negated then PolarsWrapper.Not isInH else isInH
 
         | ScalarExpr.Subquery(_, kind) ->

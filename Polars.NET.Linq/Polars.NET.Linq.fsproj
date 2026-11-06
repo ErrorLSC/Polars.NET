@@ -98,6 +98,7 @@
     <InternalsVisibleTo Include="Polars.FSharp" />
     <InternalsVisibleTo Include="Polars.FSharp.Tests" />
     <InternalsVisibleTo Include="Polars.Config.Tests" />
+    <InternalsVisibleTo Include="Polars.NET.Linq.Conformance.Tests" />
   </ItemGroup>
 
 </Project>

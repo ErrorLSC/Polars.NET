@@ -130,6 +130,7 @@ type BinaryOp =
     | FloorDivide
     | Power
     // String & Pattern
+    /// .NET string concatenation (`a + b` over strings): a null operand concatenates as the empty string.
     | StringConcat
     | Like
     | Contains
@@ -230,6 +231,26 @@ type LogicalSchema =
                 Fields = this.Fields @ uniqueOther
             }
 
+/// The kind of error a failed check raises, in the vocabulary of the query language (LINQ's exceptions).
+[<RequireQualifiedAccess>]
+type QueryErrorKind =
+    | InvalidOperation
+    | ArgumentOutOfRange
+
+/// An error a query raises when a check fails while it runs. An empty message stands for the error kind's
+/// default message.
+type QueryError = { Kind: QueryErrorKind; Message: string }
+
+/// A required range for a row count (`Single` needs exactly one row, `First` at least one, `ElementAt(n)`
+/// at least one after skipping n), and the error each side of the range raises.
+type CountCheck =
+    {
+        Min: int64
+        Max: int64 option
+        TooFew: QueryError
+        TooMany: QueryError
+    }
+
 /// Strongly-typed built-in scalar functions for intermediate representation
 [<RequireQualifiedAccess>]
 type ScalarFunction =
@@ -271,7 +292,11 @@ type ScalarFunction =
     | Strip
     | StripStart
     | StripEnd
+    /// Fills the `{}` holes of a format literal with its arguments, as String.Format / String.Concat: a null
+    /// argument formats as the empty string.
     | FormatString
+    /// Concatenates its items (after a separator literal), as String.Concat / String.Join over values: a null
+    /// item contributes the empty string, never a null result.
     | ConcatString
     | PadStart
     | PadEnd
@@ -333,13 +358,16 @@ type ScalarFunction =
     | StructFieldByName
     | AsStruct
     | ListGet
-    | ListContains
+    /// Whether a list holds an item; `nullsEqual` decides whether a null item matches a null element.
+    | ListContains of nullsEqual: bool
     | ListLen
-    | IsIn
+    /// Whether a value is in a list value; `nullsEqual` decides whether a null value matches a null element.
+    | IsIn of nullsEqual: bool
     | ListSum
     | ListMean
     | ListMin
     | ListMax
+    /// Joins a list of strings with a separator, as String.Join: a null element contributes the empty string.
     | ListJoin
     | ListHead
     | ListTail
@@ -391,6 +419,10 @@ type ScalarFunction =
     /// Maps each value listed in `oldValues` to the value at the same position of `newValues`. A value not
     /// listed takes the optional second argument, or is an error without one.
     | ReplaceStrict of oldValues: LiteralValue list * newValues: LiteralValue list
+    /// `[count; value]`: the value when the count lies in the check's range; otherwise the query fails with
+    /// the check's error. It has an effect, so it must be evaluated wherever its value is used, never folded
+    /// or reordered past the computation of its count.
+    | AssertCount of check: CountCheck
 
     // --- Custom / Extension Function ---
     | Custom of name: string
@@ -488,9 +520,9 @@ type ScalarFunction =
         | ScalarFunction.StructFieldByName -> "struct_field_by_name"
         | ScalarFunction.AsStruct -> "as_struct"
         | ScalarFunction.ListGet -> "list_get"
-        | ScalarFunction.ListContains -> "list_contains"
+        | ScalarFunction.ListContains _ -> "list_contains"
         | ScalarFunction.ListLen -> "list_len"
-        | ScalarFunction.IsIn -> "is_in"
+        | ScalarFunction.IsIn _ -> "is_in"
         | ScalarFunction.ListSum -> "list_sum"
         | ScalarFunction.ListMean -> "list_mean"
         | ScalarFunction.ListMin -> "list_min"
@@ -536,6 +568,7 @@ type ScalarFunction =
         | ScalarFunction.Quantile _ -> "quantile"
         | ScalarFunction.SeriesGet -> "series_get"
         | ScalarFunction.ReplaceStrict _ -> "replace_strict"
+        | ScalarFunction.AssertCount _ -> "assert_count"
         | ScalarFunction.Custom name -> name
 
     static member FromString(str: string) : ScalarFunction =
@@ -631,9 +664,9 @@ type ScalarFunction =
         | "struct_field_by_name" -> ScalarFunction.StructFieldByName
         | "as_struct" -> ScalarFunction.AsStruct
         | "list_get" -> ScalarFunction.ListGet
-        | "list_contains" -> ScalarFunction.ListContains
+        | "list_contains" -> ScalarFunction.ListContains true
         | "list_len" -> ScalarFunction.ListLen
-        | "is_in" -> ScalarFunction.IsIn
+        | "is_in" -> ScalarFunction.IsIn false
         | "list_sum" -> ScalarFunction.ListSum
         | "list_mean" -> ScalarFunction.ListMean
         | "list_min" -> ScalarFunction.ListMin
@@ -735,7 +768,9 @@ type [<RequireQualifiedAccess>] ScalarExpr =
     | Subquery of plan: LogicalPlan * kind: SubqueryKind
     | Alias of expr: ScalarExpr * alias: string
     | Udf of name: string * args: ScalarExpr list * returnType: LogicalType * invoker: UdfInvoker
-    | InList of expr: ScalarExpr * source: InListSource * negated: bool
+    /// Whether a value is in an in-memory collection. With `nullsEqual` a null value is in a collection holding
+    /// null (.NET Contains); without, a null value gives null, as SQL IN.
+    | InList of expr: ScalarExpr * source: InListSource * negated: bool * nullsEqual: bool
     /// An enum conversion awaiting EnumResolution, which replaces it before the plan is lowered.
     | EnumConvert of conversion: EnumConversion * expr: ScalarExpr * mapping: EnumMapping
 
@@ -800,12 +835,20 @@ and LogicalAsOfJoinSpec =
         NullsEqual: bool
     }
 
-/// Pure relational algebra logical plan tree
+/// Pure relational algebra logical plan tree. Every backend implements the semantics stated here and in
+/// IR/SEMANTICS.md; Polars.NET.Linq.Conformance.Tests checks them on each backend.
+/// Rows are ordered: a node keeps its input's order unless stated otherwise.
 and [<RequireQualifiedAccess>] LogicalPlan =
     | Scan of source: LogicalPlanSource * schema: LogicalSchema
+    /// Keeps the rows whose predicate is true; a null predicate drops the row, as false does.
     | Filter of input: LogicalPlan * predicate: ScalarExpr
+    /// One row per input row, with exactly the listed columns; when every projection aggregates, one row.
+    /// An expression that reads other rows (window, rank, cumulative) sees this node's whole input.
     | Project of input: LogicalPlan * projections: (string * ScalarExpr) list
+    /// The input columns plus (or replaced by) the listed ones, evaluated as in Project.
     | WithColumns of input: LogicalPlan * columns: (string * ScalarExpr) list
+    /// Inner / Left: left order, then right order among a row's matches. Semi / Anti: left order. Cross: no
+    /// order. A null key matches a null key exactly when `nullsEqual`.
     | Join of
         left: LogicalPlan *
         right: LogicalPlan *
@@ -816,6 +859,9 @@ and [<RequireQualifiedAccess>] LogicalPlan =
         coalesce: JoinKeyCoalescing *
         nullsEqual: bool
     | JoinAsOf of left: LogicalPlan * right: LogicalPlan * spec: LogicalAsOfJoinSpec
+    /// One row per distinct key; `having` (an aggregate predicate over a group's rows) keeps the groups for
+    /// which it is true. With `maintainOrder` groups appear in the order their keys first appear, otherwise
+    /// in no order.
     | GroupBy of
         input: LogicalPlan *
         keys: ScalarExpr list *
@@ -823,8 +869,13 @@ and [<RequireQualifiedAccess>] LogicalPlan =
         having: ScalarExpr option *
         maintainOrder: bool
     | GroupingSets of input: LogicalPlan * spec: LogicalGroupingSetsSpec
+    /// A stable sort: rows with equal keys keep their input order. Nulls go first or last by NullsLast.
+    /// (CoreConfig.AllowUnstableOrdering lets the Polars backend drop the stability, by user choice.)
     | Sort of input: LogicalPlan * orderings: SortOrder list
+    /// `count` rows after skipping `offset`.
     | Limit of input: LogicalPlan * offset: int64 * count: uint32
+    /// One row per distinct value of `subset` (all columns when None), the one `keep` names; in input order
+    /// with `maintainOrder`, otherwise in no order.
     | Distinct of input: LogicalPlan * subset: string list option * keep: DistinctKeep * maintainOrder: bool
     | Explode of input: LogicalPlan * columns: string list * emptyAsNull: bool * keepNulls: bool
     | Unpivot of
@@ -833,6 +884,7 @@ and [<RequireQualifiedAccess>] LogicalPlan =
         on: string list option *
         variableName: string *
         valueName: string
+    /// The left rows, then the right rows; without `isAll`, duplicates removed.
     | Union of left: LogicalPlan * right: LogicalPlan * isAll: bool
     | WithRowIndex of input: LogicalPlan * name: string * offset: uint32 option
     | Rename of input: LogicalPlan * existingNames: string list * newNames: string list

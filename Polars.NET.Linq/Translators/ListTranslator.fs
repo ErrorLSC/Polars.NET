@@ -198,7 +198,7 @@ module internal ListTranslator =
         | ListLen target -> t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListLen, [ t ], LogicalTypes.UInt32))
         | ListContains(target, itemExpr) ->
             match t2 target itemExpr with
-            | Some(t, item) -> Some(ScalarExpr.Function(ScalarFunction.ListContains, [ t; item ], LogicalTypes.Boolean))
+            | Some(t, item) -> Some(ScalarExpr.Function(ScalarFunction.ListContains(NullSemantics.nullKeysMatch ()), [ t; item ], LogicalTypes.Boolean))
             | None ->
                 // Check if target is an in-memory collection (IN predicate: item IN target)
                 option {
@@ -210,7 +210,7 @@ module internal ListTranslator =
                     | :? System.Collections.IEnumerable as coll when coll.GetType() <> typeof<string> ->
                         let elemType = PolarsTypeHelper.TryGetEnumerableElementType(coll.GetType())
                         if not (isNull elemType) && PolarsTypeHelper.IsScalarType elemType then
-                            return ScalarExpr.InList(itemS, InListSource.Collection(coll, elemType), false)
+                            return NullSemantics.inCollection itemS coll elemType
                         else
                             return! None
                     | _ -> return! None

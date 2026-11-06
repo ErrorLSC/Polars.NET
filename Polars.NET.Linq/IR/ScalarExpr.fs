@@ -183,7 +183,7 @@ module ScalarExprOps =
             | _ -> Set.empty
         | ScalarExpr.Alias(inner, _) -> collectColumns inner
         | ScalarExpr.Udf(_, args, _, _) -> args |> List.map collectColumns |> Set.unionMany
-        | ScalarExpr.InList(target, _, _) -> collectColumns target
+        | ScalarExpr.InList(target, _, _, _) -> collectColumns target
         | ScalarExpr.EnumConvert(_, inner, _) -> collectColumns inner
 
     /// Checks whether an expression contains an aggregate function.
@@ -208,7 +208,7 @@ module ScalarExprOps =
             | UdfInvoker.GroupSingleBatch _
             | UdfInvoker.GroupMultiBatch _ -> true
             | _ -> args |> List.exists containsAggregation
-        | ScalarExpr.InList(target, _, _) -> containsAggregation target
+        | ScalarExpr.InList(target, _, _, _) -> containsAggregation target
         | _ -> false
 
     /// Checks whether an expression embeds a subquery.
@@ -236,7 +236,7 @@ module ScalarExprOps =
         | ScalarExpr.Slice(target, _, _) -> containsSubquery target
         | ScalarExpr.Alias(inner, _) -> containsSubquery inner
         | ScalarExpr.Udf(_, args, _, _) -> args |> List.exists containsSubquery
-        | ScalarExpr.InList(target, _, _) -> containsSubquery target
+        | ScalarExpr.InList(target, _, _, _) -> containsSubquery target
         | _ -> false
 
     /// Checks whether an expression embeds a window expression.
@@ -259,7 +259,7 @@ module ScalarExprOps =
         | ScalarExpr.Slice(target, _, _) -> containsWindow target
         | ScalarExpr.Alias(inner, _) -> containsWindow inner
         | ScalarExpr.Udf(_, args, _, _) -> args |> List.exists containsWindow
-        | ScalarExpr.InList(target, _, _) -> containsWindow target
+        | ScalarExpr.InList(target, _, _, _) -> containsWindow target
         | _ -> false
 
     /// Functions whose value for a row depends on the other rows of the column (series and group modifiers).
@@ -307,7 +307,7 @@ module ScalarExprOps =
         | ScalarExpr.EnumConvert(_, inner, _)
         | ScalarExpr.Alias(inner, _)
         | ScalarExpr.Slice(inner, _, _)
-        | ScalarExpr.InList(inner, _, _) -> dependsViaFunction inner
+        | ScalarExpr.InList(inner, _, _, _) -> dependsViaFunction inner
         | ScalarExpr.SortBy(inner, orderBy) ->
             dependsViaFunction inner || orderBy |> List.exists (fun o -> dependsViaFunction o.Expr)
         | ScalarExpr.Conditional(test, ifTrue, ifFalse) ->
@@ -367,8 +367,8 @@ module ScalarExprOps =
         | ScalarExpr.Alias(inner, name) -> ScalarExpr.Alias(substitute subst inner, name)
         | ScalarExpr.Udf(name, args, ret, inv) ->
             ScalarExpr.Udf(name, args |> List.map (substitute subst), ret, inv)
-        | ScalarExpr.InList(target, src, neg) ->
-            ScalarExpr.InList(substitute subst target, src, neg)
+        | ScalarExpr.InList(target, src, neg, nullsEqual) ->
+            ScalarExpr.InList(substitute subst target, src, neg, nullsEqual)
         | ScalarExpr.EnumConvert(conversion, inner, mapping) ->
             ScalarExpr.EnumConvert(conversion, substitute subst inner, mapping)
 

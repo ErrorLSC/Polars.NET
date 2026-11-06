@@ -86,4 +86,19 @@ public class LinqRelationalNullsTests
 
         Assert.Equal([1L, 4L], EqualIds(df));
     }
+
+    [Fact]
+    public void Contains_Over_A_Collection_Is_Sql_In()
+    {
+        using var df = DataFrame.From(Rows);
+        string?[] withNull = ["x", null];
+        using (Pl.Config.SetUseRelationalNulls(true).BeginScope())
+        {
+            var q = df.AsQueryable<RnRow>();
+            // A IN ('x', NULL): true for 'x', null otherwise; NOT IN is never true.
+            Assert.Equal([1L, 2L], q.Where(x => withNull.Contains(x.A)).Select(x => x.Id).ToList());
+            Assert.Empty(q.Where(x => !withNull.Contains(x.A)).Select(x => x.Id).ToList());
+            Assert.Equal([true, true, null, null], q.Select(x => (bool?)withNull.Contains(x.A)).ToList());
+        }
+    }
 }

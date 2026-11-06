@@ -36,12 +36,15 @@ public class LinqCompilationScopeTests
         scope.RecordUdf("a");
         scope.FallbackReason = Microsoft.FSharp.Core.FSharpOption<string>.Some("outer reason");
 
-        scope.Absorb(Microsoft.FSharp.Core.FSharpOption<string>.Some("nested reason"), Microsoft.FSharp.Collections.ListModule.OfArray(["b", "a"]));
+        scope.Absorb(Microsoft.FSharp.Core.FSharpOption<string>.Some("nested reason"), Microsoft.FSharp.Collections.ListModule.OfArray(["b", "a"]), false);
         Assert.Equal(["a", "b"], scope.Udfs);
         Assert.Equal("nested reason", scope.FallbackReason!.Value);
 
-        scope.Absorb(null, Microsoft.FSharp.Collections.FSharpList<string>.Empty);
+        Assert.False(scope.EvaluatedAtCompile);
+
+        scope.Absorb(null, Microsoft.FSharp.Collections.FSharpList<string>.Empty, true);
         Assert.Equal("nested reason", scope.FallbackReason!.Value);
+        Assert.True(scope.EvaluatedAtCompile);
     }
 
     [Fact]

@@ -7,6 +7,8 @@ open System
 type internal IBackendCapabilities =
     /// Whether the backend's native regex engine can compile the pattern (inline flags already applied).
     abstract IsRegexPatternSupported: pattern: string -> bool
+    /// Whether the backend can evaluate ScalarFunction.AssertCount (fail the query while it runs).
+    abstract SupportsAssertions: bool
 
 /// Binds backend-native runtime objects (frames, compiled queryables) as opaque table sources.
 type internal ISourceBinder =
@@ -44,6 +46,10 @@ type internal CompilationScope private (backend: IQueryBackend, enclosing: Compi
     /// being translated, so that every access splits into the same number of parts.
     member val SplitIndexHints: Map<string * string, int> option = None with get, set
 
+    /// Whether translation evaluated part of the query against its data (an uncorrelated subquery folded
+    /// into a constant), which ties the result to the data read at compile time.
+    member val EvaluatedAtCompile = false with get, set
+
     /// UDFs pushed down to the backend, in the order first recorded.
     member _.Udfs: string list = List.ofSeq udfs
 
@@ -53,8 +59,9 @@ type internal CompilationScope private (backend: IQueryBackend, enclosing: Compi
 
     /// Takes the diagnostics of a compilation nested in this one; its fallback reason, when it has one,
     /// is the more specific.
-    member this.Absorb(fallbackReason: string option, nestedUdfs: string list) =
+    member this.Absorb(fallbackReason: string option, nestedUdfs: string list, evaluatedAtCompile: bool) =
         this.FallbackReason <- fallbackReason |> Option.orElse this.FallbackReason
+        this.EvaluatedAtCompile <- this.EvaluatedAtCompile || evaluatedAtCompile
         for udf in nestedUdfs do
             this.RecordUdf udf
 

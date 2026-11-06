@@ -177,6 +177,9 @@ internal static class ErrorHelper
             NativeBindings.pl_free_error_msg(msgPtr);
         }
 
+        if (ManagedErrorRelay.TryTake(msg) is { } relayed)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(relayed);
+
         throw new PolarsException(msg);
     }
 }

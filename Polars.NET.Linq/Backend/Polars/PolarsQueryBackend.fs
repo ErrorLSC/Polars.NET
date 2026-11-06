@@ -12,6 +12,8 @@ type internal PolarsQueryBackend private () =
 
     interface IBackendCapabilities with
         member _.IsRegexPatternSupported(pattern: string) = PolarsWrapper.RegexIsValid pattern
+        // The check runs as a managed callback, which DisallowUdfPushdown rules out.
+        member _.SupportsAssertions = not Polars.NET.Core.Config.CoreConfig.DisallowUdfPushdown
 
     interface ISourceBinder with
         member _.TryBindExternalSource(value: obj) = PolarsObjectConverter.tryBindExternalSource value

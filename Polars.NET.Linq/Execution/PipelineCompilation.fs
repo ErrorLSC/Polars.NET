@@ -66,6 +66,7 @@ module internal PipelineCompilation =
                         Stages = stages
                         FallbackDiagnostic = scope.FallbackReason
                         Udfs = scope.Udfs
+                        EvaluatedAtCompile = scope.EvaluatedAtCompile
                     }
 
                 probe |> Option.iter (fun p -> QueryPlanCache.Offer(p, pipeline, isGrouping))
@@ -73,6 +74,6 @@ module internal PipelineCompilation =
 
         if mergeDiagnostics then
             CompilationScope.TryCurrent
-            |> Option.iter (fun outer -> outer.Absorb(pipeline.FallbackDiagnostic, pipeline.Udfs))
+            |> Option.iter (fun outer -> outer.Absorb(pipeline.FallbackDiagnostic, pipeline.Udfs, pipeline.EvaluatedAtCompile))
 
         pipeline

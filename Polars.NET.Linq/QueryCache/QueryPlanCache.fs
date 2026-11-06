@@ -17,6 +17,9 @@ type internal CompiledPipeline =
         Stages: LinqStage list
         FallbackDiagnostic: string option
         Udfs: string list
+        /// Whether translation ran part of the query (a subquery folded into a constant) against the data
+        /// it read then. Such a pipeline is not cached: a hit would bind other tables to the folded value.
+        EvaluatedAtCompile: bool
     }
 
 /// How one queryable root of an expression enters a pipeline's identity. The shape key tells roots apart
@@ -356,7 +359,11 @@ type QueryPlanCache private () =
             || isGrouping
             || pipeline.Stages |> List.exists LinqStageTraits.isPostCollect
 
-        if slotRoots |> Array.forall Option.isSome && not (probe.RootsInLambdas && runsCompiledDelegates) then
+        if
+            slotRoots |> Array.forall Option.isSome
+            && not (probe.RootsInLambdas && runsCompiledDelegates)
+            && not pipeline.EvaluatedAtCompile
+        then
             QueryPlanCache.Admit
                 {
                     Key = probe.Key

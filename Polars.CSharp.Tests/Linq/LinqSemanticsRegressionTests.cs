@@ -558,4 +558,150 @@ public class LinqSemanticsRegressionTests
         Assert.False(IsFullFallback(query));
         Assert.Equal(expected, query.ToList());
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // .NET string building reads null as the empty string (String.Concat / Format / Join), and Contains over
+    // an in-memory collection matches a null item to a null element.
+    // ---------------------------------------------------------------------------------------------
+
+    public class Strs
+    {
+        public long Id { get; set; }
+        public string? A { get; set; }
+        public string? B { get; set; }
+        public long? N { get; set; }
+        public List<string?> Tags { get; set; } = [];
+    }
+
+    private static readonly Strs[] StrRows =
+    [
+        new() { Id = 1, A = "x", B = null, N = 5, Tags = ["a", null, "b"] },
+        new() { Id = 2, A = null, B = "y", N = null, Tags = ["c"] },
+        new() { Id = 3, A = null, B = null, N = null, Tags = [null] },
+    ];
+
+    [Fact]
+    public void String_Concatenation_Reads_Null_As_Empty()
+    {
+        using var df = DataFrame.From(StrRows);
+        var query = df.AsQueryable<Strs>().Select(x => new
+        {
+            plus = x.A + x.B,
+            mixed = x.A + "-" + x.N,
+            concat = string.Concat(x.A, x.B),
+            format = string.Format("{0}|{1}", x.A, x.B),
+            interpolated = $"{x.A}:{x.N}",
+            joinArgs = string.Join(",", new[] { x.A, x.B }),
+            joinList = string.Join(",", x.Tags),
+        });
+        var expected = StrRows.Select(x => new
+        {
+            plus = x.A + x.B,
+            mixed = x.A + "-" + x.N,
+            concat = string.Concat(x.A, x.B),
+            format = string.Format("{0}|{1}", x.A, x.B),
+            interpolated = $"{x.A}:{x.N}",
+            joinArgs = string.Join(",", new[] { x.A, x.B }),
+            joinList = string.Join(",", x.Tags),
+        });
+
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
+    public void Contains_Over_A_Collection_Matches_Null_To_Null()
+    {
+        using var df = DataFrame.From(StrRows);
+        string?[] withNull = ["x", null];
+        string?[] withoutNull = ["x"];
+        var q = df.AsQueryable<Strs>();
+
+        Assert.Equal(StrRows.Where(x => withNull.Contains(x.A)).Select(x => x.Id), q.Where(x => withNull.Contains(x.A)).Select(x => x.Id).ToList());
+        Assert.Equal(StrRows.Where(x => !withNull.Contains(x.A)).Select(x => x.Id), q.Where(x => !withNull.Contains(x.A)).Select(x => x.Id).ToList());
+        Assert.Equal(StrRows.Where(x => !withoutNull.Contains(x.A)).Select(x => x.Id), q.Where(x => !withoutNull.Contains(x.A)).Select(x => x.Id).ToList());
+        Assert.Equal(StrRows.Select(x => x.Tags.Contains(null)), q.Select(x => x.Tags.Contains(null)).ToList());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Uncorrelated First / Single / ElementAt run inside the plan; a wrong row count raises LINQ's exception
+    // while the query runs (not while it compiles), and OrDefault yields default(T).
+    // ---------------------------------------------------------------------------------------------
+
+    private static Exception? Caught(Action action)
+    {
+        try { action(); return null; }
+        catch (Exception e) { return e; }
+    }
+
+    private static void AssertSameFailure(Action linqToObjects, Action polars)
+    {
+        var expected = Caught(linqToObjects);
+        var actual = Caught(polars);
+        Assert.NotNull(expected);
+        Assert.NotNull(actual);
+        Assert.IsType(expected!.GetType(), actual);
+        Assert.Equal(expected.Message, actual!.Message);
+    }
+
+    [Fact]
+    public void Single_First_And_ElementAt_In_A_Filter_Are_Plan_Joins()
+    {
+        using var f = DataFrame.From(Facts);
+        using var o = DataFrame.From(Others);
+        var others = o.AsQueryable<Kv>();
+        var single = f.AsQueryable<Kv>().Where(x => x.V > others.Single(y => y.K == 8).V).Select(x => x.K);
+        var first = f.AsQueryable<Kv>().Where(x => x.V < others.OrderBy(y => y.V).First().V).Select(x => x.K);
+        var elementAt = f.AsQueryable<Kv>().Where(x => x.V < others.Select(y => y.V).ElementAt(1)).Select(x => x.K);
+
+        AssertScalarIsPlanned(single);
+        AssertScalarIsPlanned(first);
+        AssertScalarIsPlanned(elementAt);
+        Assert.Equal(Facts.Where(x => x.V > Others.Single(y => y.K == 8).V).Select(x => x.K), single.ToList());
+        Assert.Equal(Facts.Where(x => x.V < Others.OrderBy(y => y.V).First().V).Select(x => x.K), first.ToList());
+        Assert.Equal(Facts.Where(x => x.V < Others.Select(y => y.V).ElementAt(1)).Select(x => x.K), elementAt.ToList());
+    }
+
+    [Fact]
+    public void Wrong_Row_Count_Raises_The_Linq_Exception_When_The_Query_Runs()
+    {
+        using var f = DataFrame.From(Facts);
+        using var o = DataFrame.From(Others);
+        var others = o.AsQueryable<Kv>();
+        var q = f.AsQueryable<Kv>();
+
+        var none = q.Where(x => x.V > others.Single(y => y.K == 99).V).Select(x => x.K);
+        var many = q.Where(x => x.V > others.Single(y => y.K > 7).V).Select(x => x.K);
+        var manyNoPredicate = q.Where(x => x.V > others.Select(y => y.V).Single()).Select(x => x.K);
+        var firstNone = q.Where(x => x.V > others.First(y => y.K == 99).V).Select(x => x.K);
+        var orDefaultMany = q.Where(x => x.V > others.Select(y => y.V).SingleOrDefault()).Select(x => x.K);
+        var outOfRange = q.Where(x => x.V > others.Select(y => y.V).ElementAt(5)).Select(x => x.K);
+
+        // Compiling (Explain) does not run the subquery.
+        Assert.Contains("__subquery_agg_u", LogicalPlanOf(none));
+
+        AssertSameFailure(() => Facts.Where(x => x.V > Others.Single(y => y.K == 99).V).ToList(), () => none.ToList());
+        AssertSameFailure(() => Facts.Where(x => x.V > Others.Single(y => y.K > 7).V).ToList(), () => many.ToList());
+        AssertSameFailure(() => Facts.Where(x => x.V > Others.Select(y => y.V).Single()).ToList(), () => manyNoPredicate.ToList());
+        AssertSameFailure(() => Facts.Where(x => x.V > Others.First(y => y.K == 99).V).ToList(), () => firstNone.ToList());
+        AssertSameFailure(() => Facts.Where(x => x.V > Others.Select(y => y.V).SingleOrDefault()).ToList(), () => orDefaultMany.ToList());
+        AssertSameFailure(() => Facts.Where(x => x.V > Others.Select(y => y.V).ElementAt(5)).ToList(), () => outOfRange.ToList());
+    }
+
+    [Fact]
+    public void OrDefault_Over_No_Rows_Is_The_Default_Value()
+    {
+        using var f = DataFrame.From(Facts);
+        using var o = DataFrame.From(Others);
+        var others = o.AsQueryable<Kv>();
+        var q = f.AsQueryable<Kv>();
+
+        var first = q.Where(x => x.V > others.Where(y => y.K == 99).Select(y => y.V).FirstOrDefault()).Select(x => x.K);
+        var single = q.Where(x => x.V > others.Where(y => y.K == 99).Select(y => y.V).SingleOrDefault()).Select(x => x.K);
+        var elementAt = q.Where(x => x.V > others.Select(y => y.V).ElementAtOrDefault(7)).Select(x => x.K);
+
+        AssertScalarIsPlanned(first);
+        Assert.Equal(Facts.Where(x => x.V > Others.Where(y => y.K == 99).Select(y => y.V).FirstOrDefault()).Select(x => x.K), first.ToList());
+        Assert.Equal(Facts.Where(x => x.V > Others.Where(y => y.K == 99).Select(y => y.V).SingleOrDefault()).Select(x => x.K), single.ToList());
+        Assert.Equal(Facts.Where(x => x.V > Others.Select(y => y.V).ElementAtOrDefault(7)).Select(x => x.K), elementAt.ToList());
+    }
 }

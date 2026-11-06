@@ -640,4 +640,47 @@ public class QueryPlanCacheTests
         }
         Assert.Equal(2, QueryPlanCache.Count);
     }
+
+    private class CacheKv
+    {
+        public long K { get; set; }
+        public long V { get; set; }
+    }
+
+    private static List<long> AboveSingle(DataFrame facts, DataFrame others)
+    {
+        var o = others.AsQueryable<CacheKv>();
+        return facts.AsQueryable<CacheKv>().Where(x => x.V > o.Single(y => y.K == 7).V).Select(x => x.K).ToList();
+    }
+
+    private static List<long> InOtherKeys(DataFrame facts, DataFrame others)
+    {
+        var o = others.AsQueryable<CacheKv>();
+        return facts.AsQueryable<CacheKv>().Where(x => o.Where(y => y.V > 0).Select(y => y.K).ToList().Contains(x.K))
+            .Select(x => x.K).ToList();
+    }
+
+    // Single runs in the plan (a count assertion) unless UDF pushdown is disallowed: it is then evaluated
+    // while the query compiles, and that plan must not be reused for other tables.
+    [Theory]
+    [Trait("LINQ", "QueryPlanCache")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Subquery_Evaluated_At_Compile_Time_Is_Not_Reused_For_Other_Tables(bool disallowUdfs)
+    {
+        using var _ = Pl.Config.SetDisallowUdfPushdown(disallowUdfs).BeginScope();
+        QueryPlanCache.Clear();
+        using var facts = DataFrame.FromRows(new CacheKv[] { new() { K = 1, V = 10 }, new() { K = 2, V = 50 }, new() { K = 3, V = 90 } });
+        using var low = DataFrame.FromRows(new CacheKv[] { new() { K = 7, V = 20 }, new() { K = 1, V = 5 } });
+        using var high = DataFrame.FromRows(new CacheKv[] { new() { K = 7, V = 80 }, new() { K = 3, V = 5 } });
+
+        for (int i = 0; i < 3; i++)
+        {
+            Assert.Equal([2L, 3L], AboveSingle(facts, low));
+            Assert.Equal([1L], InOtherKeys(facts, low));
+        }
+
+        Assert.Equal([3L], AboveSingle(facts, high));
+        Assert.Equal([3L], InOtherKeys(facts, high));
+    }
 }

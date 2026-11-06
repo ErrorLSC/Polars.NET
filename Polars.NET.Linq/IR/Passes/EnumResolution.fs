@@ -160,7 +160,7 @@ module internal EnumResolution =
                 | other -> resolve other)
             |> ScalarExpr.Coalesce
 
-        | ScalarExpr.InList(inner, source, negated) ->
+        | ScalarExpr.InList(inner, source, negated, nullsEqual) ->
             let inner' = resolve inner
             let source' =
                 match source with
@@ -176,7 +176,7 @@ module internal EnumResolution =
                             numbers.SetValue(Convert.ChangeType(item, underlying), i))
                     InListSource.Collection(numbers, numbers.GetType().GetElementType())
                 | other -> other
-            ScalarExpr.InList(inner', source', negated)
+            ScalarExpr.InList(inner', source', negated, nullsEqual)
 
         | ScalarExpr.Column _
         | ScalarExpr.Literal _ -> expr

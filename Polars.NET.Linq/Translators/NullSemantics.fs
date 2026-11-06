@@ -19,9 +19,31 @@ module internal NullSemantics =
     /// True when comparisons follow relational (SQL) null semantics instead of C# semantics.
     let useRelationalNulls () = CoreConfig.UseRelationalNulls
 
-    /// Whether the joins that decorrelate a subquery (`Any(y => y.K == x.K)`, `Contains`, correlated aggregates)
-    /// match a null key to a null key: true under C# semantics, false under relational semantics.
-    let correlationNullsEqual () = not (useRelationalNulls ())
+    /// Whether a null key matches a null key in the joins that decorrelate a subquery (`Any(y => y.K == x.K)`,
+    /// `Contains` over a query, correlated aggregates) and in `Contains` over a list or an in-memory collection:
+    /// true under C# semantics, false under relational semantics.
+    let nullKeysMatch () = not (useRelationalNulls ())
+
+    /// `item IN collection` for an in-memory collection. Under C# semantics a null item is in a collection
+    /// holding null. Under relational semantics it is SQL IN: a null item gives null, and so does an item not
+    /// found in a collection holding null (`x IN (1, NULL)` is null for x = 2, which keeps NOT IN false).
+    let inCollection (item: ScalarExpr) (values: System.Collections.IEnumerable) (elementType: Type) : ScalarExpr =
+        if not (useRelationalNulls ()) then
+            ScalarExpr.InList(item, InListSource.Collection(values, elementType), false, true)
+        else
+            let all = values |> Seq.cast<obj> |> Seq.toArray
+            let nonNull = all |> Array.filter (fun v -> not (isNull v))
+
+            if nonNull.Length = all.Length then
+                ScalarExpr.InList(item, InListSource.Collection(values, elementType), false, false)
+            else
+                let typed = Array.CreateInstance(elementType, nonNull.Length)
+                nonNull |> Array.iteri (fun i v -> typed.SetValue(v, i))
+                ScalarExpr.Binary(
+                    BinaryOp.Or,
+                    ScalarExpr.InList(item, InListSource.Collection(typed, elementType), false, false),
+                    ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Boolean)
+                )
 
     /// True for a CLR type whose values can be null: a reference type or Nullable<T>.
     let isNullableClrType (t: Type) = not t.IsValueType || not (isNull (Nullable.GetUnderlyingType t))

@@ -311,7 +311,7 @@ module internal LogicalPlanOps =
             let argsStr = args |> List.map formatScalar |> String.concat ", "
             sprintf "UDF:%s(%s)" name argsStr
 
-        | ScalarExpr.InList(target, _, negated) ->
+        | ScalarExpr.InList(target, _, negated, _) ->
             let op = if negated then "NOT IN" else "IN"
             sprintf "(%s %s [...])" (formatScalar target) op
 

@@ -141,6 +141,7 @@ module internal SubqueryDecorrelator =
         try
             let lambda = Expression.Lambda<Func<obj>>(Expression.Convert(expr, typeof<obj>)).Compile()
             let resultVal = lambda.Invoke()
+            CompilationScope.TryCurrent |> Option.iter (fun scope -> scope.EvaluatedAtCompile <- true)
 
             if isNull resultVal then
                 Some(Expression.Constant(null, expr.Type) :> Expression)
@@ -713,8 +714,9 @@ module internal SubqueryDecorrelator =
                 ExprTranslator.tryTranslateToScalar ctx lam.Body |> Option.map (fun s -> LogicalPlan.Filter(acc, s)))) (Some plan)
 
     /// Lowers one uncorrelated scalar subquery (an aggregate, Any, or First/FirstOrDefault over a sequence) to a
-    /// one-row plan, returning the expression that replaces it (a reference to the plan's column). Single and
-    /// ElementAt are not lowered: they must fail on a wrong row count, which a plan cannot express.
+    /// one-row plan, returning the expression that replaces it (a reference to the plan's column). First, Single
+    /// and ElementAt fail on a wrong row count through ScalarFunction.AssertCount; a backend that cannot assert
+    /// leaves them to eager evaluation.
     let private tryLowerUncorrelatedScalar
         (resolveSequencePlan: Expression -> LogicalPlan option)
         (node: Expression)
@@ -724,21 +726,60 @@ module internal SubqueryDecorrelator =
             let rootSource, whereLams = unwrapWhere seqExpr
             resolveSequencePlan rootSource |> Option.bind (fun plan -> tryApplyWhereLambdas plan (whereLams @ extra))
 
-        let firstOf (mc: MethodCallExpression) =
-            let seqExpr, predOpt =
-                match mc.Object, mc.Arguments |> Seq.toList with
-                | null, [ s ] -> Some s, None
-                | null, [ s; CleanLambda p ] -> Some s, Some p
-                | t, [] when not (isNull t) -> Some t, None
-                | t, [ CleanLambda p ] when not (isNull t) -> Some t, Some p
+        // First / Single / ElementAt (and their OrDefault forms): the element (or its projection) of a one-row
+        // aggregate over the first rows, guarded by a count check where LINQ throws on a wrong count.
+        // `path` holds the members read from the element (`seq.Single(p).V`), applied after the projection.
+        let elementOf (mc: MethodCallExpression) (path: System.Reflection.MemberInfo list) =
+            let name = mc.Method.Name
+            let isOrDefault = name.EndsWith "OrDefault"
+            let baseName = if isOrDefault then name.Substring(0, name.Length - "OrDefault".Length) else name
+            let args = mc.Arguments |> Seq.toList
+            let seqExpr, predOpt, indexOpt =
+                match baseName, mc.Object, args with
+                | ("First" | "Single"), null, [ s ] -> Some s, None, None
+                | ("First" | "Single"), null, [ s; CleanLambda p ] -> Some s, Some p, None
+                | ("First" | "Single"), t, [] when not (isNull t) -> Some t, None, None
+                | ("First" | "Single"), t, [ CleanLambda p ] when not (isNull t) -> Some t, Some p, None
+                | "ElementAt", null, [ s; i ] when i.Type = typeof<int> ->
+                    match PartialEvaluator.tryEvaluate i with
+                    | Some(:? int as n) -> Some s, None, Some n
+                    | _ -> None, None, None
+                | _ -> None, None, None
+
+            let window, check =
+                let noElements = if predOpt.IsSome then "Sequence contains no matching element" else "Sequence contains no elements"
+                let manyElements = if predOpt.IsSome then "Sequence contains more than one matching element" else "Sequence contains more than one element"
+                let invalid msg = { Kind = QueryErrorKind.InvalidOperation; Message = msg }
+                let atLeastOne error = { Min = 1L; Max = None; TooFew = error; TooMany = error }
+                match baseName, indexOpt with
+                | "First", _ -> Some(0L, 1u), (if isOrDefault then None else Some(atLeastOne (invalid noElements)))
+                | "Single", _ ->
+                    Some(0L, 2u),
+                    Some { Min = (if isOrDefault then 0L else 1L); Max = Some 1L; TooFew = invalid noElements; TooMany = invalid manyElements }
+                | "ElementAt", Some n when n >= 0 ->
+                    // Enumerable.ElementAt raises the exception's default message.
+                    let outOfRange = { Kind = QueryErrorKind.ArgumentOutOfRange; Message = "" }
+                    Some(int64 n, 1u), (if isOrDefault then None else Some(atLeastOne outOfRange))
                 | _ -> None, None
-            seqExpr
-            |> Option.bind (fun s ->
+
+            match seqExpr, window with
+            | Some s, Some(offset, count) when check.IsNone || CompilationScope.Current.Backend.SupportsAssertions ->
                 let src, selOpt =
                     match ExpressionPatterns.unwrap s with
                     | MethodCall(mSel, null, [ src; CleanLambda selLam ]) when mSel.Name = "Select" -> src, Some selLam
                     | MethodCall(mSel, src, [ CleanLambda selLam ]) when mSel.Name = "Select" -> src, Some selLam
                     | other -> other, None
+                let selOpt =
+                    if path.IsEmpty then
+                        selOpt
+                    else
+                        let lam =
+                            selOpt
+                            |> Option.defaultWith (fun () ->
+                                let p = Expression.Parameter(mc.Type, "e")
+                                Expression.Lambda(p, p))
+                        let body = path |> List.fold (fun acc m -> Expression.MakeMemberAccess(acc, m) :> Expression) lam.Body
+                        Some(Expression.Lambda(body, lam.Parameters))
                 resolveFiltered src (Option.toList predOpt)
                 |> Option.bind (fun plan ->
                     let cols = (SchemaInference.inferPlanSchema plan).ColumnNames
@@ -749,12 +790,46 @@ module internal SubqueryDecorrelator =
                             ExprTranslator.tryTranslateToScalar (createContextForTypeWithCols p.Type cols p.Name) selLam.Body
                         | None when cols.Length = 1 && PolarsTypeHelper.IsScalarType mc.Type -> Some(ScalarExpr.Column cols.Head)
                         | None -> None
-                    valueOpt |> Option.map (fun v -> LogicalPlan.Limit(LogicalPlan.Project(plan, [ (colName, v) ]), 0L, 1u))))
+                    valueOpt
+                    |> Option.map (fun v ->
+                        let rows = LogicalPlan.Limit(LogicalPlan.Project(plan, [ (colName, v) ]), offset, count)
+                        let first = ScalarExpr.Aggregation(AggKind.First, Some(ScalarExpr.Column colName), false)
+                        // An OrDefault over no rows is default(T): null, or the zero of a non-nullable value type.
+                        // (A member read from a missing element throws in LINQ; here it propagates null.)
+                        let element =
+                            if isOrDefault && path.IsEmpty && mc.Type.IsValueType && isNull (Nullable.GetUnderlyingType mc.Type) then
+                                ScalarExpr.Coalesce [ first; ScalarExprOps.toLiteral (Activator.CreateInstance mc.Type) mc.Type ]
+                            else
+                                first
+                        let guarded =
+                            match check with
+                            | Some c ->
+                                ScalarExpr.Function(
+                                    ScalarFunction.AssertCount c,
+                                    [ ScalarExpr.Aggregation(AggKind.Len, None, false); element ],
+                                    LogicalType.Unknown
+                                )
+                            | None -> element
+                        LogicalPlan.Project(rows, [ (colName, guarded) ])))
+            | _ -> None
 
-        match ExpressionPatterns.unwrap node with
-        | :? MethodCallExpression as mc when mc.Method.Name = "First" || mc.Method.Name = "FirstOrDefault" ->
-            firstOf mc
+        let isElementOp (name: string) =
+            match name with
+            | "First" | "FirstOrDefault" | "Single" | "SingleOrDefault" | "ElementAt" | "ElementAtOrDefault" -> true
+            | _ -> false
+
+        let rec peelMembers (e: Expression) (path: System.Reflection.MemberInfo list) =
+            match ExpressionPatterns.unwrap e with
+            | :? MemberExpression as me when not (isNull me.Expression) -> peelMembers me.Expression (me.Member :: path)
+            | :? MethodCallExpression as mc when isElementOp mc.Method.Name -> Some(mc, path)
+            | _ -> None
+
+        match peelMembers node [] with
+        | Some(mc, path) ->
+            elementOf mc path
             |> Option.map (fun plan -> Expression.Parameter(node.Type, colName) :> Expression, { ColumnName = colName; Plan = plan })
+        | None ->
+        match ExpressionPatterns.unwrap node with
         | unwrapped ->
             match tryMatchAny unwrapped with
             | Some(innerSeq, predOpt) ->
@@ -777,8 +852,9 @@ module internal SubqueryDecorrelator =
                 | _ -> None
 
     /// Replaces the uncorrelated scalar subqueries of an expression by references to one-row plans, which the
-    /// caller attaches with `attachUncorrelatedScalars`. A subquery that cannot be lowered (Single, for instance)
-    /// is still evaluated eagerly into a constant. Returns None when the expression has no such subquery.
+    /// caller attaches with `attachUncorrelatedScalars`. A subquery that cannot be lowered (Single on a backend
+    /// without assertions, for instance) is still evaluated eagerly into a constant, which marks the compilation
+    /// as evaluated at compile time. Returns None when the expression has no such subquery.
     let internal tryRewriteUncorrelatedScalars
         (resolveSequencePlan: Expression -> LogicalPlan option)
         (outerNames: Set<string>)
@@ -889,7 +965,7 @@ module internal SubqueryDecorrelator =
 
                 if parts.ThetaConditions.IsEmpty then
                     let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
-                    return LogicalPlan.Join(outerPlan, rightPlan, keys.OuterKeys, keys.InnerKeys, joinHow, None, JoinKeyCoalescing.Default, NullSemantics.correlationNullsEqual ())
+                    return LogicalPlan.Join(outerPlan, rightPlan, keys.OuterKeys, keys.InnerKeys, joinHow, None, JoinKeyCoalescing.Default, NullSemantics.nullKeysMatch ())
                 else
                     let leftCols = outerCols |> Set.ofList
                     let originalCols = outerCols
@@ -915,7 +991,7 @@ module internal SubqueryDecorrelator =
                         if outerKeys.IsEmpty then
                             LogicalPlan.Join(withRidPlan, rightPlan, [], [], JoinKind.Cross, Some LinqConstants.DefaultRightSuffix, JoinKeyCoalescing.KeepBoth, false)
                         else
-                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some LinqConstants.DefaultRightSuffix, JoinKeyCoalescing.Default, NullSemantics.correlationNullsEqual ())
+                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some LinqConstants.DefaultRightSuffix, JoinKeyCoalescing.Default, NullSemantics.nullKeysMatch ())
 
                     let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
                     let selectedPlan = LogicalPlan.Project(filteredPlan, [ (ridCol, ScalarExpr.Column ridCol) ])
@@ -951,7 +1027,7 @@ module internal SubqueryDecorrelator =
                             None
 
                 let joinHow = if isNegated then JoinKind.Anti else JoinKind.Semi
-                return LogicalPlan.Join(outerPlan, rightPlan, [ leftKey ], [ rightKey ], joinHow, None, JoinKeyCoalescing.Default, NullSemantics.correlationNullsEqual ())
+                return LogicalPlan.Join(outerPlan, rightPlan, [ leftKey ], [ rightKey ], joinHow, None, JoinKeyCoalescing.Default, NullSemantics.nullKeysMatch ())
             }
 
         let rec tryDisjunctiveAny (disjExpr: Expression) : LogicalPlan option =
@@ -1000,7 +1076,7 @@ module internal SubqueryDecorrelator =
                     if allSameOuterKey then
                         let unionPlan = branchPlans |> List.reduce (fun acc p -> LogicalPlan.Union(acc, p, true))
                         let joinHow = if isNegated then JoinKind.Anti else JoinKind.Semi
-                        Some (LogicalPlan.Join(outerPlan, unionPlan, [ branchOuterKeys.[0] ], [ ScalarExpr.Column "__disj_any_key__" ], joinHow, None, JoinKeyCoalescing.Default, NullSemantics.correlationNullsEqual ()))
+                        Some (LogicalPlan.Join(outerPlan, unionPlan, [ branchOuterKeys.[0] ], [ ScalarExpr.Column "__disj_any_key__" ], joinHow, None, JoinKeyCoalescing.Default, NullSemantics.nullKeysMatch ()))
                     else
                         None
                 else
@@ -1152,7 +1228,7 @@ module internal SubqueryDecorrelator =
 
                     let! cmpScalar = OperatorAndUdfTranslator.tryTranslateBinary effectiveOp outerSideScalar scaledAggScalar
 
-                    let joinedPlan = LogicalPlan.Join(outerPlan, groupedPlan, keys.OuterKeys, keys.InnerKeys, JoinKind.Left, None, JoinKeyCoalescing.Default, NullSemantics.correlationNullsEqual ())
+                    let joinedPlan = LogicalPlan.Join(outerPlan, groupedPlan, keys.OuterKeys, keys.InnerKeys, JoinKind.Left, None, JoinKeyCoalescing.Default, NullSemantics.nullKeysMatch ())
                     let filterPlan = LogicalPlan.Filter(joinedPlan, cmpScalar)
                     let originalCols = (SchemaInference.inferPlanSchema outerPlan).ColumnNames
                     let restorePlan =
@@ -1209,7 +1285,7 @@ module internal SubqueryDecorrelator =
                         if outerKeys.IsEmpty then
                             LogicalPlan.Join(withRidPlan, rightPlan, [], [], JoinKind.Cross, Some rightSuffix, JoinKeyCoalescing.KeepBoth, false)
                         else
-                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some rightSuffix, JoinKeyCoalescing.Default, NullSemantics.correlationNullsEqual ())
+                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some rightSuffix, JoinKeyCoalescing.Default, NullSemantics.nullKeysMatch ())
 
                     let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
                     let groupedPlan =
@@ -1671,7 +1747,7 @@ module internal SubqueryDecorrelator =
                                     JoinKind.Left,
                                     None,
                                     JoinKeyCoalescing.Default,
-                                    NullSemantics.correlationNullsEqual ()
+                                    NullSemantics.nullKeysMatch ()
                                 )
 
                             let fillNullCols = buildFillNullCols assignments
@@ -1734,7 +1810,7 @@ module internal SubqueryDecorrelator =
                                         JoinKind.Inner,
                                         Some rightSuffix,
                                         JoinKeyCoalescing.Default,
-                                        NullSemantics.correlationNullsEqual ()
+                                        NullSemantics.nullKeysMatch ()
                                     )
 
                             let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
