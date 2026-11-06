@@ -78,14 +78,23 @@ public abstract unsafe class ColumnAccessor : IDisposable
 
     protected TVal* BindPrimitiveBuffer<TVal>(IArrowArray array, int bufferIndex = 1) where TVal : unmanaged
     {
+        byte* ptr = BindRawBuffer(array, bufferIndex);
+        return ptr != null ? (TVal*)ptr + array.Offset : null;
+    }
+
+    /// <summary>
+    /// Binds the null bitmap and returns the start of the value buffer WITHOUT applying the array offset.
+    /// Used for bit-packed buffers (Boolean), where the offset is in bits and must be applied per index.
+    /// </summary>
+    protected byte* BindRawBuffer(IArrowArray array, int bufferIndex = 1)
+    {
         BindNullBitmap(array);
         if (array.Length == 0 || array.Data.Buffers.Length <= bufferIndex || array.Data.Buffers[bufferIndex].IsEmpty)
         {
             _valueBufferHandle.Dispose();
             return null;
         }
-        byte* ptr = GetBufferPointer(array.Data.Buffers[bufferIndex].Memory, ref _valueBufferHandle);
-        return ptr != null ? (TVal*)ptr + array.Offset : null;
+        return GetBufferPointer(array.Data.Buffers[bufferIndex].Memory, ref _valueBufferHandle);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -358,17 +367,23 @@ internal sealed class BinaryToGuidAccessor : TypedColumnAccessor<Guid>,
     Guid? ITypedAccessor<Guid?>.GetTypedValue(int index) => IsNull(index) ? null : GetTypedValue(index);
 }
 
-internal sealed class BooleanAccessor : TypedColumnAccessor<bool>,
+internal sealed unsafe class BooleanAccessor : TypedColumnAccessor<bool>,
     ITypedAccessor<bool>, ITypedAccessor<bool?>
 {
-    private BooleanArray? _array;
+    private byte* _bits;
     public override Type TargetType => typeof(bool);
-    public override void SetBatch(IArrowArray array) => _array = (BooleanArray)array;
-    public override bool IsNull(int index) => _array!.IsNull(index);
+    public override bool UsesFastNullBitmap => true;
+    public override void SetBatch(IArrowArray array) => _bits = BindRawBuffer(array);
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override bool GetTypedValue(int index) => _array!.GetValue(index)!.Value;
+    public override bool IsNull(int index) => IsNullFast(index);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override bool GetTypedValue(int index)
+    {
+        int bit = index + _offset;
+        return (_bits[bit >> 3] & (1 << (bit & 7))) != 0;
+    }
     bool ITypedAccessor<bool>.GetTypedValue(int index) => GetTypedValue(index);
-    bool? ITypedAccessor<bool?>.GetTypedValue(int index) => _array!.GetValue(index);
+    bool? ITypedAccessor<bool?>.GetTypedValue(int index) => IsNullFast(index) ? null : GetTypedValue(index);
 }
 
 internal sealed unsafe class Int8Accessor : TypedColumnAccessor<sbyte>,
@@ -1404,17 +1419,19 @@ internal sealed class BinaryAccessor : TypedColumnAccessor<byte[]>, IBinarySpanA
 
 // --- Magic Time Types ---
 
-internal sealed class Int64ToDateTimeAccessor : TypedColumnAccessor<DateTime>,
+internal sealed unsafe class Int64ToDateTimeAccessor : TypedColumnAccessor<DateTime>,
     ITypedAccessor<DateTime>, ITypedAccessor<DateTime?>, ITypedAccessor<DateTimeOffset>, ITypedAccessor<DateTimeOffset?>
 {
-    private Int64Array? _array;
+    private long* _ptr;
     public override Type TargetType => typeof(DateTime);
-    public override void SetBatch(IArrowArray array) => _array = (Int64Array)array;
-    public override bool IsNull(int index) => _array!.IsNull(index);
+    public override bool UsesFastNullBitmap => true;
+    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<long>((Int64Array)array);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override bool IsNull(int index) => IsNullFast(index);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override DateTime GetTypedValue(int index)
-        => DateTime.UnixEpoch.AddMicroseconds(_array!.Values[index]);
+        => DateTime.UnixEpoch.AddMicroseconds(_ptr[index]);
 
     DateTime ITypedAccessor<DateTime>.GetTypedValue(int index) => GetTypedValue(index);
     DateTimeOffset ITypedAccessor<DateTimeOffset>.GetTypedValue(int index) => new(GetTypedValue(index));
@@ -1423,30 +1440,32 @@ internal sealed class Int64ToDateTimeAccessor : TypedColumnAccessor<DateTime>,
     DateTimeOffset? ITypedAccessor<DateTimeOffset?>.GetTypedValue(int index) => IsNull(index) ? null : new DateTimeOffset(GetTypedValue(index));
 }
 
-internal sealed class Int64ToTimeSpanAccessor : TypedColumnAccessor<TimeSpan>,
+internal sealed unsafe class Int64ToTimeSpanAccessor : TypedColumnAccessor<TimeSpan>,
     ITypedAccessor<TimeSpan>, ITypedAccessor<TimeSpan?>, ITypedAccessor<long>, ITypedAccessor<long?>
 {
-    private Int64Array? _array;
+    private long* _ptr;
     public override Type TargetType => typeof(TimeSpan);
-    public override void SetBatch(IArrowArray array) => _array = (Int64Array)array;
-    public override bool IsNull(int index) => _array!.IsNull(index);
+    public override bool UsesFastNullBitmap => true;
+    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<long>((Int64Array)array);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override bool IsNull(int index) => IsNullFast(index);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override TimeSpan GetTypedValue(int index)
-        => new(_array!.Values[index] * 10);
+        => new(_ptr[index] * 10);
 
     TimeSpan ITypedAccessor<TimeSpan>.GetTypedValue(int index) => GetTypedValue(index);
-    long ITypedAccessor<long>.GetTypedValue(int index) => _array!.Values[index] * 10;
-    TimeSpan? ITypedAccessor<TimeSpan?>.GetTypedValue(int index) => IsNull(index) ? null : GetTypedValue(index);
-    long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNull(index) ? null : _array!.Values[index] * 10;
+    long ITypedAccessor<long>.GetTypedValue(int index) => _ptr[index] * 10;
+    TimeSpan? ITypedAccessor<TimeSpan?>.GetTypedValue(int index) => IsNullFast(index) ? null : GetTypedValue(index);
+    long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index] * 10;
 }
 
-internal sealed class TimestampAccessor : TypedColumnAccessor<DateTime>,
+internal sealed unsafe class TimestampAccessor : TypedColumnAccessor<DateTime>,
     ITypedAccessor<DateTime>, ITypedAccessor<DateTime?>,
     ITypedAccessor<DateTimeOffset>, ITypedAccessor<DateTimeOffset?>,
     ITypedAccessor<DateOnly>, ITypedAccessor<DateOnly?>
 {
-    private TimestampArray? _array;
+    private long* _ptr;
     private TimeUnit _unit;
     private bool _hasTimeZone;
     private TimeZoneInfo? _timeZoneInfo;
@@ -1458,11 +1477,13 @@ internal sealed class TimestampAccessor : TypedColumnAccessor<DateTime>,
     }
 
     public override Type TargetType => _targetType;
+    public override bool UsesFastNullBitmap => true;
 
     public override void SetBatch(IArrowArray array)
     {
-        _array = (TimestampArray)array;
-        var tsType = (TimestampType)_array.Data.DataType;
+        var tsArray = (TimestampArray)array;
+        _ptr = BindPrimitiveBuffer<long>(tsArray);
+        var tsType = (TimestampType)tsArray.Data.DataType;
         _unit = tsType.Unit;
         _hasTimeZone = !string.IsNullOrEmpty(tsType.Timezone);
         _timeZoneInfo = _hasTimeZone ? ResolveTimeZoneSafe(tsType.Timezone!) : null;
@@ -1494,12 +1515,13 @@ internal sealed class TimestampAccessor : TypedColumnAccessor<DateTime>,
         return null;
     }
 
-    public override bool IsNull(int index) => _array!.IsNull(index);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override bool IsNull(int index) => IsNullFast(index);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private long GetTicks(int index)
     {
-        long val = _array!.Values[index];
+        long val = _ptr[index];
         return _unit switch
         {
             TimeUnit.Nanosecond => val / 100L,
@@ -1548,11 +1570,11 @@ internal sealed class TimestampAccessor : TypedColumnAccessor<DateTime>,
     DateOnly? ITypedAccessor<DateOnly?>.GetTypedValue(int index) => IsNull(index) ? null : DateOnly.FromDateTime(GetTypedValue(index));
 }
 
-internal sealed class Date32ToDateOnlyAccessor : TypedColumnAccessor<DateOnly>,
+internal sealed unsafe class Date32ToDateOnlyAccessor : TypedColumnAccessor<DateOnly>,
     ITypedAccessor<DateOnly>, ITypedAccessor<DateTime>, ITypedAccessor<DateTimeOffset>,
     ITypedAccessor<DateOnly?>, ITypedAccessor<DateTime?>, ITypedAccessor<DateTimeOffset?>
 {
-    private Date32Array? _array;
+    private int* _ptr;
     private const int UnixEpochDayNumber = 719162;
     private readonly Type _targetType;
 
@@ -1562,12 +1584,14 @@ internal sealed class Date32ToDateOnlyAccessor : TypedColumnAccessor<DateOnly>,
     }
 
     public override Type TargetType => _targetType;
-    public override void SetBatch(IArrowArray array) => _array = (Date32Array)array;
-    public override bool IsNull(int index) => _array!.IsNull(index);
+    public override bool UsesFastNullBitmap => true;
+    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<int>((Date32Array)array);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override bool IsNull(int index) => IsNullFast(index);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override DateOnly GetTypedValue(int index)
-        => DateOnly.FromDayNumber(_array!.Values[index] + UnixEpochDayNumber);
+        => DateOnly.FromDayNumber(_ptr[index] + UnixEpochDayNumber);
 
     public override object GetValue(int index)
     {
@@ -1589,18 +1613,21 @@ internal sealed class Date32ToDateOnlyAccessor : TypedColumnAccessor<DateOnly>,
         => IsNull(index) ? null : new DateTimeOffset(GetTypedValue(index).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
 }
 
-internal sealed class Date64Accessor : TypedColumnAccessor<DateTime>,
+internal sealed unsafe class Date64Accessor : TypedColumnAccessor<DateTime>,
     ITypedAccessor<DateTime>, ITypedAccessor<DateTimeOffset>, ITypedAccessor<DateOnly>,
     ITypedAccessor<DateTime?>, ITypedAccessor<DateTimeOffset?>, ITypedAccessor<DateOnly?>
 {
-    private Date64Array? _array;
+    private long* _ptr;
     public override Type TargetType => typeof(DateTime);
-    public override void SetBatch(IArrowArray array) => _array = (Date64Array)array;
-    public override bool IsNull(int index) => _array!.IsNull(index);
+    public override bool UsesFastNullBitmap => true;
+    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<long>((Date64Array)array);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override bool IsNull(int index) => IsNullFast(index);
 
+    // Date64 = milliseconds since epoch; Arrow's GetDateTime returns DateTimeKind.Unspecified.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override DateTime GetTypedValue(int index)
-        => _array!.GetDateTime(index)!.Value;
+        => new(DateTime.UnixEpoch.Ticks + _ptr[index] * TimeSpan.TicksPerMillisecond, DateTimeKind.Unspecified);
 
     DateTime ITypedAccessor<DateTime>.GetTypedValue(int index) => GetTypedValue(index);
     DateTimeOffset ITypedAccessor<DateTimeOffset>.GetTypedValue(int index) => new(GetTypedValue(index));
@@ -1611,26 +1638,29 @@ internal sealed class Date64Accessor : TypedColumnAccessor<DateTime>,
     DateOnly? ITypedAccessor<DateOnly?>.GetTypedValue(int index) => IsNull(index) ? null : DateOnly.FromDateTime(GetTypedValue(index));
 }
 
-internal sealed class DurationAccessor : TypedColumnAccessor<TimeSpan>,
+internal sealed unsafe class DurationAccessor : TypedColumnAccessor<TimeSpan>,
     ITypedAccessor<TimeSpan>, ITypedAccessor<TimeSpan?>, ITypedAccessor<long>, ITypedAccessor<long?>
 {
-    private DurationArray? _array;
+    private long* _ptr;
     private TimeUnit _unit;
 
     public override Type TargetType => typeof(TimeSpan);
+    public override bool UsesFastNullBitmap => true;
 
     public override void SetBatch(IArrowArray array)
     {
-        _array = (DurationArray)array;
-        _unit = ((DurationType)_array.Data.DataType).Unit;
+        var durArray = (DurationArray)array;
+        _ptr = BindPrimitiveBuffer<long>(durArray);
+        _unit = ((DurationType)durArray.Data.DataType).Unit;
     }
 
-    public override bool IsNull(int index) => _array!.IsNull(index);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override bool IsNull(int index) => IsNullFast(index);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override TimeSpan GetTypedValue(int index)
     {
-        long val = _array!.Values[index];
+        long val = _ptr[index];
         long ticks = _unit switch
         {
             TimeUnit.Nanosecond => val / 100L,
@@ -1649,19 +1679,21 @@ internal sealed class DurationAccessor : TypedColumnAccessor<TimeSpan>,
     long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNull(index) ? null : GetTypedValue(index).Ticks;
 }
 
-internal sealed class Int64ToTimeOnlyAccessor : TypedColumnAccessor<TimeOnly>,
+internal sealed unsafe class Int64ToTimeOnlyAccessor : TypedColumnAccessor<TimeOnly>,
     ITypedAccessor<TimeOnly>, ITypedAccessor<TimeOnly?>,
     ITypedAccessor<TimeSpan>, ITypedAccessor<TimeSpan?>
 {
-    private Int64Array? _array;
+    private long* _ptr;
     public override Type TargetType => typeof(TimeOnly);
-    public override void SetBatch(IArrowArray array) => _array = (Int64Array)array;
-    public override bool IsNull(int index) => _array!.IsNull(index);
+    public override bool UsesFastNullBitmap => true;
+    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<long>((Int64Array)array);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override bool IsNull(int index) => IsNullFast(index);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override TimeOnly GetTypedValue(int index)
     {
-        long ticks = _array!.Values[index] * 10;
+        long ticks = _ptr[index] * 10;
         return new TimeOnly(ticks);
     }
 
@@ -1671,28 +1703,31 @@ internal sealed class Int64ToTimeOnlyAccessor : TypedColumnAccessor<TimeOnly>,
     TimeSpan? ITypedAccessor<TimeSpan?>.GetTypedValue(int index) => IsNull(index) ? null : GetTypedValue(index).ToTimeSpan();
 }
 
-internal sealed class Time32Accessor : TypedColumnAccessor<TimeOnly>,
+internal sealed unsafe class Time32Accessor : TypedColumnAccessor<TimeOnly>,
     ITypedAccessor<TimeOnly>, ITypedAccessor<TimeOnly?>,
     ITypedAccessor<TimeSpan>, ITypedAccessor<TimeSpan?>
 {
-    private Time32Array? _array;
+    private int* _ptr;
     private bool _isMillisecond;
 
     public override Type TargetType => typeof(TimeOnly);
+    public override bool UsesFastNullBitmap => true;
 
     public override void SetBatch(IArrowArray array)
     {
-        _array = (Time32Array)array;
-        var unit = ((Time32Type)_array.Data.DataType).Unit;
+        var t32Array = (Time32Array)array;
+        _ptr = BindPrimitiveBuffer<int>(t32Array);
+        var unit = ((Time32Type)t32Array.Data.DataType).Unit;
         _isMillisecond = unit == TimeUnit.Millisecond;
     }
 
-    public override bool IsNull(int index) => _array!.IsNull(index);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override bool IsNull(int index) => IsNullFast(index);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override TimeOnly GetTypedValue(int index)
     {
-        int val = _array!.Values[index];
+        int val = _ptr[index];
         long ticks = _isMillisecond ? (val * 10_000L) : (val * 10_000_000L);
         return new TimeOnly(ticks);
     }
@@ -1704,28 +1739,31 @@ internal sealed class Time32Accessor : TypedColumnAccessor<TimeOnly>,
     TimeSpan? ITypedAccessor<TimeSpan?>.GetTypedValue(int index) => IsNull(index) ? null : GetTypedValue(index).ToTimeSpan();
 }
 
-internal sealed class Time64Accessor : TypedColumnAccessor<TimeOnly>,
+internal sealed unsafe class Time64Accessor : TypedColumnAccessor<TimeOnly>,
     ITypedAccessor<TimeOnly>, ITypedAccessor<TimeOnly?>,
     ITypedAccessor<TimeSpan>, ITypedAccessor<TimeSpan?>
 {
-    private Time64Array? _array;
+    private long* _ptr;
     private bool _isNanosecond;
 
     public override Type TargetType => typeof(TimeOnly);
+    public override bool UsesFastNullBitmap => true;
 
     public override void SetBatch(IArrowArray array)
     {
-        _array = (Time64Array)array;
-        var unit = ((Time64Type)_array.Data.DataType).Unit;
+        var t64Array = (Time64Array)array;
+        _ptr = BindPrimitiveBuffer<long>(t64Array);
+        var unit = ((Time64Type)t64Array.Data.DataType).Unit;
         _isNanosecond = unit == TimeUnit.Nanosecond;
     }
 
-    public override bool IsNull(int index) => _array!.IsNull(index);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override bool IsNull(int index) => IsNullFast(index);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override TimeOnly GetTypedValue(int index)
     {
-        long val = _array!.Values[index];
+        long val = _ptr[index];
         long ticks = _isNanosecond ? (val / 100L) : (val * 10L);
         return new TimeOnly(ticks);
     }

@@ -1,15 +1,19 @@
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Microsoft.ML;
 using Microsoft.ML.Data;
+using Polars.NET.Core.Data;
 
 namespace Polars.NET.ML.DataView;
 
 /// <summary>
 /// A high-performance RowCursor that streams Apache Arrow RecordBatches directly into ML.NET.
 /// </summary>
+/// <remarks>
+/// Scalar columns are read through Polars.NET.Core's pointer-based column accessors: buffer pointers and the
+/// null bitmap are bound once per batch, so a getter call is a null-bit test plus a raw load. Each getter
+/// closure captures the concrete sealed accessor type, letting the JIT devirtualize and inline the read.
+/// </remarks>
 internal sealed class PolarsRowCursor : DataViewRowCursor
 {
     private readonly IEnumerator<RecordBatch> _batchEnumerator;
@@ -19,9 +23,12 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
     private int _batchRowIndex = -1;
     private readonly bool[] _activeColumns;
     private readonly int[] _neededOriginalIndices;
-    private readonly IArrowArray[] _currentArrays;
     private readonly IDisposable? _resourceToDispose;
     private readonly long _baseRowOffset;
+
+    // Per schema column (null for inactive or unsupported columns); rebound on every batch switch.
+    private readonly ColumnAccessor?[] _accessors;
+    private readonly VectorColumn?[] _vectors;
 
     // ==========================================
     // Metadata & State Properties
@@ -36,6 +43,86 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
     public override ValueGetter<DataViewRowId> GetIdGetter() =>
         (ref id) => id = new DataViewRowId((ulong)(_baseRowOffset + _position), 0);
 
+    public PolarsRowCursor(
+        DataViewSchema schema,
+        IEnumerable<RecordBatch> batches,
+        IEnumerable<DataViewSchema.Column>? columnsNeeded,
+        IDisposable? resourceToDispose = null,
+        long baseRowOffset = 0)
+    {
+        Schema = schema;
+        _batchEnumerator = batches.GetEnumerator();
+        _resourceToDispose = resourceToDispose;
+        _baseRowOffset = baseRowOffset;
+
+        _activeColumns = new bool[schema.Count];
+        _accessors = new ColumnAccessor?[schema.Count];
+        _vectors = new VectorColumn?[schema.Count];
+
+        var neededList = new List<int>();
+
+        if (columnsNeeded != null)
+        {
+            foreach (var col in columnsNeeded)
+            {
+                _activeColumns[col.Index] = true;
+                neededList.Add(col.Index);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < schema.Count; i++)
+            {
+                _activeColumns[i] = true;
+                neededList.Add(i);
+            }
+        }
+
+        _neededOriginalIndices = [.. neededList];
+
+        foreach (int idx in _neededOriginalIndices)
+        {
+            DataViewType type = schema[idx].Type;
+            if (type is VectorDataViewType vt)
+                _vectors[idx] ??= VectorColumn.Create(vt.ItemType.RawType);
+            else
+                _accessors[idx] ??= CreateScalarAccessor(type);
+        }
+    }
+
+    /// <summary>
+    /// The accessor is chosen from the DataViewType alone: <see cref="ArrowDataViewMapper"/> maps each supported
+    /// Arrow type to exactly one DataViewType, and every accessor here handles all Arrow encodings of its type.
+    /// </summary>
+    private static ColumnAccessor? CreateScalarAccessor(DataViewType type)
+    {
+        if (type is NumberDataViewType)
+        {
+            Type raw = type.RawType;
+            if (raw == typeof(sbyte)) return new Int8Accessor();
+            if (raw == typeof(short)) return new Int16Accessor();
+            if (raw == typeof(int)) return new Int32Accessor();
+            if (raw == typeof(long)) return new Int64Accessor();
+            if (raw == typeof(byte)) return new UInt8Accessor();
+            if (raw == typeof(ushort)) return new UInt16Accessor();
+            if (raw == typeof(uint)) return new UInt32Accessor();
+            if (raw == typeof(ulong)) return new UInt64Accessor();
+            if (raw == typeof(float)) return new FloatAccessor();
+            if (raw == typeof(double)) return new DoubleAccessor();
+            return null;
+        }
+
+        return type switch
+        {
+            BooleanDataViewType => new BooleanAccessor(),
+            TextDataViewType => new StringViewAccessor(),
+            DateTimeDataViewType => new TimestampAccessor(typeof(DateTime)),
+            TimeSpanDataViewType => new DurationAccessor(),
+            // KeyDataViewType (Arrow Dictionary) is not supported yet.
+            _ => null
+        };
+    }
+
     // ==========================================
     // Iteration Logic
     // ==========================================
@@ -45,8 +132,11 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
         {
             _batchEnumerator.Dispose();
             _currentBatch?.Dispose();
+            _currentBatch = null;
+            foreach (var accessor in _accessors) accessor?.Dispose();
             _resourceToDispose?.Dispose();
         }
+        base.Dispose(disposing);
     }
 
     public override bool MoveNext()
@@ -78,46 +168,11 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
             for (int i = 0; i < _neededOriginalIndices.Length; i++)
             {
                 int originalIdx = _neededOriginalIndices[i];
-                _currentArrays[originalIdx] = _currentBatch.Column(i);
+                IArrowArray array = _currentBatch.Column(i);
+                _accessors[originalIdx]?.SetBatch(array);
+                _vectors[originalIdx]?.SetBatch(array);
             }
         }
-    }
-
-    public PolarsRowCursor(
-        DataViewSchema schema,
-        IEnumerable<RecordBatch> batches,
-        IEnumerable<DataViewSchema.Column>? columnsNeeded,
-        IDisposable? resourceToDispose = null,
-        long baseRowOffset = 0)
-    {
-        Schema = schema;
-        _batchEnumerator = batches.GetEnumerator();
-        _resourceToDispose = resourceToDispose;
-        _baseRowOffset = baseRowOffset;
-
-        _activeColumns = new bool[schema.Count];
-        _currentArrays = new IArrowArray[schema.Count];
-
-        var neededList = new List<int>();
-
-        if (columnsNeeded != null)
-        {
-            foreach (var col in columnsNeeded)
-            {
-                _activeColumns[col.Index] = true;
-                neededList.Add(col.Index);
-            }
-        }
-        else
-        {
-            for (int i = 0; i < schema.Count; i++)
-            {
-                _activeColumns[i] = true;
-                neededList.Add(i);
-            }
-        }
-
-        _neededOriginalIndices = [.. neededList];
     }
 
     // ==========================================
@@ -125,498 +180,209 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
     // ==========================================
     public override ValueGetter<TValue> GetGetter<TValue>(DataViewSchema.Column column)
     {
-        Type type = typeof(TValue);
         int colIndex = column.Index;
+        if (!_activeColumns[colIndex])
+            throw new InvalidOperationException($"Column '{column.Name}' is not active in this cursor.");
 
-        // ------------------------------------------
-        // Integers
-        // ------------------------------------------
-        if (type == typeof(sbyte))
+        Type type = typeof(TValue);
+        if (type != column.Type.RawType)
+            throw new InvalidOperationException(
+                $"Invalid TValue '{type.Name}' for column '{column.Name}': expected '{column.Type.RawType.Name}'.");
+
+        if (_vectors[colIndex] is { } vector)
+            return vector.CreateGetter<TValue>(this);
+
+        // Each branch closes over the concrete sealed accessor so the read is devirtualized and inlined.
+        return _accessors[colIndex] switch
         {
-            void getter(ref sbyte value)
-            {
-                var array = (Int8Array)_currentArrays[colIndex];
-
-                if (array.IsNull(_batchRowIndex))
-                {
-                    value = 0;
-                }
-                else
-                {
-                    ref sbyte r = ref MemoryMarshal.GetReference(array.Values);
-                    value = Unsafe.Add(ref r, _batchRowIndex);
-                }
-            }
-            return (ValueGetter<TValue>)(object)(ValueGetter<sbyte>)getter;
-        }
-
-        if (type == typeof(short))
-        {
-            void getter(ref short value)
-            {
-                var array = (Int16Array)_currentArrays[colIndex];
-
-                if (array.IsNull(_batchRowIndex))
-                {
-                    value = 0;
-                }
-                else
-                {
-                    ref short r = ref MemoryMarshal.GetReference(array.Values);
-                    value = Unsafe.Add(ref r, _batchRowIndex);
-                }
-            }
-            return (ValueGetter<TValue>)(object)(ValueGetter<short>)getter;
-        }
-
-        if (type == typeof(int))
-        {
-            void getter(ref int value)
-            {
-                var array = (Int32Array)_currentArrays[colIndex];
-
-                if (array.IsNull(_batchRowIndex))
-                {
-                    value = 0;
-                }
-                else
-                {
-                    ref int r = ref MemoryMarshal.GetReference(array.Values);
-                    value = Unsafe.Add(ref r, _batchRowIndex);
-                }
-            }
-            return (ValueGetter<TValue>)(object)(ValueGetter<int>)getter;
-        }
-
-        if (type == typeof(long))
-        {
-            void getter(ref long value)
-            {
-                var array = (Int64Array)_currentArrays[colIndex];
-
-                if (array.IsNull(_batchRowIndex))
-                {
-                    value = 0;
-                }
-                else
-                {
-                    ref long r = ref MemoryMarshal.GetReference(array.Values);
-                    value = Unsafe.Add(ref r, _batchRowIndex);
-                }
-            }
-            return (ValueGetter<TValue>)(object)(ValueGetter<long>)getter;
-        }
-        // ------------------------------------------
-        // Unsigned Integers
-        // ------------------------------------------
-        if (type == typeof(byte))
-        {
-            void getter(ref byte value)
-            {
-                var array = (UInt8Array)_currentArrays[colIndex];
-
-                if (array.IsNull(_batchRowIndex))
-                {
-                    value = 0;
-                }
-                else
-                {
-                    ref byte r = ref MemoryMarshal.GetReference(array.Values);
-                    value = Unsafe.Add(ref r, _batchRowIndex);
-                }
-            }
-            return (ValueGetter<TValue>)(object)(ValueGetter<byte>)getter;
-        }
-
-        if (type == typeof(ushort))
-        {
-            void getter(ref ushort value)
-            {
-                var array = (UInt16Array)_currentArrays[colIndex];
-
-                if (array.IsNull(_batchRowIndex))
-                {
-                    value = 0;
-                }
-                else
-                {
-                    ref ushort r = ref MemoryMarshal.GetReference(array.Values);
-                    value = Unsafe.Add(ref r, _batchRowIndex);
-                }
-            }
-            return (ValueGetter<TValue>)(object)(ValueGetter<ushort>)getter;
-        }
-
-        if (type == typeof(uint))
-        {
-            void getter(ref uint value)
-            {
-                var array = (UInt32Array)_currentArrays[colIndex];
-
-                if (array.IsNull(_batchRowIndex))
-                {
-                    value = 0;
-                }
-                else
-                {
-                    ref uint r = ref MemoryMarshal.GetReference(array.Values);
-                    value = Unsafe.Add(ref r, _batchRowIndex);
-                }
-            }
-            return (ValueGetter<TValue>)(object)(ValueGetter<uint>)getter;
-        }
-
-        if (type == typeof(ulong))
-        {
-            void getter(ref ulong value)
-            {
-                var array = (UInt64Array)_currentArrays[colIndex];
-
-                if (array.IsNull(_batchRowIndex))
-                {
-                    value = 0;
-                }
-                else
-                {
-                    ref ulong r = ref MemoryMarshal.GetReference(array.Values);
-                    value = Unsafe.Add(ref r, _batchRowIndex);
-                }
-            }
-            return (ValueGetter<TValue>)(object)(ValueGetter<ulong>)getter;
-        }
-
-        // ------------------------------------------
-        // Floats
-        // ------------------------------------------
-        if (type == typeof(Half))
-        {
-            void getter(ref Half value)
-            {
-                var array = (HalfFloatArray)_currentArrays[colIndex];
-
-                if (array.IsNull(_batchRowIndex))
-                {
-                    value = Half.NaN;
-                }
-                else
-                {
-                    ref Half r = ref MemoryMarshal.GetReference(array.Values);
-                    value = Unsafe.Add(ref r, _batchRowIndex);
-                }
-            }
-            return (ValueGetter<TValue>)(object)(ValueGetter<Half>)getter;
-        }
-
-        if (type == typeof(float))
-        {
-            void getter(ref float value)
-            {
-                var array = (FloatArray)_currentArrays[colIndex];
-
-                if (array.IsNull(_batchRowIndex))
-                {
-                    value = float.NaN;
-                }
-                else
-                {
-                    ref float r = ref MemoryMarshal.GetReference(array.Values);
-                    value = Unsafe.Add(ref r, _batchRowIndex);
-                }
-            }
-            return (ValueGetter<TValue>)(object)(ValueGetter<float>)getter;
-        }
-
-        if (type == typeof(double))
-        {
-            void getter(ref double value)
-            {
-                var array = (DoubleArray)_currentArrays[colIndex];
-
-                if (array.IsNull(_batchRowIndex))
-                {
-                    value = double.NaN;
-                }
-                else
-                {
-                    ref double r = ref MemoryMarshal.GetReference(array.Values);
-                    value = Unsafe.Add(ref r, _batchRowIndex);
-                }
-            }
-            return (ValueGetter<TValue>)(object)(ValueGetter<double>)getter;
-        }
-        // ------------------------------------------
-        // Boolean
-        // ------------------------------------------
-        if (type == typeof(bool))
-        {
-            void getter(ref bool value)
-            {
-                var array = (BooleanArray)_currentArrays[colIndex];
-
-                if (array.IsNull(_batchRowIndex))
-                {
-                    value = false;
-                }
-                else
-                {
-                    ref byte r = ref MemoryMarshal.GetReference(array.ValueBuffer.Span);
-
-                    int absoluteIndex = _batchRowIndex + array.Offset;
-
-                    int byteOffset = absoluteIndex >> 3; // absoluteIndex / 8
-                    int bitOffset  = absoluteIndex & 7;  // absoluteIndex % 8
-
-                    byte b = Unsafe.Add(ref r, byteOffset);
-
-                    value = (b & (1 << bitOffset)) != 0;
-                }
-            }
-            return (ValueGetter<TValue>)(object)(ValueGetter<bool>)getter;
-        }
-        // ----------------------------------------------------------------
-        // String (Polars StringViewArray -> ML.NET ReadOnlyMemory<char>)
-        // ----------------------------------------------------------------
-
-        if (type == typeof(ReadOnlyMemory<char>))
-        {
-            char[] _arena = new char[65536];
-            int _arenaOffset = 0;
-
-            void getter(ref ReadOnlyMemory<char> value)
-            {
-                var array = (StringViewArray)_currentArrays[colIndex];
-
-                if (array.IsNull(_batchRowIndex))
-                {
-                    value = default;
-                    return;
-                }
-
-                ReadOnlySpan<byte> utf8Bytes = array.GetBytes(_batchRowIndex);
-
-                if (utf8Bytes.IsEmpty)
-                {
-                    value = ReadOnlyMemory<char>.Empty;
-                    return;
-                }
-
-                int maxChars = System.Text.Encoding.UTF8.GetMaxCharCount(utf8Bytes.Length);
-
-                if (_arenaOffset + maxChars > _arena.Length)
-                {
-                    int nextSize = Math.Max(65536, maxChars);
-                    _arena = new char[nextSize];
-                    _arenaOffset = 0;
-                }
-
-                int actualChars = System.Text.Encoding.UTF8.GetChars(
-                    utf8Bytes,
-                    _arena.AsSpan(_arenaOffset)
-                );
-
-                value = new ReadOnlyMemory<char>(_arena, _arenaOffset, actualChars);
-
-                _arenaOffset += actualChars;
-            }
-
-            return (ValueGetter<TValue>)(object)(ValueGetter<ReadOnlyMemory<char>>)getter;
-        }
-        // ------------------------------------------
-        // DateTime
-        // ------------------------------------------
-
-        if (type == typeof(DateTime))
-        {
-            const long UnixEpochTicks = 621355968000000000L;
-            const long TicksPerDay = 864000000000L;
-
-            void getter(ref DateTime value)
-            {
-                var columnArray = _currentArrays[colIndex];
-
-                if (columnArray.IsNull(_batchRowIndex))
-                {
-                    value = default;
-                    return;
-                }
-
-                if (columnArray is TimestampArray tsArray)
-                {
-                    ref long r = ref MemoryMarshal.GetReference(tsArray.Values);
-                    long val = Unsafe.Add(ref r, _batchRowIndex);
-
-                    var unit = ((TimestampType)tsArray.Data.DataType).Unit;
-                    long ticks = unit switch {
-                        TimeUnit.Nanosecond => val / 100,
-                        TimeUnit.Microsecond => val * 10,
-                        TimeUnit.Millisecond => val * 10_000,
-                        TimeUnit.Second => val * 10_000_000,
-                        _ => val
-                    };
-                    value = new DateTime(UnixEpochTicks + ticks);
-                }
-                else if (columnArray is Date32Array d32Array)
-                {
-                    ref int r = ref MemoryMarshal.GetReference(d32Array.Values);
-                    int val = Unsafe.Add(ref r, _batchRowIndex);
-
-                    value = new DateTime(UnixEpochTicks + (val * TicksPerDay));
-                }
-                else if (columnArray is Date64Array d64Array)
-                {
-                    ref long r = ref MemoryMarshal.GetReference(d64Array.Values);
-                    long val = Unsafe.Add(ref r, _batchRowIndex);
-
-                    value = new DateTime(UnixEpochTicks + (val * 10_000L));
-                }
-                else
-                {
-                    value = default;
-                }
-            }
-            return (ValueGetter<TValue>)(object)(ValueGetter<DateTime>)getter;
-        }
-
-        // ------------------------------------------
-        // TimeSpan
-        // ------------------------------------------
-        if (type == typeof(TimeSpan))
-        {
-            void getter(ref TimeSpan value)
-            {
-                var columnArray = _currentArrays[colIndex];
-
-                if (columnArray.IsNull(_batchRowIndex))
-                {
-                    value = default;
-                    return;
-                }
-
-                if (columnArray is DurationArray durArray)
-                {
-                    ref long r = ref MemoryMarshal.GetReference(durArray.Values);
-                    long val = Unsafe.Add(ref r, _batchRowIndex);
-
-                    var unit = ((DurationType)durArray.Data.DataType).Unit;
-                    long ticks = unit switch {
-                        TimeUnit.Nanosecond => val / 100,
-                        TimeUnit.Microsecond => val * 10,
-                        TimeUnit.Millisecond => val * 10_000,
-                        TimeUnit.Second => val * 10_000_000,
-                        _ => val
-                    };
-                    value = new TimeSpan(ticks);
-                }
-                else if (columnArray is Time64Array t64Array)
-                {
-                    ref long r = ref MemoryMarshal.GetReference(t64Array.Values);
-                    long val = Unsafe.Add(ref r, _batchRowIndex);
-
-                    var unit = ((Time64Type)t64Array.Data.DataType).Unit;
-                    long ticks = unit switch {
-                        TimeUnit.Nanosecond => val / 100,
-                        TimeUnit.Microsecond => val * 10,
-                        _ => val
-                    };
-                    value = new TimeSpan(ticks);
-                }
-                else if (columnArray is Time32Array t32Array)
-                {
-                    ref int r = ref MemoryMarshal.GetReference(t32Array.Values);
-                    int val = Unsafe.Add(ref r, _batchRowIndex);
-
-                    var unit = ((Time32Type)t32Array.Data.DataType).Unit;
-                    long ticks = unit switch {
-                        TimeUnit.Millisecond => val * 10_000,
-                        TimeUnit.Second => val * 10_000_000,
-                        _ => val
-                    };
-                    value = new TimeSpan(ticks);
-                }
-                else
-                {
-                    value = default;
-                }
-            }
-            return (ValueGetter<TValue>)(object)(ValueGetter<TimeSpan>)getter;
-        }
-
-        // ------------------------------------------
-        // Vector / Tensor
-        // ------------------------------------------
-
-        if (type == typeof(VBuffer<float>))
-        {
-            void getter(ref VBuffer<float> value)
-                => FillVBuffer(colIndex, ref value, array => ((FloatArray)array).Values);
-            return (ValueGetter<TValue>)(object)(ValueGetter<VBuffer<float>>)getter;
-        }
-
-        if (type == typeof(VBuffer<int>))
-        {
-            void getter(ref VBuffer<int> value)
-                => FillVBuffer(colIndex, ref value, array => ((Int32Array)array).Values);
-            return (ValueGetter<TValue>)(object)(ValueGetter<VBuffer<int>>)getter;
-        }
-
-        if (type == typeof(VBuffer<double>))
-        {
-            void getter(ref VBuffer<double> value)
-                => FillVBuffer(colIndex, ref value, array => ((DoubleArray)array).Values);
-            return (ValueGetter<TValue>)(object)(ValueGetter<VBuffer<double>>)getter;
-        }
-
-        if (type == typeof(VBuffer<short>))
-        {
-            void getter(ref VBuffer<short> value)
-                => FillVBuffer(colIndex, ref value, array => ((Int16Array)array).Values);
-            return (ValueGetter<TValue>)(object)(ValueGetter<VBuffer<short>>)getter;
-        }
-
-        throw new NotSupportedException($"Type '{type.Name}' is not currently supported for zero-copy column extraction.");
+            // ------------------------------------------
+            // Integers (null -> 0)
+            // ------------------------------------------
+            Int8Accessor acc => Cast<TValue, sbyte>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? (sbyte)0 : acc.GetTypedValue(i); }),
+            Int16Accessor acc => Cast<TValue, short>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? (short)0 : acc.GetTypedValue(i); }),
+            Int32Accessor acc => Cast<TValue, int>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? 0 : acc.GetTypedValue(i); }),
+            Int64Accessor acc => Cast<TValue, long>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? 0L : acc.GetTypedValue(i); }),
+            UInt8Accessor acc => Cast<TValue, byte>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? (byte)0 : acc.GetTypedValue(i); }),
+            UInt16Accessor acc => Cast<TValue, ushort>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? (ushort)0 : acc.GetTypedValue(i); }),
+            UInt32Accessor acc => Cast<TValue, uint>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? 0u : acc.GetTypedValue(i); }),
+            UInt64Accessor acc => Cast<TValue, ulong>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? 0UL : acc.GetTypedValue(i); }),
+            // ------------------------------------------
+            // Floats (null -> NaN, ML.NET's missing value)
+            // ------------------------------------------
+            FloatAccessor acc => Cast<TValue, float>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? float.NaN : acc.GetTypedValue(i); }),
+            DoubleAccessor acc => Cast<TValue, double>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? double.NaN : acc.GetTypedValue(i); }),
+            // ------------------------------------------
+            // Boolean (null -> false)
+            // ------------------------------------------
+            BooleanAccessor acc => Cast<TValue, bool>((ref v) => { int i = _batchRowIndex; v = !acc.IsNullFast(i) && acc.GetTypedValue(i); }),
+            // ------------------------------------------
+            // Temporal (null -> default)
+            // ------------------------------------------
+            TimestampAccessor acc => Cast<TValue, DateTime>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? default : acc.GetTypedValue(i); }),
+            DurationAccessor acc => Cast<TValue, TimeSpan>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? default : acc.GetTypedValue(i); }),
+            // ------------------------------------------
+            // String (UTF-8 view -> ReadOnlyMemory<char>)
+            // ------------------------------------------
+            StringViewAccessor acc => Cast<TValue, ReadOnlyMemory<char>>(CreateTextGetter(acc)),
+            _ => throw new NotSupportedException(
+                        $"Column '{column.Name}' of type '{column.Type}' is not currently supported for zero-copy column extraction."),
+        };
     }
 
-    private void FillVBuffer<TPrimitive>(
-        int colIndex,
-        ref VBuffer<TPrimitive> value,
-        SpanExtractor<TPrimitive> getValuesSpan)
-        where TPrimitive : unmanaged
+    private static ValueGetter<TValue> Cast<TValue, T>(ValueGetter<T> getter)
+        => (ValueGetter<TValue>)(object)getter;
+
+    /// <summary>
+    /// Decodes UTF-8 into a per-getter char arena. Each returned ReadOnlyMemory owns its slice: a full arena is
+    /// replaced rather than reused, so values handed out earlier stay valid.
+    /// </summary>
+    private ValueGetter<ReadOnlyMemory<char>> CreateTextGetter(StringViewAccessor acc)
     {
-        var columnArray = _currentArrays[colIndex];
+        const int ArenaSize = 65536;
+        char[] arena = new char[ArenaSize];
+        int arenaOffset = 0;
 
-        if (columnArray.IsNull(_batchRowIndex))
+        return (ref value) =>
         {
-            value = default;
-            return;
-        }
+            int i = _batchRowIndex;
+            if (acc.IsNullFast(i))
+            {
+                value = default;
+                return;
+            }
 
-        ReadOnlySpan<TPrimitive> span = default;
-        int length = 0;
+            ReadOnlySpan<byte> utf8Bytes = acc.GetBytesSpan(i);
+            if (utf8Bytes.IsEmpty)
+            {
+                value = ReadOnlyMemory<char>.Empty;
+                return;
+            }
 
-        if (columnArray is FixedSizeListArray fsList)
-        {
-            // Dense Tensor
-            length = ((FixedSizeListType)fsList.Data.DataType).ListSize;
-            ReadOnlySpan<TPrimitive> allValues = getValuesSpan(fsList.Values);
+            int maxChars = System.Text.Encoding.UTF8.GetMaxCharCount(utf8Bytes.Length);
+            if (arenaOffset + maxChars > arena.Length)
+            {
+                arena = new char[Math.Max(ArenaSize, maxChars)];
+                arenaOffset = 0;
+            }
 
-            int offset = _batchRowIndex * length;
-            span = allValues.Slice(offset, length);
-        }
-        else if (columnArray is ListArray list)
-        {
-            ref int offsetsRef = ref MemoryMarshal.GetReference(list.ValueOffsets);
-
-            int offset = Unsafe.Add(ref offsetsRef, _batchRowIndex);
-            length = Unsafe.Add(ref offsetsRef, _batchRowIndex + 1) - offset;
-
-            ReadOnlySpan<TPrimitive> allValues = getValuesSpan(list.Values);
-            span = allValues.Slice(offset, length);
-        }
-
-        var editor = VBufferEditor.Create(ref value, length);
-        span.CopyTo(editor.Values);
-        value = editor.Commit();
+            int actualChars = System.Text.Encoding.UTF8.GetChars(utf8Bytes, arena.AsSpan(arenaOffset));
+            value = new ReadOnlyMemory<char>(arena, arenaOffset, actualChars);
+            arenaOffset += actualChars;
+        };
     }
 
-    private delegate ReadOnlySpan<T> SpanExtractor<T>(IArrowArray array) where T : unmanaged;
+    // ==========================================
+    // Vector / Tensor
+    // ==========================================
+
+    private abstract class VectorColumn
+    {
+        public abstract void SetBatch(IArrowArray array);
+        public abstract ValueGetter<TValue> CreateGetter<TValue>(PolarsRowCursor cursor);
+
+        public static VectorColumn? Create(Type itemType)
+        {
+            if (itemType == typeof(float)) return new VectorColumn<float>(float.NaN);
+            if (itemType == typeof(double)) return new VectorColumn<double>(double.NaN);
+            if (itemType == typeof(sbyte)) return new VectorColumn<sbyte>(0);
+            if (itemType == typeof(short)) return new VectorColumn<short>(0);
+            if (itemType == typeof(int)) return new VectorColumn<int>(0);
+            if (itemType == typeof(long)) return new VectorColumn<long>(0);
+            if (itemType == typeof(byte)) return new VectorColumn<byte>(0);
+            if (itemType == typeof(ushort)) return new VectorColumn<ushort>(0);
+            if (itemType == typeof(uint)) return new VectorColumn<uint>(0);
+            if (itemType == typeof(ulong)) return new VectorColumn<ulong>(0);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Copies one list row into a dense VBuffer. Handles FixedSizeList (row start includes the list offset),
+    /// List and LargeList (offsets resolved through Arrow, which applies the list offset).
+    /// A null fixed-size row yields a full-length vector of the missing value (NaN for floats, 0 otherwise);
+    /// a null variable-length row yields an empty vector.
+    /// </summary>
+    private sealed class VectorColumn<T>(T missingValue) : VectorColumn where T : unmanaged, IEquatable<T>
+    {
+        private enum ListKind { FixedSize, List, LargeList }
+
+        private IArrowArray? _array;
+        private PrimitiveArray<T>? _child;
+        private ListKind _kind;
+        private int _fixedSize;
+        private int _fixedOffset;
+
+        public override void SetBatch(IArrowArray array)
+        {
+            _array = array;
+            switch (array)
+            {
+                case FixedSizeListArray fs:
+                    _kind = ListKind.FixedSize;
+                    _fixedSize = ((FixedSizeListType)fs.Data.DataType).ListSize;
+                    _fixedOffset = fs.Offset;
+                    _child = ChildValues(fs.Values);
+                    break;
+                case LargeListArray large:
+                    _kind = ListKind.LargeList;
+                    _child = ChildValues(large.Values);
+                    break;
+                case ListArray list:
+                    _kind = ListKind.List;
+                    _child = ChildValues(list.Values);
+                    break;
+                default:
+                    throw new NotSupportedException($"Arrow array '{array.GetType().Name}' cannot be read as a vector column.");
+            }
+        }
+
+        private static PrimitiveArray<T> ChildValues(IArrowArray child)
+            => child as PrimitiveArray<T>
+               ?? throw new NotSupportedException(
+                   $"Vector item array '{child.GetType().Name}' does not hold '{typeof(T).Name}' values.");
+
+        public override ValueGetter<TValue> CreateGetter<TValue>(PolarsRowCursor cursor)
+            => (ValueGetter<TValue>)(object)(ValueGetter<VBuffer<T>>)((ref value) => Fill(cursor._batchRowIndex, ref value));
+
+        private void Fill(int row, ref VBuffer<T> value)
+        {
+            IArrowArray array = _array!;
+            ReadOnlySpan<T> allValues = _child!.Values;
+
+            if (_kind == ListKind.FixedSize)
+            {
+                var fixedEditor = VBufferEditor.Create(ref value, _fixedSize);
+                if (array.IsNull(row))
+                    fixedEditor.Values.Fill(missingValue);
+                else
+                    allValues.Slice((_fixedOffset + row) * _fixedSize, _fixedSize).CopyTo(fixedEditor.Values);
+                value = fixedEditor.Commit();
+                return;
+            }
+
+            if (array.IsNull(row))
+            {
+                value = VBufferEditor.Create(ref value, 0).Commit();
+                return;
+            }
+
+            int start, length;
+            if (_kind == ListKind.LargeList)
+            {
+                ReadOnlySpan<long> offsets = ((LargeListArray)array).ValueOffsets;
+                start = checked((int)offsets[row]);
+                length = checked((int)(offsets[row + 1] - offsets[row]));
+            }
+            else
+            {
+                ReadOnlySpan<int> offsets = ((ListArray)array).ValueOffsets;
+                start = offsets[row];
+                length = offsets[row + 1] - start;
+            }
+
+            var editor = VBufferEditor.Create(ref value, length);
+            allValues.Slice(start, length).CopyTo(editor.Values);
+            value = editor.Commit();
+        }
+    }
 }
