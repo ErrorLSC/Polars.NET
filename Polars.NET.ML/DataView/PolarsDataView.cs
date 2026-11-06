@@ -1,4 +1,6 @@
+using Apache.Arrow;
 using Apache.Arrow.Ipc;
+using Apache.Arrow.Types;
 using Microsoft.ML;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
@@ -19,8 +21,10 @@ public sealed class PolarsDataView(IPolarsDataFrame df, bool enableMacroShuffle 
     /// <inheritdoc/>
     public bool CanShuffle { get; } = enableMacroShuffle;
 
+    private readonly (DataViewSchema Schema, DictionaryKeyColumn?[] KeyColumns) _schemaInfo = BuildSchema(df);
+
     /// <inheritdoc/>
-    public DataViewSchema Schema { get; } = BuildSchema(df);
+    public DataViewSchema Schema => _schemaInfo.Schema;
     /// <inheritdoc/>
     public long? GetRowCount() => _rowCount;
 
@@ -38,7 +42,7 @@ public sealed class PolarsDataView(IPolarsDataFrame df, bool enableMacroShuffle 
 
         var batches = new ArrowStreamEnumerable(arrowStream);
 
-        return new PolarsRowCursor(Schema, batches,columnsNeeded);
+        return new PolarsRowCursor(Schema, batches, columnsNeeded, _schemaInfo.KeyColumns);
     }
 
     /// <inheritdoc/>
@@ -76,7 +80,7 @@ public sealed class PolarsDataView(IPolarsDataFrame df, bool enableMacroShuffle 
                 IArrowArrayStream arrowStream = sliceDf.ToArrowStream(indices, seed);
                 var batches = new ArrowStreamEnumerable(arrowStream);
 
-                cursors[i] = new PolarsRowCursor(Schema, batches, columnsNeeded, sliceDf, baseRowOffset: sliceOffset);
+                cursors[i] = new PolarsRowCursor(Schema, batches, columnsNeeded, _schemaInfo.KeyColumns, sliceDf, baseRowOffset: sliceOffset);
                 createdCount++;
             }
 
@@ -92,16 +96,55 @@ public sealed class PolarsDataView(IPolarsDataFrame df, bool enableMacroShuffle 
         }
     }
 
-    private static DataViewSchema BuildSchema(IPolarsDataFrame df)
+    private static (DataViewSchema, DictionaryKeyColumn?[]) BuildSchema(IPolarsDataFrame df)
     {
-        var builder = new DataViewSchema.Builder();
-        IPolarsSchema schema = df.Schema;
-
-        foreach (var kvp in schema)
+        var columns = new List<(string Name, IArrowType ArrowType)>();
+        foreach (var kvp in df.Schema)
         {
-            builder.AddColumn(kvp.Key, ArrowDataViewMapper.GetDataViewType(kvp.Value.GetArrowType()));
+            columns.Add((kvp.Key, kvp.Value.GetArrowType()));
         }
 
-        return builder.ToSchema();
+        var keyColumns = new DictionaryKeyColumn?[columns.Count];
+        var dictIndices = new List<int>();
+        for (int i = 0; i < columns.Count; i++)
+        {
+            if (columns[i].ArrowType is DictionaryType)
+            {
+                keyColumns[i] = new DictionaryKeyColumn();
+                dictIndices.Add(i);
+            }
+        }
+
+        if (dictIndices.Count > 0)
+        {
+            CollectCategories(df, dictIndices, keyColumns);
+        }
+
+        var builder = new DataViewSchema.Builder();
+        for (int i = 0; i < columns.Count; i++)
+        {
+            if (keyColumns[i] is { } key)
+                builder.AddColumn(columns[i].Name, key.KeyType, key.BuildAnnotations());
+            else
+                builder.AddColumn(columns[i].Name, ArrowDataViewMapper.GetDataViewType(columns[i].ArrowType));
+        }
+
+        return (builder.ToSchema(), keyColumns);
+    }
+
+    /// <summary>
+    /// One pass over the dictionary columns only, reading each batch's dictionary (not its rows), to build the
+    /// global category table that fixes the key cardinality and the key of every category.
+    /// </summary>
+    private static void CollectCategories(IPolarsDataFrame df, List<int> dictIndices, DictionaryKeyColumn?[] keyColumns)
+    {
+        int[] indices = [.. dictIndices];
+        foreach (RecordBatch batch in new ArrowStreamEnumerable(df.ToArrowStream(indices)))
+        {
+            for (int j = 0; j < indices.Length; j++)
+            {
+                keyColumns[indices[j]]!.AddCategories(((DictionaryArray)batch.Column(j)).Dictionary);
+            }
+        }
     }
 }

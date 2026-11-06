@@ -1,6 +1,7 @@
 using Microsoft.ML;
 using Microsoft.ML.Data;
 using Polars.CSharp;
+using Polars.NET.ML.CSharpExtensions;
 using Polars.NET.ML.DataView;
 
 namespace Polars.Integration.Tests;
@@ -199,5 +200,145 @@ public class PolarsRowCursorTests
         using var cursor = dv.GetRowCursor([dv.Schema["A"]]);
         Assert.Throws<InvalidOperationException>(() => { cursor.GetGetter<long>(dv.Schema["A"]); });
         Assert.Throws<InvalidOperationException>(() => { cursor.GetGetter<double>(dv.Schema["B"]); });
+    }
+
+    // ==========================================
+    // Dictionary (Categorical / Enum) -> KeyDataViewType
+    // ==========================================
+
+    private static string[] KeyValues(IDataView dv, string name)
+    {
+        VBuffer<ReadOnlyMemory<char>> kv = default;
+        dv.Schema[name].Annotations.GetValue("KeyValues", ref kv);
+        return [.. kv.DenseValues().Select(m => m.ToString())];
+    }
+
+    /// <summary>Decodes keys back to text through the KeyValues annotation (0 -> null).</summary>
+    private static List<string?> DecodeKeys(IDataView dv, string name)
+    {
+        string[] categories = KeyValues(dv, name);
+        return [.. ReadColumn<uint>(dv, name).Select(k => k == 0 ? null : categories[k - 1])];
+    }
+
+    [Fact]
+    [Trait("ML", "Key")]
+    public void Enum_ReadsAsOneBasedKeys_InCategoryOrder()
+    {
+        using var df = DataFrame.FromSeries(
+            Series.From("E", new string?[] { "lo", "hi", "mid", null, "hi" }).Cast(DataType.Enum(["lo", "mid", "hi"])));
+        var dv = df.AsDataView();
+
+        var keyType = Assert.IsType<KeyDataViewType>(dv.Schema["E"].Type);
+        Assert.Equal(typeof(uint), keyType.RawType);
+        Assert.Equal(3UL, keyType.Count);
+        Assert.Equal(["lo", "mid", "hi"], KeyValues(dv, "E"));
+        Assert.Equal([1u, 3u, 2u, 0u, 3u], ReadColumn<uint>(dv, "E"));
+    }
+
+    [Fact]
+    [Trait("ML", "Key")]
+    public void Categorical_MultiChunk_KeysAreGlobalAcrossBatches()
+    {
+        // Polars exports a per-batch, re-compacted dictionary: "z" in chunk 2 gets the same local index as "x"
+        // in chunk 1. Keys must still be global.
+        using var a = DataFrame.FromSeries(Series.From("C", new string?[] { "x", "y", null, "x" }).Cast(DataType.Categorical()));
+        using var b = DataFrame.FromSeries(Series.From("C", new string?[] { "z", "y" }).Cast(DataType.Categorical()));
+        using var df = a.VStack(b);
+        var dv = df.AsDataView();
+
+        Assert.Equal(3UL, ((KeyDataViewType)dv.Schema["C"].Type).Count);
+        Assert.Equal(["x", "y", null, "x", "z", "y"], DecodeKeys(dv, "C"));
+
+        var keys = ReadColumn<uint>(dv, "C");
+        Assert.Equal(keys[0], keys[3]);
+        Assert.Equal(keys[1], keys[5]);
+        Assert.NotEqual(keys[0], keys[4]);
+    }
+
+    [Fact]
+    [Trait("ML", "Key")]
+    public void Categorical_SlicedAndCursorSet_DecodeToSourceValues()
+    {
+        const int n = 60;
+        string?[] values = [.. Enumerable.Range(0, n).Select(i => i % 7 == 3 ? null : $"cat{i % 5}")];
+        using var a = DataFrame.FromSeries(
+            Series.From("Id", Enumerable.Range(0, n / 2).ToArray()),
+            Series.From("C", values[..(n / 2)]).Cast(DataType.Categorical()));
+        using var b = DataFrame.FromSeries(
+            Series.From("Id", Enumerable.Range(n / 2, n / 2).ToArray()),
+            Series.From("C", values[(n / 2)..]).Cast(DataType.Categorical()));
+        using var df = a.VStack(b);
+
+        using var sliced = df.Slice(11, 37);
+        var slicedDv = sliced.AsDataView();
+        Assert.Equal(values.Skip(11).Take(37), DecodeKeys(slicedDv, "C"));
+
+        var dv = df.AsDataView();
+        string[] categories = KeyValues(dv, "C");
+        int seen = 0;
+        foreach (var cursor in dv.GetRowCursorSet(dv.Schema, 4))
+        {
+            using (cursor)
+            {
+                var idG = cursor.GetGetter<int>(dv.Schema["Id"]);
+                var keyG = cursor.GetGetter<uint>(dv.Schema["C"]);
+                int id = 0;
+                uint key = 0;
+                while (cursor.MoveNext())
+                {
+                    idG(ref id);
+                    keyG(ref key);
+                    Assert.Equal(values[id], key == 0 ? null : categories[key - 1]);
+                    seen++;
+                }
+            }
+        }
+        Assert.Equal(n, seen);
+    }
+
+    [Fact]
+    [Trait("ML", "Key")]
+    public void Categorical_AllNull_HasSingleSlotKeyAndReadsMissing()
+    {
+        using var df = DataFrame.FromSeries(Series.From("C", new string?[] { null, null }).Cast(DataType.Categorical()));
+        var dv = df.AsDataView();
+
+        Assert.Equal(1UL, ((KeyDataViewType)dv.Schema["C"].Type).Count);
+        Assert.Equal([0u, 0u], ReadColumn<uint>(dv, "C"));
+    }
+
+    [Fact]
+    [Trait("ML", "Key")]
+    public void Key_MlNetMapKeyToValue_AndRoundTripToPolars()
+    {
+        string?[] values = ["red", "green", null, "blue", "green"];
+        using var df = DataFrame.FromSeries(Series.From("Color", values).Cast(DataType.Categorical()));
+        var dv = df.AsDataView();
+
+        // ML.NET consumes the KeyValues annotation.
+        var ml = new MLContext(seed: 0);
+        var mapped = ml.Transforms.Conversion.MapKeyToValue("ColorText", "Color").Fit(dv).Transform(dv);
+        var text = ReadColumn<ReadOnlyMemory<char>>(mapped, "ColorText").Select(m => m.ToString());
+        Assert.Equal(values.Select(v => v ?? ""), text);
+
+        // Key column back to Polars comes out as text.
+        using var back = dv.ToDataFrame();
+        Assert.Equal(values, back["Color"].Cast(DataType.String).ToArray<string?>());
+    }
+
+    [Fact]
+    [Trait("ML", "ParallelCursor")]
+    public void MlNetTransform_PreservesSourceRowOrder()
+    {
+        // ML.NET transforms read through GetRowCursorSet and merge the set by cursor Batch;
+        // every cursor reporting Batch = 0 scrambled the row order.
+        const int n = 10_000;
+        using var df = DataFrame.FromSeries(Series.From("Id", Enumerable.Range(0, n).ToArray()));
+        var dv = df.AsDataView();
+
+        var ml = new MLContext(seed: 0);
+        var transformed = ml.Transforms.CopyColumns("Id2", "Id").Fit(dv).Transform(dv);
+
+        Assert.Equal(Enumerable.Range(0, n), ReadColumn<int>(transformed, "Id2"));
     }
 }

@@ -35,7 +35,11 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
     // ==========================================
     public override DataViewSchema Schema { get; }
     public override long Position => _position;
-    public override long Batch => 0;
+    /// <summary>
+    /// ML.NET's consolidating cursor merges a cursor set by ascending Batch. Each cursor of a set covers one
+    /// contiguous slice, so its starting row offset keeps the merged output in source order.
+    /// </summary>
+    public override long Batch => _baseRowOffset;
 
     public override bool IsColumnActive(DataViewSchema.Column column)
         => _activeColumns[column.Index];
@@ -47,6 +51,7 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
         DataViewSchema schema,
         IEnumerable<RecordBatch> batches,
         IEnumerable<DataViewSchema.Column>? columnsNeeded,
+        DictionaryKeyColumn?[]? keyColumns = null,
         IDisposable? resourceToDispose = null,
         long baseRowOffset = 0)
     {
@@ -85,6 +90,8 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
             DataViewType type = schema[idx].Type;
             if (type is VectorDataViewType vt)
                 _vectors[idx] ??= VectorColumn.Create(vt.ItemType.RawType);
+            else if (type is KeyDataViewType && keyColumns?[idx] is { } keyColumn)
+                _accessors[idx] ??= new DictionaryKeyAccessor(keyColumn);
             else
                 _accessors[idx] ??= CreateScalarAccessor(type);
         }
@@ -118,7 +125,6 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
             TextDataViewType => new StringViewAccessor(),
             DateTimeDataViewType => new TimestampAccessor(typeof(DateTime)),
             TimeSpanDataViewType => new DurationAccessor(),
-            // KeyDataViewType (Arrow Dictionary) is not supported yet.
             _ => null
         };
     }
@@ -220,6 +226,10 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
             // ------------------------------------------
             TimestampAccessor acc => Cast<TValue, DateTime>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? default : acc.GetTypedValue(i); }),
             DurationAccessor acc => Cast<TValue, TimeSpan>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? default : acc.GetTypedValue(i); }),
+            // ------------------------------------------
+            // Key (Arrow Dictionary -> 1-based global key, null -> 0)
+            // ------------------------------------------
+            DictionaryKeyAccessor acc => Cast<TValue, uint>((ref v) => v = acc.GetKey(_batchRowIndex)),
             // ------------------------------------------
             // String (UTF-8 view -> ReadOnlyMemory<char>)
             // ------------------------------------------

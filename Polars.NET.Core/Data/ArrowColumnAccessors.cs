@@ -1164,6 +1164,7 @@ internal sealed unsafe class DictionaryAccessor : TypedColumnAccessor<string>,
     private delegate*<byte*, int, int> _readKeyFn;
 
     public override Type TargetType => typeof(string);
+    public override bool UsesFastNullBitmap => true;
 
     private static int ReadUInt8(byte* ptr, int index) => ptr[index];
     private static int ReadInt8(byte* ptr, int index) => ((sbyte*)ptr)[index];
@@ -1230,7 +1231,8 @@ internal sealed unsafe class DictionaryAccessor : TypedColumnAccessor<string>,
         _cachedStrings = cached;
     }
 
-    public override bool IsNull(int index) => _array!.IsNull(index);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override bool IsNull(int index) => IsNullFast(index);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override string GetTypedValue(int index)

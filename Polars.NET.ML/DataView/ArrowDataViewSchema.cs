@@ -53,15 +53,11 @@ internal static class ArrowDataViewMapper
             // ==========================================
             // Categorical (Dictionary)
             // ==========================================
-            DictionaryType dict => dict.IndexType switch
-            {
-                Int8Type or UInt8Type => new KeyDataViewType(typeof(byte), 0),
-                Int16Type or UInt16Type => new KeyDataViewType(typeof(ushort), 0),
-                Int32Type or UInt32Type => new KeyDataViewType(typeof(uint), 0),
-                Int64Type or UInt64Type => new KeyDataViewType(typeof(ulong), 0),
-
-                _ => throw new NotSupportedException($"Dictionary index type '{dict.IndexType.Name}' is not supported as ML.NET KeyDataViewType.")
-            },
+            // Top-level Dictionary columns become KeyDataViewType in PolarsDataView, which needs the category
+            // table (the key cardinality) that the Arrow type alone does not carry. Reaching here means a
+            // dictionary nested inside another type.
+            DictionaryType => throw new NotSupportedException(
+                "Nested Categorical/Enum (Dictionary) values are not supported in ML.NET DataView mapping. Cast them to String in Polars first."),
 
             MapType => throw new NotSupportedException(
                 "Dynamic Map types cannot be directly consumed by ML.NET pipelines. Please unnest, explode, or convert to Struct/List features using Polars before creating the IDataView."),
