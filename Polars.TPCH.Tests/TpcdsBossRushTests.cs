@@ -482,7 +482,7 @@ public class TpcdsBossRushTests
                               PrevPrice = ((decimal?)o.o_totalprice).Shift(1).Over(o.o_custkey, o.o_orderdate),
                               NextPrice = ((decimal?)o.o_totalprice).Shift(-1).Over(o.o_custkey, o.o_orderdate),
                               DescNextPrice = ((decimal?)o.o_totalprice).Shift(-1).Over(o.o_custkey, o.o_orderdate, true),
-                              PriceDiff = o.o_totalprice.Diff(1).Over(o.o_custkey, o.o_orderdate),
+                              PriceDiff = ((decimal?)o.o_totalprice).Diff(1).Over(o.o_custkey, o.o_orderdate),
                               RunningTotal = o.o_totalprice.CumSum().Over(o.o_custkey, o.o_orderdate),
                               CustTotal = o.o_totalprice.Sum().Over(o.o_custkey),
                               DiffFromAvg = o.o_totalprice - (decimal)o.o_totalprice.Average().Over(o.o_custkey)
@@ -505,6 +505,11 @@ public class TpcdsBossRushTests
             {
                 Assert.Equal(r.PriceDiff, r.Price - r.PrevPrice.Value);
                 Assert.Equal(r.PrevPrice, r.DescNextPrice);
+            }
+            else
+            {
+                // The first row of a partition has no previous value to diff against.
+                Assert.Null(r.PriceDiff);
             }
         });
     }

@@ -79,6 +79,7 @@ module internal GroupByPlanning =
 
     /// Pure symbolic GroupBy builder powering both single-key and multi-key GroupBy pipelines (C# LINQ & F# QueryBuilder).
     let buildUnifiedGroupByPlan
+        (resolveSequence: Expression -> LogicalPlan option)
         (basePlan: LogicalPlan)
         (ctx: GroupFoldContext)
         (projBody: Expression)
@@ -475,15 +476,16 @@ module internal GroupByPlanning =
                         | None ->
                             match cleanE with
                             | MemberAccess(p, m) when not (isNull p) && p.NodeType = ExpressionType.Parameter -> Some m.Name
-                            | MethodCall _ as aggCall ->
-                                let unwrappedAgg = ExpressionPatterns.unwrap aggCall
+                            | resultExpr ->
+                                // Any expression equal to a result member (an aggregate call, or a composite
+                                // such as `cond ? g.Sum() : null` inlined from a `let`) reuses that column.
+                                let unwrappedAgg = ExpressionPatterns.unwrap resultExpr
                                 List.zip memberNames args
                                 |> List.tryPick (fun (colName, argExpr) ->
                                     if ExpressionEqualityComparer.Instance.Equals(ExpressionPatterns.unwrap argExpr, unwrappedAgg) then
                                         Some colName
                                     else
                                         None)
-                            | _ -> None
 
                     let extraHavingAggs = ResizeArray<Expression * string * ScalarExpr>()
 
@@ -502,12 +504,20 @@ module internal GroupByPlanning =
                                     Some colName
                                 | None -> None
 
+                    // Uncorrelated scalar subqueries in having predicates become one-row plans joined to the
+                    // grouped rows before the having filters (see havingScalars below).
+                    let havingScalars = ResizeArray<SubqueryDecorrelator.UncorrelatedScalar>()
+
                     let rec translateHaving (expr: Expression) : ScalarExpr option =
-                        let foldedExpr, _ =
+                        let foldedExpr =
                             if SubqueryDecorrelator.containsSubquery expr then
-                                SubqueryDecorrelator.foldUncorrelatedSubqueries (Set.ofList [ groupParamName ]) expr
+                                match SubqueryDecorrelator.tryRewriteUncorrelatedScalars resolveSequence (Set.ofList [ groupParamName ]) expr with
+                                | Some(rewritten, scalars) ->
+                                    havingScalars.AddRange scalars
+                                    rewritten
+                                | None -> expr
                             else
-                                expr, false
+                                expr
                         match foldedExpr with
                         | Binary(op, left, right) ->
                             match translateHaving left, translateHaving right with
@@ -542,15 +552,34 @@ module internal GroupByPlanning =
                         ctx.HavingPreds
                         |> List.map (fun havingPred -> translateHaving havingPred.Body)
 
-                    if not (havingFilterOpt |> List.forall Option.isSome) then
+                    // A derived column whose value depends on other groups (rank, cumulative, window) is computed
+                    // where LINQ evaluates it: a `let` bound before the first `where` sees all groups, while the
+                    // final `select` (or a later `let`) sees only the groups that survive the having filters.
+                    let isPreFilterLet (colName: string) =
+                        List.zip memberNames args
+                        |> List.exists (fun (memName, argExpr) ->
+                            memName = colName
+                            && ctx.PreFilterLets
+                               |> List.exists (fun letExpr ->
+                                   ExpressionEqualityComparer.Instance.Equals(ExpressionPatterns.unwrap letExpr, ExpressionPatterns.unwrap argExpr)))
+
+                    let preFilterDerivedCols, postFilterDerivedCols =
+                        derivedKeyColMap
+                        |> Map.toList
+                        |> List.partition (fun (c, s) -> not (ScalarExprOps.dependsOnOtherRows s) || isPreFilterLet c)
+
+                    let postFilterDerivedNames = postFilterDerivedCols |> List.map fst |> Set.ofList
+
+                    let havingReadsPostFilterCol =
+                        havingFilterOpt
+                        |> List.exists (function
+                            | Some s -> not (Set.intersect (ScalarExprOps.collectColumns s) postFilterDerivedNames).IsEmpty
+                            | None -> false)
+
+                    if not (havingFilterOpt |> List.forall Option.isSome) || havingReadsPostFilterCol then
                         None
                     else
                         let havingFilterExprs = havingFilterOpt |> List.choose id
-                        let allAggs =
-                            (classifiedNonKeyArgs |> List.choose (function Choice1Of3(c, s) -> Some(c, s) | _ -> None))
-                            @ (windowAggs |> Seq.map (fun (_, c, s) -> c, s) |> Seq.toList)
-                            @ (extraHavingAggs |> Seq.map (fun (_, c, s) -> c, s) |> Seq.toList)
-
                         let sortStages = fuseSortPairs ctx.SortStages
 
                         let hasLateSort =
@@ -611,6 +640,12 @@ module internal GroupByPlanning =
 
                         let lateSortOrders = if hasLateSort then allSortOrders else []
 
+                        // Taken after the sort keys are translated: they can add window aggregates too.
+                        let allAggs =
+                            (classifiedNonKeyArgs |> List.choose (function Choice1Of3(c, s) -> Some(c, s) | _ -> None))
+                            @ (windowAggs |> Seq.map (fun (_, c, s) -> c, s) |> Seq.toList)
+                            @ (extraHavingAggs |> Seq.map (fun (_, c, s) -> c, s) |> Seq.toList)
+
                         let groupPlan = LogicalPlan.GroupBy(basePlan, keyAliasedExprs, allAggs, None, true)
 
                         let afterEarlySortPlan =
@@ -618,12 +653,16 @@ module internal GroupByPlanning =
                             else LogicalPlan.Sort(groupPlan, earlySortOrders)
 
                         let afterDerivedColsPlan =
-                            if derivedKeyColMap.IsEmpty then afterEarlySortPlan
-                            else LogicalPlan.WithColumns(afterEarlySortPlan, derivedKeyColMap |> Map.toList)
+                            if preFilterDerivedCols.IsEmpty then afterEarlySortPlan
+                            else LogicalPlan.WithColumns(afterEarlySortPlan, preFilterDerivedCols)
+
+                        let afterFilterPlan =
+                            havingFilterExprs
+                            |> List.fold (fun p f -> LogicalPlan.Filter(p, f)) (SubqueryDecorrelator.attachUncorrelatedScalars afterDerivedColsPlan (List.ofSeq havingScalars))
 
                         let afterHavingPlan =
-                            havingFilterExprs
-                            |> List.fold (fun p f -> LogicalPlan.Filter(p, f)) afterDerivedColsPlan
+                            if postFilterDerivedCols.IsEmpty then afterFilterPlan
+                            else LogicalPlan.WithColumns(afterFilterPlan, postFilterDerivedCols)
 
                         let afterLateSortPlan =
                             if lateSortOrders.IsEmpty then afterHavingPlan

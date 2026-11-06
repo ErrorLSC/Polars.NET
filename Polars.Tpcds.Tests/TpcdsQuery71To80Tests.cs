@@ -113,14 +113,17 @@ public class TpcdsQuery71To80Tests
                   where i.i_manager_id == 1
                      && (t.t_meal_time == "breakfast" || t.t_meal_time == "dinner")
                   group s by new { i.i_brand, i.i_brand_id, t.t_hour, t.t_minute } into g
-                  orderby g.Sum(x => x.ext_price) descending, g.Key.i_brand_id, g.Key.t_hour, g.Key.t_minute
+                  // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
+                  let ext_price = g.Count(x => x.ext_price != null) > 0 ? g.Sum(x => x.ext_price) : null
+                  orderby ext_price == null descending, ext_price descending, // DESC NULLS FIRST
+                          g.Key.i_brand_id, g.Key.t_hour, g.Key.t_minute
                   select new
                   {
                       brand_id = g.Key.i_brand_id,
                       brand = g.Key.i_brand,
                       g.Key.t_hour,
                       g.Key.t_minute,
-                      ext_price = g.Sum(x => x.ext_price)
+                      ext_price
                   };
 
         AssertPlan(q71, NativePushdown);
@@ -193,7 +196,7 @@ public class TpcdsQuery71To80Tests
             Assert.Equal(duckDbResult[i].brand, polarsResult[i].brand);
             Assert.Equal(duckDbResult[i].t_hour, polarsResult[i].t_hour);
             Assert.Equal(duckDbResult[i].t_minute, polarsResult[i].t_minute);
-            Assert.Equal(duckDbResult[i].ext_price ?? 0m, polarsResult[i].ext_price ?? 0m, 2);
+            Assert.Equal(duckDbResult[i].ext_price, polarsResult[i].ext_price);
         }
     }
 
@@ -1044,7 +1047,7 @@ public class TpcdsQuery71To80Tests
             Assert.Equal(duckDbResult[i].prev_yr_cnt, polarsResult[i].prev_yr_cnt);
             Assert.Equal(duckDbResult[i].curr_yr_cnt, polarsResult[i].curr_yr_cnt);
             Assert.Equal(duckDbResult[i].sales_cnt_diff, polarsResult[i].sales_cnt_diff);
-            Assert.Equal(duckDbResult[i].sales_amt_diff ?? 0m, polarsResult[i].sales_amt_diff ?? 0m, 2);
+            Assert.Equal(duckDbResult[i].sales_amt_diff, polarsResult[i].sales_amt_diff);
         }
     }
 
@@ -1179,7 +1182,8 @@ public class TpcdsQuery71To80Tests
                        g.Key.d_qoy,
                        g.Key.i_category,
                        sales_cnt = g.LongCount(),
-                       sales_amt = g.Sum(x => x.ext_sales_price)
+                       // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
+                       sales_amt = g.Count(x => x.ext_sales_price != null) > 0 ? g.Sum(x => x.ext_sales_price) : null
                    }).Take(100);
 
         AssertPlan(q76, NativePushdown);
@@ -1264,7 +1268,7 @@ public class TpcdsQuery71To80Tests
             Assert.Equal(duckDbResult[i].d_qoy, polarsResult[i].d_qoy);
             Assert.Equal(duckDbResult[i].i_category, polarsResult[i].i_category);
             Assert.Equal(duckDbResult[i].sales_cnt, polarsResult[i].sales_cnt);
-            Assert.Equal(duckDbResult[i].sales_amt ?? 0m, polarsResult[i].sales_amt ?? 0m, 2);
+            Assert.Equal(duckDbResult[i].sales_amt, polarsResult[i].sales_amt);
         }
     }
 
@@ -1603,7 +1607,7 @@ public class TpcdsQuery71To80Tests
                              id)
             ORDER BY channel NULLS FIRST,
                      id NULLS FIRST,
-                     returns_ DESC NULLS FIRST
+                     returns_ DESC NULLS LAST
             LIMIT 100;
         ";
 
@@ -1621,9 +1625,9 @@ public class TpcdsQuery71To80Tests
         {
             Assert.Equal(duckDbResult[i].channel, polarsResult[i].channel);
             Assert.Equal(duckDbResult[i].id, polarsResult[i].id);
-            Assert.Equal(duckDbResult[i].sales ?? 0m, polarsResult[i].sales ?? 0m, 2);
-            Assert.Equal(duckDbResult[i].returns_ ?? 0m, polarsResult[i].returns_ ?? 0m, 2);
-            Assert.Equal(duckDbResult[i].profit ?? 0m, polarsResult[i].profit ?? 0m, 2);
+            Assert.Equal(duckDbResult[i].sales, polarsResult[i].sales);
+            Assert.Equal(duckDbResult[i].returns_, polarsResult[i].returns_);
+            Assert.Equal(duckDbResult[i].profit, polarsResult[i].profit);
         }
     }
 
@@ -1733,9 +1737,10 @@ public class TpcdsQuery71To80Tests
                      ws_sold_year = g.Key.d_year,
                      ws_item_sk = (long?)g.Key.ws_item_sk,
                      ws_customer_sk = g.Key.ws_bill_customer_sk,
-                     ws_qty = g.Sum(x => x.ws_quantity),
-                     ws_wc = g.Sum(x => x.ws_wholesale_cost),
-                     ws_sp = g.Sum(x => x.ws_sales_price)
+                     // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
+                     ws_qty = g.Count(x => x.ws_quantity != null) > 0 ? g.Sum(x => x.ws_quantity) : null,
+                     ws_wc = g.Count(x => x.ws_wholesale_cost != null) > 0 ? g.Sum(x => x.ws_wholesale_cost) : null,
+                     ws_sp = g.Count(x => x.ws_sales_price != null) > 0 ? g.Sum(x => x.ws_sales_price) : null
                  };
 
         var cs = from c in catalogSalesQuery
@@ -1750,9 +1755,9 @@ public class TpcdsQuery71To80Tests
                      cs_sold_year = g.Key.d_year,
                      cs_item_sk = (long?)g.Key.cs_item_sk,
                      cs_customer_sk = g.Key.cs_bill_customer_sk,
-                     cs_qty = g.Sum(x => x.cs_quantity),
-                     cs_wc = g.Sum(x => x.cs_wholesale_cost),
-                     cs_sp = g.Sum(x => x.cs_sales_price)
+                     cs_qty = g.Count(x => x.cs_quantity != null) > 0 ? g.Sum(x => x.cs_quantity) : null,
+                     cs_wc = g.Count(x => x.cs_wholesale_cost != null) > 0 ? g.Sum(x => x.cs_wholesale_cost) : null,
+                     cs_sp = g.Count(x => x.cs_sales_price != null) > 0 ? g.Sum(x => x.cs_sales_price) : null
                  };
 
         var ss = from s in storeSalesQuery
@@ -1767,9 +1772,9 @@ public class TpcdsQuery71To80Tests
                      ss_sold_year = g.Key.d_year,
                      ss_item_sk = (long?)g.Key.ss_item_sk,
                      g.Key.ss_customer_sk,
-                     ss_qty = g.Sum(x => x.ss_quantity),
-                     ss_wc = g.Sum(x => x.ss_wholesale_cost),
-                     ss_sp = g.Sum(x => x.ss_sales_price)
+                     ss_qty = g.Count(x => x.ss_quantity != null) > 0 ? g.Sum(x => x.ss_quantity) : null,
+                     ss_wc = g.Count(x => x.ss_wholesale_cost != null) > 0 ? g.Sum(x => x.ss_wholesale_cost) : null,
+                     ss_sp = g.Count(x => x.ss_sales_price != null) > 0 ? g.Sum(x => x.ss_sales_price) : null
                  };
 
         var joined = from s in ss
@@ -1785,7 +1790,9 @@ public class TpcdsQuery71To80Tests
                          s.ss_sold_year,
                          s.ss_item_sk,
                          s.ss_customer_sk,
-                         ratio = Math.Round((double)s.ss_qty! / (double)((w.ws_qty ?? 0L) + (c.cs_qty ?? 0L)), 2, MidpointRounding.AwayFromZero),
+                         ratio = s.ss_qty == null
+                             ? (double?)null
+                             : Math.Round((double)s.ss_qty / (double)((w.ws_qty ?? 0L) + (c.cs_qty ?? 0L)), 2, MidpointRounding.AwayFromZero),
                          store_qty = s.ss_qty,
                          store_wholesale_cost = s.ss_wc,
                          store_sales_price = s.ss_sp,
@@ -1880,9 +1887,9 @@ public class TpcdsQuery71To80Tests
             ORDER BY ss_sold_year NULLS FIRST,
                      ss_item_sk NULLS FIRST,
                      ss_customer_sk NULLS FIRST,
-                     ss_qty DESC NULLS FIRST,
-                     ss_wc DESC NULLS FIRST,
-                     ss_sp DESC NULLS FIRST,
+                     ss_qty DESC NULLS LAST,
+                     ss_wc DESC NULLS LAST,
+                     ss_sp DESC NULLS LAST,
                      other_chan_qty NULLS FIRST,
                      other_chan_wholesale_cost NULLS FIRST,
                      other_chan_sales_price NULLS FIRST,
@@ -1895,13 +1902,13 @@ public class TpcdsQuery71To80Tests
             ss_sold_year = r.IsDBNull(0) ? (long?)null : r.GetInt64(0),
             ss_item_sk = r.IsDBNull(1) ? (long?)null : r.GetInt64(1),
             ss_customer_sk = r.IsDBNull(2) ? (long?)null : r.GetInt64(2),
-            ratio = r.IsDBNull(3) ? 0.0 : r.GetDouble(3),
+            ratio = r.IsDBNull(3) ? (double?)null : r.GetDouble(3),
             store_qty = r.IsDBNull(4) ? (long?)null : (long)r.GetFieldValue<System.Numerics.BigInteger>(4),
             store_wholesale_cost = r.IsDBNull(5) ? (decimal?)null : r.GetDecimal(5),
             store_sales_price = r.IsDBNull(6) ? (decimal?)null : r.GetDecimal(6),
-            other_chan_qty = r.IsDBNull(7) ? 0L : (long)r.GetFieldValue<System.Numerics.BigInteger>(7),
-            other_chan_wholesale_cost = r.IsDBNull(8) ? 0m : r.GetDecimal(8),
-            other_chan_sales_price = r.IsDBNull(9) ? 0m : r.GetDecimal(9)
+            other_chan_qty = r.IsDBNull(7) ? (long?)null : (long)r.GetFieldValue<System.Numerics.BigInteger>(7),
+            other_chan_wholesale_cost = r.IsDBNull(8) ? (decimal?)null : r.GetDecimal(8),
+            other_chan_sales_price = r.IsDBNull(9) ? (decimal?)null : r.GetDecimal(9)
         });
 
         Assert.Equal(duckDbResult.Count, polarsResult.Count);
@@ -1910,13 +1917,13 @@ public class TpcdsQuery71To80Tests
             Assert.Equal(duckDbResult[i].ss_sold_year, polarsResult[i].ss_sold_year);
             Assert.Equal(duckDbResult[i].ss_item_sk, polarsResult[i].ss_item_sk);
             Assert.Equal(duckDbResult[i].ss_customer_sk, polarsResult[i].ss_customer_sk);
-            Assert.Equal(duckDbResult[i].ratio, polarsResult[i].ratio, 2);
-            Assert.Equal(duckDbResult[i].store_qty ?? 0L, polarsResult[i].store_qty ?? 0L);
-            Assert.Equal(duckDbResult[i].store_wholesale_cost ?? 0m, polarsResult[i].store_wholesale_cost ?? 0m, 2);
-            Assert.Equal(duckDbResult[i].store_sales_price ?? 0m, polarsResult[i].store_sales_price ?? 0m, 2);
+            TpcdsAssert.Close(duckDbResult[i].ratio, polarsResult[i].ratio);
+            Assert.Equal(duckDbResult[i].store_qty, polarsResult[i].store_qty);
+            Assert.Equal(duckDbResult[i].store_wholesale_cost, polarsResult[i].store_wholesale_cost);
+            Assert.Equal(duckDbResult[i].store_sales_price, polarsResult[i].store_sales_price);
             Assert.Equal(duckDbResult[i].other_chan_qty, polarsResult[i].other_chan_qty);
-            Assert.Equal(duckDbResult[i].other_chan_wholesale_cost, polarsResult[i].other_chan_wholesale_cost, 2);
-            Assert.Equal(duckDbResult[i].other_chan_sales_price, polarsResult[i].other_chan_sales_price, 2);
+            TpcdsAssert.Close(duckDbResult[i].other_chan_wholesale_cost, polarsResult[i].other_chan_wholesale_cost);
+            TpcdsAssert.Close(duckDbResult[i].other_chan_sales_price, polarsResult[i].other_chan_sales_price);
         }
     }
 
@@ -1994,8 +2001,9 @@ public class TpcdsQuery71To80Tests
                      g.Key.ss_ticket_number,
                      g.Key.ss_customer_sk,
                      g.Key.s_city,
-                     amt = g.Sum(x => x.ss_coupon_amt),
-                     profit = g.Sum(x => x.ss_net_profit)
+                     // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
+                     amt = g.Count(x => x.ss_coupon_amt != null) > 0 ? g.Sum(x => x.ss_coupon_amt) : null,
+                     profit = g.Count(x => x.ss_net_profit != null) > 0 ? g.Sum(x => x.ss_net_profit) : null
                  };
 
         var q79 = (from m in ms
@@ -2028,7 +2036,7 @@ public class TpcdsQuery71To80Tests
                       ss_customer_sk ,
                       store.s_city ,
                       sum(ss_coupon_amt) amt ,
-                      COALESCE(sum(ss_net_profit), 0) profit
+                      sum(ss_net_profit) profit
                FROM read_parquet('{TpcdsData.StoreSalesPath}') store_sales,
                     read_parquet('{TpcdsData.DateDimPath}') date_dim,
                     read_parquet('{TpcdsData.StorePath}') store,
@@ -2075,8 +2083,8 @@ public class TpcdsQuery71To80Tests
             Assert.Equal(duckDbResult[i].c_first_name, polarsResult[i].c_first_name);
             Assert.Equal(duckDbResult[i].s_city_sub, polarsResult[i].s_city_sub);
             Assert.Equal(duckDbResult[i].ss_ticket_number, polarsResult[i].ss_ticket_number);
-            Assert.Equal(duckDbResult[i].amt ?? 0m, polarsResult[i].amt ?? 0m, 2);
-            Assert.Equal(duckDbResult[i].profit ?? 0m, polarsResult[i].profit ?? 0m, 2);
+            Assert.Equal(duckDbResult[i].amt, polarsResult[i].amt);
+            Assert.Equal(duckDbResult[i].profit, polarsResult[i].profit);
         }
     }
 
@@ -2206,9 +2214,10 @@ public class TpcdsQuery71To80Tests
                   {
                       channel = "store channel",
                       id = "store" + g.Key,
-                      sales = g.Sum(x => x.ss.ss_ext_sales_price),
-                      returns_ = g.Sum(x => (decimal?)(x.sr.sr_return_amt ?? 0.00m)),
-                      profit = g.Sum(x => x.ss.ss_net_profit - (x.sr.sr_net_loss ?? 0.00m))
+                      // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
+                      sales = g.Count(x => x.ss.ss_ext_sales_price != null) > 0 ? g.Sum(x => x.ss.ss_ext_sales_price) : null,
+                      returns_ = g.Count(x => (decimal?)(x.sr.sr_return_amt ?? 0.00m) != null) > 0 ? g.Sum(x => (decimal?)(x.sr.sr_return_amt ?? 0.00m)) : null,
+                      profit = g.Count(x => x.ss.ss_net_profit - (x.sr.sr_net_loss ?? 0.00m) != null) > 0 ? g.Sum(x => x.ss.ss_net_profit - (x.sr.sr_net_loss ?? 0.00m)) : null
                   };
 
         var csr = from cs in catalogSalesQuery
@@ -2224,9 +2233,9 @@ public class TpcdsQuery71To80Tests
                   {
                       channel = "catalog channel",
                       id = "catalog_page" + g.Key,
-                      sales = g.Sum(x => x.cs.cs_ext_sales_price),
-                      returns_ = g.Sum(x => (decimal?)(x.cr.cr_return_amount ?? 0.00m)),
-                      profit = g.Sum(x => x.cs.cs_net_profit - (x.cr.cr_net_loss ?? 0.00m))
+                      sales = g.Count(x => x.cs.cs_ext_sales_price != null) > 0 ? g.Sum(x => x.cs.cs_ext_sales_price) : null,
+                      returns_ = g.Count(x => (decimal?)(x.cr.cr_return_amount ?? 0.00m) != null) > 0 ? g.Sum(x => (decimal?)(x.cr.cr_return_amount ?? 0.00m)) : null,
+                      profit = g.Count(x => x.cs.cs_net_profit - (x.cr.cr_net_loss ?? 0.00m) != null) > 0 ? g.Sum(x => x.cs.cs_net_profit - (x.cr.cr_net_loss ?? 0.00m)) : null
                   };
 
         var wsr = from ws in webSalesQuery
@@ -2242,9 +2251,9 @@ public class TpcdsQuery71To80Tests
                   {
                       channel = "web channel",
                       id = "web_site" + g.Key,
-                      sales = g.Sum(x => x.ws.ws_ext_sales_price),
-                      returns_ = g.Sum(x => (decimal?)(x.wr.wr_return_amt ?? 0.00m)),
-                      profit = g.Sum(x => x.ws.ws_net_profit - (x.wr.wr_net_loss ?? 0.00m))
+                      sales = g.Count(x => x.ws.ws_ext_sales_price != null) > 0 ? g.Sum(x => x.ws.ws_ext_sales_price) : null,
+                      returns_ = g.Count(x => (decimal?)(x.wr.wr_return_amt ?? 0.00m) != null) > 0 ? g.Sum(x => (decimal?)(x.wr.wr_return_amt ?? 0.00m)) : null,
+                      profit = g.Count(x => x.ws.ws_net_profit - (x.wr.wr_net_loss ?? 0.00m) != null) > 0 ? g.Sum(x => x.ws.ws_net_profit - (x.wr.wr_net_loss ?? 0.00m)) : null
                   };
 
         var allChan = ssr.Concat(csr).Concat(wsr);
@@ -2256,9 +2265,9 @@ public class TpcdsQuery71To80Tests
                 {
                     channel = (string?)key.channel,
                     id = (string?)key.id,
-                    sales = g.Sum(v => v.sales),
-                    returns_ = g.Sum(v => v.returns_),
-                    profit = g.Sum(v => v.profit)
+                    sales = g.Count(v => v.sales != null) > 0 ? g.Sum(v => v.sales) : null,
+                    returns_ = g.Count(v => v.returns_ != null) > 0 ? g.Sum(v => v.returns_) : null,
+                    profit = g.Count(v => v.profit != null) > 0 ? g.Sum(v => v.profit) : null
                 }
             )
             .OrderBy(r => r.channel)
@@ -2372,9 +2381,9 @@ public class TpcdsQuery71To80Tests
         {
             Assert.Equal(duckDbResult[i].channel, polarsResult[i].channel);
             Assert.Equal(duckDbResult[i].id, polarsResult[i].id);
-            Assert.Equal(duckDbResult[i].sales ?? 0m, polarsResult[i].sales ?? 0m, 2);
-            Assert.Equal(duckDbResult[i].returns_ ?? 0m, polarsResult[i].returns_ ?? 0m, 2);
-            Assert.Equal(duckDbResult[i].profit ?? 0m, polarsResult[i].profit ?? 0m, 2);
+            Assert.Equal(duckDbResult[i].sales, polarsResult[i].sales);
+            Assert.Equal(duckDbResult[i].returns_, polarsResult[i].returns_);
+            Assert.Equal(duckDbResult[i].profit, polarsResult[i].profit);
         }
     }
 }

@@ -110,6 +110,16 @@ module internal GroupStages =
                             m
                         | _ ->
                             Map.add name normalizedExpr m) letBindings
+                let ctx =
+                    if ctx.HavingPreds.IsEmpty then
+                        let added =
+                            updatedBindings
+                            |> Map.toList
+                            |> List.filter (fun (name, _) -> not (letBindings.ContainsKey name))
+                            |> List.map snd
+                        { ctx with PreFilterLets = ctx.PreFilterLets @ added }
+                    else
+                        ctx
                 slurp env continueWith state next ctx updatedBindings scopeMap
             | None ->
                 let finalProjBody = substituteLet projLambda.Body
@@ -130,7 +140,7 @@ module internal GroupStages =
                     | Some name -> name
                     | None -> projLambda.Parameters.[0].Name
 
-                match buildUnifiedGroupByPlan state.Plan ctx finalProjBody gParamName isKeyArg scopeMap with
+                match buildUnifiedGroupByPlan env.ResolveSequence state.Plan ctx finalProjBody gParamName isKeyArg scopeMap with
                 | Some nextPlan ->
                     continueWith { state with Plan = nextPlan } Map.empty next
                 | None ->
@@ -165,7 +175,7 @@ module internal GroupStages =
         if env.IsGrouping then
             continueWith state scopeMap tail
         else
-            slurp env continueWith state tail { KeyLambda = keyLambda; ElemLambdaOpt = None; HavingPreds = []; SortStages = [] } Map.empty scopeMap
+            slurp env continueWith state tail { KeyLambda = keyLambda; ElemLambdaOpt = None; HavingPreds = []; SortStages = []; PreFilterLets = [] } Map.empty scopeMap
 
     /// GroupBy(key, resultSelector).
     let groupByWithResult (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (keyLam: LambdaExpression) (resLam: LambdaExpression) : CompiledLogicalQuery =
@@ -174,7 +184,7 @@ module internal GroupStages =
             if env.IsGrouping then
                 continueWith state scopeMap tail
             else
-                slurp env continueWith state tail { KeyLambda = keyLam; ElemLambdaOpt = Some resLam; HavingPreds = []; SortStages = [] } Map.empty scopeMap
+                slurp env continueWith state tail { KeyLambda = keyLam; ElemLambdaOpt = Some resLam; HavingPreds = []; SortStages = []; PreFilterLets = [] } Map.empty scopeMap
         else
             let keyP = keyLam.Parameters.[0]
             let keyCtx = makeCtx keyP.Type keyP.Name state.Plan
@@ -188,9 +198,9 @@ module internal GroupStages =
                     | :? ParameterExpression as p when p.Name = resKeyParamName || p.Name = keyP.Name -> true
                     | MemberAccess(:? ParameterExpression as p, _) when p.Name = resKeyParamName || p.Name = keyP.Name -> true
                     | _ -> false
-                let ctx: GroupFoldContext = { KeyLambda = keyLam; ElemLambdaOpt = None; HavingPreds = []; SortStages = [] }
+                let ctx: GroupFoldContext = { KeyLambda = keyLam; ElemLambdaOpt = None; HavingPreds = []; SortStages = []; PreFilterLets = [] }
                 let groupParamName = if resLam.Parameters.Count >= 2 then resLam.Parameters.[1].Name else resLam.Parameters.[0].Name
-                match buildUnifiedGroupByPlan state.Plan ctx resLam.Body groupParamName isKeyArg scopeMap with
+                match buildUnifiedGroupByPlan env.ResolveSequence state.Plan ctx resLam.Body groupParamName isKeyArg scopeMap with
                 | Some nextPlan ->
                     continueWith { state with Plan = nextPlan } Map.empty tail
                 | None ->
@@ -211,9 +221,9 @@ module internal GroupStages =
                 | :? ParameterExpression as p when p.Name = resKeyParamName || p.Name = keyP.Name -> true
                 | MemberAccess(:? ParameterExpression as p, _) when p.Name = resKeyParamName || p.Name = keyP.Name -> true
                 | _ -> false
-            let ctx: GroupFoldContext = { KeyLambda = keyLam; ElemLambdaOpt = Some elemLam; HavingPreds = []; SortStages = [] }
+            let ctx: GroupFoldContext = { KeyLambda = keyLam; ElemLambdaOpt = Some elemLam; HavingPreds = []; SortStages = []; PreFilterLets = [] }
             let groupParamName = if resLam.Parameters.Count >= 2 then resLam.Parameters.[1].Name else resLam.Parameters.[0].Name
-            match buildUnifiedGroupByPlan state.Plan ctx resLam.Body groupParamName isKeyArg scopeMap with
+            match buildUnifiedGroupByPlan env.ResolveSequence state.Plan ctx resLam.Body groupParamName isKeyArg scopeMap with
             | Some nextPlan ->
                 continueWith { state with Plan = nextPlan } Map.empty tail
             | None ->

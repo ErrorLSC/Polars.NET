@@ -679,6 +679,140 @@ module internal SubqueryDecorrelator =
         tryBuildAggScalarWithContext rightCols methodName isAnyOrCount selectorLambdaOpt None id
 
     // =========================================================================
+    // 3b. Uncorrelated Scalar Subqueries as One-Row Plans
+    // =========================================================================
+
+    /// An uncorrelated scalar subquery lowered to a one-row plan whose single column holds its value.
+    type internal UncorrelatedScalar = { ColumnName: string; Plan: LogicalPlan }
+
+    /// Applies Where lambdas, each translated over its own parameter, to a sequence plan.
+    let private tryApplyWhereLambdas (plan: LogicalPlan) (lams: LambdaExpression list) : LogicalPlan option =
+        lams
+        |> List.fold (fun accOpt lam ->
+            accOpt
+            |> Option.bind (fun acc ->
+                let cols = (SchemaInference.inferPlanSchema acc).ColumnNames
+                let p = lam.Parameters.[0]
+                let ctx = createContextForTypeWithCols p.Type cols p.Name
+                ExprTranslator.tryTranslateToScalar ctx lam.Body |> Option.map (fun s -> LogicalPlan.Filter(acc, s)))) (Some plan)
+
+    /// Lowers one uncorrelated scalar subquery (an aggregate, Any, or First/FirstOrDefault over a sequence) to a
+    /// one-row plan, returning the expression that replaces it (a reference to the plan's column). Single and
+    /// ElementAt are not lowered: they must fail on a wrong row count, which a plan cannot express.
+    let private tryLowerUncorrelatedScalar
+        (resolveSequencePlan: Expression -> LogicalPlan option)
+        (node: Expression)
+        : (Expression * UncorrelatedScalar) option =
+        let colName = $"__subquery_agg_u{Guid.NewGuid():N}"
+        let resolveFiltered (seqExpr: Expression) (extra: LambdaExpression list) =
+            let rootSource, whereLams = unwrapWhere seqExpr
+            resolveSequencePlan rootSource |> Option.bind (fun plan -> tryApplyWhereLambdas plan (whereLams @ extra))
+
+        let firstOf (mc: MethodCallExpression) =
+            let seqExpr, predOpt =
+                match mc.Object, mc.Arguments |> Seq.toList with
+                | null, [ s ] -> Some s, None
+                | null, [ s; CleanLambda p ] -> Some s, Some p
+                | t, [] when not (isNull t) -> Some t, None
+                | t, [ CleanLambda p ] when not (isNull t) -> Some t, Some p
+                | _ -> None, None
+            seqExpr
+            |> Option.bind (fun s ->
+                let src, selOpt =
+                    match ExpressionPatterns.unwrap s with
+                    | MethodCall(mSel, null, [ src; CleanLambda selLam ]) when mSel.Name = "Select" -> src, Some selLam
+                    | MethodCall(mSel, src, [ CleanLambda selLam ]) when mSel.Name = "Select" -> src, Some selLam
+                    | other -> other, None
+                resolveFiltered src (Option.toList predOpt)
+                |> Option.bind (fun plan ->
+                    let cols = (SchemaInference.inferPlanSchema plan).ColumnNames
+                    let valueOpt =
+                        match selOpt with
+                        | Some selLam ->
+                            let p = selLam.Parameters.[0]
+                            ExprTranslator.tryTranslateToScalar (createContextForTypeWithCols p.Type cols p.Name) selLam.Body
+                        | None when cols.Length = 1 && PolarsTypeHelper.IsScalarType mc.Type -> Some(ScalarExpr.Column cols.Head)
+                        | None -> None
+                    valueOpt |> Option.map (fun v -> LogicalPlan.Limit(LogicalPlan.Project(plan, [ (colName, v) ]), 0L, 1u))))
+
+        match ExpressionPatterns.unwrap node with
+        | :? MethodCallExpression as mc when mc.Method.Name = "First" || mc.Method.Name = "FirstOrDefault" ->
+            firstOf mc
+            |> Option.map (fun plan -> Expression.Parameter(node.Type, colName) :> Expression, { ColumnName = colName; Plan = plan })
+        | unwrapped ->
+            match tryMatchAny unwrapped with
+            | Some(innerSeq, predOpt) ->
+                resolveFiltered innerSeq (Option.toList predOpt)
+                |> Option.map (fun plan ->
+                    let countPlan = LogicalPlan.Project(plan, [ (colName, ScalarExpr.Aggregation(AggKind.Len, None, false)) ])
+                    let repl = Expression.GreaterThan(Expression.Parameter(typeof<uint32>, colName), Expression.Constant 0u) :> Expression
+                    repl, { ColumnName = colName; Plan = countPlan })
+            | None ->
+                match tryMatchAggCall unwrapped with
+                | Some agg when PolarsTypeHelper.IsScalarType agg.TargetType ->
+                    resolveFiltered agg.InnerSeq (Option.toList agg.ExtraWhereLambdaOpt)
+                    |> Option.bind (fun plan ->
+                        let cols = (SchemaInference.inferPlanSchema plan).ColumnNames
+                        let isCount = agg.MethodName = "Count" || agg.MethodName = "LongCount"
+                        tryBuildAggScalar cols agg.MethodName isCount agg.SelectorLambdaOpt
+                        |> Option.map (fun aggScalar ->
+                            Expression.Parameter(node.Type, colName) :> Expression,
+                            { ColumnName = colName; Plan = LogicalPlan.Project(plan, [ (colName, aggScalar) ]) }))
+                | _ -> None
+
+    /// Replaces the uncorrelated scalar subqueries of an expression by references to one-row plans, which the
+    /// caller attaches with `attachUncorrelatedScalars`. A subquery that cannot be lowered (Single, for instance)
+    /// is still evaluated eagerly into a constant. Returns None when the expression has no such subquery.
+    let internal tryRewriteUncorrelatedScalars
+        (resolveSequencePlan: Expression -> LogicalPlan option)
+        (outerNames: Set<string>)
+        (expr: Expression)
+        : (Expression * UncorrelatedScalar list) option =
+        let scalars = ResizeArray<UncorrelatedScalar>()
+        let mutable folded = false
+        let isCandidate (e: Expression) =
+            containsSubquery e
+            && not (outerNames |> Set.exists (fun name -> containsParameter name e))
+            && PolarsTypeHelper.IsScalarType e.Type
+
+        let rewritten =
+            { new ExpressionVisitor() with
+                override self.Visit(node: Expression) =
+                    if isNull node || not (isCandidate node) then
+                        base.Visit node
+                    else
+                        match tryLowerUncorrelatedScalar resolveSequencePlan node with
+                        | Some(repl, scalar) ->
+                            scalars.Add scalar
+                            repl
+                        | None ->
+                            let visited = base.Visit node
+                            if not (obj.ReferenceEquals(visited, node)) then
+                                visited
+                            else
+                                match tryEvaluateUncorrelatedScalar node with
+                                | Some constant ->
+                                    folded <- true
+                                    constant
+                                | None -> node
+            }.Visit(expr)
+
+        if scalars.Count = 0 && not folded then None else Some(rewritten, List.ofSeq scalars)
+
+    /// Attaches one-row scalar plans to a plan as extra columns, keeping its row order (a left join on a
+    /// constant key, rather than a cross join, whose order is not guaranteed).
+    let internal attachUncorrelatedScalars (plan: LogicalPlan) (scalars: UncorrelatedScalar list) : LogicalPlan =
+        scalars
+        |> List.fold (fun acc scalar ->
+            let keyCol = $"__subquery_key_{Guid.NewGuid():N}"
+            let key = ScalarExpr.Literal(LiteralValue.Int32 1)
+            let left = LogicalPlan.WithColumns(acc, [ (keyCol, key) ])
+            let right = LogicalPlan.WithColumns(scalar.Plan, [ (keyCol, key) ])
+            let joined = LogicalPlan.Join(left, right, [ ScalarExpr.Column keyCol ], [ ScalarExpr.Column keyCol ], JoinKind.Left, None, JoinKeyCoalescing.Default, false)
+            let keep = (SchemaInference.inferPlanSchema acc).ColumnNames @ [ scalar.ColumnName ]
+            LogicalPlan.Project(joined, keep |> List.map (fun c -> c, ScalarExpr.Column c))) plan
+
+    // =========================================================================
     // 4. Semi/Anti Join Filter Decorrelation (Step 1)
     // =========================================================================
 
@@ -721,7 +855,7 @@ module internal SubqueryDecorrelator =
 
                 if parts.ThetaConditions.IsEmpty then
                     let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
-                    return LogicalPlan.Join(outerPlan, rightPlan, keys.OuterKeys, keys.InnerKeys, joinHow, None, JoinKeyCoalescing.Default, false)
+                    return LogicalPlan.Join(outerPlan, rightPlan, keys.OuterKeys, keys.InnerKeys, joinHow, None, JoinKeyCoalescing.Default, true)
                 else
                     let leftCols = outerCols |> Set.ofList
                     let originalCols = outerCols
@@ -747,7 +881,7 @@ module internal SubqueryDecorrelator =
                         if outerKeys.IsEmpty then
                             LogicalPlan.Join(withRidPlan, rightPlan, [], [], JoinKind.Cross, Some LinqConstants.DefaultRightSuffix, JoinKeyCoalescing.KeepBoth, false)
                         else
-                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some LinqConstants.DefaultRightSuffix, JoinKeyCoalescing.Default, false)
+                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some LinqConstants.DefaultRightSuffix, JoinKeyCoalescing.Default, true)
 
                     let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
                     let selectedPlan = LogicalPlan.Project(filteredPlan, [ (ridCol, ScalarExpr.Column ridCol) ])
@@ -783,7 +917,7 @@ module internal SubqueryDecorrelator =
                             None
 
                 let joinHow = if isNegated then JoinKind.Anti else JoinKind.Semi
-                return LogicalPlan.Join(outerPlan, rightPlan, [ leftKey ], [ rightKey ], joinHow, None, JoinKeyCoalescing.Default, false)
+                return LogicalPlan.Join(outerPlan, rightPlan, [ leftKey ], [ rightKey ], joinHow, None, JoinKeyCoalescing.Default, true)
             }
 
         let rec tryDisjunctiveAny (disjExpr: Expression) : LogicalPlan option =
@@ -832,7 +966,7 @@ module internal SubqueryDecorrelator =
                     if allSameOuterKey then
                         let unionPlan = branchPlans |> List.reduce (fun acc p -> LogicalPlan.Union(acc, p, true))
                         let joinHow = if isNegated then JoinKind.Anti else JoinKind.Semi
-                        Some (LogicalPlan.Join(outerPlan, unionPlan, [ branchOuterKeys.[0] ], [ ScalarExpr.Column "__disj_any_key__" ], joinHow, None, JoinKeyCoalescing.Default, false))
+                        Some (LogicalPlan.Join(outerPlan, unionPlan, [ branchOuterKeys.[0] ], [ ScalarExpr.Column "__disj_any_key__" ], joinHow, None, JoinKeyCoalescing.Default, true))
                     else
                         None
                 else
@@ -984,7 +1118,7 @@ module internal SubqueryDecorrelator =
 
                     let! cmpScalar = OperatorAndUdfTranslator.tryTranslateBinary effectiveOp outerSideScalar scaledAggScalar
 
-                    let joinedPlan = LogicalPlan.Join(outerPlan, groupedPlan, keys.OuterKeys, keys.InnerKeys, JoinKind.Left, None, JoinKeyCoalescing.Default, false)
+                    let joinedPlan = LogicalPlan.Join(outerPlan, groupedPlan, keys.OuterKeys, keys.InnerKeys, JoinKind.Left, None, JoinKeyCoalescing.Default, true)
                     let filterPlan = LogicalPlan.Filter(joinedPlan, cmpScalar)
                     let originalCols = (SchemaInference.inferPlanSchema outerPlan).ColumnNames
                     let restorePlan =
@@ -1041,7 +1175,7 @@ module internal SubqueryDecorrelator =
                         if outerKeys.IsEmpty then
                             LogicalPlan.Join(withRidPlan, rightPlan, [], [], JoinKind.Cross, Some rightSuffix, JoinKeyCoalescing.KeepBoth, false)
                         else
-                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some rightSuffix, JoinKeyCoalescing.Default, false)
+                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some rightSuffix, JoinKeyCoalescing.Default, true)
 
                     let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
                     let groupedPlan =
@@ -1119,12 +1253,33 @@ module internal SubqueryDecorrelator =
                             match tryDecorrelateCorrelatedScalarAgg resolveSequencePlan currPlan outerParam cond scopeMap with
                             | Some nextPlan -> nextPlan, resAcc, true
                             | None ->
-                                let foldedCond, changed = foldUncorrelatedSubqueries outerNames cond
+                                // Uncorrelated scalar subqueries join the plan as one-row columns, and the
+                                // conjunct filters right there (the columns do not leak to later stages).
+                                let filteredWithScalars () =
+                                    match tryRewriteUncorrelatedScalars resolveSequencePlan outerNames cond with
+                                    | Some(rewritten, (_ :: _ as scalars)) ->
+                                        let attached = attachUncorrelatedScalars currPlan scalars
+                                        let attachedCols = (SchemaInference.inferPlanSchema attached).ColumnNames
+                                        let ctx =
+                                            if not scopeMap.IsEmpty then
+                                                TranslationContext.ScopedEntity([ outerParam.Name ], scopeMap, attachedCols)
+                                            else
+                                                createContextForTypeWithCols outerParam.Type attachedCols outerParam.Name
+                                        ExprTranslator.tryTranslateToScalar ctx rewritten
+                                        |> Option.map (fun pred ->
+                                            let originalCols = (SchemaInference.inferPlanSchema currPlan).ColumnNames
+                                            LogicalPlan.Project(LogicalPlan.Filter(attached, pred), originalCols |> List.map (fun c -> c, ScalarExpr.Column c)))
+                                    | _ -> None
 
-                                if changed then
-                                    currPlan, foldedCond :: resAcc, true
-                                else
-                                    currPlan, cond :: resAcc, decorrelatedAny)
+                                match filteredWithScalars () with
+                                | Some nextPlan -> nextPlan, resAcc, true
+                                | None ->
+                                    let foldedCond, changed = foldUncorrelatedSubqueries outerNames cond
+
+                                    if changed then
+                                        currPlan, foldedCond :: resAcc, true
+                                    else
+                                        currPlan, cond :: resAcc, decorrelatedAny)
                     (outerPlan, [], false)
 
             let residualConjuncts = List.rev residualConjunctsRev
@@ -1355,8 +1510,12 @@ module internal SubqueryDecorrelator =
             let allOuterNames =
                 Set.union outerParamNames (scopeMap |> Map.toList |> List.map (fun ((s, _), _) -> s) |> Set.ofList)
 
-            let foldedBody, hasFolded =
-                foldUncorrelatedSubqueries allOuterNames projLambda.Body
+            // Uncorrelated scalar subqueries become one-row plans joined to the outer plan; the projection then
+            // reads their columns.
+            let foldedBody, hasFolded, outerPlan =
+                match tryRewriteUncorrelatedScalars resolveSequencePlan allOuterNames projLambda.Body with
+                | Some(rewritten, scalars) -> rewritten, true, attachUncorrelatedScalars outerPlan scalars
+                | None -> projLambda.Body, false, outerPlan
 
             let candidates = collectProjectionSubqueries allOuterNames foldedBody
 
@@ -1478,7 +1637,7 @@ module internal SubqueryDecorrelator =
                                     JoinKind.Left,
                                     None,
                                     JoinKeyCoalescing.Default,
-                                    false
+                                    true
                                 )
 
                             let fillNullCols = buildFillNullCols assignments
@@ -1541,7 +1700,7 @@ module internal SubqueryDecorrelator =
                                         JoinKind.Inner,
                                         Some rightSuffix,
                                         JoinKeyCoalescing.Default,
-                                        false
+                                        true
                                     )
 
                             let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)

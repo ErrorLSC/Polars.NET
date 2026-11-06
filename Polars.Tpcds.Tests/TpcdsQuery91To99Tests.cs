@@ -110,7 +110,7 @@ ORDER BY sum(cr_net_loss) DESC, cc_call_center_id NULLS FIRST;
             Assert.Equal(duckDbResult[i].Call_Center, polarsResult[i].Call_Center);
             Assert.Equal(duckDbResult[i].Call_Center_Name, polarsResult[i].Call_Center_Name);
             Assert.Equal(duckDbResult[i].Manager, polarsResult[i].Manager);
-            Assert.Equal(duckDbResult[i].Returns_Loss ?? 0m, polarsResult[i].Returns_Loss ?? 0m);
+            Assert.Equal(duckDbResult[i].Returns_Loss, polarsResult[i].Returns_Loss);
         }
     }
 
@@ -200,18 +200,26 @@ limit 100;
         var storeReturnsQuery = TpcdsData.StoreReturnsQuery();
         var reasonQuery = TpcdsData.ReasonQuery();
 
-        var q93 = (from ss in storeSalesQuery
-                   join sr in storeReturnsQuery
-                     on new { item_sk = ss.ss_item_sk, ticket = ss.ss_ticket_number }
-                     equals new { item_sk = sr.sr_item_sk, ticket = sr.sr_ticket_number }
-                     into srGroup
-                   from sr in srGroup.DefaultIfEmpty()
-                   join r in reasonQuery on sr.sr_reason_sk equals r.r_reason_sk
-                   where r.r_reason_desc == "reason 28"
-                   group new { ss, sr } by ss.ss_customer_sk into g
-                   let sumsales = g.Sum(x => x.sr.sr_return_quantity != null
-                       ? (decimal?)(x.ss.ss_quantity - x.sr.sr_return_quantity) * x.ss.ss_sales_price
-                       : (decimal?)x.ss.ss_quantity * x.ss.ss_sales_price)
+        var t = from ss in storeSalesQuery
+                join sr in storeReturnsQuery
+                  on new { item_sk = ss.ss_item_sk, ticket = ss.ss_ticket_number }
+                  equals new { item_sk = sr.sr_item_sk, ticket = sr.sr_ticket_number }
+                  into srGroup
+                from sr in srGroup.DefaultIfEmpty()
+                join r in reasonQuery on sr.sr_reason_sk equals r.r_reason_sk
+                where r.r_reason_desc == "reason 28"
+                select new
+                {
+                    ss.ss_customer_sk,
+                    act_sales = sr.sr_return_quantity != null
+                        ? (decimal?)(ss.ss_quantity - sr.sr_return_quantity) * ss.ss_sales_price
+                        : (decimal?)ss.ss_quantity * ss.ss_sales_price
+                };
+
+        // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
+        var q93 = (from x in t
+                   group x.act_sales by x.ss_customer_sk into g
+                   let sumsales = g.Count(v => v != null) > 0 ? g.Sum() : null
                    orderby sumsales, g.Key
                    select new
                    {
@@ -253,7 +261,7 @@ LIMIT 100;
         for (int i = 0; i < duckDbResult.Count; i++)
         {
             Assert.Equal(duckDbResult[i].ss_customer_sk, polarsResult[i].ss_customer_sk);
-            Assert.Equal(duckDbResult[i].sumsales ?? 0m, polarsResult[i].sumsales ?? 0m);
+            Assert.Equal(duckDbResult[i].sumsales, polarsResult[i].sumsales);
         }
     }
 
@@ -270,28 +278,27 @@ LIMIT 100;
         var startDate = new DateOnly(1999, 2, 1);
         var endDate = new DateOnly(1999, 4, 2);
 
-        var multiWarehouseOrders = (from ws1 in webSalesQuery
-                                    join ws2 in webSalesQuery on ws1.ws_order_number equals ws2.ws_order_number
-                                    where ws1.ws_warehouse_sk != ws2.ws_warehouse_sk
-                                    select ws1.ws_order_number).Distinct();
-
-        var returnedOrders = webReturnsQuery.Select(wr => wr.wr_order_number);
-
         var baseSales = (from ws1 in webSalesQuery
                          join d in dateDimQuery on ws1.ws_ship_date_sk equals d.d_date_sk
                          join ca in customerAddressQuery on ws1.ws_ship_addr_sk equals ca.ca_address_sk
                          join web in webSiteQuery on ws1.ws_web_site_sk equals web.web_site_sk
-                         join mwo in multiWarehouseOrders on ws1.ws_order_number equals mwo
                          where d.d_date >= startDate && d.d_date <= endDate
                             && ca.ca_state == "IL"
                             && web.web_company_name == "pri"
+                            // EXISTS (another row of the order from a different warehouse)
+                            // SQL <> is unknown when either warehouse is NULL
+                            && ws1.ws_warehouse_sk != null
+                            && webSalesQuery.Any(ws2 => ws2.ws_order_number == ws1.ws_order_number
+                                                        && ws2.ws_warehouse_sk != null
+                                                        && ws2.ws_warehouse_sk != ws1.ws_warehouse_sk)
+                            // NOT EXISTS (a return of the order)
+                            && !webReturnsQuery.Any(wr => wr.wr_order_number == ws1.ws_order_number)
                          select new
                          {
                              ws1.ws_order_number,
                              ws1.ws_ext_ship_cost,
                              ws1.ws_net_profit
-                         })
-                        .ExceptBy(returnedOrders, ws => ws.ws_order_number);
+                         });
 
         var q94 = (from x in baseSales
                    group x by 1 into g
@@ -345,9 +352,9 @@ limit 100;
 
         var expected = duckDbResult.FirstOrDefault();
         var actual = polarsResult.FirstOrDefault();
-        Assert.Equal(expected?.order_count ?? 0L, actual?.order_count ?? 0L);
-        Assert.Equal(expected?.total_shipping_cost ?? 0m, actual?.total_shipping_cost ?? 0m);
-        Assert.Equal(expected?.total_net_profit ?? 0m, actual?.total_net_profit ?? 0m);
+        Assert.Equal(expected?.order_count, actual?.order_count);
+        Assert.Equal(expected?.total_shipping_cost, actual?.total_shipping_cost);
+        Assert.Equal(expected?.total_net_profit, actual?.total_net_profit);
     }
 
     [Fact]
@@ -365,7 +372,9 @@ limit 100;
 
         var multiWarehouseOrders = (from ws1 in webSalesQuery
                                     join ws2 in webSalesQuery on ws1.ws_order_number equals ws2.ws_order_number
-                                    where ws1.ws_warehouse_sk != ws2.ws_warehouse_sk
+                                    // SQL <> is unknown when either warehouse is NULL
+                                    where ws1.ws_warehouse_sk != null && ws2.ws_warehouse_sk != null
+                                       && ws1.ws_warehouse_sk != ws2.ws_warehouse_sk
                                     select ws1.ws_order_number).Distinct();
 
         var returnedOrders = webReturnsQuery.Select(wr => wr.wr_order_number).Distinct();
@@ -433,9 +442,9 @@ limit 100;
 
         var expected = duckDbResult.FirstOrDefault();
         var actual = polarsResult.FirstOrDefault();
-        Assert.Equal(expected?.order_count ?? 0L, actual?.order_count ?? 0L);
-        Assert.Equal(expected?.total_shipping_cost ?? 0m, actual?.total_shipping_cost ?? 0m);
-        Assert.Equal(expected?.total_net_profit ?? 0m, actual?.total_net_profit ?? 0m);
+        Assert.Equal(expected?.order_count, actual?.order_count);
+        Assert.Equal(expected?.total_shipping_cost, actual?.total_shipping_cost);
+        Assert.Equal(expected?.total_net_profit, actual?.total_net_profit);
     }
 
     [Fact]
@@ -574,16 +583,16 @@ limit 100;
 
         var duckDbResult = DuckDbFixture.Query(duckDbSql, r => new
         {
-            store_only = r.IsDBNull(0) ? 0L : (long)r.GetFieldValue<BigInteger>(0),
-            catalog_only = r.IsDBNull(1) ? 0L : (long)r.GetFieldValue<BigInteger>(1),
-            store_and_catalog = r.IsDBNull(2) ? 0L : (long)r.GetFieldValue<BigInteger>(2)
+            store_only = r.IsDBNull(0) ? (long?)null : (long)r.GetFieldValue<BigInteger>(0),
+            catalog_only = r.IsDBNull(1) ? (long?)null : (long)r.GetFieldValue<BigInteger>(1),
+            store_and_catalog = r.IsDBNull(2) ? (long?)null : (long)r.GetFieldValue<BigInteger>(2)
         });
 
         var expected = duckDbResult.FirstOrDefault();
         var actual = polarsResult.FirstOrDefault();
-        Assert.Equal(expected?.store_only ?? 0L, actual?.store_only ?? 0L);
-        Assert.Equal(expected?.catalog_only ?? 0L, actual?.catalog_only ?? 0L);
-        Assert.Equal(expected?.store_and_catalog ?? 0L, actual?.store_and_catalog ?? 0L);
+        Assert.Equal(expected?.store_only, actual?.store_only);
+        Assert.Equal(expected?.catalog_only, actual?.catalog_only);
+        Assert.Equal(expected?.store_and_catalog, actual?.store_and_catalog);
     }
 
     [Fact]
@@ -611,6 +620,8 @@ limit 100;
                        i.i_class,
                        i.i_current_price
                    } into g
+                   // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
+                   let itemrevenue = g.Count(x => x.ss_ext_sales_price != null) > 0 ? g.Sum(x => x.ss_ext_sales_price) : null
                    select new
                    {
                        g.Key.i_item_id,
@@ -618,8 +629,8 @@ limit 100;
                        g.Key.i_category,
                        g.Key.i_class,
                        g.Key.i_current_price,
-                       itemrevenue = g.Sum(x => x.ss_ext_sales_price),
-                       revenueratio = (double)g.Sum(x => x.ss_ext_sales_price)! * 100.0 / (double)g.Sum(x => x.ss_ext_sales_price).Sum().Over(g.Key.i_class)!
+                       itemrevenue,
+                       revenueratio = (double?)itemrevenue * 100.0 / (double?)itemrevenue.Sum().Over(g.Key.i_class)
                    })
                   .OrderBy(x => x.i_category)
                   .ThenBy(x => x.i_class)
@@ -683,8 +694,8 @@ ORDER BY
             Assert.Equal(duckDbResult[i].i_category, polarsResult[i].i_category);
             Assert.Equal(duckDbResult[i].i_class, polarsResult[i].i_class);
             Assert.Equal(duckDbResult[i].i_current_price, polarsResult[i].i_current_price);
-            TpcdsQuery11To20Tests.AssertNullableDouble((double?)duckDbResult[i].itemrevenue, (double?)polarsResult[i].itemrevenue);
-            Assert.Equal(duckDbResult[i].revenueratio ?? 0.0, polarsResult[i].revenueratio, 4);
+            TpcdsAssert.Close((double?)duckDbResult[i].itemrevenue, (double?)polarsResult[i].itemrevenue);
+            TpcdsAssert.Close(duckDbResult[i].revenueratio, polarsResult[i].revenueratio);
         }
     }
 
@@ -774,11 +785,11 @@ limit 100;
             w_substr = r.IsDBNull(0) ? null : r.GetString(0),
             sm_type = r.IsDBNull(1) ? null : r.GetString(1),
             cc_name_lower = r.IsDBNull(2) ? null : r.GetString(2),
-            d30 = r.IsDBNull(3) ? 0L : (long)r.GetFieldValue<BigInteger>(3),
-            d60 = r.IsDBNull(4) ? 0L : (long)r.GetFieldValue<BigInteger>(4),
-            d90 = r.IsDBNull(5) ? 0L : (long)r.GetFieldValue<BigInteger>(5),
-            d120 = r.IsDBNull(6) ? 0L : (long)r.GetFieldValue<BigInteger>(6),
-            dmore = r.IsDBNull(7) ? 0L : (long)r.GetFieldValue<BigInteger>(7)
+            d30 = r.IsDBNull(3) ? (long?)null : (long)r.GetFieldValue<BigInteger>(3),
+            d60 = r.IsDBNull(4) ? (long?)null : (long)r.GetFieldValue<BigInteger>(4),
+            d90 = r.IsDBNull(5) ? (long?)null : (long)r.GetFieldValue<BigInteger>(5),
+            d120 = r.IsDBNull(6) ? (long?)null : (long)r.GetFieldValue<BigInteger>(6),
+            dmore = r.IsDBNull(7) ? (long?)null : (long)r.GetFieldValue<BigInteger>(7)
         });
 
         Assert.Equal(duckDbResult.Count, polarsResult.Count);

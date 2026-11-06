@@ -109,6 +109,10 @@ type BinaryOp =
     // Comparison
     | Eq
     | NotEq
+    /// C# equality: null equals null (Polars eq_missing). Used where both operands may be null.
+    | EqMissing
+    /// C# inequality: null equals null (Polars ne_missing).
+    | NotEqMissing
     | Lt
     | LtEq
     | Gt

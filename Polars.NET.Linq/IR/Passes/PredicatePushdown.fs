@@ -54,6 +54,10 @@ module internal PredicatePushdown =
                 // Ensure predicate does not contain aggregations, window functions, or subqueries before pushing
                 if ScalarExprOps.containsAggregation pred || ScalarExprOps.containsWindow pred || ScalarExprOps.containsSubquery pred then
                     LogicalPlan.Filter(plan, pred)
+                // σ_p(π_rank(R)) ≠ π_rank(σ_p(R)): a projection whose values depend on other rows sees a
+                // different input once the filter moves below it.
+                elif projs |> List.exists (fun (_, e) -> ScalarExprOps.dependsOnOtherRows e) then
+                    LogicalPlan.Filter(plan, pred)
                 else
                     let projMap = projs |> Map.ofList
                     let canSubstitute =

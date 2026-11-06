@@ -6501,9 +6501,9 @@ public partial class LinqTests
             .ToList();
 
         Assert.Single(sampleVar);
-        Assert.Equal(7700000.0, sampleVar[0].SampleVar, precision: 4);
-        Assert.Equal(Math.Sqrt(7700000.0), sampleVar[0].SampleStd, precision: 4);
-        Assert.Equal(6160000.0, sampleVar[0].PopVar, precision: 4);
+        Assert.Equal(7700000.0, sampleVar[0].SampleVar!.Value, precision: 4);
+        Assert.Equal(Math.Sqrt(7700000.0), sampleVar[0].SampleStd!.Value, precision: 4);
+        Assert.Equal(6160000.0, sampleVar[0].PopVar!.Value, precision: 4);
 
         // ---------------------------------------------------------------------
         // 2. GroupBy Reductions (Std & Var)
@@ -6528,14 +6528,14 @@ public partial class LinqTests
         Assert.Equal(2, groupResults.Count);
 
         var dept1 = groupResults.Single(g => g.DeptId == 1);
-        Assert.Equal(3000.0, dept1.DeptSalaryStd, precision: 4);
-        Assert.Equal(9000000.0, dept1.DeptSalaryVar, precision: 4);
-        Assert.Equal(6000000.0, dept1.DeptSalaryVarPop, precision: 4);
+        Assert.Equal(3000.0, dept1.DeptSalaryStd!.Value, precision: 4);
+        Assert.Equal(9000000.0, dept1.DeptSalaryVar!.Value, precision: 4);
+        Assert.Equal(6000000.0, dept1.DeptSalaryVarPop!.Value, precision: 4);
 
         var dept2 = groupResults.Single(g => g.DeptId == 2);
-        Assert.Equal(Math.Sqrt(2000000.0), dept2.DeptSalaryStd, precision: 4);
-        Assert.Equal(2000000.0, dept2.DeptSalaryVar, precision: 4);
-        Assert.Equal(1000000.0, dept2.DeptSalaryVarPop, precision: 4);
+        Assert.Equal(Math.Sqrt(2000000.0), dept2.DeptSalaryStd!.Value, precision: 4);
+        Assert.Equal(2000000.0, dept2.DeptSalaryVar!.Value, precision: 4);
+        Assert.Equal(1000000.0, dept2.DeptSalaryVarPop!.Value, precision: 4);
 
         // ---------------------------------------------------------------------
         // 3. Window Function (Over) with Anon & Params Keys
@@ -6569,9 +6569,9 @@ public partial class LinqTests
         Assert.Equal(3, dept1Members.Count);
         Assert.All(dept1Members, r =>
         {
-            Assert.Equal(3000.0, r.DeptSalaryStd, precision: 4);
-            Assert.Equal(9000000.0, r.DeptSalaryVar, precision: 4);
-            Assert.Equal(6000000.0, r.DeptSalaryVarPop, precision: 4);
+            Assert.Equal(3000.0, r.DeptSalaryStd!.Value, precision: 4);
+            Assert.Equal(9000000.0, r.DeptSalaryVar!.Value, precision: 4);
+            Assert.Equal(6000000.0, r.DeptSalaryVarPop!.Value, precision: 4);
         });
 
         // Verification for Multi-column partition Over: DeptId = 1, Age = 30 (Bob & Charlie)
@@ -6580,7 +6580,7 @@ public partial class LinqTests
         Assert.All(bobAndCharlie, r =>
         {
             Assert.Equal(r.AnonSubGroupVar, r.ParamsSubGroupVar);
-            Assert.Equal(4500000.0, r.AnonSubGroupVar, precision: 4);
+            Assert.Equal(4500000.0, r.AnonSubGroupVar!.Value, precision: 4);
         });
     }
 

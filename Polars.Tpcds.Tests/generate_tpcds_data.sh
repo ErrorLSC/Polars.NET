@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SF="${1:-0.01}"
+SF="${1:-1}"  # daily baseline SF=1; run SF=2 after major engine changes
 DATA_DIR="${SCRIPT_DIR}/Data"
 
 echo "=== TPC-DS Parquet Data Generator via DuckDB ==="

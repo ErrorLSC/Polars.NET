@@ -25,6 +25,9 @@ type internal GroupFoldContext =
         ElemLambdaOpt: LambdaExpression option
         HavingPreds: LambdaExpression list
         SortStages: (LambdaExpression * bool * bool) list
+        /// Bodies of the transparent `let`s bound before the first having filter. A let is evaluated where it
+        /// appears, so one of these that depends on other groups (a window, a rank) sees the unfiltered groups.
+        PreFilterLets: Expression list
     }
 
 /// Strongly-typed IGrouping implementation for in-memory GroupJoin materialization.

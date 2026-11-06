@@ -245,16 +245,16 @@ public class TpcdsQuery31To40Tests
             Assert.Equal(d.ca_county, p.ca_county);
             Assert.Equal(d.d_year, p.d_year);
             Assert.NotNull(d.web_q1_q2_increase);
-            Assert.Equal(d.web_q1_q2_increase!.Value, p.web_q1_q2_increase, 4);
+            TpcdsAssert.Close(d.web_q1_q2_increase, p.web_q1_q2_increase);
 
             Assert.NotNull(d.store_q1_q2_increase);
-            Assert.Equal(d.store_q1_q2_increase!.Value, p.store_q1_q2_increase, 4);
+            TpcdsAssert.Close(d.store_q1_q2_increase, p.store_q1_q2_increase);
 
             Assert.NotNull(d.web_q2_q3_increase);
-            Assert.Equal(d.web_q2_q3_increase!.Value, p.web_q2_q3_increase, 4);
+            TpcdsAssert.Close(d.web_q2_q3_increase, p.web_q2_q3_increase);
 
             Assert.NotNull(d.store_q2_q3_increase);
-            Assert.Equal(d.store_q2_q3_increase!.Value, p.store_q2_q3_increase, 4);
+            TpcdsAssert.Close(d.store_q2_q3_increase, p.store_q2_q3_increase);
         }
     }
 
@@ -341,26 +341,10 @@ public class TpcdsQuery31To40Tests
             excess_discount_amount = r.IsDBNull(0) ? null : (decimal?)r.GetDecimal(0),
         });
 
-        // When DuckDB produces 1 row of NULL for an empty aggregation and Polars produces 0 rows,
-        // either both are 0 rows, or DuckDB has 1 NULL row and Polars has 0 (or 1 NULL) row.
-        if (duckDbResults.Count == 1 && duckDbResults[0].excess_discount_amount == null)
+        Assert.Equal(duckDbResults.Count, polarsResult.Count);
+        for (int i = 0; i < duckDbResults.Count; i++)
         {
-            if (polarsResult.Count == 1)
-            {
-                Assert.True(polarsResult[0].excess_discount_amount == null || polarsResult[0].excess_discount_amount == 0m);
-            }
-            else
-            {
-                Assert.Empty(polarsResult);
-            }
-        }
-        else
-        {
-            Assert.Equal(duckDbResults.Count, polarsResult.Count);
-            for (int i = 0; i < duckDbResults.Count; i++)
-            {
-                Assert.Equal(duckDbResults[i].excess_discount_amount, polarsResult[i].excess_discount_amount);
-            }
+            Assert.Equal(duckDbResults[i].excess_discount_amount, polarsResult[i].excess_discount_amount);
         }
     }
 
@@ -673,6 +657,7 @@ public class TpcdsQuery31To40Tests
                   orderby c.c_last_name,
                           c.c_first_name,
                           c.c_salutation,
+                          c.c_preferred_cust_flag == null descending, // DESC NULLS FIRST
                           c.c_preferred_cust_flag descending,
                           x.ss_ticket_number
                   select new
@@ -1248,7 +1233,7 @@ public class TpcdsQuery31To40Tests
             var d = duckDbResults[i];
             var p = polarsResult[i];
 
-            Assert.Equal(d.gross_margin, p.gross_margin, 4);
+            TpcdsAssert.Close(d.gross_margin, p.gross_margin);
             Assert.Equal(d.i_category, p.i_category);
             Assert.Equal(d.i_class, p.i_class);
             Assert.Equal(d.lochierarchy, p.lochierarchy);

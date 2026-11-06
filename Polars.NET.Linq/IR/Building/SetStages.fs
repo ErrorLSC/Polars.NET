@@ -50,9 +50,23 @@ module internal SetStages =
                         Some(leftCols |> List.map ScalarExpr.Column, leftCols |> List.map ScalarExpr.Column)
                 | _ -> None
 
+            // LINQ set operations return distinct elements: Intersect/Except by the whole element, the By forms
+            // by key, keeping the first element of each key in source order.
+            let dedupSubset (leftOn: ScalarExpr list) : string list option option =
+                match key1Opt with
+                | None -> Some None
+                | Some _ ->
+                    let cols = leftOn |> List.choose (function ScalarExpr.Column c -> Some c | _ -> None)
+                    if cols.Length = leftOn.Length then Some(Some cols) else None
+
             match keysOpt with
             | Some(leftOn, rightOn) ->
-                continueWith { state with Plan = LogicalPlan.Join(state.Plan, rightPlan, leftOn, rightOn, how, None, JoinKeyCoalescing.Default, true) } scopeMap tail
+                match dedupSubset leftOn with
+                | Some subset ->
+                    let joined = LogicalPlan.Join(state.Plan, rightPlan, leftOn, rightOn, how, None, JoinKeyCoalescing.Default, true)
+                    continueWith { state with Plan = LogicalPlan.Distinct(joined, subset, DistinctKeep.First, true) } scopeMap tail
+                | None ->
+                    continueWith (fallback state) scopeMap tail
             | None ->
                 continueWith (fallback state) scopeMap tail
         | None ->
@@ -62,9 +76,18 @@ module internal SetStages =
     let union (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (secondExpr: Expression) (keyLambdaOpt: LambdaExpression option) : CompiledLogicalQuery =
         match env.ResolveSequence secondExpr with
         | Some otherPlan ->
-            let subsetOpt = keyLambdaOpt |> Option.bind PipelineStageParser.extractDistinctColumns |> Option.map Array.toList
-            let unionPlan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true)
-            continueWith { state with Plan = LogicalPlan.Distinct(unionPlan, subsetOpt, DistinctKeep.First, true) } scopeMap tail
+            // UnionBy dedups by key; a key that is not plain columns is not translated (rather than
+            // silently deduplicating whole rows).
+            let subsetOpt =
+                match keyLambdaOpt with
+                | None -> Some None
+                | Some keyLambda -> PipelineStageParser.extractDistinctColumns keyLambda |> Option.map (Array.toList >> Some)
+            match subsetOpt with
+            | Some subset ->
+                let unionPlan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true)
+                continueWith { state with Plan = LogicalPlan.Distinct(unionPlan, subset, DistinctKeep.First, true) } scopeMap tail
+            | None ->
+                continueWith (fallback state) scopeMap tail
         | None ->
             continueWith (fallback state) scopeMap tail
 

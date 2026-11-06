@@ -108,8 +108,8 @@ public class TpcdsQuery21To30Tests
                          i_item_id
             ) x
             WHERE (CASE WHEN inv_before > 0 THEN cast(inv_after AS double) / cast(inv_before AS double) ELSE NULL END) BETWEEN 2.0 / 3.0 AND 3.0 / 2.0
-            ORDER BY w_warehouse_name,
-                     i_item_id
+            ORDER BY w_warehouse_name NULLS FIRST,
+                     i_item_id NULLS FIRST
             LIMIT 100;
         ";
 
@@ -117,8 +117,8 @@ public class TpcdsQuery21To30Tests
         {
             w_warehouse_name = r.IsDBNull(0) ? null : r.GetString(0),
             i_item_id = r.GetString(1),
-            inv_before = r.IsDBNull(2) ? 0L : r.GetInt64(2),
-            inv_after = r.IsDBNull(3) ? 0L : r.GetInt64(3),
+            inv_before = r.IsDBNull(2) ? (long?)null : r.GetInt64(2),
+            inv_after = r.IsDBNull(3) ? (long?)null : r.GetInt64(3),
         });
 
         Assert.Equal(duckDbResults.Count, polarsResult.Count);
@@ -147,7 +147,7 @@ public class TpcdsQuery21To30Tests
      *      item
      * WHERE inv_date_sk = d_date_sk
      *   AND inv_item_sk = i_item_sk
-     *   AND d_month_seq BETWEEN 1201 AND 1201 + 11
+     *   AND d_month_seq BETWEEN 1200 AND 1200 + 11
      * GROUP BY rollup (i_product_name, i_brand, i_class, i_category)
      * ORDER BY qoh,
      *          i_product_name,
@@ -164,7 +164,7 @@ public class TpcdsQuery21To30Tests
         var dateDimQuery = TpcdsData.DateDimQuery();
         var itemQuery = TpcdsData.ItemQuery();
 
-        var filteredDates = dateDimQuery.Where(d => d.d_month_seq >= 1201 && d.d_month_seq <= 1201 + 11);
+        var filteredDates = dateDimQuery.Where(d => d.d_month_seq >= 1200 && d.d_month_seq <= 1200 + 11);
 
         var q22 = (from inv in inventoryQuery
                    join d in filteredDates on inv.inv_date_sk equals d.d_date_sk
@@ -204,7 +204,7 @@ public class TpcdsQuery21To30Tests
                  read_parquet('{TpcdsData.ItemPath}')
             WHERE inv_date_sk = d_date_sk
               AND inv_item_sk = i_item_sk
-              AND d_month_seq BETWEEN 1201 AND 1201 + 11
+              AND d_month_seq BETWEEN 1200 AND 1200 + 11
             GROUP BY rollup (i_product_name, i_brand, i_class, i_category)
             ORDER BY qoh,
                      i_product_name NULLS FIRST,
@@ -240,7 +240,7 @@ public class TpcdsQuery21To30Tests
             else
             {
                 Assert.NotNull(p.qoh);
-                Assert.Equal(d.qoh.Value, p.qoh.Value, 4);
+                TpcdsAssert.Close(d.qoh, p.qoh);
             }
         }
     }
@@ -258,7 +258,7 @@ public class TpcdsQuery21To30Tests
      *         item
      *    WHERE ss_sold_date_sk = d_date_sk
      *      AND ss_item_sk = i_item_sk
-     *      AND d_year IN (1999, 1999+1, 1999+2, 1999+3)
+     *      AND d_year IN (2000, 2000+1, 2000+2, 2000+3)
      *    GROUP BY substr(i_item_desc, 1, 30),
      *             i_item_sk,
      *             d_date
@@ -273,7 +273,7 @@ public class TpcdsQuery21To30Tests
      *            date_dim
      *       WHERE ss_customer_sk = c_customer_sk
      *         AND ss_sold_date_sk = d_date_sk
-     *         AND d_year IN (1999, 1999+1, 1999+2, 1999+3)
+     *         AND d_year IN (2000, 2000+1, 2000+2, 2000+3)
      *       GROUP BY c_customer_sk)),
      *      best_ss_customer AS
      *   (SELECT c_customer_sk,
@@ -282,7 +282,7 @@ public class TpcdsQuery21To30Tests
      *         customer
      *    WHERE ss_customer_sk = c_customer_sk
      *    GROUP BY c_customer_sk
-     *    HAVING sum(ss_quantity*ss_sales_price) > (95/100.0) *
+     *    HAVING sum(ss_quantity*ss_sales_price) > (50/100.0) *
      *      (SELECT *
      *       FROM max_store_sales))
      * SELECT c_last_name,
@@ -295,8 +295,8 @@ public class TpcdsQuery21To30Tests
      *    FROM catalog_sales,
      *         customer,
      *         date_dim
-     *    WHERE d_year = 1999
-     *      AND d_moy = 1
+     *    WHERE d_year = 2000
+     *      AND d_moy = 2
      *      AND cs_sold_date_sk = d_date_sk
      *      AND cs_item_sk IN
      *        (SELECT item_sk
@@ -313,8 +313,8 @@ public class TpcdsQuery21To30Tests
      *    FROM web_sales,
      *         customer,
      *         date_dim
-     *    WHERE d_year = 1999
-     *      AND d_moy = 1
+     *    WHERE d_year = 2000
+     *      AND d_moy = 2
      *      AND ws_sold_date_sk = d_date_sk
      *      AND ws_item_sk IN
      *        (SELECT item_sk
@@ -341,7 +341,7 @@ public class TpcdsQuery21To30Tests
         var itemQuery = TpcdsData.ItemQuery();
         var dateDimQuery = TpcdsData.DateDimQuery();
 
-        var dates4Years = dateDimQuery.Where(d => d.d_year >= 1999 && d.d_year <= 2002);
+        var dates4Years = dateDimQuery.Where(d => d.d_year >= 2000 && d.d_year <= 2003);
 
         // 1. frequent_ss_items CTE
         var frequentItems = (from ss in storeSalesQuery
@@ -358,18 +358,20 @@ public class TpcdsQuery21To30Tests
 
         // 2. max_store_sales CTE
         var maxStoreSalesQuery = from ss in storeSalesQuery
+                                 join c in customerQuery on ss.ss_customer_sk equals c.c_customer_sk
                                  join d in dates4Years on ss.ss_sold_date_sk equals d.d_date_sk
-                                 group ss by ss.ss_customer_sk into g
+                                 group ss by c.c_customer_sk into g
                                  select new { csales = g.Sum(x => x.ss_quantity * x.ss_sales_price) };
 
         // 3. best_ss_customer CTE
         var bestCustomers = (from ss in storeSalesQuery
-                             group ss by ss.ss_customer_sk into g
-                             where g.Sum(x => x.ss_quantity * x.ss_sales_price) > maxStoreSalesQuery.Max(x => x.csales) * 0.95m
+                             join c in customerQuery on ss.ss_customer_sk equals c.c_customer_sk
+                             group ss by c.c_customer_sk into g
+                             where g.Sum(x => x.ss_quantity * x.ss_sales_price) > maxStoreSalesQuery.Max(x => x.csales) * 0.50m
                              select new { c_customer_sk = g.Key }).Distinct();
 
-        // 4. Final selection: Catalog & Web sales for best customers & frequent items in 1999 month 1
-        var targetDates = dateDimQuery.Where(d => d.d_year == 1999 && d.d_moy == 1);
+        // 4. Final selection: Catalog & Web sales for best customers & frequent items in 2000 month 2
+        var targetDates = dateDimQuery.Where(d => d.d_year == 2000 && d.d_moy == 2);
 
         var catalogStream = from cs in catalogSalesQuery
                             join d in targetDates on cs.cs_sold_date_sk equals d.d_date_sk
@@ -414,7 +416,7 @@ public class TpcdsQuery21To30Tests
                   ,read_parquet('{TpcdsData.ItemPath}')
               where ss_sold_date_sk = d_date_sk
                 and ss_item_sk = i_item_sk
-                and d_year in (1999,1999+1,1999+2,1999+3)
+                and d_year in (2000,2000+1,2000+2,2000+3)
               group by substr(i_item_desc,1,30),i_item_sk,d_date
               having count(*) > 4),
              max_store_sales as
@@ -425,7 +427,7 @@ public class TpcdsQuery21To30Tests
                         ,read_parquet('{TpcdsData.DateDimPath}')
                     where ss_customer_sk = c_customer_sk
                      and ss_sold_date_sk = d_date_sk
-                     and d_year in (1999,1999+1,1999+2,1999+3) 
+                     and d_year in (2000,2000+1,2000+2,2000+3) 
                     group by c_customer_sk)),
              best_ss_customer as
              (select c_customer_sk,sum(ss_quantity*ss_sales_price) ssales
@@ -433,14 +435,14 @@ public class TpcdsQuery21To30Tests
                   ,read_parquet('{TpcdsData.CustomerPath}')
               where ss_customer_sk = c_customer_sk
               group by c_customer_sk
-              having sum(ss_quantity*ss_sales_price) > (95/100.0) * (select * from max_store_sales))
+              having sum(ss_quantity*ss_sales_price) > (50/100.0) * (select * from max_store_sales))
              select c_last_name,c_first_name,sales
              from (select c_last_name,c_first_name,sum(cs_quantity*cs_list_price) sales
                     from read_parquet('{TpcdsData.CatalogSalesPath}')
                         ,read_parquet('{TpcdsData.CustomerPath}')
                         ,read_parquet('{TpcdsData.DateDimPath}')
-                    where d_year = 1999 
-                     and d_moy = 1 
+                    where d_year = 2000 
+                     and d_moy = 2 
                      and cs_sold_date_sk = d_date_sk 
                      and cs_item_sk in (select item_sk from frequent_ss_items)
                      and cs_bill_customer_sk in (select c_customer_sk from best_ss_customer)
@@ -451,8 +453,8 @@ public class TpcdsQuery21To30Tests
                     from read_parquet('{TpcdsData.WebSalesPath}')
                         ,read_parquet('{TpcdsData.CustomerPath}')
                         ,read_parquet('{TpcdsData.DateDimPath}')
-                    where d_year = 1999 
-                     and d_moy = 1 
+                    where d_year = 2000 
+                     and d_moy = 2 
                      and ws_sold_date_sk = d_date_sk 
                      and ws_item_sk in (select item_sk from frequent_ss_items)
                      and ws_bill_customer_sk in (select c_customer_sk from best_ss_customer)
@@ -699,7 +701,7 @@ public class TpcdsQuery21To30Tests
      *      store,
      *      item
      * WHERE d1.d_moy = 4
-     *   AND d1.d_year = 2000
+     *   AND d1.d_year = 2001
      *   AND d1.d_date_sk = ss_sold_date_sk
      *   AND i_item_sk = ss_item_sk
      *   AND s_store_sk = ss_store_sk
@@ -708,12 +710,12 @@ public class TpcdsQuery21To30Tests
      *   AND ss_ticket_number = sr_ticket_number
      *   AND sr_returned_date_sk = d2.d_date_sk
      *   AND d2.d_moy BETWEEN 4 AND 10
-     *   AND d2.d_year = 2000
+     *   AND d2.d_year = 2001
      *   AND sr_customer_sk = cs_bill_customer_sk
      *   AND sr_item_sk = cs_item_sk
      *   AND cs_sold_date_sk = d3.d_date_sk
      *   AND d3.d_moy BETWEEN 4 AND 10
-     *   AND d3.d_year = 2000
+     *   AND d3.d_year = 2001
      * GROUP BY i_item_id,
      *          i_item_desc,
      *          s_store_id,
@@ -737,9 +739,9 @@ public class TpcdsQuery21To30Tests
         var storeQuery = TpcdsData.StoreQuery();
         var itemQuery = TpcdsData.ItemQuery();
 
-        var d1 = dateDimQuery1.Where(d => d.d_year == 2000 && d.d_moy == 4);
-        var d2 = dateDimQuery2.Where(d => d.d_year == 2000 && d.d_moy >= 4 && d.d_moy <= 10);
-        var d3 = dateDimQuery3.Where(d => d.d_year == 2000 && d.d_moy >= 4 && d.d_moy <= 10);
+        var d1 = dateDimQuery1.Where(d => d.d_year == 2001 && d.d_moy == 4);
+        var d2 = dateDimQuery2.Where(d => d.d_year == 2001 && d.d_moy >= 4 && d.d_moy <= 10);
+        var d3 = dateDimQuery3.Where(d => d.d_year == 2001 && d.d_moy >= 4 && d.d_moy <= 10);
 
         var q25 = (from ss in storeSalesQuery
                    join d_1 in d1 on ss.ss_sold_date_sk equals d_1.d_date_sk
@@ -798,7 +800,7 @@ public class TpcdsQuery21To30Tests
                 , read_parquet('{TpcdsData.ItemPath}')
             WHERE 
                 d1.d_moy = 4 
-                and d1.d_year = 2000 
+                and d1.d_year = 2001 
                 and d1.d_date_sk = ss_sold_date_sk 
                 and i_item_sk = ss_item_sk 
                 and s_store_sk = ss_store_sk 
@@ -807,12 +809,12 @@ public class TpcdsQuery21To30Tests
                 and ss_ticket_number = sr_ticket_number 
                 and sr_returned_date_sk = d2.d_date_sk 
                 and d2.d_moy between 4 and 10 
-                and d2.d_year = 2000 
+                and d2.d_year = 2001 
                 and sr_customer_sk = cs_bill_customer_sk 
                 and sr_item_sk = cs_item_sk 
                 and cs_sold_date_sk = d3.d_date_sk 
                 and d3.d_moy between 4 and 10 
-                and d3.d_year = 2000
+                and d3.d_year = 2001
             GROUP BY 
                 i_item_id
                 , i_item_desc
@@ -1700,13 +1702,14 @@ public class TpcdsQuery21To30Tests
                   {
                       ctr_customer_sk = g.Key.wr_returning_customer_sk,
                       ctr_state = g.Key.ca_state,
-                      ctr_total_return = g.Sum(x => x.wr_return_amt)
+                      // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
+                      ctr_total_return = g.Count(x => x.wr_return_amt != null) > 0 ? g.Sum(x => x.wr_return_amt) : null
                   };
 
         var filteredCa = customerAddressQuery.Where(ca => ca.ca_state == "GA");
 
         var q30 = (from ctr1 in ctr
-                   where ctr1.ctr_total_return > ctr.Where(ctr2 => ctr2.ctr_state == ctr1.ctr_state)
+                   where ctr1.ctr_total_return > ctr.Where(ctr2 => ctr2.ctr_state != null && ctr2.ctr_state == ctr1.ctr_state) /* SQL = never matches NULL */
                                                     .Average(ctr2 => ctr2.ctr_total_return) * 1.2m
                    join c in customerQuery on ctr1.ctr_customer_sk equals c.c_customer_sk
                    join ca in filteredCa on c.c_current_addr_sk equals ca.ca_address_sk

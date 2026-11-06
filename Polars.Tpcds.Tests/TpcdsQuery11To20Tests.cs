@@ -271,7 +271,7 @@ public class TpcdsQuery11To20Tests
     }
 
     private static readonly string[] Q12TargetCategories = ["Sports", "Books", "Home"];
-    private static readonly string[] Q20TargetCategories = ["Children", "Sports", "Music"];
+    private static readonly string[] Q20TargetCategories = ["Sports", "Books", "Home"];
 
     /*
      * TPC-DS Query 12
@@ -404,7 +404,7 @@ public class TpcdsQuery11To20Tests
             Assert.Equal(d.i_class, (string?)p.i_class);
             Assert.Equal(d.i_current_price, p.i_current_price);
             Assert.Equal(d.itemrevenue, p.itemrevenue);
-            Assert.Equal(d.revenueratio!.Value, p.revenueratio!.Value, 4);
+            TpcdsAssert.Close(d.revenueratio, p.revenueratio);
         }
     }
 
@@ -494,7 +494,8 @@ public class TpcdsQuery11To20Tests
                       avg1 = g.Average(x => (double?)x.ss_quantity),
                       avg2 = g.Average(x => (double?)x.ss_ext_sales_price),
                       avg3 = g.Average(x => (double?)x.ss_ext_wholesale_cost),
-                      sum4 = g.Sum(x => x.ss_ext_wholesale_cost)
+                      // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
+                     sum4 = g.Count(x => x.ss_ext_wholesale_cost != null) > 0 ? g.Sum(x => x.ss_ext_wholesale_cost) : null
                   };
 
         AssertPlan(q13, NativePushdown);
@@ -560,17 +561,10 @@ public class TpcdsQuery11To20Tests
             var d = duckDbResults[i];
             var p = polarsResult[i];
 
-            Assert.Equal(d.avg1, p.avg1);
-            Assert.Equal(d.avg2, p.avg2);
-            Assert.Equal(d.avg3, p.avg3);
-            if (d.sum4 == null && p.sum4 == 0m)
-            {
-                // In Polars, sum on an empty group produces 0, whereas SQL produces NULL
-            }
-            else
-            {
-                Assert.Equal(d.sum4, p.sum4);
-            }
+            TpcdsAssert.Close(d.avg1, p.avg1);
+            TpcdsAssert.Close(d.avg2, p.avg2);
+            TpcdsAssert.Close(d.avg3, p.avg3);
+            Assert.Equal(d.sum4, p.sum4);
         }
     }
 
@@ -1052,7 +1046,7 @@ public class TpcdsQuery11To20Tests
      *         or cs_sales_price > 500)
      *   and cs_sold_date_sk = d_date_sk
      *   and d_qoy = 2
-     *   and d_year = 2002
+     *   and d_year = 2001
      * group by ca_zip
      * order by ca_zip
      * limit 100;
@@ -1069,7 +1063,7 @@ public class TpcdsQuery11To20Tests
         string[] targetZips = ["85669", "86197", "88274", "83405", "86475", "85392", "85460", "80348", "81792"];
         string[] targetStates = ["CA", "WA", "GA"];
 
-        var filteredDates = dateDimQuery.Where(d => d.d_qoy == 2 && d.d_year == 2002);
+        var filteredDates = dateDimQuery.Where(d => d.d_qoy == 2 && d.d_year == 2001);
 
         var q15 = (from cs in catalogSalesQuery
                    join d in filteredDates on cs.cs_sold_date_sk equals d.d_date_sk
@@ -1105,9 +1099,9 @@ public class TpcdsQuery11To20Tests
                     OR cs_sales_price > 500)
               AND cs.cs_sold_date_sk = d.d_date_sk
               AND d.d_qoy = 2
-              AND d.d_year = 2002
+              AND d.d_year = 2001
             GROUP BY ca_zip
-            ORDER BY ca_zip
+            ORDER BY ca_zip NULLS FIRST
             LIMIT 100;
         ";
 
@@ -1173,30 +1167,29 @@ public class TpcdsQuery11To20Tests
         var filteredAddr = customerAddressQuery.Where(ca => ca.ca_state == "GA");
         var filteredCallCenter = callCenterQuery.Where(cc => cc.cc_county == "Williamson County");
 
-        var multiWarehouseOrders = (from cs1 in catalogSalesQuery
-                                    join cs2 in catalogSalesQuery on cs1.cs_order_number equals cs2.cs_order_number
-                                    where cs1.cs_warehouse_sk != cs2.cs_warehouse_sk
-                                    select cs1.cs_order_number).Distinct();
-
-        var returnedOrders = catalogReturnsQuery.Select(cr => cr.cr_order_number);
-
         var baseSales = from cs in catalogSalesQuery
                         join d in filteredDates on cs.cs_ship_date_sk equals d.d_date_sk
                         join ca in filteredAddr on cs.cs_ship_addr_sk equals ca.ca_address_sk
                         join cc in filteredCallCenter on cs.cs_call_center_sk equals cc.cc_call_center_sk
                         select cs;
 
-        var eligibleSales = (from cs in baseSales
-                             join o in multiWarehouseOrders on cs.cs_order_number equals o
-                             select cs).ExceptBy(returnedOrders, cs => cs.cs_order_number);
+        // EXISTS (another row of the order from a different warehouse) AND NOT EXISTS (a return of the order)
+        var eligibleSales = from cs in baseSales
+                            // SQL <> is unknown when either warehouse is NULL
+                            where cs.cs_warehouse_sk != null
+                               && catalogSalesQuery.Any(cs2 => cs2.cs_order_number == cs.cs_order_number
+                                                               && cs2.cs_warehouse_sk != null
+                                                               && cs2.cs_warehouse_sk != cs.cs_warehouse_sk)
+                               && !catalogReturnsQuery.Any(cr => cr.cr_order_number == cs.cs_order_number)
+                            select cs;
 
         var q16 = from cs in eligibleSales
                   group cs by 1 into g
                   select new
                   {
                       order_count = g.Select(x => x.cs_order_number).Distinct().LongCount(),
-                      total_shipping_cost = g.Sum(x => x.cs_ext_ship_cost),
-                      total_net_profit = g.Sum(x => x.cs_net_profit)
+                      total_shipping_cost = g.Count(x => x.cs_ext_ship_cost != null) > 0 ? g.Sum(x => x.cs_ext_ship_cost) : null,
+                      total_net_profit = g.Count(x => x.cs_net_profit != null) > 0 ? g.Sum(x => x.cs_net_profit) : null
                   };
 
         var polarsResult = q16.ToList();
@@ -1232,7 +1225,7 @@ public class TpcdsQuery11To20Tests
 
         var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
         {
-            order_count = r.IsDBNull(0) ? 0 : r.GetInt64(0),
+            order_count = r.IsDBNull(0) ? (long?)null : r.GetInt64(0),
             total_shipping_cost = r.IsDBNull(1) ? null : (decimal?)r.GetDecimal(1),
             total_net_profit = r.IsDBNull(2) ? null : (decimal?)r.GetDecimal(2)
         });
@@ -1245,23 +1238,9 @@ public class TpcdsQuery11To20Tests
 
             Assert.Equal(d.order_count, p.order_count);
 
-            if (d.total_shipping_cost == null && p.total_shipping_cost == 0m)
-            {
-                // In Polars, sum on an empty group produces 0, whereas SQL produces NULL
-            }
-            else
-            {
-                Assert.Equal(d.total_shipping_cost, p.total_shipping_cost);
-            }
+            Assert.Equal(d.total_shipping_cost, p.total_shipping_cost);
 
-            if (d.total_net_profit == null && p.total_net_profit == 0m)
-            {
-                // In Polars, sum on an empty group produces 0, whereas SQL produces NULL
-            }
-            else
-            {
-                Assert.Equal(d.total_net_profit, p.total_net_profit);
-            }
+            Assert.Equal(d.total_net_profit, p.total_net_profit);
         }
     }
 
@@ -1348,15 +1327,16 @@ public class TpcdsQuery11To20Tests
                        g.Key.i_item_id,
                        g.Key.i_item_desc,
                        g.Key.s_state,
-                       store_sales_quantitycount = g.Select(x => x.ss.ss_quantity).Count(),
+                       // SQL count(col) skips NULLs.
+                       store_sales_quantitycount = g.Count(x => x.ss.ss_quantity != null),
                        store_sales_quantityave = g.Average(x => (double?)x.ss.ss_quantity),
                        store_sales_quantitystdev = g.Std(x => (double?)x.ss.ss_quantity),
                        store_sales_quantitycov = g.Std(x => (double?)x.ss.ss_quantity) / g.Average(x => (double?)x.ss.ss_quantity),
-                       store_returns_quantitycount = g.Select(x => x.sr.sr_return_quantity).Count(),
+                       store_returns_quantitycount = g.Count(x => x.sr.sr_return_quantity != null),
                        store_returns_quantityave = g.Average(x => (double?)x.sr.sr_return_quantity),
                        store_returns_quantitystdev = g.Std(x => (double?)x.sr.sr_return_quantity),
                        store_returns_quantitycov = g.Std(x => (double?)x.sr.sr_return_quantity) / g.Average(x => (double?)x.sr.sr_return_quantity),
-                       catalog_sales_quantitycount = g.Select(x => x.cs.cs_quantity).Count(),
+                       catalog_sales_quantitycount = g.Count(x => x.cs.cs_quantity != null),
                        catalog_sales_quantityave = g.Average(x => (double?)x.cs.cs_quantity),
                        catalog_sales_quantitystdev = g.Std(x => (double?)x.cs.cs_quantity),
                        catalog_sales_quantitycov = g.Std(x => (double?)x.cs.cs_quantity) / g.Average(x => (double?)x.cs.cs_quantity),
@@ -1443,19 +1423,19 @@ public class TpcdsQuery11To20Tests
             Assert.Equal(d.s_state, p.s_state);
 
             Assert.Equal(d.store_sales_quantitycount, p.store_sales_quantitycount);
-            AssertNullableDouble(d.store_sales_quantityave, p.store_sales_quantityave);
-            AssertNullableDouble(d.store_sales_quantitystdev, p.store_sales_quantitystdev);
-            AssertNullableDouble(d.store_sales_quantitycov, p.store_sales_quantitycov);
+            TpcdsAssert.Close(d.store_sales_quantityave, p.store_sales_quantityave);
+            TpcdsAssert.Close(d.store_sales_quantitystdev, p.store_sales_quantitystdev);
+            TpcdsAssert.Close(d.store_sales_quantitycov, p.store_sales_quantitycov);
 
             Assert.Equal(d.store_returns_quantitycount, p.store_returns_quantitycount);
-            AssertNullableDouble(d.store_returns_quantityave, p.store_returns_quantityave);
-            AssertNullableDouble(d.store_returns_quantitystdev, p.store_returns_quantitystdev);
-            AssertNullableDouble(d.store_returns_quantitycov, p.store_returns_quantitycov);
+            TpcdsAssert.Close(d.store_returns_quantityave, p.store_returns_quantityave);
+            TpcdsAssert.Close(d.store_returns_quantitystdev, p.store_returns_quantitystdev);
+            TpcdsAssert.Close(d.store_returns_quantitycov, p.store_returns_quantitycov);
 
             Assert.Equal(d.catalog_sales_quantitycount, p.catalog_sales_quantitycount);
-            AssertNullableDouble(d.catalog_sales_quantityave, p.catalog_sales_quantityave);
-            AssertNullableDouble(d.catalog_sales_quantitystdev, p.catalog_sales_quantitystdev);
-            AssertNullableDouble(d.catalog_sales_quantitycov, p.catalog_sales_quantitycov);
+            TpcdsAssert.Close(d.catalog_sales_quantityave, p.catalog_sales_quantityave);
+            TpcdsAssert.Close(d.catalog_sales_quantitystdev, p.catalog_sales_quantitystdev);
+            TpcdsAssert.Close(d.catalog_sales_quantitycov, p.catalog_sales_quantitycov);
         }
     }
 
@@ -1640,13 +1620,13 @@ public class TpcdsQuery11To20Tests
             Assert.Equal(d.ca_state, p.ca_state);
             Assert.Equal(d.ca_county, p.ca_county);
 
-            AssertNullableDouble(d.agg1, p.agg1);
-            AssertNullableDouble(d.agg2, p.agg2);
-            AssertNullableDouble(d.agg3, p.agg3);
-            AssertNullableDouble(d.agg4, p.agg4);
-            AssertNullableDouble(d.agg5, p.agg5);
-            AssertNullableDouble(d.agg6, p.agg6);
-            AssertNullableDouble(d.agg7, p.agg7);
+            TpcdsAssert.Close(d.agg1, p.agg1);
+            TpcdsAssert.Close(d.agg2, p.agg2);
+            TpcdsAssert.Close(d.agg3, p.agg3);
+            TpcdsAssert.Close(d.agg4, p.agg4);
+            TpcdsAssert.Close(d.agg5, p.agg5);
+            TpcdsAssert.Close(d.agg6, p.agg6);
+            TpcdsAssert.Close(d.agg7, p.agg7);
         }
     }
 
@@ -1704,7 +1684,8 @@ public class TpcdsQuery11To20Tests
                   join c in customerQuery on ss.ss_customer_sk equals c.c_customer_sk
                   join ca in customerAddressQuery on c.c_current_addr_sk equals ca.ca_address_sk
                   join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
-                  where ca.ca_zip!.Substring(0, 5) != s.s_zip!.Substring(0, 5)
+                  // SQL <> / = is unknown when either side is NULL; C# null semantics would compare NULLs.
+                  where ca.ca_zip != null && s.s_zip != null && ca.ca_zip.Substring(0, 5) != s.s_zip.Substring(0, 5)
                   group ss by new
                   {
                       i.i_brand,
@@ -1804,11 +1785,11 @@ public class TpcdsQuery11To20Tests
      *      item,
      *      date_dim
      * WHERE cs_item_sk = i_item_sk
-     *   AND i_category IN ('Children',
-     *                      'Sports',
-     *                      'Music')
+     *   AND i_category IN ('Sports',
+     *                      'Books',
+     *                      'Home')
      *   AND cs_sold_date_sk = d_date_sk
-     *   AND d_date BETWEEN cast('2002-04-01' AS date) AND (cast('2002-04-01' AS date) + interval 30 day)
+     *   AND d_date BETWEEN cast('1999-02-22' AS date) AND (cast('1999-02-22' AS date) + interval 30 day)
      * GROUP BY i_item_id,
      *          i_item_desc,
      *          i_category,
@@ -1829,8 +1810,8 @@ public class TpcdsQuery11To20Tests
         var itemQuery = TpcdsData.ItemQuery();
         var dateDimQuery = TpcdsData.DateDimQuery();
 
-        var minDate = new DateOnly(2002, 4, 1);
-        var maxDate = new DateOnly(2002, 5, 1);
+        var minDate = new DateOnly(1999, 2, 22);
+        var maxDate = new DateOnly(1999, 3, 24);
 
         var filteredDates = dateDimQuery.Where(d => d.d_date >= minDate && d.d_date <= maxDate);
         var filteredItems = itemQuery.Where(i => Q20TargetCategories.Contains(i.i_category));
@@ -1879,11 +1860,11 @@ public class TpcdsQuery11To20Tests
                  read_parquet('{TpcdsData.ItemPath}'),
                  read_parquet('{TpcdsData.DateDimPath}')
             WHERE cs_item_sk = i_item_sk
-              AND i_category IN ('Children',
-                                 'Sports',
-                                 'Music')
+              AND i_category IN ('Sports',
+                                 'Books',
+                                 'Home')
               AND cs_sold_date_sk = d_date_sk
-              AND d_date BETWEEN cast('2002-04-01' AS date) AND (cast('2002-04-01' AS date) + interval 30 day)
+              AND d_date BETWEEN cast('1999-02-22' AS date) AND (cast('1999-02-22' AS date) + interval 30 day)
             GROUP BY i_item_id,
                      i_item_desc,
                      i_category,
@@ -1920,21 +1901,7 @@ public class TpcdsQuery11To20Tests
             Assert.Equal(d.i_class, (string?)p.i_class);
             Assert.Equal(d.i_current_price, p.i_current_price);
             Assert.Equal(d.itemrevenue, p.itemrevenue);
-            Assert.Equal(d.revenueratio!.Value, p.revenueratio!.Value, 4);
-        }
-    }
-
-    internal static void AssertNullableDouble(double? expected, double? actual, double tolerance = 0.001)
-    {
-        if (expected == null)
-        {
-            // In SQL stddev_samp/cov on a group of size 1 returns NULL, whereas Polars returns 0.0 or NaN
-            Assert.True(actual == null || double.IsNaN(actual.Value) || actual.Value == 0.0, $"Expected null or 0.0 but got {actual}");
-        }
-        else
-        {
-            Assert.NotNull(actual);
-            Assert.Equal(expected.Value, actual.Value, tolerance);
+            TpcdsAssert.Close(d.revenueratio, p.revenueratio);
         }
     }
 }

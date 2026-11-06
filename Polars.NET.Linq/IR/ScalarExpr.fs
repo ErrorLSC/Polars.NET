@@ -262,6 +262,61 @@ module ScalarExprOps =
         | ScalarExpr.InList(target, _, _) -> containsWindow target
         | _ -> false
 
+    /// Functions whose value for a row depends on the other rows of the column (series and group modifiers).
+    /// An unknown Custom function is assumed to be one.
+    let private isFrameFunction (fn: ScalarFunction) : bool =
+        match fn with
+        | ScalarFunction.Shift
+        | ScalarFunction.Diff _
+        | ScalarFunction.Rank _
+        | ScalarFunction.PctChange
+        | ScalarFunction.Interpolate _
+        | ScalarFunction.InterpolateBy
+        | ScalarFunction.CumSum
+        | ScalarFunction.CumMin
+        | ScalarFunction.CumMax
+        | ScalarFunction.CumProd
+        | ScalarFunction.CumCount
+        | ScalarFunction.Implode
+        | ScalarFunction.NUnique
+        | ScalarFunction.Unique
+        | ScalarFunction.MinBy
+        | ScalarFunction.MaxBy
+        | ScalarFunction.Filter
+        | ScalarFunction.Quantile _
+        | ScalarFunction.SeriesGet
+        | ScalarFunction.Custom _ -> true
+        | _ -> false
+
+    /// Checks whether an expression's value for a row depends on other rows of its input: aggregations,
+    /// windows, series functions (rank, shift, cumulative, ...), group UDFs and subqueries. Filtering the
+    /// input before evaluating such an expression changes its result, so a predicate must not be moved
+    /// below a projection that computes one.
+    let rec dependsOnOtherRows (expr: ScalarExpr) : bool =
+        containsAggregation expr
+        || containsWindow expr
+        || containsSubquery expr
+        || dependsViaFunction expr
+
+    and private dependsViaFunction (expr: ScalarExpr) : bool =
+        match expr with
+        | ScalarExpr.Function(fn, args, _) -> isFrameFunction fn || args |> List.exists dependsViaFunction
+        | ScalarExpr.Binary(_, left, right) -> dependsViaFunction left || dependsViaFunction right
+        | ScalarExpr.Unary(_, inner)
+        | ScalarExpr.Cast(inner, _, _)
+        | ScalarExpr.EnumConvert(_, inner, _)
+        | ScalarExpr.Alias(inner, _)
+        | ScalarExpr.Slice(inner, _, _)
+        | ScalarExpr.InList(inner, _, _) -> dependsViaFunction inner
+        | ScalarExpr.SortBy(inner, orderBy) ->
+            dependsViaFunction inner || orderBy |> List.exists (fun o -> dependsViaFunction o.Expr)
+        | ScalarExpr.Conditional(test, ifTrue, ifFalse) ->
+            dependsViaFunction test || dependsViaFunction ifTrue || dependsViaFunction ifFalse
+        | ScalarExpr.Coalesce exprs -> exprs |> List.exists dependsViaFunction
+        | ScalarExpr.ItemAccess(target, idx) -> dependsViaFunction target || dependsViaFunction idx
+        | ScalarExpr.Udf(_, args, _, _) -> args |> List.exists dependsViaFunction
+        | _ -> false
+
     /// Substitutes column references in an expression using a mapping function.
     let rec substitute (subst: string -> ScalarExpr option) (expr: ScalarExpr) : ScalarExpr =
         match expr with

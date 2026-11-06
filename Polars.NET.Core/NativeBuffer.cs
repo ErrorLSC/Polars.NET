@@ -64,7 +64,7 @@ public sealed unsafe class NativeBuffer : MemoryManager<byte>
     {
         ObjectDisposedException.ThrowIf(_handle.IsClosed, this);
         return _length == 0
-            ? Span<byte>.Empty
+            ? []
             : new Span<byte>((void*)_handle.DangerousGetHandle(), _length);
     }
 

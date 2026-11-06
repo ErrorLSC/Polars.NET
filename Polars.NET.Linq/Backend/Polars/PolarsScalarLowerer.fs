@@ -119,6 +119,8 @@ module internal PolarsScalarLowerer =
             match op with
             | BinaryOp.Eq -> PolarsWrapper.Eq(leftH, rightH)
             | BinaryOp.NotEq -> PolarsWrapper.Neq(leftH, rightH)
+            | BinaryOp.EqMissing -> PolarsWrapper.EqMissing(leftH, rightH)
+            | BinaryOp.NotEqMissing -> PolarsWrapper.NeqMissing(leftH, rightH)
             | BinaryOp.Lt -> PolarsWrapper.Lt(leftH, rightH)
             | BinaryOp.LtEq -> PolarsWrapper.LtEq(leftH, rightH)
             | BinaryOp.Gt -> PolarsWrapper.Gt(leftH, rightH)

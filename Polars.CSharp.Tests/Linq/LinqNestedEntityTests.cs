@@ -219,14 +219,16 @@ public class LinqNestedEntityTests
     [Fact]
     public void Untranslatable_Member_Is_Not_Materialized_From_Guessed_Columns()
     {
-        // `Where` has no column; the rows must not be read natively. The default policy rejects the full
-        // fallback instead of returning rows with a missing member.
+        // `Where` has no column. The join still runs natively and the selector runs as a client map over the
+        // joined pairs, so the member is computed rather than read as a default value.
         using var s = new Sources();
         var query = s.E.AsQueryable<NeEmp>()
             .Join(s.D.AsQueryable<NeDept>(), x => x.Dept, y => y.Dept, (x, y) => new { x, Where = Describe(y) });
+        var expected = Emps.Join(Depts, x => x.Dept, y => y.Dept, (x, y) => new { x, Where = Describe(y) });
 
-        Assert.False(IsNative(query));
-        Assert.Throws<PolarsPushdownException>(() => query.ToList());
+        Assert.True(IsNative(query));
+        Assert.True(((IPolarsExplainable)query).InspectPlan(true).HasClientProjection);
+        AssertSameRows(expected, query.ToList());
     }
 
     [Fact]

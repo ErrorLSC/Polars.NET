@@ -756,24 +756,25 @@ module internal PipelineStageParser =
     /// Fuses adjacent sort stages that represent null-handling idioms (e.g. OrderBy(x => x.Score == null).ThenBy(x => x.Score))
     let rec fuseSortStages (stages: LinqStage list) : LinqStage list =
         match stages with
-        | LinqStage.Sort(l1, isDesc1, _) :: LinqStage.Sort(l2, isDesc2, _) :: tail ->
+        | LinqStage.Sort(l1, isDesc1, nullsLast1) :: LinqStage.Sort(l2, isDesc2, nullsLast2) :: tail ->
             match tryFuseNullSortPair l1 isDesc1 l2 isDesc2 with
             | Some (fusedLambda, fusedDesc, fusedNullsLast) ->
                 fuseSortStages (LinqStage.Sort(fusedLambda, fusedDesc, fusedNullsLast) :: tail)
             | None ->
-                LinqStage.Sort(l1, isDesc1, (if isDesc1 then true else false)) :: fuseSortStages (LinqStage.Sort(l2, isDesc2, (if isDesc2 then true else false)) :: tail)
+                // Keep each stage's null placement: a stage fused in the previous step carries its own.
+                LinqStage.Sort(l1, isDesc1, nullsLast1) :: fuseSortStages (LinqStage.Sort(l2, isDesc2, nullsLast2) :: tail)
         | head :: tail -> head :: fuseSortStages tail
         | [] -> []
 
     /// Fuses adjacent sort pairs within GroupFoldContext
     let rec fuseSortPairs (pairs: (LambdaExpression * bool * bool) list) : (LambdaExpression * bool * bool) list =
         match pairs with
-        | (l1, isDesc1, _) :: (l2, isDesc2, _) :: tail ->
+        | (l1, isDesc1, nullsLast1) :: (l2, isDesc2, nullsLast2) :: tail ->
             match tryFuseNullSortPair l1 isDesc1 l2 isDesc2 with
             | Some (fusedLambda, fusedDesc, fusedNullsLast) ->
                 fuseSortPairs ((fusedLambda, fusedDesc, fusedNullsLast) :: tail)
             | None ->
-                (l1, isDesc1, (if isDesc1 then true else false)) :: fuseSortPairs ((l2, isDesc2, (if isDesc2 then true else false)) :: tail)
+                (l1, isDesc1, nullsLast1) :: fuseSortPairs ((l2, isDesc2, nullsLast2) :: tail)
         | head :: tail -> head :: fuseSortPairs tail
         | [] -> []
 

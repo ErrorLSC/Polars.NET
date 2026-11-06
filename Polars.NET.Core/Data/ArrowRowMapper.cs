@@ -140,6 +140,15 @@ internal static class ArrowRowMapperHelpers
             $"Record field '{fieldName}' does not accept Option, but column '{colName}' contains null at row {rowIndex}.");
     }
 
+    public static TMember ThrowNullInNonNullableMember<TMember>(string memberName, string colName, int rowIndex)
+    {
+        throw new InvalidOperationException(
+            $"Member '{memberName}' of non-nullable type {typeof(TMember).Name} cannot hold the null in column '{colName}' at row {rowIndex}. Declare it as {typeof(TMember).Name}? to receive nulls.");
+    }
+
+    public static readonly MethodInfo ThrowNullInNonNullableMemberDef =
+        typeof(ArrowRowMapperHelpers).GetMethod(nameof(ThrowNullInNonNullableMember), BindingFlags.Public | BindingFlags.Static)!;
+
     public static readonly MethodInfo ThrowNullMethodDef =
         typeof(ArrowRowMapperHelpers).GetMethod(nameof(ThrowNullInNonOptionField), BindingFlags.Public | BindingFlags.Static)!;
 
@@ -452,12 +461,16 @@ public static class ArrowRowMapper<T>
                 var valExpr = CreateRawValueReadExpr(slotVar, sample, returnType);
 
                 Expression onNullExpr;
-                if (strictNonOptionNullCheck)
+                if (strictNonOptionNullCheck || returnType.IsValueType)
                 {
+                    // A null cannot be represented by a non-nullable value type: fail like LINQ to Objects
+                    // instead of silently materializing default(T).
                     string colName = schema.GetFieldByIndex(colIdx).Name;
-                    var throwMethod = ArrowRowMapperHelpers.ThrowNullMethodDef.MakeGenericMethod(returnType);
+                    var throwDef = strictNonOptionNullCheck
+                        ? ArrowRowMapperHelpers.ThrowNullMethodDef
+                        : ArrowRowMapperHelpers.ThrowNullInNonNullableMemberDef;
                     onNullExpr = Expression.Call(
-                        throwMethod,
+                        throwDef.MakeGenericMethod(returnType),
                         Expression.Constant(fieldName, typeof(string)),
                         Expression.Constant(colName, typeof(string)),
                         idxParam);
@@ -630,6 +643,14 @@ public static class ArrowRowMapper<T>
                         {
                             usedColIndices.Add(colIdx);
                             ctorArgs[i] = CreateReadExpr(colIdx, param.ParameterType, param.Name ?? $" arg{i}", strictNonOptionNullCheck: false);
+                        }
+                        else if (isCompilerGenerated)
+                        {
+                            // Every member of an anonymous type comes from the projection: a member without a
+                            // column means the projection was lost, which must not read as default values.
+                            var columns = string.Join(", ", Enumerable.Range(0, fieldCount).Select(c => schema.GetFieldByIndex(c).Name));
+                            throw new InvalidOperationException(
+                                $"Member '{param.Name}' of {actualType.Name} has no column in the result (columns: {columns}).");
                         }
                         else
                         {

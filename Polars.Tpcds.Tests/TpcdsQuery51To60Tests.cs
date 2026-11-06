@@ -470,7 +470,7 @@ public class TpcdsQuery51To60Tests
             var p = polarsResult[i];
             Assert.Equal(d.i_manufact_id, p.i_manufact_id);
             Assert.Equal(d.sum_sales, p.sum_sales);
-            Assert.Equal(d.avg_quarterly_sales ?? 0.0, p.avg_quarterly_sales, 4);
+            TpcdsAssert.Close(d.avg_quarterly_sales, p.avg_quarterly_sales);
         }
     }
 
@@ -548,11 +548,15 @@ public class TpcdsQuery51To60Tests
         var customerAddressQuery = TpcdsData.CustomerAddressQuery();
         var storeQuery = TpcdsData.StoreQuery();
 
-        var baseMonthSeq = dateDimQuery
+        // Scalar subqueries: SELECT DISTINCT d_month_seq+1 / d_month_seq+3 ... WHERE d_year = 1998 AND d_moy = 12
+        var monthSeqStart = dateDimQuery
             .Where(d => d.d_year == 1998 && d.d_moy == 12)
-            .Select(d => d.d_month_seq)
-            .Distinct()
-            .First()!.Value;
+            .Select(d => d.d_month_seq + 1)
+            .Distinct();
+        var monthSeqEnd = dateDimQuery
+            .Where(d => d.d_year == 1998 && d.d_moy == 12)
+            .Select(d => d.d_month_seq + 3)
+            .Distinct();
 
         var csSales = catalogSalesQuery.Select(cs => new
         {
@@ -587,7 +591,7 @@ public class TpcdsQuery51To60Tests
                                          equals new { county = s.s_county, state = s.s_state }
                         join ss in storeSalesQuery on mc.c_customer_sk equals ss.ss_customer_sk
                         join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
-                        where d.d_month_seq >= baseMonthSeq + 1 && d.d_month_seq <= baseMonthSeq + 3
+                        where d.d_month_seq >= monthSeqStart.Single() && d.d_month_seq <= monthSeqEnd.Single()
                         group ss by mc.c_customer_sk into g
                         select new
                         {
@@ -603,7 +607,7 @@ public class TpcdsQuery51To60Tests
 
         var q54 = (from seg in segments
                    group seg by seg.segment into g
-                   let num_customers = (long)g.Count()
+                   let num_customers = g.LongCount()
                    let segment_base = g.Key * 50
                    orderby g.Key, num_customers, segment_base
                    select new
@@ -889,7 +893,7 @@ public class TpcdsQuery51To60Tests
                  select new
                  {
                      i_item_id = g.Key,
-                     total_sales = g.Sum(x => x.ss_ext_sales_price)
+                     total_sales = g.Count(x => x.ss_ext_sales_price != null) > 0 ? g.Sum(x => x.ss_ext_sales_price) : null
                  };
 
         var cs = from c in catalogSalesQuery
@@ -901,7 +905,7 @@ public class TpcdsQuery51To60Tests
                  select new
                  {
                      i_item_id = g.Key,
-                     total_sales = g.Sum(x => x.cs_ext_sales_price)
+                     total_sales = g.Count(x => x.cs_ext_sales_price != null) > 0 ? g.Sum(x => x.cs_ext_sales_price) : null
                  };
 
         var ws = from w in webSalesQuery
@@ -913,12 +917,13 @@ public class TpcdsQuery51To60Tests
                  select new
                  {
                      i_item_id = g.Key,
-                     total_sales = g.Sum(x => x.ws_ext_sales_price)
+                     total_sales = g.Count(x => x.ws_ext_sales_price != null) > 0 ? g.Sum(x => x.ws_ext_sales_price) : null
                  };
 
         var q56 = (from x in ss.Concat(cs).Concat(ws)
                    group x by x.i_item_id into g
-                   let total_sales = g.Sum(x => x.total_sales)
+                   // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
+                   let total_sales = g.Count(x => x.total_sales != null) > 0 ? g.Sum(x => x.total_sales) : null
                    orderby total_sales, g.Key
                    select new
                    {
@@ -1241,7 +1246,7 @@ public class TpcdsQuery51To60Tests
             Assert.Equal(d.cc_name, p.cc_name);
             Assert.Equal(d.d_year, p.d_year);
             Assert.Equal(d.d_moy, p.d_moy);
-            Assert.Equal((double)(d.avg_monthly_sales ?? 0m), p.avg_monthly_sales, 4);
+            TpcdsAssert.Close((double?)d.avg_monthly_sales, p.avg_monthly_sales);
             Assert.Equal(d.sum_sales, p.sum_sales);
             Assert.Equal(d.psum, p.psum);
             Assert.Equal(d.nsum, p.nsum);
@@ -1333,13 +1338,13 @@ public class TpcdsQuery51To60Tests
         var dateDimQuery = TpcdsData.DateDimQuery();
 
         var targetDate = new DateOnly(2000, 1, 3);
+        // Scalar subquery: (SELECT d_week_seq FROM date_dim WHERE d_date = '2000-01-03')
         var targetWeekSeq = dateDimQuery
             .Where(d => d.d_date == targetDate)
-            .Select(d => d.d_week_seq)
-            .First();
+            .Select(d => d.d_week_seq);
 
         var targetDates = dateDimQuery
-            .Where(d => d.d_week_seq == targetWeekSeq)
+            .Where(d => d.d_week_seq == targetWeekSeq.Single())
             .Select(d => new { d.d_date_sk })
             .Distinct();
 
@@ -1494,12 +1499,12 @@ public class TpcdsQuery51To60Tests
             var p = polarsResult[i];
             Assert.Equal(d.item_id, p.item_id);
             Assert.Equal(d.ss_item_rev, p.ss_item_rev);
-            Assert.Equal(d.ss_dev ?? 0.0, p.ss_dev ?? 0.0, 4);
+            TpcdsAssert.Close(d.ss_dev, p.ss_dev);
             Assert.Equal(d.cs_item_rev, p.cs_item_rev);
-            Assert.Equal(d.cs_dev ?? 0.0, p.cs_dev ?? 0.0, 4);
+            TpcdsAssert.Close(d.cs_dev, p.cs_dev);
             Assert.Equal(d.ws_item_rev, p.ws_item_rev);
-            Assert.Equal(d.ws_dev ?? 0.0, p.ws_dev ?? 0.0, 4);
-            Assert.Equal(d.average ?? 0.0, p.average ?? 0.0, 4);
+            TpcdsAssert.Close(d.ws_dev, p.ws_dev);
+            TpcdsAssert.Close(d.average, p.average);
         }
     }
 
@@ -1765,13 +1770,13 @@ public class TpcdsQuery51To60Tests
             Assert.Equal(d.s_store_name1, p.s_store_name1);
             Assert.Equal(d.s_store_id1, p.s_store_id1);
             Assert.Equal(d.d_week_seq1, p.d_week_seq1);
-            Assert.Equal(d.sun_sales_ratio ?? 0.0, p.sun_sales_ratio is double sr && !double.IsNaN(sr) && !double.IsInfinity(sr) ? sr : 0.0, 4);
-            Assert.Equal(d.mon_sales_ratio ?? 0.0, p.mon_sales_ratio is double mr && !double.IsNaN(mr) && !double.IsInfinity(mr) ? mr : 0.0, 4);
-            Assert.Equal(d.tue_sales_ratio ?? 0.0, p.tue_sales_ratio is double tr && !double.IsNaN(tr) && !double.IsInfinity(tr) ? tr : 0.0, 4);
-            Assert.Equal(d.wed_sales_ratio ?? 0.0, p.wed_sales_ratio is double wr && !double.IsNaN(wr) && !double.IsInfinity(wr) ? wr : 0.0, 4);
-            Assert.Equal(d.thu_sales_ratio ?? 0.0, p.thu_sales_ratio is double thr && !double.IsNaN(thr) && !double.IsInfinity(thr) ? thr : 0.0, 4);
-            Assert.Equal(d.fri_sales_ratio ?? 0.0, p.fri_sales_ratio is double fr && !double.IsNaN(fr) && !double.IsInfinity(fr) ? fr : 0.0, 4);
-            Assert.Equal(d.sat_sales_ratio ?? 0.0, p.sat_sales_ratio is double sar && !double.IsNaN(sar) && !double.IsInfinity(sar) ? sar : 0.0, 4);
+            TpcdsAssert.Close(d.sun_sales_ratio, p.sun_sales_ratio);
+            TpcdsAssert.Close(d.mon_sales_ratio, p.mon_sales_ratio);
+            TpcdsAssert.Close(d.tue_sales_ratio, p.tue_sales_ratio);
+            TpcdsAssert.Close(d.wed_sales_ratio, p.wed_sales_ratio);
+            TpcdsAssert.Close(d.thu_sales_ratio, p.thu_sales_ratio);
+            TpcdsAssert.Close(d.fri_sales_ratio, p.fri_sales_ratio);
+            TpcdsAssert.Close(d.sat_sales_ratio, p.sat_sales_ratio);
         }
     }
 

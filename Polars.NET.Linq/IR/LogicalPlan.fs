@@ -223,6 +223,8 @@ module internal LogicalPlanOps =
                 match op with
                 | BinaryOp.Eq -> "=="
                 | BinaryOp.NotEq -> "!="
+                | BinaryOp.EqMissing -> "<=>"
+                | BinaryOp.NotEqMissing -> "!<=>"
                 | BinaryOp.Lt -> "<"
                 | BinaryOp.LtEq -> "<="
                 | BinaryOp.Gt -> ">"

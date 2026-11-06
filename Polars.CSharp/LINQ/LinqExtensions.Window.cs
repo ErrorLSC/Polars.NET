@@ -170,14 +170,16 @@ public static partial class LinqExtensions
         => throw MarkerExceptionHelper.Throw();
     /// <summary>
     /// Computes the sample standard deviation (ddof = 1 by default).
+    /// Null values are skipped; the result is null when there are no more than ddof non-null values.
     /// </summary>
-    public static double Std<T>(this T column, byte ddof = 1)
+    public static double? Std<T>(this T column, byte ddof = 1)
         => throw MarkerExceptionHelper.Throw();
 
     /// <summary>
     /// Computes the sample variance (ddof = 1 by default).
+    /// Null values are skipped; the result is null when there are no more than ddof non-null values.
     /// </summary>
-    public static double Var<T>(this T column, byte ddof = 1)
+    public static double? Var<T>(this T column, byte ddof = 1)
         => throw MarkerExceptionHelper.Throw();
     /// <summary>
     /// Computes the cumulative sum of the column.

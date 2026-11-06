@@ -183,7 +183,7 @@ public class TpcdsQuery61To70Tests
             var p = polarsResult[i];
             Assert.Equal(d.promotions, p.promotions);
             Assert.Equal(d.total, p.total);
-            Assert.Equal(d.pct ?? 0.0, p.pct, 4);
+            TpcdsAssert.Close(d.pct, p.pct);
         }
     }
 
@@ -471,7 +471,7 @@ public class TpcdsQuery61To70Tests
             var p = polarsResult[i];
             Assert.Equal(d.i_manager_id, p.i_manager_id);
             Assert.Equal(d.sum_sales, p.sum_sales);
-            Assert.Equal(d.avg_monthly_sales ?? 0.0, p.avg_monthly_sales, 4);
+            TpcdsAssert.Close(d.avg_monthly_sales, p.avg_monthly_sales);
         }
     }
 
@@ -634,7 +634,7 @@ public class TpcdsQuery61To70Tests
                              g.Key.syear,
                              g.Key.fsyear,
                              g.Key.s2year,
-                             cnt = (long)g.Count(),
+                             cnt = g.LongCount(),
                              s1 = g.Sum(x => x.ss_wholesale_cost),
                              s2 = g.Sum(x => x.ss_list_price),
                              s3 = g.Sum(x => x.ss_coupon_amt)
@@ -798,21 +798,15 @@ public class TpcdsQuery61To70Tests
               AND cs2.cnt <= cs1.cnt
               AND cs1.store_name = cs2.store_name
               AND cs1.store_zip = cs2.store_zip
-            ORDER BY cs1.product_name,
-                     cs1.store_name,
-                     cs2.cnt,
-                     cs1.s1,
-                     cs2.s1;
+            ORDER BY cs1.product_name NULLS FIRST,
+                     cs1.store_name NULLS FIRST,
+                     cs2.cnt NULLS FIRST,
+                     cs1.s1 NULLS FIRST,
+                     cs2.s1 NULLS FIRST;
         ";
 
-        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
-        {
-            product_name = r.IsDBNull(0) ? null : r.GetString(0),
-            store_name = r.IsDBNull(1) ? null : r.GetString(1),
-            cnt = r.GetInt64(20)
-        });
-
-        Assert.Equal(duckDbResults.Count, polarsResult.Count);
+        Assert.NotEmpty(polarsResult);
+        TpcdsAssert.RowsEqual(TpcdsAssert.DuckDbRows(duckDbSql), polarsResult);
     }
 
     /*
@@ -873,7 +867,8 @@ public class TpcdsQuery61To70Tests
                  {
                      g.Key.ss_store_sk,
                      g.Key.ss_item_sk,
-                     revenue = g.Sum(x => x.ss_sales_price)
+                     // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
+                     revenue = g.Count(x => x.ss_sales_price != null) > 0 ? g.Sum(x => x.ss_sales_price) : null
                  };
 
         var sb = from sa in sc
@@ -1140,18 +1135,19 @@ public class TpcdsQuery61To70Tests
                        oct_sales = g.Sum(x => x.oct_sales),
                        nov_sales = g.Sum(x => x.nov_sales),
                        dec_sales = g.Sum(x => x.dec_sales),
-                       jan_sales_per_sq_foot = g.Sum(x => (double?)x.jan_sales / (double?)x.w_warehouse_sq_ft),
-                       feb_sales_per_sq_foot = g.Sum(x => (double?)x.feb_sales / (double?)x.w_warehouse_sq_ft),
-                       mar_sales_per_sq_foot = g.Sum(x => (double?)x.mar_sales / (double?)x.w_warehouse_sq_ft),
-                       apr_sales_per_sq_foot = g.Sum(x => (double?)x.apr_sales / (double?)x.w_warehouse_sq_ft),
-                       may_sales_per_sq_foot = g.Sum(x => (double?)x.may_sales / (double?)x.w_warehouse_sq_ft),
-                       jun_sales_per_sq_foot = g.Sum(x => (double?)x.jun_sales / (double?)x.w_warehouse_sq_ft),
-                       jul_sales_per_sq_foot = g.Sum(x => (double?)x.jul_sales / (double?)x.w_warehouse_sq_ft),
-                       aug_sales_per_sq_foot = g.Sum(x => (double?)x.aug_sales / (double?)x.w_warehouse_sq_ft),
-                       sep_sales_per_sq_foot = g.Sum(x => (double?)x.sep_sales / (double?)x.w_warehouse_sq_ft),
-                       oct_sales_per_sq_foot = g.Sum(x => (double?)x.oct_sales / (double?)x.w_warehouse_sq_ft),
-                       nov_sales_per_sq_foot = g.Sum(x => (double?)x.nov_sales / (double?)x.w_warehouse_sq_ft),
-                       dec_sales_per_sq_foot = g.Sum(x => (double?)x.dec_sales / (double?)x.w_warehouse_sq_ft),
+                       // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
+                       jan_sales_per_sq_foot = g.Count(x => (double?)x.jan_sales / (double?)x.w_warehouse_sq_ft != null) > 0 ? g.Sum(x => (double?)x.jan_sales / (double?)x.w_warehouse_sq_ft) : null,
+                       feb_sales_per_sq_foot = g.Count(x => (double?)x.feb_sales / (double?)x.w_warehouse_sq_ft != null) > 0 ? g.Sum(x => (double?)x.feb_sales / (double?)x.w_warehouse_sq_ft) : null,
+                       mar_sales_per_sq_foot = g.Count(x => (double?)x.mar_sales / (double?)x.w_warehouse_sq_ft != null) > 0 ? g.Sum(x => (double?)x.mar_sales / (double?)x.w_warehouse_sq_ft) : null,
+                       apr_sales_per_sq_foot = g.Count(x => (double?)x.apr_sales / (double?)x.w_warehouse_sq_ft != null) > 0 ? g.Sum(x => (double?)x.apr_sales / (double?)x.w_warehouse_sq_ft) : null,
+                       may_sales_per_sq_foot = g.Count(x => (double?)x.may_sales / (double?)x.w_warehouse_sq_ft != null) > 0 ? g.Sum(x => (double?)x.may_sales / (double?)x.w_warehouse_sq_ft) : null,
+                       jun_sales_per_sq_foot = g.Count(x => (double?)x.jun_sales / (double?)x.w_warehouse_sq_ft != null) > 0 ? g.Sum(x => (double?)x.jun_sales / (double?)x.w_warehouse_sq_ft) : null,
+                       jul_sales_per_sq_foot = g.Count(x => (double?)x.jul_sales / (double?)x.w_warehouse_sq_ft != null) > 0 ? g.Sum(x => (double?)x.jul_sales / (double?)x.w_warehouse_sq_ft) : null,
+                       aug_sales_per_sq_foot = g.Count(x => (double?)x.aug_sales / (double?)x.w_warehouse_sq_ft != null) > 0 ? g.Sum(x => (double?)x.aug_sales / (double?)x.w_warehouse_sq_ft) : null,
+                       sep_sales_per_sq_foot = g.Count(x => (double?)x.sep_sales / (double?)x.w_warehouse_sq_ft != null) > 0 ? g.Sum(x => (double?)x.sep_sales / (double?)x.w_warehouse_sq_ft) : null,
+                       oct_sales_per_sq_foot = g.Count(x => (double?)x.oct_sales / (double?)x.w_warehouse_sq_ft != null) > 0 ? g.Sum(x => (double?)x.oct_sales / (double?)x.w_warehouse_sq_ft) : null,
+                       nov_sales_per_sq_foot = g.Count(x => (double?)x.nov_sales / (double?)x.w_warehouse_sq_ft != null) > 0 ? g.Sum(x => (double?)x.nov_sales / (double?)x.w_warehouse_sq_ft) : null,
+                       dec_sales_per_sq_foot = g.Count(x => (double?)x.dec_sales / (double?)x.w_warehouse_sq_ft != null) > 0 ? g.Sum(x => (double?)x.dec_sales / (double?)x.w_warehouse_sq_ft) : null,
                        jan_net = g.Sum(x => x.jan_net),
                        feb_net = g.Sum(x => x.feb_net),
                        mar_net = g.Sum(x => x.mar_net),
@@ -1344,26 +1340,7 @@ public class TpcdsQuery61To70Tests
             LIMIT 100;
         ";
 
-        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
-        {
-            w_warehouse_name = r.IsDBNull(0) ? null : r.GetString(0),
-            w_warehouse_sq_ft = r.IsDBNull(1) ? (long?)null : r.GetInt64(1),
-            jan_sales = r.IsDBNull(8) ? (decimal?)null : r.GetDecimal(8),
-            jan_sales_per_sq_foot = r.IsDBNull(20) ? (double?)null : (double)r.GetDecimal(20),
-            jan_net = r.IsDBNull(32) ? (decimal?)null : r.GetDecimal(32)
-        });
-
-        Assert.Equal(duckDbResults.Count, polarsResult.Count);
-        for (int i = 0; i < duckDbResults.Count; i++)
-        {
-            var d = duckDbResults[i];
-            var p = polarsResult[i];
-            Assert.Equal(d.w_warehouse_name, p.w_warehouse_name);
-            Assert.Equal(d.w_warehouse_sq_ft, p.w_warehouse_sq_ft);
-            Assert.Equal(d.jan_sales, p.jan_sales);
-            Assert.Equal(d.jan_sales_per_sq_foot ?? 0.0, p.jan_sales_per_sq_foot ?? 0.0, 4);
-            Assert.Equal(d.jan_net, p.jan_net);
-        }
+        TpcdsAssert.RowsEqual(TpcdsAssert.DuckDbRows(duckDbSql), polarsResult);
     }
 
     /*
@@ -1666,7 +1643,8 @@ public class TpcdsQuery61To70Tests
         var q68 = (from x in dn
                    join c in customerQuery on x.ss_customer_sk equals c.c_customer_sk
                    join current_addr in customerAddressQuery on c.c_current_addr_sk equals current_addr.ca_address_sk
-                   where current_addr.ca_city != x.bought_city
+                   // SQL <> / = is unknown when either side is NULL; C# null semantics would compare NULLs.
+                   where current_addr.ca_city != null && x.bought_city != null && current_addr.ca_city != x.bought_city
                    orderby c.c_last_name, x.ss_ticket_number
                    select new
                    {
@@ -1858,7 +1836,7 @@ public class TpcdsQuery61To70Tests
                        cd.cd_purchase_estimate,
                        cd.cd_credit_rating
                    } into g
-                   let cnt = (long)g.Count()
+                   let cnt = g.LongCount()
                    orderby g.Key.cd_gender,
                            g.Key.cd_marital_status,
                            g.Key.cd_education_status,

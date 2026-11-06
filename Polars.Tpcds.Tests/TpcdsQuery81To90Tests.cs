@@ -90,13 +90,14 @@ public class TpcdsQuery81To90Tests
                   {
                       ctr_customer_sk = g.Key.cr_returning_customer_sk,
                       ctr_state = g.Key.ca_state,
-                      ctr_total_return = g.Sum(x => x.cr_return_amt_inc_tax)
+                      // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
+                      ctr_total_return = g.Count(x => x.cr_return_amt_inc_tax != null) > 0 ? g.Sum(x => x.cr_return_amt_inc_tax) : null
                   };
 
         var filteredCa = customerAddressQuery.Where(ca => ca.ca_state == "GA");
 
         var q81 = (from ctr1 in ctr
-                   where ctr1.ctr_total_return > ctr.Where(ctr2 => ctr2.ctr_state == ctr1.ctr_state)
+                   where ctr1.ctr_total_return > ctr.Where(ctr2 => ctr2.ctr_state != null && ctr2.ctr_state == ctr1.ctr_state) /* SQL = never matches NULL */
                                                     .Average(ctr2 => ctr2.ctr_total_return) * 1.2m
                    join c in customerQuery on ctr1.ctr_customer_sk equals c.c_customer_sk
                    join ca in filteredCa on c.c_current_addr_sk equals ca.ca_address_sk
@@ -236,7 +237,7 @@ public class TpcdsQuery81To90Tests
             Assert.Equal(duckDbResult[i].ca_country, polarsResult[i].ca_country);
             Assert.Equal(duckDbResult[i].ca_gmt_offset, polarsResult[i].ca_gmt_offset);
             Assert.Equal(duckDbResult[i].ca_location_type, polarsResult[i].ca_location_type);
-            Assert.Equal(duckDbResult[i].ctr_total_return ?? 0m, polarsResult[i].ctr_total_return ?? 0m, 2);
+            Assert.Equal(duckDbResult[i].ctr_total_return, polarsResult[i].ctr_total_return);
         }
     }
 
@@ -444,7 +445,7 @@ public class TpcdsQuery81To90Tests
                       select new
                       {
                           item_id = g.Key,
-                          sr_item_qty = g.Sum(x => x.sr_return_quantity)
+                          sr_item_qty = g.Count(x => x.sr_return_quantity != null) > 0 ? g.Sum(x => x.sr_return_quantity) : null
                       };
 
         var crItems = from cr in catalogReturnsQuery
@@ -454,7 +455,7 @@ public class TpcdsQuery81To90Tests
                       select new
                       {
                           item_id = g.Key,
-                          cr_item_qty = g.Sum(x => x.cr_return_quantity)
+                          cr_item_qty = g.Count(x => x.cr_return_quantity != null) > 0 ? g.Sum(x => x.cr_return_quantity) : null
                       };
 
         var wrItems = from wr in webReturnsQuery
@@ -464,7 +465,7 @@ public class TpcdsQuery81To90Tests
                       select new
                       {
                           item_id = g.Key,
-                          wr_item_qty = g.Sum(x => x.wr_return_quantity)
+                          wr_item_qty = g.Count(x => x.wr_return_quantity != null) > 0 ? g.Sum(x => x.wr_return_quantity) : null
                       };
 
         var q83 = (from sr in srItems
@@ -475,12 +476,12 @@ public class TpcdsQuery81To90Tests
                    {
                        sr.item_id,
                        sr.sr_item_qty,
-                       sr_dev = (double)sr.sr_item_qty! / (double)(sr.sr_item_qty! + cr.cr_item_qty! + wr.wr_item_qty!) / 3.0 * 100.0,
+                       sr_dev = (double?)sr.sr_item_qty / (double?)(sr.sr_item_qty + cr.cr_item_qty + wr.wr_item_qty) / 3.0 * 100.0,
                        cr.cr_item_qty,
-                       cr_dev = (double)cr.cr_item_qty! / (double)(sr.sr_item_qty! + cr.cr_item_qty! + wr.wr_item_qty!) / 3.0 * 100.0,
+                       cr_dev = (double?)cr.cr_item_qty / (double?)(sr.sr_item_qty + cr.cr_item_qty + wr.wr_item_qty) / 3.0 * 100.0,
                        wr.wr_item_qty,
-                       wr_dev = (double)wr.wr_item_qty! / (double)(sr.sr_item_qty! + cr.cr_item_qty! + wr.wr_item_qty!) / 3.0 * 100.0,
-                       average = (double)(sr.sr_item_qty! + cr.cr_item_qty! + wr.wr_item_qty!) / 3.0
+                       wr_dev = (double?)wr.wr_item_qty / (double?)(sr.sr_item_qty + cr.cr_item_qty + wr.wr_item_qty) / 3.0 * 100.0,
+                       average = (double?)(sr.sr_item_qty + cr.cr_item_qty + wr.wr_item_qty) / 3.0
                    }).Take(100);
 
         AssertPlan(q83, NativePushdown);
@@ -564,25 +565,25 @@ public class TpcdsQuery81To90Tests
         {
             item_id = r.IsDBNull(0) ? null : r.GetString(0),
             sr_item_qty = r.IsDBNull(1) ? (long?)null : (long)r.GetFieldValue<System.Numerics.BigInteger>(1),
-            sr_dev = r.IsDBNull(2) ? 0.0 : r.GetDouble(2),
+            sr_dev = r.IsDBNull(2) ? (double?)null : r.GetDouble(2),
             cr_item_qty = r.IsDBNull(3) ? (long?)null : (long)r.GetFieldValue<System.Numerics.BigInteger>(3),
-            cr_dev = r.IsDBNull(4) ? 0.0 : r.GetDouble(4),
+            cr_dev = r.IsDBNull(4) ? (double?)null : r.GetDouble(4),
             wr_item_qty = r.IsDBNull(5) ? (long?)null : (long)r.GetFieldValue<System.Numerics.BigInteger>(5),
-            wr_dev = r.IsDBNull(6) ? 0.0 : r.GetDouble(6),
-            average = r.IsDBNull(7) ? 0.0 : r.GetDouble(7)
+            wr_dev = r.IsDBNull(6) ? (double?)null : r.GetDouble(6),
+            average = r.IsDBNull(7) ? (double?)null : r.GetDouble(7)
         });
 
         Assert.Equal(duckDbResult.Count, polarsResult.Count);
         for (int i = 0; i < duckDbResult.Count; i++)
         {
             Assert.Equal(duckDbResult[i].item_id, polarsResult[i].item_id);
-            Assert.Equal(duckDbResult[i].sr_item_qty ?? 0L, polarsResult[i].sr_item_qty ?? 0L);
-            Assert.Equal(duckDbResult[i].sr_dev, polarsResult[i].sr_dev, 2);
-            Assert.Equal(duckDbResult[i].cr_item_qty ?? 0L, polarsResult[i].cr_item_qty ?? 0L);
-            Assert.Equal(duckDbResult[i].cr_dev, polarsResult[i].cr_dev, 2);
-            Assert.Equal(duckDbResult[i].wr_item_qty ?? 0L, polarsResult[i].wr_item_qty ?? 0L);
-            Assert.Equal(duckDbResult[i].wr_dev, polarsResult[i].wr_dev, 2);
-            Assert.Equal(duckDbResult[i].average, polarsResult[i].average, 2);
+            Assert.Equal(duckDbResult[i].sr_item_qty, polarsResult[i].sr_item_qty);
+            TpcdsAssert.Close(duckDbResult[i].sr_dev, polarsResult[i].sr_dev);
+            Assert.Equal(duckDbResult[i].cr_item_qty, polarsResult[i].cr_item_qty);
+            TpcdsAssert.Close(duckDbResult[i].cr_dev, polarsResult[i].cr_dev);
+            Assert.Equal(duckDbResult[i].wr_item_qty, polarsResult[i].wr_item_qty);
+            TpcdsAssert.Close(duckDbResult[i].wr_dev, polarsResult[i].wr_dev);
+            TpcdsAssert.Close(duckDbResult[i].average, polarsResult[i].average);
         }
     }
 
@@ -861,9 +862,9 @@ public class TpcdsQuery81To90Tests
         for (int i = 0; i < duckDbResult.Count; i++)
         {
             Assert.Equal(duckDbResult[i].sub_reason, polarsResult[i].sub_reason);
-            Assert.Equal(duckDbResult[i].avg1 ?? 0.0, polarsResult[i].avg1 ?? 0.0, 2);
-            Assert.Equal(duckDbResult[i].avg2 ?? 0.0, polarsResult[i].avg2 ?? 0.0, 2);
-            Assert.Equal(duckDbResult[i].avg3 ?? 0.0, polarsResult[i].avg3 ?? 0.0, 2);
+            TpcdsAssert.Close(duckDbResult[i].avg1, polarsResult[i].avg1);
+            TpcdsAssert.Close(duckDbResult[i].avg2, polarsResult[i].avg2);
+            TpcdsAssert.Close(duckDbResult[i].avg3, polarsResult[i].avg3);
         }
     }
 
@@ -937,7 +938,8 @@ public class TpcdsQuery81To90Tests
                    } into res
                    orderby res.lochierarchy descending,
                            res.lochierarchy == 0 ? res.i_category : null,
-                           res.rank_within_parent
+                           res.rank_within_parent,
+                           res.i_class // tie-breaker for equal ranks, as in the DuckDB SQL
                    select res).Take(100);
 
         AssertPlan(q86, NativePushdown);
@@ -982,7 +984,7 @@ public class TpcdsQuery81To90Tests
         Assert.Equal(duckDbResult.Count, polarsResult.Count);
         for (int i = 0; i < duckDbResult.Count; i++)
         {
-            Assert.Equal(duckDbResult[i].total_sum ?? 0m, polarsResult[i].total_sum ?? 0m, 2);
+            Assert.Equal(duckDbResult[i].total_sum, polarsResult[i].total_sum);
             Assert.Equal(duckDbResult[i].i_category, polarsResult[i].i_category);
             Assert.Equal(duckDbResult[i].i_class, polarsResult[i].i_class);
             Assert.Equal(duckDbResult[i].lochierarchy, polarsResult[i].lochierarchy);
@@ -1442,7 +1444,7 @@ public class TpcdsQuery81To90Tests
             s_company_name = r.IsDBNull(4) ? null : r.GetString(4),
             d_moy = r.IsDBNull(5) ? (long?)null : r.GetInt64(5),
             sum_sales = r.IsDBNull(6) ? (decimal?)null : r.GetDecimal(6),
-            avg_monthly_sales = r.IsDBNull(7) ? 0.0 : r.GetDouble(7)
+            avg_monthly_sales = r.IsDBNull(7) ? (double?)null : r.GetDouble(7)
         });
 
         Assert.Equal(duckDbResult.Count, polarsResult.Count);
@@ -1454,8 +1456,8 @@ public class TpcdsQuery81To90Tests
             Assert.Equal(duckDbResult[i].s_store_name, polarsResult[i].s_store_name);
             Assert.Equal(duckDbResult[i].s_company_name, polarsResult[i].s_company_name);
             Assert.Equal(duckDbResult[i].d_moy, polarsResult[i].d_moy);
-            Assert.Equal(duckDbResult[i].sum_sales ?? 0m, polarsResult[i].sum_sales ?? 0m, 2);
-            Assert.Equal(duckDbResult[i].avg_monthly_sales, polarsResult[i].avg_monthly_sales, 2);
+            Assert.Equal(duckDbResult[i].sum_sales, polarsResult[i].sum_sales);
+            TpcdsAssert.Close(duckDbResult[i].avg_monthly_sales, polarsResult[i].avg_monthly_sales);
         }
     }
 
@@ -1566,16 +1568,7 @@ public class TpcdsQuery81To90Tests
         Assert.Equal(duckDbResult.Count, polarsResult.Count);
         for (int i = 0; i < duckDbResult.Count; i++)
         {
-            var expected = duckDbResult[i].am_pm_ratio;
-            var actual = polarsResult[i]?.am_pm_ratio;
-            if (expected == null || actual == null || double.IsNaN(actual.Value) || double.IsInfinity(actual.Value))
-            {
-                Assert.True(expected == null && (actual == null || double.IsNaN(actual.Value) || double.IsInfinity(actual.Value)));
-            }
-            else
-            {
-                Assert.Equal(expected.Value, actual.Value, 4);
-            }
+            TpcdsAssert.Close(duckDbResult[i].am_pm_ratio, polarsResult[i]?.am_pm_ratio);
         }
     }
 }

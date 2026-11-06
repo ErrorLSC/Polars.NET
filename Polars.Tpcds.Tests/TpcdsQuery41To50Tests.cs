@@ -593,7 +593,7 @@ public class TpcdsQuery41To50Tests
                    join d in descQuery on a.rnk equals d.rnk
                    join i1 in itemQuery on a.item_sk equals i1.i_item_sk
                    join i2 in itemQuery on d.item_sk equals i2.i_item_sk
-                   orderby a.rnk
+                   orderby a.rnk, i1.i_product_name, i2.i_product_name // tie-breakers for equal ranks
                    select new
                    {
                        a.rnk,
@@ -653,7 +653,9 @@ public class TpcdsQuery41To50Tests
             WHERE asceding.rnk = descending.rnk
               AND i1.i_item_sk=asceding.item_sk
               AND i2.i_item_sk=descending.item_sk
-            ORDER BY asceding.rnk
+            ORDER BY asceding.rnk,
+                     best_performing NULLS FIRST,
+                     worst_performing NULLS FIRST
             LIMIT 100;
         ";
 
@@ -908,7 +910,8 @@ public class TpcdsQuery41To50Tests
         var q46 = (from d in dn
                    join c in customerQuery on d.ss_customer_sk equals c.c_customer_sk
                    join current_addr in customerAddressQuery on c.c_current_addr_sk equals current_addr.ca_address_sk
-                   where current_addr.ca_city != d.bought_city
+                   // SQL <> / = is unknown when either side is NULL; C# null semantics would compare NULLs.
+                   where current_addr.ca_city != null && d.bought_city != null && current_addr.ca_city != d.bought_city
                    orderby c.c_last_name, c.c_first_name, current_addr.ca_city, d.bought_city, d.ss_ticket_number
                    select new
                    {
@@ -1238,7 +1241,7 @@ public class TpcdsQuery41To50Tests
             Assert.Equal(d.s_company_name, p.s_company_name);
             Assert.Equal(d.d_year, p.d_year);
             Assert.Equal(d.d_moy, p.d_moy);
-            Assert.Equal((double)d.avg_monthly_sales!.Value, p.avg_monthly_sales, 4);
+            TpcdsAssert.Close((double)d.avg_monthly_sales, p.avg_monthly_sales);
             Assert.Equal(d.sum_sales, p.sum_sales);
             Assert.Equal(d.psum, p.psum);
             Assert.Equal(d.nsum, p.nsum);
@@ -1677,7 +1680,7 @@ public class TpcdsQuery41To50Tests
             var p = polarsResult[i];
             Assert.Equal(d.channel, p.channel);
             Assert.Equal(d.item, p.item);
-            Assert.Equal(d.return_ratio, p.return_ratio, 4);
+            TpcdsAssert.Close(d.return_ratio, p.return_ratio);
             Assert.Equal(d.return_rank, p.return_rank);
             Assert.Equal(d.currency_rank, p.currency_rank);
         }

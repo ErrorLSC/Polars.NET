@@ -1,0 +1,469 @@
+using Polars.CSharp.Linq;
+using Polars.NET.Linq;
+using Polars.NET.Core.Exceptions;
+
+namespace Polars.CSharp.Tests.Linq;
+
+/// <summary>
+/// Regression tests for LINQ semantics the TPC-DS audit found broken: results are compared with LINQ to Objects
+/// (or with hand-computed values for Polars-only operators such as Rank and Std).
+/// </summary>
+public class LinqSemanticsRegressionTests
+{
+    public class Kv
+    {
+        public long K { get; set; }
+        public long V { get; set; }
+    }
+
+    public class KnV
+    {
+        public long K { get; set; }
+        public long? V { get; set; }
+    }
+
+    private static readonly Kv[] Left = [new() { K = 1, V = 10 }, new() { K = 2, V = 20 }, new() { K = 3, V = 30 }];
+    private static readonly Kv[] Right = [new() { K = 1, V = 100 }, new() { K = 1, V = 5 }, new() { K = 2, V = 1 }];
+
+    private static bool IsFullFallback<T>(IQueryable<T> query) =>
+        ((IPolarsExplainable)query).InspectPlan(true).IsFullFallback;
+
+    // ---------------------------------------------------------------------------------------------
+    // GroupJoin + SelectMany(g.<ops>.DefaultIfEmpty()): the group's operators used to be dropped.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void Left_Join_With_Group_Filter_Applies_The_Filter()
+    {
+        using var l = DataFrame.From(Left);
+        using var r = DataFrame.From(Right);
+        var query = from a in l.AsQueryable<Kv>()
+                    join b in r.AsQueryable<Kv>() on a.K equals b.K into g
+                    from x in g.Where(b => b.V > 50).DefaultIfEmpty()
+                    select new { a.K, xv = x == null ? (long?)null : x.V };
+        var expected = from a in Left
+                       join b in Right on a.K equals b.K into g
+                       from x in g.Where(b => b.V > 50).DefaultIfEmpty()
+                       select new { a.K, xv = x == null ? (long?)null : x.V };
+
+        Assert.False(IsFullFallback(query));
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
+    public void Left_Join_With_Group_Projection_Yields_Default_For_Missing_Matches()
+    {
+        using var l = DataFrame.From(Left);
+        using var r = DataFrame.From(Right);
+        var query = from a in l.AsQueryable<Kv>()
+                    join b in r.AsQueryable<Kv>() on a.K equals b.K into g
+                    from x in g.Select(b => b.V * 7).DefaultIfEmpty()
+                    select new { a.K, x };
+        var expected = from a in Left
+                       join b in Right on a.K equals b.K into g
+                       from x in g.Select(b => b.V * 7).DefaultIfEmpty()
+                       select new { a.K, x };
+
+        Assert.False(IsFullFallback(query));
+        Assert.Equal(expected.OrderBy(t => t.K).ThenBy(t => t.x), query.ToList().OrderBy(t => t.K).ThenBy(t => t.x));
+    }
+
+    [Fact]
+    public void Left_Join_With_Filter_Projection_And_Default_Value()
+    {
+        using var l = DataFrame.From(Left);
+        using var r = DataFrame.From(Right);
+        var query = from a in l.AsQueryable<Kv>()
+                    join b in r.AsQueryable<Kv>() on a.K equals b.K into g
+                    from x in g.Where(b => b.V < 50).Select(b => b.V + 1).DefaultIfEmpty(-1)
+                    select new { a.K, x };
+        var expected = from a in Left
+                       join b in Right on a.K equals b.K into g
+                       from x in g.Where(b => b.V < 50).Select(b => b.V + 1).DefaultIfEmpty(-1)
+                       select new { a.K, x };
+
+        Assert.Equal(expected.OrderBy(t => t.K), query.ToList().OrderBy(t => t.K));
+    }
+
+    [Fact]
+    public void Left_Join_With_Correlated_Group_Filter_Is_Not_Translated()
+    {
+        using var l = DataFrame.From(Left);
+        using var r = DataFrame.From(Right);
+        // The filter reads the outer row, so it cannot run on the inner side before the join (it is a non-equi
+        // left join). The query is not translated, and the default policy rejects the full fallback rather than
+        // returning rows from a join without the filter.
+        var query = from a in l.AsQueryable<Kv>()
+                    join b in r.AsQueryable<Kv>() on a.K equals b.K into g
+                    from x in g.Where(b => b.V > a.V).DefaultIfEmpty()
+                    select new { a.K, xv = x == null ? (long?)null : x.V };
+
+        Assert.True(IsFullFallback(query));
+        Assert.Throws<PolarsPushdownException>(() => query.ToList());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // A join result selector that cannot be projected natively used to be dropped (members read as defaults).
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void Join_With_Untranslatable_Selector_Computes_Every_Member()
+    {
+        using var l = DataFrame.From(Left);
+        using var r = DataFrame.From(Right);
+        var query = from a in l.AsQueryable<Kv>()
+                    join b in r.AsQueryable<Kv>() on a.K equals b.K
+                    select new { a.K, z = new string('a', (int)b.V % 5), w = Tuple.Create(b.V).Item1 };
+        var expected = from a in Left
+                       join b in Right on a.K equals b.K
+                       select new { a.K, z = new string('a', (int)b.V % 5), w = Tuple.Create(b.V).Item1 };
+
+        Assert.False(IsFullFallback(query));
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
+    public void Cross_Join_With_Untranslatable_Selector_Computes_Every_Member()
+    {
+        using var l = DataFrame.From(Left);
+        using var r = DataFrame.From(Right);
+        var query = from a in l.AsQueryable<Kv>()
+                    from b in r.AsQueryable<Kv>()
+                    select new { a.K, bk = b.K, z = new string('b', (int)(a.V + b.V) % 4) };
+        var expected = from a in Left
+                       from b in Right
+                       select new { a.K, bk = b.K, z = new string('b', (int)(a.V + b.V) % 4) };
+
+        Assert.Equal(expected.OrderBy(t => t.K).ThenBy(t => t.bk).ThenBy(t => t.z),
+                     query.ToList().OrderBy(t => t.K).ThenBy(t => t.bk).ThenBy(t => t.z));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Set operations return distinct elements (By forms: first element per key, in source order).
+    // ---------------------------------------------------------------------------------------------
+
+    private static readonly Kv[] Dupes =
+        [new() { K = 1, V = 10 }, new() { K = 1, V = 11 }, new() { K = 2, V = 20 }, new() { K = 3, V = 30 }, new() { K = 3, V = 31 }];
+    private static readonly Kv[] Keys = [new() { K = 2, V = 0 }, new() { K = 1, V = 0 }];
+
+    [Fact]
+    public void ExceptBy_Keeps_The_First_Element_Per_Key()
+    {
+        using var l = DataFrame.From(Dupes);
+        using var r = DataFrame.From(Keys);
+        var query = l.AsQueryable<Kv>().ExceptBy(r.AsQueryable<Kv>().Select(x => x.K), x => x.K).Select(x => new { x.K, x.V });
+        var expected = Dupes.ExceptBy(Keys.Select(x => x.K), x => x.K).Select(x => new { x.K, x.V });
+
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
+    public void ExceptBy_With_In_Memory_Keys_Keeps_The_First_Element_Per_Key()
+    {
+        using var l = DataFrame.From(Dupes);
+        var query = l.AsQueryable<Kv>().ExceptBy(new long[] { 2 }, x => x.K).Select(x => new { x.K, x.V });
+        var expected = Dupes.ExceptBy(new long[] { 2 }, x => x.K).Select(x => new { x.K, x.V });
+
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
+    public void IntersectBy_Keeps_The_First_Element_Per_Key()
+    {
+        using var l = DataFrame.From(Dupes);
+        using var r = DataFrame.From(Keys);
+        var query = l.AsQueryable<Kv>().IntersectBy(r.AsQueryable<Kv>().Select(x => x.K), x => x.K).Select(x => new { x.K, x.V });
+        var expected = Dupes.IntersectBy(Keys.Select(x => x.K), x => x.K).Select(x => new { x.K, x.V });
+
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
+    public void Except_And_Intersect_Return_Distinct_Rows()
+    {
+        long[] a = [1, 1, 2, 3, 3, 4];
+        long[] b = [2, 4, 4];
+        using var dfA = DataFrame.FromColumns(new { V = a });
+        using var dfB = DataFrame.FromColumns(new { V = b });
+        var qa = dfA.AsQueryable<Kv>().Select(x => x.V);
+        var qb = dfB.AsQueryable<Kv>().Select(x => x.V);
+
+        Assert.Equal(a.Except(b), qa.Except(qb).ToList());
+        Assert.Equal(a.Intersect(b), qa.Intersect(qb).ToList());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Group-by: where (having) runs before select; a let before the where sees every group.
+    // ---------------------------------------------------------------------------------------------
+
+    private static readonly KnV[] Groups =
+    [
+        new() { K = 1, V = 1 }, new() { K = 2, V = 2 }, new() { K = 3, V = 3 }, new() { K = 4, V = 4 }, new() { K = 5, V = 5 },
+    ];
+
+    [Fact]
+    public void Rank_In_Group_Select_Is_Computed_After_The_Having_Filter()
+    {
+        using var df = DataFrame.From(Groups);
+        var query = from x in df.AsQueryable<KnV>()
+                    group x by x.K into g
+                    let s = g.Average(x => (double?)x.V)
+                    where s > 2.0
+                    select new { k = g.Key, rnk = (long)s.Rank(RankMethod.Min, false) };
+
+        var rows = query.ToList().OrderBy(r => r.k).ToList();
+        Assert.Equal([3L, 4L, 5L], rows.Select(r => r.k));
+        Assert.Equal([1L, 2L, 3L], rows.Select(r => r.rnk));
+    }
+
+    [Fact]
+    public void Window_In_A_Let_Before_The_Where_Sees_Every_Group()
+    {
+        using var df = DataFrame.From(Groups);
+        // The average over all five groups is 3; only groups above it are kept, still carrying 3.
+        var query = from x in df.AsQueryable<KnV>()
+                    group x by x.K into g
+                    let s = g.Sum(x => x.V)
+                    let avgAll = s.Average().Over(1)
+                    where s > avgAll
+                    select new { k = g.Key, avgAll };
+
+        var rows = query.ToList().OrderBy(r => r.k).ToList();
+        Assert.False(IsFullFallback(query));
+        Assert.Equal([4L, 5L], rows.Select(r => r.k));
+        Assert.All(rows, r => Assert.Equal(3.0, r.avgAll));
+    }
+
+    [Fact]
+    public void Filter_Is_Not_Pushed_Below_A_Rank_Projection()
+    {
+        using var df = DataFrame.From(Groups);
+        var query = df.AsQueryable<KnV>()
+            .Select(x => new { x.K, rnk = (long)((double?)x.V).Rank(RankMethod.Min, false) })
+            .Where(x => x.K >= 4);
+
+        // Ranks are over all five rows, not over the two that pass the filter.
+        Assert.Equal([4L, 5L], query.ToList().OrderBy(r => r.K).Select(r => r.rnk));
+    }
+
+    [Fact]
+    public void Group_Orderby_On_A_Composite_Let_Reuses_The_Result_Column()
+    {
+        KnV[] rows = [new() { K = 1, V = null }, new() { K = 1, V = null }, new() { K = 2, V = 3 }, new() { K = 3, V = 1 }];
+        using var df = DataFrame.From(rows);
+        var query = from x in df.AsQueryable<KnV>()
+                    group x.V by x.K into g
+                    let s = g.Count(v => v != null) > 0 ? g.Sum() : null
+                    orderby s, g.Key
+                    select new { k = g.Key, s };
+        var expected = from x in rows
+                       group x.V by x.K into g
+                       let s = g.Count(v => v != null) > 0 ? g.Sum() : null
+                       orderby s, g.Key
+                       select new { k = g.Key, s };
+
+        Assert.Equal(expected, query.ToList());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Ordering, statistics and materialization of nulls.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void Descending_Nulls_First_Idiom_Keeps_Nulls_First()
+    {
+        KnV[] rows = [new() { K = 1, V = 5 }, new() { K = 2, V = null }, new() { K = 3, V = 7 }, new() { K = 4, V = null }];
+        using var df = DataFrame.From(rows);
+        var query = from x in df.AsQueryable<KnV>()
+                    orderby x.V == null descending, x.V descending, x.K
+                    select new { x.K, x.V };
+        var expected = from x in rows
+                       orderby x.V == null descending, x.V descending, x.K
+                       select new { x.K, x.V };
+
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
+    public void Std_And_Var_Are_Null_With_Fewer_Values_Than_Ddof_Plus_One()
+    {
+        KnV[] rows = [new() { K = 1, V = 5 }, new() { K = 2, V = 7 }, new() { K = 2, V = null }, new() { K = 3, V = 2 }, new() { K = 3, V = 4 }];
+        using var df = DataFrame.From(rows);
+        var query = from x in df.AsQueryable<KnV>()
+                    group x by x.K into g
+                    orderby g.Key
+                    select new { k = g.Key, sd = g.Std(x => (double?)x.V), vr = g.Var(x => (double?)x.V) };
+
+        var result = query.ToList();
+        Assert.Null(result[0].sd);
+        Assert.Null(result[1].sd);
+        Assert.Null(result[1].vr);
+        Assert.Equal(Math.Sqrt(2.0), result[2].sd!.Value, 9);
+        Assert.Equal(2.0, result[2].vr!.Value, 9);
+    }
+
+    [Fact]
+    public void Null_In_A_Non_Nullable_Value_Member_Throws()
+    {
+        KnV[] rows = [new() { K = 1, V = 5 }, new() { K = 2, V = null }];
+        using var df = DataFrame.From(rows);
+        var query = df.AsQueryable<KnV>().Select(x => new { x.K, v = (long)x.V! });
+
+        var ex = Assert.Throws<InvalidOperationException>(() => query.ToList());
+        Assert.Contains("non-nullable", ex.Message);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Uncorrelated scalar subqueries run inside the plan (a one-row join), not eagerly at compile time.
+    // ---------------------------------------------------------------------------------------------
+
+    private static readonly Kv[] Facts =
+        [new() { K = 1, V = 10 }, new() { K = 2, V = 40 }, new() { K = 3, V = 25 }, new() { K = 4, V = 5 }, new() { K = 5, V = 60 }];
+    private static readonly Kv[] Others = [new() { K = 7, V = 20 }, new() { K = 8, V = 40 }, new() { K = 9, V = 120 }];
+
+    private static string LogicalPlanOf<T>(IQueryable<T> query) =>
+        (string)query.GetType().GetMethod("ExplainLogicalPlan")!.Invoke(query, null)!;
+
+    private static void AssertScalarIsPlanned<T>(IQueryable<T> query)
+    {
+        Assert.False(IsFullFallback(query));
+        Assert.Contains("__subquery_agg_u", LogicalPlanOf(query));
+    }
+
+    [Fact]
+    public void Uncorrelated_Aggregate_In_A_Filter_Is_A_Plan_Join()
+    {
+        using var f = DataFrame.From(Facts);
+        using var o = DataFrame.From(Others);
+        var others = o.AsQueryable<Kv>();
+        var query = f.AsQueryable<Kv>().Where(x => x.V > others.Average(y => (double)y.V) * 0.5).Select(x => new { x.K, x.V });
+        var expected = Facts.Where(x => x.V > Others.Average(y => (double)y.V) * 0.5).Select(x => new { x.K, x.V });
+
+        AssertScalarIsPlanned(query);
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
+    public void Uncorrelated_Any_And_First_In_A_Filter_Are_Plan_Joins()
+    {
+        using var f = DataFrame.From(Facts);
+        using var o = DataFrame.From(Others);
+        var others = o.AsQueryable<Kv>();
+        var query = f.AsQueryable<Kv>()
+            .Where(x => others.Any(y => y.V > 100) && x.V < others.OrderBy(y => y.V).Select(y => y.V).First())
+            .Select(x => new { x.K, x.V });
+        var expected = Facts
+            .Where(x => Others.Any(y => y.V > 100) && x.V < Others.OrderBy(y => y.V).Select(y => y.V).First())
+            .Select(x => new { x.K, x.V });
+
+        AssertScalarIsPlanned(query);
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
+    public void Uncorrelated_Aggregate_In_A_Projection_Is_A_Plan_Join()
+    {
+        using var f = DataFrame.From(Facts);
+        using var o = DataFrame.From(Others);
+        var others = o.AsQueryable<Kv>();
+        var query = f.AsQueryable<Kv>().Select(x => new { x.K, share = (double)x.V / others.Sum(y => y.V) });
+        var expected = Facts.Select(x => new { x.K, share = (double)x.V / Others.Sum(y => y.V) }).ToList();
+
+        AssertScalarIsPlanned(query);
+        var actual = query.ToList();
+        Assert.Equal(expected.Select(e => e.K), actual.Select(a => a.K));
+        Assert.All(expected.Zip(actual), p => Assert.Equal(p.First.share, p.Second.share, 12));
+    }
+
+    [Fact]
+    public void Uncorrelated_Aggregate_In_A_Having_Is_A_Plan_Join()
+    {
+        using var f = DataFrame.From(Facts);
+        using var o = DataFrame.From(Others);
+        var others = o.AsQueryable<Kv>();
+        var query = from x in f.AsQueryable<Kv>()
+                    group x by x.K % 2 into g
+                    let total = g.Sum(x => x.V)
+                    where total > others.Max(y => y.V) * 0.5
+                    orderby g.Key
+                    select new { k = g.Key, total };
+        var expected = from x in Facts
+                       group x by x.K % 2 into g
+                       let total = g.Sum(x => x.V)
+                       where total > Others.Max(y => y.V) * 0.5
+                       orderby g.Key
+                       select new { k = g.Key, total };
+
+        AssertScalarIsPlanned(query);
+        Assert.Equal(expected, query.ToList());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // C# null semantics (as EF Core's default): `==` / `!=` between two nullable operands treat null as equal
+    // to null; an explicit join still never matches null keys (as Enumerable.Join).
+    // ---------------------------------------------------------------------------------------------
+
+    public class Ab
+    {
+        public long Id { get; set; }
+        public string? A { get; set; }
+        public string? B { get; set; }
+    }
+
+    private static readonly Ab[] Pairs =
+    [
+        new() { Id = 1, A = "x", B = "x" }, new() { Id = 2, A = "x", B = "y" }, new() { Id = 3, A = null, B = "y" },
+        new() { Id = 4, A = "x", B = null }, new() { Id = 5, A = null, B = null },
+    ];
+
+    [Fact]
+    public void Equality_Between_Nullable_Columns_Treats_Null_As_Equal()
+    {
+        using var df = DataFrame.From(Pairs);
+        var eq = df.AsQueryable<Ab>().Where(x => x.A == x.B).Select(x => x.Id);
+        var ne = df.AsQueryable<Ab>().Where(x => x.A != x.B).Select(x => x.Id);
+        var proj = df.AsQueryable<Ab>().Select(x => new { x.Id, same = x.A == x.B });
+
+        Assert.Equal(Pairs.Where(x => x.A == x.B).Select(x => x.Id), eq.ToList());
+        Assert.Equal(Pairs.Where(x => x.A != x.B).Select(x => x.Id), ne.ToList());
+        Assert.Equal(Pairs.Select(x => new { x.Id, same = x.A == x.B }), proj.ToList());
+    }
+
+    [Fact]
+    public void Equality_With_A_Captured_Null_Is_A_Null_Check()
+    {
+        using var df = DataFrame.From(Pairs);
+        string? missing = null;
+        var query = df.AsQueryable<Ab>().Where(x => x.A == missing).Select(x => x.Id);
+
+        Assert.Equal(Pairs.Where(x => x.A == missing).Select(x => x.Id), query.ToList());
+    }
+
+    [Fact]
+    public void Correlated_Equality_Matches_Null_With_Null()
+    {
+        using var df = DataFrame.From(Pairs);
+        using var other = DataFrame.From(Pairs);
+        var others = other.AsQueryable<Ab>();
+        var query = df.AsQueryable<Ab>().Where(x => others.Any(y => y.B == x.A && y.Id != x.Id)).Select(x => x.Id);
+        var expected = Pairs.Where(x => Pairs.Any(y => y.B == x.A && y.Id != x.Id)).Select(x => x.Id);
+
+        Assert.False(IsFullFallback(query));
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
+    public void Explicit_Join_Never_Matches_Null_Keys()
+    {
+        using var l = DataFrame.From(Pairs);
+        using var r = DataFrame.From(Pairs);
+        var query = from x in l.AsQueryable<Ab>()
+                    join y in r.AsQueryable<Ab>() on x.A equals y.B
+                    select new { x = x.Id, y = y.Id };
+        var expected = from x in Pairs
+                       join y in Pairs on x.A equals y.B
+                       select new { x = x.Id, y = y.Id };
+
+        Assert.Equal(expected.OrderBy(t => t.x).ThenBy(t => t.y), query.ToList().OrderBy(t => t.x).ThenBy(t => t.y));
+    }
+}
