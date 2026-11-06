@@ -1,4 +1,5 @@
 #pragma warning disable CS1573
+using System.IO.Pipelines;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 
@@ -42,6 +43,60 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
             jsonFormat.ToNative()
         );
     }
+    /// <summary>
+    /// Write the DataFrame to a JSON format into a <see cref="Stream"/>.
+    /// <para>
+    /// Output is streamed in chunks as it is produced. The stream is flushed but not disposed.
+    /// </para>
+    /// </summary>
+    /// <param name="stream">Writable destination stream.</param>
+    /// <param name="format">JSON format (Json Array or JsonLines). Defaults to Json.</param>
+    public void WriteJson(Stream stream, JsonFormat format = JsonFormat.Json)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        NativeStreamWriter.Write(stream, target =>
+            PolarsWrapper.WriteJsonCallback(Handle, target, format.ToNative()));
+    }
+
+    /// <summary>
+    /// Asynchronously write the DataFrame to a JSON format into a <see cref="Stream"/>.
+    /// <para>
+    /// Serialization runs on a background thread; chunks are written to the stream with async I/O,
+    /// so it is safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
+    /// The stream is flushed but not disposed.
+    /// </para>
+    /// </summary>
+    /// <inheritdoc cref="WriteJson(Stream, JsonFormat)"/>
+    /// <param name="cancellationToken">Cancels writing; serialization is aborted at its next write.</param>
+    public Task WriteJsonAsync(
+        Stream stream,
+        JsonFormat format = JsonFormat.Json,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        return NativeStreamWriter.WriteAsync(stream, target =>
+            PolarsWrapper.WriteJsonCallback(Handle, target, format.ToNative()),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Asynchronously write the DataFrame to a JSON format into a <see cref="PipeWriter"/>
+    /// (e.g. ASP.NET Core <c>HttpResponse.BodyWriter</c>).
+    /// <para>The writer is flushed but not completed.</para>
+    /// </summary>
+    /// <param name="writer">Destination pipe writer.</param>
+    /// <inheritdoc cref="WriteJsonAsync(Stream, JsonFormat, CancellationToken)"/>
+    public Task WriteJsonAsync(
+        PipeWriter writer,
+        JsonFormat format = JsonFormat.Json,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        return NativeStreamWriter.WriteAsync(writer, target =>
+            PolarsWrapper.WriteJsonCallback(Handle, target, format.ToNative()),
+            cancellationToken);
+    }
+
     /// <inheritdoc cref="LazyFrame.SinkJsonPartitioned"/>
     public void WriteJsonPartitioned(
         string path,

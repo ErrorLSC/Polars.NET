@@ -1,4 +1,5 @@
 #pragma warning disable CS1573
+using System.IO.Pipelines;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 
@@ -86,6 +87,44 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
             maintainOrder
         );
     }
+    /// <inheritdoc cref="LazyFrame.SinkIpc(Stream, IpcCompression, int, int, bool, bool)"/>
+    public void WriteIpc(
+        Stream stream,
+        IpcCompression compression = IpcCompression.None,
+        int compatLevel = -1,
+        int recordBatchSize = 0,
+        bool recordBatchStatistics = true,
+        bool maintainOrder = true)
+    {
+        var lf = Lazy();
+        lf.SinkIpc(stream, compression, compatLevel, recordBatchSize, recordBatchStatistics, maintainOrder);
+    }
+    /// <inheritdoc cref="LazyFrame.SinkIpcAsync(Stream, IpcCompression, int, int, bool, bool, CancellationToken)"/>
+    public Task WriteIpcAsync(
+        Stream stream,
+        IpcCompression compression = IpcCompression.None,
+        int compatLevel = -1,
+        int recordBatchSize = 0,
+        bool recordBatchStatistics = true,
+        bool maintainOrder = true,
+        CancellationToken cancellationToken = default)
+    {
+        var lf = Lazy();
+        return lf.SinkIpcAsync(stream, compression, compatLevel, recordBatchSize, recordBatchStatistics, maintainOrder, cancellationToken);
+    }
+    /// <inheritdoc cref="LazyFrame.SinkIpcAsync(PipeWriter, IpcCompression, int, int, bool, bool, CancellationToken)"/>
+    public Task WriteIpcAsync(
+        PipeWriter writer,
+        IpcCompression compression = IpcCompression.None,
+        int compatLevel = -1,
+        int recordBatchSize = 0,
+        bool recordBatchStatistics = true,
+        bool maintainOrder = true,
+        CancellationToken cancellationToken = default)
+    {
+        var lf = Lazy();
+        return lf.SinkIpcAsync(writer, compression, compatLevel, recordBatchSize, recordBatchStatistics, maintainOrder, cancellationToken);
+    }
     /// <inheritdoc cref="LazyFrame.SinkIpcNativeMemory(IpcCompression, int, int, bool, bool)"/>
     public NativeBuffer WriteIpcNativeMemory(
         IpcCompression compression = IpcCompression.None,
@@ -116,7 +155,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         int compatLevel = -1
     )
         => PolarsWrapper.WriteIpcStream(Handle, path, compression.ToNative(), compatLevel);
-    /// <inheritdoc cref="DataFrame.WriteIpcStream"/>
+    /// <inheritdoc cref="DataFrame.WriteIpcStream(string, IpcCompression, int)"/>
     public byte[] WriteIpcStreamMemory(
         IpcCompression compression = IpcCompression.None,
         int compatLevel = -1
@@ -137,4 +176,62 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     )
         => PolarsWrapper.WriteIpcStreamNativeMemory(Handle, compression.ToNative(), compatLevel);
 
+    /// <summary>
+    /// Write to Arrow IPC record batch stream format into a <see cref="Stream"/>.
+    /// <para>
+    /// Output is streamed in chunks as it is produced. The stream is flushed but not disposed.
+    /// </para>
+    /// </summary>
+    /// <param name="stream">Writable destination stream.</param>
+    /// <param name="compression">Compression method. Defaults to None.</param>
+    /// <param name="compatLevel">Use a specific compatibility level
+    /// when exporting Polars’ internal data structures.</param>
+    public void WriteIpcStream(
+        Stream stream,
+        IpcCompression compression = IpcCompression.None,
+        int compatLevel = -1)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        NativeStreamWriter.Write(stream, target =>
+            PolarsWrapper.WriteIpcStreamCallback(Handle, target, compression.ToNative(), compatLevel));
+    }
+    /// <summary>
+    /// Asynchronously write to Arrow IPC record batch stream format into a <see cref="Stream"/>.
+    /// <para>
+    /// Serialization runs on a background thread; chunks are written to the stream with async I/O,
+    /// so it is safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
+    /// The stream is flushed but not disposed.
+    /// </para>
+    /// </summary>
+    /// <inheritdoc cref="WriteIpcStream(Stream, IpcCompression, int)"/>
+    /// <param name="cancellationToken">Cancels writing; serialization is aborted at its next write.</param>
+    public Task WriteIpcStreamAsync(
+        Stream stream,
+        IpcCompression compression = IpcCompression.None,
+        int compatLevel = -1,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        return NativeStreamWriter.WriteAsync(stream, target =>
+            PolarsWrapper.WriteIpcStreamCallback(Handle, target, compression.ToNative(), compatLevel),
+            cancellationToken);
+    }
+    /// <summary>
+    /// Asynchronously write to Arrow IPC record batch stream format into a <see cref="PipeWriter"/>
+    /// (e.g. ASP.NET Core <c>HttpResponse.BodyWriter</c>).
+    /// <para>The writer is flushed but not completed.</para>
+    /// </summary>
+    /// <param name="writer">Destination pipe writer.</param>
+    /// <inheritdoc cref="WriteIpcStreamAsync(Stream, IpcCompression, int, CancellationToken)"/>
+    public Task WriteIpcStreamAsync(
+        PipeWriter writer,
+        IpcCompression compression = IpcCompression.None,
+        int compatLevel = -1,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        return NativeStreamWriter.WriteAsync(writer, target =>
+            PolarsWrapper.WriteIpcStreamCallback(Handle, target, compression.ToNative(), compatLevel),
+            cancellationToken);
+    }
 }

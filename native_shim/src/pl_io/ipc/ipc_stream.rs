@@ -4,6 +4,8 @@ use polars_utils::compression::ZstdLevel;
 use std::fs::File;
 use std::os::raw::c_char;
 use crate::pl_io::ffi_buffer::{FfiBuffer, SharedMemoryWriter};
+use crate::pl_io::callback_writer::{FfiWriteCallback, with_callback_writer};
+use std::ffi::c_void;
 use crate::utils::{ptr_to_str,ptr_to_vec_string};
 use crate::types::{DataFrameContext, SchemaContext};
 
@@ -175,6 +177,39 @@ pub extern "C" fn pl_dataframe_write_ipc_stream(
     })
 }
 
+/// Shared body of the in-memory / callback IPC stream writers.
+fn write_ipc_stream_to<W: std::io::Write>(
+    df: &mut DataFrame,
+    sink: W,
+    compression: u8,
+    compat_level: i32,
+) -> PolarsResult<()> {
+    let mut writer = IpcStreamWriter::new(sink);
+
+    let comp_opt = match compression {
+        1 => Some(IpcCompression::LZ4),
+        2 => {
+            let level = ZstdLevel::try_new(3)
+                .map_err(|_| PolarsError::ComputeError("Invalid ZSTD Level".into()))?;
+            Some(IpcCompression::ZSTD(level))
+        },
+        _ => None,
+    };
+    if comp_opt.is_some() {
+        writer = writer.with_compression(comp_opt);
+    }
+
+    let compat = if compat_level < 0 {
+        CompatLevel::newest()
+    } else {
+        CompatLevel::with_level(compat_level as u16)
+            .unwrap_or(CompatLevel::newest())
+    };
+    writer = writer.with_compat_level(compat);
+
+    writer.finish(df)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_write_ipc_stream_memory(
     df_ptr: *mut DataFrameContext,
@@ -190,34 +225,11 @@ pub extern "C" fn pl_dataframe_write_ipc_stream_memory(
         let ctx = unsafe { &mut *df_ptr };
 
         let mut mem_writer = SharedMemoryWriter::new();
-        let mut writer = IpcStreamWriter::new(&mut mem_writer);
-
-        let comp_opt = match compression {
-            1 => Some(IpcCompression::LZ4),
-            2 => {
-                let level = ZstdLevel::try_new(3)
-                    .map_err(|_| PolarsError::ComputeError("Invalid ZSTD Level".into()))?;
-                Some(IpcCompression::ZSTD(level))
-            },
-            _ => None,
-        };
-        if comp_opt.is_some() {
-            writer = writer.with_compression(comp_opt);
-        }
-
-        let compat = if compat_level < 0 {
-            CompatLevel::newest()
-        } else {
-            CompatLevel::with_level(compat_level as u16)
-                .unwrap_or(CompatLevel::newest())
-        };
-        writer = writer.with_compat_level(compat);
-
-        writer.finish(&mut ctx.df)?;
+        write_ipc_stream_to(&mut ctx.df, &mut mem_writer, compression, compat_level)?;
 
         let vec = mem_writer.into_inner();
         let mut vec = std::mem::ManuallyDrop::new(vec);
-        
+
         unsafe {
             (*out_buffer).data = vec.as_mut_ptr();
             (*out_buffer).len = vec.len();
@@ -225,6 +237,28 @@ pub extern "C" fn pl_dataframe_write_ipc_stream_memory(
         }
 
         Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_write_ipc_stream_callback(
+    df_ptr: *mut DataFrameContext,
+    callback: FfiWriteCallback,
+    user_data: *mut c_void,
+    buffer_size: usize,
+    compression: u8,   // 0: None, 1: LZ4, 2: ZSTD
+    compat_level: i32, // -1: Newest
+) {
+    ffi_try_void!({
+        if df_ptr.is_null() {
+            return Err(PolarsError::ComputeError("Null pointer passed to dataframe callback writer".into()));
+        }
+
+        let ctx = unsafe { &mut *df_ptr };
+
+        with_callback_writer(callback, user_data, buffer_size, |w| {
+            write_ipc_stream_to(&mut ctx.df, w, compression, compat_level)
+        })
     })
 }
 

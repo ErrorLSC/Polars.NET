@@ -243,6 +243,35 @@ unsafe internal partial class NativeBindings
         // --- Unified Options ---
         [MarshalAs(UnmanagedType.U1)] bool maintain_order
     );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_lazyframe_sink_csv_callback(
+        LazyFrameHandle lf,
+        nint callback,
+        nint user_data,
+        nuint buffer_size,
+        // --- CSV Specific Params ---
+        [MarshalAs(UnmanagedType.U1)] bool include_bom,
+        [MarshalAs(UnmanagedType.U1)] bool include_header,
+        nuint batch_size,
+        [MarshalAs(UnmanagedType.U1)] bool check_extension,
+        // Compression
+        PlExternalCompression compression_code,
+        int compression_level,
+        // Serialize Options
+        string? date_format,
+        string? time_format,
+        string? datetime_format,
+        int float_scientific,
+        int float_precision,
+        [MarshalAs(UnmanagedType.U1)] bool decimal_comma,
+        byte separator,
+        byte quote_char,
+        string? null_value,
+        string? line_terminator,
+        PlQuoteStyle quote_style,
+        // --- Unified Options ---
+        [MarshalAs(UnmanagedType.U1)] bool maintain_order
+    );
     // Parquet
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_parquet(
@@ -372,6 +401,24 @@ unsafe internal partial class NativeBindings
         // --- Unified Options ---
         [MarshalAs(UnmanagedType.U1)] bool maintain_order
     );
+    [LibraryImport(LibName)]
+    public static partial void pl_lazyframe_sink_parquet_callback(
+        LazyFrameHandle lf,
+        nint callback,
+        nint user_data,
+        nuint buffer_size,
+
+        // --- Parquet Options ---
+        PlParquetCompression compression,
+        int compression_level,
+        [MarshalAs(UnmanagedType.U1)] bool statistics,
+        nuint row_group_size,
+        nuint data_page_size,
+        int compat_level,
+
+        // --- Unified Options ---
+        [MarshalAs(UnmanagedType.U1)] bool maintain_order
+    );
     // ---------------------------------------------------------
     // Read JSON (File)
     // ---------------------------------------------------------
@@ -467,6 +514,14 @@ unsafe internal partial class NativeBindings
         out FfiBuffer out_buffer,
         PlJsonFormat jsonFormat
     );
+    [LibraryImport(LibName)]
+    public static partial void pl_dataframe_write_json_callback(
+        DataFrameHandle df,
+        nint callback,
+        nint user_data,
+        nuint buffer_size,
+        PlJsonFormat jsonFormat
+    );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_lazyframe_sink_json(
         LazyFrameHandle lf,
@@ -537,6 +592,22 @@ unsafe internal partial class NativeBindings
         // --- UnifiedSinkArgs ---
         [MarshalAs(UnmanagedType.U1)] bool maintain_order
 
+    );
+
+    [LibraryImport(LibName)]
+    public static partial void pl_lazyframe_sink_json_callback(
+        LazyFrameHandle lf,
+        nint callback,
+        nint user_data,
+        nuint buffer_size,
+
+        // --- NDJson Params ---
+        PlExternalCompression compression_code, // u8
+        int compression_level,                  // i32
+        [MarshalAs(UnmanagedType.U1)] bool check_extension, // bool
+
+        // --- UnifiedSinkArgs ---
+        [MarshalAs(UnmanagedType.U1)] bool maintain_order
     );
 
     // IPC
@@ -643,6 +714,15 @@ unsafe internal partial class NativeBindings
         PlIpcCompression compression,
         int compatLevel
     );
+    [LibraryImport(LibName)]
+    public static partial void pl_dataframe_write_ipc_stream_callback(
+        DataFrameHandle df,
+        nint callback,
+        nint user_data,
+        nuint buffer_size,
+        PlIpcCompression compression,
+        int compatLevel
+    );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_lazyframe_sink_ipc(
         LazyFrameHandle lf,
@@ -717,6 +797,22 @@ unsafe internal partial class NativeBindings
         // --- UnifiedSinkArgs params ---
         [MarshalAs(UnmanagedType.U1)] bool maintain_order
     );
+    [LibraryImport(LibName)]
+    public static partial void pl_lazyframe_sink_ipc_callback(
+        LazyFrameHandle lf,
+        nint callback,
+        nint user_data,
+        nuint buffer_size,
+
+        // --- IpcWriterOptions params ---
+        PlIpcCompression compression,
+        int compat_level,
+        nuint record_batch_size,
+        [MarshalAs(UnmanagedType.U1)] bool record_batch_statistics,
+
+        // --- UnifiedSinkArgs params ---
+        [MarshalAs(UnmanagedType.U1)] bool maintain_order
+    );
     // ---------------------------------------------------------
     // Read Excel (Calamine Engine)
     // ---------------------------------------------------------
@@ -778,6 +874,15 @@ unsafe internal partial class NativeBindings
     public static partial void pl_write_avro_mem(
         DataFrameHandle df,
         out FfiBuffer out_buffer,
+        PlAvroCompression compressionType,
+        string name
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_write_avro_callback(
+        DataFrameHandle df,
+        nint callback,
+        nint user_data,
+        nuint buffer_size,
         PlAvroCompression compressionType,
         string name
     );

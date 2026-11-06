@@ -1,5 +1,10 @@
 namespace Polars.FSharp
 
+open System.IO
+open System.IO.Pipelines
+open System.Threading
+open System.Threading.Tasks
+open Polars.NET.Core
 open Polars.NET.Core.Wrappers
 
 [<AutoOpen>]
@@ -221,6 +226,87 @@ module ParquetWrite =
                 compat,
                 mo
             )
+        /// <summary>
+        /// Sink the LazyFrame to a Parquet format written into a <see cref="T:System.IO.Stream"/>.
+        /// Output is streamed in chunks as it is produced. The stream is flushed but not disposed.
+        /// </summary>
+        member this.SinkParquet(
+            stream: Stream,
+            ?compression: ParquetCompression,
+            ?compressionLevel: int,
+            ?statistics: bool,
+            ?rowGroupSize: int,
+            ?dataPageSize: int,
+            ?compatLevel: int,
+            ?maintainOrder: bool
+        ) : unit =
+            // Same defaults as SinkParquetMemory
+            let comp = (defaultArg compression ParquetCompression.Zstd).ToNative()
+            let compLevel = defaultArg compressionLevel 3
+            let stats = defaultArg statistics true
+            let rgs = defaultArg rowGroupSize 0
+            let dps = defaultArg dataPageSize 0
+            let compat = defaultArg compatLevel -1
+            let mo = defaultArg maintainOrder true
+            let handle = this.CloneHandle()
+            NativeStreamWriter.Write(stream, fun target ->
+                PolarsWrapper.SinkParquetCallback(handle, target, comp, compLevel, stats, rgs, dps, compat, mo))
+
+        /// <summary>
+        /// Asynchronously sink the LazyFrame to a Parquet format written into a <see cref="T:System.IO.Stream"/>.
+        /// Safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
+        /// The stream is flushed but not disposed.
+        /// </summary>
+        member this.SinkParquetAsync(
+            stream: Stream,
+            ?compression: ParquetCompression,
+            ?compressionLevel: int,
+            ?statistics: bool,
+            ?rowGroupSize: int,
+            ?dataPageSize: int,
+            ?compatLevel: int,
+            ?maintainOrder: bool,
+            ?cancellationToken: CancellationToken
+        ) : Task =
+            let comp = (defaultArg compression ParquetCompression.Zstd).ToNative()
+            let compLevel = defaultArg compressionLevel 3
+            let stats = defaultArg statistics true
+            let rgs = defaultArg rowGroupSize 0
+            let dps = defaultArg dataPageSize 0
+            let compat = defaultArg compatLevel -1
+            let mo = defaultArg maintainOrder true
+            let ct = defaultArg cancellationToken CancellationToken.None
+            let handle = this.CloneHandle()
+            NativeStreamWriter.WriteAsync(stream, (fun target ->
+                PolarsWrapper.SinkParquetCallback(handle, target, comp, compLevel, stats, rgs, dps, compat, mo)), ct)
+
+        /// <summary>
+        /// Asynchronously sink the LazyFrame to a Parquet format written into a <see cref="T:System.IO.Pipelines.PipeWriter"/>.
+        /// The writer is flushed but not completed.
+        /// </summary>
+        member this.SinkParquetAsync(
+            writer: PipeWriter,
+            ?compression: ParquetCompression,
+            ?compressionLevel: int,
+            ?statistics: bool,
+            ?rowGroupSize: int,
+            ?dataPageSize: int,
+            ?compatLevel: int,
+            ?maintainOrder: bool,
+            ?cancellationToken: CancellationToken
+        ) : Task =
+            let comp = (defaultArg compression ParquetCompression.Zstd).ToNative()
+            let compLevel = defaultArg compressionLevel 3
+            let stats = defaultArg statistics true
+            let rgs = defaultArg rowGroupSize 0
+            let dps = defaultArg dataPageSize 0
+            let compat = defaultArg compatLevel -1
+            let mo = defaultArg maintainOrder true
+            let ct = defaultArg cancellationToken CancellationToken.None
+            let handle = this.CloneHandle()
+            NativeStreamWriter.WriteAsync(writer, (fun target ->
+                PolarsWrapper.SinkParquetCallback(handle, target, comp, compLevel, stats, rgs, dps, compat, mo)), ct)
+
     type DataFrame with
     /// <summary>
         /// Write DataFrame to a Parquet file.
@@ -342,4 +428,85 @@ module ParquetWrite =
                 ?dataPageSize = dataPageSize,
                 ?compatLevel = compatLevel,
                 ?maintainOrder = maintainOrder
+            )
+
+        /// <summary>
+        /// Write DataFrame to a Parquet format written into a <see cref="T:System.IO.Stream"/>.
+        /// The stream is flushed but not disposed.
+        /// </summary>
+        /// <returns>The same DataFrame, for chaining.</returns>
+        member this.WriteParquet(
+            stream: Stream,
+            ?compression: ParquetCompression,
+            ?compressionLevel: int,
+            ?statistics: bool,
+            ?rowGroupSize: int,
+            ?dataPageSize: int,
+            ?compatLevel: int,
+            ?maintainOrder: bool
+        ) : DataFrame =
+            this.Lazy().SinkParquet(
+                stream,
+                ?compression = compression,
+                ?compressionLevel = compressionLevel,
+                ?statistics = statistics,
+                ?rowGroupSize = rowGroupSize,
+                ?dataPageSize = dataPageSize,
+                ?compatLevel = compatLevel,
+                ?maintainOrder = maintainOrder
+            )
+            this
+
+        /// <summary>
+        /// Asynchronously write DataFrame to a Parquet format written into a <see cref="T:System.IO.Stream"/>.
+        /// The stream is flushed but not disposed.
+        /// </summary>
+        member this.WriteParquetAsync(
+            stream: Stream,
+            ?compression: ParquetCompression,
+            ?compressionLevel: int,
+            ?statistics: bool,
+            ?rowGroupSize: int,
+            ?dataPageSize: int,
+            ?compatLevel: int,
+            ?maintainOrder: bool,
+            ?cancellationToken: CancellationToken
+        ) : Task =
+            this.Lazy().SinkParquetAsync(
+                stream,
+                ?compression = compression,
+                ?compressionLevel = compressionLevel,
+                ?statistics = statistics,
+                ?rowGroupSize = rowGroupSize,
+                ?dataPageSize = dataPageSize,
+                ?compatLevel = compatLevel,
+                ?maintainOrder = maintainOrder,
+                ?cancellationToken = cancellationToken
+            )
+
+        /// <summary>
+        /// Asynchronously write DataFrame to a Parquet format written into a <see cref="T:System.IO.Pipelines.PipeWriter"/>.
+        /// The writer is flushed but not completed.
+        /// </summary>
+        member this.WriteParquetAsync(
+            writer: PipeWriter,
+            ?compression: ParquetCompression,
+            ?compressionLevel: int,
+            ?statistics: bool,
+            ?rowGroupSize: int,
+            ?dataPageSize: int,
+            ?compatLevel: int,
+            ?maintainOrder: bool,
+            ?cancellationToken: CancellationToken
+        ) : Task =
+            this.Lazy().SinkParquetAsync(
+                writer,
+                ?compression = compression,
+                ?compressionLevel = compressionLevel,
+                ?statistics = statistics,
+                ?rowGroupSize = rowGroupSize,
+                ?dataPageSize = dataPageSize,
+                ?compatLevel = compatLevel,
+                ?maintainOrder = maintainOrder,
+                ?cancellationToken = cancellationToken
             )

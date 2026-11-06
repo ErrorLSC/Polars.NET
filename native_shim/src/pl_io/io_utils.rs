@@ -1,10 +1,9 @@
-use polars::prelude::file::Writable;
 use polars::prelude::file_provider::HivePathProvider;
 use polars::prelude::*;
 use polars_io::cloud::CloudOptions;
 use std::ffi::CStr;
 use std::os::raw::c_char;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use crate::pl_io::ffi_buffer::SharedMemoryWriter;
 use crate::types::SelectorContext;
 use crate::utils::{map_sync_on_close, ptr_to_str};
@@ -263,11 +262,6 @@ pub(crate) unsafe fn build_partitioned_destination(
 
 pub(crate) fn build_memory_sink_destination() -> (SharedMemoryWriter, SinkDestination) {
     let mem_writer = SharedMemoryWriter::new();
-    let writable = Writable::Dyn(Box::new(mem_writer.clone()));
-    let dyn_target = SpecialEq::new(Arc::new(Mutex::new(Some(writable))));
-    
-    let target = SinkTarget::Dyn(dyn_target);
-    let destination = SinkDestination::File { target };
-    
+    let destination = crate::pl_io::callback_writer::build_writer_sink_destination(mem_writer.clone());
     (mem_writer, destination)
 }

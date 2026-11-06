@@ -1,3 +1,5 @@
+#pragma warning disable CS1573
+using System.IO.Pipelines;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 
@@ -342,5 +344,138 @@ public partial class LazyFrame : IDisposable
             quoteStyle.ToNative(),
             maintainOrder
         );
+    }
+    /// <summary>
+    /// Sink the LazyFrame to a CSV format written into a <see cref="Stream"/>.
+    /// <para>
+    /// Output is streamed in chunks as it is produced; the whole file is never materialized in memory.
+    /// The stream is flushed but not disposed.
+    /// </para>
+    /// </summary>
+    /// <param name="stream">Writable destination stream.</param>
+    /// <param name="includeBom">Whether to include the UTF-8 Byte Order Mark (BOM).</param>
+    /// <param name="includeHeader">Whether to include the header row.</param>
+    /// <param name="batchSize">The batch size for writing rows. 0 means use the Polars default.</param>
+    /// <param name="checkExtension">Whether to check if the file extension matches '.csv'.</param>
+    /// <param name="compressionCode">Compression method (Gzip/Zstd).</param>
+    /// <param name="compressionLevel">Compression level (depends on the codec).</param>
+    /// <param name="dateFormat">Format string for Date columns. If null, uses ISO 8601.</param>
+    /// <param name="timeFormat">Format string for Time columns. If null, uses ISO 8601.</param>
+    /// <param name="datetimeFormat">Format string for Datetime columns. If null, uses ISO 8601.</param>
+    /// <param name="floatScientific">Whether to always use scientific notation for floats (-1 = automatic).</param>
+    /// <param name="floatPrecision">The number of decimal places to write for floats (-1 = full precision).</param>
+    /// <param name="decimalComma">Whether to use a comma ',' as the decimal separator.</param>
+    /// <param name="separator">The character used as a field separator.</param>
+    /// <param name="quoteChar">The character used for quoting fields.</param>
+    /// <param name="nullValue">The string representation for null values.</param>
+    /// <param name="lineTerminator">The character sequence used to terminate lines.</param>
+    /// <param name="quoteStyle">The quoting style to use.</param>
+    /// <param name="maintainOrder">Whether to maintain the order of the data.</param>
+    public void SinkCsv(
+        Stream stream,
+        bool includeBom = false,
+        bool includeHeader = true,
+        int batchSize = 1024,
+        bool checkExtension = false,
+        ExternalCompression compressionCode = 0,
+        int compressionLevel = 0,
+        string? dateFormat = null,
+        string? timeFormat = null,
+        string? datetimeFormat = null,
+        int floatScientific = -1,
+        int floatPrecision = -1,
+        bool decimalComma = false,
+        byte separator = (byte)',',
+        byte quoteChar = (byte)'"',
+        string? nullValue = null,
+        string? lineTerminator = "\n",
+        QuoteStyle quoteStyle = QuoteStyle.Necessary,
+        bool maintainOrder = true)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        var handle = CloneHandle();
+        NativeStreamWriter.Write(stream, target => PolarsWrapper.SinkCsvCallback(
+            handle, target, includeBom, includeHeader, batchSize, checkExtension, compressionCode.ToNative(),
+            compressionLevel, dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma,
+            separator, quoteChar, nullValue, lineTerminator, quoteStyle.ToNative(), maintainOrder));
+    }
+
+    /// <summary>
+    /// Asynchronously sink the LazyFrame to a CSV format written into a <see cref="Stream"/>.
+    /// <para>
+    /// The query runs on a background thread; chunks are written to the stream with async I/O,
+    /// so it is safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
+    /// The stream is flushed but not disposed.
+    /// </para>
+    /// </summary>
+    /// <inheritdoc cref="SinkCsv(Stream, bool, bool, int, bool, ExternalCompression, int, string?, string?, string?, int, int, bool, byte, byte, string?, string?, QuoteStyle, bool)"/>
+    /// <param name="cancellationToken">Cancels writing; the native query is aborted at its next write.</param>
+    public Task SinkCsvAsync(
+        Stream stream,
+        bool includeBom = false,
+        bool includeHeader = true,
+        int batchSize = 1024,
+        bool checkExtension = false,
+        ExternalCompression compressionCode = 0,
+        int compressionLevel = 0,
+        string? dateFormat = null,
+        string? timeFormat = null,
+        string? datetimeFormat = null,
+        int floatScientific = -1,
+        int floatPrecision = -1,
+        bool decimalComma = false,
+        byte separator = (byte)',',
+        byte quoteChar = (byte)'"',
+        string? nullValue = null,
+        string? lineTerminator = "\n",
+        QuoteStyle quoteStyle = QuoteStyle.Necessary,
+        bool maintainOrder = true,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        var handle = CloneHandle();
+        return NativeStreamWriter.WriteAsync(stream, target => PolarsWrapper.SinkCsvCallback(
+            handle, target, includeBom, includeHeader, batchSize, checkExtension, compressionCode.ToNative(),
+            compressionLevel, dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma,
+            separator, quoteChar, nullValue, lineTerminator, quoteStyle.ToNative(), maintainOrder),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Asynchronously sink the LazyFrame to a CSV format written into a <see cref="PipeWriter"/>
+    /// (e.g. ASP.NET Core <c>HttpResponse.BodyWriter</c>).
+    /// <para>The writer is flushed but not completed.</para>
+    /// </summary>
+    /// <param name="writer">Destination pipe writer.</param>
+    /// <inheritdoc cref="SinkCsvAsync(Stream, bool, bool, int, bool, ExternalCompression, int, string?, string?, string?, int, int, bool, byte, byte, string?, string?, QuoteStyle, bool, CancellationToken)"/>
+    public Task SinkCsvAsync(
+        PipeWriter writer,
+        bool includeBom = false,
+        bool includeHeader = true,
+        int batchSize = 1024,
+        bool checkExtension = false,
+        ExternalCompression compressionCode = 0,
+        int compressionLevel = 0,
+        string? dateFormat = null,
+        string? timeFormat = null,
+        string? datetimeFormat = null,
+        int floatScientific = -1,
+        int floatPrecision = -1,
+        bool decimalComma = false,
+        byte separator = (byte)',',
+        byte quoteChar = (byte)'"',
+        string? nullValue = null,
+        string? lineTerminator = "\n",
+        QuoteStyle quoteStyle = QuoteStyle.Necessary,
+        bool maintainOrder = true,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        var handle = CloneHandle();
+        return NativeStreamWriter.WriteAsync(writer, target => PolarsWrapper.SinkCsvCallback(
+            handle, target, includeBom, includeHeader, batchSize, checkExtension, compressionCode.ToNative(),
+            compressionLevel, dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma,
+            separator, quoteChar, nullValue, lineTerminator, quoteStyle.ToNative(), maintainOrder),
+            cancellationToken);
     }
 }

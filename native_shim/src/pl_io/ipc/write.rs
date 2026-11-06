@@ -1,6 +1,8 @@
 use polars::prelude::*;
 use std::os::raw::c_char;
 use crate::pl_io::ffi_buffer::FfiBuffer;
+use crate::pl_io::callback_writer::{FfiWriteCallback, build_writer_sink_destination, with_callback_writer};
+use std::ffi::c_void;
 use crate::pl_io::io_utils::{build_memory_sink_destination, build_partitioned_destination, build_unified_sink_args};
 use crate::pl_io::ipc::ipc_utils::build_ipc_write_options;
 use crate::types::{LazyFrameContext, SelectorContext};
@@ -152,6 +154,38 @@ pub extern "C" fn pl_sink_ipc_partitioned(
     })
 }
 
+/// Shared body of the in-memory / callback IPC sinks.
+fn sink_ipc_to(
+    lf_ctx: Box<LazyFrameContext>,
+    destination: SinkDestination,
+    compression: u8,
+    compat_level: i32,
+    record_batch_size: usize,
+    record_batch_statistics: bool,
+    maintain_order: bool,
+) -> PolarsResult<()> {
+    let ipc_options = build_ipc_write_options(
+        compression,
+        compat_level,
+        record_batch_size,
+        record_batch_statistics
+    )?;
+    let file_format = FileWriteFormat::Ipc(ipc_options);
+
+    let unified_args = UnifiedSinkArgs {
+        mkdir: false,
+        maintain_order,
+        sync_on_close: Default::default(),
+        cloud_options: None,
+        sinked_paths_callback: None
+    };
+
+    lf_ctx.inner
+        .sink(destination, file_format, unified_args)?
+        .collect()?;
+    Ok(())
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_lazyframe_sink_ipc_memory(
     lf_ptr: *mut LazyFrameContext,
@@ -171,26 +205,8 @@ pub extern "C" fn pl_lazyframe_sink_ipc_memory(
 
         let (mem_writer, destination) = build_memory_sink_destination();
 
-        let ipc_options = build_ipc_write_options(
-            compression,
-            compat_level,
-            record_batch_size,
-            record_batch_statistics
-        )?;
-        let file_format = FileWriteFormat::Ipc(ipc_options);
-
-        let unified_args = UnifiedSinkArgs {
-            mkdir: false,
-            maintain_order,
-            sync_on_close: Default::default(), 
-            cloud_options: None,
-            sinked_paths_callback:None
-        };
-
-        let sink_lf = lf_ctx.inner
-            .sink(destination, file_format, unified_args)?;
-            
-        let _ = sink_lf.collect()?;
+        sink_ipc_to(lf_ctx, destination, compression, compat_level,
+            record_batch_size, record_batch_statistics, maintain_order)?;
 
         let vec = mem_writer.into_inner();
         let mut vec = std::mem::ManuallyDrop::new(vec);
@@ -202,5 +218,31 @@ pub extern "C" fn pl_lazyframe_sink_ipc_memory(
         }
 
         Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazyframe_sink_ipc_callback(
+    lf_ptr: *mut LazyFrameContext,
+    callback: FfiWriteCallback,
+    user_data: *mut c_void,
+    buffer_size: usize,
+    compression: u8,
+    compat_level: i32,
+    record_batch_size: usize,
+    record_batch_statistics: bool,
+    maintain_order: bool,
+) {
+    ffi_try_void!({
+        if lf_ptr.is_null() {
+            return Err(PolarsError::ComputeError("Null pointer passed to callback sink".into()));
+        }
+
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+
+        with_callback_writer(callback, user_data, buffer_size, |w| {
+            sink_ipc_to(lf_ctx, build_writer_sink_destination(w), compression, compat_level,
+                record_batch_size, record_batch_statistics, maintain_order)
+        })
     })
 }

@@ -1,4 +1,5 @@
 #pragma warning disable CS1573
+using System.IO.Pipelines;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 
@@ -48,7 +49,7 @@ public partial class LazyFrame : IDisposable
             values
         );
     }
-    /// <inheritdoc cref="SinkJson"/>
+    /// <inheritdoc cref="SinkJson(string, ExternalCompression, int, bool, bool, SyncOnClose, bool, CloudOptions?)"/>
     /// <param name="partitionBy">The selector(s) to partition the data by.</param>
     /// <param name="includeKeys">Whether to include the partition keys in the output files.</param>
     /// <param name="keysPreGrouped">
@@ -115,6 +116,78 @@ public partial class LazyFrame : IDisposable
     {
         SinkJson(path,compression,compressionLevel,checkExtension, maintainOrder, syncOnClose, mkdir,cloudOptions);
     }
+    /// <summary>
+    /// Sink the LazyFrame to a NDJSON (Newline Delimited JSON) file format written into a <see cref="Stream"/>.
+    /// <para>
+    /// Output is streamed in chunks as it is produced; the whole file is never materialized in memory.
+    /// The stream is flushed but not disposed.
+    /// </para>
+    /// </summary>
+    /// <param name="stream">Writable destination stream.</param>
+    /// <param name="compression">Compression method (Gzip/Zstd).</param>
+    /// <param name="compressionLevel">Compression level.</param>
+    /// <param name="checkExtension">Whether to check if the file extension matches '.json' or '.ndjson'.</param>
+    /// <param name="maintainOrder">Maintain the order of data.</param>
+    public void SinkJson(
+        Stream stream,
+        ExternalCompression compression = ExternalCompression.Uncompressed,
+        int compressionLevel = -1,
+        bool checkExtension = true,
+        bool maintainOrder = true)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        var handle = CloneHandle();
+        NativeStreamWriter.Write(stream, target => PolarsWrapper.SinkJsonCallback(
+            handle, target, compression.ToNative(), compressionLevel, checkExtension, maintainOrder));
+    }
+
+    /// <summary>
+    /// Asynchronously sink the LazyFrame to a NDJSON (Newline Delimited JSON) file format written into a <see cref="Stream"/>.
+    /// <para>
+    /// The query runs on a background thread; chunks are written to the stream with async I/O,
+    /// so it is safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
+    /// The stream is flushed but not disposed.
+    /// </para>
+    /// </summary>
+    /// <inheritdoc cref="SinkJson(Stream, ExternalCompression, int, bool, bool)"/>
+    /// <param name="cancellationToken">Cancels writing; the native query is aborted at its next write.</param>
+    public Task SinkJsonAsync(
+        Stream stream,
+        ExternalCompression compression = ExternalCompression.Uncompressed,
+        int compressionLevel = -1,
+        bool checkExtension = true,
+        bool maintainOrder = true,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        var handle = CloneHandle();
+        return NativeStreamWriter.WriteAsync(stream, target => PolarsWrapper.SinkJsonCallback(
+            handle, target, compression.ToNative(), compressionLevel, checkExtension, maintainOrder),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Asynchronously sink the LazyFrame to a NDJSON (Newline Delimited JSON) file format written into a <see cref="PipeWriter"/>
+    /// (e.g. ASP.NET Core <c>HttpResponse.BodyWriter</c>).
+    /// <para>The writer is flushed but not completed.</para>
+    /// </summary>
+    /// <param name="writer">Destination pipe writer.</param>
+    /// <inheritdoc cref="SinkJsonAsync(Stream, ExternalCompression, int, bool, bool, CancellationToken)"/>
+    public Task SinkJsonAsync(
+        PipeWriter writer,
+        ExternalCompression compression = ExternalCompression.Uncompressed,
+        int compressionLevel = -1,
+        bool checkExtension = true,
+        bool maintainOrder = true,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        var handle = CloneHandle();
+        return NativeStreamWriter.WriteAsync(writer, target => PolarsWrapper.SinkJsonCallback(
+            handle, target, compression.ToNative(), compressionLevel, checkExtension, maintainOrder),
+            cancellationToken);
+    }
+
     /// <summary>
     /// Sink the LazyFrame to a NDJSON (Newline Delimited JSON) format in memory.
     /// </summary>

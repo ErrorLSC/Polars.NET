@@ -1,4 +1,5 @@
 #pragma warning disable CS1573
+using System.IO.Pipelines;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 
@@ -55,7 +56,7 @@ public partial class LazyFrame : IDisposable
             values
         );
     }
-    /// <inheritdoc cref="SinkIpc"/>
+    /// <inheritdoc cref="SinkIpc(string, IpcCompression, int, int, bool, bool, SyncOnClose, bool, CloudOptions?)"/>
     /// <param name="partitionBy">The selector(s) to partition the data by.</param>
     /// <param name="includeKeys">Whether to include the partition keys in the output files.</param>
     /// <param name="keysPreGrouped">
@@ -163,5 +164,80 @@ public partial class LazyFrame : IDisposable
             recordBatchStatistics,
             maintainOrder
         );
+    }
+    /// <summary>
+    /// Sink the LazyFrame to an IPC (Arrow) file format written into a <see cref="Stream"/>.
+    /// <para>
+    /// Output is streamed in chunks as it is produced; the whole file is never materialized in memory.
+    /// The stream is flushed but not disposed.
+    /// </para>
+    /// </summary>
+    /// <param name="stream">Writable destination stream.</param>
+    /// <param name="compression">Compression method to use.</param>
+    /// <param name="compatLevel">Compatibility level (default -1 = newest).</param>
+    /// <param name="recordBatchSize">Number of rows per record batch (0 = default).</param>
+    /// <param name="recordBatchStatistics">Write statistics to the record batch header (default = true).</param>
+    /// <param name="maintainOrder">Maintain the order of the data.</param>
+    public void SinkIpc(
+        Stream stream,
+        IpcCompression compression = IpcCompression.None,
+        int compatLevel = -1,
+        int recordBatchSize = 0,
+        bool recordBatchStatistics = true,
+        bool maintainOrder = true)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        var handle = CloneHandle();
+        NativeStreamWriter.Write(stream, target => PolarsWrapper.SinkIpcCallback(
+            handle, target, compression.ToNative(), compatLevel, recordBatchSize, recordBatchStatistics, maintainOrder));
+    }
+
+    /// <summary>
+    /// Asynchronously sink the LazyFrame to an IPC (Arrow) file format written into a <see cref="Stream"/>.
+    /// <para>
+    /// The query runs on a background thread; chunks are written to the stream with async I/O,
+    /// so it is safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
+    /// The stream is flushed but not disposed.
+    /// </para>
+    /// </summary>
+    /// <inheritdoc cref="SinkIpc(Stream, IpcCompression, int, int, bool, bool)"/>
+    /// <param name="cancellationToken">Cancels writing; the native query is aborted at its next write.</param>
+    public Task SinkIpcAsync(
+        Stream stream,
+        IpcCompression compression = IpcCompression.None,
+        int compatLevel = -1,
+        int recordBatchSize = 0,
+        bool recordBatchStatistics = true,
+        bool maintainOrder = true,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        var handle = CloneHandle();
+        return NativeStreamWriter.WriteAsync(stream, target => PolarsWrapper.SinkIpcCallback(
+            handle, target, compression.ToNative(), compatLevel, recordBatchSize, recordBatchStatistics, maintainOrder),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Asynchronously sink the LazyFrame to an IPC (Arrow) file format written into a <see cref="PipeWriter"/>
+    /// (e.g. ASP.NET Core <c>HttpResponse.BodyWriter</c>).
+    /// <para>The writer is flushed but not completed.</para>
+    /// </summary>
+    /// <param name="writer">Destination pipe writer.</param>
+    /// <inheritdoc cref="SinkIpcAsync(Stream, IpcCompression, int, int, bool, bool, CancellationToken)"/>
+    public Task SinkIpcAsync(
+        PipeWriter writer,
+        IpcCompression compression = IpcCompression.None,
+        int compatLevel = -1,
+        int recordBatchSize = 0,
+        bool recordBatchStatistics = true,
+        bool maintainOrder = true,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        var handle = CloneHandle();
+        return NativeStreamWriter.WriteAsync(writer, target => PolarsWrapper.SinkIpcCallback(
+            handle, target, compression.ToNative(), compatLevel, recordBatchSize, recordBatchStatistics, maintainOrder),
+            cancellationToken);
     }
 }

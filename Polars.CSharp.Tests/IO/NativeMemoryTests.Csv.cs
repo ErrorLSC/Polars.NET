@@ -45,8 +45,8 @@ public partial class NativeMemoryTests
             Assert.Equal(df.GetValue<double>(i, "score"), back.GetValue<double>(i, "score"));
         }
         Assert.Equal("Alice", back.GetValue<string>(0, "name"));
-        // CSV has no null marker by default: the null name is written as an empty field and read back as "".
-        Assert.Equal("", back.GetValue<string>(2, "name"));
+        // A null is written as an empty (unquoted) field and read back as null.
+        Assert.Null(back.GetValue<string>(2, "name"));
         Assert.Equal("Eve", back.GetValue<string>(4, "name"));
     }
 
@@ -60,8 +60,8 @@ public partial class NativeMemoryTests
 
         Assert.Equal(3, back.Height);
         Assert.Equal(3L, back.GetValue<long>(0, "id"));
-        // CSV has no null marker by default: the null name is written as an empty field and read back as "".
-        Assert.Equal("", back.GetValue<string>(0, "name"));
+        // A null is written as an empty (unquoted) field and read back as null.
+        Assert.Null(back.GetValue<string>(0, "name"));
         Assert.Equal("David", back.GetValue<string>(1, "name"));
         Assert.Equal(5.5, back.GetValue<double>(2, "score"));
     }

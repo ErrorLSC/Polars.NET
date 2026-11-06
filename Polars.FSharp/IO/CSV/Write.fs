@@ -1,5 +1,10 @@
 namespace Polars.FSharp
 
+open System.IO
+open System.IO.Pipelines
+open System.Threading
+open System.Threading.Tasks
+open Polars.NET.Core
 open Polars.NET.Core.Wrappers
 
 [<AutoOpen>]
@@ -341,6 +346,158 @@ module CsvWrite =
                 mo
             )
 
+        /// <summary>
+        /// Sink the LazyFrame to a CSV format written into a <see cref="T:System.IO.Stream"/>.
+        /// Output is streamed in chunks as it is produced. The stream is flushed but not disposed.
+        /// </summary>
+        member this.SinkCsv
+            (
+                stream: Stream,
+                ?includeBom: bool,
+                ?includeHeader: bool,
+                ?batchSize: int,
+                ?checkExtension: bool,
+                ?compressionCode: ExternalCompression,
+                ?compressionLevel: int,
+                ?dateFormat: string,
+                ?timeFormat: string,
+                ?datetimeFormat: string,
+                ?floatScientific: int,
+                ?floatPrecision: int,
+                ?decimalComma: bool,
+                ?separator: byte,
+                ?quoteChar: byte,
+                ?nullValue: string,
+                ?lineTerminator: string,
+                ?quoteStyle: QuoteStyle,
+                ?maintainOrder: bool
+            ) : unit =
+            let incBom = defaultArg includeBom false
+            let incHdr = defaultArg includeHeader true
+            let bSize = defaultArg batchSize 1024
+            let chkExt = defaultArg checkExtension false
+            let comp = defaultArg compressionCode ExternalCompression.Uncompressed
+            let compLvl = defaultArg compressionLevel 0
+            let dFmt = defaultArg dateFormat null
+            let tFmt = defaultArg timeFormat null
+            let dtFmt = defaultArg datetimeFormat null
+            let fSci = defaultArg floatScientific -1
+            let fPrec = defaultArg floatPrecision -1
+            let dComma = defaultArg decimalComma false
+            let sep = defaultArg separator (byte ',')
+            let qChar = defaultArg quoteChar (byte '"')
+            let nVal = defaultArg nullValue null
+            let lTerm = defaultArg lineTerminator "\n"
+            let qStyle = defaultArg quoteStyle QuoteStyle.Necessary
+            let mo = defaultArg maintainOrder true
+            let handle = this.CloneHandle()
+            NativeStreamWriter.Write(stream, fun target ->
+                PolarsWrapper.SinkCsvCallback(handle, target, incBom, incHdr, bSize, chkExt, comp.ToNative(), compLvl,
+                    dFmt, tFmt, dtFmt, fSci, fPrec, dComma, sep, qChar, nVal, lTerm, qStyle.ToNative(), mo))
+
+        /// <summary>
+        /// Asynchronously sink the LazyFrame to a CSV format written into a <see cref="T:System.IO.Stream"/>.
+        /// Safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
+        /// The stream is flushed but not disposed.
+        /// </summary>
+        member this.SinkCsvAsync
+            (
+                stream: Stream,
+                ?includeBom: bool,
+                ?includeHeader: bool,
+                ?batchSize: int,
+                ?checkExtension: bool,
+                ?compressionCode: ExternalCompression,
+                ?compressionLevel: int,
+                ?dateFormat: string,
+                ?timeFormat: string,
+                ?datetimeFormat: string,
+                ?floatScientific: int,
+                ?floatPrecision: int,
+                ?decimalComma: bool,
+                ?separator: byte,
+                ?quoteChar: byte,
+                ?nullValue: string,
+                ?lineTerminator: string,
+                ?quoteStyle: QuoteStyle,
+                ?maintainOrder: bool,
+                ?cancellationToken: CancellationToken
+            ) : Task =
+            let incBom = defaultArg includeBom false
+            let incHdr = defaultArg includeHeader true
+            let bSize = defaultArg batchSize 1024
+            let chkExt = defaultArg checkExtension false
+            let comp = defaultArg compressionCode ExternalCompression.Uncompressed
+            let compLvl = defaultArg compressionLevel 0
+            let dFmt = defaultArg dateFormat null
+            let tFmt = defaultArg timeFormat null
+            let dtFmt = defaultArg datetimeFormat null
+            let fSci = defaultArg floatScientific -1
+            let fPrec = defaultArg floatPrecision -1
+            let dComma = defaultArg decimalComma false
+            let sep = defaultArg separator (byte ',')
+            let qChar = defaultArg quoteChar (byte '"')
+            let nVal = defaultArg nullValue null
+            let lTerm = defaultArg lineTerminator "\n"
+            let qStyle = defaultArg quoteStyle QuoteStyle.Necessary
+            let mo = defaultArg maintainOrder true
+            let ct = defaultArg cancellationToken CancellationToken.None
+            let handle = this.CloneHandle()
+            NativeStreamWriter.WriteAsync(stream,(fun target ->
+                PolarsWrapper.SinkCsvCallback(handle, target, incBom, incHdr, bSize, chkExt, comp.ToNative(), compLvl,
+                    dFmt, tFmt, dtFmt, fSci, fPrec, dComma, sep, qChar, nVal, lTerm, qStyle.ToNative(), mo)), ct)
+
+        /// <summary>
+        /// Asynchronously sink the LazyFrame to a CSV format written into a <see cref="T:System.IO.Pipelines.PipeWriter"/>.
+        /// The writer is flushed but not completed.
+        /// </summary>
+        member this.SinkCsvAsync
+            (
+                writer: PipeWriter,
+                ?includeBom: bool,
+                ?includeHeader: bool,
+                ?batchSize: int,
+                ?checkExtension: bool,
+                ?compressionCode: ExternalCompression,
+                ?compressionLevel: int,
+                ?dateFormat: string,
+                ?timeFormat: string,
+                ?datetimeFormat: string,
+                ?floatScientific: int,
+                ?floatPrecision: int,
+                ?decimalComma: bool,
+                ?separator: byte,
+                ?quoteChar: byte,
+                ?nullValue: string,
+                ?lineTerminator: string,
+                ?quoteStyle: QuoteStyle,
+                ?maintainOrder: bool,
+                ?cancellationToken: CancellationToken
+            ) : Task =
+            let incBom = defaultArg includeBom false
+            let incHdr = defaultArg includeHeader true
+            let bSize = defaultArg batchSize 1024
+            let chkExt = defaultArg checkExtension false
+            let comp = defaultArg compressionCode ExternalCompression.Uncompressed
+            let compLvl = defaultArg compressionLevel 0
+            let dFmt = defaultArg dateFormat null
+            let tFmt = defaultArg timeFormat null
+            let dtFmt = defaultArg datetimeFormat null
+            let fSci = defaultArg floatScientific -1
+            let fPrec = defaultArg floatPrecision -1
+            let dComma = defaultArg decimalComma false
+            let sep = defaultArg separator (byte ',')
+            let qChar = defaultArg quoteChar (byte '"')
+            let nVal = defaultArg nullValue null
+            let lTerm = defaultArg lineTerminator "\n"
+            let qStyle = defaultArg quoteStyle QuoteStyle.Necessary
+            let mo = defaultArg maintainOrder true
+            let ct = defaultArg cancellationToken CancellationToken.None
+            let handle = this.CloneHandle()
+            NativeStreamWriter.WriteAsync(writer,(fun target ->
+                PolarsWrapper.SinkCsvCallback(handle, target, incBom, incHdr, bSize, chkExt, comp.ToNative(), compLvl,
+                    dFmt, tFmt, dtFmt, fSci, fPrec, dComma, sep, qChar, nVal, lTerm, qStyle.ToNative(), mo)), ct)
+
     type DataFrame with
         /// <summary>
         /// Write DataFrame to a comma-separated values (CSV) file.
@@ -567,3 +724,150 @@ module CsvWrite =
                     ?quoteStyle = quoteStyle,
                     ?maintainOrder = maintainOrder
                 )
+
+        /// <summary>
+        /// Write DataFrame to a comma-separated values (CSV) format written into a <see cref="T:System.IO.Stream"/>.
+        /// The stream is flushed but not disposed.
+        /// </summary>
+        /// <returns>The same DataFrame, for chaining.</returns>
+        member this.WriteCsv(
+            stream: Stream,
+            ?includeBom: bool,
+            ?includeHeader: bool,
+            ?batchSize: int,
+            ?checkExtension: bool,
+            ?compressionCode: ExternalCompression,
+            ?compressionLevel: int,
+            ?dateFormat: string,
+            ?timeFormat: string,
+            ?datetimeFormat: string,
+            ?floatScientific: int,
+            ?floatPrecision: int,
+            ?decimalComma: bool,
+            ?separator: byte,
+            ?quoteChar: byte,
+            ?nullValue: string,
+            ?lineTerminator: string,
+            ?quoteStyle: QuoteStyle,
+            ?maintainOrder: bool
+        ) : DataFrame =
+            this.Lazy().SinkCsv(
+                stream,
+                ?includeBom = includeBom,
+                ?includeHeader = includeHeader,
+                ?batchSize = batchSize,
+                ?checkExtension = checkExtension,
+                ?compressionCode = compressionCode,
+                ?compressionLevel = compressionLevel,
+                ?dateFormat = dateFormat,
+                ?timeFormat = timeFormat,
+                ?datetimeFormat = datetimeFormat,
+                ?floatScientific = floatScientific,
+                ?floatPrecision = floatPrecision,
+                ?decimalComma = decimalComma,
+                ?separator = separator,
+                ?quoteChar = quoteChar,
+                ?nullValue = nullValue,
+                ?lineTerminator = lineTerminator,
+                ?quoteStyle = quoteStyle,
+                ?maintainOrder = maintainOrder
+            )
+            this
+
+        /// <summary>
+        /// Asynchronously write DataFrame to a comma-separated values (CSV) format written into a <see cref="T:System.IO.Stream"/>.
+        /// The stream is flushed but not disposed.
+        /// </summary>
+        member this.WriteCsvAsync(
+            stream: Stream,
+            ?includeBom: bool,
+            ?includeHeader: bool,
+            ?batchSize: int,
+            ?checkExtension: bool,
+            ?compressionCode: ExternalCompression,
+            ?compressionLevel: int,
+            ?dateFormat: string,
+            ?timeFormat: string,
+            ?datetimeFormat: string,
+            ?floatScientific: int,
+            ?floatPrecision: int,
+            ?decimalComma: bool,
+            ?separator: byte,
+            ?quoteChar: byte,
+            ?nullValue: string,
+            ?lineTerminator: string,
+            ?quoteStyle: QuoteStyle,
+            ?maintainOrder: bool,
+            ?cancellationToken: CancellationToken
+        ) : Task =
+            this.Lazy().SinkCsvAsync(
+                stream,
+                ?includeBom = includeBom,
+                ?includeHeader = includeHeader,
+                ?batchSize = batchSize,
+                ?checkExtension = checkExtension,
+                ?compressionCode = compressionCode,
+                ?compressionLevel = compressionLevel,
+                ?dateFormat = dateFormat,
+                ?timeFormat = timeFormat,
+                ?datetimeFormat = datetimeFormat,
+                ?floatScientific = floatScientific,
+                ?floatPrecision = floatPrecision,
+                ?decimalComma = decimalComma,
+                ?separator = separator,
+                ?quoteChar = quoteChar,
+                ?nullValue = nullValue,
+                ?lineTerminator = lineTerminator,
+                ?quoteStyle = quoteStyle,
+                ?maintainOrder = maintainOrder,
+                ?cancellationToken = cancellationToken
+            )
+
+        /// <summary>
+        /// Asynchronously write DataFrame to a comma-separated values (CSV) format written into a <see cref="T:System.IO.Pipelines.PipeWriter"/>.
+        /// The writer is flushed but not completed.
+        /// </summary>
+        member this.WriteCsvAsync(
+            writer: PipeWriter,
+            ?includeBom: bool,
+            ?includeHeader: bool,
+            ?batchSize: int,
+            ?checkExtension: bool,
+            ?compressionCode: ExternalCompression,
+            ?compressionLevel: int,
+            ?dateFormat: string,
+            ?timeFormat: string,
+            ?datetimeFormat: string,
+            ?floatScientific: int,
+            ?floatPrecision: int,
+            ?decimalComma: bool,
+            ?separator: byte,
+            ?quoteChar: byte,
+            ?nullValue: string,
+            ?lineTerminator: string,
+            ?quoteStyle: QuoteStyle,
+            ?maintainOrder: bool,
+            ?cancellationToken: CancellationToken
+        ) : Task =
+            this.Lazy().SinkCsvAsync(
+                writer,
+                ?includeBom = includeBom,
+                ?includeHeader = includeHeader,
+                ?batchSize = batchSize,
+                ?checkExtension = checkExtension,
+                ?compressionCode = compressionCode,
+                ?compressionLevel = compressionLevel,
+                ?dateFormat = dateFormat,
+                ?timeFormat = timeFormat,
+                ?datetimeFormat = datetimeFormat,
+                ?floatScientific = floatScientific,
+                ?floatPrecision = floatPrecision,
+                ?decimalComma = decimalComma,
+                ?separator = separator,
+                ?quoteChar = quoteChar,
+                ?nullValue = nullValue,
+                ?lineTerminator = lineTerminator,
+                ?quoteStyle = quoteStyle,
+                ?maintainOrder = maintainOrder,
+                ?cancellationToken = cancellationToken
+            )

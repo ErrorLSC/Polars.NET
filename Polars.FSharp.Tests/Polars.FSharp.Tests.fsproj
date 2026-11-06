@@ -29,6 +29,9 @@
     <Compile Include="ConfigTests.fs" />
     <Compile Include="DataFrameTests.fs" />
     <Compile Include="AsyncTests.fs" />
+    <Compile Include="StreamWriteTests.fs" />
+    <Compile Include="StreamWriteTests.ParquetCsv.fs" />
+    <Compile Include="StreamWriteTests.JsonAvro.fs" />
     <Compile Include="TpchLinqTests.fs" />
     <Compile Include="LogicalPlanOptimizerTests.fs" />
     <Compile Include="GroupOrderRelaxationTests.fs" />

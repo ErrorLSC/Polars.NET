@@ -1,4 +1,5 @@
 #pragma warning disable CS1573
+using System.IO.Pipelines;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 
@@ -135,5 +136,56 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
             compatLevel,
             maintainOrder
         );
+    }
+    /// <summary>
+    /// Write DataFrame to a Parquet format written into a <see cref="Stream"/>.
+    /// <para>
+    /// Output is streamed in chunks as it is produced. The stream is flushed but not disposed.
+    /// </para>
+    /// </summary>
+    /// <param name="stream">Writable destination stream.</param>
+    /// <inheritdoc cref="LazyFrame.SinkParquet(Stream, ParquetCompression, int, bool, int, int, int, bool)"/>
+    public void WriteParquet(
+        Stream stream,
+        ParquetCompression compression = ParquetCompression.ZSTD,
+        int compressionLevel = 3,
+        bool statistics = true,
+        int rowGroupSize = 0,
+        int dataPageSize = 0,
+        int compatLevel = -1,
+        bool maintainOrder = true)
+    {
+        var lf = Lazy();
+        lf.SinkParquet(stream, compression, compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder);
+    }
+    /// <inheritdoc cref="LazyFrame.SinkParquetAsync(Stream, ParquetCompression, int, bool, int, int, int, bool, CancellationToken)"/>
+    public Task WriteParquetAsync(
+        Stream stream,
+        ParquetCompression compression = ParquetCompression.ZSTD,
+        int compressionLevel = 3,
+        bool statistics = true,
+        int rowGroupSize = 0,
+        int dataPageSize = 0,
+        int compatLevel = -1,
+        bool maintainOrder = true,
+        CancellationToken cancellationToken = default)
+    {
+        var lf = Lazy();
+        return lf.SinkParquetAsync(stream, compression, compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder, cancellationToken);
+    }
+    /// <inheritdoc cref="LazyFrame.SinkParquetAsync(PipeWriter, ParquetCompression, int, bool, int, int, int, bool, CancellationToken)"/>
+    public Task WriteParquetAsync(
+        PipeWriter writer,
+        ParquetCompression compression = ParquetCompression.ZSTD,
+        int compressionLevel = 3,
+        bool statistics = true,
+        int rowGroupSize = 0,
+        int dataPageSize = 0,
+        int compatLevel = -1,
+        bool maintainOrder = true,
+        CancellationToken cancellationToken = default)
+    {
+        var lf = Lazy();
+        return lf.SinkParquetAsync(writer, compression, compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder, cancellationToken);
     }
 }

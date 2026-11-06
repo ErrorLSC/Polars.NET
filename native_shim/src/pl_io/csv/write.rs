@@ -2,8 +2,10 @@ use polars::prelude::*;
 use std::os::raw::c_char;
 use crate::pl_io::csv::csv_utils::{build_csv_writer_options};
 use crate::pl_io::ffi_buffer::FfiBuffer;
+use crate::pl_io::callback_writer::{FfiWriteCallback, build_writer_sink_destination, with_callback_writer};
 use crate::pl_io::io_utils::{build_memory_sink_destination, build_partitioned_destination, build_unified_sink_args};
 use crate::types::{LazyFrameContext, SelectorContext};
+use std::ffi::c_void;
 use crate::utils::ptr_to_str;
 
 #[unsafe(no_mangle)]
@@ -201,6 +203,55 @@ pub extern "C" fn pl_lazyframe_sink_csv_partitioned(
     })
 }
 
+
+/// Shared body of the in-memory / callback CSV sinks.
+fn sink_csv_to(
+    lf_ctx: Box<LazyFrameContext>,
+    destination: SinkDestination,
+    include_bom: bool,
+    include_header: bool,
+    batch_size: usize,
+    check_extension: bool,
+    compression_code: u8,
+    compression_level: i32,
+    date_format: *const c_char,
+    time_format: *const c_char,
+    datetime_format: *const c_char,
+    float_scientific: i32,
+    float_precision: i32,
+    decimal_comma: bool,
+    separator: u8,
+    quote_char: u8,
+    null_value: *const c_char,
+    line_terminator: *const c_char,
+    quote_style: u8,
+    maintain_order: bool,
+) -> PolarsResult<()> {
+    let csv_options = unsafe {
+        build_csv_writer_options(
+            include_bom, include_header, batch_size, check_extension,
+            compression_code, compression_level,
+            date_format, time_format, datetime_format,
+            float_scientific, float_precision, decimal_comma,
+            separator, quote_char, null_value, line_terminator, quote_style
+        )
+    };
+    let file_format = FileWriteFormat::Csv(csv_options);
+
+    let unified_args = UnifiedSinkArgs {
+        mkdir: false,
+        maintain_order,
+        sync_on_close: Default::default(),
+        cloud_options: None,
+        sinked_paths_callback:None
+    };
+
+    let _ = lf_ctx.inner
+        .sink(destination, file_format, unified_args)?
+        .collect()?;
+    Ok(())
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_lazyframe_sink_csv_memory(
     lf_ptr: *mut LazyFrameContext,
@@ -237,29 +288,15 @@ pub extern "C" fn pl_lazyframe_sink_csv_memory(
 
         let (mem_writer, destination) = build_memory_sink_destination();
 
-        let csv_options = unsafe {
-            build_csv_writer_options(
-                include_bom, include_header, batch_size, check_extension,
-                compression_code, compression_level,
-                date_format, time_format, datetime_format,
-                float_scientific, float_precision, decimal_comma,
-                separator, quote_char, null_value, line_terminator, quote_style
-            )
-        };
-        let file_format = FileWriteFormat::Csv(csv_options);
-
-        let unified_args = UnifiedSinkArgs {
-            mkdir: false,
+        sink_csv_to(
+            lf_ctx, destination,
+            include_bom, include_header, batch_size, check_extension,
+            compression_code, compression_level,
+            date_format, time_format, datetime_format,
+            float_scientific, float_precision, decimal_comma,
+            separator, quote_char, null_value, line_terminator, quote_style,
             maintain_order,
-            sync_on_close: Default::default(),
-            cloud_options: None,
-            sinked_paths_callback:None
-        };
-
-        let sink_lf = lf_ctx.inner
-            .sink(destination, file_format, unified_args)?;
-            
-        let _ = sink_lf.collect()?;
+        )?;
 
         let vec = mem_writer.into_inner();
         let mut vec = std::mem::ManuallyDrop::new(vec);
@@ -271,5 +308,55 @@ pub extern "C" fn pl_lazyframe_sink_csv_memory(
         }
 
         Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazyframe_sink_csv_callback(
+    lf_ptr: *mut LazyFrameContext,
+    callback: FfiWriteCallback,
+    user_data: *mut c_void,
+    buffer_size: usize,
+    // --- CSV Specific Params ---
+    include_bom: bool,
+    include_header: bool,
+    batch_size: usize,
+    check_extension: bool,
+    // Compression
+    compression_code: u8,
+    compression_level: i32,
+    // Serialize Options
+    date_format: *const c_char,
+    time_format: *const c_char,
+    datetime_format: *const c_char,
+    float_scientific: i32,
+    float_precision: i32,
+    decimal_comma: bool,
+    separator: u8,
+    quote_char: u8,
+    null_value: *const c_char,
+    line_terminator: *const c_char,
+    quote_style: u8,
+    // --- UnifiedSinkArgs ---
+    maintain_order: bool,
+) {
+    ffi_try_void!({
+        if lf_ptr.is_null() {
+            return Err(PolarsError::ComputeError("Null pointer passed to callback sink".into()));
+        }
+
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+
+        with_callback_writer(callback, user_data, buffer_size, |w| {
+            sink_csv_to(
+                lf_ctx, build_writer_sink_destination(w),
+                include_bom, include_header, batch_size, check_extension,
+                compression_code, compression_level,
+                date_format, time_format, datetime_format,
+                float_scientific, float_precision, decimal_comma,
+                separator, quote_char, null_value, line_terminator, quote_style,
+                maintain_order,
+            )
+        })
     })
 }

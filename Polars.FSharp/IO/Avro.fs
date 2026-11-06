@@ -1,5 +1,9 @@
 namespace Polars.FSharp
 
+open System.IO
+open System.IO.Pipelines
+open System.Threading
+open System.Threading.Tasks
 open Polars.NET.Core.Wrappers
 
 [<AutoOpen>]
@@ -76,6 +80,7 @@ module Avro =
         /// <param name="path">The file path to write to.</param>
         /// <param name="compression">The compression algorithm to use.</param>
         /// <param name="name">The name of the Avro record.</param>
+        /// <returns>The same DataFrame, for chaining.</returns>
         member this.WriteAvro(
             path: string, 
             ?compression: AvroCompression, 
@@ -84,6 +89,59 @@ module Avro =
             let pComp = defaultArg compression AvroCompression.Uncompressed
             let pName = defaultArg name ""
             PolarsWrapper.WriteAvro(this.Handle, path, pComp.ToNative(), pName)
+            this
+
+        /// <summary>
+        /// Write the DataFrame to an Apache Avro format written into a <see cref="T:System.IO.Stream"/>.
+        /// Output is streamed in chunks as it is produced. The stream is flushed but not disposed.
+        /// </summary>
+        /// <param name="stream">Writable destination stream.</param>
+        /// <param name="compression">The compression algorithm to use.</param>
+        /// <param name="name">The name of the Avro record.</param>
+        /// <returns>The same DataFrame, for chaining.</returns>
+        member this.WriteAvro(
+            stream: Stream,
+            ?compression: AvroCompression,
+            ?name: string
+        ) : DataFrame =
+            let pComp = defaultArg compression AvroCompression.Uncompressed
+            let pName = defaultArg name ""
+            Polars.NET.Core.NativeStreamWriter.Write(stream, fun target ->
+                PolarsWrapper.WriteAvroCallback(this.Handle, target, pComp.ToNative(), pName))
+            this
+
+        /// <summary>
+        /// Asynchronously write the DataFrame to an Apache Avro format written into a <see cref="T:System.IO.Stream"/>.
+        /// Safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
+        /// The stream is flushed but not disposed.
+        /// </summary>
+        member this.WriteAvroAsync(
+            stream: Stream,
+            ?compression: AvroCompression,
+            ?name: string,
+            ?cancellationToken: CancellationToken
+        ) : Task =
+            let pComp = defaultArg compression AvroCompression.Uncompressed
+            let pName = defaultArg name ""
+            let ct = defaultArg cancellationToken CancellationToken.None
+            Polars.NET.Core.NativeStreamWriter.WriteAsync(stream, (fun target ->
+                PolarsWrapper.WriteAvroCallback(this.Handle, target, pComp.ToNative(), pName)), ct)
+
+        /// <summary>
+        /// Asynchronously write the DataFrame to an Apache Avro format written into a <see cref="T:System.IO.Pipelines.PipeWriter"/>.
+        /// The writer is flushed but not completed.
+        /// </summary>
+        member this.WriteAvroAsync(
+            writer: PipeWriter,
+            ?compression: AvroCompression,
+            ?name: string,
+            ?cancellationToken: CancellationToken
+        ) : Task =
+            let pComp = defaultArg compression AvroCompression.Uncompressed
+            let pName = defaultArg name ""
+            let ct = defaultArg cancellationToken CancellationToken.None
+            Polars.NET.Core.NativeStreamWriter.WriteAsync(writer, (fun target ->
+                PolarsWrapper.WriteAvroCallback(this.Handle, target, pComp.ToNative(), pName)), ct)
 
         /// <summary>
         /// Write the DataFrame to an Apache Avro memory buffer.

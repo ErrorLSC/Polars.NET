@@ -634,6 +634,58 @@ public readonly partial struct PolarsWrapper
         PlQuoteStyle quoteStyle,
         bool maintainOrder)
         => NativeBuffer.Take(SinkCsvMemoryRaw(lf, includeBom, includeHeader, batchSize, checkExtension, compressionCode, compressionLevel, dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma, separator, quoteChar, nullValue, lineTerminator, quoteStyle, maintainOrder));
+    public static void SinkCsvCallback(
+        LazyFrameHandle lf,
+        NativeWriteTarget target,
+        bool includeBom,
+        bool includeHeader,
+        int batchSize,
+        bool checkExtension,
+        PlExternalCompression compressionCode,
+        int compressionLevel,
+        string? dateFormat,
+        string? timeFormat,
+        string? datetimeFormat,
+        int floatScientific,
+        int floatPrecision,
+        bool decimalComma,
+        byte separator,
+        byte quoteChar,
+        string? nullValue,
+        string? lineTerminator,
+        PlQuoteStyle quoteStyle,
+        bool maintainOrder)
+    {
+        nuint batchSizeNative = batchSize > 0 ? (nuint)batchSize : 0;
+
+        NativeBindings.pl_lazyframe_sink_csv_callback(
+            lf,
+            target.Callback,
+            target.UserData,
+            target.BufferSize,
+            includeBom,
+            includeHeader,
+            batchSizeNative,
+            checkExtension,
+            compressionCode,
+            compressionLevel,
+            dateFormat,
+            timeFormat,
+            datetimeFormat,
+            floatScientific,
+            floatPrecision,
+            decimalComma,
+            separator,
+            quoteChar,
+            nullValue,
+            lineTerminator,
+            quoteStyle,
+            maintainOrder
+        );
+
+        lf.TransferOwnership();
+        ErrorHelper.CheckVoid();
+    }
     public static void WriteJson(DataFrameHandle df, string path, PlJsonFormat format)
     {
         NativeBindings.pl_dataframe_write_json(df, path, format);
@@ -649,6 +701,11 @@ public readonly partial struct PolarsWrapper
         => NativeBuffer.TakeToArray(WriteJsonMemoryRaw(df, format));
     public static NativeBuffer WriteJsonNativeMemory(DataFrameHandle df, PlJsonFormat format)
         => NativeBuffer.Take(WriteJsonMemoryRaw(df, format));
+    public static void WriteJsonCallback(DataFrameHandle df, NativeWriteTarget target, PlJsonFormat format)
+    {
+        NativeBindings.pl_dataframe_write_json_callback(df, target.Callback, target.UserData, target.BufferSize, format);
+        ErrorHelper.CheckVoid();
+    }
     // Sink Parquet
     public static void SinkParquet(
         LazyFrameHandle lf,
@@ -843,6 +900,37 @@ public readonly partial struct PolarsWrapper
         int compatLevel,
         bool maintainOrder)
         => NativeBuffer.Take(SinkParquetMemoryRaw(lf, compression, compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder));
+    public static void SinkParquetCallback(
+        LazyFrameHandle lf,
+        NativeWriteTarget target,
+        PlParquetCompression compression,
+        int compressionLevel,
+        bool statistics,
+        int rowGroupSize,
+        int dataPageSize,
+        int compatLevel,
+        bool maintainOrder)
+    {
+        nuint rowGroupSizeNative = rowGroupSize > 0 ? (nuint)rowGroupSize : 0;
+        nuint dataPageSizeNative = dataPageSize > 0 ? (nuint)dataPageSize : 0;
+
+        NativeBindings.pl_lazyframe_sink_parquet_callback(
+            lf,
+            target.Callback,
+            target.UserData,
+            target.BufferSize,
+            compression,
+            compressionLevel,
+            statistics,
+            rowGroupSizeNative,
+            dataPageSizeNative,
+            compatLevel,
+            maintainOrder
+        );
+
+        lf.TransferOwnership();
+        ErrorHelper.CheckVoid();
+    }
     // ---------------------------------------------------------
     // Read JSON (File)
     // ---------------------------------------------------------
@@ -1190,6 +1278,29 @@ public readonly partial struct PolarsWrapper
         bool maintainOrder
         )
         => NativeBuffer.Take(SinkJsonMemoryRaw(lf, compression, compressionLevel, checkExtension, maintainOrder));
+    public static void SinkJsonCallback(
+        LazyFrameHandle lf,
+        NativeWriteTarget target,
+        PlExternalCompression compression,
+        int compressionLevel,
+        bool checkExtension,
+        bool maintainOrder
+        )
+    {
+        NativeBindings.pl_lazyframe_sink_json_callback(
+            lf,
+            target.Callback,
+            target.UserData,
+            target.BufferSize,
+            compression,
+            compressionLevel,
+            checkExtension,
+            maintainOrder
+        );
+
+        lf.TransferOwnership();
+        ErrorHelper.CheckVoid();
+    }
     // ---------------------------------------------------------
     // Scan IPC (File / Cloud)
     // ---------------------------------------------------------
@@ -1574,6 +1685,32 @@ public readonly partial struct PolarsWrapper
         bool recordBatchStatistics,
         bool maintainOrder)
         => NativeBuffer.Take(SinkIpcMemoryRaw(lf, compression, compatLevel, recordBatchSize, recordBatchStatistics, maintainOrder));
+    public static void SinkIpcCallback(
+        LazyFrameHandle lf,
+        NativeWriteTarget target,
+        PlIpcCompression compression,
+        int compatLevel,
+        int recordBatchSize,
+        bool recordBatchStatistics,
+        bool maintainOrder)
+    {
+        nuint batchSize = recordBatchSize > 0 ? (nuint)recordBatchSize : 0;
+
+        NativeBindings.pl_lazyframe_sink_ipc_callback(
+            lf,
+            target.Callback,
+            target.UserData,
+            target.BufferSize,
+            compression,
+            compatLevel,
+            batchSize,
+            recordBatchStatistics,
+            maintainOrder
+        );
+
+        lf.TransferOwnership();
+        ErrorHelper.CheckVoid();
+    }
     public static void WriteIpcStream(
         DataFrameHandle df,
         string path,
@@ -1616,6 +1753,23 @@ public readonly partial struct PolarsWrapper
         PlIpcCompression compression,
         int compatLevel)
         => NativeBuffer.Take(WriteIpcStreamMemoryRaw(df, compression, compatLevel));
+    public static void WriteIpcStreamCallback(
+        DataFrameHandle df,
+        NativeWriteTarget target,
+        PlIpcCompression compression,
+        int compatLevel)
+    {
+        NativeBindings.pl_dataframe_write_ipc_stream_callback(
+            df,
+            target.Callback,
+            target.UserData,
+            target.BufferSize,
+            compression,
+            compatLevel
+        );
+
+        ErrorHelper.CheckVoid();
+    }
     public static unsafe LazyFrameHandle LazyFrameScanStream(
         CArrowSchema* schema,
         delegate* unmanaged[Cdecl]<void*, Arrow.CArrowArrayStream*> callback,
@@ -1810,5 +1964,22 @@ public readonly partial struct PolarsWrapper
         PlAvroCompression compression,
         string name)
         => NativeBuffer.Take(WriteAvroToMemoryRaw(df, compression, name));
+    public static void WriteAvroCallback(
+        DataFrameHandle df,
+        NativeWriteTarget target,
+        PlAvroCompression compression,
+        string name)
+    {
+        NativeBindings.pl_write_avro_callback(
+            df,
+            target.Callback,
+            target.UserData,
+            target.BufferSize,
+            compression,
+            name ?? string.Empty
+        );
+
+        ErrorHelper.CheckVoid();
+    }
 
 }

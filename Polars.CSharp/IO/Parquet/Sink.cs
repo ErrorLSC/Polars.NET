@@ -1,3 +1,5 @@
+#pragma warning disable CS1573
+using System.IO.Pipelines;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 
@@ -194,5 +196,88 @@ public partial class LazyFrame : IDisposable
             compatLevel,
             maintainOrder
         );
+    }
+    /// <summary>
+    /// Sink the LazyFrame to a Parquet format written into a <see cref="Stream"/>.
+    /// <para>
+    /// Output is streamed in chunks as it is produced; the whole file is never materialized in memory.
+    /// The stream is flushed but not disposed.
+    /// </para>
+    /// </summary>
+    /// <param name="stream">Writable destination stream.</param>
+    /// <param name="compression">Compression codec to use.</param>
+    /// <param name="compressionLevel">Compression level (depends on the codec).</param>
+    /// <param name="statistics">Write statistics to the parquet file.</param>
+    /// <param name="rowGroupSize">Target row group size (in rows).</param>
+    /// <param name="dataPageSize">Target data page size (in bytes).</param>
+    /// <param name="compatLevel">IPC format compatibility, -1: oldest, 0: default, 1: newest.</param>
+    /// <param name="maintainOrder">Maintain the order of the data.</param>
+    public void SinkParquet(
+        Stream stream,
+        ParquetCompression compression = ParquetCompression.ZSTD,
+        int compressionLevel = 3,
+        bool statistics = true,
+        int rowGroupSize = 0,
+        int dataPageSize = 0,
+        int compatLevel = -1,
+        bool maintainOrder = true)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        var handle = CloneHandle();
+        NativeStreamWriter.Write(stream, target => PolarsWrapper.SinkParquetCallback(
+            handle, target, compression.ToNative(), compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder));
+    }
+
+    /// <summary>
+    /// Asynchronously sink the LazyFrame to a Parquet format written into a <see cref="Stream"/>.
+    /// <para>
+    /// The query runs on a background thread; chunks are written to the stream with async I/O,
+    /// so it is safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
+    /// The stream is flushed but not disposed.
+    /// </para>
+    /// </summary>
+    /// <inheritdoc cref="SinkParquet(Stream, ParquetCompression, int, bool, int, int, int, bool)"/>
+    /// <param name="cancellationToken">Cancels writing; the native query is aborted at its next write.</param>
+    public Task SinkParquetAsync(
+        Stream stream,
+        ParquetCompression compression = ParquetCompression.ZSTD,
+        int compressionLevel = 3,
+        bool statistics = true,
+        int rowGroupSize = 0,
+        int dataPageSize = 0,
+        int compatLevel = -1,
+        bool maintainOrder = true,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        var handle = CloneHandle();
+        return NativeStreamWriter.WriteAsync(stream, target => PolarsWrapper.SinkParquetCallback(
+            handle, target, compression.ToNative(), compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Asynchronously sink the LazyFrame to a Parquet format written into a <see cref="PipeWriter"/>
+    /// (e.g. ASP.NET Core <c>HttpResponse.BodyWriter</c>).
+    /// <para>The writer is flushed but not completed.</para>
+    /// </summary>
+    /// <param name="writer">Destination pipe writer.</param>
+    /// <inheritdoc cref="SinkParquetAsync(Stream, ParquetCompression, int, bool, int, int, int, bool, CancellationToken)"/>
+    public Task SinkParquetAsync(
+        PipeWriter writer,
+        ParquetCompression compression = ParquetCompression.ZSTD,
+        int compressionLevel = 3,
+        bool statistics = true,
+        int rowGroupSize = 0,
+        int dataPageSize = 0,
+        int compatLevel = -1,
+        bool maintainOrder = true,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        var handle = CloneHandle();
+        return NativeStreamWriter.WriteAsync(writer, target => PolarsWrapper.SinkParquetCallback(
+            handle, target, compression.ToNative(), compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder),
+            cancellationToken);
     }
 }

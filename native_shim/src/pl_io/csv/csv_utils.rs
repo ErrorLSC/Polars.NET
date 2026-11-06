@@ -20,9 +20,10 @@ pub(crate) fn map_csv_encoding(encoding: u8) -> CsvEncoding {
 
 #[inline]
 pub(crate) fn map_quote_style(code: u8) -> QuoteStyle {
+    // Must match `PlQuoteStyle` in Polars.NET.Core/Enums/Enums.cs.
     match code {
-        0 => QuoteStyle::Always,
-        1 => QuoteStyle::Necessary,
+        0 => QuoteStyle::Necessary,
+        1 => QuoteStyle::Always,
         2 => QuoteStyle::NonNumeric,
         3 => QuoteStyle::Never,
         _ => QuoteStyle::Necessary, // Default

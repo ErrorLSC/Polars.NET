@@ -1,5 +1,10 @@
 namespace Polars.FSharp
 
+open System.IO
+open System.IO.Pipelines
+open System.Threading
+open System.Threading.Tasks
+open Polars.NET.Core
 open Polars.NET.Core.Wrappers
 
 [<AutoOpen>]
@@ -194,6 +199,75 @@ module IPCWrite =
                 batchStats,
                 mo
             )
+
+        /// <summary>
+        /// Sink the LazyFrame to an IPC (Arrow) file format written into a <see cref="T:System.IO.Stream"/>.
+        /// Output is streamed in chunks as it is produced. The stream is flushed but not disposed.
+        /// </summary>
+        member this.SinkIpc(
+            stream: Stream,
+            ?compression: IpcCompression,
+            ?compatLevel: int,
+            ?recordBatchSize: int,
+            ?recordBatchStatistics: bool,
+            ?maintainOrder: bool
+        ) : unit =
+            let comp = (defaultArg compression IpcCompression.NoCompression).ToNative()
+            let compat = defaultArg compatLevel -1
+            let batchSize = defaultArg recordBatchSize 0
+            let batchStats = defaultArg recordBatchStatistics true
+            let mo = defaultArg maintainOrder true
+            let handle = this.CloneHandle()
+            NativeStreamWriter.Write(stream, fun target ->
+                PolarsWrapper.SinkIpcCallback(handle, target, comp, compat, batchSize, batchStats, mo))
+
+        /// <summary>
+        /// Asynchronously sink the LazyFrame to an IPC (Arrow) file format written into a <see cref="T:System.IO.Stream"/>.
+        /// Safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
+        /// The stream is flushed but not disposed.
+        /// </summary>
+        member this.SinkIpcAsync(
+            stream: Stream,
+            ?compression: IpcCompression,
+            ?compatLevel: int,
+            ?recordBatchSize: int,
+            ?recordBatchStatistics: bool,
+            ?maintainOrder: bool,
+            ?cancellationToken: CancellationToken
+        ) : Task =
+            let comp = (defaultArg compression IpcCompression.NoCompression).ToNative()
+            let compat = defaultArg compatLevel -1
+            let batchSize = defaultArg recordBatchSize 0
+            let batchStats = defaultArg recordBatchStatistics true
+            let mo = defaultArg maintainOrder true
+            let ct = defaultArg cancellationToken CancellationToken.None
+            let handle = this.CloneHandle()
+            NativeStreamWriter.WriteAsync(stream, (fun target ->
+                PolarsWrapper.SinkIpcCallback(handle, target, comp, compat, batchSize, batchStats, mo)), ct)
+
+        /// <summary>
+        /// Asynchronously sink the LazyFrame to an IPC (Arrow) file format written into a <see cref="T:System.IO.Pipelines.PipeWriter"/>.
+        /// The writer is flushed but not completed.
+        /// </summary>
+        member this.SinkIpcAsync(
+            writer: PipeWriter,
+            ?compression: IpcCompression,
+            ?compatLevel: int,
+            ?recordBatchSize: int,
+            ?recordBatchStatistics: bool,
+            ?maintainOrder: bool,
+            ?cancellationToken: CancellationToken
+        ) : Task =
+            let comp = (defaultArg compression IpcCompression.NoCompression).ToNative()
+            let compat = defaultArg compatLevel -1
+            let batchSize = defaultArg recordBatchSize 0
+            let batchStats = defaultArg recordBatchStatistics true
+            let mo = defaultArg maintainOrder true
+            let ct = defaultArg cancellationToken CancellationToken.None
+            let handle = this.CloneHandle()
+            NativeStreamWriter.WriteAsync(writer, (fun target ->
+                PolarsWrapper.SinkIpcCallback(handle, target, comp, compat, batchSize, batchStats, mo)), ct)
+
     type DataFrame with
         /// <summary>
         /// Write DataFrame to an IPC (Arrow/Feather) file.
@@ -303,4 +377,73 @@ module IPCWrite =
                 ?recordBatchSize = recordBatchSize,
                 ?recordBatchStatistics = recordBatchStatistics,
                 ?maintainOrder = maintainOrder
+            )
+
+        /// <summary>
+        /// Write DataFrame to an IPC (Arrow/Feather) file format written into a <see cref="T:System.IO.Stream"/>.
+        /// The stream is flushed but not disposed.
+        /// </summary>
+        /// <returns>The same DataFrame, for chaining.</returns>
+        member this.WriteIpc(
+            stream: Stream,
+            ?compression: IpcCompression,
+            ?compatLevel: int,
+            ?recordBatchSize: int,
+            ?recordBatchStatistics: bool,
+            ?maintainOrder: bool
+        ) : DataFrame =
+            this.Lazy().SinkIpc(
+                stream,
+                ?compression = compression,
+                ?compatLevel = compatLevel,
+                ?recordBatchSize = recordBatchSize,
+                ?recordBatchStatistics = recordBatchStatistics,
+                ?maintainOrder = maintainOrder
+            )
+            this
+
+        /// <summary>
+        /// Asynchronously write DataFrame to an IPC (Arrow/Feather) file format written into a <see cref="T:System.IO.Stream"/>.
+        /// The stream is flushed but not disposed.
+        /// </summary>
+        member this.WriteIpcAsync(
+            stream: Stream,
+            ?compression: IpcCompression,
+            ?compatLevel: int,
+            ?recordBatchSize: int,
+            ?recordBatchStatistics: bool,
+            ?maintainOrder: bool,
+            ?cancellationToken: CancellationToken
+        ) : Task =
+            this.Lazy().SinkIpcAsync(
+                stream,
+                ?compression = compression,
+                ?compatLevel = compatLevel,
+                ?recordBatchSize = recordBatchSize,
+                ?recordBatchStatistics = recordBatchStatistics,
+                ?maintainOrder = maintainOrder,
+                ?cancellationToken = cancellationToken
+            )
+
+        /// <summary>
+        /// Asynchronously write DataFrame to an IPC (Arrow/Feather) file format written into a <see cref="T:System.IO.Pipelines.PipeWriter"/>.
+        /// The writer is flushed but not completed.
+        /// </summary>
+        member this.WriteIpcAsync(
+            writer: PipeWriter,
+            ?compression: IpcCompression,
+            ?compatLevel: int,
+            ?recordBatchSize: int,
+            ?recordBatchStatistics: bool,
+            ?maintainOrder: bool,
+            ?cancellationToken: CancellationToken
+        ) : Task =
+            this.Lazy().SinkIpcAsync(
+                writer,
+                ?compression = compression,
+                ?compatLevel = compatLevel,
+                ?recordBatchSize = recordBatchSize,
+                ?recordBatchStatistics = recordBatchStatistics,
+                ?maintainOrder = maintainOrder,
+                ?cancellationToken = cancellationToken
             )

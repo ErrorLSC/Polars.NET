@@ -1,5 +1,9 @@
 namespace Polars.FSharp
 
+open System.IO
+open System.IO.Pipelines
+open System.Threading
+open System.Threading.Tasks
 open Polars.NET.Core.Wrappers
 
 [<AutoOpen>]
@@ -143,6 +147,68 @@ module JsonWrite =
             )
 
         /// <summary>
+        /// Sink the LazyFrame to a NDJSON (Newline Delimited JSON) format written into a <see cref="T:System.IO.Stream"/>.
+        /// Output is streamed in chunks as it is produced. The stream is flushed but not disposed.
+        /// </summary>
+        member this.SinkJson(
+            stream: Stream,
+            ?compression: ExternalCompression,
+            ?compressionLevel: int,
+            ?checkExtension: bool,
+            ?maintainOrder: bool
+        ) : unit =
+            let comp = defaultArg compression ExternalCompression.Uncompressed
+            let compLevel = defaultArg compressionLevel -1
+            let chkExt = defaultArg checkExtension true
+            let mo = defaultArg maintainOrder true
+            let handle = this.CloneHandle()
+            Polars.NET.Core.NativeStreamWriter.Write(stream, fun target ->
+                PolarsWrapper.SinkJsonCallback(handle, target, comp.ToNative(), compLevel, chkExt, mo))
+
+        /// <summary>
+        /// Asynchronously sink the LazyFrame to a NDJSON (Newline Delimited JSON) format written into a <see cref="T:System.IO.Stream"/>.
+        /// Safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
+        /// The stream is flushed but not disposed.
+        /// </summary>
+        member this.SinkJsonAsync(
+            stream: Stream,
+            ?compression: ExternalCompression,
+            ?compressionLevel: int,
+            ?checkExtension: bool,
+            ?maintainOrder: bool,
+            ?cancellationToken: CancellationToken
+        ) : Task =
+            let comp = defaultArg compression ExternalCompression.Uncompressed
+            let compLevel = defaultArg compressionLevel -1
+            let chkExt = defaultArg checkExtension true
+            let mo = defaultArg maintainOrder true
+            let ct = defaultArg cancellationToken CancellationToken.None
+            let handle = this.CloneHandle()
+            Polars.NET.Core.NativeStreamWriter.WriteAsync(stream, (fun target ->
+                PolarsWrapper.SinkJsonCallback(handle, target, comp.ToNative(), compLevel, chkExt, mo)), ct)
+
+        /// <summary>
+        /// Asynchronously sink the LazyFrame to a NDJSON (Newline Delimited JSON) format written into a <see cref="T:System.IO.Pipelines.PipeWriter"/>.
+        /// The writer is flushed but not completed.
+        /// </summary>
+        member this.SinkJsonAsync(
+            writer: PipeWriter,
+            ?compression: ExternalCompression,
+            ?compressionLevel: int,
+            ?checkExtension: bool,
+            ?maintainOrder: bool,
+            ?cancellationToken: CancellationToken
+        ) : Task =
+            let comp = defaultArg compression ExternalCompression.Uncompressed
+            let compLevel = defaultArg compressionLevel -1
+            let chkExt = defaultArg checkExtension true
+            let mo = defaultArg maintainOrder true
+            let ct = defaultArg cancellationToken CancellationToken.None
+            let handle = this.CloneHandle()
+            Polars.NET.Core.NativeStreamWriter.WriteAsync(writer, (fun target ->
+                PolarsWrapper.SinkJsonCallback(handle, target, comp.ToNative(), compLevel, chkExt, mo)), ct)
+
+        /// <summary>
         /// Sink the LazyFrame to a NDJSON (Newline Delimited JSON) format in memory.
         /// </summary>
         /// <returns>A byte array containing the serialized NDJSON data.</returns>
@@ -195,6 +261,38 @@ module JsonWrite =
             let format = defaultArg format JsonFormat.Json
             PolarsWrapper.WriteJson(this.Handle, path, format.ToNative())
             this
+        /// <summary>
+        /// Write DataFrame to a JSON format written into a <see cref="T:System.IO.Stream"/>.
+        /// Output is streamed in chunks as it is produced. The stream is flushed but not disposed.
+        /// </summary>
+        /// <returns>The same DataFrame, for chaining.</returns>
+        member this.WriteJson(stream: Stream, ?format: JsonFormat) : DataFrame =
+            let format = defaultArg format JsonFormat.Json
+            Polars.NET.Core.NativeStreamWriter.Write(stream, fun target ->
+                PolarsWrapper.WriteJsonCallback(this.Handle, target, format.ToNative()))
+            this
+
+        /// <summary>
+        /// Asynchronously write DataFrame to a JSON format written into a <see cref="T:System.IO.Stream"/>.
+        /// Safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
+        /// The stream is flushed but not disposed.
+        /// </summary>
+        member this.WriteJsonAsync(stream: Stream, ?format: JsonFormat, ?cancellationToken: CancellationToken) : Task =
+            let format = defaultArg format JsonFormat.Json
+            let ct = defaultArg cancellationToken CancellationToken.None
+            Polars.NET.Core.NativeStreamWriter.WriteAsync(stream, (fun target ->
+                PolarsWrapper.WriteJsonCallback(this.Handle, target, format.ToNative())), ct)
+
+        /// <summary>
+        /// Asynchronously write DataFrame to a JSON format written into a <see cref="T:System.IO.Pipelines.PipeWriter"/>.
+        /// The writer is flushed but not completed.
+        /// </summary>
+        member this.WriteJsonAsync(writer: PipeWriter, ?format: JsonFormat, ?cancellationToken: CancellationToken) : Task =
+            let format = defaultArg format JsonFormat.Json
+            let ct = defaultArg cancellationToken CancellationToken.None
+            Polars.NET.Core.NativeStreamWriter.WriteAsync(writer, (fun target ->
+                PolarsWrapper.WriteJsonCallback(this.Handle, target, format.ToNative())), ct)
+
         /// <summary>
         /// Write DataFrame to a NDJSON (JsonLines) file.
         /// </summary>

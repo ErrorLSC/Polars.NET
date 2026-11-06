@@ -6,3 +6,4 @@ pub mod arrow;
 pub mod avro;
 pub mod io_utils;
 pub mod ffi_buffer;
+pub mod callback_writer;

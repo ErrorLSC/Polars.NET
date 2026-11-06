@@ -1,4 +1,5 @@
 #pragma warning disable CS1573
+using System.IO.Pipelines;
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -112,7 +113,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// </param>
     /// <param name="maxRowsPerFile">Maximum number of rows per file. 0 means no limit.</param>
     /// <param name="approxBytesPerFile">Approximate size in bytes per file. 0 means no limit.</param>
-    /// <inheritdoc cref="WriteCsv"/>
+    /// <inheritdoc cref="WriteCsv(string, bool, bool, char, char, QuoteStyle, string?, string?, bool?, int?, bool, string?, string?, string?, bool, ExternalCompression, int, bool, SyncOnClose, bool, int, CloudOptions?)"/>
     public void WriteCsvPartitioned(
         string path,
         IntoSelector partitionBy,
@@ -262,5 +263,95 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             quoteStyle,
             maintainOrder
         );
+    }
+    /// <summary>
+    /// Write DataFrame to a comma-separated values (CSV) format written into a <see cref="Stream"/>.
+    /// <para>
+    /// Output is streamed in chunks as it is produced. The stream is flushed but not disposed.
+    /// </para>
+    /// </summary>
+    /// <param name="stream">Writable destination stream.</param>
+    /// <inheritdoc cref="LazyFrame.SinkCsv(Stream, bool, bool, int, bool, ExternalCompression, int, string?, string?, string?, int, int, bool, byte, byte, string?, string?, QuoteStyle, bool)"/>
+    public void WriteCsv(
+        Stream stream,
+        bool includeBom = false,
+        bool includeHeader = true,
+        int batchSize = 1024,
+        bool checkExtension = false,
+        ExternalCompression compressionCode = 0,
+        int compressionLevel = 0,
+        string? dateFormat = null,
+        string? timeFormat = null,
+        string? datetimeFormat = null,
+        int floatScientific = -1,
+        int floatPrecision = -1,
+        bool decimalComma = false,
+        byte separator = (byte)',',
+        byte quoteChar = (byte)'"',
+        string? nullValue = null,
+        string? lineTerminator = "\n",
+        QuoteStyle quoteStyle = QuoteStyle.Necessary,
+        bool maintainOrder = true)
+    {
+        var lf = Lazy();
+        lf.SinkCsv(stream, includeBom, includeHeader, batchSize, checkExtension, compressionCode, compressionLevel,
+            dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma,
+            separator, quoteChar, nullValue, lineTerminator, quoteStyle, maintainOrder);
+    }
+    /// <inheritdoc cref="LazyFrame.SinkCsvAsync(Stream, bool, bool, int, bool, ExternalCompression, int, string?, string?, string?, int, int, bool, byte, byte, string?, string?, QuoteStyle, bool, CancellationToken)"/>
+    public Task WriteCsvAsync(
+        Stream stream,
+        bool includeBom = false,
+        bool includeHeader = true,
+        int batchSize = 1024,
+        bool checkExtension = false,
+        ExternalCompression compressionCode = 0,
+        int compressionLevel = 0,
+        string? dateFormat = null,
+        string? timeFormat = null,
+        string? datetimeFormat = null,
+        int floatScientific = -1,
+        int floatPrecision = -1,
+        bool decimalComma = false,
+        byte separator = (byte)',',
+        byte quoteChar = (byte)'"',
+        string? nullValue = null,
+        string? lineTerminator = "\n",
+        QuoteStyle quoteStyle = QuoteStyle.Necessary,
+        bool maintainOrder = true,
+        CancellationToken cancellationToken = default)
+    {
+        var lf = Lazy();
+        return lf.SinkCsvAsync(stream, includeBom, includeHeader, batchSize, checkExtension, compressionCode, compressionLevel,
+            dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma,
+            separator, quoteChar, nullValue, lineTerminator, quoteStyle, maintainOrder, cancellationToken);
+    }
+    /// <inheritdoc cref="LazyFrame.SinkCsvAsync(PipeWriter, bool, bool, int, bool, ExternalCompression, int, string?, string?, string?, int, int, bool, byte, byte, string?, string?, QuoteStyle, bool, CancellationToken)"/>
+    public Task WriteCsvAsync(
+        PipeWriter writer,
+        bool includeBom = false,
+        bool includeHeader = true,
+        int batchSize = 1024,
+        bool checkExtension = false,
+        ExternalCompression compressionCode = 0,
+        int compressionLevel = 0,
+        string? dateFormat = null,
+        string? timeFormat = null,
+        string? datetimeFormat = null,
+        int floatScientific = -1,
+        int floatPrecision = -1,
+        bool decimalComma = false,
+        byte separator = (byte)',',
+        byte quoteChar = (byte)'"',
+        string? nullValue = null,
+        string? lineTerminator = "\n",
+        QuoteStyle quoteStyle = QuoteStyle.Necessary,
+        bool maintainOrder = true,
+        CancellationToken cancellationToken = default)
+    {
+        var lf = Lazy();
+        return lf.SinkCsvAsync(writer, includeBom, includeHeader, batchSize, checkExtension, compressionCode, compressionLevel,
+            dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma,
+            separator, quoteChar, nullValue, lineTerminator, quoteStyle, maintainOrder, cancellationToken);
     }
 }

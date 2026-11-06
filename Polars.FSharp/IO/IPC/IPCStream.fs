@@ -80,10 +80,12 @@ module IPCStream =
         /// <param name="compression">Compression method. Defaults to None.</param>
         /// <param name="compatLevel">Use a specific compatibility level 
         /// when exporting Polars’ internal data structures.</param>
-        member this.WriteIpcStream(path,compression,compatLevel) =
+        /// <returns>The same DataFrame, for chaining.</returns>
+        member this.WriteIpcStream(path: string,compression,compatLevel) =
             let com = defaultArg compression IpcCompression.NoCompression |> _.ToNative()
             let cop = defaultArg compatLevel -1
             PolarsWrapper.WriteIpcStream(this.Handle,path,com,cop)
+            this
         /// <summary>
         /// Write to Arrow IPC record batch stream.
         /// </summary>
@@ -106,3 +108,35 @@ module IPCStream =
             let com = defaultArg compression IpcCompression.NoCompression |> _.ToNative()
             let cop = defaultArg compatLevel -1
             PolarsWrapper.WriteIpcStreamNativeMemory(this.Handle,com,cop)
+        /// <summary>
+        /// Write to Arrow IPC record batch stream format into a <see cref="T:System.IO.Stream"/>.
+        /// Output is streamed in chunks as it is produced. The stream is flushed but not disposed.
+        /// </summary>
+        /// <returns>The same DataFrame, for chaining.</returns>
+        member this.WriteIpcStream(stream: System.IO.Stream, ?compression: IpcCompression, ?compatLevel: int) : DataFrame =
+            let com = defaultArg compression IpcCompression.NoCompression |> _.ToNative()
+            let cop = defaultArg compatLevel -1
+            Polars.NET.Core.NativeStreamWriter.Write(stream, fun target ->
+                PolarsWrapper.WriteIpcStreamCallback(this.Handle, target, com, cop))
+            this
+        /// <summary>
+        /// Asynchronously write to Arrow IPC record batch stream format into a <see cref="T:System.IO.Stream"/>.
+        /// Safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
+        /// The stream is flushed but not disposed.
+        /// </summary>
+        member this.WriteIpcStreamAsync(stream: System.IO.Stream, ?compression: IpcCompression, ?compatLevel: int, ?cancellationToken: System.Threading.CancellationToken) : System.Threading.Tasks.Task =
+            let com = defaultArg compression IpcCompression.NoCompression |> _.ToNative()
+            let cop = defaultArg compatLevel -1
+            let ct = defaultArg cancellationToken System.Threading.CancellationToken.None
+            Polars.NET.Core.NativeStreamWriter.WriteAsync(stream, (fun target ->
+                PolarsWrapper.WriteIpcStreamCallback(this.Handle, target, com, cop)), ct)
+        /// <summary>
+        /// Asynchronously write to Arrow IPC record batch stream format into a <see cref="T:System.IO.Pipelines.PipeWriter"/>.
+        /// The writer is flushed but not completed.
+        /// </summary>
+        member this.WriteIpcStreamAsync(writer: System.IO.Pipelines.PipeWriter, ?compression: IpcCompression, ?compatLevel: int, ?cancellationToken: System.Threading.CancellationToken) : System.Threading.Tasks.Task =
+            let com = defaultArg compression IpcCompression.NoCompression |> _.ToNative()
+            let cop = defaultArg compatLevel -1
+            let ct = defaultArg cancellationToken System.Threading.CancellationToken.None
+            Polars.NET.Core.NativeStreamWriter.WriteAsync(writer, (fun target ->
+                PolarsWrapper.WriteIpcStreamCallback(this.Handle, target, com, cop)), ct)
