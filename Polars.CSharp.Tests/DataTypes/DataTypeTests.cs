@@ -1344,4 +1344,17 @@ public class DataTypeTests
         Assert.Equal(emptyGuid, guidSeries.GetValue<Guid>(1));
         Assert.Null(guidSeries.GetValue<Guid?>(2));
     }
+
+    [Fact]
+    public void GetEnumCategories_ReturnsCategoriesForEnum_NullOtherwise()
+    {
+        using var enumType = DataType.Enum(["lo", "mid", "hi"]);
+        Assert.Equal(["lo", "mid", "hi"], ((IPolarsDataType)enumType).GetEnumCategories());
+        Assert.Null(((IPolarsDataType)DataType.Categorical()).GetEnumCategories());
+        Assert.Null(((IPolarsDataType)DataType.String).GetEnumCategories());
+
+        using var df = DataFrame.FromSeries(Series.From("E", new[] { "hi" }).Cast(DataType.Enum(["lo", "mid", "hi"])));
+        Assert.Equal(["lo", "mid", "hi"], ((IPolarsDataFrame)df).Schema["E"].GetEnumCategories());
+    }
 }
+

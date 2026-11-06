@@ -310,6 +310,11 @@ and DataType(handle: DataTypeHandle, kind: DataTypeKind) =
         member this.GetArrowType() : Apache.Arrow.Types.IArrowType =
             ArrowFfiBridge.ImportDataType this.Handle
 
+        member this.GetEnumCategories() : string[] =
+            match kind with
+            | DataTypeKind.Enum _ -> Polars.NET.Core.Helpers.PolarsSchemaExtractor.GetEnumCategories this.Handle
+            | _ -> null
+
     member internal this.CreateHandle() : DataTypeHandle =
         match this.Kind with
         | DataTypeKind.SameAsInput -> PolarsWrapper.NewPrimitiveType 0

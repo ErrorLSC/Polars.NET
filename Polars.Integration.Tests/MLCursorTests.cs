@@ -237,6 +237,20 @@ public class PolarsRowCursorTests
 
     [Fact]
     [Trait("ML", "Key")]
+    public void Enum_CategoriesComeFromType_EvenWithoutRows()
+    {
+        // No batches to scan: the category table must come from the Enum dtype itself.
+        using var df = DataFrame.FromSeries(
+            Series.From("E", Array.Empty<string?>()).Cast(DataType.Enum(["lo", "mid", "hi"])));
+        var dv = df.AsDataView();
+
+        Assert.Equal(3UL, ((KeyDataViewType)dv.Schema["E"].Type).Count);
+        Assert.Equal(["lo", "mid", "hi"], KeyValues(dv, "E"));
+        Assert.Empty(ReadColumn<uint>(dv, "E"));
+    }
+
+    [Fact]
+    [Trait("ML", "Key")]
     public void Categorical_MultiChunk_KeysAreGlobalAcrossBatches()
     {
         // Polars exports a per-batch, re-compacted dictionary: "z" in chunk 2 gets the same local index as "x"

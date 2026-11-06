@@ -24,6 +24,21 @@ internal sealed class DictionaryKeyColumn
 
     public IReadOnlyList<string> Categories => _categories;
 
+    /// <summary>A key column whose category table is known up front (Polars Enum); no data pre-scan needed.</summary>
+    public static DictionaryKeyColumn FromCategories(IEnumerable<string> categories)
+    {
+        var column = new DictionaryKeyColumn();
+        foreach (string s in categories) column.Add(s);
+        return column;
+    }
+
+    private void Add(string s)
+    {
+        if (_keyOf.ContainsKey(s)) return;
+        _categories.Add(s);
+        _keyOf.Add(s, (uint)_categories.Count);
+    }
+
     /// <summary>
     /// ML.NET requires a key cardinality of at least 1; an all-null / empty column still gets one (unused) slot.
     /// </summary>
@@ -38,13 +53,7 @@ internal sealed class DictionaryKeyColumn
         values.SetBatch(dictionary);
         for (int i = 0; i < dictionary.Length; i++)
         {
-            if (values.IsNull(i)) continue;
-            string s = values.GetTypedValue(i);
-            if (!_keyOf.ContainsKey(s))
-            {
-                _categories.Add(s);
-                _keyOf.Add(s, (uint)_categories.Count);
-            }
+            if (!values.IsNull(i)) Add(values.GetTypedValue(i));
         }
     }
 

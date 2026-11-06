@@ -16,6 +16,11 @@ public interface IPolarsDataFrame : IDisposable
 public interface IPolarsDataType : IDisposable
 {
     IArrowType GetArrowType();
+
+    /// <summary>
+    /// The fixed category list of an Enum type, in category (physical index) order; null for any other type.
+    /// </summary>
+    string[]? GetEnumCategories();
 }
 public interface IPolarsLazyFrame : IDisposable
 {

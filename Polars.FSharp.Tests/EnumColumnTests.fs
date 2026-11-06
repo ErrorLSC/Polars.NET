@@ -120,3 +120,15 @@ module EnumColumnTests =
         let expected = query { for r in rows.AsQueryable() do select (box r.Shade) } |> Seq.map string |> List.ofSeq
         let actual = query { for r in df.AsQueryable<EcRow>() do select (box r.Shade) } |> Seq.map string |> List.ofSeq
         Assert.Equal<string list>(expected, actual)
+
+module EnumCategoriesInterfaceTests =
+    open Polars.NET.Core
+
+    [<Fact>]
+    let ``IPolarsDataType GetEnumCategories returns categories for Enum and null otherwise`` () =
+        use frozen = new FrozenCategories([| "lo"; "mid"; "hi" |])
+        use enumType = DataType.Enum frozen
+        Assert.Equal<string[]>([| "lo"; "mid"; "hi" |], (enumType :> IPolarsDataType).GetEnumCategories())
+        use catType = DataType.Categorical()
+        Assert.Null((catType :> IPolarsDataType).GetEnumCategories())
+

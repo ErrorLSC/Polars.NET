@@ -99,20 +99,28 @@ public sealed class PolarsDataView(IPolarsDataFrame df, bool enableMacroShuffle 
     private static (DataViewSchema, DictionaryKeyColumn?[]) BuildSchema(IPolarsDataFrame df)
     {
         var columns = new List<(string Name, IArrowType ArrowType)>();
+        var keyColumns = new List<DictionaryKeyColumn?>();
+        var dictIndices = new List<int>();
         foreach (var kvp in df.Schema)
         {
-            columns.Add((kvp.Key, kvp.Value.GetArrowType()));
-        }
-
-        var keyColumns = new DictionaryKeyColumn?[columns.Count];
-        var dictIndices = new List<int>();
-        for (int i = 0; i < columns.Count; i++)
-        {
-            if (columns[i].ArrowType is DictionaryType)
+            IArrowType arrowType = kvp.Value.GetArrowType();
+            DictionaryKeyColumn? key = null;
+            if (arrowType is DictionaryType)
             {
-                keyColumns[i] = new DictionaryKeyColumn();
-                dictIndices.Add(i);
+                // Enum: the category table is part of the type. Categorical: discovered by a dictionary pre-scan.
+                string[]? enumCategories = kvp.Value.GetEnumCategories();
+                if (enumCategories != null)
+                {
+                    key = DictionaryKeyColumn.FromCategories(enumCategories);
+                }
+                else
+                {
+                    key = new DictionaryKeyColumn();
+                    dictIndices.Add(columns.Count);
+                }
             }
+            columns.Add((kvp.Key, arrowType));
+            keyColumns.Add(key);
         }
 
         if (dictIndices.Count > 0)
@@ -129,14 +137,14 @@ public sealed class PolarsDataView(IPolarsDataFrame df, bool enableMacroShuffle 
                 builder.AddColumn(columns[i].Name, ArrowDataViewMapper.GetDataViewType(columns[i].ArrowType));
         }
 
-        return (builder.ToSchema(), keyColumns);
+        return (builder.ToSchema(), [.. keyColumns]);
     }
 
     /// <summary>
-    /// One pass over the dictionary columns only, reading each batch's dictionary (not its rows), to build the
+    /// One pass over the Categorical columns only, reading each batch's dictionary (not its rows), to build the
     /// global category table that fixes the key cardinality and the key of every category.
     /// </summary>
-    private static void CollectCategories(IPolarsDataFrame df, List<int> dictIndices, DictionaryKeyColumn?[] keyColumns)
+    private static void CollectCategories(IPolarsDataFrame df, List<int> dictIndices, List<DictionaryKeyColumn?> keyColumns)
     {
         int[] indices = [.. dictIndices];
         foreach (RecordBatch batch in new ArrowStreamEnumerable(df.ToArrowStream(indices)))

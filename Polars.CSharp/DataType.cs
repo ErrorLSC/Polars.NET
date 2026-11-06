@@ -249,6 +249,11 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
     }
 
     /// <summary>
+    /// The fixed category list of an Enum type, in category (physical index) order; null for any other type.
+    /// </summary>
+    public string[]? GetEnumCategories() => EnumCategories?.GetCategories();
+
+    /// <summary>
     /// Dispose the underlying DataTypeHandle.
     /// </summary>
     public void Dispose()
