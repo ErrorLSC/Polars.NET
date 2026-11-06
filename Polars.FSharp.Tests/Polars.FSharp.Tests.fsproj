@@ -32,6 +32,7 @@
     <Compile Include="TpchLinqTests.fs" />
     <Compile Include="LogicalPlanOptimizerTests.fs" />
     <Compile Include="QueryNestedEntityTests.fs" />
+    <Compile Include="EnumColumnTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

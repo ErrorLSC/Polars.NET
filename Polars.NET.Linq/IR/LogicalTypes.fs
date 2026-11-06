@@ -3,6 +3,7 @@ namespace Polars.NET.Linq.IR
 open System
 open Apache.Arrow.Types
 open Polars.NET.Core.Arrow
+open Polars.NET.Core.Helpers
 
 /// Structural identity of Apache Arrow types. Arrow type objects use reference equality, so two
 /// separately constructed Decimal128Type(38, 18) instances are not Equal; the IR compares by this key instead.
@@ -40,13 +41,17 @@ module internal ArrowTypeKey =
         | other -> string other.TypeId
 
 /// Logical data type carried by the IR: an Apache Arrow type, a list whose element type is not
-/// statically known, or an unknown type left to the backend to infer.
+/// statically known, an enumeration over a fixed, ordered set of string categories, or an unknown type
+/// left to the backend to infer.
 /// Equality and hashing are structural (see ArrowTypeKey).
 [<CustomEquality; NoComparison; RequireQualifiedAccess; StructuredFormatDisplay("{Display}")>]
 type LogicalType =
     | Unknown
     | Arrow of arrowType: IArrowType
     | ListOf of element: LogicalType
+    /// Values drawn from `categories`, ordered as listed (Arrow carries the categories only as field metadata,
+    /// so they get their own case).
+    | Enum of categories: string list
 
     /// Structural key used for equality, hashing and display.
     member this.Display: string =
@@ -54,6 +59,12 @@ type LogicalType =
         | Unknown -> "Unknown"
         | Arrow t -> ArrowTypeKey.ofArrow t
         | ListOf element -> sprintf "List<%s>" element.Display
+        | Enum categories ->
+            // Length-prefixed so that categories containing the separator stay distinguishable.
+            categories
+            |> List.map (fun c -> sprintf "%d:%s" c.Length c)
+            |> String.concat ", "
+            |> sprintf "Enum<%s>"
 
     override this.ToString() = this.Display
 
@@ -95,6 +106,14 @@ module LogicalTypes =
     let Duration = LogicalType.Arrow DurationType.Microsecond
     /// List whose element type is not statically known.
     let ListOfUnknown = LogicalType.ListOf LogicalType.Unknown
+
+    /// The Enum type a .NET enum is stored as (categories are its member names in underlying-value order),
+    /// or None for a non-enum type or a [Flags] enum, which is stored as its underlying integer.
+    let tryEnumOf (t: Type) : LogicalType option =
+        if not (isNull t) && t.IsEnum && EnumCategories.UsesEnumDataType t then
+            Some(LogicalType.Enum(List.ofArray (EnumCategories.GetCategories t)))
+        else
+            None
 
     /// Maps a CLR type to its IR logical type, using the same Arrow mapping as DataFrame ingestion.
     /// Returns None for types without a Polars logical counterpart: dictionaries / maps, and types (or nested

@@ -98,6 +98,20 @@ public class LinqClientRowPackingTests
     }
 
     [Fact]
+    public void Client_Projected_Enum_Lands_In_An_Enum_Column()
+    {
+        using var _ = AllowClientEvaluation();
+        using var e = DataFrame.FromRows(Emps);
+
+        using var result = e.AsQueryable<CrEmp>().Select(x => new { x.Name, Parity = ParityOf(x.Salary) }).ToDataFrame();
+
+        Assert.True(result.Schema["Parity"].IsEnum);
+        Assert.Equal(
+            Emps.Select(x => ParityOf(x.Salary).ToString()).ToArray(),
+            result["Parity"].Cast(DataType.String).ToArray<string>());
+    }
+
+    [Fact]
     public void Client_Predicate_Over_Flat_Anonymous_Rows()
     {
         using var _ = AllowClientEvaluation();

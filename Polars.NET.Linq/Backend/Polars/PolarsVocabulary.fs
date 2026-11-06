@@ -14,6 +14,9 @@ module internal PolarsVocabulary =
         | LogicalType.Arrow arrowType -> PolarsWrapper.MapArrowToDataTypeHandle arrowType
         | LogicalType.ListOf element -> PolarsWrapper.NewListType(toDataTypeHandle element)
         | LogicalType.Unknown -> PolarsWrapper.NewPrimitiveType(int PlDataType.Unknown)
+        | LogicalType.Enum categories ->
+            use frozen = PolarsWrapper.FrozenCategoriesNew(Array.ofList categories)
+            PolarsWrapper.NewEnumType frozen
 
     let joinType (kind: JoinKind) : PlJoinType =
         match kind with

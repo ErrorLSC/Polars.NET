@@ -575,7 +575,88 @@ public static class SeriesFactory
             var (vals, validity) = ArrayHelper.UnzipGuid(nullable);
             return PolarsWrapper.SeriesNewGuidFixedBinary(name, vals, validity, (nuint)data.Length);
         }
+
+        // ==========================================
+        // 6. Enums (plain, Nullable, F# option)
+        // ==========================================
+        var (coreType, optionalKind) = PolarsTypeHelper.GetOptionalInfo(t);
+        if (coreType.IsEnum)
+        {
+            return CreateEnum(name, data, coreType, optionalKind);
+        }
         return null!;
+    }
+
+    /// <summary>
+    /// Creates a Series of enum values: a Polars Enum column whose categories follow <see cref="EnumCategories"/>,
+    /// or, for a [Flags] enum, a column of the underlying integer type.
+    /// </summary>
+    /// <exception cref="ArgumentException">A value of a non-[Flags] enum is not a defined member.</exception>
+    private static SeriesHandle CreateEnum<T>(string name, ReadOnlySpan<T> data, Type enumType, OptionalKind optionalKind)
+    {
+        var values = new object?[data.Length];
+        for (int i = 0; i < data.Length; i++)
+        {
+            values[i] = UnwrapOptional(data[i], optionalKind);
+        }
+
+        if (!EnumCategories.UsesEnumDataType(enumType))
+        {
+            Type underlying = Enum.GetUnderlyingType(enumType);
+            Type nullableUnderlying = typeof(Nullable<>).MakeGenericType(underlying);
+            var raw = Array.CreateInstance(nullableUnderlying, values.Length);
+            for (int i = 0; i < values.Length; i++)
+            {
+                if (values[i] is { } v)
+                {
+                    raw.SetValue(Convert.ChangeType(v, underlying), i);
+                }
+            }
+
+            var createGeneric = typeof(SeriesFactory)
+                .GetMethod(nameof(CreateGenericType), BindingFlags.Public | BindingFlags.Static)!
+                .MakeGenericMethod(nullableUnderlying);
+            return (SeriesHandle)createGeneric.Invoke(null, [name, raw])!;
+        }
+
+        var categories = new string?[values.Length];
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (values[i] is { } v)
+            {
+                categories[i] = EnumCategories.GetCategory(enumType, v);
+            }
+        }
+
+        using var strings = PolarsWrapper.SeriesNewStringSimd(name, categories);
+        using var frozen = PolarsWrapper.FrozenCategoriesNew(EnumCategories.GetCategories(enumType));
+        using var enumDataType = PolarsWrapper.NewEnumType(frozen);
+        return PolarsWrapper.SeriesCast(strings, enumDataType, strict: true, wrapNumerical: false);
+    }
+
+    /// <summary>The payload of an optional value (Nullable, F# option or value option) boxed, or null when absent.</summary>
+    private static object? UnwrapOptional<T>(T value, OptionalKind optionalKind)
+    {
+        object? boxed = value;
+        if (boxed is null)
+        {
+            return null;
+        }
+
+        switch (optionalKind)
+        {
+            case OptionalKind.FSharpOption:
+            case OptionalKind.FSharpValueOption:
+                var type = boxed.GetType();
+                if (optionalKind == OptionalKind.FSharpValueOption
+                    && !(bool)type.GetProperty("IsSome", BindingFlags.Public | BindingFlags.Instance)!.GetValue(boxed)!)
+                {
+                    return null;
+                }
+                return type.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance)!.GetValue(boxed);
+            default:
+                return boxed;
+        }
     }
     /// <summary>
     /// Creates a SeriesHandle from a generic Array.

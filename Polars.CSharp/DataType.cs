@@ -477,9 +477,13 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
         return Enum(cate);
     }
     public static DataType Enum(Categories categories) => Enum(categories.Freeze());
+    /// <summary>
+    /// Create the Enum type a .NET enum is stored as: its member names ordered by underlying value (one name per
+    /// distinct value), so the Enum ordering agrees with .NET enum comparison.
+    /// </summary>
     public static DataType Enum<T>() where T : struct, Enum
     {
-        string[] names = System.Enum.GetNames<T>();
+        string[] names = global::Polars.NET.Core.Helpers.EnumCategories.GetCategories(typeof(T));
         FrozenCategories cate = new(names);
         return Enum(cate);
     }
