@@ -759,6 +759,14 @@ public static class ArrowRowMapper<T>
 
         Expression BuildTupleElementExpr(Type subType, int tupleIdx)
         {
+            // An element packed into its own struct column (an entity of a join's tuple row) is read whole.
+            if (!IsScalarLike(subType) && !IsCollectionLike(subType)
+                && colMap.TryGetValue($"Item{tupleIdx + 1}", out int packedIdx)
+                && schema.GetFieldByIndex(packedIdx).DataType is Apache.Arrow.Types.StructType)
+            {
+                return CreateReadExpr(packedIdx, subType, $"Item{tupleIdx + 1}", strictNonOptionNullCheck: false);
+            }
+
             if (IsScalarLike(subType) || IsCollectionLike(subType))
             {
                 var candidateNames = new List<string> { $"Item{tupleIdx + 1}" };

@@ -139,3 +139,71 @@ module QueryNestedEntityTests =
     let ``Join select colliding fields of both sides`` () =
         // d.Name used to resolve to e.Name: the right side's member is found by its path in the row.
         assertMatches (fun eq dq _ -> query { for e in eq do join d in dq on (e.DeptId = d.DeptId); select {| dn = d.Name; en = e.Name |} })
+
+    // Employee "c" (DeptId 3) has no department: the right record is null on that row.
+
+    [<Fact>]
+    let ``Left outer join select tuple of records`` () =
+        assertMatches (fun eq dq _ ->
+            query {
+                for e in eq do
+                    leftOuterJoin d in dq on (e.DeptId = d.DeptId) into ds
+                    for d in ds.DefaultIfEmpty() do
+                        select (e, d)
+            })
+
+    [<Fact>]
+    let ``Left outer join select anonymous record of records`` () =
+        assertMatches (fun eq dq _ ->
+            query {
+                for e in eq do
+                    leftOuterJoin d in dq on (e.DeptId = d.DeptId) into ds
+                    for d in ds.DefaultIfEmpty() do
+                        select {| e = e; d = d |}
+            })
+
+    [<Fact>]
+    let ``Left outer join select record next to its own field`` () =
+        assertMatches (fun eq dq _ ->
+            query {
+                for e in eq do
+                    leftOuterJoin d in dq on (e.DeptId = d.DeptId) into ds
+                    for d in ds.DefaultIfEmpty() do
+                        select {| d = d; en = e.Name |}
+            })
+
+    [<Fact>]
+    let ``Left outer join keeps only unmatched rows`` () =
+        assertMatches (fun eq dq _ ->
+            query {
+                for e in eq do
+                    leftOuterJoin d in dq on (e.DeptId = d.DeptId) into ds
+                    for d in ds.DefaultIfEmpty() do
+                        where (isNull (box d))
+                        select (e, d)
+            })
+
+    [<Fact>]
+    let ``Two left outer joins select triple`` () =
+        // F# nests the second join inside the first one's SelectMany; the rewriter flattens it.
+        // The second key reads the outer record, so a missing department does not throw.
+        assertMatches (fun eq dq _ ->
+            query {
+                for e in eq do
+                    leftOuterJoin d in dq on (e.DeptId = d.DeptId) into ds
+                    for d in ds.DefaultIfEmpty() do
+                        leftOuterJoin d2 in dq on (e.DeptId + 1 = d2.DeptId) into ds2
+                        for d2 in ds2.DefaultIfEmpty() do
+                            select (e, d, d2)
+            })
+
+    [<Fact>]
+    let ``Left outer join then inner join on the outer record`` () =
+        assertMatches (fun eq dq fq ->
+            query {
+                for e in eq do
+                    leftOuterJoin d in dq on (e.DeptId = d.DeptId) into ds
+                    for d in ds.DefaultIfEmpty() do
+                        join d2 in dq on (e.DeptId = d2.DeptId)
+                        select {| e = e; d = d; d2 = d2 |}
+            })

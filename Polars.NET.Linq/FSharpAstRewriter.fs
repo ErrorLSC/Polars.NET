@@ -438,6 +438,196 @@ module internal FSharpAst =
                 |> Map.forall (fun memberName argExpr -> isIdentityMember param memberName argExpr)
             | _ -> false
 
+    let private isFSharpOperator (m: MethodInfo) (name: string) =
+        m.Name = name && not (isNull m.DeclaringType) && m.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators"
+
+    /// F# `isNull x` and `isNull (box x)` over a reference or Nullable value, rewritten as the `x == null`
+    /// comparison the translators understand (including for a whole joined record).
+    let private tryRewriteIsNull (mc: MethodCallExpression) : Expression option =
+        if isFSharpOperator mc.Method "IsNull" && mc.Arguments.Count = 1 then
+            let target =
+                match mc.Arguments.[0] with
+                | :? MethodCallExpression as inner when isFSharpOperator inner.Method "Box" && inner.Arguments.Count = 1 ->
+                    inner.Arguments.[0]
+                | other -> other
+
+            if not target.Type.IsValueType || not (isNull (Nullable.GetUnderlyingType target.Type)) then
+                Some(Expression.Equal(target, Expression.Constant(null, target.Type)))
+            else
+                None
+        else
+            None
+
+    // ---------------------------------------------------------------------------------------------
+    // Un-nesting a correlated SelectMany
+    // ---------------------------------------------------------------------------------------------
+
+    let private isSequenceOperator (m: MethodInfo) =
+        m.DeclaringType = typeof<Queryable> || m.DeclaringType = typeof<Enumerable>
+
+    /// Operators that act on each element independently, so applying them to the concatenation of the
+    /// per-outer-row sequences equals concatenating their per-row results. DefaultIfEmpty, paging,
+    /// ordering and set operators depend on the whole per-row sequence and must stay inside it.
+    let private isElementWise (m: MethodInfo) =
+        // The index-taking overloads (Func<TSource, int, ...>) number elements per sequence.
+        let takesIndex () =
+            m.GetGenericMethodDefinition().GetParameters()
+            |> Array.exists (fun p ->
+                let t = p.ParameterType
+                t.IsGenericType && (t.GetGenericArguments() |> Array.tryItem 1) = Some typeof<int>)
+
+        match m.Name with
+        | "Select" | "Where" | "SelectMany" | "Join" | "GroupJoin" -> not (takesIndex ())
+        | _ -> false
+
+    let private funcShape (t: Type) =
+        let t =
+            if t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<Expression<_>> then t.GetGenericArguments().[0] else t
+        if t.IsGenericType then t.GetGenericTypeDefinition().FullName else t.Name
+
+    /// The Queryable counterpart of an Enumerable (or Queryable) operator, instantiated with `typeArgs`.
+    let private toQueryableMethod (m: MethodInfo) (typeArgs: Type[]) : MethodInfo option =
+        let defParams = m.GetGenericMethodDefinition().GetParameters()
+
+        typeof<Queryable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
+        |> Array.tryFind (fun q ->
+            q.Name = m.Name
+            && q.IsGenericMethodDefinition
+            && q.GetGenericArguments().Length = typeArgs.Length
+            && q.GetParameters().Length = defParams.Length
+            && Array.forall2
+                (fun (qp: ParameterInfo) (ep: ParameterInfo) -> qp.Position = 0 || funcShape qp.ParameterType = funcShape ep.ParameterType)
+                (q.GetParameters())
+                defParams)
+        |> Option.map (fun q -> q.MakeGenericMethod typeArgs)
+
+    let private referencesParameter (p: ParameterExpression) (e: Expression) =
+        let mutable found = false
+        { new ExpressionVisitor() with
+            override _.VisitParameter(node) =
+                if node = p then found <- true
+                node
+        }.Visit e
+        |> ignore
+        found
+
+    /// F# nests a `for` that follows another one (a second leftOuterJoin, a join after a leftOuterJoin) inside
+    /// the first one's SelectMany, as a sequence over the outer row `a`:
+    ///   src.SelectMany(a => C(a).op1(..a..).op2(..), (a, x) => x)
+    /// Element-wise operators distribute over SelectMany, so this is rewritten as the flat chain
+    ///   src.SelectMany(a => C(a), (a, d) => new AnonymousObject(a, d)).op1'(..).op2(..)
+    /// where op1' reads its element `d` and the outer row `a` from the pair. C(a) keeps the operators that
+    /// depend on a's whole sequence (DefaultIfEmpty). A result selector that reads only the inner element `x`
+    /// becomes a trailing Select. The rewrite is skipped when a later operator, or the result selector, still
+    /// reads `a`.
+    let private tryUnnestSelectMany (mc: MethodCallExpression) : Expression option =
+        if mc.Method.DeclaringType <> typeof<Queryable> || mc.Method.Name <> "SelectMany" || mc.Arguments.Count <> 3 then
+            None
+        else
+            match unwrapQuote mc.Arguments.[1], unwrapQuote mc.Arguments.[2] with
+            | (:? LambdaExpression as collSel), (:? LambdaExpression as resSel) when
+                collSel.Parameters.Count = 1
+                && resSel.Parameters.Count = 2
+                && not (referencesParameter resSel.Parameters.[0] resSel.Body)
+                ->
+                let a = collSel.Parameters.[0]
+
+                // Element-wise operators on top of the per-row sequence, outermost first.
+                let rec liftable (e: Expression) acc =
+                    match e with
+                    | :? MethodCallExpression as call when
+                        isNull call.Object && isSequenceOperator call.Method && call.Method.IsGenericMethod && isElementWise call.Method
+                        ->
+                        liftable call.Arguments.[0] (call :: acc)
+                    | inner -> inner, acc
+
+                let perRow, ops = liftable collSel.Body []
+
+                match ops with
+                | [] -> None
+                | first :: rest when rest |> List.forall (fun op -> op.Arguments |> Seq.skip 1 |> Seq.forall (fun arg -> not (referencesParameter a arg))) ->
+                    let elemType = (first.Method.GetGenericArguments()).[0]
+                    let pairDef = typedefof<Microsoft.FSharp.Linq.RuntimeHelpers.AnonymousObject<_, _>>
+                    let pairType = pairDef.MakeGenericType(a.Type, elemType)
+                    let item1 = pairType.GetProperty "Item1"
+                    let item2 = pairType.GetProperty "Item2"
+                    let d = Expression.Parameter(elemType, "d")
+                    let pairCtor = pairType.GetConstructor [| a.Type; elemType |]
+                    let pairSel =
+                        Expression.Lambda(
+                            Expression.New(pairCtor, [| a :> Expression; d :> Expression |], [| item1 :> MemberInfo; item2 :> MemberInfo |]),
+                            [| a; d |])
+
+                    let flatSource =
+                        toQueryableMethod mc.Method [| a.Type; elemType; pairType |]
+                        |> Option.map (fun m ->
+                            Expression.Call(m, mc.Arguments.[0], Expression.Quote(Expression.Lambda(perRow, a)), Expression.Quote pairSel)
+                            :> Expression)
+
+                    // Rebuilds `op` as a Queryable call over `source`, whose elements are `sourceElem`.
+                    let rebuild (op: MethodCallExpression) (source: Expression) (sourceElem: Type) (rewriteLambda: int -> LambdaExpression -> LambdaExpression) =
+                        let typeArgs = op.Method.GetGenericArguments() |> Array.copy
+                        typeArgs.[0] <- sourceElem
+                        toQueryableMethod op.Method typeArgs
+                        |> Option.map (fun m ->
+                            let args =
+                                op.Arguments
+                                |> Seq.mapi (fun i arg ->
+                                    if i = 0 then source
+                                    else
+                                        match unwrapQuote arg with
+                                        | :? LambdaExpression as l -> Expression.Quote(rewriteLambda i l) :> Expression
+                                        | other -> other)
+                                |> Seq.toArray
+                            Expression.Call(m, args) :> Expression)
+
+                    // In the first operator, the lambdas over the element (all but a join's inner key) take the
+                    // pair instead: the element is pair.Item2 and the outer row pair.Item1.
+                    let isJoin = first.Method.Name = "Join" || first.Method.Name = "GroupJoin"
+                    let p = Expression.Parameter(pairType, "pair")
+                    let overPair (i: int) (l: LambdaExpression) =
+                        if isJoin && i = 3 then
+                            l
+                        else
+                            let map = Dictionary<ParameterExpression, Expression>(HashIdentity.Reference)
+                            map.[l.Parameters.[0]] <- Expression.Property(p, item2)
+                            map.[a] <- Expression.Property(p, item1)
+                            let body = ParameterReplacer(map).Visit l.Body
+                            Expression.Lambda(body, Seq.append [ p ] (Seq.skip 1 l.Parameters))
+
+                    let joinInnerKeyReadsRow =
+                        isJoin && (match unwrapQuote first.Arguments.[3] with :? LambdaExpression as l -> referencesParameter a l | _ -> false)
+
+                    if joinInnerKeyReadsRow then
+                        None
+                    else
+                        let elementOf (src: Expression) = (src.Type.GetGenericArguments()).[0]
+
+                        // A result selector reading only the inner element becomes a trailing Select.
+                        let applyResultSelector (chain: Expression) =
+                            let x = resSel.Parameters.[1]
+                            if obj.ReferenceEquals(resSel.Body, x) then
+                                Some chain
+                            else
+                                let selectDef =
+                                    typeof<Queryable>.GetMethods()
+                                    |> Array.find (fun m ->
+                                        m.Name = "Select"
+                                        && (m.GetParameters().[1].ParameterType.GetGenericArguments().[0]).GetGenericTypeDefinition() = typedefof<Func<_, _>>)
+                                let select = selectDef.MakeGenericMethod(elementOf chain, resSel.ReturnType)
+                                Some(Expression.Call(select, chain, Expression.Quote(Expression.Lambda(resSel.Body, x))) :> Expression)
+
+                        flatSource
+                        |> Option.bind (fun src -> rebuild first src pairType overPair)
+                        |> Option.bind (fun firstCall ->
+                            rest
+                            |> List.fold
+                                (fun acc op -> acc |> Option.bind (fun (src: Expression) -> rebuild op src (elementOf src) (fun _ l -> l)))
+                                (Some firstCall))
+                        |> Option.bind applyResultSelector
+                | _ -> None
+            | _ -> None
+
     /// 2. PipelineNormalizer:
     /// - Strips redundant identity projections (e.g. .Select(_arg => new AnonymousObject(_arg.Item1, ...)))
     /// - Flattens F# synthetic Grouping wrappers (e.g. .GroupBy(...).Select(g => new Grouping(g.Key, g.Select(...))))
@@ -445,11 +635,13 @@ module internal FSharpAst =
         inherit ExpressionVisitor()
 
         override this.VisitMethodCall(mc: MethodCallExpression) =
-            match tryRewriteQuotationToLambda mc with
+            match tryRewriteQuotationToLambda mc |> Option.orElseWith (fun () -> tryRewriteIsNull mc) with
             | Some rewritten -> this.Visit rewritten
             | None ->
                 let visitedMc = base.VisitMethodCall(mc) :?> MethodCallExpression
-                this.NormalizeVisitedCall visitedMc
+                match tryUnnestSelectMany visitedMc with
+                | Some flat -> flat
+                | None -> this.NormalizeVisitedCall visitedMc
 
         member private this.NormalizeVisitedCall(visitedMc: MethodCallExpression) : Expression =
             // Check if this method call is Queryable.Select or Enumerable.Select
@@ -716,13 +908,25 @@ module internal FSharpAst =
         let postReduced = betaReduce inlined
         PipelineNormalizer().Visit postReduced
 
+    /// A SelectMany whose per-row sequence continues with element-wise operators (see tryUnnestSelectMany).
+    let private isNestedSelectMany (mc: MethodCallExpression) =
+        mc.Method.Name = "SelectMany"
+        && mc.Arguments.Count = 3
+        && (match unwrapQuote mc.Arguments.[1] with
+            | :? LambdaExpression as l ->
+                match l.Body with
+                | :? MethodCallExpression as body -> isSequenceOperator body.Method && body.Method.IsGenericMethod && isElementWise body.Method
+                | _ -> false
+            | _ -> false)
+
     /// Fast-path scanner checking if an expression contains F#-specific constructs
-    /// (e.g. Quotations, curried FSharpFunc closures, F# operators, or tuples >= 8 items).
+    /// (e.g. Quotations, curried FSharpFunc closures, F# operators, nested SelectMany chains, or tuples >= 8 items).
     let rec needsRewrite (expr: Expression) : bool =
         match expr with
         | null -> false
         | :? MethodCallExpression as mc ->
             if mc.Method.Name = "QuotationToLambdaExpression"
+               || isNestedSelectMany mc
                || mc.Method.Name = "Invoke"
                || not (isNull mc.Method.DeclaringType) && mc.Method.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators"
                || mc.Method.Name = "GroupBy" && mc.Method.GetGenericArguments().Length = 3 then

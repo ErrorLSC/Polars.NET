@@ -122,9 +122,25 @@ module internal EntityPacking =
         not (isNull t.FullName)
         && t.FullName.StartsWith("Microsoft.FSharp.Linq.RuntimeHelpers.AnonymousObject", StringComparison.Ordinal)
 
-    /// A row type whose members may hold whole entities. System tuples are left to the materializer's
-    /// positional and suffix conventions.
-    let isTransparentRowType (t: Type) = isAnonymousType t || isFSharpAnonymousObject t
+    /// System.Tuple / System.ValueTuple of up to seven elements (eight and more nest the rest in `Rest`).
+    let private isSystemTuple (t: Type) =
+        t.IsGenericType
+        && not (isNull t.FullName)
+        && (t.FullName.StartsWith("System.Tuple`", StringComparison.Ordinal)
+            || t.FullName.StartsWith("System.ValueTuple`", StringComparison.Ordinal))
+        && t.GetGenericArguments().Length < 8
+
+    /// A row type whose members may hold whole entities: anonymous types, F# AnonymousObject and System tuples.
+    /// Their entity members are packed into struct columns named after the member (Item1..ItemN for tuples).
+    let isTransparentRowType (t: Type) = isAnonymousType t || isFSharpAnonymousObject t || isSystemTuple t
+
+    /// The members of a row: Item1..ItemN for a System tuple (fields of a ValueTuple), otherwise the model
+    /// properties.
+    let private rowMembers (t: Type) : string array =
+        if isSystemTuple t then
+            Array.init (t.GetGenericArguments().Length) (fun i -> sprintf "Item%d" (i + 1))
+        else
+            PolarsTypeHelper.GetModelProperties t |> Array.map (fun p -> p.Name)
 
     let private isRowElementType (t: Type) = isEntityType t || isTransparentRowType t
 
@@ -230,8 +246,8 @@ module internal EntityPacking =
             None
         else
             let parts =
-                PolarsTypeHelper.GetModelProperties e.Type
-                |> Array.map (fun p -> p.Name, translate ctx cols nullExtended (Expression.Property(e, p)))
+                rowMembers e.Type
+                |> Array.map (fun name -> name, translate ctx cols nullExtended (Expression.PropertyOrField(e, name)))
 
             if not (parts |> Array.exists (fun (_, r) -> match r with Some(_, true) -> true | _ -> false)) then
                 None
@@ -315,8 +331,8 @@ module internal EntityPacking =
             let nullExtended = lazy (nullExtendedColumns plan)
 
             let members =
-                PolarsTypeHelper.GetModelProperties rowType
-                |> Array.map (fun p -> p.Name, translate ctx (Lazy<string list>.CreateFromValue cols) nullExtended (Expression.Property(row, p)))
+                rowMembers rowType
+                |> Array.map (fun name -> name, translate ctx (Lazy<string list>.CreateFromValue cols) nullExtended (Expression.PropertyOrField(row, name)))
 
             // Scope resolution falls back to the member's own name, which need not be a column of the plan.
             let available = set cols

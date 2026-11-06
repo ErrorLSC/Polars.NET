@@ -106,6 +106,33 @@ public class LinqNestedEntityTests
         AssertNativeMatchesLinq((e, d, l) => e.RightJoin(d, x => x.Dept, y => y.Dept, (x, y) => new { x, y }));
 
     [Fact]
+    public void Query_Syntax_Left_Join_Pair() =>
+        AssertNativeMatchesLinq((e, d, l) =>
+            from x in e
+            join y in d on x.Dept equals y.Dept into ys
+            from y in ys.DefaultIfEmpty()
+            select new { x, y });
+
+    [Fact]
+    public void Query_Syntax_Two_Left_Joins() =>
+        AssertNativeMatchesLinq((e, d, l) =>
+            from x in e
+            join y in d on x.Dept equals y.Dept into ys
+            from y in ys.DefaultIfEmpty()
+            join z in l on x.Name equals z.City into zs
+            from z in zs.DefaultIfEmpty()
+            select new { x, y, z });
+
+    [Fact]
+    public void Query_Syntax_Left_Join_Keeps_Unmatched_Rows() =>
+        AssertNativeMatchesLinq((e, d, l) =>
+            from x in e
+            join y in d on x.Dept equals y.Dept into ys
+            from y in ys.DefaultIfEmpty()
+            where y == null
+            select new { x, y });
+
+    [Fact]
     public void Left_Join_Null_Check_On_Entity() =>
         AssertNativeMatchesLinq((e, d, l) =>
             e.LeftJoin(d, x => x.Dept, y => y.Dept, (x, y) => new { x, y }).Where(t => t.y == null));

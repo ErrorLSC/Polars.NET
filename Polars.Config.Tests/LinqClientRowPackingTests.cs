@@ -69,6 +69,19 @@ public class LinqClientRowPackingTests
     }
 
     [Fact]
+    public void Client_Predicate_Over_Tuple_Pairs()
+    {
+        using var _ = AllowClientEvaluation();
+        using var udf = Pl.Config.SetDisallowUdfPushdown(true).BeginScope();
+        using var e = DataFrame.FromRows(Emps);
+        using var d = DataFrame.FromRows(Depts);
+
+        AssertRowStep(
+            e.AsQueryable<CrEmp>().Join(d.AsQueryable<CrDept>(), x => x.Dept, y => y.Dept, (x, y) => Tuple.Create(x, y)).Where(t => IsEven(t.Item1.Salary)),
+            Emps.Join(Depts, x => x.Dept, y => y.Dept, (x, y) => Tuple.Create(x, y)).Where(t => IsEven(t.Item1.Salary)));
+    }
+
+    [Fact]
     public void Client_Predicate_Over_Flat_Anonymous_Rows()
     {
         using var _ = AllowClientEvaluation();

@@ -153,11 +153,11 @@ public class QueryPlanCacheTests
     {
         QueryPlanCache.Clear();
         using var df = DataFrame.FromRows(Customers);
-        // A client step over tuple rows needs the full fallback.
+        // A client ordering key needs the full fallback.
         IQueryable<string> Shape() => df.AsQueryable<Customer>()
-            .Select(c => Tuple.Create(c.City, c.Balance))
-            .Where(x => TestUdfMethods.MaskName(x.Item1) == "S***")
-            .Select(x => x.Item1);
+            .OrderBy(c => TestUdfMethods.MaskName(c.City))
+            .Where(c => c.City.StartsWith("S"))
+            .Select(c => c.City);
 
         using (Pl.Config.SetDisallowUdfPushdown(true).BeginScope())
         using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())

@@ -118,11 +118,11 @@ module internal TreeBuilder =
             |> Option.defaultWith (fun () -> updated |> Map.filter (fun (s, _) _ -> not (isRowPathScope s)))
         | _ -> updated
 
-    /// Rows a client predicate cannot receive from the native plan: tuples and F# AnonymousObject, which the
-    /// materializer reads by position and suffix conventions. A C# anonymous type, transparent identifiers
-    /// included, materializes once its scope entities are packed (EntityPacking.packRow).
+    /// Rows a client predicate cannot receive from the native plan: System tuples, which the materializer
+    /// reads by position and suffix conventions. Anonymous types and F# AnonymousObject rows, transparent
+    /// identifiers included, materialize once their scope entities are packed (EntityPacking.packRow).
     let private isUnmaterializableClientRow (t: Type) =
-        isTupleOrAnonType t && not (EntityPacking.isAnonymousType t)
+        isTupleOrAnonType t && not (EntityPacking.isTransparentRowType t)
 
     /// Disambiguates duplicate column names in a LogicalPlan against an existing set of columns by appending a suffix.
     let private disambiguatePlanColumns
@@ -2070,7 +2070,18 @@ module internal TreeBuilder =
                         match tail with
                         | LinqStage.Explode(collSelector, explodeResSelOpt) :: nextTail when (tryExtractDefaultIfEmpty collSelector.Body).IsSome ->
                             let effResSelOpt = explodeResSelOpt |> Option.orElse resSelOpt
-                            processStages state scopeMap (LinqStage.Join(m, innerExpr, outerKey, innerKey, effResSelOpt) :: nextTail)
+                            // The flattening selector reads the group join's row (outer, group), not the outer
+                            // entity: that row's members holding the outer side become its path scopes.
+                            let groupRowScopeMap =
+                                match explodeResSelOpt, resSelOpt with
+                                | Some _, Some groupSel when groupSel.Parameters.Count >= 2 ->
+                                    let cols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
+                                    let sides = [ groupSel.Parameters.[0].Name, EntityPacking.rowSideOf scopeMap cols ]
+                                    tryExtractMemberBindings groupSel.Body
+                                    |> Option.bind (EntityPacking.tryReshapeRow scopeMap sides)
+                                    |> Option.defaultValue scopeMap
+                                | _ -> scopeMap
+                            processStages state groupRowScopeMap (LinqStage.Join(m, innerExpr, outerKey, innerKey, effResSelOpt) :: nextTail)
                         | LinqStage.Project projLambda :: nextTail when resSelOpt.IsNone ->
                             let outerType, innerType = outerKey.Parameters.[0].Type, innerKey.Parameters.[0].Type
                             let desugaredResSel = PipelineStageParser.desugarGroupJoinProject projLambda outerType innerType

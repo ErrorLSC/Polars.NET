@@ -328,7 +328,16 @@ module internal ColumnResolver =
 
     let internal tryResolveEntityNullTarget (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
         let cleanE = unwrap expr
-        let scopeOpt = tryExtractScopeName cleanE
+        // The entity's path in the row identifies its scope exactly; its name only when names are unique.
+        let pathScopeOpt =
+            match ctx with
+            | TranslationContext.ScopedEntity(rowParam :: _, scopeMap, _) ->
+                tryMemberPath rowParam cleanE
+                |> Option.filter (fun path -> not path.IsEmpty)
+                |> Option.map rowPathScope
+                |> Option.filter (fun key -> scopeMap |> Map.exists (fun (s, _) _ -> s = key))
+            | _ -> None
+        let scopeOpt = pathScopeOpt |> Option.orElseWith (fun () -> tryExtractScopeName cleanE)
         match scopeOpt with
         | Some scope ->
             let findColInScopeMap (scopeMap: Map<string * string, string>) =

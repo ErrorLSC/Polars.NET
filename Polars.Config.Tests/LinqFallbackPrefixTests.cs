@@ -36,13 +36,13 @@ public class LinqFallbackPrefixTests
 
     private static readonly Dictionary<string, Pipeline> Pipelines = new()
     {
-        // Client step over tuple rows (not materialized from a native plan) forces full fallback;
-        // native Where + Select before it.
-        ["NativeWhere_TupleSelect_ClientWhere"] = (q, _) => q
+        // A client ordering key cannot be a row step and forces full fallback; native Where + Select before it.
+        ["NativeWhere_AnonSelect_ClientOrderBy"] = (q, _) => q
             .Where(e => e.Age > 24)
-            .Select(e => Tuple.Create(e.Name, e.Salary))
-            .Where(x => TestUdfMethods.CheckSecurity(x.Item1, x.Item2))
-            .Select(x => x.Item1),
+            .Select(e => new { e.Name, e.Salary })
+            .OrderBy(x => TestUdfMethods.MaskName(x.Name) + x.Name)
+            .Where(x => x.Salary > 40000)
+            .Select(x => x.Name),
 
         // Row-op client Where followed by paging: native prefix, client Where, then Take.
         ["NativeWhere_OrderBy_ClientWhere_Take"] = (q, _) => q
@@ -82,12 +82,13 @@ public class LinqFallbackPrefixTests
             .OrderBy(r => r.Name)
             .Select(r => r.Name + "@" + r.Dept),
 
-        // Client step that references the second source inside its lambda.
-        ["NativeWhere_ClientWhere_ReferencesSecondSource"] = (q, d) => q
+        // The LINQ-to-Objects part references the second source inside its lambda.
+        ["NativeWhere_ClientOrderBy_ReferencesSecondSource"] = (q, d) => q
             .Where(e => e.Age > 20)
-            .Select(e => Tuple.Create(e.Name, e.Salary))
-            .Where(x => TestUdfMethods.CheckSecurity(x.Item1, x.Item2) && d.Any(o => o.Name == x.Item1 && o.Dept == "Eng"))
-            .Select(x => x.Item1),
+            .Select(e => new { e.Name, e.Salary })
+            .OrderBy(x => TestUdfMethods.CheckSecurity(x.Name, x.Salary) && d.Any(o => o.Name == x.Name && o.Dept == "Eng"))
+            .ThenBy(x => x.Name)
+            .Select(x => x.Name),
 
         // Client Where then Chunk escalates row ops to full fallback.
         ["NativeWhere_ClientWhere_Chunk"] = (q, _) => q
@@ -112,13 +113,13 @@ public class LinqFallbackPrefixTests
     /// The LINQ method at which LINQ-to-Objects takes over; null when no prefix runs natively.
     private static readonly Dictionary<string, string?> ExpectedBoundary = new()
     {
-        ["NativeWhere_TupleSelect_ClientWhere"] = "Where",
+        ["NativeWhere_AnonSelect_ClientOrderBy"] = "OrderBy",
         ["NativeWhere_OrderBy_ClientWhere_Take"] = "Take",
         ["NativeWhere_OrderBy_ClientThenBy"] = "OrderBy",
         ["NativeWhere_OrderByDescending_ClientThenByDescending_Skip"] = "OrderByDescending",
         ["NativeWhere_GroupBy_ClientSelect_OrderBy"] = "Select",
         ["NativeJoin_ClientWhere"] = "OrderBy",
-        ["NativeWhere_ClientWhere_ReferencesSecondSource"] = "Where",
+        ["NativeWhere_ClientOrderBy_ReferencesSecondSource"] = "OrderBy",
         ["NativeWhere_ClientWhere_Chunk"] = "Chunk",
         ["AnonSelect_ClientWhere_OrderByDescending"] = "OrderByDescending",
         ["ClientOrderBy_First_Stage"] = null,

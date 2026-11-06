@@ -328,7 +328,9 @@ module internal PipelineStageParser =
                 Some bindings
             else
                 None
-        | MethodCall(m, null, args) when m.Name = "Create" && not (isNull m.DeclaringType) && m.DeclaringType.Name = "Tuple" ->
+        | MethodCall(m, null, args) when
+            m.Name = "Create" && not (isNull m.DeclaringType) && (m.DeclaringType.Name = "Tuple" || m.DeclaringType.Name = "ValueTuple")
+            ->
             let names = [ for i in 1 .. args.Length -> sprintf "Item%d" i ]
             Some(List.zip names args)
         | MethodCall(m, null, [ k; v ]) when m.Name = "Create" && not (isNull m.DeclaringType) && m.DeclaringType.Name = "KeyValuePair" ->
