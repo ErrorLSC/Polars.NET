@@ -66,3 +66,21 @@ module EnumColumnTests =
         assertMatches (fun q -> query { for r in q do select (string r.Shade) })
         assertMatches (fun q -> query { for r in q do sortBy r.Shade; thenBy r.Id; select r.Id })
         assertMatches (fun q -> query { for r in q do groupBy r.Shade into g; sortBy g.Key; select (g.Key, g.Count()) })
+
+    let tryShade (code: int) = if code > 0 then Some EcShade.Green else None
+    let tryShadeV (code: int) = if code > 0 then ValueSome EcShade.Black else ValueNone
+
+    /// Runs a query whose rows the provider produces itself; it must agree with the arrays and run as a UDF.
+    let private assertUdfMatches (query: IQueryable<EcRow> -> IQueryable<'T>) =
+        use df = DataFrame.ofRecords rows
+        let native = query (df.AsQueryable<EcRow>())
+        let inspection = (native :?> Polars.NET.Linq.IPolarsExplainable).InspectPlan(true)
+        Assert.True(inspection.HasUdf, inspection.FormatReport())
+        Assert.False(inspection.HasClientProjection, inspection.FormatReport())
+        let expected = query (rows.AsQueryable()) |> Seq.map (sprintf "%A") |> List.ofSeq
+        Assert.Equal<string list>(expected, native |> Seq.map (sprintf "%A") |> List.ofSeq)
+
+    [<Fact>]
+    let ``Udf returning an option enum is pushed down`` () =
+        assertUdfMatches (fun q -> q.Select(fun r -> tryShade r.Code))
+        assertUdfMatches (fun q -> q.Select(fun r -> tryShadeV r.Code))

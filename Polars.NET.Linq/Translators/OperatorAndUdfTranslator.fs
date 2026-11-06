@@ -270,14 +270,14 @@ module internal OperatorAndUdfTranslator =
                     if translatedDependentArgs |> List.exists Option.isNone then
                         None
                     else
-                        // An enum result leaves the UDF as its underlying value; one stored as a Polars Enum then
-                        // takes its category (EnumConvert.FromValue), so an undefined value is an error.
+                        // An enum result (plain, Nullable or F# option) leaves the UDF as its underlying value;
+                        // one stored as a Polars Enum then takes its category (EnumConvert.FromValue), so an
+                        // undefined value is an error.
                         let enumUnderlying = ScalarExprOps.tryEnumUnderlyingType expr.Type
-                        let isOptionalEnum = enumUnderlying.IsSome && isNull (Nullable.GetUnderlyingType expr.Type) && not expr.Type.IsEnum
 
                         let isSupportedReturn =
                             match enumUnderlying with
-                            | Some _ -> not isOptionalEnum
+                            | Some _ -> true
                             | None -> ScalarExprOps.isUdfReturnTypeSupported expr.Type
 
                         if not isSupportedReturn then
@@ -289,7 +289,12 @@ module internal OperatorAndUdfTranslator =
                                     let returnType =
                                         if expr.Type.IsEnum then underlying
                                         else typedefof<Nullable<_>>.MakeGenericType underlying
-                                    returnType, (fun (v: obj) -> if isNull v then null else Convert.ChangeType(v, underlying))
+                                    let struct (_, optionalKind) = PolarsTypeHelper.GetOptionalInfo expr.Type
+                                    returnType,
+                                    (fun (v: obj) ->
+                                        match PolarsTypeHelper.UnwrapOptionalValue(v, optionalKind) with
+                                        | null -> null
+                                        | payload -> Convert.ChangeType(payload, underlying))
                                 | None -> expr.Type, id
 
                             let wrapResult (udf: ScalarExpr) =

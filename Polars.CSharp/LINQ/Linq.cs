@@ -863,6 +863,12 @@ public static class LinqExtensions
         bool isScalarSource = PolarsTypeHelper.IsScalarType(typeof(TSource)) || typeof(TSource) == typeof(string);
         string? scalarCol = isScalarSource && df.Columns.Length == 1 ? df.Columns[0] : null;
 
+        LogicalSchema schema;
+        using (var lazy = df.Lazy())
+        {
+            schema = PolarsExprCompiler.schemaOf(lazy.Handle);
+        }
+
         TranslationContext CreateContext(string paramName) =>
             scalarCol is not null
                 ? TranslationContext.NewScalar(paramName, scalarCol)
@@ -873,7 +879,7 @@ public static class LinqExtensions
         var keyParam = keySelector.Parameters[0].Name ?? "x";
         var keyCtx = CreateContext(keyParam);
 
-        var keyOpt = PolarsExprCompiler.tryCompile(keyCtx, evaluatedKeyBody);
+        var keyOpt = PolarsExprCompiler.tryCompile(keyCtx, schema, evaluatedKeyBody);
         if (!FSharpOption<ExprHandle>.get_IsSome(keyOpt))
         {
             throw new NotSupportedException($"Key selector '{keySelector}' could not be translated to a Polars expression.");
@@ -892,7 +898,7 @@ public static class LinqExtensions
             var elemParam = elementSelector.Parameters[0].Name ?? "x";
             var elemCtx = CreateContext(elemParam);
 
-            var elemOpt = PolarsExprCompiler.tryCompile(elemCtx, evaluatedElemBody);
+            var elemOpt = PolarsExprCompiler.tryCompile(elemCtx, schema, evaluatedElemBody);
             if (FSharpOption<ExprHandle>.get_IsSome(elemOpt))
             {
                 elemExpr = new Expr(elemOpt.Value);
@@ -952,10 +958,13 @@ public static class LinqExtensions
         var targetType = typeof(TKey);
         var underlying = Nullable.GetUnderlyingType(targetType) ?? targetType;
 
-        // Guarantee enum safety (e.g. DayOfWeek, StringComparison)
+        // Guarantee enum safety (e.g. DayOfWeek, StringComparison): a Polars Enum key arrives as its category
+        // (the member name), an integer key as the underlying value.
         if (underlying.IsEnum)
         {
-            return (TKey)Enum.ToObject(underlying, rawKey);
+            return rawKey is string name
+                ? (TKey)Enum.Parse(underlying, name)
+                : (TKey)Enum.ToObject(underlying, rawKey);
         }
 
         return (TKey)Convert.ChangeType(rawKey, underlying);

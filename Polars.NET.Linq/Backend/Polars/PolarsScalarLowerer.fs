@@ -544,6 +544,7 @@ module internal PolarsScalarLowerer =
             failwithf "Subquery scalar expression must be decorrelated into relational join before physical lowering: %A" kind
 
 
-    /// Lowers a CLR constant of the given type directly to a native literal ExprHandle.
-    let lowerConstant (value: obj) (t: Type) : ExprHandle =
-        ScalarExprOps.toLiteral value t |> EnumResolution.resolveScalar LogicalSchema.Empty |> lower
+    /// Lowers a CLR constant of the given type, to be stored into a column of `columnType`, to a native literal
+    /// ExprHandle (an enum constant takes the column's representation).
+    let lowerConstant (value: obj) (t: Type) (columnType: LogicalType) : ExprHandle =
+        ScalarExprOps.toLiteral value t |> EnumResolution.resolveAssignment LogicalSchema.Empty columnType |> lower

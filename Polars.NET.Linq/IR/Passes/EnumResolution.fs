@@ -201,6 +201,13 @@ module internal EnumResolution =
         | ScalarExpr.Alias(inner, alias) -> ScalarExpr.Alias(resolve inner, alias)
         | ScalarExpr.Udf(name, args, t, invoker) -> ScalarExpr.Udf(name, args |> List.map resolve, t, invoker)
 
+    /// Resolves `expr`, whose value is stored into a column of `columnType` (an assignment), against `schema`: an
+    /// enum constant takes the column's representation, its category for an Enum column, else its value.
+    and resolveAssignment (schema: LogicalSchema) (columnType: LogicalType) (expr: ScalarExpr) : ScalarExpr =
+        match expr with
+        | EnumLiteral(literal, mapping) -> if isEnumType columnType then enumOfValue mapping literal else literal
+        | _ -> resolveScalar schema expr
+
     /// Resolves the EnumConvert nodes of every expression in `plan`, each against the schema of the rows it reads.
     and resolvePlan (plan: LogicalPlan) : LogicalPlan =
         let plan' = LogicalPlanOps.mapInputs resolvePlan plan

@@ -1,3 +1,5 @@
+using Polars.NET.Linq.Backend.Polars;
+using Polars.NET.Linq.IR;
 #pragma warning disable CS1591
 using System.Collections.Frozen;
 using System.Text;
@@ -93,6 +95,18 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         Expr Condition,
         Dictionary<string, IntoExprColumn>? Setters
     )> _actions = [];
+
+    private LogicalSchema? _translationSchema;
+
+    /// <summary>
+    /// The columns, with their types, that typed merge expressions read: the target's under their names and the
+    /// source's with the temporary suffix. Read from the frames once, on first use.
+    /// </summary>
+    internal LogicalSchema TranslationSchema =>
+        _translationSchema ??= PolarsExprCompiler.mergeSchema(
+            PolarsExprCompiler.schemaOf(_target.Handle),
+            PolarsExprCompiler.schemaOf(_source.Handle),
+            _tmpSfx);
 
     protected MergeBuilderBase(LazyFrame target, LazyFrame source, string[] on)
     {

@@ -597,7 +597,7 @@ public static class SeriesFactory
         var values = new object?[data.Length];
         for (int i = 0; i < data.Length; i++)
         {
-            values[i] = UnwrapOptional(data[i], optionalKind);
+            values[i] = PolarsTypeHelper.UnwrapOptionalValue(data[i], optionalKind);
         }
 
         if (!EnumCategories.UsesEnumDataType(enumType))
@@ -634,30 +634,6 @@ public static class SeriesFactory
         return PolarsWrapper.SeriesCast(strings, enumDataType, strict: true, wrapNumerical: false);
     }
 
-    /// <summary>The payload of an optional value (Nullable, F# option or value option) boxed, or null when absent.</summary>
-    private static object? UnwrapOptional<T>(T value, OptionalKind optionalKind)
-    {
-        object? boxed = value;
-        if (boxed is null)
-        {
-            return null;
-        }
-
-        switch (optionalKind)
-        {
-            case OptionalKind.FSharpOption:
-            case OptionalKind.FSharpValueOption:
-                var type = boxed.GetType();
-                if (optionalKind == OptionalKind.FSharpValueOption
-                    && !(bool)type.GetProperty("IsSome", BindingFlags.Public | BindingFlags.Instance)!.GetValue(boxed)!)
-                {
-                    return null;
-                }
-                return type.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance)!.GetValue(boxed);
-            default:
-                return boxed;
-        }
-    }
     /// <summary>
     /// Creates a SeriesHandle from a generic Array.
     /// Uses pattern matching to dispatch to the correct PolarsWrapper method.

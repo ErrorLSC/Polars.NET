@@ -22,14 +22,17 @@ module internal PolarsPhysicalLowerer =
         let df = PolarsWrapper.DataFrameNew ReadOnlySpan.Empty
         PolarsWrapper.DataFrameToLazy df
 
+    /// The schema, with column types, of a physical LazyFrameHandle.
+    let schemaOfLazyFrame (lf: LazyFrameHandle) : LogicalSchema =
+        PolarsSchemaExtractor.GetFields lf
+        |> Array.map (fun struct (name, dataType) ->
+            use dataType = dataType
+            name, PolarsVocabulary.ofDataTypeHandle dataType)
+        |> LogicalSchema.OfFields
+
     /// Wraps a physical LazyFrameHandle as an opaque ILogicalTableSource (schema, with column types, read from the frame).
     let tableSourceOfLazyFrame (lf: LazyFrameHandle) : ILogicalTableSource =
-        let fields =
-            PolarsSchemaExtractor.GetFields lf
-            |> Array.map (fun struct (name, dataType) ->
-                use dataType = dataType
-                name, PolarsVocabulary.ofDataTypeHandle dataType)
-        PolarsTableSource(lf, LogicalSchema.OfFields fields)
+        PolarsTableSource(lf, schemaOfLazyFrame lf)
 
     /// Materializes an in-memory row snapshot into a LazyFrame, verifying that the transposed columns
     /// match the schema the frontend declared for the Scan node.

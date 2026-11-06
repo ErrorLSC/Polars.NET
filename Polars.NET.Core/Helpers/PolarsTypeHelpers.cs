@@ -153,6 +153,33 @@ public static class PolarsTypeHelper
     }
 
     /// <summary>
+    /// The payload of a boxed optional value (Nullable, F# option or value option), or null when it is absent.
+    /// A value of a non-optional type (<see cref="OptionalKind.None"/>) is returned as is.
+    /// </summary>
+    public static object? UnwrapOptionalValue(object? boxed, OptionalKind optionalKind)
+    {
+        if (boxed is null)
+        {
+            return null;
+        }
+
+        switch (optionalKind)
+        {
+            case OptionalKind.FSharpOption:
+            case OptionalKind.FSharpValueOption:
+                var type = boxed.GetType();
+                if (optionalKind == OptionalKind.FSharpValueOption
+                    && !(bool)type.GetProperty("IsSome", BindingFlags.Public | BindingFlags.Instance)!.GetValue(boxed)!)
+                {
+                    return null;
+                }
+                return type.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance)!.GetValue(boxed);
+            default:
+                return boxed;
+        }
+    }
+
+    /// <summary>
     /// Builds an Expression that extracts the unwrapped value or returns default/null.
     /// Unwraps Nullable.Value, FSharpOption.Value, or FSharpValueOption.Value if present.
     /// </summary>
