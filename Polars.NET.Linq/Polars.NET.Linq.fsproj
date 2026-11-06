@@ -48,6 +48,11 @@
     <Compile Include="Pipeline/PipelineTypes.fs" />
     <Compile Include="Pipeline/PipelineStageParser.fs" />
     <Compile Include="IR/EntityPacking.fs" />
+    <Compile Include="IR/Building/TransparentScopes.fs" />
+    <Compile Include="IR/Building/ProjectionExtraction.fs" />
+    <Compile Include="IR/Building/GroupByPlanning.fs" />
+    <Compile Include="IR/Building/GroupingSetsPlanning.fs" />
+    <Compile Include="IR/Building/GroupJoinAndZipPlanning.fs" />
     <Compile Include="IR/TreeBuilder.fs" />
     <Compile Include="IR/Passes/SortSliceFusion.fs" />
     <Compile Include="IR/Passes/PredicatePushdown.fs" />
