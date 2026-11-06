@@ -143,12 +143,13 @@ public readonly partial struct PolarsWrapper
         ErrorHelper.CheckStatus(status);
         return threshold;
     }
-    public static PlOOCSpillPolicy ConfigGetOOCSpillPolicy()
-    {
-        int status = NativeBindings.pl_config_get_ooc_spill_policy(out PlOOCSpillPolicy policy);
-        ErrorHelper.CheckStatus(status);
-        return policy;
-    }
+    // TODO: re-enable once polars ships OOC spill policy (on polars main, absent in 0.55.2).
+    // public static PlOOCSpillPolicy ConfigGetOOCSpillPolicy()
+    // {
+    //     int status = NativeBindings.pl_config_get_ooc_spill_policy(out PlOOCSpillPolicy policy);
+    //     ErrorHelper.CheckStatus(status);
+    //     return policy;
+    // }
     public static PlOOCSpillFormat ConfigGetOOCSpillFormat()
     {
         int status = NativeBindings.pl_config_get_ooc_spill_format(out PlOOCSpillFormat fmt);

@@ -129,10 +129,10 @@ public partial class Expr : IDisposable
     /// </summary>
     /// <inheritdoc cref="RollingMean(IntoDuration,int,double[],bool)"/>
     /// <param name="method">
-    /// The method used to assign ranks to tied elements. See <see cref="RankMethod"/> for details.
-    /// Default is <see cref="RankMethod.Average"/>.</param>
+    /// The method used to assign ranks to tied elements. See <see cref="RollingRankMethod"/> for details.
+    /// Default is <see cref="RollingRankMethod.Average"/>.</param>
     /// <param name="seed">If method="random", use this as seed.</param>
-    public Expr RollingRank(IntoDuration windowSize, int minPeriods = 1, RankMethod method = RankMethod.Average, ulong? seed = null, double[]? weights = null, bool center = false)
+    public Expr RollingRank(IntoDuration windowSize, int minPeriods = 1, RollingRankMethod method = RollingRankMethod.Average, ulong? seed = null, double[]? weights = null, bool center = false)
         => new(PolarsWrapper.RollingRank(CloneHandle(), windowSize.Value, minPeriods, method.ToNative(), seed, weights, center));
     /// <summary>
     /// Apply a rolling quantile over a fixed window.

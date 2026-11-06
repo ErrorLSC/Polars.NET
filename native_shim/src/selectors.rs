@@ -231,6 +231,8 @@ fn map_i32_to_dtype_selector(kind: i32) -> DataTypeSelector {
         24 => dt_selector_single(DataType::Int128),
         25 => dt_selector_single(DataType::UInt128),
         26 => dt_selector_single(DataType::Float16),
+        27 => DataTypeSelector::Enum,
+        // 28: Extension has no DataTypeSelector counterpart
         // Empty
         _ => DataTypeSelector::Empty,
     }

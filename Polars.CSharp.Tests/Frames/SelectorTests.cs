@@ -176,6 +176,24 @@ public class SelectorTests
         Assert.Equal(["duration_col"], resDuration.Columns);
     }
     [Fact]
+    public void Test_ByDtype_Int64_UInt32()
+    {
+        using var df = DataFrame.FromSeries(
+            Series.From("i32", [1, 2]),
+            Series.From("i64", [1L, 2L]),
+            Series.From("u32", [1u, 2u])
+        );
+
+        using var resI64 = df.Select(Cs.ByDtype(DataType.Int64));
+        Assert.Equal(["i64"], resI64.Columns);
+
+        using var resLong = df.Select(Cs.ByDtype(typeof(long)));
+        Assert.Equal(["i64"], resLong.Columns);
+
+        using var resU32 = df.Select(Cs.ByDtype(DataType.UInt32));
+        Assert.Equal(["u32"], resU32.Columns);
+    }
+    [Fact]
     [Trait("Selector", "NestedTypes")]
     public void Test_List_And_Array_Selectors_FixedType()
     {

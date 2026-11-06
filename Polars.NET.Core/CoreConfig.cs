@@ -848,6 +848,7 @@ internal static class CoreConfig
                 PlResolveMode.None => "none",
                 PlResolveMode.RowCounts => "row_counts",
                 PlResolveMode.Full => "full",
+                PlResolveMode.Sampled => "sampled",
                 _ => null
             };
             PolarsWrapper.SetEnvVar(ResolveMetadataLevelKey, envValue);
@@ -874,7 +875,8 @@ internal static class CoreConfig
     private const string OOCSpillPolicyKey = "POLARS_OOC_SPILL_POLICY";
     public static PlOOCSpillPolicy? OOCSpillPolicy
     {
-        get => PolarsWrapper.ConfigGetOOCSpillPolicy();
+        // TODO: re-enable getter once polars ships OOC spill policy (on polars main, absent in 0.55.2).
+        // get => PolarsWrapper.ConfigGetOOCSpillPolicy();
         set
         {
             string? envValue = value switch

@@ -146,7 +146,8 @@ public enum PlResolveMode:byte
 {
     None = 0,
     RowCounts = 1,
-    Full = 2
+    Full = 2,
+    Sampled = 3
 }
 
 public enum PlOOCSpillPolicy: byte

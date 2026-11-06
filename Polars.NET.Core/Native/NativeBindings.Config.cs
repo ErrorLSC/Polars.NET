@@ -39,8 +39,9 @@ internal partial class NativeBindings
     public static partial int pl_config_get_resolve_metadata_level(out PlResolveMode mode);
     [LibraryImport(LibName)]
     public static partial int pl_config_get_ooc_drift_threshold(out ulong threshold);
-    [LibraryImport(LibName)]
-    public static partial int pl_config_get_ooc_spill_policy(out PlOOCSpillPolicy policy);
+    // TODO: re-enable once polars ships OOC spill policy (on polars main, absent in 0.55.2); native export is commented out in config.rs.
+    // [LibraryImport(LibName)]
+    // public static partial int pl_config_get_ooc_spill_policy(out PlOOCSpillPolicy policy);
     [LibraryImport(LibName)]
     public static partial int pl_config_get_ooc_spill_format(out PlOOCSpillFormat format);
     [LibraryImport(LibName)]

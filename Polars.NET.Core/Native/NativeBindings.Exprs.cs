@@ -695,7 +695,7 @@ unsafe internal partial class NativeBindings
         ExprHandle expr,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string windowSize,
         UIntPtr minPeriods,
-        PlRankMethod method,
+        PlRollingRankMethod method,
         ulong* seed,
         [MarshalAs(UnmanagedType.LPArray)] double[]? weights,
         UIntPtr weights_len,

@@ -256,8 +256,8 @@ module SeriesRollingOps =
         /// Apply a rolling rank (moving rank) over a window.
         /// </summary>
         /// <param name="method">
-        /// The method used to assign ranks to tied elements. See <see cref="RankMethod"/> for details.
-        /// Default is <see cref="RankMethod.Average"/>.</param>
+        /// The method used to assign ranks to tied elements. See <see cref="RollingRankMethod"/> for details.
+        /// Default is <see cref="RollingRankMethod.Average"/>.</param>
         /// <param name="seed">If method="random", use this as seed.
         /// </param>
         /// <param name="windowSize">
@@ -277,7 +277,7 @@ module SeriesRollingOps =
         /// <para>Default is <c>false</c> (right-aligned window, <c>[i-window, i]</c>).</para>
         /// </param>
         member this.RollingRank
-            (windowSize: Dur, ?minPeriod: int, ?method: RankMethod, ?seed: uint64, ?weights: float[], ?center: bool)
+            (windowSize: Dur, ?minPeriod: int, ?method: RollingRankMethod, ?seed: uint64, ?weights: float[], ?center: bool)
             =
             this.ApplyExpr(
                 Expr

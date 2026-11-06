@@ -1303,7 +1303,7 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public unsafe static ExprHandle RollingRank(ExprHandle e, string w, int minPeriods, PlRankMethod method, ulong? seed, double[]? weights, bool center)
+    public unsafe static ExprHandle RollingRank(ExprHandle e, string w, int minPeriods, PlRollingRankMethod method, ulong? seed, double[]? weights, bool center)
     {
         ulong seedValue = seed.GetValueOrDefault();
         ulong* pSeed = seed.HasValue ? &seedValue : null;

@@ -1578,6 +1578,23 @@ TooShort,1990-05-20,1.60";
         );
 
         Assert.Equal(2.5, (double)res["rank"][2]);
+
+        // Non-default methods must reach Rust with RollingRankMethod numbering.
+        using var resMin = df.Select(
+            Pl.Col("v").RollingRank(windowSize: "3i", minPeriods: 3, method: RollingRankMethod.Min).Alias("rank")
+        );
+        Assert.Equal(2u, (uint)resMin["rank"][2]!);
+
+        using var resDense = df.Select(
+            Pl.Col("v").RollingRank(windowSize: "3i", minPeriods: 3, method: RollingRankMethod.Dense).Alias("rank")
+        );
+        Assert.Equal(2u, (uint)resDense["rank"][2]!);
+
+        // Random: tied value 20 must get rank 2 or 3 (Average would give 2.5).
+        using var resRandom = df.Select(
+            Pl.Col("v").RollingRank(windowSize: "3i", minPeriods: 3, method: RollingRankMethod.Random, seed: 42).Alias("rank")
+        );
+        Assert.Contains((uint)resRandom["rank"][2]!, new[] { 2u, 3u });
     }
     [Fact]
     public void Test_Rolling_By_Time_Std_Rank()

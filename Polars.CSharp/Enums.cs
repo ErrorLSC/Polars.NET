@@ -436,7 +436,7 @@ public enum CloudProvider : byte
 
     /// <summary>
     /// Google Cloud Storage.
-    /// </summary>Min = 3,
+    /// </summary>
     Gcp = 3,
     /// <summary>
     /// Generic HTTP/HTTPS.
@@ -667,6 +667,8 @@ internal static class EnumExtensions
         DataTypeKind.Int16 => CoreEnums.PlDataType.Int16,
         DataTypeKind.UInt16 => CoreEnums.PlDataType.UInt16,
         DataTypeKind.Int32 => CoreEnums.PlDataType.Int32,
+        DataTypeKind.Int64 => CoreEnums.PlDataType.Int64,
+        DataTypeKind.UInt32 => CoreEnums.PlDataType.UInt32,
         DataTypeKind.UInt64 => CoreEnums.PlDataType.UInt64,
         DataTypeKind.Int128 => CoreEnums.PlDataType.Int128,
         DataTypeKind.UInt128 => CoreEnums.PlDataType.UInt128,
@@ -686,6 +688,8 @@ internal static class EnumExtensions
         DataTypeKind.Categorical => CoreEnums.PlDataType.Categorical,
         DataTypeKind.Null => CoreEnums.PlDataType.Null,
         DataTypeKind.String => CoreEnums.PlDataType.String,
+        DataTypeKind.Enum => CoreEnums.PlDataType.Enum,
+        DataTypeKind.Extension => CoreEnums.PlDataType.Extension,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
     };
     internal static CoreEnums.PlTimeUnit ToNative(this TimeUnit unit) => unit switch

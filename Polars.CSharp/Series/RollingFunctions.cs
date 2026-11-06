@@ -72,11 +72,11 @@ public partial class Series : IDisposable
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// <inheritdoc cref="Expr.RollingRank(IntoDuration, int, RankMethod, ulong?, double[], bool)" path="/summary"/>
+    /// <inheritdoc cref="Expr.RollingRank(IntoDuration, int, RollingRankMethod, ulong?, double[], bool)" path="/summary"/>
     /// </summary>
-    /// <inheritdoc cref="Expr.RollingRank(IntoDuration, int, RankMethod, ulong?, double[], bool)" path="/param"/>
+    /// <inheritdoc cref="Expr.RollingRank(IntoDuration, int, RollingRankMethod, ulong?, double[], bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the rolling rank.</returns>
-    public Series RollingRank(IntoDuration windowSize, int minPeriods = 1, RankMethod method = RankMethod.Average, ulong? seed = null, double[]? weights = null, bool center = false)
+    public Series RollingRank(IntoDuration windowSize, int minPeriods = 1, RollingRankMethod method = RollingRankMethod.Average, ulong? seed = null, double[]? weights = null, bool center = false)
         => ApplyExpr(Polars.Col(Name).RollingRank(windowSize, minPeriods, method, seed, weights, center));
     /// <summary>
     /// <inheritdoc cref="Expr.RollingQuantile(double, QuantileMethod, IntoDuration, int, double[], bool)" path="/summary"/>

@@ -40,6 +40,49 @@ public class ConfigTests
         Assert.Contains("┘", df.ToString());
     }
     [Fact]
+    [Trait("Config", "EngineAffinity")]
+    public void Test_Config_EngineAffinity_RoundTrip()
+    {
+        Pl.Config.RestoreDefaults();
+        try
+        {
+            var cases = new (Polars.CSharp.Engine Public, PlEngine Native)[]
+            {
+                (Polars.CSharp.Engine.Auto, PlEngine.Auto),
+                (Polars.CSharp.Engine.InMemory, PlEngine.InMemory),
+                (Polars.CSharp.Engine.Streaming, PlEngine.Streaming),
+            };
+            foreach (var (pub, native) in cases)
+            {
+                Pl.Config.SetEngineAffinity(pub);
+                Assert.Equal(native, Polars.NET.Core.Config.CoreConfig.EngineAffinity);
+            }
+        }
+        finally
+        {
+            Pl.Config.RestoreDefaults();
+        }
+    }
+    [Fact]
+    [Trait("Config", "ResolveMetadataLevel")]
+    public void Test_Config_ResolveMetadataLevel_RoundTrip()
+    {
+        Pl.Config.RestoreDefaults();
+        try
+        {
+            foreach (var mode in new[] { PlResolveMode.None, PlResolveMode.RowCounts, PlResolveMode.Full, PlResolveMode.Sampled })
+            {
+                Polars.NET.Core.Config.CoreConfig.ResolveMetadataLevel = mode;
+                Polars.NET.Core.Wrappers.PolarsWrapper.ReloadEnvVar("POLARS_RESOLVE_METADATA_LEVEL");
+                Assert.Equal(mode, Polars.NET.Core.Config.CoreConfig.ResolveMetadataLevel);
+            }
+        }
+        finally
+        {
+            Pl.Config.RestoreDefaults();
+        }
+    }
+    [Fact]
     [Trait("Config", "SaveLoad")]
     public void Test_Config_SaveLoad()
     {

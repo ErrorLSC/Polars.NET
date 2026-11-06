@@ -98,7 +98,14 @@ pub extern "C" fn pl_config_get_ideal_morsel_size(out_size: *mut u64) -> c_int {
 pub extern "C" fn pl_config_get_engine_affinity(out_engine: *mut u8) -> c_int {
     ffi_try_c_int!({
         unsafe {
-            *out_engine = config().engine_affinity() as u8;
+            // Explicit mapping: polars_config::Engine discriminants (Auto0 Streaming1 InMemory2 Gpu3)
+            // differ from C# PlEngine (Auto0 InMemory1 Streaming2 Gpu3).
+            *out_engine = match config().engine_affinity() {
+                polars_config::Engine::Auto => 0,
+                polars_config::Engine::InMemory => 1,
+                polars_config::Engine::Streaming => 2,
+                polars_config::Engine::Gpu => 3,
+            };
         }
         Ok(0)
     })
@@ -180,7 +187,12 @@ pub extern "C" fn pl_config_get_ooc_drift_threshold(out_threshold: *mut u64) -> 
 pub extern "C" fn pl_config_get_resolve_metadata_level(out_level: *mut u8) -> c_int {
     ffi_try_c_int!({
         unsafe {
-            *out_level = config().resolve_metadata_level() as u8;
+            *out_level = match config().resolve_metadata_level() {
+                polars_config::ResolveMode::None => 0,
+                polars_config::ResolveMode::RowCounts => 1,
+                polars_config::ResolveMode::Full => 2,
+                polars_config::ResolveMode::Sampled => 3,
+            };
         }
         Ok(0)
     })
