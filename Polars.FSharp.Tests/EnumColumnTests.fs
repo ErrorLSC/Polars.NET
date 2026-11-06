@@ -113,3 +113,10 @@ module EnumColumnTests =
         let schemaShades = df.Schema.["Shades"]
         Assert.Equal<string list>(expected, categoriesOf schemaShades.InnerType)
         Assert.Equal<EcNestedRow list>(rows, df |> DataFrame.toRows<EcNestedRow> |> Rows.mapToArray id |> List.ofArray)
+
+    [<Fact>]
+    let ``Boxed query elements keep their values`` () =
+        use df = DataFrame.ofRecords rows
+        let expected = query { for r in rows.AsQueryable() do select (box r.Shade) } |> Seq.map string |> List.ofSeq
+        let actual = query { for r in df.AsQueryable<EcRow>() do select (box r.Shade) } |> Seq.map string |> List.ofSeq
+        Assert.Equal<string list>(expected, actual)

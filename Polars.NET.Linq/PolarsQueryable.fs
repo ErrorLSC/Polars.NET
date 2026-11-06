@@ -61,6 +61,11 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
             let targetType = typeof<'TResult>
 
             match expression with
+            | _ when (ElementUpcast.tryStripTerminal expression).IsSome ->
+                // An element of an upcast sequence: taken from the sequence without the upcasts, then converted.
+                let narrowed = (ElementUpcast.tryStripTerminal expression).Value
+                let element = (this :> IQueryProvider).Execute narrowed
+                element :?> 'TResult
             | MethodCall(m, _, _) when ScalarPlanner.isScalarReductionMethod m ->
                 ScalarPlanner.plan<'TResult> PolarsQueryBackend.Instance (this :> IQueryProvider) expression
                 |> PolarsScalarRunner.execute materializer
@@ -111,6 +116,21 @@ and PolarsQuery<'T>
             FSharpAst.rewrite expression
         else
             expression
+
+    /// When the query upcasts its elements (to object, an interface, a base class), the query narrowed to their
+    /// actual type: it runs in its place, and its elements are converted to 'T (see ElementUpcast).
+    let upcastSource: Lazy<IQueryable option> =
+        lazy
+            match exprOpt with
+            | None -> None
+            | Some e ->
+                ElementUpcast.tryStrip e
+                |> Option.bind (fun inner ->
+                    match PolarsTypeHelper.TryGetEnumerableElementType inner.Type with
+                    | null -> None
+                    | rowType when targetType.IsAssignableFrom rowType ->
+                        Some((provider :> IQueryProvider).CreateQuery inner)
+                    | _ -> None)
 
     new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer, language: QueryLanguage, expression: Expression) =
         PolarsQuery<'T>(PolarsQueryProvider(lazyFrameHandle, materializer, language), Some expression)
@@ -186,6 +206,10 @@ and PolarsQuery<'T>
 
     /// Evaluates the complete pipeline, executing native plan first, then materializing
     member private this.ExecuteQuery() : IEnumerable<'T> =
+        match upcastSource.Value with
+        | Some rows -> Seq.cast<'T> (rows :> System.Collections.IEnumerable)
+        | None ->
+
         let nativeLf, residual, stages = this.GetCompiledPlan()
 
         if residual = ClientResidual.LinqToObjects then
@@ -196,6 +220,10 @@ and PolarsQuery<'T>
 
     /// Compiles pipeline to LazyFrameHandle. If client fallback, predicates or projections exist, materializes and transposes back.
     member this.CompileToLazyFrameHandle() : LazyFrameHandle =
+        match upcastSource.Value with
+        | Some rows -> (rows :?> IPolarsPlanSource).GetCompiledLazyFrameHandle()
+        | None ->
+
         let nativeLf, residual, _ = this.GetCompiledPlan()
 
         if this.CanCollectNativeDirectly(nativeLf, residual) then
@@ -207,6 +235,10 @@ and PolarsQuery<'T>
 
     /// Compiles the query and materializes directly into a native DataFrameHandle
     member this.CompileToDataFrameHandle() : DataFrameHandle =
+        match upcastSource.Value with
+        | Some rows -> rows.GetType().GetMethod("CompileToDataFrameHandle").Invoke(rows, [||]) :?> DataFrameHandle
+        | None ->
+
         let nativeLf, residual, stages = this.GetCompiledPlan()
 
         if stages |> List.exists (function LinqStage.Chunk _ -> true | _ -> false) then
@@ -266,7 +298,10 @@ and PolarsQuery<'T>
         PlanInspectionReport.build pipeline compiled (PolarsWrapper.Explain(nativeLf, optimized)) isGrouping fallbackBoundary
 
     interface IPolarsExplainable with
-        member this.InspectPlan(optimized: bool) = this.GetPlanInspection optimized
+        member this.InspectPlan(optimized: bool) =
+            match upcastSource.Value with
+            | Some rows -> (rows :?> IPolarsExplainable).InspectPlan optimized
+            | None -> this.GetPlanInspection optimized
 
         member this.Explain(optimized: bool) =
             (this.GetPlanInspection optimized).FormatReport()
@@ -292,7 +327,8 @@ and PolarsQuery<'T>
 
             // Residual row operations are row-local, so they can be applied batch by batch.
             let canStreamBatches =
-                residual <> ClientResidual.LinqToObjects
+                upcastSource.Value.IsNone
+                && residual <> ClientResidual.LinqToObjects
                 && not isGrouping
                 && not (stages |> List.exists LinqStageTraits.isPostCollect)
 

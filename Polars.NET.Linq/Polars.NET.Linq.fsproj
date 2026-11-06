@@ -82,6 +82,7 @@
     <Compile Include="Execution/InMemoryExecution.fs" />
     <Compile Include="Execution/PlanInspectionReport.fs" />
     <Compile Include="Execution/AsyncQueryEnumerator.fs" />
+    <Compile Include="Execution/ElementUpcast.fs" />
     <Compile Include="PolarsQueryable.fs" />
   </ItemGroup>
 
