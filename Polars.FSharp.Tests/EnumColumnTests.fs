@@ -94,13 +94,22 @@ module EnumColumnTests =
               { Id = 2; Inner = { X = 2; Shade = None }; Shades = []; Maybe = [] } ]
         use df = DataFrame.ofRecords rows
 
-        // Kind-based: the handles behind nested DataTypes obtained from a Series are not kept alive.
-        let isEnum (dt: DataType) = dt.IsEnum
+        // Nested DataTypes keep their own handles, so their categories stay readable after the parent's are gone.
+        let categoriesOf (dt: DataType) =
+            match dt.TryGetEnumCategories() with
+            | Some frozen -> frozen.GetCategories() |> List.ofArray
+            | None -> failwithf "%A is not an Enum" dt.Kind
+        let expected = [ "Black"; "Green"; "Red" ]
+
         let innerFields =
             match df.["Inner"].DataType.Kind with
             | DataTypeKind.Struct fields -> List.ofSeq fields
             | other -> failwithf "Inner is %A" other
-        Assert.True(innerFields |> List.exists (fun f -> f.Name = "Shade" && f.DataType.IsEnum))
-        Assert.True(isEnum df.["Shades"].DataType.InnerType)
-        Assert.True(isEnum df.["Maybe"].DataType.InnerType)
+        Assert.Equal<string list>(expected, categoriesOf (innerFields |> List.find (fun f -> f.Name = "Shade")).DataType)
+        Assert.Equal<string list>(expected, categoriesOf df.["Shades"].DataType.InnerType)
+        Assert.Equal<string list>(expected, categoriesOf df.["Maybe"].DataType.InnerType)
+
+        // Schema lookups dispose the field handle they read; the DataType must not depend on it.
+        let schemaShades = df.Schema.["Shades"]
+        Assert.Equal<string list>(expected, categoriesOf schemaShades.InnerType)
         Assert.Equal<EcNestedRow list>(rows, df |> DataFrame.toRows<EcNestedRow> |> Rows.mapToArray id |> List.ofArray)

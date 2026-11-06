@@ -88,25 +88,44 @@ public sealed class PolarsGrouping<TKey, TElement> : IGrouping<TKey, TElement>, 
 }
 
 /// <summary>
-/// ILookup implementation backed by native Polars partitions.
+/// ILookup implementation backed by native Polars partitions. Groups enumerate in the order their keys first
+/// appear; a null key forms a group of its own, as in LINQ to Objects.
 /// </summary>
 public sealed class PolarsLookup<TKey, TElement> : ILookup<TKey, TElement>
-    where TKey : notnull
 {
-    private readonly Dictionary<TKey, PolarsGrouping<TKey, TElement>> _groups;
+    // Non-null keys, wrapped because Dictionary keys are constrained to notnull while TKey may be nullable.
+    private readonly record struct NonNullKey(TKey Value);
 
-    internal PolarsLookup(Dictionary<TKey, PolarsGrouping<TKey, TElement>> groups)
+    private sealed class NonNullKeyComparer(IEqualityComparer<TKey> inner) : IEqualityComparer<NonNullKey>
     {
-        _groups = groups;
+        public bool Equals(NonNullKey x, NonNullKey y) => inner.Equals(x.Value, y.Value);
+        public int GetHashCode(NonNullKey key) => inner.GetHashCode(key.Value!);
     }
 
-    public int Count => _groups.Count;
+    private readonly List<PolarsGrouping<TKey, TElement>> _ordered;
+    private readonly Dictionary<NonNullKey, PolarsGrouping<TKey, TElement>> _groups;
+    private readonly PolarsGrouping<TKey, TElement>? _nullGroup;
+
+    internal PolarsLookup(List<PolarsGrouping<TKey, TElement>> groups, IEqualityComparer<TKey>? comparer)
+    {
+        _ordered = groups;
+        _groups = new Dictionary<NonNullKey, PolarsGrouping<TKey, TElement>>(
+            groups.Count,
+            new NonNullKeyComparer(comparer ?? EqualityComparer<TKey>.Default));
+        foreach (var group in groups)
+        {
+            if (group.Key is null) _nullGroup = group;
+            else _groups[new NonNullKey(group.Key)] = group;
+        }
+    }
+
+    public int Count => _ordered.Count;
 
     public IEnumerable<TElement> this[TKey key]
     {
         get
         {
-            if (_groups.TryGetValue(key, out var group))
+            if (TryGetGroup(key, out var group))
             {
                 return group;
             }
@@ -115,17 +134,28 @@ public sealed class PolarsLookup<TKey, TElement> : ILookup<TKey, TElement>
         }
     }
 
-    public bool Contains(TKey key) => _groups.ContainsKey(key);
+    public bool Contains(TKey key) => TryGetGroup(key, out _);
+
+    private bool TryGetGroup(TKey key, out PolarsGrouping<TKey, TElement> group)
+    {
+        if (key is null)
+        {
+            group = _nullGroup!;
+            return _nullGroup is not null;
+        }
+
+        return _groups.TryGetValue(new NonNullKey(key), out group!);
+    }
 
     /// <summary>
     /// Strongly-typed struct enumerator that enables foreach inference to PolarsGrouping.
     /// </summary>
-    public Dictionary<TKey, PolarsGrouping<TKey, TElement>>.ValueCollection.Enumerator GetEnumerator()
-        => _groups.Values.GetEnumerator();
+    public List<PolarsGrouping<TKey, TElement>>.Enumerator GetEnumerator()
+        => _ordered.GetEnumerator();
 
     IEnumerator<IGrouping<TKey, TElement>> IEnumerable<IGrouping<TKey, TElement>>.GetEnumerator()
-        => _groups.Values.GetEnumerator();
+        => _ordered.GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator()
-        => _groups.Values.GetEnumerator();
+        => _ordered.GetEnumerator();
 }

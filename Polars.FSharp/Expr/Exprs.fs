@@ -1439,10 +1439,9 @@ and DataTypeExpr =
         let cloned = this.CloneHandle()
 
         try
-            let literalHandle = PolarsWrapper.DataTypeExprIntoLiteral(cloned)
+            use literalHandle = PolarsWrapper.DataTypeExprIntoLiteral(cloned)
 
             if literalHandle.IsInvalid then
-                literalHandle.Dispose()
                 None
             else
                 Some(DataType.FromHandle literalHandle)

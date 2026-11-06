@@ -29,7 +29,7 @@ type Series(handle: SeriesHandle) =
 
     let dtype =
         lazy
-            let dtypeHandle = PolarsWrapper.GetSeriesDataType handle
+            use dtypeHandle = PolarsWrapper.GetSeriesDataType handle
             DataType.FromHandle dtypeHandle
 
     member this.Dispose() =

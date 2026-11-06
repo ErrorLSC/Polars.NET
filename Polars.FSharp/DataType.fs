@@ -437,6 +437,11 @@ and DataType(handle: DataTypeHandle, kind: DataTypeKind) =
                 |}
         )
 
+    /// <summary>
+    /// The DataType described by a native handle. The handle is borrowed: the caller keeps ownership and may
+    /// dispose it afterwards, and a DataType that needs a handle of its own (Categorical, Enum) takes a clone,
+    /// so nested types (struct fields, list and array elements) stay usable after their parent's handles go.
+    /// </summary>
     static member FromHandle(handle: DataTypeHandle) : DataType =
         let kind = PolarsWrapper.GetDataTypeKind handle
 
@@ -506,7 +511,7 @@ and DataType(handle: DataTypeHandle, kind: DataTypeKind) =
                 else
                     Some(new Categories(maybeCatHandle))
 
-            new DataType(handle, DataTypeKind.Categorical maybeCat)
+            new DataType(PolarsWrapper.CloneHandle handle, DataTypeKind.Categorical maybeCat)
 
         | PlDataType.Enum ->
             let frozenHandle = PolarsWrapper.GetEnumCategories handle
@@ -514,7 +519,7 @@ and DataType(handle: DataTypeHandle, kind: DataTypeKind) =
             if frozenHandle = null || frozenHandle.IsInvalid then
                 raise (InvalidOperationException "Invalid FrozenCategoriesHandle in Enum type")
             else
-                new DataType(handle, DataTypeKind.Enum(new FrozenCategories(frozenHandle)))
+                new DataType(PolarsWrapper.CloneHandle handle, DataTypeKind.Enum(new FrozenCategories(frozenHandle)))
 
         | PlDataType.Decimal ->
             let mutable prec = 0
@@ -530,7 +535,8 @@ and DataType(handle: DataTypeHandle, kind: DataTypeKind) =
 
         | PlDataType.Extension ->
             let name = PolarsWrapper.DataTypeGetExtensionName handle
-            let storage = DataType.FromHandle(PolarsWrapper.GetInnerType handle)
+            use storageHandle = PolarsWrapper.GetInnerType handle
+            let storage = DataType.FromHandle storageHandle
             let metadata = Option.ofObj (PolarsWrapper.DataTypeGetExtensionMetadata handle)
 
             match ExtensionRegistry.TryResolve(name) with
