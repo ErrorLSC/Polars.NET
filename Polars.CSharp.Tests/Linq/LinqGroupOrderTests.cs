@@ -58,4 +58,31 @@ public class LinqGroupOrderTests
         AssertGroupOrder(q => q.GroupBy(r => r.A).Select(g => new { g.Key, S = g.Sum(r => r.V) }), true);
         AssertGroupOrder(q => q.GroupBy(r => r.A).Select(g => new { g.Key, S = g.Sum(r => r.V) }).Take(2), true);
     }
+
+    /// <summary>
+    /// A slice selects groups by their order even when its own output order is not observed (an aggregate over it).
+    /// Polars pushes the slice into the group_by and then drops maintain_order; the lowering must prevent that.
+    /// Run several times: the wrong result is a random choice of groups.
+    /// </summary>
+    [Fact]
+    public void Slice_Of_Groups_Under_An_Order_Free_Aggregate_Takes_The_First_Groups()
+    {
+        var rows = Enumerable.Range(0, 60).Select(i => new GoRow(i, i % 7, i % 3, i * 13 % 50)).ToArray();
+        using var df = DataFrame.FromRows(rows);
+
+        void Check<T>(Func<IQueryable<GoRow>, T> query)
+        {
+            var expected = query(rows.AsQueryable());
+            for (int i = 0; i < 8; i++)
+                Assert.Equal(expected, query(df.AsQueryable<GoRow>()));
+        }
+
+        Check(q => q.GroupBy(r => r.A).Select(g => g.Key).Take(3).Sum());
+        Check(q => q.GroupBy(r => r.A).Select(g => g.Sum(r => r.V)).Take(2).Sum());
+        Check(q => q.GroupBy(r => r.A).Select(g => g.Key).Skip(2).Take(3).Sum());
+        Check(q => q.GroupBy(r => r.A).Select(g => g.Key).Skip(5).Sum());
+        Check(q => q.GroupBy(r => r.A).Select(g => g.Key).Skip(100).Count());
+        Check(q => q.GroupBy(r => r.A).Select(g => g.Key).TakeLast(2).Sum());
+        Check(q => q.GroupBy(r => r.A).Select(g => g.Key).TakeLast(20).Sum());
+    }
 }

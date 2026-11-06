@@ -321,13 +321,19 @@ module internal SubqueryDecorrelator =
             | _ -> Some(innerSeq, None)
         | _ -> None
 
-    // Pattern 2: innerSeq.Contains(keyExpr) or Contains(innerSeq, keyExpr)
+    // Pattern 2: innerSeq.Contains(keyExpr) or Contains(innerSeq, keyExpr).
+    // A trailing non-scalar Select is split off as the key selector; a scalar-element sequence is kept whole
+    // (it resolves to a single-column plan, and splitting could leave a source that does not resolve on its
+    // own, e.g. GroupBy(..).Where(g => ..) without its key Select).
     let internal tryMatchContains (e: Expression) : (Expression * LambdaExpression option * Expression) option =
         let matchSeqAndKey (innerSeq: Expression) (keyExpr: Expression) =
             match ExpressionPatterns.unwrap innerSeq with
-            | MethodCall(mSel, null, [ src; CleanLambda selLam ]) when mSel.Name = "Select" ->
+            | MethodCall(mSel, null, [ src; CleanLambda selLam ]) when
+                mSel.Name = "Select" && not (PolarsTypeHelper.IsScalarType selLam.ReturnType) ->
                 Some(src, Some selLam, keyExpr)
-            | MethodCall(mSel, src, [ CleanLambda selLam ]) when mSel.Name = "Select" -> Some(src, Some selLam, keyExpr)
+            | MethodCall(mSel, src, [ CleanLambda selLam ]) when
+                mSel.Name = "Select" && not (PolarsTypeHelper.IsScalarType selLam.ReturnType) ->
+                Some(src, Some selLam, keyExpr)
             | otherSeq -> Some(otherSeq, None, keyExpr)
 
         match e with

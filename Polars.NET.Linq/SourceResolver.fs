@@ -13,13 +13,28 @@ open Polars.NET.Linq.IR
 /// SourceBinding.InMemory snapshots. No native resources are allocated here.
 module internal SourceResolver =
 
-    let rec private findRootQueryable (e: Expression) : IQueryable option =
+    /// Finds the root queryable of a query-operator chain and returns it with the chain re-rooted on a
+    /// constant of it. A root reached through a closure (a subquery inside a lambda reads `closure.q`, which
+    /// partial evaluation leaves alone because it is IQueryable-typed) is evaluated and inlined, so the chain
+    /// can be re-created on the root's provider and grafted instead of being bound opaquely.
+    let rec private tryRootChain (e: Expression) : (IQueryable * Expression) option =
         match e with
         | :? ConstantExpression as c when not (isNull c.Value) ->
             match c.Value with
-            | :? IQueryable as q -> Some q
+            | :? IQueryable as q -> Some(q, e)
             | _ -> None
-        | :? MethodCallExpression as mc -> mc.Arguments |> Seq.tryPick findRootQueryable
+        | :? MethodCallExpression as mc ->
+            mc.Arguments
+            |> Seq.indexed
+            |> Seq.tryPick (fun (i, arg) ->
+                tryRootChain arg
+                |> Option.map (fun (q, rerooted) ->
+                    let args = mc.Arguments |> Seq.mapi (fun j a -> if j = i then rerooted else a)
+                    q, (mc.Update(mc.Object, args) :> Expression)))
+        | :? MemberExpression when typeof<IQueryable>.IsAssignableFrom e.Type ->
+            match PartialEvaluator.tryEvaluate e with
+            | Some(:? IQueryable as q) -> Some(q, Expression.Constant(q, e.Type) :> Expression)
+            | _ -> None
         | _ -> None
 
     /// Locates a Polars queryable for the expression: a constant queryable, a subtree re-rooted on its
@@ -31,14 +46,20 @@ module internal SourceResolver =
             | :? IPolarsInternalExplainable as q -> Some q
             | _ -> None
         | _ ->
-            match findRootQueryable expr with
-            | Some rootQuery ->
-                try
-                    match rootQuery.Provider.CreateQuery expr with
+            match tryRootChain expr with
+            | Some(rootQuery, rerooted) ->
+                match rerooted with
+                | :? ConstantExpression as c ->
+                    match c.Value with
                     | :? IPolarsInternalExplainable as q -> Some q
                     | _ -> None
-                with _ ->
-                    None
+                | _ ->
+                    try
+                        match rootQuery.Provider.CreateQuery rerooted with
+                        | :? IPolarsInternalExplainable as q -> Some q
+                        | _ -> None
+                    with _ ->
+                        None
             | None ->
                 match PartialEvaluator.tryEvaluate expr with
                 | Some(:? IPolarsInternalExplainable as q) -> Some q

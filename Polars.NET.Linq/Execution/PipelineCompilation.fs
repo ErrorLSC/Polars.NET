@@ -22,15 +22,23 @@ module internal PipelineCompilation =
         (mergeDiagnostics: bool)
         : CompiledPipeline =
         let isGrouping = isGroupingType targetType
-        let extraction = PartialEvaluator.extract effectiveExpr
         let rootBinding = SourceBinding.Table root
 
-        let probe = QueryPlanCache.TryCreateProbe(targetType, extraction.NormalizedExpression, extraction.Parameters)
+        // The cache key covers composed query constants (query values embedded in the expression, such as a
+        // subquery) by their full expression; compilation itself keeps resolving them as values
+        // (see QueryPlanCache.InlineComposedQueries).
+        let keyExpr = QueryPlanCache.InlineComposedQueries effectiveExpr
+        let keyExtraction = PartialEvaluator.extract keyExpr
+        let probe = QueryPlanCache.TryCreateProbe(targetType, keyExtraction.NormalizedExpression, keyExtraction.Parameters)
 
         let pipeline =
             match probe |> Option.bind QueryPlanCache.TryGetBound with
             | Some cached -> cached
             | None ->
+                let extraction =
+                    if obj.ReferenceEquals(keyExpr, effectiveExpr) then keyExtraction
+                    else PartialEvaluator.extract effectiveExpr
+
                 let bound =
                     if extraction.Parameters.Count = 0 then
                         extraction.NormalizedExpression

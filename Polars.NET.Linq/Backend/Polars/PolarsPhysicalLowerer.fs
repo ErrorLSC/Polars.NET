@@ -50,6 +50,16 @@ module internal PolarsPhysicalLowerer =
         lf
 
     /// Recursively lowers a LogicalPlan into an optimized LazyFrameHandle, reading each Scan slot from `sources`.
+    /// Whether a slice over this plan would reach an order-keeping GroupBy through nodes Polars pushes a slice
+    /// through (projections, renames), i.e. whether the slice selects groups by their order.
+    let rec private slicesOrderedGroups (plan: LogicalPlan) : bool =
+        match plan with
+        | LogicalPlan.GroupBy(_, _, _, _, maintainOrder) -> maintainOrder
+        | LogicalPlan.Project(input, _)
+        | LogicalPlan.WithColumns(input, _)
+        | LogicalPlan.Rename(input, _, _) -> slicesOrderedGroups input
+        | _ -> false
+
     let rec lowerPlan (sources: SourceBinding array) (plan: LogicalPlan) : LazyFrameHandle =
         match plan with
         | LogicalPlan.Scan(source, schema) ->
@@ -251,6 +261,25 @@ module internal PolarsPhysicalLowerer =
             // LINQ ordering is stable: rows with equal keys keep their input order, unless the configuration lets
             // ties come out in any order.
             PolarsWrapper.LazyFrameSort(lf, exprs, desc, nullsLast, maintainOrder = not CoreConfig.AllowUnstableOrdering)
+
+        | LogicalPlan.Limit(input, offset, count) when slicesOrderedGroups input ->
+            // Polars (0.55) pushes a slice into a group_by and then, when nothing downstream observes the
+            // order of the result (an aggregate, a semi join), drops the group_by's maintain_order although
+            // the slice still selects groups by it. The slice is applied as a filter on a row index instead:
+            // nothing pushes into the group_by, and the index observes its order. Same window as a slice:
+            // [start, start + count) within the rows, start counting from the end when the offset is negative.
+            let lf = lowerPlan sources input
+            let indexName = "__slice_order_idx"
+            let indexed = PolarsWrapper.LazyFrameWithRowIndex(lf, indexName, Nullable 0)
+            let start () =
+                if offset >= 0L then PolarsWrapper.Lit offset
+                else PolarsWrapper.Add(PolarsWrapper.Len(), PolarsWrapper.Lit offset)
+            let window =
+                PolarsWrapper.And(
+                    PolarsWrapper.GtEq(PolarsWrapper.Col indexName, start ()),
+                    PolarsWrapper.Lt(PolarsWrapper.Col indexName, PolarsWrapper.Add(start (), PolarsWrapper.Lit(int64 count))))
+            let sliced = PolarsWrapper.LazyFilter(indexed, window)
+            PolarsWrapper.LazyFrameDrop(sliced, PolarsWrapper.SelectorCols [| indexName |])
 
         | LogicalPlan.Limit(input, offset, count) ->
             let lf = lowerPlan sources input

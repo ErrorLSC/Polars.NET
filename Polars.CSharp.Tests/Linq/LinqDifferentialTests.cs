@@ -64,6 +64,71 @@ public class LinqDifferentialTests
         ("scalars", q => [q.Count().ToString(), q.Sum(r => r.B).ToString(), q.Any(r => r.B == 2).ToString(), q.Select(r => r.Id).FirstOrDefault().ToString()]),
     ];
 
+    /// <summary>Subqueries producing keys, used as IN / NOT IN filters over the outer query.</summary>
+    private static readonly (string Name, Func<IQueryable<DtRow>, IQueryable<int>> Keys, System.Linq.Expressions.Expression<Func<DtRow, int>> OuterKey)[] Subqueries =
+    [
+        ("where-select", i => i.Where(x => x.V > 99).Select(x => x.Id), r => r.Id),
+        ("having", i => i.GroupBy(x => x.Id % 97).Where(g => g.Sum(x => x.V) > 10400).Select(g => g.Key), r => r.Id % 97),
+        ("distinct", i => i.Where(x => x.S == "z4" && x.B == 1).Select(x => x.Id % 300).Distinct(), r => r.Id % 300),
+        ("top-n", i => i.OrderByDescending(x => x.V).ThenBy(x => x.Id).Take(300).Select(x => x.Id), r => r.Id),
+        ("top-groups", i => i.GroupBy(x => x.Id % 97).Select(g => new { g.Key, T = g.Sum(x => x.V) }).OrderByDescending(t => t.T).Take(20).Select(t => t.Key), r => r.Id % 97),
+        ("first-n", i => i.Where(x => x.B == 2).Take(150).Select(x => x.Id), r => r.Id),
+    ];
+
+    /// <summary>
+    /// The outer filter/ordering/paging combinations under an IN or NOT IN subquery filter. The native side captures
+    /// the Polars subquery (grafted as a semi or anti join); the oracle evaluates the subquery once into a set.
+    /// </summary>
+    [Fact]
+    public void Subquery_Filter_Combinations_Agree_With_Linq_To_Objects()
+    {
+        using var df = DataFrame.FromRows(Rows);
+        using var dfInner = DataFrame.FromRows(Rows);
+        var failures = new List<string>();
+        int checkedCount = 0;
+
+        foreach (var sub in Subqueries)
+        foreach (var negate in new[] { false, true })
+        {
+            var keyOf = sub.OuterKey.Compile();
+            var expectedKeys = sub.Keys(Rows.AsQueryable()).ToHashSet();
+            var nativeKeys = sub.Keys(dfInner.AsQueryable<DtRow>());
+            var p = sub.OuterKey.Parameters[0];
+            var contains = System.Linq.Expressions.Expression.Call(
+                typeof(Queryable), nameof(Queryable.Contains), [typeof(int)],
+                System.Linq.Expressions.Expression.Constant(nativeKeys, typeof(IQueryable<int>)), sub.OuterKey.Body);
+            var nativePredicate = System.Linq.Expressions.Expression.Lambda<Func<DtRow, bool>>(
+                negate ? System.Linq.Expressions.Expression.Not(contains) : contains, p);
+
+            foreach (var filter in Filters)
+            foreach (var ordering in Orderings)
+            foreach (var paging in Pagings)
+            {
+                var name = $"{(negate ? "not in" : "in")} {sub.Name} | {filter.Name} | {ordering.Name} | {paging.Name}";
+                checkedCount++;
+                try
+                {
+                    var expected = paging.Apply(ordering.Apply(filter.Apply(Rows.AsQueryable())
+                            .Where(r => expectedKeys.Contains(keyOf(r)) != negate)))
+                        .Select(r => r.Id).ToList();
+                    var actual = paging.Apply(ordering.Apply(filter.Apply(df.AsQueryable<DtRow>()).Where(nativePredicate)))
+                        .Select(r => r.Id).ToList();
+                    if (!expected.SequenceEqual(actual))
+                    {
+                        int at = expected.Zip(actual).TakeWhile(x => x.First == x.Second).Count();
+                        failures.Add($"{name}: first difference at {at} (counts {expected.Count}/{actual.Count})");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"{name}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}");
+                }
+            }
+        }
+
+        Assert.True(failures.Count == 0, $"{failures.Count} of {checkedCount} combinations differ:\n" + string.Join("\n", failures.Take(40)));
+    }
+
     [Fact]
     public void Query_Combinations_Agree_With_Linq_To_Objects()
     {

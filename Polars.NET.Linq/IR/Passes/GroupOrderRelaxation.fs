@@ -11,9 +11,11 @@ open Polars.NET.Linq.IR
 /// - Rows feeding order-free aggregations (Sum, Count, Min, Max, Mean, ...; not First, Last or List): a projection
 ///   made only of such aggregations, and a GroupBy whose order is relaxed and whose aggregations are all order-free.
 ///   Beneath them a GroupBy keeps no order and a Sort is dead and removed.
+/// - The right side of a semi or anti join (an EXISTS / IN subquery): only which keys it holds is observed.
+/// - A Distinct whose order is not observed. Its input is freed too when the kept row cannot depend on order
+///   (whole-row distinct, or keep Any / None).
 /// Anything else keeps its order. A GroupBy's input keeps its order unless the rules above free it, since
-/// aggregations such as First and Last read it. (A semi join's right side would not observe order either, but a
-/// subquery reaches the plan as a separately compiled source, not as a plan this pass sees.)
+/// aggregations such as First and Last read it.
 module internal GroupOrderRelaxation =
 
     /// What the consumer of a plan observes of its row order.
@@ -139,6 +141,21 @@ module internal GroupOrderRelaxation =
                     sortColumns |> Set.map (fun c -> back.TryFind c |> Option.defaultValue c) |> OrderNeed.SortedBy
                 | other -> other
             LogicalPlan.Rename(relax inputNeed input, existing, renamed)
+
+        // The result is the left rows in their order; the right side only decides which of them survive.
+        | LogicalPlan.Join(left, right, leftOn, rightOn, (JoinKind.Semi | JoinKind.Anti as how), suffix, coalescing, nullsEqual) ->
+            LogicalPlan.Join(relax need left, relax OrderNeed.Unordered right, leftOn, rightOn, how, suffix, coalescing, nullsEqual)
+
+        | LogicalPlan.Distinct(input, subset, keep, maintainOrder) when need = OrderNeed.Unordered ->
+            let keptRowIgnoresOrder =
+                subset.IsNone
+                || (match keep with
+                    | DistinctKeep.Any
+                    | DistinctKeep.None -> true
+                    | DistinctKeep.First
+                    | DistinctKeep.Last -> false)
+            let inputNeed = if keptRowIgnoresOrder then OrderNeed.Unordered else OrderNeed.Ordered
+            LogicalPlan.Distinct(relax inputNeed input, subset, keep, false)
 
         | other -> LogicalPlanOps.mapInputs (relax OrderNeed.Ordered) other
 

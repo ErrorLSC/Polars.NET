@@ -309,6 +309,41 @@ public class QueryPlanCacheTests
 
     [Fact]
     [Trait("LINQ", "QueryPlanCache")]
+    public void Captured_Subqueries_That_Differ_Do_Not_Share_A_Plan()
+    {
+        QueryPlanCache.Clear();
+        using var dfA = DataFrame.FromRows(Customers);
+        using var dfO = DataFrame.FromRows(new[]
+        {
+            new Order { CustomerId = 1, Amount = 5m },
+            new Order { CustomerId = 2, Amount = 50m },
+            new Order { CustomerId = 3, Amount = 500m },
+        });
+
+        // The subquery is inlined as a constant (as F# captures it). Its element type and root table are the same
+        // for every subquery here, so only its own expression tells the plans apart.
+        List<int> CustomersIn(IQueryable<int> customerIds) =>
+            InlineRoot(dfA.AsQueryable<Customer>().Where(c => customerIds.Contains(c.Id)), customerIds)
+                .Select(c => c.Id)
+                .ToList();
+
+        var orders = dfO.AsQueryable<Order>();
+        for (int i = 0; i < 3; i++)
+            Assert.Equal([3], CustomersIn(orders.Where(o => o.Amount > 100m).Select(o => o.CustomerId)));
+        Assert.True(QueryPlanCache.Hits > 0);
+
+        Assert.Equal([1], CustomersIn(orders.Where(o => o.Amount < 10m).Select(o => o.CustomerId)));
+        Assert.Equal([1, 2], CustomersIn(orders.OrderBy(o => o.Amount).Take(2).Select(o => o.CustomerId)));
+
+        // The same subquery over another orders table still reuses the plan, bound to that table.
+        using var dfO2 = DataFrame.FromRows(new[] { new Order { CustomerId = 2, Amount = 900m } });
+        var hitsBefore = QueryPlanCache.Hits;
+        Assert.Equal([2], CustomersIn(dfO2.AsQueryable<Order>().Where(o => o.Amount > 100m).Select(o => o.CustomerId)));
+        Assert.True(QueryPlanCache.Hits > hitsBefore);
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
     public void Root_Inside_A_Client_Predicate_Is_Read_From_The_Query_Being_Run()
     {
         QueryPlanCache.Clear();

@@ -196,6 +196,28 @@ type QueryPlanCache private () =
         | v when v.GetType().IsEnum -> keyed value
         | _ -> None
 
+    /// The expression with every composed Polars query constant (a query built on a root, e.g. the inner side of
+    /// a Join or Concat, or a subquery captured as a value) replaced by that query's own expression, recursively.
+    /// The shape key identifies a query constant by its element type only, so without this two different
+    /// subqueries over the same root would share a key. After inlining, the constants left are the roots
+    /// themselves, which read the same tables as the composed queries did.
+    static member internal InlineComposedQueries(expression: Expression) : Expression =
+        let visitor =
+            { new ExpressionVisitor() with
+                override this.VisitConstant(node: ConstantExpression) =
+                    match node.Value with
+                    | :? System.Linq.IQueryable as q when (q :? IPolarsInternalExplainable) ->
+                        match q.Expression with
+                        | :? ConstantExpression as c when obj.ReferenceEquals(c.Value, q) -> node :> Expression
+                        | composed ->
+                            let inlined = this.Visit composed
+                            if node.Type.IsAssignableFrom inlined.Type then inlined
+                            else Expression.Convert(inlined, node.Type) :> Expression
+                    | _ -> node :> Expression
+            }
+
+        visitor.Visit expression
+
     /// The inline queryable constants (query roots) of the expression in traversal order, and whether any of
     /// them occurs inside a lambda.
     static member private CollectRoots(expression: Expression) : System.Linq.IQueryable list * bool =
