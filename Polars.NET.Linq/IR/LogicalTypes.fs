@@ -102,10 +102,7 @@ module LogicalTypes =
         if isNull t then
             None
         else
-            try
-                match ArrowTypeResolver.GetArrowTypeFromNetType t with
-                | :? MapType -> None
-                | arrowType -> Some(LogicalType.Arrow arrowType)
-            with _ ->
-                None
+            match ArrowTypeResolver.GetArrowTypeFromNetType t with
+            | :? MapType -> None
+            | arrowType -> Some(LogicalType.Arrow arrowType)
 

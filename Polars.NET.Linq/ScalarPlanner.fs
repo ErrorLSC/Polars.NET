@@ -194,10 +194,8 @@ module internal ScalarPlanner =
                         if isNull v then
                             None
                         else
-                            try
-                                Some(ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Column p.Name, ScalarExprOps.toLiteral v p.PropertyType))
-                            with _ ->
-                                None)
+                            ScalarExprOps.tryToLiteral v p.PropertyType
+                            |> Option.map (fun literal -> ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Column p.Name, literal)))
 
                 if conditions.Length > 0 then
                     Some(conditions |> Array.reduce (fun acc c -> ScalarExpr.Binary(BinaryOp.And, acc, c)))

@@ -976,7 +976,7 @@ module internal SubqueryDecorrelator =
                                 Some(ScalarExpr.Binary(BinaryOp.Divide, aggColBaseScalar, lit))
                             | _ -> None
 
-                    let cmpScalar = OperatorAndUdfTranslator.translateBinary effectiveOp outerSideScalar scaledAggScalar
+                    let! cmpScalar = OperatorAndUdfTranslator.tryTranslateBinary effectiveOp outerSideScalar scaledAggScalar
 
                     let joinedPlan = LogicalPlan.Join(outerPlan, groupedPlan, keys.OuterKeys, keys.InnerKeys, JoinKind.Left, None, JoinKeyCoalescing.Default, false)
                     let filterPlan = LogicalPlan.Filter(joinedPlan, cmpScalar)
@@ -1079,7 +1079,7 @@ module internal SubqueryDecorrelator =
                                 Some(ScalarExpr.Binary(BinaryOp.Divide, aggColBaseScalar, lit))
                             | _ -> None
 
-                    let cmpScalar = OperatorAndUdfTranslator.translateBinary effectiveOp outerSideScalar scaledAggScalar
+                    let! cmpScalar = OperatorAndUdfTranslator.tryTranslateBinary effectiveOp outerSideScalar scaledAggScalar
                     let filteredPlan = LogicalPlan.Filter(leftJoinPlan, cmpScalar)
                     let restorePlan = LogicalPlan.Project(filteredPlan, originalCols |> List.map (fun c -> c, ScalarExpr.Column c))
 

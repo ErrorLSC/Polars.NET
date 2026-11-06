@@ -56,8 +56,11 @@ module internal PartialEvaluator =
                         Some(Enum.ToObject(targetType, v))
                     else
                         Some(Convert.ChangeType(v, targetType))
-                with _ ->
-                    None
+                with
+                | :? InvalidCastException
+                | :? FormatException
+                | :? OverflowException
+                | :? ArgumentException -> None
             | None -> None
         | :? MemberExpression as me ->
             if isNull me.Expression then

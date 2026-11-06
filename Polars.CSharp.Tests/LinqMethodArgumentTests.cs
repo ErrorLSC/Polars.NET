@@ -73,6 +73,21 @@ public class LinqMethodArgumentTests
         Assert.Contains("42 is not a valid rank method", ex.Message);
     }
 
+    private static double Scale(double v) => v * 10;
+
+    [Fact]
+    public void Undefined_Rank_Method_Inside_A_Udf_Argument_Is_Rejected()
+    {
+        // The invalid argument is found while translating the UDF's argument; it must not be swallowed into
+        // "no UDF" and the query quietly evaluated elsewhere.
+        using var df = DataFrame.FromRows(Rows);
+        var invalid = (RankMethod)42;
+        var query = df.AsQueryable<ArgRow>().Select(r => new { r.Id, R = Scale(r.V.Rank(invalid)) });
+
+        var ex = Assert.ThrowsAny<ArgumentOutOfRangeException>(() => query.ToList());
+        Assert.Contains("42 is not a valid rank method", ex.Message);
+    }
+
     [Fact]
     public void Undefined_Quantile_Method_Is_Rejected_Not_Defaulted()
     {

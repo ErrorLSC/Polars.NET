@@ -10,27 +10,28 @@ open System.Reflection
 [<AutoOpen>]
 module internal OperatorAndUdfTranslator =
 
-    let internal translateBinary (nodeType: ExpressionType) (left: ScalarExpr) (right: ScalarExpr) : ScalarExpr =
+    /// The ScalarExpr of a binary operator over translated operands, or None for an operator without one.
+    let internal tryTranslateBinary (nodeType: ExpressionType) (left: ScalarExpr) (right: ScalarExpr) : ScalarExpr option =
         match nodeType with
-        | ExpressionType.Equal -> ScalarExpr.Binary(BinaryOp.Eq, left, right)
-        | ExpressionType.NotEqual -> ScalarExpr.Binary(BinaryOp.NotEq, left, right)
-        | ExpressionType.GreaterThan -> ScalarExpr.Binary(BinaryOp.Gt, left, right)
-        | ExpressionType.GreaterThanOrEqual -> ScalarExpr.Binary(BinaryOp.GtEq, left, right)
-        | ExpressionType.LessThan -> ScalarExpr.Binary(BinaryOp.Lt, left, right)
-        | ExpressionType.LessThanOrEqual -> ScalarExpr.Binary(BinaryOp.LtEq, left, right)
-        | ExpressionType.Add -> ScalarExpr.Binary(BinaryOp.Add, left, right)
-        | ExpressionType.Subtract -> ScalarExpr.Binary(BinaryOp.Subtract, left, right)
-        | ExpressionType.Multiply -> ScalarExpr.Binary(BinaryOp.Multiply, left, right)
-        | ExpressionType.Divide -> ScalarExpr.Binary(BinaryOp.Divide, left, right)
-        | ExpressionType.Modulo -> ScalarExpr.Binary(BinaryOp.Modulo, left, right)
-        | ExpressionType.Power -> ScalarExpr.Binary(BinaryOp.Power, left, right)
+        | ExpressionType.Equal -> Some(ScalarExpr.Binary(BinaryOp.Eq, left, right))
+        | ExpressionType.NotEqual -> Some(ScalarExpr.Binary(BinaryOp.NotEq, left, right))
+        | ExpressionType.GreaterThan -> Some(ScalarExpr.Binary(BinaryOp.Gt, left, right))
+        | ExpressionType.GreaterThanOrEqual -> Some(ScalarExpr.Binary(BinaryOp.GtEq, left, right))
+        | ExpressionType.LessThan -> Some(ScalarExpr.Binary(BinaryOp.Lt, left, right))
+        | ExpressionType.LessThanOrEqual -> Some(ScalarExpr.Binary(BinaryOp.LtEq, left, right))
+        | ExpressionType.Add -> Some(ScalarExpr.Binary(BinaryOp.Add, left, right))
+        | ExpressionType.Subtract -> Some(ScalarExpr.Binary(BinaryOp.Subtract, left, right))
+        | ExpressionType.Multiply -> Some(ScalarExpr.Binary(BinaryOp.Multiply, left, right))
+        | ExpressionType.Divide -> Some(ScalarExpr.Binary(BinaryOp.Divide, left, right))
+        | ExpressionType.Modulo -> Some(ScalarExpr.Binary(BinaryOp.Modulo, left, right))
+        | ExpressionType.Power -> Some(ScalarExpr.Binary(BinaryOp.Power, left, right))
         | ExpressionType.And
-        | ExpressionType.AndAlso -> ScalarExpr.Binary(BinaryOp.And, left, right)
+        | ExpressionType.AndAlso -> Some(ScalarExpr.Binary(BinaryOp.And, left, right))
         | ExpressionType.Or
-        | ExpressionType.OrElse -> ScalarExpr.Binary(BinaryOp.Or, left, right)
-        | ExpressionType.ExclusiveOr -> ScalarExpr.Binary(BinaryOp.Xor, left, right)
-        | ExpressionType.Coalesce -> ScalarExpr.Coalesce [ left; right ]
-        | other -> failwithf "Binary operator '%A' is not currently supported in Polars LINQ" other
+        | ExpressionType.OrElse -> Some(ScalarExpr.Binary(BinaryOp.Or, left, right))
+        | ExpressionType.ExclusiveOr -> Some(ScalarExpr.Binary(BinaryOp.Xor, left, right))
+        | ExpressionType.Coalesce -> Some(ScalarExpr.Coalesce [ left; right ])
+        | _ -> None
 
     let internal translateUnary (nodeType: ExpressionType) (operand: ScalarExpr) : ScalarExpr option =
         match nodeType with
@@ -91,7 +92,7 @@ module internal OperatorAndUdfTranslator =
             | _ -> None
         else
             match eval ctx left, eval ctx right with
-            | Some l, Some r -> Some(translateBinary op l r)
+            | Some l, Some r -> tryTranslateBinary op l r
             | _ -> None
 
     let internal translateUnaryExpr
@@ -267,6 +268,10 @@ module internal OperatorAndUdfTranslator =
                                 Some(ScalarExpr.Udf(methodName, scalarArgs, retPlType, UdfInvoker.MultiBatch(box arrowCallback, expr.Type)))
                             else
                                 None
-        with _ ->
-            None
+        with
+        | :? InvalidQueryArgumentException -> reraise ()
+        // Building the expression tree of the UDF delegate or compiling it.
+        | :? ArgumentException
+        | :? InvalidOperationException
+        | :? NotSupportedException -> None
 

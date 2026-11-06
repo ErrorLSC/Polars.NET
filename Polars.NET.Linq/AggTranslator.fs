@@ -579,7 +579,7 @@ module AggTranslator =
                 tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap left,
                 tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap right
             with
-            | Some leftS, Some rightS -> Some(OperatorAndUdfTranslator.translateBinary op leftS rightS)
+            | Some leftS, Some rightS -> OperatorAndUdfTranslator.tryTranslateBinary op leftS rightS
             | _ -> None
 
         | Unary(op, operand) ->

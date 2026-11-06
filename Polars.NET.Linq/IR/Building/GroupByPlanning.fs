@@ -511,11 +511,7 @@ module internal GroupByPlanning =
                         match foldedExpr with
                         | Binary(op, left, right) ->
                             match translateHaving left, translateHaving right with
-                            | Some l, Some r ->
-                                try
-                                    Some(OperatorAndUdfTranslator.translateBinary op l r)
-                                with _ ->
-                                    None
+                            | Some l, Some r -> OperatorAndUdfTranslator.tryTranslateBinary op l r
                             | _ ->
                                 tryTranslatePostGroupExpr (Some derivedKeyColMap) foldedExpr
                         | Unary(op, inner) when op = ExpressionType.Convert || op = ExpressionType.ConvertChecked ->

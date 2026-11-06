@@ -46,25 +46,32 @@ module ScalarExprOps =
     let inline lit (v: ^T) : ScalarExpr =
         ((^T or ScalarLitMechanism): (static member ($): ScalarLitMechanism * ^T -> ScalarExpr) (ScalarLitMechanism, v))
 
-    /// Pure symbolic conversion from a constant object and CLR type to a ScalarExpr literal.
+    /// Pure symbolic conversion from a constant object and CLR type to a ScalarExpr literal, or None for a
+    /// value of a type without a literal form.
     [<TailCall>]
-    let rec toLiteral (value: obj) (t: Type) : ScalarExpr =
+    let rec tryToLiteral (value: obj) (t: Type) : ScalarExpr option =
         match value with
         | null ->
             let dt =
                 (LogicalTypes.tryOfClrType t)
                 |> Option.defaultValue LogicalTypes.Null
-            ScalarExpr.Literal(LiteralValue.Null dt)
+            Some(ScalarExpr.Literal(LiteralValue.Null dt))
         | _ ->
             let coreType = PolarsTypeHelper.UnwrapCoreType t
             if coreType.IsEnum then
                 let underlyingType = Enum.GetUnderlyingType coreType
                 let underlyingVal = Convert.ChangeType(value, underlyingType)
-                toLiteral underlyingVal underlyingType
+                tryToLiteral underlyingVal underlyingType
             else
                 match value with
-                | :? char as c -> ScalarExpr.Literal(LiteralValue.String(string c))
-                | _ -> ScalarExpr.Literal(LiteralValue.OfObject value)
+                | :? char as c -> Some(ScalarExpr.Literal(LiteralValue.String(string c)))
+                | _ -> LiteralValue.TryOfObject value |> Option.map ScalarExpr.Literal
+
+    /// Pure symbolic conversion from a constant object and CLR type to a ScalarExpr literal.
+    let toLiteral (value: obj) (t: Type) : ScalarExpr =
+        match tryToLiteral value t with
+        | Some literal -> literal
+        | None -> failwithf "Unsupported literal value type: %s" (value.GetType().FullName)
 
     /// Pure symbolic translation of type casting to ScalarExpr.Cast nodes.
     let tryTranslateCast (targetType: Type) (operand: ScalarExpr) : ScalarExpr option =
@@ -76,10 +83,7 @@ module ScalarExprOps =
 
     /// Pure check whether a CLR type has an Arrow representation usable as a UDF return type.
     let isUdfReturnTypeSupported (t: Type) : bool =
-        try
-            not (isNull (ArrowTypeResolver.GetArrowTypeFromNetType t))
-        with _ ->
-            false
+        not (isNull (ArrowTypeResolver.GetArrowTypeFromNetType t))
 
     /// Pure symbolic translation of standard LINQ reduction method names to ScalarExpr.Aggregation nodes.
     let translateReductionOp (methodName: string) (targetColExpr: ScalarExpr) : ScalarExpr option =

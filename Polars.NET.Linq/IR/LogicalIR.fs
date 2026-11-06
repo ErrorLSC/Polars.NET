@@ -74,27 +74,34 @@ type LiteralValue =
 
         /// Converts a dynamic runtime object into a strongly-typed LiteralValue.
         static member OfObject(raw: obj) : LiteralValue =
+            match LiteralValue.TryOfObject raw with
+            | Some literal -> literal
+            | None -> failwithf "Unsupported literal value type: %s" (raw.GetType().FullName)
+
+        /// Converts a dynamic runtime object into a strongly-typed LiteralValue, or None for a value of a type
+        /// without a literal form.
+        static member TryOfObject(raw: obj) : LiteralValue option =
             match raw with
-            | null -> LiteralValue.Null LogicalTypes.Null
-            | :? bool as b -> LiteralValue.Bool b
-            | :? int as i -> LiteralValue.Int32 i
-            | :? int64 as i -> LiteralValue.Int64 i
-            | :? double as d -> LiteralValue.Float64 d
-            | :? float32 as f -> LiteralValue.Float32 f
-            | :? string as s -> LiteralValue.String s
-            | :? decimal as m -> LiteralValue.Decimal m
-            | :? sbyte as b -> LiteralValue.Int8 b
-            | :? int16 as s -> LiteralValue.Int16 s
-            | :? byte as b -> LiteralValue.UInt8 b
-            | :? uint16 as u -> LiteralValue.UInt16 u
-            | :? uint32 as u -> LiteralValue.UInt32 u
-            | :? uint64 as u -> LiteralValue.UInt64 u
-            | :? DateOnly as d -> LiteralValue.Date d
-            | :? DateTime as dt -> LiteralValue.DateTime dt
-            | :? DateTimeOffset as dto -> LiteralValue.DateTimeOffset dto
-            | :? TimeSpan as ts -> LiteralValue.TimeSpan ts
-            | :? TimeOnly as to' -> LiteralValue.TimeOnly to'
-            | other -> failwithf "Unsupported literal value type: %s" (other.GetType().FullName)
+            | null -> Some(LiteralValue.Null LogicalTypes.Null)
+            | :? bool as b -> Some(LiteralValue.Bool b)
+            | :? int as i -> Some(LiteralValue.Int32 i)
+            | :? int64 as i -> Some(LiteralValue.Int64 i)
+            | :? double as d -> Some(LiteralValue.Float64 d)
+            | :? float32 as f -> Some(LiteralValue.Float32 f)
+            | :? string as s -> Some(LiteralValue.String s)
+            | :? decimal as m -> Some(LiteralValue.Decimal m)
+            | :? sbyte as b -> Some(LiteralValue.Int8 b)
+            | :? int16 as s -> Some(LiteralValue.Int16 s)
+            | :? byte as b -> Some(LiteralValue.UInt8 b)
+            | :? uint16 as u -> Some(LiteralValue.UInt16 u)
+            | :? uint32 as u -> Some(LiteralValue.UInt32 u)
+            | :? uint64 as u -> Some(LiteralValue.UInt64 u)
+            | :? DateOnly as d -> Some(LiteralValue.Date d)
+            | :? DateTime as dt -> Some(LiteralValue.DateTime dt)
+            | :? DateTimeOffset as dto -> Some(LiteralValue.DateTimeOffset dto)
+            | :? TimeSpan as ts -> Some(LiteralValue.TimeSpan ts)
+            | :? TimeOnly as to' -> Some(LiteralValue.TimeOnly to')
+            | _ -> None
 
 /// Binary operations supported in ScalarExpr
 [<RequireQualifiedAccess>]
