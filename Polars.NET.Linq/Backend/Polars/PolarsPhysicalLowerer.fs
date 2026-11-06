@@ -73,7 +73,19 @@ module internal PolarsPhysicalLowerer =
                     let h = PolarsScalarLowerer.lower expr
                     PolarsWrapper.Alias(h, name))
                 |> List.toArray
-            PolarsWrapper.LazySelect(lf, exprs)
+
+            // A Polars select of expressions that read no column (constants) yields a single row; a projection
+            // yields one row per input row, so such constants are added as columns, which broadcast to the
+            // frame's height, and then selected.
+            let isRowIndependent (_, expr) =
+                (ScalarExprOps.collectColumns expr).IsEmpty && not (ScalarExprOps.containsAggregation expr)
+
+            if not projs.IsEmpty && projs |> List.forall isRowIndependent then
+                let withConstants = PolarsWrapper.LazyWithColumns(lf, exprs)
+                let names = projs |> List.map (fst >> PolarsWrapper.Col) |> List.toArray
+                PolarsWrapper.LazySelect(withConstants, names)
+            else
+                PolarsWrapper.LazySelect(lf, exprs)
 
         | LogicalPlan.WithColumns(input, cols) ->
             let lf = lowerPlan sources input
