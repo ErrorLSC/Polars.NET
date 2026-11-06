@@ -63,6 +63,7 @@
     <Compile Include="IR/Passes/SortSliceFusion.fs" />
     <Compile Include="IR/Passes/PredicatePushdown.fs" />
     <Compile Include="IR/Passes/ProjectionPruning.fs" />
+    <Compile Include="IR/Passes/GroupOrderRelaxation.fs" />
     <Compile Include="IR/Passes/LogicalOptimizer.fs" />
     <Compile Include="ScalarPlanner.fs" />
     <!-- Polars execution backend: must stay after the frontend and IR so the compiler enforces the dependency direction -->

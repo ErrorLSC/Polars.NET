@@ -162,6 +162,9 @@ public sealed class PolarsConfig
                         case "disallow_udf_pushdown":
                             CoreConfig.DisallowUdfPushdown = value is "1" or "true" or "TRUE" or "True";
                             break;
+                        case "allow_unstable_ordering":
+                            CoreConfig.AllowUnstableOrdering = value is "1" or "true" or "TRUE" or "True";
+                            break;
                     }
                 }
                 else
@@ -177,6 +180,12 @@ public sealed class PolarsConfig
     /// Default is false (UDF pushdown is allowed).
     /// </summary>
     public bool DisallowUdfPushdown => CoreConfig.DisallowUdfPushdown;
+
+    /// <summary>
+    /// Gets whether LINQ orderings may be executed as unstable sorts.
+    /// Default is false (orderings are stable, as in LINQ to Objects).
+    /// </summary>
+    public bool AllowUnstableOrdering => CoreConfig.AllowUnstableOrdering;
 
     /// <summary>
     /// Gets the current client-side evaluation policy.
@@ -495,6 +504,18 @@ public sealed class PolarsConfig
     public PolarsConfig SetDisallowUdfPushdown(bool disallow = true)
     {
         Apply(() => CoreConfig.DisallowUdfPushdown = disallow);
+        return this;
+    }
+
+    /// <summary>
+    /// Sets whether LINQ orderings (OrderBy / ThenBy) may be executed as unstable sorts.
+    /// Default is false: orderings are stable, as in LINQ to Objects. Allowing unstable sorts leaves the order of
+    /// rows with equal sort keys unspecified (as with SQL ORDER BY) and lets the native engine drop the order of the
+    /// rows beneath the sort, which can be markedly faster on join-heavy queries.
+    /// </summary>
+    public PolarsConfig SetAllowUnstableOrdering(bool allow = true)
+    {
+        Apply(() => CoreConfig.AllowUnstableOrdering = allow);
         return this;
     }
 }

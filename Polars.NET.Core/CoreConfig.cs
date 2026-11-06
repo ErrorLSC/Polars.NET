@@ -94,7 +94,8 @@ internal static class CoreConfig
         QueryCacheEnabledKey,
         ClientEvaluationPolicyKey,
         NetClientEvaluationPolicyKey,
-        DisallowUdfPushdownKey
+        DisallowUdfPushdownKey,
+        AllowUnstableOrderingKey
     ];
 
     private static readonly (string DirectKey, Func<string?> ValueGetter)[] DirectVarRules =
@@ -126,6 +127,10 @@ internal static class CoreConfig
         (
             "disallow_udf_pushdown",
             () => DisallowUdfPushdown.ToFmtString()
+        ),
+        (
+            "allow_unstable_ordering",
+            () => AllowUnstableOrdering.ToFmtString()
         )
     ];
 
@@ -344,6 +349,10 @@ internal static class CoreConfig
                         case "disallow_udf_pushdown":
                             DisallowUdfPushdown = strValue is "1" or "true" or "TRUE" or "True";
                             break;
+
+                        case "allow_unstable_ordering":
+                            AllowUnstableOrdering = strValue is "1" or "true" or "TRUE" or "True";
+                            break;
                     }
                 }
             }
@@ -406,6 +415,7 @@ internal static class CoreConfig
         TrimDecimalZeros = null;
         ClientEvaluationPolicy = ClientEvaluationPolicy.Strict;
         DisallowUdfPushdown = false;
+        AllowUnstableOrdering = false;
 
         PolarsWrapper.ReloadEnvVarAll();
     }
@@ -1041,6 +1051,34 @@ internal static class CoreConfig
     private static bool GetDefaultDisallowUdfPushdownFromEnv()
     {
         var envValue = Environment.GetEnvironmentVariable(DisallowUdfPushdownKey);
+        return envValue is "1" or "true" or "TRUE" or "True";
+    }
+
+    private const string AllowUnstableOrderingKey = "POLARS_ALLOW_UNSTABLE_ORDERING";
+    private static bool _allowUnstableOrdering = GetDefaultAllowUnstableOrderingFromEnv();
+
+    /// <summary>
+    /// Gets or sets whether LINQ orderings (OrderBy / ThenBy) may be executed as unstable sorts.
+    /// Default is false: orderings are stable, as in LINQ to Objects, so rows with equal sort keys keep their
+    /// input order. A stable sort also makes the native engine keep the order of the rows it sorts (joins and
+    /// groupings beneath it), which can cost noticeably on join-heavy queries. When set to true, the order of
+    /// rows with equal sort keys is unspecified, as with SQL ORDER BY.
+    /// </summary>
+    public static bool AllowUnstableOrdering
+    {
+        get => _allowUnstableOrdering;
+        set
+        {
+            _allowUnstableOrdering = value;
+            string valStr = value ? "1" : "0";
+            Environment.SetEnvironmentVariable(AllowUnstableOrderingKey, valStr);
+            PolarsWrapper.SetEnvVar(AllowUnstableOrderingKey, valStr);
+        }
+    }
+
+    private static bool GetDefaultAllowUnstableOrderingFromEnv()
+    {
+        var envValue = Environment.GetEnvironmentVariable(AllowUnstableOrderingKey);
         return envValue is "1" or "true" or "TRUE" or "True";
     }
 }

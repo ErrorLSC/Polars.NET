@@ -11,7 +11,10 @@ open Polars.NET.Linq.IR
 module internal PolarsScalarRunner =
 
     let private collect (sources: SourceBinding array) (plan: LogicalPlan) : DataFrameHandle =
-        PolarsWrapper.LazyCollect(PolarsPhysicalLowerer.lowerPlan sources (EnumResolution.resolvePlan plan), PlEngine.Auto)
+        // A scalar plan wraps an optimized pipeline plan in its terminal (a row count, an aggregate), which may free
+        // the pipeline's rows from their order.
+        let prepared = plan |> EnumResolution.resolvePlan |> Polars.NET.Linq.IR.Passes.GroupOrderRelaxation.apply
+        PolarsWrapper.LazyCollect(PolarsPhysicalLowerer.lowerPlan sources prepared, PlEngine.Auto)
 
     let private runRowsOp (mat: IDataFrameMaterializer) (sources: SourceBinding array) (df: DataFrameHandle) (op: RowsOp) : ScalarOutcome =
         match op with

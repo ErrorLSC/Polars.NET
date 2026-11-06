@@ -21,6 +21,7 @@ Thumbs.db
 
 *.csv
 *.parquet
+Polars.Benchmarks/Data/
 !test.csv
 !users.csv
 !sales.csv

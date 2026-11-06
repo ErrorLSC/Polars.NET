@@ -11,4 +11,5 @@ module internal LogicalOptimizer =
         |> PredicatePushdown.apply
         |> ProjectionPruning.apply
         |> SortSliceFusion.apply
+        |> GroupOrderRelaxation.apply
 

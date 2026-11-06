@@ -5,6 +5,7 @@ open Polars.NET.Core
 open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Helpers
+open Polars.NET.Core.Config
 open Polars.NET.Linq
 open Polars.NET.Linq.IR
 
@@ -247,7 +248,9 @@ module internal PolarsPhysicalLowerer =
             let exprs = orderings |> List.map (fun o -> PolarsScalarLowerer.lower o.Expr) |> List.toArray
             let desc = orderings |> List.map (fun o -> o.Descending) |> List.toArray
             let nullsLast = orderings |> List.map (fun o -> o.NullsLast) |> List.toArray
-            PolarsWrapper.LazyFrameSort(lf, exprs, desc, nullsLast, maintainOrder = false)
+            // LINQ ordering is stable: rows with equal keys keep their input order, unless the configuration lets
+            // ties come out in any order.
+            PolarsWrapper.LazyFrameSort(lf, exprs, desc, nullsLast, maintainOrder = not CoreConfig.AllowUnstableOrdering)
 
         | LogicalPlan.Limit(input, offset, count) ->
             let lf = lowerPlan sources input

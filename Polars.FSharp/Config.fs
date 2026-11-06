@@ -328,3 +328,12 @@ module Config =
     /// </summary>
     let disallowUdfPushdown (disallow: bool) =
         fun () -> CoreConfig.DisallowUdfPushdown <- disallow
+
+    /// <summary>
+    /// Sets whether LINQ / query orderings may be executed as unstable sorts.
+    /// Default is false: orderings are stable, so rows with equal sort keys keep their input order. Allowing
+    /// unstable sorts leaves that order unspecified (as with SQL ORDER BY) and can be markedly faster on
+    /// join-heavy queries.
+    /// </summary>
+    let allowUnstableOrdering (allow: bool) =
+        fun () -> CoreConfig.AllowUnstableOrdering <- allow
