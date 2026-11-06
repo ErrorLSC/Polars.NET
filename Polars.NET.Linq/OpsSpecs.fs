@@ -13,31 +13,6 @@ module internal LinqConstants =
     [<Literal>]
     let DefaultLeftSuffix = "_left"
 
-/// Diagnostic tracker for managed C# UDF callbacks pushed down to Polars native engine
-type internal UdfTracker =
-    [<ThreadStatic; DefaultValue>]
-    static val mutable private udfs: string list
-
-    static member Reset() =
-        UdfTracker.udfs <- []
-
-    static member Record(udfDesc: string) =
-        let current =
-            if isNull (box UdfTracker.udfs) then [] else UdfTracker.udfs
-        if not (List.contains udfDesc current) then
-            UdfTracker.udfs <- udfDesc :: current
-
-    static member DetectedUdfs =
-        if isNull (box UdfTracker.udfs) then [] else List.rev UdfTracker.udfs
-
-/// Optimization context for coordinating max split indices across multiple bindings in a projection
-type internal SplitOptContext =
-    [<ThreadStatic; DefaultValue>]
-    static val mutable private maxMap: Map<string * string, int> option
-    static member Current
-        with get () = SplitOptContext.maxMap
-        and set (v) = SplitOptContext.maxMap <- v
-
 /// Linear representation of query expressions before optimization/fusion
 [<RequireQualifiedAccess>]
 type internal LinqStage =

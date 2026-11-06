@@ -15,7 +15,7 @@ module internal ExprTranslator =
             // 0. Row-level String Split exact index access: s.Split(sep)[idx] -> StrSplitExact + StructFieldByIndex
             | SplitIndexAccess(target, sep, idx) ->
                 let n =
-                    match SplitOptContext.Current with
+                    match CompilationScope.Current.SplitIndexHints with
                     | Some map ->
                         match map.TryFind(target.ToString(), sep) with
                         | Some maxIdx -> maxIdx

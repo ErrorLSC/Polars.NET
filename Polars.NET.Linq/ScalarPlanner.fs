@@ -741,9 +741,9 @@ module internal ScalarPlanner =
         | _ -> failwithf "Scalar execution for expression is not supported: %A" expression
 
     /// Plans a scalar / single-row LINQ terminal expression into a backend-agnostic ScalarQuery.
-    /// Opens the backend scope for the duration of expression translation.
+    /// Opens a compilation scope for the duration of expression translation.
     let plan<'TResult> (backend: IQueryBackend) (provider: IQueryProvider) (expression: Expression) : PlannedScalar<'TResult> =
-        use _scope = BackendScope.Enter backend
+        use _scope = CompilationScope.Enter backend
         let sources = SourceRegistry()
         let query = planWith<'TResult> backend sources provider expression
         { Query = query; Sources = sources.ToArray() }

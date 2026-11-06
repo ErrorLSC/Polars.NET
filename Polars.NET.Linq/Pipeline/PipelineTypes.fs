@@ -154,13 +154,6 @@ type IPolarsExplainable =
     abstract member ExplainLogicalPlan: unit -> string
     abstract member GetLogicalPlan: unit -> LogicalPlan
 
-type internal FallbackTracker =
-    [<ThreadStatic; DefaultValue>]
-    static val mutable private diagnostic: string option
-    static member Diagnostic
-        with get () = FallbackTracker.diagnostic
-        and set (v: string option) = FallbackTracker.diagnostic <- v
-
 [<RequireQualifiedAccess>]
 type internal GroupingKind =
     | Rollup

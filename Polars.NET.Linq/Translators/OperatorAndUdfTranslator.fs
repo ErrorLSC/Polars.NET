@@ -253,7 +253,7 @@ module internal OperatorAndUdfTranslator =
                                 let userFunc = compileSingleArgUdfDelegate argExpr expr
                                 let arrowCallback = ArrowUdfBatchAdapter.CreateSingle(userFunc, argExpr.Type, expr.Type)
                                 ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
-                                UdfTracker.Record(sprintf "%s: %s" methodName (expr.ToString()))
+                                CompilationScope.Current.RecordUdf(sprintf "%s: %s" methodName (expr.ToString()))
                                 Some(ScalarExpr.Udf(methodName, [ scalarArg ], retPlType, UdfInvoker.SingleBatch(box arrowCallback, expr.Type)))
 
                             elif dynCount > 1 then
@@ -263,7 +263,7 @@ module internal OperatorAndUdfTranslator =
                                 let scalarArgs = dynArgs |> List.map snd
 
                                 ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
-                                UdfTracker.Record(sprintf "%s: %s" methodName (expr.ToString()))
+                                CompilationScope.Current.RecordUdf(sprintf "%s: %s" methodName (expr.ToString()))
                                 Some(ScalarExpr.Udf(methodName, scalarArgs, retPlType, UdfInvoker.MultiBatch(box arrowCallback, expr.Type)))
                             else
                                 None

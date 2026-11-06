@@ -235,7 +235,7 @@ module internal RegexTranslator =
                     sprintf "(?%s:%s)" flags pat
 
             // Ask the backend whether its native regex engine accepts the candidate (e.g. Rust regex rejects lookaround)
-            if BackendScope.Current.IsRegexPatternSupported candidate then
+            if CompilationScope.Current.Backend.IsRegexPatternSupported candidate then
                 Some candidate
             else
                 None

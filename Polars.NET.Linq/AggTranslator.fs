@@ -670,7 +670,7 @@ module AggTranslator =
                             let returnsScalar = isScalarLikeResultType expr.Type
 
                             ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
-                            UdfTracker.Record(sprintf "%s: %s" methodName (expr.ToString()))
+                            CompilationScope.Current.RecordUdf(sprintf "%s: %s" methodName (expr.ToString()))
 
                             if dynCount = 1 then
                                 let argExpr, scalarArg = dynArgs.[0]

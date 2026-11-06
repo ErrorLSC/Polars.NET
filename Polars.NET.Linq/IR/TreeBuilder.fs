@@ -170,7 +170,8 @@ module internal TreeBuilder =
                 |> List.map (fun (k, g) -> k, g |> List.map snd |> List.max)
                 |> Map.ofList
 
-            SplitOptContext.Current <- if splitMaxMap.IsEmpty then None else Some splitMaxMap
+            let scope = CompilationScope.Current
+            scope.SplitIndexHints <- if splitMaxMap.IsEmpty then None else Some splitMaxMap
             try
                 let exprOpts =
                     bindings
@@ -181,10 +182,10 @@ module internal TreeBuilder =
                     Some(exprOpts |> List.map (fun (name, _, opt) -> name, opt.Value))
                 else
                     let reasons = failed |> List.map (fun (n, e, _) -> sprintf "%s = %s (%s)" n (e.ToString()) (e.GetType().Name))
-                    FallbackTracker.Diagnostic <- Some(sprintf "Failed projection bindings: %s" (String.concat "; " reasons))
+                    scope.FallbackReason <- Some(sprintf "Failed projection bindings: %s" (String.concat "; " reasons))
                     None
             finally
-                SplitOptContext.Current <- None
+                scope.SplitIndexHints <- None
         | None ->
             let unwrappedBody = ExpressionPatterns.unwrap body
             match unwrappedBody with
@@ -1658,14 +1659,14 @@ module internal TreeBuilder =
     /// Compiles a sequence of LinqStages into a CompiledLogicalQuery, determining pure symbolic
     /// pushdown into LogicalPlan versus client-side fallback boundaries (client predicates, projections, full fallback).
     /// The root source is registered as slot 0; every other source the pipeline reads gets the next slot.
+    /// Runs in the caller's compilation scope, which supplies the backend and collects the diagnostics.
     let buildCompiledQuery
-        (backend: IQueryBackend)
         (root: SourceBinding)
         (rootSchema: LogicalSchema)
         (isGrouping: bool)
         (stages: LinqStage list)
         : CompiledLogicalQuery =
-        use _scope = BackendScope.Enter backend
+        let backend = CompilationScope.Current.Backend
         let sources = SourceRegistry()
         let initialPlan = sources.Scan(root, rootSchema)
         let resolveSequence = SourceResolver.resolveSequencePlan backend sources

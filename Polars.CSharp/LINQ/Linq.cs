@@ -584,7 +584,7 @@ public static class LinqExtensions
     /// Operations will be translated to Polars Expressions and compiled into execution plans.
     /// </summary>
     public static IQueryable<T> AsQueryable<T>(this LazyFrame lf)
-        => new PolarsQuery<T>(lf.Handle, CSharpRowCursorMaterializer.Instance);
+        => new PolarsQuery<T>(lf.Handle, CSharpRowCursorMaterializer.Instance, QueryLanguage.CSharp);
 
     /// <summary>
     /// Converts an eager DataFrame into an IQueryable LINQ query provider backed by LazyFrame.

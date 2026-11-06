@@ -6,6 +6,8 @@ using Polars.NET.Linq;
 namespace Polars.Benchmarks;
 
 public record Order(int Id, string Customer, int Qty, double Price, DateTime When);
+public record Customer(string Name, string Region, int Tier);
+public record Region(string Code, string Country);
 
 /// <summary>
 /// Cost of turning a LINQ query into IR with and without the query plan cache.
@@ -15,11 +17,13 @@ public record Order(int Id, string Customer, int Qty, double Price, DateTime Whe
 public class LinqCompileBenchmarks
 {
     private DataFrame _df = null!;
+    private DataFrame _customers = null!;
+    private DataFrame _regions = null!;
     private Func<int, IQueryable<object>> _make = null!;
     private IQueryable<object> _query = null!;
     private int _freshValue;
 
-    [Params("FilterSortTake", "GroupByAggregate")]
+    [Params("FilterSortTake", "GroupByAggregate", "ThreeWayJoin")]
     public string Shape { get; set; } = "";
 
     [Params(false, true)]
@@ -32,6 +36,8 @@ public class LinqCompileBenchmarks
             .Select(i => new Order(i, "C" + (i % 50), i % 7, i * 1.5, new DateTime(2024, 1, 1).AddDays(i % 365)))
             .ToArray();
         _df = DataFrame.FromRows(rows);
+        _customers = DataFrame.FromRows(Enumerable.Range(0, 50).Select(i => new Customer("C" + i, "R" + (i % 5), i % 3)).ToArray());
+        _regions = DataFrame.FromRows(Enumerable.Range(0, 5).Select(i => new Region("R" + i, "Country" + i)).ToArray());
 
         _make = Shape switch
         {
@@ -47,6 +53,15 @@ public class LinqCompileBenchmarks
                 .Select(g => new { g.Key, Sum = g.Sum(x => x.Qty * x.Price), Count = g.Count() })
                 .OrderBy(x => x.Key)
                 .Cast<object>(),
+            "ThreeWayJoin" => minQty =>
+                (from o in _df.AsQueryable<Order>()
+                 join c in _customers.AsQueryable<Customer>() on o.Customer equals c.Name
+                 join r in _regions.AsQueryable<Region>() on c.Region equals r.Code
+                 where o.Qty > minQty && c.Tier > 0
+                 orderby o.Price descending
+                 select new { o.Id, c.Name, r.Country, Total = o.Qty * o.Price })
+                .Take(20)
+                .Cast<object>(),
             _ => throw new ArgumentOutOfRangeException(nameof(Shape)),
         };
 
@@ -61,6 +76,8 @@ public class LinqCompileBenchmarks
         QueryPlanCache.Enabled = true;
         QueryPlanCache.Clear();
         _df.Dispose();
+        _customers.Dispose();
+        _regions.Dispose();
     }
 
     /// Constructing the expression tree (caller side).

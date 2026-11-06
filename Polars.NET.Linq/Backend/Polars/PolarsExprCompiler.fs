@@ -9,7 +9,7 @@ open Polars.NET.Linq.IR
 /// e.g. for TypedMerge conditions/setters and DataFrame-level key selectors.
 module internal PolarsExprCompiler =
 
-    /// Translates the expression to a symbolic ScalarExpr under the Polars backend scope, then lowers it to an ExprHandle.
+    /// Translates the expression to a symbolic ScalarExpr in a compilation scope for the Polars backend, then lowers it to an ExprHandle.
     let tryCompile (ctx: TranslationContext) (expr: Expression) : ExprHandle option =
-        use _scope = BackendScope.Enter PolarsQueryBackend.Instance
+        use _scope = CompilationScope.Enter PolarsQueryBackend.Instance
         tryTranslateToScalar ctx expr |> Option.map PolarsScalarLowerer.lower

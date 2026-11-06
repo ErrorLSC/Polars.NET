@@ -428,7 +428,7 @@ public class TypedMergeBuilder<TTarget, TSource> : MergeBuilderBase<TypedMergeBu
     public IQueryable<TTarget> AsQueryable()
     {
         var lf = ToLazyFrame();
-        return new PolarsQuery<TTarget>(lf.Handle, CSharpRowCursorMaterializer.Instance);
+        return new PolarsQuery<TTarget>(lf.Handle, CSharpRowCursorMaterializer.Instance, QueryLanguage.CSharp);
     }
 }
 

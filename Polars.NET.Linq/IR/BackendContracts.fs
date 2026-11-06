@@ -19,23 +19,61 @@ type internal IQueryBackend =
     inherit IBackendCapabilities
     inherit ISourceBinder
 
-/// Thread-local, nestable ambient backend scope for expression translation.
-/// Entry points (IR construction, standalone expression translation) open it via BackendScope.Enter.
-type internal BackendScope =
+/// The state one compilation shares with the translators it runs: the backend, the diagnostics collected
+/// while translating (the full-fallback reason, the UDFs pushed down) and per-projection translation hints.
+///
+/// Every entry point that translates expressions opens a scope with `CompilationScope.Enter` and reads the
+/// diagnostics from it when done. Compilations nest (a subquery grafted into its outer query compiles while
+/// the outer one is compiling): each opens its own scope, so nothing leaks between them, and an outer
+/// compilation that wants a nested one's diagnostics takes them with `Absorb`. The innermost open scope is
+/// found through a thread-local reference, because translators are deeply recursive functions sharing one
+/// evaluator signature.
+[<AllowNullLiteral>]
+type internal CompilationScope private (backend: IQueryBackend, enclosing: CompilationScope) =
     [<ThreadStatic; DefaultValue>]
-    static val mutable private current: IQueryBackend option
+    static val mutable private current: CompilationScope
 
-    /// The backend of the innermost active scope. Throws if translation runs outside any scope.
-    static member Current: IQueryBackend =
-        match BackendScope.current with
-        | Some backend -> backend
-        | None ->
+    let udfs = ResizeArray<string>()
+
+    member _.Backend = backend
+
+    /// Why the query needs the full LINQ-to-Objects fallback, when a stage recorded it.
+    member val FallbackReason: string option = None with get, set
+
+    /// Highest index read per (target, separator) for the `s.Split(sep)[i]` accesses of the projection
+    /// being translated, so that every access splits into the same number of parts.
+    member val SplitIndexHints: Map<string * string, int> option = None with get, set
+
+    /// UDFs pushed down to the backend, in the order first recorded.
+    member _.Udfs: string list = List.ofSeq udfs
+
+    member _.RecordUdf(description: string) =
+        if not (udfs.Contains description) then
+            udfs.Add description
+
+    /// Takes the diagnostics of a compilation nested in this one; its fallback reason, when it has one,
+    /// is the more specific.
+    member this.Absorb(fallbackReason: string option, nestedUdfs: string list) =
+        this.FallbackReason <- fallbackReason |> Option.orElse this.FallbackReason
+        for udf in nestedUdfs do
+            this.RecordUdf udf
+
+    /// The innermost open scope. Throws if translation runs outside any scope.
+    static member Current: CompilationScope =
+        match CompilationScope.current with
+        | null ->
             invalidOp
-                "[Polars.NET.Linq Bug] Expression translation ran outside a backend scope. The translation entry point must call BackendScope.Enter."
+                "[Polars.NET.Linq Bug] Expression translation ran outside a compilation scope. The translation entry point must call CompilationScope.Enter."
+        | scope -> scope
 
-    /// Activates the backend for the current thread until the returned scope is disposed (restores the previous one).
-    static member Enter(backend: IQueryBackend) : IDisposable =
-        let previous = BackendScope.current
-        BackendScope.current <- Some backend
-        { new IDisposable with
-            member _.Dispose() = BackendScope.current <- previous }
+    /// The innermost open scope, if any.
+    static member TryCurrent: CompilationScope option = Option.ofObj CompilationScope.current
+
+    /// Opens a scope for the current thread until it is disposed, which reopens the enclosing one.
+    static member Enter(backend: IQueryBackend) : CompilationScope =
+        let scope = new CompilationScope(backend, CompilationScope.current)
+        CompilationScope.current <- scope
+        scope
+
+    interface IDisposable with
+        member _.Dispose() = CompilationScope.current <- enclosing

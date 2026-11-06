@@ -99,7 +99,7 @@ module LinqExtension =
         /// Operations will be translated to Polars Expressions and compiled into execution plans.
         /// </summary>
         member this.AsQueryable<'T>() : IQueryable<'T> =
-            PolarsQuery<'T>(this.Handle, FSharpRowCursorMaterializer())
+            PolarsQuery<'T>(this.Handle, FSharpRowCursorMaterializer(), QueryLanguage.FSharp)
 
         /// Directly creates an IQueryable with type inferred from an existing sample sequence
         member this.AsQueryable(sample: 'T seq) : IQueryable<'T> = this.AsQueryable<'T>()

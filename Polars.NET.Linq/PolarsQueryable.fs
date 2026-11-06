@@ -22,14 +22,23 @@ module internal PolarsQueryHelpers =
         let fracHandle = PolarsWrapper.SeriesNew("", [| 1.0 |])
         PolarsWrapper.SampleFrac(df, fracHandle, false, Nullable true, Nullable())
 
+/// The language whose compiler built a query's expression trees. F# query expressions are rewritten
+/// (quotations, curried closures, AnonymousObject tuples, nested SelectMany chains) before translation;
+/// C# expression trees are translated as they are.
+type QueryLanguage =
+    | CSharp = 0
+    | FSharp = 1
+
 /// Strongly-typed IQueryProvider backed by Polars.NET.Core
-type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer) =
+type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer, language: QueryLanguage) =
     // The root frame's schema is read once per provider. Lowering clones the handle, so the binding never hands it out.
     let rootSource = lazy (PolarsPhysicalLowerer.tableSourceOfLazyFrame initialLazyFrame)
 
     /// Root table source, bound to slot 0 of every query this provider compiles.
     member _.RootSource : ILogicalTableSource = rootSource.Value
     member _.Materializer = materializer
+    /// Shared by every query derived from this provider's root.
+    member _.Language = language
 
     interface IQueryProvider with
         member this.CreateQuery(expression: Expression) : IQueryable =
@@ -129,22 +138,21 @@ and PolarsQuery<'T>
         | None -> Expression.Constant(this, typeof<IQueryable<'T>>) :> Expression
 
     let getEffectiveExpr () =
-        let isCSharp = not (isNull materializer) && materializer.GetType().Name.StartsWith "CSharp"
-        if not isCSharp && FSharpAst.needsRewrite expression then
+        if provider.Language = QueryLanguage.FSharp && FSharpAst.needsRewrite expression then
             FSharpAst.rewrite expression
         else
             expression
 
-    new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer, expression: Expression) =
-        PolarsQuery<'T>(PolarsQueryProvider(lazyFrameHandle, materializer), Some expression)
+    new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer, language: QueryLanguage, expression: Expression) =
+        PolarsQuery<'T>(PolarsQueryProvider(lazyFrameHandle, materializer, language), Some expression)
 
-    new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer) =
-        PolarsQuery<'T>(PolarsQueryProvider(lazyFrameHandle, materializer), None)
+    new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer, language: QueryLanguage) =
+        PolarsQuery<'T>(PolarsQueryProvider(lazyFrameHandle, materializer, language), None)
 
     /// Compiles the pipeline to optimized IR, reusing the cached compilation of an identical query
     /// (same expression shape, parameter values, root columns and configuration) when one exists.
-    /// The thread's fallback and UDF diagnostics are replaced by the pipeline's own, or, with
-    /// `mergeDiagnostics` (grafting this query into another one), merged into the outer ones.
+    /// The pipeline carries its own fallback and UDF diagnostics. With `mergeDiagnostics` (this query is
+    /// grafted into an outer one being compiled), the outer compilation also takes them.
     member private _.CompilePipeline(mergeDiagnostics: bool) : CompiledPipeline =
         let extraction = PartialEvaluator.extract (getEffectiveExpr ())
         let root = provider.RootSource
@@ -152,9 +160,6 @@ and PolarsQuery<'T>
 
         let keyOpt =
             QueryPlanCache.TryCreateKey(typeof<'T>, extraction.NormalizedExpression, extraction.Parameters, root.Schema.ColumnNames)
-
-        let outerDiagnostic = FallbackTracker.Diagnostic
-        let outerUdfs = UdfTracker.DetectedUdfs
 
         let pipeline =
             match keyOpt |> Option.bind QueryPlanCache.TryGet with
@@ -168,17 +173,15 @@ and PolarsQuery<'T>
                         PartialEvaluator.substituteExtracted extraction.NormalizedExpression extraction.Parameters
 
                 let stages = flattenStages bound []
-                FallbackTracker.Diagnostic <- None
-                UdfTracker.Reset()
-
-                let compiled = TreeBuilder.buildCompiledQuery PolarsQueryBackend.Instance rootBinding root.Schema isGrouping stages
+                use scope = CompilationScope.Enter PolarsQueryBackend.Instance
+                let compiled = TreeBuilder.buildCompiledQuery rootBinding root.Schema isGrouping stages
 
                 let pipeline =
                     {
                         Compiled = { compiled with Plan = LogicalOptimizer.optimize compiled.Plan }
                         Stages = stages
-                        FallbackDiagnostic = FallbackTracker.Diagnostic
-                        Udfs = UdfTracker.DetectedUdfs
+                        FallbackDiagnostic = scope.FallbackReason
+                        Udfs = scope.Udfs
                     }
 
                 // Only root-only pipelines are cached: any other source is bound from this query's values.
@@ -194,15 +197,10 @@ and PolarsQuery<'T>
 
                 pipeline
 
-        UdfTracker.Reset()
-
         if mergeDiagnostics then
-            FallbackTracker.Diagnostic <- pipeline.FallbackDiagnostic |> Option.orElse outerDiagnostic
-            for udf in outerUdfs do UdfTracker.Record udf
-        else
-            FallbackTracker.Diagnostic <- pipeline.FallbackDiagnostic
+            CompilationScope.TryCurrent
+            |> Option.iter (fun outer -> outer.Absorb(pipeline.FallbackDiagnostic, pipeline.Udfs))
 
-        for udf in pipeline.Udfs do UdfTracker.Record udf
         pipeline
 
     /// Compiles pipeline into a pure symbolic CompiledLogicalQuery IR.
@@ -213,7 +211,6 @@ and PolarsQuery<'T>
     /// method-call chain that compiles without it. Returns the call at which LINQ-to-Objects takes over
     /// and the prefix expression that call consumes, or None when no non-trivial prefix runs natively.
     /// `effectiveExpr` must be the tree the caller later rewrites, since the prefix is identified by reference.
-    /// Compiling candidate prefixes overwrites the thread's fallback and UDF diagnostics.
     member internal _.TryFindNativePrefix(effectiveExpr: Expression) : (MethodCallExpression * Expression) option =
         let isQueryable (t: Type) = typeof<IQueryable>.IsAssignableFrom t
 
@@ -697,8 +694,8 @@ and PolarsQuery<'T>
             else
                 planStr + "\n" + String.concat "\n" (List.rev postOps)
 
-        let detectedUdfs = UdfTracker.DetectedUdfs
-        let fallbackReason = FallbackTracker.Diagnostic
+        let detectedUdfs = pipeline.Udfs
+        let fallbackReason = pipeline.FallbackDiagnostic
         let isFullFallback = compiled.Residual = ClientResidual.LinqToObjects
 
         let fallbackBoundary =
@@ -706,8 +703,6 @@ and PolarsQuery<'T>
                 this.TryFindNativePrefix(getEffectiveExpr ()) |> Option.map (fun (consumer, _) -> consumer.Method.Name)
             else
                 None
-
-        FallbackTracker.Diagnostic <- fallbackReason
 
         {
             NativePlan = planWithPostOps
