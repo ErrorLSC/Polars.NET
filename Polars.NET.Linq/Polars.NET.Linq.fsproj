@@ -53,6 +53,11 @@
     <Compile Include="IR/Building/GroupByPlanning.fs" />
     <Compile Include="IR/Building/GroupingSetsPlanning.fs" />
     <Compile Include="IR/Building/GroupJoinAndZipPlanning.fs" />
+    <Compile Include="IR/Building/StageContext.fs" />
+    <Compile Include="IR/Building/RowStages.fs" />
+    <Compile Include="IR/Building/GroupStages.fs" />
+    <Compile Include="IR/Building/JoinStages.fs" />
+    <Compile Include="IR/Building/SetStages.fs" />
     <Compile Include="IR/TreeBuilder.fs" />
     <Compile Include="IR/Passes/EnumResolution.fs" />
     <Compile Include="IR/Passes/SortSliceFusion.fs" />
