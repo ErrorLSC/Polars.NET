@@ -11,7 +11,7 @@ open Polars.NET.Linq.IR
 module internal PolarsScalarRunner =
 
     let private collect (sources: SourceBinding array) (plan: LogicalPlan) : DataFrameHandle =
-        PolarsWrapper.LazyCollect(PolarsPhysicalLowerer.lowerPlan sources plan, PlEngine.Auto)
+        PolarsWrapper.LazyCollect(PolarsPhysicalLowerer.lowerPlan sources (EnumResolution.resolvePlan plan), PlEngine.Auto)
 
     let private runRowsOp (mat: IDataFrameMaterializer) (sources: SourceBinding array) (df: DataFrameHandle) (op: RowsOp) : ScalarOutcome =
         match op with

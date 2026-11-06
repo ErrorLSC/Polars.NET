@@ -128,6 +128,7 @@ module AggTranslator =
         | ScalarExpr.Alias(_, alias) when not (String.IsNullOrEmpty alias) -> Some alias
         | ScalarExpr.Unary(_, inner)
         | ScalarExpr.Cast(inner, _, _)
+        | ScalarExpr.EnumConvert(_, inner, _)
         | ScalarExpr.Slice(inner, _, _)
         | ScalarExpr.SortBy(inner, _) -> tryGetOutputName inner
         | ScalarExpr.Binary(_, left, _) -> tryGetOutputName left

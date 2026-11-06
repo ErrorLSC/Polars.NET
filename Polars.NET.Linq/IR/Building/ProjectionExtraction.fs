@@ -73,8 +73,9 @@ module internal ProjectionExtraction =
                     Some matchedProjs
                 else
                     None
-            | other ->
-                ExprTranslator.tryTranslateToScalar ctx other
+            | _ ->
+                // The body itself, not its unwrapped form: a conversion such as (int)e is part of the value.
+                ExprTranslator.tryTranslateToScalar ctx body
                 |> Option.map (fun s ->
                     let colName =
                         match s with

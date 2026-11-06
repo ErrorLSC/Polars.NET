@@ -60,13 +60,18 @@ module internal SourceResolver =
 
     /// Schema of the table the backend produces when transposing rows of elemType:
     /// a single "value" column for simple types, otherwise one column per model property.
+    /// Enum columns carry their type (their literals and conversions depend on it); other columns are Unknown.
     let inMemorySchema (elemType: Type) : LogicalSchema =
+        let columnType (t: Type) =
+            LogicalTypes.tryEnumOf (PolarsTypeHelper.UnwrapCoreType t)
+            |> Option.defaultValue LogicalType.Unknown
+
         if PolarsTypeHelper.IsSupportedSimpleType elemType then
-            LogicalSchema.OfNames [ "value" ]
+            LogicalSchema.OfFields [ ("value", columnType elemType) ]
         else
             PolarsTypeHelper.GetModelProperties elemType
-            |> Array.map (fun p -> p.Name)
-            |> LogicalSchema.OfNames
+            |> Array.map (fun p -> p.Name, columnType p.PropertyType)
+            |> LogicalSchema.OfFields
 
     /// Registers an in-memory typed row array and builds a Scan over it.
     let inMemoryPlan (sources: SourceRegistry) (rows: Array) (elemType: Type) : LogicalPlan =

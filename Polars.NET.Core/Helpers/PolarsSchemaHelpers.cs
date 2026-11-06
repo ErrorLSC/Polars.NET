@@ -21,4 +21,40 @@ public static class PolarsSchemaExtractor
 
         return names;
     }
+
+    /// <summary>
+    /// Retrieves the name and data type of every column of a LazyFrameHandle. The caller owns (and disposes)
+    /// the returned type handles.
+    /// </summary>
+    public static (string Name, DataTypeHandle Type)[] GetFields(LazyFrameHandle lfHandle)
+    {
+        using var schema = PolarsWrapper.GetLazySchema(lfHandle);
+        var count = PolarsWrapper.GetSchemaLen(schema);
+        var fields = new (string, DataTypeHandle)[count];
+
+        for (ulong i = 0; i < count; i++)
+        {
+            PolarsWrapper.GetSchemaFieldAt(schema, i, out string? name, out var type);
+            fields[i] = (name ?? string.Empty, type);
+        }
+
+        return fields;
+    }
+
+    /// <summary>
+    /// The categories of an Enum data type, in category order.
+    /// </summary>
+    public static string[] GetEnumCategories(DataTypeHandle enumType)
+    {
+        using var frozen = PolarsWrapper.GetEnumCategories(enumType);
+        using var series = PolarsWrapper.FrozenCategoriesGetCategories(frozen);
+        var categories = new string[PolarsWrapper.SeriesLen(series)];
+
+        for (int i = 0; i < categories.Length; i++)
+        {
+            categories[i] = PolarsWrapper.SeriesGetStringFast(series, i) ?? string.Empty;
+        }
+
+        return categories;
+    }
 }

@@ -16,10 +16,11 @@ namespace Polars.NET.Core.Helpers;
 /// </summary>
 public static class EnumCategories
 {
-    private sealed class Layout(bool usesEnumDataType, string[] categories, Dictionary<object, string> names)
+    private sealed class Layout(bool usesEnumDataType, string[] categories, object[] values, Dictionary<object, string> names)
     {
         public bool UsesEnumDataType { get; } = usesEnumDataType;
         public string[] Categories { get; } = categories;
+        public object[] Values { get; } = values;
         public Dictionary<object, string> Names { get; } = names;
     }
 
@@ -36,6 +37,12 @@ public static class EnumCategories
     /// one name per distinct value.
     /// </summary>
     public static string[] GetCategories(Type enumType) => [.. GetLayout(enumType).Categories];
+
+    /// <summary>
+    /// The underlying values of the categories of <paramref name="enumType"/>, boxed as the underlying integer
+    /// type, in category order.
+    /// </summary>
+    public static object[] GetUnderlyingValues(Type enumType) => [.. GetLayout(enumType).Values];
 
     /// <summary>
     /// The category holding <paramref name="value"/>, a boxed value of <paramref name="enumType"/>.
@@ -81,15 +88,17 @@ public static class EnumCategories
 
             var names = new Dictionary<object, string>(values.Length);
             var categories = new string[values.Length];
+            var underlyingValues = new object[values.Length];
 
             for (int i = 0; i < values.Length; i++)
             {
                 categories[i] = Enum.GetName(t, values[i])!;
                 names[values[i]] = categories[i];
+                underlyingValues[i] = Convert.ChangeType(values[i], underlying);
             }
 
             bool isFlags = t.IsDefined(typeof(FlagsAttribute), inherit: false);
-            return new Layout(!isFlags, categories, names);
+            return new Layout(!isFlags, categories, underlyingValues, names);
         });
     }
 }

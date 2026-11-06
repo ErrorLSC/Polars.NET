@@ -299,6 +299,9 @@ module internal LogicalPlanOps =
         | ScalarExpr.Alias(inner, alias) ->
             sprintf "%s AS %s" (formatScalar inner) alias
 
+        | ScalarExpr.EnumConvert(conversion, inner, _) ->
+            sprintf "ENUM_%s(%s)" ((sprintf "%A" conversion).ToUpperInvariant()) (formatScalar inner)
+
         | ScalarExpr.Subquery(_, kind) ->
             sprintf "SUBQUERY(%A)" kind
 

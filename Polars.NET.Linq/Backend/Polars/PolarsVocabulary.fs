@@ -1,6 +1,8 @@
 namespace Polars.NET.Linq.Backend.Polars
 
+open System
 open Polars.NET.Core
+open Polars.NET.Core.Helpers
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Wrappers
 open Polars.NET.Linq.IR
@@ -17,6 +19,19 @@ module internal PolarsVocabulary =
         | LogicalType.Enum categories ->
             use frozen = PolarsWrapper.FrozenCategoriesNew(Array.ofList categories)
             PolarsWrapper.NewEnumType frozen
+
+    /// The logical type of a native Polars data type: Enum types with their categories, every other type
+    /// through its Arrow export, and Unknown for a type Arrow cannot express.
+    let ofDataTypeHandle (dataType: DataTypeHandle) : LogicalType =
+        match PolarsWrapper.GetDataTypeKind dataType with
+        | PlDataType.Enum -> LogicalType.Enum(List.ofArray (PolarsSchemaExtractor.GetEnumCategories dataType))
+        | _ ->
+            try
+                LogicalType.Arrow(Polars.NET.Core.Arrow.ArrowFfiBridge.ImportDataType dataType)
+            with
+            | :? NotSupportedException
+            | :? ArgumentException
+            | :? Polars.NET.Core.Exceptions.PolarsException -> LogicalType.Unknown
 
     let joinType (kind: JoinKind) : PlJoinType =
         match kind with

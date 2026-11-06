@@ -511,6 +511,47 @@ module internal WindowAndMethodTranslator =
         else
             None
 
+    /// The enum value a method is called on, seen through the boxing conversion to System.Enum or object.
+    let private enumReceiver (target: Expression) : Expression option =
+        match target with
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert && u.Operand.Type.IsEnum -> Some u.Operand
+        | t when t.Type.IsEnum -> Some t
+        | _ -> None
+
+    /// Instance methods of an enum value: ToString (the member name), Equals and HasFlag (on underlying values).
+    let private translateEnumMethod
+        (eval: ScalarExprEvaluator)
+        (ctx: TranslationContext)
+        (m: MethodInfo)
+        (receiver: Expression)
+        (args: Expression list)
+        : ScalarExpr option =
+        let underlying = Enum.GetUnderlyingType receiver.Type
+        let valueOf (e: Expression) = Expression.Convert(e, underlying) :> Expression
+
+        /// The argument as a value of the receiver's enum type, seen through its boxing conversion.
+        let sameEnum (arg: Expression) =
+            match arg with
+            | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert && u.Operand.Type = receiver.Type -> Some u.Operand
+            | a when a.Type = receiver.Type -> Some a
+            | :? ConstantExpression as c when not (isNull c.Value) && c.Value.GetType() = receiver.Type ->
+                Some(Expression.Constant(c.Value, receiver.Type) :> Expression)
+            | _ -> None
+
+        match m.Name, args with
+        | "ToString", [] ->
+            match ScalarExprOps.tryEnumMapping receiver.Type with
+            | Some mapping ->
+                eval ctx receiver |> Option.map (fun r -> ScalarExpr.EnumConvert(EnumConversion.ToName, r, mapping))
+            | None -> None
+        | "Equals", [ other ] ->
+            sameEnum other
+            |> Option.bind (fun o -> eval ctx (Expression.Equal(valueOf receiver, valueOf o)))
+        | "HasFlag", [ flag ] ->
+            sameEnum flag
+            |> Option.bind (fun f -> eval ctx (Expression.Equal(Expression.And(valueOf receiver, valueOf f), valueOf f)))
+        | _ -> None
+
     let internal translateMethodCall
         (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
@@ -659,6 +700,9 @@ module internal WindowAndMethodTranslator =
             || m.Name = "Variance"
         then
             translateReductionMethod eval ctx m target args
+
+        elif not (isNull target) && (enumReceiver target).IsSome then
+            translateEnumMethod eval ctx m (enumReceiver target).Value args
 
         elif not (isNull target) && target.Type = typeof<decimal> then
             match m.Name, args with

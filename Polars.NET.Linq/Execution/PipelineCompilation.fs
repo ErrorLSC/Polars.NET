@@ -43,7 +43,7 @@ module internal PipelineCompilation =
 
                 let pipeline =
                     {
-                        Compiled = { compiled with Plan = LogicalOptimizer.optimize compiled.Plan }
+                        Compiled = { compiled with Plan = LogicalOptimizer.optimize (EnumResolution.resolvePlan compiled.Plan) }
                         Stages = stages
                         FallbackDiagnostic = scope.FallbackReason
                         Udfs = scope.Udfs

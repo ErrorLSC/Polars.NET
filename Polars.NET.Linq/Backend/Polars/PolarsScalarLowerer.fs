@@ -79,6 +79,29 @@ module internal PolarsScalarLowerer =
         | LiteralValue.TimeSpan ts -> PolarsWrapper.Lit ts
         | LiteralValue.TimeOnly to' -> PolarsWrapper.Lit to'
 
+    /// A typed array holding the values of homogeneous literals (strings or integers), for a Series literal.
+    let private literalArray (values: LiteralValue list) : Array =
+        let boxed =
+            values
+            |> List.map (function
+                | LiteralValue.String s -> box s
+                | LiteralValue.Int8 v -> box v
+                | LiteralValue.Int16 v -> box v
+                | LiteralValue.Int32 v -> box v
+                | LiteralValue.Int64 v -> box v
+                | LiteralValue.UInt8 v -> box v
+                | LiteralValue.UInt16 v -> box v
+                | LiteralValue.UInt32 v -> box v
+                | LiteralValue.UInt64 v -> box v
+                | other -> failwithf "[Polars.NET.Linq Bug] Unsupported literal in a value list: %A" other)
+        let elementType =
+            match boxed with
+            | first :: _ -> first.GetType()
+            | [] -> typeof<string>
+        let array = Array.CreateInstance(elementType, boxed.Length)
+        boxed |> List.iteri (fun i v -> array.SetValue(v, i))
+        array
+
     /// Lowers a SortOrder into a tuple of (ExprHandle, isDescending, nullsLast)
     let rec lowerSortOrder (order: SortOrder) : ExprHandle * bool * bool =
         lower order.Expr, order.Descending, order.NullsLast
@@ -207,6 +230,25 @@ module internal PolarsScalarLowerer =
                 maintainOrder = true,
                 mappingCode = PlWindowMapping.GroupsToRows
             )
+
+        | ScalarExpr.Function(ScalarFunction.ReplaceStrict(oldValues, newValues), input :: fallback, returnType) ->
+            let inputH = lower input
+            let oldH = PolarsWrapper.Lit(createSeriesHandle "old" (literalArray oldValues))
+            let newH = PolarsWrapper.Lit(createSeriesHandle "new" (literalArray newValues))
+            let defaultH =
+                match fallback with
+                | [] -> null
+                | [ d ] -> lower d
+                | _ -> failwith "[Polars.NET.Linq Bug] replace_strict takes at most one default."
+            use dtHandle = PolarsVocabulary.toDataTypeHandle returnType
+            let dtExpr = PolarsWrapper.DataTypeExprFromDataType dtHandle
+            PolarsWrapper.ExprReplaceStrict(inputH, oldH, newH, defaultH, dtExpr)
+
+        | ScalarExpr.EnumConvert(conversion, inner, _) ->
+            failwithf
+                "[Polars.NET.Linq Bug] Enum conversion %A of %s reached lowering unresolved; EnumResolution must run first."
+                conversion
+                (LogicalPlanOps.formatScalar inner)
 
         | ScalarExpr.Function(fn, args, _) ->
             match fn, args with
@@ -504,4 +546,4 @@ module internal PolarsScalarLowerer =
 
     /// Lowers a CLR constant of the given type directly to a native literal ExprHandle.
     let lowerConstant (value: obj) (t: Type) : ExprHandle =
-        ScalarExprOps.toLiteral value t |> lower
+        ScalarExprOps.toLiteral value t |> EnumResolution.resolveScalar LogicalSchema.Empty |> lower

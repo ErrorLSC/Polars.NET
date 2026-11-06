@@ -46,10 +46,42 @@ module ScalarExprOps =
     let inline lit (v: ^T) : ScalarExpr =
         ((^T or ScalarLitMechanism): (static member ($): ScalarLitMechanism * ^T -> ScalarExpr) (ScalarLitMechanism, v))
 
+    /// The mapping of a .NET enum (or Nullable / F# option of one) stored as a Polars Enum, or None for a non-enum
+    /// type or a [Flags] enum, which is stored as its underlying integer.
+    let tryEnumMapping (t: Type) : EnumMapping option =
+        if isNull t then
+            None
+        else
+            let coreType = PolarsTypeHelper.UnwrapCoreType t
+            if coreType.IsEnum && EnumCategories.UsesEnumDataType coreType then
+                let underlyingType = Enum.GetUnderlyingType coreType
+                LogicalTypes.tryOfClrType underlyingType
+                |> Option.map (fun underlying ->
+                    {
+                        Categories = List.ofArray (EnumCategories.GetCategories coreType)
+                        Values = EnumCategories.GetUnderlyingValues coreType |> Array.map LiteralValue.OfObject |> List.ofArray
+                        Underlying = underlying
+                    })
+            else
+                None
+
+    /// The underlying integer type of an enum type (or Nullable / F# option of one), or None for a non-enum type.
+    let tryEnumUnderlyingType (t: Type) : Type option =
+        if isNull t then
+            None
+        else
+            let coreType = PolarsTypeHelper.UnwrapCoreType t
+            if coreType.IsEnum then Some(Enum.GetUnderlyingType coreType) else None
+
     /// Pure symbolic conversion from a constant object and CLR type to a ScalarExpr literal, or None for a
-    /// value of a type without a literal form.
-    [<TailCall>]
-    let rec tryToLiteral (value: obj) (t: Type) : ScalarExpr option =
+    /// value of a type without a literal form. An enum constant is its underlying value, wrapped in an
+    /// EnumConversion.FromValue unless the enum is stored as an integer ([Flags]).
+    let tryToLiteral (value: obj) (t: Type) : ScalarExpr option =
+        let plain (v: obj) =
+            match v with
+            | :? char as c -> Some(ScalarExpr.Literal(LiteralValue.String(string c)))
+            | _ -> LiteralValue.TryOfObject v |> Option.map ScalarExpr.Literal
+
         match value with
         | null ->
             let dt =
@@ -59,13 +91,12 @@ module ScalarExprOps =
         | _ ->
             let coreType = PolarsTypeHelper.UnwrapCoreType t
             if coreType.IsEnum then
-                let underlyingType = Enum.GetUnderlyingType coreType
-                let underlyingVal = Convert.ChangeType(value, underlyingType)
-                tryToLiteral underlyingVal underlyingType
+                let underlyingVal = Convert.ChangeType(value, Enum.GetUnderlyingType coreType)
+                match plain underlyingVal, tryEnumMapping coreType with
+                | Some literal, Some mapping -> Some(ScalarExpr.EnumConvert(EnumConversion.FromValue, literal, mapping))
+                | literal, _ -> literal
             else
-                match value with
-                | :? char as c -> Some(ScalarExpr.Literal(LiteralValue.String(string c)))
-                | _ -> LiteralValue.TryOfObject value |> Option.map ScalarExpr.Literal
+                plain value
 
     /// Pure symbolic conversion from a constant object and CLR type to a ScalarExpr literal.
     let toLiteral (value: obj) (t: Type) : ScalarExpr =
@@ -153,6 +184,7 @@ module ScalarExprOps =
         | ScalarExpr.Alias(inner, _) -> collectColumns inner
         | ScalarExpr.Udf(_, args, _, _) -> args |> List.map collectColumns |> Set.unionMany
         | ScalarExpr.InList(target, _, _) -> collectColumns target
+        | ScalarExpr.EnumConvert(_, inner, _) -> collectColumns inner
 
     /// Checks whether an expression contains an aggregate function.
     let rec containsAggregation (expr: ScalarExpr) : bool =
@@ -160,7 +192,8 @@ module ScalarExprOps =
         | ScalarExpr.Aggregation _ -> true
         | ScalarExpr.Binary(_, left, right) -> containsAggregation left || containsAggregation right
         | ScalarExpr.Unary(_, inner)
-        | ScalarExpr.Cast(inner, _, _) -> containsAggregation inner
+        | ScalarExpr.Cast(inner, _, _)
+        | ScalarExpr.EnumConvert(_, inner, _) -> containsAggregation inner
         | ScalarExpr.Function(_, args, _) -> args |> List.exists containsAggregation
         | ScalarExpr.Window(inner, _, _)
         | ScalarExpr.SortBy(inner, _) -> containsAggregation inner
@@ -184,7 +217,8 @@ module ScalarExprOps =
         | ScalarExpr.Subquery _ -> true
         | ScalarExpr.Binary(_, left, right) -> containsSubquery left || containsSubquery right
         | ScalarExpr.Unary(_, inner)
-        | ScalarExpr.Cast(inner, _, _) -> containsSubquery inner
+        | ScalarExpr.Cast(inner, _, _)
+        | ScalarExpr.EnumConvert(_, inner, _) -> containsSubquery inner
         | ScalarExpr.Function(_, args, _) -> args |> List.exists containsSubquery
         | ScalarExpr.Aggregation(_, innerOpt, _) ->
             innerOpt |> Option.map containsSubquery |> Option.defaultValue false
@@ -211,7 +245,8 @@ module ScalarExprOps =
         | ScalarExpr.Window _ -> true
         | ScalarExpr.Binary(_, left, right) -> containsWindow left || containsWindow right
         | ScalarExpr.Unary(_, inner)
-        | ScalarExpr.Cast(inner, _, _) -> containsWindow inner
+        | ScalarExpr.Cast(inner, _, _)
+        | ScalarExpr.EnumConvert(_, inner, _) -> containsWindow inner
         | ScalarExpr.Function(_, args, _) -> args |> List.exists containsWindow
         | ScalarExpr.Aggregation(_, innerOpt, _) ->
             innerOpt |> Option.map containsWindow |> Option.defaultValue false
@@ -279,6 +314,8 @@ module ScalarExprOps =
             ScalarExpr.Udf(name, args |> List.map (substitute subst), ret, inv)
         | ScalarExpr.InList(target, src, neg) ->
             ScalarExpr.InList(substitute subst target, src, neg)
+        | ScalarExpr.EnumConvert(conversion, inner, mapping) ->
+            ScalarExpr.EnumConvert(conversion, substitute subst inner, mapping)
 
     /// Renames column references in an expression according to a rename dictionary.
     let renameColumns (renameMap: Map<string, string>) (expr: ScalarExpr) : ScalarExpr =

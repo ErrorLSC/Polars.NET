@@ -384,6 +384,9 @@ type ScalarFunction =
     | Filter
     | Quantile of method: QuantileMethod
     | SeriesGet
+    /// Maps each value listed in `oldValues` to the value at the same position of `newValues`. A value not
+    /// listed takes the optional second argument, or is an error without one.
+    | ReplaceStrict of oldValues: LiteralValue list * newValues: LiteralValue list
 
     // --- Custom / Extension Function ---
     | Custom of name: string
@@ -528,6 +531,7 @@ type ScalarFunction =
         | ScalarFunction.Filter -> "filter"
         | ScalarFunction.Quantile _ -> "quantile"
         | ScalarFunction.SeriesGet -> "series_get"
+        | ScalarFunction.ReplaceStrict _ -> "replace_strict"
         | ScalarFunction.Custom name -> name
 
     static member FromString(str: string) : ScalarFunction =
@@ -689,6 +693,26 @@ type InListSource =
     | Literals of LiteralValue list
     | Collection of values: System.Collections.IEnumerable * elementType: Type
 
+/// How a .NET enum maps to a Polars Enum: its categories (member names) and their underlying values, both in
+/// category order, and the underlying integer type.
+type EnumMapping =
+    {
+        Categories: string list
+        Values: LiteralValue list
+        Underlying: LogicalType
+    }
+
+/// A conversion involving a .NET enum whose column representation is not known when it is translated: an Enum
+/// column (categories) or an integer column (underlying values). EnumResolution picks the form from the schema.
+[<RequireQualifiedAccess>]
+type EnumConversion =
+    /// The underlying value of an enum (`(int)e`, and enum comparisons, which C# performs on underlying values).
+    | ToValue
+    /// The enum holding an underlying value (`(E)i`, and enum constants, which arrive as their underlying value).
+    | FromValue
+    /// The member name of an enum (`e.ToString()`); an undefined value gives its number, as in .NET.
+    | ToName
+
 /// Pure symbolic scalar and column expression tree
 type [<RequireQualifiedAccess>] ScalarExpr =
     | Column of name: string
@@ -708,6 +732,8 @@ type [<RequireQualifiedAccess>] ScalarExpr =
     | Alias of expr: ScalarExpr * alias: string
     | Udf of name: string * args: ScalarExpr list * returnType: LogicalType * invoker: UdfInvoker
     | InList of expr: ScalarExpr * source: InListSource * negated: bool
+    /// An enum conversion awaiting EnumResolution, which replaces it before the plan is lowered.
+    | EnumConvert of conversion: EnumConversion * expr: ScalarExpr * mapping: EnumMapping
 
 /// Subquery semantics when a scalar expression embeds a logical plan
 and [<RequireQualifiedAccess>] SubqueryKind =

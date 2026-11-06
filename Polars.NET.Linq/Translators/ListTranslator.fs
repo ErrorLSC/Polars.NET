@@ -125,6 +125,16 @@ module internal ListTranslator =
             let target = unwrapSpanOrArray spanExpr
             if isListContainer target.Type then Some(ListContains(target, itemExpr)) else None
 
+        // C# 14 binds array.Contains(x) to MemoryExtensions.Contains(span, x, comparer: null).
+        | MethodCall(m, null, [ spanExpr; itemExpr; comparerExpr ]) when
+            not (isNull m.DeclaringType)
+            && m.DeclaringType.Name = "MemoryExtensions"
+            && m.Name = "Contains"
+            && isNullConstantExpr comparerExpr
+            ->
+            let target = unwrapSpanOrArray spanExpr
+            if isListContainer target.Type then Some(ListContains(target, itemExpr)) else None
+
         | MethodCall(m, null, [ sepExpr; target ]) when
             m.DeclaringType = typeof<string>
             && m.Name = "Join"

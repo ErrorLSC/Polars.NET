@@ -232,6 +232,16 @@ public static class ArrowReader
                 if (array is FixedSizeBinaryArray fba) return idx => fba.GetBytes(idx).ToArray();
         }
 
+        // Enum: member names (the values of a Polars Enum) or underlying integers
+        if (type.IsEnum)
+        {
+            if (array is StringViewArray or StringArray or LargeStringArray)
+            {
+                return idx => array.GetStringValue(idx) is { } name ? Enum.Parse(type, name) : null;
+            }
+            return idx => array.IsNull(idx) ? null : Enum.ToObject(type, array.GetInt64Value(idx)!.Value);
+        }
+
         return _ => null;
     }
     // =============================================================

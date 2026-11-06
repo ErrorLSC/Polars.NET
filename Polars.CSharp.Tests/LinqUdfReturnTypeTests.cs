@@ -8,8 +8,9 @@ public enum UrColor { Red, Green }
 public record UrRow(int Id);
 
 /// <summary>
-/// A method whose result has no Arrow representation (an enum, object, Int128, a class without readable
-/// members) is not pushed down as a UDF, whose output column could not hold it; it is evaluated on the client.
+/// A method whose result has no Arrow representation (object, Int128, a class without readable members) is not
+/// pushed down as a UDF, whose output column could not hold it; it is evaluated on the client. An enum result is
+/// pushed down: the UDF yields underlying values, which become the enum's Polars Enum categories.
 /// </summary>
 public class LinqUdfReturnTypeTests
 {
@@ -38,8 +39,17 @@ public class LinqUdfReturnTypeTests
     }
 
     [Fact]
-    public void Enum_Result() =>
-        AssertClientProjectionMatchesLinq(q => q.Select(r => new { r.Id, C = ToColor(r.Id) }));
+    public void Enum_Result_Is_Pushed_Down_As_An_Enum_Column()
+    {
+        using var df = DataFrame.FromRows(Rows);
+        var query = df.AsQueryable<UrRow>().Select(r => new { r.Id, C = ToColor(r.Id) });
+
+        Assert.True(((IPolarsExplainable)query).InspectPlan(true).HasUdf);
+        Assert.Equal(Rows.Select(r => new { r.Id, C = ToColor(r.Id) }), query.ToList());
+
+        using var result = query.ToDataFrame();
+        Assert.True(result.Schema["C"].IsEnum);
+    }
 
     [Fact]
     public void Object_Result() =>
@@ -54,27 +64,39 @@ public class LinqUdfReturnTypeTests
         AssertClientProjectionMatchesLinq(q => q.Select(r => new { r.Id, C = ToMemberLess(r.Id) }));
 
     [Fact]
-    public void Cast_To_Enum_Is_Not_A_Cast_To_String()
+    public void Cast_To_Enum_Maps_Values_To_Categories()
     {
-        // An enum has no column type yet, so the cast is evaluated on the client rather than translated as a
-        // cast of the column to strings (which only happened to read back as the enum's numeric name).
+        // Not a cast of the column: Polars casts integers to an Enum by category index, not by value.
         using var df = DataFrame.FromRows(Rows);
-        var query = df.AsQueryable<UrRow>().Select(r => new { r.Id, C = (UrColor)r.Id });
+        var query = df.AsQueryable<UrRow>().Select(r => new { r.Id, C = (UrColor)(r.Id % 2) });
 
-        Assert.DoesNotContain("CAST", ((IPolarsExplainable)query).InspectPlan(true).LogicalPlan!.Value);
-        AssertClientProjectionMatchesLinq(q => q.Select(r => new { r.Id, C = (UrColor)r.Id }));
+        var inspection = ((IPolarsExplainable)query).InspectPlan(true);
+        Assert.False(inspection.HasUdf, inspection.FormatReport());
+        Assert.False(inspection.HasClientProjection, inspection.FormatReport());
+        Assert.False(inspection.IsFullFallback, inspection.FormatReport());
+        Assert.Equal(Rows.Select(r => new { r.Id, C = (UrColor)(r.Id % 2) }), query.ToList());
     }
 
     [Fact]
-    public void Enum_Result_In_A_Predicate_Is_A_Client_Predicate()
+    public void Cast_Of_An_Undefined_Value_To_Enum_Is_Rejected()
     {
-        // The default policy rejects client predicates with a pushdown error naming the predicate, instead of a
-        // cast failure inside a native UDF callback. Evaluating it is covered in Polars.Config.Tests.
+        // Id 2 is not a member of UrColor; an Enum column cannot hold it.
+        using var df = DataFrame.FromRows(Rows);
+        var query = df.AsQueryable<UrRow>().Select(r => (UrColor)r.Id);
+
+        var error = Assert.Throws<PolarsException>(() => query.ToList());
+        Assert.Contains("incomplete mapping", error.Message);
+    }
+
+    [Fact]
+    public void Enum_Result_In_A_Predicate_Is_Pushed_Down()
+    {
         using var df = DataFrame.FromRows(Rows);
         var query = df.AsQueryable<UrRow>().Where(r => ToColor(r.Id) == UrColor.Green).Select(r => r.Id);
 
-        Assert.True(((IPolarsExplainable)query).InspectPlan(true).HasClientPredicates);
-        var ex = Assert.Throws<PolarsPushdownException>(() => query.ToList());
-        Assert.Contains("ToColor", ex.Message);
+        var inspection = ((IPolarsExplainable)query).InspectPlan(true);
+        Assert.True(inspection.HasUdf, inspection.FormatReport());
+        Assert.False(inspection.HasClientPredicates, inspection.FormatReport());
+        Assert.Equal(Rows.Where(r => ToColor(r.Id) == UrColor.Green).Select(r => r.Id), query.ToList());
     }
 }

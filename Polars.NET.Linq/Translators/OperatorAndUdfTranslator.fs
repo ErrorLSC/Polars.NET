@@ -2,6 +2,7 @@ namespace Polars.NET.Linq
 
 open Polars.NET.Core.Config
 open Polars.NET.Core.Arrow
+open Polars.NET.Core.Helpers
 open Polars.NET.Linq.IR
 open System
 open System.Linq.Expressions
@@ -95,6 +96,31 @@ module internal OperatorAndUdfTranslator =
             | Some l, Some r -> tryTranslateBinary op l r
             | _ -> None
 
+    /// A conversion to or from an enum type. An enum operand becomes its underlying value and an enum target
+    /// takes an underlying value, through EnumConvert nodes for enums stored as Polars Enums; EnumResolution later
+    /// fits them to the column representation. Boxing keeps the enum itself.
+    let private translateEnumConvert (operandExpr: ScalarExpr) (operandType: Type) (targetType: Type) : ScalarExpr option =
+        if targetType = typeof<obj> then
+            Some operandExpr
+        else
+            let number, numberType =
+                match ScalarExprOps.tryEnumUnderlyingType operandType, ScalarExprOps.tryEnumMapping operandType with
+                | Some underlying, Some mapping -> ScalarExpr.EnumConvert(EnumConversion.ToValue, operandExpr, mapping), underlying
+                | Some underlying, None -> operandExpr, underlying
+                | None, _ -> operandExpr, PolarsTypeHelper.UnwrapCoreType operandType
+
+            match ScalarExprOps.tryEnumUnderlyingType targetType with
+            | Some underlying ->
+                let asUnderlying =
+                    if numberType = underlying then Some number else tryTranslateCast underlying number
+
+                match ScalarExprOps.tryEnumMapping targetType with
+                | Some mapping -> asUnderlying |> Option.map (fun v -> ScalarExpr.EnumConvert(EnumConversion.FromValue, v, mapping))
+                | None -> asUnderlying
+            | None ->
+                if PolarsTypeHelper.UnwrapCoreType targetType = numberType then Some number
+                else tryTranslateCast targetType number
+
     let internal translateUnaryExpr
         (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
@@ -106,6 +132,12 @@ module internal OperatorAndUdfTranslator =
         | ExpressionType.Convert
         | ExpressionType.ConvertChecked when targetType = operand.Type || Nullable.GetUnderlyingType targetType = operand.Type ->
             eval ctx operand
+        | ExpressionType.Convert
+        | ExpressionType.ConvertChecked when
+            (ScalarExprOps.tryEnumUnderlyingType operand.Type).IsSome
+            || (ScalarExprOps.tryEnumUnderlyingType targetType).IsSome
+            ->
+            eval ctx operand |> Option.bind (fun x -> translateEnumConvert x operand.Type targetType)
         | ExpressionType.Convert
         | ExpressionType.ConvertChecked ->
             eval ctx operand |> Option.bind (tryTranslateCast targetType)
@@ -238,13 +270,35 @@ module internal OperatorAndUdfTranslator =
                     if translatedDependentArgs |> List.exists Option.isNone then
                         None
                     else
-                        let isSupportedReturn = ScalarExprOps.isUdfReturnTypeSupported expr.Type
+                        // An enum result leaves the UDF as its underlying value; one stored as a Polars Enum then
+                        // takes its category (EnumConvert.FromValue), so an undefined value is an error.
+                        let enumUnderlying = ScalarExprOps.tryEnumUnderlyingType expr.Type
+                        let isOptionalEnum = enumUnderlying.IsSome && isNull (Nullable.GetUnderlyingType expr.Type) && not expr.Type.IsEnum
+
+                        let isSupportedReturn =
+                            match enumUnderlying with
+                            | Some _ -> not isOptionalEnum
+                            | None -> ScalarExprOps.isUdfReturnTypeSupported expr.Type
 
                         if not isSupportedReturn then
                             None
                         else
+                            let udfReturnType, toUdfResult =
+                                match enumUnderlying with
+                                | Some underlying ->
+                                    let returnType =
+                                        if expr.Type.IsEnum then underlying
+                                        else typedefof<Nullable<_>>.MakeGenericType underlying
+                                    returnType, (fun (v: obj) -> if isNull v then null else Convert.ChangeType(v, underlying))
+                                | None -> expr.Type, id
+
+                            let wrapResult (udf: ScalarExpr) =
+                                match ScalarExprOps.tryEnumMapping expr.Type with
+                                | Some mapping -> ScalarExpr.EnumConvert(EnumConversion.FromValue, udf, mapping)
+                                | None -> udf
+
                             let retPlType =
-                                (LogicalTypes.tryOfClrType expr.Type)
+                                (LogicalTypes.tryOfClrType udfReturnType)
                                 |> Option.defaultValue LogicalType.Unknown
                             let dynArgs = translatedDependentArgs |> List.choose id
                             let dynCount = dynArgs.Length
@@ -252,20 +306,22 @@ module internal OperatorAndUdfTranslator =
                             if dynCount = 1 then
                                 let argExpr, scalarArg = dynArgs.[0]
                                 let userFunc = compileSingleArgUdfDelegate argExpr expr
-                                let arrowCallback = ArrowUdfBatchAdapter.CreateSingle(userFunc, argExpr.Type, expr.Type)
+                                let resultFunc = Func<obj, obj>(fun x -> toUdfResult (userFunc.Invoke x))
+                                let arrowCallback = ArrowUdfBatchAdapter.CreateSingle(resultFunc, argExpr.Type, udfReturnType)
                                 ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
                                 CompilationScope.Current.RecordUdf(sprintf "%s: %s" methodName (expr.ToString()))
-                                Some(ScalarExpr.Udf(methodName, [ scalarArg ], retPlType, UdfInvoker.SingleBatch(box arrowCallback, expr.Type)))
+                                Some(wrapResult (ScalarExpr.Udf(methodName, [ scalarArg ], retPlType, UdfInvoker.SingleBatch(box arrowCallback, udfReturnType))))
 
                             elif dynCount > 1 then
                                 let userFunc = compileMultiArgUdfDelegate dynArgs expr
+                                let resultFunc = Func<obj array, obj>(fun xs -> toUdfResult (userFunc.Invoke xs))
                                 let inputTypes = dynArgs |> List.map (fun (a, _) -> a.Type) |> List.toArray
-                                let arrowCallback = ArrowUdfBatchAdapter.CreateMulti(userFunc, inputTypes, expr.Type)
+                                let arrowCallback = ArrowUdfBatchAdapter.CreateMulti(resultFunc, inputTypes, udfReturnType)
                                 let scalarArgs = dynArgs |> List.map snd
 
                                 ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
                                 CompilationScope.Current.RecordUdf(sprintf "%s: %s" methodName (expr.ToString()))
-                                Some(ScalarExpr.Udf(methodName, scalarArgs, retPlType, UdfInvoker.MultiBatch(box arrowCallback, expr.Type)))
+                                Some(wrapResult (ScalarExpr.Udf(methodName, scalarArgs, retPlType, UdfInvoker.MultiBatch(box arrowCallback, udfReturnType))))
                             else
                                 None
         with

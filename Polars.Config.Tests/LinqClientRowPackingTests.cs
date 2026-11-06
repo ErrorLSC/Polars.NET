@@ -88,7 +88,6 @@ public class LinqClientRowPackingTests
     [Fact]
     public void Client_Predicate_Over_An_Enum_Returning_Method()
     {
-        // An enum result has no Arrow representation, so ParityOf is not pushed down as a UDF.
         using var _ = AllowClientEvaluation();
         using var e = DataFrame.FromRows(Emps);
 

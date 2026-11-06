@@ -124,6 +124,11 @@ module internal SchemaInference =
         | ScalarExpr.Alias(inner, _) -> inferScalarType schema inner
         | ScalarExpr.Udf(_, _, returnType, _) -> returnType
         | ScalarExpr.InList _ -> LogicalTypes.Boolean
+        | ScalarExpr.EnumConvert(conversion, _, mapping) ->
+            match conversion with
+            | EnumConversion.ToValue -> mapping.Underlying
+            | EnumConversion.FromValue -> LogicalType.Enum mapping.Categories
+            | EnumConversion.ToName -> LogicalTypes.String
 
     // =========================================================================
     // 2. Relational Plan Schema Inference

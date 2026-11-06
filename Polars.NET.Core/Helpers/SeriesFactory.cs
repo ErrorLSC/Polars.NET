@@ -693,10 +693,16 @@ public static class SeriesFactory
         }
 
         Type elemType = array.GetType().GetElementType() ?? typeof(object);
-        var method = typeof(SeriesFactory).GetMethod(
-            nameof(CreateGenericType),
-            BindingFlags.Public | BindingFlags.Static
-        )!.MakeGenericMethod(elemType);
+
+        // Enums (plain, Nullable, F# option) become Enum or [Flags] integer columns through CreateSpan.
+        if (array.Rank == 1 && PolarsTypeHelper.UnwrapCoreType(elemType).IsEnum)
+        {
+            var method = typeof(SeriesFactory).GetMethod(
+                nameof(CreateGenericType),
+                BindingFlags.Public | BindingFlags.Static
+            )!.MakeGenericMethod(elemType);
+            return (SeriesHandle)method.Invoke(null, [name, array])!;
+        }
 
         // Fallback to Arrow reflection for nested/complex types
         return CreateFromArrowViaReflection(name, array);

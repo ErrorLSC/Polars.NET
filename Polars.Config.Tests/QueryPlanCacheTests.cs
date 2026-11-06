@@ -500,5 +500,29 @@ public class QueryPlanCacheTests
             QueryPlanCache.Enabled = originalEnabled;
         }
     }
-}
 
+    public enum CachedShade { Red = 5, Green = 1, Blue = 3 }
+    public record CachedShadeRow(int Id, CachedShade Shade);
+    public record CachedIntShadeRow(int Id, int Shade);
+
+    private static List<int> BlueIds(DataFrame df) =>
+        df.AsQueryable<CachedShadeRow>().Where(r => r.Shade == CachedShade.Blue).Select(r => r.Id).ToList();
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void Enum_And_Integer_Columns_Do_Not_Share_A_Cached_Plan()
+    {
+        // The plan compares categories on an Enum column and values on an integer column, so the column types
+        // are part of the cache key.
+        QueryPlanCache.Clear();
+        using var enumFrame = DataFrame.FromRows([new CachedShadeRow(1, CachedShade.Blue), new CachedShadeRow(2, CachedShade.Red)]);
+        using var intFrame = DataFrame.FromRows([new CachedIntShadeRow(1, 3), new CachedIntShadeRow(2, 5)]);
+
+        for (int i = 0; i < 3; i++)
+        {
+            Assert.Equal([1], BlueIds(enumFrame));
+            Assert.Equal([1], BlueIds(intFrame));
+        }
+        Assert.Equal(2, QueryPlanCache.Count);
+    }
+}
