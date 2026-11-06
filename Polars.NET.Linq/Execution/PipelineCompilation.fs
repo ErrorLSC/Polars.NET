@@ -9,7 +9,8 @@ open Polars.NET.Linq.Backend.Polars
 module internal PipelineCompilation =
 
     /// Compiles the pipeline to optimized IR, reusing the cached compilation of an identical query
-    /// (same expression shape, parameter values, root columns and configuration) when one exists.
+    /// (same expression shape, parameter values, root tables' schemas and configuration) when one exists,
+    /// bound to this query's own roots.
     /// `effectiveExpr` is the query's expression after any language-specific rewrite; `targetType` is the
     /// query's element type. The pipeline carries its own fallback and UDF diagnostics. With
     /// `mergeDiagnostics` (this query is grafted into an outer one being compiled), the outer compilation
@@ -24,13 +25,11 @@ module internal PipelineCompilation =
         let extraction = PartialEvaluator.extract effectiveExpr
         let rootBinding = SourceBinding.Table root
 
-        let keyOpt =
-            QueryPlanCache.TryCreateKey(targetType, extraction.NormalizedExpression, extraction.Parameters, root.Schema.ColumnNames)
+        let probe = QueryPlanCache.TryCreateProbe(targetType, extraction.NormalizedExpression, extraction.Parameters)
 
         let pipeline =
-            match keyOpt |> Option.bind QueryPlanCache.TryGet with
-            | Some cached ->
-                { cached.Pipeline with Compiled = { cached.Pipeline.Compiled with Sources = [| rootBinding |] } }
+            match probe |> Option.bind QueryPlanCache.TryGetBound with
+            | Some cached -> cached
             | None ->
                 let bound =
                     if extraction.Parameters.Count = 0 then
@@ -50,17 +49,7 @@ module internal PipelineCompilation =
                         Udfs = scope.Udfs
                     }
 
-                // Only root-only pipelines are cached: any other source is bound from this query's values.
-                match keyOpt with
-                | Some key when compiled.Sources.Length = 1 ->
-                    QueryPlanCache.Admit
-                        {
-                            Key = key
-                            Pipeline = { pipeline with Compiled = { pipeline.Compiled with Sources = [||] } }
-                            LastAccessTick = 0L
-                        }
-                | _ -> ()
-
+                probe |> Option.iter (fun p -> QueryPlanCache.Offer(p, pipeline, isGrouping))
                 pipeline
 
         if mergeDiagnostics then

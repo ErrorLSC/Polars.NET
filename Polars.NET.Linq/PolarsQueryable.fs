@@ -282,6 +282,8 @@ and PolarsQuery<'T>
         member this.IsNativelyExecutable() =
             (snd (this.CompileForMaterialization())).Residual <> ClientResidual.LinqToObjects
 
+        member _.RootTable = provider.RootSource
+
     interface IAsyncEnumerable<'T> with
         member this.GetAsyncEnumerator(cancellationToken: CancellationToken) : IAsyncEnumerator<'T> =
             cancellationToken.ThrowIfCancellationRequested()

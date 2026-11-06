@@ -888,3 +888,5 @@ type internal IPolarsInternalExplainable =
     abstract member TryGetPureLogicalPlan: unit -> (LogicalPlan * SourceBinding array) option
     /// Whether the query's rows can be produced by a native plan, without full LINQ-to-Objects fallback.
     abstract member IsNativelyExecutable: unit -> bool
+    /// The table this query's root reads (shared by every query derived from the same root).
+    abstract member RootTable: ILogicalTableSource

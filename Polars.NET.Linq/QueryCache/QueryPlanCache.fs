@@ -19,6 +19,17 @@ type internal CompiledPipeline =
         Udfs: string list
     }
 
+/// How one queryable root of an expression enters a pipeline's identity. The shape key tells roots apart
+/// by element type only; a root also brings the schema of the table it reads, and which earlier root
+/// (if any) reads the very same table, as in a self-join.
+[<NoComparison>]
+type internal RootKey =
+    {
+        Schema: LogicalSchema
+        /// Index of the first root reading the same table; its own index when none before it does.
+        SameAs: int
+    }
+
 /// Identity of a compiled pipeline: the expression shape plus every input the IR compilation depends on.
 /// Parameter values are part of the key, so a hit reuses a pipeline compiled for exactly these values.
 [<NoComparison>]
@@ -27,7 +38,8 @@ type internal CompiledQueryKey =
         Shape: QueryCacheKey
         /// Normalized (declared type, runtime type, value) of each extracted parameter, ordered by name.
         Values: obj list
-        RootColumns: string list
+        /// The queryable roots, in expression traversal order.
+        Roots: RootKey list
         DisallowUdfPushdown: bool
     }
 
@@ -35,14 +47,31 @@ type internal CompiledQueryKey =
 type internal CachedQueryPlan =
     {
         Key: CompiledQueryKey
-        /// The pipeline with no source bindings; the caller binds its own root to slot 0.
+        /// The pipeline with no source bindings.
         Pipeline: CompiledPipeline
+        /// For each source slot of the plan, the index of the root whose table it reads. A hit binds every
+        /// slot to the table of that root in the expression being compiled.
+        SlotRoots: int array
         mutable LastAccessTick: int64
+    }
+
+/// A pipeline's cache key, with what binding a cached plan to this expression needs.
+[<NoEquality; NoComparison>]
+type internal QueryCacheProbe =
+    {
+        Key: CompiledQueryKey
+        /// The table each queryable root reads, in the key's root order.
+        RootTables: ILogicalTableSource array
+        /// Whether a root occurs inside a lambda (a correlated subquery): delegates compiled from such a
+        /// lambda would keep reading the roots of the expression they were compiled from.
+        RootsInLambdas: bool
     }
 
 /// Global thread-safe Query Plan Cache for Polars.NET LINQ queries.
 /// Caches compiled pipelines keyed by CompiledQueryKey: alpha-equivalent expression shape, parameter values,
-/// root columns and the translation-relevant configuration.
+/// the schemas of the tables the query's roots read (and which roots share a table), and the
+/// translation-relevant configuration. A hit binds every source slot to the corresponding root of the query
+/// being compiled, so a pipeline over several tables is reused as well.
 [<AbstractClass; Sealed>]
 type QueryPlanCache private () =
 
@@ -116,7 +145,7 @@ type QueryPlanCache private () =
 
     /// Offers a freshly compiled plan to the cache. A key is admitted on its second sighting only, so
     /// pipelines compiled once (e.g. with a one-off parameter value) never occupy the cache.
-    static member internal Admit(plan: CachedQueryPlan) : unit =
+    static member private Admit(plan: CachedQueryPlan) : unit =
         if QueryPlanCache.Enabled then
             // 0 marks an empty slot, so a zero hash is stored as 1.
             let hash = match plan.Key.GetHashCode() with 0 -> 1 | h -> h
@@ -167,34 +196,56 @@ type QueryPlanCache private () =
         | v when v.GetType().IsEnum -> keyed value
         | _ -> None
 
-    /// Number of inline queryable constants (query roots) in the expression. The shape key identifies them
-    /// by element type only, so a pipeline with more than one root cannot be told apart from another by its key.
-    static member private CountQueryableRoots(expression: Expression) : int =
-        let mutable count = 0
+    /// The inline queryable constants (query roots) of the expression in traversal order, and whether any of
+    /// them occurs inside a lambda.
+    static member private CollectRoots(expression: Expression) : System.Linq.IQueryable list * bool =
+        let roots = ResizeArray<System.Linq.IQueryable>()
+        let mutable lambdaDepth = 0
+        let mutable inLambda = false
 
         let visitor =
             { new ExpressionVisitor() with
+                override this.VisitLambda<'D>(node: Expression<'D>) =
+                    lambdaDepth <- lambdaDepth + 1
+                    let visited = base.VisitLambda node
+                    lambdaDepth <- lambdaDepth - 1
+                    visited
+
                 override _.VisitConstant(node: ConstantExpression) =
-                    if node.Value :? System.Linq.IQueryable then
-                        count <- count + 1
+                    match node.Value with
+                    | :? System.Linq.IQueryable as q ->
+                        roots.Add q
+                        if lambdaDepth > 0 then
+                            inLambda <- true
+                    | _ -> ()
+
                     base.VisitConstant node
             }
 
         visitor.Visit expression |> ignore
-        count
+        List.ofSeq roots, inLambda
 
-    /// Builds the cache key for a pipeline, or None when caching is disabled, a parameter value is not
-    /// cacheable, or the pipeline reads more than one queryable root.
+    /// Builds the cache key for a pipeline whose roots read `rootTables`, or None when caching is disabled
+    /// or a parameter value is not cacheable.
     static member internal TryCreateKey
         (
             sourceType: Type,
             normalizedExpression: Expression,
             parameters: IReadOnlyDictionary<string, ExtractedParameter>,
-            rootColumns: string list
+            rootTables: ILogicalTableSource array
         ) : CompiledQueryKey option =
-        if not QueryPlanCache.Enabled || QueryPlanCache.CountQueryableRoots normalizedExpression > 1 then
+        if not QueryPlanCache.Enabled then
             None
         else
+            let roots =
+                rootTables
+                |> Array.mapi (fun i table ->
+                    {
+                        Schema = table.Schema
+                        SameAs = rootTables |> Array.findIndex (fun t -> obj.ReferenceEquals(t, table))
+                    })
+                |> List.ofArray
+
             let values =
                 parameters
                 |> Seq.sortBy (fun kv -> kv.Key)
@@ -206,8 +257,71 @@ type QueryPlanCache private () =
                     {
                         Shape = QueryCacheKey.Create(sourceType, normalizedExpression)
                         Values = values |> List.map Option.get
-                        RootColumns = rootColumns
+                        Roots = roots
                         DisallowUdfPushdown = CoreConfig.DisallowUdfPushdown
                     }
             else
                 None
+
+    /// The cache key of a normalized expression and the tables of its roots, or None when the expression is
+    /// not cacheable: caching is disabled, a parameter value is not cacheable, or a root is not a Polars query
+    /// (an in-memory sequence is snapshotted into the plan's bindings, not read from a table).
+    static member internal TryCreateProbe
+        (
+            sourceType: Type,
+            normalizedExpression: Expression,
+            parameters: IReadOnlyDictionary<string, ExtractedParameter>
+        ) : QueryCacheProbe option =
+        if not QueryPlanCache.Enabled then
+            None
+        else
+            let roots, rootsInLambdas = QueryPlanCache.CollectRoots normalizedExpression
+
+            let tables =
+                roots
+                |> List.map (function
+                    | :? IPolarsInternalExplainable as q -> Some q.RootTable
+                    | _ -> None)
+
+            if tables |> List.forall Option.isSome then
+                let rootTables = tables |> List.map Option.get |> Array.ofList
+
+                QueryPlanCache.TryCreateKey(sourceType, normalizedExpression, parameters, rootTables)
+                |> Option.map (fun key -> { Key = key; RootTables = rootTables; RootsInLambdas = rootsInLambdas })
+            else
+                None
+
+    /// The cached pipeline for the probe's key, bound to the probe's root tables.
+    static member internal TryGetBound(probe: QueryCacheProbe) : CompiledPipeline option =
+        QueryPlanCache.TryGet probe.Key
+        |> Option.map (fun cached ->
+            let sources = cached.SlotRoots |> Array.map (fun root -> SourceBinding.Table probe.RootTables.[root])
+            { cached.Pipeline with Compiled = { cached.Pipeline.Compiled with Sources = sources } })
+
+    /// Offers a pipeline compiled for the probe's expression. It is cacheable when every source slot reads
+    /// the table of one of the expression's roots, so a later hit can bind the slots to its own roots; and,
+    /// when a root occurs inside a lambda, when no delegate compiled from the expression runs at execution
+    /// (a fully native plan whose rows are materialized directly).
+    static member internal Offer(probe: QueryCacheProbe, pipeline: CompiledPipeline, isGrouping: bool) : unit =
+        let compiled = pipeline.Compiled
+
+        let slotRoots =
+            compiled.Sources
+            |> Array.map (function
+                | SourceBinding.Table table -> probe.RootTables |> Array.tryFindIndex (fun t -> obj.ReferenceEquals(t, table))
+                | SourceBinding.InMemory _ -> None)
+
+        let runsCompiledDelegates =
+            compiled.Residual <> ClientResidual.None
+            || isGrouping
+            || pipeline.Stages |> List.exists LinqStageTraits.isPostCollect
+
+        if slotRoots |> Array.forall Option.isSome && not (probe.RootsInLambdas && runsCompiledDelegates) then
+            QueryPlanCache.Admit
+                {
+                    Key = probe.Key
+                    Pipeline = { pipeline with Compiled = { compiled with Sources = [||] } }
+                    SlotRoots = slotRoots |> Array.map Option.get
+                    LastAccessTick = 0L
+                }
+

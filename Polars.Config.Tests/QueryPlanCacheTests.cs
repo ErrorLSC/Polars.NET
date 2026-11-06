@@ -3,6 +3,7 @@ using Microsoft.FSharp.Collections;
 using Polars.CSharp.Linq;
 using Polars.NET.Core.Enums;
 using Polars.NET.Linq;
+using Polars.NET.Linq.IR;
 
 using Pl = Polars.CSharp.Polars;
 
@@ -193,19 +194,148 @@ public class QueryPlanCacheTests
 
     [Fact]
     [Trait("LINQ", "QueryPlanCache")]
-    public void Pipelines_With_A_Second_Root_Are_Not_Cached()
+    public void A_Hit_Binds_Every_Root_Of_The_Query_Being_Compiled()
     {
         QueryPlanCache.Clear();
         using var dfA = DataFrame.FromRows(Customers);
         using var dfB = DataFrame.FromRows([new Customer { Id = 9, City = "Oslo", Balance = 1m }]);
         using var dfC = DataFrame.FromRows([new Customer { Id = 10, City = "Rome", Balance = 2m }]);
+        using var dfD = DataFrame.FromRows([new Customer { Id = 11, City = "Lima", Balance = 3m }]);
 
-        Assert.Equal([1, 2, 3, 9], dfA.AsQueryable<Customer>().Concat(dfB.AsQueryable<Customer>()).Select(c => c.Id).ToList());
-        Assert.Equal([1, 2, 3, 10], dfA.AsQueryable<Customer>().Concat(dfC.AsQueryable<Customer>()).Select(c => c.Id).ToList());
+        List<int> ConcatIds(DataFrame second) =>
+            dfA.AsQueryable<Customer>().Concat(second.AsQueryable<Customer>()).Select(c => c.Id).ToList();
 
-        // Only the grafted single-root operand (seen twice: for dfB and dfC) is cached; the Concat itself never is.
-        Assert.Equal(1, QueryPlanCache.Count);
-        Assert.Equal(0, QueryPlanCache.Hits);
+        // Seen twice, the two-root pipeline is admitted; the third query hits it with its own second root.
+        Assert.Equal([1, 2, 3, 9], ConcatIds(dfB));
+        Assert.Equal([1, 2, 3, 10], ConcatIds(dfC));
+        var hitsBefore = QueryPlanCache.Hits;
+        Assert.Equal([1, 2, 3, 11], ConcatIds(dfD));
+        Assert.True(QueryPlanCache.Hits > hitsBefore);
+    }
+
+    private class Order
+    {
+        public int CustomerId { get; set; }
+        public decimal Amount { get; set; }
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void Self_Join_And_Join_Of_Two_Tables_Do_Not_Share_A_Plan()
+    {
+        QueryPlanCache.Clear();
+        using var dfA = DataFrame.FromRows(Customers);
+        using var dfB = DataFrame.FromRows([new Customer { Id = 2, City = "Oslo", Balance = 1m }]);
+
+        static List<string> Pairs(IQueryable<Customer> left, IQueryable<Customer> right) =>
+            left.Join(right, l => l.Id, r => r.Id, (l, r) => l.City + "/" + r.City).ToList();
+
+        // A self-join reads one table (one query) through both roots; it is cached after two sightings.
+        var a1 = dfA.AsQueryable<Customer>();
+        Assert.Equal(["Beijing/Beijing", "Shanghai/Shanghai", "Tokyo/Tokyo"], Pairs(a1, a1));
+        var a2 = dfA.AsQueryable<Customer>();
+        Assert.Equal(["Beijing/Beijing", "Shanghai/Shanghai", "Tokyo/Tokyo"], Pairs(a2, a2));
+
+        // Same shape and schemas, but two tables: it must not be served the self-join's single-table binding.
+        Assert.Equal(["Shanghai/Oslo"], Pairs(dfA.AsQueryable<Customer>(), dfB.AsQueryable<Customer>()));
+    }
+
+    private sealed class FakeTable(LogicalSchema schema) : ILogicalTableSource
+    {
+        public string Name => "fake";
+        public LogicalSchema Schema => schema;
+    }
+
+    private static LogicalSchema SchemaOf(params (string Name, LogicalType Type)[] fields) =>
+        new(ListModule.OfSeq(fields.Select(f => new LogicalField(f.Name, f.Type, true))));
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void Key_Includes_Root_Column_Types_And_Table_Sharing()
+    {
+        Expression<Func<int>> shape = () => 0;
+        var none = new Dictionary<string, ExtractedParameter>();
+        CompiledQueryKey Key(params ILogicalTableSource[] roots) =>
+            QueryPlanCache.TryCreateKey(typeof(int), shape, none, roots)!.Value;
+
+        var intTable = new FakeTable(SchemaOf(("Id", LogicalTypes.Int32)));
+        var longTable = new FakeTable(SchemaOf(("Id", LogicalTypes.Int64)));
+        var otherIntTable = new FakeTable(SchemaOf(("Id", LogicalTypes.Int32)));
+
+        Assert.NotEqual(Key(intTable), Key(longTable));
+        Assert.Equal(Key(intTable), Key(otherIntTable));
+        Assert.NotEqual(Key(intTable, intTable), Key(intTable, otherIntTable));
+        Assert.Equal(Key(intTable, otherIntTable), Key(otherIntTable, intTable));
+    }
+
+    /// Replaces the closure read of `inner` inside `query` with the query itself as a constant, the shape F#
+    /// query expressions produce for a captured query.
+    private static IQueryable<T> InlineRoot<T, TInner>(IQueryable<T> query, IQueryable<TInner> inner)
+    {
+        var inlined = new InlineQueryable(inner).Visit(query.Expression);
+        return query.Provider.CreateQuery<T>(inlined);
+    }
+
+    private sealed class InlineQueryable(IQueryable inner) : ExpressionVisitor
+    {
+        protected override Expression VisitMember(MemberExpression node) =>
+            node.Type == inner.GetType() || typeof(IQueryable).IsAssignableFrom(node.Type) && node.Expression is ConstantExpression
+                ? Expression.Constant(inner, node.Type)
+                : base.VisitMember(node);
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void Root_Inside_A_Lambda_Is_Rebound_When_The_Plan_Is_Native()
+    {
+        QueryPlanCache.Clear();
+        using var dfA = DataFrame.FromRows(Customers);
+
+        List<int> WithOrders(Order[] orders)
+        {
+            using var dfO = DataFrame.FromRows(orders);
+            var ordersQuery = dfO.AsQueryable<Order>();
+            return InlineRoot(dfA.AsQueryable<Customer>().Where(c => ordersQuery.Any(o => o.CustomerId == c.Id)), ordersQuery)
+                .Select(c => c.Id)
+                .ToList();
+        }
+
+        Assert.Equal([1], WithOrders([new Order { CustomerId = 1, Amount = 5m }]));
+        Assert.Equal([2], WithOrders([new Order { CustomerId = 2, Amount = 5m }]));
+        var hitsBefore = QueryPlanCache.Hits;
+        Assert.Equal([3], WithOrders([new Order { CustomerId = 3, Amount = 5m }]));
+        Assert.True(QueryPlanCache.Hits > hitsBefore);
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void Root_Inside_A_Client_Predicate_Is_Read_From_The_Query_Being_Run()
+    {
+        QueryPlanCache.Clear();
+        using var dfA = DataFrame.FromRows(Customers);
+
+        // The subquery's predicate cannot be translated, so the whole predicate runs in managed code and its
+        // compiled delegate holds the orders root. Each run uses (and then disposes) its own orders table:
+        // a cached delegate would read a disposed one.
+        List<int> WithOrders(Order[] orders)
+        {
+            using var dfO = DataFrame.FromRows(orders);
+            var ordersQuery = dfO.AsQueryable<Order>();
+            return InlineRoot(
+                    dfA.AsQueryable<Customer>()
+                        .Where(c => ordersQuery.Any(o => o.CustomerId == c.Id && TestUdfMethods.MaskName(c.City) != "")),
+                    ordersQuery)
+                .Select(c => c.Id)
+                .ToList();
+        }
+
+        using (Pl.Config.SetDisallowUdfPushdown(true).BeginScope())
+        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
+        {
+            Assert.Equal([1], WithOrders([new Order { CustomerId = 1, Amount = 5m }]));
+            Assert.Equal([2], WithOrders([new Order { CustomerId = 2, Amount = 5m }]));
+            Assert.Equal([3], WithOrders([new Order { CustomerId = 3, Amount = 5m }]));
+        }
     }
 
     [Fact]
@@ -219,7 +349,7 @@ public class QueryPlanCacheTests
             {
                 ["@p0"] = new ExtractedParameter("@p0", value.GetType(), value),
             };
-            var key = QueryPlanCache.TryCreateKey(typeof(int), shape, parameters, ListModule.OfSeq(["a"]));
+            var key = QueryPlanCache.TryCreateKey(typeof(int), shape, parameters, []);
             return key?.Value;
         }
 
