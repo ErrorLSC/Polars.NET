@@ -219,4 +219,48 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             maintainOrder
         );
     }
+
+    /// <inheritdoc cref="LazyFrame.SinkCsvNativeMemory"/>
+    public NativeBuffer WriteCsvNativeMemory(
+        bool includeBom = false,
+        bool includeHeader = true,
+        int batchSize = 1024,
+        bool checkExtension = false,
+        ExternalCompression compressionCode = 0,
+        int compressionLevel = 0,
+        string? dateFormat = null,
+        string? timeFormat = null,
+        string? datetimeFormat = null,
+        int floatScientific = -1,
+        int floatPrecision = -1,
+        bool decimalComma = false,
+        byte separator = (byte)',',
+        byte quoteChar = (byte)'"',
+        string? nullValue = null,
+        string? lineTerminator = "\n",
+        QuoteStyle quoteStyle = QuoteStyle.Necessary,
+        bool maintainOrder = true)
+    {
+        var lf = Lazy();
+        return lf.SinkCsvNativeMemory(
+            includeBom,
+            includeHeader,
+            batchSize,
+            checkExtension,
+            compressionCode,
+            compressionLevel,
+            dateFormat,
+            timeFormat,
+            datetimeFormat,
+            floatScientific,
+            floatPrecision,
+            decimalComma,
+            separator,
+            quoteChar,
+            nullValue,
+            lineTerminator,
+            quoteStyle,
+            maintainOrder
+        );
+    }
 }

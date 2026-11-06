@@ -98,3 +98,17 @@ module Avro =
             let pComp = defaultArg compression AvroCompression.Uncompressed
             let pName = defaultArg name ""
             PolarsWrapper.WriteAvroToMemory(this.Handle, pComp.ToNative(), pName)
+
+        /// <summary>
+        /// Write the DataFrame to an Apache Avro memory buffer in native memory, without copying into the managed heap.
+        /// </summary>
+        /// <param name="compression">The compression algorithm to use.</param>
+        /// <param name="name">The name of the Avro record.</param>
+        /// <returns>A <see cref="T:Polars.NET.Core.NativeBuffer"/> owning the Avro data. Dispose it to release the native memory.</returns>
+        member this.WriteAvroNativeMemory(
+            ?compression: AvroCompression,
+            ?name: string
+        ) : Polars.NET.Core.NativeBuffer =
+            let pComp = defaultArg compression AvroCompression.Uncompressed
+            let pName = defaultArg name ""
+            PolarsWrapper.WriteAvroNativeMemory(this.Handle, pComp.ToNative(), pName)

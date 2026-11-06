@@ -95,3 +95,14 @@ module IPCStream =
             let com = defaultArg compression IpcCompression.NoCompression |> _.ToNative()
             let cop = defaultArg compatLevel -1
             PolarsWrapper.WriteIpcStreamMemory(this.Handle,com,cop)
+        /// <summary>
+        /// Write to Arrow IPC record batch stream in native memory, without copying into the managed heap.
+        /// </summary>
+        /// <param name="compression">Compression method. Defaults to None.</param>
+        /// <param name="compatLevel">Use a specific compatibility level
+        /// when exporting Polars’ internal data structures.</param>
+        /// <returns>A <see cref="T:Polars.NET.Core.NativeBuffer"/> owning the bytes. Dispose it to release the native memory.</returns>
+        member this.WriteIpcStreamNativeMemory(?compression: IpcCompression, ?compatLevel: int) : Polars.NET.Core.NativeBuffer =
+            let com = defaultArg compression IpcCompression.NoCompression |> _.ToNative()
+            let cop = defaultArg compatLevel -1
+            PolarsWrapper.WriteIpcStreamNativeMemory(this.Handle,com,cop)

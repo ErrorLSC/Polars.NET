@@ -1,4 +1,5 @@
 #pragma warning disable CS1573
+using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
@@ -128,6 +129,33 @@ public partial class LazyFrame : IDisposable
         bool maintainOrder = true)
     {
         return PolarsWrapper.SinkIpcMemory(
+            CloneHandle(),
+            compression.ToNative(),
+            compatLevel,
+            recordBatchSize,
+            recordBatchStatistics,
+            maintainOrder
+        );
+    }
+    /// <summary>
+    /// Sink the LazyFrame to an IPC (Arrow) format in native memory, without copying into the managed heap.
+    /// </summary>
+    /// <param name="compression">Compression method to use.</param>
+    /// <param name="compatLevel">Compatibility level (default -1 = newest).</param>
+    /// <param name="recordBatchSize">Number of rows per record batch (0 = default).</param>
+    /// <param name="recordBatchStatistics">Write statistics to the record batch header (default = true).</param>
+    /// <param name="maintainOrder">Maintain the order of the data.</param>
+    /// <returns>
+    /// A <see cref="NativeBuffer"/> owning the serialized IPC data. Dispose it to release the native memory.
+    /// </returns>
+    public NativeBuffer SinkIpcNativeMemory(
+        IpcCompression compression = IpcCompression.None,
+        int compatLevel = -1,
+        int recordBatchSize = 0,
+        bool recordBatchStatistics = true,
+        bool maintainOrder = true)
+    {
+        return PolarsWrapper.SinkIpcNativeMemory(
             CloneHandle(),
             compression.ToNative(),
             compatLevel,

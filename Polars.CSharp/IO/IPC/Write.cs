@@ -1,4 +1,5 @@
 #pragma warning disable CS1573
+using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
@@ -85,6 +86,23 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
             maintainOrder
         );
     }
+    /// <inheritdoc cref="LazyFrame.SinkIpcNativeMemory(IpcCompression, int, int, bool, bool)"/>
+    public NativeBuffer WriteIpcNativeMemory(
+        IpcCompression compression = IpcCompression.None,
+        int compatLevel = -1,
+        int recordBatchSize = 0,
+        bool recordBatchStatistics = true,
+        bool maintainOrder = true)
+    {
+        var lf = Lazy();
+        return lf.SinkIpcNativeMemory(
+            compression,
+            compatLevel,
+            recordBatchSize,
+            recordBatchStatistics,
+            maintainOrder
+        );
+    }
     /// <summary>
     /// Write to Arrow IPC record batch stream.
     /// </summary>
@@ -104,5 +122,19 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         int compatLevel = -1
     )
         => PolarsWrapper.WriteIpcStreamMemory(Handle, compression.ToNative(), compatLevel);
+    /// <summary>
+    /// Write to Arrow IPC record batch stream in native memory, without copying into the managed heap.
+    /// </summary>
+    /// <param name="compression">Compression method. Defaults to None.</param>
+    /// <param name="compatLevel">Use a specific compatibility level
+    /// when exporting Polars’ internal data structures.</param>
+    /// <returns>
+    /// A <see cref="NativeBuffer"/> owning the serialized bytes. Dispose it to release the native memory.
+    /// </returns>
+    public NativeBuffer WriteIpcStreamNativeMemory(
+        IpcCompression compression = IpcCompression.None,
+        int compatLevel = -1
+    )
+        => PolarsWrapper.WriteIpcStreamNativeMemory(Handle, compression.ToNative(), compatLevel);
 
 }

@@ -541,7 +541,7 @@ public readonly partial struct PolarsWrapper
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
     }
-    public static byte[] SinkCsvMemory(
+    private static FfiBuffer SinkCsvMemoryRaw(
         LazyFrameHandle lf,
         bool includeBom,
         bool includeHeader,
@@ -590,41 +590,65 @@ public readonly partial struct PolarsWrapper
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
 
-        try
-        {
-            unsafe
-            {
-                var span = new ReadOnlySpan<byte>(ffiBuffer.Data.ToPointer(), (int)ffiBuffer.Length);
-                return span.ToArray();
-            }
-        }
-        finally
-        {
-            NativeBindings.pl_free_ffi_buffer(ffiBuffer);
-        }
+        return ffiBuffer;
     }
+    public static byte[] SinkCsvMemory(
+        LazyFrameHandle lf,
+        bool includeBom,
+        bool includeHeader,
+        int batchSize,
+        bool checkExtension,
+        PlExternalCompression compressionCode,
+        int compressionLevel,
+        string? dateFormat,
+        string? timeFormat,
+        string? datetimeFormat,
+        int floatScientific,
+        int floatPrecision,
+        bool decimalComma,
+        byte separator,
+        byte quoteChar,
+        string? nullValue,
+        string? lineTerminator,
+        PlQuoteStyle quoteStyle,
+        bool maintainOrder)
+        => NativeBuffer.TakeToArray(SinkCsvMemoryRaw(lf, includeBom, includeHeader, batchSize, checkExtension, compressionCode, compressionLevel, dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma, separator, quoteChar, nullValue, lineTerminator, quoteStyle, maintainOrder));
+    public static NativeBuffer SinkCsvNativeMemory(
+        LazyFrameHandle lf,
+        bool includeBom,
+        bool includeHeader,
+        int batchSize,
+        bool checkExtension,
+        PlExternalCompression compressionCode,
+        int compressionLevel,
+        string? dateFormat,
+        string? timeFormat,
+        string? datetimeFormat,
+        int floatScientific,
+        int floatPrecision,
+        bool decimalComma,
+        byte separator,
+        byte quoteChar,
+        string? nullValue,
+        string? lineTerminator,
+        PlQuoteStyle quoteStyle,
+        bool maintainOrder)
+        => NativeBuffer.Take(SinkCsvMemoryRaw(lf, includeBom, includeHeader, batchSize, checkExtension, compressionCode, compressionLevel, dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma, separator, quoteChar, nullValue, lineTerminator, quoteStyle, maintainOrder));
     public static void WriteJson(DataFrameHandle df, string path, PlJsonFormat format)
     {
         NativeBindings.pl_dataframe_write_json(df, path, format);
         ErrorHelper.CheckVoid();
     }
-    public static byte[] WriteJsonMemory(DataFrameHandle df, PlJsonFormat format)
+    private static FfiBuffer WriteJsonMemoryRaw(DataFrameHandle df, PlJsonFormat format)
     {
         NativeBindings.pl_dataframe_write_json_memory(df, out var ffiBuffer, format);
         ErrorHelper.CheckVoid();
-        try
-        {
-            unsafe
-            {
-                var span = new ReadOnlySpan<byte>(ffiBuffer.Data.ToPointer(), (int)ffiBuffer.Length);
-                return span.ToArray();
-            }
-        }
-        finally
-        {
-            NativeBindings.pl_free_ffi_buffer(ffiBuffer);
-        }
+        return ffiBuffer;
     }
+    public static byte[] WriteJsonMemory(DataFrameHandle df, PlJsonFormat format)
+        => NativeBuffer.TakeToArray(WriteJsonMemoryRaw(df, format));
+    public static NativeBuffer WriteJsonNativeMemory(DataFrameHandle df, PlJsonFormat format)
+        => NativeBuffer.Take(WriteJsonMemoryRaw(df, format));
     // Sink Parquet
     public static void SinkParquet(
         LazyFrameHandle lf,
@@ -769,7 +793,7 @@ public readonly partial struct PolarsWrapper
 
         ErrorHelper.CheckVoid();
     }
-    public static byte[] SinkParquetMemory(
+    private static FfiBuffer SinkParquetMemoryRaw(
         LazyFrameHandle lf,
         PlParquetCompression compression,
         int compressionLevel,
@@ -797,19 +821,28 @@ public readonly partial struct PolarsWrapper
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
 
-        try
-        {
-            unsafe
-            {
-                var span = new ReadOnlySpan<byte>(ffiBuffer.Data.ToPointer(), (int)ffiBuffer.Length);
-                return span.ToArray();
-            }
-        }
-        finally
-        {
-            NativeBindings.pl_free_ffi_buffer(ffiBuffer);
-        }
+        return ffiBuffer;
     }
+    public static byte[] SinkParquetMemory(
+        LazyFrameHandle lf,
+        PlParquetCompression compression,
+        int compressionLevel,
+        bool statistics,
+        int rowGroupSize,
+        int dataPageSize,
+        int compatLevel,
+        bool maintainOrder)
+        => NativeBuffer.TakeToArray(SinkParquetMemoryRaw(lf, compression, compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder));
+    public static NativeBuffer SinkParquetNativeMemory(
+        LazyFrameHandle lf,
+        PlParquetCompression compression,
+        int compressionLevel,
+        bool statistics,
+        int rowGroupSize,
+        int dataPageSize,
+        int compatLevel,
+        bool maintainOrder)
+        => NativeBuffer.Take(SinkParquetMemoryRaw(lf, compression, compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder));
     // ---------------------------------------------------------
     // Read JSON (File)
     // ---------------------------------------------------------
@@ -1119,7 +1152,7 @@ public readonly partial struct PolarsWrapper
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
     }
-    public static byte[] SinkJsonMemory(
+    private static FfiBuffer SinkJsonMemoryRaw(
         LazyFrameHandle lf,
         PlExternalCompression compression,
         int compressionLevel,
@@ -1139,19 +1172,24 @@ public readonly partial struct PolarsWrapper
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
 
-        try
-        {
-            unsafe
-            {
-                var span = new ReadOnlySpan<byte>(ffiBuffer.Data.ToPointer(), (int)ffiBuffer.Length);
-                return span.ToArray();
-            }
-        }
-        finally
-        {
-            NativeBindings.pl_free_ffi_buffer(ffiBuffer);
-        }
+        return ffiBuffer;
     }
+    public static byte[] SinkJsonMemory(
+        LazyFrameHandle lf,
+        PlExternalCompression compression,
+        int compressionLevel,
+        bool checkExtension,
+        bool maintainOrder
+        )
+        => NativeBuffer.TakeToArray(SinkJsonMemoryRaw(lf, compression, compressionLevel, checkExtension, maintainOrder));
+    public static NativeBuffer SinkJsonNativeMemory(
+        LazyFrameHandle lf,
+        PlExternalCompression compression,
+        int compressionLevel,
+        bool checkExtension,
+        bool maintainOrder
+        )
+        => NativeBuffer.Take(SinkJsonMemoryRaw(lf, compression, compressionLevel, checkExtension, maintainOrder));
     // ---------------------------------------------------------
     // Scan IPC (File / Cloud)
     // ---------------------------------------------------------
@@ -1494,7 +1532,7 @@ public readonly partial struct PolarsWrapper
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
     }
-    public static byte[] SinkIpcMemory(
+    private static FfiBuffer SinkIpcMemoryRaw(
         LazyFrameHandle lf,
         PlIpcCompression compression,
         int compatLevel,
@@ -1518,20 +1556,24 @@ public readonly partial struct PolarsWrapper
 
         ErrorHelper.CheckVoid();
 
-        try
-        {
-            unsafe
-            {
-                var span = new ReadOnlySpan<byte>(ffiBuffer.Data.ToPointer(), (int)ffiBuffer.Length);
-
-                return span.ToArray();
-            }
-        }
-        finally
-        {
-            NativeBindings.pl_free_ffi_buffer(ffiBuffer);
-        }
+        return ffiBuffer;
     }
+    public static byte[] SinkIpcMemory(
+        LazyFrameHandle lf,
+        PlIpcCompression compression,
+        int compatLevel,
+        int recordBatchSize,
+        bool recordBatchStatistics,
+        bool maintainOrder)
+        => NativeBuffer.TakeToArray(SinkIpcMemoryRaw(lf, compression, compatLevel, recordBatchSize, recordBatchStatistics, maintainOrder));
+    public static NativeBuffer SinkIpcNativeMemory(
+        LazyFrameHandle lf,
+        PlIpcCompression compression,
+        int compatLevel,
+        int recordBatchSize,
+        bool recordBatchStatistics,
+        bool maintainOrder)
+        => NativeBuffer.Take(SinkIpcMemoryRaw(lf, compression, compatLevel, recordBatchSize, recordBatchStatistics, maintainOrder));
     public static void WriteIpcStream(
         DataFrameHandle df,
         string path,
@@ -1548,7 +1590,7 @@ public readonly partial struct PolarsWrapper
         ErrorHelper.CheckVoid();
     }
 
-    public static byte[] WriteIpcStreamMemory(
+    private static FfiBuffer WriteIpcStreamMemoryRaw(
         DataFrameHandle df,
         PlIpcCompression compression,
         int compatLevel)
@@ -1562,25 +1604,18 @@ public readonly partial struct PolarsWrapper
 
         ErrorHelper.CheckVoid();
 
-        try
-        {
-            unsafe
-            {
-                if (ffiBuffer.Data == 0 || ffiBuffer.Length == 0)
-                {
-                    return [];
-                }
-
-                var span = new ReadOnlySpan<byte>((void*)ffiBuffer.Data, (int)ffiBuffer.Length);
-
-                return span.ToArray();
-            }
-        }
-        finally
-        {
-            NativeBindings.pl_free_ffi_buffer(ffiBuffer);
-        }
+        return ffiBuffer;
     }
+    public static byte[] WriteIpcStreamMemory(
+        DataFrameHandle df,
+        PlIpcCompression compression,
+        int compatLevel)
+        => NativeBuffer.TakeToArray(WriteIpcStreamMemoryRaw(df, compression, compatLevel));
+    public static NativeBuffer WriteIpcStreamNativeMemory(
+        DataFrameHandle df,
+        PlIpcCompression compression,
+        int compatLevel)
+        => NativeBuffer.Take(WriteIpcStreamMemoryRaw(df, compression, compatLevel));
     public static unsafe LazyFrameHandle LazyFrameScanStream(
         CArrowSchema* schema,
         delegate* unmanaged[Cdecl]<void*, Arrow.CArrowArrayStream*> callback,
@@ -1750,7 +1785,7 @@ public readonly partial struct PolarsWrapper
         NativeBindings.pl_write_avro(df, path, compression, name ?? string.Empty);
         ErrorHelper.CheckVoid();
     }
-    public static byte[] WriteAvroToMemory(
+    private static FfiBuffer WriteAvroToMemoryRaw(
         DataFrameHandle df,
         PlAvroCompression compression,
         string name)
@@ -1763,19 +1798,17 @@ public readonly partial struct PolarsWrapper
         );
 
         ErrorHelper.CheckVoid();
-        try
-        {
-            unsafe
-            {
-                var span = new ReadOnlySpan<byte>(ffiBuffer.Data.ToPointer(), (int)ffiBuffer.Length);
-
-                return span.ToArray();
-            }
-        }
-        finally
-        {
-            NativeBindings.pl_free_ffi_buffer(ffiBuffer);
-        }
+        return ffiBuffer;
     }
+    public static byte[] WriteAvroToMemory(
+        DataFrameHandle df,
+        PlAvroCompression compression,
+        string name)
+        => NativeBuffer.TakeToArray(WriteAvroToMemoryRaw(df, compression, name));
+    public static NativeBuffer WriteAvroNativeMemory(
+        DataFrameHandle df,
+        PlAvroCompression compression,
+        string name)
+        => NativeBuffer.Take(WriteAvroToMemoryRaw(df, compression, name));
 
 }

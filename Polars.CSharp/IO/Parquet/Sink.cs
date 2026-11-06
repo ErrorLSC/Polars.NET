@@ -1,3 +1,4 @@
+using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
@@ -158,6 +159,32 @@ public partial class LazyFrame : IDisposable
         bool maintainOrder = true)
     {
         return PolarsWrapper.SinkParquetMemory(
+            CloneHandle(),
+            compression.ToNative(),
+            compressionLevel,
+            statistics,
+            rowGroupSize,
+            dataPageSize,
+            compatLevel,
+            maintainOrder
+        );
+    }
+    /// <summary>
+    /// Sink the LazyFrame to a Parquet format in native memory, without copying into the managed heap.
+    /// </summary>
+    /// <returns>
+    /// A <see cref="NativeBuffer"/> owning the serialized Parquet data. Dispose it to release the native memory.
+    /// </returns>
+    public NativeBuffer SinkParquetNativeMemory(
+        ParquetCompression compression = ParquetCompression.ZSTD,
+        int compressionLevel = 3,
+        bool statistics = true,
+        int rowGroupSize = 0,
+        int dataPageSize = 0,
+        int compatLevel = -1,
+        bool maintainOrder = true)
+    {
+        return PolarsWrapper.SinkParquetNativeMemory(
             CloneHandle(),
             compression.ToNative(),
             compressionLevel,

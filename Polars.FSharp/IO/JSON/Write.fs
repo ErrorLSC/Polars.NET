@@ -164,6 +164,29 @@ module JsonWrite =
                 chkExt,
                 mo
             )
+
+        /// <summary>
+        /// Sink the LazyFrame to a NDJSON (Newline Delimited JSON) format in native memory, without copying into the managed heap.
+        /// </summary>
+        /// <returns>A <see cref="T:Polars.NET.Core.NativeBuffer"/> owning the serialized NDJSON data. Dispose it to release the native memory.</returns>
+        member this.SinkJsonNativeMemory(
+            ?compression: ExternalCompression,
+            ?compressionLevel: int,
+            ?checkExtension: bool,
+            ?maintainOrder: bool
+        ) : Polars.NET.Core.NativeBuffer =
+            let comp = defaultArg compression ExternalCompression.Uncompressed
+            let compLevel = defaultArg compressionLevel -1
+            let chkExt = defaultArg checkExtension true
+            let mo = defaultArg maintainOrder true
+
+            PolarsWrapper.SinkJsonNativeMemory(
+                this.CloneHandle(),
+                comp.ToNative(),
+                compLevel,
+                chkExt,
+                mo
+            )
     type DataFrame with
         /// <summary>   
         /// Write DataFrame to a JSON file.

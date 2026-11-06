@@ -168,6 +168,32 @@ module IPCWrite =
                 batchStats,
                 mo
             )
+
+        /// <summary>
+        /// Sink the LazyFrame to an IPC (Arrow) format in native memory, without copying into the managed heap.
+        /// </summary>
+        /// <returns>A <see cref="T:Polars.NET.Core.NativeBuffer"/> owning the bytes. Dispose it to release the native memory.</returns>
+        member this.SinkIpcNativeMemory(
+            ?compression: IpcCompression,
+            ?compatLevel: int,
+            ?recordBatchSize: int,
+            ?recordBatchStatistics: bool,
+            ?maintainOrder: bool
+        ) : Polars.NET.Core.NativeBuffer =
+            let comp = defaultArg compression IpcCompression.NoCompression
+            let compat = defaultArg compatLevel -1
+            let batchSize = defaultArg recordBatchSize 0
+            let batchStats = defaultArg recordBatchStatistics true
+            let mo = defaultArg maintainOrder true
+
+            PolarsWrapper.SinkIpcNativeMemory(
+                this.CloneHandle(),
+                comp.ToNative(),
+                compat,
+                batchSize,
+                batchStats,
+                mo
+            )
     type DataFrame with
         /// <summary>
         /// Write DataFrame to an IPC (Arrow/Feather) file.
@@ -253,6 +279,25 @@ module IPCWrite =
             ?maintainOrder: bool
         ) : byte[] =
             this.Lazy().SinkIpcMemory(
+                ?compression = compression,
+                ?compatLevel = compatLevel,
+                ?recordBatchSize = recordBatchSize,
+                ?recordBatchStatistics = recordBatchStatistics,
+                ?maintainOrder = maintainOrder
+            )
+
+        /// <summary>
+        /// Write DataFrame to an IPC (Arrow/Feather) format in native memory, without copying into the managed heap.
+        /// </summary>
+        /// <returns>A <see cref="T:Polars.NET.Core.NativeBuffer"/> owning the bytes. Dispose it to release the native memory.</returns>
+        member this.WriteIpcNativeMemory(
+            ?compression: IpcCompression,
+            ?compatLevel: int,
+            ?recordBatchSize: int,
+            ?recordBatchStatistics: bool,
+            ?maintainOrder: bool
+        ) : Polars.NET.Core.NativeBuffer =
+            this.Lazy().SinkIpcNativeMemory(
                 ?compression = compression,
                 ?compatLevel = compatLevel,
                 ?recordBatchSize = recordBatchSize,

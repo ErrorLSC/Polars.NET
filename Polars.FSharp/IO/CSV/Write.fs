@@ -272,6 +272,75 @@ module CsvWrite =
                 mo
             )
 
+        /// <summary>
+        /// Sink the LazyFrame to a CSV format in native memory, without copying into the managed heap.
+        /// <para>
+        /// This allows for streaming execution directly into a native buffer without writing to disk.
+        /// </para>
+        /// </summary>
+        /// <returns>A <see cref="T:Polars.NET.Core.NativeBuffer"/> owning the serialized CSV data. Dispose it to release the native memory.</returns>
+        member this.SinkCsvNativeMemory
+            (
+                ?includeBom: bool,
+                ?includeHeader: bool,
+                ?batchSize: int,
+                ?checkExtension: bool,
+                ?compressionCode: ExternalCompression,
+                ?compressionLevel: int,
+                ?dateFormat: string,
+                ?timeFormat: string,
+                ?datetimeFormat: string,
+                ?floatScientific: int,
+                ?floatPrecision: int,
+                ?decimalComma: bool,
+                ?separator: byte,
+                ?quoteChar: byte,
+                ?nullValue: string,
+                ?lineTerminator: string,
+                ?quoteStyle: QuoteStyle,
+                ?maintainOrder: bool
+            ) : Polars.NET.Core.NativeBuffer =
+            let incBom = defaultArg includeBom false
+            let incHdr = defaultArg includeHeader true
+            let bSize = defaultArg batchSize 1024
+            let chkExt = defaultArg checkExtension false
+            let comp = defaultArg compressionCode ExternalCompression.Uncompressed
+            let compLvl = defaultArg compressionLevel 0
+            let dFmt = defaultArg dateFormat null
+            let tFmt = defaultArg timeFormat null
+            let dtFmt = defaultArg datetimeFormat null
+            let fSci = defaultArg floatScientific -1
+            let fPrec = defaultArg floatPrecision -1
+            let dComma = defaultArg decimalComma false
+            let sep = defaultArg separator (byte ',')
+            let qChar = defaultArg quoteChar (byte '"')
+            let nVal = defaultArg nullValue null
+            let lTerm = defaultArg lineTerminator "\n"
+            let qStyle = defaultArg quoteStyle QuoteStyle.Necessary
+            let mo = defaultArg maintainOrder true
+
+            PolarsWrapper.SinkCsvNativeMemory(
+                this.CloneHandle(),
+                incBom,
+                incHdr,
+                bSize,
+                chkExt,
+                comp.ToNative(),
+                compLvl,
+                dFmt,
+                tFmt,
+                dtFmt,
+                fSci,
+                fPrec,
+                dComma,
+                sep,
+                qChar,
+                nVal,
+                lTerm,
+                qStyle.ToNative(),
+                mo
+            )
+
     type DataFrame with
         /// <summary>
         /// Write DataFrame to a comma-separated values (CSV) file.
@@ -431,6 +500,54 @@ module CsvWrite =
             this
                 .Lazy()
                 .SinkCsvMemory(
+                    ?includeBom = includeBom,
+                    ?includeHeader = includeHeader,
+                    ?batchSize = batchSize,
+                    ?checkExtension = checkExtension,
+                    ?compressionCode = compressionCode,
+                    ?compressionLevel = compressionLevel,
+                    ?dateFormat = dateFormat,
+                    ?timeFormat = timeFormat,
+                    ?datetimeFormat = datetimeFormat,
+                    ?floatScientific = floatScientific,
+                    ?floatPrecision = floatPrecision,
+                    ?decimalComma = decimalComma,
+                    ?separator = separator,
+                    ?quoteChar = quoteChar,
+                    ?nullValue = nullValue,
+                    ?lineTerminator = lineTerminator,
+                    ?quoteStyle = quoteStyle,
+                    ?maintainOrder = maintainOrder
+                )
+
+        /// <summary>
+        /// Write DataFrame to a CSV format in native memory, without copying into the managed heap.
+        /// </summary>
+        /// <returns>A <see cref="T:Polars.NET.Core.NativeBuffer"/> owning the serialized CSV data. Dispose it to release the native memory.</returns>
+        member this.WriteCsvNativeMemory
+            (
+                ?includeBom: bool,
+                ?includeHeader: bool,
+                ?batchSize: int,
+                ?checkExtension: bool,
+                ?compressionCode: ExternalCompression,
+                ?compressionLevel: int,
+                ?dateFormat: string,
+                ?timeFormat: string,
+                ?datetimeFormat: string,
+                ?floatScientific: int,
+                ?floatPrecision: int,
+                ?decimalComma: bool,
+                ?separator: byte,
+                ?quoteChar: byte,
+                ?nullValue: string,
+                ?lineTerminator: string,
+                ?quoteStyle: QuoteStyle,
+                ?maintainOrder: bool
+            ) : Polars.NET.Core.NativeBuffer =
+            this
+                .Lazy()
+                .SinkCsvNativeMemory(
                     ?includeBom = includeBom,
                     ?includeHeader = includeHeader,
                     ?batchSize = batchSize,

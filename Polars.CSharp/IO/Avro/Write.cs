@@ -30,4 +30,18 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     {
         return PolarsWrapper.WriteAvroToMemory(Handle, compression.ToNative(), name);
     }
+    /// <summary>
+    /// Write the DataFrame to an Apache Avro memory buffer in native memory, without copying into the managed heap.
+    /// </summary>
+    /// <param name="compression">The compression algorithm to use.</param>
+    /// <param name="name">The name of the Avro record.</param>
+    /// <returns>
+    /// A <see cref="NativeBuffer"/> owning the Avro data. Dispose it to release the native memory.
+    /// </returns>
+    public NativeBuffer WriteAvroNativeMemory(
+        AvroCompression compression = AvroCompression.Uncompressed,
+        string name = "")
+    {
+        return PolarsWrapper.WriteAvroNativeMemory(Handle, compression.ToNative(), name);
+    }
 }

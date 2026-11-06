@@ -1,4 +1,5 @@
 #pragma warning disable CS1573
+using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
@@ -22,6 +23,21 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     public byte[] WriteJsonMemory(JsonFormat jsonFormat = JsonFormat.Json)
     {
         return PolarsWrapper.WriteJsonMemory(
+            Handle,
+            jsonFormat.ToNative()
+        );
+    }
+
+    /// <summary>
+    /// Writes the DataFrame to a JSON format in native memory, without copying into the managed heap.
+    /// </summary>
+    /// <param name="jsonFormat">The JSON format to use (Json or JsonLines).</param>
+    /// <returns>
+    /// A <see cref="NativeBuffer"/> owning the JSON data. Dispose it to release the native memory.
+    /// </returns>
+    public NativeBuffer WriteJsonNativeMemory(JsonFormat jsonFormat = JsonFormat.Json)
+    {
+        return PolarsWrapper.WriteJsonNativeMemory(
             Handle,
             jsonFormat.ToNative()
         );

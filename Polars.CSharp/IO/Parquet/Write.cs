@@ -1,4 +1,5 @@
 #pragma warning disable CS1573
+using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
@@ -105,6 +106,27 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     {
         var lf = Lazy();
         return lf.SinkParquetMemory(
+            compression,
+            compressionLevel,
+            statistics,
+            rowGroupSize,
+            dataPageSize,
+            compatLevel,
+            maintainOrder
+        );
+    }
+    /// <inheritdoc cref="LazyFrame.SinkParquetNativeMemory"/>
+    public NativeBuffer WriteParquetNativeMemory(
+        ParquetCompression compression = ParquetCompression.ZSTD,
+        int compressionLevel = 3,
+        bool statistics = true,
+        int rowGroupSize = 0,
+        int dataPageSize = 0,
+        int compatLevel = -1,
+        bool maintainOrder = true)
+    {
+        var lf = Lazy();
+        return lf.SinkParquetNativeMemory(
             compression,
             compressionLevel,
             statistics,

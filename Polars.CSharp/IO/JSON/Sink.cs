@@ -1,4 +1,5 @@
 #pragma warning disable CS1573
+using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
@@ -124,6 +125,27 @@ public partial class LazyFrame : IDisposable
         bool maintainOrder = true)
     {
         return PolarsWrapper.SinkJsonMemory(
+            CloneHandle(),
+            compression.ToNative(),
+            compressionLevel,
+            checkExtension,
+            maintainOrder
+        );
+    }
+
+    /// <summary>
+    /// Sink the LazyFrame to a NDJSON (Newline Delimited JSON) format in native memory, without copying into the managed heap.
+    /// </summary>
+    /// <returns>
+    /// A <see cref="NativeBuffer"/> owning the serialized NDJSON data. Dispose it to release the native memory.
+    /// </returns>
+    public NativeBuffer SinkJsonNativeMemory(
+        ExternalCompression compression = ExternalCompression.Uncompressed,
+        int compressionLevel = -1,
+        bool checkExtension = true,
+        bool maintainOrder = true)
+    {
+        return PolarsWrapper.SinkJsonNativeMemory(
             CloneHandle(),
             compression.ToNative(),
             compressionLevel,

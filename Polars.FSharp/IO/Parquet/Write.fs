@@ -188,6 +188,39 @@ module ParquetWrite =
                 compat,
                 mo
             )
+
+        /// <summary>
+        /// Sink the LazyFrame to a Parquet format in native memory, without copying into the managed heap.
+        /// </summary>
+        /// <returns>A <see cref="T:Polars.NET.Core.NativeBuffer"/> owning the bytes. Dispose it to release the native memory.</returns>
+        member this.SinkParquetNativeMemory(
+            ?compression: ParquetCompression,
+            ?compressionLevel: int,
+            ?statistics: bool,
+            ?rowGroupSize: int,
+            ?dataPageSize: int,
+            ?compatLevel: int,
+            ?maintainOrder: bool
+        ) : Polars.NET.Core.NativeBuffer =
+            // Note: For Memory Sink, ZSTD and Level 3 are the typical defaults used in the C# wrapper
+            let comp = defaultArg compression ParquetCompression.Zstd
+            let compLevel = defaultArg compressionLevel 3
+            let stats = defaultArg statistics true
+            let rgs = defaultArg rowGroupSize 0
+            let dps = defaultArg dataPageSize 0
+            let compat = defaultArg compatLevel -1
+            let mo = defaultArg maintainOrder true
+
+            PolarsWrapper.SinkParquetNativeMemory(
+                this.CloneHandle(),
+                comp.ToNative(),
+                compLevel,
+                stats,
+                rgs,
+                dps,
+                compat,
+                mo
+            )
     type DataFrame with
     /// <summary>
         /// Write DataFrame to a Parquet file.
@@ -279,6 +312,29 @@ module ParquetWrite =
             ?maintainOrder: bool
         ) : byte[] =
             this.Lazy().SinkParquetMemory(
+                ?compression = compression,
+                ?compressionLevel = compressionLevel,
+                ?statistics = statistics,
+                ?rowGroupSize = rowGroupSize,
+                ?dataPageSize = dataPageSize,
+                ?compatLevel = compatLevel,
+                ?maintainOrder = maintainOrder
+            )
+
+        /// <summary>
+        /// Write DataFrame to a Parquet format in native memory, without copying into the managed heap.
+        /// </summary>
+        /// <returns>A <see cref="T:Polars.NET.Core.NativeBuffer"/> owning the bytes. Dispose it to release the native memory.</returns>
+        member this.WriteParquetNativeMemory(
+            ?compression: ParquetCompression,
+            ?compressionLevel: int,
+            ?statistics: bool,
+            ?rowGroupSize: int,
+            ?dataPageSize: int,
+            ?compatLevel: int,
+            ?maintainOrder: bool
+        ) : Polars.NET.Core.NativeBuffer =
+            this.Lazy().SinkParquetNativeMemory(
                 ?compression = compression,
                 ?compressionLevel = compressionLevel,
                 ?statistics = statistics,

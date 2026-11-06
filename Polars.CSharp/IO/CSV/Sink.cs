@@ -1,3 +1,4 @@
+using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
@@ -269,6 +270,58 @@ public partial class LazyFrame : IDisposable
         bool maintainOrder = true)
     {
         return PolarsWrapper.SinkCsvMemory(
+            CloneHandle(),
+            includeBom,
+            includeHeader,
+            batchSize,
+            checkExtension,
+            compressionCode.ToNative(),
+            compressionLevel,
+            dateFormat,
+            timeFormat,
+            datetimeFormat,
+            floatScientific,
+            floatPrecision,
+            decimalComma,
+            separator,
+            quoteChar,
+            nullValue,
+            lineTerminator,
+            quoteStyle.ToNative(),
+            maintainOrder
+        );
+    }
+
+    /// <summary>
+    /// Sink the LazyFrame to a CSV format in native memory, without copying into the managed heap.
+    /// <para>
+    /// This allows for streaming execution directly into a native buffer without writing to disk.
+    /// </para>
+    /// </summary>
+    /// <returns>
+    /// A <see cref="NativeBuffer"/> owning the serialized CSV data. Dispose it to release the native memory.
+    /// </returns>
+    public NativeBuffer SinkCsvNativeMemory(
+        bool includeBom = false,
+        bool includeHeader = true,
+        int batchSize = 1024,
+        bool checkExtension = false,
+        ExternalCompression compressionCode = 0,
+        int compressionLevel = 0,
+        string? dateFormat = null,
+        string? timeFormat = null,
+        string? datetimeFormat = null,
+        int floatScientific = -1,
+        int floatPrecision = -1,
+        bool decimalComma = false,
+        byte separator = (byte)',',
+        byte quoteChar = (byte)'"',
+        string? nullValue = null,
+        string? lineTerminator = "\n",
+        QuoteStyle quoteStyle = QuoteStyle.Necessary,
+        bool maintainOrder = true)
+    {
+        return PolarsWrapper.SinkCsvNativeMemory(
             CloneHandle(),
             includeBom,
             includeHeader,
