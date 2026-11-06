@@ -41,6 +41,7 @@ type internal CompiledQueryKey =
         /// The queryable roots, in expression traversal order.
         Roots: RootKey list
         DisallowUdfPushdown: bool
+        UseRelationalNulls: bool
     }
 
 [<NoEquality; NoComparison>]
@@ -297,6 +298,7 @@ type QueryPlanCache private () =
                         Values = values |> List.map Option.get
                         Roots = roots
                         DisallowUdfPushdown = CoreConfig.DisallowUdfPushdown
+                        UseRelationalNulls = CoreConfig.UseRelationalNulls
                     }
             else
                 None

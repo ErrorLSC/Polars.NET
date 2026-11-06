@@ -8,6 +8,7 @@ module internal LogicalOptimizer =
     /// Runs all middle-end optimization passes sequentially on the logical plan.
     let optimize (plan: LogicalPlan) : LogicalPlan =
         plan
+        |> FilterNullSimplification.apply
         |> PredicatePushdown.apply
         |> ProjectionPruning.apply
         |> SortSliceFusion.apply

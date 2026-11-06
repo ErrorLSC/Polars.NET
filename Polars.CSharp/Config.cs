@@ -165,6 +165,9 @@ public sealed class PolarsConfig
                         case "allow_unstable_ordering":
                             CoreConfig.AllowUnstableOrdering = value is "1" or "true" or "TRUE" or "True";
                             break;
+                        case "use_relational_nulls":
+                            CoreConfig.UseRelationalNulls = value is "1" or "true" or "TRUE" or "True";
+                            break;
                     }
                 }
                 else
@@ -186,6 +189,12 @@ public sealed class PolarsConfig
     /// Default is false (orderings are stable, as in LINQ to Objects).
     /// </summary>
     public bool AllowUnstableOrdering => CoreConfig.AllowUnstableOrdering;
+
+    /// <summary>
+    /// Gets whether LINQ comparisons use relational (SQL) null semantics.
+    /// Default is false (C# null semantics, as in LINQ to Objects).
+    /// </summary>
+    public bool UseRelationalNulls => CoreConfig.UseRelationalNulls;
 
     /// <summary>
     /// Gets the current client-side evaluation policy.
@@ -516,6 +525,20 @@ public sealed class PolarsConfig
     public PolarsConfig SetAllowUnstableOrdering(bool allow = true)
     {
         Apply(() => CoreConfig.AllowUnstableOrdering = allow);
+        return this;
+    }
+
+    /// <summary>
+    /// Sets whether LINQ comparisons use relational (SQL) three-valued null semantics, as EF Core's
+    /// <c>UseRelationalNulls()</c>.
+    /// Default is false: <c>a == b</c> is true when both sides are null, a lifted <c>a &lt; b</c> is false when
+    /// either side is null, and correlated subqueries match null keys, as in LINQ to Objects.
+    /// With relational nulls a comparison with a null operand is null and correlated subqueries never match null
+    /// keys. Explicit joins never match null keys under either setting.
+    /// </summary>
+    public PolarsConfig SetUseRelationalNulls(bool use = true)
+    {
+        Apply(() => CoreConfig.UseRelationalNulls = use);
         return this;
     }
 }

@@ -43,21 +43,13 @@ module internal OperatorAndUdfTranslator =
         | _ -> None
 
 
-    /// True for a CLR type whose values can be null: a reference type or Nullable<T>.
-    let private isNullableClrType (t: Type) = not t.IsValueType || not (isNull (Nullable.GetUnderlyingType t))
-
-    let rec private isLiteralScalar (s: ScalarExpr) =
-        match s with
-        | ScalarExpr.Literal _ -> true
-        | ScalarExpr.Cast(inner, _, _) -> isLiteralScalar inner
-        | _ -> false
-
     let internal translateBinaryExpr
         (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
         (op: ExpressionType)
         (left: Expression)
         (right: Expression)
+        (resultType: Type)
         : ScalarExpr option =
         let translateNullCheckTarget targetExpr =
             eval ctx targetExpr
@@ -106,17 +98,18 @@ module internal OperatorAndUdfTranslator =
             | Some(ScalarExpr.Literal(LiteralValue.Null _)), Some other
             | Some other, Some(ScalarExpr.Literal(LiteralValue.Null _)) when op = ExpressionType.Equal || op = ExpressionType.NotEqual ->
                 Some(ScalarExpr.Unary((if op = ExpressionType.Equal then UnaryOp.IsNull else UnaryOp.IsNotNull), other))
-            // C# null semantics (as EF Core's default): two operands that may both be null compare null as equal
-            // to null. A non-null literal keeps plain equality, which a filter treats the same way and which keeps
-            // statistics-based predicate pushdown intact.
+            // C# null semantics (EF Core's default, see NullSemantics): equality is two-valued, and a lifted
+            // ordering comparison is false on a null operand.
+            | Some l, Some r when (op = ExpressionType.Equal || op = ExpressionType.NotEqual) && resultType = typeof<bool> ->
+                Some(NullSemantics.equality (op = ExpressionType.Equal) (left.Type, l) (right.Type, r))
             | Some l, Some r when
-                (op = ExpressionType.Equal || op = ExpressionType.NotEqual)
-                && isNullableClrType left.Type
-                && isNullableClrType right.Type
-                && not (isLiteralScalar l)
-                && not (isLiteralScalar r)
+                op = ExpressionType.LessThan
+                || op = ExpressionType.LessThanOrEqual
+                || op = ExpressionType.GreaterThan
+                || op = ExpressionType.GreaterThanOrEqual
                 ->
-                Some(ScalarExpr.Binary((if op = ExpressionType.Equal then BinaryOp.EqMissing else BinaryOp.NotEqMissing), l, r))
+                tryTranslateBinary op l r
+                |> Option.map (NullSemantics.liftedComparison resultType [ left.Type, l; right.Type, r ])
             | Some l, Some r -> tryTranslateBinary op l r
             | _ -> None
 

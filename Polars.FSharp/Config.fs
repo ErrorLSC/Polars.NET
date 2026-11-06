@@ -337,3 +337,11 @@ module Config =
     /// </summary>
     let allowUnstableOrdering (allow: bool) =
         fun () -> CoreConfig.AllowUnstableOrdering <- allow
+
+    /// <summary>
+    /// Sets whether LINQ / query comparisons use relational (SQL) three-valued null semantics, as EF Core's
+    /// UseRelationalNulls(). Default is false: comparisons follow .NET semantics (null equals null, a lifted
+    /// ordering comparison with a null operand is false).
+    /// </summary>
+    let useRelationalNulls (useRelational: bool) =
+        fun () -> CoreConfig.UseRelationalNulls <- useRelational

@@ -389,31 +389,33 @@ module internal StringTemporalTranslator =
                     | _ -> None
             | _ -> None
 
-        // --- Equals ---
+        // --- Equals --- (null-safe, as string.Equals: see NullSemantics)
         | "Equals", [ aExpr; bExpr ] when isNull target ->
             match eval ctx aExpr, eval ctx bExpr with
-            | Some a, Some b -> Some(ScalarExpr.Binary(BinaryOp.Eq, a, b))
+            | Some a, Some b -> Some(NullSemantics.equality true (aExpr.Type, a) (bExpr.Type, b))
             | _ -> None
 
         | "Equals", [ aExpr; bExpr; compExpr ] when isNull target ->
             match eval ctx aExpr, eval ctx bExpr, tryEvaluateCaseInsensitive compExpr with
             | Some a, Some b, Some true ->
-                Some(ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Function(ScalarFunction.ToLower, [ a ], LogicalTypes.String), ScalarExpr.Function(ScalarFunction.ToLower, [ b ], LogicalTypes.String)))
+                let lower x = ScalarExpr.Function(ScalarFunction.ToLower, [ x ], LogicalTypes.String)
+                Some(NullSemantics.equality true (aExpr.Type, lower a) (bExpr.Type, lower b))
             | Some a, Some b, Some false ->
-                Some(ScalarExpr.Binary(BinaryOp.Eq, a, b))
+                Some(NullSemantics.equality true (aExpr.Type, a) (bExpr.Type, b))
             | _ -> None
 
         | "Equals", [ otherExpr ] ->
             match targetS (), eval ctx otherExpr with
-            | Some t, Some o -> Some(ScalarExpr.Binary(BinaryOp.Eq, t, o))
+            | Some t, Some o -> Some(NullSemantics.equality true (target.Type, t) (otherExpr.Type, o))
             | _ -> None
 
         | "Equals", [ otherExpr; compExpr ] ->
             match targetS (), eval ctx otherExpr, tryEvaluateCaseInsensitive compExpr with
             | Some t, Some o, Some true ->
-                Some(ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Function(ScalarFunction.ToLower, [ t ], LogicalTypes.String), ScalarExpr.Function(ScalarFunction.ToLower, [ o ], LogicalTypes.String)))
+                let lower x = ScalarExpr.Function(ScalarFunction.ToLower, [ x ], LogicalTypes.String)
+                Some(NullSemantics.equality true (target.Type, lower t) (otherExpr.Type, lower o))
             | Some t, Some o, Some false ->
-                Some(ScalarExpr.Binary(BinaryOp.Eq, t, o))
+                Some(NullSemantics.equality true (target.Type, t) (otherExpr.Type, o))
             | _ -> None
 
         // --- CompareTo ---

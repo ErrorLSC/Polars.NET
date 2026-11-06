@@ -466,4 +466,96 @@ public class LinqSemanticsRegressionTests
 
         Assert.Equal(expected.OrderBy(t => t.x).ThenBy(t => t.y), query.ToList().OrderBy(t => t.x).ThenBy(t => t.y));
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Lifted comparisons follow C#: `a > b` over a null operand is false (not null), `a != lit` is true on a
+    // null `a`, and NOT over either keeps that. A filter drops the compensation where null and false agree.
+    // ---------------------------------------------------------------------------------------------
+
+    private static readonly KnV[] Nullables =
+        [new() { K = 1, V = 10 }, new() { K = 2, V = null }, new() { K = 3, V = 30 }, new() { K = 4, V = null }];
+
+    [Fact]
+    public void Lifted_Comparison_In_A_Projection_Is_False_On_Null()
+    {
+        using var df = DataFrame.From(Nullables);
+        var query = df.AsQueryable<KnV>().Select(x => new { x.K, gt = x.V > 15, le = x.V <= 15, notGt = !(x.V > 15), eq = x.V == 10 });
+        var expected = Nullables.Select(x => new { x.K, gt = x.V > 15, le = x.V <= 15, notGt = !(x.V > 15), eq = x.V == 10 });
+
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
+    public void Negated_Lifted_Comparison_In_A_Filter_Keeps_Null_Rows()
+    {
+        using var df = DataFrame.From(Nullables);
+        var notGt = df.AsQueryable<KnV>().Where(x => !(x.V > 15)).Select(x => x.K);
+        var notEq = df.AsQueryable<KnV>().Where(x => x.V != 10).Select(x => x.K);
+        var notEqNeg = df.AsQueryable<KnV>().Where(x => !(x.V == 10)).Select(x => x.K);
+
+        Assert.Equal(Nullables.Where(x => !(x.V > 15)).Select(x => x.K), notGt.ToList());
+        Assert.Equal(Nullables.Where(x => x.V != 10).Select(x => x.K), notEq.ToList());
+        Assert.Equal(Nullables.Where(x => !(x.V == 10)).Select(x => x.K), notEqNeg.ToList());
+    }
+
+    [Fact]
+    public void Lifted_Comparison_In_All_And_Count_Is_False_On_Null()
+    {
+        using var df = DataFrame.From(Nullables);
+        var q = df.AsQueryable<KnV>();
+
+        Assert.Equal(Nullables.All(x => x.V > 5), q.All(x => x.V > 5));
+        Assert.Equal(Nullables.Count(x => !(x.V > 15)), q.Count(x => !(x.V > 15)));
+    }
+
+    [Fact]
+    public void Filter_Keeps_Plain_Comparisons_Where_Null_And_False_Agree()
+    {
+        using var df = DataFrame.From(Nullables);
+        var query = df.AsQueryable<KnV>().Where(x => x.V > 5 && (x.V == 10 || x.V >= 30)).Select(x => x.K);
+        var plan = LogicalPlanOf(query);
+
+        Assert.DoesNotContain("COALESCE", plan);
+        Assert.DoesNotContain("<=>", plan);
+        Assert.Equal(Nullables.Where(x => x.V > 5 && (x.V == 10 || x.V >= 30)).Select(x => x.K), query.ToList());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // A condition on the outer row inside a correlated subquery predicate is decorrelated, not a fallback:
+    // `Any(y => p && q(x))` is `q(x) && Any(y => p)`.
+    // ---------------------------------------------------------------------------------------------
+
+    private static readonly KnV[] Outer =
+        [new() { K = 1, V = 10 }, new() { K = 1, V = null }, new() { K = 2, V = 5 }, new() { K = 3, V = null }, new() { K = 4, V = 7 }];
+
+    [Fact]
+    public void Outer_Only_Condition_In_Any_Is_Hoisted()
+    {
+        using var o = DataFrame.From(Outer);
+        using var i = DataFrame.From(Right);
+        var inner = i.AsQueryable<Kv>();
+        var any = o.AsQueryable<KnV>().Where(x => inner.Any(y => y.K == x.K && x.V != null)).Select(x => new { x.K, x.V });
+        var notAny = o.AsQueryable<KnV>().Where(x => !inner.Any(y => y.K == x.K && x.V != null)).Select(x => new { x.K, x.V });
+        var withTheta = o.AsQueryable<KnV>().Where(x => inner.Any(y => y.K == x.K && y.V > x.V && x.V > 6)).Select(x => new { x.K, x.V });
+
+        Assert.False(IsFullFallback(any));
+        Assert.False(IsFullFallback(notAny));
+        Assert.False(IsFullFallback(withTheta));
+        Assert.Equal(Outer.Where(x => Right.Any(y => y.K == x.K && x.V != null)).Select(x => new { x.K, x.V }), any.ToList());
+        Assert.Equal(Outer.Where(x => !Right.Any(y => y.K == x.K && x.V != null)).Select(x => new { x.K, x.V }), notAny.ToList());
+        Assert.Equal(Outer.Where(x => Right.Any(y => y.K == x.K && y.V > x.V && x.V > 6)).Select(x => new { x.K, x.V }), withTheta.ToList());
+    }
+
+    [Fact]
+    public void Outer_Only_Condition_In_A_Correlated_Count_Is_Part_Of_The_Predicate()
+    {
+        using var o = DataFrame.From(Outer);
+        using var i = DataFrame.From(Right);
+        var inner = i.AsQueryable<Kv>();
+        var query = o.AsQueryable<KnV>().Select(x => new { x.K, x.V, n = inner.Count(y => y.K == x.K && x.V != null) });
+        var expected = Outer.Select(x => new { x.K, x.V, n = Right.Count(y => y.K == x.K && x.V != null) });
+
+        Assert.False(IsFullFallback(query));
+        Assert.Equal(expected, query.ToList());
+    }
 }

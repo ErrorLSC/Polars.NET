@@ -1176,8 +1176,8 @@ public class TpcdsQuery11To20Tests
         // EXISTS (another row of the order from a different warehouse) AND NOT EXISTS (a return of the order)
         var eligibleSales = from cs in baseSales
                             // SQL <> is unknown when either warehouse is NULL
-                            where cs.cs_warehouse_sk != null
-                               && catalogSalesQuery.Any(cs2 => cs2.cs_order_number == cs.cs_order_number
+                            where catalogSalesQuery.Any(cs2 => cs2.cs_order_number == cs.cs_order_number
+                                                               && cs.cs_warehouse_sk != null
                                                                && cs2.cs_warehouse_sk != null
                                                                && cs2.cs_warehouse_sk != cs.cs_warehouse_sk)
                                && !catalogReturnsQuery.Any(cr => cr.cr_order_number == cs.cs_order_number)

@@ -69,7 +69,7 @@ module internal ExprTranslator =
             | :? InvocationExpression -> OperatorAndUdfTranslator.tryTranslateUdfInvocation eval ctx expr
 
             // 6. Binary operations
-            | Binary(op, left, right) -> OperatorAndUdfTranslator.translateBinaryExpr eval ctx op left right
+            | Binary(op, left, right) -> OperatorAndUdfTranslator.translateBinaryExpr eval ctx op left right expr.Type
 
             // 7. Unary operations
             | Unary(op, operand) -> OperatorAndUdfTranslator.translateUnaryExpr eval ctx op operand expr.Type

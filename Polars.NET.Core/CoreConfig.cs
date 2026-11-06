@@ -95,7 +95,8 @@ internal static class CoreConfig
         ClientEvaluationPolicyKey,
         NetClientEvaluationPolicyKey,
         DisallowUdfPushdownKey,
-        AllowUnstableOrderingKey
+        AllowUnstableOrderingKey,
+        UseRelationalNullsKey
     ];
 
     private static readonly (string DirectKey, Func<string?> ValueGetter)[] DirectVarRules =
@@ -131,6 +132,10 @@ internal static class CoreConfig
         (
             "allow_unstable_ordering",
             () => AllowUnstableOrdering.ToFmtString()
+        ),
+        (
+            "use_relational_nulls",
+            () => UseRelationalNulls.ToFmtString()
         )
     ];
 
@@ -353,6 +358,10 @@ internal static class CoreConfig
                         case "allow_unstable_ordering":
                             AllowUnstableOrdering = strValue is "1" or "true" or "TRUE" or "True";
                             break;
+
+                        case "use_relational_nulls":
+                            UseRelationalNulls = strValue is "1" or "true" or "TRUE" or "True";
+                            break;
                     }
                 }
             }
@@ -416,6 +425,7 @@ internal static class CoreConfig
         ClientEvaluationPolicy = ClientEvaluationPolicy.Strict;
         DisallowUdfPushdown = false;
         AllowUnstableOrdering = false;
+        UseRelationalNulls = false;
 
         PolarsWrapper.ReloadEnvVarAll();
     }
@@ -1081,6 +1091,39 @@ internal static class CoreConfig
     private static bool GetDefaultAllowUnstableOrderingFromEnv()
     {
         var envValue = Environment.GetEnvironmentVariable(AllowUnstableOrderingKey);
+        return envValue is "1" or "true" or "TRUE" or "True";
+    }
+
+    private const string UseRelationalNullsKey = "POLARS_USE_RELATIONAL_NULLS";
+    private static bool _useRelationalNulls = GetDefaultUseRelationalNullsFromEnv();
+
+    /// <summary>
+    /// Gets or sets whether LINQ queries compare nulls with relational (SQL) three-valued semantics, as EF Core's
+    /// <c>UseRelationalNulls()</c>.
+    /// Default is false: comparisons follow C# semantics. <c>a == b</c> is true when both sides are null, a lifted
+    /// <c>a &lt; b</c> is false when either side is null, and a correlated subquery (<c>Any</c>, <c>Contains</c>
+    /// over a query, a correlated aggregate) matches a null key to a null key.
+    /// When set to true, a comparison with a null operand is null (a filter drops the row), and correlated
+    /// subqueries never match null keys. Translations are simpler and can be cheaper, but results may differ from
+    /// LINQ to Objects. Comparing with a null constant or a null captured value is still an IS NULL test, and
+    /// <c>Contains</c> over an in-memory collection keeps .NET semantics. Explicit joins never match null keys
+    /// under either setting, as <c>Enumerable.Join</c>.
+    /// </summary>
+    public static bool UseRelationalNulls
+    {
+        get => _useRelationalNulls;
+        set
+        {
+            _useRelationalNulls = value;
+            string valStr = value ? "1" : "0";
+            Environment.SetEnvironmentVariable(UseRelationalNullsKey, valStr);
+            PolarsWrapper.SetEnvVar(UseRelationalNullsKey, valStr);
+        }
+    }
+
+    private static bool GetDefaultUseRelationalNullsFromEnv()
+    {
+        var envValue = Environment.GetEnvironmentVariable(UseRelationalNullsKey);
         return envValue is "1" or "true" or "TRUE" or "True";
     }
 }

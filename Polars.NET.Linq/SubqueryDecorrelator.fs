@@ -434,10 +434,12 @@ module internal SubqueryDecorrelator =
             EquiPairs: (Expression * Expression) list
             ThetaConditions: Expression list
             InnerFilters: Expression list
+            /// Conditions on the outer row alone (`x.c != null` in `Any(y => y.k == x.k && x.c != null)`).
+            OuterFilters: Expression list
         }
 
     /// Classifies a list of conjunct conditions into equi-join pairs (outer, inner),
-    /// cross-table theta conditions (inequalities), and pure inner filters.
+    /// cross-table theta conditions (inequalities), pure inner filters, and pure outer filters.
     let internal classifyConditions
         (outerNames: Set<string>)
         (innerName: string)
@@ -471,7 +473,7 @@ module internal SubqueryDecorrelator =
                     if hasOuter && hasInner then
                         Choice3Of4 cond
                     else
-                        Choice4Of4()
+                        Choice4Of4 cond
             | other ->
                 let hasOuter = containsOuter other
                 let hasInner = containsParameter innerName other
@@ -479,14 +481,15 @@ module internal SubqueryDecorrelator =
                 if not hasOuter && hasInner then Choice2Of4 other
                 elif not hasOuter && not hasInner then Choice2Of4 other
                 elif hasOuter && hasInner then Choice3Of4 other
-                else Choice4Of4()
+                else Choice4Of4 other
 
         let classified = conditions |> List.map classify
 
+        // A subquery inside an outer-only condition is not decorrelated here.
         let hasUnsupported =
             classified
             |> List.exists (function
-                | Choice4Of4() -> true
+                | Choice4Of4 c -> containsSubquery c
                 | _ -> false)
 
         if hasUnsupported then
@@ -510,6 +513,12 @@ module internal SubqueryDecorrelator =
                     | Choice3Of4 c -> Some c
                     | _ -> None)
 
+            let outerFilters =
+                classified
+                |> List.choose (function
+                    | Choice4Of4 c -> Some c
+                    | _ -> None)
+
             if equiPairs.IsEmpty && thetaConditions.IsEmpty then
                 None
             else
@@ -518,6 +527,7 @@ module internal SubqueryDecorrelator =
                         EquiPairs = equiPairs
                         ThetaConditions = thetaConditions
                         InnerFilters = innerFilters
+                        OuterFilters = outerFilters
                     }
 
     type internal CorrelatedParts =
@@ -525,8 +535,13 @@ module internal SubqueryDecorrelator =
             RootSource: Expression
             InnerParam: ParameterExpression
             EquiPairs: (Expression * Expression) list
+            /// Conditions on both rows, evaluated on the joined rows. They include the outer-only conditions,
+            /// which belong to the subquery's predicate: `Count(y => p(y) && q(x))` is 0 where q(x) is false.
             ThetaConditions: Expression list
             InnerFilters: Expression list
+            /// The outer-only conditions (also in ThetaConditions). A positive Any may hoist them to a filter
+            /// on the outer rows instead: `Any(y => p && q(x))` is `q(x) && Any(y => p)`.
+            OuterFilters: Expression list
         }
 
     /// Recursively unwraps Where cascades, validates decorrelation conditions against outerNames,
@@ -556,8 +571,9 @@ module internal SubqueryDecorrelator =
                     RootSource = rootSource
                     InnerParam = innerParam
                     EquiPairs = c.EquiPairs
-                    ThetaConditions = c.ThetaConditions
+                    ThetaConditions = c.ThetaConditions @ c.OuterFilters
                     InnerFilters = c.InnerFilters
+                    OuterFilters = c.OuterFilters
                 })
 
     /// Combines and applies pushdown inner filters onto the right-side LogicalPlan.
@@ -843,7 +859,25 @@ module internal SubqueryDecorrelator =
         let tryAny () =
             option {
                 let! innerSource, innerLambdaOpt = tryMatchAny coreExpr
-                let! parts = tryExtractCorrelatedParts outerNames innerSource innerLambdaOpt
+                let! extracted = tryExtractCorrelatedParts outerNames innerSource innerLambdaOpt
+
+                // `Any(y => p && q(x))` is `q(x) && Any(y => p)`: filter the outer rows before the semi join. A
+                // negated Any keeps the rows where q(x) is false, so it evaluates q(x) with the other conditions.
+                let! outerPlan, parts =
+                    if isNegated || extracted.OuterFilters.IsEmpty then
+                        Some(outerPlan, extracted)
+                    else
+                        extracted.OuterFilters
+                        |> List.reduce (fun a b -> Expression.AndAlso(a, b) :> Expression)
+                        |> ExprTranslator.tryTranslateToScalar outerCtx
+                        |> Option.map (fun pred ->
+                            LogicalPlan.Filter(outerPlan, pred),
+                            { extracted with
+                                ThetaConditions =
+                                    extracted.ThetaConditions
+                                    |> List.filter (fun c -> not (extracted.OuterFilters |> List.exists (fun o -> obj.ReferenceEquals(o, c))))
+                                OuterFilters = [] })
+
                 let! rawRightPlan = resolveSequencePlan parts.RootSource
                 let! rightPlan = tryApplyInnerFilters rawRightPlan parts.InnerParam parts.InnerFilters
 
@@ -855,7 +889,7 @@ module internal SubqueryDecorrelator =
 
                 if parts.ThetaConditions.IsEmpty then
                     let! keys = tryTranslateJoinKeys outerCtx innerCtx parts.EquiPairs
-                    return LogicalPlan.Join(outerPlan, rightPlan, keys.OuterKeys, keys.InnerKeys, joinHow, None, JoinKeyCoalescing.Default, true)
+                    return LogicalPlan.Join(outerPlan, rightPlan, keys.OuterKeys, keys.InnerKeys, joinHow, None, JoinKeyCoalescing.Default, NullSemantics.correlationNullsEqual ())
                 else
                     let leftCols = outerCols |> Set.ofList
                     let originalCols = outerCols
@@ -881,7 +915,7 @@ module internal SubqueryDecorrelator =
                         if outerKeys.IsEmpty then
                             LogicalPlan.Join(withRidPlan, rightPlan, [], [], JoinKind.Cross, Some LinqConstants.DefaultRightSuffix, JoinKeyCoalescing.KeepBoth, false)
                         else
-                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some LinqConstants.DefaultRightSuffix, JoinKeyCoalescing.Default, true)
+                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some LinqConstants.DefaultRightSuffix, JoinKeyCoalescing.Default, NullSemantics.correlationNullsEqual ())
 
                     let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
                     let selectedPlan = LogicalPlan.Project(filteredPlan, [ (ridCol, ScalarExpr.Column ridCol) ])
@@ -917,7 +951,7 @@ module internal SubqueryDecorrelator =
                             None
 
                 let joinHow = if isNegated then JoinKind.Anti else JoinKind.Semi
-                return LogicalPlan.Join(outerPlan, rightPlan, [ leftKey ], [ rightKey ], joinHow, None, JoinKeyCoalescing.Default, true)
+                return LogicalPlan.Join(outerPlan, rightPlan, [ leftKey ], [ rightKey ], joinHow, None, JoinKeyCoalescing.Default, NullSemantics.correlationNullsEqual ())
             }
 
         let rec tryDisjunctiveAny (disjExpr: Expression) : LogicalPlan option =
@@ -966,7 +1000,7 @@ module internal SubqueryDecorrelator =
                     if allSameOuterKey then
                         let unionPlan = branchPlans |> List.reduce (fun acc p -> LogicalPlan.Union(acc, p, true))
                         let joinHow = if isNegated then JoinKind.Anti else JoinKind.Semi
-                        Some (LogicalPlan.Join(outerPlan, unionPlan, [ branchOuterKeys.[0] ], [ ScalarExpr.Column "__disj_any_key__" ], joinHow, None, JoinKeyCoalescing.Default, true))
+                        Some (LogicalPlan.Join(outerPlan, unionPlan, [ branchOuterKeys.[0] ], [ ScalarExpr.Column "__disj_any_key__" ], joinHow, None, JoinKeyCoalescing.Default, NullSemantics.correlationNullsEqual ()))
                     else
                         None
                 else
@@ -1118,7 +1152,7 @@ module internal SubqueryDecorrelator =
 
                     let! cmpScalar = OperatorAndUdfTranslator.tryTranslateBinary effectiveOp outerSideScalar scaledAggScalar
 
-                    let joinedPlan = LogicalPlan.Join(outerPlan, groupedPlan, keys.OuterKeys, keys.InnerKeys, JoinKind.Left, None, JoinKeyCoalescing.Default, true)
+                    let joinedPlan = LogicalPlan.Join(outerPlan, groupedPlan, keys.OuterKeys, keys.InnerKeys, JoinKind.Left, None, JoinKeyCoalescing.Default, NullSemantics.correlationNullsEqual ())
                     let filterPlan = LogicalPlan.Filter(joinedPlan, cmpScalar)
                     let originalCols = (SchemaInference.inferPlanSchema outerPlan).ColumnNames
                     let restorePlan =
@@ -1175,7 +1209,7 @@ module internal SubqueryDecorrelator =
                         if outerKeys.IsEmpty then
                             LogicalPlan.Join(withRidPlan, rightPlan, [], [], JoinKind.Cross, Some rightSuffix, JoinKeyCoalescing.KeepBoth, false)
                         else
-                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some rightSuffix, JoinKeyCoalescing.Default, true)
+                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some rightSuffix, JoinKeyCoalescing.Default, NullSemantics.correlationNullsEqual ())
 
                     let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
                     let groupedPlan =
@@ -1637,7 +1671,7 @@ module internal SubqueryDecorrelator =
                                     JoinKind.Left,
                                     None,
                                     JoinKeyCoalescing.Default,
-                                    true
+                                    NullSemantics.correlationNullsEqual ()
                                 )
 
                             let fillNullCols = buildFillNullCols assignments
@@ -1700,7 +1734,7 @@ module internal SubqueryDecorrelator =
                                         JoinKind.Inner,
                                         Some rightSuffix,
                                         JoinKeyCoalescing.Default,
-                                        true
+                                        NullSemantics.correlationNullsEqual ()
                                     )
 
                             let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)

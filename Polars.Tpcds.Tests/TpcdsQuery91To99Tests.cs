@@ -287,8 +287,8 @@ LIMIT 100;
                             && web.web_company_name == "pri"
                             // EXISTS (another row of the order from a different warehouse)
                             // SQL <> is unknown when either warehouse is NULL
-                            && ws1.ws_warehouse_sk != null
                             && webSalesQuery.Any(ws2 => ws2.ws_order_number == ws1.ws_order_number
+                                                        && ws1.ws_warehouse_sk != null
                                                         && ws2.ws_warehouse_sk != null
                                                         && ws2.ws_warehouse_sk != ws1.ws_warehouse_sk)
                             // NOT EXISTS (a return of the order)

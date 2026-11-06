@@ -30,6 +30,7 @@
     <Compile Include="LinqReflectionCache.fs" />
     <Compile Include="ScopeNavigation.fs" />
     <Compile Include="Translators/TranslationContext.fs" />
+    <Compile Include="Translators/NullSemantics.fs" />
     <Compile Include="Translators/ColumnResolver.fs" />
     <Compile Include="Translators/MemberAccessTranslator.fs" />
     <Compile Include="Translators/StringTemporalTranslator.fs" />
@@ -61,6 +62,7 @@
     <Compile Include="IR/TreeBuilder.fs" />
     <Compile Include="IR/Passes/EnumResolution.fs" />
     <Compile Include="IR/Passes/SortSliceFusion.fs" />
+    <Compile Include="IR/Passes/FilterNullSimplification.fs" />
     <Compile Include="IR/Passes/PredicatePushdown.fs" />
     <Compile Include="IR/Passes/ProjectionPruning.fs" />
     <Compile Include="IR/Passes/GroupOrderRelaxation.fs" />
