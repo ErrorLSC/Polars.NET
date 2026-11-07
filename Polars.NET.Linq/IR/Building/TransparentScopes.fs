@@ -39,21 +39,17 @@ module internal TransparentScopes =
         (leftScope: string option)
         (rightScope: string)
         (resSelOpt: LambdaExpression option)
-        (scopeMap: Map<string * string, string>)
-        : Map<string * string, string> =
-        let copyScope (fromScope: string) (toScope: string) (m: Map<string * string, string>) =
-            if fromScope = toScope then
-                m
-            else
-                m |> Map.fold (fun acc (s, c) phys -> if s = fromScope then Map.add (toScope, c) phys acc else acc) m
+        (rowShape: RowShape)
+        : RowShape =
+        let copyScope (fromScope: string) (toScope: string) (m: RowShape) = m.Alias(RowScope.Named fromScope, RowScope.Named toScope)
 
         match resSelOpt with
         | Some resSel when resSel.Parameters.Count >= 2 ->
             let pLeft, pRight = resSel.Parameters.[0].Name, resSel.Parameters.[1].Name
             let withParams =
                 match leftScope with
-                | Some l -> scopeMap |> copyScope l pLeft |> copyScope rightScope pRight
-                | None -> scopeMap |> copyScope rightScope pRight
+                | Some l -> rowShape |> copyScope l pLeft |> copyScope rightScope pRight
+                | None -> rowShape |> copyScope rightScope pRight
 
             match tryExtractMemberBindings resSel.Body with
             | Some bindings ->
@@ -64,16 +60,16 @@ module internal TransparentScopes =
                     | :? ParameterExpression as p when p.Name = pLeft && leftScope.IsSome -> copyScope pLeft memberName acc
                     | _ -> acc) withParams
             | None -> withParams
-        | _ -> scopeMap
+        | _ -> rowShape
 
     /// Scopes of a transparent `let` projection (`x => new { x, f = ... }`), which keeps the row's columns and
     /// appends the computed ones: a member bound to the row parameter becomes a scope over the row's columns,
     /// and a member bound to an existing scope under another name aliases it.
     let registerLetScopes
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         (plan: LogicalPlan)
         (lam: LambdaExpression)
-        : Map<string * string, string> =
+        : RowShape =
         match tryExtractMemberBindings lam.Body with
         | Some bindings when EntityPacking.isAnonymousType lam.ReturnType ->
             let rowParam = lam.Parameters.[0]
@@ -82,38 +78,38 @@ module internal TransparentScopes =
             bindings
             |> List.fold (fun acc (memberName, expr) ->
                 match ExpressionPatterns.unwrap expr with
-                | :? ParameterExpression as p when p.Name = rowParam.Name && scopeMap.IsEmpty && not (isTupleOrAnonType p.Type) ->
-                    rowCols |> List.fold (fun m c -> Map.add (memberName, c) c m) acc
-                | e when not scopeMap.IsEmpty ->
+                | :? ParameterExpression as p when p.Name = rowParam.Name && rowShape.IsEmpty && not (isTupleOrAnonType p.Type) ->
+                    rowCols |> List.fold (fun (m: RowShape) c -> m.Add(RowScope.Named memberName, c, c)) acc
+                | e when not rowShape.IsEmpty ->
                     match ColumnResolver.tryExtractScopeName e with
                     | Some scope when scope <> memberName ->
-                        scopeMap |> Map.fold (fun m (s, c) phys -> if s = scope then Map.add (memberName, c) phys m else m) acc
+                        rowShape.Members(RowScope.Named scope)
+                        |> List.fold (fun (m: RowShape) (c, phys) -> m.Add(RowScope.Named memberName, c, phys)) acc
                     | _ -> acc
-                | _ -> acc) scopeMap
-        | _ -> scopeMap
+                | _ -> acc) rowShape
+        | _ -> rowShape
 
-    /// The scope map of a join's result row. A result selector binding the sides to members (a transparent
+    /// The shape of a join's result row. A result selector binding the sides to members (a transparent
     /// identifier) places each side's entity, or the left side's previous row, under its member's path;
     /// without a selector the row is the left side's and keeps its scopes. `updated` is the map after the
     /// join registered both sides (`leftScope` only when the left side was one entity, i.e. `preJoin` held
     /// no row path scopes).
     let joinResultScopes
-        (preJoin: Map<string * string, string>)
-        (updated: Map<string * string, string>)
+        (preJoin: RowShape)
+        (updated: RowShape)
         (leftScope: string)
         (rightScope: string)
         (resSelOpt: LambdaExpression option)
-        : Map<string * string, string> =
+        : RowShape =
         match resSelOpt with
         | Some resSel when resSel.Parameters.Count >= 2 ->
-            let entries scope =
-                updated |> Map.toList |> List.choose (fun ((s, m), phys) -> if s = scope then Some(m, phys) else None)
+            let entries scope = updated.Members(RowScope.Named scope)
             let leftSide = if EntityPacking.hasRowPathScopes preJoin then RowSide.Row else RowSide.Entity(entries leftScope)
             let sides = [ resSel.Parameters.[0].Name, leftSide; resSel.Parameters.[1].Name, RowSide.Entity(entries rightScope) ]
 
             tryExtractMemberBindings resSel.Body
             |> Option.bind (EntityPacking.tryReshapeRow updated sides)
-            |> Option.defaultWith (fun () -> updated |> Map.filter (fun (s, _) _ -> not (isRowPathScope s)))
+            |> Option.defaultWith (fun () -> updated.WithoutPathScopes)
         | _ -> updated
 
     /// Rows a client predicate cannot receive from the native plan: System tuples, which the materializer

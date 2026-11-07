@@ -14,12 +14,12 @@ module internal GroupingSetsPlanning =
         (kind: GroupingKind)
         (keyLambda: LambdaExpression)
         (resLambda: LambdaExpression)
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         : LogicalPlan option =
 
         let cols = (SchemaInference.inferPlanSchema basePlan).ColumnNames
         let keyParam = keyLambda.Parameters.[0]
-        let keyCtx = PipelineStageParser.createContextWithScopeAndCols scopeMap keyParam.Type cols keyParam.Name
+        let keyCtx = PipelineStageParser.createContextWithScopeAndCols rowShape keyParam.Type cols keyParam.Name
         let elemType = keyParam.Type
 
         let wholeRowStructOpt = EntityPacking.tryWholeRowStruct elemType cols
@@ -238,7 +238,7 @@ module internal GroupingSetsPlanning =
                             targetColExprOpt
                             scalarColOpt
                             wholeRowStructOpt
-                            scopeMap
+                            rowShape
                             cols
                             argExpr
                         |> Option.map (fun s -> colName, s))

@@ -58,6 +58,7 @@ module ScalarExprOps =
                 LogicalTypes.tryOfClrType underlyingType
                 |> Option.map (fun underlying ->
                     {
+                        Name = coreType.FullName
                         Categories = List.ofArray (EnumCategories.GetCategories coreType)
                         Values = EnumCategories.GetUnderlyingValues coreType |> Array.map LiteralValue.OfObject |> List.ofArray
                         Underlying = underlying

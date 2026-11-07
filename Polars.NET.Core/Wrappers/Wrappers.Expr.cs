@@ -444,6 +444,17 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle Rem(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_rem, l, r);
     public static ExprHandle Mul(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_mul, l, r);
     public static ExprHandle Neg(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_neg, e);
+    /// <summary>
+    /// The expression unchanged when every non-null value is one of <paramref name="values"/>; otherwise the query
+    /// fails with <paramref name="message"/>, its first "{}" replaced by the offending value.
+    /// </summary>
+    public static ExprHandle RequireListedInts(ExprHandle expr, long[] values, string message)
+    {
+        var h = NativeBindings.pl_expr_require_listed_ints(expr, values, (nuint)values.Length, message);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
     public static ExprHandle BitLeftShift(ExprHandle expr, int n)
     {
         var h = NativeBindings.pl_expr_bit_shl(expr, n);

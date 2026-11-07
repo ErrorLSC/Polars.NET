@@ -20,7 +20,7 @@ module internal GroupStages =
         (s: LinqStage list)
         (ctx: GroupFoldContext)
         (letBindings: Map<string, Expression>)
-        (scopeMap: ScopeMap)
+        (rowShape: RowShape)
         : CompiledLogicalQuery =
         let substituteLet (expr: Expression) =
             if letBindings.IsEmpty then expr
@@ -49,11 +49,11 @@ module internal GroupStages =
         | LinqStage.Filter pred :: next ->
             let newBody = substituteLet pred.Body
             let newPred = Expression.Lambda(newBody, pred.Parameters)
-            slurp env continueWith state next { ctx with HavingPreds = ctx.HavingPreds @ [ newPred ] } letBindings scopeMap
+            slurp env continueWith state next { ctx with HavingPreds = ctx.HavingPreds @ [ newPred ] } letBindings rowShape
         | LinqStage.Sort(sortLambda, isDesc, nullsLast) :: next ->
             let newBody = substituteLet sortLambda.Body
             let newSort = Expression.Lambda(newBody, sortLambda.Parameters)
-            slurp env continueWith state next { ctx with SortStages = ctx.SortStages @ [ (newSort, isDesc, nullsLast) ] } letBindings scopeMap
+            slurp env continueWith state next { ctx with SortStages = ctx.SortStages @ [ (newSort, isDesc, nullsLast) ] } letBindings rowShape
         | LinqStage.Project projLambda :: next ->
             let param = projLambda.Parameters.[0]
             let isTransparentGroupLet =
@@ -120,7 +120,7 @@ module internal GroupStages =
                         { ctx with PreFilterLets = ctx.PreFilterLets @ added }
                     else
                         ctx
-                slurp env continueWith state next ctx updatedBindings scopeMap
+                slurp env continueWith state next ctx updatedBindings rowShape
             | None ->
                 let finalProjBody = substituteLet projLambda.Body
                 let isKeyArg (e: Expression) =
@@ -140,25 +140,25 @@ module internal GroupStages =
                     | Some name -> name
                     | None -> projLambda.Parameters.[0].Name
 
-                match buildUnifiedGroupByPlan env.ResolveSequence state.Plan ctx finalProjBody gParamName isKeyArg scopeMap with
+                match buildUnifiedGroupByPlan env.ResolveSequence state.Plan ctx finalProjBody gParamName isKeyArg rowShape with
                 | Some nextPlan ->
-                    continueWith { state with Plan = nextPlan } Map.empty next
+                    continueWith { state with Plan = nextPlan } RowShape.Empty next
                 | None ->
-                    continueWith (fallback state) scopeMap next
+                    continueWith (fallback state) rowShape next
         | [] ->
             if env.IsGrouping then
                 // The rows are the grouped elements, materialized as the key selector's input type; the
                 // residual having predicates run over the groups.
-                let grouped = { state with RowScopes = scopeMap }
-                ctx.HavingPreds |> List.fold (fun acc havingPred -> clientFilter Map.empty havingPred acc) grouped
+                let grouped = { state with RowShape = rowShape }
+                ctx.HavingPreds |> List.fold (fun acc havingPred -> clientFilter RowShape.Empty havingPred acc) grouped
             else
                 (fallback state)
         | otherHead :: otherTail ->
-            continueWith (fallback state) scopeMap (otherHead :: otherTail)
+            continueWith (fallback state) rowShape (otherHead :: otherTail)
 
     /// CountBy: a group-by with a row count per key.
-    let countBy (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (lam: LambdaExpression) : CompiledLogicalQuery =
-        let makeCtx = StageContext.makeCtx scopeMap
+    let countBy (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (lam: LambdaExpression) : CompiledLogicalQuery =
+        let makeCtx = StageContext.makeCtx rowShape
         let p = lam.Parameters.[0]
         let ctx = makeCtx p.Type p.Name state.Plan
         match ExprTranslator.tryTranslateToScalar ctx lam.Body with
@@ -166,31 +166,31 @@ module internal GroupStages =
             let groupPlan = LogicalPlan.GroupBy(state.Plan, [ keyExpr ], [ ("Value", ScalarExpr.Aggregation(AggKind.Len, None, false)) ], None, true)
             let keyCol = match keyExpr with ScalarExpr.Column c -> c | _ -> "Key"
             let projs = [ ("Key", ScalarExpr.Column keyCol); ("Value", ScalarExpr.Column "Value") ]
-            continueWith { state with Plan = LogicalPlan.Project(groupPlan, projs) } Map.empty tail
+            continueWith { state with Plan = LogicalPlan.Project(groupPlan, projs) } RowShape.Empty tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail
 
     /// GroupBy(key): the start of a grouped pipeline.
-    let groupByKey (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (keyLambda: LambdaExpression) : CompiledLogicalQuery =
+    let groupByKey (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (keyLambda: LambdaExpression) : CompiledLogicalQuery =
         if env.IsGrouping then
-            continueWith state scopeMap tail
+            continueWith state rowShape tail
         else
-            slurp env continueWith state tail { KeyLambda = keyLambda; ElemLambdaOpt = None; HavingPreds = []; SortStages = []; PreFilterLets = [] } Map.empty scopeMap
+            slurp env continueWith state tail { KeyLambda = keyLambda; ElemLambdaOpt = None; HavingPreds = []; SortStages = []; PreFilterLets = [] } Map.empty rowShape
 
     /// GroupBy(key, resultSelector).
-    let groupByWithResult (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (keyLam: LambdaExpression) (resLam: LambdaExpression) : CompiledLogicalQuery =
-        let makeCtx = StageContext.makeCtx scopeMap
+    let groupByWithResult (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (keyLam: LambdaExpression) (resLam: LambdaExpression) : CompiledLogicalQuery =
+        let makeCtx = StageContext.makeCtx rowShape
         if resLam.Parameters.Count < 2 then
             if env.IsGrouping then
-                continueWith state scopeMap tail
+                continueWith state rowShape tail
             else
-                slurp env continueWith state tail { KeyLambda = keyLam; ElemLambdaOpt = Some resLam; HavingPreds = []; SortStages = []; PreFilterLets = [] } Map.empty scopeMap
+                slurp env continueWith state tail { KeyLambda = keyLam; ElemLambdaOpt = Some resLam; HavingPreds = []; SortStages = []; PreFilterLets = [] } Map.empty rowShape
         else
             let keyP = keyLam.Parameters.[0]
             let keyCtx = makeCtx keyP.Type keyP.Name state.Plan
             let keyExprs = tryExtractKeyScalars keyCtx keyLam |> Option.defaultValue [ ScalarExpr.Column "Key" ]
             match tryExtractGroupByResult state.Plan keyExprs resLam with
-            | Some plan -> continueWith { state with Plan = plan } Map.empty tail
+            | Some plan -> continueWith { state with Plan = plan } RowShape.Empty tail
             | None ->
                 let resKeyParamName = if resLam.Parameters.Count >= 1 then resLam.Parameters.[0].Name else keyP.Name
                 let isKeyArg (e: Expression) =
@@ -200,20 +200,20 @@ module internal GroupStages =
                     | _ -> false
                 let ctx: GroupFoldContext = { KeyLambda = keyLam; ElemLambdaOpt = None; HavingPreds = []; SortStages = []; PreFilterLets = [] }
                 let groupParamName = if resLam.Parameters.Count >= 2 then resLam.Parameters.[1].Name else resLam.Parameters.[0].Name
-                match buildUnifiedGroupByPlan env.ResolveSequence state.Plan ctx resLam.Body groupParamName isKeyArg scopeMap with
+                match buildUnifiedGroupByPlan env.ResolveSequence state.Plan ctx resLam.Body groupParamName isKeyArg rowShape with
                 | Some nextPlan ->
-                    continueWith { state with Plan = nextPlan } Map.empty tail
+                    continueWith { state with Plan = nextPlan } RowShape.Empty tail
                 | None ->
-                    continueWith (fallback state) scopeMap tail
+                    continueWith (fallback state) rowShape tail
 
     /// GroupBy(key, elementSelector, resultSelector).
-    let groupByWithElementAndResult (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (keyLam: LambdaExpression) (elemLam: LambdaExpression) (resLam: LambdaExpression) : CompiledLogicalQuery =
-        let makeCtx = StageContext.makeCtx scopeMap
+    let groupByWithElementAndResult (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (keyLam: LambdaExpression) (elemLam: LambdaExpression) (resLam: LambdaExpression) : CompiledLogicalQuery =
+        let makeCtx = StageContext.makeCtx rowShape
         let keyP = keyLam.Parameters.[0]
         let keyCtx = makeCtx keyP.Type keyP.Name state.Plan
         let keyExprs = tryExtractKeyScalars keyCtx keyLam |> Option.defaultValue [ ScalarExpr.Column "Key" ]
         match tryExtractGroupByResult state.Plan keyExprs resLam with
-        | Some plan -> continueWith { state with Plan = plan } Map.empty tail
+        | Some plan -> continueWith { state with Plan = plan } RowShape.Empty tail
         | None ->
             let resKeyParamName = if resLam.Parameters.Count >= 1 then resLam.Parameters.[0].Name else keyP.Name
             let isKeyArg (e: Expression) =
@@ -223,40 +223,40 @@ module internal GroupStages =
                 | _ -> false
             let ctx: GroupFoldContext = { KeyLambda = keyLam; ElemLambdaOpt = Some elemLam; HavingPreds = []; SortStages = []; PreFilterLets = [] }
             let groupParamName = if resLam.Parameters.Count >= 2 then resLam.Parameters.[1].Name else resLam.Parameters.[0].Name
-            match buildUnifiedGroupByPlan env.ResolveSequence state.Plan ctx resLam.Body groupParamName isKeyArg scopeMap with
+            match buildUnifiedGroupByPlan env.ResolveSequence state.Plan ctx resLam.Body groupParamName isKeyArg rowShape with
             | Some nextPlan ->
-                continueWith { state with Plan = nextPlan } Map.empty tail
+                continueWith { state with Plan = nextPlan } RowShape.Empty tail
             | None ->
-                continueWith (fallback state) scopeMap tail
+                continueWith (fallback state) rowShape tail
 
     /// GroupBy ... Rollup.
-    let rollup (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (keyLambda: LambdaExpression) (resLambda: LambdaExpression) : CompiledLogicalQuery =
-        match buildUnifiedGroupingSetsPlan state.Plan GroupingKind.Rollup keyLambda resLambda scopeMap with
+    let rollup (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (keyLambda: LambdaExpression) (resLambda: LambdaExpression) : CompiledLogicalQuery =
+        match buildUnifiedGroupingSetsPlan state.Plan GroupingKind.Rollup keyLambda resLambda rowShape with
         | Some nextPlan ->
-            continueWith { state with Plan = nextPlan } Map.empty tail
+            continueWith { state with Plan = nextPlan } RowShape.Empty tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail
 
     /// GroupBy ... Cube.
-    let cube (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (keyLambda: LambdaExpression) (resLambda: LambdaExpression) : CompiledLogicalQuery =
-        match buildUnifiedGroupingSetsPlan state.Plan GroupingKind.Cube keyLambda resLambda scopeMap with
+    let cube (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (keyLambda: LambdaExpression) (resLambda: LambdaExpression) : CompiledLogicalQuery =
+        match buildUnifiedGroupingSetsPlan state.Plan GroupingKind.Cube keyLambda resLambda rowShape with
         | Some nextPlan ->
-            continueWith { state with Plan = nextPlan } Map.empty tail
+            continueWith { state with Plan = nextPlan } RowShape.Empty tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail
 
     /// GroupBy ... GroupingSets.
-    let groupingSets (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (keyLambda: LambdaExpression) (setsExpr: Expression) (resLambda: LambdaExpression) : CompiledLogicalQuery =
-        match buildUnifiedGroupingSetsPlan state.Plan (GroupingKind.GroupingSets setsExpr) keyLambda resLambda scopeMap with
+    let groupingSets (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (keyLambda: LambdaExpression) (setsExpr: Expression) (resLambda: LambdaExpression) : CompiledLogicalQuery =
+        match buildUnifiedGroupingSetsPlan state.Plan (GroupingKind.GroupingSets setsExpr) keyLambda resLambda rowShape with
         | Some nextPlan ->
-            continueWith { state with Plan = nextPlan } Map.empty tail
+            continueWith { state with Plan = nextPlan } RowShape.Empty tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail
 
     /// A per-group slice (Take / Skip / ordering inside each group).
-    let partitionSlice (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (keySelector: LambdaExpression) (innerStages: LinqStage list) (resSelOpt: LambdaExpression option) : CompiledLogicalQuery =
+    let partitionSlice (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (keySelector: LambdaExpression) (innerStages: LinqStage list) (resSelOpt: LambdaExpression option) : CompiledLogicalQuery =
         match buildGroupPartitionSlicePlan state.Plan keySelector innerStages resSelOpt with
         | Some nextPlan ->
-            continueWith { state with Plan = nextPlan } Map.empty tail
+            continueWith { state with Plan = nextPlan } RowShape.Empty tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail

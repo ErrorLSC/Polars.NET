@@ -85,7 +85,7 @@ public class LinqUdfReturnTypeTests
         var query = df.AsQueryable<UrRow>().Select(r => (UrColor)r.Id);
 
         var error = Assert.Throws<PolarsException>(() => query.ToList());
-        Assert.Contains("incomplete mapping", error.Message);
+        Assert.Contains($"Value '2' is not a defined member of enum {typeof(UrColor).FullName}", error.Message);
     }
 
     [Fact]

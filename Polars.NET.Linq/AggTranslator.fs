@@ -26,29 +26,29 @@ module AggTranslator =
     /// Resolves the appropriate TranslationContext for inner group lambdas based on parameter type
     let private getParamContext
         (scalarColOpt: string option)
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         (p: ParameterExpression)
         : TranslationContext =
         if PolarsTypeHelper.IsScalarType p.Type then
             match scalarColOpt with
             | Some col when not (String.IsNullOrEmpty col) -> TranslationContext.Scalar(p.Name, col)
             | _ -> TranslationContext.Entity p.Name
-        elif not scopeMap.IsEmpty then
-            TranslationContext.ScopedEntity([ p.Name ], scopeMap, [])
+        elif not rowShape.IsEmpty then
+            TranslationContext.ScopedEntity([ p.Name ], rowShape, [])
         else
             TranslationContext.Entity p.Name
 
     /// Translates a single-parameter lambda expression over the group element.
     let private resolveLambda
         (scalarColOpt: string option)
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         (lambda: LambdaExpression)
         : ScalarExpr option =
         if lambda.Parameters.Count <> 1 then
             None
         else
             let p = lambda.Parameters.[0]
-            let ctx = getParamContext scalarColOpt scopeMap p
+            let ctx = getParamContext scalarColOpt rowShape p
 
             match tryResolveColumnNameWithContext ctx lambda.Body with
             | Some cName -> Some(ScalarExpr.Column cName)
@@ -140,7 +140,7 @@ module AggTranslator =
 
     let private resolveKeyExpr
         (scalarColOpt: string option)
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         (prev: ResolvedGroupSeq)
         (keySelector: LambdaExpression)
         : ScalarExpr option =
@@ -149,7 +149,7 @@ module AggTranslator =
             prev.Target
         else
             let currentScalar = getCurrentScalar scalarColOpt prev.Target
-            resolveLambda currentScalar scopeMap keySelector
+            resolveLambda currentScalar rowShape keySelector
 
     /// The orderings of one LINQ sort key of CLR type `keyType`.
     let private linqSortOrders (keyType: Type) (keyExpr: ScalarExpr) (isDesc: bool) =
@@ -159,7 +159,7 @@ module AggTranslator =
         (groupParamName: string)
         (scalarColOpt: string option)
         (wholeRowStructOpt: ScalarExpr option)
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         (seq: GroupSeq)
         : ResolvedGroupSeq option =
         match seq with
@@ -179,18 +179,18 @@ module AggTranslator =
                 }
 
         | Select(source, selector) ->
-            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
+            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape source
             |> Option.bind (fun prev ->
                 let currentScalar = getCurrentScalar scalarColOpt prev.Target
-                resolveLambda currentScalar scopeMap selector
+                resolveLambda currentScalar rowShape selector
                 |> Option.map (fun selExpr -> { prev with Target = Some selExpr }))
 
         | Where(source, predicate) ->
-            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
+            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape source
             |> Option.bind (fun prev ->
                 let currentScalar = getCurrentScalar scalarColOpt prev.Target
                 let p = predicate.Parameters.[0]
-                let ctx = getParamContext currentScalar scopeMap p
+                let ctx = getParamContext currentScalar rowShape p
 
                 tryTranslateToScalar ctx predicate.Body
                 |> Option.map (fun predExpr ->
@@ -202,14 +202,14 @@ module AggTranslator =
                     { prev with Filter = Some combinedFilter }))
 
         | Distinct source ->
-            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
+            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape source
             |> Option.map (fun prev -> { prev with IsDistinct = true })
 
         | DistinctBy(source, keySelector) ->
-            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
+            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape source
             |> Option.bind (fun prev ->
                 let currentScalar = getCurrentScalar scalarColOpt prev.Target
-                resolveLambda currentScalar scopeMap keySelector
+                resolveLambda currentScalar rowShape keySelector
                 |> Option.map (fun keyExpr ->
                     { prev with
                         Target = Some keyExpr
@@ -217,28 +217,28 @@ module AggTranslator =
                     }))
 
         | OrderBy(source, keySelector, isDesc) ->
-            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
+            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape source
             |> Option.bind (fun prev ->
-                resolveKeyExpr scalarColOpt scopeMap prev keySelector
+                resolveKeyExpr scalarColOpt rowShape prev keySelector
                 |> Option.map (fun keyExpr ->
                     { prev with SortKeys = linqSortOrders keySelector.Body.Type keyExpr isDesc }))
 
         | ThenBy(source, keySelector, isDesc) ->
-            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
+            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape source
             |> Option.bind (fun prev ->
-                resolveKeyExpr scalarColOpt scopeMap prev keySelector
+                resolveKeyExpr scalarColOpt rowShape prev keySelector
                 |> Option.map (fun keyExpr ->
                     { prev with SortKeys = prev.SortKeys @ linqSortOrders keySelector.Body.Type keyExpr isDesc }))
 
         | OrderBySelf(source, isDesc, elementType) ->
-            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
+            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape source
             |> Option.bind (fun prev ->
                 prev.Target
                 |> Option.map (fun t ->
                     { prev with SortKeys = linqSortOrders elementType t isDesc }))
 
         | Take(source, countExpr) ->
-            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
+            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape source
             |> Option.bind (fun prev ->
                 PartialEvaluator.tryEvaluate countExpr
                 |> Option.map (fun c ->
@@ -250,7 +250,7 @@ module AggTranslator =
                     { prev with Slice = newSlice }))
 
         | Skip(source, countExpr) ->
-            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
+            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape source
             |> Option.bind (fun prev ->
                 PartialEvaluator.tryEvaluate countExpr
                 |> Option.map (fun c ->
@@ -263,7 +263,7 @@ module AggTranslator =
 
         | ToList source
         | ToArray source ->
-            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
+            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape source
 
     /// Combines the resolved target column expression with any sequence filter predicates, sorting, and slicing.
     let private getFilteredTarget (resolved: ResolvedGroupSeq) : ScalarExpr option =
@@ -377,7 +377,7 @@ module AggTranslator =
         (groupParamName: string)
         (scalarColOpt: string option)
         (wholeRowStructOpt: ScalarExpr option)
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         (expr: Expression)
         : ScalarExpr option =
 
@@ -390,7 +390,7 @@ module AggTranslator =
         | MethodCall(m, null, [ sepExpr; GroupSeqChain groupParamName seq ]) when
             m.DeclaringType = typeof<string> && m.Name = "Join"
             ->
-            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq
+            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape seq
             |> Option.bind getFilteredTarget
             |> Option.bind (fun colS ->
                 tryExtractSep sepExpr
@@ -411,7 +411,7 @@ module AggTranslator =
             match seqOpt with
             | Some seq ->
                 let isLong = m.Name = "LongCount"
-                match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq with
+                match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape seq with
                 | Some resolved when resolved.IsDistinct ->
                     getFilteredTarget resolved
                     |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.NUnique, [ t ], LogicalTypes.UInt32) |> castCountExpr isLong)
@@ -431,7 +431,7 @@ module AggTranslator =
         // ---------------------------------------------------------------------
         | MemberAccess(MethodCall(m, null, [ GroupSeqChain groupParamName seq; CleanLambda(Lambda([ p ], byBody)) ]),
                        memberInfo) when m.Name = "MinBy" || m.Name = "MaxBy" ->
-            let ctx = getParamContext scalarColOpt scopeMap p
+            let ctx = getParamContext scalarColOpt rowShape p
 
             tryTranslateToScalar ctx byBody
             |> Option.bind (fun byExpr ->
@@ -459,7 +459,7 @@ module AggTranslator =
 
             match quantileParsed with
             | Some(seq, qExpr, methodExprOpt) ->
-                evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq
+                evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape seq
                 |> Option.bind getFilteredTarget
                 |> Option.bind (fun colS -> translateQuantileCall colS qExpr methodExprOpt)
             | None -> None
@@ -472,7 +472,7 @@ module AggTranslator =
             match PartialEvaluator.tryEvaluate ddof with
             | Some ddofVal ->
                 let ddofByte = Convert.ToByte ddofVal
-                evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap (Select(seq, selector))
+                evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape (Select(seq, selector))
                 |> Option.bind getFilteredTarget
                 |> Option.bind (translateDispersionOp m.Name ddofByte)
             | None -> None
@@ -483,7 +483,7 @@ module AggTranslator =
             match PartialEvaluator.tryEvaluate ddof with
             | Some ddofVal ->
                 let ddofByte = Convert.ToByte ddofVal
-                evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq
+                evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape seq
                 |> Option.bind getFilteredTarget
                 |> Option.bind (translateDispersionOp m.Name ddofByte)
             | None -> None
@@ -492,7 +492,7 @@ module AggTranslator =
         // Nested List Aggregation: ToList() / ToArray()
         // ---------------------------------------------------------------------
         | MethodCall(m, null, [ GroupSeqChain groupParamName seq ]) when m.Name = "ToList" || m.Name = "ToArray" ->
-            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq with
+            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape seq with
             | Some resolved ->
                 match getFilteredTarget resolved with
                 | Some colS ->
@@ -515,7 +515,7 @@ module AggTranslator =
 
             match seqOpt with
             | Some seq ->
-                evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq
+                evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape seq
                 |> Option.bind getFilteredTarget
                 |> Option.bind (translateReductionOp m.Name)
             | None -> None
@@ -526,7 +526,7 @@ module AggTranslator =
         | MemberAccess(MethodCall(m, null, [ GroupSeqChain groupParamName seq ]), memberInfo) when
             m.Name = "First" || m.Name = "FirstOrDefault" || m.Name = "Last" || m.Name = "LastOrDefault"
             ->
-            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq with
+            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape seq with
             | Some resolved ->
                 let memberCol = ScalarExpr.Column memberInfo.Name
                 let resolvedWithTarget = { resolved with Target = Some memberCol }
@@ -540,7 +540,7 @@ module AggTranslator =
         | MethodCall(m, null, [ GroupSeqChain groupParamName seq; indexExpr ]) when
             m.Name = "ElementAt" || m.Name = "ElementAtOrDefault"
             ->
-            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq, PartialEvaluator.tryEvaluate indexExpr with
+            match evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape seq, PartialEvaluator.tryEvaluate indexExpr with
             | Some resolved, Some idxVal ->
                 let idx = Convert.ToInt64 idxVal
                 getFilteredTarget resolved
@@ -553,15 +553,15 @@ module AggTranslator =
         // ---------------------------------------------------------------------
         | MethodCall(m, target, args) when isNumericDeclaringType m.DeclaringType && isNull target ->
             translateNumericMethod
-                (tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap)
+                (tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt rowShape)
                 m
                 args
 
         | :? ConditionalExpression as cond ->
             match
-                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap cond.Test,
-                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap cond.IfTrue,
-                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap cond.IfFalse
+                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt rowShape cond.Test,
+                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt rowShape cond.IfTrue,
+                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt rowShape cond.IfFalse
             with
             | Some testS, Some trueS, Some falseS ->
                 Some(ScalarExpr.Conditional(testS, trueS, falseS))
@@ -569,14 +569,14 @@ module AggTranslator =
 
         | Binary(op, left, right) ->
             match
-                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap left,
-                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap right
+                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt rowShape left,
+                tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt rowShape right
             with
             | Some leftS, Some rightS -> OperatorAndUdfTranslator.tryTranslateBinary op leftS rightS
             | _ -> None
 
         | Unary(op, operand) ->
-            tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap operand
+            tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt rowShape operand
             |> Option.bind (fun innerS ->
                 match op with
                 | ExpressionType.Convert
@@ -589,13 +589,13 @@ module AggTranslator =
             Some(toLiteral v t)
 
         | _ ->
-            tryTranslateGroupUdf groupParamName scalarColOpt wholeRowStructOpt scopeMap cleanExpr
+            tryTranslateGroupUdf groupParamName scalarColOpt wholeRowStructOpt rowShape cleanExpr
 
     and private tryTranslateGroupUdf
         (groupParamName: string)
         (scalarColOpt: string option)
         (wholeRowStructOpt: ScalarExpr option)
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         (expr: Expression)
         : ScalarExpr option =
         try
@@ -636,7 +636,7 @@ module AggTranslator =
                     let resolveArgScalar (arg: Expression) : ScalarExpr option =
                         match (|GroupSeqChain|_|) groupParamName arg with
                         | Some seq ->
-                            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap seq
+                            evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape seq
                             |> Option.bind getFilteredTarget
                         | None -> None
 
@@ -692,12 +692,12 @@ module AggTranslator =
         (groupParamName: string)
         (scalarColOpt: string option)
         (wholeRowStructOpt: ScalarExpr option)
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         (expr: Expression)
         (aliasName: string)
         : ScalarExpr option =
 
-        tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt scopeMap expr
+        tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt rowShape expr
         |> Option.map (fun s ->
             if String.IsNullOrEmpty aliasName then s
             else ScalarExpr.Alias(s, aliasName))

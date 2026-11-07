@@ -54,8 +54,8 @@ module internal GroupJoinAndZipPlanning =
             let innerParam = innerKey.Parameters.[0]
             let leftCols = (SchemaInference.inferPlanSchema basePlan).ColumnNames
             let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
-            let leftCtx = PipelineStageParser.createContextWithScopeAndCols Map.empty outerParam.Type leftCols outerParam.Name
-            let rightCtx = PipelineStageParser.createContextWithScopeAndCols Map.empty innerParam.Type rightCols innerParam.Name
+            let leftCtx = PipelineStageParser.createContextWithScopeAndCols RowShape.Empty outerParam.Type leftCols outerParam.Name
+            let rightCtx = PipelineStageParser.createContextWithScopeAndCols RowShape.Empty innerParam.Type rightCols innerParam.Name
 
             match
                 ExprTranslator.tryTranslateToScalar leftCtx outerKey.Body,

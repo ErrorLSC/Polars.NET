@@ -540,6 +540,18 @@ module internal PolarsScalarLowerer =
                 PolarsWrapper.Quantile(lower a, q, PolarsVocabulary.quantileMethod m)
             | ScalarFunction.SeriesGet, [ a; idx ] ->
                 PolarsWrapper.Get(lower a, lower idx, nullOnOob = true)
+            | ScalarFunction.RequireListed(values, message), [ value ] ->
+                let asInt64 =
+                    values
+                    |> List.choose (fun v ->
+                        match v.BoxedValue with
+                        | :? uint64 as u when u > uint64 Int64.MaxValue -> None
+                        | o -> Some(Convert.ToInt64 o))
+                if asInt64.Length = values.Length then
+                    PolarsWrapper.RequireListedInts(lower value, Array.ofList asInt64, message)
+                else
+                    // Values beyond Int64 (a UInt64 enum): the engine's own unmapped-value error remains.
+                    lower value
             | ScalarFunction.AssertCount check, [ count; value ] ->
                 let okH = PolarsWrapper.Map(lower count, countChecker check, ArrowUdfBatchAdapter.GetDataTypeHandle typeof<bool>)
                 PolarsWrapper.IfElse(okH, lower value, PolarsWrapper.LitNull())

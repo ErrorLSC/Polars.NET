@@ -921,16 +921,16 @@ module internal SubqueryDecorrelator =
         (outerPlan: LogicalPlan)
         (outerParam: ParameterExpression)
         (conjunctExpr: Expression)
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         : LogicalPlan option =
         let outerName = outerParam.Name
         let outerNames =
-            Set.ofSeq (outerName :: (scopeMap |> Map.toList |> List.map (fun ((s, _), _) -> s)))
+            Set.ofSeq (outerName :: (Set.toList rowShape.ScopeNames))
 
         let outerCols = (SchemaInference.inferPlanSchema outerPlan).ColumnNames
         let outerCtx =
-            if not scopeMap.IsEmpty then
-                TranslationContext.ScopedEntity([ outerName ], scopeMap, outerCols)
+            if not rowShape.IsEmpty then
+                TranslationContext.ScopedEntity([ outerName ], rowShape, outerCols)
             else
                 createContextForType outerParam.Type outerPlan outerName
 
@@ -978,7 +978,7 @@ module internal SubqueryDecorrelator =
                     let originalCols = outerCols
 
                     let correlatedCtx =
-                        TranslationContext.CorrelatedJoin([ outerName ], parts.InnerParam.Name, leftCols, "_right", scopeMap)
+                        TranslationContext.CorrelatedJoin([ outerName ], parts.InnerParam.Name, leftCols, "_right", rowShape)
 
                     let combinedThetaExpr =
                         parts.ThetaConditions
@@ -1103,16 +1103,16 @@ module internal SubqueryDecorrelator =
         (outerPlan: LogicalPlan)
         (outerParam: ParameterExpression)
         (conjunctExpr: Expression)
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         : LogicalPlan option =
         let outerName = outerParam.Name
         let outerNames =
-            Set.ofSeq (outerName :: (scopeMap |> Map.toList |> List.map (fun ((s, _), _) -> s)))
+            Set.ofSeq (outerName :: (Set.toList rowShape.ScopeNames))
 
         let outerCols = (SchemaInference.inferPlanSchema outerPlan).ColumnNames
         let outerCtx =
-            if not scopeMap.IsEmpty then
-                TranslationContext.ScopedEntity([ outerName ], scopeMap, outerCols)
+            if not rowShape.IsEmpty then
+                TranslationContext.ScopedEntity([ outerName ], rowShape, outerCols)
             else
                 createContextForType outerParam.Type outerPlan outerName
 
@@ -1257,7 +1257,7 @@ module internal SubqueryDecorrelator =
                             parts.InnerParam.Name,
                             leftCols,
                             rightSuffix,
-                            scopeMap
+                            rowShape
                         )
 
                     let combinedThetaExpr =
@@ -1350,24 +1350,24 @@ module internal SubqueryDecorrelator =
         (resolveSequencePlan: Expression -> LogicalPlan option)
         (outerPlan: LogicalPlan)
         (filterLambda: LambdaExpression)
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         : (LogicalPlan * LambdaExpression option) option =
         if filterLambda.Parameters.Count <> 1 then
             None
         else
             let outerParam = filterLambda.Parameters.[0]
             let outerNames =
-                Set.ofSeq (outerParam.Name :: (scopeMap |> Map.toList |> List.map (fun ((s, _), _) -> s)))
+                Set.ofSeq (outerParam.Name :: (Set.toList rowShape.ScopeNames))
             let conjuncts = flattenAnd filterLambda.Body
 
             let (finalPlan, residualConjunctsRev, wasDecorrelated) =
                 conjuncts
                 |> List.fold
                     (fun (currPlan, resAcc, decorrelatedAny) cond ->
-                        match tryDecorrelateConjunct resolveSequencePlan currPlan outerParam cond scopeMap with
+                        match tryDecorrelateConjunct resolveSequencePlan currPlan outerParam cond rowShape with
                         | Some nextPlan -> nextPlan, resAcc, true
                         | None ->
-                            match tryDecorrelateCorrelatedScalarAgg resolveSequencePlan currPlan outerParam cond scopeMap with
+                            match tryDecorrelateCorrelatedScalarAgg resolveSequencePlan currPlan outerParam cond rowShape with
                             | Some nextPlan -> nextPlan, resAcc, true
                             | None ->
                                 // Uncorrelated scalar subqueries join the plan as one-row columns, and the
@@ -1378,8 +1378,8 @@ module internal SubqueryDecorrelator =
                                         let attached = attachUncorrelatedScalars currPlan scalars
                                         let attachedCols = (SchemaInference.inferPlanSchema attached).ColumnNames
                                         let ctx =
-                                            if not scopeMap.IsEmpty then
-                                                TranslationContext.ScopedEntity([ outerParam.Name ], scopeMap, attachedCols)
+                                            if not rowShape.IsEmpty then
+                                                TranslationContext.ScopedEntity([ outerParam.Name ], rowShape, attachedCols)
                                             else
                                                 createContextForTypeWithCols outerParam.Type attachedCols outerParam.Name
                                         ExprTranslator.tryTranslateToScalar ctx rewritten
@@ -1615,7 +1615,7 @@ module internal SubqueryDecorrelator =
         (resolveSequencePlan: Expression -> LogicalPlan option)
         (outerPlan: LogicalPlan)
         (projLambda: LambdaExpression)
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         : (LogicalPlan * LambdaExpression) option =
         if projLambda.Parameters.Count < 1 then
             None
@@ -1625,7 +1625,7 @@ module internal SubqueryDecorrelator =
             let outerParams = projLambda.Parameters |> Seq.toList
             let outerParamNames = outerParams |> List.map (fun p -> p.Name) |> Set.ofList
             let allOuterNames =
-                Set.union outerParamNames (scopeMap |> Map.toList |> List.map (fun ((s, _), _) -> s) |> Set.ofList)
+                Set.union outerParamNames rowShape.ScopeNames
 
             // Uncorrelated scalar subqueries become one-row plans joined to the outer plan; the projection then
             // reads their columns.
@@ -1645,12 +1645,12 @@ module internal SubqueryDecorrelator =
                 let groups = groupCandidates candidates
                 let colNames = (SchemaInference.inferPlanSchema outerPlan).ColumnNames
                 let outerCtx =
-                    if not scopeMap.IsEmpty then
-                        TranslationContext.ScopedEntity(outerParamNames |> Set.toList, scopeMap, colNames)
+                    if not rowShape.IsEmpty then
+                        TranslationContext.ScopedEntity(outerParamNames |> Set.toList, rowShape, colNames)
                     elif projLambda.Parameters.Count = 1 then
                         createContextForTypeWithCols projLambda.Parameters.[0].Type colNames projLambda.Parameters.[0].Name
                     else
-                        TranslationContext.ScopedEntity(outerParamNames |> Set.toList, Map.empty, colNames)
+                        TranslationContext.ScopedEntity(outerParamNames |> Set.toList, RowShape.Empty, colNames)
 
                 let compileGroup (grpIdx: int) (grp: ProjectionSubqueryCandidate list) (currPlan: LogicalPlan) =
                     let head = grp.Head
@@ -1774,7 +1774,7 @@ module internal SubqueryDecorrelator =
                                     head.InnerParam.Name,
                                     leftCols,
                                     rightSuffix,
-                                    scopeMap
+                                    rowShape
                                 )
 
                             let combinedThetaExpr =

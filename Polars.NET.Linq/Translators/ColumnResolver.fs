@@ -68,14 +68,14 @@ module internal ColumnResolver =
     /// parameter is `rowParam`. The path identifies the entity exactly, also where member names repeat
     /// (F# rows are Item1..ItemN at every level).
     let internal tryRowPathColumn
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         (rowParam: string)
         (entityExpr: Expression)
         (memberName: string)
         : string option =
         tryMemberPath rowParam entityExpr
         |> Option.filter (fun path -> not path.IsEmpty)
-        |> Option.bind (fun path -> scopeMap.TryFind(rowPathScope path, memberName))
+        |> Option.bind (fun path -> rowShape.TryResolve(RowScope.Path path, memberName))
 
     /// Resolves the underlying physical column name using a strongly-typed TranslationContext.
     let rec internal tryResolveColumnNameWithContext (ctx: TranslationContext) (expr: Expression) : string option =
@@ -193,7 +193,7 @@ module internal ColumnResolver =
                         else
                             None
 
-                    | TranslationContext.CorrelatedJoin(outerParams, innerParam, leftCols, rightSuffix, scopeMap) ->
+                    | TranslationContext.CorrelatedJoin(outerParams, innerParam, leftCols, rightSuffix, rowShape) ->
                         let scopeOpt = tryExtractScopeName inner
                         match scopeOpt with
                         | Some s when s = innerParam ->
@@ -201,8 +201,8 @@ module internal ColumnResolver =
                                 Some(m.Name + rightSuffix)
                             else
                                 Some m.Name
-                        | Some s when List.contains s outerParams || (scopeMap |> Map.exists (fun (scope, _) _ -> scope = s)) ->
-                            match scopeMap.TryFind(s, m.Name) with
+                        | Some s when List.contains s outerParams || rowShape.HasScope(RowScope.Named s) ->
+                            match rowShape.TryResolve(RowScope.Named s, m.Name) with
                             | Some physicalCol -> Some physicalCol
                             | None ->
                                 if leftCols.Contains m.Name then Some m.Name
@@ -214,7 +214,7 @@ module internal ColumnResolver =
                             elif outerParams |> List.exists (fun p -> isRootedIn p inner) then
                                 match scopeOpt with
                                 | Some s ->
-                                    match scopeMap.TryFind(s, m.Name) with
+                                    match rowShape.TryResolve(RowScope.Named s, m.Name) with
                                     | Some physicalCol -> Some physicalCol
                                     | None -> Some m.Name
                                 | None -> Some m.Name
@@ -237,12 +237,12 @@ module internal ColumnResolver =
                             else
                                 Some(m.Name + rightSuffix)
 
-                    | TranslationContext.ScopedEntity(rowParam :: _, scopeMap, _) when
-                        (tryRowPathColumn scopeMap rowParam inner m.Name).IsSome
+                    | TranslationContext.ScopedEntity(rowParam :: _, rowShape, _) when
+                        (tryRowPathColumn rowShape rowParam inner m.Name).IsSome
                         ->
-                        tryRowPathColumn scopeMap rowParam inner m.Name
+                        tryRowPathColumn rowShape rowParam inner m.Name
 
-                    | TranslationContext.ScopedEntity(_, scopeMap, fallbackCols) ->
+                    | TranslationContext.ScopedEntity(_, rowShape, fallbackCols) ->
                         let rec isRootedInParamOrClosure (e: Expression) =
                             match unwrap e with
                             | :? ParameterExpression as p ->
@@ -256,10 +256,10 @@ module internal ColumnResolver =
                             let scopeOpt = tryExtractScopeName inner
                             match scopeOpt with
                             | Some scope ->
-                                match scopeMap.TryFind(scope, m.Name) with
+                                match rowShape.TryResolve(RowScope.Named scope, m.Name) with
                                 | Some physicalCol -> Some physicalCol
                                 | None ->
-                                    match scopeMap.TryFind("", m.Name) with
+                                    match rowShape.TryResolve(RowScope.Unqualified, m.Name) with
                                     | Some physicalCol -> Some physicalCol
                                     | None ->
                                         if List.contains m.Name fallbackCols then
@@ -269,7 +269,7 @@ module internal ColumnResolver =
                                             |> List.tryFind (fun c -> String.Equals(c, m.Name, StringComparison.OrdinalIgnoreCase))
                                             |> Option.orElse (Some m.Name)
                             | None ->
-                                match scopeMap.TryFind("", m.Name) with
+                                match rowShape.TryResolve(RowScope.Unqualified, m.Name) with
                                 | Some physicalCol -> Some physicalCol
                                 | None ->
                                     if List.contains m.Name fallbackCols then
@@ -331,26 +331,25 @@ module internal ColumnResolver =
         // The entity's path in the row identifies its scope exactly; its name only when names are unique.
         let pathScopeOpt =
             match ctx with
-            | TranslationContext.ScopedEntity(rowParam :: _, scopeMap, _) ->
+            | TranslationContext.ScopedEntity(rowParam :: _, rowShape, _) ->
                 tryMemberPath rowParam cleanE
                 |> Option.filter (fun path -> not path.IsEmpty)
-                |> Option.map rowPathScope
-                |> Option.filter (fun key -> scopeMap |> Map.exists (fun (s, _) _ -> s = key))
+                |> Option.map RowScope.Path
+                |> Option.filter rowShape.HasScope
             | _ -> None
-        let scopeOpt = pathScopeOpt |> Option.orElseWith (fun () -> tryExtractScopeName cleanE)
+        let scopeOpt = pathScopeOpt |> Option.orElseWith (fun () -> tryExtractScopeName cleanE |> Option.map RowScope.Named)
         match scopeOpt with
         | Some scope ->
-            let findColInScopeMap (scopeMap: Map<string * string, string>) =
+            let findColInRowShape (rowShape: RowShape) =
                 let nonNullablePropCol =
                     if not (isNull cleanE.Type) && not (PolarsTypeHelper.IsScalarType cleanE.Type) then
                         cleanE.Type.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
                         |> Array.tryPick (fun prop ->
                             if prop.PropertyType.IsValueType && isNull (Nullable.GetUnderlyingType prop.PropertyType) then
-                                scopeMap.TryFind(scope, prop.Name)
-                                |> Option.orElseWith (fun () -> scopeMap.TryFind("", prop.Name))
+                                rowShape.TryResolve(scope, prop.Name)
+                                |> Option.orElseWith (fun () -> rowShape.TryResolve(RowScope.Unqualified, prop.Name))
                                 |> Option.orElseWith (fun () ->
-                                    scopeMap
-                                    |> Map.tryPick (fun (_, c) pCol -> if c = prop.Name then Some pCol else None))
+                                    rowShape.Entries |> List.tryPick (fun ((_, c), pCol) -> if c = prop.Name then Some pCol else None))
                             else
                                 None)
                     else
@@ -358,24 +357,21 @@ module internal ColumnResolver =
                 match nonNullablePropCol with
                 | Some col -> Some(ScalarExpr.Column col)
                 | None ->
-                    scopeMap
-                    |> Map.toList
-                    |> List.tryPick (fun ((s, _), physicalCol) ->
-                        if s = scope then Some(ScalarExpr.Column physicalCol) else None)
+                    rowShape.Members scope |> List.tryHead |> Option.map (snd >> ScalarExpr.Column)
 
             match ctx with
-            | TranslationContext.ScopedEntity(_, scopeMap, _)
-            | TranslationContext.CorrelatedJoin(_, _, _, _, scopeMap) ->
-                findColInScopeMap scopeMap
+            | TranslationContext.ScopedEntity(_, rowShape, _)
+            | TranslationContext.CorrelatedJoin(_, _, _, _, rowShape) ->
+                findColInRowShape rowShape
             | TranslationContext.BinaryJoin(leftParam, rightParam, leftCols, rightSuffix) ->
-                if scope = leftParam then
+                if scope = RowScope.Named leftParam then
                     leftCols |> Seq.tryHead |> Option.map ScalarExpr.Column
-                elif scope = rightParam then
+                elif scope = RowScope.Named rightParam then
                     leftCols |> Seq.tryHead |> Option.map (fun c -> ScalarExpr.Column(c + rightSuffix))
                 else None
             | TranslationContext.Merge(target, source, suffix) ->
-                if scope = target then Some(ScalarExpr.Column "")
-                elif scope = source then Some(ScalarExpr.Column suffix)
+                if scope = RowScope.Named target then Some(ScalarExpr.Column "")
+                elif scope = RowScope.Named source then Some(ScalarExpr.Column suffix)
                 else None
             | _ -> None
         | None -> None

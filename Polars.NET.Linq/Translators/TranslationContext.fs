@@ -29,12 +29,12 @@ type internal TranslationContext =
     /// Resolves pair.Outer (Item1) and pair.Inner (Item2) against physical columns in the joined LazyFrame.
     | TupleJoin of pairParam: string * leftCols: Set<string> * rightSuffix: string
 
-    /// Binary correlated subquery join context (outerParams, innerParam, leftCols, rightSuffix, scopeMap)
-    | CorrelatedJoin of outerParams: string list * innerParam: string * leftCols: Set<string> * rightSuffix: string * scopeMap: Map<string * string, string>
+    /// Binary correlated subquery join context (outerParams, innerParam, leftCols, rightSuffix, rowShape)
+    | CorrelatedJoin of outerParams: string list * innerParam: string * leftCols: Set<string> * rightSuffix: string * rowShape: RowShape
 
-    /// Scoped entity context carrying known range variable / scope mappings (e.g. ("sn", "n_name") -> "n_name_right")
+    /// Scoped entity context carrying the row shape: where each scope's members live (e.g. sn.n_name -> "n_name_right")
     /// across cascaded multi-table joins.
-    | ScopedEntity of paramNames: string list * scopeMap: Map<string * string, string> * fallbackCols: string list
+    | ScopedEntity of paramNames: string list * rowShape: RowShape * fallbackCols: string list
 
     /// List element placeholder context for row-level ListEval (pl.element()).
     | ListElement of paramName: string
@@ -45,15 +45,15 @@ type internal TranslationContext =
         | TranslationContext.Empty -> false
         | TranslationContext.Entity p -> p = name
         | TranslationContext.EntityWithCols(p, _) -> p = name
-        | TranslationContext.ScopedEntity(paramsList, scopeMap, _) ->
-            List.contains name paramsList || scopeMap |> Map.exists (fun (scope, _) _ -> scope = name)
+        | TranslationContext.ScopedEntity(paramsList, rowShape, _) ->
+            List.contains name paramsList || rowShape.HasScope(RowScope.Named name)
         | TranslationContext.ListElement p -> p = name
         | TranslationContext.Scalar(p, _) -> p = name
         | TranslationContext.BinaryJoin(left, right, _, _) -> name = left || name = right
         | TranslationContext.Merge(target, source, _) -> name = target || name = source
         | TranslationContext.TupleJoin(pairParam, _, _) -> name = pairParam
-        | TranslationContext.CorrelatedJoin(outerParams, inner, _, _, scopeMap) ->
-            List.contains name outerParams || name = inner || scopeMap |> Map.exists (fun (s, _) _ -> s = name)
+        | TranslationContext.CorrelatedJoin(outerParams, inner, _, _, rowShape) ->
+            List.contains name outerParams || name = inner || rowShape.HasScope(RowScope.Named name)
 
     /// Attempts to resolve the parameter expression node itself to a pure symbolic ScalarExpr.
     member this.TryResolveParameter(name: string) : ScalarExpr option =

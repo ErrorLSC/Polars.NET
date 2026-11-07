@@ -426,6 +426,9 @@ type ScalarFunction =
     /// Maps each value listed in `oldValues` to the value at the same position of `newValues`. A value not
     /// listed takes the optional second argument, or is an error without one.
     | ReplaceStrict of oldValues: LiteralValue list * newValues: LiteralValue list
+    /// `[value]`: the value when it is null or one of `values`; otherwise the query fails with `message`, its
+    /// first "{}" replaced by the value. It has an effect, as AssertCount.
+    | RequireListed of values: LiteralValue list * message: string
     /// `[count; value]`: the value when the count lies in the check's range; otherwise the query fails with
     /// the check's error. It has an effect, so it must be evaluated wherever its value is used, never folded
     /// or reordered past the computation of its count.
@@ -576,6 +579,7 @@ type ScalarFunction =
         | ScalarFunction.SeriesGet -> "series_get"
         | ScalarFunction.ReplaceStrict _ -> "replace_strict"
         | ScalarFunction.AssertCount _ -> "assert_count"
+        | ScalarFunction.RequireListed _ -> "require_listed"
         | ScalarFunction.Custom name -> name
 
     static member FromString(str: string) : ScalarFunction =
@@ -741,6 +745,8 @@ type InListSource =
 /// category order, and the underlying integer type.
 type EnumMapping =
     {
+        /// The enum type's full name, for error messages.
+        Name: string
         Categories: string list
         Values: LiteralValue list
         Underlying: LogicalType
@@ -976,7 +982,7 @@ type CompiledLogicalQuery =
         /// the rows are a transparent identifier whose entities are kept as flat columns; a consumer that
         /// materializes the elements packs those entities first (EntityPacking.packRow), while one that grafts
         /// the plan reads the flat columns.
-        RowScopes: Map<string * string, string>
+        RowShape: RowShape
     }
 
 /// Internal interface implemented by PolarsQueryable to expose IR compilation for testing, inspection, and subtree grafting.

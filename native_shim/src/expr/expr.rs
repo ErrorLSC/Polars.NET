@@ -2548,3 +2548,41 @@ pub extern "C" fn pl_expr_repeat(
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+/// The input unchanged when every non-null value is one of `values` (compared as Int64); otherwise a
+/// ComputeError whose message is `message` with its first "{}" replaced by the offending value. Used to report
+/// an integer that is not a defined member of a .NET enum before it is mapped to an Enum category.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_require_listed_ints(
+    expr_ptr: *mut ExprContext,
+    values_ptr: *const i64,
+    values_len: usize,
+    message_ptr: *const c_char,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let allowed: std::sync::Arc<std::collections::HashSet<i64>> = std::sync::Arc::new(if values_len == 0 {
+            std::collections::HashSet::new()
+        } else {
+            unsafe { from_raw_parts(values_ptr, values_len) }.iter().copied().collect()
+        });
+        let message: std::sync::Arc<String> = std::sync::Arc::new(
+            ptr_to_str(message_ptr).map_err(|e| polars_err!(ComputeError: "invalid message: {}", e))?.to_string(),
+        );
+
+        let function = move |c: Column| {
+            let as_i64 = c.as_materialized_series().cast(&DataType::Int64)?;
+            for v in as_i64.i64()?.iter().flatten() {
+                if !allowed.contains(&v) {
+                    polars_bail!(ComputeError: "{}", message.replacen("{}", &v.to_string(), 1));
+                }
+            }
+            Ok(c)
+        };
+
+        let output_map = |_input_schema: &Schema, input_field: &Field| Ok(input_field.clone());
+
+        let new_expr = ctx.inner.map(function, output_map);
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}

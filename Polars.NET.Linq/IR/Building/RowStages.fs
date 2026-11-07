@@ -12,38 +12,38 @@ open Polars.NET.Linq.IR.StageContext
 module internal RowStages =
 
     /// Filter: a native predicate, a decorrelated subquery predicate, or a client predicate.
-    let filter (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (lam: LambdaExpression) : CompiledLogicalQuery =
-        let makeCtx = StageContext.makeCtx scopeMap
-        match SubqueryDecorrelator.tryDecorrelateFilter env.ResolveSequence state.Plan lam scopeMap with
+    let filter (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (lam: LambdaExpression) : CompiledLogicalQuery =
+        let makeCtx = StageContext.makeCtx rowShape
+        match SubqueryDecorrelator.tryDecorrelateFilter env.ResolveSequence state.Plan lam rowShape with
         | Some (decorPlan, residualOpt) ->
             match residualOpt with
             | Some resLam ->
                 let p = resLam.Parameters.[0]
                 let ctx = makeCtx p.Type p.Name decorPlan
                 match ExprTranslator.tryTranslateToScalar ctx resLam.Body with
-                | Some pred -> continueWith { state with Plan = LogicalPlan.Filter(decorPlan, pred) } scopeMap tail
+                | Some pred -> continueWith { state with Plan = LogicalPlan.Filter(decorPlan, pred) } rowShape tail
                 | None ->
                     if isUnmaterializableClientRow p.Type then
-                        continueWith (fallback { state with Plan = decorPlan }) scopeMap tail
+                        continueWith (fallback { state with Plan = decorPlan }) rowShape tail
                     else
-                        continueWith (clientFilter scopeMap resLam { state with Plan = decorPlan }) scopeMap tail
+                        continueWith (clientFilter rowShape resLam { state with Plan = decorPlan }) rowShape tail
             | None ->
-                continueWith { state with Plan = decorPlan } scopeMap tail
+                continueWith { state with Plan = decorPlan } rowShape tail
         | None ->
             let p = lam.Parameters.[0]
             let ctx = makeCtx p.Type p.Name state.Plan
             match ExprTranslator.tryTranslateToScalar ctx lam.Body with
             | Some pred ->
-                continueWith { state with Plan = LogicalPlan.Filter(state.Plan, pred) } scopeMap tail
+                continueWith { state with Plan = LogicalPlan.Filter(state.Plan, pred) } rowShape tail
             | None ->
                 if isUnmaterializableClientRow p.Type then
-                    continueWith (fallback state) scopeMap tail
+                    continueWith (fallback state) rowShape tail
                 else
-                    continueWith (clientFilter scopeMap lam state) scopeMap tail
+                    continueWith (clientFilter rowShape lam state) rowShape tail
 
     /// TakeWhile / SkipWhile: a cumulative predicate over the rows in order.
-    let takeSkipWhile (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (sStage: LinqStage) (lam: LambdaExpression) : CompiledLogicalQuery =
-        let makeCtx = StageContext.makeCtx scopeMap
+    let takeSkipWhile (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (sStage: LinqStage) (lam: LambdaExpression) : CompiledLogicalQuery =
+        let makeCtx = StageContext.makeCtx rowShape
         let isSkip = match sStage with LinqStage.SkipWhile _ -> true | _ -> false
         let p = lam.Parameters.[0]
         let ctx = makeCtx p.Type p.Name state.Plan
@@ -54,26 +54,26 @@ module internal RowStages =
                     ScalarExpr.Function(ScalarFunction.CumMax, [ ScalarExpr.Unary(UnaryOp.Not, boolExpr) ], LogicalTypes.Boolean)
                 else
                     ScalarExpr.Function(ScalarFunction.CumMin, [ boolExpr ], LogicalTypes.Boolean)
-            continueWith { state with Plan = LogicalPlan.Filter(state.Plan, mask) } scopeMap tail
+            continueWith { state with Plan = LogicalPlan.Filter(state.Plan, mask) } rowShape tail
         | None ->
-            continueWith (clientFilter scopeMap lam state) scopeMap tail
+            continueWith (clientFilter rowShape lam state) rowShape tail
 
     /// Select: a native projection, an entity reshaping, or a client projection.
-    let project (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (lam: LambdaExpression) : CompiledLogicalQuery =
-        let makeCtx = StageContext.makeCtx scopeMap
+    let project (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (lam: LambdaExpression) : CompiledLogicalQuery =
+        let makeCtx = StageContext.makeCtx rowShape
         match ExpressionPatterns.unwrap lam.Body with
         | :? ParameterExpression as p when p.Name = lam.Parameters.[0].Name ->
-            continueWith state scopeMap tail
+            continueWith state rowShape tail
         | _ ->
-            match SubqueryDecorrelator.tryDecorrelateProjection env.ResolveSequence state.Plan lam scopeMap with
+            match SubqueryDecorrelator.tryDecorrelateProjection env.ResolveSequence state.Plan lam rowShape with
             | Some (decorPlan, rewrittenLam) ->
                 let p = rewrittenLam.Parameters.[0]
                 let ctx = makeCtx p.Type p.Name decorPlan
                 match extractProjections ctx decorPlan rewrittenLam.Body with
                 | Some projs ->
-                    continueWith { state with Plan = LogicalPlan.Project(decorPlan, projs) } Map.empty tail
+                    continueWith { state with Plan = LogicalPlan.Project(decorPlan, projs) } RowShape.Empty tail
                 | None ->
-                    continueWith (clientMap scopeMap rewrittenLam { state with Plan = decorPlan }) Map.empty tail
+                    continueWith (clientMap rowShape rewrittenLam { state with Plan = decorPlan }) RowShape.Empty tail
             | None ->
                 let p = lam.Parameters.[0]
                 let ctx = makeCtx p.Type p.Name state.Plan
@@ -84,8 +84,8 @@ module internal RowStages =
                     match tryExtractMemberBindings lam.Body with
                     | Some bindings when EntityPacking.isTransparentRowType lam.ReturnType ->
                         let rowCols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
-                        let named = registerLetScopes scopeMap state.Plan lam
-                        let sides = [ p.Name, EntityPacking.rowSideOf scopeMap rowCols ]
+                        let named = registerLetScopes rowShape state.Plan lam
+                        let sides = [ p.Name, EntityPacking.rowSideOf rowShape rowCols ]
                         let computedBindings = bindings |> List.filter (fun (_, e) -> not (EntityPacking.holdsEntities e))
                         // A computed member replacing an existing column would change the entity
                         // that column belongs to.
@@ -111,15 +111,15 @@ module internal RowStages =
                 | None ->
                     match extractProjections ctx state.Plan lam.Body with
                     | Some projs ->
-                        continueWith { state with Plan = LogicalPlan.Project(state.Plan, projs) } Map.empty tail
+                        continueWith { state with Plan = LogicalPlan.Project(state.Plan, projs) } RowShape.Empty tail
                     | None ->
-                        continueWith (clientMap scopeMap lam state) Map.empty tail
+                        continueWith (clientMap rowShape lam state) RowShape.Empty tail
 
     /// OrderBy / ThenBy over a key selector (ignored while the rows are groups).
-    let sort (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (lam: LambdaExpression) (isDesc: bool) (nullsLast: bool) : CompiledLogicalQuery =
-        let makeCtx = StageContext.makeCtx scopeMap
+    let sort (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (lam: LambdaExpression) (isDesc: bool) (nullsLast: bool) : CompiledLogicalQuery =
+        let makeCtx = StageContext.makeCtx rowShape
         if env.IsGrouping then
-            continueWith state scopeMap tail
+            continueWith state rowShape tail
         else
             let p = lam.Parameters.[0]
             let ctx = makeCtx p.Type p.Name state.Plan
@@ -134,12 +134,12 @@ module internal RowStages =
                         LogicalPlan.Sort(input, prevOrders @ newOrders)
                     | _ ->
                         LogicalPlan.Sort(state.Plan, newOrders)
-                continueWith { state with Plan = newPlan } scopeMap tail
+                continueWith { state with Plan = newPlan } rowShape tail
             | None ->
-                continueWith (fallback state) scopeMap tail
+                continueWith (fallback state) rowShape tail
 
     /// Order() / OrderDescending(): sorts by the first column.
-    let sortDefault (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (isDesc: bool) (nullsLast: bool) : CompiledLogicalQuery =
+    let sortDefault (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (isDesc: bool) (nullsLast: bool) : CompiledLogicalQuery =
         let cols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
         let targetCol = if cols.Length > 0 then cols.[0] else ""
         let newOrder = { SortOrder.Expr = ScalarExpr.Column targetCol; Descending = isDesc; NullsLast = nullsLast }
@@ -149,12 +149,12 @@ module internal RowStages =
                 LogicalPlan.Sort(input, prevOrders @ [ newOrder ])
             | _ ->
                 LogicalPlan.Sort(state.Plan, [ newOrder ])
-        continueWith { state with Plan = newPlan } scopeMap tail
+        continueWith { state with Plan = newPlan } rowShape tail
 
     /// DistinctBy over plain columns.
-    let distinctBy (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (lam: LambdaExpression) : CompiledLogicalQuery =
+    let distinctBy (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (lam: LambdaExpression) : CompiledLogicalQuery =
         match PipelineStageParser.extractDistinctColumns lam with
         | Some cols ->
-            continueWith { state with Plan = LogicalPlan.Distinct(state.Plan, Some (Array.toList cols), DistinctKeep.First, true) } scopeMap tail
+            continueWith { state with Plan = LogicalPlan.Distinct(state.Plan, Some (Array.toList cols), DistinctKeep.First, true) } rowShape tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail

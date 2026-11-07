@@ -19,6 +19,7 @@
     <Compile Include="OpsSpecs.fs" />
     <Compile Include="IR/LogicalTypes.fs" />
     <Compile Include="IR/JsonDataType.fs" />
+    <Compile Include="IR/RowShape.fs" />
     <Compile Include="IR/LogicalIR.fs" />
     <Compile Include="IR/ScalarExpr.fs" />
     <Compile Include="IR/BackendContracts.fs" />

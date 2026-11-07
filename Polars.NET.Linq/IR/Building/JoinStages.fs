@@ -78,7 +78,7 @@ module internal JoinStages =
         tupleSel, Expression.Lambda(body, [| row |])
 
     /// Join (inner, left, right, full) on key selectors.
-    let join (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (methodInfo: MethodInfo) (innerExpr: Expression) (outerKey: LambdaExpression) (innerKey: LambdaExpression) (resSelOpt: LambdaExpression option) : CompiledLogicalQuery =
+    let join (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (methodInfo: MethodInfo) (innerExpr: Expression) (outerKey: LambdaExpression) (innerKey: LambdaExpression) (resSelOpt: LambdaExpression option) : CompiledLogicalQuery =
         match env.ResolveSequence innerExpr with
         | Some rightPlan ->
             let isRightJoin = methodInfo.Name = "RightJoin"
@@ -106,8 +106,8 @@ module internal JoinStages =
 
             let outerParam = outerKey.Parameters.[0]
             let innerParam = innerKey.Parameters.[0]
-            let leftCtx = PipelineStageParser.createContextWithScopeAndCols scopeMap outerParam.Type leftCols outerParam.Name
-            let rightCtx = PipelineStageParser.createContextWithScopeAndCols Map.empty innerParam.Type rightCols innerParam.Name
+            let leftCtx = PipelineStageParser.createContextWithScopeAndCols rowShape outerParam.Type leftCols outerParam.Name
+            let rightCtx = PipelineStageParser.createContextWithScopeAndCols RowShape.Empty innerParam.Type rightCols innerParam.Name
 
             match tryExtractKeyScalars leftCtx outerKey, tryExtractKeyScalars rightCtx innerKey with
             | Some leftKeys, Some rightKeys when leftKeys.Length = rightKeys.Length ->
@@ -123,53 +123,53 @@ module internal JoinStages =
                     | Some resSel when resSel.Parameters.Count >= 2 -> resSel.Parameters.[1].Name
                     | _ -> innerKey.Parameters.[0].Name
 
-                let updatedScopeMap =
-                    PipelineStageParser.updateJoinScopeMap scopeMap leftScope (List.toArray leftCols) rightScope (List.toArray rightCols) uniqueSuffix isRightJoin
-                    |> aliasResultSelectorScopes (if scopeMap.IsEmpty then Some leftScope else None) rightScope resSelOpt
+                let updatedRowShape =
+                    PipelineStageParser.updateJoinRowShape rowShape leftScope (List.toArray leftCols) rightScope (List.toArray rightCols) uniqueSuffix isRightJoin
+                    |> aliasResultSelectorScopes (if rowShape.IsEmpty then Some leftScope else None) rightScope resSelOpt
                 // Downstream stages see the result row; the concrete selector itself reads the joined sides.
-                let rowScopeMap = joinResultScopes scopeMap updatedScopeMap leftScope rightScope resSelOpt
+                let rowRowShape = joinResultScopes rowShape updatedRowShape leftScope rightScope resSelOpt
 
                 match resSelOpt with
                 | TransparentOrNoResSelector ->
-                    continueWith { state with Plan = joinPlan } rowScopeMap tail
+                    continueWith { state with Plan = joinPlan } rowRowShape tail
                 | ConcreteResSelector resSel ->
                     let postJoinCols = (SchemaInference.inferPlanSchema joinPlan).ColumnNames
                     let pLeft = resSel.Parameters.[0]
                     let pRight = resSel.Parameters.[1]
                     let resCtx =
-                        if not updatedScopeMap.IsEmpty then
-                            TranslationContext.ScopedEntity([ pLeft.Name; pRight.Name ], updatedScopeMap, postJoinCols)
+                        if not updatedRowShape.IsEmpty then
+                            TranslationContext.ScopedEntity([ pLeft.Name; pRight.Name ], updatedRowShape, postJoinCols)
                         else
                             TranslationContext.BinaryJoin(pLeft.Name, pRight.Name, leftColSet, uniqueSuffix)
                     let splitSelector (plan: LogicalPlan) =
                         if keepsRowScopes resSel tail then
-                            continueWith { state with Plan = plan } rowScopeMap tail
+                            continueWith { state with Plan = plan } rowRowShape tail
                         else
                             let tupleSel, proj = splitResultSelector resSel
-                            continueWith state scopeMap (LinqStage.Join(methodInfo, innerExpr, outerKey, innerKey, Some tupleSel) :: LinqStage.Project proj :: tail)
+                            continueWith state rowShape (LinqStage.Join(methodInfo, innerExpr, outerKey, innerKey, Some tupleSel) :: LinqStage.Project proj :: tail)
 
-                    match SubqueryDecorrelator.tryDecorrelateProjection env.ResolveSequence joinPlan resSel updatedScopeMap with
+                    match SubqueryDecorrelator.tryDecorrelateProjection env.ResolveSequence joinPlan resSel updatedRowShape with
                     | Some (decorPlan, rewrittenResSel) ->
                         let postDecorCols = (SchemaInference.inferPlanSchema decorPlan).ColumnNames
                         let pLeft2 = rewrittenResSel.Parameters.[0]
                         let pRight2 = rewrittenResSel.Parameters.[1]
                         let resCtx2 =
-                            if not updatedScopeMap.IsEmpty then
-                                TranslationContext.ScopedEntity([ pLeft2.Name; pRight2.Name ], updatedScopeMap, postDecorCols)
+                            if not updatedRowShape.IsEmpty then
+                                TranslationContext.ScopedEntity([ pLeft2.Name; pRight2.Name ], updatedRowShape, postDecorCols)
                             else
                                 TranslationContext.BinaryJoin(pLeft2.Name, pRight2.Name, leftColSet, uniqueSuffix)
 
                         match tryExtractJoinProjections resCtx2 decorPlan pLeft2 pRight2 leftCols rightCols uniqueSuffix isRightJoin rewrittenResSel.Body with
-                        | Some projs -> continueWith { state with Plan = LogicalPlan.Project(decorPlan, projs) } Map.empty tail
+                        | Some projs -> continueWith { state with Plan = LogicalPlan.Project(decorPlan, projs) } RowShape.Empty tail
                         | None -> splitSelector decorPlan
                     | None ->
                         match tryExtractJoinProjections resCtx joinPlan pLeft pRight leftCols rightCols uniqueSuffix isRightJoin resSel.Body with
-                        | Some projs -> continueWith { state with Plan = LogicalPlan.Project(joinPlan, projs) } Map.empty tail
+                        | Some projs -> continueWith { state with Plan = LogicalPlan.Project(joinPlan, projs) } RowShape.Empty tail
                         | None -> splitSelector joinPlan
             | _ ->
-                continueWith (fallback state) scopeMap tail
+                continueWith (fallback state) rowShape tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail
 
     /// The operators applied to a group join's group before DefaultIfEmpty, in
     /// `g.Where(p1)...Where(pn).Select(s).DefaultIfEmpty(d)`. All parts are optional except DefaultIfEmpty.
@@ -261,7 +261,7 @@ module internal JoinStages =
             Some(Expression.Lambda(newBody, [| resSel.Parameters.[0]; rParam |]))
 
     /// GroupJoin.
-    let groupJoin (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (m: MethodInfo) (innerExpr: Expression) (outerKey: LambdaExpression) (innerKey: LambdaExpression) (resSelOpt: LambdaExpression option) : CompiledLogicalQuery =
+    let groupJoin (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (m: MethodInfo) (innerExpr: Expression) (outerKey: LambdaExpression) (innerKey: LambdaExpression) (resSelOpt: LambdaExpression option) : CompiledLogicalQuery =
         match tail with
         | LinqStage.Explode(collSelector, explodeResSelOpt) :: nextTail when (tryExtractDefaultIfEmpty collSelector.Body).IsSome ->
             let innerType = innerKey.Parameters.[0].Type
@@ -279,38 +279,38 @@ module internal JoinStages =
                     | None -> None
                 | None -> None
             match rewritten with
-            | None -> continueWith (fallback state) scopeMap tail
+            | None -> continueWith (fallback state) rowShape tail
             | Some(innerExpr, explodeResSelOpt) ->
                 let effResSelOpt = explodeResSelOpt |> Option.orElse resSelOpt
                 // The flattening selector reads the group join's row (outer, group), not the outer
                 // entity: that row's members holding the outer side become its path scopes.
-                let groupRowScopeMap =
+                let groupRowRowShape =
                     match explodeResSelOpt, resSelOpt with
                     | Some _, Some groupSel when groupSel.Parameters.Count >= 2 ->
                         let cols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
-                        let sides = [ groupSel.Parameters.[0].Name, EntityPacking.rowSideOf scopeMap cols ]
+                        let sides = [ groupSel.Parameters.[0].Name, EntityPacking.rowSideOf rowShape cols ]
                         tryExtractMemberBindings groupSel.Body
-                        |> Option.bind (EntityPacking.tryReshapeRow scopeMap sides)
-                        |> Option.defaultValue scopeMap
-                    | _ -> scopeMap
-                continueWith state groupRowScopeMap (LinqStage.Join(m, innerExpr, outerKey, innerKey, effResSelOpt) :: nextTail)
+                        |> Option.bind (EntityPacking.tryReshapeRow rowShape sides)
+                        |> Option.defaultValue rowShape
+                    | _ -> rowShape
+                continueWith state groupRowRowShape (LinqStage.Join(m, innerExpr, outerKey, innerKey, effResSelOpt) :: nextTail)
         | LinqStage.Project projLambda :: nextTail when resSelOpt.IsNone ->
             let outerType, innerType = outerKey.Parameters.[0].Type, innerKey.Parameters.[0].Type
             let desugaredResSel = PipelineStageParser.desugarGroupJoinProject projLambda outerType innerType
-            continueWith state scopeMap (LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, Some desugaredResSel) :: nextTail)
+            continueWith state rowShape (LinqStage.GroupJoin(m, innerExpr, outerKey, innerKey, Some desugaredResSel) :: nextTail)
         | _ ->
             match resSelOpt with
             | Some resSel ->
                 match buildGroupJoinWithResultPlan env.ResolveSequence state.Plan innerExpr outerKey innerKey resSel with
                 | Some nextPlan ->
-                    continueWith { state with Plan = nextPlan } Map.empty tail
+                    continueWith { state with Plan = nextPlan } RowShape.Empty tail
                 | None ->
-                    continueWith (fallback state) scopeMap tail
+                    continueWith (fallback state) rowShape tail
             | None ->
-                continueWith state scopeMap (LinqStage.Join(m, innerExpr, outerKey, innerKey, None) :: tail)
+                continueWith state rowShape (LinqStage.Join(m, innerExpr, outerKey, innerKey, None) :: tail)
 
     /// A cross join (SelectMany over an uncorrelated sequence).
-    let crossJoin (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (innerExpr: Expression) (resSelOpt: LambdaExpression option) : CompiledLogicalQuery =
+    let crossJoin (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (innerExpr: Expression) (resSelOpt: LambdaExpression option) : CompiledLogicalQuery =
         match env.ResolveSequence innerExpr with
         | Some rightPlan ->
             let leftCols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
@@ -321,42 +321,42 @@ module internal JoinStages =
 
             let leftScope = "outer"
             let rightScope = "inner"
-            let updatedScopeMap =
-                PipelineStageParser.updateJoinScopeMap scopeMap leftScope (List.toArray leftCols) rightScope (List.toArray rightCols) uniqueSuffix false
-                |> aliasResultSelectorScopes (if scopeMap.IsEmpty then Some leftScope else None) rightScope resSelOpt
+            let updatedRowShape =
+                PipelineStageParser.updateJoinRowShape rowShape leftScope (List.toArray leftCols) rightScope (List.toArray rightCols) uniqueSuffix false
+                |> aliasResultSelectorScopes (if rowShape.IsEmpty then Some leftScope else None) rightScope resSelOpt
             // Downstream stages see the result row; the concrete selector itself reads the joined sides.
-            let rowScopeMap = joinResultScopes scopeMap updatedScopeMap leftScope rightScope resSelOpt
+            let rowRowShape = joinResultScopes rowShape updatedRowShape leftScope rightScope resSelOpt
 
             match resSelOpt with
             | TransparentOrNoResSelector ->
-                continueWith { state with Plan = joinPlan } rowScopeMap tail
+                continueWith { state with Plan = joinPlan } rowRowShape tail
             | ConcreteResSelector resSel ->
                 let postJoinCols = (SchemaInference.inferPlanSchema joinPlan).ColumnNames
                 let pLeft = resSel.Parameters.[0]
                 let pRight = resSel.Parameters.[1]
                 let resCtx =
-                    if not updatedScopeMap.IsEmpty then
-                        TranslationContext.ScopedEntity([ pLeft.Name; pRight.Name ], updatedScopeMap, postJoinCols)
+                    if not updatedRowShape.IsEmpty then
+                        TranslationContext.ScopedEntity([ pLeft.Name; pRight.Name ], updatedRowShape, postJoinCols)
                     else
                         TranslationContext.BinaryJoin(pLeft.Name, pRight.Name, leftColSet, uniqueSuffix)
                 match tryExtractJoinProjections resCtx joinPlan pLeft pRight leftCols rightCols uniqueSuffix false resSel.Body with
-                | Some projs -> continueWith { state with Plan = LogicalPlan.Project(joinPlan, projs) } Map.empty tail
-                | None when keepsRowScopes resSel tail -> continueWith { state with Plan = joinPlan } rowScopeMap tail
+                | Some projs -> continueWith { state with Plan = LogicalPlan.Project(joinPlan, projs) } RowShape.Empty tail
+                | None when keepsRowScopes resSel tail -> continueWith { state with Plan = joinPlan } rowRowShape tail
                 | None ->
                     let tupleSel, proj = splitResultSelector resSel
-                    continueWith state scopeMap (LinqStage.CrossJoin(innerExpr, Some tupleSel) :: LinqStage.Project proj :: tail)
+                    continueWith state rowShape (LinqStage.CrossJoin(innerExpr, Some tupleSel) :: LinqStage.Project proj :: tail)
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail
 
     /// JoinAsOf.
-    let rec joinAsOf (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (inner: Expression) (outerKey: LambdaExpression) (innerKey: LambdaExpression) (outerByOpt: LambdaExpression option) (innerByOpt: LambdaExpression option) (resSelOpt: LambdaExpression option) (toleranceStr: string option) (toleranceInt: int64 option) (toleranceFloat: double option) (strategy: AsofStrategy) : CompiledLogicalQuery =
+    let rec joinAsOf (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (inner: Expression) (outerKey: LambdaExpression) (innerKey: LambdaExpression) (outerByOpt: LambdaExpression option) (innerByOpt: LambdaExpression option) (resSelOpt: LambdaExpression option) (toleranceStr: string option) (toleranceInt: int64 option) (toleranceFloat: double option) (strategy: AsofStrategy) : CompiledLogicalQuery =
         match env.ResolveSequence inner with
         | Some rightPlan ->
             let leftCols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
             let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
             let leftColSet = Set.ofList leftCols
-            let leftCtx = PipelineStageParser.createContextWithScopeAndCols scopeMap outerKey.Parameters.[0].Type leftCols outerKey.Parameters.[0].Name
-            let rightCtx = PipelineStageParser.createContextWithScopeAndCols Map.empty innerKey.Parameters.[0].Type rightCols innerKey.Parameters.[0].Name
+            let leftCtx = PipelineStageParser.createContextWithScopeAndCols rowShape outerKey.Parameters.[0].Type leftCols outerKey.Parameters.[0].Name
+            let rightCtx = PipelineStageParser.createContextWithScopeAndCols RowShape.Empty innerKey.Parameters.[0].Type rightCols innerKey.Parameters.[0].Name
             match ExprTranslator.tryTranslateToScalar leftCtx outerKey.Body, ExprTranslator.tryTranslateToScalar rightCtx innerKey.Body with
             | Some leftOn, Some rightOn ->
                 let leftBy =
@@ -390,31 +390,31 @@ module internal JoinStages =
                     | Some resSel when resSel.Parameters.Count >= 2 -> resSel.Parameters.[1].Name
                     | _ -> innerKey.Parameters.[0].Name
 
-                let updatedScopeMap =
-                    PipelineStageParser.updateJoinScopeMap scopeMap leftScope (List.toArray leftCols) rightScope (List.toArray rightCols) uniqueSuffix false
-                    |> aliasResultSelectorScopes (if scopeMap.IsEmpty then Some leftScope else None) rightScope resSelOpt
+                let updatedRowShape =
+                    PipelineStageParser.updateJoinRowShape rowShape leftScope (List.toArray leftCols) rightScope (List.toArray rightCols) uniqueSuffix false
+                    |> aliasResultSelectorScopes (if rowShape.IsEmpty then Some leftScope else None) rightScope resSelOpt
                 // Downstream stages see the result row; the concrete selector itself reads the joined sides.
-                let rowScopeMap = joinResultScopes scopeMap updatedScopeMap leftScope rightScope resSelOpt
+                let rowRowShape = joinResultScopes rowShape updatedRowShape leftScope rightScope resSelOpt
 
                 match resSelOpt with
                 | TransparentOrNoResSelector ->
-                    continueWith { state with Plan = asOfPlan } rowScopeMap tail
+                    continueWith { state with Plan = asOfPlan } rowRowShape tail
                 | ConcreteResSelector resSel ->
                     let postJoinCols = (SchemaInference.inferPlanSchema asOfPlan).ColumnNames
                     let pLeft = resSel.Parameters.[0]
                     let pRight = resSel.Parameters.[1]
                     let resCtx =
-                        if not updatedScopeMap.IsEmpty then
-                            TranslationContext.ScopedEntity([ pLeft.Name; pRight.Name ], updatedScopeMap, postJoinCols)
+                        if not updatedRowShape.IsEmpty then
+                            TranslationContext.ScopedEntity([ pLeft.Name; pRight.Name ], updatedRowShape, postJoinCols)
                         else
                             TranslationContext.BinaryJoin(pLeft.Name, pRight.Name, leftColSet, uniqueSuffix)
                     match tryExtractJoinProjections resCtx asOfPlan pLeft pRight leftCols rightCols uniqueSuffix false resSel.Body with
-                    | Some projs -> continueWith { state with Plan = LogicalPlan.Project(asOfPlan, projs) } Map.empty tail
-                    | None when keepsRowScopes resSel tail -> continueWith { state with Plan = asOfPlan } rowScopeMap tail
+                    | Some projs -> continueWith { state with Plan = LogicalPlan.Project(asOfPlan, projs) } RowShape.Empty tail
+                    | None when keepsRowScopes resSel tail -> continueWith { state with Plan = asOfPlan } rowRowShape tail
                     | None ->
                         let tupleSel, proj = splitResultSelector resSel
-                        joinAsOf env continueWith state scopeMap (LinqStage.Project proj :: tail) inner outerKey innerKey outerByOpt innerByOpt (Some tupleSel) toleranceStr toleranceInt toleranceFloat strategy
+                        joinAsOf env continueWith state rowShape (LinqStage.Project proj :: tail) inner outerKey innerKey outerByOpt innerByOpt (Some tupleSel) toleranceStr toleranceInt toleranceFloat strategy
             | _ ->
-                continueWith (fallback state) scopeMap tail
+                continueWith (fallback state) rowShape tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail

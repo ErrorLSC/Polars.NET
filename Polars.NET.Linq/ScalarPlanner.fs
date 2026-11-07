@@ -87,7 +87,7 @@ type internal ScalarSource =
         RequiresClientEvaluation: bool
         ClientProjection: (Type * Func<obj, obj>) option
         /// True when the plan's rows are a transparent identifier whose entities are still flat columns
-        /// (CompiledLogicalQuery.RowScopes): its rows are read through the enumerated source, which packs them.
+        /// (CompiledLogicalQuery.RowShape): its rows are read through the enumerated source, which packs them.
         HasRowScopes: bool
     }
 
@@ -315,7 +315,7 @@ module internal ScalarPlanner =
                             Plan = sources.Graft(compiled.Plan, compiled.Sources)
                             RequiresClientEvaluation = requiresClientEvaluation
                             ClientProjection = clientProjOpt
-                            HasRowScopes = not compiled.RowScopes.IsEmpty
+                            HasRowScopes = not compiled.RowShape.IsEmpty
                         }
                     | _ -> failwithf "Unable to extract a logical plan from query source: %A" src
                 sourceCache.[src] <- resolved
@@ -347,6 +347,61 @@ module internal ScalarPlanner =
 
             { Terminal = ScalarTerminal.Deferred compute; Finish = castFinish<'TResult> }
 
+        /// A terminal over a source whose rows are still flat join scopes, rewritten so that the native plan does
+        /// the narrowing, or None to enumerate the whole source:
+        /// - a predicate becomes a Where and a counted or existence terminal is planned again over it (a plain
+        ///   Count / Any over such a source is native);
+        /// - First / Single / Last / ElementAt read only the rows they need (Take / TakeLast / Skip), then run over
+        ///   those rows;
+        /// - an aggregate with a scalar selector is planned again over Select(selector), a plain native aggregate.
+        let tryNarrowScopedTerminal (m: MethodInfo) (source: Expression) (rest: Expression list) : ScalarQuery<'TResult> option =
+            let src = resolveSource source
+            if not src.HasRowScopes || src.RequiresClientEvaluation then
+                None
+            else
+                let elemType = getSequenceElementType source.Type
+                let call (name: string) (typeArgs: Type array) (args: Expression list) : Expression =
+                    Expression.Call(typeof<Queryable>, name, typeArgs, Array.ofList args)
+                let where (pred: Expression) = call "Where" [| elemType |] [ source; pred ]
+                let negated (pred: Expression) =
+                    match ExpressionPatterns.unwrap pred with
+                    | :? LambdaExpression as lam -> Some(Expression.Quote(Expression.Lambda(Expression.Not lam.Body, lam.Parameters)) :> Expression)
+                    | _ -> None
+                let replan (rewritten: Expression) =
+                    let compute () = box (provider.Execute<'TResult> rewritten)
+                    Some { Terminal = ScalarTerminal.Deferred compute; Finish = castFinish<'TResult> }
+                let overRows (narrowed: Expression) (args: Expression list) = Some(evaluateOverClientRows m narrowed args)
+                let takeOf (n: int) (seq: Expression) = call "Take" [| elemType |] [ seq; Expression.Constant n ]
+
+                match m.Name, rest with
+                | ("Count" | "LongCount" | "Any"), [ pred ] -> replan (call m.Name [| elemType |] [ where pred ])
+                | "All", [ pred ] ->
+                    // All(p) is !Any(!p); the provider executes the Any.
+                    negated pred
+                    |> Option.map (fun notPred ->
+                        let anyFailing = call "Any" [| elemType |] [ where notPred ]
+                        let compute () = box (not (provider.Execute<bool> anyFailing))
+                        { Terminal = ScalarTerminal.Deferred compute; Finish = castFinish<'TResult> })
+                | ("First" | "FirstOrDefault"), [] -> overRows (takeOf 1 source) rest
+                | ("First" | "FirstOrDefault"), pred :: _ -> overRows (takeOf 1 (where pred)) rest
+                | ("Single" | "SingleOrDefault"), [] -> overRows (takeOf 2 source) rest
+                | ("Single" | "SingleOrDefault"), pred :: _ -> overRows (takeOf 2 (where pred)) rest
+                | ("Last" | "LastOrDefault"), [] -> overRows (call "TakeLast" [| elemType |] [ source; Expression.Constant 1 ]) rest
+                | ("Last" | "LastOrDefault"), pred :: _ -> overRows (call "TakeLast" [| elemType |] [ where pred; Expression.Constant 1 ]) rest
+                | ("ElementAt" | "ElementAtOrDefault"), [ index ] when index.Type = typeof<int> ->
+                    match PartialEvaluator.tryEvaluate index with
+                    | Some(:? int as i) when i >= 0 ->
+                        overRows (takeOf 1 (call "Skip" [| elemType |] [ source; Expression.Constant i ])) [ Expression.Constant 0 ]
+                    | _ -> None
+                | ("Min" | "Max" | "Sum" | "Average"), [ selector ] ->
+                    match ExpressionPatterns.unwrap selector with
+                    | :? LambdaExpression as lam when PolarsTypeHelper.IsScalarType lam.ReturnType ->
+                        let projected = call "Select" [| elemType; lam.ReturnType |] [ source; selector ]
+                        let typeArgs = if m.Name = "Min" || m.Name = "Max" then [| lam.ReturnType |] else [||]
+                        replan (call m.Name typeArgs [ projected ])
+                    | _ -> None
+                | _ -> None
+
         let extractOptionalLambda (args: Expression list) : LambdaExpression option =
             match args with
             | [ CleanLambda l ] -> Some l
@@ -359,7 +414,7 @@ module internal ScalarPlanner =
         // 0. Sources requiring client evaluation: LINQ-to-Objects over the enumerated rows
         // =========================================================================
         | MethodCall(m, null, source :: rest) when isScalarReductionMethod m && requiresClientEvaluation m source ->
-            evaluateOverClientRows m source rest
+            tryNarrowScopedTerminal m source rest |> Option.defaultWith (fun () -> evaluateOverClientRows m source rest)
 
         // =========================================================================
         // 1. Count() / LongCount()

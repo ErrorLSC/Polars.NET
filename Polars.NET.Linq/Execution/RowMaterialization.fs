@@ -48,12 +48,12 @@ module internal RowMaterialization =
     /// Packs the entities of the join scopes still in effect over the plan's rows into struct columns, so the
     /// rows materialize as their element type; escalates to LINQ-to-Objects when an entity has no columns.
     let forMaterialization (targetType: Type) (stages: LinqStage list) (compiled: CompiledLogicalQuery) : CompiledLogicalQuery =
-        if compiled.RowScopes.IsEmpty then
+        if compiled.RowShape.IsEmpty then
             compiled
         else
-            match EntityPacking.packRow compiled.RowScopes compiled.Plan (materializedRowType targetType stages) with
+            match EntityPacking.packRow compiled.RowShape compiled.Plan (materializedRowType targetType stages) with
             | RowPacking.NotNeeded -> compiled
-            | RowPacking.Packed plan -> { compiled with Plan = plan; RowScopes = Map.empty }
+            | RowPacking.Packed plan -> { compiled with Plan = plan; RowShape = RowShape.Empty }
             | RowPacking.Unresolvable -> { compiled with Residual = ClientResidual.LinqToObjects }
 
     /// Materializes flat native rows and applies the residual row operations in pipeline order.

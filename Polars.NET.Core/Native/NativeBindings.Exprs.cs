@@ -93,6 +93,8 @@ unsafe internal partial class NativeBindings
     // Bitwise Shift
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_bit_shl(ExprHandle expr, int n);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_require_listed_ints(ExprHandle expr, ReadOnlySpan<long> values, nuint valuesLen, string message);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_bit_shr(ExprHandle expr, int n);
     // Logic

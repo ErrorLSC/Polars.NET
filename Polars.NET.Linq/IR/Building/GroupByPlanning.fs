@@ -15,7 +15,7 @@ module internal GroupByPlanning =
         (targetColExprOpt: ScalarExpr option)
         (scalarColOpt: string option)
         (wholeRowStructOpt: ScalarExpr option)
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         (cols: string list)
         (rawArgExpr: Expression)
         : ScalarExpr option =
@@ -64,7 +64,7 @@ module internal GroupByPlanning =
             match tryMatchNestedListAgg argExpr with
             | Some selLambda ->
                 let selParam = selLambda.Parameters.[0]
-                let selCtx = PipelineStageParser.createContextWithScopeAndCols scopeMap selParam.Type cols selParam.Name
+                let selCtx = PipelineStageParser.createContextWithScopeAndCols rowShape selParam.Type cols selParam.Name
                 match ColumnResolver.tryResolveColumnNameWithContext selCtx selLambda.Body with
                 | Some cName -> Some(ScalarExpr.Column cName)
                 | None -> ExprTranslator.tryTranslateToScalar selCtx selLambda.Body
@@ -73,7 +73,7 @@ module internal GroupByPlanning =
                     groupParamName
                     scalarColOpt
                     wholeRowStructOpt
-                    scopeMap
+                    rowShape
                     argExpr
                     ""
 
@@ -85,18 +85,18 @@ module internal GroupByPlanning =
         (projBody: Expression)
         (groupParamName: string)
         (isKeyArg: Expression -> bool)
-        (scopeMap: Map<string * string, string>)
+        (rowShape: RowShape)
         : LogicalPlan option =
 
         let cols = (SchemaInference.inferPlanSchema basePlan).ColumnNames
         let keyParam = ctx.KeyLambda.Parameters.[0]
-        let keyCtx = PipelineStageParser.createContextWithScopeAndCols scopeMap keyParam.Type cols keyParam.Name
+        let keyCtx = PipelineStageParser.createContextWithScopeAndCols rowShape keyParam.Type cols keyParam.Name
 
         let elemExprOpt =
             ctx.ElemLambdaOpt
             |> Option.bind (fun el ->
                 let elParam = el.Parameters.[0]
-                let elCtx = PipelineStageParser.createContextWithScopeAndCols scopeMap elParam.Type cols elParam.Name
+                let elCtx = PipelineStageParser.createContextWithScopeAndCols rowShape elParam.Type cols elParam.Name
                 ExprTranslator.tryTranslateToScalar elCtx el.Body)
 
         let elemScoreMapOpt =
@@ -105,7 +105,7 @@ module internal GroupByPlanning =
                 let elParam = el.Parameters.[0]
                 match tryExtractMemberBindings el.Body with
                 | Some bindings ->
-                    let elCtx = PipelineStageParser.createContextWithScopeAndCols scopeMap elParam.Type cols elParam.Name
+                    let elCtx = PipelineStageParser.createContextWithScopeAndCols rowShape elParam.Type cols elParam.Name
                     let resolvedBindings =
                         bindings
                         |> List.choose (fun (propName, expr) ->
@@ -114,7 +114,7 @@ module internal GroupByPlanning =
                             | None -> None)
                     let updatedFromEntities =
                         bindings
-                        |> List.fold (fun m (propName, expr) ->
+                        |> List.fold (fun (m: RowShape) (propName, expr) ->
                             let subScopeOpt =
                                 match ExpressionPatterns.unwrap expr with
                                 | :? ParameterExpression as p -> Some p.Name
@@ -122,14 +122,13 @@ module internal GroupByPlanning =
                                 | _ -> None
                             match subScopeOpt with
                             | Some s when s <> propName ->
-                                scopeMap
-                                |> Map.fold (fun acc (kScope, kCol) physCol ->
-                                    if kScope = s then Map.add (propName, kCol) physCol acc else acc) m
-                            | _ -> m) scopeMap
+                                rowShape.Members(RowScope.Named s)
+                                |> List.fold (fun (acc: RowShape) (kCol, physCol) -> acc.Add(RowScope.Named propName, kCol, physCol)) m
+                            | _ -> m) rowShape
                     let combined =
                         resolvedBindings
-                        |> List.fold (fun m (propName, colName) ->
-                            m |> Map.add ("", propName) colName |> Map.add (elParam.Name, propName) colName) updatedFromEntities
+                        |> List.fold (fun (m: RowShape) (propName, colName) ->
+                            m.Add(RowScope.Unqualified, propName, colName).Add(RowScope.Named elParam.Name, propName, colName)) updatedFromEntities
                     Some combined
                 | None ->
                     let subScopeOpt =
@@ -140,15 +139,13 @@ module internal GroupByPlanning =
                     match subScopeOpt with
                     | Some s ->
                         let updated =
-                            scopeMap
-                            |> Map.fold (fun acc (kScope, kCol) physCol ->
-                                if kScope = s then
-                                    acc |> Map.add (elParam.Name, kCol) physCol |> Map.add ("", kCol) physCol
-                                else acc) scopeMap
+                            rowShape.Members(RowScope.Named s)
+                            |> List.fold (fun (acc: RowShape) (kCol, physCol) ->
+                                acc.Add(RowScope.Named elParam.Name, kCol, physCol).Add(RowScope.Unqualified, kCol, physCol)) rowShape
                         Some updated
                     | None -> None)
 
-        let effectiveScopeMap = elemScoreMapOpt |> Option.defaultValue scopeMap
+        let effectiveRowShape = elemScoreMapOpt |> Option.defaultValue rowShape
         let elemType = keyParam.Type
 
         let wholeRowStructOpt = EntityPacking.tryWholeRowStruct elemType cols
@@ -350,7 +347,7 @@ module internal GroupByPlanning =
                         targetColExprOpt
                         scalarColOpt
                         wholeRowStructOpt
-                        effectiveScopeMap
+                        effectiveRowShape
                         cols
                         rawArgExpr
 
@@ -701,7 +698,7 @@ module internal GroupByPlanning =
 
         let cols = (SchemaInference.inferPlanSchema basePlan).ColumnNames
         let keyParam = keySelector.Parameters.[0]
-        let keyCtx = PipelineStageParser.createContextWithScopeAndCols Map.empty keyParam.Type cols keyParam.Name
+        let keyCtx = PipelineStageParser.createContextWithScopeAndCols RowShape.Empty keyParam.Type cols keyParam.Name
 
         match tryExtractKeyScalars keyCtx keySelector with
         | None -> None
@@ -711,7 +708,7 @@ module internal GroupByPlanning =
                 |> List.fold (fun plan stage ->
                     match stage with
                     | LinqStage.Filter l ->
-                        let ctx = PipelineStageParser.createContextWithScopeAndCols Map.empty l.Parameters.[0].Type cols l.Parameters.[0].Name
+                        let ctx = PipelineStageParser.createContextWithScopeAndCols RowShape.Empty l.Parameters.[0].Type cols l.Parameters.[0].Name
                         match ExprTranslator.tryTranslateToScalar ctx l.Body with
                         | Some pred -> LogicalPlan.Filter(plan, pred)
                         | None -> plan
@@ -721,7 +718,7 @@ module internal GroupByPlanning =
                 innerStages
                 |> List.tryPick (function
                     | LinqStage.Sort(l, isDesc, _) ->
-                        let ctx = PipelineStageParser.createContextWithScopeAndCols Map.empty l.Parameters.[0].Type cols l.Parameters.[0].Name
+                        let ctx = PipelineStageParser.createContextWithScopeAndCols RowShape.Empty l.Parameters.[0].Type cols l.Parameters.[0].Name
                         ExprTranslator.tryTranslateToScalar ctx l.Body
                         |> Option.map (fun s -> s, isDesc)
                     | _ -> None)
@@ -804,7 +801,7 @@ module internal GroupByPlanning =
                 match resSelOpt with
                 | Some resSel when resSel.Parameters.Count >= 2 ->
                     let topParam = resSel.Parameters.[1]
-                    let baseCtx = PipelineStageParser.createContextWithScopeAndCols Map.empty topParam.Type cols topParam.Name
+                    let baseCtx = PipelineStageParser.createContextWithScopeAndCols RowShape.Empty topParam.Type cols topParam.Name
 
                     let translateArg (arg: Expression) : ScalarExpr option =
                         let cleanArg = ExpressionPatterns.unwrap arg

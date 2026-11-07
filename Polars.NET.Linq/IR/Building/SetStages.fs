@@ -14,7 +14,7 @@ open Polars.NET.Linq.IR.StageContext
 module internal SetStages =
 
     /// Intersect / Except (and their By forms).
-    let setOp (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (methodInfo: MethodInfo) (secondExpr: Expression) (key1Opt: LambdaExpression option) (key2Opt: LambdaExpression option) : CompiledLogicalQuery =
+    let setOp (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (methodInfo: MethodInfo) (secondExpr: Expression) (key1Opt: LambdaExpression option) (key2Opt: LambdaExpression option) : CompiledLogicalQuery =
         match env.ResolveSequence secondExpr with
         | Some rightPlan ->
             let how =
@@ -31,14 +31,14 @@ module internal SetStages =
                 | Some k1, Some k2 ->
                     let p1 = k1.Parameters.[0]
                     let p2 = k2.Parameters.[0]
-                    let ctx1 = PipelineStageParser.createContextWithScopeAndCols scopeMap p1.Type leftCols p1.Name
-                    let ctx2 = PipelineStageParser.createContextWithScopeAndCols Map.empty p2.Type rightCols p2.Name
+                    let ctx1 = PipelineStageParser.createContextWithScopeAndCols rowShape p1.Type leftCols p1.Name
+                    let ctx2 = PipelineStageParser.createContextWithScopeAndCols RowShape.Empty p2.Type rightCols p2.Name
                     match ExprTranslator.tryTranslateToScalar ctx1 k1.Body, ExprTranslator.tryTranslateToScalar ctx2 k2.Body with
                     | Some lk, Some rk -> Some([ lk ], [ rk ])
                     | _ -> None
                 | Some k1, None ->
                     let p1 = k1.Parameters.[0]
-                    let ctx1 = PipelineStageParser.createContextWithScopeAndCols scopeMap p1.Type leftCols p1.Name
+                    let ctx1 = PipelineStageParser.createContextWithScopeAndCols rowShape p1.Type leftCols p1.Name
                     match ExprTranslator.tryTranslateToScalar ctx1 k1.Body with
                     | Some lk when rightCols.Length > 0 ->
                         Some([ lk ], [ ScalarExpr.Column rightCols.[0] ])
@@ -64,16 +64,16 @@ module internal SetStages =
                 match dedupSubset leftOn with
                 | Some subset ->
                     let joined = LogicalPlan.Join(state.Plan, rightPlan, leftOn, rightOn, how, None, JoinKeyCoalescing.Default, true)
-                    continueWith { state with Plan = LogicalPlan.Distinct(joined, subset, DistinctKeep.First, true) } scopeMap tail
+                    continueWith { state with Plan = LogicalPlan.Distinct(joined, subset, DistinctKeep.First, true) } rowShape tail
                 | None ->
-                    continueWith (fallback state) scopeMap tail
+                    continueWith (fallback state) rowShape tail
             | None ->
-                continueWith (fallback state) scopeMap tail
+                continueWith (fallback state) rowShape tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail
 
     /// Union (and UnionBy).
-    let union (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (secondExpr: Expression) (keyLambdaOpt: LambdaExpression option) : CompiledLogicalQuery =
+    let union (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (secondExpr: Expression) (keyLambdaOpt: LambdaExpression option) : CompiledLogicalQuery =
         match env.ResolveSequence secondExpr with
         | Some otherPlan ->
             // UnionBy dedups by key; a key that is not plain columns is not translated (rather than
@@ -85,62 +85,62 @@ module internal SetStages =
             match subsetOpt with
             | Some subset ->
                 let unionPlan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true)
-                continueWith { state with Plan = LogicalPlan.Distinct(unionPlan, subset, DistinctKeep.First, true) } scopeMap tail
+                continueWith { state with Plan = LogicalPlan.Distinct(unionPlan, subset, DistinctKeep.First, true) } rowShape tail
             | None ->
-                continueWith (fallback state) scopeMap tail
+                continueWith (fallback state) rowShape tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail
 
     /// Concat.
-    let concat (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (secondExpr: Expression) : CompiledLogicalQuery =
+    let concat (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (secondExpr: Expression) : CompiledLogicalQuery =
         match env.ResolveSequence secondExpr with
         | Some otherPlan ->
-            continueWith { state with Plan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true) } scopeMap tail
+            continueWith { state with Plan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true) } rowShape tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail
 
     /// Append.
-    let append (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (elemExpr: Expression) : CompiledLogicalQuery =
+    let append (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (elemExpr: Expression) : CompiledLogicalQuery =
         match PartialEvaluator.tryEvaluate elemExpr with
         | Some elem when not (isNull elem) ->
             match SourceResolver.singleRowPlan env.Sources elem (elem.GetType()) with
             | Some otherPlan ->
-                continueWith { state with Plan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true) } scopeMap tail
+                continueWith { state with Plan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true) } rowShape tail
             | None ->
-                continueWith (fallback state) scopeMap tail
+                continueWith (fallback state) rowShape tail
         | _ ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail
 
     /// Prepend.
-    let prepend (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (elemExpr: Expression) : CompiledLogicalQuery =
+    let prepend (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (elemExpr: Expression) : CompiledLogicalQuery =
         match PartialEvaluator.tryEvaluate elemExpr with
         | Some elem when not (isNull elem) ->
             match SourceResolver.singleRowPlan env.Sources elem (elem.GetType()) with
             | Some otherPlan ->
-                continueWith { state with Plan = LogicalPlan.Union(otherPlan, state.Plan, isAll = true) } scopeMap tail
+                continueWith { state with Plan = LogicalPlan.Union(otherPlan, state.Plan, isAll = true) } rowShape tail
             | None ->
-                continueWith (fallback state) scopeMap tail
+                continueWith (fallback state) rowShape tail
         | _ ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail
 
     /// Zip of two sequences.
-    let zip (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (secondExpr: Expression) (resSelOpt: LambdaExpression option) : CompiledLogicalQuery =
+    let zip (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (secondExpr: Expression) (resSelOpt: LambdaExpression option) : CompiledLogicalQuery =
         match buildZipPlan env.ResolveSequence state.Plan secondExpr resSelOpt with
         | Some nextPlan ->
-            continueWith { state with Plan = nextPlan } Map.empty tail
+            continueWith { state with Plan = nextPlan } RowShape.Empty tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail
 
     /// Zip of three sequences.
-    let zip3 (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (secondExpr: Expression) (thirdExpr: Expression) : CompiledLogicalQuery =
+    let zip3 (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (secondExpr: Expression) (thirdExpr: Expression) : CompiledLogicalQuery =
         match buildZip3Plan env.ResolveSequence state.Plan secondExpr thirdExpr with
         | Some nextPlan ->
-            continueWith { state with Plan = nextPlan } Map.empty tail
+            continueWith { state with Plan = nextPlan } RowShape.Empty tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail
 
     /// Unpivot (a SelectMany over member values).
-    let unpivot (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (colLam: LambdaExpression) (resLambdaOpt: LambdaExpression option) : CompiledLogicalQuery =
+    let unpivot (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (colLam: LambdaExpression) (resLambdaOpt: LambdaExpression option) : CompiledLogicalQuery =
         let availableCols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
         match tryExtractUnpivotPattern colLam resLambdaOpt with
         | Some pattern ->
@@ -151,7 +151,7 @@ module internal SetStages =
                 else availableCols |> List.filter (fun c -> not (Array.contains c onCols))
 
             if indexCols.IsEmpty then
-                continueWith (fallback state) scopeMap tail
+                continueWith (fallback state) rowShape tail
             else
                 let unpivotPlan = LogicalPlan.Unpivot(state.Plan, indexCols, Some (Array.toList onCols), pattern.VariableName, pattern.ValueName)
                 let postUnpivotCols = indexCols @ [ pattern.VariableName; pattern.ValueName ]
@@ -160,36 +160,37 @@ module internal SetStages =
                     match resLambdaOpt with
                     | Some resSel when resSel.Parameters.Count >= 2 -> resSel.Parameters.[1].Name
                     | _ -> "q"
-                let updatedScopeMap =
-                    let outerMappings = indexCols |> List.map (fun c -> (leftScope, c), c)
+                let updatedRowShape =
+                    let outer, inner = RowScope.Named leftScope, RowScope.Named innerScope
+                    let outerMappings = indexCols |> List.map (fun c -> (outer, c), c)
                     let innerMappings =
                         [
-                            (innerScope, pattern.VariableName), pattern.VariableName
-                            (innerScope, pattern.ValueName), pattern.ValueName
-                            (innerScope, pattern.VarPropName), pattern.VariableName
-                            (innerScope, pattern.ValPropName), pattern.ValueName
-                            (innerScope, "Item1"), pattern.VariableName
-                            (innerScope, "Item2"), pattern.ValueName
+                            (inner, pattern.VariableName), pattern.VariableName
+                            (inner, pattern.ValueName), pattern.ValueName
+                            (inner, pattern.VarPropName), pattern.VariableName
+                            (inner, pattern.ValPropName), pattern.ValueName
+                            (inner, "Item1"), pattern.VariableName
+                            (inner, "Item2"), pattern.ValueName
                         ]
-                    scopeMap
-                    |> Map.fold (fun m k v -> Map.add k v m) (Map.ofList (outerMappings @ innerMappings))
+                    // The current shape's entries win over the unpivot's.
+                    RowShape.OfEntries(outerMappings @ innerMappings).Union rowShape
 
                 match resLambdaOpt with
                 | TransparentOrNoResSelector ->
-                    continueWith { state with Plan = unpivotPlan } updatedScopeMap tail
+                    continueWith { state with Plan = unpivotPlan } updatedRowShape tail
                 | ConcreteResSelector resSel ->
-                    let resCtx = TranslationContext.ScopedEntity([ leftScope; innerScope ], updatedScopeMap, postUnpivotCols)
+                    let resCtx = TranslationContext.ScopedEntity([ leftScope; innerScope ], updatedRowShape, postUnpivotCols)
                     match extractProjections resCtx unpivotPlan resSel.Body with
                     | Some projs ->
-                        continueWith { state with Plan = LogicalPlan.Project(unpivotPlan, projs) } Map.empty tail
+                        continueWith { state with Plan = LogicalPlan.Project(unpivotPlan, projs) } RowShape.Empty tail
                     | None ->
-                        continueWith (clientMap Map.empty resSel { state with Plan = unpivotPlan }) Map.empty tail
+                        continueWith (clientMap RowShape.Empty resSel { state with Plan = unpivotPlan }) RowShape.Empty tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail
 
     /// Explode (a SelectMany over a collection member).
-    let explode (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (scopeMap: ScopeMap) (tail: LinqStage list) (colLam: LambdaExpression) (resSelOpt: LambdaExpression option) : CompiledLogicalQuery =
-        let makeCtx = StageContext.makeCtx scopeMap
+    let explode (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (colLam: LambdaExpression) (resSelOpt: LambdaExpression option) : CompiledLogicalQuery =
+        let makeCtx = StageContext.makeCtx rowShape
         let p = colLam.Parameters.[0]
         let ctx = makeCtx p.Type p.Name state.Plan
         match ColumnResolver.tryResolveColumnNameWithContext ctx colLam.Body with
@@ -207,6 +208,6 @@ module internal SetStages =
                     else
                         explodePlan
                 | _ -> explodePlan
-            continueWith { state with Plan = finalPlan } scopeMap tail
+            continueWith { state with Plan = finalPlan } rowShape tail
         | None ->
-            continueWith (fallback state) scopeMap tail
+            continueWith (fallback state) rowShape tail

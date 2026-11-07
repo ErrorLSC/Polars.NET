@@ -25,6 +25,18 @@ module internal EnumResolution =
 
     let private enumType (mapping: EnumMapping) = LogicalType.Enum mapping.Categories
 
+    /// The value, failing the query on an undefined member with the message ingestion raises
+    /// (EnumCategories), rather than the engine's unmapped-value error.
+    let private requireDefined (mapping: EnumMapping) (value: ScalarExpr) : ScalarExpr =
+        ScalarExpr.Function(
+            ScalarFunction.RequireListed(
+                mapping.Values,
+                $"Value '{{}}' is not a defined member of enum {mapping.Name}; a Polars Enum column holds only defined members."
+            ),
+            [ value ],
+            mapping.Underlying
+        )
+
     /// The Enum holding the underlying value `value` (FromValue in its Enum form).
     let private enumOfValue (mapping: EnumMapping) (value: ScalarExpr) : ScalarExpr =
         match value with
@@ -35,7 +47,7 @@ module internal EnumResolution =
         | _ ->
             ScalarExpr.Function(
                 ScalarFunction.ReplaceStrict(mapping.Values, categoryLiterals mapping),
-                [ value ],
+                [ requireDefined mapping value ],
                 enumType mapping
             )
 
