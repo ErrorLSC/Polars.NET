@@ -443,7 +443,7 @@ type DataFrameTests() =
             for _ in df.Rows<StrictStudent>() do ()
         )
 
-        Assert.Contains("Record field 'Grade' does not accept Option", ex.Message)
+        Assert.Contains("Record field 'Grade' of type 'int' cannot hold the null", ex.Message)
 
     [<Fact>]
     [<Trait("DataFrame", "Enumerator")>]
@@ -728,7 +728,7 @@ type DataFrameTests() =
             df.ToRecords<StrictSeitou>() |> Seq.toArray |> ignore
         )
 
-        Assert.Contains("Record field 'Score' does not accept Option", ex.Message)
+        Assert.Contains("Record field 'Score' of type 'float' cannot hold the null", ex.Message)
 
     [<Fact>]
     [<Trait("DataFrame", "ToRecords")>]

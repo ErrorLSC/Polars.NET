@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>true</GenerateProgramFile>
+    <IsTestProject>true</IsTestProject>
+    <!-- Nullness checking is enabled here only: it makes compiling the large F# test project impractically slow. -->
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <RustProjectDir>..\native_shim</RustProjectDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="RecordNullnessTests.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Polars.FSharp\Polars.FSharp.fsproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <RustLibPath>$(RustProjectDir)\target\debug\libnative_shim.so</RustLibPath>
+    <RustLibName>libnative_shim.so</RustLibName>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <RustLibPath>$(RustProjectDir)\target\debug\native_shim.dll</RustLibPath>
+    <RustLibName>native_shim.dll</RustLibName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="$(RustLibPath)">
+      <Link>$(RustLibName)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+
+</Project>

@@ -95,6 +95,14 @@ for kv in schema do
     printfn "%s -> %O" kv.Key kv.Value
 ```
 
+A null reaches a record field only when the field's type accepts it: an option, a voption, or, with nullness
+checking enabled (`<Nullable>enable</Nullable>`), a reference type declared `| null`. Reading a null into a plain
+field (`Name: string`, `Id: int`) raises `InvalidOperationException` naming the field, the column and the row:
+
+```fsharp
+type Contact = { Id: int; Email: string | null }   // receives the null of a missing email
+```
+
 ---
 
 ## 4. Zero-Allocation Stack Enumeration & Higher-Order Combinators

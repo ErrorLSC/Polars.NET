@@ -136,9 +136,34 @@ internal static class ArrowRowMapperHelpers
     [MethodImpl(MethodImplOptions.NoInlining)]
     public static TField ThrowNullInNonOptionField<TField>(string fieldName, string colName, int rowIndex)
     {
+        string type = FSharpTypeName(typeof(TField));
+        string declare = typeof(TField).IsValueType
+            ? $"as '{type} option'"
+            : $"as '{type} option', or as '{type} | null' with nullness checking enabled,";
         throw new InvalidOperationException(
-            $"Record field '{fieldName}' does not accept Option, but column '{colName}' contains null at row {rowIndex}.");
+            $"Record field '{fieldName}' of type '{type}' cannot hold the null in column '{colName}' at row {rowIndex}. " +
+            $"Declare it {declare} to receive nulls, or fill the nulls before reading the rows.");
     }
+
+    /// <summary>The F# name of a type, for messages: the F# abbreviation of a primitive, otherwise its name.</summary>
+    private static string FSharpTypeName(Type t) => t switch
+    {
+        _ when t == typeof(string) => "string",
+        _ when t == typeof(int) => "int",
+        _ when t == typeof(long) => "int64",
+        _ when t == typeof(short) => "int16",
+        _ when t == typeof(sbyte) => "sbyte",
+        _ when t == typeof(byte) => "byte",
+        _ when t == typeof(uint) => "uint32",
+        _ when t == typeof(ulong) => "uint64",
+        _ when t == typeof(ushort) => "uint16",
+        _ when t == typeof(double) => "float",
+        _ when t == typeof(float) => "float32",
+        _ when t == typeof(decimal) => "decimal",
+        _ when t == typeof(bool) => "bool",
+        _ when t == typeof(char) => "char",
+        _ => t.Name,
+    };
 
     public static TMember ThrowNullInNonNullableMember<TMember>(string memberName, string colName, int rowIndex)
     {
@@ -281,6 +306,14 @@ public static class ArrowRowMapper<T>
 
     private static bool IsFSharpList(Type t)
         => t.IsGenericType && t.GetGenericTypeDefinition() == typeof(FSharpList<>);
+
+    /// <summary>
+    /// Whether a reference-type record field is declared as accepting null: <c>string | null</c> under F# nullness
+    /// checking (or a nullable reference annotation from C#). A field without annotations does not.
+    /// </summary>
+    private static bool IsDeclaredNullable(PropertyInfo field)
+        => !field.PropertyType.IsValueType
+           && new NullabilityInfoContext().Create(field).ReadState == NullabilityState.Nullable;
 
     private static bool IsFSharpAnonymousObject(Type t)
         => t.FullName != null &&
@@ -561,7 +594,8 @@ public static class ArrowRowMapper<T>
                                        IsFSharpValueOption(fType) ||
                                        Nullable.GetUnderlyingType(fType) != null ||
                                        IsFSharpList(fType) ||
-                                       fType.IsArray;
+                                       fType.IsArray ||
+                                       IsDeclaredNullable(f);
                     bool strictNullCheck = !acceptsNull;
                     string serializedName = PolarsTypeHelper.GetSerializedName(f);
 

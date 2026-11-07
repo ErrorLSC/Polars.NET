@@ -569,6 +569,11 @@ If such a null reaches a non-nullable member of your result type, materializatio
 `InvalidOperationException` naming the member and the column, so it never silently becomes `0` or `default`.
 Declare the member nullable (`int?`) to receive the null.
 
+F# record fields are strict for reference types too: a plain `string` field rejects a null (F# strings are not
+expected to be null), and the error says how to declare the field instead. A field receives nulls when it is an
+option (`string option`, `int option`) or, with nullness checking enabled (`<Nullable>enable</Nullable>`), a
+reference type declared `| null` (`string | null`).
+
 The LINQ operators that must fail do fail with the exceptions LINQ uses:
 
 * `First`, `Last`, `Single` and `ElementAt` over a subquery raise `InvalidOperationException` ("Sequence contains no
