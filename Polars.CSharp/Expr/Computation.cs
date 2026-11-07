@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using System.Diagnostics.CodeAnalysis;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
@@ -342,7 +343,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     public Expr SearchSorted(IntoExpr element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
         => new(PolarsWrapper.SearchSorted(CloneHandle(), element.Consume().Handle, side.ToNative(), descending));
     /// <inheritdoc cref="Expr.SearchSorted(IntoExpr, SearchSortedSide, bool)"/>
-    public Expr SearchSorted<T>(IEnumerable<T> element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
+    public Expr SearchSorted<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(IEnumerable<T> element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
     {
         Series temp = Pl.CreateSeries("temp",element);
         return SearchSorted(temp,side,descending);

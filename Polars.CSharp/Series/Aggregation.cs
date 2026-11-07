@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
 
@@ -6,20 +7,20 @@ namespace Polars.CSharp;
 public partial class Series : IDisposable
 {
 
-    internal T? ExtractObject<T>(Expr expr) where T : class
+    internal T? ExtractObject<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Expr expr) where T : class
     {
         using var tempSeries = ApplyExpr(expr);
         return ExtractObjectFromSeries<T>(tempSeries);
     }
 
 
-    internal T? ExtractObject<T>(Func<Series> seriesProvider) where T : class
+    internal T? ExtractObject<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Func<Series> seriesProvider) where T : class
     {
         using var tempSeries = seriesProvider();
         return ExtractObjectFromSeries<T>(tempSeries);
     }
 
-    private T? ExtractObjectFromSeries<T>(Series tempSeries) where T : class
+    private T? ExtractObjectFromSeries<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Series tempSeries) where T : class
     {
         if (tempSeries is null || tempSeries.Len() == 0)
         {
@@ -32,19 +33,19 @@ public partial class Series : IDisposable
 
         return tempSeries.GetValue<T>(0);
     }
-    internal T? ExtractScalar<T>(Expr expr) where T : struct
+    internal T? ExtractScalar<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Expr expr) where T : struct
     {
         using var tempSeries = ApplyExpr(expr);
         return ExtractScalarFromSeries<T>(tempSeries);
     }
 
-    internal T? ExtractScalar<T>(Func<Series> seriesProvider) where T : struct
+    internal T? ExtractScalar<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Func<Series> seriesProvider) where T : struct
     {
         using var tempSeries = seriesProvider();
         return ExtractScalarFromSeries<T>(tempSeries);
     }
 
-    private T? ExtractScalarFromSeries<T>(Series tempSeries) where T : struct
+    private T? ExtractScalarFromSeries<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Series tempSeries) where T : struct
     {
         if (tempSeries is null || tempSeries.Len() == 0)
         {
@@ -67,7 +68,7 @@ public partial class Series : IDisposable
     /// <summary>
     /// First series into scalar
     /// </summary>
-    public T? First<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).First());
+    public T? First<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).First());
     /// <summary>
     /// <inheritdoc cref="Expr.Last" path="/summary"/>
     /// </summary>
@@ -77,7 +78,7 @@ public partial class Series : IDisposable
     /// Last series into scalar
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public T? Last<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Last());
+    public T? Last<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Last());
     /// <summary>
     /// Sum series into 1 length series(Scalar)
     /// </summary>
@@ -86,7 +87,7 @@ public partial class Series : IDisposable
     /// Sum series into scalar
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public T? Sum<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Sum());
+    public T? Sum<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Sum());
     /// <summary>
     /// Mean series into 1 length series(Scalar)
     /// </summary>
@@ -95,7 +96,7 @@ public partial class Series : IDisposable
     /// Mean series into scalar
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public T? Mean<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Mean());
+    public T? Mean<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Mean());
     /// <summary>
     /// Min series into 1 length series(Scalar)
     /// </summary>
@@ -104,7 +105,7 @@ public partial class Series : IDisposable
     /// Min series into scalar
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public T? Min<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Min());
+    public T? Min<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Min());
     /// <summary>
     /// Max series into 1 length series(Scalar)
     /// </summary>
@@ -113,11 +114,11 @@ public partial class Series : IDisposable
     /// Max series into scalar
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public T? Max<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Max());
+    public T? Max<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Max());
     /// <inheritdoc cref="Expr.NanMax"/>
-    public T? NanMax<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).NanMax());
+    public T? NanMax<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).NanMax());
     /// <inheritdoc cref="Expr.NanMin"/>
-    public T? NanMin<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).NanMin());
+    public T? NanMin<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).NanMin());
     /// <inheritdoc cref="Expr.NanMax"/>
     public string? NanMaxString() => ExtractObject<string>(Pl.Col(Name).NanMax());
     /// <inheritdoc cref="Expr.NanMin"/>
@@ -131,7 +132,7 @@ public partial class Series : IDisposable
     /// Get the maximum value in this Series, ordered by an expression.
     /// </summary>
     /// <param name="by">Column used to determine the largest element. Accepts expression input.</param>
-    public T? MaxBy<T>(IntoExprColumn by) where T : struct => ExtractScalar<T>(() => ApplyBinaryExpr(by, (left, right) => left.MaxBy(right)));
+    public T? MaxBy<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IntoExprColumn by) where T : struct => ExtractScalar<T>(() => ApplyBinaryExpr(by, (left, right) => left.MaxBy(right)));
     /// <summary>
     /// Get the minimum value in this Series, ordered by an expression.
     /// </summary>
@@ -141,7 +142,7 @@ public partial class Series : IDisposable
     /// Get the minimum value in this Series, ordered by an expression.
     /// </summary>
     /// <param name="by">Column used to determine the smallest element. Accepts expression input.</param>
-    public T? MinBy<T>(IntoExprColumn by) where T : struct => ExtractScalar<T>(() => ApplyBinaryExpr(by, (left, right) => left.MinBy(right)));
+    public T? MinBy<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IntoExprColumn by) where T : struct => ExtractScalar<T>(() => ApplyBinaryExpr(by, (left, right) => left.MinBy(right)));
     /// <summary>
     /// Product series into 1 length series(Scalar)
     /// </summary>
@@ -150,7 +151,7 @@ public partial class Series : IDisposable
     /// Product series into scalar
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public T? Product<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Product());
+    public T? Product<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Product());
     /// <summary>
     /// Get the index of the maximum value.
     /// Returns null if the Series is empty or contains only null values.
@@ -176,16 +177,16 @@ public partial class Series : IDisposable
     /// Get the standard deviation of this Series.
     /// </summary>
     /// <param name="ddof">Delta Degrees of Freedom. The divisor used in calculations is N - ddof.</param>
-    public T? Std<T>(byte ddof = 1) where T : struct => ExtractScalar<T>(Pl.Col(Name).Std(ddof));
+    public T? Std<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(byte ddof = 1) where T : struct => ExtractScalar<T>(Pl.Col(Name).Std(ddof));
     /// <summary>
     /// Get the variance of this Series.
     /// </summary>
     /// <param name="ddof">Delta Degrees of Freedom. The divisor used in calculations is N - ddof.</param>
-    public T? Var<T>(byte ddof = 1) where T : struct => ExtractScalar<T>(Pl.Col(Name).Var(ddof));
+    public T? Var<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(byte ddof = 1) where T : struct => ExtractScalar<T>(Pl.Col(Name).Var(ddof));
     /// <summary>
     /// <inheritdoc cref="Expr.Median()" path="/summary"/>
     /// </summary>
-    public T? Median<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Median());
+    public T? Median<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Median());
     /// <summary>
     /// Aggregate values into a list.
     /// Result is a Series with 1 row containing a List of all values.
@@ -200,15 +201,15 @@ public partial class Series : IDisposable
     /// <summary>
     /// Perform an aggregation of bitwise ANDs across all elements.
     /// </summary>
-    public T? BitwiseAnd<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).BitwiseAnd());
+    public T? BitwiseAnd<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).BitwiseAnd());
 
     /// <summary>
     /// Perform an aggregation of bitwise ORs across all elements.
     /// </summary>
-    public T? BitwiseOr<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).BitwiseOr());
+    public T? BitwiseOr<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).BitwiseOr());
 
     /// <summary>
     /// Perform an aggregation of bitwise XORs across all elements.
     /// </summary>
-    public T? BitwiseXor<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).BitwiseXor());
+    public T? BitwiseXor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).BitwiseXor());
 }

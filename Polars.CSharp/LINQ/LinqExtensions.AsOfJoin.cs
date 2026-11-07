@@ -1,5 +1,4 @@
 using System.Linq.Expressions;
-using System.Reflection;
 
 namespace Polars.CSharp.Linq;
 
@@ -33,7 +32,7 @@ public static partial class LinqExtensions
         return outer.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TOuter), typeof(TInner), typeof(TKey), typeof(TResult)),
+                new Func<IQueryable<TOuter>, IEnumerable<TInner>, Expression<Func<TOuter, TKey>>, Expression<Func<TInner, TKey>>, Expression<Func<TOuter, TInner, TResult>>, AsOfTolerance?, AsofStrategy, IQueryable<TResult>>(JoinAsOf<TOuter, TInner, TKey, TResult>).Method,
                 outer.Expression,
                 GetSourceExpression(inner),
                 Expression.Quote(outerKeySelector),
@@ -70,7 +69,7 @@ public static partial class LinqExtensions
         return outer.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TOuter), typeof(TInner), typeof(TKey), typeof(TBy), typeof(TResult)),
+                new Func<IQueryable<TOuter>, IEnumerable<TInner>, Expression<Func<TOuter, TKey>>, Expression<Func<TInner, TKey>>, Expression<Func<TOuter, TBy>>, Expression<Func<TInner, TBy>>, Expression<Func<TOuter, TInner, TResult>>, AsOfTolerance?, AsofStrategy, IQueryable<TResult>>(JoinAsOf<TOuter, TInner, TKey, TBy, TResult>).Method,
                 outer.Expression,
                 GetSourceExpression(inner),
                 Expression.Quote(outerKeySelector),

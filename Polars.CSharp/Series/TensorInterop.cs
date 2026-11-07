@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics.Tensors;
 using Polars.NET.Core.TensorInterop;
 
@@ -149,7 +150,7 @@ public partial class Series : IDisposable
     /// For memory safety against non-contiguous tensor views (like transpositions), 
     /// this method performs a memory materialization (Flatten) before mapping to Arrow's C Data Interface. 
     /// </remarks>
-    public static Series FromTensor<T>(string name, ReadOnlyTensorSpan<T> tensor) where T : unmanaged
+    public static Series FromTensor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string name, ReadOnlyTensorSpan<T> tensor) where T : unmanaged
     {
         var handle = ArrowTensorInterop.ImportTensor(name, tensor);
         return new Series(handle);

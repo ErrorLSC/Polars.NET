@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Data;
 using System.Data.Common;
 using System.Linq.Expressions;
@@ -1026,7 +1027,7 @@ internal sealed class ComplexTypeColumnBuilder(int capacity) : ColumnBuilder
         }
     }
 
-    private static Func<List<object?>, IArrowArray> CreateFastBuildDelegate(Type elementType)
+    private static Func<List<object?>, IArrowArray> CreateFastBuildDelegate([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] Type elementType)
     {
         var castMethod = typeof(Enumerable)
             .GetMethod(nameof(Enumerable.Cast), BindingFlags.Public | BindingFlags.Static)!

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Data.Common;
 using System.Runtime.CompilerServices;
 using Polars.NET.Core.Arrow;
@@ -45,7 +46,7 @@ public static partial class DatabaseExtensions
     /// <summary>
     /// Streams strongly typed rows asynchronously from DbDataReader.
     /// </summary>
-    public static async IAsyncEnumerable<T> ToAsyncEnumerable<T>(
+    public static async IAsyncEnumerable<T> ToAsyncEnumerable<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
         this DbDataReader reader,
         int batchSize = 50_000,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)

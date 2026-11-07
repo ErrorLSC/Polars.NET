@@ -58,14 +58,14 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// */
     /// </code>
     /// </example>
-    public static DataFrame From<T>(IEnumerable<T> data)
+    public static DataFrame From<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IEnumerable<T> data)
     {
         if (data == null) return [];
         var handle = DataFrameBuilder.FromRows(data);
         return new(handle);
     }
     /// <inheritdoc cref="From"/>
-    public static DataFrame FromRows<T>(IEnumerable<T> data)
+    public static DataFrame FromRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IEnumerable<T> data)
         => From(data);
 
     /// <summary>
@@ -78,7 +78,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     ///     Val = new[] { 1.0, 2.0 }
     /// });
     /// </example>
-    public static DataFrame FromColumns<T>(T columns) where T : class
+    public static DataFrame FromColumns<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(T columns) where T : class
     {
         ArgumentNullException.ThrowIfNull(columns);
         var handle = DataFrameBuilder.FromColumns(columns);
@@ -211,7 +211,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// <summary>
     /// Stream C# objects into Polars by Arrow Interface
     /// </summary>
-    public static DataFrame FromEnumerable<T>(IEnumerable<T> data, int batchSize = 100_000, Apache.Arrow.Schema? providedSchema = null)
+    public static DataFrame FromEnumerable<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IEnumerable<T> data, int batchSize = 100_000, Apache.Arrow.Schema? providedSchema = null)
     {
         var schema = providedSchema ?? ArrowConverter.GetSchemaFromType<T>();
         var stream = data.ToArrowBatches(batchSize);

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Data.Common;
 using System.Numerics.Tensors;
 using System.Runtime.CompilerServices;
@@ -19,7 +20,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// Ideal for LINQ composition, interface boundaries, and streaming scenarios.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public PolarsRowEnumerable<T> AsEnumerable<T>()
+    public PolarsRowEnumerable<T> AsEnumerable<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>()
         => new(this);
     /// <summary>
     /// Convert a DataFrame to a Series of type Struct.

@@ -10,6 +10,7 @@ open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Helpers
 open System.Runtime.CompilerServices
+open System.Diagnostics.CodeAnalysis
 open System.Threading
 open System.Threading.Tasks
 open Polars.NET.Linq.IR
@@ -132,9 +133,11 @@ and PolarsQuery<'T>
                         Some((provider :> IQueryProvider).CreateQuery inner)
                     | _ -> None)
 
+    [<RequiresDynamicCode(AotMessages.LinqProvider); RequiresUnreferencedCode(AotMessages.LinqProvider)>]
     new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer, language: QueryLanguage, expression: Expression) =
         PolarsQuery<'T>(PolarsQueryProvider(lazyFrameHandle, materializer, language), Some expression)
 
+    [<RequiresDynamicCode(AotMessages.LinqProvider); RequiresUnreferencedCode(AotMessages.LinqProvider)>]
     new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer, language: QueryLanguage) =
         PolarsQuery<'T>(PolarsQueryProvider(lazyFrameHandle, materializer, language), None)
 

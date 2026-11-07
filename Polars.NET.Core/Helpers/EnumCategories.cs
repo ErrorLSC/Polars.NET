@@ -125,7 +125,9 @@ public static class EnumCategories
             bool unsigned = underlying == typeof(byte) || underlying == typeof(ushort)
                 || underlying == typeof(uint) || underlying == typeof(ulong) || underlying == typeof(char);
 
-            object[] values = [.. Enum.GetValues(t).Cast<object>().Distinct()];
+            // Underlying integers (Native AOT safe, unlike Enum.GetValues(Type)); boxed enum values are
+            // rebuilt with Enum.ToObject below for the name/index lookups keyed by enum value.
+            object[] values = [.. Enum.GetValuesAsUnderlyingType(t).Cast<object>().Distinct()];
 
             if (unsigned)
             {
@@ -143,10 +145,11 @@ public static class EnumCategories
 
             for (int i = 0; i < values.Length; i++)
             {
-                categories[i] = Enum.GetName(t, values[i])!;
-                names[values[i]] = categories[i];
-                indexes[values[i]] = i;
-                underlyingValues[i] = Convert.ChangeType(values[i], underlying);
+                object enumValue = Enum.ToObject(t, values[i]);
+                categories[i] = Enum.GetName(t, enumValue)!;
+                names[enumValue] = categories[i];
+                indexes[enumValue] = i;
+                underlyingValues[i] = values[i];
             }
 
             bool isFlags = t.IsDefined(typeof(FlagsAttribute), inherit: false);

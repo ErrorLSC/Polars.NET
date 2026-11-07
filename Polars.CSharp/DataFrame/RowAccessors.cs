@@ -1,11 +1,12 @@
 #pragma warning disable CS1591
+using System.Diagnostics.CodeAnalysis;
 using System.Collections;
 using System.Runtime.CompilerServices;
 using Polars.NET.Core.Data;
 
 namespace Polars.CSharp;
 
-internal static class RowMapper<T>
+internal static class RowMapper<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ArrowBatchCursor<T> CreateCursor(DataFrame df)
@@ -23,7 +24,7 @@ internal static class RowMapper<T>
 /// Stack-only, zero-allocation enumerator for DataFrame row hydration.
 /// Eliminates state-machine allocations and maximizes hot-path throughput.
 /// </summary>
-public ref struct DataFrameRowEnumerator<T>
+public ref struct DataFrameRowEnumerator<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
 {
     private readonly ArrowBatchCursor<T> _cursor;
     private long _index;
@@ -260,7 +261,7 @@ public ref struct DataFrameRowEnumerator<T>
 /// Defers row hydration to iteration time and avoids full eager array allocations.
 /// Implements IReadOnlyCollection for O(1) Count inspection.
 /// </summary>
-public sealed class PolarsRowEnumerable<T> : IReadOnlyCollection<T>, ICollection<T>
+public sealed class PolarsRowEnumerable<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T> : IReadOnlyCollection<T>, ICollection<T>
 {
     private readonly DataFrame _df;
 
@@ -348,7 +349,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// <typeparam name="T">The target DTO type with a parameterless constructor.</typeparam>
     /// <returns>An IEnumerable of hydrated objects.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public DataFrameRowEnumerator<T> Rows<T>()
+    public DataFrameRowEnumerator<T> Rows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>()
         => new(this);
 
     /// <summary>

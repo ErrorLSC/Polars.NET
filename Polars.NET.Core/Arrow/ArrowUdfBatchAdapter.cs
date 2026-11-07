@@ -1,5 +1,6 @@
 namespace Polars.NET.Core.Arrow;
 
+using System.Diagnostics.CodeAnalysis;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -50,7 +51,7 @@ public static class ArrowUdfBatchAdapter
     /// <summary>
     /// Gets a native Polars DataTypeHandle for a .NET type.
     /// </summary>
-    public static DataTypeHandle GetDataTypeHandle(Type type)
+    public static DataTypeHandle GetDataTypeHandle([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type)
     {
         // An enum is the Enum of its members, or the underlying integer of a [Flags] enum.
         var core = PolarsTypeHelper.UnwrapCoreType(type);
@@ -74,7 +75,9 @@ public static class ArrowUdfBatchAdapter
     /// </summary>
     public static Func<IArrowArray, IArrowArray> CreateSingle(
         Func<object?, object?> userFunc,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
         Type inputType,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
         Type outputType)
     {
         bool isValueType = inputType.IsValueType && Nullable.GetUnderlyingType(inputType) == null;
@@ -109,6 +112,7 @@ public static class ArrowUdfBatchAdapter
     public static Func<IReadOnlyList<IArrowArray>, IArrowArray> CreateMulti(
         Func<object?[], object?> userFunc,
         Type[] inputTypes,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
         Type outputType)
     {
         int colCount = inputTypes.Length;
@@ -163,9 +167,9 @@ public static class ArrowUdfBatchAdapter
 
     private static readonly ConcurrentDictionary<Type, Func<IArrowArray, System.Array>> s_readColumnDelegates = new();
 
-    private static Func<IArrowArray, System.Array> GetArrayReader(Type elementType)
+    private static Func<IArrowArray, System.Array> GetArrayReader([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type elementType)
     {
-        return s_readColumnDelegates.GetOrAdd(elementType, static type =>
+        return s_readColumnDelegates.GetOrAdd(elementType, static ([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type) =>
         {
             var method = typeof(ArrowReader)
                 .GetMethod(nameof(ArrowReader.ReadColumn), BindingFlags.Public | BindingFlags.Static)!
@@ -180,7 +184,7 @@ public static class ArrowUdfBatchAdapter
     /// <summary>
     /// Converts an Arrow array to an instance of the target sequence type (e.g. T[], List&lt;T&gt;, IEnumerable&lt;T&gt;, etc.).
     /// </summary>
-    public static object? ConvertArrowToArgument(IArrowArray array, Type targetType)
+    public static object? ConvertArrowToArgument(IArrowArray array, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] Type targetType)
     {
         if (targetType == typeof(IArrowArray) || typeof(IArrowArray).IsAssignableFrom(targetType))
         {
@@ -233,7 +237,9 @@ public static class ArrowUdfBatchAdapter
     /// </summary>
     public static Func<IArrowArray, IArrowArray> CreateGroupAggregationSingle(
         Func<object?, object?> userFunc,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)]
         Type inputArgType,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
         Type outputType)
     {
         return inputArray =>
@@ -257,6 +263,7 @@ public static class ArrowUdfBatchAdapter
     public static Func<IReadOnlyList<IArrowArray>, IArrowArray> CreateGroupAggregationMulti(
         Func<object?[], object?> userFunc,
         Type[] inputArgTypes,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
         Type outputType)
     {
         int colCount = inputArgTypes.Length;

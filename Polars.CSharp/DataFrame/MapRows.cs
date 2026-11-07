@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Polars.NET.Core.Helpers;
 
 namespace Polars.CSharp;
@@ -17,7 +18,7 @@ public partial class DataFrame
     /// <returns>A new DataFrame materialized from the mapped output records.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="mapFunc"/> is null.</exception>
     /// <exception cref="OverflowException">Thrown when DataFrame height exceeds <see cref="int.MaxValue"/>.</exception>
-    public DataFrame MapRows<TIn, TOut>(Func<TIn, TOut> mapFunc)
+    public DataFrame MapRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TIn, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TOut>(Func<TIn, TOut> mapFunc)
     {
         ArgumentNullException.ThrowIfNull(mapFunc);
 
@@ -73,7 +74,7 @@ public partial class DataFrame
     /// </summary>
     /// <typeparam name="T">The target model or record type matching the DataFrame schema.</typeparam>
     /// <param name="action">The action to execute for each row.</param>
-    public void IterRows<T>(Action<T> action)
+    public void IterRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Action<T> action)
     {
         ArgumentNullException.ThrowIfNull(action);
 

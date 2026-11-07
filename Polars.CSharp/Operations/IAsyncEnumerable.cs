@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Polars.NET.Core.Enums;
 using System.Threading.Channels;
@@ -22,7 +23,7 @@ public static class AsyncExtensions
     /// <param name="chunkSize">Number of rows hydrated synchronously per cooperative slice.</param>
     /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
     /// <returns>An asynchronous stream of hydrated row objects.</returns>
-    public static async IAsyncEnumerable<T> ToAsyncEnumerable<T>(
+    public static async IAsyncEnumerable<T> ToAsyncEnumerable<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
         this DataFrame df,
         int chunkSize = 10_000,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -73,7 +74,7 @@ public static class AsyncExtensions
     /// <param name="stream">The source Arrow stream.</param>
     /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
     /// <returns>An asynchronous stream of hydrated row objects.</returns>
-    public static async IAsyncEnumerable<T> ToAsyncEnumerable<T>(
+    public static async IAsyncEnumerable<T> ToAsyncEnumerable<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
         this IArrowArrayStream stream,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -113,7 +114,7 @@ public static class AsyncExtensions
     /// <param name="maintainOrder">Whether to enforce deterministic row ordering across batches.</param>
     /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
     /// <returns>An asynchronous stream of hydrated row objects.</returns>
-    public static async IAsyncEnumerable<T> ToAsyncEnumerable<T>(
+    public static async IAsyncEnumerable<T> ToAsyncEnumerable<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
         this LazyFrame lazyDf,
         long chunkSize = 0,
         Engine engine = Engine.Auto,
@@ -202,7 +203,7 @@ public static class AsyncExtensions
     /// <param name="maintainOrder">Whether to enforce deterministic row ordering across batches.</param>
     /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
     /// <returns>An asynchronous stream of hydrated row objects with backpressure.</returns>
-    public static async IAsyncEnumerable<T> ToAsyncEnumerableWithBackpressure<T>(
+    public static async IAsyncEnumerable<T> ToAsyncEnumerableWithBackpressure<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
         this LazyFrame lazyDf,
         int boundedCapacity = 20_000,
         long chunkSize = 0,

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Enums;
@@ -12,7 +13,7 @@ public partial class Series : IDisposable
     /// <summary>
     /// Get an item at the specified index.
     /// </summary>
-    public T? GetValue<T>(long index, bool uncheck = false)
+    public T? GetValue<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(long index, bool uncheck = false)
     {
         if (!uncheck)
         {
@@ -290,10 +291,7 @@ public partial class Series : IDisposable
 
             using var idxSeries = Series.From("idx", [(uint)index]);
 
-            var valArray = System.Array.CreateInstance(value.GetType(), 1);
-            valArray.SetValue(value, 0);
-
-            using var valSeries = Series.From("val", (dynamic)valArray);
+            using var valSeries = SingleValueSeries("val", value);
 
             var newHandle = PolarsWrapper.SeriesSetWithIndex(Handle, idxSeries.Handle, valSeries.Handle);
             ReplaceInnerHandle(newHandle);
@@ -302,6 +300,46 @@ public partial class Series : IDisposable
     /// <summary>
     /// e.g. s[s > 5] = 10;
     /// </summary>
+    /// <summary>
+    /// A one-element Series holding <paramref name="value"/>, typed by its runtime type.
+    /// Common scalars dispatch statically to <see cref="From{T}(string, T[])"/> (Native AOT safe);
+    /// other types fall back to runtime element-type dispatch (reflection).
+    /// </summary>
+    private static Series SingleValueSeries(string name, object value) => value switch
+    {
+        bool v => From(name, [v]),
+        sbyte v => From(name, [v]),
+        byte v => From(name, [v]),
+        short v => From(name, [v]),
+        ushort v => From(name, [v]),
+        int v => From(name, [v]),
+        uint v => From(name, [v]),
+        long v => From(name, [v]),
+        ulong v => From(name, [v]),
+        Int128 v => From(name, [v]),
+        UInt128 v => From(name, [v]),
+        Half v => From(name, [v]),
+        float v => From(name, [v]),
+        double v => From(name, [v]),
+        decimal v => From(name, [v]),
+        string v => From(name, [v]),
+        DateTime v => From(name, [v]),
+        DateTimeOffset v => From(name, [v]),
+        DateOnly v => From(name, [v]),
+        TimeOnly v => From(name, [v]),
+        TimeSpan v => From(name, [v]),
+        Guid v => From(name, [v]),
+        byte[] v => From(name, [v]),
+        _ => SingleValueSeriesViaReflection(name, value),
+    };
+
+    private static Series SingleValueSeriesViaReflection(string name, object value)
+    {
+        var valArray = System.Array.CreateInstance(value.GetType(), 1);
+        valArray.SetValue(value, 0);
+        return new Series(SeriesFactory.CreateFromBoxedEnumerable(name, valArray));
+    }
+
     public object? this[Series key]
     {
         get
@@ -314,10 +352,9 @@ public partial class Series : IDisposable
         set
         {
             ArgumentNullException.ThrowIfNull(key);
+            ArgumentNullException.ThrowIfNull(value);
 
-            var valArray = System.Array.CreateInstance(value!.GetType(), 1);
-            valArray.SetValue(value, 0);
-            using var valSeries = Series.From("val", (dynamic)valArray);
+            using var valSeries = SingleValueSeries("val", value);
 
             if (key.DataType == DataType.Boolean)
             {

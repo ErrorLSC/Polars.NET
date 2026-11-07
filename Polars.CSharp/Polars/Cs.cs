@@ -1,4 +1,5 @@
 #pragma warning disable 1591
+using System.Diagnostics.CodeAnalysis;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Enums;
@@ -42,7 +43,7 @@ public readonly partial struct Polars
         /// <summary>
         /// Select columns by specific DataType.
         /// </summary>
-        public static Selector ByDtype(Type type)
+        public static Selector ByDtype([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type)
         {
             var arrowType = ArrowTypeResolver.GetArrowTypeFromNetType(type);
             var plType = DataType.FromArrowType(arrowType);
@@ -53,7 +54,7 @@ public readonly partial struct Polars
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <returns></returns>
-        public static Selector ByDtype<T>()
+        public static Selector ByDtype<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>()
             => ByDtype(typeof(T));
         /// <summary>
         /// Select all columns EXCEPT the specified Selectors.

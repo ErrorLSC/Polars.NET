@@ -4,8 +4,8 @@ namespace Polars.NET.Core.Helpers;
 
 internal static class JsonNormalizeHelper
 {
-    internal static readonly Func<object?, string> DefaultEncoder =
-        obj => JsonSerializer.Serialize(obj);
+    // The default encoder is JsonValueEncoder.Encode (applied by the public JsonNormalize entry points,
+    // which carry its trimming/AOT annotations).
 
     private static void NormalizeJson(
         IDictionary<string, object?> data,

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using Microsoft.FSharp.Core;
 using Polars.NET.Core;
@@ -11,7 +12,7 @@ namespace Polars.CSharp.Linq;
 public static partial class LinqExtensions
 {
     /// <inheritdoc cref="System.Linq.Enumerable.ToLookup{TSource, TKey}(IEnumerable{TSource}, Func{TSource, TKey}, IEqualityComparer{TKey})"/>
-    public static PolarsLookup<TKey, TSource> ToLookup<TSource, TKey>(
+    public static PolarsLookup<TKey, TSource> ToLookup<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TKey>(
         this IQueryable<TSource> source,
         Expression<Func<TSource, TKey>> keySelector,
         IEqualityComparer<TKey>? comparer = null)
@@ -28,7 +29,7 @@ public static partial class LinqExtensions
     /// <param name="elementSelector">The function to extract the element from each element.</param>
     /// <param name="comparer">The equality comparer to use for the keys.</param>
     /// <returns>The resulting PolarsLookup.</returns>
-    public static PolarsLookup<TKey, TElement> ToLookup<TSource, TKey, TElement>(
+    public static PolarsLookup<TKey, TElement> ToLookup<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TKey, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TElement>(
         this IQueryable<TSource> source,
         Expression<Func<TSource, TKey>> keySelector,
         Expression<Func<TSource, TElement>> elementSelector,
@@ -173,7 +174,7 @@ public static partial class LinqExtensions
     /// <summary>
     /// A composite key (anonymous type, tuple, member initializer) all of whose members are null.
     /// </summary>
-    private static TKey AllNullCompositeKey<TKey>(int memberCount)
+    private static TKey AllNullCompositeKey<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TKey>(int memberCount)
     {
         var type = typeof(TKey);
         var ctor = type.GetConstructors().FirstOrDefault(c => c.GetParameters().Length == memberCount);

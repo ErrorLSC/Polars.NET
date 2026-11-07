@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 namespace Polars.CSharp;
 
@@ -20,7 +21,7 @@ public readonly partial struct Polars
     /// Example: Pl.DataFrame(studentList)
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static DataFrame CreateDataFrame<T>(IEnumerable<T> data)
+    public static DataFrame CreateDataFrame<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IEnumerable<T> data)
         => CSharp.DataFrame.FromRows(data);
 
     /// <summary>
@@ -44,7 +45,7 @@ public readonly partial struct Polars
     /// Example: Pl.Series("Name", list)
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Series CreateSeries<T>(string name, IEnumerable<T> data)
+    public static Series CreateSeries<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(string name, IEnumerable<T> data)
         => CSharp.Series.From(name, data);
 
     /// <summary>

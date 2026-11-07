@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Collections;
 using System.Data;
 using System.Data.Common;
@@ -299,6 +300,7 @@ public sealed class ArrowToDbStream : DbDataReader
         }
         return idx;
     }
+    [return: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type GetFieldType(int ordinal)
     {
         EnsureSchema();

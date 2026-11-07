@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
 namespace Polars.CSharp;
@@ -5,7 +6,7 @@ namespace Polars.CSharp;
 /// <summary>
 /// Enumerator for <see cref="Series"/>.
 /// </summary>
-public ref struct SeriesEnumerator<T>
+public ref struct SeriesEnumerator<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
 {
     private readonly Series _series;
     private readonly long _length;
@@ -215,5 +216,5 @@ public partial class Series : IDisposable
     /// Usage: foreach (int val in series.As{int}()) { ... }
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public SeriesEnumerator<T> As<T>() => new(this);
+    public SeriesEnumerator<T> As<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() => new(this);
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using Microsoft.FSharp.Core;
 using Polars.CSharp.Linq;
@@ -262,7 +263,7 @@ public class MergeNotMatchedBySourceAction<TTarget>
 /// </summary>
 /// <typeparam name="TTarget">Type representing target entities/rows.</typeparam>
 /// <typeparam name="TSource">Type representing incoming source delta entities/rows.</typeparam>
-public class TypedMergeBuilder<TTarget, TSource> : MergeBuilderBase<TypedMergeBuilder<TTarget, TSource>>
+public class TypedMergeBuilder<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TTarget, TSource> : MergeBuilderBase<TypedMergeBuilder<TTarget, TSource>>
 {
     internal TypedMergeBuilder(LazyFrame target, LazyFrame source, string[] on)
         : base(target, source, on)
@@ -436,6 +437,8 @@ public class TypedMergeBuilder<TTarget, TSource> : MergeBuilderBase<TypedMergeBu
     /// <summary>
     /// Compiles the merge plan into an IQueryable pipeline for further native LINQ queries.
     /// </summary>
+    [RequiresDynamicCode(AotMessages.LinqProvider)]
+    [RequiresUnreferencedCode(AotMessages.LinqProvider)]
     public IQueryable<TTarget> AsQueryable()
     {
         var lf = ToLazyFrame();
@@ -451,7 +454,7 @@ public static class TypedMergeExtensions
     /// <summary>
     /// Uniformly extracts a LazyFrame from an IQueryable, converting in-memory sequences when necessary.
     /// </summary>
-    private static LazyFrame ResolveLazyFrame<T>(IEnumerable<T> sequence)
+    private static LazyFrame ResolveLazyFrame<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IEnumerable<T> sequence)
     {
         // Branch 1: Native Polars-backed queryable
         if (sequence is IPolarsPlanSource planSource)
@@ -475,6 +478,8 @@ public static class TypedMergeExtensions
     /// Initiates a strongly-typed Merge builder between two queries.
     /// Supports both native Polars queries and in-memory collections.
     /// </summary>
+    [RequiresDynamicCode(AotMessages.LinqProvider)]
+    [RequiresUnreferencedCode(AotMessages.LinqProvider)]
     public static TypedMergeBuilder<TTarget, TSource> Merge<TTarget, TSource, TKey>(
         this IEnumerable<TTarget> target,
         IEnumerable<TSource> source,
@@ -491,6 +496,8 @@ public static class TypedMergeExtensions
     /// <summary>
     /// Overload when target is queryable but source is directly a DataFrame/LazyFrame.
     /// </summary>
+    [RequiresDynamicCode(AotMessages.LinqProvider)]
+    [RequiresUnreferencedCode(AotMessages.LinqProvider)]
     public static TypedMergeBuilder<TTarget, TSource> Merge<TTarget, TSource, TKey>(
         this IEnumerable<TTarget> target,
         DataFrame source,
@@ -550,6 +557,8 @@ public static class TypedMergeExtensions
     /// <summary>
     /// Initiates a strongly-typed Merge operation between two DataFrames.
     /// </summary>
+    [RequiresDynamicCode(AotMessages.LinqProvider)]
+    [RequiresUnreferencedCode(AotMessages.LinqProvider)]
     public static TypedMergeBuilder<TTarget, TSource> Merge<TTarget, TSource, TKey>(
         this DataFrame target,
         DataFrame source,

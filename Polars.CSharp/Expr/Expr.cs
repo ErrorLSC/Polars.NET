@@ -1,5 +1,6 @@
 #pragma warning disable CS1591
 #pragma warning disable CS1573
+using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
@@ -529,13 +530,13 @@ public partial class Expr : IDisposable, IEquatable<Expr>
     /// <summary>
     /// Replace values using a mapping (Dictionary/IEnumerable of KeyValuePair).
     /// </summary>
-    public Expr Replace<TKey, TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping)
+    public Expr Replace<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TKey, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping)
         => Replace(mapping.Select(k => k.Key), mapping.Select(v => v.Value));
 
     /// <summary>
     /// Replace values strictly using a mapping.
     /// </summary>
-    public Expr ReplaceStrict<TKey, TValue>(
+    public Expr ReplaceStrict<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TKey, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TValue>(
         IEnumerable<KeyValuePair<TKey, TValue>> mapping,
         IntoExpr? defaultExpr = null,
         IntoDataTypeExpr? returnDataType = null)
@@ -543,7 +544,7 @@ public partial class Expr : IDisposable, IEquatable<Expr>
     /// <summary>
     /// Replace values using two sequences (IEnumerable) for old and new values.
     /// </summary>
-    public Expr Replace<TOld, TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues)
+    public Expr Replace<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TOld, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues)
     {
         using Series oldSeries = Pl.CreateSeries("old", oldValues);
         using Series newSeries = Pl.CreateSeries("new", newValues);
@@ -553,7 +554,7 @@ public partial class Expr : IDisposable, IEquatable<Expr>
     /// <summary>
     /// Replace values strictly using two sequences (IEnumerable).
     /// </summary>
-    public Expr ReplaceStrict<TOld, TNew>(
+    public Expr ReplaceStrict<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TOld, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TNew>(
         IEnumerable<TOld> oldValues,
         IEnumerable<TNew> newValues,
         IntoExpr? defaultExpr = null,
@@ -633,7 +634,7 @@ public partial class Expr : IDisposable, IEquatable<Expr>
         return new Expr(h);
     }
     /// <inheritdoc cref="Cast"/>
-    public Expr Cast<T>(bool strict = true, bool wrapNumerical = false)
+    public Expr Cast<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(bool strict = true, bool wrapNumerical = false)
         => Cast(DataType.FromNetType<T>(), strict, wrapNumerical);
 
     // ==========================================
@@ -652,7 +653,7 @@ public partial class Expr : IDisposable, IEquatable<Expr>
     /// <summary>
     /// Apply a custom C# function to batches/series of data (High-Level).
     /// </summary>
-    public Expr MapBatches<TInput, TOutput>(Func<TInput, TOutput> function, DataType? outputType = null)
+    public Expr MapBatches<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TInput, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TOutput>(Func<TInput, TOutput> function, DataType? outputType = null)
     {
         Type arrowArrayType = typeof(Apache.Arrow.IArrowArray);
         if (arrowArrayType.IsAssignableFrom(typeof(TInput)) || arrowArrayType.IsAssignableFrom(typeof(TOutput)))
@@ -822,7 +823,7 @@ public partial class Expr : IDisposable, IEquatable<Expr>
     /// Apply a custom C# function to the expression (High-Level).
     /// </summary>
     [Obsolete("Use MapBatches instead.")]
-    public Expr Map<TInput, TOutput>(Func<TInput, TOutput> function, DataType? outputType = null)
+    public Expr Map<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TInput, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TOutput>(Func<TInput, TOutput> function, DataType? outputType = null)
         => MapBatches(function, outputType);
 
     /// <summary>

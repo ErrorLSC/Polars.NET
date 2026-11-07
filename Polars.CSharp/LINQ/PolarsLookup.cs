@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using System.Diagnostics.CodeAnalysis;
 using System.Collections;
 using Polars.NET.Core.Data;
 
@@ -44,7 +45,7 @@ internal sealed class PolarsPartitionEnumerator<TElement> : IEnumerator<TElement
 /// <summary>
 /// Represents a group partition backed by a sliced Polars DataFrame.
 /// </summary>
-public sealed class PolarsGrouping<TKey, TElement> : IGrouping<TKey, TElement>, IReadOnlyList<TElement>
+public sealed class PolarsGrouping<TKey, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TElement> : IGrouping<TKey, TElement>, IReadOnlyList<TElement>
 {
     private ArrowBatchCursor<TElement>? _cursor;
 
@@ -91,7 +92,7 @@ public sealed class PolarsGrouping<TKey, TElement> : IGrouping<TKey, TElement>, 
 /// ILookup implementation backed by native Polars partitions. Groups enumerate in the order their keys first
 /// appear; a null key forms a group of its own, as in LINQ to Objects.
 /// </summary>
-public sealed class PolarsLookup<TKey, TElement> : ILookup<TKey, TElement>
+public sealed class PolarsLookup<TKey, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TElement> : ILookup<TKey, TElement>
 {
     // Non-null keys, wrapped because Dictionary keys are constrained to notnull while TKey may be nullable.
     private readonly record struct NonNullKey(TKey Value);

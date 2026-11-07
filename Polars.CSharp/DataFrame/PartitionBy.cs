@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
@@ -97,7 +98,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="includeKey">Whether to retain key columns in each partition DataFrame. Default is true.</param>
     /// <param name="comparer">Optional equality comparer for custom domain key hashing.</param>
     /// <returns>A dictionary mapping strongly typed domain keys to their respective partition DataFrames.</returns>
-    public Dictionary<TKey, DataFrame> PartitionByAsDict<TKey>(
+    public Dictionary<TKey, DataFrame> PartitionByAsDict<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TKey>(
         IEnumerable<IntoSelector> by,
         bool maintainOrder = true,
         bool includeKey = true,

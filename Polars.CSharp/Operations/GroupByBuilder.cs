@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using System.Diagnostics.CodeAnalysis;
 using System.Collections;
 using Pl = Polars.CSharp.Polars;
 
@@ -199,7 +200,7 @@ public class GroupByBuilder : IEnumerable<(object[] Key, DataFrame Group)>
     /// <summary>
     /// Allows iteration over the groups of the group by operation.(Strong Typed)
     /// </summary>
-    public IEnumerable<(TKey Key, DataFrame Group)> GetGroups<TKey>()
+    public IEnumerable<(TKey Key, DataFrame Group)> GetGroups<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TKey>()
     {
         var (groupsDf, tempCol) = BuildGroupsDataFrame();
 

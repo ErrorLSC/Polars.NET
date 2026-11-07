@@ -1,10 +1,19 @@
 namespace Polars.FSharp
 
+open Polars.NET.Core
 open Polars.NET.Core.Helpers
 open System.Collections.Generic
+open System.Diagnostics.CodeAnalysis
 
 [<AutoOpen>]
 module DataFrameJsonNormalizeOps =
+
+    /// Default encoder for data parsed from a JSON string.
+    [<UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "Values come from JsonDocument (dictionaries, lists, strings, numbers, booleans, null), which JsonValueEncoder writes directly; its reflection-based fallback is never reached.")>]
+    [<UnconditionalSuppressMessage("AOT", "IL3050",
+        Justification = "See IL2026: parsed-JSON values never reach the reflection-based fallback.")>]
+    let private encodeParsedJson (value: obj) : string = JsonValueEncoder.Encode value
 
     type DataFrame with
         /// <summary>
@@ -17,6 +26,7 @@ module DataFrameJsonNormalizeOps =
         /// <param name="strict">Strict mode for type inference.</param>
         /// <param name="inferSchemaLength">Rows used for schema inference.</param>
         /// <param name="encoder">Custom value-to-string encoder.</param>
+        [<RequiresUnreferencedCode(AotMessages.JsonPocoFallback); RequiresDynamicCode(AotMessages.JsonPocoFallback)>]
         static member JsonNormalize
             (
                 data: Map<string, obj>,
@@ -48,6 +58,7 @@ module DataFrameJsonNormalizeOps =
         /// <param name="inferSchemaLength">Rows used for schema inference.</param>
         /// <param name="encoder">Custom value-to-string encoder.</param>
         /// <inheritdoc cref="JsonNormalize(Map{string, obj})"/>
+        [<RequiresUnreferencedCode(AotMessages.JsonPocoFallback); RequiresDynamicCode(AotMessages.JsonPocoFallback)>]
         static member JsonNormalize
             (
                 data: seq<Map<string, obj>>,
@@ -68,7 +79,7 @@ module DataFrameJsonNormalizeOps =
             let realEncoder =
                 match encoder with
                 | Some e -> e
-                | None -> System.Text.Json.JsonSerializer.Serialize
+                | None -> JsonValueEncoder.Encode
 
             let strict = defaultArg strict true
             let inferSchemaLength = defaultArg inferSchemaLength 100u
@@ -127,6 +138,10 @@ module DataFrameJsonNormalizeOps =
         /// <param name="inferSchemaLength">Rows used for schema inference.</param>
         /// <param name="encoder">Custom value-to-string encoder.</param>
         /// <inheritdoc cref="JsonNormalize(Map{string, obj})"/>
+        [<UnconditionalSuppressMessage("Trimming", "IL2026",
+            Justification = "Always passes an encoder (encodeParsedJson unless the caller gives one); the annotated JsonNormalize overload only needs reflection for its default encoder.")>]
+        [<UnconditionalSuppressMessage("AOT", "IL3050",
+            Justification = "See IL2026.")>]
         static member JsonNormalizeFromString
             (
                 jsonString: string,
@@ -163,5 +178,5 @@ module DataFrameJsonNormalizeOps =
                 ?schema = schema,
                 ?strict = strict,
                 ?inferSchemaLength = inferSchemaLength,
-                ?encoder = encoder
+                encoder = defaultArg encoder encodeParsedJson
             )

@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using System.Diagnostics.CodeAnalysis;
 using Polars.NET.Core.Helpers;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
@@ -18,7 +19,7 @@ public readonly struct IntoExprColumn
     public static implicit operator IntoExprColumn(string name) => new(Pl.Col(name), ownsExpr: true);
     public static implicit operator IntoExprColumn(Series series) => new(Pl.Lit(series), ownsExpr: true);
     public static implicit operator IntoExprColumn(DataType dtype) => new(Cs.ByDtype(dtype).ToExpr(), ownsExpr: true);
-    public static implicit operator IntoExprColumn(Type type) => new(Cs.ByDtype(type).ToExpr(), ownsExpr: true);
+    public static implicit operator IntoExprColumn([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type) => new(Cs.ByDtype(type).ToExpr(), ownsExpr: true);
     public static implicit operator IntoExprColumn(DateOnly date) => new(Pl.Lit(date), ownsExpr: true);
     public static implicit operator IntoExprColumn(DateTime dt) => new(Pl.Lit(dt), ownsExpr: true);
     public static implicit operator IntoExprColumn(TimeOnly time) => new(Pl.Lit(time), ownsExpr: true);
@@ -128,7 +129,7 @@ public readonly struct IntoSelector
 
     public static implicit operator IntoSelector(string name) => new(Cs.ByName(name), ownsSelector: true);
     public static implicit operator IntoSelector(DataType dtype) => new(Cs.ByDtype(dtype), ownsSelector: true);
-    public static implicit operator IntoSelector(Type type) => new(Cs.ByDtype(type), ownsSelector: true);
+    public static implicit operator IntoSelector([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type) => new(Cs.ByDtype(type), ownsSelector: true);
     public static implicit operator IntoSelector(Expr expr)
     {
         ArgumentNullException.ThrowIfNull(expr);
@@ -399,7 +400,7 @@ public readonly struct IntoSchema
         }
         return schema;
     }
-    public static implicit operator IntoSchema(Type type)
+    public static implicit operator IntoSchema([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type)
     {
         ArgumentNullException.ThrowIfNull(type);
         return new(PolarsSchema.From(type), ownsSchema: true);

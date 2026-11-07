@@ -3306,4 +3306,46 @@ public class DataFrameTests
         var ex = Assert.Throws<NotSupportedException>(() => Series.From("m", new string[,] { { "a", "b" }, { "c", "d" } }));
         Assert.Contains("Multi-dimensional", ex.Message);
     }
+
+    private sealed class JsonPocoLeaf
+    {
+        public int X { get; set; }
+        public string? Name { get; set; }
+    }
+
+    [Fact]
+    [Trait("DataFrame", "JsonNormalize")]
+    public void Test_JsonNormalize_DefaultEncoder_MatchesJsonSerializer()
+    {
+        // The default encoder writes JSON-shaped values itself (no reflection) and falls back to
+        // JsonSerializer only for other objects; the result must equal JsonSerializer's default output.
+        using var jsonDoc = JsonDocument.Parse("""{"k":[1,2.5,"x",null,true]}""");
+        var nested = new Dictionary<string, object?>
+        {
+            ["text"] = "中文 <b>&'\"\\ \n",
+            ["int"] = 42,
+            ["long"] = long.MaxValue,
+            ["double"] = 1.5,
+            ["decimal"] = 2.25m,
+            ["bool"] = true,
+            ["null"] = null,
+            ["dateTime"] = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Utc),
+            ["dateTimeOffset"] = new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.FromHours(9)),
+            ["guid"] = new Guid("0f8fad5b-d9cb-469f-a165-70867728950e"),
+            ["bytes"] = new byte[] { 1, 2, 3 },
+            ["list"] = new List<object?> { 1, "a", null },
+            ["array"] = new[] { 1, 2 },
+            ["typedDict"] = new Dictionary<string, int> { ["a"] = 1 },
+            ["nested"] = new Dictionary<string, object?> { ["deep"] = new List<object?> { new Dictionary<string, object?> { ["z"] = 0 } } },
+            ["element"] = jsonDoc.RootElement,
+            ["poco"] = new JsonPocoLeaf { X = 1, Name = "n" },
+            ["enum"] = DayOfWeek.Monday,
+            ["timeSpan"] = TimeSpan.FromMinutes(90),
+        };
+        var data = new Dictionary<string, object?> { ["L1"] = nested };
+
+        using var df = Pl.JsonNormalize(data, maxLevel: 0);
+
+        Assert.Equal(JsonSerializer.Serialize(nested), df.Column("L1").GetValue<string>(0));
+    }
 }

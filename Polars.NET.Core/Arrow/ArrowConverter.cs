@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -24,7 +25,7 @@ public static class ArrowConverter
         .GetMethod(nameof(BuildFSharpOptionClass), BindingFlags.NonPublic | BindingFlags.Static)
         ?? throw new InvalidOperationException("BuildFSharpOptionClass method not found.");
 
-    private static class SchemaCache<T>
+    private static class SchemaCache<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>
     {
         public static readonly Schema Default = GetSchemaFromType<T>();
     }
@@ -32,7 +33,7 @@ public static class ArrowConverter
     /// <summary>
     /// Build Empty RecordBatch with Schema Only
     /// </summary>
-    public static RecordBatch GetEmptyBatch<T>()
+    public static RecordBatch GetEmptyBatch<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>()
     {
         var schema = SchemaCache<T>.Default;
 
@@ -71,7 +72,7 @@ public static class ArrowConverter
     /// <summary>
     /// General Entry：Decide which type of Arrary based on the type of T
     /// </summary>
-    public static IArrowArray Build<T>(IEnumerable<T> data)
+    public static IArrowArray Build<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(IEnumerable<T> data)
     {
         var type = typeof(T);
 
@@ -227,7 +228,7 @@ public static class ArrowConverter
     /// Handler for Value Types: FSharpOption<int> -> int?
     /// Constraint: T must be struct
     /// </summary>
-    private static IArrowArray BuildFSharpOptionStruct<T>(IEnumerable<FSharpOption<T>> data)
+    private static IArrowArray BuildFSharpOptionStruct<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(IEnumerable<FSharpOption<T>> data)
         where T : struct
     {
         var nullableSeq = data.Select(opt =>
@@ -240,7 +241,7 @@ public static class ArrowConverter
     /// Handler for Reference Types: FSharpOption<string> -> string
     /// Constraint: T must be class
     /// </summary>
-    private static IArrowArray BuildFSharpOptionClass<T>(IEnumerable<FSharpOption<T>> data)
+    private static IArrowArray BuildFSharpOptionClass<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(IEnumerable<FSharpOption<T>> data)
         where T : class
     {
         var refSeq = data.Select(opt => opt?.Value);
@@ -250,7 +251,7 @@ public static class ArrowConverter
     /// <summary>
     /// Build ListArray
     /// </summary>
-    public static LargeListArray BuildListArray<U>(IEnumerable<IEnumerable<U>?> data)
+    public static LargeListArray BuildListArray<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] U>(IEnumerable<IEnumerable<U>?> data)
     {
         // Recursion Logic: Flatten -> Build<U>
         // This handles List<Struct>, List<List<int>>, etc.
@@ -564,7 +565,7 @@ public static class ArrowConverter
         return b.Build();
     }
 
-    public static Schema GetSchemaFromType<T>()
+    public static Schema GetSchemaFromType<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>()
     {
         // The fields of an empty struct array of T: the types (and the field metadata of enum members) are the
         // ones the row data is built with, without sample instances, whose defaults may not be valid values
@@ -576,7 +577,7 @@ public static class ArrowConverter
     /// <summary>
     /// Slice IEnumerable<RecordBatch> to chuncks and convert it to ArrowBatchs
     /// </summary>
-    public static IEnumerable<RecordBatch> ToArrowBatches<T>(IEnumerable<T> data, int batchSize)
+    public static IEnumerable<RecordBatch> ToArrowBatches<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(IEnumerable<T> data, int batchSize)
     {
         var dummyStruct = StructBuilderHelper.BuildStructArray(Enumerable.Empty<T>());
 
@@ -603,7 +604,7 @@ public static class ArrowConverter
         // =================================================================
         // Columnar Construction
         // =================================================================
-        public static StructArray BuildStructArray<T>(IEnumerable<T> data)
+        public static StructArray BuildStructArray<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(IEnumerable<T> data)
         {
             var dataList = data as IList<T> ?? [.. data];
             int length = dataList.Count;
@@ -657,7 +658,7 @@ public static class ArrowConverter
         // Helper：Reflection Bridge
         // =================================================================
 
-        private static IArrowArray ProjectAndBuild<TParent>(IList<TParent> data, Type propType, Func<TParent, object?> getter)
+        private static IArrowArray ProjectAndBuild<TParent>(IList<TParent> data, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] Type propType, Func<TParent, object?> getter)
         {
             Type cleanType = Nullable.GetUnderlyingType(propType) ?? propType;
             Type targetType = cleanType.IsValueType ? typeof(Nullable<>).MakeGenericType(cleanType) : cleanType;
@@ -681,7 +682,7 @@ public static class ArrowConverter
             }
         }
 
-        private static IArrowArray BuildColumn<TParent, TProp>(IList<TParent> data, Func<TParent, object?> getter)
+        private static IArrowArray BuildColumn<TParent, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TProp>(IList<TParent> data, Func<TParent, object?> getter)
         {
             var columnData = new List<TProp>(data.Count);
             foreach(var item in data)

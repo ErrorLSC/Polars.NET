@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Arrow;
@@ -22,7 +23,7 @@ public partial class LazyFrame : IDisposable
     /// Scan Enumberable As LazyFrame
     /// </summary>
     /// <returns></returns>
-    public static LazyFrame ScanEnumerable<T>(
+    public static LazyFrame ScanEnumerable<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(
         IEnumerable<T> data, 
         Schema? schema = null, 
         int batchSize = 100_000,

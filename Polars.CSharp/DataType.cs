@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using System.Diagnostics.CodeAnalysis;
 using System.Collections.Concurrent;
 using Polars.NET.Core.Enums;
 using Apache.Arrow.Types;
@@ -597,14 +598,14 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
     /// Create a DataType from a .NET Type. An enum (or Nullable / F# option of one) is the Enum of its members in
     /// underlying-value order, or, for a [Flags] enum, its underlying integer type.
     /// </summary>
-    public static DataType FromNetType<T>() => FromNetType(typeof(T));
+    public static DataType FromNetType<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() => FromNetType(typeof(T));
     /// <summary>
     /// Implicitly convert System.Type to Polars DataType.
     /// Example: DataType dt = typeof(int); // dt is now DataType.Int32
     /// </summary>
-    public static implicit operator DataType(Type type) => FromNetType(type);
+    public static implicit operator DataType([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type) => FromNetType(type);
 
-    private static DataType FromNetType(Type type)
+    private static DataType FromNetType([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type)
     {
         var core = PolarsTypeHelper.UnwrapCoreType(type);
         if (core.IsEnum)

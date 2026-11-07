@@ -190,7 +190,7 @@ internal static class ArrowRowMapperHelpers
 /// <summary>
 /// Unified expression-tree compiler and cache for Arrow RecordBatch row mapping across C# and F#.
 /// </summary>
-public static class ArrowRowMapper<T>
+public static class ArrowRowMapper<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
 {
     private static readonly ConcurrentDictionary<string, CompiledArrowRowMapper<T>> Cache = new(StringComparer.Ordinal);
 
@@ -353,7 +353,7 @@ public static class ArrowRowMapper<T>
     private static readonly FSharpOption<BindingFlags> AllRecordFlags =
         FSharpOption<BindingFlags>.Some(BindingFlags.Public | BindingFlags.NonPublic);
 
-    private static string[] CollectRequiredNames(Type t)
+    private static string[] CollectRequiredNames([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type t)
     {
         if (IsScalarLike(t) || IsCollectionLike(t))
             return [];
@@ -389,7 +389,7 @@ public static class ArrowRowMapper<T>
         var slotMap = new Dictionary<(int ColIdx, Type TargetType), (int SlotIdx, ColumnAccessor Sample, ParameterExpression SlotVar)>();
         var firstSlotByCol = new Dictionary<int, (int SlotIdx, ColumnAccessor Sample, ParameterExpression SlotVar)>();
 
-        (int SlotIdx, ColumnAccessor Sample, ParameterExpression SlotVar) GetOrAddSlot(int colIdx, Type memberType)
+        (int SlotIdx, ColumnAccessor Sample, ParameterExpression SlotVar) GetOrAddSlot(int colIdx, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type memberType)
         {
             var key = (colIdx, memberType);
             if (slotMap.TryGetValue(key, out var existing))
@@ -459,7 +459,7 @@ public static class ArrowRowMapper<T>
             return Expression.Convert(callGetValue, desiredType);
         }
 
-        Expression CreateReadExpr(int colIdx, Type returnType, string fieldName, bool strictNonOptionNullCheck)
+        Expression CreateReadExpr(int colIdx, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type returnType, string fieldName, bool strictNonOptionNullCheck)
         {
             // 1. FSharpOption<U> or FSharpValueOption<U>
             if (IsFSharpOption(returnType) || IsFSharpValueOption(returnType))
@@ -565,7 +565,7 @@ public static class ArrowRowMapper<T>
             return false;
         }
 
-        Expression BuildSingleObjectExpr(Type objTargetType, int tupleIndex)
+        Expression BuildSingleObjectExpr([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type objTargetType, int tupleIndex)
         {
             var underlyingNullable = Nullable.GetUnderlyingType(objTargetType);
             bool isOpt = IsFSharpOption(objTargetType);
@@ -812,7 +812,7 @@ public static class ArrowRowMapper<T>
             return instanceExpr;
         }
 
-        Expression BuildTupleElementExpr(Type subType, int tupleIdx)
+        Expression BuildTupleElementExpr([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type subType, int tupleIdx)
         {
             // An element packed into its own struct column (an entity of a join's tuple row) is read whole.
             if (!IsScalarLike(subType) && !IsCollectionLike(subType)

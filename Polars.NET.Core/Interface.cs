@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Polars.NET.Core.Enums;
@@ -38,41 +39,41 @@ public interface IPolarsSchema : IDisposable, IReadOnlyDictionary<string, IPolar
 
 public interface IDataFrameMaterializer
 {
-    IEnumerable<T> Materialize<T>(DataFrameHandle handle);
-    T MaterializeScalar<T>(DataFrameHandle handle);
-    TAccum Aggregate<TSource, TAccum>(
+    IEnumerable<T> Materialize<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(DataFrameHandle handle);
+    T MaterializeScalar<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(DataFrameHandle handle);
+    TAccum Aggregate<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource, TAccum>(
         DataFrameHandle handle,
         TAccum seed,
         Func<TAccum, TSource, TAccum> folder);
-    IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<TSource, TKey, TAccum>(
+    IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource, TKey, TAccum>(
         DataFrameHandle handle,
         Func<TSource, TKey> keySelector,
         TAccum seed,
         Func<TAccum, TSource, TAccum> folder,
         IEqualityComparer<TKey>? comparer = null)
         where TKey : notnull;
-    IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<TSource, TKey, TAccum>(
+    IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource, TKey, TAccum>(
         DataFrameHandle handle,
         Func<TSource, TKey> keySelector,
         Func<TKey, TAccum> seedSelector,
         Func<TAccum, TSource, TAccum> folder,
         IEqualityComparer<TKey>? comparer = null)
         where TKey : notnull;
-    IEnumerable<T[]> Chunk<T>(DataFrameHandle handle, int chunkSize);
-    bool Any<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
-    bool All<TSource>(DataFrameHandle handle, Func<TSource, bool> predicate);
-    TSource First<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
-    TSource? FirstOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
-    TSource Last<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
-    TSource? LastOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
-    long Count<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
-    TSource Single<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
-    TSource? SingleOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
-    TSource ElementAt<TSource>(DataFrameHandle handle, long index);
-    TSource? ElementAtOrDefault<TSource>(DataFrameHandle handle, long index);
-    bool Contains<TSource>(DataFrameHandle handle, TSource item, IEqualityComparer<TSource>? comparer = null);
-    bool SequenceEqual<TSource>(DataFrameHandle handle1, DataFrameHandle handle2, IEqualityComparer<TSource>? comparer = null);
-    bool SequenceEqual<TSource>(DataFrameHandle handle, IEnumerable<TSource> second, IEqualityComparer<TSource>? comparer = null);
-    TSource MinBy<TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null);
-    TSource MaxBy<TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null);
+    IEnumerable<T[]> Chunk<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(DataFrameHandle handle, int chunkSize);
+    bool Any<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    bool All<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool> predicate);
+    TSource First<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    TSource? FirstOrDefault<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
+    TSource Last<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    TSource? LastOrDefault<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
+    long Count<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    TSource Single<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null);
+    TSource? SingleOrDefault<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default);
+    TSource ElementAt<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, long index);
+    TSource? ElementAtOrDefault<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, long index);
+    bool Contains<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, TSource item, IEqualityComparer<TSource>? comparer = null);
+    bool SequenceEqual<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle1, DataFrameHandle handle2, IEqualityComparer<TSource>? comparer = null);
+    bool SequenceEqual<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, IEnumerable<TSource> second, IEqualityComparer<TSource>? comparer = null);
+    TSource MinBy<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null);
+    TSource MaxBy<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null);
 }

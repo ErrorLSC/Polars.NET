@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Polars.NET.Core.Helpers;
 #pragma warning disable CS1591
 using System.Collections;
@@ -87,12 +88,12 @@ public class PolarsSchema : IDisposable, IPolarsSchema, IEquatable<PolarsSchema>
     /// <summary>
     /// Create a Schema directly from a .NET type.
     /// </summary>
-    public static PolarsSchema From<T>() => From(typeof(T));
+    public static PolarsSchema From<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>() => From(typeof(T));
 
     /// <summary>
     /// Create a Schema directly from a System.Type.
     /// </summary>
-    public static PolarsSchema From(Type type)
+    public static PolarsSchema From([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type)
     {
         ArgumentNullException.ThrowIfNull(type);
         SchemaHandle handle = PolarsWrapper.NewSchemaFromType(type);

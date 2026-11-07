@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
@@ -310,7 +311,7 @@ public partial class Series : IDisposable, IEquatable<Series>
     /// <param name="strict">If true, throw an error if the cast fails; if false, invalid values become null.</param>
     /// <param name="wrapNumerical">If true, wrap numerical values instead of saturating.</param>
     /// <returns>A new Series of the target type.</returns>
-    public Series Cast<T>(bool strict = true, bool wrapNumerical = false)
+    public Series Cast<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(bool strict = true, bool wrapNumerical = false)
         => Cast(DataType.FromNetType<T>(), strict, wrapNumerical);
     /// <summary>
     /// Cast to physical representation of the logical dtype.
@@ -439,15 +440,15 @@ public partial class Series : IDisposable, IEquatable<Series>
     /// <inheritdoc cref="Expr.Replace(IntoExpr, IntoExpr)"/>
     public Series Replace(IntoExpr old, IntoExpr newExpr) => ApplyExpr(Pl.Col(Name).Replace(old, newExpr));
     /// <inheritdoc cref="Expr.Replace{TKey, TValue}(IEnumerable{KeyValuePair{TKey, TValue}})"/>
-    public Series Replace<TKey, TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping) => ApplyExpr(Pl.Col(Name).Replace(mapping));
+    public Series Replace<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TKey, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping) => ApplyExpr(Pl.Col(Name).Replace(mapping));
     /// <inheritdoc cref="Expr.ReplaceStrict{TOld, TNew}(IEnumerable{TOld}, IEnumerable{TNew}, IntoExpr?, IntoDataTypeExpr?)"/>
-    public Series Replace<TOld, TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues) => ApplyExpr(Pl.Col(Name).Replace(oldValues, newValues));
+    public Series Replace<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TOld, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues) => ApplyExpr(Pl.Col(Name).Replace(oldValues, newValues));
     /// <inheritdoc cref="Expr.ReplaceStrict(IntoExpr, IntoExpr,IntoExpr?,IntoDataTypeExpr?)"/>
     public Series ReplaceStrict(IntoExpr old, IntoExpr newExpr, IntoExpr? defaultExpr = null, IntoDataTypeExpr? returnDataType = null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(old, newExpr, defaultExpr, returnDataType));
     /// <inheritdoc cref="Expr.ReplaceStrict{TKey, TValue}(IEnumerable{KeyValuePair{TKey, TValue}}, IntoExpr?, IntoDataTypeExpr?)"/>
-    public Series ReplaceStrict<TKey, TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping, IntoExpr? defaultExpr = null, IntoDataTypeExpr? returnDataType = null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(mapping, defaultExpr, returnDataType));
+    public Series ReplaceStrict<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TKey, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping, IntoExpr? defaultExpr = null, IntoDataTypeExpr? returnDataType = null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(mapping, defaultExpr, returnDataType));
     /// <inheritdoc cref="Expr.ReplaceStrict{TOld, TNew}(IEnumerable{TOld}, IEnumerable{TNew}, IntoExpr?, IntoDataTypeExpr?)"/>
-    public Series ReplaceStrict<TOld, TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues, IntoExpr? defaultExpr = null, IntoDataTypeExpr? returnDataType = null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(oldValues, newValues, defaultExpr, returnDataType));
+    public Series ReplaceStrict<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TOld, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues, IntoExpr? defaultExpr = null, IntoDataTypeExpr? returnDataType = null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(oldValues, newValues, defaultExpr, returnDataType));
 
     // ==========================================
     // Null Checks & Boolean Masks
@@ -733,7 +734,7 @@ public partial class Series : IDisposable, IEquatable<Series>
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public T[] ToArray<T>()
+    public T[] ToArray<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>()
         => ArrowReader.ReadColumn<T>(ToArrow());
 
     /// <summary>
@@ -764,7 +765,7 @@ public partial class Series : IDisposable, IEquatable<Series>
     /// Apply a custom C# function to the series element-by-element (scalar-wise).
     /// <para>Warning: This is slower than native expressions because it runs in the .NET runtime.</para>
     /// </summary>
-    public Series MapElements<TInput, TOutput>(Func<TInput, TOutput> function)
+    public Series MapElements<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TInput, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TOutput>(Func<TInput, TOutput> function)
         => ApplyExpr(Pl.Col(Name).MapBatches(function));
 
     /// <summary>
@@ -777,7 +778,7 @@ public partial class Series : IDisposable, IEquatable<Series>
     /// Apply a custom C# function to the series (element-wise).
     /// </summary>
     [Obsolete("Use MapElements instead.")]
-    public Series Map<TInput, TOutput>(Func<TInput, TOutput> function)
+    public Series Map<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TInput, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TOutput>(Func<TInput, TOutput> function)
         => MapElements(function);
 
     /// <summary>

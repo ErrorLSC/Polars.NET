@@ -23,7 +23,7 @@ public interface IColumnBuffer
 /// Dispatches to SeriesFactory.CreateSpan to avoid memory duplication.
 /// </summary>
 /// <typeparam name="T">The scalar or nullable element type.</typeparam>
-internal sealed class ColumnBuffer<T>(int capacity) : IColumnBuffer
+internal sealed class ColumnBuffer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(int capacity) : IColumnBuffer
 {
     private T?[] _buffer = capacity > 0 ? new T?[capacity] : [];
     private int _count = 0;
@@ -78,7 +78,7 @@ internal sealed class ColumnBuffer<T>(int capacity) : IColumnBuffer
 /// <summary>
 /// Fallback buffer for complex nested or non-primitive types via Arrow engine.
 /// </summary>
-internal sealed class StructColumnBuffer<T>(int capacity) : IColumnBuffer
+internal sealed class StructColumnBuffer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(int capacity) : IColumnBuffer
 {
     private readonly List<T?> _items = new(capacity);
 
@@ -111,7 +111,7 @@ internal static class ColumnBufferFactory
         if (PolarsTypeHelper.IsSupportedSimpleType(propType))
         {
             Type targetType = PolarsTypeHelper.EnsureNullable(propType);
-            return SimpleFactories.GetOrAdd(targetType, static t =>
+            return SimpleFactories.GetOrAdd(targetType, static ([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] Type t) =>
             {
                 var constructed = typeof(ColumnBuffer<>).MakeGenericType(t);
                 var ctor = constructed.GetConstructor([typeof(int)])!;
@@ -120,7 +120,7 @@ internal static class ColumnBufferFactory
             })(capacity);
         }
 
-        return StructFactories.GetOrAdd(propType, static t =>
+        return StructFactories.GetOrAdd(propType, static ([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] Type t) =>
         {
             var constructed = typeof(StructColumnBuffer<>).MakeGenericType(t);
             var ctor = constructed.GetConstructor([typeof(int)])!;
@@ -134,7 +134,7 @@ internal static class ColumnBufferFactory
 /// High-performance compiled object-to-columnar transposer pipeline for POCO and F# Records.
 /// </summary>
 /// <typeparam name="T">The record or POCO row model type.</typeparam>
-public static class ObjectSchemaTransposer<T>
+public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
 {
     private static readonly Func<T[], SeriesHandle[]>? BatchFastTransposer;
     private static readonly Func<SeriesHandle[]>? EmptySeriesFactory;
@@ -328,7 +328,7 @@ public static class ObjectSchemaTransposer<T>
         return Expression.Lambda(delegateType, body, recordsParam).Compile();
     }
 
-    private static SeriesHandle CreateColumnHandleFromExtracted<TField>(
+    private static SeriesHandle CreateColumnHandleFromExtracted<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TField>(
         T[] records,
         string name,
         Func<T[], TField[]> extractor)
@@ -371,7 +371,7 @@ public static class ObjectSchemaTransposer<T>
         return Expression.Lambda<Func<SeriesHandle[]>>(newArrayExpr).Compile();
     }
 
-    private static SeriesHandle CreateEmptyColumnHandle<TField>(string colName)
+    private static SeriesHandle CreateEmptyColumnHandle<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TField>(string colName)
     {
         var handle = SeriesFactory.CreateSpan(colName, ReadOnlySpan<TField>.Empty);
         if (handle?.IsInvalid != false)
@@ -439,7 +439,7 @@ public static class ObjectSchemaTransposer<T>
 /// Caches property extractors using Expression Trees to directly generate SeriesHandles without boxing.
 /// </summary>
 /// <typeparam name="T">The container type (e.g. anonymous type or SoA DTO).</typeparam>
-public static class SoAColumnExtractor<T>
+public static class SoAColumnExtractor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
 {
     private static readonly (string Name, Func<T, string, SeriesHandle> CreateSeriesHandle)[] ColumnFactories;
 
@@ -748,7 +748,7 @@ public static class DataFrameBuilder
     /// <typeparam name="T">The entity row model type.</typeparam>
     /// <param name="rows">The sequence of row models.</param>
     /// <returns>A native <see cref="DataFrameHandle"/> wrapping the ingested columnar DataFrame.</returns>
-    public static DataFrameHandle FromRows<T>(IEnumerable<T> rows)
+    public static DataFrameHandle FromRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IEnumerable<T> rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
 
@@ -846,7 +846,7 @@ public static class DataFrameBuilder
     /// <typeparam name="T">The container model type.</typeparam>
     /// <param name="columns">The column container instance.</param>
     /// <returns>A native <see cref="DataFrameHandle"/>.</returns>
-    public static DataFrameHandle FromColumns<T>(T columns) where T : class
+    public static DataFrameHandle FromColumns<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(T columns) where T : class
     {
         ArgumentNullException.ThrowIfNull(columns);
 

@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics.Tensors;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -10,7 +11,7 @@ namespace Polars.NET.Core.TensorInterop;
 
 public static partial class ArrowTensorInterop
 {
-    public static SeriesHandle ImportTensor<T>(string name, ReadOnlyTensorSpan<T> tensor) where T : unmanaged
+    public static SeriesHandle ImportTensor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string name, ReadOnlyTensorSpan<T> tensor) where T : unmanaged
     {
         int totalElements = (int)tensor.FlattenedLength;
         int byteLength = totalElements * Unsafe.SizeOf<T>();
@@ -71,7 +72,7 @@ public static partial class ArrowTensorInterop
         return ArrowFfiBridge.ImportSeries(name, finalArray);
     }
 
-    public static IArrowArray BuildRawPrimitiveArray<T>(ReadOnlySpan<T> span) where T : unmanaged
+    public static IArrowArray BuildRawPrimitiveArray<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(ReadOnlySpan<T> span) where T : unmanaged
     {
         IArrowType arrowType = ArrowTypeResolver.GetArrowTypeFromNetType(typeof(T));
 

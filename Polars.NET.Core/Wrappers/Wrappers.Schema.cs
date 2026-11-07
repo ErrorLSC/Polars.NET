@@ -76,7 +76,7 @@ public readonly partial struct PolarsWrapper
     /// Create a SchemaHandle directly from a .NET Type by leveraging Apache Arrow Type resolution.
     /// </summary>
     public static SchemaHandle NewSchemaFromType(
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
         Type type)
     {
         ArgumentNullException.ThrowIfNull(type);

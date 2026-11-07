@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Polars.NET.Core.Arrow;
 using Microsoft.FSharp.Core;
 using System.Runtime.InteropServices;
@@ -45,7 +46,7 @@ public static class SeriesFactory
     /// <summary>
     /// Generic type entry for Series create
     /// </summary>
-    public static SeriesHandle CreateGenericType<T>(string name, IEnumerable<T> data)
+    public static SeriesHandle CreateGenericType<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(string name, IEnumerable<T> data)
     {
         // 1. Array fast path 
         if (data is T[] array)

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Linq.Backend.Polars;
 
@@ -13,7 +14,7 @@ public static partial class LinqExtensions
     /// <param name="engine">Execution engine selection (Auto, InMemory, Streaming, or Gpu).</param>
     /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
     /// <returns>A task yielding the resulting DataFrame.</returns>
-    public static async Task<DataFrame> ToDataFrameAsync<T>(
+    public static async Task<DataFrame> ToDataFrameAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
         this IQueryable<T> source,
         Engine engine = Engine.Auto,
         CancellationToken cancellationToken = default)
@@ -57,7 +58,7 @@ public static partial class LinqExtensions
     /// <param name="source">The asynchronous stream of objects.</param>
     /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
     /// <returns>A task yielding the resulting DataFrame.</returns>
-    public static async Task<DataFrame> ToDataFrameAsync<T>(
+    public static async Task<DataFrame> ToDataFrameAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
         this IAsyncEnumerable<T> source,
         CancellationToken cancellationToken = default)
     {

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using Polars.NET.Core.Wrappers;
@@ -6,7 +7,7 @@ namespace Polars.NET.Core.Helpers;
 
 public static class StructPacker
 {
-    private static class PackerCache<T>
+    private static class PackerCache<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>
     {
         public static readonly Func<T[], SeriesHandle>[] ColumnPackers;
 

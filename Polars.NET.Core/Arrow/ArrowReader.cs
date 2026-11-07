@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -16,7 +17,7 @@ public delegate void RefRowAssigner<TElement>(ref TElement entity, int rowIndex)
 
 public static class ArrowReader
 {
-    public static IEnumerable<T> ReadRecordBatch<T>(RecordBatch batch)
+    public static IEnumerable<T> ReadRecordBatch<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(RecordBatch batch)
     {
 
         var targetType = typeof(T);
@@ -100,7 +101,7 @@ public static class ArrowReader
     // =============================================================
     // Accessor Factory
     // =============================================================
-    public static Func<int, object?> CreateAccessor(IArrowArray array, Type targetType)
+    public static Func<int, object?> CreateAccessor(IArrowArray array, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type targetType)
     {
         if (targetType == typeof(object))
         {
@@ -124,7 +125,7 @@ public static class ArrowReader
         return CreateCoreAccessor(array, underlyingType);
     }
     // Specialized F# Option Accessor Builder
-    private static Func<int, object?> CreateFSharpOptionAccessor<U>(IArrowArray array)
+    private static Func<int, object?> CreateFSharpOptionAccessor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] U>(IArrowArray array)
     {
         // 1. Create inner accessor for U
         var innerAccessor = CreateCoreAccessor(array, typeof(U));
@@ -136,7 +137,7 @@ public static class ArrowReader
             return val == null ? FSharpOption<U>.None : FSharpOption<U>.Some((U)val);
         };
     }
-    private static Func<int, object?> CreateCoreAccessor(IArrowArray array, Type type)
+    private static Func<int, object?> CreateCoreAccessor(IArrowArray array, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type)
     {
         if (array is DictionaryArray dictArray)
             return CreateDictionaryAccessor(dictArray, type);
@@ -247,7 +248,7 @@ public static class ArrowReader
     // =============================================================
     // 2. Struct Accessor
     // =============================================================
-    private static Func<int, object?> CreateStructAccessor(StructArray structArray, Type type)
+    private static Func<int, object?> CreateStructAccessor(StructArray structArray, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type)
     {
         if (type == typeof(Dictionary<string, object>) || type == typeof(object))
         {
@@ -567,12 +568,12 @@ public static class ArrowReader
     /// Create a high-performance accessor for a single Arrow Array.
     /// Used by Series.AsSeq().
     /// </summary>
-    public static Func<int, object?> GetSeriesAccessor<T>(IArrowArray array)
+    public static Func<int, object?> GetSeriesAccessor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IArrowArray array)
         => CreateAccessor(array, typeof(T));
     /// <summary>
     /// Read single Array index i item
     /// </summary>
-    public static T? ReadItem<T>(IArrowArray array, int index)
+    public static T? ReadItem<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IArrowArray array, int index)
     {
         var accessor = CreateAccessor(array, typeof(T));
         var val = accessor(index);
@@ -581,7 +582,7 @@ public static class ArrowReader
     // =============================================================
     // Dictionary Accessor (Categorical)
     // =============================================================
-    private static Func<int, object?> CreateDictionaryAccessor(DictionaryArray array, Type targetType)
+    private static Func<int, object?> CreateDictionaryAccessor(DictionaryArray array, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type targetType)
     {
         // Get Indices
         var indices = array.Indices;
@@ -656,7 +657,7 @@ public static class ArrowReader
     /// <summary>
     /// Read Arrow Array by memcpy(non-null primitive types) or accessor.
     /// </summary>
-    public static T[] ReadColumn<T>(IArrowArray array)
+    public static T[] ReadColumn<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IArrowArray array)
     {
         // Memcpy
         var fastArray = PrimitiveArrayReader<T>.Read(array);
@@ -691,7 +692,7 @@ public static class ArrowReader
         return null;
     }
 
-    private static class PrimitiveArrayReader<T>
+    private static class PrimitiveArrayReader<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>
     {
         public static readonly Func<IArrowArray, T[]?> Read;
 
@@ -734,7 +735,7 @@ internal static class FastAccessorBuilder
     /// <summary>
     /// AST merger
     /// </summary>
-    private static RefRowAssigner<TEntity> BuildRowAssignerInternal<TEntity, TProp>(IArrowArray array, PropertyInfo prop)
+    private static RefRowAssigner<TEntity> BuildRowAssignerInternal<TEntity, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TProp>(IArrowArray array, PropertyInfo prop)
     {
         var entityParam = Expression.Parameter(typeof(TEntity).MakeByRefType(), "entity");
         var rowIdxParam = Expression.Parameter(typeof(int), "rowIdx");
@@ -760,7 +761,7 @@ internal static class FastAccessorBuilder
     /// <summary>
     /// Strong Type Getter Factory
     /// </summary>
-    private static Func<int, TProp> CreateStrongGetter<TProp>(IArrowArray array)
+    private static Func<int, TProp> CreateStrongGetter<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TProp>(IArrowArray array)
     {
         Type type = typeof(TProp);
         Type underlyingType = Nullable.GetUnderlyingType(type) ?? type;

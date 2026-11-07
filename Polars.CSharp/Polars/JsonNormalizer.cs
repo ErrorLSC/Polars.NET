@@ -1,5 +1,7 @@
 #pragma warning disable CS1573 
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
+using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 
 namespace Polars.CSharp;
@@ -16,8 +18,11 @@ public readonly partial struct Polars
     /// <param name="schema">Overwrite the Schema when the normalized data is passed to the DataFrame constructor.</param>
     /// <param name="strict">Whether Polars should be strict when constructing the DataFrame.</param>
     /// <param name="inferSchemaLength">Number of rows to take into consideration to determine the schema.</param>
-    /// <param name="encoder">Custom JSON encoder function; if not given, JsonSerializer.Serialize is used.</param>
+    /// <param name="encoder">Custom JSON encoder function. If not given, JSON-shaped values (dictionaries, lists,
+    /// primitives, dates, JsonElement) are encoded directly and other objects with JsonSerializer.</param>
     /// <exception cref="ArgumentException"></exception>
+    [RequiresUnreferencedCode(AotMessages.JsonPocoFallback)]
+    [RequiresDynamicCode(AotMessages.JsonPocoFallback)]
     public static DataFrame JsonNormalize(
         object data, // IDictionary<string, object?> or IEnumerable<IDictionary<string, object?>>
         string separator = ".",
@@ -26,10 +31,18 @@ public readonly partial struct Polars
         bool strict = true,
         uint? inferSchemaLength = 100,
         Func<object?, string>? encoder = null)
+        => JsonNormalizeCore(data, separator, maxLevel, schema, strict, inferSchemaLength, encoder ?? JsonValueEncoder.Encode);
+
+    private static DataFrame JsonNormalizeCore(
+        object data,
+        string separator,
+        int? maxLevel,
+        IntoSchema? schema,
+        bool strict,
+        uint? inferSchemaLength,
+        Func<object?, string> encoder)
     {
         int actualMaxLevel = maxLevel.HasValue ? maxLevel.Value + 1 : int.MaxValue;
-
-        encoder ??= JsonNormalizeHelper.DefaultEncoder;
 
         // Unify format to List 
         IEnumerable<IDictionary<string, object?>> dataList;
@@ -98,6 +111,14 @@ public readonly partial struct Polars
             throw new ArgumentException("JSON string must be an object or an array of objects.");
         }
 
-        return JsonNormalize(data, separator, maxLevel, schema, strict, inferSchemaLength, encoder);
+        return JsonNormalizeCore(data, separator, maxLevel, schema, strict, inferSchemaLength, encoder ?? EncodeParsedJson);
     }
+
+    /// <summary>Default encoder for data parsed from a JSON string.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "Values come from JsonDocument (dictionaries, lists, strings, numbers, booleans, null), which " +
+                        "JsonValueEncoder writes directly; its reflection-based fallback is never reached.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050",
+        Justification = "See IL2026: parsed-JSON values never reach the reflection-based fallback.")]
+    private static string EncodeParsedJson(object? value) => JsonValueEncoder.Encode(value);
 }

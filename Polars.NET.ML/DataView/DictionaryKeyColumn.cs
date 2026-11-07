@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Buffers;
 using Apache.Arrow;
 using Microsoft.ML;
@@ -103,6 +104,7 @@ internal sealed unsafe class DictionaryKeyAccessor(DictionaryKeyColumn column) :
     private delegate*<byte*, int, int> _readIndex;
     private uint[] _remap = [];
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(uint);
     public override bool UsesFastNullBitmap => true;
 

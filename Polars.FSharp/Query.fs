@@ -5,6 +5,7 @@ open System.Linq
 open Polars.NET.Linq
 open Polars.NET.Linq.Backend.Polars
 open System
+open System.Diagnostics.CodeAnalysis
 open Polars.NET.Core
 open System.Threading
 open System.Threading.Tasks
@@ -98,10 +99,12 @@ module LinqExtension =
         /// Convert LazyFrame into an IQueryable LINQ query provider.
         /// Operations will be translated to Polars Expressions and compiled into execution plans.
         /// </summary>
+        [<RequiresDynamicCode(AotMessages.LinqProvider); RequiresUnreferencedCode(AotMessages.LinqProvider)>]
         member this.AsQueryable<'T>() : IQueryable<'T> =
             PolarsQuery<'T>(this.Handle, FSharpRowCursorMaterializer(), QueryLanguage.FSharp)
 
         /// Directly creates an IQueryable with type inferred from an existing sample sequence
+        [<RequiresDynamicCode(AotMessages.LinqProvider); RequiresUnreferencedCode(AotMessages.LinqProvider)>]
         member this.AsQueryable(sample: 'T seq) : IQueryable<'T> = this.AsQueryable<'T>()
 
     type DataFrame with
@@ -109,8 +112,10 @@ module LinqExtension =
         /// Convert DataFrame into an IQueryable LINQ query provider.
         /// Operations will be translated to Polars Expressions and compiled into execution plans.
         /// </summary>
+        [<RequiresDynamicCode(AotMessages.LinqProvider); RequiresUnreferencedCode(AotMessages.LinqProvider)>]
         member this.AsQueryable<'T>() : IQueryable<'T> = this.Lazy().AsQueryable<'T>()
         /// Directly creates an IQueryable with type inferred from an existing sample sequence
+        [<RequiresDynamicCode(AotMessages.LinqProvider); RequiresUnreferencedCode(AotMessages.LinqProvider)>]
         member this.AsQueryable(sample: 'T seq) : IQueryable<'T> = this.AsQueryable<'T>()
 
     type Series with
@@ -124,12 +129,14 @@ module LinqExtension =
         /// For Struct Series, it is unnested into a multi-column DataFrame matching the struct fields.
         /// For scalar and other Series, it is converted into a single-column DataFrame.
         /// </summary>
+        [<RequiresDynamicCode(AotMessages.LinqProvider); RequiresUnreferencedCode(AotMessages.LinqProvider)>]
         member this.AsQueryable<'T>() : IQueryable<'T> =
             match this.DataType.Kind with
             | DataTypeKind.Struct _ -> this.Unnest().AsQueryable<'T>()
             | _ -> this.ToFrame().AsQueryable<'T>()
 
         /// Directly creates an IQueryable with type inferred from an existing sample sequence
+        [<RequiresDynamicCode(AotMessages.LinqProvider); RequiresUnreferencedCode(AotMessages.LinqProvider)>]
         member this.AsQueryable(sample: 'T seq) : IQueryable<'T> = this.AsQueryable<'T>()
 
         /// <summary>

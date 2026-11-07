@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Data;
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
@@ -21,7 +22,7 @@ public static class IpcStreamService
         }
     }
 
-    public class TempIpcScope<T> : TempIpcScope
+    public class TempIpcScope<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T> : TempIpcScope
     {
         public TempIpcScope(IEnumerable<T> data, int batchSize)
         {
@@ -37,7 +38,7 @@ public static class IpcStreamService
         }
     }
 
-    public static string StartBufferedFileWriter<T>(IEnumerable<T> data, int batchSize = 100_000)
+    public static string StartBufferedFileWriter<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(IEnumerable<T> data, int batchSize = 100_000)
     {
         string filePath = Path.GetTempFileName();
         WriteDataToFile(filePath, data, batchSize);
@@ -79,7 +80,7 @@ public static class IpcStreamService
         return filePath;
     }
 
-    private static void WriteDataToFile<T>(string filePath, IEnumerable<T> data, int batchSize)
+    private static void WriteDataToFile<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(string filePath, IEnumerable<T> data, int batchSize)
     {
         var originalSchema = Arrow.ArrowConverter.GetSchemaFromType<T>();
         var ipcSchema = DowngradeSchemaForIpc(originalSchema);

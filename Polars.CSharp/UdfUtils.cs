@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Data;
@@ -6,7 +7,7 @@ namespace Polars.CSharp;
 
 internal static class UdfUtils
 {
-    public static Func<IArrowArray, IArrowArray> Wrap<TIn, TOut>(Func<TIn, TOut> userFunc)
+    public static Func<IArrowArray, IArrowArray> Wrap<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TIn, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TOut>(Func<TIn, TOut> userFunc)
     {
         var tIn = typeof(TIn);
 

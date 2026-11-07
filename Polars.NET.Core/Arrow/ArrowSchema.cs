@@ -49,7 +49,7 @@ public static class ArrowTypeResolver
     /// representation is mapped to a string type.
     /// </summary>
     public static IArrowType GetArrowTypeFromNetType(
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
         Type type)
         => ResolveArrowType(type, strict: false)!;
 
@@ -58,7 +58,7 @@ public static class ArrowTypeResolver
     /// has no Arrow representation (object, enums, types without readable members, ...).
     /// </summary>
     public static IArrowType? TryGetArrowTypeFromNetType(
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
         Type type)
         => ResolveArrowType(type, strict: true);
 
@@ -67,7 +67,7 @@ public static class ArrowTypeResolver
     /// when <paramref name="strict"/>, to null, which then also makes every enclosing type null.
     /// </summary>
     private static IArrowType? ResolveArrowType(
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
         Type type,
         bool strict)
     {
@@ -152,12 +152,12 @@ public static class ArrowTypeResolver
     // =================================================================================
 
     public static Field ResolveField(string name,
-    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
     Type type)
         => ResolveField(name, type, strict: false)!;
 
     private static Field? ResolveField(string name,
-    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
     Type type,
     bool strict)
     {
@@ -168,7 +168,7 @@ public static class ArrowTypeResolver
     }
 
     public static MemberInfo[] GetReadableMembers(
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
         Type type)
     {
         var properties = PolarsTypeHelper.GetModelProperties(type)
@@ -182,7 +182,6 @@ public static class ArrowTypeResolver
     }
 
     public static Type GetMemberType(
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
         MemberInfo member)
     {
         return member switch
@@ -284,21 +283,21 @@ public static class ArrowTypeResolver
     }
 
     public static PlDataType GetPlDataTypeFromNetType(
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
         Type type)
     {
         var arrowType = GetArrowTypeFromNetType(type);
         return GetPlDataTypeFromArrowType(arrowType);
     }
 
-    public static IArrowType? TryGetArrowType(Type? type)
+    public static IArrowType? TryGetArrowType([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type? type)
     {
         if (type == null) return null;
         try { return GetArrowTypeFromNetType(type); }
         catch { return null; }
     }
 
-    public static PlDataType? TryGetPlDataType(Type? type)
+    public static PlDataType? TryGetPlDataType([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type? type)
     {
         if (type == null) return null;
         try

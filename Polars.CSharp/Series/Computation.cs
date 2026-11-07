@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using System.Diagnostics.CodeAnalysis;
 using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
 
@@ -67,7 +68,7 @@ public partial class Series : IDisposable
     /// <typeparam name="T">The type of the result (e.g. double, long).</typeparam>
     /// <param name="other">The other Series.</param>
     /// <returns>The dot product value.</returns>
-    public T? Dot<T>(Series other) => Dot(other).GetValue<T>(0);
+    public T? Dot<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Series other) => Dot(other).GetValue<T>(0);
     /// <inheritdoc cref="Expr.Round"/>
     public Series Round(uint decimals = 0, RoundMode mode = RoundMode.HalfToEven) => ApplyExpr(Pl.Col(Name).Round(decimals, mode));
     /// <inheritdoc cref="Expr.RoundSigFigs"/>
@@ -249,7 +250,7 @@ public partial class Series : IDisposable
         return ApplyExpr(Pl.Col(Name).SearchSorted(eleExpr, side, descending));
     }
     /// <inheritdoc cref="Expr.SearchSorted(IntoExpr, SearchSortedSide, bool)"/>
-    public Series SearchSorted<T>(IEnumerable<T> element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
+    public Series SearchSorted<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(IEnumerable<T> element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
         => ApplyExpr(Pl.Col(Name).SearchSorted(element, side, descending));
     /// <summary>
     /// Searches for a single scalar value and returns its insertion index.

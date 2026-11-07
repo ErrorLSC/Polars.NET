@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Collections;
 using System.Runtime.CompilerServices;
@@ -11,6 +12,7 @@ using Apache.Arrow.Types;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
 using Polars.NET.Core.Arrow;
+using Polars.NET.Core.Helpers;
 
 namespace Polars.NET.Core.Data;
 
@@ -36,6 +38,7 @@ public abstract unsafe class ColumnAccessor : IDisposable
     protected int _offset;
     protected bool _alwaysNull;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public abstract Type TargetType { get; }
     public virtual bool UsesFastNullBitmap => false;
     public abstract void SetBatch(IArrowArray array);
@@ -128,7 +131,7 @@ public abstract class TypedColumnAccessor<T> : ColumnAccessor, ITypedAccessor<T>
 
 public static class ColumnAccessorFactory
 {
-    public static ColumnAccessor Create(Field field, Type targetType)
+    public static ColumnAccessor Create(Field field, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type targetType)
     {
         if (targetType.IsGenericType)
         {
@@ -222,7 +225,7 @@ public static class ColumnAccessorFactory
         };
     }
 
-    private static ColumnAccessor CreateListAccessor(IArrowType arrowType, Type targetType)
+    private static ColumnAccessor CreateListAccessor(IArrowType arrowType, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type targetType)
     {
         Type elementType;
         if (targetType.IsArray)
@@ -249,7 +252,7 @@ public static class ColumnAccessorFactory
         return (ColumnAccessor)Activator.CreateInstance(accessorClass, targetType, arrowType)!;
     }
 
-    private static ColumnAccessor CreateStructAccessor(IArrowType arrowType, Type targetType)
+    private static ColumnAccessor CreateStructAccessor(IArrowType arrowType, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type targetType)
     {
         if (targetType != typeof(byte[]))
         {
@@ -286,8 +289,9 @@ public static class ColumnAccessorFactory
 // Concrete Accessors
 // ==================================================================================
 
-internal sealed class NullAccessor<T> : TypedColumnAccessor<T>, ITypedAccessor<T?>
+internal sealed class NullAccessor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] T> : TypedColumnAccessor<T>, ITypedAccessor<T?>
 {
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(T);
     public override void SetBatch(IArrowArray array) { }
     public override bool IsNull(int index) => true;
@@ -300,6 +304,7 @@ internal sealed class FixedSizeBinaryToGuidAccessor : TypedColumnAccessor<Guid>,
 {
     private FixedSizeBinaryArray? _array;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(Guid);
 
     public override void SetBatch(IArrowArray array) => _array = (FixedSizeBinaryArray)array;
@@ -323,6 +328,7 @@ internal sealed class FixedSizeBinaryAccessor : TypedColumnAccessor<byte[]>,
 {
     private FixedSizeBinaryArray? _array;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(byte[]);
     public override void SetBatch(IArrowArray array) => _array = (FixedSizeBinaryArray)array;
     public override bool IsNull(int index) => _array!.IsNull(index);
@@ -340,6 +346,7 @@ internal sealed class BinaryToGuidAccessor : TypedColumnAccessor<Guid>,
 {
     private IArrowArray? _array;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(Guid);
     public override void SetBatch(IArrowArray array) => _array = array;
     public override bool IsNull(int index) => _array!.IsNull(index);
@@ -372,6 +379,7 @@ internal sealed unsafe class BooleanAccessor : TypedColumnAccessor<bool>,
     ITypedAccessor<bool>, ITypedAccessor<bool?>
 {
     private byte* _bits;
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(bool);
     public override bool UsesFastNullBitmap => true;
     public override void SetBatch(IArrowArray array) => _bits = BindRawBuffer(array);
@@ -394,7 +402,7 @@ internal sealed unsafe class BooleanAccessor : TypedColumnAccessor<bool>,
 /// <see cref="decimal"/> is checked (NaN / out-of-range throws <see cref="OverflowException"/>).
 /// TSrc is always a value type, so the JIT specializes each instantiation and the conversions inline.
 /// </summary>
-internal sealed unsafe class NumericAccessor<TSrc> : TypedColumnAccessor<TSrc>,
+internal sealed unsafe class NumericAccessor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] TSrc> : TypedColumnAccessor<TSrc>,
     ITypedAccessor<sbyte>, ITypedAccessor<byte>, ITypedAccessor<short>, ITypedAccessor<ushort>, ITypedAccessor<int>,
     ITypedAccessor<uint>, ITypedAccessor<long>, ITypedAccessor<ulong>, ITypedAccessor<Int128>, ITypedAccessor<UInt128>,
     ITypedAccessor<Half>, ITypedAccessor<float>, ITypedAccessor<double>, ITypedAccessor<decimal>, ITypedAccessor<char>,
@@ -405,6 +413,7 @@ internal sealed unsafe class NumericAccessor<TSrc> : TypedColumnAccessor<TSrc>,
     where TSrc : unmanaged, INumberBase<TSrc>
 {
     private TSrc* _ptr;
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(TSrc);
     public override bool UsesFastNullBitmap => true;
     public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<TSrc>(array);
@@ -462,6 +471,7 @@ internal sealed unsafe class DecimalAccessor : TypedColumnAccessor<decimal>,
     private int _scale;
     private int _precision;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(decimal);
     public override bool UsesFastNullBitmap => true;
 
@@ -555,6 +565,7 @@ internal sealed unsafe class StringViewAccessor : TypedColumnAccessor<string>,
     private MemoryHandle[]? _dataBufferHandles;
     private nint[]? _dataBufferPtrs;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(string);
     public override bool UsesFastNullBitmap => true;
 
@@ -686,6 +697,7 @@ internal sealed unsafe class DictionaryAccessor : TypedColumnAccessor<string>,
     private byte* _indicesPtr;
     private delegate*<byte*, int, int> _readKeyFn;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(string);
     public override bool UsesFastNullBitmap => true;
 
@@ -774,7 +786,7 @@ internal sealed unsafe class DictionaryAccessor : TypedColumnAccessor<string>,
     }
 }
 
-internal sealed unsafe class EnumAccessor<TEnum> : TypedColumnAccessor<TEnum>,
+internal sealed unsafe class EnumAccessor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] TEnum> : TypedColumnAccessor<TEnum>,
     ITypedAccessor<TEnum>, ITypedAccessor<TEnum?>
     where TEnum : struct, Enum
 {
@@ -801,6 +813,7 @@ internal sealed unsafe class EnumAccessor<TEnum> : TypedColumnAccessor<TEnum>,
         }
     }
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(TEnum);
 
     public override void SetBatch(IArrowArray array)
@@ -923,6 +936,7 @@ internal sealed class BinaryAccessor : TypedColumnAccessor<byte[]>, IBinarySpanA
 {
     private IArrowArray? _array;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(byte[]);
 
     public override void SetBatch(IArrowArray array) => _array = array;
@@ -948,6 +962,7 @@ internal sealed unsafe class Int64ToDateTimeAccessor : TypedColumnAccessor<DateT
     ITypedAccessor<DateTime>, ITypedAccessor<DateTime?>, ITypedAccessor<DateTimeOffset>, ITypedAccessor<DateTimeOffset?>
 {
     private long* _ptr;
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(DateTime);
     public override bool UsesFastNullBitmap => true;
     public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<long>((Int64Array)array);
@@ -969,6 +984,7 @@ internal sealed unsafe class Int64ToTimeSpanAccessor : TypedColumnAccessor<TimeS
     ITypedAccessor<TimeSpan>, ITypedAccessor<TimeSpan?>, ITypedAccessor<long>, ITypedAccessor<long?>
 {
     private long* _ptr;
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(TimeSpan);
     public override bool UsesFastNullBitmap => true;
     public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<long>((Int64Array)array);
@@ -994,6 +1010,7 @@ internal sealed unsafe class TimestampAccessor : TypedColumnAccessor<DateTime>,
     private TimeUnit _unit;
     private bool _hasTimeZone;
     private TimeZoneInfo? _timeZoneInfo;
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     private readonly Type _targetType;
 
     public TimestampAccessor(Type? targetType = null)
@@ -1001,6 +1018,7 @@ internal sealed unsafe class TimestampAccessor : TypedColumnAccessor<DateTime>,
         _targetType = targetType == typeof(DateTimeOffset) ? typeof(DateTimeOffset) : typeof(DateTime);
     }
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => _targetType;
     public override bool UsesFastNullBitmap => true;
 
@@ -1101,6 +1119,7 @@ internal sealed unsafe class Date32ToDateOnlyAccessor : TypedColumnAccessor<Date
 {
     private int* _ptr;
     private const int UnixEpochDayNumber = 719162;
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     private readonly Type _targetType;
 
     public Date32ToDateOnlyAccessor(Type? targetType = null)
@@ -1108,6 +1127,7 @@ internal sealed unsafe class Date32ToDateOnlyAccessor : TypedColumnAccessor<Date
         _targetType = targetType == typeof(DateTime) ? typeof(DateTime) : typeof(DateOnly);
     }
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => _targetType;
     public override bool UsesFastNullBitmap => true;
     public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<int>((Date32Array)array);
@@ -1143,6 +1163,7 @@ internal sealed unsafe class Date64Accessor : TypedColumnAccessor<DateTime>,
     ITypedAccessor<DateTime?>, ITypedAccessor<DateTimeOffset?>, ITypedAccessor<DateOnly?>
 {
     private long* _ptr;
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(DateTime);
     public override bool UsesFastNullBitmap => true;
     public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<long>((Date64Array)array);
@@ -1169,6 +1190,7 @@ internal sealed unsafe class DurationAccessor : TypedColumnAccessor<TimeSpan>,
     private long* _ptr;
     private TimeUnit _unit;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(TimeSpan);
     public override bool UsesFastNullBitmap => true;
 
@@ -1209,6 +1231,7 @@ internal sealed unsafe class Int64ToTimeOnlyAccessor : TypedColumnAccessor<TimeO
     ITypedAccessor<TimeSpan>, ITypedAccessor<TimeSpan?>
 {
     private long* _ptr;
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(TimeOnly);
     public override bool UsesFastNullBitmap => true;
     public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<long>((Int64Array)array);
@@ -1235,6 +1258,7 @@ internal sealed unsafe class Time32Accessor : TypedColumnAccessor<TimeOnly>,
     private int* _ptr;
     private bool _isMillisecond;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(TimeOnly);
     public override bool UsesFastNullBitmap => true;
 
@@ -1271,6 +1295,7 @@ internal sealed unsafe class Time64Accessor : TypedColumnAccessor<TimeOnly>,
     private long* _ptr;
     private bool _isNanosecond;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(TimeOnly);
     public override bool UsesFastNullBitmap => true;
 
@@ -1300,7 +1325,7 @@ internal sealed unsafe class Time64Accessor : TypedColumnAccessor<TimeOnly>,
     TimeSpan? ITypedAccessor<TimeSpan?>.GetTypedValue(int index) => IsNull(index) ? null : GetTypedValue(index).ToTimeSpan();
 }
 
-internal sealed class ListAccessor<TElement> : TypedColumnAccessor<TElement[]>,
+internal sealed class ListAccessor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TElement> : TypedColumnAccessor<TElement[]>,
     ITypedAccessor<TElement[]>,
     ITypedAccessor<List<TElement>>,
     ITypedAccessor<IList<TElement>>,
@@ -1316,7 +1341,7 @@ internal sealed class ListAccessor<TElement> : TypedColumnAccessor<TElement[]>,
     private readonly ITypedAccessor<TElement>? _typedChildAccessor;
     private readonly int _fixedListSize;
 
-    public ListAccessor(Type targetType, IArrowType arrowType)
+    public ListAccessor([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type targetType, IArrowType arrowType)
     {
         TargetType = targetType;
 
@@ -1338,6 +1363,7 @@ internal sealed class ListAccessor<TElement> : TypedColumnAccessor<TElement[]>,
         _typedChildAccessor = _childAccessor as ITypedAccessor<TElement>;
     }
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType { get; }
 
     public override void SetBatch(IArrowArray array)
@@ -1475,14 +1501,14 @@ internal sealed class ListAccessor<TElement> : TypedColumnAccessor<TElement[]>,
     }
 }
 
-internal sealed class StructAccessor<T> : TypedColumnAccessor<T>, ITypedAccessor<T>
+internal sealed class StructAccessor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T> : TypedColumnAccessor<T>, ITypedAccessor<T>
 {
     private StructArray? _array;
     private readonly ColumnAccessor[] _childAccessors;
     private readonly string[]? _dictFieldNames;
     private readonly CompiledArrowRowMapper<T>? _compiledMapper;
 
-    public StructAccessor(Type targetType, IArrowType arrowType)
+    public StructAccessor([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type targetType, IArrowType arrowType)
     {
         TargetType = targetType;
 
@@ -1512,6 +1538,7 @@ internal sealed class StructAccessor<T> : TypedColumnAccessor<T>, ITypedAccessor
         }
     }
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType { get; }
 
     public override void SetBatch(IArrowArray array)
@@ -1563,7 +1590,7 @@ internal sealed class StructAccessor<T> : TypedColumnAccessor<T>, ITypedAccessor
     }
 }
 
-internal sealed class StructToListAccessor<TElement> : TypedColumnAccessor<TElement[]>,
+internal sealed class StructToListAccessor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TElement> : TypedColumnAccessor<TElement[]>,
     ITypedAccessor<TElement[]>,
     ITypedAccessor<List<TElement>>,
     ITypedAccessor<IList<TElement>>,
@@ -1577,7 +1604,7 @@ internal sealed class StructToListAccessor<TElement> : TypedColumnAccessor<TElem
     private readonly ColumnAccessor[] _childAccessors;
     private readonly ITypedAccessor<TElement>?[] _typedChildAccessors;
 
-    public StructToListAccessor(Type targetType, IArrowType arrowType)
+    public StructToListAccessor([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type targetType, IArrowType arrowType)
     {
         TargetType = targetType;
 
@@ -1595,6 +1622,7 @@ internal sealed class StructToListAccessor<TElement> : TypedColumnAccessor<TElem
         }
     }
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType { get; }
 
     public override void SetBatch(IArrowArray array)
@@ -1653,10 +1681,11 @@ internal sealed class StructToListAccessor<TElement> : TypedColumnAccessor<TElem
     }
 }
 
-internal sealed class FSharpOptionAccessor<T>(ColumnAccessor innerAccessor, Type targetType) : TypedColumnAccessor<FSharpOption<T>>, ITypedAccessor<FSharpOption<T>>
+internal sealed class FSharpOptionAccessor<T>(ColumnAccessor innerAccessor, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type targetType) : TypedColumnAccessor<FSharpOption<T>>, ITypedAccessor<FSharpOption<T>>
 {
     private readonly ITypedAccessor<T>? _typedInnerAccessor = innerAccessor as ITypedAccessor<T>;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => targetType;
     public override void SetBatch(IArrowArray array) => innerAccessor.SetBatch(array);
     public override bool IsNull(int index) => innerAccessor.IsNull(index);
@@ -1685,10 +1714,11 @@ internal sealed class FSharpOptionAccessor<T>(ColumnAccessor innerAccessor, Type
     }
 }
 
-internal sealed class FSharpValueOptionAccessor<T>(ColumnAccessor innerAccessor, Type targetType) : TypedColumnAccessor<FSharpValueOption<T>>, ITypedAccessor<FSharpValueOption<T>>
+internal sealed class FSharpValueOptionAccessor<T>(ColumnAccessor innerAccessor, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type targetType) : TypedColumnAccessor<FSharpValueOption<T>>, ITypedAccessor<FSharpValueOption<T>>
 {
     private readonly ITypedAccessor<T>? _typedInnerAccessor = innerAccessor as ITypedAccessor<T>;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => targetType;
     public override void SetBatch(IArrowArray array) => innerAccessor.SetBatch(array);
     public override bool IsNull(int index) => innerAccessor.IsNull(index);
@@ -1719,10 +1749,11 @@ internal sealed class FSharpValueOptionAccessor<T>(ColumnAccessor innerAccessor,
     }
 }
 
-internal sealed class JsonFallbackAccessor<T> : TypedColumnAccessor<T>, ITypedAccessor<T>
+internal sealed class JsonFallbackAccessor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] T> : TypedColumnAccessor<T>, ITypedAccessor<T>
 {
     private IArrowArray? _array;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(T);
     public override void SetBatch(IArrowArray array) => _array = array;
     public override bool IsNull(int index) => _array!.IsNull(index);
@@ -1733,7 +1764,7 @@ internal sealed class JsonFallbackAccessor<T> : TypedColumnAccessor<T>, ITypedAc
 
         if (typeof(T) == typeof(string))
         {
-            var json = rawValue is string s ? s : JsonSerializer.Serialize(rawValue);
+            var json = rawValue is string s ? s : EncodeExtractedValue(rawValue);
             return (T)(object)json;
         }
 
@@ -1753,6 +1784,13 @@ internal sealed class JsonFallbackAccessor<T> : TypedColumnAccessor<T>, ITypedAc
     }
 
     T ITypedAccessor<T>.GetTypedValue(int index) => GetTypedValue(index);
+
+    [UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "ExtractValue only yields null, numbers, booleans, strings and DateTime, which JsonValueEncoder " +
+                        "writes directly; its reflection-based fallback is never reached.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050",
+        Justification = "See IL2026: extracted values never reach the reflection-based fallback.")]
+    private static string EncodeExtractedValue(object? value) => JsonValueEncoder.Encode(value);
 
     private static object? ExtractValue(IArrowArray array, int index)
     {

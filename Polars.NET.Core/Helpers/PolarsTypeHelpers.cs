@@ -3,6 +3,7 @@ namespace Polars.NET.Core.Helpers;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using Microsoft.FSharp.Core;
@@ -79,7 +80,7 @@ public static class PolarsTypeHelper
     /// <summary>
     /// Checks if a type is an F# record type.
     /// </summary>
-    public static bool IsFSharpRecord(Type type)
+    public static bool IsFSharpRecord([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type)
     {
         ArgumentNullException.ThrowIfNull(type);
         return FSharpType.IsRecord(type, null);
@@ -89,7 +90,7 @@ public static class PolarsTypeHelper
     /// Retrieves column property schema for a type, leveraging FSharp.Reflection for F# records
     /// to guarantee field declaration order and handle internal representations cleanly.
     /// </summary>
-    public static PropertyInfo[] GetModelProperties(Type type)
+    public static PropertyInfo[] GetModelProperties([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type)
     {
         ArgumentNullException.ThrowIfNull(type);
 
@@ -136,7 +137,7 @@ public static class PolarsTypeHelper
             : type;
     }
 
-    public static Type? TryGetEnumerableElementType(Type type)
+    public static Type? TryGetEnumerableElementType([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] Type type)
     {
         if (type.IsArray) return type.GetElementType();
 
@@ -183,7 +184,7 @@ public static class PolarsTypeHelper
     /// Builds an Expression that extracts the unwrapped value or returns default/null.
     /// Unwraps Nullable.Value, FSharpOption.Value, or FSharpValueOption.Value if present.
     /// </summary>
-    public static Expression BuildUnwrapExpression(Expression propertyAccess, Type propertyType, Type targetType)
+    public static Expression BuildUnwrapExpression(Expression propertyAccess, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] Type propertyType, Type targetType)
     {
         var (coreType, kind) = GetOptionalInfo(propertyType);
 
@@ -284,7 +285,7 @@ public static class PolarsTypeHelper
     /// <summary>
     /// Returns the default value for the specified type (Activator.CreateInstance for value types, null for reference types).
     /// </summary>
-    public static object? GetDefaultValue(Type? type)
+    public static object? GetDefaultValue([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type? type)
     {
         if (type == null) return null;
         return type.IsValueType ? Activator.CreateInstance(type) : null;

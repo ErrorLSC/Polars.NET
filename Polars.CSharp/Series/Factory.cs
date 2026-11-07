@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Helpers;
@@ -91,7 +92,7 @@ public partial class Series : IDisposable
     /// Create a Series from a list of objects, primitives, or nested lists.
     /// Uses SeriesFactory to automatically select the fastest path (SIMD for Arrays, Reflection for Lists).
     /// </summary>
-    public static Series From<T>(string name, IEnumerable<T> data)
+    public static Series From<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(string name, IEnumerable<T> data)
     {
         var handle = SeriesFactory.CreateGenericType(name, data);
 

@@ -39,12 +39,15 @@
     <Compile Include="EnumColumnTests.fs" />
     <Compile Include="SubqueryGraftingTests.fs" />
     <Compile Include="QueryOptionSemanticsTests.fs" />
+    <Compile Include="DisplayTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
     <PackageReference Include="MiniExcel" Version="1.42.0" />
+    <!-- Test-only: verifies Display.init registers with a real .NET Interactive formatter (late-bound in the library). -->
+    <PackageReference Include="Microsoft.DotNet.Interactive.Formatting" Version="1.0.0-beta.26120.1" />
     <PackageReference Include="xunit" Version="2.5.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
     <PackageReference Include="System.Numerics.Tensors" Version="10.0.5" />

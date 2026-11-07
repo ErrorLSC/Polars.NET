@@ -1,5 +1,4 @@
 using System.Linq.Expressions;
-using System.Reflection;
 
 namespace Polars.CSharp.Linq;
 
@@ -26,7 +25,7 @@ public static partial class LinqExtensions
         return source.Provider.CreateQuery<IGrouping<TKey, TSource>>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource)),
+                new Func<IQueryable<IGrouping<TKey, TSource>>, IQueryable<IGrouping<TKey, TSource>>>(RollUp<TKey, TSource>).Method,
                 source.Expression
             )
         );
@@ -51,7 +50,7 @@ public static partial class LinqExtensions
         return source.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
+                new Func<IQueryable<IGrouping<TKey, TSource>>, Expression<Func<TKey, IEnumerable<TSource>, TResult>>, IQueryable<TResult>>(RollUp<TKey, TSource, TResult>).Method,
                 source.Expression,
                 Expression.Quote(resultSelector)
             )
@@ -78,7 +77,7 @@ public static partial class LinqExtensions
         return source.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
+                new Func<IQueryable<IGrouping<TKey, TSource>>, Expression<Func<IGrouping<TKey, TSource>, TResult>>, IQueryable<TResult>>(RollUp<TKey, TSource, TResult>).Method,
                 source.Expression,
                 Expression.Quote(resultSelector)
             )
@@ -107,7 +106,7 @@ public static partial class LinqExtensions
         return source.Provider.CreateQuery<IGrouping<TKey, TSource>>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource)),
+                new Func<IQueryable<IGrouping<TKey, TSource>>, IQueryable<IGrouping<TKey, TSource>>>(Cube<TKey, TSource>).Method,
                 source.Expression
             )
         );
@@ -127,7 +126,7 @@ public static partial class LinqExtensions
         return source.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
+                new Func<IQueryable<IGrouping<TKey, TSource>>, Expression<Func<TKey, IEnumerable<TSource>, TResult>>, IQueryable<TResult>>(Cube<TKey, TSource, TResult>).Method,
                 source.Expression,
                 Expression.Quote(resultSelector)
             )
@@ -148,7 +147,7 @@ public static partial class LinqExtensions
         return source.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
+                new Func<IQueryable<IGrouping<TKey, TSource>>, Expression<Func<IGrouping<TKey, TSource>, TResult>>, IQueryable<TResult>>(Cube<TKey, TSource, TResult>).Method,
                 source.Expression,
                 Expression.Quote(resultSelector)
             )
@@ -173,7 +172,7 @@ public static partial class LinqExtensions
         return source.Provider.CreateQuery<IGrouping<TKey, TSource>>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource)),
+                new Func<IQueryable<IGrouping<TKey, TSource>>, string[][], IQueryable<IGrouping<TKey, TSource>>>(GroupingSets<TKey, TSource>).Method,
                 source.Expression,
                 Expression.Constant(sets, typeof(string[][]))
             )
@@ -195,7 +194,7 @@ public static partial class LinqExtensions
         return source.Provider.CreateQuery<IGrouping<TKey, TSource>>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource)),
+                new Func<IQueryable<IGrouping<TKey, TSource>>, Expression<Func<TKey, object>>[], IQueryable<IGrouping<TKey, TSource>>>(GroupingSets<TKey, TSource>).Method,
                 source.Expression,
                 Expression.Constant(setSelectors, typeof(Expression<Func<TKey, object>>[]))
             )
@@ -218,7 +217,7 @@ public static partial class LinqExtensions
         return source.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
+                new Func<IQueryable<IGrouping<TKey, TSource>>, string[][], Expression<Func<TKey, IEnumerable<TSource>, TResult>>, IQueryable<TResult>>(GroupingSets<TKey, TSource, TResult>).Method,
                 source.Expression,
                 Expression.Constant(sets, typeof(string[][])),
                 Expression.Quote(resultSelector)
@@ -243,7 +242,7 @@ public static partial class LinqExtensions
         return source.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
+                new Func<IQueryable<IGrouping<TKey, TSource>>, Expression<Func<TKey, object>>[], Expression<Func<TKey, IEnumerable<TSource>, TResult>>, IQueryable<TResult>>(GroupingSets<TKey, TSource, TResult>).Method,
                 source.Expression,
                 Expression.Constant(setSelectors, typeof(Expression<Func<TKey, object>>[])),
                 Expression.Quote(resultSelector)
@@ -267,7 +266,7 @@ public static partial class LinqExtensions
         return source.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
+                new Func<IQueryable<IGrouping<TKey, TSource>>, string[][], Expression<Func<IGrouping<TKey, TSource>, TResult>>, IQueryable<TResult>>(GroupingSets<TKey, TSource, TResult>).Method,
                 source.Expression,
                 Expression.Constant(sets, typeof(string[][])),
                 Expression.Quote(resultSelector)
@@ -292,7 +291,7 @@ public static partial class LinqExtensions
         return source.Provider.CreateQuery<TResult>(
             Expression.Call(
                 null,
-                ((MethodInfo)MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(TKey), typeof(TSource), typeof(TResult)),
+                new Func<IQueryable<IGrouping<TKey, TSource>>, Expression<Func<TKey, object>>[], Expression<Func<IGrouping<TKey, TSource>, TResult>>, IQueryable<TResult>>(GroupingSets<TKey, TSource, TResult>).Method,
                 source.Expression,
                 Expression.Constant(setSelectors, typeof(Expression<Func<TKey, object>>[])),
                 Expression.Quote(resultSelector)

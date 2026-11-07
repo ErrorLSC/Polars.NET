@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
@@ -11,14 +12,14 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 {
     public static readonly CSharpRowCursorMaterializer Instance = new();
 
-    public IEnumerable<T> Materialize<T>(DataFrameHandle handle)
+    public IEnumerable<T> Materialize<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(DataFrameHandle handle)
     {
         var df = new DataFrame(handle);
 
         // Return lazy, O(1) memory row stream
         return df.AsEnumerable<T>();
     }
-    public T MaterializeScalar<T>(DataFrameHandle handle)
+    public T MaterializeScalar<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(DataFrameHandle handle)
     {
         var df = new DataFrame(handle);
         if (df.Height == 0 || df.Width == 0)
@@ -29,7 +30,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         // Retrieve scalar from row 0, column 0 without creating Arrow buffers
         return df.GetValue<T>(0L, df.ColumnNames[0])!;
     }
-    public TAccum Aggregate<TSource, TAccum>(
+    public TAccum Aggregate<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource, TAccum>(
         DataFrameHandle handle,
         TAccum seed,
         Func<TAccum, TSource, TAccum> folder)
@@ -44,7 +45,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         }
         return acc;
     }
-    public IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<TSource, TKey, TAccum>(
+    public IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource, TKey, TAccum>(
         DataFrameHandle handle,
         Func<TSource, TKey> keySelector,
         TAccum seed,
@@ -77,7 +78,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
     /// <summary>
     /// Aggregates rows grouped by key using a zero-allocation stack row enumerator and a per-key seed factory.
     /// </summary>
-    public IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<TSource, TKey, TAccum>(
+    public IEnumerable<KeyValuePair<TKey, TAccum>> AggregateBy<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource, TKey, TAccum>(
         DataFrameHandle handle,
         Func<TSource, TKey> keySelector,
         Func<TKey, TAccum> seedSelector,
@@ -123,7 +124,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
     /// <summary>
     /// Slices the DataFrame into chunks of the specified size using a zero-allocation stack row enumerator.
     /// </summary>
-    public IEnumerable<T[]> Chunk<T>(DataFrameHandle handle, int chunkSize)
+    public IEnumerable<T[]> Chunk<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(DataFrameHandle handle, int chunkSize)
     {
         if (chunkSize <= 0)
             throw new ArgumentOutOfRangeException(nameof(chunkSize), "Chunk size must be greater than zero.");
@@ -142,7 +143,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         }
 
     }
-    public long Count<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
+    public long Count<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
     {
         var df = new DataFrame(handle);
         long height = df.Height;
@@ -168,7 +169,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
     /// <summary>
     /// Reads a single chunk batch directly into an array in a dedicated stack frame without crossing yield boundaries.
     /// </summary>
-    private static T[] ReadChunkBatch<T>(DataFrame df, long offset, int count)
+    private static T[] ReadChunkBatch<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(DataFrame df, long offset, int count)
     {
         var chunkArray = new T[count];
 
@@ -184,7 +185,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         return chunkArray;
     }
-    public bool Any<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
+    public bool Any<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
     {
         var df = new DataFrame(handle);
         if (df.Height == 0)
@@ -205,7 +206,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         return false;
     }
-    public bool All<TSource>(DataFrameHandle handle, Func<TSource, bool> predicate)
+    public bool All<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool> predicate)
     {
         ArgumentNullException.ThrowIfNull(predicate);
 
@@ -223,7 +224,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         return true;
     }
-    public TSource First<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
+    public TSource First<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
     {
         var df = new DataFrame(handle);
         using var enumerator = df.Rows<TSource>();
@@ -242,7 +243,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         throw new InvalidOperationException("Sequence contains no matching element.");
     }
 
-    public TSource? FirstOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default)
+    public TSource? FirstOrDefault<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default)
     {
         var df = new DataFrame(handle);
         using var enumerator = df.Rows<TSource>();
@@ -260,7 +261,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         return defaultValue;
     }
-    public TSource Last<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
+    public TSource Last<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
     {
         var df = new DataFrame(handle);
 
@@ -289,7 +290,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         throw new InvalidOperationException("Sequence contains no matching element.");
     }
 
-    public TSource? LastOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default)
+    public TSource? LastOrDefault<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default)
     {
         var df = new DataFrame(handle);
 
@@ -314,7 +315,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         return found ? lastMatch : defaultValue;
     }
-    public TSource Single<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
+    public TSource Single<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null)
     {
         var df = new DataFrame(handle);
         long height = df.Height;
@@ -355,7 +356,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         throw new InvalidOperationException("Sequence contains no matching element.");
     }
 
-    public TSource? SingleOrDefault<TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default)
+    public TSource? SingleOrDefault<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, Func<TSource, bool>? predicate = null, TSource? defaultValue = default)
     {
         var df = new DataFrame(handle);
         long height = df.Height;
@@ -392,7 +393,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         return found ? match : defaultValue;
     }
-    public TSource ElementAt<TSource>(DataFrameHandle handle, long index)
+    public TSource ElementAt<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, long index)
     {
         if (index < 0)
             throw new ArgumentOutOfRangeException(nameof(index), "Index was out of range.");
@@ -403,7 +404,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         return enumerator.ElementAt(index);
     }
 
-    public TSource? ElementAtOrDefault<TSource>(DataFrameHandle handle, long index)
+    public TSource? ElementAtOrDefault<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, long index)
     {
         if (index < 0)
             return default;
@@ -413,7 +414,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         using var enumerator = df.Rows<TSource>();
         return enumerator.ElementAtOrDefault(index);
     }
-    public bool Contains<TSource>(DataFrameHandle handle, TSource item, IEqualityComparer<TSource>? comparer = null)
+    public bool Contains<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, TSource item, IEqualityComparer<TSource>? comparer = null)
     {
         var df = new DataFrame(handle);
         if (df.Height == 0)
@@ -430,7 +431,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
 
         return false;
     }
-    public bool SequenceEqual<TSource>(DataFrameHandle handle1, DataFrameHandle handle2, IEqualityComparer<TSource>? comparer = null)
+    public bool SequenceEqual<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle1, DataFrameHandle handle2, IEqualityComparer<TSource>? comparer = null)
     {
         var df1 = new DataFrame(handle1);
         var df2 = new DataFrame(handle2);
@@ -455,7 +456,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         return true;
     }
 
-    public bool SequenceEqual<TSource>(DataFrameHandle handle, IEnumerable<TSource> second, IEqualityComparer<TSource>? comparer = null)
+    public bool SequenceEqual<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource>(DataFrameHandle handle, IEnumerable<TSource> second, IEqualityComparer<TSource>? comparer = null)
     {
         ArgumentNullException.ThrowIfNull(second);
 
@@ -486,7 +487,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         throw new InvalidOperationException("Sequence contains no elements.");
     }
 
-    public TSource MinBy<TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null)
+    public TSource MinBy<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null)
     {
         ArgumentNullException.ThrowIfNull(keySelector);
         var df = new DataFrame(handle);
@@ -517,7 +518,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
         return minRow;
     }
 
-    public TSource MaxBy<TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null)
+    public TSource MaxBy<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TSource, TKey>(DataFrameHandle handle, Func<TSource, TKey> keySelector, IComparer<TKey>? comparer = null)
     {
         ArgumentNullException.ThrowIfNull(keySelector);
         var df = new DataFrame(handle);

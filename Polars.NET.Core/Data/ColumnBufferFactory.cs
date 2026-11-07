@@ -1,6 +1,7 @@
 using Apache.Arrow;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Polars.NET.Core.Data;
 // =================================================================================
@@ -17,7 +18,7 @@ public interface IArrowColumnBuffer
 // =================================================================================
 public static class ArrowColumnBufferFactory
 {
-    public static IArrowColumnBuffer Create(Type type,int length)
+    public static IArrowColumnBuffer Create([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type,int length)
     {
         if (PolarsTypeHelper.UnwrapCoreType(type).IsEnum)
         {

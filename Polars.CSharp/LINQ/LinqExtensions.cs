@@ -1,4 +1,6 @@
 using System.Data;
+using System.Diagnostics.CodeAnalysis;
+using Polars.NET.Core;
 using Polars.NET.Linq;
 
 namespace Polars.CSharp.Linq;
@@ -12,12 +14,16 @@ public static partial class LinqExtensions
     /// Converts a LazyFrame into an IQueryable LINQ query provider.
     /// Operations will be translated to Polars Expressions and compiled into execution plans.
     /// </summary>
+    [RequiresDynamicCode(AotMessages.LinqProvider)]
+    [RequiresUnreferencedCode(AotMessages.LinqProvider)]
     public static IQueryable<T> AsQueryable<T>(this LazyFrame lf)
         => new PolarsQuery<T>(lf.Handle, CSharpRowCursorMaterializer.Instance, QueryLanguage.CSharp);
 
     /// <summary>
     /// Converts an eager DataFrame into an IQueryable LINQ query provider backed by LazyFrame.
     /// </summary>
+    [RequiresDynamicCode(AotMessages.LinqProvider)]
+    [RequiresUnreferencedCode(AotMessages.LinqProvider)]
     public static IQueryable<T> AsQueryable<T>(this DataFrame df)
         => df.Lazy().AsQueryable<T>();
 
@@ -29,6 +35,8 @@ public static partial class LinqExtensions
     /// <param name="df">The source DataFrame.</param>
     /// <param name="source">The source collection used solely for static type inference.</param>
     /// <returns>A strongly-typed PolarsQuery provider.</returns>
+    [RequiresDynamicCode(AotMessages.LinqProvider)]
+    [RequiresUnreferencedCode(AotMessages.LinqProvider)]
     public static IQueryable<T> AsQueryable<T>(this DataFrame df, IEnumerable<T> source)
         => df.Lazy().AsQueryable<T>();
 
@@ -36,6 +44,8 @@ public static partial class LinqExtensions
     /// Converts a LazyFrame into an IQueryable LINQ query provider,
     /// inferring the anonymous type or entity type directly from a sample sequence.
     /// </summary>
+    [RequiresDynamicCode(AotMessages.LinqProvider)]
+    [RequiresUnreferencedCode(AotMessages.LinqProvider)]
     public static IQueryable<T> AsQueryable<T>(this LazyFrame lf, IEnumerable<T> source)
         => lf.AsQueryable<T>();
 
@@ -44,6 +54,8 @@ public static partial class LinqExtensions
     /// For Struct Series, it is unnested into a multi-column DataFrame matching the struct fields.
     /// For scalar and other Series, it is converted into a single-column DataFrame.
     /// </summary>
+    [RequiresDynamicCode(AotMessages.LinqProvider)]
+    [RequiresUnreferencedCode(AotMessages.LinqProvider)]
     public static IQueryable<T> AsQueryable<T>(this Series series)
     {
         ArgumentNullException.ThrowIfNull(series);
@@ -58,6 +70,8 @@ public static partial class LinqExtensions
     /// Converts a Series into an IQueryable LINQ query provider,
     /// inferring the anonymous type or entity type directly from a sample sequence.
     /// </summary>
+    [RequiresDynamicCode(AotMessages.LinqProvider)]
+    [RequiresUnreferencedCode(AotMessages.LinqProvider)]
     public static IQueryable<T> AsQueryable<T>(this Series series, IEnumerable<T> source)
         => series.AsQueryable<T>();
 
@@ -66,7 +80,7 @@ public static partial class LinqExtensions
     /// For Struct Series, elements are materialized into objects matching the struct fields.
     /// For scalar Series, elements are materialized directly.
     /// </summary>
-    public static IEnumerable<T> AsEnumerable<T>(this Series series)
+    public static IEnumerable<T> AsEnumerable<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(this Series series)
     {
         ArgumentNullException.ThrowIfNull(series);
         if (series.DataType.Kind == DataTypeKind.Struct)
@@ -79,7 +93,7 @@ public static partial class LinqExtensions
     /// <summary>
     /// Compiles the LINQ query pipeline and converts it back to a Polars LazyFrame.
     /// </summary>
-    public static LazyFrame ToLazyFrame<T>(this IQueryable<T> query)
+    public static LazyFrame ToLazyFrame<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(this IQueryable<T> query)
     {
         if (query is PolarsQuery<T> polarsQuery)
         {
@@ -98,7 +112,7 @@ public static partial class LinqExtensions
     /// <typeparam name="T">The element type.</typeparam>
     /// <param name="source">The sequence of elements.</param>
     /// <returns>A new DataFrame containing the elements.</returns>
-    public static DataFrame ToDataFrame<T>(this IEnumerable<T> source)
+    public static DataFrame ToDataFrame<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(this IEnumerable<T> source)
     {
         ArgumentNullException.ThrowIfNull(source);
 
@@ -115,7 +129,7 @@ public static partial class LinqExtensions
     /// <typeparam name="T">The element type.</typeparam>
     /// <param name="source">The sequence of elements.</param>
     /// <returns>A new LazyFrame containing the elements.</returns>
-    public static LazyFrame ToLazyFrame<T>(this IEnumerable<T> source)
+    public static LazyFrame ToLazyFrame<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(this IEnumerable<T> source)
     {
         ArgumentNullException.ThrowIfNull(source);
 
@@ -133,7 +147,7 @@ public static partial class LinqExtensions
     /// <param name="source">The sequence or query of elements.</param>
     /// <param name="name">Optional name for the Series. Defaults to empty string.</param>
     /// <returns>A new Series containing the materialized values.</returns>
-    public static Series ToSeries<T>(this IEnumerable<T> source, string name = "")
+    public static Series ToSeries<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(this IEnumerable<T> source, string name = "")
     {
         ArgumentNullException.ThrowIfNull(source);
 
@@ -152,7 +166,7 @@ public static partial class LinqExtensions
     /// <param name="query">The query sequence.</param>
     /// <param name="name">Optional override name for the Series. If empty, the projected column name is preserved.</param>
     /// <returns>A new Series containing the query result.</returns>
-    public static Series ToSeries<T>(this IQueryable<T> query, string name = "")
+    public static Series ToSeries<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(this IQueryable<T> query, string name = "")
     {
         ArgumentNullException.ThrowIfNull(query);
 
@@ -176,7 +190,7 @@ public static partial class LinqExtensions
     /// <summary>
     /// Compiles the LINQ query pipeline, executes Collect, and returns the resulting eager DataFrame.
     /// </summary>
-    public static DataFrame ToDataFrame<T>(this IQueryable<T> query)
+    public static DataFrame ToDataFrame<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(this IQueryable<T> query)
     {
         if (query is PolarsQuery<T> polarsQuery)
         {
@@ -192,6 +206,8 @@ public static partial class LinqExtensions
     /// Convert DataReader to Polars Queryable
     /// </summary>
     /// <typeparam name="T">Target Type</typeparam>
+    [RequiresDynamicCode(AotMessages.LinqProvider)]
+    [RequiresUnreferencedCode(AotMessages.LinqProvider)]
     public static IQueryable<T> AsPolarsQueryable<T>(this IDataReader reader, int batchSize = 50000)
         => DataFrame.ReadDatabase(reader, batchSize).AsQueryable<T>();
 
@@ -201,6 +217,8 @@ public static partial class LinqExtensions
     /// <typeparam name="T">Row record type</typeparam>
     /// <param name="source">The in-memory collection</param>
     /// <returns>A queryable supported by the Polars native execution engine</returns>
+    [RequiresDynamicCode(AotMessages.LinqProvider)]
+    [RequiresUnreferencedCode(AotMessages.LinqProvider)]
     public static IQueryable<T> AsPolarsQueryable<T>(this IEnumerable<T> source)
     {
         ArgumentNullException.ThrowIfNull(source);

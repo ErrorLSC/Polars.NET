@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Collections;
 using System.Data;
 using System.Data.Common;
@@ -60,6 +61,7 @@ public sealed class PolarsDataReader(
     public override DateTime GetDateTime(int i) => innerReader.GetDateTime(i);
     public override decimal GetDecimal(int i) => innerReader.GetDecimal(i);
     public override double GetDouble(int i) => innerReader.GetDouble(i);
+    [return: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type GetFieldType(int i) => innerReader.GetFieldType(i);
     public override float GetFloat(int i) => innerReader.GetFloat(i);
     public override Guid GetGuid(int i) => innerReader.GetGuid(i);

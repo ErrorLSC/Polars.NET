@@ -1,4 +1,5 @@
 // Polars.NET.Core / Arrow / ArrowFfiBridge.cs
+using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
 using Apache.Arrow.C;
 using Apache.Arrow.Types;
@@ -113,7 +114,7 @@ public static class ArrowFfiBridge
     /// Helper: Convert IEnumerable<T> directly to RecordBatch
     /// This bridges the gap between ArrowConverter (returns Array) and ImportDataFrame (needs Batch).
     /// </summary>
-    public static RecordBatch BuildRecordBatch<T>(IEnumerable<T> data)
+    public static RecordBatch BuildRecordBatch<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(IEnumerable<T> data)
     {
         // Use ArrowConverter to build StructArray
         var arrowArray = ArrowConverter.Build(data);
@@ -183,7 +184,7 @@ public static class ArrowStreamingExtensions
     /// </summary>
     /// <param name="source">Source DataFlow </param>
     /// <param name="batchSize"> the Size of each Batch </param>
-    public static IEnumerable<RecordBatch> ToArrowBatches<T>(
+    public static IEnumerable<RecordBatch> ToArrowBatches<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(
         this IEnumerable<T> source,
         int batchSize = 100_000)
     {
@@ -208,6 +209,6 @@ public static class ArrowStreamingExtensions
         }
     }
 
-    private static RecordBatch BuildBatchFromBuffer<T>(List<T> buffer)
+    private static RecordBatch BuildBatchFromBuffer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(List<T> buffer)
         => ArrowFfiBridge.BuildRecordBatch(buffer);
 }
