@@ -111,12 +111,24 @@ module internal NaNSemantics =
     /// True when the value is not NaN (a number or null).
     let private notNaN (s: ScalarExpr) = ScalarExpr.Unary(UnaryOp.Not, isNaN s)
 
+    /// `x <= +inf` in x's floating type: false for NaN (the engine orders NaN above +inf), true for a number,
+    /// null for null. One plain comparison, which predicate pushdown and statistics also understand.
+    let private notNaNOrdered (clrType: Type) (x: ScalarExpr) =
+        let core = match Nullable.GetUnderlyingType clrType with null -> clrType | u -> u
+        let infinity =
+            if core = typeof<float32> then LiteralValue.Float32 Single.PositiveInfinity
+            elif core = typeof<Half> then LiteralValue.Float16 Half.PositiveInfinity
+            else LiteralValue.Float64 Double.PositiveInfinity
+        ScalarExpr.Binary(BinaryOp.LtEq, x, ScalarExpr.Literal infinity)
+
     /// A comparison `l op r` (already translated, with null compensation) made to follow .NET NaN semantics.
     /// Only operands that may be NaN are guarded:
     /// - `==`: the engine's NaN == NaN must be false;
     /// - `!=`: NaN != NaN must be true;
     /// - `<`, `<=`: false when the right side is NaN (the engine orders NaN last);
     /// - `>`, `>=`: false when the left side is NaN.
+    /// An ordering comparison is three-valued until NullSemantics lifts it, so `x <= +inf` (null for null) guards
+    /// it; equality is two-valued under C# semantics, so it uses a null-safe NaN test.
     let comparison (op: ExpressionType) (leftType: Type, l: ScalarExpr) (rightType: Type, r: ScalarExpr) (cmp: ScalarExpr) =
         let lNaN, rNaN = mayBeNaN leftType l, mayBeNaN rightType r
         let andAlso guard = ScalarExpr.Binary(BinaryOp.And, cmp, guard)
@@ -124,17 +136,15 @@ module internal NaNSemantics =
         | ExpressionType.Equal when lNaN && rNaN -> andAlso (notNaN l)
         | ExpressionType.NotEqual when lNaN && rNaN -> ScalarExpr.Binary(BinaryOp.Or, cmp, isNaN l)
         | ExpressionType.LessThan
-        | ExpressionType.LessThanOrEqual when rNaN -> andAlso (notNaN r)
+        | ExpressionType.LessThanOrEqual when rNaN -> andAlso (notNaNOrdered rightType r)
         | ExpressionType.GreaterThan
-        | ExpressionType.GreaterThanOrEqual when lNaN -> andAlso (notNaN l)
+        | ExpressionType.GreaterThanOrEqual when lNaN -> andAlso (notNaNOrdered leftType l)
         | _ -> cmp
 
-    /// The sort orders for a key of CLR type `keyType`: a floating key is preceded by `NOT is_nan(key)`, which
-    /// puts NaN (false) before the numbers (true) in the key's direction and is null for a null key, so nulls
-    /// keep the place the key gives them.
+    /// The sort orders for a key of CLR type `keyType`: a floating key sorts by FloatOrderKey, which places NaN
+    /// before the numbers as .NET does (nulls keep the place the order gives them).
     let sortOrders (keyType: Type) (order: SortOrder) : SortOrder list =
         if isFloatingClrType keyType then
-            [ { order with Expr = ScalarExpr.Unary(UnaryOp.Not, ScalarExpr.Unary(UnaryOp.IsNan, order.Expr)) }; order ]
+            [ { order with Expr = ScalarExpr.Function(ScalarFunction.FloatOrderKey, [ order.Expr ], LogicalTypes.Int64) } ]
         else
             [ order ]
-

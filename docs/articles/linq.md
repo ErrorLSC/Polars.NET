@@ -485,6 +485,112 @@ List<ProductItem> updatedList = inMemoryTarget.Merge(incomingUpdates, t => t.Id,
 
 ---
 
+## 8. Query Semantics: Matching LINQ to Objects
+
+A query should return what the same query returns over in-memory collections (LINQ to Objects). Polars, like a
+SQL database, follows different rules for nulls, NaN, integer arithmetic and strings. The provider compensates
+for these differences when it translates the query. This section lists what it compensates for and the few
+places where results knowingly differ.
+
+### Null comparisons follow C#
+
+As with EF Core's default, comparisons use C# semantics, not SQL three-valued logic:
+
+| Expression | C# / Polars.NET | SQL-style engine |
+|---|---|---|
+| `x.A == x.B` with both null | `true` | null (row dropped) |
+| `x.V != 10` with `V` null | `true` (row kept) | null (row dropped) |
+| `x.V > 5` with `V` null, in a `Select` | `false` | null |
+| `ids.Contains(x.Id)` with `Id` null and null in `ids` | `true` | null |
+| `others.Any(y => y.K == x.K)` with both keys null | matches | no match |
+
+An explicit `join ... on a equals b` never matches null keys, exactly like `Enumerable.Join`.
+
+Comparisons against a non-null constant (`x.V == 10`, `x.V > 5`) still reach Polars as plain comparisons inside
+a `Where`, so Parquet statistics and predicate pushdown keep working.
+
+To use SQL null semantics instead (as EF Core's `UseRelationalNulls()`), enable the switch:
+
+```csharp
+using (Pl.Config.SetUseRelationalNulls(true).BeginScope())
+{
+    // x.A == x.B is null when either side is null; correlated subqueries never match null keys.
+    var rows = df.AsQueryable<Pair>().Where(x => x.A == x.B).ToList();
+}
+```
+
+### Floating-point values follow .NET
+
+For `double`, `float` and `Half`:
+
+* A comparison involving `NaN` is `false`, and `!=` is `true`. (Polars treats NaN as equal to itself and greater
+  than every number.)
+* `OrderBy` places `NaN` before every number, and after null, as `Comparer<double>.Default` does.
+* `Min` returns `NaN` as soon as one value is `NaN`; `Max` skips `NaN` unless every value is `NaN`.
+
+### Arithmetic
+
+* Integer `/` and `%` truncate toward zero, as in C#: `-7 / 2 == -3` and `-7 % 2 == -1`. `%` keeps the dividend's
+  sign for floating-point values too (`-7.5 % 2 == -1.5`).
+* Integer overflow wraps around, as in unchecked C#.
+* `decimal` values are fixed-point in Polars. A decimal division keeps 18 fractional digits (C# keeps up to 28
+  significant digits), and a value carries its column's scale, so `ToString()` may print `2.500` for `2.5m`.
+
+### Strings
+
+* Concatenation (`a + b`, `string.Concat`, `string.Format`, interpolation, `string.Join`) reads null as `""`, as in
+  .NET.
+* **Strings sort and compare ordinally**, by Unicode code point: `"Banana" < "apple" < "äpfel"`. This applies to
+  `OrderBy`, `ThenBy` and `CompareTo`. .NET defaults to the current culture, so orderings over mixed-case or
+  accented text can differ from LINQ to Objects. `string.Compare(a, b, ...)` is evaluated exactly as in .NET.
+* An operator overload that takes a comparer (`OrderBy(x => x.Name, StringComparer.CurrentCulture)`,
+  `DistinctBy(..., comparer)`, `GroupBy(..., comparer)`) is not translated. The whole query is evaluated in .NET
+  under the client evaluation policy: Strict raises `PolarsPushdownException`, Allow runs it with LINQ to Objects.
+
+### Where .NET would throw
+
+Polars does not raise per-row exceptions, so a few operations that throw in .NET produce null instead (as EF Core
+does):
+
+* indexing past the end of a list or array, `Substring` beyond the string's length;
+* a member or method called on a null value (`x.Name.Length` with `Name` null);
+* a failed `Parse` (`int.Parse`, `DateTime.Parse`);
+* integer division or remainder by zero.
+
+If such a null reaches a non-nullable member of your result type, materialization throws
+`InvalidOperationException` naming the member and the column, so it never silently becomes `0` or `default`.
+Declare the member nullable (`int?`) to receive the null.
+
+The LINQ operators that must fail do fail with the exceptions LINQ uses:
+
+* `First`, `Last`, `Single` and `ElementAt` over a subquery raise `InvalidOperationException` ("Sequence contains no
+  elements", "Sequence contains more than one element") or `ArgumentOutOfRangeException`. The check runs inside
+  the native plan.
+* Storing an undefined value into an enum column raises "Value 'x' is not a defined member of enum T".
+
+### Short-circuit evaluation
+
+A custom method (a managed UDF) on the right of `&&` / `||` / `??`, or in a `?:` branch, runs only on the rows
+that reach it, so the usual guards protect it:
+
+```csharp
+// Parse is never called with null, and 100 / x.N never runs with N == 0.
+var rows = df.AsQueryable<Row>()
+    .Where(x => x.Text != null && MyParse(x.Text) > 0)
+    .Select(x => x.N == 0 ? 0 : MyRatio(x.N))
+    .ToList();
+```
+
+The checks behind `First` / `Single` subqueries are the exception. They run once for the whole query, even when
+`&&` or an empty outer table means LINQ to Objects would never reach them.
+
+### Dates and times
+
+A `DateTimeOffset` is stored as a UTC instant. Its members read the UTC value: `Offset` is zero, and `Hour` and
+`DateTime` give the UTC hour and time. Keep the offset in its own column if you need it.
+
+---
+
 ## Next Steps
 
 * [Ecosystem & Native Interop](/articles/interop) - Connect Polars to Apache Arrow C Data Interface, ADBC, ADO.NET, ML.NET, and Tensors.

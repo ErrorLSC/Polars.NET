@@ -146,20 +146,9 @@ module internal PolarsScalarLowerer =
         match expr with
         | ScalarExpr.Column name -> PolarsWrapper.Col name
 
-        // .NET `%` and integer `/` truncate toward zero; the engine floors. Where the remainder is nonzero and the
-        // operands' signs differ, the floored quotient is one less and the floored remainder carries the divisor's
-        // sign: add 1 / subtract the divisor.
-        | ScalarExpr.Binary((BinaryOp.Modulo | BinaryOp.TruncatedDivide as op), left, right) ->
-            let signsDiffer () =
-                PolarsWrapper.And(
-                    PolarsWrapper.Neq(PolarsWrapper.Rem(lower left, lower right), PolarsWrapper.Lit 0),
-                    PolarsWrapper.Neq(PolarsWrapper.Lt(lower left, PolarsWrapper.Lit 0), PolarsWrapper.Lt(lower right, PolarsWrapper.Lit 0)))
-            if op = BinaryOp.Modulo then
-                let floored = PolarsWrapper.Rem(lower left, lower right)
-                PolarsWrapper.IfElse(signsDiffer (), PolarsWrapper.Sub(PolarsWrapper.Rem(lower left, lower right), lower right), floored)
-            else
-                let floored = PolarsWrapper.FloorDiv(lower left, lower right)
-                PolarsWrapper.IfElse(signsDiffer (), PolarsWrapper.Add(PolarsWrapper.FloorDiv(lower left, lower right), PolarsWrapper.Lit 1), floored)
+        // .NET `%` and integer `/` truncate toward zero (the engine floors): one-pass shim kernels.
+        | ScalarExpr.Binary(BinaryOp.Modulo, left, right) -> PolarsWrapper.DotNetRem(lower left, lower right)
+        | ScalarExpr.Binary(BinaryOp.TruncatedDivide, left, right) -> PolarsWrapper.DotNetDiv(lower left, lower right)
 
         | ScalarExpr.Binary(BinaryOp.StringConcat, left, right) ->
             PolarsWrapper.ConcatString([| lowerConcatItem left; lowerConcatItem right |], "", ignoreNulls = false)
@@ -556,6 +545,7 @@ module internal PolarsScalarLowerer =
                 PolarsWrapper.Quantile(lower a, q, PolarsVocabulary.quantileMethod m)
             | ScalarFunction.SeriesGet, [ a; idx ] ->
                 PolarsWrapper.Get(lower a, lower idx, nullOnOob = true)
+            | ScalarFunction.FloatOrderKey, [ value ] -> PolarsWrapper.DotNetFloatOrderKey(lower value)
             | ScalarFunction.RequireListed(values, message), [ value ] ->
                 let asInt64 =
                     values

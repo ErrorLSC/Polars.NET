@@ -85,6 +85,7 @@ module internal SchemaInference =
                     match args with
                     | left :: _ -> inferScalarType schema left
                     | [] -> LogicalType.Unknown
+                | ScalarFunction.FloatOrderKey -> LogicalTypes.Int64
                 | ScalarFunction.AssertCount _ ->
                     match args with
                     | [ _; value ] -> inferScalarType schema value

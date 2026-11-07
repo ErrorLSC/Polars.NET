@@ -985,4 +985,37 @@ public class LinqSemanticsRegressionTests
         Assert.ThrowsAny<Exception>(() => q.Where(x => x.N != 0 & Hundredth(x.N) > 10).ToList());
         Assert.Equal(GuardedRows.Select(x => Third(x.S + "___")), q.Select(x => Third(x.S + "___")).ToList());
     }
+
+    public class Edge
+    {
+        public long Id { get; set; }
+        public double? D { get; set; }
+        public decimal M { get; set; }
+        public decimal N { get; set; }
+    }
+
+    private static readonly Edge[] Edges =
+    [
+        new() { Id = 1, D = 0.0, M = -7.5m, N = 2m },
+        new() { Id = 2, D = double.NegativeInfinity, M = 7.25m, N = -2m },
+        new() { Id = 3, D = double.NaN, M = -0.5m, N = 0.3m },
+        new() { Id = 4, D = -0.0, M = 9m, N = 4m },
+        new() { Id = 5, D = null, M = 1m, N = 1m },
+        new() { Id = 6, D = double.PositiveInfinity, M = -9m, N = -4m },
+        new() { Id = 7, D = -1.5, M = 0m, N = 3m },
+    ];
+
+    [Fact]
+    public void Float_Order_Key_Matches_Comparer_Default_And_Decimal_Remainder_Truncates()
+    {
+        using var df = DataFrame.From(Edges);
+        var q = df.AsQueryable<Edge>();
+
+        // -0.0 and 0.0 compare equal, so a stable sort keeps their input order.
+        Assert.Equal(Edges.OrderBy(x => x.D).Select(x => x.Id), q.OrderBy(x => x.D).Select(x => x.Id).ToList());
+        Assert.Equal(Edges.OrderByDescending(x => x.D).Select(x => x.Id), q.OrderByDescending(x => x.D).Select(x => x.Id).ToList());
+        Assert.Equal(Edges.Where(x => x.D >= double.NegativeInfinity).Select(x => x.Id), q.Where(x => x.D >= double.NegativeInfinity).Select(x => x.Id).ToList());
+        Assert.Equal(Edges.Where(x => x.D < double.PositiveInfinity).Select(x => x.Id), q.Where(x => x.D < double.PositiveInfinity).Select(x => x.Id).ToList());
+        Assert.Equal(Edges.Select(x => x.M % x.N), q.Select(x => x.M % x.N).ToList());
+    }
 }

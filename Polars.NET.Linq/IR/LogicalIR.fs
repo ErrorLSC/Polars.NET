@@ -430,6 +430,9 @@ type ScalarFunction =
     /// Maps each value listed in `oldValues` to the value at the same position of `newValues`. A value not
     /// listed takes the optional second argument, or is an error without one.
     | ReplaceStrict of oldValues: LiteralValue list * newValues: LiteralValue list
+    /// `[value]` over floating values: an integer whose order is .NET's order of them (Comparer<T>.Default): NaN
+    /// before every number, -0.0 equal to 0.0; null for null. A sort by it is a .NET sort by the value.
+    | FloatOrderKey
     /// `[value]`: the value when it is null or one of `values`; otherwise the query fails with `message`, its
     /// first "{}" replaced by the value. It has an effect, as AssertCount.
     | RequireListed of values: LiteralValue list * message: string
@@ -584,6 +587,7 @@ type ScalarFunction =
         | ScalarFunction.ReplaceStrict _ -> "replace_strict"
         | ScalarFunction.AssertCount _ -> "assert_count"
         | ScalarFunction.RequireListed _ -> "require_listed"
+        | ScalarFunction.FloatOrderKey -> "float_order_key"
         | ScalarFunction.Custom name -> name
 
     static member FromString(str: string) : ScalarFunction =

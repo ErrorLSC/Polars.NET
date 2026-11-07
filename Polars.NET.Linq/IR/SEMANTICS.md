@@ -40,12 +40,18 @@ for a number and null for null.
 may be NaN, the frontend guards comparisons:
 - `==` adds `AND NOT isnan(left)`;
 - `!=` adds `OR isnan(left)`;
-- `<` and `<=` add `AND NOT isnan(right)`;
-- `>` and `>=` add `AND NOT isnan(left)`.
+- `<` and `<=` add `AND right <= +inf`;
+- `>` and `>=` add `AND left <= +inf`.
 
-So a comparison involving NaN is false, and `!=` is true. A floating sort key is preceded by
-`NOT isnan(key)` with the key's direction and null placement, which puts NaN before the numbers and after
-null, as `Comparer<T>.Default` does.
+`x <= +inf` is false only for NaN. It is one plain comparison, which predicate pushdown and statistics
+understand. So a comparison involving NaN is false, and `!=` is true.
+
+A floating sort key sorts by `ScalarFunction.FloatOrderKey`, an Int64 whose order is .NET's order:
+- NaN comes before every number;
+- -0.0 equals 0.0;
+- null stays null, so nulls keep the place the order gives them.
+
+This is a single key, as `Comparer<T>.Default` orders.
 
 **Aggregates.** `Min` is .NET `Min`: NaN as soon as one value is NaN. `Max` skips NaN unless every value is
 NaN. Grouping and `Distinct` treat NaN as one value (.NET `Equals`).
@@ -58,6 +64,8 @@ NaN. Grouping and `Distinct` treat NaN as one value (.NET `Equals`).
 the result carries the dividend's sign (-7 % 2 = -1, -7.5 % 2 = -1.5). `TruncatedDivide` is .NET integer
 division, which truncates toward zero (-7 / 2 = -3). `Divide` over integers is the engine's own division, so the
 frontend emits `TruncatedDivide` for integer `/`.
+
+The Polars backend computes both in one pass, with shim kernels.
 
 **Decimals.** Decimals are fixed-point. The frontend widens a decimal dividend to scale 18, so a quotient keeps
 18 fractional digits (.NET keeps up to 28 significant digits). A decimal value has its column's scale, so its

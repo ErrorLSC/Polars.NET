@@ -444,6 +444,17 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle Rem(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_rem, l, r);
     public static ExprHandle Mul(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_mul, l, r);
     public static ExprHandle Neg(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_neg, e);
+    /// <summary>.NET integer division: truncates toward zero; a zero divisor gives null.</summary>
+    public static ExprHandle DotNetDiv(ExprHandle left, ExprHandle right) => BinaryOp(NativeBindings.pl_expr_dotnet_div, left, right);
+
+    /// <summary>.NET remainder (<c>%</c>): carries the dividend's sign, for integers, floats and decimals.</summary>
+    public static ExprHandle DotNetRem(ExprHandle left, ExprHandle right) => BinaryOp(NativeBindings.pl_expr_dotnet_rem, left, right);
+
+    /// <summary>
+    /// An Int64 key ordering floating values as .NET does: NaN before every number, -0.0 equal to 0.0; null for null.
+    /// </summary>
+    public static ExprHandle DotNetFloatOrderKey(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_dotnet_float_order_key, expr);
+
     /// <summary>
     /// The expression unchanged when every non-null value is one of <paramref name="values"/>; otherwise the query
     /// fails with <paramref name="message"/>, its first "{}" replaced by the offending value.

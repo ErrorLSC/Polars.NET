@@ -286,13 +286,7 @@ module internal WindowAndMethodTranslator =
                             | :? LambdaExpression as lam -> lam.Body.Type
                             | other -> other.Type
                         NaNSemantics.sortOrders keyType { SortOrder.Expr = e; Descending = isDescending; NullsLast = false })
-                    // A window's order keys form a struct, so each needs its own name (the NaN key is named after
-                    // its key otherwise).
-                    |> List.mapi (fun i o ->
-                        match o.Expr with
-                        | ScalarExpr.Unary(UnaryOp.Not, ScalarExpr.Unary(UnaryOp.IsNan, _)) ->
-                            { o with Expr = ScalarExpr.Alias(o.Expr, $"__nan_order_{i}") }
-                        | _ -> o)
+
                 Some(ScalarExpr.Window(targetS, pExprs, orderings))
             | _ -> None
 

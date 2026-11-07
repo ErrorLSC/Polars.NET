@@ -2586,3 +2586,157 @@ pub extern "C" fn pl_expr_require_listed_ints(
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// .NET arithmetic and ordering kernels (one pass each, no managed callback)
+// ---------------------------------------------------------------------------------------------------------------
+
+/// .NET integer division / remainder of one integer width: truncates toward zero (Rust's `/` and `%`); a zero
+/// divisor gives null; MIN / -1 wraps, as unchecked .NET arithmetic. Values are computed in bulk (a zero divisor
+/// computes a placeholder that is then set to null), and a scalar divisor (a literal) is never broadcast.
+macro_rules! dotnet_int_div_rem {
+    ($xs:expr, $divisor:expr, $ys:expr, $remainder:expr, $getter:ident, $native:ty, $pl:ty) => {{
+        let x = $xs.$getter()?;
+        let remainder = $remainder;
+        let op = move |l: $native, r: $native| -> $native {
+            if r == 0 { 0 } else if remainder { l.wrapping_rem(r) } else { l.wrapping_div(r) }
+        };
+        match ($divisor, $ys) {
+            (Some(scalar), _) => match scalar.extract::<$native>() {
+                Some(r) if r != 0 => x.apply_values(|l| op(l, r)).into_series(),
+                _ => Series::full_null(x.name().clone(), x.len(), x.dtype()),
+            },
+            (None, Some(ys)) => {
+                let y = ys.$getter()?;
+                let safe: ChunkedArray<$pl> = polars_core::prelude::arity::binary_elementwise_values(x, y, |l: $native, r: $native| op(l, r));
+                let zeros = y.equal(0);
+                if zeros.any() { safe.set(&zeros, None)?.into_series() } else { safe.into_series() }
+            }
+            (None, None) => unreachable!(),
+        }
+    }};
+}
+
+/// .NET integer division / remainder over a dividend and a divisor column of one numeric family. Floats only
+/// support the remainder (C# fmod: the dividend's sign); decimals compute it on their scaled values.
+fn dotnet_div_rem(a: &Column, b: &Column, remainder: bool) -> PolarsResult<Column> {
+    let dtype = polars_core::utils::try_get_supertype(a.dtype(), b.dtype())?;
+    let len = a.len().max(b.len());
+    let a = a.cast(&dtype)?;
+    let b = b.cast(&dtype)?;
+    let name = a.name().clone();
+
+    let xs = {
+        let s = a.as_materialized_series().clone();
+        if s.len() == 1 && len != 1 { s.new_from_index(0, len) } else { s }
+    };
+    // A literal divisor stays a scalar; a column divisor is read as a Series.
+    let divisor: Option<AnyValue<'static>> = match b.as_scalar_column() {
+        Some(sc) => Some(sc.scalar().value().clone()),
+        None if b.len() == 1 && len != 1 => Some(b.get(0)?.into_static()),
+        None => None,
+    };
+    let ys: Option<Series> = if divisor.is_none() { Some(b.as_materialized_series().clone()) } else { None };
+    let divisor = divisor.as_ref();
+    let ys = ys.as_ref();
+
+    let out: Series = match &dtype {
+        DataType::Int8 => dotnet_int_div_rem!(xs, divisor, ys, remainder, i8, i8, Int8Type),
+        DataType::Int16 => dotnet_int_div_rem!(xs, divisor, ys, remainder, i16, i16, Int16Type),
+        DataType::Int32 => dotnet_int_div_rem!(xs, divisor, ys, remainder, i32, i32, Int32Type),
+        DataType::Int64 => dotnet_int_div_rem!(xs, divisor, ys, remainder, i64, i64, Int64Type),
+        DataType::UInt8 => dotnet_int_div_rem!(xs, divisor, ys, remainder, u8, u8, UInt8Type),
+        DataType::UInt16 => dotnet_int_div_rem!(xs, divisor, ys, remainder, u16, u16, UInt16Type),
+        DataType::UInt32 => dotnet_int_div_rem!(xs, divisor, ys, remainder, u32, u32, UInt32Type),
+        DataType::UInt64 => dotnet_int_div_rem!(xs, divisor, ys, remainder, u64, u64, UInt64Type),
+        DataType::Float32 | DataType::Float64 => {
+            polars_ensure!(remainder, ComputeError: "truncated division is defined for integers");
+            let x = xs.cast(&DataType::Float64)?;
+            let x = x.f64()?;
+            let out: Float64Chunked = match (divisor, ys) {
+                (Some(scalar), _) => match scalar.extract::<f64>() {
+                    Some(r) => x.apply_values(|l| l % r),
+                    None => Float64Chunked::full_null(x.name().clone(), x.len()),
+                },
+                (None, Some(ys)) => {
+                    let y = ys.cast(&DataType::Float64)?;
+                    polars_core::prelude::arity::binary_elementwise_values(x, y.f64()?, |l: f64, r: f64| l % r)
+                }
+                (None, None) => unreachable!(),
+            };
+            out.into_series().cast(&dtype)?
+        }
+        DataType::Decimal(precision, scale) => {
+            polars_ensure!(remainder, ComputeError: "truncated division is defined for integers");
+            let ys = match ys {
+                Some(ys) => ys.clone(),
+                None => b.as_materialized_series().new_from_index(0, len),
+            };
+            let (x, y) = (xs.decimal()?.physical().clone(), ys.decimal()?.physical().clone());
+            let ca: Int128Chunked = polars_core::prelude::arity::binary_elementwise(&x, &y, |l: Option<i128>, r: Option<i128>| match (l, r) {
+                (Some(l), Some(r)) => l.checked_rem(r),
+                _ => None,
+            });
+            ca.into_decimal_unchecked(*precision, *scale).into_series()
+        }
+        other => polars_bail!(ComputeError: "truncated {} is not defined for {}", if remainder { "remainder" } else { "division" }, other),
+    };
+    Ok(out.with_name(name).into_column())
+}
+
+fn dotnet_div_rem_expr(left_ptr: *mut ExprContext, right_ptr: *mut ExprContext, remainder: bool) -> *mut ExprContext {
+    ffi_try!({
+        let left = unsafe { Box::from_raw(left_ptr) }.inner;
+        let right = unsafe { Box::from_raw(right_ptr) }.inner;
+        let new_expr = left.map_many(
+            move |cols: &mut [Column]| -> PolarsResult<Column> { dotnet_div_rem(&cols[0], &cols[1], remainder) },
+            &[right],
+            |_schema: &Schema, fields: &[Field]| -> PolarsResult<Field> {
+                let dtype = polars_core::utils::try_get_supertype(fields[0].dtype(), fields[1].dtype())?;
+                Ok(Field::new(fields[0].name().clone(), dtype))
+            },
+        );
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+/// .NET integer division (`/`): truncates toward zero; a zero divisor gives null.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_dotnet_div(left_ptr: *mut ExprContext, right_ptr: *mut ExprContext) -> *mut ExprContext {
+    dotnet_div_rem_expr(left_ptr, right_ptr, false)
+}
+
+/// .NET remainder (`%`): the dividend's sign, for integers, floats and decimals; a zero divisor gives null for
+/// integers and decimals, NaN for floats.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_dotnet_rem(left_ptr: *mut ExprContext, right_ptr: *mut ExprContext) -> *mut ExprContext {
+    dotnet_div_rem_expr(left_ptr, right_ptr, true)
+}
+
+/// An Int64 key ordering floating values as .NET does (Comparer<double>.Default): NaN before every number,
+/// -0.0 equal to 0.0, numbers in numeric order; null stays null. A single integer key, rather than a NaN key
+/// plus the value.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_dotnet_float_order_key(expr_ptr: *mut ExprContext) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let function = move |c: Column| {
+            let s = c.as_materialized_series().cast(&DataType::Float64)?;
+            let ca: Int64Chunked = polars_core::prelude::arity::unary_elementwise(s.f64()?, |v: Option<f64>| {
+                v.map(|x| {
+                    if x.is_nan() {
+                        i64::MIN
+                    } else {
+                        // Total order of the IEEE bits: flipping the magnitude bits of negatives makes the signed
+                        // integers ascend with the values. -0.0 is 0.0 first; NaN (i64::MIN) is below -inf.
+                        let bits = (if x == 0.0 { 0.0f64 } else { x }).to_bits() as i64;
+                        if bits < 0 { bits ^ i64::MAX } else { bits }
+                    }
+                })
+            });
+            Ok(ca.into_series().with_name(s.name().clone()).into_column())
+        };
+        let output_map = |_input_schema: &Schema, input_field: &Field| Ok(Field::new(input_field.name().clone(), DataType::Int64));
+        Ok(Box::into_raw(Box::new(ExprContext { inner: ctx.inner.map(function, output_map) })))
+    })
+}
