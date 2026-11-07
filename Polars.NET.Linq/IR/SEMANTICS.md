@@ -107,8 +107,13 @@ time and marks the compilation so its plan is not cached.
 **No short-circuit.** Expressions are evaluated whole: both sides of `And` / `Or` and both branches of a
 `Conditional`, for every row. An `AssertCount` is therefore checked once whenever its plan runs, even where
 the logic around it (`false AND ...`, an empty outer relation) would never read its value. This is stricter
-than LINQ to Objects, never laxer: whenever LINQ raises, so does the query. A managed UDF likewise runs on
-rows that a C# `&&` would have skipped.
+than LINQ to Objects, never laxer: whenever LINQ raises, so does the query.
+
+**Guarded UDFs.** The frontend restores C# short-circuit evaluation for managed UDFs. A UDF on the right of
+`&&` / `||` / `??`, or in a `?:` branch, receives the guard (the left side, its negation, the left's null test,
+the test or its negation) as one more input. It is invoked only on rows where the guard is true, and yields
+null elsewhere, which the guarding operator discards. A guard that aggregates or reads a window is not
+applied.
 
 **Untranslated operators.** A query operator the frontend does not translate (an overload with a comparer, an
 unknown operator) sends the whole query to LINQ to Objects under the client evaluation policy. It is never

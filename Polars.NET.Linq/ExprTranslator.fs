@@ -75,8 +75,14 @@ module internal ExprTranslator =
             | Unary(op, operand) -> OperatorAndUdfTranslator.translateUnaryExpr eval ctx op operand expr.Type
 
             // 8. Conditional Expression (Ternary: cond ? ifTrue : ifFalse)
+            // C# evaluates only the branch the test selects: a UDF in a branch runs only where it is selected.
             | :? ConditionalExpression as cond ->
-                match eval ctx cond.Test, eval ctx cond.IfTrue, eval ctx cond.IfFalse with
+                let testOpt = eval ctx cond.Test
+                let branch (guard: ScalarExpr -> ScalarExpr) (e: Expression) =
+                    match testOpt with
+                    | Some testS -> OperatorAndUdfTranslator.withUdfGuard ctx (guard testS) (fun () -> eval ctx e)
+                    | None -> eval ctx e
+                match testOpt, branch id cond.IfTrue, branch (fun t -> ScalarExpr.Unary(UnaryOp.Not, t)) cond.IfFalse with
                 | Some testS, Some trueS, Some falseS -> Some(ScalarExpr.Conditional(testS, trueS, falseS))
                 | _ ->
                     let hasParam (e: Expression) =

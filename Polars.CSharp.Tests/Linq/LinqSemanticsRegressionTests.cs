@@ -921,4 +921,68 @@ public class LinqSemanticsRegressionTests
         public string S { get; set; } = "";
         public string T { get; set; } = "";
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // C# short-circuit evaluation: a UDF on the right of `&&` / `||` / `??`, or in a `?:` branch, runs only on
+    // the rows that reach it, so a guard such as `x.S != null && F(x.S)` protects the function.
+    // ---------------------------------------------------------------------------------------------
+
+    public class Guarded
+    {
+        public long Id { get; set; }
+        public string S { get; set; }
+        public int N { get; set; }
+    }
+
+    private static readonly Guarded[] GuardedRows =
+        [new() { Id = 1, S = "1ab", N = 5 }, new() { Id = 2, S = null, N = 0 }, new() { Id = 3, S = "", N = 2 }, new() { Id = 4, S = "x", N = -1 }];
+
+    public static bool StartsWithDigit(string s) => char.IsDigit(s[0]);
+    public static int Hundredth(int n) => 100 / n;
+    public static string Third(string s) => s.Substring(2, 1);
+    public static string NullFor(int n) => n > 0 ? null : "neg";
+
+    [Fact]
+    public void Udfs_Run_Only_Where_Short_Circuit_Evaluation_Reaches_Them()
+    {
+        using var df = DataFrame.From(GuardedRows);
+        var q = df.AsQueryable<Guarded>();
+
+        Assert.Equal(
+            GuardedRows.Where(x => x.S != null && x.S.Length > 0 && StartsWithDigit(x.S)).Select(x => x.Id),
+            q.Where(x => x.S != null && x.S.Length > 0 && StartsWithDigit(x.S)).Select(x => x.Id).ToList());
+        Assert.Equal(
+            GuardedRows.Where(x => x.N != 0 && Hundredth(x.N) > 10).Select(x => x.Id),
+            q.Where(x => x.N != 0 && Hundredth(x.N) > 10).Select(x => x.Id).ToList());
+        Assert.Equal(
+            GuardedRows.Where(x => x.N == 0 || Hundredth(x.N) > 10).Select(x => x.Id),
+            q.Where(x => x.N == 0 || Hundredth(x.N) > 10).Select(x => x.Id).ToList());
+        Assert.Equal(
+            GuardedRows.Select(x => x.S != null && x.S.Length >= 3 ? Third(x.S) : "-"),
+            q.Select(x => x.S != null && x.S.Length >= 3 ? Third(x.S) : "-").ToList());
+        Assert.Equal(
+            GuardedRows.Select(x => x.N == 0 ? 0 : Hundredth(x.N)),
+            q.Select(x => x.N == 0 ? 0 : Hundredth(x.N)).ToList());
+        Assert.Equal(
+            GuardedRows.Select(x => x.N != 0 ? (x.N > 0 ? Hundredth(x.N) : -Hundredth(x.N)) : 0),
+            q.Select(x => x.N != 0 ? (x.N > 0 ? Hundredth(x.N) : -Hundredth(x.N)) : 0).ToList());
+        Assert.Equal(
+            GuardedRows.Select(x => x.S ?? Third("ab" + x.N)),
+            q.Select(x => x.S ?? Third("ab" + x.N)).ToList());
+        Assert.Equal(
+            GuardedRows.Select(x => NullFor(x.N) ?? "pos"),
+            q.Select(x => NullFor(x.N) ?? "pos").ToList());
+    }
+
+    [Fact]
+    public void Udfs_Without_Short_Circuit_Still_Run_On_Every_Row()
+    {
+        using var df = DataFrame.From(GuardedRows);
+        var q = df.AsQueryable<Guarded>();
+
+        // `&` evaluates both sides in C# too: the function throws on N = 0 either way.
+        Assert.ThrowsAny<Exception>(() => GuardedRows.Where(x => x.N != 0 & Hundredth(x.N) > 10).ToList());
+        Assert.ThrowsAny<Exception>(() => q.Where(x => x.N != 0 & Hundredth(x.N) > 10).ToList());
+        Assert.Equal(GuardedRows.Select(x => Third(x.S + "___")), q.Select(x => Third(x.S + "___")).ToList());
+    }
 }

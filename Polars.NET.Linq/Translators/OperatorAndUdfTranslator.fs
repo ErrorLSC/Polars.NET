@@ -54,6 +54,27 @@ module internal OperatorAndUdfTranslator =
             | TypeCode.Int32 | TypeCode.UInt32 | TypeCode.Int64 | TypeCode.UInt64 -> true
             | _ -> false)
 
+    /// Translates with `guard` in effect: a UDF translated by `translate` in context `ctx` runs only on rows where
+    /// the guard is true, as C# evaluates the right of `&&` / `||`, a `?:` branch and the right of `??` only when
+    /// reached. A guard that aggregates or reads a window is not usable row by row and is not added.
+    let internal withUdfGuard (ctx: TranslationContext) (guard: ScalarExpr) (translate: unit -> 'T) : 'T =
+        match CompilationScope.TryCurrent with
+        | Some scope when not (ScalarExprOps.containsAggregation guard || ScalarExprOps.containsWindow guard) ->
+            let saved = scope.UdfGuards
+            scope.UdfGuards <- (box ctx, guard) :: saved
+            try translate () finally scope.UdfGuards <- saved
+        | _ -> translate ()
+
+    /// The conjunction of the guards in effect for context `ctx`, if any.
+    let private currentUdfGuard (ctx: TranslationContext) : ScalarExpr option =
+        let guards =
+            match CompilationScope.TryCurrent with
+            | Some scope -> scope.UdfGuards |> List.filter (fun (c, _) -> Object.Equals(c, box ctx)) |> List.map snd |> List.rev
+            | None -> []
+        match guards with
+        | [] -> None
+        | first :: rest -> Some(rest |> List.fold (fun acc g -> ScalarExpr.Binary(BinaryOp.And, acc, g)) first)
+
     let internal translateBinaryExpr
         (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
@@ -104,7 +125,15 @@ module internal OperatorAndUdfTranslator =
             | Some l, Some r -> Some(ScalarExpr.Binary(BinaryOp.StringConcat, l, r))
             | _ -> None
         else
-            match eval ctx left, eval ctx right with
+            // C# evaluates the right of `&&` / `||` / `??` only when the left does not decide the result.
+            let leftS = eval ctx left
+            let rightS =
+                match op, leftS with
+                | ExpressionType.AndAlso, Some l -> withUdfGuard ctx l (fun () -> eval ctx right)
+                | ExpressionType.OrElse, Some l -> withUdfGuard ctx (ScalarExpr.Unary(UnaryOp.Not, l)) (fun () -> eval ctx right)
+                | ExpressionType.Coalesce, Some l -> withUdfGuard ctx (ScalarExpr.Unary(UnaryOp.IsNull, l)) (fun () -> eval ctx right)
+                | _ -> eval ctx right
+            match leftS, rightS with
             // A value known only at run time (a captured variable) that is null: C# `==` is a null check.
             | Some(ScalarExpr.Literal(LiteralValue.Null _)), Some other
             | Some other, Some(ScalarExpr.Literal(LiteralValue.Null _)) when op = ExpressionType.Equal || op = ExpressionType.NotEqual ->
@@ -367,6 +396,26 @@ module internal OperatorAndUdfTranslator =
                             let dynArgs = translatedDependentArgs |> List.choose id
                             let dynCount = dynArgs.Length
 
+                            match currentUdfGuard ctx with
+                            // Under a guard (short-circuit evaluation), the guard is one more input: a row where it
+                            // is not true skips the user function and yields null, which the guarding `&&` / `||`
+                            // / `?:` / `??` discards.
+                            | Some guard when dynCount > 0 ->
+                                let userFunc = compileMultiArgUdfDelegate dynArgs expr
+                                let resultFunc =
+                                    Func<obj array, obj>(fun xs ->
+                                        match xs.[dynCount] with
+                                        | :? bool as reached when reached -> toUdfResult (userFunc.Invoke xs)
+                                        | _ -> null)
+                                let inputTypes = (dynArgs |> List.map (fun (a, _) -> a.Type)) @ [ typeof<bool> ] |> List.toArray
+                                let arrowCallback = ArrowUdfBatchAdapter.CreateMulti(resultFunc, inputTypes, udfReturnType)
+                                let scalarArgs = (dynArgs |> List.map snd) @ [ guard ]
+
+                                ArrowUdfBatchAdapter.WarnUdfDetected(methodName, expr.ToString())
+                                CompilationScope.Current.RecordUdf(sprintf "%s: %s" methodName (expr.ToString()))
+                                Some(wrapResult (ScalarExpr.Udf(methodName, scalarArgs, retPlType, UdfInvoker.MultiBatch(box arrowCallback, udfReturnType))))
+
+                            | _ ->
                             if dynCount = 1 then
                                 let argExpr, scalarArg = dynArgs.[0]
                                 let userFunc = compileSingleArgUdfDelegate argExpr expr

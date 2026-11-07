@@ -50,6 +50,11 @@ type internal CompilationScope private (backend: IQueryBackend, enclosing: Compi
     /// into a constant), which ties the result to the data read at compile time.
     member val EvaluatedAtCompile = false with get, set
 
+    /// Conditions under which the expression being translated runs in C# (the left side of `&&`, the test of a
+    /// `?:` branch, ...), each with the translation context (boxed) it was translated in. A UDF translated under
+    /// guards of its own context is only invoked where they all hold, as C# short-circuit evaluation would.
+    member val UdfGuards: (obj * ScalarExpr) list = [] with get, set
+
     /// UDFs pushed down to the backend, in the order first recorded.
     member _.Udfs: string list = List.ofSeq udfs
 
