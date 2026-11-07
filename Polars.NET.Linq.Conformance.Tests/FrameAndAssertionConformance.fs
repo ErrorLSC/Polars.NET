@@ -57,3 +57,14 @@ let ``AssertCount fails the query with the check's error`` () =
     Conformance.raises<ArgumentOutOfRangeException> t
         (single t (bin BinaryOp.Gt (col "Id") (i64 9L)) { exactlyOne with Max = None; TooFew = outOfRange })
         "Specified argument was out of the range of valid values. (Parameter 'index')"
+
+/// Expressions are evaluated whole, without short-circuit: an AssertCount is checked once whenever its plan runs,
+/// even where the logic around it (`false AND ...`, an empty outer relation) would never read its value. This is
+/// stricter than LINQ to Objects, never laxer.
+[<Fact>]
+let ``AssertCount is checked without short-circuit`` () =
+    let t = Tables()
+    let failing = single t (bin BinaryOp.Gt (col "Id") (i64 2L)) exactlyOne
+    Conformance.raises<InvalidOperationException> t
+        (project failing [ "x", bin BinaryOp.And (bool false) (bin BinaryOp.Gt (col "v") (i64 0L)) ])
+        "Sequence contains more than one element"

@@ -100,8 +100,11 @@ module internal OperatorAndUdfTranslator =
                 Some(ScalarExpr.Unary((if op = ExpressionType.Equal then UnaryOp.IsNull else UnaryOp.IsNotNull), other))
             // C# null semantics (EF Core's default, see NullSemantics): equality is two-valued, and a lifted
             // ordering comparison is false on a null operand.
+            // .NET floating semantics (see NaNSemantics): comparisons involving NaN are false, `!=` true.
             | Some l, Some r when (op = ExpressionType.Equal || op = ExpressionType.NotEqual) && resultType = typeof<bool> ->
-                Some(NullSemantics.equality (op = ExpressionType.Equal) (left.Type, l) (right.Type, r))
+                NullSemantics.equality (op = ExpressionType.Equal) (left.Type, l) (right.Type, r)
+                |> NaNSemantics.comparison op (left.Type, l) (right.Type, r)
+                |> Some
             | Some l, Some r when
                 op = ExpressionType.LessThan
                 || op = ExpressionType.LessThanOrEqual
@@ -109,6 +112,7 @@ module internal OperatorAndUdfTranslator =
                 || op = ExpressionType.GreaterThanOrEqual
                 ->
                 tryTranslateBinary op l r
+                |> Option.map (NaNSemantics.comparison op (left.Type, l) (right.Type, r))
                 |> Option.map (NullSemantics.liftedComparison resultType [ left.Type, l; right.Type, r ])
             | Some l, Some r -> tryTranslateBinary op l r
             | _ -> None

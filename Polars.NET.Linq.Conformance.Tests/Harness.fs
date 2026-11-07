@@ -96,7 +96,9 @@ module Conformance =
             for label, p in [ "as written", plan; "optimized", LogicalOptimizer.optimize plan ] do
                 let actual = engine.Execute(p, tables.Sources).Rows |> normalizeRows
                 let e, a = if ordered then expected, actual else sortRows expected, sortRows actual
-                if e <> a then
+                // Object.Equals, not F# `=`: a boxed NaN equals NaN (F# equality follows IEEE, NaN <> NaN).
+                let sameRow (x: obj list) (y: obj list) = x.Length = y.Length && List.forall2 (fun (u: obj) v -> Object.Equals(u, v)) x y
+                if not (e.Length = a.Length && List.forall2 sameRow e a) then
                     Assert.Fail(sprintf "%s (%s):\nexpected %A\nactual   %A\nplan %s" engine.Name label e a (LogicalPlanOps.formatPlan p))
 
     /// The rows, in this order.

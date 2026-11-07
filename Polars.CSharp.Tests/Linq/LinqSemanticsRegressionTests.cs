@@ -728,4 +728,81 @@ public class LinqSemanticsRegressionTests
         Assert.Equal(Facts.Where(x => x.V > Others.Where(y => y.K == 99).Select(y => y.V).LastOrDefault()).Select(x => x.K), orDefault.ToList());
         AssertSameFailure(() => Facts.Where(x => x.V > Others.Last(y => y.K == 99).V).ToList(), () => none.ToList());
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // .NET floating semantics (double, float, Half): a comparison involving NaN is false (`!=` true), ordering
+    // puts NaN before every number (after null), and Min is NaN as soon as one value is NaN.
+    // ---------------------------------------------------------------------------------------------
+
+    public class Floats
+    {
+        public long Id { get; set; }
+        public double? D { get; set; }
+        public double? E { get; set; }
+        public float F { get; set; }
+        public Half? H { get; set; }
+    }
+
+    private static readonly Floats[] FloatRows =
+    [
+        new() { Id = 1, D = double.NaN, E = double.NaN, F = float.NaN, H = Half.NaN },
+        new() { Id = 2, D = double.NaN, E = 1.0, F = 2f, H = (Half)2 },
+        new() { Id = 3, D = 1.0, E = null, F = 7f, H = null },
+        new() { Id = 4, D = null, E = double.NaN, F = float.NaN, H = (Half)7 },
+        new() { Id = 5, D = 7.0, E = 7.0, F = 0.5f, H = (Half)0.5 },
+    ];
+
+    [Fact]
+    public void Comparisons_Involving_NaN_Follow_DotNet()
+    {
+        using var df = DataFrame.From(FloatRows);
+        var query = df.AsQueryable<Floats>().Select(x => new
+        {
+            x.Id,
+            eq = x.D == x.E, ne = x.D != x.E, lt = x.D < x.E, le = x.D <= x.E, gt = x.D > x.E, ge = x.D >= x.E,
+            gtLit = x.D > 5.0, ltLit = x.D < 5.0, eqNaN = x.D == double.NaN,
+            fGt = x.F > 1f, fLe = x.F <= 1f, hGt = x.H > (Half)1, hEq = x.H == x.H,
+        });
+        var expected = FloatRows.Select(x => new
+        {
+            x.Id,
+            eq = x.D == x.E, ne = x.D != x.E, lt = x.D < x.E, le = x.D <= x.E, gt = x.D > x.E, ge = x.D >= x.E,
+            gtLit = x.D > 5.0, ltLit = x.D < 5.0, eqNaN = x.D == double.NaN,
+            fGt = x.F > 1f, fLe = x.F <= 1f, hGt = x.H > (Half)1, hEq = x.H == x.H,
+        });
+
+        Assert.Equal(expected, query.ToList());
+        Assert.Equal(FloatRows.Where(x => x.D > 5.0).Select(x => x.Id), df.AsQueryable<Floats>().Where(x => x.D > 5.0).Select(x => x.Id).ToList());
+        Assert.Equal(FloatRows.Where(x => x.D != x.E).Select(x => x.Id), df.AsQueryable<Floats>().Where(x => x.D != x.E).Select(x => x.Id).ToList());
+        Assert.Equal(FloatRows.Where(x => x.H > (Half)1).Select(x => x.Id), df.AsQueryable<Floats>().Where(x => x.H > (Half)1).Select(x => x.Id).ToList());
+    }
+
+    [Fact]
+    public void Ordering_Puts_NaN_Before_Numbers_After_Null()
+    {
+        using var df = DataFrame.From(FloatRows);
+        var q = df.AsQueryable<Floats>();
+
+        Assert.Equal(FloatRows.OrderBy(x => x.D).ThenBy(x => x.Id).Select(x => x.Id), q.OrderBy(x => x.D).ThenBy(x => x.Id).Select(x => x.Id).ToList());
+        Assert.Equal(FloatRows.OrderByDescending(x => x.D).ThenBy(x => x.Id).Select(x => x.Id), q.OrderByDescending(x => x.D).ThenBy(x => x.Id).Select(x => x.Id).ToList());
+        Assert.Equal(FloatRows.OrderBy(x => x.F).Select(x => x.Id), q.OrderBy(x => x.F).Select(x => x.Id).ToList());
+        Assert.Equal(FloatRows.OrderByDescending(x => x.H).Select(x => x.Id), q.OrderByDescending(x => x.H).Select(x => x.Id).ToList());
+        Assert.Equal(
+            FloatRows.GroupBy(x => x.D).Select(g => new { g.Key, n = g.Count() }).OrderBy(r => r.Key),
+            q.GroupBy(x => x.D).Select(g => new { g.Key, n = g.Count() }).OrderBy(r => r.Key).ToList());
+    }
+
+    [Fact]
+    public void Min_Is_NaN_When_A_Value_Is_NaN()
+    {
+        using var df = DataFrame.From(FloatRows);
+        var q = df.AsQueryable<Floats>();
+
+        Assert.Equal(FloatRows.Min(x => x.D), q.Min(x => x.D));
+        Assert.Equal(FloatRows.Max(x => x.D), q.Max(x => x.D));
+        Assert.Equal(FloatRows.Where(x => x.Id > 2).Min(x => x.D), q.Where(x => x.Id > 2).Min(x => x.D));
+        Assert.Equal(
+            FloatRows.GroupBy(x => x.Id % 2).Select(g => new { g.Key, min = g.Min(x => x.F), max = g.Max(x => x.F) }).OrderBy(r => r.Key),
+            q.GroupBy(x => x.Id % 2).Select(g => new { g.Key, min = g.Min(x => x.F), max = g.Max(x => x.F) }).OrderBy(r => r.Key).ToList());
+    }
 }

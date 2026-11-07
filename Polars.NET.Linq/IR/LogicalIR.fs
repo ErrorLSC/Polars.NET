@@ -16,6 +16,7 @@ type LiteralValue =
     | UInt16 of uint16
     | UInt32 of uint32
     | UInt64 of uint64
+    | Float16 of Half
     | Float32 of float32
     | Float64 of double
     | Decimal of decimal
@@ -38,6 +39,7 @@ type LiteralValue =
             | UInt8 _ -> LogicalTypes.UInt8
             | UInt16 _ -> LogicalTypes.UInt16
             | UInt32 _ -> LogicalTypes.UInt32
+            | Float16 _ -> LogicalTypes.Float16
             | UInt64 _ -> LogicalTypes.UInt64
             | Float32 _ -> LogicalTypes.Float32
             | Float64 _ -> LogicalTypes.Float64
@@ -62,6 +64,7 @@ type LiteralValue =
             | UInt16 u -> box u
             | UInt32 u -> box u
             | UInt64 u -> box u
+            | Float16 h -> box h
             | Float32 f -> box f
             | Float64 f -> box f
             | Decimal m -> box m
@@ -88,6 +91,7 @@ type LiteralValue =
             | :? int64 as i -> Some(LiteralValue.Int64 i)
             | :? double as d -> Some(LiteralValue.Float64 d)
             | :? float32 as f -> Some(LiteralValue.Float32 f)
+            | :? Half as h -> Some(LiteralValue.Float16 h)
             | :? string as s -> Some(LiteralValue.String s)
             | :? decimal as m -> Some(LiteralValue.Decimal m)
             | :? sbyte as b -> Some(LiteralValue.Int8 b)
@@ -145,6 +149,8 @@ type UnaryOp =
     | Negate
     | IsNull
     | IsNotNull
+    /// Whether a floating value is NaN (null for null).
+    | IsNan
     | Abs
 
 /// Aggregation kinds supported in ScalarExpr and GroupBy/Window nodes
@@ -152,6 +158,7 @@ type UnaryOp =
 type AggKind =
     | Sum
     | Mean
+    /// .NET Min: over floating values, NaN as soon as one value is NaN (Max skips NaN unless every value is NaN).
     | Min
     | Max
     | Count
@@ -807,17 +814,19 @@ and [<RequireQualifiedAccess>] SourceBinding =
     /// Snapshot of an in-memory .NET collection (typed array of elementType). Materialized by the backend at lowering time.
     | InMemory of rows: Array * elementType: Type
 
-/// Specification for multi-dimensional Grouping Sets (ROLLUP, CUBE, GROUPING SETS)
+/// Specification for multi-dimensional Grouping Sets (ROLLUP, CUBE, GROUPING SETS). The result is one block of
+/// rows per level, in Levels order: a level groups by its subset of KeyAliases (by index; groups in first-key
+/// order, an empty subset giving one grand-total row), leaves the keys outside the subset null, and sets the
+/// columns its literal map names. OutputColumns lists the result's columns.
 and LogicalGroupingSetsSpec =
     {
         KeyAliases: (string * ScalarExpr) list
         Aggs: (string * ScalarExpr) list
-        Level0Literals: Map<string, ScalarExpr>
         Levels: (int list * Map<string, ScalarExpr>) list
         OutputColumns: string list
     }
 
-/// Specification for Logical AsOf join operations
+/// Specification for Logical AsOf join operations. A null `on` or `by` key never matches (on either side).
 and LogicalAsOfJoinSpec =
     {
         LeftOn: ScalarExpr
@@ -832,7 +841,6 @@ and LogicalAsOfJoinSpec =
         CheckSorted: bool
         Suffix: string option
         Coalesce: JoinKeyCoalescing
-        NullsEqual: bool
     }
 
 /// Pure relational algebra logical plan tree. Every backend implements the semantics stated here and in

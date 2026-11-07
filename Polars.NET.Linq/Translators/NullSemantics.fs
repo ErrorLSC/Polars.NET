@@ -3,6 +3,7 @@ namespace Polars.NET.Linq
 open Polars.NET.Core.Config
 open Polars.NET.Linq.IR
 open System
+open System.Linq.Expressions
 
 /// How comparisons treat null, as EF Core does: C# semantics by default, compensating for the three-valued
 /// logic of the engine, or relational (SQL) semantics when CoreConfig.UseRelationalNulls is set.
@@ -81,3 +82,59 @@ module internal NullSemantics =
             ScalarExpr.Coalesce [ comparison; ScalarExpr.Literal(LiteralValue.Bool false) ]
         else
             comparison
+
+/// .NET floating-point comparison semantics (double, float, Half), compensating for the engine's total order,
+/// in which NaN equals NaN and is greater than every number. In .NET a comparison involving NaN is false (and
+/// `!=` true), and ordering (Comparer<T>.Default, OrderBy) places NaN before every number (after null).
+module internal NaNSemantics =
+
+    let isFloatingClrType (t: Type) =
+        let core = match Nullable.GetUnderlyingType t with null -> t | u -> u
+        core = typeof<double> || core = typeof<float32> || core = typeof<Half>
+
+    let rec private isNonNaNLiteral (s: ScalarExpr) =
+        match s with
+        | ScalarExpr.Literal(LiteralValue.Float64 v) -> not (Double.IsNaN v)
+        | ScalarExpr.Literal(LiteralValue.Float32 v) -> not (Single.IsNaN v)
+        | ScalarExpr.Literal(LiteralValue.Float16 v) -> not (Half.IsNaN v)
+        | ScalarExpr.Literal _ -> true
+        | ScalarExpr.Cast(inner, _, _) -> isNonNaNLiteral inner
+        | _ -> false
+
+    /// Whether a translated operand of CLR type `t` may be NaN when the query runs.
+    let mayBeNaN (t: Type) (s: ScalarExpr) = isFloatingClrType t && not (isNonNaNLiteral s)
+
+    /// True when the value is NaN; false for a number or null.
+    let private isNaN (s: ScalarExpr) =
+        ScalarExpr.Coalesce [ ScalarExpr.Unary(UnaryOp.IsNan, s); ScalarExpr.Literal(LiteralValue.Bool false) ]
+
+    /// True when the value is not NaN (a number or null).
+    let private notNaN (s: ScalarExpr) = ScalarExpr.Unary(UnaryOp.Not, isNaN s)
+
+    /// A comparison `l op r` (already translated, with null compensation) made to follow .NET NaN semantics.
+    /// Only operands that may be NaN are guarded:
+    /// - `==`: the engine's NaN == NaN must be false;
+    /// - `!=`: NaN != NaN must be true;
+    /// - `<`, `<=`: false when the right side is NaN (the engine orders NaN last);
+    /// - `>`, `>=`: false when the left side is NaN.
+    let comparison (op: ExpressionType) (leftType: Type, l: ScalarExpr) (rightType: Type, r: ScalarExpr) (cmp: ScalarExpr) =
+        let lNaN, rNaN = mayBeNaN leftType l, mayBeNaN rightType r
+        let andAlso guard = ScalarExpr.Binary(BinaryOp.And, cmp, guard)
+        match op with
+        | ExpressionType.Equal when lNaN && rNaN -> andAlso (notNaN l)
+        | ExpressionType.NotEqual when lNaN && rNaN -> ScalarExpr.Binary(BinaryOp.Or, cmp, isNaN l)
+        | ExpressionType.LessThan
+        | ExpressionType.LessThanOrEqual when rNaN -> andAlso (notNaN r)
+        | ExpressionType.GreaterThan
+        | ExpressionType.GreaterThanOrEqual when lNaN -> andAlso (notNaN l)
+        | _ -> cmp
+
+    /// The sort orders for a key of CLR type `keyType`: a floating key is preceded by `NOT is_nan(key)`, which
+    /// puts NaN (false) before the numbers (true) in the key's direction and is null for a null key, so nulls
+    /// keep the place the key gives them.
+    let sortOrders (keyType: Type) (order: SortOrder) : SortOrder list =
+        if isFloatingClrType keyType then
+            [ { order with Expr = ScalarExpr.Unary(UnaryOp.Not, ScalarExpr.Unary(UnaryOp.IsNan, order.Expr)) }; order ]
+        else
+            [ order ]
+

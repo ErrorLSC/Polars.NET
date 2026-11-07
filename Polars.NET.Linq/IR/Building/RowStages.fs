@@ -125,13 +125,15 @@ module internal RowStages =
             let ctx = makeCtx p.Type p.Name state.Plan
             match ExprTranslator.tryTranslateToScalar ctx lam.Body with
             | Some s ->
-                let newOrder = { SortOrder.Expr = s; Descending = isDesc; NullsLast = nullsLast }
+                // A floating key sorts NaN as .NET does (see NaNSemantics.sortOrders).
+                let newOrders =
+                    NaNSemantics.sortOrders lam.Body.Type { SortOrder.Expr = s; Descending = isDesc; NullsLast = nullsLast }
                 let newPlan =
                     match state.Plan with
                     | LogicalPlan.Sort(input, prevOrders) ->
-                        LogicalPlan.Sort(input, prevOrders @ [ newOrder ])
+                        LogicalPlan.Sort(input, prevOrders @ newOrders)
                     | _ ->
-                        LogicalPlan.Sort(state.Plan, [ newOrder ])
+                        LogicalPlan.Sort(state.Plan, newOrders)
                 continueWith { state with Plan = newPlan } scopeMap tail
             | None ->
                 continueWith (fallback state) scopeMap tail

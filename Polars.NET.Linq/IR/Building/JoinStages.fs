@@ -382,7 +382,6 @@ module internal JoinStages =
                         CheckSorted = true
                         Suffix = Some uniqueSuffix
                         Coalesce = JoinKeyCoalescing.KeepBoth
-                        NullsEqual = false
                     }
                 let asOfPlan = LogicalPlan.JoinAsOf(state.Plan, rightPlan, spec)
                 let leftScope = outerKey.Parameters.[0].Name

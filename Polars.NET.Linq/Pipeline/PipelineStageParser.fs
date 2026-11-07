@@ -128,12 +128,12 @@ module internal PipelineStageParser =
                     )
                 )
 
-    /// Post-processes raw scalar aggregate results (handling NaN, empty collections, and F# Option/ValueOption types)
+    /// Post-processes raw scalar aggregate results (empty collections, F# Option/ValueOption types). An aggregate
+    /// over no values is null (the IR contract); NaN is a value (Min / Max / Average over a NaN), never "empty".
     let boxScalarResult<'TResult> (rawScalar: obj, methodName: string) : 'TResult =
         let targetType = typeof<'TResult>
 
-        let isEmpty =
-            isNull rawScalar || rawScalar :? double && Double.IsNaN(rawScalar :?> double)
+        let isEmpty = isNull rawScalar
 
         if isEmpty then
             match methodName with

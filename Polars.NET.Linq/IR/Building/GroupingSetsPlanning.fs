@@ -347,14 +347,12 @@ module internal GroupingSetsPlanning =
                             let evaluated = PartialEvaluator.evaluateSubtree levelExpr
                             ScalarExprOps.toLiteral evaluated expr.Type)
 
-                    let level0Literals = evalGroupingLiterals [ 0 .. numKeys - 1 ]
                     let levels = subsets |> List.map (fun idxs -> idxs, evalGroupingLiterals idxs)
 
                     let spec: LogicalGroupingSetsSpec =
                         {
                             KeyAliases = keyAliases
                             Aggs = aggs
-                            Level0Literals = level0Literals
                             Levels = levels
                             OutputColumns = memberNames
                         }

@@ -19,6 +19,7 @@
     <Compile Include="OrderingAndJoinConformance.fs" />
     <Compile Include="FrameAndAssertionConformance.fs" />
     <Compile Include="ReshapeConformance.fs" />
+    <Compile Include="FloatConformance.fs" />
   </ItemGroup>
 
   <ItemGroup>

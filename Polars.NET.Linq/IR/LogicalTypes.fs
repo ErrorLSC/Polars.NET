@@ -89,6 +89,7 @@ module LogicalTypes =
     let UInt16 = LogicalType.Arrow UInt16Type.Default
     let UInt32 = LogicalType.Arrow UInt32Type.Default
     let UInt64 = LogicalType.Arrow UInt64Type.Default
+    let Float16 = LogicalType.Arrow HalfFloatType.Default
     let Float32 = LogicalType.Arrow FloatType.Default
     let Float64 = LogicalType.Arrow DoubleType.Default
     /// Fixed-point decimal with the given precision and scale.

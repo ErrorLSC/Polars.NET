@@ -30,6 +30,28 @@ every value. The frontend uses them for C# `==` / `!=` on nullable operands.
 where the predicate is positive: at the root, under `And` / `Or`, and in conditional branches. With
 `CoreConfig.UseRelationalNulls`, the frontend emits plain SQL comparisons instead.
 
+## Floating-point values
+
+**Engine total order.** IR comparisons over floating values (`Float16`, `Float32`, `Float64`) follow the
+engine's total order. NaN equals NaN and is greater than every number. `Unary IsNan` is true for NaN, false
+for a number and null for null.
+
+**.NET semantics are compiled, not built in (`NaNSemantics`).** For `double`, `float` and `Half` operands that
+may be NaN, the frontend guards comparisons:
+- `==` adds `AND NOT isnan(left)`;
+- `!=` adds `OR isnan(left)`;
+- `<` and `<=` add `AND NOT isnan(right)`;
+- `>` and `>=` add `AND NOT isnan(left)`.
+
+So a comparison involving NaN is false, and `!=` is true. A floating sort key is preceded by
+`NOT isnan(key)` with the key's direction and null placement, which puts NaN before the numbers and after
+null, as `Comparer<T>.Default` does.
+
+**Aggregates.** `Min` is .NET `Min`: NaN as soon as one value is NaN. `Max` skips NaN unless every value is
+NaN. Grouping and `Distinct` treat NaN as one value (.NET `Equals`).
+
+**Literals.** `LiteralValue.Float16` holds a `Half`.
+
 ## Strings and membership
 
 **Null as the empty string.** `StringConcat`, `ConcatString`, `FormatString` and `ListJoin` follow .NET
@@ -57,6 +79,12 @@ backend surfaces as the matching .NET exception. It has an effect, so it must be
 value is used, and never constant-folded. A backend that cannot raise answers
 `IBackendCapabilities.SupportsAssertions = false`. The frontend then evaluates such subqueries at compile
 time and marks the compilation so its plan is not cached.
+
+**No short-circuit.** Expressions are evaluated whole: both sides of `And` / `Or` and both branches of a
+`Conditional`, for every row. An `AssertCount` is therefore checked once whenever its plan runs, even where
+the logic around it (`false AND ...`, an empty outer relation) would never read its value. This is stricter
+than LINQ to Objects, never laxer: whenever LINQ raises, so does the query. A managed UDF likewise runs on
+rows that a C# `&&` would have skipped.
 
 ## Rows and order
 
@@ -87,14 +115,18 @@ guarantee beneath them. `GroupOrderRelaxation` frees order only under order-free
 - `Mean`, `Min`, `Max`, `First`, `Last` and `Median` over no values are null.
 - `Count` counts non-null values. `Len` counts rows.
 - `Std` / `Var` with ddof d are null with at most d values.
-- A `Project` whose projections all aggregate yields exactly one row, even over no input rows.
+- A `Project` whose projections all aggregate yields exactly one row, even over no input rows. A `GroupBy`
+  over no rows yields no rows, and a `GroupingSets` level with an empty key subset still yields its one
+  grand-total row.
 
 **GroupBy `having`.** `having` is an aggregate predicate over a group's rows. It keeps the groups for
 which it is true, before anything above the GroupBy runs.
 
 ## Reshaping
 
-- **`Explode`** produces one row per list element, rows in input order and elements in list order.
+- **`Explode`** produces one row per list element, rows in input order and elements in list order. Several
+  columns explode together and pair their elements, so each row's lists must have equal lengths, or the
+  query fails. The frontend explodes one column at a time.
   - An empty list gives one null row with `emptyAsNull`, otherwise no row.
   - A null list gives one null row with `keepNulls`, otherwise no row.
 - **`Unpivot`** outputs the columns `index..., variable, value`. It produces one block of rows per `on` column,
@@ -105,13 +137,13 @@ which it is true, before anything above the GroupBy runs.
   - Forward: the least key >=;
   - Nearest: the closest key.
 
-  Without `AllowEq`, `<=` / `>=` become `<` / `>`. When no row qualifies, the right columns are null. Both
-  inputs are sorted by their `on` keys.
+  Without `AllowEq`, `<=` / `>=` become `<` / `>`. When no row qualifies, the right columns are null. A null
+  `on` or `by` key never matches, on either side. Both inputs are sorted by their `on` keys.
 - **`GroupingSets`** produces one block per level, in `Levels` order.
   - A level groups by its subset of keys. Groups appear in first-key order, and an empty subset gives one
     grand-total row.
   - Keys outside the subset are null.
-  - A level's literals set their columns. A level that holds every key takes `Level0Literals` instead.
+  - Each level's own literals set their columns.
 
 ## Joins and keys
 

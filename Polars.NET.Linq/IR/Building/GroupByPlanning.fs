@@ -593,9 +593,14 @@ module internal GroupByPlanning =
                                     | None -> true
                                 | _ -> false)
 
+                        // A floating key sorts NaN as .NET does (see NaNSemantics.sortOrders).
+                        let expandSort (sortLambda: LambdaExpression) (order: SortOrder option) =
+                            order |> Option.map (NaNSemantics.sortOrders sortLambda.Body.Type) |> Option.defaultValue []
+
                         let allSortOrders =
                             sortStages
-                            |> List.choose (fun (sortLambda, isDesc, nullsLast) ->
+                            |> List.collect (fun (sortLambda, isDesc, nullsLast) ->
+                                expandSort sortLambda <|
                                 match resolveResultColName sortLambda.Body with
                                 | Some colName ->
                                     Some
@@ -617,7 +622,8 @@ module internal GroupByPlanning =
                         let earlySortOrders =
                             if hasLateSort then
                                 sortStages
-                                |> List.choose (fun (sortLambda, isDesc, nullsLast) ->
+                                |> List.collect (fun (sortLambda, isDesc, nullsLast) ->
+                                    expandSort sortLambda <|
                                     match resolveResultColName sortLambda.Body with
                                     | Some colName when not (derivedKeyColMap.ContainsKey colName) ->
                                         Some

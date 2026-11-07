@@ -100,7 +100,6 @@ module internal LogicalPlanOps =
                 { spec with
                     KeyAliases = spec.KeyAliases |> List.map (fun (name, e) -> name, f e)
                     Aggs = spec.Aggs |> List.map (fun (name, e) -> name, f e)
-                    Level0Literals = spec.Level0Literals |> Map.map (fun _ e -> f e)
                     Levels = spec.Levels |> List.map (fun (idxs, m) -> idxs, m |> Map.map (fun _ e -> f e))
                 }
             )
@@ -208,6 +207,7 @@ module internal LogicalPlanOps =
             | LiteralValue.UInt16 us -> sprintf "%dus" us
             | LiteralValue.UInt32 ui -> sprintf "%du" ui
             | LiteralValue.UInt64 ul -> sprintf "%dUL" ul
+            | LiteralValue.Float16 h -> sprintf "%gh" (float32 h)
             | LiteralValue.Float32 f -> sprintf "%gf" f
             | LiteralValue.Float64 d -> sprintf "%g" d
             | LiteralValue.Decimal m -> sprintf "%sM" (m.ToString())
@@ -254,6 +254,7 @@ module internal LogicalPlanOps =
             | UnaryOp.Negate -> sprintf "-(%s)" (formatScalar inner)
             | UnaryOp.IsNull -> sprintf "(%s IS NULL)" (formatScalar inner)
             | UnaryOp.IsNotNull -> sprintf "(%s IS NOT NULL)" (formatScalar inner)
+            | UnaryOp.IsNan -> sprintf "(%s IS NAN)" (formatScalar inner)
             | UnaryOp.Abs -> sprintf "ABS(%s)" (formatScalar inner)
 
         | ScalarExpr.Cast(inner, targetType, isStrict) ->

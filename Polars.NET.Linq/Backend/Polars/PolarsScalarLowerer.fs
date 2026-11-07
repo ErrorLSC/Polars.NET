@@ -69,6 +69,7 @@ module internal PolarsScalarLowerer =
         | LiteralValue.UInt16 us -> PolarsWrapper.Lit us
         | LiteralValue.UInt32 ui -> PolarsWrapper.Lit ui
         | LiteralValue.UInt64 ul -> PolarsWrapper.Lit ul
+        | LiteralValue.Float16 h -> PolarsWrapper.Lit h
         | LiteralValue.Float32 f -> PolarsWrapper.Lit f
         | LiteralValue.Float64 d -> PolarsWrapper.Lit d
         | LiteralValue.Decimal m -> PolarsWrapper.Lit m
@@ -186,6 +187,7 @@ module internal PolarsScalarLowerer =
             | UnaryOp.Negate -> PolarsWrapper.Neg innerH
             | UnaryOp.IsNull -> PolarsWrapper.IsNull innerH
             | UnaryOp.IsNotNull -> PolarsWrapper.IsNotNull innerH
+            | UnaryOp.IsNan -> PolarsWrapper.ExprIsNan innerH
             | UnaryOp.Abs -> PolarsWrapper.Abs innerH
 
         | ScalarExpr.Cast(inner, targetType, isStrict) ->
@@ -241,7 +243,8 @@ module internal PolarsScalarLowerer =
             match kind with
             | AggKind.Sum -> PolarsWrapper.Sum baseH
             | AggKind.Mean -> PolarsWrapper.Mean baseH
-            | AggKind.Min -> PolarsWrapper.Min baseH
+            // IR Min is .NET Min: NaN as soon as one value is NaN (nan_min is min on non-floating values).
+            | AggKind.Min -> PolarsWrapper.NanMin baseH
             | AggKind.Max -> PolarsWrapper.Max baseH
             | AggKind.Count -> if isDistinct then PolarsWrapper.NUnique baseH else PolarsWrapper.Count baseH
             | AggKind.First -> PolarsWrapper.First(baseH, false)

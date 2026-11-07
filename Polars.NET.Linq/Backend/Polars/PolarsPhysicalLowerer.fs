@@ -162,7 +162,8 @@ module internal PolarsPhysicalLowerer =
                 // An as-of join keeps every left row once, in left order.
                 PlJoinMaintainOrder.Left,
                 PlJoinSide.None,
-                spec.NullsEqual,
+                // Null on / by keys never match (the IR contract; Polars ignores the flag for as-of joins).
+                false,
                 Nullable(),
                 0UL
             )
@@ -181,7 +182,6 @@ module internal PolarsPhysicalLowerer =
 
         | LogicalPlan.GroupingSets(input, spec) ->
             let activeLf = lowerPlan sources input
-            let numKeys = spec.KeyAliases.Length
             let keyAliasedHandles =
                 spec.KeyAliases
                 |> List.map (fun (alias, expr) -> PolarsWrapper.Alias(PolarsScalarLowerer.lower expr, alias))
@@ -195,60 +195,68 @@ module internal PolarsPhysicalLowerer =
                 |> List.mapi (fun idx (alias, _) -> alias, idx)
                 |> Map.ofList
 
-            let level0Keys = keyAliasedHandles |> Array.map PolarsWrapper.CloneExpr
-            let level0Aggs = aggHandles |> Array.map PolarsWrapper.CloneExpr
-            let level0GroupedLf = PolarsWrapper.LazyGroupByAgg(PolarsWrapper.LazyClone activeLf, level0Keys, level0Aggs, null, true)
-            let level0SelectExprs =
+            // The column types every level is cast to, read from the schema of a grouping by every key (never
+            // collected): a key outside a level's subset becomes a null of the key's type. A literal column takes
+            // the type of its first non-null literal across the levels.
+            let typeReferenceLiterals =
+                spec.Levels
+                |> List.collect (snd >> Map.toList)
+                |> List.sortBy (fun (_, e) ->
+                    match e with
+                    | ScalarExpr.Literal(LiteralValue.Null _) -> 1
+                    | _ -> 0)
+                |> List.distinctBy fst
+                |> Map.ofList
+            let referenceKeys = keyAliasedHandles |> Array.map PolarsWrapper.CloneExpr
+            let referenceAggs = aggHandles |> Array.map PolarsWrapper.CloneExpr
+            let referenceGroupedLf = PolarsWrapper.LazyGroupByAgg(PolarsWrapper.LazyClone activeLf, referenceKeys, referenceAggs, null, true)
+            let referenceSelectExprs =
                 spec.OutputColumns
                 |> List.map (fun name ->
-                    match spec.Level0Literals.TryFind name with
+                    match typeReferenceLiterals.TryFind name with
                     | Some litExpr -> PolarsWrapper.Alias(PolarsScalarLowerer.lower litExpr, name)
                     | None -> PolarsWrapper.Col name)
                 |> List.toArray
-            let level0Lf = PolarsWrapper.LazySelect(level0GroupedLf, level0SelectExprs)
-            let colTypeMap = getLazySchemaFields level0Lf |> Map.ofArray
+            let colTypeMap = getLazySchemaFields (PolarsWrapper.LazySelect(referenceGroupedLf, referenceSelectExprs)) |> Map.ofArray
 
             let compileLevel (subsetIndices: int list, levelLiterals: Map<string, ScalarExpr>) : LazyFrameHandle =
-                if subsetIndices.Length = numKeys then
-                    PolarsWrapper.LazyClone level0Lf
-                else
-                    let groupedLf =
-                        if subsetIndices.IsEmpty then
-                            let dummyKey = PolarsWrapper.Alias(PolarsWrapper.Lit 1, "__dummy_rollup_key__")
-                            let levelAggs = aggHandles |> Array.map PolarsWrapper.CloneExpr
-                            PolarsWrapper.LazyGroupByAgg(PolarsWrapper.LazyClone activeLf, [| dummyKey |], levelAggs, null, false)
-                        else
-                            let levelKeys = [| for i in subsetIndices -> PolarsWrapper.CloneExpr keyAliasedHandles.[i] |]
-                            let levelAggs = aggHandles |> Array.map PolarsWrapper.CloneExpr
-                            PolarsWrapper.LazyGroupByAgg(PolarsWrapper.LazyClone activeLf, levelKeys, levelAggs, null, true)
+                let groupedLf =
+                    if subsetIndices.IsEmpty then
+                        let dummyKey = PolarsWrapper.Alias(PolarsWrapper.Lit 1, "__dummy_rollup_key__")
+                        let levelAggs = aggHandles |> Array.map PolarsWrapper.CloneExpr
+                        PolarsWrapper.LazyGroupByAgg(PolarsWrapper.LazyClone activeLf, [| dummyKey |], levelAggs, null, false)
+                    else
+                        let levelKeys = [| for i in subsetIndices -> PolarsWrapper.CloneExpr keyAliasedHandles.[i] |]
+                        let levelAggs = aggHandles |> Array.map PolarsWrapper.CloneExpr
+                        PolarsWrapper.LazyGroupByAgg(PolarsWrapper.LazyClone activeLf, levelKeys, levelAggs, null, true)
 
-                    let subsetSet = Set.ofList subsetIndices
-                    let projectedExprs =
-                        spec.OutputColumns
-                        |> List.map (fun name ->
-                            match levelLiterals.TryFind name with
-                            | Some(ScalarExpr.Literal(LiteralValue.Null _)) when colTypeMap.ContainsKey name ->
-                                let dt = colTypeMap.[name]
-                                let dtExpr = PolarsWrapper.DataTypeExprFromDataType dt
-                                let nullExpr = PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), dtExpr, strict = false, wrapNumerical = false)
-                                PolarsWrapper.Alias(nullExpr, name)
-                            | Some litExpr ->
-                                PolarsWrapper.Alias(PolarsScalarLowerer.lower litExpr, name)
+                let subsetSet = Set.ofList subsetIndices
+                let projectedExprs =
+                    spec.OutputColumns
+                    |> List.map (fun name ->
+                        match levelLiterals.TryFind name with
+                        | Some(ScalarExpr.Literal(LiteralValue.Null _)) when colTypeMap.ContainsKey name ->
+                            let dt = colTypeMap.[name]
+                            let dtExpr = PolarsWrapper.DataTypeExprFromDataType dt
+                            let nullExpr = PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), dtExpr, strict = false, wrapNumerical = false)
+                            PolarsWrapper.Alias(nullExpr, name)
+                        | Some litExpr ->
+                            PolarsWrapper.Alias(PolarsScalarLowerer.lower litExpr, name)
+                        | None ->
+                            match outputAliasToKeyIdx.TryFind name with
+                            | Some keyIdx ->
+                                if subsetSet.Contains keyIdx then
+                                    PolarsWrapper.Col name
+                                else
+                                    let dt = colTypeMap.[name]
+                                    let dtExpr = PolarsWrapper.DataTypeExprFromDataType dt
+                                    let nullExpr = PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), dtExpr, strict = false, wrapNumerical = false)
+                                    PolarsWrapper.Alias(nullExpr, name)
                             | None ->
-                                match outputAliasToKeyIdx.TryFind name with
-                                | Some keyIdx ->
-                                    if subsetSet.Contains keyIdx then
-                                        PolarsWrapper.Col name
-                                    else
-                                        let dt = colTypeMap.[name]
-                                        let dtExpr = PolarsWrapper.DataTypeExprFromDataType dt
-                                        let nullExpr = PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), dtExpr, strict = false, wrapNumerical = false)
-                                        PolarsWrapper.Alias(nullExpr, name)
-                                | None ->
-                                    PolarsWrapper.Col name)
-                        |> List.toArray
+                                PolarsWrapper.Col name)
+                    |> List.toArray
 
-                    PolarsWrapper.LazySelect(groupedLf, projectedExprs)
+                PolarsWrapper.LazySelect(groupedLf, projectedExprs)
 
             let levelLfs = spec.Levels |> List.map compileLevel |> List.toArray
             PolarsWrapper.LazyConcat(levelLfs, PlConcatType.Vertical, false, true)

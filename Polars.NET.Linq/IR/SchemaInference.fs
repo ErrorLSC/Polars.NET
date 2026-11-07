@@ -25,7 +25,8 @@ module internal SchemaInference =
             match op with
             | UnaryOp.Not
             | UnaryOp.IsNull
-            | UnaryOp.IsNotNull -> LogicalTypes.Boolean
+            | UnaryOp.IsNotNull
+            | UnaryOp.IsNan -> LogicalTypes.Boolean
             | UnaryOp.Negate
             | UnaryOp.Abs -> inferScalarType schema inner
 
