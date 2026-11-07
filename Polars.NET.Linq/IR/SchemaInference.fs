@@ -114,6 +114,10 @@ module internal SchemaInference =
             | AggKind.Len -> LogicalTypes.Int64
             | AggKind.Mean -> LogicalTypes.Float64
             | AggKind.Median -> LogicalTypes.Float64
+            | AggKind.CheckedSum ->
+                match innerOpt |> Option.map (inferScalarType schema) with
+                | Some(LogicalType.Arrow(:? Apache.Arrow.Types.Int32Type)) -> LogicalTypes.Int32
+                | _ -> LogicalTypes.Int64
             | AggKind.Std _
             | AggKind.Var _ -> LogicalTypes.Float64
             | AggKind.Sum

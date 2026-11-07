@@ -99,6 +99,8 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_dotnet_rem(ExprHandle left, ExprHandle right);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_dotnet_float_order_key(ExprHandle expr);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_dotnet_checked_sum(ExprHandle expr);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_require_listed_ints(ExprHandle expr, ReadOnlySpan<long> values, nuint valuesLen, string message);
     [LibraryImport(LibName)]

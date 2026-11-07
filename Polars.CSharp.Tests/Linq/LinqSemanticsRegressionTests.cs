@@ -1379,7 +1379,7 @@ public class LinqSemanticsRegressionTests
     {
         public long A { get; init; }
         public long? B { get; init; }
-        public string? C { get; init; }
+        public string C { get; init; }
         public double D { get; init; }
         public bool E { get; init; }
     }

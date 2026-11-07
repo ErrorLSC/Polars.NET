@@ -254,6 +254,7 @@ module internal PolarsScalarLowerer =
 
             match kind with
             | AggKind.Sum -> PolarsWrapper.Sum baseH
+            | AggKind.CheckedSum -> PolarsWrapper.DotNetCheckedSum baseH
             | AggKind.Mean -> PolarsWrapper.Mean baseH
             // IR Min is .NET Min: NaN as soon as one value is NaN (nan_min is min on non-floating values).
             | AggKind.Min -> PolarsWrapper.NanMin baseH

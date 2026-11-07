@@ -161,6 +161,10 @@ type UnaryOp =
 [<RequireQualifiedAccess>]
 type AggKind =
     | Sum
+    /// .NET's checked integer sum (Enumerable.Sum of int / long): the exact total of the non-null values (0 for
+    /// none) in the summed type (`Int32`, otherwise `Int64`); the query fails with `QueryErrorKind.Overflow` when the
+    /// total leaves that type's range. It has an effect, as AssertCount.
+    | CheckedSum
     | Mean
     /// .NET Min: over floating values, NaN as soon as one value is NaN (Max skips NaN unless every value is NaN).
     | Min

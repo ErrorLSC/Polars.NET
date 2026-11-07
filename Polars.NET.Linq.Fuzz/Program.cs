@@ -43,7 +43,6 @@ public static class Program
     public static int Main(string[] args)
     {
         if (args.Length > 0 && args[0] == "probe") { Probe.Run(); return 0; }
-        if (args.Length > 0 && args[0] == "probe2") { Probe2.Run(); return 0; }
         if (args.Length > 2 && args[0] == "case") { Bisect(long.Parse(args[1]), int.Parse(args[2]), args.Length > 3 ? int.Parse(args[3]) : 20, args.Length > 4); return 0; }
         long seed = args.Length > 0 ? long.Parse(args[0]) : 1;
         int count = args.Length > 1 ? int.Parse(args[1]) : 100;

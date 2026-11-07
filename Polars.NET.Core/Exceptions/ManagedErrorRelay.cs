@@ -7,10 +7,14 @@ namespace Polars.NET.Core.Exceptions;
 /// cardinality check, for instance) back to the caller as that exception, rather than as a
 /// <see cref="PolarsException"/> holding its text. The callback throws the token <see cref="Capture"/> returns;
 /// the native error that comes back names the token, and the error check rethrows the captured exception.
+/// A native kernel that implements .NET checked arithmetic names <see cref="OverflowMarker"/> instead, which is
+/// raised as an <see cref="OverflowException"/>.
 /// </summary>
 internal static class ManagedErrorRelay
 {
     private const string Prefix = "[[polars-net-relay:";
+    /// <summary>The marker a native kernel raises for .NET's OverflowException (checked arithmetic).</summary>
+    private const string OverflowMarker = "[[polars-net-overflow]]";
     private const string Suffix = "]]";
     private const int MaxPending = 1024;
 
@@ -33,6 +37,9 @@ internal static class ManagedErrorRelay
     /// <summary>The captured exception a native error message names, if any (taken out of the relay).</summary>
     public static Exception? TryTake(string message)
     {
+        if (message.Contains(OverflowMarker, StringComparison.Ordinal))
+            return new OverflowException();
+
         int start = message.IndexOf(Prefix, StringComparison.Ordinal);
         if (start < 0)
             return null;

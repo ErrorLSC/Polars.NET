@@ -118,9 +118,10 @@ module internal EnumResolution =
 
     let private overflow = { Kind = QueryErrorKind.Overflow; Message = "" }
 
-    /// Resolves the EnumConvert nodes of `expr`, whose columns are those of `schema`.
-    let rec resolveScalar (schema: LogicalSchema) (expr: ScalarExpr) : ScalarExpr =
-        let resolve = resolveScalar schema
+    /// Resolves the EnumConvert nodes of `expr`, whose columns are those of `schema`. With `grouped`, the expression's
+    /// aggregations are computed per group (a GroupBy's aggregations, a window), otherwise over all the rows.
+    let rec resolveScalarIn (grouped: bool) (schema: LogicalSchema) (expr: ScalarExpr) : ScalarExpr =
+        let resolve = resolveScalarIn grouped schema
         let typeOf = SchemaInference.inferScalarType schema
 
         /// Resolves an enum literal next to an already resolved sibling: an Enum literal beside an Enum, else its value.
@@ -256,58 +257,65 @@ module internal EnumResolution =
             let inner' = resolve inner
             let summedType = typeOf inner'
             let wide, min, max = (checkedSumOf summedType).Value
-            let wideSum = ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Cast(inner', wide, false)), distinct)
-            let assertions =
-                CompilationScope.TryCurrent |> Option.forall (fun scope -> scope.Backend.SupportsAssertions)
             match kind with
-            | AggKind.Sum when not assertions -> ScalarExpr.Cast(wideSum, summedType, true)
-            | AggKind.Mean when not assertions -> ScalarExpr.Aggregation(kind, Some inner', distinct)
+            // Over all the rows, the checked sum is one aggregation (a single-pass backend kernel); per group it is
+            // composed below from plain aggregations, which the engine computes for all the groups at once.
+            // The operand is cast to its inferred type, which the engine's may not be (a count, a narrower column).
+            | AggKind.Sum when not grouped ->
+                ScalarExpr.Aggregation(AggKind.CheckedSum, Some(ScalarExpr.Cast(inner', summedType, false)), distinct)
             | _ ->
-                let isLong =
-                    match summedType with
-                    | LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) -> true
-                    | _ -> false
-                let outside (total: ScalarExpr) (low: LiteralValue) (high: LiteralValue) =
-                    ScalarExpr.Conditional(
-                        ScalarExpr.Binary(
-                            BinaryOp.Or,
-                            ScalarExpr.Binary(BinaryOp.Lt, total, ScalarExpr.Literal low),
-                            ScalarExpr.Binary(BinaryOp.Gt, total, ScalarExpr.Literal high)),
-                        ScalarExpr.Literal(LiteralValue.Int64 1L),
-                        ScalarExpr.Literal(LiteralValue.Int64 0L))
-                // A long sum is checked without a 128-bit sum (the engine's decimal sum is about 50x slower):
-                // x = hi * 2^32 + lo with 0 <= lo < 2^32, and neither part's Int64 sum can overflow below 2^31
-                // rows. The exact total is T * 2^32 + R with T = sum(hi) + sum(lo) // 2^32 and 0 <= R < 2^32,
-                // so it fits a long exactly when T fits an int; the engine's wrapping sum is then exact.
-                // A distinct sum cannot be split (the parts' distinct values are not the values'), so it keeps
-                // the wide sum.
-                let overflowed =
-                    if isLong && not distinct then
-                        // The operand is cast to Int64: its inferred type is the CLR type's, which the engine's
-                        // may not be (a count, a narrower integer column), and the halves must be Int64 arithmetic.
-                        let x = ScalarExpr.Cast(inner', LogicalTypes.Int64, false)
-                        let two32 = ScalarExpr.Literal(LiteralValue.Int64 4294967296L)
-                        let hi = ScalarExpr.Binary(BinaryOp.FloorDivide, x, two32)
-                        let lo = ScalarExpr.Binary(BinaryOp.Subtract, x, ScalarExpr.Binary(BinaryOp.Multiply, hi, two32))
-                        let sumOf e = ScalarExpr.Aggregation(AggKind.Sum, Some e, false)
-                        let t = ScalarExpr.Binary(BinaryOp.Add, sumOf hi, ScalarExpr.Binary(BinaryOp.FloorDivide, sumOf lo, two32))
-                        outside t (LiteralValue.Int64(int64 Int32.MinValue)) (LiteralValue.Int64(int64 Int32.MaxValue))
-                    else
-                        outside wideSum min max
-                let value =
-                    match kind with
-                    | AggKind.Sum when isLong && not distinct ->
-                        ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Cast(inner', LogicalTypes.Int64, false)), false)
-                    | AggKind.Sum -> ScalarExpr.Cast(wideSum, summedType, false)
-                    | _ -> ScalarExpr.Aggregation(kind, Some inner', distinct)
-                ScalarExpr.Function(
-                    ScalarFunction.AssertCount { Min = 0L; Max = Some 0L; TooFew = overflow; TooMany = overflow },
-                    [ overflowed; value ],
-                    typeOf value)
+                let wideSum = ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Cast(inner', wide, false)), distinct)
+                let assertions =
+                    CompilationScope.TryCurrent |> Option.forall (fun scope -> scope.Backend.SupportsAssertions)
+                match kind with
+                | AggKind.Sum when not assertions -> ScalarExpr.Cast(wideSum, summedType, true)
+                | AggKind.Mean when not assertions -> ScalarExpr.Aggregation(kind, Some inner', distinct)
+                | _ ->
+                    let isLong =
+                        match summedType with
+                        | LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) -> true
+                        | _ -> false
+                    let outside (total: ScalarExpr) (low: LiteralValue) (high: LiteralValue) =
+                        ScalarExpr.Conditional(
+                            ScalarExpr.Binary(
+                                BinaryOp.Or,
+                                ScalarExpr.Binary(BinaryOp.Lt, total, ScalarExpr.Literal low),
+                                ScalarExpr.Binary(BinaryOp.Gt, total, ScalarExpr.Literal high)),
+                            ScalarExpr.Literal(LiteralValue.Int64 1L),
+                            ScalarExpr.Literal(LiteralValue.Int64 0L))
+                    // A long sum is checked without a 128-bit sum (the engine's decimal sum is about 50x slower):
+                    // x = hi * 2^32 + lo with 0 <= lo < 2^32, and neither part's Int64 sum can overflow below 2^31
+                    // rows. The exact total is T * 2^32 + R with T = sum(hi) + sum(lo) // 2^32 and 0 <= R < 2^32,
+                    // so it fits a long exactly when T fits an int; the engine's wrapping sum is then exact.
+                    // A distinct sum cannot be split (the parts' distinct values are not the values'), so it keeps
+                    // the wide sum.
+                    let overflowed =
+                        if isLong && not distinct then
+                            // The operand is cast to Int64: its inferred type is the CLR type's, which the engine's
+                            // may not be (a count, a narrower integer column), and the halves must be Int64 arithmetic.
+                            let x = ScalarExpr.Cast(inner', LogicalTypes.Int64, false)
+                            let two32 = ScalarExpr.Literal(LiteralValue.Int64 4294967296L)
+                            let hi = ScalarExpr.Binary(BinaryOp.FloorDivide, x, two32)
+                            let lo = ScalarExpr.Binary(BinaryOp.Subtract, x, ScalarExpr.Binary(BinaryOp.Multiply, hi, two32))
+                            let sumOf e = ScalarExpr.Aggregation(AggKind.Sum, Some e, false)
+                            let t = ScalarExpr.Binary(BinaryOp.Add, sumOf hi, ScalarExpr.Binary(BinaryOp.FloorDivide, sumOf lo, two32))
+                            outside t (LiteralValue.Int64(int64 Int32.MinValue)) (LiteralValue.Int64(int64 Int32.MaxValue))
+                        else
+                            outside wideSum min max
+                    let value =
+                        match kind with
+                        | AggKind.Sum when isLong && not distinct ->
+                            ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Cast(inner', LogicalTypes.Int64, false)), false)
+                        | AggKind.Sum -> ScalarExpr.Cast(wideSum, summedType, false)
+                        | _ -> ScalarExpr.Aggregation(kind, Some inner', distinct)
+                    ScalarExpr.Function(
+                        ScalarFunction.AssertCount { Min = 0L; Max = Some 0L; TooFew = overflow; TooMany = overflow },
+                        [ overflowed; value ],
+                        typeOf value)
         | ScalarExpr.Aggregation(kind, inner, distinct) -> ScalarExpr.Aggregation(kind, inner |> Option.map resolve, distinct)
         | ScalarExpr.Window(inner, partitionBy, orderBy) ->
             ScalarExpr.Window(
-                resolve inner,
+                resolveScalarIn true schema inner,
                 partitionBy |> List.map resolve,
                 orderBy |> List.map (fun o -> { o with Expr = resolve o.Expr })
             )
@@ -326,6 +334,9 @@ module internal EnumResolution =
 
     /// Resolves `expr`, whose value is stored into a column of `columnType` (an assignment), against `schema`: an
     /// enum constant takes the column's representation, its category for an Enum column, else its value.
+    /// Resolves `expr` as resolveScalarIn, its aggregations taken per group: the form valid in any context.
+    and resolveScalar (schema: LogicalSchema) (expr: ScalarExpr) : ScalarExpr = resolveScalarIn true schema expr
+
     and resolveAssignment (schema: LogicalSchema) (columnType: LogicalType) (expr: ScalarExpr) : ScalarExpr =
         match expr with
         | EnumLiteral(literal, mapping) -> if isEnumType columnType then enumOfValue mapping literal else literal
@@ -366,4 +377,10 @@ module internal EnumResolution =
                 match LogicalPlanOps.getInputs plan' with
                 | [] -> LogicalSchema.Empty
                 | first :: rest -> rest |> List.fold (fun (acc: LogicalSchema) p -> acc.Merge(schemaOf p)) (schemaOf first)
-            LogicalPlanOps.mapExpressions (resolveScalar inputSchema) plan'
+            // A GroupBy's and a GroupingSets' expressions aggregate per group; any other node's, over its rows.
+            let grouped =
+                match plan' with
+                | LogicalPlan.GroupBy _
+                | LogicalPlan.GroupingSets _ -> true
+                | _ -> false
+            LogicalPlanOps.mapExpressions (resolveScalarIn grouped inputSchema) plan'

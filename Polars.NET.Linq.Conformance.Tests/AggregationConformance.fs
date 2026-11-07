@@ -71,3 +71,25 @@ let ``The optimizer keeps the order beneath order-reading aggregates`` () =
     Assert.True(keepsOrder (project groups [ "first", agg AggKind.First (col "K") ]))
     Assert.False(keepsOrder (project groups [ "total", agg AggKind.Sum (col "K") ]))
     Conformance.rowsInOrder t (project groups [ "last", agg AggKind.Last (col "K") ]) [ [ 1L ] ]
+
+type KI = { K: int64; I: Nullable<int> }
+
+/// CheckedSum is .NET's checked integer sum: the exact total in the summed type (Int32 stays Int32), nulls skipped
+/// and 0 for no values; the total decides, so partial sums may leave the range.
+[<Fact>]
+let ``CheckedSum is the exact total of the summed type`` () =
+    let t = Tables()
+    let longs = [| { K = 1L; V = n Int64.MaxValue }; { K = 1L; V = n 1L }; { K = 1L; V = nul }; { K = 1L; V = n -1L } |]
+    Conformance.rowsInOrder t (project (t.Scan longs) [ "s", agg AggKind.CheckedSum (col "V") ]) [ [ Int64.MaxValue ] ]
+    let ints = [| { K = 1L; I = Nullable Int32.MinValue }; { K = 1L; I = Nullable -1 }; { K = 1L; I = Nullable 1 } |]
+    Conformance.rowsInOrder t (project (t.Scan ints) [ "s", agg AggKind.CheckedSum (col "I") ]) [ [ Int32.MinValue ] ]
+    let none = filter (t.Scan longs) (bin BinaryOp.Gt (col "K") (i64 5L))
+    Conformance.rowsInOrder t (project none [ "s", agg AggKind.CheckedSum (col "V") ]) [ [ 0L ] ]
+
+[<Fact>]
+let ``CheckedSum fails with Overflow when the total leaves the range`` () =
+    let t = Tables()
+    let longs = [| { K = 1L; V = n Int64.MaxValue }; { K = 1L; V = n Int64.MaxValue } |]
+    Conformance.raises<OverflowException> t (project (t.Scan longs) [ "s", agg AggKind.CheckedSum (col "V") ]) "Arithmetic operation resulted in an overflow."
+    let ints = [| { K = 1L; I = Nullable Int32.MinValue }; { K = 1L; I = Nullable -1 } |]
+    Conformance.raises<OverflowException> t (project (t.Scan ints) [ "s", agg AggKind.CheckedSum (col "I") ]) "Arithmetic operation resulted in an overflow."

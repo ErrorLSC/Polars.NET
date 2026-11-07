@@ -2741,3 +2741,89 @@ pub extern "C" fn pl_expr_dotnet_float_order_key(expr_ptr: *mut ExprContext) -> 
         Ok(Box::into_raw(Box::new(ExprContext { inner: ctx.inner.map(function, output_map) })))
     })
 }
+
+/// The marker the managed side raises as System.OverflowException (Polars.NET.Core ManagedErrorRelay).
+const DOTNET_OVERFLOW: &str = "[[polars-net-overflow]] Arithmetic operation resulted in an overflow.";
+
+/// Sums 64-bit values exactly: each value is split into its high and low 32-bit halves, summed apart in i64 (two
+/// plain adds per value, which vectorize; neither half sum can overflow within a block of 2^30 values), and the
+/// blocks are combined in i128.
+fn exact_i64_sum(values: &[i64]) -> i128 {
+    let mut total: i128 = 0;
+    for block in values.chunks(1 << 30) {
+        let (mut hi, mut lo) = (0i64, 0i64);
+        for &v in block {
+            hi += v >> 32;
+            lo += v & 0xFFFF_FFFF;
+        }
+        total += ((hi as i128) << 32) + lo as i128;
+    }
+    total
+}
+
+/// .NET checked sum (Enumerable.Sum of int / long) of an integer column: the exact total, failing with the overflow
+/// marker when it leaves the range of the result type. An Int32 column sums to Int32; any other integer column is
+/// summed as Int64. Nulls are skipped, and no values sum to 0. One pass, without materializing a wider column.
+fn dotnet_checked_sum(c: &Column) -> PolarsResult<Column> {
+    let name = c.name().clone();
+    let s = c.as_materialized_series();
+    let out = match s.dtype() {
+        DataType::Int32 => {
+            let mut total: i64 = 0;
+            for arr in s.i32()?.downcast_iter() {
+                total += if polars_arrow::array::Array::null_count(arr) == 0 {
+                    arr.values().iter().map(|&v| v as i64).sum::<i64>()
+                } else {
+                    arr.iter().flatten().map(|&v| v as i64).sum::<i64>()
+                };
+            }
+            let v = i32::try_from(total).map_err(|_| polars_err!(ComputeError: "{}", DOTNET_OVERFLOW))?;
+            Series::new(name, [v])
+        }
+        dt if dt.is_integer() => {
+            let s64 = if dt == &DataType::Int64 { s.clone() } else { s.strict_cast(&DataType::Int64)? };
+            let mut total: i128 = 0;
+            for arr in s64.i64()?.downcast_iter() {
+                total += if polars_arrow::array::Array::null_count(arr) == 0 {
+                    exact_i64_sum(arr.values().as_slice())
+                } else {
+                    let present: Vec<i64> = arr.iter().flatten().copied().collect();
+                    exact_i64_sum(&present)
+                };
+            }
+            let v = i64::try_from(total).map_err(|_| polars_err!(ComputeError: "{}", DOTNET_OVERFLOW))?;
+            Series::new(name, [v])
+        }
+        other => polars_bail!(ComputeError: "a checked sum is defined for integers, not {}", other),
+    };
+    Ok(out.into_column())
+}
+
+/// The .NET checked sum of an integer expression, as an aggregation (one value; per group in a group context).
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_dotnet_checked_sum(expr_ptr: *mut ExprContext) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let options = polars_plan::prelude::FunctionOptions::groupwise().with_flags(|mut f| {
+            f.set(polars_plan::prelude::FunctionFlags::RETURNS_SCALAR, true);
+            f
+        });
+        let f = BaseColumnUdf::new(
+            move |c: &mut [Column]| dotnet_checked_sum(&c[0]),
+            move |_schema: &Schema, fields: &[Field]| {
+                let dtype = match fields[0].dtype() {
+                    DataType::Int32 => DataType::Int32,
+                    _ => DataType::Int64,
+                };
+                Ok(Field::new(fields[0].name().clone(), dtype))
+            },
+        );
+        let new_expr = Expr::AnonymousFunction {
+            input: vec![ctx.inner],
+            function: new_column_udf(f),
+            options,
+            fmt_str: Box::new(PlSmallStr::EMPTY),
+        };
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}

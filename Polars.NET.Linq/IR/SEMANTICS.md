@@ -80,13 +80,16 @@ raises). The frontend guards a decimal divisor, because the engine raises. Integ
 .NET arithmetic does.
 
 **Checked sums.** .NET's `Sum` of `int` / `long`, and the `long` sum behind `Average` of `long`, are checked.
-The frontend asserts the range of the exact total with an `AssertCount` over an overflow flag
-(`QueryErrorKind.Overflow`). An `int` sum is taken in `Int64`. A `long` total is checked from the sums of each
-value's 32-bit halves (`hi = x // 2^32`, `lo = x - hi * 2^32`, neither sum can overflow): it fits when
-`sum(hi) + sum(lo) // 2^32` fits an `int`, and the engine's wrapping sum is then exact. A distinct `long` sum,
-whose halves cannot be deduplicated apart, is taken in `Decimal(38, 0)`. The check is on the total, not on
-each partial sum, so `[int.MaxValue, 1, -1]` sums to `int.MaxValue` here, where LINQ to Objects throws. Without
-assertions, a strict cast fails the query instead (with the engine's error). A decimal sum is not checked.
+Over all the rows, the frontend emits `AggKind.CheckedSum`: the exact total in the summed type, failing with
+`QueryErrorKind.Overflow` (the Polars backend computes it in one pass with a shim kernel). Per group (a GroupBy's
+aggregations, a window), it composes plain aggregations, which the engine computes for every group at once, and
+asserts the range with an `AssertCount` over an overflow flag. An `int` sum is taken in `Int64`. A `long` total is
+checked from the sums of each value's 32-bit halves (`hi = x // 2^32`, `lo = x - hi * 2^32`, neither sum can
+overflow): it fits when `sum(hi) + sum(lo) // 2^32` fits an `int`, and the engine's wrapping sum is then exact. A
+distinct grouped `long` sum, whose halves cannot be deduplicated apart, is taken in `Decimal(38, 0)`. Either way the
+check is on the total, not on each partial sum, so `[int.MaxValue, 1, -1]` sums to `int.MaxValue` here, where LINQ
+to Objects throws. Without assertions, a grouped sum is narrowed with a strict cast instead (the engine's error).
+A decimal sum is not checked.
 
 **Casts.** A non-strict `Cast` between numeric types wraps on overflow, as .NET's unchecked conversion does:
 `(byte)300` is 44, where the engine would give null. A floating value converted to an integer truncates and
@@ -125,8 +128,9 @@ The flag is always explicit. A backend never chooses it.
 
 Strict materialization then reports a null that reaches a non-nullable member.
 
-**`AssertCount`.** The only node that raises is `ScalarFunction.AssertCount` (`[count; value]`). It yields
-the value when the count (any 64-bit integer: a row count, an overflow flag) lies in range. Otherwise the query fails with the check's `QueryError`, which the
+**`AssertCount`.** The nodes that raise are `ScalarFunction.AssertCount` (`[count; value]`) and
+`AggKind.CheckedSum` (see Checked sums). `AssertCount` yields the value when the count (any 64-bit integer: a
+row count, an overflow flag) lies in range. Otherwise the query fails with the check's `QueryError`, which the
 backend surfaces as the matching .NET exception. It has an effect, so it must be evaluated wherever its
 value is used, and never constant-folded. A backend that cannot raise answers
 `IBackendCapabilities.SupportsAssertions = false`. The frontend then evaluates such subqueries at compile

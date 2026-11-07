@@ -456,6 +456,13 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle DotNetFloatOrderKey(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_dotnet_float_order_key, expr);
 
     /// <summary>
+    /// The .NET checked sum of an integer expression (Enumerable.Sum of int / long), as an aggregation: the exact
+    /// total in the expression's type (Int32, otherwise Int64), or an <see cref="OverflowException"/> when it leaves
+    /// that type's range. One pass, without a widened copy of the column.
+    /// </summary>
+    public static ExprHandle DotNetCheckedSum(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_dotnet_checked_sum, expr);
+
+    /// <summary>
     /// The expression unchanged when every non-null value is one of <paramref name="values"/>; otherwise the query
     /// fails with <paramref name="message"/>, its first "{}" replaced by the offending value.
     /// </summary>
