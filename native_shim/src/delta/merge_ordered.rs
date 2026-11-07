@@ -1,7 +1,7 @@
 use deltalake::Path;
 use deltalake::kernel::{Action, Remove};
 use polars::prelude::*;
-use rand::RngExt;
+use rand::Rng;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::ffi::c_char;

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, ffi::c_char, time::{SystemTime, UNIX_EPOCH}};
 use deltalake::{DeltaTable, Path, kernel::{Action, Remove, transaction}, logstore::object_store::ObjectStoreExt, protocol::DeltaOperation};
 use futures::StreamExt;
-use rand::RngExt;
+use rand::Rng;
 use serde_json::Value;
 use url::Url;
 use uuid::Uuid;

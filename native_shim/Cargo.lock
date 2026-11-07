@@ -2831,7 +2831,7 @@ dependencies = [
 
 [[package]]
 name = "native_shim"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "calamine",
  "chrono",
@@ -2848,7 +2848,7 @@ dependencies = [
  "polars-ops",
  "polars-plan",
  "polars-utils",
- "rand 0.10.1",
+ "rand 0.9.4",
  "regex-syntax",
  "roaring",
  "rust_xlsxwriter",

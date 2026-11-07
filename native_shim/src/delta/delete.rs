@@ -9,7 +9,7 @@ use deltalake::logstore::object_store::ObjectStoreExt;
 use futures::StreamExt;
 use polars::{error::{PolarsError, PolarsResult}, frame::DataFrame, prelude::{ LazyFrame, PlRefPath, ScanArgsParquet}, series::Series};
 use polars::prelude::*;
-use rand::RngExt;
+use rand::Rng;
 use roaring::RoaringBitmap;
 use serde_json::Value;
 use uuid::Uuid;

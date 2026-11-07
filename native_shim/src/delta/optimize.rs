@@ -7,7 +7,7 @@ use std::{
 use futures::StreamExt;
 use polars::prelude::*;
 use polars_buffer::Buffer;
-use rand::RngExt;
+use rand::Rng;
 use url::Url;
 use deltalake::{
     DeltaTable, FilterOp, FilterValue, Path, 
