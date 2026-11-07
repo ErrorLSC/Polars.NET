@@ -106,16 +106,16 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
         if (type is NumberDataViewType)
         {
             Type raw = type.RawType;
-            if (raw == typeof(sbyte)) return new Int8Accessor();
-            if (raw == typeof(short)) return new Int16Accessor();
-            if (raw == typeof(int)) return new Int32Accessor();
-            if (raw == typeof(long)) return new Int64Accessor();
-            if (raw == typeof(byte)) return new UInt8Accessor();
-            if (raw == typeof(ushort)) return new UInt16Accessor();
-            if (raw == typeof(uint)) return new UInt32Accessor();
-            if (raw == typeof(ulong)) return new UInt64Accessor();
-            if (raw == typeof(float)) return new FloatAccessor();
-            if (raw == typeof(double)) return new DoubleAccessor();
+            if (raw == typeof(sbyte)) return new NumericAccessor<sbyte>();
+            if (raw == typeof(short)) return new NumericAccessor<short>();
+            if (raw == typeof(int)) return new NumericAccessor<int>();
+            if (raw == typeof(long)) return new NumericAccessor<long>();
+            if (raw == typeof(byte)) return new NumericAccessor<byte>();
+            if (raw == typeof(ushort)) return new NumericAccessor<ushort>();
+            if (raw == typeof(uint)) return new NumericAccessor<uint>();
+            if (raw == typeof(ulong)) return new NumericAccessor<ulong>();
+            if (raw == typeof(float)) return new NumericAccessor<float>();
+            if (raw == typeof(double)) return new NumericAccessor<double>();
             return null;
         }
 
@@ -204,19 +204,19 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
             // ------------------------------------------
             // Integers (null -> 0)
             // ------------------------------------------
-            Int8Accessor acc => Cast<TValue, sbyte>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? (sbyte)0 : acc.GetTypedValue(i); }),
-            Int16Accessor acc => Cast<TValue, short>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? (short)0 : acc.GetTypedValue(i); }),
-            Int32Accessor acc => Cast<TValue, int>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? 0 : acc.GetTypedValue(i); }),
-            Int64Accessor acc => Cast<TValue, long>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? 0L : acc.GetTypedValue(i); }),
-            UInt8Accessor acc => Cast<TValue, byte>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? (byte)0 : acc.GetTypedValue(i); }),
-            UInt16Accessor acc => Cast<TValue, ushort>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? (ushort)0 : acc.GetTypedValue(i); }),
-            UInt32Accessor acc => Cast<TValue, uint>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? 0u : acc.GetTypedValue(i); }),
-            UInt64Accessor acc => Cast<TValue, ulong>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? 0UL : acc.GetTypedValue(i); }),
+            NumericAccessor<sbyte> acc => Cast<TValue, sbyte>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? (sbyte)0 : acc.GetTypedValue(i); }),
+            NumericAccessor<short> acc => Cast<TValue, short>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? (short)0 : acc.GetTypedValue(i); }),
+            NumericAccessor<int> acc => Cast<TValue, int>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? 0 : acc.GetTypedValue(i); }),
+            NumericAccessor<long> acc => Cast<TValue, long>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? 0L : acc.GetTypedValue(i); }),
+            NumericAccessor<byte> acc => Cast<TValue, byte>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? (byte)0 : acc.GetTypedValue(i); }),
+            NumericAccessor<ushort> acc => Cast<TValue, ushort>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? (ushort)0 : acc.GetTypedValue(i); }),
+            NumericAccessor<uint> acc => Cast<TValue, uint>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? 0u : acc.GetTypedValue(i); }),
+            NumericAccessor<ulong> acc => Cast<TValue, ulong>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? 0UL : acc.GetTypedValue(i); }),
             // ------------------------------------------
             // Floats (null -> NaN, ML.NET's missing value)
             // ------------------------------------------
-            FloatAccessor acc => Cast<TValue, float>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? float.NaN : acc.GetTypedValue(i); }),
-            DoubleAccessor acc => Cast<TValue, double>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? double.NaN : acc.GetTypedValue(i); }),
+            NumericAccessor<float> acc => Cast<TValue, float>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? float.NaN : acc.GetTypedValue(i); }),
+            NumericAccessor<double> acc => Cast<TValue, double>((ref v) => { int i = _batchRowIndex; v = acc.IsNullFast(i) ? double.NaN : acc.GetTypedValue(i); }),
             // ------------------------------------------
             // Boolean (null -> false)
             // ------------------------------------------

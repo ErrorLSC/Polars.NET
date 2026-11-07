@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Numerics;
 using System.Collections;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -169,13 +170,13 @@ public static class ColumnAccessorFactory
 
             // 1. Primitives
             BooleanType => new BooleanAccessor(),
-            Int8Type => new Int8Accessor(),
-            Int16Type => new Int16Accessor(),
-            Int32Type => new Int32Accessor(),
-            UInt8Type => new UInt8Accessor(),
-            UInt16Type => new UInt16Accessor(),
-            UInt32Type => new UInt32Accessor(),
-            UInt64Type => new UInt64Accessor(),
+            Int8Type => new NumericAccessor<sbyte>(),
+            Int16Type => new NumericAccessor<short>(),
+            Int32Type => new NumericAccessor<int>(),
+            UInt8Type => new NumericAccessor<byte>(),
+            UInt16Type => new NumericAccessor<ushort>(),
+            UInt32Type => new NumericAccessor<uint>(),
+            UInt64Type => new NumericAccessor<ulong>(),
 
             // 2. Int64 & Magic Types
             Int64Type => effectiveType switch
@@ -183,12 +184,12 @@ public static class ColumnAccessorFactory
                 { } t when t == typeof(DateTime) => new Int64ToDateTimeAccessor(),
                 { } t when t == typeof(TimeSpan) => new Int64ToTimeSpanAccessor(),
                 { } t when t == typeof(TimeOnly) => new Int64ToTimeOnlyAccessor(),
-                _ => new Int64Accessor()
+                _ => new NumericAccessor<long>()
             },
 
-            HalfFloatType => new HalfFloatAccessor(),
-            FloatType => new FloatAccessor(),
-            DoubleType => new DoubleAccessor(),
+            HalfFloatType => new NumericAccessor<Half>(),
+            FloatType => new NumericAccessor<float>(),
+            DoubleType => new NumericAccessor<double>(),
 
             // 3. String & Binary
             StringViewType or StringType or LargeStringType => new StringViewAccessor(),
@@ -386,544 +387,66 @@ internal sealed unsafe class BooleanAccessor : TypedColumnAccessor<bool>,
     bool? ITypedAccessor<bool?>.GetTypedValue(int index) => IsNullFast(index) ? null : GetTypedValue(index);
 }
 
-internal sealed unsafe class Int8Accessor : TypedColumnAccessor<sbyte>,
-    ITypedAccessor<sbyte>, ITypedAccessor<byte>, ITypedAccessor<short>, ITypedAccessor<ushort>,
-    ITypedAccessor<int>, ITypedAccessor<uint>, ITypedAccessor<long>, ITypedAccessor<ulong>,
-    ITypedAccessor<Int128>, ITypedAccessor<UInt128>,
+/// <summary>
+/// Accessor for all fixed-width numeric Arrow columns (Int8..UInt64, Float16/32/64).
+/// Every source type exposes the same conversion matrix through <see cref="INumberBase{TSelf}"/>:
+/// integer narrowing wraps, float-to-integer saturates (CreateTruncating), and conversion to
+/// <see cref="decimal"/> is checked (NaN / out-of-range throws <see cref="OverflowException"/>).
+/// TSrc is always a value type, so the JIT specializes each instantiation and the conversions inline.
+/// </summary>
+internal sealed unsafe class NumericAccessor<TSrc> : TypedColumnAccessor<TSrc>,
+    ITypedAccessor<sbyte>, ITypedAccessor<byte>, ITypedAccessor<short>, ITypedAccessor<ushort>, ITypedAccessor<int>,
+    ITypedAccessor<uint>, ITypedAccessor<long>, ITypedAccessor<ulong>, ITypedAccessor<Int128>, ITypedAccessor<UInt128>,
     ITypedAccessor<Half>, ITypedAccessor<float>, ITypedAccessor<double>, ITypedAccessor<decimal>, ITypedAccessor<char>,
     ITypedAccessor<sbyte?>, ITypedAccessor<byte?>, ITypedAccessor<short?>, ITypedAccessor<ushort?>,
-    ITypedAccessor<int?>, ITypedAccessor<uint?>, ITypedAccessor<long?>, ITypedAccessor<ulong?>,
-    ITypedAccessor<Int128?>, ITypedAccessor<UInt128?>,
-    ITypedAccessor<Half?>, ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>, ITypedAccessor<char?>
+    ITypedAccessor<int?>, ITypedAccessor<uint?>, ITypedAccessor<long?>, ITypedAccessor<ulong?>, ITypedAccessor<Int128?>,
+    ITypedAccessor<UInt128?>, ITypedAccessor<Half?>, ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>,
+    ITypedAccessor<char?>
+    where TSrc : unmanaged, INumberBase<TSrc>
 {
-    private sbyte* _ptr;
-    public override Type TargetType => typeof(sbyte);
+    private TSrc* _ptr;
+    public override Type TargetType => typeof(TSrc);
     public override bool UsesFastNullBitmap => true;
-    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<sbyte>(array);
+    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<TSrc>(array);
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override bool IsNull(int index) => IsNullFast(index);
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override sbyte GetTypedValue(int index) => _ptr[index];
-
-    byte ITypedAccessor<byte>.GetTypedValue(int index) => (byte)_ptr[index];
-    short ITypedAccessor<short>.GetTypedValue(int index) => _ptr[index];
-    ushort ITypedAccessor<ushort>.GetTypedValue(int index) => (ushort)_ptr[index];
-    int ITypedAccessor<int>.GetTypedValue(int index) => _ptr[index];
-    uint ITypedAccessor<uint>.GetTypedValue(int index) => (uint)_ptr[index];
-    long ITypedAccessor<long>.GetTypedValue(int index) => _ptr[index];
-    ulong ITypedAccessor<ulong>.GetTypedValue(int index) => (ulong)_ptr[index];
-    Int128 ITypedAccessor<Int128>.GetTypedValue(int index) => _ptr[index];
-    UInt128 ITypedAccessor<UInt128>.GetTypedValue(int index) => (UInt128)_ptr[index];
-    Half ITypedAccessor<Half>.GetTypedValue(int index) => (Half)_ptr[index];
-    float ITypedAccessor<float>.GetTypedValue(int index) => _ptr[index];
-    double ITypedAccessor<double>.GetTypedValue(int index) => _ptr[index];
-    decimal ITypedAccessor<decimal>.GetTypedValue(int index) => _ptr[index];
-    char ITypedAccessor<char>.GetTypedValue(int index) => (char)_ptr[index];
-
-    sbyte? ITypedAccessor<sbyte?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    byte? ITypedAccessor<byte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (byte)_ptr[index];
-    short? ITypedAccessor<short?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    ushort? ITypedAccessor<ushort?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ushort)_ptr[index];
-    int? ITypedAccessor<int?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    uint? ITypedAccessor<uint?>.GetTypedValue(int index) => IsNullFast(index) ? null : (uint)_ptr[index];
-    long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ulong)_ptr[index];
-    Int128? ITypedAccessor<Int128?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    UInt128? ITypedAccessor<UInt128?>.GetTypedValue(int index) => IsNullFast(index) ? null : (UInt128)_ptr[index];
-    Half? ITypedAccessor<Half?>.GetTypedValue(int index) => IsNullFast(index) ? null : (Half)_ptr[index];
-    float? ITypedAccessor<float?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    double? ITypedAccessor<double?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    char? ITypedAccessor<char?>.GetTypedValue(int index) => IsNullFast(index) ? null : (char)_ptr[index];
-}
-
-internal sealed unsafe class Int16Accessor : TypedColumnAccessor<short>,
-    ITypedAccessor<sbyte>, ITypedAccessor<byte>, ITypedAccessor<short>, ITypedAccessor<ushort>,
-    ITypedAccessor<int>, ITypedAccessor<uint>, ITypedAccessor<long>, ITypedAccessor<ulong>,
-    ITypedAccessor<Int128>, ITypedAccessor<UInt128>,
-    ITypedAccessor<Half>, ITypedAccessor<float>, ITypedAccessor<double>, ITypedAccessor<decimal>, ITypedAccessor<char>,
-    ITypedAccessor<sbyte?>, ITypedAccessor<byte?>, ITypedAccessor<short?>, ITypedAccessor<ushort?>,
-    ITypedAccessor<int?>, ITypedAccessor<uint?>, ITypedAccessor<long?>, ITypedAccessor<ulong?>,
-    ITypedAccessor<Int128?>, ITypedAccessor<UInt128?>,
-    ITypedAccessor<Half?>, ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>, ITypedAccessor<char?>
-{
-    private short* _ptr;
-    public override Type TargetType => typeof(short);
-    public override bool UsesFastNullBitmap => true;
-    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<short>(array);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override bool IsNull(int index) => IsNullFast(index);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override short GetTypedValue(int index) => _ptr[index];
-
-    sbyte ITypedAccessor<sbyte>.GetTypedValue(int index) => (sbyte)_ptr[index];
-    byte ITypedAccessor<byte>.GetTypedValue(int index) => (byte)_ptr[index];
-    ushort ITypedAccessor<ushort>.GetTypedValue(int index) => (ushort)_ptr[index];
-    int ITypedAccessor<int>.GetTypedValue(int index) => _ptr[index];
-    uint ITypedAccessor<uint>.GetTypedValue(int index) => (uint)_ptr[index];
-    long ITypedAccessor<long>.GetTypedValue(int index) => _ptr[index];
-    ulong ITypedAccessor<ulong>.GetTypedValue(int index) => (ulong)_ptr[index];
-    Int128 ITypedAccessor<Int128>.GetTypedValue(int index) => _ptr[index];
-    UInt128 ITypedAccessor<UInt128>.GetTypedValue(int index) => (UInt128)_ptr[index];
-    Half ITypedAccessor<Half>.GetTypedValue(int index) => (Half)_ptr[index];
-    float ITypedAccessor<float>.GetTypedValue(int index) => _ptr[index];
-    double ITypedAccessor<double>.GetTypedValue(int index) => _ptr[index];
-    decimal ITypedAccessor<decimal>.GetTypedValue(int index) => _ptr[index];
-    char ITypedAccessor<char>.GetTypedValue(int index) => (char)_ptr[index];
-
-    sbyte? ITypedAccessor<sbyte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (sbyte)_ptr[index];
-    byte? ITypedAccessor<byte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (byte)_ptr[index];
-    short? ITypedAccessor<short?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    ushort? ITypedAccessor<ushort?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ushort)_ptr[index];
-    int? ITypedAccessor<int?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    uint? ITypedAccessor<uint?>.GetTypedValue(int index) => IsNullFast(index) ? null : (uint)_ptr[index];
-    long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ulong)_ptr[index];
-    Int128? ITypedAccessor<Int128?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    UInt128? ITypedAccessor<UInt128?>.GetTypedValue(int index) => IsNullFast(index) ? null : (UInt128)_ptr[index];
-    Half? ITypedAccessor<Half?>.GetTypedValue(int index) => IsNullFast(index) ? null : (Half)_ptr[index];
-    float? ITypedAccessor<float?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    double? ITypedAccessor<double?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    char? ITypedAccessor<char?>.GetTypedValue(int index) => IsNullFast(index) ? null : (char)_ptr[index];
-}
-
-internal sealed unsafe class Int32Accessor : TypedColumnAccessor<int>,
-    ITypedAccessor<sbyte>, ITypedAccessor<byte>, ITypedAccessor<short>, ITypedAccessor<ushort>,
-    ITypedAccessor<int>, ITypedAccessor<uint>, ITypedAccessor<long>, ITypedAccessor<ulong>,
-    ITypedAccessor<Int128>, ITypedAccessor<UInt128>,
-    ITypedAccessor<Half>, ITypedAccessor<float>, ITypedAccessor<double>, ITypedAccessor<decimal>, ITypedAccessor<char>,
-    ITypedAccessor<sbyte?>, ITypedAccessor<byte?>, ITypedAccessor<short?>, ITypedAccessor<ushort?>,
-    ITypedAccessor<int?>, ITypedAccessor<uint?>, ITypedAccessor<long?>, ITypedAccessor<ulong?>,
-    ITypedAccessor<Int128?>, ITypedAccessor<UInt128?>,
-    ITypedAccessor<Half?>, ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>, ITypedAccessor<char?>
-{
-    private int* _ptr;
-    public override Type TargetType => typeof(int);
-    public override bool UsesFastNullBitmap => true;
-    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<int>(array);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override bool IsNull(int index) => IsNullFast(index);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override int GetTypedValue(int index) => _ptr[index];
-
-    sbyte ITypedAccessor<sbyte>.GetTypedValue(int index) => (sbyte)_ptr[index];
-    byte ITypedAccessor<byte>.GetTypedValue(int index) => (byte)_ptr[index];
-    short ITypedAccessor<short>.GetTypedValue(int index) => (short)_ptr[index];
-    ushort ITypedAccessor<ushort>.GetTypedValue(int index) => (ushort)_ptr[index];
-    uint ITypedAccessor<uint>.GetTypedValue(int index) => (uint)_ptr[index];
-    long ITypedAccessor<long>.GetTypedValue(int index) => _ptr[index];
-    ulong ITypedAccessor<ulong>.GetTypedValue(int index) => (ulong)_ptr[index];
-    Int128 ITypedAccessor<Int128>.GetTypedValue(int index) => _ptr[index];
-    UInt128 ITypedAccessor<UInt128>.GetTypedValue(int index) => (UInt128)_ptr[index];
-    Half ITypedAccessor<Half>.GetTypedValue(int index) => (Half)_ptr[index];
-    float ITypedAccessor<float>.GetTypedValue(int index) => _ptr[index];
-    double ITypedAccessor<double>.GetTypedValue(int index) => _ptr[index];
-    decimal ITypedAccessor<decimal>.GetTypedValue(int index) => _ptr[index];
-    char ITypedAccessor<char>.GetTypedValue(int index) => (char)_ptr[index];
-
-    sbyte? ITypedAccessor<sbyte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (sbyte)_ptr[index];
-    byte? ITypedAccessor<byte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (byte)_ptr[index];
-    short? ITypedAccessor<short?>.GetTypedValue(int index) => IsNullFast(index) ? null : (short)_ptr[index];
-    ushort? ITypedAccessor<ushort?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ushort)_ptr[index];
-    int? ITypedAccessor<int?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    uint? ITypedAccessor<uint?>.GetTypedValue(int index) => IsNullFast(index) ? null : (uint)_ptr[index];
-    long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ulong)_ptr[index];
-    Int128? ITypedAccessor<Int128?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    UInt128? ITypedAccessor<UInt128?>.GetTypedValue(int index) => IsNullFast(index) ? null : (UInt128)_ptr[index];
-    Half? ITypedAccessor<Half?>.GetTypedValue(int index) => IsNullFast(index) ? null : (Half)_ptr[index];
-    float? ITypedAccessor<float?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    double? ITypedAccessor<double?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    char? ITypedAccessor<char?>.GetTypedValue(int index) => IsNullFast(index) ? null : (char)_ptr[index];
-}
-
-internal sealed unsafe class Int64Accessor : TypedColumnAccessor<long>,
-    ITypedAccessor<sbyte>, ITypedAccessor<byte>, ITypedAccessor<short>, ITypedAccessor<ushort>,
-    ITypedAccessor<int>, ITypedAccessor<uint>, ITypedAccessor<long>, ITypedAccessor<ulong>,
-    ITypedAccessor<Int128>, ITypedAccessor<UInt128>,
-    ITypedAccessor<Half>, ITypedAccessor<float>, ITypedAccessor<double>, ITypedAccessor<decimal>, ITypedAccessor<char>,
-    ITypedAccessor<sbyte?>, ITypedAccessor<byte?>, ITypedAccessor<short?>, ITypedAccessor<ushort?>,
-    ITypedAccessor<int?>, ITypedAccessor<uint?>, ITypedAccessor<long?>, ITypedAccessor<ulong?>,
-    ITypedAccessor<Int128?>, ITypedAccessor<UInt128?>,
-    ITypedAccessor<Half?>, ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>, ITypedAccessor<char?>
-{
-    private long* _ptr;
-    public override Type TargetType => typeof(long);
-    public override bool UsesFastNullBitmap => true;
-    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<long>(array);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override bool IsNull(int index) => IsNullFast(index);
+    public override TSrc GetTypedValue(int index) => _ptr[index];
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override long GetTypedValue(int index) => _ptr[index];
+    private static TDst To<TDst>(TSrc value) where TDst : INumberBase<TDst> => TDst.CreateTruncating(value);
 
-    sbyte ITypedAccessor<sbyte>.GetTypedValue(int index) => (sbyte)_ptr[index];
-    byte ITypedAccessor<byte>.GetTypedValue(int index) => (byte)_ptr[index];
-    short ITypedAccessor<short>.GetTypedValue(int index) => (short)_ptr[index];
-    ushort ITypedAccessor<ushort>.GetTypedValue(int index) => (ushort)_ptr[index];
-    int ITypedAccessor<int>.GetTypedValue(int index) => (int)_ptr[index];
-    uint ITypedAccessor<uint>.GetTypedValue(int index) => (uint)_ptr[index];
-    long ITypedAccessor<long>.GetTypedValue(int index) => _ptr[index];
-    ulong ITypedAccessor<ulong>.GetTypedValue(int index) => (ulong)_ptr[index];
-    Int128 ITypedAccessor<Int128>.GetTypedValue(int index) => _ptr[index];
-    UInt128 ITypedAccessor<UInt128>.GetTypedValue(int index) => (UInt128)_ptr[index];
-    Half ITypedAccessor<Half>.GetTypedValue(int index) => (Half)_ptr[index];
-    float ITypedAccessor<float>.GetTypedValue(int index) => _ptr[index];
-    double ITypedAccessor<double>.GetTypedValue(int index) => _ptr[index];
-    decimal ITypedAccessor<decimal>.GetTypedValue(int index) => _ptr[index];
-    char ITypedAccessor<char>.GetTypedValue(int index) => (char)_ptr[index];
+    sbyte ITypedAccessor<sbyte>.GetTypedValue(int index) => To<sbyte>(_ptr[index]);
+    byte ITypedAccessor<byte>.GetTypedValue(int index) => To<byte>(_ptr[index]);
+    short ITypedAccessor<short>.GetTypedValue(int index) => To<short>(_ptr[index]);
+    ushort ITypedAccessor<ushort>.GetTypedValue(int index) => To<ushort>(_ptr[index]);
+    int ITypedAccessor<int>.GetTypedValue(int index) => To<int>(_ptr[index]);
+    uint ITypedAccessor<uint>.GetTypedValue(int index) => To<uint>(_ptr[index]);
+    long ITypedAccessor<long>.GetTypedValue(int index) => To<long>(_ptr[index]);
+    ulong ITypedAccessor<ulong>.GetTypedValue(int index) => To<ulong>(_ptr[index]);
+    Int128 ITypedAccessor<Int128>.GetTypedValue(int index) => To<Int128>(_ptr[index]);
+    UInt128 ITypedAccessor<UInt128>.GetTypedValue(int index) => To<UInt128>(_ptr[index]);
+    Half ITypedAccessor<Half>.GetTypedValue(int index) => To<Half>(_ptr[index]);
+    float ITypedAccessor<float>.GetTypedValue(int index) => To<float>(_ptr[index]);
+    double ITypedAccessor<double>.GetTypedValue(int index) => To<double>(_ptr[index]);
+    decimal ITypedAccessor<decimal>.GetTypedValue(int index) => decimal.CreateChecked(_ptr[index]);
+    char ITypedAccessor<char>.GetTypedValue(int index) => To<char>(_ptr[index]);
 
-    sbyte? ITypedAccessor<sbyte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (sbyte)_ptr[index];
-    byte? ITypedAccessor<byte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (byte)_ptr[index];
-    short? ITypedAccessor<short?>.GetTypedValue(int index) => IsNullFast(index) ? null : (short)_ptr[index];
-    ushort? ITypedAccessor<ushort?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ushort)_ptr[index];
-    int? ITypedAccessor<int?>.GetTypedValue(int index) => IsNullFast(index) ? null : (int)_ptr[index];
-    uint? ITypedAccessor<uint?>.GetTypedValue(int index) => IsNullFast(index) ? null : (uint)_ptr[index];
-    long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ulong)_ptr[index];
-    Int128? ITypedAccessor<Int128?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    UInt128? ITypedAccessor<UInt128?>.GetTypedValue(int index) => IsNullFast(index) ? null : (UInt128)_ptr[index];
-    Half? ITypedAccessor<Half?>.GetTypedValue(int index) => IsNullFast(index) ? null : (Half)_ptr[index];
-    float? ITypedAccessor<float?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    double? ITypedAccessor<double?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    char? ITypedAccessor<char?>.GetTypedValue(int index) => IsNullFast(index) ? null : (char)_ptr[index];
-}
-
-internal sealed unsafe class UInt8Accessor : TypedColumnAccessor<byte>,
-    ITypedAccessor<sbyte>, ITypedAccessor<byte>, ITypedAccessor<short>, ITypedAccessor<ushort>,
-    ITypedAccessor<int>, ITypedAccessor<uint>, ITypedAccessor<long>, ITypedAccessor<ulong>,
-    ITypedAccessor<Int128>, ITypedAccessor<UInt128>,
-    ITypedAccessor<Half>, ITypedAccessor<float>, ITypedAccessor<double>, ITypedAccessor<decimal>, ITypedAccessor<char>,
-    ITypedAccessor<sbyte?>, ITypedAccessor<byte?>, ITypedAccessor<short?>, ITypedAccessor<ushort?>,
-    ITypedAccessor<int?>, ITypedAccessor<uint?>, ITypedAccessor<long?>, ITypedAccessor<ulong?>,
-    ITypedAccessor<Int128?>, ITypedAccessor<UInt128?>,
-    ITypedAccessor<Half?>, ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>, ITypedAccessor<char?>
-{
-    private byte* _ptr;
-    public override Type TargetType => typeof(byte);
-    public override bool UsesFastNullBitmap => true;
-    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<byte>(array);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override bool IsNull(int index) => IsNullFast(index);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override byte GetTypedValue(int index) => _ptr[index];
-
-    sbyte ITypedAccessor<sbyte>.GetTypedValue(int index) => (sbyte)_ptr[index];
-    short ITypedAccessor<short>.GetTypedValue(int index) => _ptr[index];
-    ushort ITypedAccessor<ushort>.GetTypedValue(int index) => _ptr[index];
-    int ITypedAccessor<int>.GetTypedValue(int index) => _ptr[index];
-    uint ITypedAccessor<uint>.GetTypedValue(int index) => _ptr[index];
-    long ITypedAccessor<long>.GetTypedValue(int index) => _ptr[index];
-    ulong ITypedAccessor<ulong>.GetTypedValue(int index) => _ptr[index];
-    Int128 ITypedAccessor<Int128>.GetTypedValue(int index) => _ptr[index];
-    UInt128 ITypedAccessor<UInt128>.GetTypedValue(int index) => _ptr[index];
-    Half ITypedAccessor<Half>.GetTypedValue(int index) => (Half)_ptr[index];
-    float ITypedAccessor<float>.GetTypedValue(int index) => _ptr[index];
-    double ITypedAccessor<double>.GetTypedValue(int index) => _ptr[index];
-    decimal ITypedAccessor<decimal>.GetTypedValue(int index) => _ptr[index];
-    char ITypedAccessor<char>.GetTypedValue(int index) => (char)_ptr[index];
-
-    sbyte? ITypedAccessor<sbyte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (sbyte)_ptr[index];
-    byte? ITypedAccessor<byte?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    short? ITypedAccessor<short?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    ushort? ITypedAccessor<ushort?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    int? ITypedAccessor<int?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    uint? ITypedAccessor<uint?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    Int128? ITypedAccessor<Int128?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    UInt128? ITypedAccessor<UInt128?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    Half? ITypedAccessor<Half?>.GetTypedValue(int index) => IsNullFast(index) ? null : (Half)_ptr[index];
-    float? ITypedAccessor<float?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    double? ITypedAccessor<double?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    char? ITypedAccessor<char?>.GetTypedValue(int index) => IsNullFast(index) ? null : (char)_ptr[index];
-}
-
-internal sealed unsafe class UInt16Accessor : TypedColumnAccessor<ushort>,
-    ITypedAccessor<sbyte>, ITypedAccessor<byte>, ITypedAccessor<short>, ITypedAccessor<ushort>,
-    ITypedAccessor<int>, ITypedAccessor<uint>, ITypedAccessor<long>, ITypedAccessor<ulong>,
-    ITypedAccessor<Int128>, ITypedAccessor<UInt128>,
-    ITypedAccessor<Half>, ITypedAccessor<float>, ITypedAccessor<double>, ITypedAccessor<decimal>, ITypedAccessor<char>,
-    ITypedAccessor<sbyte?>, ITypedAccessor<byte?>, ITypedAccessor<short?>, ITypedAccessor<ushort?>,
-    ITypedAccessor<int?>, ITypedAccessor<uint?>, ITypedAccessor<long?>, ITypedAccessor<ulong?>,
-    ITypedAccessor<Int128?>, ITypedAccessor<UInt128?>,
-    ITypedAccessor<Half?>, ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>, ITypedAccessor<char?>
-{
-    private ushort* _ptr;
-    public override Type TargetType => typeof(ushort);
-    public override bool UsesFastNullBitmap => true;
-    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<ushort>(array);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override bool IsNull(int index) => IsNullFast(index);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override ushort GetTypedValue(int index) => _ptr[index];
-
-    sbyte ITypedAccessor<sbyte>.GetTypedValue(int index) => (sbyte)_ptr[index];
-    byte ITypedAccessor<byte>.GetTypedValue(int index) => (byte)_ptr[index];
-    short ITypedAccessor<short>.GetTypedValue(int index) => (short)_ptr[index];
-    int ITypedAccessor<int>.GetTypedValue(int index) => _ptr[index];
-    uint ITypedAccessor<uint>.GetTypedValue(int index) => _ptr[index];
-    long ITypedAccessor<long>.GetTypedValue(int index) => _ptr[index];
-    ulong ITypedAccessor<ulong>.GetTypedValue(int index) => _ptr[index];
-    Int128 ITypedAccessor<Int128>.GetTypedValue(int index) => _ptr[index];
-    UInt128 ITypedAccessor<UInt128>.GetTypedValue(int index) => _ptr[index];
-    Half ITypedAccessor<Half>.GetTypedValue(int index) => (Half)_ptr[index];
-    float ITypedAccessor<float>.GetTypedValue(int index) => _ptr[index];
-    double ITypedAccessor<double>.GetTypedValue(int index) => _ptr[index];
-    decimal ITypedAccessor<decimal>.GetTypedValue(int index) => _ptr[index];
-    char ITypedAccessor<char>.GetTypedValue(int index) => (char)_ptr[index];
-
-    sbyte? ITypedAccessor<sbyte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (sbyte)_ptr[index];
-    byte? ITypedAccessor<byte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (byte)_ptr[index];
-    short? ITypedAccessor<short?>.GetTypedValue(int index) => IsNullFast(index) ? null : (short)_ptr[index];
-    ushort? ITypedAccessor<ushort?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    int? ITypedAccessor<int?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    uint? ITypedAccessor<uint?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    Int128? ITypedAccessor<Int128?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    UInt128? ITypedAccessor<UInt128?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    Half? ITypedAccessor<Half?>.GetTypedValue(int index) => IsNullFast(index) ? null : (Half)_ptr[index];
-    float? ITypedAccessor<float?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    double? ITypedAccessor<double?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    char? ITypedAccessor<char?>.GetTypedValue(int index) => IsNullFast(index) ? null : (char)_ptr[index];
-}
-
-internal sealed unsafe class UInt32Accessor : TypedColumnAccessor<uint>,
-    ITypedAccessor<sbyte>, ITypedAccessor<byte>, ITypedAccessor<short>, ITypedAccessor<ushort>,
-    ITypedAccessor<int>, ITypedAccessor<uint>, ITypedAccessor<long>, ITypedAccessor<ulong>,
-    ITypedAccessor<Int128>, ITypedAccessor<UInt128>,
-    ITypedAccessor<Half>, ITypedAccessor<float>, ITypedAccessor<double>, ITypedAccessor<decimal>, ITypedAccessor<char>,
-    ITypedAccessor<sbyte?>, ITypedAccessor<byte?>, ITypedAccessor<short?>, ITypedAccessor<ushort?>,
-    ITypedAccessor<int?>, ITypedAccessor<uint?>, ITypedAccessor<long?>, ITypedAccessor<ulong?>,
-    ITypedAccessor<Int128?>, ITypedAccessor<UInt128?>,
-    ITypedAccessor<Half?>, ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>, ITypedAccessor<char?>
-{
-    private uint* _ptr;
-    public override Type TargetType => typeof(uint);
-    public override bool UsesFastNullBitmap => true;
-    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<uint>(array);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override bool IsNull(int index) => IsNullFast(index);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override uint GetTypedValue(int index) => _ptr[index];
-
-    sbyte ITypedAccessor<sbyte>.GetTypedValue(int index) => (sbyte)_ptr[index];
-    byte ITypedAccessor<byte>.GetTypedValue(int index) => (byte)_ptr[index];
-    short ITypedAccessor<short>.GetTypedValue(int index) => (short)_ptr[index];
-    ushort ITypedAccessor<ushort>.GetTypedValue(int index) => (ushort)_ptr[index];
-    int ITypedAccessor<int>.GetTypedValue(int index) => (int)_ptr[index];
-    long ITypedAccessor<long>.GetTypedValue(int index) => _ptr[index];
-    ulong ITypedAccessor<ulong>.GetTypedValue(int index) => _ptr[index];
-    Int128 ITypedAccessor<Int128>.GetTypedValue(int index) => _ptr[index];
-    UInt128 ITypedAccessor<UInt128>.GetTypedValue(int index) => _ptr[index];
-    Half ITypedAccessor<Half>.GetTypedValue(int index) => (Half)_ptr[index];
-    float ITypedAccessor<float>.GetTypedValue(int index) => _ptr[index];
-    double ITypedAccessor<double>.GetTypedValue(int index) => _ptr[index];
-    decimal ITypedAccessor<decimal>.GetTypedValue(int index) => _ptr[index];
-    char ITypedAccessor<char>.GetTypedValue(int index) => (char)_ptr[index];
-
-    sbyte? ITypedAccessor<sbyte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (sbyte)_ptr[index];
-    byte? ITypedAccessor<byte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (byte)_ptr[index];
-    short? ITypedAccessor<short?>.GetTypedValue(int index) => IsNullFast(index) ? null : (short)_ptr[index];
-    ushort? ITypedAccessor<ushort?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ushort)_ptr[index];
-    int? ITypedAccessor<int?>.GetTypedValue(int index) => IsNullFast(index) ? null : (int)_ptr[index];
-    uint? ITypedAccessor<uint?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    Int128? ITypedAccessor<Int128?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    UInt128? ITypedAccessor<UInt128?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    Half? ITypedAccessor<Half?>.GetTypedValue(int index) => IsNullFast(index) ? null : (Half)_ptr[index];
-    float? ITypedAccessor<float?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    double? ITypedAccessor<double?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    char? ITypedAccessor<char?>.GetTypedValue(int index) => IsNullFast(index) ? null : (char)_ptr[index];
-}
-
-internal sealed unsafe class UInt64Accessor : TypedColumnAccessor<ulong>,
-    ITypedAccessor<sbyte>, ITypedAccessor<byte>, ITypedAccessor<short>, ITypedAccessor<ushort>,
-    ITypedAccessor<int>, ITypedAccessor<uint>, ITypedAccessor<long>, ITypedAccessor<ulong>,
-    ITypedAccessor<Int128>, ITypedAccessor<UInt128>,
-    ITypedAccessor<Half>, ITypedAccessor<float>, ITypedAccessor<double>, ITypedAccessor<decimal>, ITypedAccessor<char>,
-    ITypedAccessor<sbyte?>, ITypedAccessor<byte?>, ITypedAccessor<short?>, ITypedAccessor<ushort?>,
-    ITypedAccessor<int?>, ITypedAccessor<uint?>, ITypedAccessor<long?>, ITypedAccessor<ulong?>,
-    ITypedAccessor<Int128?>, ITypedAccessor<UInt128?>,
-    ITypedAccessor<Half?>, ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>, ITypedAccessor<char?>
-{
-    private ulong* _ptr;
-    public override Type TargetType => typeof(ulong);
-    public override bool UsesFastNullBitmap => true;
-    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<ulong>(array);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override bool IsNull(int index) => IsNullFast(index);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override ulong GetTypedValue(int index) => _ptr[index];
-
-    sbyte ITypedAccessor<sbyte>.GetTypedValue(int index) => (sbyte)_ptr[index];
-    byte ITypedAccessor<byte>.GetTypedValue(int index) => (byte)_ptr[index];
-    short ITypedAccessor<short>.GetTypedValue(int index) => (short)_ptr[index];
-    ushort ITypedAccessor<ushort>.GetTypedValue(int index) => (ushort)_ptr[index];
-    int ITypedAccessor<int>.GetTypedValue(int index) => (int)_ptr[index];
-    uint ITypedAccessor<uint>.GetTypedValue(int index) => (uint)_ptr[index];
-    long ITypedAccessor<long>.GetTypedValue(int index) => (long)_ptr[index];
-    Int128 ITypedAccessor<Int128>.GetTypedValue(int index) => _ptr[index];
-    UInt128 ITypedAccessor<UInt128>.GetTypedValue(int index) => _ptr[index];
-    Half ITypedAccessor<Half>.GetTypedValue(int index) => (Half)_ptr[index];
-    float ITypedAccessor<float>.GetTypedValue(int index) => _ptr[index];
-    double ITypedAccessor<double>.GetTypedValue(int index) => _ptr[index];
-    decimal ITypedAccessor<decimal>.GetTypedValue(int index) => _ptr[index];
-    char ITypedAccessor<char>.GetTypedValue(int index) => (char)_ptr[index];
-
-    sbyte? ITypedAccessor<sbyte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (sbyte)_ptr[index];
-    byte? ITypedAccessor<byte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (byte)_ptr[index];
-    short? ITypedAccessor<short?>.GetTypedValue(int index) => IsNullFast(index) ? null : (short)_ptr[index];
-    ushort? ITypedAccessor<ushort?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ushort)_ptr[index];
-    int? ITypedAccessor<int?>.GetTypedValue(int index) => IsNullFast(index) ? null : (int)_ptr[index];
-    uint? ITypedAccessor<uint?>.GetTypedValue(int index) => IsNullFast(index) ? null : (uint)_ptr[index];
-    long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNullFast(index) ? null : (long)_ptr[index];
-    ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    Int128? ITypedAccessor<Int128?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    UInt128? ITypedAccessor<UInt128?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    Half? ITypedAccessor<Half?>.GetTypedValue(int index) => IsNullFast(index) ? null : (Half)_ptr[index];
-    float? ITypedAccessor<float?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    double? ITypedAccessor<double?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    char? ITypedAccessor<char?>.GetTypedValue(int index) => IsNullFast(index) ? null : (char)_ptr[index];
-}
-
-internal sealed unsafe class HalfFloatAccessor : TypedColumnAccessor<Half>,
-    ITypedAccessor<sbyte>, ITypedAccessor<byte>, ITypedAccessor<short>, ITypedAccessor<ushort>,
-    ITypedAccessor<int>, ITypedAccessor<uint>, ITypedAccessor<long>, ITypedAccessor<ulong>,
-    ITypedAccessor<Half>, ITypedAccessor<float>, ITypedAccessor<double>, ITypedAccessor<decimal>, ITypedAccessor<string>,
-    ITypedAccessor<sbyte?>, ITypedAccessor<byte?>, ITypedAccessor<short?>, ITypedAccessor<ushort?>,
-    ITypedAccessor<int?>, ITypedAccessor<uint?>, ITypedAccessor<long?>, ITypedAccessor<ulong?>,
-    ITypedAccessor<Half?>, ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>
-{
-    private Half* _ptr;
-    public override Type TargetType => typeof(Half);
-    public override bool UsesFastNullBitmap => true;
-    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<Half>(array);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override bool IsNull(int index) => IsNullFast(index);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override Half GetTypedValue(int index) => _ptr[index];
-
-    sbyte ITypedAccessor<sbyte>.GetTypedValue(int index) => (sbyte)_ptr[index];
-    byte ITypedAccessor<byte>.GetTypedValue(int index) => (byte)_ptr[index];
-    short ITypedAccessor<short>.GetTypedValue(int index) => (short)_ptr[index];
-    ushort ITypedAccessor<ushort>.GetTypedValue(int index) => (ushort)_ptr[index];
-    int ITypedAccessor<int>.GetTypedValue(int index) => (int)_ptr[index];
-    uint ITypedAccessor<uint>.GetTypedValue(int index) => (uint)_ptr[index];
-    long ITypedAccessor<long>.GetTypedValue(int index) => (long)_ptr[index];
-    ulong ITypedAccessor<ulong>.GetTypedValue(int index) => (ulong)_ptr[index];
-    float ITypedAccessor<float>.GetTypedValue(int index) => (float)_ptr[index];
-    double ITypedAccessor<double>.GetTypedValue(int index) => (double)_ptr[index];
-    decimal ITypedAccessor<decimal>.GetTypedValue(int index) => (decimal)(float)_ptr[index];
-    string ITypedAccessor<string>.GetTypedValue(int index) => _ptr[index].ToString();
-
-    sbyte? ITypedAccessor<sbyte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (sbyte)_ptr[index];
-    byte? ITypedAccessor<byte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (byte)_ptr[index];
-    short? ITypedAccessor<short?>.GetTypedValue(int index) => IsNullFast(index) ? null : (short)_ptr[index];
-    ushort? ITypedAccessor<ushort?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ushort)_ptr[index];
-    int? ITypedAccessor<int?>.GetTypedValue(int index) => IsNullFast(index) ? null : (int)_ptr[index];
-    uint? ITypedAccessor<uint?>.GetTypedValue(int index) => IsNullFast(index) ? null : (uint)_ptr[index];
-    long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNullFast(index) ? null : (long)_ptr[index];
-    ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ulong)_ptr[index];
-    Half? ITypedAccessor<Half?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    float? ITypedAccessor<float?>.GetTypedValue(int index) => IsNullFast(index) ? null : (float)_ptr[index];
-    double? ITypedAccessor<double?>.GetTypedValue(int index) => IsNullFast(index) ? null : (double)_ptr[index];
-    decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => IsNullFast(index) ? null : (decimal)(float)_ptr[index];
-}
-
-internal sealed unsafe class FloatAccessor : TypedColumnAccessor<float>,
-    ITypedAccessor<sbyte>, ITypedAccessor<byte>, ITypedAccessor<short>, ITypedAccessor<ushort>,
-    ITypedAccessor<int>, ITypedAccessor<uint>, ITypedAccessor<long>, ITypedAccessor<ulong>,
-    ITypedAccessor<Half>, ITypedAccessor<float>, ITypedAccessor<double>, ITypedAccessor<decimal>,
-    ITypedAccessor<sbyte?>, ITypedAccessor<byte?>, ITypedAccessor<short?>, ITypedAccessor<ushort?>,
-    ITypedAccessor<int?>, ITypedAccessor<uint?>, ITypedAccessor<long?>, ITypedAccessor<ulong?>,
-    ITypedAccessor<Half?>, ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>
-{
-    private float* _ptr;
-    public override Type TargetType => typeof(float);
-    public override bool UsesFastNullBitmap => true;
-    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<float>(array);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override bool IsNull(int index) => IsNullFast(index);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override float GetTypedValue(int index) => _ptr[index];
-
-    sbyte ITypedAccessor<sbyte>.GetTypedValue(int index) => (sbyte)_ptr[index];
-    byte ITypedAccessor<byte>.GetTypedValue(int index) => (byte)_ptr[index];
-    short ITypedAccessor<short>.GetTypedValue(int index) => (short)_ptr[index];
-    ushort ITypedAccessor<ushort>.GetTypedValue(int index) => (ushort)_ptr[index];
-    int ITypedAccessor<int>.GetTypedValue(int index) => (int)_ptr[index];
-    uint ITypedAccessor<uint>.GetTypedValue(int index) => (uint)_ptr[index];
-    long ITypedAccessor<long>.GetTypedValue(int index) => (long)_ptr[index];
-    ulong ITypedAccessor<ulong>.GetTypedValue(int index) => (ulong)_ptr[index];
-    Half ITypedAccessor<Half>.GetTypedValue(int index) => (Half)_ptr[index];
-    double ITypedAccessor<double>.GetTypedValue(int index) => _ptr[index];
-    decimal ITypedAccessor<decimal>.GetTypedValue(int index) => (decimal)_ptr[index];
-
-    sbyte? ITypedAccessor<sbyte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (sbyte)_ptr[index];
-    byte? ITypedAccessor<byte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (byte)_ptr[index];
-    short? ITypedAccessor<short?>.GetTypedValue(int index) => IsNullFast(index) ? null : (short)_ptr[index];
-    ushort? ITypedAccessor<ushort?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ushort)_ptr[index];
-    int? ITypedAccessor<int?>.GetTypedValue(int index) => IsNullFast(index) ? null : (int)_ptr[index];
-    uint? ITypedAccessor<uint?>.GetTypedValue(int index) => IsNullFast(index) ? null : (uint)_ptr[index];
-    long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNullFast(index) ? null : (long)_ptr[index];
-    ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ulong)_ptr[index];
-    Half? ITypedAccessor<Half?>.GetTypedValue(int index) => IsNullFast(index) ? null : (Half)_ptr[index];
-    float? ITypedAccessor<float?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    double? ITypedAccessor<double?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => IsNullFast(index) ? null : (decimal)_ptr[index];
-}
-
-internal sealed unsafe class DoubleAccessor : TypedColumnAccessor<double>,
-    ITypedAccessor<sbyte>, ITypedAccessor<byte>, ITypedAccessor<short>, ITypedAccessor<ushort>,
-    ITypedAccessor<int>, ITypedAccessor<uint>, ITypedAccessor<long>, ITypedAccessor<ulong>,
-    ITypedAccessor<Half>, ITypedAccessor<float>, ITypedAccessor<double>, ITypedAccessor<decimal>,
-    ITypedAccessor<sbyte?>, ITypedAccessor<byte?>, ITypedAccessor<short?>, ITypedAccessor<ushort?>,
-    ITypedAccessor<int?>, ITypedAccessor<uint?>, ITypedAccessor<long?>, ITypedAccessor<ulong?>,
-    ITypedAccessor<Half?>, ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>
-{
-    private double* _ptr;
-    public override Type TargetType => typeof(double);
-    public override bool UsesFastNullBitmap => true;
-    public override void SetBatch(IArrowArray array) => _ptr = BindPrimitiveBuffer<double>(array);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override bool IsNull(int index) => IsNullFast(index);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override double GetTypedValue(int index) => _ptr[index];
-
-    sbyte ITypedAccessor<sbyte>.GetTypedValue(int index) => (sbyte)_ptr[index];
-    byte ITypedAccessor<byte>.GetTypedValue(int index) => (byte)_ptr[index];
-    short ITypedAccessor<short>.GetTypedValue(int index) => (short)_ptr[index];
-    ushort ITypedAccessor<ushort>.GetTypedValue(int index) => (ushort)_ptr[index];
-    int ITypedAccessor<int>.GetTypedValue(int index) => (int)_ptr[index];
-    uint ITypedAccessor<uint>.GetTypedValue(int index) => (uint)_ptr[index];
-    long ITypedAccessor<long>.GetTypedValue(int index) => (long)_ptr[index];
-    ulong ITypedAccessor<ulong>.GetTypedValue(int index) => (ulong)_ptr[index];
-    Half ITypedAccessor<Half>.GetTypedValue(int index) => (Half)_ptr[index];
-    float ITypedAccessor<float>.GetTypedValue(int index) => (float)_ptr[index];
-    decimal ITypedAccessor<decimal>.GetTypedValue(int index) => (decimal)_ptr[index];
-
-    sbyte? ITypedAccessor<sbyte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (sbyte)_ptr[index];
-    byte? ITypedAccessor<byte?>.GetTypedValue(int index) => IsNullFast(index) ? null : (byte)_ptr[index];
-    short? ITypedAccessor<short?>.GetTypedValue(int index) => IsNullFast(index) ? null : (short)_ptr[index];
-    ushort? ITypedAccessor<ushort?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ushort)_ptr[index];
-    int? ITypedAccessor<int?>.GetTypedValue(int index) => IsNullFast(index) ? null : (int)_ptr[index];
-    uint? ITypedAccessor<uint?>.GetTypedValue(int index) => IsNullFast(index) ? null : (uint)_ptr[index];
-    long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNullFast(index) ? null : (long)_ptr[index];
-    ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => IsNullFast(index) ? null : (ulong)_ptr[index];
-    Half? ITypedAccessor<Half?>.GetTypedValue(int index) => IsNullFast(index) ? null : (Half)_ptr[index];
-    float? ITypedAccessor<float?>.GetTypedValue(int index) => IsNullFast(index) ? null : (float)_ptr[index];
-    double? ITypedAccessor<double?>.GetTypedValue(int index) => IsNullFast(index) ? null : _ptr[index];
-    decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => IsNullFast(index) ? null : (decimal)_ptr[index];
+    sbyte? ITypedAccessor<sbyte?>.GetTypedValue(int index) => IsNullFast(index) ? null : To<sbyte>(_ptr[index]);
+    byte? ITypedAccessor<byte?>.GetTypedValue(int index) => IsNullFast(index) ? null : To<byte>(_ptr[index]);
+    short? ITypedAccessor<short?>.GetTypedValue(int index) => IsNullFast(index) ? null : To<short>(_ptr[index]);
+    ushort? ITypedAccessor<ushort?>.GetTypedValue(int index) => IsNullFast(index) ? null : To<ushort>(_ptr[index]);
+    int? ITypedAccessor<int?>.GetTypedValue(int index) => IsNullFast(index) ? null : To<int>(_ptr[index]);
+    uint? ITypedAccessor<uint?>.GetTypedValue(int index) => IsNullFast(index) ? null : To<uint>(_ptr[index]);
+    long? ITypedAccessor<long?>.GetTypedValue(int index) => IsNullFast(index) ? null : To<long>(_ptr[index]);
+    ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => IsNullFast(index) ? null : To<ulong>(_ptr[index]);
+    Int128? ITypedAccessor<Int128?>.GetTypedValue(int index) => IsNullFast(index) ? null : To<Int128>(_ptr[index]);
+    UInt128? ITypedAccessor<UInt128?>.GetTypedValue(int index) => IsNullFast(index) ? null : To<UInt128>(_ptr[index]);
+    Half? ITypedAccessor<Half?>.GetTypedValue(int index) => IsNullFast(index) ? null : To<Half>(_ptr[index]);
+    float? ITypedAccessor<float?>.GetTypedValue(int index) => IsNullFast(index) ? null : To<float>(_ptr[index]);
+    double? ITypedAccessor<double?>.GetTypedValue(int index) => IsNullFast(index) ? null : To<double>(_ptr[index]);
+    decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => IsNullFast(index) ? null : decimal.CreateChecked(_ptr[index]);
+    char? ITypedAccessor<char?>.GetTypedValue(int index) => IsNullFast(index) ? null : To<char>(_ptr[index]);
 }
 
 internal sealed unsafe class DecimalAccessor : TypedColumnAccessor<decimal>,

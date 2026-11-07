@@ -201,4 +201,85 @@ public class ColumnAccessorTests
         Assert.False(typed.GetTypedValue(1));
         Assert.True(typed.GetTypedValue(2));
     }
+
+    // ---------------------------------------------------------------------
+    // NumericAccessor<TSrc>: one conversion matrix for every numeric source
+    // ---------------------------------------------------------------------
+
+    private static ColumnAccessor BindNumeric(IArrowArray array)
+    {
+        var accessor = ColumnAccessorFactory.Create(new Field("n", array.Data.DataType, true), typeof(object));
+        accessor.SetBatch(array);
+        return accessor;
+    }
+
+    private static T Get<T>(ColumnAccessor accessor, int i) => ((ITypedAccessor<T>)accessor).GetTypedValue(i);
+
+    [Fact]
+    public void Numeric_Int16_Sliced_WithNulls_Widens()
+    {
+        var b = new Int16Array.Builder();
+        for (int i = 0; i < Total; i++)
+        {
+            if (IsNullRow(i)) b.AppendNull(); else b.Append((short)(i * 1000 - 15000));
+        }
+        var arr = Sliced<Int16Array>(b.Build());
+        AssertMatches<long>(arr, typeof(long), i => arr.GetValue(i)!.Value);
+        AssertMatches<double>(arr, typeof(double), i => arr.GetValue(i)!.Value);
+    }
+
+    [Fact]
+    public void Numeric_IntegerNarrowing_Wraps()
+    {
+        using var acc = BindNumeric(new Int64Array.Builder().AppendRange([300L, -1L, long.MaxValue]).Build());
+        Assert.Equal((byte)44, Get<byte>(acc, 0));
+        Assert.Equal((sbyte)44, Get<sbyte>(acc, 0));
+        Assert.Equal((byte)255, Get<byte>(acc, 1));
+        Assert.Equal(ulong.MaxValue, Get<ulong>(acc, 1));
+        Assert.Equal(-1, Get<int>(acc, 2));
+        Assert.Equal((UInt128)long.MaxValue, Get<UInt128>(acc, 2));
+    }
+
+    [Fact]
+    public void Numeric_FloatToInteger_Saturates()
+    {
+        using var acc = BindNumeric(new DoubleArray.Builder().AppendRange([1e300, -1e300, 2.9, -2.9]).Build());
+        Assert.Equal(int.MaxValue, Get<int>(acc, 0));
+        Assert.Equal(int.MinValue, Get<int>(acc, 1));
+        Assert.Equal((byte)255, Get<byte>(acc, 0));
+        Assert.Equal((byte)0, Get<byte>(acc, 1));
+        Assert.Equal(sbyte.MaxValue, Get<sbyte>(acc, 0));
+        Assert.Equal(long.MinValue, Get<long?>(acc, 1));
+        Assert.Equal(2, Get<int>(acc, 2));
+        Assert.Equal(-2, Get<int>(acc, 3));
+        // Previously missing on float sources; now part of the shared matrix.
+        Assert.Equal((Int128)(-2), Get<Int128>(acc, 3));
+        Assert.Equal((char)2, Get<char>(acc, 2));
+    }
+
+    [Fact]
+    public void Numeric_ToDecimal_IsChecked()
+    {
+        using var dbl = BindNumeric(new DoubleArray.Builder().AppendRange([1.5, double.NaN, 1e300]).Build());
+        Assert.Equal(1.5m, Get<decimal>(dbl, 0));
+        Assert.Throws<OverflowException>(() => Get<decimal>(dbl, 1));
+        Assert.Throws<OverflowException>(() => Get<decimal>(dbl, 2));
+        Assert.Throws<OverflowException>(() => Get<decimal?>(dbl, 2));
+
+        using var half = BindNumeric(new HalfFloatArray.Builder().AppendRange([(Half)2.5f, Half.NaN]).Build());
+        Assert.Equal(2.5m, Get<decimal>(half, 0));
+        Assert.Throws<OverflowException>(() => Get<decimal>(half, 1));
+
+        using var u64 = BindNumeric(new UInt64Array.Builder().Append(ulong.MaxValue).Build());
+        Assert.Equal((decimal)ulong.MaxValue, Get<decimal>(u64, 0));
+    }
+
+    [Fact]
+    public void Numeric_DoesNotConvertToString()
+    {
+        using var half = BindNumeric(new HalfFloatArray.Builder().Append((Half)1f).Build());
+        using var i32 = BindNumeric(new Int32Array.Builder().Append(1).Build());
+        Assert.False(half is ITypedAccessor<string>);
+        Assert.False(i32 is ITypedAccessor<string>);
+    }
 }

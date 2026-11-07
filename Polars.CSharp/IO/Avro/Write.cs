@@ -1,3 +1,4 @@
+#pragma warning disable CS1573 
 using System.IO.Pipelines;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
