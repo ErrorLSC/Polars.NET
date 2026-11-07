@@ -96,6 +96,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Polars.CSharp" />
     <InternalsVisibleTo Include="Polars.CSharp.Tests" />
+    <InternalsVisibleTo Include="Polars.CSharp.Linq.Tests" />
     <InternalsVisibleTo Include="Polars.FSharp" />
     <InternalsVisibleTo Include="Polars.FSharp.Tests" />
     <InternalsVisibleTo Include="Polars.Config.Tests" />

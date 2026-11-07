@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    LINQ provider tests, targeting .NET 11 so tests can exercise the new
+    System.Linq / Queryable operators introduced in .NET 11.
+    Requires a .NET 11 SDK; not part of Polars.NET.slnx yet.
+    The native shim (libnative_shim.so) is copied transitively via
+    Polars.NET.Core's Content items (honours SkipRust / RustTargetDir).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Polars.CSharp\Polars.CSharp.csproj" />
+    <ProjectReference Include="..\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
+  </ItemGroup>
+
+</Project>

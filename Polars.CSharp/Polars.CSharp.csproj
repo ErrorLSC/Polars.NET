@@ -30,6 +30,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Polars.NET.ML" />
     <InternalsVisibleTo Include="Polars.CSharp.Tests" />
+    <InternalsVisibleTo Include="Polars.CSharp.Linq.Tests" />
   </ItemGroup>
 
   <ItemGroup>

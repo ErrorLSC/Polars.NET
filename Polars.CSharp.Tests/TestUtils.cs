@@ -33,3 +33,6 @@ public class DisposableFile : IDisposable
     }
 }
 
+
+// Copied from Polars.CSharp.Linq.Tests/Linq/LinqTests.cs (LINQ tests moved to their own net11 project); used by Frames/StreamingTests.cs.
+public record SensorReading(int SensorId, double Temperature, string Location);
