@@ -263,6 +263,12 @@ module internal PolarsPhysicalLowerer =
 
         | LogicalPlan.Sort(input, orderings) ->
             let lf = lowerPlan sources input
+            // A key that reads no column is the same for every row: it orders nothing (and the engine rejects a
+            // key shorter than the frame), so it is dropped; a sort left without keys keeps the rows as they are.
+            let orderings =
+                orderings
+                |> List.filter (fun o -> not (ScalarExprOps.collectColumns o.Expr).IsEmpty || ScalarExprOps.containsAggregation o.Expr)
+            if orderings.IsEmpty then lf else
             let exprs = orderings |> List.map (fun o -> PolarsScalarLowerer.lower o.Expr) |> List.toArray
             let desc = orderings |> List.map (fun o -> o.Descending) |> List.toArray
             let nullsLast = orderings |> List.map (fun o -> o.NullsLast) |> List.toArray

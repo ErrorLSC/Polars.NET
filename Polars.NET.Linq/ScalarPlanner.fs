@@ -744,7 +744,7 @@ module internal ScalarPlanner =
                                 if PolarsTypeHelper.AcceptsNull elemType then
                                     LinqReflectionCache.GetEmptyOptionalValue elemType :?> 'TResult
                                 else
-                                    raise (InvalidOperationException "Sequence contains no elements.")
+                                    raise (InvalidOperationException "Sequence contains no elements")
                             | ScalarOutcome.Value winner -> winner :?> 'TResult
                 }
 

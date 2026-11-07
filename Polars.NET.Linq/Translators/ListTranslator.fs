@@ -205,7 +205,9 @@ module internal ListTranslator =
             | _ -> None
 
         match invocation with
-        | ListLen target -> t1 target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.ListLen, [ t ], LogicalTypes.UInt32))
+        // C# Length / Count are ints (the engine counts in u32, which cannot be negated).
+        | ListLen target ->
+            t1 target |> Option.map (fun t -> ScalarExpr.Cast(ScalarExpr.Function(ScalarFunction.ListLen, [ t ], LogicalTypes.UInt32), LogicalTypes.Int32, false))
         | ListContains(target, itemExpr) ->
             match t2 target itemExpr with
             | Some(t, item) -> Some(ScalarExpr.Function(ScalarFunction.ListContains(NullSemantics.nullKeysMatch ()), [ t; item ], LogicalTypes.Boolean))

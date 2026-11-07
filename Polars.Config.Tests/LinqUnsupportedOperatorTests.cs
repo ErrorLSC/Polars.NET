@@ -50,4 +50,25 @@ public class LinqUnsupportedOperatorTests
                 Assert.Equal(query(Words.AsQueryable()).ToList(), query(df.AsQueryable<Word>()).ToList());
         }
     }
+
+    [Fact]
+    public void Unknown_Query_Operator_In_The_Chain_Is_Never_Skipped()
+    {
+        using var df = DataFrame.From(Words);
+        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Strict).BeginScope())
+        {
+            var query = df.AsQueryable<Word>().Where(x => x.Id > 2).Tagged().Select(x => x.Id);
+            Assert.Throws<PolarsPushdownException>(() => query.ToList());
+        }
+    }
+}
+
+public static class CustomQueryOperators
+{
+    /// <summary>A query operator the provider does not know, as libraries add (a hint, a tag).</summary>
+    public static IQueryable<T> Tagged<T>(this IQueryable<T> source) =>
+        source.Provider.CreateQuery<T>(System.Linq.Expressions.Expression.Call(
+            null,
+            ((System.Reflection.MethodInfo)System.Reflection.MethodBase.GetCurrentMethod()!).MakeGenericMethod(typeof(T)),
+            source.Expression));
 }

@@ -97,7 +97,14 @@ module internal NumericTranslator =
             t2 x y
             |> Option.map (fun (l, r) ->
                 let cond = ScalarExpr.Binary(BinaryOp.LtEq, l, r)
-                ScalarExpr.Conditional(cond, l, r))
+                let minimum = ScalarExpr.Conditional(cond, l, r)
+                // Math.Min is NaN when either operand is (the engine orders NaN above every number, so `<=` alone
+                // would pick the number); NaN + x is NaN.
+                if NaNSemantics.isFloatingClrType x.Type then
+                    let eitherNaN = ScalarExpr.Binary(BinaryOp.Or, ScalarExpr.Unary(UnaryOp.IsNan, l), ScalarExpr.Unary(UnaryOp.IsNan, r))
+                    ScalarExpr.Conditional(eitherNaN, ScalarExpr.Binary(BinaryOp.Add, l, r), minimum)
+                else
+                    minimum)
         | "Max", [ x; y ] ->
             t2 x y
             |> Option.map (fun (l, r) ->

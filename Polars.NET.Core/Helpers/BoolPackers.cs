@@ -95,8 +95,9 @@ public static class BoolPacker
         return buffer;
     }
     private static readonly Vector256<byte> DeinterleaveMask = Vector256.Create(
-    (byte)0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, // Low 128: Values
-    1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31       // High 128: Validity
+    // Nullable<bool> is laid out as [hasValue, value]: even bytes are the validity, odd bytes the values.
+    (byte)0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, // Low 128: Validity (hasValue)
+    1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31       // High 128: Values
     );
 
     /// <summary>
@@ -135,8 +136,8 @@ public static class BoolPacker
                     uint mask = Vector256.ExtractMostSignificantBits(cmp);
                     uint finalMask = ~mask;
 
-                    ushort valMask16 = (ushort)(finalMask & 0xFFFF);
-                    ushort validMask16 = (ushort)(finalMask >>> 16);
+                    ushort validMask16 = (ushort)(finalMask & 0xFFFF);
+                    ushort valMask16 = (ushort)(finalMask >>> 16);
 
                     *(ushort*)(pDstVal + (i >> 3)) = valMask16;
 

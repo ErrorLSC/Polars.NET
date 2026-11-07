@@ -2692,7 +2692,8 @@ fn dotnet_div_rem_expr(left_ptr: *mut ExprContext, right_ptr: *mut ExprContext, 
             move |cols: &mut [Column]| -> PolarsResult<Column> { dotnet_div_rem(&cols[0], &cols[1], remainder) },
             &[right],
             |_schema: &Schema, fields: &[Field]| -> PolarsResult<Field> {
-                let dtype = polars_core::utils::try_get_supertype(fields[0].dtype(), fields[1].dtype())?;
+                // Literal operands carry dynamic types (dyn int / dyn float): resolve them to concrete ones.
+                let dtype = polars_core::utils::try_get_supertype(fields[0].dtype(), fields[1].dtype())?.materialize_unknown(false)?;
                 Ok(Field::new(fields[0].name().clone(), dtype))
             },
         );

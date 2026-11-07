@@ -52,7 +52,8 @@ module internal ExprTranslator =
             // 3. Constants and Literals
             | :? ConstantExpression as constExpr ->
                 if isNull constExpr.Value then
-                    Some(ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Null))
+                    // A null of a known type (`(int?)null`) keeps it.
+                    Some(ScalarExpr.Literal(LiteralValue.Null(LogicalTypes.tryOfClrType constExpr.Type |> Option.defaultValue LogicalTypes.Null)))
                 else
                     Some(ScalarExprOps.toLiteral constExpr.Value constExpr.Type)
 

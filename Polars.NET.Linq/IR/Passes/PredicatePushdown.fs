@@ -27,10 +27,8 @@ module internal PredicatePushdown =
         // Trivial true: no-op, eliminate
         | ScalarExpr.Literal(LiteralValue.Bool true) -> plan
 
-        // Trivial false: empty result
-        | ScalarExpr.Literal(LiteralValue.Bool false) ->
-            let schema = SchemaInference.inferPlanSchema plan
-            LogicalPlan.Empty schema
+        // Trivial false: no rows, but the plan's columns, which the stages above read.
+        | ScalarExpr.Literal(LiteralValue.Bool false) -> LogicalPlan.Limit(plan, 0L, 0u)
 
         | _ ->
             let refCols = ScalarExprOps.collectColumns pred

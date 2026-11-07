@@ -230,7 +230,7 @@ type internal LinqReflectionCache private () =
 
             let finisher (acc: obj) (count: int64) =
                 if count = 0L then
-                    invalidOp "Sequence contains no elements."
+                    invalidOp "Sequence contains no elements"
 
                 box ((acc :?> double) / float count)
 
@@ -259,7 +259,7 @@ type internal LinqReflectionCache private () =
                     if isNullable then
                         null
                     else
-                        invalidOp "Sequence contains no elements."
+                        invalidOp "Sequence contains no elements"
                 else
                     acc
 

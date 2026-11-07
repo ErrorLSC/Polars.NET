@@ -59,6 +59,10 @@ module internal PolarsScalarLowerer =
     /// Strongly-typed zero-boxing conversion from LiteralValue to Polars ExprHandle
     let lowerLiteral (value: LiteralValue) : ExprHandle =
         match value with
+        // A typed null keeps its type, so operators (negation, not, a filter) accept it.
+        | LiteralValue.Null dt when dt <> LogicalType.Unknown && dt <> LogicalTypes.Null ->
+            let dtH = PolarsVocabulary.toDataTypeHandle dt
+            PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), PolarsWrapper.DataTypeExprFromDataType dtH, strict = false, wrapNumerical = false)
         | LiteralValue.Null _ -> PolarsWrapper.LitNull()
         | LiteralValue.Bool b -> PolarsWrapper.Lit b
         | LiteralValue.Int8 sb -> PolarsWrapper.Lit sb
@@ -200,7 +204,8 @@ module internal PolarsScalarLowerer =
             let dtHandle = PolarsVocabulary.toDataTypeHandle targetType
             use _h = dtHandle
             let dtExpr = PolarsWrapper.DataTypeExprFromDataType dtHandle
-            PolarsWrapper.ExprCast(innerH, dtExpr, strict = isStrict, wrapNumerical = false)
+            // A non-strict numeric cast wraps on overflow, as .NET's unchecked conversion (the engine would give null).
+            PolarsWrapper.ExprCast(innerH, dtExpr, strict = isStrict, wrapNumerical = not isStrict)
 
         | ScalarExpr.Conditional(test, ifTrue, ifFalse) ->
             let testH = lower test

@@ -77,18 +77,24 @@ module ScalarExprOps =
     /// Pure symbolic conversion from a constant object and CLR type to a ScalarExpr literal, or None for a
     /// value of a type without a literal form. An enum constant is its underlying value, wrapped in an
     /// EnumConversion.FromValue unless the enum is stored as an integer ([Flags]).
-    let tryToLiteral (value: obj) (t: Type) : ScalarExpr option =
+    let rec tryToLiteral (value: obj) (t: Type) : ScalarExpr option =
         let plain (v: obj) =
             match v with
             | :? char as c -> Some(ScalarExpr.Literal(LiteralValue.String(string c)))
             | _ -> LiteralValue.TryOfObject v |> Option.map ScalarExpr.Literal
 
+        let struct (coreType, optionalKind) = PolarsTypeHelper.GetOptionalInfo t
         match value with
         | null ->
             let dt =
                 (LogicalTypes.tryOfClrType t)
                 |> Option.defaultValue LogicalTypes.Null
             Some(ScalarExpr.Literal(LiteralValue.Null dt))
+        // An F# option constant is its payload (Some 3 is 3, None a null), as option columns store it.
+        | _ when optionalKind = OptionalKind.FSharpOption || optionalKind = OptionalKind.FSharpValueOption ->
+            match PolarsTypeHelper.UnwrapOptionalValue(value, optionalKind) with
+            | null -> Some(ScalarExpr.Literal(LiteralValue.Null(LogicalTypes.tryOfClrType coreType |> Option.defaultValue LogicalTypes.Null)))
+            | payload -> tryToLiteral payload coreType
         | _ ->
             let coreType = PolarsTypeHelper.UnwrapCoreType t
             if coreType.IsEnum then

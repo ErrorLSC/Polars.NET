@@ -159,8 +159,17 @@ module internal OperatorAndUdfTranslator =
                 Some(ScalarExpr.Binary(BinaryOp.TruncatedDivide, l, r))
             // .NET decimal division keeps up to 28 significant digits; a fixed-point engine keeps the dividend's
             // scale, so the dividend is widened to the scale System.Decimal maps to (18).
+            // A zero divisor gives null, as for integers (the engine raises on a decimal division by zero).
             | Some l, Some r when op = ExpressionType.Divide && (isDecimalClrType left.Type || isDecimalClrType right.Type) ->
-                Some(ScalarExpr.Binary(BinaryOp.Divide, ScalarExpr.Cast(l, LogicalTypes.Decimal, false), r))
+                let divisor =
+                    match r with
+                    | ScalarExpr.Literal(LiteralValue.Decimal d) when d <> 0m -> r
+                    | _ ->
+                        ScalarExpr.Conditional(
+                            ScalarExpr.Binary(BinaryOp.Eq, r, ScalarExpr.Literal(LiteralValue.Int32 0)),
+                            ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Decimal),
+                            r)
+                Some(ScalarExpr.Binary(BinaryOp.Divide, ScalarExpr.Cast(l, LogicalTypes.Decimal, false), divisor))
             | Some l, Some r -> tryTranslateBinary op l r
             | _ -> None
 
@@ -206,6 +215,27 @@ module internal OperatorAndUdfTranslator =
             || (ScalarExprOps.tryEnumUnderlyingType targetType).IsSome
             ->
             eval ctx operand |> Option.bind (fun x -> translateEnumConvert x operand.Type targetType)
+        // .NET converts a floating value to an integer by truncating and saturating: NaN is 0, and values beyond
+        // the range give MinValue / MaxValue (the engine's cast gives null for them). A type narrower than int is
+        // reached through int: saturate to int, then narrow with wraparound ((byte)-2.7 is 254).
+        | ExpressionType.Convert when NaNSemantics.isFloatingClrType operand.Type && isIntegralClrType targetType ->
+            let target = match Nullable.GetUnderlyingType targetType with null -> targetType | u -> u
+            let core = if Runtime.InteropServices.Marshal.SizeOf target < 4 then typeof<int> else target
+            let bound (name: string) = core.GetField(name).GetValue(null)
+            // The bounds are compared as doubles and produced as the target's own literals (long.MaxValue is not
+            // a double, so casting the double bound back would overflow).
+            let asDouble (v: obj) = ScalarExpr.Literal(LiteralValue.Float64(Convert.ToDouble v))
+            let asTarget (v: obj) = ScalarExprOps.toLiteral v core
+            eval ctx operand
+            |> Option.bind (fun x ->
+                tryTranslateCast core x
+                |> Option.map (fun cast ->
+                    ScalarExpr.Conditional(
+                        ScalarExpr.Unary(UnaryOp.IsNan, x), asTarget (Convert.ChangeType(0, core)),
+                        ScalarExpr.Conditional(
+                            ScalarExpr.Binary(BinaryOp.GtEq, x, asDouble (bound "MaxValue")), asTarget (bound "MaxValue"),
+                            ScalarExpr.Conditional(ScalarExpr.Binary(BinaryOp.LtEq, x, asDouble (bound "MinValue")), asTarget (bound "MinValue"), cast)))))
+            |> Option.bind (fun saturated -> if core = target then Some saturated else tryTranslateCast targetType saturated)
         | ExpressionType.Convert
         | ExpressionType.ConvertChecked ->
             eval ctx operand |> Option.bind (tryTranslateCast targetType)

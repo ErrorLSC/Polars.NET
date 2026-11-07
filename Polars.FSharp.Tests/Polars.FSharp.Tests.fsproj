@@ -38,6 +38,7 @@
     <Compile Include="QueryNestedEntityTests.fs" />
     <Compile Include="EnumColumnTests.fs" />
     <Compile Include="SubqueryGraftingTests.fs" />
+    <Compile Include="QueryOptionSemanticsTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

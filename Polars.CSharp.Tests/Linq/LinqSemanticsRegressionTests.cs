@@ -1018,4 +1018,121 @@ public class LinqSemanticsRegressionTests
         Assert.Equal(Edges.Where(x => x.D < double.PositiveInfinity).Select(x => x.Id), q.Where(x => x.D < double.PositiveInfinity).Select(x => x.Id).ToList());
         Assert.Equal(Edges.Select(x => x.M % x.N), q.Select(x => x.M % x.N).ToList());
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Findings of the differential fuzzer (Polars.NET.Linq.Fuzz) and the aggregation probe.
+    // ---------------------------------------------------------------------------------------------
+
+    public class Fz
+    {
+        public long Id { get; set; }
+        public int I { get; set; }
+        public double D { get; set; }
+        public decimal M { get; set; }
+        public string S { get; set; } = "";
+        public bool B { get; set; }
+        public bool? NB { get; set; }
+        public List<int> Xs { get; set; } = [];
+    }
+
+    private static readonly Fz[] FzRows =
+    [
+        new() { Id = 0, I = 7, D = double.NaN, M = 2.5m, S = "ab", B = true, NB = true, Xs = [1, 2] },
+        new() { Id = 1, I = -7, D = 2.5, M = 0m, S = "", B = false, NB = null, Xs = [] },
+        new() { Id = 2, I = 0, D = double.PositiveInfinity, M = -1m, S = "zz", B = true, NB = false, Xs = [3] },
+        new() { Id = 3, I = 3, D = double.NegativeInfinity, M = 10m, S = "a", B = false, NB = false, Xs = [4, 5, 6] },
+        new() { Id = 4, I = -1, D = -2.7, M = 0.125m, S = "abc", B = true, NB = null, Xs = [] },
+    ];
+
+    [Fact]
+    public void Constant_False_Filter_Keeps_The_Columns_Above_It()
+    {
+        using var df = DataFrame.From(FzRows);
+        var q = df.AsQueryable<Fz>();
+
+        Assert.Empty(q.Where(x => false).OrderBy(x => x.Id).Select(x => x.Id).ToList());
+        Assert.Empty(q.Where(x => "ab".Contains("zz")).Select(x => x.D).ToList());
+        Assert.Empty(q.Where(x => false).Select(x => 0.5).Distinct().ToList());
+        Assert.Equal(0, q.Where(x => false).Count());
+    }
+
+    [Fact]
+    public void Constant_Sort_Keys_Keep_The_Order()
+    {
+        using var df = DataFrame.From(FzRows);
+        var q = df.AsQueryable<Fz>();
+
+        Assert.Equal(FzRows.OrderBy(x => 1).ThenBy(x => x.S).Select(x => x.Id), q.OrderBy(x => 1).ThenBy(x => x.S).Select(x => x.Id).ToList());
+        Assert.Equal(FzRows.Select(x => x.Id), q.OrderBy(x => "a").Select(x => x.Id).ToList());
+    }
+
+    [Fact]
+    public void Lengths_Are_Ints_And_Can_Be_Negated()
+    {
+        using var df = DataFrame.From(FzRows);
+        var q = df.AsQueryable<Fz>();
+
+        Assert.Equal(FzRows.Select(x => -x.S.Length), q.Select(x => -x.S.Length).ToList());
+        Assert.Equal(FzRows.Select(x => -x.Xs.Count), q.Select(x => -x.Xs.Count).ToList());
+        Assert.Equal(FzRows.OrderBy(x => -x.S.Length).ThenBy(x => x.Id).Select(x => x.Id), q.OrderBy(x => -x.S.Length).ThenBy(x => x.Id).Select(x => x.Id).ToList());
+    }
+
+    [Fact]
+    public void Arithmetic_On_Literal_Conditionals_And_Typed_Nulls()
+    {
+        using var df = DataFrame.From(FzRows);
+        var q = df.AsQueryable<Fz>();
+
+        Assert.Equal(FzRows.Select(x => (x.B ? 2 : 0) / 3), q.Select(x => (x.B ? 2 : 0) / 3).ToList());
+        Assert.Equal(FzRows.Select(x => (x.B ? 7 : 5) % 3), q.Select(x => (x.B ? 7 : 5) % 3).ToList());
+        Assert.Equal(FzRows.Select(x => (x.B ? 2.0 : 0.0) % 3.0), q.Select(x => (x.B ? 2.0 : 0.0) % 3.0).ToList());
+        Assert.Equal(FzRows.Select(x => -(x.B ? (int?)null : (int?)null)), q.Select(x => -(x.B ? (int?)null : (int?)null)).ToList());
+        Assert.Equal(FzRows.Select(x => !(x.B ? (bool?)null : (bool?)null)), q.Select(x => !(x.B ? (bool?)null : (bool?)null)).ToList());
+        Assert.Equal(
+            FzRows.Where(x => ((bool?)null & x.NB) ?? false).Select(x => x.Id),
+            q.Where(x => ((bool?)null & x.NB) ?? false).Select(x => x.Id).ToList());
+    }
+
+    [Fact]
+    public void Floating_To_Integer_Conversion_Saturates_And_Math_Min_Keeps_NaN()
+    {
+        using var df = DataFrame.From(FzRows);
+        var q = df.AsQueryable<Fz>();
+
+        Assert.Equal(FzRows.Select(x => (int)x.D), q.Select(x => (int)x.D).ToList());
+        Assert.Equal(FzRows.Select(x => (long)x.D), q.Select(x => (long)x.D).ToList());
+        Assert.Equal(FzRows.Select(x => (byte)x.D), q.Select(x => (byte)x.D).ToList());
+        Assert.Equal(FzRows.Select(x => (short)x.D), q.Select(x => (short)x.D).ToList());
+        // Unchecked integer narrowing wraps.
+        Assert.Equal(FzRows.Select(x => (byte)(x.I * 100)), q.Select(x => (byte)(x.I * 100)).ToList());
+        Assert.Equal(FzRows.Select(x => (sbyte)(x.I * 100)), q.Select(x => (sbyte)(x.I * 100)).ToList());
+        Assert.Equal(FzRows.Where(x => (int)x.D == 0).Select(x => x.Id), q.Where(x => (int)x.D == 0).Select(x => x.Id).ToList());
+        Assert.Equal(FzRows.Select(x => Math.Min(x.D, 0.5)), q.Select(x => Math.Min(x.D, 0.5)).ToList());
+        Assert.Equal(FzRows.Select(x => Math.Min(0.5, x.D)), q.Select(x => Math.Min(0.5, x.D)).ToList());
+        Assert.Equal(FzRows.Select(x => Math.Max(x.D, 0.5)), q.Select(x => Math.Max(x.D, 0.5)).ToList());
+    }
+
+    [Fact]
+    public void Decimal_Division_By_Zero_Is_Null_And_Average_Stays_Decimal()
+    {
+        using var df = DataFrame.From(FzRows);
+        var q = df.AsQueryable<Fz>();
+
+        // C# short-circuits the division; the provider must not fail on the rows it would not reach.
+        Assert.Equal(FzRows.Where(x => x.I == x.I || x.M / 0m > 1m).Select(x => x.Id), q.Where(x => x.I == x.I || x.M / 0m > 1m).Select(x => x.Id).ToList());
+        Assert.Equal(Math.Round(FzRows.Average(x => x.M), 18), q.Average(x => x.M));
+        Assert.Equal(
+            FzRows.GroupBy(x => x.B).Select(g => new { g.Key, a = Math.Round(g.Average(x => x.M), 18) }).OrderBy(r => r.Key),
+            q.GroupBy(x => x.B).Select(g => new { g.Key, a = g.Average(x => x.M) }).OrderBy(r => r.Key).ToList());
+    }
+
+    [Fact]
+    public void Empty_Aggregates_Raise_Linq_Messages()
+    {
+        using var df = DataFrame.From(FzRows);
+        var q = df.AsQueryable<Fz>();
+
+        AssertSameFailure(() => FzRows.Where(x => x.Id > 100).Average(x => x.I), () => q.Where(x => x.Id > 100).Average(x => x.I));
+        AssertSameFailure(() => FzRows.Where(x => x.Id > 100).Min(x => x.I), () => q.Where(x => x.Id > 100).Min(x => x.I));
+    }
 }

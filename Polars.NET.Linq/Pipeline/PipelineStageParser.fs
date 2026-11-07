@@ -148,8 +148,8 @@ module internal PipelineStageParser =
                 if PolarsTypeHelper.AcceptsNull targetType then
                     LinqReflectionCache.GetEmptyOptionalValue targetType :?> 'TResult
                 else
-                    invalidOp "Sequence contains no elements."
-            | _ -> invalidOp "Sequence contains no elements."
+                    invalidOp "Sequence contains no elements"
+            | _ -> invalidOp "Sequence contains no elements"
         else
             let struct (_, kind) = PolarsTypeHelper.GetOptionalInfo targetType
 
@@ -918,7 +918,7 @@ module internal PipelineStageParser =
 
             match stageOpt with
             | Some stage -> flattenStages source (stage :: acc)
-            | None -> fuseSortStages acc
+            | None -> endStages e acc
 
         // Count-based slicing stages: Take, Skip, TakeLast, SkipLast
         | MethodCall(m, null, [ source; countExpr ]) when
@@ -1129,8 +1129,17 @@ module internal PipelineStageParser =
         | MethodCall(m, null, source :: CleanLambda k :: seedExpr :: CleanLambda f :: _) when m.Name = "AggregateBy" ->
             flattenStages source (LinqStage.AggregateBy(k, seedExpr, None, f) :: acc)
 
-        // A LINQ operator not matched above (an overload with a comparer, an unknown operator): the stages
-        // beneath it are not parsed, and the whole query falls back rather than skip them.
-        | MethodCall(m, null, _ :: _) when m.DeclaringType = typeof<System.Linq.Queryable> ->
+        | _ -> endStages e acc
+
+    /// Ends the stages at `e`. Only the query root may end them: a call producing a query that no case above
+    /// matched (an overload with a comparer, an unknown operator, a user's IQueryable extension method) is an
+    /// operator, and the whole query falls back rather than skip it and the stages beneath it.
+    /// `AsQueryable` over a collection is a root.
+    and private endStages (e: Expression) (acc: LinqStage list) : LinqStage list =
+        match e with
+        | MethodCall(m, _, _) when
+            m.Name <> "AsQueryable"
+            && (m.DeclaringType = typeof<System.Linq.Queryable> || typeof<System.Linq.IQueryable>.IsAssignableFrom e.Type)
+            ->
             LinqStage.Unsupported(e.ToString()) :: acc
         | _ -> fuseSortStages acc

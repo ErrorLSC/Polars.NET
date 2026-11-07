@@ -71,8 +71,15 @@ The Polars backend computes both in one pass, with shim kernels.
 18 fractional digits (.NET keeps up to 28 significant digits). A decimal value has its column's scale, so its
 string form carries that scale (2.500, not 2.5), while its value is the same.
 
-**Division by zero and overflow.** Integer division or remainder by zero gives null (.NET raises). A decimal
-division by zero fails the query. Integer overflow wraps, as unchecked .NET arithmetic does.
+**Division by zero and overflow.** Integer or decimal division and remainder by zero give null (.NET
+raises). The frontend guards a decimal divisor, because the engine raises. Integer overflow wraps, as unchecked
+.NET arithmetic does.
+
+**Casts.** A non-strict `Cast` between numeric types wraps on overflow, as .NET's unchecked conversion does:
+`(byte)300` is 44, where the engine would give null. A floating value converted to an integer truncates and
+saturates, as .NET does: NaN is 0, and values beyond the range give MinValue / MaxValue. A type narrower
+than `int` is reached through `int` and then wraps, so `(byte)-2.7` is 254. The frontend emits this
+saturation.
 
 **Date and time.** A `DateTimeOffset` is stored as a UTC instant, so its members read the UTC value: `Offset`
 is zero, and `Hour` and `DateTime` are the UTC hour and time.
@@ -84,7 +91,7 @@ is zero, and `Hour` and `DateTime` are the UTC hour and time.
 The result is never null on account of a null operand.
 
 **Ordinal string order.** Strings compare and sort ordinally, by code point (the UTF-8 byte order), not by
-culture: `"Banana" < "apple" < "äpfel"`. This holds for `Sort`, comparisons and the frontend's `CompareTo`
+culture: `"Banana" < "apple" < "äpfel"`. This holds for `Sort`, comparisons, `Min` / `Max` and the frontend's `CompareTo`
 (-1 / 0 / 1). .NET defaults to the current culture, so results can differ from LINQ to Objects. A query that
 passes a comparer (`StringComparer.CurrentCulture`, for instance) runs as LINQ to Objects under the client
 evaluation policy (see Untranslated operators). Code points above U+FFFF sort after U+E000-U+FFFF here, while

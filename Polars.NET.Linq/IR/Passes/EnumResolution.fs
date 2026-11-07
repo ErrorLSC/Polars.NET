@@ -3,7 +3,8 @@ namespace Polars.NET.Linq.IR
 open System
 open Polars.NET.Core.Helpers
 
-/// Resolves EnumConvert nodes against the types of the columns they read.
+/// Resolves the expressions whose translation depends on the types of the columns they read: EnumConvert nodes,
+/// and the mean of decimals (a decimal Sum / Count, as .NET's Average of decimals).
 ///
 /// A .NET enum is stored either as a Polars Enum column (categories in underlying-value order) or as an integer
 /// column of its underlying values (data written elsewhere, or a [Flags] enum). The translator does not know which,
@@ -195,6 +196,24 @@ module internal EnumResolution =
         | ScalarExpr.Unary(op, inner) -> ScalarExpr.Unary(op, resolve inner)
         | ScalarExpr.Cast(inner, t, strict) -> ScalarExpr.Cast(resolve inner, t, strict)
         | ScalarExpr.Function(fn, args, t) -> ScalarExpr.Function(fn, args |> List.map resolve, t)
+        // .NET Average of decimals is a decimal; the engine's mean of decimals is a float. Sum / count keeps it
+        // decimal (18 fractional digits), and no values divide by a null count rather than by zero.
+        | ScalarExpr.Aggregation(AggKind.Mean, Some inner, false) when
+            (match typeOf inner with
+             | LogicalType.Arrow(:? Apache.Arrow.Types.Decimal128Type) -> true
+             | _ -> false)
+            ->
+            let inner' = resolve inner
+            let count = ScalarExpr.Aggregation(AggKind.Count, Some inner', false)
+            let nullIfZero =
+                ScalarExpr.Conditional(
+                    ScalarExpr.Binary(BinaryOp.Eq, count, ScalarExpr.Literal(LiteralValue.UInt32 0u)),
+                    ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Decimal),
+                    ScalarExpr.Cast(count, LogicalTypes.Decimal, false))
+            ScalarExpr.Binary(
+                BinaryOp.Divide,
+                ScalarExpr.Cast(ScalarExpr.Aggregation(AggKind.Sum, Some inner', false), LogicalTypes.Decimal, false),
+                nullIfZero)
         | ScalarExpr.Aggregation(kind, inner, distinct) -> ScalarExpr.Aggregation(kind, inner |> Option.map resolve, distinct)
         | ScalarExpr.Window(inner, partitionBy, orderBy) ->
             ScalarExpr.Window(

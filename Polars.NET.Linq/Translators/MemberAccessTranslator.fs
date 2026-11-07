@@ -27,7 +27,8 @@ module internal MemberAccessTranslator =
                 | _ -> None
 
             | MemberAccess(target, m) when not (isNull target) && target.Type = typeof<string> && m.Name = "Length" ->
-                eval ctx target |> Option.map (fun t -> ScalarExpr.Function(ScalarFunction.LenChars, [ t ], LogicalTypes.UInt32))
+                // C# Length is an int (the engine counts in u32, which cannot be negated).
+                eval ctx target |> Option.map (fun t -> ScalarExpr.Cast(ScalarExpr.Function(ScalarFunction.LenChars, [ t ], LogicalTypes.UInt32), LogicalTypes.Int32, false))
 
             | MemberAccess(target, m) when not (isNull target) && PolarsTypeHelper.IsTemporalType target.Type ->
                 let t () = eval ctx target

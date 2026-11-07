@@ -532,7 +532,9 @@ For `double`, `float` and `Half`:
 
 * Integer `/` and `%` truncate toward zero, as in C#: `-7 / 2 == -3` and `-7 % 2 == -1`. `%` keeps the dividend's
   sign for floating-point values too (`-7.5 % 2 == -1.5`).
-* Integer overflow wraps around, as in unchecked C#.
+* Integer overflow wraps around, as in unchecked C#, and so does a narrowing cast (`(byte)300 == 44`). A
+  floating value cast to an integer saturates, as in .NET: `(int)double.NaN == 0`, and
+  `(int)double.PositiveInfinity == int.MaxValue`.
 * `decimal` values are fixed-point in Polars. A decimal division keeps 18 fractional digits (C# keeps up to 28
   significant digits), and a value carries its column's scale, so `ToString()` may print `2.500` for `2.5m`.
 
@@ -541,7 +543,7 @@ For `double`, `float` and `Half`:
 * Concatenation (`a + b`, `string.Concat`, `string.Format`, interpolation, `string.Join`) reads null as `""`, as in
   .NET.
 * **Strings sort and compare ordinally**, by Unicode code point: `"Banana" < "apple" < "äpfel"`. This applies to
-  `OrderBy`, `ThenBy` and `CompareTo`. .NET defaults to the current culture, so orderings over mixed-case or
+  `OrderBy`, `ThenBy`, `Min` / `Max` over strings, and `CompareTo`. .NET defaults to the current culture, so orderings over mixed-case or
   accented text can differ from LINQ to Objects. `string.Compare(a, b, ...)` is evaluated exactly as in .NET.
 * An operator overload that takes a comparer (`OrderBy(x => x.Name, StringComparer.CurrentCulture)`,
   `DistinctBy(..., comparer)`, `GroupBy(..., comparer)`) is not translated. The whole query is evaluated in .NET
@@ -555,7 +557,7 @@ does):
 * indexing past the end of a list or array, `Substring` beyond the string's length;
 * a member or method called on a null value (`x.Name.Length` with `Name` null);
 * a failed `Parse` (`int.Parse`, `DateTime.Parse`);
-* integer division or remainder by zero.
+* integer or decimal division or remainder by zero.
 
 If such a null reaches a non-nullable member of your result type, materialization throws
 `InvalidOperationException` naming the member and the column, so it never silently becomes `0` or `default`.

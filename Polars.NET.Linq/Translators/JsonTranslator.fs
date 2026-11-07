@@ -384,7 +384,7 @@ module internal JsonTranslator =
                         | PropertyStep m :: rest when
                             (m.Name = "Length" || m.Name = "Count")
                             && not (isNull (PolarsTypeHelper.TryGetEnumerableElementType currType)) ->
-                            let lenS = ScalarExpr.Function(ScalarFunction.ListLen, [ currentS ], LogicalTypes.UInt32)
+                            let lenS = ScalarExpr.Cast(ScalarExpr.Function(ScalarFunction.ListLen, [ currentS ], LogicalTypes.UInt32), LogicalTypes.Int32, false)
                             traverseSteps lenS typeof<int> rest
 
                         | PropertyStep m :: rest ->
