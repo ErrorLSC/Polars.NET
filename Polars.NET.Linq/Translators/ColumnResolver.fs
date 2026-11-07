@@ -326,56 +326,82 @@ module internal ColumnResolver =
 
             | _ -> None
 
+    /// The row parameter of a single-entity lambda as a null target (`x.HasValue` / `x != null` on a row of
+    /// `T?` or a class): a null row reads as nulls in all its columns, so one non-nullable value member's column
+    /// is the row's presence. None for a scalar row or when every member may be null.
+    let private tryResolveRowParamNullTarget (ctx: TranslationContext) (cleanE: Expression) : ScalarExpr option =
+        let rowParamCols =
+            match ctx, cleanE with
+            | TranslationContext.Entity name, (:? ParameterExpression as p) when p.Name = name -> Some None
+            | TranslationContext.EntityWithCols(name, cols), (:? ParameterExpression as p) when p.Name = name -> Some(Some(Set.ofList cols))
+            | _ -> None
+        match rowParamCols with
+        | Some cols ->
+            let t = match Nullable.GetUnderlyingType cleanE.Type with null -> cleanE.Type | u -> u
+            if PolarsTypeHelper.IsScalarType t then
+                None
+            else
+                t.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                |> Array.tryFind (fun prop ->
+                    prop.PropertyType.IsValueType
+                    && isNull (Nullable.GetUnderlyingType prop.PropertyType)
+                    && (cols |> Option.forall (fun c -> c.Contains prop.Name)))
+                |> Option.map (fun prop -> ScalarExpr.Column prop.Name)
+        | None -> None
+
     let internal tryResolveEntityNullTarget (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
         let cleanE = unwrap expr
-        // The entity's path in the row identifies its scope exactly; its name only when names are unique.
-        let pathScopeOpt =
-            match ctx with
-            | TranslationContext.ScopedEntity(rowParam :: _, rowShape, _) ->
-                tryMemberPath rowParam cleanE
-                |> Option.filter (fun path -> not path.IsEmpty)
-                |> Option.map RowScope.Path
-                |> Option.filter rowShape.HasScope
-            | _ -> None
-        let scopeOpt = pathScopeOpt |> Option.orElseWith (fun () -> tryExtractScopeName cleanE |> Option.map RowScope.Named)
-        match scopeOpt with
-        | Some scope ->
-            let findColInRowShape (rowShape: RowShape) =
-                // A Nullable<struct> entity is probed through its struct's members (not HasValue / Value).
-                let entityType =
-                    if isNull cleanE.Type then null
-                    else match Nullable.GetUnderlyingType cleanE.Type with null -> cleanE.Type | u -> u
-                let nonNullablePropCol =
-                    if not (isNull entityType) && not (PolarsTypeHelper.IsScalarType entityType) then
-                        entityType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-                        |> Array.tryPick (fun prop ->
-                            if prop.PropertyType.IsValueType && isNull (Nullable.GetUnderlyingType prop.PropertyType) then
-                                rowShape.TryResolve(scope, prop.Name)
-                                |> Option.orElseWith (fun () -> rowShape.TryResolve(RowScope.Unqualified, prop.Name))
-                                |> Option.orElseWith (fun () ->
-                                    rowShape.Entries |> List.tryPick (fun ((_, c), pCol) -> if c = prop.Name then Some pCol else None))
-                            else
-                                None)
-                    else
-                        None
-                match nonNullablePropCol with
-                | Some col -> Some(ScalarExpr.Column col)
-                | None ->
-                    rowShape.Members scope |> List.tryHead |> Option.map (snd >> ScalarExpr.Column)
+        match tryResolveRowParamNullTarget ctx cleanE with
+        | Some probe -> Some probe
+        | None ->
+            // The entity's path in the row identifies its scope exactly; its name only when names are unique.
+            let pathScopeOpt =
+                match ctx with
+                | TranslationContext.ScopedEntity(rowParam :: _, rowShape, _) ->
+                    tryMemberPath rowParam cleanE
+                    |> Option.filter (fun path -> not path.IsEmpty)
+                    |> Option.map RowScope.Path
+                    |> Option.filter rowShape.HasScope
+                | _ -> None
+            let scopeOpt = pathScopeOpt |> Option.orElseWith (fun () -> tryExtractScopeName cleanE |> Option.map RowScope.Named)
+            match scopeOpt with
+            | Some scope ->
+                let findColInRowShape (rowShape: RowShape) =
+                    // A Nullable<struct> entity is probed through its struct's members (not HasValue / Value).
+                    let entityType =
+                        if isNull cleanE.Type then null
+                        else match Nullable.GetUnderlyingType cleanE.Type with null -> cleanE.Type | u -> u
+                    let nonNullablePropCol =
+                        if not (isNull entityType) && not (PolarsTypeHelper.IsScalarType entityType) then
+                            entityType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                            |> Array.tryPick (fun prop ->
+                                if prop.PropertyType.IsValueType && isNull (Nullable.GetUnderlyingType prop.PropertyType) then
+                                    rowShape.TryResolve(scope, prop.Name)
+                                    |> Option.orElseWith (fun () -> rowShape.TryResolve(RowScope.Unqualified, prop.Name))
+                                    |> Option.orElseWith (fun () ->
+                                        rowShape.Entries |> List.tryPick (fun ((_, c), pCol) -> if c = prop.Name then Some pCol else None))
+                                else
+                                    None)
+                        else
+                            None
+                    match nonNullablePropCol with
+                    | Some col -> Some(ScalarExpr.Column col)
+                    | None ->
+                        rowShape.Members scope |> List.tryHead |> Option.map (snd >> ScalarExpr.Column)
 
-            match ctx with
-            | TranslationContext.ScopedEntity(_, rowShape, _)
-            | TranslationContext.CorrelatedJoin(_, _, _, _, rowShape) ->
-                findColInRowShape rowShape
-            | TranslationContext.BinaryJoin(leftParam, rightParam, leftCols, rightSuffix) ->
-                if scope = RowScope.Named leftParam then
-                    leftCols |> Seq.tryHead |> Option.map ScalarExpr.Column
-                elif scope = RowScope.Named rightParam then
-                    leftCols |> Seq.tryHead |> Option.map (fun c -> ScalarExpr.Column(c + rightSuffix))
-                else None
-            | TranslationContext.Merge(target, source, suffix) ->
-                if scope = RowScope.Named target then Some(ScalarExpr.Column "")
-                elif scope = RowScope.Named source then Some(ScalarExpr.Column suffix)
-                else None
-            | _ -> None
-        | None -> None
+                match ctx with
+                | TranslationContext.ScopedEntity(_, rowShape, _)
+                | TranslationContext.CorrelatedJoin(_, _, _, _, rowShape) ->
+                    findColInRowShape rowShape
+                | TranslationContext.BinaryJoin(leftParam, rightParam, leftCols, rightSuffix) ->
+                    if scope = RowScope.Named leftParam then
+                        leftCols |> Seq.tryHead |> Option.map ScalarExpr.Column
+                    elif scope = RowScope.Named rightParam then
+                        leftCols |> Seq.tryHead |> Option.map (fun c -> ScalarExpr.Column(c + rightSuffix))
+                    else None
+                | TranslationContext.Merge(target, source, suffix) ->
+                    if scope = RowScope.Named target then Some(ScalarExpr.Column "")
+                    elif scope = RowScope.Named source then Some(ScalarExpr.Column suffix)
+                    else None
+                | _ -> None
+            | None -> None

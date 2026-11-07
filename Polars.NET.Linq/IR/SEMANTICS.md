@@ -232,6 +232,11 @@ A null join key matches a null key exactly when the join's `nullsEqual` is true.
 - A `Nullable<struct>` side (`Select(x => (T?)x)` before the join) is not folded to `default(T)`: unmatched, it
   is null. `.Value` is a transparent navigation member, and `.HasValue` is the side's presence, the same test as
   `side != null` for a class (a non-nullable value member of the side is not null).
+- The same probe serves the row itself in a single-entity lambda (`src.Select(x => (T?)x).Where(x => x.HasValue)`,
+  `x != null` on a class row). Accepted deviation: a null in that member's column (data T cannot hold) reads as an
+  absent row instead of failing strict materialization. A type with no non-nullable value member is not probed
+  (the check runs on the client). Entities are flat columns without a presence bit, so the materializer reads an
+  all-null row as a null `Nullable<T>`; a present struct whose members are all null is indistinguishable.
 
 ## Aggregates over DefaultIfEmpty
 

@@ -1650,4 +1650,64 @@ public class LinqSemanticsRegressionTests
         var actual = l.AsQueryable<Kv>().Where(a => rq.Where(b => b.K == a.K).Select(b => b.V).DefaultIfEmpty().Max() < 50).Select(a => a.K).OrderBy(k => k).ToList();
         Assert.Equal(expected, actual);
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // The row itself as a null target: `x.HasValue` / `x != null` on a single-entity row.
+    // ---------------------------------------------------------------------------------------------
+
+    public readonly record struct AllNullable(long? A, string? B);
+
+    private static void AssertNativeEqual<T>(IEnumerable<T> expected, IQueryable<T> actual)
+    {
+        Assert.Equal(expected, actual.ToList());
+        Assert.Contains("100% Native Pushdown", actual.Explain());
+    }
+
+    [Fact]
+    public void Row_HasValue_And_Null_Checks_Run_Natively()
+    {
+        using var df = DataFrame.From(SLeft);
+        var q = df.AsQueryable(SLeft);
+
+        AssertNativeEqual(SLeft.Select(x => (SKv?)x).Select(x => x.HasValue), q.Select(x => (SKv?)x).Select(x => x.HasValue));
+        AssertNativeEqual(SLeft.Select(x => (SKv?)x).Where(x => x.HasValue).Select(x => x.Value.K), q.Select(x => (SKv?)x).Where(x => x.HasValue).Select(x => x.Value.K));
+        AssertNativeEqual(SLeft.Select(x => (SKv?)x).Where(x => x != null).Select(x => x!.Value.V), q.Select(x => (SKv?)x).Where(x => x != null).Select(x => x!.Value.V));
+
+        using var dfc = DataFrame.From(Left);
+        var qc = dfc.AsQueryable<Kv>();
+        AssertNativeEqual(Left.Where(x => x != null).Select(x => x.K), qc.Where(x => x != null).Select(x => x.K));
+        AssertNativeEqual(Left.Select(x => x == null), qc.Select(x => x == null));
+    }
+
+    [Fact]
+    public void Row_HasValue_After_Conditional_Null_Row_Matches_Linq()
+    {
+        using var df = DataFrame.From(SLeft);
+        var q = df.AsQueryable(SLeft);
+        var expected = SLeft.Select(x => x.K > 1 ? (SKv?)x : null).Select(x => x.HasValue).ToList();
+        Assert.Equal(expected, q.Select(x => x.K > 1 ? (SKv?)x : null).Select(x => x.HasValue).ToList());
+    }
+
+    [Fact]
+    public void Row_HasValue_Without_A_Non_Nullable_Member_Is_Not_Probed()
+    {
+        // No member column can tell the row's presence, so the projection runs on the client. Known pre-existing
+        // limitation: an entity is stored as flat columns without a presence bit, and the materializer reads an
+        // all-null row as a null Nullable<struct>, so (null, null) gives false where LINQ to Objects gives true.
+        AllNullable[] rows = [new(1, "a"), new(null, null)];
+        using var df = DataFrame.From(rows);
+        var q = df.AsQueryable(rows).Select(x => (AllNullable?)x).Select(x => x.HasValue);
+        Assert.DoesNotContain("100% Native Pushdown", q.Explain());
+        Assert.Equal([true, false], q.ToList());
+    }
+
+    [Fact]
+    public void Row_HasValue_Reads_A_Null_In_A_Non_Nullable_Member_As_Absent()
+    {
+        // Accepted deviation (2026-11-08): the row's presence is probed through a non-nullable member's column, so
+        // a null there (data LINQ to Objects cannot hold) reads as an absent row instead of failing materialization.
+        using var df = DataFrame.FromColumns(new { K = new long?[] { 1, null }, V = new long?[] { 10, 20 } });
+        var q = df.AsQueryable<SKv>();
+        Assert.Equal([true, false], q.Select(x => (SKv?)x).Select(x => x.HasValue).ToList());
+    }
 }
