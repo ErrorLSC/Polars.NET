@@ -564,7 +564,18 @@ module internal SubqueryDecorrelator =
             None
         else
             let innerParam = allWhereLams.[0].Parameters.[0]
-            let conditions = allWhereLams |> List.collect (fun lam -> flattenAnd lam.Body)
+            // Each predicate names the inner row with its own parameter (`s.Where(y => ..).Count(z => ..)`);
+            // all are read as the first one's.
+            let rebind (lam: LambdaExpression) : Expression =
+                let own = lam.Parameters.[0]
+                if obj.ReferenceEquals(own, innerParam) then
+                    lam.Body
+                else
+                    { new ExpressionVisitor() with
+                        override _.VisitParameter(node: ParameterExpression) =
+                            if obj.ReferenceEquals(node, own) then innerParam :> Expression else node :> Expression
+                    }.Visit lam.Body
+            let conditions = allWhereLams |> List.collect (fun lam -> flattenAnd (rebind lam))
 
             classifyConditions outerNames innerParam.Name conditions
             |> Option.map (fun c ->
@@ -626,6 +637,14 @@ module internal SubqueryDecorrelator =
                     OuterKeys = translated |> List.map fst
                     InnerKeys = translated |> List.map snd
                 }
+
+    /// The inner side of a theta join with its equi keys computed into fresh columns, and those columns. Joining
+    /// on them leaves the side's own columns in place: a coalescing join drops only the fresh key columns, while
+    /// the theta filter and the aggregates read the side's columns (keys included) through the suffix.
+    let internal withFreshKeyColumns (rightPlan: LogicalPlan) (innerKeys: ScalarExpr list) : LogicalPlan * ScalarExpr list =
+        let uid = Guid.NewGuid().ToString "N"
+        let names = innerKeys |> List.mapi (fun i _ -> $"__corr_key_{uid}_{i}")
+        LogicalPlan.WithColumns(rightPlan, List.zip names innerKeys), names |> List.map ScalarExpr.Column
 
     /// Builds a symbolic reduction aggregation expression (Len() for Count/Any, or translated reduction op).
     let internal tryBuildAggScalarWithContext
@@ -998,7 +1017,7 @@ module internal SubqueryDecorrelator =
                         if outerKeys.IsEmpty then
                             LogicalPlan.Join(withRidPlan, rightPlan, [], [], JoinKind.Cross, Some LinqConstants.DefaultRightSuffix, JoinKeyCoalescing.KeepBoth, false)
                         else
-                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some LinqConstants.DefaultRightSuffix, JoinKeyCoalescing.Default, NullSemantics.nullKeysMatch ())
+                            (let keyedRight, keyCols = withFreshKeyColumns rightPlan innerKeys in LogicalPlan.Join(withRidPlan, keyedRight, outerKeys, keyCols, JoinKind.Inner, Some LinqConstants.DefaultRightSuffix, JoinKeyCoalescing.Default, NullSemantics.nullKeysMatch ()))
 
                     let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
                     let selectedPlan = LogicalPlan.Project(filteredPlan, [ (ridCol, ScalarExpr.Column ridCol) ])
@@ -1211,7 +1230,10 @@ module internal SubqueryDecorrelator =
                     let! rawAggScalar =
                         tryBuildAggScalar rightCols aggCall.MethodName isCount aggCall.SelectorLambdaOpt
 
-                    let groupedPlan = LogicalPlan.GroupBy(rightPlan, keys.InnerKeys, [ (aggColName, rawAggScalar) ], None, false)
+                    // Grouped by fresh key columns: a computed key (`b.I % 4`, named I) must not be applied again
+                    // to the grouped column, nor collide with an outer column.
+                    let keyedRight, keyCols = withFreshKeyColumns rightPlan keys.InnerKeys
+                    let groupedPlan = LogicalPlan.GroupBy(keyedRight, keyCols, [ (aggColName, rawAggScalar) ], None, false)
 
                     let! outerSideScalar = ExprTranslator.tryTranslateToScalar outerCtx outerSideExpr
 
@@ -1230,12 +1252,22 @@ module internal SubqueryDecorrelator =
                             match PartialEvaluator.tryEvaluate divExpr with
                             | Some v when not (isNull v) ->
                                 let lit = toLiteral v divExpr.Type
-                                Some(ScalarExpr.Binary(BinaryOp.Divide, aggColBaseScalar, lit))
+                                OperatorAndUdfTranslator.combineBinary
+                                    ExpressionType.Divide
+                                    (aggCall.TargetType, Some aggColBaseScalar)
+                                    (divExpr.Type, Some lit)
+                                    aggCall.TargetType
                             | _ -> None
 
-                    let! cmpScalar = OperatorAndUdfTranslator.tryTranslateBinary effectiveOp outerSideScalar scaledAggScalar
+                    // C# semantics as in row comparisons (null, NaN).
+                    let! cmpScalar =
+                        OperatorAndUdfTranslator.combineBinary
+                            effectiveOp
+                            (outerSideExpr.Type, Some outerSideScalar)
+                            (aggCall.TargetType, Some scaledAggScalar)
+                            typeof<bool>
 
-                    let joinedPlan = LogicalPlan.Join(outerPlan, groupedPlan, keys.OuterKeys, keys.InnerKeys, JoinKind.Left, None, JoinKeyCoalescing.Default, NullSemantics.nullKeysMatch ())
+                    let joinedPlan = LogicalPlan.Join(outerPlan, groupedPlan, keys.OuterKeys, keyCols, JoinKind.Left, None, JoinKeyCoalescing.Default, NullSemantics.nullKeysMatch ())
                     let filterPlan = LogicalPlan.Filter(joinedPlan, cmpScalar)
                     let originalCols = (SchemaInference.inferPlanSchema outerPlan).ColumnNames
                     let restorePlan =
@@ -1292,7 +1324,7 @@ module internal SubqueryDecorrelator =
                         if outerKeys.IsEmpty then
                             LogicalPlan.Join(withRidPlan, rightPlan, [], [], JoinKind.Cross, Some rightSuffix, JoinKeyCoalescing.KeepBoth, false)
                         else
-                            LogicalPlan.Join(withRidPlan, rightPlan, outerKeys, innerKeys, JoinKind.Inner, Some rightSuffix, JoinKeyCoalescing.Default, NullSemantics.nullKeysMatch ())
+                            (let keyedRight, keyCols = withFreshKeyColumns rightPlan innerKeys in LogicalPlan.Join(withRidPlan, keyedRight, outerKeys, keyCols, JoinKind.Inner, Some rightSuffix, JoinKeyCoalescing.Default, NullSemantics.nullKeysMatch ()))
 
                     let filteredPlan = LogicalPlan.Filter(joinedPlan, thetaFilterScalar)
                     let groupedPlan =
@@ -1333,10 +1365,20 @@ module internal SubqueryDecorrelator =
                             match PartialEvaluator.tryEvaluate divExpr with
                             | Some v when not (isNull v) ->
                                 let lit = toLiteral v divExpr.Type
-                                Some(ScalarExpr.Binary(BinaryOp.Divide, aggColBaseScalar, lit))
+                                OperatorAndUdfTranslator.combineBinary
+                                    ExpressionType.Divide
+                                    (aggCall.TargetType, Some aggColBaseScalar)
+                                    (divExpr.Type, Some lit)
+                                    aggCall.TargetType
                             | _ -> None
 
-                    let! cmpScalar = OperatorAndUdfTranslator.tryTranslateBinary effectiveOp outerSideScalar scaledAggScalar
+                    // C# semantics as in row comparisons (null, NaN).
+                    let! cmpScalar =
+                        OperatorAndUdfTranslator.combineBinary
+                            effectiveOp
+                            (outerSideExpr.Type, Some outerSideScalar)
+                            (aggCall.TargetType, Some scaledAggScalar)
+                            typeof<bool>
                     let filteredPlan = LogicalPlan.Filter(leftJoinPlan, cmpScalar)
                     let restorePlan = LogicalPlan.Project(filteredPlan, originalCols |> List.map (fun c -> c, ScalarExpr.Column c))
 
@@ -1346,6 +1388,53 @@ module internal SubqueryDecorrelator =
 
     /// Attempts to decorrelate one or more subquery expressions within a filter lambda,
     /// returning the rewritten LogicalPlan and any residual outer filter lambda.
+    /// `seq.All(p)` as `!seq.Any(x => !p(x))`, which decorrelates as an anti join or a negated match count.
+    let private rewriteAllAsNotAny (body: Expression) : Expression =
+        // `!(x != y)` is `x == y` and `!(x == y)` is `x != y` under C# equality (two-valued, NaN unequal);
+        // `!!x` is `x`. An ordering comparison is not inverted (NaN makes both sides false).
+        let negate (e: Expression) : Expression =
+            match e with
+            | :? UnaryExpression as u when u.NodeType = ExpressionType.Not && u.Type = typeof<bool> -> u.Operand
+            | :? BinaryExpression as b when b.NodeType = ExpressionType.NotEqual && b.Type = typeof<bool> ->
+                Expression.Equal(b.Left, b.Right, b.IsLiftedToNull, b.Method) :> Expression
+            | :? BinaryExpression as b when b.NodeType = ExpressionType.Equal && b.Type = typeof<bool> ->
+                Expression.NotEqual(b.Left, b.Right, b.IsLiftedToNull, b.Method) :> Expression
+            | _ -> Expression.Not e :> Expression
+        { new ExpressionVisitor() with
+            override this.VisitUnary(node: UnaryExpression) =
+                // Collapses the `!!` an `!All(..)` leaves.
+                match base.VisitUnary node with
+                | :? UnaryExpression as u when
+                    u.NodeType = ExpressionType.Not
+                    && u.Type = typeof<bool>
+                    && u.Operand.NodeType = ExpressionType.Not
+                    && u.Operand.Type = typeof<bool>
+                    ->
+                    (u.Operand :?> UnaryExpression).Operand
+                | other -> other
+            override this.VisitMethodCall(node: MethodCallExpression) =
+                let visited = base.VisitMethodCall node
+                match visited with
+                | :? MethodCallExpression as mc when
+                    mc.Method.Name = "All"
+                    && isNull mc.Object
+                    && mc.Arguments.Count = 2
+                    && (mc.Method.DeclaringType = typeof<Enumerable> || mc.Method.DeclaringType = typeof<Queryable>)
+                    ->
+                    let source = mc.Arguments.[0]
+                    let isQueryable = mc.Method.DeclaringType = typeof<Queryable>
+                    match ExpressionPatterns.unwrap mc.Arguments.[1] with
+                    | :? LambdaExpression as pred ->
+                        let negated = Expression.Lambda(pred.Type, negate pred.Body, pred.Parameters)
+                        let elementType = pred.Parameters.[0].Type
+                        let predicateArg = if isQueryable then Expression.Quote negated :> Expression else negated :> Expression
+                        let any =
+                            Expression.Call((if isQueryable then typeof<Queryable> else typeof<Enumerable>), "Any", [| elementType |], source, predicateArg)
+                        Expression.Not any :> Expression
+                    | _ -> visited
+                | other -> other
+        }.Visit body
+
     let tryDecorrelateFilter
         (resolveSequencePlan: Expression -> LogicalPlan option)
         (outerPlan: LogicalPlan)
@@ -1355,6 +1444,7 @@ module internal SubqueryDecorrelator =
         if filterLambda.Parameters.Count <> 1 then
             None
         else
+            let filterLambda = Expression.Lambda(rewriteAllAsNotAny filterLambda.Body, filterLambda.Parameters)
             let outerParam = filterLambda.Parameters.[0]
             let outerNames =
                 Set.ofSeq (outerParam.Name :: (Set.toList rowShape.ScopeNames))
@@ -1475,6 +1565,20 @@ module internal SubqueryDecorrelator =
         | Some(innerSeq, methodName, selectorLambdaOpt, extraWhereLambdaOpt, isAny) ->
             tryExtractCorrelatedParts outerNames innerSeq extraWhereLambdaOpt
             |> Option.map (fun parts ->
+                // The selector reads the inner row by the predicates' parameter, as a correlated join translates it.
+                let selectorLambdaOpt =
+                    selectorLambdaOpt
+                    |> Option.map (fun sel ->
+                        let own = sel.Parameters.[0]
+                        if obj.ReferenceEquals(own, parts.InnerParam) || own.Type <> parts.InnerParam.Type then
+                            sel
+                        else
+                            let body =
+                                { new ExpressionVisitor() with
+                                    override _.VisitParameter(node: ParameterExpression) =
+                                        if obj.ReferenceEquals(node, own) then parts.InnerParam :> Expression else node :> Expression
+                                }.Visit sel.Body
+                            Expression.Lambda(body, parts.InnerParam))
                 {
                     OriginalExpr = expr
                     RootSource = parts.RootSource
@@ -1622,6 +1726,7 @@ module internal SubqueryDecorrelator =
         elif not (containsSubquery projLambda.Body) then
             None
         else
+            let projLambda = Expression.Lambda(rewriteAllAsNotAny projLambda.Body, projLambda.Parameters)
             let outerParams = projLambda.Parameters |> Seq.toList
             let outerParamNames = outerParams |> List.map (fun p -> p.Name) |> Set.ofList
             let allOuterNames =
@@ -1742,15 +1847,17 @@ module internal SubqueryDecorrelator =
                             let aggExprsToEmit =
                                 assignments |> List.choose (fun (_, _, exprOpt) -> exprOpt)
 
+                            // Grouped by fresh key columns (see the filter case).
+                            let keyedRight, keyCols = withFreshKeyColumns rightPlan keys.InnerKeys
                             let groupedPlan =
-                                LogicalPlan.GroupBy(rightPlan, keys.InnerKeys, aggExprsToEmit, None, false)
+                                LogicalPlan.GroupBy(keyedRight, keyCols, aggExprsToEmit, None, false)
 
                             let joinPlan =
                                 LogicalPlan.Join(
                                     currPlan,
                                     groupedPlan,
                                     keys.OuterKeys,
-                                    keys.InnerKeys,
+                                    keyCols,
                                     JoinKind.Left,
                                     None,
                                     JoinKeyCoalescing.Default,
@@ -1809,11 +1916,12 @@ module internal SubqueryDecorrelator =
                                         false
                                     )
                                 else
+                                    let keyedRight, keyCols = withFreshKeyColumns rightPlan innerKeys
                                     LogicalPlan.Join(
                                         withRidPlan,
-                                        rightPlan,
+                                        keyedRight,
                                         outerKeys,
-                                        innerKeys,
+                                        keyCols,
                                         JoinKind.Inner,
                                         Some rightSuffix,
                                         JoinKeyCoalescing.Default,

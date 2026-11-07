@@ -301,11 +301,36 @@ module internal JoinStages =
         | _ ->
             match resSelOpt with
             | Some resSel ->
-                match buildGroupJoinWithResultPlan env.ResolveSequence state.Plan innerExpr outerKey innerKey resSel with
-                | Some nextPlan ->
-                    continueWith { state with Plan = nextPlan } RowShape.Empty tail
-                | None ->
-                    continueWith (fallback state) rowShape tail
+                // The result selector becomes a projection of the outer rows whose group is a correlated subquery.
+                let projection, group = groupJoinAsProjection innerExpr outerKey innerKey resSel
+                // A row holding the group itself (`(a, g) => new { a, g }`, query syntax's `into g` followed by
+                // `where` / `let`) cannot be a column: the projection is composed into the stages reading it,
+                // up to the projection that consumes it.
+                let holdsGroup =
+                    match tryExtractMemberBindings projection.Body with
+                    | Some bindings when (projection.Body :? NewExpression || projection.Body :? MemberInitExpression) ->
+                        bindings |> List.exists (fun (_, e) -> obj.ReferenceEquals(e, group))
+                    | _ -> false
+                let rec defer (stages: LinqStage list) : LinqStage list =
+                    let compose (l: LambdaExpression) = tryComposeWithProjection projection l
+                    match stages with
+                    | LinqStage.Project p :: rest ->
+                        match compose p with
+                        | Some p' -> LinqStage.Project p' :: rest
+                        | None -> LinqStage.Project projection :: stages
+                    | LinqStage.Filter f :: rest ->
+                        match compose f with
+                        | Some f' -> LinqStage.Filter f' :: defer rest
+                        | None -> LinqStage.Project projection :: stages
+                    | LinqStage.Sort(k, isDesc, nullsLast) :: rest ->
+                        match compose k with
+                        | Some k' -> LinqStage.Sort(k', isDesc, nullsLast) :: defer rest
+                        | None -> LinqStage.Project projection :: stages
+                    | (LinqStage.Take _ | LinqStage.Skip _ | LinqStage.TakeLast _ | LinqStage.SkipLast _ | LinqStage.Reverse as s) :: rest ->
+                        s :: defer rest
+                    | _ -> LinqStage.Project projection :: stages
+                let stages = if holdsGroup then defer tail else LinqStage.Project projection :: tail
+                continueWith state rowShape stages
             | None ->
                 continueWith state rowShape (LinqStage.Join(m, innerExpr, outerKey, innerKey, None) :: tail)
 

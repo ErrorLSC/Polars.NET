@@ -248,10 +248,10 @@ module internal EnumResolution =
             (match inner with
              | ScalarExpr.Cast(narrow, LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type), _) -> not (isNarrowInteger (typeOf narrow))
              | _ -> true)
-            && (match kind, typeOf inner with
-                | AggKind.Sum, t -> (checkedSumOf t).IsSome
-                | _, LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) -> true
-                | _ -> false)
+            && match kind, typeOf inner with
+               | AggKind.Sum, t -> (checkedSumOf t).IsSome
+               | _, LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) -> true
+               | _ -> false
             ->
             let inner' = resolve inner
             let summedType = typeOf inner'
@@ -263,18 +263,43 @@ module internal EnumResolution =
             | AggKind.Sum when not assertions -> ScalarExpr.Cast(wideSum, summedType, true)
             | AggKind.Mean when not assertions -> ScalarExpr.Aggregation(kind, Some inner', distinct)
             | _ ->
-                let value =
-                    match kind with
-                    | AggKind.Sum -> ScalarExpr.Cast(wideSum, summedType, false)
-                    | _ -> ScalarExpr.Aggregation(kind, Some inner', distinct)
-                let overflowed =
+                let isLong =
+                    match summedType with
+                    | LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) -> true
+                    | _ -> false
+                let outside (total: ScalarExpr) (low: LiteralValue) (high: LiteralValue) =
                     ScalarExpr.Conditional(
                         ScalarExpr.Binary(
                             BinaryOp.Or,
-                            ScalarExpr.Binary(BinaryOp.Lt, wideSum, ScalarExpr.Literal min),
-                            ScalarExpr.Binary(BinaryOp.Gt, wideSum, ScalarExpr.Literal max)),
+                            ScalarExpr.Binary(BinaryOp.Lt, total, ScalarExpr.Literal low),
+                            ScalarExpr.Binary(BinaryOp.Gt, total, ScalarExpr.Literal high)),
                         ScalarExpr.Literal(LiteralValue.Int64 1L),
                         ScalarExpr.Literal(LiteralValue.Int64 0L))
+                // A long sum is checked without a 128-bit sum (the engine's decimal sum is about 50x slower):
+                // x = hi * 2^32 + lo with 0 <= lo < 2^32, and neither part's Int64 sum can overflow below 2^31
+                // rows. The exact total is T * 2^32 + R with T = sum(hi) + sum(lo) // 2^32 and 0 <= R < 2^32,
+                // so it fits a long exactly when T fits an int; the engine's wrapping sum is then exact.
+                // A distinct sum cannot be split (the parts' distinct values are not the values'), so it keeps
+                // the wide sum.
+                let overflowed =
+                    if isLong && not distinct then
+                        // The operand is cast to Int64: its inferred type is the CLR type's, which the engine's
+                        // may not be (a count, a narrower integer column), and the halves must be Int64 arithmetic.
+                        let x = ScalarExpr.Cast(inner', LogicalTypes.Int64, false)
+                        let two32 = ScalarExpr.Literal(LiteralValue.Int64 4294967296L)
+                        let hi = ScalarExpr.Binary(BinaryOp.FloorDivide, x, two32)
+                        let lo = ScalarExpr.Binary(BinaryOp.Subtract, x, ScalarExpr.Binary(BinaryOp.Multiply, hi, two32))
+                        let sumOf e = ScalarExpr.Aggregation(AggKind.Sum, Some e, false)
+                        let t = ScalarExpr.Binary(BinaryOp.Add, sumOf hi, ScalarExpr.Binary(BinaryOp.FloorDivide, sumOf lo, two32))
+                        outside t (LiteralValue.Int64(int64 Int32.MinValue)) (LiteralValue.Int64(int64 Int32.MaxValue))
+                    else
+                        outside wideSum min max
+                let value =
+                    match kind with
+                    | AggKind.Sum when isLong && not distinct ->
+                        ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Cast(inner', LogicalTypes.Int64, false)), false)
+                    | AggKind.Sum -> ScalarExpr.Cast(wideSum, summedType, false)
+                    | _ -> ScalarExpr.Aggregation(kind, Some inner', distinct)
                 ScalarExpr.Function(
                     ScalarFunction.AssertCount { Min = 0L; Max = Some 0L; TooFew = overflow; TooMany = overflow },
                     [ overflowed; value ],

@@ -2,6 +2,7 @@ namespace Polars.NET.Linq.IR
 
 open System
 open System.Reflection
+open Polars.NET.Core.Helpers
 open System.Linq.Expressions
 open Polars.NET.Linq
 open Polars.NET.Linq.IR.TransparentScopes
@@ -13,10 +14,61 @@ open Polars.NET.Linq.IR.StageContext
 /// Each handler compiles one stage onto the query state and continues with the remaining stages.
 module internal SetStages =
 
+    /// Gives two sides of a set operation the same columns when their element is an object whose members the
+    /// sides assign differently (`new P { A = .. }` and `new P { B = .. }`): each side gets every member of the
+    /// element, an unassigned one holding its type's default, as C# object initialization leaves it. Without this
+    /// the sides would be matched by position. Scalar elements, and sides with the same columns, are left as they
+    /// are. None when a default cannot be expressed.
+    let private alignMembers (elementType: Type) (left: LogicalPlan) (right: LogicalPlan) : (LogicalPlan * LogicalPlan) option =
+        let leftCols = (SchemaInference.inferPlanSchema left).ColumnNames
+        let rightCols = (SchemaInference.inferPlanSchema right).ColumnNames
+        if Set.ofList leftCols = Set.ofList rightCols || isNull elementType || PolarsTypeHelper.IsSupportedSimpleType elementType then
+            Some(left, right)
+        else
+            let members = PolarsTypeHelper.GetModelProperties elementType |> Array.toList
+            let names = members |> List.map (fun (p: PropertyInfo) -> p.Name) |> Set.ofList
+            if not (List.forall names.Contains leftCols && List.forall names.Contains rightCols) then
+                Some(left, right)
+            else
+                let defaultOf (t: Type) : ScalarExpr option =
+                    let logical = LogicalTypes.tryOfClrType t
+                    if not t.IsValueType || not (isNull (Nullable.GetUnderlyingType t)) then
+                        logical |> Option.map (fun lt -> ScalarExpr.Literal(LiteralValue.Null lt))
+                    else
+                        match LiteralValue.TryOfObject(Activator.CreateInstance t), logical with
+                        | Some lit, Some lt -> Some(ScalarExpr.Cast(ScalarExpr.Literal lit, lt, false))
+                        | _ -> None
+                let complete (plan: LogicalPlan) (cols: string list) =
+                    let present = Set.ofList cols
+                    let projections =
+                        members
+                        |> List.map (fun (p: PropertyInfo) ->
+                            if present.Contains p.Name then Some(p.Name, ScalarExpr.Column p.Name)
+                            else defaultOf p.PropertyType |> Option.map (fun d -> p.Name, d))
+                    if projections |> List.forall Option.isSome then
+                        Some(LogicalPlan.Project(plan, projections |> List.map Option.get))
+                    else
+                        None
+                match complete left leftCols, complete right rightCols with
+                | Some l, Some r -> Some(l, r)
+                | _ -> None
+
+    let private elementTypeOf (sequence: Expression) : Type =
+        PolarsTypeHelper.TryGetEnumerableElementType sequence.Type
+
     /// Intersect / Except (and their By forms).
     let setOp (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (methodInfo: MethodInfo) (secondExpr: Expression) (key1Opt: LambdaExpression option) (key2Opt: LambdaExpression option) : CompiledLogicalQuery =
-        match env.ResolveSequence secondExpr with
-        | Some rightPlan ->
+        match
+            env.ResolveSequence secondExpr
+            |> Option.map (fun rightPlan ->
+                match key1Opt with
+                | None -> alignMembers (elementTypeOf secondExpr) state.Plan rightPlan
+                | Some _ -> Some(state.Plan, rightPlan))
+        with
+        | Some None -> continueWith (fallback state) rowShape tail
+        | None -> continueWith (fallback state) rowShape tail
+        | Some(Some(leftPlan, rightPlan)) ->
+            let state = { state with Plan = leftPlan }
             let how =
                 if methodInfo.Name.StartsWith "Intersect" then
                     JoinKind.Semi
@@ -69,8 +121,6 @@ module internal SetStages =
                     continueWith (fallback state) rowShape tail
             | None ->
                 continueWith (fallback state) rowShape tail
-        | None ->
-            continueWith (fallback state) rowShape tail
 
     /// Union (and UnionBy).
     let union (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (secondExpr: Expression) (keyLambdaOpt: LambdaExpression option) : CompiledLogicalQuery =
@@ -82,20 +132,20 @@ module internal SetStages =
                 match keyLambdaOpt with
                 | None -> Some None
                 | Some keyLambda -> PipelineStageParser.extractDistinctColumns keyLambda |> Option.map (Array.toList >> Some)
-            match subsetOpt with
-            | Some subset ->
-                let unionPlan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true)
+            match subsetOpt, alignMembers (elementTypeOf secondExpr) state.Plan otherPlan with
+            | Some subset, Some(leftPlan, otherPlan) ->
+                let unionPlan = LogicalPlan.Union(leftPlan, otherPlan, isAll = true)
                 continueWith { state with Plan = LogicalPlan.Distinct(unionPlan, subset, DistinctKeep.First, true) } rowShape tail
-            | None ->
+            | _ ->
                 continueWith (fallback state) rowShape tail
         | None ->
             continueWith (fallback state) rowShape tail
 
     /// Concat.
     let concat (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (secondExpr: Expression) : CompiledLogicalQuery =
-        match env.ResolveSequence secondExpr with
-        | Some otherPlan ->
-            continueWith { state with Plan = LogicalPlan.Union(state.Plan, otherPlan, isAll = true) } rowShape tail
+        match env.ResolveSequence secondExpr |> Option.bind (alignMembers (elementTypeOf secondExpr) state.Plan) with
+        | Some(leftPlan, otherPlan) ->
+            continueWith { state with Plan = LogicalPlan.Union(leftPlan, otherPlan, isAll = true) } rowShape tail
         | None ->
             continueWith (fallback state) rowShape tail
 

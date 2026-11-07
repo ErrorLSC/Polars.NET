@@ -75,6 +75,68 @@ module internal OperatorAndUdfTranslator =
         | [] -> None
         | first :: rest -> Some(rest |> List.fold (fun acc g -> ScalarExpr.Binary(BinaryOp.And, acc, g)) first)
 
+    /// Combines the translated operands of a binary operator with C# semantics: C# null semantics for equality and
+    /// lifted comparisons (NullSemantics), .NET NaN semantics (NaNSemantics), truncating integer division and
+    /// decimal division. Shared by every translator that compiles a binary operator from its operands.
+    let internal combineBinary
+        (op: ExpressionType)
+        (leftType: Type, leftS: ScalarExpr option)
+        (rightType: Type, rightS: ScalarExpr option)
+        (resultType: Type)
+        : ScalarExpr option =
+        let isComparison =
+            match op with
+            | ExpressionType.Equal | ExpressionType.NotEqual
+            | ExpressionType.LessThan | ExpressionType.LessThanOrEqual
+            | ExpressionType.GreaterThan | ExpressionType.GreaterThanOrEqual -> true
+            | _ -> false
+        if isComparison && resultType = typeof<Nullable<bool>> then
+            None
+        elif op = ExpressionType.Add && (leftType = typeof<string> || rightType = typeof<string>) then
+            match leftS, rightS with
+            | Some l, Some r -> Some(ScalarExpr.Binary(BinaryOp.StringConcat, l, r))
+            | _ -> None
+        else
+            match leftS, rightS with
+            // A value known only at run time (a captured variable) that is null: C# `==` is a null check.
+            | Some(ScalarExpr.Literal(LiteralValue.Null _)), Some other
+            | Some other, Some(ScalarExpr.Literal(LiteralValue.Null _)) when op = ExpressionType.Equal || op = ExpressionType.NotEqual ->
+                Some(ScalarExpr.Unary((if op = ExpressionType.Equal then UnaryOp.IsNull else UnaryOp.IsNotNull), other))
+            // C# null semantics (EF Core's default, see NullSemantics): equality is two-valued, and a lifted
+            // ordering comparison is false on a null operand.
+            // .NET floating semantics (see NaNSemantics): comparisons involving NaN are false, `!=` true.
+            | Some l, Some r when (op = ExpressionType.Equal || op = ExpressionType.NotEqual) && resultType = typeof<bool> ->
+                NullSemantics.equality (op = ExpressionType.Equal) (leftType, l) (rightType, r)
+                |> NaNSemantics.comparison op (leftType, l) (rightType, r)
+                |> Some
+            | Some l, Some r when
+                op = ExpressionType.LessThan
+                || op = ExpressionType.LessThanOrEqual
+                || op = ExpressionType.GreaterThan
+                || op = ExpressionType.GreaterThanOrEqual
+                ->
+                tryTranslateBinary op l r
+                |> Option.map (NaNSemantics.comparison op (leftType, l) (rightType, r))
+                |> Option.map (NullSemantics.liftedComparison resultType [ leftType, l; rightType, r ])
+            // .NET integer division truncates toward zero.
+            | Some l, Some r when op = ExpressionType.Divide && isIntegralClrType leftType && isIntegralClrType rightType ->
+                Some(ScalarExpr.Binary(BinaryOp.TruncatedDivide, l, r))
+            // .NET decimal division keeps up to 28 significant digits; a fixed-point engine keeps the dividend's
+            // scale, so the dividend is widened to the scale System.Decimal maps to (18).
+            // A zero divisor gives null, as for integers (the engine raises on a decimal division by zero).
+            | Some l, Some r when op = ExpressionType.Divide && (isDecimalClrType leftType || isDecimalClrType rightType) ->
+                let divisor =
+                    match r with
+                    | ScalarExpr.Literal(LiteralValue.Decimal d) when d <> 0m -> r
+                    | _ ->
+                        ScalarExpr.Conditional(
+                            ScalarExpr.Binary(BinaryOp.Eq, r, ScalarExpr.Literal(LiteralValue.Int32 0)),
+                            ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Decimal),
+                            r)
+                Some(ScalarExpr.Binary(BinaryOp.Divide, ScalarExpr.Cast(l, LogicalTypes.Decimal, false), divisor))
+            | Some l, Some r -> tryTranslateBinary op l r
+            | _ -> None
+
     let internal translateBinaryExpr
         (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
@@ -144,45 +206,7 @@ module internal OperatorAndUdfTranslator =
                 | ExpressionType.OrElse, Some l -> withUdfGuard ctx (ScalarExpr.Unary(UnaryOp.Not, l)) (fun () -> eval ctx right)
                 | ExpressionType.Coalesce, Some l -> withUdfGuard ctx (ScalarExpr.Unary(UnaryOp.IsNull, l)) (fun () -> eval ctx right)
                 | _ -> eval ctx right
-            match leftS, rightS with
-            // A value known only at run time (a captured variable) that is null: C# `==` is a null check.
-            | Some(ScalarExpr.Literal(LiteralValue.Null _)), Some other
-            | Some other, Some(ScalarExpr.Literal(LiteralValue.Null _)) when op = ExpressionType.Equal || op = ExpressionType.NotEqual ->
-                Some(ScalarExpr.Unary((if op = ExpressionType.Equal then UnaryOp.IsNull else UnaryOp.IsNotNull), other))
-            // C# null semantics (EF Core's default, see NullSemantics): equality is two-valued, and a lifted
-            // ordering comparison is false on a null operand.
-            // .NET floating semantics (see NaNSemantics): comparisons involving NaN are false, `!=` true.
-            | Some l, Some r when (op = ExpressionType.Equal || op = ExpressionType.NotEqual) && resultType = typeof<bool> ->
-                NullSemantics.equality (op = ExpressionType.Equal) (left.Type, l) (right.Type, r)
-                |> NaNSemantics.comparison op (left.Type, l) (right.Type, r)
-                |> Some
-            | Some l, Some r when
-                op = ExpressionType.LessThan
-                || op = ExpressionType.LessThanOrEqual
-                || op = ExpressionType.GreaterThan
-                || op = ExpressionType.GreaterThanOrEqual
-                ->
-                tryTranslateBinary op l r
-                |> Option.map (NaNSemantics.comparison op (left.Type, l) (right.Type, r))
-                |> Option.map (NullSemantics.liftedComparison resultType [ left.Type, l; right.Type, r ])
-            // .NET integer division truncates toward zero.
-            | Some l, Some r when op = ExpressionType.Divide && isIntegralClrType left.Type && isIntegralClrType right.Type ->
-                Some(ScalarExpr.Binary(BinaryOp.TruncatedDivide, l, r))
-            // .NET decimal division keeps up to 28 significant digits; a fixed-point engine keeps the dividend's
-            // scale, so the dividend is widened to the scale System.Decimal maps to (18).
-            // A zero divisor gives null, as for integers (the engine raises on a decimal division by zero).
-            | Some l, Some r when op = ExpressionType.Divide && (isDecimalClrType left.Type || isDecimalClrType right.Type) ->
-                let divisor =
-                    match r with
-                    | ScalarExpr.Literal(LiteralValue.Decimal d) when d <> 0m -> r
-                    | _ ->
-                        ScalarExpr.Conditional(
-                            ScalarExpr.Binary(BinaryOp.Eq, r, ScalarExpr.Literal(LiteralValue.Int32 0)),
-                            ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Decimal),
-                            r)
-                Some(ScalarExpr.Binary(BinaryOp.Divide, ScalarExpr.Cast(l, LogicalTypes.Decimal, false), divisor))
-            | Some l, Some r -> tryTranslateBinary op l r
-            | _ -> None
+            combineBinary op (left.Type, leftS) (right.Type, rightS) resultType
 
     /// A conversion to or from an enum type. An enum operand becomes its underlying value and an enum target
     /// takes an underlying value, through EnumConvert nodes for enums stored as Polars Enums; EnumResolution later

@@ -22,11 +22,13 @@ module internal RowStages =
                 let ctx = makeCtx p.Type p.Name decorPlan
                 match ExprTranslator.tryTranslateToScalar ctx resLam.Body with
                 | Some pred -> continueWith { state with Plan = LogicalPlan.Filter(decorPlan, pred) } rowShape tail
+                // The residual reads the decorrelated columns through placeholders a client predicate cannot
+                // bind: the original predicate runs on the client instead, over the original rows.
                 | None ->
                     if isUnmaterializableClientRow p.Type then
-                        continueWith (fallback { state with Plan = decorPlan }) rowShape tail
+                        continueWith (fallback state) rowShape tail
                     else
-                        continueWith (clientFilter rowShape resLam { state with Plan = decorPlan }) rowShape tail
+                        continueWith (clientFilter rowShape lam state) rowShape tail
             | None ->
                 continueWith { state with Plan = decorPlan } rowShape tail
         | None ->
@@ -72,8 +74,9 @@ module internal RowStages =
                 match extractProjections ctx decorPlan rewrittenLam.Body with
                 | Some projs ->
                     continueWith { state with Plan = LogicalPlan.Project(decorPlan, projs) } RowShape.Empty tail
+                // As for a filter: the original projection runs on the client, over the original rows.
                 | None ->
-                    continueWith (clientMap rowShape rewrittenLam { state with Plan = decorPlan }) RowShape.Empty tail
+                    continueWith (clientMap rowShape lam state) RowShape.Empty tail
             | None ->
                 let p = lam.Parameters.[0]
                 let ctx = makeCtx p.Type p.Name state.Plan

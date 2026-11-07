@@ -254,8 +254,14 @@ module internal GroupByPlanning =
                                     else None
                                 | _ when isKeyArg arg && keyDefs.Length = 1 -> Some memName
                                 | _ -> None)
-                            |> Option.defaultValue origKeyName
                         origKeyName, outputColName)
+                    // A key no result member holds keeps its own name, unless a result member of that name holds
+                    // something else (`GroupBy(x => new { x.B }).Select(g => new { B = g.Sum(..) })`).
+                    |> List.map (fun (origKeyName, outputColName) ->
+                        match outputColName with
+                        | Some name -> origKeyName, name
+                        | None when List.contains origKeyName memberNames -> origKeyName, "__group_key_" + origKeyName
+                        | None -> origKeyName, origKeyName)
                     |> Map.ofList
 
                 let keyAliasedExprs =
@@ -518,7 +524,8 @@ module internal GroupByPlanning =
                         match foldedExpr with
                         | Binary(op, left, right) ->
                             match translateHaving left, translateHaving right with
-                            | Some l, Some r -> OperatorAndUdfTranslator.tryTranslateBinary op l r
+                            | Some l, Some r ->
+                                OperatorAndUdfTranslator.combineBinary op (left.Type, Some l) (right.Type, Some r) foldedExpr.Type
                             | _ ->
                                 tryTranslatePostGroupExpr (Some derivedKeyColMap) foldedExpr
                         | Unary(op, inner) when op = ExpressionType.Convert || op = ExpressionType.ConvertChecked ->

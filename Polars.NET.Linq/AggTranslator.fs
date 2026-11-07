@@ -572,7 +572,9 @@ module AggTranslator =
                 tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt rowShape left,
                 tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt rowShape right
             with
-            | Some leftS, Some rightS -> OperatorAndUdfTranslator.tryTranslateBinary op leftS rightS
+            // C# semantics as in row expressions (null, NaN, truncating and decimal division, string +).
+            | Some leftS, Some rightS ->
+                OperatorAndUdfTranslator.combineBinary op (left.Type, Some leftS) (right.Type, Some rightS) cleanExpr.Type
             | _ -> None
 
         | Unary(op, operand) ->

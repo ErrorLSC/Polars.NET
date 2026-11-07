@@ -15,12 +15,32 @@ module internal PipelineCompilation =
     /// query's element type. The pipeline carries its own fallback and UDF diagnostics. With
     /// `mergeDiagnostics` (this query is grafted into an outer one being compiled), the outer compilation
     /// also takes them.
+    /// Inlines a composed query that roots the operator chain as a constant (`Constant(o.Where(..)).Select(..)`,
+    /// built by re-rooting a captured subquery or by hand) as its own expression, repeatedly. Its operators are
+    /// then compiled with the chain; the stage parser stops at a constant and would read only the root table.
+    let rec private inlineComposedRoot (e: Expression) : Expression =
+        match e with
+        | :? ConstantExpression as c ->
+            match c.Value with
+            | :? IPolarsInternalExplainable as q ->
+                match (q :?> System.Linq.IQueryable).Expression with
+                | :? ConstantExpression as own when obj.ReferenceEquals(own.Value, q) -> e
+                | composed when c.Type.IsAssignableFrom composed.Type -> inlineComposedRoot composed
+                | composed -> Expression.Convert(inlineComposedRoot composed, c.Type) :> Expression
+            | _ -> e
+        | :? MethodCallExpression as mc when mc.Arguments.Count > 0 && isNull mc.Object ->
+            let source = inlineComposedRoot mc.Arguments.[0]
+            if obj.ReferenceEquals(source, mc.Arguments.[0]) then e
+            else mc.Update(null, Seq.append [ source ] (Seq.skip 1 mc.Arguments)) :> Expression
+        | _ -> e
+
     let compile
         (root: ILogicalTableSource)
         (targetType: Type)
         (effectiveExpr: Expression)
         (mergeDiagnostics: bool)
         : CompiledPipeline =
+        let effectiveExpr = inlineComposedRoot effectiveExpr
         let isGrouping = isGroupingType targetType
         let rootBinding = SourceBinding.Table root
 

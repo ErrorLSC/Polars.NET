@@ -23,84 +23,98 @@ module internal GroupJoinAndZipPlanning =
         else
             plan, existingCols |> Set.union (Set.ofList cols), Map.empty
 
-    /// Pure symbolic GroupJoin with explicit result selector builder (supporting pre-aggregated group counts and null-filling).
-    let buildGroupJoinWithResultPlan
-        (resolveSequence: Expression -> LogicalPlan option)
-        (basePlan: LogicalPlan)
+    /// Replaces parameters by expressions (by reference).
+    let private substitute (map: (ParameterExpression * Expression) list) (body: Expression) : Expression =
+        let visitor =
+            { new ExpressionVisitor() with
+                override _.VisitParameter(node: ParameterExpression) =
+                    match map |> List.tryFind (fun (p, _) -> obj.ReferenceEquals(p, node)) with
+                    | Some(_, replacement) -> replacement
+                    | None -> node :> Expression
+            }
+        visitor.Visit body
+
+    /// The components of a key: the members of an anonymous / tuple key built in place, else the key itself.
+    let private keyComponents (key: Expression) : Expression list =
+        match key with
+        | :? NewExpression
+        | :? MemberInitExpression ->
+            match tryExtractMemberBindings key with
+            | Some bindings -> bindings |> List.map snd
+            | None -> [ key ]
+        | _ -> [ key ]
+
+    let private canBeNull (t: Type) = not t.IsValueType || not (isNull (Nullable.GetUnderlyingType t))
+
+    /// GroupJoin(inner, outerKey, innerKey, (a, g) => body) as the projection
+    /// `a => body[g := inner.Where(b => innerKey(b) == outerKey(a))]`, whose group is a correlated subquery that
+    /// decorrelation plans (an aggregate, Any, a filtered Count, ...). As in Enumerable.GroupJoin, a null key
+    /// matches nothing: each key component of the inner rows is required non-null. Also returns the group
+    /// expression, which the body may hold as a value.
+    let groupJoinAsProjection
         (innerExpr: Expression)
         (outerKey: LambdaExpression)
         (innerKey: LambdaExpression)
         (resSel: LambdaExpression)
-        : LogicalPlan option =
+        : LambdaExpression * Expression =
+        let outerParam = resSel.Parameters.[0]
+        let groupParam = resSel.Parameters.[1]
+        let innerType = innerKey.Parameters.[0].Type
+        let b = Expression.Parameter(innerType, "__gj_inner")
+        let outerKeyBody = substitute [ outerKey.Parameters.[0], outerParam :> Expression ] outerKey.Body
+        let innerKeyBody = substitute [ innerKey.Parameters.[0], b :> Expression ] innerKey.Body
+        let outerParts = keyComponents outerKeyBody
+        let innerParts = keyComponents innerKeyBody
+        let pairs =
+            if outerParts.Length = innerParts.Length then List.zip outerParts innerParts
+            else [ outerKeyBody, innerKeyBody ]
+        // The guard is on the inner side: with no null inner key, a null outer key matches nothing either, and an
+        // inner-only filter keeps the subquery a plain equi-join.
+        let guards =
+            pairs
+            |> List.choose (fun (_, i) ->
+                if canBeNull i.Type then Some(Expression.NotEqual(i, Expression.Constant(null, i.Type)) :> Expression)
+                else None)
+        let equalities = pairs |> List.map (fun (o, i) -> Expression.Equal(i, o) :> Expression)
+        let predicate = (guards @ equalities) |> List.reduce (fun l r -> Expression.AndAlso(l, r) :> Expression)
+        let matchLambda = Expression.Lambda(typedefof<Func<_, _>>.MakeGenericType(innerType, typeof<bool>), predicate, [| b |])
+        let group =
+            if typedefof<System.Linq.IQueryable<_>>.MakeGenericType(innerType).IsAssignableFrom innerExpr.Type then
+                Expression.Call(typeof<System.Linq.Queryable>, "Where", [| innerType |], innerExpr, Expression.Quote matchLambda) :> Expression
+            else
+                Expression.Call(typeof<System.Linq.Enumerable>, "Where", [| innerType |], innerExpr, matchLambda) :> Expression
+        let body = substitute [ groupParam, group ] resSel.Body
+        Expression.Lambda(typedefof<Func<_, _>>.MakeGenericType(outerParam.Type, resSel.ReturnType), body, [| outerParam |]), group
 
-        let tryExtractGroupAgg (groupParamName: string) (resLambda: LambdaExpression) : (string * ScalarExpr) option =
-            match resLambda.Body with
-            | :? NewExpression as newExpr ->
-                let args = newExpr.Arguments |> Seq.toList
-                let memberNames = extractPascalCaseMemberNames newExpr
-                List.zip memberNames args
-                |> List.tryPick (fun (memName, arg) ->
-                    match arg with
-                    | MethodCall(m, _, (:? ParameterExpression as p) :: _) when
-                        p.Name = groupParamName && (m.Name = "Count" || m.Name = "LongCount")
-                        ->
-                        Some(memName, ScalarExpr.Aggregation(AggKind.Len, None, false))
-                    | _ -> None)
-            | _ -> None
-
-        resolveSequence innerExpr
-        |> Option.bind (fun rightPlan ->
-            let outerParam = outerKey.Parameters.[0]
-            let innerParam = innerKey.Parameters.[0]
-            let leftCols = (SchemaInference.inferPlanSchema basePlan).ColumnNames
-            let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
-            let leftCtx = PipelineStageParser.createContextWithScopeAndCols RowShape.Empty outerParam.Type leftCols outerParam.Name
-            let rightCtx = PipelineStageParser.createContextWithScopeAndCols RowShape.Empty innerParam.Type rightCols innerParam.Name
-
-            match
-                ExprTranslator.tryTranslateToScalar leftCtx outerKey.Body,
-                ExprTranslator.tryTranslateToScalar rightCtx innerKey.Body
-            with
-            | Some leftKey, Some rightKey ->
-                let groupParam = resSel.Parameters.[1]
-
-                let preAggRightPlan, aggColOpt =
-                    match tryExtractGroupAgg groupParam.Name resSel with
-                    | Some(aggColName, aggScalar) ->
-                        LogicalPlan.GroupBy(rightPlan, [ rightKey ], [ (aggColName, aggScalar) ], None, false), Some aggColName
-                    | None -> rightPlan, None
-
-                let joinPlan =
-                    LogicalPlan.Join(
-                        basePlan,
-                        preAggRightPlan,
-                        [ leftKey ],
-                        [ rightKey ],
-                        JoinKind.Left,
-                        Some LinqConstants.DefaultRightSuffix,
-                        JoinKeyCoalescing.Default,
-                        false
-                    )
-
-                let filledPlan =
-                    match aggColOpt with
-                    | Some aggCol ->
-                        let filledExpr =
-                            ScalarExpr.Function(
-                                ScalarFunction.FillNull,
-                                [ ScalarExpr.Column aggCol; ScalarExpr.Literal(LiteralValue.UInt32 0u) ],
-                                LogicalTypes.UInt32
-                            )
-                        LogicalPlan.WithColumns(joinPlan, [ (aggCol, filledExpr) ])
-                    | None -> joinPlan
-
-                let renames = extractBinaryResultRenames resSel None
-                let finalPlan =
-                    if renames.IsEmpty then filledPlan
-                    else LogicalPlan.Rename(filledPlan, renames |> List.map fst, renames |> List.map snd)
-
-                Some finalPlan
-            | _ -> None)
+    /// The lambda `l` (over the rows `projection` produces) composed with the pure projection: each read of a
+    /// projected member becomes the member's expression. None when `l` reads its row other than by member.
+    let tryComposeWithProjection (projection: LambdaExpression) (l: LambdaExpression) : LambdaExpression option =
+        match tryExtractMemberBindings projection.Body with
+        | Some bindings when (projection.Body :? NewExpression || projection.Body :? MemberInitExpression) ->
+            let row = l.Parameters.[0]
+            let mutable readsWholeRow = false
+            let visitor =
+                { new ExpressionVisitor() with
+                    override this.VisitMember(node: MemberExpression) =
+                        match node.Expression with
+                        | :? ParameterExpression as p when obj.ReferenceEquals(p, row) ->
+                            match bindings |> List.tryFind (fun (name, _) -> name = node.Member.Name) with
+                            | Some(_, e) -> e
+                            | None ->
+                                readsWholeRow <- true
+                                node :> Expression
+                        | _ -> base.VisitMember node
+                    override _.VisitParameter(node: ParameterExpression) =
+                        if obj.ReferenceEquals(node, row) then readsWholeRow <- true
+                        node :> Expression
+                }
+            let body = visitor.Visit l.Body
+            if readsWholeRow then
+                None
+            else
+                let parameters = Seq.append [ projection.Parameters.[0] ] (Seq.skip 1 l.Parameters) |> Seq.toArray
+                Some(Expression.Lambda(body, parameters))
+        | _ -> None
 
     /// Pure symbolic 2-way Zip builder into HorizontalConcat and optional column renames.
     let buildZipPlan

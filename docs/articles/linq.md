@@ -504,7 +504,9 @@ As with EF Core's default, comparisons use C# semantics, not SQL three-valued lo
 | `ids.Contains(x.Id)` with `Id` null and null in `ids` | `true` | null |
 | `others.Any(y => y.K == x.K)` with both keys null | matches | no match |
 
-An explicit `join ... on a equals b` never matches null keys, exactly like `Enumerable.Join`.
+An explicit `join ... on a equals b` never matches null keys, exactly like `Enumerable.Join`. A composite key
+(`on new { a.X, a.Y } equals new { b.X, b.Y }`) matches only when every component matches, so a null component never
+matches, as in EF Core. LINQ to Objects compares the anonymous objects and matches null with null there.
 
 Comparisons against a non-null constant (`x.V == 10`, `x.V > 5`) still reach Polars as plain comparisons inside
 a `Where`, so Parquet statistics and predicate pushdown keep working.

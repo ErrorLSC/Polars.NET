@@ -1226,4 +1226,311 @@ public class LinqSemanticsRegressionTests
             NearTheLimit.Where(x => NearTheLimit.Where(y => y.K == x.K).Sum(y => y.L) > 0).Select(x => x.I),
             [.. q.Where(x => q.Where(y => y.K == x.K).Sum(y => y.L) > 0).Select(x => x.I)]);
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // A subquery held in a variable keeps its operators when a Select / Distinct follows it (the Where and Take
+    // of `ob` used to be dropped under `ob.Select(..).Contains(..)`).
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void Captured_Subquery_Keeps_Its_Operators_Under_Select_And_Distinct()
+    {
+        using var l = DataFrame.From(Facts);
+        using var r = DataFrame.From(Others);
+        var q = l.AsQueryable<Kv>();
+        var others = r.AsQueryable<Kv>();
+        // Each operator removes the row that would match (V = 40, K = 8) or changes the count.
+        var filtered = others.Where(y => y.K != 8);
+        var last = others.OrderByDescending(y => y.K).Take(1);
+        var filteredRows = Others.Where(y => y.K != 8).ToArray();
+        var lastRows = Others.OrderByDescending(y => y.K).Take(1).ToArray();
+
+        // Each query runs twice: the second run may reuse a cached plan.
+        for (int run = 0; run < 2; run++)
+        {
+            Assert.Equal(
+                Facts.Where(x => filteredRows.Select(y => y.V).Contains(x.V)).Select(x => x.K),
+                [.. q.Where(x => filtered.Select(y => y.V).Contains(x.V)).Select(x => x.K)]);
+            Assert.Equal(
+                Facts.Where(x => !filteredRows.Select(y => y.V).Contains(x.V)).Select(x => x.K),
+                [.. q.Where(x => !filtered.Select(y => y.V).Contains(x.V)).Select(x => x.K)]);
+            Assert.Equal(
+                Facts.Where(x => lastRows.Select(y => y.V).Contains(x.V)).Select(x => x.K),
+                [.. q.Where(x => last.Select(y => y.V).Contains(x.V)).Select(x => x.K)]);
+            Assert.Equal(
+                Facts.Where(x => filteredRows.Select(y => y.K).Distinct().Count() > x.K).Select(x => x.K),
+                [.. q.Where(x => filtered.Select(y => y.K).Distinct().Count() > x.K).Select(x => x.K)]);
+        }
+    }
+
+    [Fact]
+    public void Query_Rooted_On_A_Composed_Query_Constant_Keeps_Its_Operators()
+    {
+        using var r = DataFrame.From(Others);
+        var others = r.AsQueryable<Kv>();
+        var filtered = others.Where(y => y.K != 8);
+        var y = System.Linq.Expressions.Expression.Parameter(typeof(Kv), "y");
+        var sel = System.Linq.Expressions.Expression.Lambda<Func<Kv, long>>(System.Linq.Expressions.Expression.Property(y, "V"), y);
+        var call = System.Linq.Expressions.Expression.Call(typeof(Queryable), "Select", [typeof(Kv), typeof(long)],
+            System.Linq.Expressions.Expression.Constant(filtered, typeof(IQueryable<Kv>)), System.Linq.Expressions.Expression.Quote(sel));
+        var q = others.Provider.CreateQuery<long>(call);
+        Assert.Equal(new long[] { 20, 120 }, q.ToArray());
+
+        var count = System.Linq.Expressions.Expression.Call(typeof(Queryable), "Count", [typeof(Kv)],
+            System.Linq.Expressions.Expression.Constant(filtered, typeof(IQueryable<Kv>)));
+        Assert.Equal(2, others.Provider.Execute<int>(count));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // GroupJoin result selectors: every aggregate of the group, with or without a predicate, under any member
+    // name (a name shared with a source column used to read that column), and the group held in a row.
+    // ---------------------------------------------------------------------------------------------
+
+    public class Gj
+    {
+        public long Id { get; set; }
+        public string S { get; set; } = "";
+        public int I { get; set; }
+        public bool B { get; set; }
+        public int? NI { get; set; }
+    }
+
+    public record GjOut
+    {
+        public long A { get; init; }
+        public long B { get; init; }
+    }
+
+    private static readonly Gj[] GjOuter =
+    [
+        new() { Id = 0, S = "a", I = 1, B = true, NI = 1 }, new() { Id = 1, S = "b", I = 2, B = false, NI = null },
+        new() { Id = 2, S = "a", I = 3, B = true, NI = 3 }, new() { Id = 3, S = "c", I = 2, B = false, NI = null },
+    ];
+
+    private static readonly Gj[] GjInner =
+    [
+        new() { Id = 0, S = "a", I = 1, B = true, NI = 1 }, new() { Id = 1, S = "b", I = 2, B = false, NI = null },
+        new() { Id = 2, S = "a", I = 3, B = false, NI = 3 }, new() { Id = 3, S = "z", I = 9, B = false, NI = null },
+    ];
+
+    private static void AssertGroupJoin<T>(Func<IQueryable<Gj>, IQueryable<Gj>, IQueryable<T>> query, bool native = true)
+    {
+        using var o = DataFrame.From(GjOuter);
+        using var i = DataFrame.From(GjInner);
+        var expected = query(GjOuter.AsQueryable(), GjInner.AsQueryable()).ToList();
+        var actual = query(o.AsQueryable<Gj>(), i.AsQueryable<Gj>());
+        if (native) Assert.False(IsFullFallback(actual), ((IPolarsExplainable)actual).InspectPlan(true).FormatReport());
+        Assert.Equal(expected, actual.ToList());
+    }
+
+    [Fact]
+    public void GroupJoin_Aggregates_Under_Any_Member_Name()
+    {
+        AssertGroupJoin((s, o) => s.GroupJoin(o, a => a.S, b => b.S, (a, g) => new { a.Id, B = g.Count() }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.GroupJoin(o, a => a.S, b => b.S, (a, g) => new { a.Id, I = g.Count() }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.GroupJoin(o, a => a.S, b => b.S, (a, g) => new { a.Id, S = g.LongCount() }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.GroupJoin(o, a => a.S, b => b.S, (a, g) => new GjOut { A = a.Id, B = g.Count() }).OrderBy(x => x.A));
+    }
+
+    [Fact]
+    public void GroupJoin_Aggregates_Keep_Their_Predicates_And_Selectors()
+    {
+        AssertGroupJoin((s, o) => s.GroupJoin(o, a => a.S, b => b.S, (a, g) => new { a.Id, N = g.Count(b => b.B) }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.GroupJoin(o, a => a.S, b => b.S, (a, g) => new { a.Id, N = g.LongCount(b => b.I > 100) }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.GroupJoin(o, a => a.S, b => b.S, (a, g) => new { a.Id, N = g.Where(b => b.I > 1).Count() }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.GroupJoin(o, a => a.S, b => b.S, (a, g) => new { a.Id, N = g.Sum(b => b.I) }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.GroupJoin(o, a => a.S, b => b.S, (a, g) => new { a.Id, N = g.Max(b => b.NI) }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.GroupJoin(o, a => a.S, b => b.S, (a, g) => new { a.Id, N = g.Any() }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.GroupJoin(o, a => a.S, b => b.S, (a, g) => new { a.Id, N = g.Any(b => b.B), M = g.Count() }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) =>
+            from a in s
+            join b in o on a.S equals b.S into g
+            orderby a.Id
+            select new { a.Id, N = g.Count(b => b.B) });
+    }
+
+    [Fact]
+    public void GroupJoin_Never_Matches_Null_Keys()
+    {
+        AssertGroupJoin((s, o) => s.GroupJoin(o, a => a.NI, b => b.NI, (a, g) => new { a.Id, N = g.Count() }).OrderBy(x => x.Id));
+    }
+
+    [Fact]
+    public void GroupJoin_Row_Holding_The_Group_Is_Composed_Into_Later_Stages()
+    {
+        AssertGroupJoin((s, o) =>
+            s.GroupJoin(o, a => a.S, b => b.S, (a, g) => new { a, g }).Select(t => new { t.a.Id, N = t.g.Count() }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) =>
+            s.GroupJoin(o, a => a.S, b => b.S, (a, g) => new { a, g }).Select(t => new GjOut { A = t.a.Id, B = t.g.Sum(b => (long)b.I) }).OrderBy(x => x.A));
+        AssertGroupJoin((s, o) =>
+            from a in s
+            join b in o on a.S equals b.S into g
+            where g.Count() > 0
+            orderby a.Id descending
+            select new { a.Id, N = g.Count(b => b.B) });
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Set operations over objects whose sides assign different members: an unassigned member holds its
+    // default, and the sides are matched by member, never by position.
+    // ---------------------------------------------------------------------------------------------
+
+    public record SetRow
+    {
+        public long A { get; init; }
+        public long? B { get; init; }
+        public string? C { get; init; }
+        public double D { get; init; }
+        public bool E { get; init; }
+    }
+
+    private static void AssertSetOp<T>(Func<IQueryable<Gj>, IQueryable<Gj>, IQueryable<T>> query)
+    {
+        using var o = DataFrame.From(GjOuter);
+        using var i = DataFrame.From(GjInner);
+        var expected = query(GjOuter.AsQueryable(), GjInner.AsQueryable()).ToList();
+        var actual = query(o.AsQueryable<Gj>(), i.AsQueryable<Gj>());
+        Assert.False(IsFullFallback(actual), ((IPolarsExplainable)actual).InspectPlan(true).FormatReport());
+        Assert.Equal(expected, actual.ToList());
+    }
+
+    [Fact]
+    public void Set_Operations_Match_Sides_By_Member()
+    {
+        AssertSetOp((s, o) => s.Select(x => new SetRow { C = x.S, D = x.I }).Concat(o.Select(x => new SetRow { A = x.I, C = x.S })));
+        AssertSetOp((s, o) => s.Select(x => new SetRow { A = x.Id, C = x.S }).Concat(o.Select(x => new SetRow { A = x.Id, B = x.NI })));
+        AssertSetOp((s, o) => s.Select(x => new SetRow { A = x.I, E = x.B }).Union(o.Select(x => new SetRow { A = x.I, B = x.Id })));
+        AssertSetOp((s, o) => s.Select(x => new SetRow { A = x.I }).Intersect(o.Select(x => new SetRow { A = x.I, B = null })));
+        AssertSetOp((s, o) => s.Select(x => new SetRow { A = x.I }).Except(o.Select(x => new SetRow { A = x.I, E = x.B })));
+        AssertSetOp((s, o) => s.Select(x => new SetRow { B = x.Id, A = x.I }).Concat(o.Select(x => new SetRow { A = x.I, B = x.Id })));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // A comparison over a floating aggregate follows .NET NaN semantics, as over a column.
+    // ---------------------------------------------------------------------------------------------
+
+    public class Fl
+    {
+        public string S { get; set; } = "";
+        public double D { get; set; }
+    }
+
+    [Fact]
+    public void Comparisons_Of_Floating_Aggregates_Follow_NaN_Semantics()
+    {
+        Fl[] rows = [new() { S = "a", D = double.NaN }, new() { S = "a", D = double.NaN }, new() { S = "b", D = 2.5 }, new() { S = "b", D = 0.5 }];
+        using var df = DataFrame.From(rows);
+        var q = df.AsQueryable<Fl>();
+
+        Assert.Equal(
+            rows.GroupBy(x => x.S).Where(g => g.Max(x => x.D) > 1).Select(g => g.Key),
+            [.. q.GroupBy(x => x.S).Where(g => g.Max(x => x.D) > 1).Select(g => g.Key).OrderBy(k => k)]);
+        Assert.Equal(
+            rows.GroupBy(x => x.S).Select(g => new { g.Key, M = g.Max(x => x.D) > 1, S = g.Sum(x => x.D) > 1, L = g.Average(x => x.D) < 10 }),
+            [.. q.GroupBy(x => x.S).Select(g => new { g.Key, M = g.Max(x => x.D) > 1, S = g.Sum(x => x.D) > 1, L = g.Average(x => x.D) < 10 }).OrderBy(x => x.Key)]);
+        Assert.Equal(
+            rows.GroupBy(x => x.S, x => x.D).Select(g => new { g.Key, M = g.Max() > 1 }),
+            [.. q.GroupBy(x => x.S, x => x.D).Select(g => new { g.Key, M = g.Max() > 1 }).OrderBy(x => x.Key)]);
+    }
+
+    [Fact]
+    public void Group_And_Decorrelated_Expressions_Follow_CSharp_Arithmetic_And_Nulls()
+    {
+        KnV[] rows = [new() { K = 1, V = -7 }, new() { K = 1, V = null }, new() { K = 2, V = 5 }, new() { K = 3, V = null }];
+        using var df = DataFrame.From(rows);
+        var q = df.AsQueryable<KnV>();
+
+        // Truncating division and a nullable comparison in a group result selector and in a having.
+        Assert.Equal(
+            rows.GroupBy(x => x.K).Select(g => new { g.Key, H = g.Sum(x => x.V) / 2, P = g.Max(x => x.V) != 5 }),
+            [.. q.GroupBy(x => x.K).Select(g => new { g.Key, H = g.Sum(x => x.V) / 2, P = g.Max(x => x.V) != 5 }).OrderBy(x => x.Key)]);
+        Assert.Equal(
+            rows.GroupBy(x => x.K).Where(g => g.Max(x => x.V) != 5).Select(g => g.Key),
+            [.. q.GroupBy(x => x.K).Where(g => g.Max(x => x.V) != 5).Select(g => g.Key).OrderBy(k => k)]);
+        Assert.Equal(
+            rows.GroupBy(x => x.K).Where(g => g.Sum(x => x.V) / 2 == -3).Select(g => g.Key),
+            [.. q.GroupBy(x => x.K).Where(g => g.Sum(x => x.V) / 2 == -3).Select(g => g.Key)]);
+
+        // A correlated aggregate scaled by a literal divisor truncates.
+        Assert.Equal(
+            rows.Where(x => x.K == 1 && -3 == rows.Where(y => y.K == x.K).Sum(y => y.V) / 2).Select(x => x.V),
+            [.. q.Where(x => x.K == 1 && -3 == q.Where(y => y.K == x.K).Sum(y => y.V) / 2).Select(x => x.V)]);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // A group key member may share its name with a result member that holds something else.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void Group_Key_Members_May_Share_Names_With_Other_Result_Members()
+    {
+        AssertGroupJoin((s, _) => s.GroupBy(x => new { x.B }).Select(h => new GjOut { A = h.Count(), B = h.Sum(x => (long)x.I) }).OrderBy(x => x.B));
+        AssertGroupJoin((s, _) => s.GroupBy(x => new { A = x.I, x.S }).Select(h => new GjOut { A = h.Count(), B = h.Key.A }).OrderBy(x => x.B).ThenBy(x => x.A));
+        AssertGroupJoin((s, _) => s.GroupBy(x => new { x.S, x.B }).Select(h => new { B = h.Count(), h.Key.S, K = h.Key.B }).OrderBy(x => x.S).ThenBy(x => x.K));
+        AssertGroupJoin((s, _) => s.GroupBy(x => new { x.B, x.NI }).Select(h => new { NI = h.Key.B, B = h.Key.NI, N = h.Count() }).OrderBy(x => x.NI).ThenBy(x => x.B));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Several correlated subqueries in one projection, some of which the plan cannot hold, and a correlated
+    // subquery reading a key column of a composite-key correlation.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void Projection_Mixing_Planned_And_Unplanned_Correlated_Subqueries()
+    {
+        AssertGroupJoin((s, o) => s.Select(a => new { a.Id, N = o.Where(b => b.S == a.S).Count(b => b.B), E = o.Where(b => b.S == a.S).All(b => b.NI != null) }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.GroupJoin(o, a => a.S, b => b.S, (a, g) => new { a, g }).Select(t => new { t.a.Id, N = t.g.Count(b => b.B), E = t.g.All(b => b.NI != null) }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.Where(a => o.Where(b => b.S == a.S).All(b => b.B)).Select(a => a.Id));
+        AssertGroupJoin((s, o) => s.Where(a => !o.All(b => b.I != a.I)).Select(a => a.Id));
+        AssertGroupJoin((s, o) =>
+            s.GroupJoin(o, a => new { k = a.S.Length, a.B }, b => new { k = b.I % 4, b.B }, (a, g) => new { a, g })
+                .Select(t => new { t.a.Id, N = t.g.Count(b => b.B), E = t.g.All(b => b.NI != null) }).OrderBy(x => x.Id));
+        // A theta-decorrelated filter leaves the outer rows' columns only, so a later correlated join can suffix again.
+        AssertGroupJoin((s, o) => s.Where(a => o.All(b => b.I != a.I || b.B)).Select(a => new { a.Id, N = o.Where(b => b.I == a.I).Count(b => b.B) }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.Where(a => o.All(b => b.I != a.I || b.B)).Select(a => new { a.Id, N = o.Where(b => b.I == a.I && b.Id > a.Id).Count() }).OrderBy(x => x.Id));
+    }
+
+    [Fact]
+    public void Correlated_Aggregate_Reads_A_Key_Column_Of_A_Composite_Correlation()
+    {
+        AssertGroupJoin((s, o) => s.Select(a => new { a.Id, N = o.Where(b => b.I == a.I && b.S == a.S && b.Id != a.Id).Sum(b => (long)b.I) }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.GroupJoin(o, a => new { a.I, a.S }, b => new { b.I, b.S }, (a, g) => new { a.Id, N = g.Sum(b => (long)b.I) }).OrderBy(x => x.Id));
+        // A computed key named like a column of the inner side (`b.I % 2` is named I), and one not idempotent.
+        AssertGroupJoin((s, o) => s.Select(a => new { a.Id, N = o.Where(b => b.I * 2 == a.I).Count() }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.Where(a => o.Where(b => b.I * 2 == a.I).Sum(b => b.I) > 0).Select(a => a.Id));
+        AssertGroupJoin((s, o) => s.Select(a => new { a.Id, N = o.Where(b => b.I % 2 == a.I % 2 && b.Id != a.Id).Sum(b => (long)b.I) }).OrderBy(x => x.Id));
+        AssertGroupJoin((s, o) => s.Where(a => !o.Any(b => b.I % 2 == a.I % 2 && b.I > a.I)).Select(a => a.Id));
+    }
+
+    // The long check splits each value into 32-bit halves; the total decides, at both ends of the range.
+    [Theory]
+    [InlineData(new[] { long.MaxValue, 1L })]
+    [InlineData(new[] { long.MinValue, -1L })]
+    [InlineData(new[] { long.MaxValue, long.MaxValue, long.MinValue })]
+    [InlineData(new[] { long.MinValue, long.MinValue, long.MaxValue, 1L })]
+    [InlineData(new[] { long.MaxValue, 0L })]
+    [InlineData(new[] { long.MinValue, 0L })]
+    [InlineData(new[] { long.MaxValue, long.MaxValue, long.MaxValue })]
+    [InlineData(new[] { -1L, -1L, 4294967295L, -4294967296L, 4294967296L })]
+    [InlineData(new[] { 4611686018427387904L, 4611686018427387904L })]
+    [InlineData(new[] { 4611686018427387904L, 4611686018427387903L })]
+    public void Long_Sum_Is_Checked_On_The_Exact_Total(long[] values)
+    {
+        var rows = values.Select((v, i) => new Num { K = i % 2, L = v }).ToArray();
+        using var df = DataFrame.From(rows);
+        var q = df.AsQueryable<Num>();
+        var total = values.Aggregate(System.Numerics.BigInteger.Zero, (acc, v) => acc + v);
+        bool fits = total >= long.MinValue && total <= long.MaxValue;
+
+        if (fits)
+        {
+            Assert.Equal((long)total, q.Sum(x => x.L));
+            Assert.Equal((double)(decimal)total / values.Length, q.Average(x => x.L), 6);
+        }
+        else
+        {
+            Assert.Throws<OverflowException>(() => q.Sum(x => x.L));
+            Assert.Throws<OverflowException>(() => q.Average(x => x.L));
+        }
+    }
 }

@@ -80,8 +80,11 @@ raises). The frontend guards a decimal divisor, because the engine raises. Integ
 .NET arithmetic does.
 
 **Checked sums.** .NET's `Sum` of `int` / `long`, and the `long` sum behind `Average` of `long`, are checked.
-The frontend sums exactly in a wider type (`Int64` for `Int32`, `Decimal(38, 0)` for `Int64`) and asserts the
-range with an `AssertCount` over an overflow flag (`QueryErrorKind.Overflow`). The check is on the total, not on
+The frontend asserts the range of the exact total with an `AssertCount` over an overflow flag
+(`QueryErrorKind.Overflow`). An `int` sum is taken in `Int64`. A `long` total is checked from the sums of each
+value's 32-bit halves (`hi = x // 2^32`, `lo = x - hi * 2^32`, neither sum can overflow): it fits when
+`sum(hi) + sum(lo) // 2^32` fits an `int`, and the engine's wrapping sum is then exact. A distinct `long` sum,
+whose halves cannot be deduplicated apart, is taken in `Decimal(38, 0)`. The check is on the total, not on
 each partial sum, so `[int.MaxValue, 1, -1]` sums to `int.MaxValue` here, where LINQ to Objects throws. Without
 assertions, a strict cast fails the query instead (with the engine's error). A decimal sum is not checked.
 
@@ -149,7 +152,9 @@ skipped.
 **Order is kept unless a node says otherwise.**
 - `Filter`, `Project`, `WithColumns`, `Rename`, `WithRowIndex` and `Explode` keep input order.
 - `Sort` is stable. `NullsLast` places nulls.
-- `Union` lists the left rows, then the right.
+- `Union` lists the left rows, then the right. Its inputs have the same column names, which a backend matches by
+  name; only single-column inputs are matched by position. When an object element's sides assign different
+  members, the frontend completes each side with the other members at their type's default.
 - `Distinct` and `GroupBy` keep first-appearance order only with `maintainOrder`. `GroupOrderRelaxation`
   clears that flag where nothing observes the order.
 - Joins:
@@ -206,5 +211,9 @@ which it is true, before anything above the GroupBy runs.
 ## Joins and keys
 
 A null join key matches a null key exactly when the join's `nullsEqual` is true.
-- Explicit LINQ joins use false (`Enumerable.Join`).
+- Explicit LINQ joins use false (`Enumerable.Join`). A composite key is one key column per component, so a null
+  component never matches, as in EF Core (LINQ to Objects matches equal anonymous keys, null components included).
 - Decorrelated subqueries use true, or false under `UseRelationalNulls`.
+- A `GroupJoin` with a result selector is compiled as a projection whose group is a correlated subquery
+  (`inner.Where(b => key(b) != null && key(b) == key(a))`): with no null inner key component, a null key matches
+  nothing, as in `Enumerable.GroupJoin`.
