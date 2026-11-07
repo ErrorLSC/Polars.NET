@@ -247,6 +247,8 @@ type LogicalSchema =
 type QueryErrorKind =
     | InvalidOperation
     | ArgumentOutOfRange
+    /// .NET's OverflowException (checked arithmetic, as Enumerable.Sum).
+    | Overflow
 
 /// An error a query raises when a check fails while it runs. An empty message stands for the error kind's
 /// default message.

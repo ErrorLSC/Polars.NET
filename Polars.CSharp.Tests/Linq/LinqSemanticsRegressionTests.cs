@@ -1135,4 +1135,95 @@ public class LinqSemanticsRegressionTests
         AssertSameFailure(() => FzRows.Where(x => x.Id > 100).Average(x => x.I), () => q.Where(x => x.Id > 100).Average(x => x.I));
         AssertSameFailure(() => FzRows.Where(x => x.Id > 100).Min(x => x.I), () => q.Where(x => x.Id > 100).Min(x => x.I));
     }
+
+    // A comparison lifted to null (VB / hand-built trees: `bool?` result, null on a null operand) is not
+    // translated natively, so it is never answered with C#'s two-valued result.
+    [Fact]
+    public void Comparison_Lifted_To_Null_Keeps_Its_Null_Result()
+    {
+        var rows = new[] { new KnV { K = 1, V = 5 }, new KnV { K = 2, V = null }, new KnV { K = 3, V = 7 } };
+        using var df = DataFrame.From(rows);
+        var x = System.Linq.Expressions.Expression.Parameter(typeof(KnV), "x");
+        var v = System.Linq.Expressions.Expression.Property(x, nameof(KnV.V));
+        var five = System.Linq.Expressions.Expression.Constant(5L, typeof(long?));
+        foreach (var make in new Func<System.Linq.Expressions.Expression, System.Linq.Expressions.Expression, System.Linq.Expressions.BinaryExpression>[]
+        {
+            (a, b) => System.Linq.Expressions.Expression.Equal(a, b, true, null),
+            (a, b) => System.Linq.Expressions.Expression.NotEqual(a, b, true, null),
+            (a, b) => System.Linq.Expressions.Expression.GreaterThan(a, b, true, null),
+        })
+        {
+            var lambda = System.Linq.Expressions.Expression.Lambda<Func<KnV, bool?>>(make(v, five), x);
+            Assert.Equal(rows.Select(lambda.Compile()), [.. df.AsQueryable<KnV>().Select(lambda)]);
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Checked sums: Sum of int / long and Average of long throw OverflowException when the exact sum leaves
+    // the type's range, as Enumerable.Sum (the engine wraps).
+    // ---------------------------------------------------------------------------------------------
+
+    public class Num
+    {
+        public long K { get; set; }
+        public int I { get; set; }
+        public long L { get; set; }
+        public int? NI { get; set; }
+    }
+
+    private static readonly Num[] Overflowing =
+    [
+        new() { K = 1, I = int.MaxValue, L = long.MaxValue, NI = int.MaxValue },
+        new() { K = 1, I = int.MaxValue, L = long.MaxValue, NI = null },
+        new() { K = 1, I = 1, L = 1, NI = int.MaxValue },
+        new() { K = 2, I = 3, L = 3, NI = 3 },
+    ];
+
+    private static readonly Num[] NearTheLimit =
+    [
+        new() { K = 1, I = int.MaxValue, L = long.MaxValue, NI = int.MinValue },
+        new() { K = 1, I = -5, L = -5, NI = null },
+        new() { K = 1, I = 3, L = 3, NI = 1 },
+        new() { K = 2, I = int.MinValue, L = long.MinValue, NI = 0 },
+    ];
+
+    [Fact]
+    public void Integer_Sums_Throw_On_Overflow()
+    {
+        using var df = DataFrame.From(Overflowing);
+        var q = df.AsQueryable<Num>();
+        Assert.False(IsFullFallback(q.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Sum(x => x.I) })));
+        Assert.False(IsFullFallback(q.Where(x => q.Where(y => y.K == x.K).Sum(y => y.I) > 0)));
+        AssertSameFailure(() => Overflowing.Sum(x => x.I), () => q.Sum(x => x.I));
+        AssertSameFailure(() => Overflowing.Sum(x => x.L), () => q.Sum(x => x.L));
+        AssertSameFailure(() => Overflowing.Sum(x => x.NI), () => q.Sum(x => x.NI));
+        AssertSameFailure(() => Overflowing.Average(x => x.L), () => q.Average(x => x.L));
+        AssertSameFailure(() => Overflowing.Select(x => x.I).Distinct().Sum(), () => q.Select(x => x.I).Distinct().Sum());
+        AssertSameFailure(
+            () => Overflowing.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Sum(x => x.I) }).ToList(),
+            () => q.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Sum(x => x.I) }).ToList());
+        AssertSameFailure(
+            () => Overflowing.GroupBy(x => x.K).Select(g => new { g.Key, A = g.Average(x => x.L) }).ToList(),
+            () => q.GroupBy(x => x.K).Select(g => new { g.Key, A = g.Average(x => x.L) }).ToList());
+        AssertSameFailure(
+            () => Overflowing.Where(x => Overflowing.Where(y => y.K == x.K).Sum(y => y.I) > 0).ToList(),
+            () => q.Where(x => q.Where(y => y.K == x.K).Sum(y => y.I) > 0).ToList());
+    }
+
+    [Fact]
+    public void Integer_Sums_Near_The_Limit_Are_Exact()
+    {
+        using var df = DataFrame.From(NearTheLimit);
+        var q = df.AsQueryable<Num>();
+        Assert.Equal(NearTheLimit.Sum(x => x.I), q.Sum(x => x.I));
+        Assert.Equal(NearTheLimit.Sum(x => x.L), q.Sum(x => x.L));
+        Assert.Equal(NearTheLimit.Sum(x => x.NI), q.Sum(x => x.NI));
+        Assert.Equal(NearTheLimit.Average(x => x.I), q.Average(x => x.I));
+        Assert.Equal(
+            NearTheLimit.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Sum(x => x.I), T = g.Sum(x => x.L) }).OrderBy(x => x.Key),
+            [.. q.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Sum(x => x.I), T = g.Sum(x => x.L) }).OrderBy(x => x.Key)]);
+        Assert.Equal(
+            NearTheLimit.Where(x => NearTheLimit.Where(y => y.K == x.K).Sum(y => y.L) > 0).Select(x => x.I),
+            [.. q.Where(x => q.Where(y => y.K == x.K).Sum(y => y.L) > 0).Select(x => x.I)]);
+    }
 }

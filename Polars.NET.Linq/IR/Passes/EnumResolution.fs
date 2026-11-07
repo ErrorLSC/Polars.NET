@@ -4,7 +4,8 @@ open System
 open Polars.NET.Core.Helpers
 
 /// Resolves the expressions whose translation depends on the types of the columns they read: EnumConvert nodes,
-/// and the mean of decimals (a decimal Sum / Count, as .NET's Average of decimals).
+/// the mean of decimals (a decimal Sum / Count, as .NET's Average of decimals), and the checked sums of integers
+/// (OverflowException, as .NET's Sum of int / long and Average of long).
 ///
 /// A .NET enum is stored either as a Polars Enum column (categories in underlying-value order) or as an integer
 /// column of its underlying values (data written elsewhere, or a [Flags] enum). The translator does not know which,
@@ -93,6 +94,29 @@ module internal EnumResolution =
         | BinaryOp.Gt -> BinaryOp.Lt
         | BinaryOp.GtEq -> BinaryOp.LtEq
         | other -> other
+
+    /// The checked sum of an integer type .NET sums (Enumerable.Sum of int / long): the type an exact sum is taken
+    /// in, and that type's literals of the result type's range.
+    let private checkedSumOf (t: LogicalType) : (LogicalType * LiteralValue * LiteralValue) option =
+        match t with
+        | LogicalType.Arrow(:? Apache.Arrow.Types.Int32Type) ->
+            Some(LogicalTypes.Int64, LiteralValue.Int64(int64 Int32.MinValue), LiteralValue.Int64(int64 Int32.MaxValue))
+        | LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) ->
+            Some(LogicalTypes.decimalOf 38 0, LiteralValue.Decimal(decimal Int64.MinValue), LiteralValue.Decimal(decimal Int64.MaxValue))
+        | _ -> None
+
+    /// Whether a value of type `t` widened to a 64-bit integer cannot overflow a sum of fewer than 2^32 of them.
+    let private isNarrowInteger (t: LogicalType) =
+        match t with
+        | LogicalType.Arrow(:? Apache.Arrow.Types.Int32Type)
+        | LogicalType.Arrow(:? Apache.Arrow.Types.Int16Type)
+        | LogicalType.Arrow(:? Apache.Arrow.Types.Int8Type)
+        | LogicalType.Arrow(:? Apache.Arrow.Types.UInt32Type)
+        | LogicalType.Arrow(:? Apache.Arrow.Types.UInt16Type)
+        | LogicalType.Arrow(:? Apache.Arrow.Types.UInt8Type) -> true
+        | _ -> false
+
+    let private overflow = { Kind = QueryErrorKind.Overflow; Message = "" }
 
     /// Resolves the EnumConvert nodes of `expr`, whose columns are those of `schema`.
     let rec resolveScalar (schema: LogicalSchema) (expr: ScalarExpr) : ScalarExpr =
@@ -195,6 +219,8 @@ module internal EnumResolution =
         | ScalarExpr.Literal _ -> expr
         | ScalarExpr.Unary(op, inner) -> ScalarExpr.Unary(op, resolve inner)
         | ScalarExpr.Cast(inner, t, strict) -> ScalarExpr.Cast(resolve inner, t, strict)
+        // A checked sum resolved before (a plan resolved again under a scalar terminal).
+        | ScalarExpr.Function(ScalarFunction.AssertCount check, _, _) when check.TooMany = overflow -> expr
         | ScalarExpr.Function(fn, args, t) -> ScalarExpr.Function(fn, args |> List.map resolve, t)
         // .NET Average of decimals is a decimal; the engine's mean of decimals is a float. Sum / count keeps it
         // decimal (18 fractional digits), and no values divide by a null count rather than by zero.
@@ -214,6 +240,45 @@ module internal EnumResolution =
                 BinaryOp.Divide,
                 ScalarExpr.Cast(ScalarExpr.Aggregation(AggKind.Sum, Some inner', false), LogicalTypes.Decimal, false),
                 nullIfZero)
+        // .NET sums integers in checked arithmetic: Sum of int / long, and the long sum behind Average of long,
+        // throw OverflowException where the engine wraps. The sum is taken exactly in a wider type and checked
+        // against the range of the summed type (a strict cast without assertions: the query still fails).
+        // A sum of narrower integers widened to 64 bits cannot overflow, which also leaves the rewritten sum alone.
+        | ScalarExpr.Aggregation((AggKind.Sum | AggKind.Mean) as kind, Some inner, distinct) when
+            (match inner with
+             | ScalarExpr.Cast(narrow, LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type), _) -> not (isNarrowInteger (typeOf narrow))
+             | _ -> true)
+            && (match kind, typeOf inner with
+                | AggKind.Sum, t -> (checkedSumOf t).IsSome
+                | _, LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) -> true
+                | _ -> false)
+            ->
+            let inner' = resolve inner
+            let summedType = typeOf inner'
+            let wide, min, max = (checkedSumOf summedType).Value
+            let wideSum = ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Cast(inner', wide, false)), distinct)
+            let assertions =
+                CompilationScope.TryCurrent |> Option.forall (fun scope -> scope.Backend.SupportsAssertions)
+            match kind with
+            | AggKind.Sum when not assertions -> ScalarExpr.Cast(wideSum, summedType, true)
+            | AggKind.Mean when not assertions -> ScalarExpr.Aggregation(kind, Some inner', distinct)
+            | _ ->
+                let value =
+                    match kind with
+                    | AggKind.Sum -> ScalarExpr.Cast(wideSum, summedType, false)
+                    | _ -> ScalarExpr.Aggregation(kind, Some inner', distinct)
+                let overflowed =
+                    ScalarExpr.Conditional(
+                        ScalarExpr.Binary(
+                            BinaryOp.Or,
+                            ScalarExpr.Binary(BinaryOp.Lt, wideSum, ScalarExpr.Literal min),
+                            ScalarExpr.Binary(BinaryOp.Gt, wideSum, ScalarExpr.Literal max)),
+                        ScalarExpr.Literal(LiteralValue.Int64 1L),
+                        ScalarExpr.Literal(LiteralValue.Int64 0L))
+                ScalarExpr.Function(
+                    ScalarFunction.AssertCount { Min = 0L; Max = Some 0L; TooFew = overflow; TooMany = overflow },
+                    [ overflowed; value ],
+                    typeOf value)
         | ScalarExpr.Aggregation(kind, inner, distinct) -> ScalarExpr.Aggregation(kind, inner |> Option.map resolve, distinct)
         | ScalarExpr.Window(inner, partitionBy, orderBy) ->
             ScalarExpr.Window(

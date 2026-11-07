@@ -87,7 +87,18 @@ module internal OperatorAndUdfTranslator =
             eval ctx targetExpr
             |> Option.orElseWith (fun () -> tryResolveEntityNullTarget ctx targetExpr)
 
-        if op = ExpressionType.NotEqual && isNullConstantExpr right then
+        let isComparison =
+            match op with
+            | ExpressionType.Equal | ExpressionType.NotEqual
+            | ExpressionType.LessThan | ExpressionType.LessThanOrEqual
+            | ExpressionType.GreaterThan | ExpressionType.GreaterThanOrEqual -> true
+            | _ -> false
+
+        // A comparison lifted to null (`bool?` result, SQL three-valued logic) comes only from hand-built or
+        // VB expression trees; it is not translated natively (see SEMANTICS.md).
+        if isComparison && resultType = typeof<Nullable<bool>> then
+            None
+        elif op = ExpressionType.NotEqual && isNullConstantExpr right then
             translateNullCheckTarget left |> Option.map (fun x -> ScalarExpr.Unary(UnaryOp.IsNotNull, x))
         elif op = ExpressionType.NotEqual && isNullConstantExpr left then
             translateNullCheckTarget right |> Option.map (fun x -> ScalarExpr.Unary(UnaryOp.IsNotNull, x))

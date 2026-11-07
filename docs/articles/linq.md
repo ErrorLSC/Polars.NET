@@ -509,6 +509,9 @@ An explicit `join ... on a equals b` never matches null keys, exactly like `Enum
 Comparisons against a non-null constant (`x.V == 10`, `x.V > 5`) still reach Polars as plain comparisons inside
 a `Where`, so Parquet statistics and predicate pushdown keep working.
 
+Expression trees built by hand (or by VB) can contain comparisons lifted to null (`bool?` results); these are
+not translated to Polars and are evaluated in .NET.
+
 To use SQL null semantics instead (as EF Core's `UseRelationalNulls()`), enable the switch:
 
 ```csharp
@@ -532,7 +535,10 @@ For `double`, `float` and `Half`:
 
 * Integer `/` and `%` truncate toward zero, as in C#: `-7 / 2 == -3` and `-7 % 2 == -1`. `%` keeps the dividend's
   sign for floating-point values too (`-7.5 % 2 == -1.5`).
-* Integer overflow wraps around, as in unchecked C#, and so does a narrowing cast (`(byte)300 == 44`). A
+* `Sum` over `int` / `long` and `Average` over `long` are checked, as in .NET: a total outside the type's range
+  throws `OverflowException`. The check is on the total, so a sum whose partial sums overflow but whose total
+  fits (`[int.MaxValue, 1, -1]`) returns the total. `decimal` sums are not checked.
+* Other integer overflow wraps around, as in unchecked C#, and so does a narrowing cast (`(byte)300 == 44`). A
   floating value cast to an integer saturates, as in .NET: `(int)double.NaN == 0`, and
   `(int)double.PositiveInfinity == int.MaxValue`.
 * `decimal` values are fixed-point in Polars. A decimal division keeps 18 fractional digits (C# keeps up to 28

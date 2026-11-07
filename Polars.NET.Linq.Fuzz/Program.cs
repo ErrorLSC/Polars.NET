@@ -15,11 +15,11 @@ public record Finding(string Kind, string Sig, int Shape, long Seed, int Index, 
 
 public static class Program
 {
-    static readonly Dictionary<string, (int count, Finding best)> Findings = new();
-    static readonly Dictionary<string, int> IngestDiffs = new();
-    static readonly Dictionary<string, int> Unsupported = new();
+    static readonly Dictionary<string, (int count, Finding best)> Findings = [];
+    static readonly Dictionary<string, int> IngestDiffs = [];
+    static readonly Dictionary<string, int> Unsupported = [];
     static readonly Dictionary<string, int> Counts = new() { ["OK"] = 0, ["REF_THROWS"] = 0, ["UNSUPPORTED"] = 0, ["PROVIDER_THROWS"] = 0, ["MISMATCH"] = 0, ["TIMEOUT"] = 0, ["MISMATCH_INGEST_TAINTED"] = 0, ["INGEST_ROUNDTRIP_DIFF"] = 0 };
-    static readonly Dictionary<int, int> ShapeCount = new();
+    static readonly Dictionary<int, int> ShapeCount = [];
 
     public static int Main(string[] args)
     {
@@ -98,7 +98,7 @@ public static class Program
             {
                 var p = Pred();
                 var id = Lam(Expression.Property(x, "Id"), x);
-                return new Case(1, lams, s => Q("Select", new[] { R, typeof(long) }, Q("OrderBy", new[] { R, typeof(long) }, Q("Where", new[] { R }, s, Quote(p)), Quote(id)), Quote(id)), false, null);
+                return new Case(1, lams, s => Q("Select", [R, typeof(long)], Q("OrderBy", [R, typeof(long)], Q("Where", [R], s, Quote(p)), Quote(id)), Quote(id)), false, null);
             }
             case 2:
             {

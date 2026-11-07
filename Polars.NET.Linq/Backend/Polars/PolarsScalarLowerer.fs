@@ -117,6 +117,8 @@ module internal PolarsScalarLowerer =
                 | QueryErrorKind.InvalidOperation -> InvalidOperationException(error.Message)
                 | QueryErrorKind.ArgumentOutOfRange when String.IsNullOrEmpty error.Message -> ArgumentOutOfRangeException("index")
                 | QueryErrorKind.ArgumentOutOfRange -> ArgumentOutOfRangeException("index", error.Message)
+                | QueryErrorKind.Overflow when String.IsNullOrEmpty error.Message -> OverflowException()
+                | QueryErrorKind.Overflow -> OverflowException(error.Message)
             Polars.NET.Core.Exceptions.ManagedErrorRelay.Capture exn
 
         Func<_, _>(fun (counts: Apache.Arrow.IArrowArray) ->

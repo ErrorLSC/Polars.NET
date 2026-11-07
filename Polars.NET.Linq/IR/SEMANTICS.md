@@ -30,6 +30,10 @@ every value. The frontend uses them for C# `==` / `!=` on nullable operands.
 where the predicate is positive: at the root, under `And` / `Or`, and in conditional branches. With
 `CoreConfig.UseRelationalNulls`, the frontend emits plain SQL comparisons instead.
 
+A comparison lifted to null (a `bool?` result that is null on a null operand) is never emitted by the C#
+compiler; it comes only from VB or hand-built expression trees. The frontend does not translate it, so it is
+evaluated by .NET.
+
 ## Floating-point values
 
 **Engine total order.** IR comparisons over floating values (`Float16`, `Float32`, `Float64`) follow the
@@ -75,6 +79,12 @@ string form carries that scale (2.500, not 2.5), while its value is the same.
 raises). The frontend guards a decimal divisor, because the engine raises. Integer overflow wraps, as unchecked
 .NET arithmetic does.
 
+**Checked sums.** .NET's `Sum` of `int` / `long`, and the `long` sum behind `Average` of `long`, are checked.
+The frontend sums exactly in a wider type (`Int64` for `Int32`, `Decimal(38, 0)` for `Int64`) and asserts the
+range with an `AssertCount` over an overflow flag (`QueryErrorKind.Overflow`). The check is on the total, not on
+each partial sum, so `[int.MaxValue, 1, -1]` sums to `int.MaxValue` here, where LINQ to Objects throws. Without
+assertions, a strict cast fails the query instead (with the engine's error). A decimal sum is not checked.
+
 **Casts.** A non-strict `Cast` between numeric types wraps on overflow, as .NET's unchecked conversion does:
 `(byte)300` is 44, where the engine would give null. A floating value converted to an integer truncates and
 saturates, as .NET does: NaN is 0, and values beyond the range give MinValue / MaxValue. A type narrower
@@ -113,7 +123,7 @@ The flag is always explicit. A backend never chooses it.
 Strict materialization then reports a null that reaches a non-nullable member.
 
 **`AssertCount`.** The only node that raises is `ScalarFunction.AssertCount` (`[count; value]`). It yields
-the value when the count lies in range. Otherwise the query fails with the check's `QueryError`, which the
+the value when the count (any 64-bit integer: a row count, an overflow flag) lies in range. Otherwise the query fails with the check's `QueryError`, which the
 backend surfaces as the matching .NET exception. It has an effect, so it must be evaluated wherever its
 value is used, and never constant-folded. A backend that cannot raise answers
 `IBackendCapabilities.SupportsAssertions = false`. The frontend then evaluates such subqueries at compile
