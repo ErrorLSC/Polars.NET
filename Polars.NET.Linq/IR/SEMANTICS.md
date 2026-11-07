@@ -93,9 +93,10 @@ A decimal sum is not checked.
 
 **Casts.** A non-strict `Cast` between numeric types wraps on overflow, as .NET's unchecked conversion does:
 `(byte)300` is 44, where the engine would give null. A floating value converted to an integer truncates and
-saturates, as .NET does: NaN is 0, and values beyond the range give MinValue / MaxValue. A type narrower
-than `int` is reached through `int` and then wraps, so `(byte)-2.7` is 254. The frontend emits this
-saturation.
+saturates to the target's range for every integer type, as .NET 11 does: NaN is 0, and values beyond the
+range give MinValue / MaxValue, so `(byte)-2.7` is 0 and `(byte)300.5` is 255. On .NET 10 and earlier,
+LINQ to Objects reaches a type narrower than `int` through `int` and wraps (`(byte)-2.7` is 254); the provider
+deliberately follows .NET 11. Integer-to-integer narrowing still wraps. The frontend emits this saturation.
 
 **Date and time.** A `DateTimeOffset` is stored as a UTC instant, so its members read the UTC value: `Offset`
 is zero, and `Hour` and `DateTime` are the UTC hour and time.

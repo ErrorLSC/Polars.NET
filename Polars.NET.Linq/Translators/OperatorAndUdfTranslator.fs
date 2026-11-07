@@ -251,11 +251,12 @@ module internal OperatorAndUdfTranslator =
             ->
             eval ctx operand |> Option.bind (fun x -> translateEnumConvert x operand.Type targetType)
         // .NET converts a floating value to an integer by truncating and saturating: NaN is 0, and values beyond
-        // the range give MinValue / MaxValue (the engine's cast gives null for them). A type narrower than int is
-        // reached through int: saturate to int, then narrow with wraparound ((byte)-2.7 is 254).
+        // the range give MinValue / MaxValue (the engine's cast gives null for them). This holds for every integer
+        // target, including the narrow ones, as in .NET 11 ((byte)-2.7 is 0, (byte)300.5 is 255); .NET 10 and
+        // earlier went through int and wrapped, which the provider deliberately does not follow.
         | ExpressionType.Convert when NaNSemantics.isFloatingClrType operand.Type && isIntegralClrType targetType ->
             let target = match Nullable.GetUnderlyingType targetType with null -> targetType | u -> u
-            let core = if Runtime.InteropServices.Marshal.SizeOf target < 4 then typeof<int> else target
+            let core = target
             let bound (name: string) = core.GetField(name).GetValue(null)
             // The bounds are compared as doubles and produced as the target's own literals (long.MaxValue is not
             // a double, so casting the double bound back would overflow).
@@ -270,7 +271,7 @@ module internal OperatorAndUdfTranslator =
                         ScalarExpr.Conditional(
                             ScalarExpr.Binary(BinaryOp.GtEq, x, asDouble (bound "MaxValue")), asTarget (bound "MaxValue"),
                             ScalarExpr.Conditional(ScalarExpr.Binary(BinaryOp.LtEq, x, asDouble (bound "MinValue")), asTarget (bound "MinValue"), cast)))))
-            |> Option.bind (fun saturated -> if core = target then Some saturated else tryTranslateCast targetType saturated)
+            |> Option.bind (fun saturated -> if targetType = core then Some saturated else tryTranslateCast targetType saturated)
         | ExpressionType.Convert
         | ExpressionType.ConvertChecked ->
             eval ctx operand |> Option.bind (tryTranslateCast targetType)

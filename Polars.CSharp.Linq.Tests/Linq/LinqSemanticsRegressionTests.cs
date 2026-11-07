@@ -1103,6 +1103,17 @@ public class LinqSemanticsRegressionTests
         Assert.Equal(FzRows.Select(x => (long)x.D), q.Select(x => (long)x.D).ToList());
         Assert.Equal(FzRows.Select(x => (byte)x.D), q.Select(x => (byte)x.D).ToList());
         Assert.Equal(FzRows.Select(x => (short)x.D), q.Select(x => (short)x.D).ToList());
+        // Literal expectations (NaN, 2.5, +Inf, -Inf, -2.7), .NET 11 saturating semantics, runtime-independent.
+        Assert.Equal(new sbyte[] { 0, 2, sbyte.MaxValue, sbyte.MinValue, -2 }, q.Select(x => (sbyte)x.D).ToList());
+        Assert.Equal(new byte[] { 0, 2, byte.MaxValue, 0, 0 }, q.Select(x => (byte)x.D).ToList());
+        Assert.Equal(new short[] { 0, 2, short.MaxValue, short.MinValue, -2 }, q.Select(x => (short)x.D).ToList());
+        Assert.Equal(new ushort[] { 0, 2, ushort.MaxValue, 0, 0 }, q.Select(x => (ushort)x.D).ToList());
+        Assert.Equal(new uint[] { 0, 2, uint.MaxValue, 0, 0 }, q.Select(x => (uint)x.D).ToList());
+        Assert.Equal(new ulong[] { 0, 2, ulong.MaxValue, 0, 0 }, q.Select(x => (ulong)x.D).ToList());
+        Assert.Equal(new long[] { 0, 2, long.MaxValue, long.MinValue, -2 }, q.Select(x => (long)x.D).ToList());
+        // Finite values beyond the narrow range (I * 100.5 = 703.5, -703.5, 0, 301.5, -100.5).
+        Assert.Equal(new byte[] { 255, 0, 0, 255, 0 }, q.Select(x => (byte)(x.I * 100.5)).ToList());
+        Assert.Equal(new sbyte[] { sbyte.MaxValue, sbyte.MinValue, 0, sbyte.MaxValue, -100 }, q.Select(x => (sbyte)(x.I * 100.5)).ToList());
         // Unchecked integer narrowing wraps.
         Assert.Equal(FzRows.Select(x => (byte)(x.I * 100)), q.Select(x => (byte)(x.I * 100)).ToList());
         Assert.Equal(FzRows.Select(x => (sbyte)(x.I * 100)), q.Select(x => (sbyte)(x.I * 100)).ToList());

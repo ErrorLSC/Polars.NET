@@ -541,8 +541,10 @@ For `double`, `float` and `Half`:
   throws `OverflowException`. The check is on the total, so a sum whose partial sums overflow but whose total
   fits (`[int.MaxValue, 1, -1]`) returns the total. `decimal` sums are not checked.
 * Other integer overflow wraps around, as in unchecked C#, and so does a narrowing cast (`(byte)300 == 44`). A
-  floating value cast to an integer saturates, as in .NET: `(int)double.NaN == 0`, and
-  `(int)double.PositiveInfinity == int.MaxValue`.
+  floating value cast to an integer saturates to the target's range for every integer type, following
+  .NET 11: `(int)double.NaN == 0`, `(int)double.PositiveInfinity == int.MaxValue`, `(byte)-2.7 == 0` and
+  `(byte)300.5 == 255`. On .NET 10 and earlier, LINQ to Objects wraps for targets narrower than `int`
+  (`(byte)-2.7 == 254`); the provider deliberately follows .NET 11 on every runtime.
 * `decimal` values are fixed-point in Polars. A decimal division keeps 18 fractional digits (C# keeps up to 28
   significant digits), and a value carries its column's scale, so `ToString()` may print `2.500` for `2.5m`.
 

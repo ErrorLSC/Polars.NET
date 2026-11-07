@@ -648,13 +648,13 @@ public class LinqNet11OperatorTests
 
         var expected = ParityDepts
             .GroupJoin(ParityPersons, d => d.Id, p => p.DeptId)
-            .Select(g => new { g.Key.Id, g.Key.DeptName, Count = g.Count(), SumPersonId = g.Sum(p => p.Id) })
+            .Select(g => new { g.Key.Id, g.Key.DeptName, Count = g.Count(), MaxPersonId = g.Select(p => p.Id).DefaultIfEmpty().Max() })
             .OrderBy(r => r.Id)
             .ToList();
 
         var actual = dfDept.AsQueryable(ParityDepts)
             .GroupJoin(dfPerson.AsQueryable(ParityPersons), d => d.Id, p => p.DeptId)
-            .Select(g => new { g.Key.Id, g.Key.DeptName, Count = g.Count(), SumPersonId = g.Sum(p => p.Id) })
+            .Select(g => new { g.Key.Id, g.Key.DeptName, Count = g.Count(), MaxPersonId = g.Select(p => p.Id).DefaultIfEmpty().Max() })
             .OrderBy(r => r.Id)
             .ToList();
 
