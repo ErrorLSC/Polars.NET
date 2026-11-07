@@ -61,9 +61,19 @@ module internal ListTranslator =
             unwrapSpanOrArray inner
         | other -> other
 
+    /// A dictionary is enumerable but keyed: `d[k]` and `d.Count` are not list operations.
+    let internal isDictionary (t: Type) =
+        typeof<System.Collections.IDictionary>.IsAssignableFrom t
+        || (t :: List.ofArray (t.GetInterfaces()))
+           |> List.exists (fun i ->
+               i.IsGenericType
+               && (i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>
+                   || i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IReadOnlyDictionary<_, _>>))
+
     let private isListContainer (t: Type) =
         t <> typeof<string>
         && not (typeof<System.Text.RegularExpressions.MatchCollection>.IsAssignableFrom t)
+        && not (isDictionary t)
         && (t.IsArray || typeof<System.Collections.IEnumerable>.IsAssignableFrom t)
 
     /// Pattern matching indexed string split: target.Split(sep)[idx]

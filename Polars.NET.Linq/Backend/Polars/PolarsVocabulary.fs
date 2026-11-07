@@ -15,6 +15,8 @@ module internal PolarsVocabulary =
         match t with
         | LogicalType.Arrow arrowType -> PolarsWrapper.MapArrowToDataTypeHandle arrowType
         | LogicalType.ListOf element -> PolarsWrapper.NewListType(toDataTypeHandle element)
+        | LogicalType.StructOf fields ->
+            PolarsWrapper.NewStructType(fields |> List.map fst |> Array.ofList, fields |> List.map (snd >> toDataTypeHandle) |> Array.ofList)
         | LogicalType.Unknown -> PolarsWrapper.NewPrimitiveType(int PlDataType.Unknown)
         | LogicalType.Enum categories ->
             use frozen = PolarsWrapper.FrozenCategoriesNew(Array.ofList categories)
@@ -22,12 +24,60 @@ module internal PolarsVocabulary =
 
     /// The logical type of a native Polars data type: Enum types with their categories, every other type
     /// through its Arrow export, and Unknown for a type Arrow cannot express.
+    /// The categories Polars records in the metadata of a nested Enum field: each one prefixed with its UTF-8
+    /// byte length and ';'.
+    let private tryEnumCategories (field: Apache.Arrow.Field) : string list option =
+        match field.Metadata with
+        | null -> None
+        | metadata ->
+            match metadata.TryGetValue EnumCategories.PolarsEnumMetadataKey with
+            | true, encoded ->
+                let bytes = Text.Encoding.UTF8.GetBytes(encoded: string)
+                let rec read pos acc =
+                    if pos >= bytes.Length then
+                        List.rev acc
+                    else
+                        let sep = Array.IndexOf(bytes, byte ';', pos)
+                        let len = int (Text.Encoding.ASCII.GetString(bytes, pos, sep - pos))
+                        read (sep + 1 + len) (Text.Encoding.UTF8.GetString(bytes, sep + 1, len) :: acc)
+                Some(read 0 [])
+            | _ -> None
+
+    let rec private hasEnum (t: LogicalType) =
+        match t with
+        | LogicalType.Enum _ -> true
+        | LogicalType.ListOf element -> hasEnum element
+        | LogicalType.StructOf fields -> fields |> List.exists (snd >> hasEnum)
+        | _ -> false
+
+    /// An Arrow export as an IR type: an Enum nested in a list or struct (field metadata in Arrow) becomes
+    /// ListOf / StructOf of LogicalType.Enum; any other type stays Arrow.
+    let rec private ofArrowType (t: Apache.Arrow.Types.IArrowType) : LogicalType =
+        let nested =
+            match t with
+            | :? Apache.Arrow.Types.StructType as st ->
+                let fields = st.Fields |> Seq.map (fun f -> f.Name, ofArrowField f) |> List.ofSeq
+                if fields |> List.exists (snd >> hasEnum) then Some(LogicalType.StructOf fields) else None
+            | :? Apache.Arrow.Types.ListType as lt ->
+                let element = ofArrowField lt.ValueField
+                if hasEnum element then Some(LogicalType.ListOf element) else None
+            | :? Apache.Arrow.Types.LargeListType as lt ->
+                let element = ofArrowField lt.ValueField
+                if hasEnum element then Some(LogicalType.ListOf element) else None
+            | _ -> None
+        nested |> Option.defaultValue (LogicalType.Arrow t)
+
+    and private ofArrowField (field: Apache.Arrow.Field) : LogicalType =
+        match tryEnumCategories field with
+        | Some categories -> LogicalType.Enum categories
+        | None -> ofArrowType field.DataType
+
     let ofDataTypeHandle (dataType: DataTypeHandle) : LogicalType =
         match PolarsWrapper.GetDataTypeKind dataType with
         | PlDataType.Enum -> LogicalType.Enum(List.ofArray (PolarsSchemaExtractor.GetEnumCategories dataType))
         | _ ->
             try
-                LogicalType.Arrow(Polars.NET.Core.Arrow.ArrowFfiBridge.ImportDataType dataType)
+                ofArrowType (Polars.NET.Core.Arrow.ArrowFfiBridge.ImportDataType dataType)
             with
             | :? NotSupportedException
             | :? ArgumentException

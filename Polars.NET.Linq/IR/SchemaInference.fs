@@ -88,6 +88,22 @@ module internal SchemaInference =
                     match args with
                     | [ _; value ] -> inferScalarType schema value
                     | _ -> LogicalType.Unknown
+                // A struct field and a list element take their declared type (an Enum nested in a column).
+                | ScalarFunction.StructFieldByName ->
+                    match args with
+                    | [ parent; ScalarExpr.Literal(LiteralValue.String name) ] ->
+                        match inferScalarType schema parent with
+                        | LogicalType.StructOf fields ->
+                            fields |> List.tryFind (fst >> (=) name) |> Option.map snd |> Option.defaultValue LogicalType.Unknown
+                        | _ -> LogicalType.Unknown
+                    | _ -> LogicalType.Unknown
+                | ScalarFunction.ListGet ->
+                    match args with
+                    | list :: _ ->
+                        match inferScalarType schema list with
+                        | LogicalType.ListOf element -> element
+                        | _ -> LogicalType.Unknown
+                    | [] -> LogicalType.Unknown
                 | _ -> returnType
 
         | ScalarExpr.Aggregation(kind, innerOpt, _) ->
@@ -119,7 +135,10 @@ module internal SchemaInference =
             | first :: _ -> inferScalarType schema first
             | [] -> LogicalType.Unknown
 
-        | ScalarExpr.ItemAccess _ -> LogicalType.Unknown
+        | ScalarExpr.ItemAccess(target, _) ->
+            match inferScalarType schema target with
+            | LogicalType.ListOf element -> element
+            | _ -> LogicalType.Unknown
         | ScalarExpr.Slice _ -> LogicalType.Unknown
 
         | ScalarExpr.Subquery(_, kind) ->

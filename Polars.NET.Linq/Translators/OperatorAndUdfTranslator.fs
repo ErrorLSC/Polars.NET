@@ -245,6 +245,25 @@ module internal OperatorAndUdfTranslator =
         let lambda = Expression.Lambda<Func<obj[], obj>>(boxedBody, inArrayParam)
         lambda.Compile()
 
+    /// The row-dependent inputs a UDF over `a` reads. A value that cannot travel through a column (a dictionary)
+    /// is not an input itself: the UDF computes it, from the inputs found beneath it.
+    let rec private udfInputs (ctx: TranslationContext) (a: Expression) : Expression list =
+        if isNull a || not (exprDependsOnContext ctx a) then
+            []
+        elif not (ListTranslator.isDictionary a.Type) then
+            [ a ]
+        else
+            let children: Expression list =
+                match a with
+                | :? MethodCallExpression as mc -> (if isNull mc.Object then [] else [ mc.Object ]) @ List.ofSeq mc.Arguments
+                | :? InvocationExpression as inv -> inv.Expression :: List.ofSeq inv.Arguments
+                | :? MemberExpression as m -> [ m.Expression ]
+                | :? UnaryExpression as u -> [ u.Operand ]
+                | :? ConditionalExpression as c -> [ c.Test; c.IfTrue; c.IfFalse ]
+                | :? BinaryExpression as b -> [ b.Left; b.Right ]
+                | _ -> []
+            if children.IsEmpty then [ a ] else children |> List.collect (udfInputs ctx)
+
     let internal tryTranslateUdfInvocation (eval: ScalarExprEvaluator) (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
         try
             if CoreConfig.DisallowUdfPushdown || isNull expr || expr.Type = typeof<System.Void> then
@@ -278,7 +297,8 @@ module internal OperatorAndUdfTranslator =
                     // Collect all argument expressions that depend on the row context
                     let dependentArgs =
                         rawArgs
-                        |> List.filter (exprDependsOnContext ctx)
+                        |> List.collect (udfInputs ctx)
+                        |> List.distinct // Expression equality is reference equality
 
                     // Every dependent argument must be translatable to a symbolic ScalarExpr
                     let translatedDependentArgs =

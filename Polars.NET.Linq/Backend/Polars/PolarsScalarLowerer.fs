@@ -444,7 +444,8 @@ module internal PolarsScalarLowerer =
             | ScalarFunction.ListMin, [ a ] -> PolarsWrapper.ListMin(lower a)
             | ScalarFunction.ListMax, [ a ] -> PolarsWrapper.ListMax(lower a)
             | ScalarFunction.ListJoin, [ a; ScalarExpr.Literal(LiteralValue.String sep) ] ->
-                let emptyForNull = PolarsWrapper.FillNull(PolarsWrapper.Col(""), PolarsWrapper.Lit "")
+                // Elements join as their string form (an Enum as its name), a null as "".
+                let emptyForNull = lowerConcatItem (ScalarExpr.Column "")
                 PolarsWrapper.ListJoin(PolarsWrapper.ListEval(lower a, emptyForNull), sep, ignoreNulls = false)
             | ScalarFunction.ListHead, [ a; c ] -> PolarsWrapper.ListHead(lower a, lower c)
             | ScalarFunction.ListTail, [ a; c ] -> PolarsWrapper.ListTail(lower a, lower c)

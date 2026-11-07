@@ -49,6 +49,8 @@ type LogicalType =
     | Unknown
     | Arrow of arrowType: IArrowType
     | ListOf of element: LogicalType
+    /// A struct whose fields need IR types Arrow cannot carry (an Enum at some depth); other structs stay Arrow.
+    | StructOf of fields: (string * LogicalType) list
     /// Values drawn from `categories`, ordered as listed (Arrow carries the categories only as field metadata,
     /// so they get their own case).
     | Enum of categories: string list
@@ -59,6 +61,8 @@ type LogicalType =
         | Unknown -> "Unknown"
         | Arrow t -> ArrowTypeKey.ofArrow t
         | ListOf element -> sprintf "List<%s>" element.Display
+        | StructOf fields ->
+            fields |> List.map (fun (n, t) -> sprintf "%d:%s: %s" n.Length n t.Display) |> String.concat ", " |> sprintf "Struct<%s>"
         | Enum categories ->
             // Length-prefixed so that categories containing the separator stay distinguishable.
             categories
