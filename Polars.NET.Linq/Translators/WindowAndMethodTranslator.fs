@@ -277,14 +277,22 @@ module internal WindowAndMethodTranslator =
 
             match translateList partitionExprs, translateList orderExprs with
             | Some pExprs, Some oExprs when pExprs.Length > 0 || oExprs.Length > 0 ->
+                // A floating key orders NaN as .NET does (NaNSemantics.sortOrders).
                 let orderings =
-                    oExprs
-                    |> List.map (fun e ->
-                        {
-                            SortOrder.Expr = e
-                            Descending = isDescending
-                            NullsLast = false
-                        })
+                    List.zip orderExprs oExprs
+                    |> List.collect (fun (clrExpr, e) ->
+                        let keyType =
+                            match clrExpr with
+                            | :? LambdaExpression as lam -> lam.Body.Type
+                            | other -> other.Type
+                        NaNSemantics.sortOrders keyType { SortOrder.Expr = e; Descending = isDescending; NullsLast = false })
+                    // A window's order keys form a struct, so each needs its own name (the NaN key is named after
+                    // its key otherwise).
+                    |> List.mapi (fun i o ->
+                        match o.Expr with
+                        | ScalarExpr.Unary(UnaryOp.Not, ScalarExpr.Unary(UnaryOp.IsNan, _)) ->
+                            { o with Expr = ScalarExpr.Alias(o.Expr, $"__nan_order_{i}") }
+                        | _ -> o)
                 Some(ScalarExpr.Window(targetS, pExprs, orderings))
             | _ -> None
 

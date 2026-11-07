@@ -78,7 +78,7 @@ public class ColumnAccessorTests
     [InlineData(TimeUnit.Microsecond, null)]
     [InlineData(TimeUnit.Nanosecond, null)]
     [InlineData(TimeUnit.Microsecond, "UTC")]
-    public void Timestamp_Sliced_WithNulls(TimeUnit unit, string? tz)
+    public void Timestamp_Sliced_WithNulls(TimeUnit unit, string tz)
     {
         var type = new TimestampType(unit, tz);
         var b = new TimestampArray.Builder(type);

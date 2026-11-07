@@ -47,7 +47,7 @@ public class LinqSemanticsRegressionTests
                        select new { a.K, xv = x == null ? (long?)null : x.V };
 
         Assert.False(IsFullFallback(query));
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class LinqSemanticsRegressionTests
                        select new { a.K, z = new string('a', (int)b.V % 5), w = Tuple.Create(b.V).Item1 };
 
         Assert.False(IsFullFallback(query));
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     [Fact]
@@ -154,7 +154,7 @@ public class LinqSemanticsRegressionTests
         var query = l.AsQueryable<Kv>().ExceptBy(r.AsQueryable<Kv>().Select(x => x.K), x => x.K).Select(x => new { x.K, x.V });
         var expected = Dupes.ExceptBy(Keys.Select(x => x.K), x => x.K).Select(x => new { x.K, x.V });
 
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     [Fact]
@@ -164,7 +164,7 @@ public class LinqSemanticsRegressionTests
         var query = l.AsQueryable<Kv>().ExceptBy(new long[] { 2 }, x => x.K).Select(x => new { x.K, x.V });
         var expected = Dupes.ExceptBy(new long[] { 2 }, x => x.K).Select(x => new { x.K, x.V });
 
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     [Fact]
@@ -175,7 +175,7 @@ public class LinqSemanticsRegressionTests
         var query = l.AsQueryable<Kv>().IntersectBy(r.AsQueryable<Kv>().Select(x => x.K), x => x.K).Select(x => new { x.K, x.V });
         var expected = Dupes.IntersectBy(Keys.Select(x => x.K), x => x.K).Select(x => new { x.K, x.V });
 
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     [Fact]
@@ -188,8 +188,8 @@ public class LinqSemanticsRegressionTests
         var qa = dfA.AsQueryable<Kv>().Select(x => x.V);
         var qb = dfB.AsQueryable<Kv>().Select(x => x.V);
 
-        Assert.Equal(a.Except(b), qa.Except(qb).ToList());
-        Assert.Equal(a.Intersect(b), qa.Intersect(qb).ToList());
+        Assert.Equal(a.Except(b), [.. qa.Except(qb)]);
+        Assert.Equal(a.Intersect(b), [.. qa.Intersect(qb)]);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -262,7 +262,7 @@ public class LinqSemanticsRegressionTests
                        orderby s, g.Key
                        select new { k = g.Key, s };
 
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -281,7 +281,7 @@ public class LinqSemanticsRegressionTests
                        orderby x.V == null descending, x.V descending, x.K
                        select new { x.K, x.V };
 
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     [Fact]
@@ -340,7 +340,7 @@ public class LinqSemanticsRegressionTests
         var expected = Facts.Where(x => x.V > Others.Average(y => (double)y.V) * 0.5).Select(x => new { x.K, x.V });
 
         AssertScalarIsPlanned(query);
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     [Fact]
@@ -357,7 +357,7 @@ public class LinqSemanticsRegressionTests
             .Select(x => new { x.K, x.V });
 
         AssertScalarIsPlanned(query);
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     [Fact]
@@ -395,7 +395,7 @@ public class LinqSemanticsRegressionTests
                        select new { k = g.Key, total };
 
         AssertScalarIsPlanned(query);
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -406,8 +406,8 @@ public class LinqSemanticsRegressionTests
     public class Ab
     {
         public long Id { get; set; }
-        public string? A { get; set; }
-        public string? B { get; set; }
+        public string A { get; set; }
+        public string B { get; set; }
     }
 
     private static readonly Ab[] Pairs =
@@ -424,19 +424,19 @@ public class LinqSemanticsRegressionTests
         var ne = df.AsQueryable<Ab>().Where(x => x.A != x.B).Select(x => x.Id);
         var proj = df.AsQueryable<Ab>().Select(x => new { x.Id, same = x.A == x.B });
 
-        Assert.Equal(Pairs.Where(x => x.A == x.B).Select(x => x.Id), eq.ToList());
-        Assert.Equal(Pairs.Where(x => x.A != x.B).Select(x => x.Id), ne.ToList());
-        Assert.Equal(Pairs.Select(x => new { x.Id, same = x.A == x.B }), proj.ToList());
+        Assert.Equal(Pairs.Where(x => x.A == x.B).Select(x => x.Id), [.. eq]);
+        Assert.Equal(Pairs.Where(x => x.A != x.B).Select(x => x.Id), [.. ne]);
+        Assert.Equal(Pairs.Select(x => new { x.Id, same = x.A == x.B }), [.. proj]);
     }
 
     [Fact]
     public void Equality_With_A_Captured_Null_Is_A_Null_Check()
     {
         using var df = DataFrame.From(Pairs);
-        string? missing = null;
+        string missing = null;
         var query = df.AsQueryable<Ab>().Where(x => x.A == missing).Select(x => x.Id);
 
-        Assert.Equal(Pairs.Where(x => x.A == missing).Select(x => x.Id), query.ToList());
+        Assert.Equal(Pairs.Where(x => x.A == missing).Select(x => x.Id), [.. query]);
     }
 
     [Fact]
@@ -449,7 +449,7 @@ public class LinqSemanticsRegressionTests
         var expected = Pairs.Where(x => Pairs.Any(y => y.B == x.A && y.Id != x.Id)).Select(x => x.Id);
 
         Assert.False(IsFullFallback(query));
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     [Fact]
@@ -482,7 +482,7 @@ public class LinqSemanticsRegressionTests
         var query = df.AsQueryable<KnV>().Select(x => new { x.K, gt = x.V > 15, le = x.V <= 15, notGt = !(x.V > 15), eq = x.V == 10 });
         var expected = Nullables.Select(x => new { x.K, gt = x.V > 15, le = x.V <= 15, notGt = !(x.V > 15), eq = x.V == 10 });
 
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     [Fact]
@@ -493,9 +493,9 @@ public class LinqSemanticsRegressionTests
         var notEq = df.AsQueryable<KnV>().Where(x => x.V != 10).Select(x => x.K);
         var notEqNeg = df.AsQueryable<KnV>().Where(x => !(x.V == 10)).Select(x => x.K);
 
-        Assert.Equal(Nullables.Where(x => !(x.V > 15)).Select(x => x.K), notGt.ToList());
-        Assert.Equal(Nullables.Where(x => x.V != 10).Select(x => x.K), notEq.ToList());
-        Assert.Equal(Nullables.Where(x => !(x.V == 10)).Select(x => x.K), notEqNeg.ToList());
+        Assert.Equal(Nullables.Where(x => !(x.V > 15)).Select(x => x.K), [.. notGt]);
+        Assert.Equal(Nullables.Where(x => x.V != 10).Select(x => x.K), [.. notEq]);
+        Assert.Equal(Nullables.Where(x => !(x.V == 10)).Select(x => x.K), [.. notEqNeg]);
     }
 
     [Fact]
@@ -517,7 +517,7 @@ public class LinqSemanticsRegressionTests
 
         Assert.DoesNotContain("COALESCE", plan);
         Assert.DoesNotContain("<=>", plan);
-        Assert.Equal(Nullables.Where(x => x.V > 5 && (x.V == 10 || x.V >= 30)).Select(x => x.K), query.ToList());
+        Assert.Equal(Nullables.Where(x => x.V > 5 && (x.V == 10 || x.V >= 30)).Select(x => x.K), [.. query]);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -541,9 +541,9 @@ public class LinqSemanticsRegressionTests
         Assert.False(IsFullFallback(any));
         Assert.False(IsFullFallback(notAny));
         Assert.False(IsFullFallback(withTheta));
-        Assert.Equal(Outer.Where(x => Right.Any(y => y.K == x.K && x.V != null)).Select(x => new { x.K, x.V }), any.ToList());
-        Assert.Equal(Outer.Where(x => !Right.Any(y => y.K == x.K && x.V != null)).Select(x => new { x.K, x.V }), notAny.ToList());
-        Assert.Equal(Outer.Where(x => Right.Any(y => y.K == x.K && y.V > x.V && x.V > 6)).Select(x => new { x.K, x.V }), withTheta.ToList());
+        Assert.Equal(Outer.Where(x => Right.Any(y => y.K == x.K && x.V != null)).Select(x => new { x.K, x.V }), [.. any]);
+        Assert.Equal(Outer.Where(x => !Right.Any(y => y.K == x.K && x.V != null)).Select(x => new { x.K, x.V }), [.. notAny]);
+        Assert.Equal(Outer.Where(x => Right.Any(y => y.K == x.K && y.V > x.V && x.V > 6)).Select(x => new { x.K, x.V }), [.. withTheta]);
     }
 
     [Fact]
@@ -556,7 +556,7 @@ public class LinqSemanticsRegressionTests
         var expected = Outer.Select(x => new { x.K, x.V, n = Right.Count(y => y.K == x.K && x.V != null) });
 
         Assert.False(IsFullFallback(query));
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -567,10 +567,10 @@ public class LinqSemanticsRegressionTests
     public class Strs
     {
         public long Id { get; set; }
-        public string? A { get; set; }
-        public string? B { get; set; }
+        public string A { get; set; }
+        public string B { get; set; }
         public long? N { get; set; }
-        public List<string?> Tags { get; set; } = [];
+        public List<string> Tags { get; set; } = [];
     }
 
     private static readonly Strs[] StrRows =
@@ -605,21 +605,21 @@ public class LinqSemanticsRegressionTests
             joinList = string.Join(",", x.Tags),
         });
 
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     [Fact]
     public void Contains_Over_A_Collection_Matches_Null_To_Null()
     {
         using var df = DataFrame.From(StrRows);
-        string?[] withNull = ["x", null];
-        string?[] withoutNull = ["x"];
+        string[] withNull = ["x", null];
+        string[] withoutNull = ["x"];
         var q = df.AsQueryable<Strs>();
 
-        Assert.Equal(StrRows.Where(x => withNull.Contains(x.A)).Select(x => x.Id), q.Where(x => withNull.Contains(x.A)).Select(x => x.Id).ToList());
-        Assert.Equal(StrRows.Where(x => !withNull.Contains(x.A)).Select(x => x.Id), q.Where(x => !withNull.Contains(x.A)).Select(x => x.Id).ToList());
-        Assert.Equal(StrRows.Where(x => !withoutNull.Contains(x.A)).Select(x => x.Id), q.Where(x => !withoutNull.Contains(x.A)).Select(x => x.Id).ToList());
-        Assert.Equal(StrRows.Select(x => x.Tags.Contains(null)), q.Select(x => x.Tags.Contains(null)).ToList());
+        Assert.Equal(StrRows.Where(x => withNull.Contains(x.A)).Select(x => x.Id), [.. q.Where(x => withNull.Contains(x.A)).Select(x => x.Id)]);
+        Assert.Equal(StrRows.Where(x => !withNull.Contains(x.A)).Select(x => x.Id), [.. q.Where(x => !withNull.Contains(x.A)).Select(x => x.Id)]);
+        Assert.Equal(StrRows.Where(x => !withoutNull.Contains(x.A)).Select(x => x.Id), [.. q.Where(x => !withoutNull.Contains(x.A)).Select(x => x.Id)]);
+        Assert.Equal(StrRows.Select(x => x.Tags.Contains(null)), [.. q.Select(x => x.Tags.Contains(null))]);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -627,7 +627,7 @@ public class LinqSemanticsRegressionTests
     // while the query runs (not while it compiles), and OrDefault yields default(T).
     // ---------------------------------------------------------------------------------------------
 
-    private static Exception? Caught(Action action)
+    private static Exception Caught(Action action)
     {
         try { action(); return null; }
         catch (Exception e) { return e; }
@@ -656,9 +656,9 @@ public class LinqSemanticsRegressionTests
         AssertScalarIsPlanned(single);
         AssertScalarIsPlanned(first);
         AssertScalarIsPlanned(elementAt);
-        Assert.Equal(Facts.Where(x => x.V > Others.Single(y => y.K == 8).V).Select(x => x.K), single.ToList());
-        Assert.Equal(Facts.Where(x => x.V < Others.OrderBy(y => y.V).First().V).Select(x => x.K), first.ToList());
-        Assert.Equal(Facts.Where(x => x.V < Others.Select(y => y.V).ElementAt(1)).Select(x => x.K), elementAt.ToList());
+        Assert.Equal(Facts.Where(x => x.V > Others.Single(y => y.K == 8).V).Select(x => x.K), [.. single]);
+        Assert.Equal(Facts.Where(x => x.V < Others.OrderBy(y => y.V).First().V).Select(x => x.K), [.. first]);
+        Assert.Equal(Facts.Where(x => x.V < Others.Select(y => y.V).ElementAt(1)).Select(x => x.K), [.. elementAt]);
     }
 
     [Fact]
@@ -700,9 +700,9 @@ public class LinqSemanticsRegressionTests
         var elementAt = q.Where(x => x.V > others.Select(y => y.V).ElementAtOrDefault(7)).Select(x => x.K);
 
         AssertScalarIsPlanned(first);
-        Assert.Equal(Facts.Where(x => x.V > Others.Where(y => y.K == 99).Select(y => y.V).FirstOrDefault()).Select(x => x.K), first.ToList());
-        Assert.Equal(Facts.Where(x => x.V > Others.Where(y => y.K == 99).Select(y => y.V).SingleOrDefault()).Select(x => x.K), single.ToList());
-        Assert.Equal(Facts.Where(x => x.V > Others.Select(y => y.V).ElementAtOrDefault(7)).Select(x => x.K), elementAt.ToList());
+        Assert.Equal(Facts.Where(x => x.V > Others.Where(y => y.K == 99).Select(y => y.V).FirstOrDefault()).Select(x => x.K), [.. first]);
+        Assert.Equal(Facts.Where(x => x.V > Others.Where(y => y.K == 99).Select(y => y.V).SingleOrDefault()).Select(x => x.K), [.. single]);
+        Assert.Equal(Facts.Where(x => x.V > Others.Select(y => y.V).ElementAtOrDefault(7)).Select(x => x.K), [.. elementAt]);
     }
 
     [Fact]
@@ -722,10 +722,10 @@ public class LinqSemanticsRegressionTests
 
         AssertScalarIsPlanned(last);
         AssertScalarIsPlanned(lastGroup);
-        Assert.Equal(Facts.Where(x => x.V < Others.Last().V).Select(x => x.K), last.ToList());
-        Assert.Equal(Facts.Where(x => x.V > Others.Last(y => y.V < 100).V).Select(x => x.K), lastMatching.ToList());
-        Assert.Equal(Facts.Where(x => x.K == Others.GroupBy(y => y.K - 5).Select(g => g.Key).Last()).Select(x => x.K), lastGroup.ToList());
-        Assert.Equal(Facts.Where(x => x.V > Others.Where(y => y.K == 99).Select(y => y.V).LastOrDefault()).Select(x => x.K), orDefault.ToList());
+        Assert.Equal(Facts.Where(x => x.V < Others.Last().V).Select(x => x.K), [.. last]);
+        Assert.Equal(Facts.Where(x => x.V > Others.Last(y => y.V < 100).V).Select(x => x.K), [.. lastMatching]);
+        Assert.Equal(Facts.Where(x => x.K == Others.GroupBy(y => y.K - 5).Select(g => g.Key).Last()).Select(x => x.K), [.. lastGroup]);
+        Assert.Equal(Facts.Where(x => x.V > Others.Where(y => y.K == 99).Select(y => y.V).LastOrDefault()).Select(x => x.K), [.. orDefault]);
         AssertSameFailure(() => Facts.Where(x => x.V > Others.Last(y => y.K == 99).V).ToList(), () => none.ToList());
     }
 
@@ -771,10 +771,10 @@ public class LinqSemanticsRegressionTests
             fGt = x.F > 1f, fLe = x.F <= 1f, hGt = x.H > (Half)1, hEq = x.H == x.H,
         });
 
-        Assert.Equal(expected, query.ToList());
-        Assert.Equal(FloatRows.Where(x => x.D > 5.0).Select(x => x.Id), df.AsQueryable<Floats>().Where(x => x.D > 5.0).Select(x => x.Id).ToList());
-        Assert.Equal(FloatRows.Where(x => x.D != x.E).Select(x => x.Id), df.AsQueryable<Floats>().Where(x => x.D != x.E).Select(x => x.Id).ToList());
-        Assert.Equal(FloatRows.Where(x => x.H > (Half)1).Select(x => x.Id), df.AsQueryable<Floats>().Where(x => x.H > (Half)1).Select(x => x.Id).ToList());
+        Assert.Equal(expected, [.. query]);
+        Assert.Equal(FloatRows.Where(x => x.D > 5.0).Select(x => x.Id), [.. df.AsQueryable<Floats>().Where(x => x.D > 5.0).Select(x => x.Id)]);
+        Assert.Equal(FloatRows.Where(x => x.D != x.E).Select(x => x.Id), [.. df.AsQueryable<Floats>().Where(x => x.D != x.E).Select(x => x.Id)]);
+        Assert.Equal(FloatRows.Where(x => x.H > (Half)1).Select(x => x.Id), [.. df.AsQueryable<Floats>().Where(x => x.H > (Half)1).Select(x => x.Id)]);
     }
 
     [Fact]
@@ -783,13 +783,13 @@ public class LinqSemanticsRegressionTests
         using var df = DataFrame.From(FloatRows);
         var q = df.AsQueryable<Floats>();
 
-        Assert.Equal(FloatRows.OrderBy(x => x.D).ThenBy(x => x.Id).Select(x => x.Id), q.OrderBy(x => x.D).ThenBy(x => x.Id).Select(x => x.Id).ToList());
-        Assert.Equal(FloatRows.OrderByDescending(x => x.D).ThenBy(x => x.Id).Select(x => x.Id), q.OrderByDescending(x => x.D).ThenBy(x => x.Id).Select(x => x.Id).ToList());
-        Assert.Equal(FloatRows.OrderBy(x => x.F).Select(x => x.Id), q.OrderBy(x => x.F).Select(x => x.Id).ToList());
-        Assert.Equal(FloatRows.OrderByDescending(x => x.H).Select(x => x.Id), q.OrderByDescending(x => x.H).Select(x => x.Id).ToList());
+        Assert.Equal(FloatRows.OrderBy(x => x.D).ThenBy(x => x.Id).Select(x => x.Id), [.. q.OrderBy(x => x.D).ThenBy(x => x.Id).Select(x => x.Id)]);
+        Assert.Equal(FloatRows.OrderByDescending(x => x.D).ThenBy(x => x.Id).Select(x => x.Id), [.. q.OrderByDescending(x => x.D).ThenBy(x => x.Id).Select(x => x.Id)]);
+        Assert.Equal(FloatRows.OrderBy(x => x.F).Select(x => x.Id), [.. q.OrderBy(x => x.F).Select(x => x.Id)]);
+        Assert.Equal(FloatRows.OrderByDescending(x => x.H).Select(x => x.Id), [.. q.OrderByDescending(x => x.H).Select(x => x.Id)]);
         Assert.Equal(
             FloatRows.GroupBy(x => x.D).Select(g => new { g.Key, n = g.Count() }).OrderBy(r => r.Key),
-            q.GroupBy(x => x.D).Select(g => new { g.Key, n = g.Count() }).OrderBy(r => r.Key).ToList());
+            [.. q.GroupBy(x => x.D).Select(g => new { g.Key, n = g.Count() }).OrderBy(r => r.Key)]);
     }
 
     [Fact]
@@ -803,6 +803,52 @@ public class LinqSemanticsRegressionTests
         Assert.Equal(FloatRows.Where(x => x.Id > 2).Min(x => x.D), q.Where(x => x.Id > 2).Min(x => x.D));
         Assert.Equal(
             FloatRows.GroupBy(x => x.Id % 2).Select(g => new { g.Key, min = g.Min(x => x.F), max = g.Max(x => x.F) }).OrderBy(r => r.Key),
-            q.GroupBy(x => x.Id % 2).Select(g => new { g.Key, min = g.Min(x => x.F), max = g.Max(x => x.F) }).OrderBy(r => r.Key).ToList());
+            [.. q.GroupBy(x => x.Id % 2).Select(g => new { g.Key, min = g.Min(x => x.F), max = g.Max(x => x.F) }).OrderBy(r => r.Key)]);
+    }
+
+    [Fact]
+    public void Group_Sequence_Ordering_Places_Null_And_NaN_As_Linq()
+    {
+        using var df = DataFrame.From(FloatRows);
+        var query = df.AsQueryable<Floats>().GroupBy(x => x.Id % 2).Select(g => new
+        {
+            g.Key,
+            asc = g.OrderBy(x => x.D).Select(x => x.Id).First(),
+            desc = g.OrderByDescending(x => x.D).Select(x => x.Id).First(),
+            lowest = g.Select(x => x.F).Order().First(),
+        }).OrderBy(r => r.Key);
+        var expected = FloatRows.GroupBy(x => x.Id % 2).Select(g => new
+        {
+            g.Key,
+            asc = g.OrderBy(x => x.D).Select(x => x.Id).First(),
+            desc = g.OrderByDescending(x => x.D).Select(x => x.Id).First(),
+            lowest = g.Select(x => x.F).Order().First(),
+        }).OrderBy(r => r.Key);
+
+        Assert.Equal(expected, [.. query]);
+    }
+
+    [Fact]
+    public void MinBy_And_MaxBy_Treat_NaN_As_The_Least_Key()
+    {
+        using var df = DataFrame.From(FloatRows);
+        var q = df.AsQueryable<Floats>();
+
+        Assert.Equal(FloatRows.MinBy(x => x.D)!.Id, q.MinBy(x => x.D)!.Id);
+        Assert.Equal(FloatRows.MaxBy(x => x.D)!.Id, q.MaxBy(x => x.D)!.Id);
+        Assert.Equal(FloatRows.MinBy(x => x.F)!.Id, q.MinBy(x => x.F)!.Id);
+        Assert.Equal(FloatRows.MaxBy(x => x.H)!.Id, q.MaxBy(x => x.H)!.Id);
+    }
+
+    [Fact]
+    public void Window_Ordering_Places_Null_And_NaN_As_Linq()
+    {
+        using var df = DataFrame.From(FloatRows);
+        var query = df.AsQueryable<Floats>().Select(x => new { x.Id, running = x.Id.CumSum().Over(1, x.D) });
+        // The running sum of Id in LINQ order of D (null, NaN, numbers), read back per row.
+        var ordered = FloatRows.OrderBy(x => x.D).ToList();
+        var running = ordered.Select((x, i) => (x.Id, sum: ordered.Take(i + 1).Sum(y => y.Id))).ToDictionary(t => t.Id, t => t.sum);
+
+        Assert.Equal(FloatRows.Select(x => new { x.Id, running = running[x.Id] }), [.. query]);
     }
 }

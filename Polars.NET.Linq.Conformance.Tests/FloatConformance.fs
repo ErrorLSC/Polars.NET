@@ -52,5 +52,5 @@ type HX = { Id: int64; H: Nullable<Half> }
 let ``Float16 literals compare with Half values exactly`` () =
     let t = Tables()
     let hs: HX array = [| { Id = 1L; H = Nullable(Half.op_Explicit 0.5) }; { Id = 2L; H = Nullable(Half.op_Explicit 2.0) }; { Id = 3L; H = Nullable() } |]
-    let plan = project (t.Scan hs) [ "gt", bin BinaryOp.Gt (col "H") (ScalarExpr.Literal(LiteralValue.Float16(Half.op_Explicit 1.0))) ]
+    let plan = project (t.Scan hs) [ ("gt", bin BinaryOp.Gt (col "H") (ScalarExpr.Literal(LiteralValue.Float16(Half.op_Explicit 1.0)))) ]
     Conformance.rowsInOrder t plan [ [ false ]; [ true ]; [ null ] ]

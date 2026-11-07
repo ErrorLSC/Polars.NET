@@ -677,7 +677,9 @@ module internal ScalarPlanner =
 
             match nativeSortKeyOpt with
             | Some keyExpr ->
-                let sortedPlan = LogicalPlan.Sort(src.Plan, [ { Expr = keyExpr; Descending = isMax; NullsLast = true } ])
+                // MinBy / MaxBy skip null keys (sorted last); a NaN key is the least (NaNSemantics.sortOrders).
+                let sortedPlan =
+                    LogicalPlan.Sort(src.Plan, NaNSemantics.sortOrders keyType { Expr = keyExpr; Descending = isMax; NullsLast = true })
                 {
                     Terminal = ScalarTerminal.Rows(firstRowOf sortedPlan, RowsOp.FirstRow elemType)
                     Finish =

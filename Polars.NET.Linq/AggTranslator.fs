@@ -66,7 +66,7 @@ module AggTranslator =
         | DistinctBy of source: GroupSeq * keySelector: LambdaExpression
         | OrderBy of source: GroupSeq * keySelector: LambdaExpression * isDescending: bool
         | ThenBy of source: GroupSeq * keySelector: LambdaExpression * isDescending: bool
-        | OrderBySelf of source: GroupSeq * isDescending: bool
+        | OrderBySelf of source: GroupSeq * isDescending: bool * elementType: Type
         | Take of source: GroupSeq * countExpr: Expression
         | Skip of source: GroupSeq * countExpr: Expression
         | ToList of source: GroupSeq
@@ -90,9 +90,9 @@ module AggTranslator =
         | MethodCall(m, null, GroupSeqChain groupParamName s :: CleanLambda keySelector :: _) when m.Name = "ThenByDescending" ->
             Some(ThenBy(s, keySelector, true))
         | MethodCall(m, null, [ GroupSeqChain groupParamName s ]) when m.Name = "Order" ->
-            Some(OrderBySelf(s, false))
+            Some(OrderBySelf(s, false, m.GetGenericArguments().[0]))
         | MethodCall(m, null, [ GroupSeqChain groupParamName s ]) when m.Name = "OrderDescending" ->
-            Some(OrderBySelf(s, true))
+            Some(OrderBySelf(s, true, m.GetGenericArguments().[0]))
         | MethodCall(m, null, [ GroupSeqChain groupParamName s; countExpr ]) when m.Name = "Take" ->
             Some(Take(s, countExpr))
         | MethodCall(m, null, [ GroupSeqChain groupParamName s; countExpr ]) when m.Name = "Skip" ->
@@ -107,18 +107,14 @@ module AggTranslator =
             Some(ToArray s)
         | _ -> None
 
-    type private SortKey =
-        {
-            Expr: ScalarExpr
-            IsDescending: bool
-        }
-
     type private ResolvedGroupSeq =
         {
             Target: ScalarExpr option
             Filter: ScalarExpr option
             IsDistinct: bool
-            SortKeys: SortKey list
+            /// The orderings of OrderBy / ThenBy, as LINQ orders: nulls first ascending and last descending,
+            /// NaN before the numbers (NaNSemantics.sortOrders).
+            SortKeys: SortOrder list
             Slice: (int64 option * int64 option) option
         }
 
@@ -154,6 +150,10 @@ module AggTranslator =
         else
             let currentScalar = getCurrentScalar scalarColOpt prev.Target
             resolveLambda currentScalar scopeMap keySelector
+
+    /// The orderings of one LINQ sort key of CLR type `keyType`.
+    let private linqSortOrders (keyType: Type) (keyExpr: ScalarExpr) (isDesc: bool) =
+        NaNSemantics.sortOrders keyType { SortOrder.Expr = keyExpr; Descending = isDesc; NullsLast = isDesc }
 
     let rec private evalGroupSeq
         (groupParamName: string)
@@ -221,21 +221,21 @@ module AggTranslator =
             |> Option.bind (fun prev ->
                 resolveKeyExpr scalarColOpt scopeMap prev keySelector
                 |> Option.map (fun keyExpr ->
-                    { prev with SortKeys = [ { Expr = keyExpr; IsDescending = isDesc } ] }))
+                    { prev with SortKeys = linqSortOrders keySelector.Body.Type keyExpr isDesc }))
 
         | ThenBy(source, keySelector, isDesc) ->
             evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
             |> Option.bind (fun prev ->
                 resolveKeyExpr scalarColOpt scopeMap prev keySelector
                 |> Option.map (fun keyExpr ->
-                    { prev with SortKeys = prev.SortKeys @ [ { Expr = keyExpr; IsDescending = isDesc } ] }))
+                    { prev with SortKeys = prev.SortKeys @ linqSortOrders keySelector.Body.Type keyExpr isDesc }))
 
-        | OrderBySelf(source, isDesc) ->
+        | OrderBySelf(source, isDesc, elementType) ->
             evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
             |> Option.bind (fun prev ->
                 prev.Target
                 |> Option.map (fun t ->
-                    { prev with SortKeys = [ { Expr = t; IsDescending = isDesc } ] }))
+                    { prev with SortKeys = linqSortOrders elementType t isDesc }))
 
         | Take(source, countExpr) ->
             evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt scopeMap source
@@ -288,15 +288,7 @@ module AggTranslator =
                 if sortKeysAfterFilter.IsEmpty then
                     targetAfterFilter
                 else
-                    let orderings =
-                        sortKeysAfterFilter
-                        |> List.map (fun sk ->
-                            {
-                                SortOrder.Expr = sk.Expr
-                                Descending = sk.IsDescending
-                                NullsLast = false
-                            })
-                    ScalarExpr.SortBy(targetAfterFilter, orderings)
+                    ScalarExpr.SortBy(targetAfterFilter, sortKeysAfterFilter)
 
             // 3. Slice (Skip / Take)
             let targetAfterSlice =
