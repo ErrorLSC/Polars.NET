@@ -3,6 +3,7 @@ using Microsoft.FSharp.Core;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using Polars.NET.Core.Wrappers;
 
 namespace Polars.NET.Core.Helpers;
@@ -13,6 +14,34 @@ namespace Polars.NET.Core.Helpers;
 /// </summary>
 public static class SeriesFactory
 {
+    private static readonly MethodInfo CreateGenericTypeDef =
+        typeof(SeriesFactory).GetMethod(nameof(CreateGenericType), BindingFlags.Public | BindingFlags.Static)!;
+
+    /// <summary>
+    /// Creates a Series from a boxed <see cref="IEnumerable{T}"/> whose T is only known at runtime,
+    /// by dispatching to <see cref="CreateGenericType{T}"/>. Replaces <c>dynamic</c> dispatch,
+    /// whose runtime binder is unavailable under Native AOT. Still reflection-based (MakeGenericMethod).
+    /// </summary>
+    internal static SeriesHandle CreateFromBoxedEnumerable(string name, object data)
+    {
+        Type elemType = PolarsTypeHelper.TryGetEnumerableElementType(data.GetType())
+            ?? throw new NotSupportedException($"Type '{data.GetType()}' does not implement IEnumerable<T>.");
+        return InvokeCreateGenericType(elemType, name, data);
+    }
+
+    private static SeriesHandle InvokeCreateGenericType(Type elemType, string name, object data)
+    {
+        try
+        {
+            return (SeriesHandle)CreateGenericTypeDef.MakeGenericMethod(elemType).Invoke(null, [name, data])!;
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is not null)
+        {
+            ExceptionDispatchInfo.Throw(ex.InnerException);
+            throw;
+        }
+    }
+
     /// <summary>
     /// Generic type entry for Series create
     /// </summary>
@@ -613,10 +642,7 @@ public static class SeriesFactory
                 }
             }
 
-            var createGeneric = typeof(SeriesFactory)
-                .GetMethod(nameof(CreateGenericType), BindingFlags.Public | BindingFlags.Static)!
-                .MakeGenericMethod(nullableUnderlying);
-            return (SeriesHandle)createGeneric.Invoke(null, [name, raw])!;
+            return InvokeCreateGenericType(nullableUnderlying, name, raw);
         }
 
         var categories = new string?[values.Length];
@@ -673,11 +699,7 @@ public static class SeriesFactory
         // Enums (plain, Nullable, F# option) become Enum or [Flags] integer columns through CreateSpan.
         if (array.Rank == 1 && PolarsTypeHelper.UnwrapCoreType(elemType).IsEnum)
         {
-            var method = typeof(SeriesFactory).GetMethod(
-                nameof(CreateGenericType),
-                BindingFlags.Public | BindingFlags.Static
-            )!.MakeGenericMethod(elemType);
-            return (SeriesHandle)method.Invoke(null, [name, array])!;
+            return InvokeCreateGenericType(elemType, name, array);
         }
 
         // Fallback to Arrow reflection for nested/complex types
@@ -687,7 +709,15 @@ public static class SeriesFactory
     // --- Helpers ---
     private static SeriesHandle CreateFromArrowViaReflection(string name, Array array)
     {
-        using var arrowArray = ArrowConverter.Build((dynamic)array);
+        if (array.Rank != 1)
+        {
+            throw new NotSupportedException(
+                $"Multi-dimensional arrays are only supported for numeric element types, not '{array.GetType()}'.");
+        }
+
+        // ArrowConverter.Build<T> for the runtime element type (reflection; formerly a dynamic call).
+        using var arrowArray = ArrowConverter.BuildSingleColumn(array)
+            ?? throw new NotSupportedException($"Cannot convert '{array.GetType()}' to an Arrow array.");
         return ArrowFfiBridge.ImportSeries(name, arrowArray);
     }
 

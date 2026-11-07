@@ -1,3 +1,4 @@
+using Polars.NET.Core.Helpers;
 using System.Text;
 
 namespace Polars.CSharp;
@@ -52,20 +53,7 @@ public partial class Expr
     {
         string html = ToHtml();
 
-        var utilType = Type.GetType("LINQPad.Util, LINQPad")
-                    ?? Type.GetType("LINQPad.Util, LINQPad.Runtime")
-                    ?? AppDomain.CurrentDomain.GetAssemblies()
-                        .FirstOrDefault(a => a.GetName().Name?.StartsWith("LINQPad") == true)
-                        ?.GetType("LINQPad.Util");
-
-        if (utilType != null)
-        {
-            var rawHtmlMethod = utilType.GetMethod("RawHtml", [typeof(string)]);
-            if (rawHtmlMethod != null)
-            {
-                return rawHtmlMethod.Invoke(null, [html]) ?? html;
-            }
-        }
+        if (LinqPadInterop.TryWrapRawHtml(html) is { } wrapped) return wrapped;
 
         return new
         {

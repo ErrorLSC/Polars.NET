@@ -14,6 +14,18 @@ namespace Polars.NET.Core.Data;
 /// For Polars/Arrow Sink to Database streamingly (With SqlBulkCopy, etc.)
 /// Zero-Allocation on Hot Paths.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>Ownership:</b> the reader takes ownership of every <see cref="RecordBatch"/> it pulls from the stream.
+/// Each batch is disposed as soon as the reader advances to the next one, and the current batch is disposed
+/// when the stream is exhausted or the reader is closed/disposed. This keeps memory bounded while streaming
+/// (batches imported through the Arrow C Data Interface hold native memory).
+/// </para>
+/// <para>
+/// Do not reuse or access a batch after handing it to this reader, and do not share one batch between readers.
+/// To keep a batch alive, pass a copy (e.g. one re-imported or rebuilt from the source data) instead.
+/// </para>
+/// </remarks>
 public sealed class ArrowToDbStream : DbDataReader
 {
     private readonly IEnumerator<RecordBatch> _batchEnumerator;
@@ -25,6 +37,12 @@ public sealed class ArrowToDbStream : DbDataReader
 
     private ColumnAccessor[] _accessors = [];
 
+    /// <summary>
+    /// Creates a reader over a stream of record batches. The reader takes ownership of the batches
+    /// and disposes them as it reads (see the class remarks).
+    /// </summary>
+    /// <param name="stream">The batches to read. Enumerated lazily, once.</param>
+    /// <param name="typeOverrides">Optional per-column .NET type overrides, keyed by column name.</param>
     public ArrowToDbStream(IEnumerable<RecordBatch> stream, Dictionary<string, Type>? typeOverrides = null)
     {
         ArgumentNullException.ThrowIfNull(stream);

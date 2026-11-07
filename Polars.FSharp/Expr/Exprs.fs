@@ -9,35 +9,9 @@ open Apache.Arrow
 open System.ComponentModel
 
 module internal LinqPadHtmlHelper =
+    /// Wraps HTML in LINQPad's RawHtml via the shared Core bridge (None outside LINQPad).
     let tryWrapRawHtml (html: string) : obj option =
-        try
-            let utilType =
-                match Type.GetType("LINQPad.Util, LINQPad") with
-                | null ->
-                    match Type.GetType("LINQPad.Util, LINQPad.Runtime") with
-                    | null ->
-                        AppDomain.CurrentDomain.GetAssemblies()
-                        |> Array.tryFind (fun a ->
-                            let name = a.GetName().Name
-                            not (isNull name) && name.StartsWith("LINQPad"))
-                        |> Option.bind (fun a -> Option.ofObj (a.GetType("LINQPad.Util")))
-                        |> Option.toObj
-                    | t -> t
-                | t -> t
-
-            if not (isNull utilType) then
-                let rawHtmlMethod = utilType.GetMethod("RawHtml", [| typeof<string> |])
-
-                if not (isNull rawHtmlMethod) then
-                    match rawHtmlMethod.Invoke(null, [| box html |]) with
-                    | null -> Some(box html)
-                    | res -> Some res
-                else
-                    None
-            else
-                None
-        with _ ->
-            None
+        Option.ofObj (Polars.NET.Core.Helpers.LinqPadInterop.TryWrapRawHtml html)
 
 /// <summary>
 /// Interface for types that can be converted to one or more Polars Expressions.

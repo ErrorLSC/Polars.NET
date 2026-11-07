@@ -137,8 +137,11 @@ module DataFrameJsonNormalizeOps =
                 ?inferSchemaLength: uint,
                 ?encoder: obj -> string
             ) : DataFrame =
+            // JsonDocument.Parse needs no serializer metadata (Native AOT safe); Clone detaches the
+            // element from the pooled document buffer so the document can be disposed here.
             let parsed =
-                System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement> jsonString
+                use doc = System.Text.Json.JsonDocument.Parse jsonString
+                doc.RootElement.Clone()
 
             let objResult = JsonNormalizeHelper.ConvertJsonElement parsed
 

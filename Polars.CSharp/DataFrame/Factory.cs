@@ -97,7 +97,10 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     }
     /// <summary>
     /// Create DataFrame from explicitly named columns.
-    /// No reflection used. Best performance.
+    /// Each column is an array or any <see cref="IEnumerable{T}"/> (e.g. <see cref="List{T}"/>).
+    /// Column names are given explicitly, so no member reflection is needed; numeric arrays take a
+    /// zero-copy fast path. Other column types are dispatched on their runtime element type via
+    /// reflection (MakeGenericMethod), which needs dynamic code under Native AOT.
     /// </summary>
     public static DataFrame FromColumns(params (string Name, object Data)[] columns)
     {
@@ -121,7 +124,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
                 }
                 else
                 {
-                    seriesList.Add(Series.From(name, (dynamic)val));
+                    seriesList.Add(new Series(SeriesFactory.CreateFromBoxedEnumerable(name, val)));
                 }
             }
             catch (Exception ex)

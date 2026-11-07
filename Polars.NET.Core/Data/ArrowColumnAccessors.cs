@@ -1744,8 +1744,9 @@ internal sealed class JsonFallbackAccessor<T> : TypedColumnAccessor<T>, ITypedAc
 
         if (rawValue != null)
         {
-            var json = JsonSerializer.Serialize(rawValue);
-            return (T)(object)json;
+            throw new NotSupportedException(
+                $"Cannot read Arrow column of type '{_array!.Data.DataType.Name}' (value type '{rawValue.GetType()}') " +
+                $"as '{typeof(T)}'. Only string targets fall back to a JSON representation.");
         }
 
         return default!;

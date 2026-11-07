@@ -3255,4 +3255,55 @@ public class DataFrameTests
         Assert.DoesNotContain("shape: (1,)", html);
         Assert.DoesNotContain("Series: ", html);
     }
+
+    private sealed class FromColumnsPoint
+    {
+        public int X { get; set; }
+        public string? Label { get; set; }
+    }
+
+    [Fact]
+    [Trait("DataFrame", "FromColumns")]
+    public void Test_FromColumns_NamedTuples_EnumerablesAndObjectArrays()
+    {
+        // Non-array enumerables and object arrays both go through runtime element-type dispatch
+        // (formerly `dynamic`, now MakeGenericMethod).
+        using var df = DataFrame.FromColumns(
+            ("ints", new List<int> { 1, 2, 3 }),
+            ("names", new[] { "a", null, "c" }.Select(x => x)),
+            ("maybe", new List<double?> { 1.5, null, 3.5 }),
+            ("points", new[]
+            {
+                new FromColumnsPoint { X = 1, Label = "p" },
+                new FromColumnsPoint { X = 2, Label = null },
+                new FromColumnsPoint { X = 3, Label = "r" },
+            }));
+
+        Assert.Equal(3, df.Height);
+        Assert.Equal(2, df.Column("ints").GetValue<int>(1));
+        Assert.Null(df.Column("names").GetValue<string>(1));
+        Assert.Equal("c", df.Column("names").GetValue<string>(2));
+        Assert.Null(df.Column("maybe").GetValue<double?>(1));
+        Assert.Equal(3.5, df.Column("maybe").GetValue<double?>(2));
+        Assert.Equal(["X", "Label"], df.Column("points").Struct.Fields);
+        using var unnested = df.Column("points").Struct.Unnest();
+        Assert.Equal(2, unnested.Column("X").GetValue<int>(1));
+        Assert.Null(unnested.Column("Label").GetValue<string>(1));
+    }
+
+    [Fact]
+    [Trait("DataFrame", "FromColumns")]
+    public void Test_FromColumns_NonEnumerableColumn_Throws()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => DataFrame.FromColumns(("bad", (object)42)));
+        Assert.Contains("'bad'", ex.Message);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "FromColumns")]
+    public void Test_SeriesFrom_NonNumeric2D_Throws()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => Series.From("m", new string[,] { { "a", "b" }, { "c", "d" } }));
+        Assert.Contains("Multi-dimensional", ex.Message);
+    }
 }
