@@ -341,9 +341,13 @@ module internal ColumnResolver =
         match scopeOpt with
         | Some scope ->
             let findColInRowShape (rowShape: RowShape) =
+                // A Nullable<struct> entity is probed through its struct's members (not HasValue / Value).
+                let entityType =
+                    if isNull cleanE.Type then null
+                    else match Nullable.GetUnderlyingType cleanE.Type with null -> cleanE.Type | u -> u
                 let nonNullablePropCol =
-                    if not (isNull cleanE.Type) && not (PolarsTypeHelper.IsScalarType cleanE.Type) then
-                        cleanE.Type.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                    if not (isNull entityType) && not (PolarsTypeHelper.IsScalarType entityType) then
+                        entityType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
                         |> Array.tryPick (fun prop ->
                             if prop.PropertyType.IsValueType && isNull (Nullable.GetUnderlyingType prop.PropertyType) then
                                 rowShape.TryResolve(scope, prop.Name)

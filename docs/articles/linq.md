@@ -511,6 +511,8 @@ matches, as in EF Core. LINQ to Objects compares the anonymous objects and match
 In `LeftJoin`, `RightJoin` and `FullJoin`, an unmatched side follows LINQ to Objects: a class is `null`, and a
 struct is `default(T)`, so its `int` members read as `0` and its `string` / `Nullable<T>` members as `null`. The
 .NET 11 overloads without a result selector return `(Outer, Inner)` tuples with the same rules.
+A side cast to `Nullable<T>` first (`depts.Select(d => (Department?)d)`) is `null` when unmatched, and
+`pair.Outer.HasValue` / `pair.Outer.Value.Name` translate natively.
 
 Aggregates over `DefaultIfEmpty` inside a group or a correlated subquery
 (`g.Select(p => p.Id).DefaultIfEmpty().Max()`, `...DefaultIfEmpty(-1).Min()`, `Average`, `Sum`) run natively

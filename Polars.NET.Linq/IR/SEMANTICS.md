@@ -229,6 +229,9 @@ A null join key matches a null key exactly when the join's `nullsEqual` is true.
   is not replaced, so strict materialization still reports it.
 - .NET 11 tuple joins (no result selector, yielding `(Outer, Inner)`) are compiled with the implied selector
   `(o, i) => (o, i)`, so `pair.Outer` / `pair.Inner` (`Item1` / `Item2` in the tree) resolve to their sides.
+- A `Nullable<struct>` side (`Select(x => (T?)x)` before the join) is not folded to `default(T)`: unmatched, it
+  is null. `.Value` is a transparent navigation member, and `.HasValue` is the side's presence, the same test as
+  `side != null` for a class (a non-nullable value member of the side is not null).
 
 ## Aggregates over DefaultIfEmpty
 

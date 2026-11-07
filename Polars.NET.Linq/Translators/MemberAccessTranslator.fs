@@ -90,7 +90,10 @@ module internal MemberAccessTranslator =
                             |> Seq.tryHead
                             |> Option.map (fun c -> ScalarExpr.Unary(UnaryOp.IsNotNull, ScalarExpr.Column c))
                         | _ -> None
-                    | _ -> None
+                    | _ ->
+                        // A Nullable<struct> entity (an outer join's side, `(T?)x`): present when its row is.
+                        tryResolveEntityNullTarget ctx target
+                        |> Option.map (fun x -> ScalarExpr.Unary(UnaryOp.IsNotNull, x))
 
             | _ ->
                 PartialEvaluator.tryEvaluate memberExpr

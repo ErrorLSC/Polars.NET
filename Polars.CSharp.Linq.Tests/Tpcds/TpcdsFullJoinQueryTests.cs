@@ -385,8 +385,8 @@ public class TpcdsFullJoinQueryTests
                    select new { g.Key.customer_sk, g.Key.item_sk };
 
         var q97 = (from pair in ssci.FullJoin(csci, s => new { s.customer_sk, s.item_sk }, c => new { c.customer_sk, c.item_sk })
-                   let storeCustomer = pair.Outer?.customer_sk
-                   let catalogCustomer = pair.Inner?.customer_sk
+                   let storeCustomer = pair.Outer != null ? pair.Outer.customer_sk : null
+                   let catalogCustomer = pair.Inner != null ? pair.Inner.customer_sk : null
                    group new { storeCustomer, catalogCustomer } by 1 into g
                    select new
                    {

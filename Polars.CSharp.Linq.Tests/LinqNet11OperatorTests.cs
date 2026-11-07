@@ -688,4 +688,34 @@ public class LinqNet11OperatorTests
             Assert.Equal(expected[i].Members, actual[i].Members);
         }
     }
+
+    // Nullable<struct> sides (`Select(x => (T?)x)`): HasValue is the side's presence, natively.
+    private static readonly Department[] NsDepts = [new(1, "Eng"), new(2, "HR")];
+    private static readonly DepartmentRecord[] NsRecs = [new("Eng", 100), new("Sec", 60)];
+
+    [Fact]
+    [Trait("LINQ", "Net11_Joins")]
+    public void Test_Linq_Net11_NullableStruct_HasValue_In_Projection_And_Filter_MatchesLinqToObjects()
+    {
+        using var dfDept = DataFrame.FromRows(NsDepts);
+        using var dfRec = DataFrame.FromRows(NsRecs);
+
+        IQueryable<object> Build(IQueryable<Department> d, IQueryable<DepartmentRecord> r) =>
+            d.Select(x => (Department?)x)
+             .FullJoin(r.Select(y => (DepartmentRecord?)y), x => x.Value.DeptName, y => y.Value.Department)
+             .Where(p => !p.Inner.HasValue || p.Inner.Value.Salary > 50)
+             .Select(p => new { HasDept = p.Outer.HasValue, HasRec = p.Inner.HasValue, Name = p.Outer.HasValue ? p.Outer.Value.DeptName : p.Inner.Value.Department })
+             .OrderBy(x => x.Name)
+             .Select(x => (object)x);
+
+        var expected = Build(NsDepts.AsQueryable(), NsRecs.AsQueryable()).ToList();
+        var actualQuery = Build(dfDept.AsQueryable(NsDepts), dfRec.AsQueryable(NsRecs));
+        Assert.Equal(expected, actualQuery.ToList());
+
+        var native = dfDept.AsQueryable(NsDepts).Select(x => (Department?)x)
+            .LeftJoin(dfRec.AsQueryable(NsRecs).Select(y => (DepartmentRecord?)y), x => x.Value.DeptName, y => y.Value.Department)
+            .Select(p => new { p.Outer.Value.Id, Matched = p.Inner.HasValue });
+        Assert.Contains("100% Native Pushdown", native.Explain());
+        Assert.Equal([new { Id = 1, Matched = true }, new { Id = 2, Matched = false }], native.OrderBy(x => x.Id).ToList());
+    }
 }
