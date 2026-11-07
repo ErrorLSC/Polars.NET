@@ -508,6 +508,14 @@ An explicit `join ... on a equals b` never matches null keys, exactly like `Enum
 (`on new { a.X, a.Y } equals new { b.X, b.Y }`) matches only when every component matches, so a null component never
 matches, as in EF Core. LINQ to Objects compares the anonymous objects and matches null with null there.
 
+In `LeftJoin`, `RightJoin` and `FullJoin`, an unmatched side follows LINQ to Objects: a class is `null`, and a
+struct is `default(T)`, so its `int` members read as `0` and its `string` / `Nullable<T>` members as `null`. The
+.NET 11 overloads without a result selector return `(Outer, Inner)` tuples with the same rules.
+
+Aggregates over `DefaultIfEmpty` inside a group or a correlated subquery
+(`g.Select(p => p.Id).DefaultIfEmpty().Max()`, `...DefaultIfEmpty(-1).Min()`, `Average`, `Sum`) run natively
+and return the default value for an empty group.
+
 Comparisons against a non-null constant (`x.V == 10`, `x.V > 5`) still reach Polars as plain comparisons inside
 a `Where`, so Parquet statistics and predicate pushdown keep working.
 

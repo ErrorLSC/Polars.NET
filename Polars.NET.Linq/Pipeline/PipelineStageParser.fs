@@ -795,6 +795,25 @@ module internal PipelineStageParser =
             | None -> None
         | [] -> None
 
+    /// The result selector a .NET 11 tuple join (`Join`/`LeftJoin`/`RightJoin`/`FullJoin` without a result
+    /// selector, yielding `(TOuter Outer, TInner Inner)`) implies: `(o, i) => new ValueTuple<O, I>(o, i)`. Tuple
+    /// element names do not exist in expression trees (`pair.Inner` is `pair.Item2`), so without it the sides
+    /// had no Item1/Item2 scopes and members resolved unqualified, taking the left column on a name clash.
+    /// `stageIndex` keeps the parameter names distinct across chained joins.
+    let private tryTupleJoinSelector (m: MethodInfo) (outerKey: LambdaExpression) (innerKey: LambdaExpression) (stageIndex: int) : LambdaExpression option =
+        let o = outerKey.Parameters.[0].Type
+        let i = innerKey.Parameters.[0].Type
+        let tupleType = typedefof<ValueTuple<_, _>>.MakeGenericType(o, i)
+        let elementType =
+            if m.ReturnType.IsGenericType && m.ReturnType.GetGenericArguments().Length = 1 then m.ReturnType.GetGenericArguments().[0]
+            else null
+        if elementType = tupleType then
+            let pO = Expression.Parameter(o, sprintf "__tupleOuter%d" stageIndex)
+            let pI = Expression.Parameter(i, sprintf "__tupleInner%d" stageIndex)
+            Some(Expression.Lambda(Expression.New(tupleType.GetConstructor([| o; i |]), pO, pI), [| pO; pI |]))
+        else
+            None
+
     /// Recursively flattens a LINQ expression tree into a linear sequence of LinqStage values.
     let rec flattenStages (e: Expression) (acc: LinqStage list) : LinqStage list =
         let evalUInt32 opName (expr: Expression) =
@@ -958,6 +977,7 @@ module internal PipelineStageParser =
             let resSelOpt =
                 match rest with
                 | StripQuotes(:? LambdaExpression as resSel) :: _ -> Some resSel
+                | _ when m.Name <> "GroupJoin" -> tryTupleJoinSelector m outerKey innerKey acc.Length
                 | _ -> None
 
             let stage =

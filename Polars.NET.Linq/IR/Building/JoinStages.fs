@@ -2,6 +2,7 @@ namespace Polars.NET.Linq.IR
 
 open System
 open System.Reflection
+open Polars.NET.Core.Helpers
 open System.Linq.Expressions
 open Polars.NET.Linq
 open Polars.NET.Linq.IR.TransparentScopes
@@ -77,6 +78,73 @@ module internal JoinStages =
             }.Visit(resSel.Body)
         tupleSel, Expression.Lambda(body, [| row |])
 
+    /// The (column, default) pairs an unmatched value-type side of an outer join must read as `default(T)`:
+    /// its non-nullable value members, or its single column for a scalar element. Reference and Nullable
+    /// members stay null, as in LINQ. Empty when the side is not a non-nullable value type, or when a default
+    /// has no literal form.
+    let private valueSideDefaults (sideType: Type) (sideCols: string list) : (string * ScalarExpr) list =
+        let isPlainValueType (t: Type) = t.IsValueType && isNull (Nullable.GetUnderlyingType t)
+        let defaultOf (t: Type) =
+            match tryToLiteral (Activator.CreateInstance t) t, LogicalTypes.tryOfClrType t with
+            | Some lit, Some lt -> Some(ScalarExpr.Cast(lit, lt, false))
+            | _ -> None
+        if not (isPlainValueType sideType) then
+            []
+        elif PolarsTypeHelper.IsSupportedSimpleType sideType then
+            match sideCols, defaultOf sideType with
+            | [ col ], Some d -> [ col, d ]
+            | _ -> []
+        else
+            let cols = Set.ofList sideCols
+            PolarsTypeHelper.GetModelProperties sideType
+            |> Array.toList
+            |> List.choose (fun (p: PropertyInfo) ->
+                if cols.Contains p.Name && isPlainValueType p.PropertyType then
+                    defaultOf p.PropertyType |> Option.map (fun d -> p.Name, d)
+                else
+                    None)
+
+    /// LINQ yields `default(T)` for the unmatched side of an outer join when T is a struct, so its
+    /// non-nullable value members read as 0 / false / ... rather than null. Each such side gets a marker
+    /// column before the join; after it, a member is `marker is null ? default : member`. The marker, not
+    /// a null test on the member, decides: a matched row's own null still reaches strict materialization.
+    let private foldUnmatchedValueSides
+        (left: LogicalPlan)
+        (right: LogicalPlan)
+        (leftDefaults: (string * ScalarExpr) list)
+        (rightDefaults: (string * ScalarExpr) list)
+        (rightPhysical: string -> string)
+        (buildJoin: LogicalPlan -> LogicalPlan -> LogicalPlan)
+        : LogicalPlan =
+        if leftDefaults.IsEmpty && rightDefaults.IsEmpty then
+            buildJoin left right
+        else
+            let taken =
+                (SchemaInference.inferPlanSchema left).ColumnNames @ (SchemaInference.inferPlanSchema right).ColumnNames
+                |> Set.ofList
+            let rec fresh (name: string) (n: int) =
+                let candidate = if n = 0 then name else sprintf "%s%d" name n
+                if taken.Contains candidate then fresh name (n + 1) else candidate
+            let leftMarker = fresh "__outer_matched" 0
+            let rightMarker = fresh "__inner_matched" 0
+            let mark (plan: LogicalPlan) (defaults: _ list) marker =
+                if defaults.IsEmpty then plan
+                else LogicalPlan.WithColumns(plan, [ marker, ScalarExpr.Literal(LiteralValue.Bool true) ])
+            let joined = buildJoin (mark left leftDefaults leftMarker) (mark right rightDefaults rightMarker)
+            let folded marker (defaults: (string * ScalarExpr) list) physical =
+                defaults
+                |> List.map (fun (col, d) ->
+                    let c = physical col
+                    c, (c, ScalarExpr.Conditional(ScalarExpr.Unary(UnaryOp.IsNull, ScalarExpr.Column marker), d, ScalarExpr.Column c)))
+            let replacements =
+                folded leftMarker leftDefaults id @ folded rightMarker rightDefaults rightPhysical |> Map.ofList
+            let markers = Set.ofList [ leftMarker; rightMarker ]
+            let projections =
+                (SchemaInference.inferPlanSchema joined).ColumnNames
+                |> List.filter (markers.Contains >> not)
+                |> List.map (fun c -> replacements |> Map.tryFind c |> Option.defaultValue (c, ScalarExpr.Column c))
+            LogicalPlan.Project(joined, projections)
+
     /// Join (inner, left, right, full) on key selectors.
     let join (env: StageEnv) (continueWith: StageContinuation) (state: CompiledLogicalQuery) (rowShape: RowShape) (tail: LinqStage list) (methodInfo: MethodInfo) (innerExpr: Expression) (outerKey: LambdaExpression) (innerKey: LambdaExpression) (resSelOpt: LambdaExpression option) : CompiledLogicalQuery =
         match env.ResolveSequence innerExpr with
@@ -111,11 +179,26 @@ module internal JoinStages =
 
             match tryExtractKeyScalars leftCtx outerKey, tryExtractKeyScalars rightCtx innerKey with
             | Some leftKeys, Some rightKeys when leftKeys.Length = rightKeys.Length ->
+                // The side(s) an outer join may leave unmatched: their value-type entities fold to default(T).
+                let outerNullable, innerNullable =
+                    match methodInfo.Name with
+                    | "LeftJoin" -> false, true
+                    | "RightJoin" -> true, false
+                    | "FullJoin" -> true, true
+                    | _ -> false, false
+                let outerDefaults =
+                    if outerNullable && rowShape.IsEmpty then valueSideDefaults outerParam.Type leftCols else []
+                let innerDefaults = if innerNullable then valueSideDefaults innerParam.Type rightCols else []
                 let joinPlan =
                     if isRightJoin then
-                        LogicalPlan.Join(rightPlan, state.Plan, rightKeys, leftKeys, how, Some uniqueSuffix, JoinKeyCoalescing.KeepBoth, false)
+                        let rightColSet = Set.ofList rightCols
+                        foldUnmatchedValueSides rightPlan state.Plan innerDefaults outerDefaults
+                            (fun c -> if rightColSet.Contains c then c + uniqueSuffix else c)
+                            (fun l r -> LogicalPlan.Join(l, r, rightKeys, leftKeys, how, Some uniqueSuffix, JoinKeyCoalescing.KeepBoth, false))
                     else
-                        LogicalPlan.Join(state.Plan, rightPlan, leftKeys, rightKeys, how, Some uniqueSuffix, JoinKeyCoalescing.KeepBoth, false)
+                        foldUnmatchedValueSides state.Plan rightPlan outerDefaults innerDefaults
+                            (fun c -> if leftColSet.Contains c then c + uniqueSuffix else c)
+                            (fun l r -> LogicalPlan.Join(l, r, leftKeys, rightKeys, how, Some uniqueSuffix, JoinKeyCoalescing.KeepBoth, false))
 
                 let leftScope = outerKey.Parameters.[0].Name
                 let rightScope =

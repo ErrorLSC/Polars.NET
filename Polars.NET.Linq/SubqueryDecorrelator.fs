@@ -265,6 +265,8 @@ module internal SubqueryDecorrelator =
         | Identity
         | Multiply of Expression
         | Divide of Expression
+        /// `agg ?? d` with d not reading the subquery (the form a DefaultIfEmpty aggregate is rewritten to).
+        | CoalesceWith of Expression
 
     type internal AggReductionCall =
         {
@@ -423,6 +425,8 @@ module internal SubqueryDecorrelator =
                 Some(left, AggScale.Divide right)
             else
                 None
+        | Binary(ExpressionType.Coalesce, left, right) when containsSubquery left && not (containsSubquery right) ->
+            Some(left, AggScale.CoalesceWith right)
         | _ when containsSubquery unwrapClean -> Some(unwrapClean, AggScale.Identity)
         | _ -> None
 
@@ -1174,7 +1178,8 @@ module internal SubqueryDecorrelator =
                                 match scale with
                                 | AggScale.Identity -> true
                                 | AggScale.Multiply m
-                                | AggScale.Divide m -> not (containsOuter m)
+                                | AggScale.Divide m
+                                | AggScale.CoalesceWith m -> not (containsOuter m)
 
                             if scaleOk then Some(left, aggExpr, scale, baseOp) else None
                         | None -> None
@@ -1185,7 +1190,8 @@ module internal SubqueryDecorrelator =
                                 match scale with
                                 | AggScale.Identity -> true
                                 | AggScale.Multiply m
-                                | AggScale.Divide m -> not (containsOuter m)
+                                | AggScale.Divide m
+                                | AggScale.CoalesceWith m -> not (containsOuter m)
 
                             if scaleOk then
                                 invertOp baseOp |> Option.map (fun invOp -> right, aggExpr, scale, invOp)
@@ -1258,13 +1264,17 @@ module internal SubqueryDecorrelator =
                                     (divExpr.Type, Some lit)
                                     aggCall.TargetType
                             | _ -> None
+                        | AggScale.CoalesceWith dExpr ->
+                            match PartialEvaluator.tryEvaluate dExpr with
+                            | Some v when not (isNull v) -> Some(ScalarExpr.Coalesce [ aggColBaseScalar; toLiteral v dExpr.Type ])
+                            | _ -> None
 
                     // C# semantics as in row comparisons (null, NaN).
                     let! cmpScalar =
                         OperatorAndUdfTranslator.combineBinary
                             effectiveOp
                             (outerSideExpr.Type, Some outerSideScalar)
-                            (aggCall.TargetType, Some scaledAggScalar)
+                            ((match scale with AggScale.CoalesceWith d -> d.Type | _ -> aggCall.TargetType), Some scaledAggScalar)
                             typeof<bool>
 
                     let joinedPlan = LogicalPlan.Join(outerPlan, groupedPlan, keys.OuterKeys, keyCols, JoinKind.Left, None, JoinKeyCoalescing.Default, NullSemantics.nullKeysMatch ())
@@ -1371,13 +1381,17 @@ module internal SubqueryDecorrelator =
                                     (divExpr.Type, Some lit)
                                     aggCall.TargetType
                             | _ -> None
+                        | AggScale.CoalesceWith dExpr ->
+                            match PartialEvaluator.tryEvaluate dExpr with
+                            | Some v when not (isNull v) -> Some(ScalarExpr.Coalesce [ aggColBaseScalar; toLiteral v dExpr.Type ])
+                            | _ -> None
 
                     // C# semantics as in row comparisons (null, NaN).
                     let! cmpScalar =
                         OperatorAndUdfTranslator.combineBinary
                             effectiveOp
                             (outerSideExpr.Type, Some outerSideScalar)
-                            (aggCall.TargetType, Some scaledAggScalar)
+                            ((match scale with AggScale.CoalesceWith d -> d.Type | _ -> aggCall.TargetType), Some scaledAggScalar)
                             typeof<bool>
                     let filteredPlan = LogicalPlan.Filter(leftJoinPlan, cmpScalar)
                     let restorePlan = LogicalPlan.Project(filteredPlan, originalCols |> List.map (fun c -> c, ScalarExpr.Column c))
@@ -1389,6 +1403,85 @@ module internal SubqueryDecorrelator =
     /// Attempts to decorrelate one or more subquery expressions within a filter lambda,
     /// returning the rewritten LogicalPlan and any residual outer filter lambda.
     /// `seq.All(p)` as `!seq.Any(x => !p(x))`, which decorrelates as an anti join or a negated match count.
+    /// Removes `DefaultIfEmpty` under an aggregate, which the decorrelator cannot read, using
+    /// `Agg(s.DefaultIfEmpty(d)) = s is empty ? Agg([d]) : Agg(s)`:
+    /// - T a non-nullable value type: Max / Min / Average become `s.Select(x => (T?)x).Agg() ?? (R)d` (an
+    ///   aggregate over a nullable sequence is null exactly when it is empty); Sum with the default d is Sum(s).
+    /// - T nullable or a reference type, with no d (or a null d): the aggregate of `[null]` is that of an empty
+    ///   sequence, so the call is Agg(s).
+    /// Other shapes (a selector on the aggregate, a non-default d for Sum, Count) are left as they are.
+    let private rewriteDefaultIfEmptyAggs (body: Expression) : Expression =
+        let isStaticLinq (m: MethodInfo) =
+            m.DeclaringType = typeof<Enumerable> || m.DeclaringType = typeof<Queryable>
+        let isNullConstant (e: Expression) =
+            match ExpressionPatterns.unwrap e with
+            | :? ConstantExpression as c -> isNull c.Value
+            | _ -> false
+        let isDefaultConstant (t: Type) (e: Expression) =
+            match ExpressionPatterns.unwrap e with
+            | :? ConstantExpression as c -> obj.Equals(c.Value, (if t.IsValueType then Activator.CreateInstance t else null))
+            | _ -> false
+        let enumerableOf (t: Type) = typedefof<IEnumerable<_>>.MakeGenericType t
+        /// `src.Select(x => (T?)x)`, folded into src's own trailing Select.
+        let liftToNullable (src: Expression) (t: Type) (nullableT: Type) : Expression =
+            let select = (typeof<Enumerable>.GetMethods() |> Array.find (fun mi -> mi.Name = "Select" && mi.GetParameters().[1].ParameterType.GetGenericArguments().Length = 2))
+            match ExpressionPatterns.unwrap src with
+            | MethodCall(mSel, null, [ s0; StripQuotes(:? LambdaExpression as lam) ]) when mSel.Name = "Select" && lam.Parameters.Count = 1 && isStaticLinq mSel ->
+                let srcElem = lam.Parameters.[0].Type
+                let lifted = Expression.Lambda(Expression.Convert(lam.Body, nullableT), lam.Parameters)
+                Expression.Call(select.MakeGenericMethod(srcElem, nullableT), s0, lifted) :> Expression
+            | _ ->
+                let x = Expression.Parameter(t, "x")
+                Expression.Call(select.MakeGenericMethod(t, nullableT), src, Expression.Lambda(Expression.Convert(x, nullableT), x)) :> Expression
+        let aggOverNullable (name: string) (nullableT: Type) : MethodInfo option =
+            let candidates = typeof<Enumerable>.GetMethods() |> Array.filter (fun mi -> mi.Name = name && mi.GetParameters().Length = 1)
+            match candidates |> Array.tryFind (fun mi -> not mi.IsGenericMethodDefinition && mi.GetParameters().[0].ParameterType = enumerableOf nullableT) with
+            | Some mi -> Some mi
+            | None when name = "Max" || name = "Min" ->
+                candidates
+                |> Array.tryFind (fun mi -> mi.IsGenericMethodDefinition && mi.GetGenericArguments().Length = 1)
+                |> Option.map (fun mi -> mi.MakeGenericMethod nullableT)
+            | None -> None
+        { new ExpressionVisitor() with
+            override this.VisitMethodCall(node: MethodCallExpression) =
+                let visited = base.VisitMethodCall node
+                match visited with
+                | MethodCall(agg, null, [ dieCall ]) when isStaticLinq agg && (agg.Name = "Max" || agg.Name = "Min" || agg.Name = "Average" || agg.Name = "Sum") ->
+                    match ExpressionPatterns.unwrap dieCall with
+                    | MethodCall(die, null, src :: rest) when die.Name = "DefaultIfEmpty" && isStaticLinq die && rest.Length <= 1 ->
+                        let t = die.GetGenericArguments().[0]
+                        let dOpt = List.tryHead rest
+                        let stripped () =
+                            let m =
+                                if agg.IsGenericMethod then agg.GetGenericMethodDefinition().MakeGenericMethod(agg.GetGenericArguments())
+                                else agg
+                            let pt = m.GetParameters().[0].ParameterType
+                            Expression.Call(m, (if pt = src.Type then src else Expression.Convert(src, pt) :> Expression)) :> Expression
+                        if t.IsValueType && isNull (Nullable.GetUnderlyingType t) then
+                            if agg.Name = "Sum" then
+                                match dOpt with
+                                | None -> stripped ()
+                                | Some d when isDefaultConstant t d -> stripped ()
+                                | Some _ -> visited
+                            else
+                                let nullableT = typedefof<Nullable<_>>.MakeGenericType t
+                                match aggOverNullable agg.Name nullableT with
+                                | Some nullableAgg ->
+                                    let lifted = Expression.Call(nullableAgg, liftToNullable src t nullableT)
+                                    let d = dOpt |> Option.defaultWith (fun () -> Expression.Constant(Activator.CreateInstance t, t) :> Expression)
+                                    if Nullable.GetUnderlyingType lifted.Type = visited.Type then
+                                        Expression.Coalesce(lifted, Expression.Convert(d, visited.Type)) :> Expression
+                                    else
+                                        visited
+                                | None -> visited
+                        elif dOpt.IsNone || isNullConstant dOpt.Value then
+                            stripped ()
+                        else
+                            visited
+                    | _ -> visited
+                | _ -> visited
+        }.Visit body
+
     let private rewriteAllAsNotAny (body: Expression) : Expression =
         // `!(x != y)` is `x == y` and `!(x == y)` is `x != y` under C# equality (two-valued, NaN unequal);
         // `!!x` is `x`. An ordering comparison is not inverted (NaN makes both sides false).
@@ -1444,7 +1537,7 @@ module internal SubqueryDecorrelator =
         if filterLambda.Parameters.Count <> 1 then
             None
         else
-            let filterLambda = Expression.Lambda(rewriteAllAsNotAny filterLambda.Body, filterLambda.Parameters)
+            let filterLambda = Expression.Lambda(rewriteAllAsNotAny (rewriteDefaultIfEmptyAggs filterLambda.Body), filterLambda.Parameters)
             let outerParam = filterLambda.Parameters.[0]
             let outerNames =
                 Set.ofSeq (outerParam.Name :: (Set.toList rowShape.ScopeNames))
@@ -1726,7 +1819,7 @@ module internal SubqueryDecorrelator =
         elif not (containsSubquery projLambda.Body) then
             None
         else
-            let projLambda = Expression.Lambda(rewriteAllAsNotAny projLambda.Body, projLambda.Parameters)
+            let projLambda = Expression.Lambda(rewriteAllAsNotAny (rewriteDefaultIfEmptyAggs projLambda.Body), projLambda.Parameters)
             let outerParams = projLambda.Parameters |> Seq.toList
             let outerParamNames = outerParams |> List.map (fun p -> p.Name) |> Set.ofList
             let allOuterNames =

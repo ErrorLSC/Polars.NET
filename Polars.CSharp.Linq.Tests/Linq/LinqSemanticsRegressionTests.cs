@@ -1544,4 +1544,110 @@ public class LinqSemanticsRegressionTests
             Assert.Throws<OverflowException>(() => q.Average(x => x.L));
         }
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Outer joins: an unmatched struct side is default(T) (members 0 / null), not a null row.
+    // ---------------------------------------------------------------------------------------------
+
+    public readonly record struct SKv(long K, long V);
+    public readonly record struct SKnV(long K, long? V);
+
+    private static readonly SKv[] SLeft = [new(1, 10), new(2, 20), new(3, 30)];
+    private static readonly SKv[] SRight = [new(1, 100), new(1, 5), new(2, 1), new(4, 7)];
+
+    [Fact]
+    public void LeftJoin_Unmatched_Struct_Inner_Is_Default()
+    {
+        using var l = DataFrame.From(SLeft);
+        using var r = DataFrame.From(SRight);
+        var expected = SLeft.LeftJoin(SRight, a => a.K, b => b.K, (a, b) => new { a.K, b.V, InnerK = b.K }).OrderBy(x => x.K).ThenBy(x => x.V).ToList();
+        var actual = l.AsQueryable(SLeft).LeftJoin(r.AsQueryable(SRight), a => a.K, b => b.K, (a, b) => new { a.K, b.V, InnerK = b.K }).OrderBy(x => x.K).ThenBy(x => x.V);
+        Assert.Equal(expected, actual.ToList());
+        Assert.False(IsFullFallback(actual), ((IPolarsExplainable)actual).InspectPlan(true).FormatReport());
+    }
+
+    [Fact]
+    public void RightJoin_Unmatched_Struct_Outer_Is_Default()
+    {
+        using var l = DataFrame.From(SLeft);
+        using var r = DataFrame.From(SRight);
+        var expected = SLeft.RightJoin(SRight, a => a.K, b => b.K, (a, b) => new { OuterK = a.K, OuterV = a.V, b.K, b.V }).OrderBy(x => x.K).ThenBy(x => x.V).ToList();
+        var actual = l.AsQueryable(SLeft).RightJoin(r.AsQueryable(SRight), a => a.K, b => b.K, (a, b) => new { OuterK = a.K, OuterV = a.V, b.K, b.V }).OrderBy(x => x.K).ThenBy(x => x.V);
+        Assert.Equal(expected, actual.ToList());
+    }
+
+    [Fact]
+    public void FullJoin_Unmatched_Struct_Sides_Are_Default_Whole_Entities()
+    {
+        using var l = DataFrame.From(SLeft);
+        using var r = DataFrame.From(SRight);
+        var expected = SLeft.FullJoin(SRight, a => a.K, b => b.K, (a, b) => new { a, b }).OrderBy(x => x.a.K).ThenBy(x => x.b.K).ThenBy(x => x.b.V).ToList();
+        var actual = l.AsQueryable(SLeft).FullJoin(r.AsQueryable(SRight), a => a.K, b => b.K, (a, b) => new { a, b }).ToList()
+            .OrderBy(x => x.a.K).ThenBy(x => x.b.K).ThenBy(x => x.b.V).ToList();
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void LeftJoin_Unmatched_Struct_Nullable_Member_Stays_Null()
+    {
+        SKnV[] right = [new(1, null), new(2, 3)];
+        using var l = DataFrame.From(SLeft);
+        using var r = DataFrame.From(right);
+        var expected = SLeft.LeftJoin(right, a => a.K, b => b.K, (a, b) => new { a.K, b.V, InnerK = b.K }).OrderBy(x => x.K).ToList();
+        var actual = l.AsQueryable(SLeft).LeftJoin(r.AsQueryable(right), a => a.K, b => b.K, (a, b) => new { a.K, b.V, InnerK = b.K }).OrderBy(x => x.K).ToList();
+        Assert.Equal(expected, actual);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Aggregates over DefaultIfEmpty in correlated subqueries (GroupJoin groups).
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void GroupJoin_DefaultIfEmpty_Aggregates_Run_Natively()
+    {
+        using var l = DataFrame.From(Left);
+        using var r = DataFrame.From(Right);
+        Kv[] left = [.. Left, new() { K = 9, V = 90 }];
+        using var l2 = DataFrame.From(left);
+        var expected = left.GroupJoin(Right, a => a.K, b => b.K, (a, g) => new
+        {
+            a.K,
+            Max = g.Select(b => b.V).DefaultIfEmpty().Max(),
+            Min = g.Select(b => b.V).DefaultIfEmpty(-1).Min(),
+            Avg = g.Select(b => b.V).DefaultIfEmpty().Average(),
+            Sum = g.Select(b => b.V).DefaultIfEmpty().Sum(),
+        }).OrderBy(x => x.K).ToList();
+        var actual = l2.AsQueryable<Kv>().GroupJoin(r.AsQueryable<Kv>(), a => a.K, b => b.K, (a, g) => new
+        {
+            a.K,
+            Max = g.Select(b => b.V).DefaultIfEmpty().Max(),
+            Min = g.Select(b => b.V).DefaultIfEmpty(-1).Min(),
+            Avg = g.Select(b => b.V).DefaultIfEmpty().Average(),
+            Sum = g.Select(b => b.V).DefaultIfEmpty().Sum(),
+        }).OrderBy(x => x.K);
+        Assert.Equal(expected, actual.ToList());
+        Assert.False(IsFullFallback(actual), ((IPolarsExplainable)actual).InspectPlan(true).FormatReport());
+    }
+
+    [Fact]
+    public void GroupJoin_DefaultIfEmpty_Max_Over_Nullable_Elements()
+    {
+        KnV[] right = [new() { K = 1, V = null }, new() { K = 2, V = 4 }, new() { K = 2, V = null }];
+        using var l = DataFrame.From(Left);
+        using var r = DataFrame.From(right);
+        var expected = Left.GroupJoin(right, a => a.K, b => b.K, (a, g) => new { a.K, Max = g.Select(b => b.V).DefaultIfEmpty().Max() }).OrderBy(x => x.K).ToList();
+        var actual = l.AsQueryable<Kv>().GroupJoin(r.AsQueryable<KnV>(), a => a.K, b => b.K, (a, g) => new { a.K, Max = g.Select(b => b.V).DefaultIfEmpty().Max() }).OrderBy(x => x.K).ToList();
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void Correlated_DefaultIfEmpty_Max_In_Filter()
+    {
+        using var l = DataFrame.From(Left);
+        using var r = DataFrame.From(Right);
+        var rq = r.AsQueryable<Kv>();
+        var expected = Left.Where(a => Right.Where(b => b.K == a.K).Select(b => b.V).DefaultIfEmpty().Max() < 50).Select(a => a.K).ToList();
+        var actual = l.AsQueryable<Kv>().Where(a => rq.Where(b => b.K == a.K).Select(b => b.V).DefaultIfEmpty().Max() < 50).Select(a => a.K).OrderBy(k => k).ToList();
+        Assert.Equal(expected, actual);
+    }
 }

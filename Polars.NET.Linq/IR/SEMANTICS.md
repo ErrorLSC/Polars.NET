@@ -222,3 +222,20 @@ A null join key matches a null key exactly when the join's `nullsEqual` is true.
 - A `GroupJoin` with a result selector is compiled as a projection whose group is a correlated subquery
   (`inner.Where(b => key(b) != null && key(b) == key(a))`): with no null inner key component, a null key matches
   nothing, as in `Enumerable.GroupJoin`.
+- Outer joins (`LeftJoin`, `RightJoin`, `FullJoin`): an unmatched side is null when its type is a reference type,
+  and `default(T)` when it is a non-nullable struct, as in LINQ to Objects. The frontend marks each such struct
+  side with a literal `true` column before the join, and after it rewrites the side's non-nullable value members
+  to `marker is null ? default : member`. Reference and `Nullable<T>` members stay null. A matched row's own null
+  is not replaced, so strict materialization still reports it.
+- .NET 11 tuple joins (no result selector, yielding `(Outer, Inner)`) are compiled with the implied selector
+  `(o, i) => (o, i)`, so `pair.Outer` / `pair.Inner` (`Item1` / `Item2` in the tree) resolve to their sides.
+
+## Aggregates over DefaultIfEmpty
+
+In correlated subqueries (and so in `GroupJoin` groups), `Agg(s.DefaultIfEmpty(d))` is
+`s is empty ? Agg([d]) : Agg(s)`:
+- For a non-nullable value element type T, `Max` / `Min` / `Average` become `s.Select(x => (T?)x).Agg() ?? (R)d`:
+  an aggregate over a nullable sequence is null exactly when the sequence is empty. `Sum` with the default `d`
+  is `Sum(s)`.
+- For a nullable or reference element type with no `d` (or a null `d`), the call is `Agg(s)`.
+- Other shapes (a selector on the aggregate, a non-default `d` for `Sum`, `Count`) are not rewritten.
