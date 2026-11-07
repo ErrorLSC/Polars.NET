@@ -1129,4 +1129,8 @@ module internal PipelineStageParser =
         | MethodCall(m, null, source :: CleanLambda k :: seedExpr :: CleanLambda f :: _) when m.Name = "AggregateBy" ->
             flattenStages source (LinqStage.AggregateBy(k, seedExpr, None, f) :: acc)
 
+        // A LINQ operator not matched above (an overload with a comparer, an unknown operator): the stages
+        // beneath it are not parsed, and the whole query falls back rather than skip them.
+        | MethodCall(m, null, _ :: _) when m.DeclaringType = typeof<System.Linq.Queryable> ->
+            LinqStage.Unsupported(e.ToString()) :: acc
         | _ -> fuseSortStages acc

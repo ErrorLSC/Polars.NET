@@ -851,4 +851,74 @@ public class LinqSemanticsRegressionTests
 
         Assert.Equal(FloatRows.Select(x => new { x.Id, running = running[x.Id] }), [.. query]);
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // .NET arithmetic: `/` over integers and `%` over any number truncate toward zero (the engine floors),
+    // and decimal division keeps 18 fractional digits (not the dividend's scale).
+    // ---------------------------------------------------------------------------------------------
+
+    public class Nums
+    {
+        public long Id { get; set; }
+        public int I { get; set; }
+        public int J { get; set; }
+        public long? L { get; set; }
+        public double D { get; set; }
+        public decimal M { get; set; }
+    }
+
+    private static readonly Nums[] NumRows =
+    [
+        new() { Id = 1, I = -7, J = 2, L = -9, D = -7.5, M = 2.5m },
+        new() { Id = 2, I = 7, J = -2, L = null, D = 7.5, M = -1.125m },
+        new() { Id = 3, I = -8, J = -3, L = 9, D = -0.5, M = 0.125m },
+        new() { Id = 4, I = 0, J = 5, L = -1, D = 4.0, M = 10m },
+    ];
+
+    [Fact]
+    public void Integer_Division_And_Remainder_Truncate_Toward_Zero()
+    {
+        using var df = DataFrame.From(NumRows);
+        var query = df.AsQueryable<Nums>().Select(x => new
+        {
+            x.Id, div = x.I / x.J, rem = x.I % x.J, divLit = x.I / 3, remLit = x.I % 3, ldiv = x.L / 2, lrem = x.L % 4,
+            drem = x.D % 2.0, scaled = x.I / x.J * 1.0,
+        });
+        var expected = NumRows.Select(x => new
+        {
+            x.Id, div = x.I / x.J, rem = x.I % x.J, divLit = x.I / 3, remLit = x.I % 3, ldiv = x.L / 2, lrem = x.L % 4,
+            drem = x.D % 2.0, scaled = x.I / x.J * 1.0,
+        });
+
+        Assert.Equal(expected, query.ToList());
+        Assert.Equal(NumRows.Where(x => x.I % 2 == -1).Select(x => x.Id), df.AsQueryable<Nums>().Where(x => x.I % 2 == -1).Select(x => x.Id).ToList());
+    }
+
+    [Fact]
+    public void Decimal_Division_Keeps_Eighteen_Fractional_Digits()
+    {
+        using var df = DataFrame.From(NumRows);
+        var result = df.AsQueryable<Nums>().Select(x => x.M / 3).ToList();
+
+        Assert.Equal(NumRows.Select(x => Math.Round(x.M / 3, 18)), result);
+    }
+
+    // Contract: native string order is ordinal (code point), not culture.
+    [Fact]
+    public void Strings_Order_And_Compare_Ordinally()
+    {
+        Text2[] rows = [new() { Id = 1, S = "äpfel", T = "zebra" }, new() { Id = 2, S = "apple", T = "Apple" }, new() { Id = 3, S = "Banana", T = "banana" }];
+        using var df = DataFrame.From(rows);
+        var q = df.AsQueryable<Text2>();
+
+        Assert.Equal(rows.OrderBy(x => x.S, StringComparer.Ordinal).Select(x => x.Id), q.OrderBy(x => x.S).Select(x => x.Id).ToList());
+        Assert.Equal(rows.Select(x => Math.Sign(string.CompareOrdinal(x.S, x.T))), q.Select(x => x.S.CompareTo(x.T)).ToList());
+    }
+
+    public class Text2
+    {
+        public long Id { get; set; }
+        public string S { get; set; } = "";
+        public string T { get; set; } = "";
+    }
 }

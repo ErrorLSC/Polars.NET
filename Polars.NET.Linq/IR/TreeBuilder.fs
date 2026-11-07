@@ -69,6 +69,11 @@ module internal TreeBuilder =
                     | _ -> processStages (fallback state) rowShape tail
                 | ClientResidual.None ->
                     match stage with
+                    | LinqStage.Unsupported operatorCall ->
+                        CompilationScope.Current.FallbackReason <-
+                            Some(sprintf "Query operator not translated (an overload with a comparer, or an unknown operator): %s" operatorCall)
+                        processStages (fallback state) rowShape tail
+
                     | LinqStage.Filter lam ->
                         RowStages.filter env processStages state rowShape tail lam
 

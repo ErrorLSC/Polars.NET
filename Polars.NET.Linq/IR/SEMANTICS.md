@@ -52,11 +52,35 @@ NaN. Grouping and `Distinct` treat NaN as one value (.NET `Equals`).
 
 **Literals.** `LiteralValue.Float16` holds a `Half`.
 
+## Arithmetic
+
+**Truncating division and remainder.** `Modulo` is the .NET remainder for every numeric type: it truncates, so
+the result carries the dividend's sign (-7 % 2 = -1, -7.5 % 2 = -1.5). `TruncatedDivide` is .NET integer
+division, which truncates toward zero (-7 / 2 = -3). `Divide` over integers is the engine's own division, so the
+frontend emits `TruncatedDivide` for integer `/`.
+
+**Decimals.** Decimals are fixed-point. The frontend widens a decimal dividend to scale 18, so a quotient keeps
+18 fractional digits (.NET keeps up to 28 significant digits). A decimal value has its column's scale, so its
+string form carries that scale (2.500, not 2.5), while its value is the same.
+
+**Division by zero and overflow.** Integer division or remainder by zero gives null (.NET raises). A decimal
+division by zero fails the query. Integer overflow wraps, as unchecked .NET arithmetic does.
+
+**Date and time.** A `DateTimeOffset` is stored as a UTC instant, so its members read the UTC value: `Offset`
+is zero, and `Hour` and `DateTime` are the UTC hour and time.
+
 ## Strings and membership
 
 **Null as the empty string.** `StringConcat`, `ConcatString`, `FormatString` and `ListJoin` follow .NET
 `String.Concat`, `String.Format` and `String.Join`. A null operand, argument or element contributes `""`.
 The result is never null on account of a null operand.
+
+**Ordinal string order.** Strings compare and sort ordinally, by code point (the UTF-8 byte order), not by
+culture: `"Banana" < "apple" < "äpfel"`. This holds for `Sort`, comparisons and the frontend's `CompareTo`
+(-1 / 0 / 1). .NET defaults to the current culture, so results can differ from LINQ to Objects. A query that
+passes a comparer (`StringComparer.CurrentCulture`, for instance) runs as LINQ to Objects under the client
+evaluation policy (see Untranslated operators). Code points above U+FFFF sort after U+E000-U+FFFF here, while
+.NET's ordinal comparison orders UTF-16 code units.
 
 **The `nullsEqual` flag.** `InList`, `ListContains` and `IsIn` carry `nullsEqual`.
 - When true, a null matches a null element, as in .NET `Contains`.
@@ -85,6 +109,10 @@ time and marks the compilation so its plan is not cached.
 the logic around it (`false AND ...`, an empty outer relation) would never read its value. This is stricter
 than LINQ to Objects, never laxer: whenever LINQ raises, so does the query. A managed UDF likewise runs on
 rows that a C# `&&` would have skipped.
+
+**Untranslated operators.** A query operator the frontend does not translate (an overload with a comparer, an
+unknown operator) sends the whole query to LINQ to Objects under the client evaluation policy. It is never
+skipped.
 
 ## Rows and order
 

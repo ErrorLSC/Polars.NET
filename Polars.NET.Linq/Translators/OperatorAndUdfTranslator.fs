@@ -43,6 +43,17 @@ module internal OperatorAndUdfTranslator =
         | _ -> None
 
 
+    let private isDecimalClrType (t: Type) = (match Nullable.GetUnderlyingType t with null -> t | u -> u) = typeof<decimal>
+
+    /// An integer type (or Nullable of one), excluding enums.
+    let private isIntegralClrType (t: Type) =
+        let core = match Nullable.GetUnderlyingType t with null -> t | u -> u
+        not core.IsEnum
+        && (match Type.GetTypeCode core with
+            | TypeCode.SByte | TypeCode.Byte | TypeCode.Int16 | TypeCode.UInt16
+            | TypeCode.Int32 | TypeCode.UInt32 | TypeCode.Int64 | TypeCode.UInt64 -> true
+            | _ -> false)
+
     let internal translateBinaryExpr
         (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
@@ -114,6 +125,13 @@ module internal OperatorAndUdfTranslator =
                 tryTranslateBinary op l r
                 |> Option.map (NaNSemantics.comparison op (left.Type, l) (right.Type, r))
                 |> Option.map (NullSemantics.liftedComparison resultType [ left.Type, l; right.Type, r ])
+            // .NET integer division truncates toward zero.
+            | Some l, Some r when op = ExpressionType.Divide && isIntegralClrType left.Type && isIntegralClrType right.Type ->
+                Some(ScalarExpr.Binary(BinaryOp.TruncatedDivide, l, r))
+            // .NET decimal division keeps up to 28 significant digits; a fixed-point engine keeps the dividend's
+            // scale, so the dividend is widened to the scale System.Decimal maps to (18).
+            | Some l, Some r when op = ExpressionType.Divide && (isDecimalClrType left.Type || isDecimalClrType right.Type) ->
+                Some(ScalarExpr.Binary(BinaryOp.Divide, ScalarExpr.Cast(l, LogicalTypes.Decimal, false), r))
             | Some l, Some r -> tryTranslateBinary op l r
             | _ -> None
 

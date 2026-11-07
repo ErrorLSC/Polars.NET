@@ -237,6 +237,7 @@ module internal LogicalPlanOps =
                 | BinaryOp.Multiply -> "*"
                 | BinaryOp.Divide -> "/"
                 | BinaryOp.Modulo -> "%"
+                | BinaryOp.TruncatedDivide -> "div"
                 | BinaryOp.FloorDivide -> "//"
                 | BinaryOp.Power -> "**"
                 | BinaryOp.StringConcat -> "+"

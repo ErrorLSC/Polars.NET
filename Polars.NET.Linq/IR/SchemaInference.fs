@@ -56,6 +56,7 @@ module internal SchemaInference =
             | BinaryOp.Multiply
             | BinaryOp.Divide
             | BinaryOp.Modulo
+            | BinaryOp.TruncatedDivide
             | BinaryOp.FloorDivide
             | BinaryOp.Power ->
                 let leftType = inferScalarType schema left

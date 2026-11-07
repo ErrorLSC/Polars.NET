@@ -86,3 +86,14 @@ let ``Coalesce takes the first non-null value`` () =
     let t = Tables()
     let plan = project (t.Scan values) [ "c", ScalarExpr.Coalesce [ col "V"; i64 0L ] ]
     Conformance.rowsInOrder t plan [ [ 1L ]; [ 0L ]; [ 3L ] ]
+
+type IJ = { Id: int64; I: int64; J: int64 }
+
+/// .NET arithmetic: Modulo is the truncated remainder (the dividend's sign) and TruncatedDivide truncates toward
+/// zero, where the engine floors.
+[<Fact>]
+let ``Modulo and TruncatedDivide truncate toward zero`` () =
+    let t = Tables()
+    let rows: IJ array = [| { Id = 1L; I = -7L; J = 2L }; { Id = 2L; I = 7L; J = -2L }; { Id = 3L; I = -8L; J = -3L }; { Id = 4L; I = 7L; J = 0L } |]
+    let plan = project (t.Scan rows) [ "div", bin BinaryOp.TruncatedDivide (col "I") (col "J"); "rem", bin BinaryOp.Modulo (col "I") (col "J") ]
+    Conformance.rowsInOrder t plan [ [ -3L; -1L ]; [ -3L; 1L ]; [ 2L; -2L ]; [ null; null ] ]

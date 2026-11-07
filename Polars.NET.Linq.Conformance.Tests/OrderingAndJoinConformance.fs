@@ -69,3 +69,12 @@ let ``Semi and Anti joins keep left order`` () =
     Conformance.rowsInOrder t (ids (join JoinKind.Semi false t)) [ [ 1L ]; [ 4L ] ]
     Conformance.rowsInOrder t (ids (join JoinKind.Anti false t)) [ [ 2L ]; [ 3L ]; [ 5L ] ]
     Conformance.rowsInOrder t (ids (join JoinKind.Anti true t)) [ [ 3L ] ]
+
+type W = { Id: int64; S: string }
+
+/// Strings sort ordinally, by code point (UTF-8 byte order), not by culture.
+[<Fact>]
+let ``Strings sort ordinally`` () =
+    let t = Tables()
+    let rows: W array = [| { Id = 1L; S = "äpfel" }; { Id = 2L; S = "apple" }; { Id = 3L; S = "Banana" }; { Id = 4L; S = "" } |]
+    Conformance.rowsInOrder t (ids (LogicalPlan.Sort(t.Scan rows, [ asc (col "S") ]))) [ [ 4L ]; [ 3L ]; [ 2L ]; [ 1L ] ]

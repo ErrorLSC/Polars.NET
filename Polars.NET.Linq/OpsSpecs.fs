@@ -16,6 +16,9 @@ module internal LinqConstants =
 /// Linear representation of query expressions before optimization/fusion
 [<RequireQualifiedAccess>]
 type internal LinqStage =
+    /// A query operator the pipeline does not translate (an overload with a comparer, an unknown operator):
+    /// the query runs as LINQ to Objects, under the client evaluation policy, and never skips it.
+    | Unsupported of operatorCall: string
     | Filter of LambdaExpression
     | Sort of LambdaExpression * isDescending: bool * nullsLast: bool
     | SortDefault of isDescending: bool * nullsLast: bool // For .NET 7 Order() / OrderDescending()

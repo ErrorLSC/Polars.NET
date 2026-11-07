@@ -129,8 +129,12 @@ type BinaryOp =
     | Add
     | Subtract
     | Multiply
+    /// Division; over integers the engine's (floor) division, so the frontend emits TruncatedDivide for .NET `/`.
     | Divide
+    /// .NET remainder (`%`): truncated, the sign of the dividend (-7 % 2 = -1, -7.5 % 2 = -1.5).
     | Modulo
+    /// .NET integer division (`/` over integers): truncates toward zero (-7 / 2 = -3).
+    | TruncatedDivide
     | FloorDivide
     | Power
     // String & Pattern

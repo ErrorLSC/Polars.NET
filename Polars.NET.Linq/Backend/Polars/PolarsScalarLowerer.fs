@@ -146,6 +146,21 @@ module internal PolarsScalarLowerer =
         match expr with
         | ScalarExpr.Column name -> PolarsWrapper.Col name
 
+        // .NET `%` and integer `/` truncate toward zero; the engine floors. Where the remainder is nonzero and the
+        // operands' signs differ, the floored quotient is one less and the floored remainder carries the divisor's
+        // sign: add 1 / subtract the divisor.
+        | ScalarExpr.Binary((BinaryOp.Modulo | BinaryOp.TruncatedDivide as op), left, right) ->
+            let signsDiffer () =
+                PolarsWrapper.And(
+                    PolarsWrapper.Neq(PolarsWrapper.Rem(lower left, lower right), PolarsWrapper.Lit 0),
+                    PolarsWrapper.Neq(PolarsWrapper.Lt(lower left, PolarsWrapper.Lit 0), PolarsWrapper.Lt(lower right, PolarsWrapper.Lit 0)))
+            if op = BinaryOp.Modulo then
+                let floored = PolarsWrapper.Rem(lower left, lower right)
+                PolarsWrapper.IfElse(signsDiffer (), PolarsWrapper.Sub(PolarsWrapper.Rem(lower left, lower right), lower right), floored)
+            else
+                let floored = PolarsWrapper.FloorDiv(lower left, lower right)
+                PolarsWrapper.IfElse(signsDiffer (), PolarsWrapper.Add(PolarsWrapper.FloorDiv(lower left, lower right), PolarsWrapper.Lit 1), floored)
+
         | ScalarExpr.Binary(BinaryOp.StringConcat, left, right) ->
             PolarsWrapper.ConcatString([| lowerConcatItem left; lowerConcatItem right |], "", ignoreNulls = false)
 
@@ -170,7 +185,8 @@ module internal PolarsScalarLowerer =
             | BinaryOp.Subtract -> PolarsWrapper.Sub(leftH, rightH)
             | BinaryOp.Multiply -> PolarsWrapper.Mul(leftH, rightH)
             | BinaryOp.Divide -> PolarsWrapper.Div(leftH, rightH)
-            | BinaryOp.Modulo -> PolarsWrapper.Rem(leftH, rightH)
+            | BinaryOp.Modulo
+            | BinaryOp.TruncatedDivide -> failwith "[Polars.NET.Linq Bug] Modulo / TruncatedDivide are lowered before their operands"
             | BinaryOp.FloorDivide -> PolarsWrapper.FloorDiv(leftH, rightH)
             | BinaryOp.Power -> PolarsWrapper.Pow(leftH, rightH)
             | BinaryOp.StringConcat -> failwith "[Polars.NET.Linq Bug] StringConcat is lowered before its operands"
