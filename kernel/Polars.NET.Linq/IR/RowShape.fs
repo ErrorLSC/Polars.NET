@@ -13,42 +13,92 @@ type RowScope =
     /// The row's element itself, for a member no scope qualifies (a grouping element's own members).
     | Unqualified
 
+/// The key of a row shape entry: (scope, member). Ordered as the (RowScope * string) tuple it replaces
+/// (Named < Path < Unqualified; names ordinally, paths element by element with a prefix first; then the
+/// member), but compared directly: generic structural comparison of the tuples dominated compiling a query
+/// joining many tables, whose every join re-keys the entities it moves under a new member.
+[<Sealed; AllowNullLiteral>]
+type internal RowShapeKey(scope: RowScope, memberName: string) =
+    member _.Scope = scope
+    member _.Member = memberName
+
+    static member private Tag(s: RowScope) =
+        match s with
+        | RowScope.Named _ -> 0
+        | RowScope.Path _ -> 1
+        | RowScope.Unqualified -> 2
+
+    static member private ComparePaths(a: string list, b: string list) : int =
+        match a, b with
+        | [], [] -> 0
+        | [], _ -> -1
+        | _, [] -> 1
+        | x :: xs, y :: ys ->
+            let c = System.String.CompareOrdinal(x, y)
+            if c <> 0 then c else RowShapeKey.ComparePaths(xs, ys)
+
+    static member CompareScopes(a: RowScope, b: RowScope) : int =
+        match a, b with
+        | RowScope.Named x, RowScope.Named y -> System.String.CompareOrdinal(x, y)
+        | RowScope.Path x, RowScope.Path y -> RowShapeKey.ComparePaths(x, y)
+        | RowScope.Unqualified, RowScope.Unqualified -> 0
+        | _ -> compare (RowShapeKey.Tag a) (RowShapeKey.Tag b)
+
+    member this.CompareTo(other: RowShapeKey) : int =
+        let c = RowShapeKey.CompareScopes(scope, other.Scope)
+        if c <> 0 then c else System.String.CompareOrdinal(memberName, other.Member)
+
+    interface System.IComparable<RowShapeKey> with
+        member this.CompareTo(other: RowShapeKey) = this.CompareTo other
+
+    interface System.IComparable with
+        member this.CompareTo(other: obj) = this.CompareTo(other :?> RowShapeKey)
+
+    override this.Equals(other: obj) =
+        match other with
+        | :? RowShapeKey as o -> this.CompareTo o = 0
+        | _ -> false
+
+    override _.GetHashCode() = System.HashCode.Combine(scope, memberName)
+
 /// Where the members of a row's entities live: (scope, member) -> physical column. It describes rows whose
 /// entities are still flat columns after joins (transparent identifiers), so that `t.a.Id` resolves to the
 /// column holding it (`Id`, or `Id_right` when the right side's name clashed). An empty shape means the row is
 /// one entity over its own columns.
 type RowShape =
     private
-        { Columns: Map<RowScope * string, string> }
+        { Columns: Map<RowShapeKey, string> }
 
     static member Empty: RowShape = { Columns = Map.empty }
 
-    static member OfEntries(entries: ((RowScope * string) * string) seq) : RowShape = { Columns = Map.ofSeq entries }
+    static member OfEntries(entries: ((RowScope * string) * string) seq) : RowShape =
+        { Columns = entries |> Seq.map (fun ((s, m), c) -> RowShapeKey(s, m), c) |> Map.ofSeq }
 
     member this.IsEmpty = this.Columns.IsEmpty
 
     /// Every (scope, member) -> column entry.
-    member this.Entries: ((RowScope * string) * string) list = Map.toList this.Columns
+    member this.Entries: ((RowScope * string) * string) list =
+        this.Columns |> Map.toList |> List.map (fun (k, c) -> (k.Scope, k.Member), c)
 
     /// The column holding `memberName` of the entity `scope` designates.
-    member this.TryResolve(scope: RowScope, memberName: string) : string option = this.Columns.TryFind((scope, memberName))
+    member this.TryResolve(scope: RowScope, memberName: string) : string option = this.Columns.TryFind(RowShapeKey(scope, memberName))
 
     member this.Add(scope: RowScope, memberName: string, column: string) : RowShape =
-        { Columns = this.Columns.Add((scope, memberName), column) }
+        { Columns = this.Columns.Add(RowShapeKey(scope, memberName), column) }
 
     /// Whether the shape holds members of `scope`.
-    member this.HasScope(scope: RowScope) : bool = this.Columns |> Map.exists (fun (s, _) _ -> s = scope)
+    member this.HasScope(scope: RowScope) : bool = this.Columns |> Map.exists (fun k _ -> k.Scope = scope)
 
     /// The (member, column) pairs of `scope`, in member order.
     member this.Members(scope: RowScope) : (string * string) list =
-        this.Columns |> Map.toList |> List.choose (fun ((s, m), column) -> if s = scope then Some(m, column) else None)
+        this.Columns |> Map.toList |> List.choose (fun (k, column) -> if k.Scope = scope then Some(k.Member, column) else None)
 
     /// The names bound as scopes.
     member this.ScopeNames: Set<string> =
         this.Columns
         |> Map.toSeq
-        |> Seq.choose (fun ((s, _), _) ->
-            match s with
+        |> Seq.choose (fun (k, _) ->
+            match k.Scope with
             | RowScope.Named name -> Some name
             | _ -> None)
         |> Set.ofSeq
@@ -56,8 +106,8 @@ type RowShape =
     /// Whether the row is a transparent row whose entities are designated by path.
     member this.HasPathScopes: bool =
         this.Columns
-        |> Map.exists (fun (s, _) _ ->
-            match s with
+        |> Map.exists (fun k _ ->
+            match k.Scope with
             | RowScope.Path _ -> true
             | _ -> false)
 
@@ -65,17 +115,17 @@ type RowShape =
     member this.PathEntries: ((string list * string) * string) list =
         this.Columns
         |> Map.toList
-        |> List.choose (fun ((s, m), column) ->
-            match s with
-            | RowScope.Path path -> Some((path, m), column)
+        |> List.choose (fun (k, column) ->
+            match k.Scope with
+            | RowScope.Path path -> Some((path, k.Member), column)
             | _ -> None)
 
     /// The shape without its path scopes.
     member this.WithoutPathScopes: RowShape =
         { Columns =
             this.Columns
-            |> Map.filter (fun (s, _) _ ->
-                match s with
+            |> Map.filter (fun k _ ->
+                match k.Scope with
                 | RowScope.Path _ -> false
                 | _ -> true) }
 
@@ -93,5 +143,5 @@ type RowShape =
     override this.ToString() =
         this.Columns
         |> Map.toList
-        |> List.map (fun ((s, m), c) -> sprintf "%A.%s=%s" s m c)
+        |> List.map (fun (k, c) -> sprintf "%A.%s=%s" k.Scope k.Member c)
         |> String.concat ", "

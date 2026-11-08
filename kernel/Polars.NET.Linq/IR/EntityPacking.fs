@@ -107,8 +107,13 @@ module internal EntityPacking =
         t <> typeof<string> && typeof<IEnumerable>.IsAssignableFrom t
 
     /// A type materialized from several columns (or one struct column): not a scalar, collection or tuple.
+    /// Classifying a type takes reflection and the builder asks for every member of every row shape at every
+    /// join, so the answer is kept per type.
+    let private entityTypes = System.Collections.Concurrent.ConcurrentDictionary<Type, bool>()
+
     let private isEntityType (t: Type) =
-        not (PolarsTypeHelper.IsScalarType t) && not (isCollectionType t) && not (isTupleOrAnonType t)
+        entityTypes.GetOrAdd(t, fun t ->
+            not (PolarsTypeHelper.IsScalarType t) && not (isCollectionType t) && not (isTupleOrAnonType t))
 
     /// A C# anonymous type (including query-syntax transparent identifiers) or an F# anonymous record.
     let isAnonymousType (t: Type) =
@@ -132,7 +137,10 @@ module internal EntityPacking =
 
     /// A row type whose members may hold whole entities: anonymous types, F# AnonymousObject and System tuples.
     /// Their entity members are packed into struct columns named after the member (Item1..ItemN for tuples).
-    let isTransparentRowType (t: Type) = isAnonymousType t || isFSharpAnonymousObject t || isSystemTuple t
+    let private transparentRowTypes = System.Collections.Concurrent.ConcurrentDictionary<Type, bool>()
+
+    let isTransparentRowType (t: Type) =
+        transparentRowTypes.GetOrAdd(t, fun t -> isAnonymousType t || isFSharpAnonymousObject t || isSystemTuple t)
 
     /// The members of a row: Item1..ItemN for a System tuple (fields of a ValueTuple), otherwise the model
     /// properties.

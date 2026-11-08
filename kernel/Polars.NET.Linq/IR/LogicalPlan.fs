@@ -34,34 +34,47 @@ module internal LogicalPlanOps =
         | LogicalPlan.JoinAsOf(left, right, _)
         | LogicalPlan.Union(left, right, _) -> [ left; right ]
 
-    /// Transforms immediate child subplans of a logical plan node.
+    /// Transforms immediate child subplans of a logical plan node. A node whose children all come back
+    /// unchanged (the same objects) is returned itself, so passes that change nothing keep the plan's node
+    /// identities (and their memoized schemas) and do not reallocate the tree.
     let mapInputs (f: LogicalPlan -> LogicalPlan) (plan: LogicalPlan) : LogicalPlan =
+        let inline same (a: LogicalPlan) (b: LogicalPlan) = obj.ReferenceEquals(a, b)
         match plan with
         | LogicalPlan.Scan _
         | LogicalPlan.Empty _ -> plan
-        | LogicalPlan.Filter(input, pred) -> LogicalPlan.Filter(f input, pred)
-        | LogicalPlan.Project(input, projs) -> LogicalPlan.Project(f input, projs)
-        | LogicalPlan.WithColumns(input, cols) -> LogicalPlan.WithColumns(f input, cols)
+        | LogicalPlan.Filter(input, pred) -> let i = f input in if same i input then plan else LogicalPlan.Filter(i, pred)
+        | LogicalPlan.Project(input, projs) -> let i = f input in if same i input then plan else LogicalPlan.Project(i, projs)
+        | LogicalPlan.WithColumns(input, cols) -> let i = f input in if same i input then plan else LogicalPlan.WithColumns(i, cols)
         | LogicalPlan.Join(left, right, lOn, rOn, how, sfx, coal, nullEq) ->
-            LogicalPlan.Join(f left, f right, lOn, rOn, how, sfx, coal, nullEq)
-        | LogicalPlan.JoinAsOf(left, right, spec) -> LogicalPlan.JoinAsOf(f left, f right, spec)
+            let l = f left
+            let r = f right
+            if same l left && same r right then plan else LogicalPlan.Join(l, r, lOn, rOn, how, sfx, coal, nullEq)
+        | LogicalPlan.JoinAsOf(left, right, spec) ->
+            let l = f left
+            let r = f right
+            if same l left && same r right then plan else LogicalPlan.JoinAsOf(l, r, spec)
         | LogicalPlan.GroupBy(input, keys, aggs, having, ord) ->
-            LogicalPlan.GroupBy(f input, keys, aggs, having, ord)
-        | LogicalPlan.GroupingSets(input, spec) ->
-            LogicalPlan.GroupingSets(f input, spec)
-        | LogicalPlan.Sort(input, orderings) -> LogicalPlan.Sort(f input, orderings)
-        | LogicalPlan.Limit(input, off, cnt) -> LogicalPlan.Limit(f input, off, cnt)
-        | LogicalPlan.Distinct(input, sub, keep, ord) -> LogicalPlan.Distinct(f input, sub, keep, ord)
+            let i = f input in if same i input then plan else LogicalPlan.GroupBy(i, keys, aggs, having, ord)
+        | LogicalPlan.GroupingSets(input, spec) -> let i = f input in if same i input then plan else LogicalPlan.GroupingSets(i, spec)
+        | LogicalPlan.Sort(input, orderings) -> let i = f input in if same i input then plan else LogicalPlan.Sort(i, orderings)
+        | LogicalPlan.Limit(input, off, cnt) -> let i = f input in if same i input then plan else LogicalPlan.Limit(i, off, cnt)
+        | LogicalPlan.Distinct(input, sub, keep, ord) ->
+            let i = f input in if same i input then plan else LogicalPlan.Distinct(i, sub, keep, ord)
         | LogicalPlan.Explode(input, cols, emAsNull, kpNulls) ->
-            LogicalPlan.Explode(f input, cols, emAsNull, kpNulls)
+            let i = f input in if same i input then plan else LogicalPlan.Explode(i, cols, emAsNull, kpNulls)
         | LogicalPlan.Unpivot(input, idx, on, varN, valN) ->
-            LogicalPlan.Unpivot(f input, idx, on, varN, valN)
-        | LogicalPlan.Union(left, right, isAll) -> LogicalPlan.Union(f left, f right, isAll)
-        | LogicalPlan.WithRowIndex(input, name, off) -> LogicalPlan.WithRowIndex(f input, name, off)
-        | LogicalPlan.Rename(input, existing, newN) -> LogicalPlan.Rename(f input, existing, newN)
-        | LogicalPlan.Reverse input -> LogicalPlan.Reverse(f input)
-        | LogicalPlan.SkipLast(input, count) -> LogicalPlan.SkipLast(f input, count)
-        | LogicalPlan.HorizontalConcat inputs -> LogicalPlan.HorizontalConcat(inputs |> List.map f)
+            let i = f input in if same i input then plan else LogicalPlan.Unpivot(i, idx, on, varN, valN)
+        | LogicalPlan.Union(left, right, isAll) ->
+            let l = f left
+            let r = f right
+            if same l left && same r right then plan else LogicalPlan.Union(l, r, isAll)
+        | LogicalPlan.WithRowIndex(input, name, off) -> let i = f input in if same i input then plan else LogicalPlan.WithRowIndex(i, name, off)
+        | LogicalPlan.Rename(input, existing, newN) -> let i = f input in if same i input then plan else LogicalPlan.Rename(i, existing, newN)
+        | LogicalPlan.Reverse input -> let i = f input in if same i input then plan else LogicalPlan.Reverse i
+        | LogicalPlan.SkipLast(input, count) -> let i = f input in if same i input then plan else LogicalPlan.SkipLast(i, count)
+        | LogicalPlan.HorizontalConcat inputs ->
+            let mapped = inputs |> List.map f
+            if List.forall2 same mapped inputs then plan else LogicalPlan.HorizontalConcat mapped
 
     /// Transforms all scalar expressions embedded in the current logical plan node (non-recursively).
     let mapExpressions (f: ScalarExpr -> ScalarExpr) (plan: LogicalPlan) : LogicalPlan =

@@ -196,3 +196,27 @@ internal static class ZzCacheSteps
         Console.WriteLine($"{what,-28} {w.Elapsed.TotalMicroseconds / n,10:F0} us   cache hits/run {(QueryPlanCache.Hits - h) / (double)n:F0}");
     }
 }
+
+internal static class ZzColdCompile
+{
+    public static void Loop(string name)
+    {
+        TpcdsBenchEnvironment.UseBenchmarkData();
+        Polars.Tpcds.TpcdsData.ReuseSources = true;
+        QueryPlanCache.Enabled = false;
+        var q = TpcdsBenchCatalog.Get(name);
+        for (int i = 0; i < 3; i++) q.PolarsTranslate();
+        var times = new List<double>();
+        long alloc = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 30; i++)
+        {
+            var w = Stopwatch.StartNew();
+            q.PolarsTranslate();
+            times.Add(w.Elapsed.TotalMilliseconds);
+        }
+        alloc = GC.GetAllocatedBytesForCurrentThread() - alloc;
+        times.Sort();
+        Console.Error.WriteLine($"ZZLOOP cold compile: median {times[15]:F1} ms, min {times[0]:F1} ms, alloc {alloc / 30.0 / 1048576:F1} MB/compile");
+    }
+
+}

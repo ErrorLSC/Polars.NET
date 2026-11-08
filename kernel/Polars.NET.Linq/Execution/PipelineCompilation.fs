@@ -41,6 +41,7 @@ module internal PipelineCompilation =
         (mergeDiagnostics: bool)
         : CompiledPipeline =
         let effectiveExpr = inlineComposedRoot effectiveExpr
+        use _schemas = PlanSchemaCache.Enter()
         let isGrouping = isGroupingType targetType
         let rootBinding = SourceBinding.Table root
 

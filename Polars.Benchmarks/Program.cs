@@ -37,6 +37,8 @@ if (args is ["tpcds-explain", var explainQuery, ..])
     return;
 }
 
+if (args is ["zz-cold-loop", var loopQuery, ..]) { Polars.Benchmarks.Tpcds.ZzColdCompile.Loop(loopQuery); return; }
+
 if (args is ["zz-steps", var stepsQuery, ..]) { Polars.Benchmarks.Tpcds.ZzCacheSteps.Run(stepsQuery); return; }
 
 if (args is ["zz-cache", var cacheQuery, ..]) { Polars.Benchmarks.Tpcds.ZzCacheProbe.Run(cacheQuery); return; }

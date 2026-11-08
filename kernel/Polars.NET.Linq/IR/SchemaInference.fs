@@ -3,6 +3,30 @@ namespace Polars.NET.Linq.IR
 open System
 open Polars.NET.Linq
 
+/// The plan schemas inferred during one compilation, by node. Plans are immutable, so a node's schema never
+/// changes; without the cache, every builder step and pass that asks a node for its schema re-infers the whole
+/// subtree below it, which is quadratic in the depth of a deep plan (a join of many tables). The outermost
+/// compilation opens the scope and nested ones share it; outside a scope schemas are inferred uncached.
+/// A plain dictionary rather than a weak table: compilation creates many short-lived nodes, and a weak table's
+/// per-entry GC handle and lock cost more than the inference they save.
+[<Sealed; AllowNullLiteral>]
+type internal PlanSchemaCache private () =
+    [<ThreadStatic; DefaultValue>]
+    static val mutable private current: System.Collections.Generic.Dictionary<LogicalPlan, LogicalSchema>
+
+    static member Current = PlanSchemaCache.current
+
+    /// Opens the cache for the current thread unless a compilation already did; disposing the outermost
+    /// scope drops it.
+    static member Enter() : IDisposable =
+        if isNull PlanSchemaCache.current then
+            PlanSchemaCache.current <- System.Collections.Generic.Dictionary<LogicalPlan, LogicalSchema>(HashIdentity.Reference)
+            { new IDisposable with
+                member _.Dispose() = PlanSchemaCache.current <- null }
+        else
+            { new IDisposable with
+                member _.Dispose() = () }
+
 /// In-memory schema and data type inference for LogicalPlan and ScalarExpr
 module internal SchemaInference =
 
@@ -166,7 +190,19 @@ module internal SchemaInference =
     // 2. Relational Plan Schema Inference
     // =========================================================================
 
+    /// The schema of a plan's output, inferred once per node within a compilation (see PlanSchemaCache).
     let rec inferPlanSchema (plan: LogicalPlan) : LogicalSchema =
+        match PlanSchemaCache.Current with
+        | null -> computePlanSchema plan
+        | cache ->
+            match cache.TryGetValue plan with
+            | true, schema -> schema
+            | _ ->
+                let schema = computePlanSchema plan
+                cache.[plan] <- schema
+                schema
+
+    and private computePlanSchema (plan: LogicalPlan) : LogicalSchema =
         match plan with
         | LogicalPlan.Scan(_, schema) -> schema
 
@@ -208,7 +244,7 @@ module internal SchemaInference =
                         }
                     | None -> f)
 
-            let existingNames = inSchema.ColumnNames |> Set.ofList
+            let existingNames = System.Collections.Generic.HashSet<string>(inSchema.ColumnNames, StringComparer.Ordinal)
 
             let brandNewFields =
                 cols
@@ -231,7 +267,7 @@ module internal SchemaInference =
             | _ ->
                 let leftSchema = inferPlanSchema left
                 let rightSchema = inferPlanSchema right
-                let leftNames = leftSchema.ColumnNames |> Set.ofList
+                let leftNames = System.Collections.Generic.HashSet<string>(leftSchema.ColumnNames, StringComparer.Ordinal)
                 let suffix = defaultArg suffixOpt LinqConstants.DefaultRightSuffix
 
                 let rightFields =
@@ -251,7 +287,7 @@ module internal SchemaInference =
         | LogicalPlan.JoinAsOf(left, right, spec) ->
             let leftSchema = inferPlanSchema left
             let rightSchema = inferPlanSchema right
-            let leftNames = leftSchema.ColumnNames |> Set.ofList
+            let leftNames = System.Collections.Generic.HashSet<string>(leftSchema.ColumnNames, StringComparer.Ordinal)
             let suffix = defaultArg spec.Suffix LinqConstants.DefaultRightSuffix
 
             let rightFields =
@@ -334,7 +370,7 @@ module internal SchemaInference =
 
         | LogicalPlan.Unpivot(input, idx, _, varName, valName) ->
             let inSchema = inferPlanSchema input
-            let idxSet = Set.ofList idx
+            let idxSet = System.Collections.Generic.HashSet<string>((idx: string list), StringComparer.Ordinal)
 
             let preservedFields =
                 inSchema.Fields |> List.filter (fun f -> idxSet.Contains f.Name)
