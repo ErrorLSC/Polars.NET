@@ -70,146 +70,14 @@ public class TpcdsQuery51To60Tests
     [Trait("TPCDS","Q51")]
     public void Test_Q51()
     {
-        var webSalesQuery = TpcdsData.WebSalesQuery();
-        var storeSalesQuery = TpcdsData.StoreSalesQuery();
-        var dateDimQuery = TpcdsData.DateDimQuery();
-
-        var webDaily = from ws in webSalesQuery
-                       join d in dateDimQuery on ws.ws_sold_date_sk equals d.d_date_sk
-                       where d.d_month_seq >= 1200 && d.d_month_seq <= 1211
-                       group ws by new { item_sk = ws.ws_item_sk, d.d_date } into g
-                       select new
-                       {
-                           g.Key.item_sk,
-                           g.Key.d_date,
-                           web_daily = g.Sum(x => x.ws_sales_price) ?? 0.00m,
-                           store_daily = 0.00m,
-                           has_web = 1L,
-                           has_web_val = g.Max(x => x.ws_sales_price != null ? 1L : 0L),
-                           has_store = 0L,
-                           has_store_val = 0L
-                       };
-
-        var storeDaily = from ss in storeSalesQuery
-                         join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
-                         where d.d_month_seq >= 1200 && d.d_month_seq <= 1211
-                         group ss by new { item_sk = ss.ss_item_sk, d.d_date } into g
-                         select new
-                         {
-                             g.Key.item_sk,
-                             g.Key.d_date,
-                             web_daily = 0.00m,
-                             store_daily = g.Sum(x => x.ss_sales_price) ?? 0.00m,
-                             has_web = 0L,
-                             has_web_val = 0L,
-                             has_store = 1L,
-                             has_store_val = g.Max(x => x.ss_sales_price != null ? 1L : 0L)
-                         };
-
-        var mergedDaily = from x in webDaily.Concat(storeDaily)
-                          group x by new { x.item_sk, x.d_date } into g
-                          select new
-                          {
-                              g.Key.item_sk,
-                              g.Key.d_date,
-                              web_daily = g.Sum(x => x.web_daily),
-                              store_daily = g.Sum(x => x.store_daily),
-                              has_web = g.Max(x => x.has_web),
-                              has_web_val = g.Max(x => x.has_web_val),
-                              has_store = g.Max(x => x.has_store),
-                              has_store_val = g.Max(x => x.has_store_val)
-                          };
-
-        var withCume = from m in mergedDaily
-                       orderby m.item_sk, m.d_date
-                       select new
-                       {
-                           m.item_sk,
-                           m.d_date,
-                           m.has_web,
-                           m.has_store,
-                           web_cume_raw = m.web_daily.CumSum().Over(m.item_sk),
-                           store_cume_raw = m.store_daily.CumSum().Over(m.item_sk),
-                           seen_web = m.has_web_val.CumSum().Over(m.item_sk),
-                           seen_store = m.has_store_val.CumSum().Over(m.item_sk)
-                       };
-
-        var projected = from c in withCume
-                        select new
-                        {
-                            c.item_sk,
-                            c.d_date,
-                            web_sales = c.has_web > 0 && c.seen_web > 0 ? (decimal?)c.web_cume_raw : null,
-                            store_sales = c.has_store > 0 && c.seen_store > 0 ? (decimal?)c.store_cume_raw : null,
-                            web_cumulative = c.seen_web > 0 ? (decimal?)c.web_cume_raw : null,
-                            store_cumulative = c.seen_store > 0 ? (decimal?)c.store_cume_raw : null
-                        };
-
-        var q51 = (from y in projected
-                   where y.web_cumulative > y.store_cumulative
-                   orderby y.item_sk, y.d_date
-                   select y)
-                  .Take(100);
+        var q51 = TpcdsQueries.Q51();
 
         AssertPlan(q51, NativePushdown);
 
         var polarsResult = q51.ToList();
 
         // DuckDB Cross Validation
-        var duckDbSql = $@"
-            WITH web_v1 AS
-              (SELECT ws_item_sk item_sk,
-                      d_date,
-                      sum(sum(ws_sales_price)) OVER (PARTITION BY ws_item_sk
-                                                     ORDER BY d_date ROWS BETWEEN unbounded preceding AND CURRENT ROW) cume_sales
-               FROM read_parquet('{TpcdsData.WebSalesPath}'),
-                    read_parquet('{TpcdsData.DateDimPath}')
-               WHERE ws_sold_date_sk=d_date_sk
-                 AND d_month_seq BETWEEN 1200 AND 1200+11
-                 AND ws_item_sk IS NOT NULL
-               GROUP BY ws_item_sk,
-                        d_date),
-                 store_v1 AS
-              (SELECT ss_item_sk item_sk,
-                      d_date,
-                      sum(sum(ss_sales_price)) OVER (PARTITION BY ss_item_sk
-                                                     ORDER BY d_date ROWS BETWEEN unbounded preceding AND CURRENT ROW) cume_sales
-               FROM read_parquet('{TpcdsData.StoreSalesPath}'),
-                    read_parquet('{TpcdsData.DateDimPath}')
-               WHERE ss_sold_date_sk=d_date_sk
-                 AND d_month_seq BETWEEN 1200 AND 1200+11
-                 AND ss_item_sk IS NOT NULL
-               GROUP BY ss_item_sk,
-                        d_date)
-            SELECT *
-            FROM
-              (SELECT item_sk,
-                      d_date,
-                      web_sales,
-                      store_sales,
-                      max(web_sales) OVER (PARTITION BY item_sk
-                                           ORDER BY d_date ROWS BETWEEN unbounded preceding AND CURRENT ROW) web_cumulative,
-                      max(store_sales) OVER (PARTITION BY item_sk
-                                             ORDER BY d_date ROWS BETWEEN unbounded preceding AND CURRENT ROW) store_cumulative
-               FROM
-                 (SELECT CASE
-                             WHEN web.item_sk IS NOT NULL THEN web.item_sk
-                             ELSE store.item_sk
-                         END item_sk,
-                         CASE
-                             WHEN web.d_date IS NOT NULL THEN web.d_date
-                             ELSE store.d_date
-                         END d_date,
-                         web.cume_sales web_sales,
-                         store.cume_sales store_sales
-                  FROM web_v1 web
-                  FULL OUTER JOIN store_v1 store ON (web.item_sk = store.item_sk
-                                                     AND web.d_date = store.d_date))x)y
-            WHERE web_cumulative > store_cumulative
-            ORDER BY item_sk NULLS FIRST,
-                     d_date NULLS FIRST
-            LIMIT 100;
-        ";
+        var duckDbSql = TpcdsSql.Q51();
 
         var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
         {
@@ -725,48 +593,14 @@ public class TpcdsQuery51To60Tests
     [Trait("TPCDS","Q55")]
     public void Test_Q55()
     {
-        var dateDimQuery = TpcdsData.DateDimQuery();
-        var storeSalesQuery = TpcdsData.StoreSalesQuery();
-        var itemQuery = TpcdsData.ItemQuery();
-
-        var q55 = (from d in dateDimQuery
-                   join ss in storeSalesQuery on d.d_date_sk equals ss.ss_sold_date_sk
-                   join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
-                   where i.i_manager_id == 28 && d.d_moy == 11 && d.d_year == 1999
-                   group ss by new { i.i_brand, i.i_brand_id } into g
-                   let ext_price = g.Sum(x => x.ss_ext_sales_price)
-                   orderby ext_price descending, g.Key.i_brand_id
-                   select new
-                   {
-                       brand_id = g.Key.i_brand_id,
-                       brand = g.Key.i_brand,
-                       ext_price
-                   })
-                  .Take(100);
+        var q55 = TpcdsQueries.Q55();
 
         AssertPlan(q55, NativePushdown);
 
         var polarsResult = q55.ToList();
 
         // DuckDB Cross Validation
-        var duckDbSql = $@"
-            SELECT i_brand_id brand_id,
-                   i_brand brand,
-                   sum(ss_ext_sales_price) ext_price
-            FROM read_parquet('{TpcdsData.DateDimPath}') date_dim,
-                 read_parquet('{TpcdsData.StoreSalesPath}') store_sales,
-                 read_parquet('{TpcdsData.ItemPath}') item
-            WHERE d_date_sk = ss_sold_date_sk
-              AND ss_item_sk = i_item_sk
-              AND i_manager_id=28
-              AND d_moy=11
-              AND d_year=1999
-            GROUP BY i_brand,
-                     i_brand_id
-            ORDER BY ext_price DESC,
-                     i_brand_id
-            LIMIT 100;
-        ";
+        var duckDbSql = TpcdsSql.Q55();
 
         var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
         {

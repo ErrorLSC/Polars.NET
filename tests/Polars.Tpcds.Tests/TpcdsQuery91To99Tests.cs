@@ -269,79 +269,13 @@ LIMIT 100;
     [Trait("TPCDS","Q94")]
     public void Test_Q94()
     {
-        var webSalesQuery = TpcdsData.WebSalesQuery();
-        var webReturnsQuery = TpcdsData.WebReturnsQuery();
-        var dateDimQuery = TpcdsData.DateDimQuery();
-        var customerAddressQuery = TpcdsData.CustomerAddressQuery();
-        var webSiteQuery = TpcdsData.WebSiteQuery();
-
-        var startDate = new DateOnly(1999, 2, 1);
-        var endDate = new DateOnly(1999, 4, 2);
-
-        var baseSales = (from ws1 in webSalesQuery
-                         join d in dateDimQuery on ws1.ws_ship_date_sk equals d.d_date_sk
-                         join ca in customerAddressQuery on ws1.ws_ship_addr_sk equals ca.ca_address_sk
-                         join web in webSiteQuery on ws1.ws_web_site_sk equals web.web_site_sk
-                         where d.d_date >= startDate && d.d_date <= endDate
-                            && ca.ca_state == "IL"
-                            && web.web_company_name == "pri"
-                            // EXISTS (another row of the order from a different warehouse)
-                            // SQL <> is unknown when either warehouse is NULL
-                            && webSalesQuery.Any(ws2 => ws2.ws_order_number == ws1.ws_order_number
-                                                        && ws1.ws_warehouse_sk != null
-                                                        && ws2.ws_warehouse_sk != null
-                                                        && ws2.ws_warehouse_sk != ws1.ws_warehouse_sk)
-                            // NOT EXISTS (a return of the order)
-                            && !webReturnsQuery.Any(wr => wr.wr_order_number == ws1.ws_order_number)
-                         select new
-                         {
-                             ws1.ws_order_number,
-                             ws1.ws_ext_ship_cost,
-                             ws1.ws_net_profit
-                         });
-
-        var q94 = (from x in baseSales
-                   group x by 1 into g
-                   select new
-                   {
-                       order_count = g.Select(x => x.ws_order_number).Distinct().LongCount(),
-                       total_shipping_cost = g.Sum(x => x.ws_ext_ship_cost),
-                       total_net_profit = g.Sum(x => x.ws_net_profit)
-                   })
-                  .OrderBy(x => x.order_count)
-                  .Take(100);
+        var q94 = TpcdsQueries.Q94();
 
         AssertPlan(q94, NativePushdown);
 
         var polarsResult = q94.ToList();
 
-        var duckDbSql = $@"
-SELECT
-   count(distinct ws_order_number) as ""order count""
-  ,sum(ws_ext_ship_cost) as ""total shipping cost""
-  ,sum(ws_net_profit) as ""total net profit""
-FROM
-   read_parquet('{TpcdsData.WebSalesPath}') ws1
-  ,read_parquet('{TpcdsData.DateDimPath}') date_dim
-  ,read_parquet('{TpcdsData.CustomerAddressPath}') customer_address
-  ,read_parquet('{TpcdsData.WebSitePath}') web_site
-WHERE
-    d_date between '1999-2-01' and cast('1999-4-02' as date)
-and ws1.ws_ship_date_sk = d_date_sk
-and ws1.ws_ship_addr_sk = ca_address_sk
-and ca_state = 'IL'
-and ws1.ws_web_site_sk = web_site_sk
-and web_company_name = 'pri'
-and exists (select *
-            from read_parquet('{TpcdsData.WebSalesPath}') ws2
-            where ws1.ws_order_number = ws2.ws_order_number
-              and ws1.ws_warehouse_sk <> ws2.ws_warehouse_sk)
-and not exists(select *
-               from read_parquet('{TpcdsData.WebReturnsPath}') wr1
-               where ws1.ws_order_number = wr1.wr_order_number)
-order by count(distinct ws_order_number)
-limit 100;
-";
+        var duckDbSql = TpcdsSql.Q94();
 
         var duckDbResult = DuckDbFixture.Query(duckDbSql, r => new
         {
@@ -599,81 +533,13 @@ limit 100;
     [Trait("TPCDS","Q98")]
     public void Test_Q98()
     {
-        var storeSalesQuery = TpcdsData.StoreSalesQuery();
-        var itemQuery = TpcdsData.ItemQuery();
-        var dateDimQuery = TpcdsData.DateDimQuery();
-
-        var startDate = new DateOnly(1999, 2, 22);
-        var endDate = new DateOnly(1999, 3, 24);
-        var categories = new[] { "Sports", "Books", "Home" };
-
-        var q98 = (from ss in storeSalesQuery
-                   join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
-                   join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
-                   where categories.Contains(i.i_category)
-                      && d.d_date >= startDate && d.d_date <= endDate
-                   group ss by new
-                   {
-                       i.i_item_id,
-                       i.i_item_desc,
-                       i.i_category,
-                       i.i_class,
-                       i.i_current_price
-                   } into g
-                   // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
-                   let itemrevenue = g.Count(x => x.ss_ext_sales_price != null) > 0 ? g.Sum(x => x.ss_ext_sales_price) : null
-                   select new
-                   {
-                       g.Key.i_item_id,
-                       g.Key.i_item_desc,
-                       g.Key.i_category,
-                       g.Key.i_class,
-                       g.Key.i_current_price,
-                       itemrevenue,
-                       revenueratio = (double?)itemrevenue * 100.0 / (double?)itemrevenue.Sum().Over(g.Key.i_class)
-                   })
-                  .OrderBy(x => x.i_category)
-                  .ThenBy(x => x.i_class)
-                  .ThenBy(x => x.i_item_id)
-                  .ThenBy(x => x.i_item_desc)
-                  .ThenBy(x => x.revenueratio);
+        var q98 = TpcdsQueries.Q98();
 
         AssertPlan(q98, NativePushdown);
 
         var polarsResult = q98.ToList();
 
-        var duckDbSql = $@"
-SELECT i_item_id
-      ,i_item_desc
-      ,i_category
-      ,i_class
-      ,i_current_price
-      ,sum(ss_ext_sales_price) as itemrevenue
-      ,sum(ss_ext_sales_price)*100.0000/sum(sum(ss_ext_sales_price)) over
-          (partition by i_class) as revenueratio
-FROM
-         read_parquet('{TpcdsData.StoreSalesPath}') store_sales
-        ,read_parquet('{TpcdsData.ItemPath}') item
-        ,read_parquet('{TpcdsData.DateDimPath}') date_dim
-WHERE
-        ss_item_sk = i_item_sk
-        and i_category in ('Sports', 'Books', 'Home')
-        and ss_sold_date_sk = d_date_sk
-        and d_date between cast('1999-02-22' as date)
-                                and cast('1999-03-24' as date)
-GROUP BY
-        i_item_id
-        ,i_item_desc
-        ,i_category
-        ,i_class
-        ,i_current_price
-ORDER BY
-        i_category NULLS FIRST
-        ,i_class NULLS FIRST
-        ,i_item_id NULLS FIRST
-        ,i_item_desc NULLS FIRST
-        ,revenueratio NULLS FIRST;
-";
+        var duckDbSql = TpcdsSql.Q98();
 
         var duckDbResult = DuckDbFixture.Query(duckDbSql, r => new
         {

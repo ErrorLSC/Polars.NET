@@ -1084,137 +1084,14 @@ public class TpcdsQuery41To50Tests
     [Trait("TPCDS","Q47")]
     public void Test_Q47()
     {
-        var itemQuery = TpcdsData.ItemQuery();
-        var storeSalesQuery = TpcdsData.StoreSalesQuery();
-        var dateDimQuery = TpcdsData.DateDimQuery();
-        var storeQuery = TpcdsData.StoreQuery();
-
-        var v1 = from ss in storeSalesQuery
-                 join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
-                 join d in dateDimQuery on ss.ss_sold_date_sk equals d.d_date_sk
-                 join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
-                 where d.d_year == 1999 || (d.d_year == 1998 && d.d_moy == 12) || (d.d_year == 2000 && d.d_moy == 1)
-                 group ss by new
-                 {
-                     i.i_category,
-                     i.i_brand,
-                     s.s_store_name,
-                     s.s_company_name,
-                     d.d_year,
-                     d.d_moy
-                 } into g
-                 orderby g.Key.d_year, g.Key.d_moy
-                 let sum_sales = g.Sum(x => x.ss_sales_price)
-                 select new
-                 {
-                     g.Key.i_category,
-                     g.Key.i_brand,
-                     g.Key.s_store_name,
-                     g.Key.s_company_name,
-                     g.Key.d_year,
-                     g.Key.d_moy,
-                     avg_monthly_sales = sum_sales.Average().Over(new { g.Key.i_category, g.Key.i_brand, g.Key.s_store_name, g.Key.s_company_name, g.Key.d_year }),
-                     sum_sales,
-                     psum = sum_sales.Shift(1).Over(new { g.Key.i_category, g.Key.i_brand, g.Key.s_store_name, g.Key.s_company_name }),
-                     nsum = sum_sales.Shift(-1).Over(new { g.Key.i_category, g.Key.i_brand, g.Key.s_store_name, g.Key.s_company_name })
-                 };
-
-        var q47 = (from x in v1
-                   where x.d_year == 1999 && x.avg_monthly_sales > 0.0
-                      && x.psum != null && x.nsum != null
-                      && (Math.Abs((double)x.sum_sales! - x.avg_monthly_sales) / x.avg_monthly_sales > 0.1)
-                   orderby (double?)x.sum_sales - x.avg_monthly_sales,
-                           x.i_category,
-                           x.i_brand,
-                           x.s_store_name,
-                           x.s_company_name,
-                           x.d_year,
-                           x.d_moy,
-                           x.avg_monthly_sales,
-                           x.sum_sales,
-                           x.psum,
-                           x.nsum
-                   select x)
-                  .Take(100);
+        var q47 = TpcdsQueries.Q47();
 
         AssertPlan(q47, NativePushdown);
 
         var polarsResult = q47.ToList();
 
         // DuckDB Cross Validation
-        var duckDbSql = $@"
-            WITH v1 AS
-              (SELECT i_category,
-                      i_brand,
-                      s_store_name,
-                      s_company_name,
-                      d_year,
-                      d_moy,
-                      sum(ss_sales_price) sum_sales,
-                      avg(sum(ss_sales_price)) OVER (PARTITION BY i_category,
-                                                                  i_brand,
-                                                                  s_store_name,
-                                                                  s_company_name,
-                                                                  d_year) avg_monthly_sales,
-                      rank() OVER (PARTITION BY i_category,
-                                                i_brand,
-                                                s_store_name,
-                                                s_company_name
-                                   ORDER BY d_year,
-                                            d_moy) rn
-               FROM read_parquet('{TpcdsData.ItemPath}'),
-                    read_parquet('{TpcdsData.StoreSalesPath}'),
-                    read_parquet('{TpcdsData.DateDimPath}'),
-                    read_parquet('{TpcdsData.StorePath}')
-               WHERE ss_item_sk = i_item_sk
-                 AND ss_sold_date_sk = d_date_sk
-                 AND ss_store_sk = s_store_sk
-                 AND (d_year = 1999
-                      OR (d_year = 1999-1
-                          AND d_moy =12)
-                      OR (d_year = 1999+1
-                          AND d_moy =1))
-               GROUP BY i_category,
-                        i_brand,
-                        s_store_name,
-                        s_company_name,
-                        d_year,
-                        d_moy),
-                 v2 AS
-              (SELECT v1.i_category,
-                      v1.i_brand,
-                      v1.s_store_name,
-                      v1.s_company_name,
-                      v1.d_year,
-                      v1.d_moy,
-                      v1.avg_monthly_sales,
-                      v1.sum_sales,
-                      v1_lag.sum_sales psum,
-                      v1_lead.sum_sales nsum
-               FROM v1,
-                    v1 v1_lag,
-                    v1 v1_lead
-               WHERE v1.i_category = v1_lag.i_category
-                 AND v1.i_category = v1_lead.i_category
-                 AND v1.i_brand = v1_lag.i_brand
-                 AND v1.i_brand = v1_lead.i_brand
-                 AND v1.s_store_name = v1_lag.s_store_name
-                 AND v1.s_store_name = v1_lead.s_store_name
-                 AND v1.s_company_name = v1_lag.s_company_name
-                 AND v1.s_company_name = v1_lead.s_company_name
-                 AND v1.rn = v1_lag.rn + 1
-                 AND v1.rn = v1_lead.rn - 1)
-            SELECT *
-            FROM v2
-            WHERE d_year = 1999
-              AND avg_monthly_sales > 0
-              AND CASE
-                      WHEN avg_monthly_sales > 0 THEN abs(sum_sales - avg_monthly_sales) / avg_monthly_sales
-                      ELSE NULL
-                  END > 0.1
-            ORDER BY sum_sales - avg_monthly_sales, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
-            LIMIT 100;
-        ";
+        var duckDbSql = TpcdsSql.Q47();
 
         var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
         {

@@ -1,16 +1,27 @@
 using Polars.CSharp;
 using Polars.CSharp.Linq;
 
-namespace Polars.Tpcds.Tests;
+namespace Polars.Tpcds;
 
 public static class TpcdsData
 {
-    private static readonly Lazy<string> _dataDir = new(FindDataDir);
+    private static string? _dataDir;
 
-    public static string DataDir => _dataDir.Value;
+    /// <summary>
+    /// The directory of the TPC-DS Parquet files. Defaults to <c>POLARS_TPCDS_DIR</c> when set, otherwise the
+    /// test project's <c>Data</c> directory; set it before the first query to point at other data.
+    /// </summary>
+    public static string DataDir
+    {
+        get => _dataDir ??= FindDataDir();
+        set => _dataDir = Path.GetFullPath(value);
+    }
 
     private static string FindDataDir()
     {
+        var configured = Environment.GetEnvironmentVariable("POLARS_TPCDS_DIR");
+        if (!string.IsNullOrEmpty(configured)) return Path.GetFullPath(configured);
+
         var appBase = AppContext.BaseDirectory;
         var candidate = Path.Combine(appBase, "Data");
         if (Directory.Exists(candidate) && File.Exists(Path.Combine(candidate, "store_sales.parquet")))
@@ -90,29 +101,40 @@ public static class TpcdsData
     public static LazyFrame WebSales() => LazyFrame.ScanParquet(WebSalesPath);
     public static LazyFrame WebSite() => LazyFrame.ScanParquet(WebSitePath);
 
+    /// <summary>
+    /// When true, each table's queryable is created once and reused, so building a query does not scan the
+    /// Parquet file's metadata again (benchmarks of translation alone set it). Default false: a fresh scan per call.
+    /// </summary>
+    public static bool ReuseSources { get; set; }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, object> _sources = new();
+
+    private static IQueryable<T> Source<T>(Func<IQueryable<T>> create) =>
+        ReuseSources ? (IQueryable<T>)_sources.GetOrAdd(typeof(T), _ => create()) : create();
+
     // Strongly-typed Queryable entrypoints
-    public static IQueryable<CallCenter> CallCenterQuery() => CallCenter().AsQueryable<CallCenter>();
-    public static IQueryable<CatalogPage> CatalogPageQuery() => CatalogPage().AsQueryable<CatalogPage>();
-    public static IQueryable<CatalogReturns> CatalogReturnsQuery() => CatalogReturns().AsQueryable<CatalogReturns>();
-    public static IQueryable<CatalogSales> CatalogSalesQuery() => CatalogSales().AsQueryable<CatalogSales>();
-    public static IQueryable<Customer> CustomerQuery() => Customer().AsQueryable<Customer>();
-    public static IQueryable<CustomerAddress> CustomerAddressQuery() => CustomerAddress().AsQueryable<CustomerAddress>();
-    public static IQueryable<CustomerDemographics> CustomerDemographicsQuery() => CustomerDemographics().AsQueryable<CustomerDemographics>();
-    public static IQueryable<DateDim> DateDimQuery() => DateDim().AsQueryable<DateDim>();
-    public static IQueryable<HouseholdDemographics> HouseholdDemographicsQuery() => HouseholdDemographics().AsQueryable<HouseholdDemographics>();
-    public static IQueryable<IncomeBand> IncomeBandQuery() => IncomeBand().AsQueryable<IncomeBand>();
-    public static IQueryable<Inventory> InventoryQuery() => Inventory().AsQueryable<Inventory>();
-    public static IQueryable<Item> ItemQuery() => Item().AsQueryable<Item>();
-    public static IQueryable<Promotion> PromotionQuery() => Promotion().AsQueryable<Promotion>();
-    public static IQueryable<Reason> ReasonQuery() => Reason().AsQueryable<Reason>();
-    public static IQueryable<ShipMode> ShipModeQuery() => ShipMode().AsQueryable<ShipMode>();
-    public static IQueryable<Store> StoreQuery() => Store().AsQueryable<Store>();
-    public static IQueryable<StoreReturns> StoreReturnsQuery() => StoreReturns().AsQueryable<StoreReturns>();
-    public static IQueryable<StoreSales> StoreSalesQuery() => StoreSales().AsQueryable<StoreSales>();
-    public static IQueryable<TimeDim> TimeDimQuery() => TimeDim().AsQueryable<TimeDim>();
-    public static IQueryable<Warehouse> WarehouseQuery() => Warehouse().AsQueryable<Warehouse>();
-    public static IQueryable<WebPage> WebPageQuery() => WebPage().AsQueryable<WebPage>();
-    public static IQueryable<WebReturns> WebReturnsQuery() => WebReturns().AsQueryable<WebReturns>();
-    public static IQueryable<WebSales> WebSalesQuery() => WebSales().AsQueryable<WebSales>();
-    public static IQueryable<WebSite> WebSiteQuery() => WebSite().AsQueryable<WebSite>();
+    public static IQueryable<CallCenter> CallCenterQuery() => Source(static () => CallCenter().AsQueryable<CallCenter>());
+    public static IQueryable<CatalogPage> CatalogPageQuery() => Source(static () => CatalogPage().AsQueryable<CatalogPage>());
+    public static IQueryable<CatalogReturns> CatalogReturnsQuery() => Source(static () => CatalogReturns().AsQueryable<CatalogReturns>());
+    public static IQueryable<CatalogSales> CatalogSalesQuery() => Source(static () => CatalogSales().AsQueryable<CatalogSales>());
+    public static IQueryable<Customer> CustomerQuery() => Source(static () => Customer().AsQueryable<Customer>());
+    public static IQueryable<CustomerAddress> CustomerAddressQuery() => Source(static () => CustomerAddress().AsQueryable<CustomerAddress>());
+    public static IQueryable<CustomerDemographics> CustomerDemographicsQuery() => Source(static () => CustomerDemographics().AsQueryable<CustomerDemographics>());
+    public static IQueryable<DateDim> DateDimQuery() => Source(static () => DateDim().AsQueryable<DateDim>());
+    public static IQueryable<HouseholdDemographics> HouseholdDemographicsQuery() => Source(static () => HouseholdDemographics().AsQueryable<HouseholdDemographics>());
+    public static IQueryable<IncomeBand> IncomeBandQuery() => Source(static () => IncomeBand().AsQueryable<IncomeBand>());
+    public static IQueryable<Inventory> InventoryQuery() => Source(static () => Inventory().AsQueryable<Inventory>());
+    public static IQueryable<Item> ItemQuery() => Source(static () => Item().AsQueryable<Item>());
+    public static IQueryable<Promotion> PromotionQuery() => Source(static () => Promotion().AsQueryable<Promotion>());
+    public static IQueryable<Reason> ReasonQuery() => Source(static () => Reason().AsQueryable<Reason>());
+    public static IQueryable<ShipMode> ShipModeQuery() => Source(static () => ShipMode().AsQueryable<ShipMode>());
+    public static IQueryable<Store> StoreQuery() => Source(static () => Store().AsQueryable<Store>());
+    public static IQueryable<StoreReturns> StoreReturnsQuery() => Source(static () => StoreReturns().AsQueryable<StoreReturns>());
+    public static IQueryable<StoreSales> StoreSalesQuery() => Source(static () => StoreSales().AsQueryable<StoreSales>());
+    public static IQueryable<TimeDim> TimeDimQuery() => Source(static () => TimeDim().AsQueryable<TimeDim>());
+    public static IQueryable<Warehouse> WarehouseQuery() => Source(static () => Warehouse().AsQueryable<Warehouse>());
+    public static IQueryable<WebPage> WebPageQuery() => Source(static () => WebPage().AsQueryable<WebPage>());
+    public static IQueryable<WebReturns> WebReturnsQuery() => Source(static () => WebReturns().AsQueryable<WebReturns>());
+    public static IQueryable<WebSales> WebSalesQuery() => Source(static () => WebSales().AsQueryable<WebSales>());
+    public static IQueryable<WebSite> WebSiteQuery() => Source(static () => WebSite().AsQueryable<WebSite>());
 }

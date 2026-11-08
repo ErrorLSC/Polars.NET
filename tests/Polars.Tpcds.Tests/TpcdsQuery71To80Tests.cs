@@ -246,101 +246,13 @@ public class TpcdsQuery71To80Tests
     [Trait("TPCDS","Q72")]
     public void Test_Q72()
     {
-        var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
-        var inventoryQuery = TpcdsData.InventoryQuery();
-        var warehouseQuery = TpcdsData.WarehouseQuery();
-        var itemQuery = TpcdsData.ItemQuery();
-        var cdemoQuery = TpcdsData.CustomerDemographicsQuery();
-        var hdemoQuery = TpcdsData.HouseholdDemographicsQuery();
-        var dateDimQuery = TpcdsData.DateDimQuery();
-        var promotionQuery = TpcdsData.PromotionQuery();
-        var catalogReturnsQuery = TpcdsData.CatalogReturnsQuery();
-
-        var invWithWeek = from inv in inventoryQuery
-                          join w in warehouseQuery on inv.inv_warehouse_sk equals w.w_warehouse_sk
-                          join d2 in dateDimQuery on inv.inv_date_sk equals d2.d_date_sk
-                          select new
-                          {
-                              inv.inv_item_sk,
-                              inv.inv_quantity_on_hand,
-                              w.w_warehouse_name,
-                              d2.d_week_seq
-                          };
-
-        var q72 = (from cs in catalogSalesQuery
-                   join d1 in dateDimQuery on cs.cs_sold_date_sk equals d1.d_date_sk
-                   join d3 in dateDimQuery on cs.cs_ship_date_sk equals d3.d_date_sk
-                   join cd in cdemoQuery on cs.cs_bill_cdemo_sk equals cd.cd_demo_sk
-                   join hd in hdemoQuery on cs.cs_bill_hdemo_sk equals hd.hd_demo_sk
-                   join i in itemQuery on cs.cs_item_sk equals i.i_item_sk
-                   join inv in invWithWeek on new { item_sk = cs.cs_item_sk, week_seq = d1.d_week_seq }
-                                       equals new { item_sk = inv.inv_item_sk, week_seq = inv.d_week_seq }
-                   join p in promotionQuery on cs.cs_promo_sk equals p.p_promo_sk into pGroup
-                   from p in pGroup.DefaultIfEmpty()
-                   join cr in catalogReturnsQuery on new { item_sk = cs.cs_item_sk, order_number = cs.cs_order_number }
-                                              equals new { item_sk = cr.cr_item_sk, order_number = cr.cr_order_number } into crGroup
-                   from cr in crGroup.DefaultIfEmpty()
-                   where d1.d_year == 1999
-                      && hd.hd_buy_potential == ">10000"
-                      && cd.cd_marital_status == "D"
-                      && inv.inv_quantity_on_hand < cs.cs_quantity
-                      && d3.d_date > d1.d_date!.Value.AddDays(5)
-                   group p by new { i.i_item_desc, inv.w_warehouse_name, d1.d_week_seq } into g
-                   orderby g.LongCount() descending, g.Key.i_item_desc, g.Key.w_warehouse_name, g.Key.d_week_seq
-                   select new
-                   {
-                       g.Key.i_item_desc,
-                       g.Key.w_warehouse_name,
-                       g.Key.d_week_seq,
-                       no_promo = g.Sum(x => x == null ? 1L : 0L),
-                       promo = g.Sum(x => x != null ? 1L : 0L),
-                       total_cnt = g.LongCount()
-                   }).Take(100);
+        var q72 = TpcdsQueries.Q72();
 
         AssertPlan(q72, NativePushdown);
 
         var polarsResult = q72.ToList();
 
-        var duckDbSql = $@"
-            SELECT i_item_desc,
-                   w_warehouse_name,
-                   d1.d_week_seq,
-                   sum(CASE
-                           WHEN p_promo_sk IS NULL THEN 1
-                           ELSE 0
-                       END) no_promo,
-                   sum(CASE
-                           WHEN p_promo_sk IS NOT NULL THEN 1
-                           ELSE 0
-                       END) promo,
-                   count(*) total_cnt
-            FROM read_parquet('{TpcdsData.CatalogSalesPath}') catalog_sales
-            JOIN read_parquet('{TpcdsData.InventoryPath}') inventory ON (cs_item_sk = inv_item_sk)
-            JOIN read_parquet('{TpcdsData.WarehousePath}') warehouse ON (w_warehouse_sk=inv_warehouse_sk)
-            JOIN read_parquet('{TpcdsData.ItemPath}') item ON (i_item_sk = cs_item_sk)
-            JOIN read_parquet('{TpcdsData.CustomerDemographicsPath}') customer_demographics ON (cs_bill_cdemo_sk = cd_demo_sk)
-            JOIN read_parquet('{TpcdsData.HouseholdDemographicsPath}') household_demographics ON (cs_bill_hdemo_sk = hd_demo_sk)
-            JOIN read_parquet('{TpcdsData.DateDimPath}') d1 ON (cs_sold_date_sk = d1.d_date_sk)
-            JOIN read_parquet('{TpcdsData.DateDimPath}') d2 ON (inv_date_sk = d2.d_date_sk)
-            JOIN read_parquet('{TpcdsData.DateDimPath}') d3 ON (cs_ship_date_sk = d3.d_date_sk)
-            LEFT OUTER JOIN read_parquet('{TpcdsData.PromotionPath}') promotion ON (cs_promo_sk=p_promo_sk)
-            LEFT OUTER JOIN read_parquet('{TpcdsData.CatalogReturnsPath}') catalog_returns ON (cr_item_sk = cs_item_sk
-                                                AND cr_order_number = cs_order_number)
-            WHERE d1.d_week_seq = d2.d_week_seq
-              AND inv_quantity_on_hand < cs_quantity
-              AND d3.d_date > d1.d_date + 5
-              AND hd_buy_potential = '>10000'
-              AND d1.d_year = 1999
-              AND cd_marital_status = 'D'
-            GROUP BY i_item_desc,
-                     w_warehouse_name,
-                     d1.d_week_seq
-            ORDER BY total_cnt DESC NULLS FIRST,
-                     i_item_desc NULLS FIRST,
-                     w_warehouse_name NULLS FIRST,
-                     d1.d_week_seq NULLS FIRST
-            LIMIT 100;
-        ";
+        var duckDbSql = TpcdsSql.Q72();
 
         var duckDbResult = DuckDbFixture.Query(duckDbSql, r => new
         {

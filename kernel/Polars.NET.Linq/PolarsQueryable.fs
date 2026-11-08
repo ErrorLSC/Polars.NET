@@ -23,6 +23,24 @@ type QueryLanguage =
     | CSharp = 0
     | FSharp = 1
 
+/// A natively compiled query whose execution is split into its two remaining phases, collect and materialize,
+/// so that benchmarks can time translation, native execution and row materialization separately. Together the
+/// phases do what enumerating the query does (see PolarsQuery.ExecuteQuery).
+type internal PreparedQuery<'T>
+    internal (nativeLf: LazyFrameHandle, residual: ClientResidual, stages: LinqStage list, materializer: IDataFrameMaterializer) =
+
+    /// Runs the native plan. Collecting consumes a plan, so each call collects a clone and the query can run again.
+    member _.Collect() : DataFrameHandle =
+        RowMaterialization.collect (PolarsWrapper.LazyClone nativeLf) stages
+
+    /// Materializes a collected frame as the query's elements, applying any residual row operations. The
+    /// materializer takes ownership of the frame, so pass a clone to materialize the same frame repeatedly.
+    member _.Materialize(dfHandle: DataFrameHandle) : List<'T> =
+        List<'T>(RowMaterialization.materialize<'T> materializer stages residual dfHandle)
+
+    interface IDisposable with
+        member _.Dispose() = nativeLf.Dispose()
+
 /// Strongly-typed IQueryProvider backed by Polars.NET.Core
 type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer, language: QueryLanguage) =
     // The root frame's schema is read once per provider. Lowering clones the handle, so the binding never hands it out.
@@ -190,6 +208,20 @@ and PolarsQuery<'T>
             (expression.ToString())
 
         nativeLf, compiled.Residual, pipeline.Stages
+
+    /// Translates and lowers the query, leaving collection and materialization to the returned PreparedQuery.
+    /// For benchmarks; only natively executable queries can be prepared.
+    member internal this.Prepare() : PreparedQuery<'T> =
+        if upcastSource.Value.IsSome then
+            invalidOp "Prepare does not support queries that upcast their elements."
+
+        let nativeLf, residual, stages = this.GetCompiledPlan()
+
+        if residual = ClientResidual.LinqToObjects then
+            nativeLf.Dispose()
+            invalidOp "Prepare needs a natively executable query; this one falls back to LINQ-to-Objects."
+
+        new PreparedQuery<'T>(nativeLf, residual, stages, materializer)
 
     /// Compiles pipeline and builds the target LogicalPlan IR tree.
     member this.GetLogicalPlan() : LogicalPlan =

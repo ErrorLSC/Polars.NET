@@ -41,34 +41,7 @@ public class TpcdsQuery01To10Tests
     [Trait("TPCDS", "Q1")]
     public void Test_Q1()
     {
-        var returnsQuery = TpcdsData.StoreReturnsQuery();
-        var dateDimQuery = TpcdsData.DateDimQuery();
-        var storeQuery = TpcdsData.StoreQuery();
-        var customerQuery = TpcdsData.CustomerQuery();
-
-        // Step 1: customer_total_return CTE
-        var ctr = from sr in returnsQuery
-                  join d in dateDimQuery on sr.sr_returned_date_sk equals d.d_date_sk
-                  where d.d_year == 2000
-                  group sr by new { sr.sr_customer_sk, sr.sr_store_sk } into g
-                  select new
-                  {
-                      ctr_customer_sk = g.Key.sr_customer_sk,
-                      ctr_store_sk = g.Key.sr_store_sk,
-                      // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
-                      ctr_total_return = g.Count(x => x.sr_return_amt != null) > 0 ? g.Sum(x => x.sr_return_amt) : null
-                  };
-
-        // Step 2: Main query with subquery
-        var q1 = from ctr1 in ctr
-                 where ctr1.ctr_total_return > ctr.Where(ctr2 => ctr2.ctr_store_sk == ctr1.ctr_store_sk)
-                                                  .Average(ctr2 => ctr2.ctr_total_return) * 1.2m
-                 join s in storeQuery.Where(s => s.s_state == "TN") on ctr1.ctr_store_sk equals s.s_store_sk
-                 join c in customerQuery on ctr1.ctr_customer_sk equals c.c_customer_sk
-                 orderby c.c_customer_id
-                 select c.c_customer_id;
-
-        var limitedQ1 = q1.Take(100);
+        var limitedQ1 = TpcdsQueries.Q1();
 
         AssertPlan(limitedQ1, NativePushdown);
 
@@ -76,31 +49,7 @@ public class TpcdsQuery01To10Tests
         Assert.NotEmpty(polarsResult);
 
         // Ground-truth cross validation with DuckDB
-        var duckDbSql = $@"
-            WITH customer_total_return AS
-              (SELECT sr_customer_sk AS ctr_customer_sk,
-                      sr_store_sk AS ctr_store_sk,
-                      sum(sr_return_amt) AS ctr_total_return
-               FROM read_parquet('{TpcdsData.StoreReturnsPath}'),
-                    read_parquet('{TpcdsData.DateDimPath}')
-               WHERE sr_returned_date_sk = d_date_sk
-                 AND d_year = 2000
-               GROUP BY sr_customer_sk,
-                        sr_store_sk)
-            SELECT c_customer_id
-            FROM customer_total_return ctr1,
-                 read_parquet('{TpcdsData.StorePath}'),
-                 read_parquet('{TpcdsData.CustomerPath}')
-            WHERE ctr1.ctr_total_return >
-                (SELECT avg(ctr_total_return)*1.2
-                 FROM customer_total_return ctr2
-                 WHERE ctr1.ctr_store_sk = ctr2.ctr_store_sk)
-              AND s_store_sk = ctr1.ctr_store_sk
-              AND s_state = 'TN'
-              AND ctr1.ctr_customer_sk = c_customer_sk
-            ORDER BY c_customer_id
-            LIMIT 100;
-        ";
+        var duckDbSql = TpcdsSql.Q1();
 
         var duckDbResult = DuckDbFixture.Query(duckDbSql, r => r.GetString(0));
 
@@ -421,56 +370,13 @@ public class TpcdsQuery01To10Tests
     public void Test_Q3()
     {
 
-        var dateDimQuery = TpcdsData.DateDimQuery();
-        var storeSalesQuery = TpcdsData.StoreSalesQuery();
-        var itemQuery = TpcdsData.ItemQuery();
-
-        IQueryable<dynamic> BuildQuery(long manufactId)
-        {
-            var baseQuery = from ss in storeSalesQuery
-                            join dt in dateDimQuery.Where(d => d.d_moy == 11) on ss.ss_sold_date_sk equals dt.d_date_sk
-                            join i in itemQuery.Where(i => i.i_manufact_id == manufactId) on ss.ss_item_sk equals i.i_item_sk
-                            group ss by new { dt.d_year, i.i_brand, i.i_brand_id } into g
-                            select new
-                            {
-                                g.Key.d_year,
-                                brand_id = g.Key.i_brand_id,
-                                brand = g.Key.i_brand,
-                                sum_agg = g.Sum(x => x.ss_ext_sales_price)
-                            };
-
-            return (from r in baseQuery
-                    orderby r.d_year, r.sum_agg descending, r.brand_id
-                    select r).Take(100);
-        }
-
-        // 1. Standard parameter (i_manufact_id = 128, yields 0 rows on SF=0.01)
-        var standardQuery = BuildQuery(128);
+        var standardQuery = TpcdsQueries.Q3();
         AssertPlan(standardQuery, NativePushdown);
 
         var standardResults = standardQuery.ToList();
 
         // DuckDB Cross Validation
-        var duckDbSql = $@"
-            SELECT dt.d_year,
-                   item.i_brand_id brand_id,
-                   item.i_brand brand,
-                   sum(ss_ext_sales_price) sum_agg
-            FROM read_parquet('{TpcdsData.DateDimPath}') dt,
-                 read_parquet('{TpcdsData.StoreSalesPath}') store_sales,
-                 read_parquet('{TpcdsData.ItemPath}') item
-            WHERE dt.d_date_sk = store_sales.ss_sold_date_sk
-              AND store_sales.ss_item_sk = item.i_item_sk
-              AND item.i_manufact_id = 128
-              AND dt.d_moy = 11
-            GROUP BY dt.d_year,
-                     item.i_brand,
-                     item.i_brand_id
-            ORDER BY dt.d_year,
-                     sum_agg DESC,
-                     brand_id
-            LIMIT 100;
-        ";
+        var duckDbSql = TpcdsSql.Q3();
 
         var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
         {
@@ -951,268 +857,15 @@ public class TpcdsQuery01To10Tests
     [Trait("TPCDS", "Q5")]
     public void Test_Q5()
     {
-        var storeSalesQuery = TpcdsData.StoreSalesQuery();
-        var storeReturnsQuery = TpcdsData.StoreReturnsQuery();
-        var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
-        var catalogReturnsQuery = TpcdsData.CatalogReturnsQuery();
-        var webSalesQuery = TpcdsData.WebSalesQuery();
-        var webReturnsQuery = TpcdsData.WebReturnsQuery();
-        var dateDimQuery = TpcdsData.DateDimQuery();
-        var storeQuery = TpcdsData.StoreQuery();
-        var catalogPageQuery = TpcdsData.CatalogPageQuery();
-        var webSiteQuery = TpcdsData.WebSiteQuery();
+        var q5 = TpcdsQueries.Q5();
 
-        var minDate = new DateOnly(2000, 8, 23);
-        var maxDate = new DateOnly(2000, 9, 6);
-        var filteredDates = dateDimQuery.Where(d => d.d_date >= minDate && d.d_date <= maxDate);
-
-        // 1. Store Channel
-        var ssUnion = storeSalesQuery.Select(ss => new
-        {
-            store_sk = ss.ss_store_sk,
-            date_sk = ss.ss_sold_date_sk,
-            sales_price = ss.ss_ext_sales_price,
-            profit = ss.ss_net_profit,
-            return_amt = (decimal?)0.00m,
-            net_loss = (decimal?)0.00m
-        }).Concat(storeReturnsQuery.Select(sr => new
-        {
-            store_sk = sr.sr_store_sk,
-            date_sk = sr.sr_returned_date_sk,
-            sales_price = (decimal?)0.00m,
-            profit = (decimal?)0.00m,
-            return_amt = sr.sr_return_amt,
-            net_loss = sr.sr_net_loss
-        }));
-
-        var ssr = from sr in ssUnion
-                  join d in filteredDates on sr.date_sk equals d.d_date_sk
-                  join s in storeQuery on sr.store_sk equals s.s_store_sk
-                  group sr by s.s_store_id into g
-                  select new
-                  {
-                      channel = "store channel",
-                      id = "store" + g.Key,
-                      sales = g.Sum(x => x.sales_price),
-                      returns_ = g.Sum(x => x.return_amt),
-                      profit = g.Sum(x => x.profit) - g.Sum(x => x.net_loss)
-                  };
-
-        // 2. Catalog Channel
-        var csUnion = catalogSalesQuery.Select(cs => new
-        {
-            page_sk = cs.cs_catalog_page_sk,
-            date_sk = cs.cs_sold_date_sk,
-            sales_price = cs.cs_ext_sales_price,
-            profit = cs.cs_net_profit,
-            return_amt = (decimal?)0.00m,
-            net_loss = (decimal?)0.00m
-        }).Concat(catalogReturnsQuery.Select(cr => new
-        {
-            page_sk = cr.cr_catalog_page_sk,
-            date_sk = cr.cr_returned_date_sk,
-            sales_price = (decimal?)0.00m,
-            profit = (decimal?)0.00m,
-            return_amt = cr.cr_return_amount,
-            net_loss = cr.cr_net_loss
-        }));
-
-        var csr = from cr in csUnion
-                  join d in filteredDates on cr.date_sk equals d.d_date_sk
-                  join cp in catalogPageQuery on cr.page_sk equals cp.cp_catalog_page_sk
-                  group cr by cp.cp_catalog_page_id into g
-                  select new
-                  {
-                      channel = "catalog channel",
-                      id = "catalog_page" + g.Key,
-                      sales = g.Sum(x => x.sales_price),
-                      returns_ = g.Sum(x => x.return_amt),
-                      profit = g.Sum(x => x.profit) - g.Sum(x => x.net_loss)
-                  };
-
-        // 3. Web Channel
-        var wsPart = webSalesQuery.Select(ws => new
-        {
-            wsr_web_site_sk = ws.ws_web_site_sk,
-            date_sk = ws.ws_sold_date_sk,
-            sales_price = ws.ws_ext_sales_price,
-            profit = ws.ws_net_profit,
-            return_amt = (decimal?)0.00m,
-            net_loss = (decimal?)0.00m
-        });
-
-        var wrJoined = from wr in webReturnsQuery
-                       join ws in webSalesQuery on new { item_sk = wr.wr_item_sk, order_num = wr.wr_order_number }
-                                            equals new { item_sk = ws.ws_item_sk, order_num = ws.ws_order_number }
-                       select new
-                       {
-                           wsr_web_site_sk = ws.ws_web_site_sk,
-                           date_sk = wr.wr_returned_date_sk,
-                           sales_price = (decimal?)0.00m,
-                           profit = (decimal?)0.00m,
-                           return_amt = wr.wr_return_amt,
-                           net_loss = wr.wr_net_loss
-                       };
-
-        var wsUnion = wsPart.Concat(wrJoined);
-
-        var wsr = from w in wsUnion
-                  join d in filteredDates on w.date_sk equals d.d_date_sk
-                  join ws in webSiteQuery on w.wsr_web_site_sk equals ws.web_site_sk
-                  group w by ws.web_site_id into g
-                  select new
-                  {
-                      channel = "web channel",
-                      id = "web_site" + g.Key,
-                      sales = g.Sum(x => x.sales_price),
-                      returns_ = g.Sum(x => x.return_amt),
-                      profit = g.Sum(x => x.profit) - g.Sum(x => x.net_loss)
-                  };
-
-        // Combined stream x
-        var x = ssr.Concat(csr).Concat(wsr);
-
-        // 3-Level ROLLUP via fluent GroupBy followed by RollUp
-        var q5 = x
-            .GroupBy(r => new { r.channel, r.id })
-            .RollUp(
-                (key, g) => new
-                {
-                    channel = (string?)key.channel,
-                    id = (string?)key.id,
-                    sales = g.Sum(v => v.sales),
-                    returns_ = g.Sum(v => v.returns_),
-                    profit = g.Sum(v => v.profit)
-                }
-            )
-            .OrderBy(r => r.channel)
-            .ThenBy(r => r.id)
-            .Take(100);
-
-        AssertPlan(ssr, NativePushdown);
-        AssertPlan(csr, NativePushdown);
-        AssertPlan(wsr, NativePushdown);
-        AssertPlan(x, NativePushdown);
         AssertPlan(q5, NativePushdown);
 
         var polarsResult = q5.ToList();
         Assert.NotEmpty(polarsResult);
 
         // DuckDB Ground Truth Cross-Validation
-        var duckDbSql = $@"
-            WITH ssr AS
-              (SELECT s_store_id,
-                      sum(sales_price) AS sales,
-                      sum(profit) AS profit,
-                      sum(return_amt) AS returns_,
-                      sum(net_loss) AS profit_loss
-               FROM
-                 (SELECT ss_store_sk AS store_sk,
-                         ss_sold_date_sk AS date_sk,
-                         ss_ext_sales_price AS sales_price,
-                         ss_net_profit AS profit,
-                         cast(0 AS decimal(7,2)) AS return_amt,
-                         cast(0 AS decimal(7,2)) AS net_loss
-                  FROM read_parquet('{TpcdsData.StoreSalesPath}')
-                  UNION ALL SELECT sr_store_sk AS store_sk,
-                                   sr_returned_date_sk AS date_sk,
-                                   cast(0 AS decimal(7,2)) AS sales_price,
-                                   cast(0 AS decimal(7,2)) AS profit,
-                                   sr_return_amt AS return_amt,
-                                   sr_net_loss AS net_loss
-                  FROM read_parquet('{TpcdsData.StoreReturnsPath}') ) salesreturns,
-                    read_parquet('{TpcdsData.DateDimPath}') date_dim,
-                    read_parquet('{TpcdsData.StorePath}') store
-               WHERE date_sk = d_date_sk
-                 AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-06' AS date)
-                 AND store_sk = s_store_sk
-               GROUP BY s_store_id) ,
-                 csr AS
-              (SELECT cp_catalog_page_id,
-                      sum(sales_price) AS sales,
-                      sum(profit) AS profit,
-                      sum(return_amt) AS returns_,
-                      sum(net_loss) AS profit_loss
-               FROM
-                 (SELECT cs_catalog_page_sk AS page_sk,
-                         cs_sold_date_sk AS date_sk,
-                         cs_ext_sales_price AS sales_price,
-                         cs_net_profit AS profit,
-                         cast(0 AS decimal(7,2)) AS return_amt,
-                         cast(0 AS decimal(7,2)) AS net_loss
-                  FROM read_parquet('{TpcdsData.CatalogSalesPath}')
-                  UNION ALL SELECT cr_catalog_page_sk AS page_sk,
-                                   cr_returned_date_sk AS date_sk,
-                                   cast(0 AS decimal(7,2)) AS sales_price,
-                                   cast(0 AS decimal(7,2)) AS profit,
-                                   cr_return_amount AS return_amt,
-                                   cr_net_loss AS net_loss
-                  FROM read_parquet('{TpcdsData.CatalogReturnsPath}') ) salesreturns,
-                    read_parquet('{TpcdsData.DateDimPath}') date_dim,
-                    read_parquet('{TpcdsData.CatalogPagePath}') catalog_page
-               WHERE date_sk = d_date_sk
-                 AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-06' AS date)
-                 AND page_sk = cp_catalog_page_sk
-               GROUP BY cp_catalog_page_id) ,
-                 wsr AS
-              (SELECT web_site_id,
-                      sum(sales_price) AS sales,
-                      sum(profit) AS profit,
-                      sum(return_amt) AS returns_,
-                      sum(net_loss) AS profit_loss
-               FROM
-                 (SELECT ws_web_site_sk AS wsr_web_site_sk,
-                         ws_sold_date_sk AS date_sk,
-                         ws_ext_sales_price AS sales_price,
-                         ws_net_profit AS profit,
-                         cast(0 AS decimal(7,2)) AS return_amt,
-                         cast(0 AS decimal(7,2)) AS net_loss
-                  FROM read_parquet('{TpcdsData.WebSalesPath}')
-                  UNION ALL SELECT ws_web_site_sk AS wsr_web_site_sk,
-                                   wr_returned_date_sk AS date_sk,
-                                   cast(0 AS decimal(7,2)) AS sales_price,
-                                   cast(0 AS decimal(7,2)) AS profit,
-                                   wr_return_amt AS return_amt,
-                                   wr_net_loss AS net_loss
-                  FROM read_parquet('{TpcdsData.WebReturnsPath}') web_returns
-                  LEFT OUTER JOIN read_parquet('{TpcdsData.WebSalesPath}') web_sales ON (wr_item_sk = ws_item_sk
-                                                AND wr_order_number = ws_order_number) ) salesreturns,
-                    read_parquet('{TpcdsData.DateDimPath}') date_dim,
-                    read_parquet('{TpcdsData.WebSitePath}') web_site
-               WHERE date_sk = d_date_sk
-                 AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-06' AS date)
-                 AND wsr_web_site_sk = web_site_sk
-               GROUP BY web_site_id)
-            SELECT channel ,
-                   id ,
-                   sum(sales) AS sales ,
-                   sum(returns_) AS returns_ ,
-                   sum(profit) AS profit
-            FROM
-              (SELECT 'store channel' AS channel ,
-                      concat('store', s_store_id) AS id ,
-                      sales ,
-                      returns_ ,
-                      (profit - profit_loss) AS profit
-               FROM ssr
-               UNION ALL SELECT 'catalog channel' AS channel ,
-                                concat('catalog_page', cp_catalog_page_id) AS id ,
-                                sales ,
-                                returns_ ,
-                                (profit - profit_loss) AS profit
-               FROM csr
-               UNION ALL SELECT 'web channel' AS channel ,
-                                concat('web_site', web_site_id) AS id ,
-                                sales ,
-                                returns_ ,
-                                (profit - profit_loss) AS profit
-               FROM wsr ) x
-            GROUP BY ROLLUP (channel,
-                             id)
-            ORDER BY channel NULLS FIRST,
-                     id NULLS FIRST
-            LIMIT 100;
-        ";
+        var duckDbSql = TpcdsSql.Q5();
 
         var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
         {
@@ -1269,45 +922,7 @@ public class TpcdsQuery01To10Tests
     [Trait("TPCDS", "Q6")]
     public void Test_Q6()
     {
-        var addressQuery = TpcdsData.CustomerAddressQuery();
-        var customerQuery = TpcdsData.CustomerQuery();
-        var storeSalesQuery = TpcdsData.StoreSalesQuery();
-        var dateDimQuery = TpcdsData.DateDimQuery();
-        var dateDimSubQuery = TpcdsData.DateDimQuery();
-        var itemQuery = TpcdsData.ItemQuery();
-
-        // 1. Month sequence subquery
-        var targetMonths = (from d in dateDimSubQuery
-                            where d.d_year == 2001 && d.d_moy == 1
-                            select d.d_month_seq).Distinct();
-
-        var filteredDates = from d in dateDimQuery
-                            join m in targetMonths on d.d_month_seq equals m
-                            select d;
-
-        // 2. Item partition window condition using Over(). A window partitions NULL categories together,
-        //    while the SQL's correlated `j.i_category = i.i_category` never matches a NULL category, so
-        //    NULL categories are excluded to keep the two forms equivalent.
-        var filteredItems = from i in itemQuery
-                            where i.i_category != null
-                               && (double)i.i_current_price! > 1.2 * i.i_current_price.Average().Over(i.i_category)
-                            select i;
-
-        // 3. Multi-table join + GroupBy state + Having count >= 10
-        var q6 = (from a in addressQuery
-                  join c in customerQuery on a.ca_address_sk equals c.c_current_addr_sk
-                  join s in storeSalesQuery on c.c_customer_sk equals s.ss_customer_sk
-                  join d in filteredDates on s.ss_sold_date_sk equals d.d_date_sk
-                  join i in filteredItems on s.ss_item_sk equals i.i_item_sk
-                  group a by a.ca_state into g
-                  where g.Count() >= 10
-                  select new
-                  {
-                      state = g.Key,
-                      cnt = g.LongCount()
-                  } into r
-                  orderby r.cnt, r.state
-                  select r).Take(100);
+        var q6 = TpcdsQueries.Q6();
 
         AssertPlan(q6, NativePushdown);
 
@@ -1367,33 +982,7 @@ public class TpcdsQuery01To10Tests
         Assert.True(dfOver.Equals(dfSelfJoin));
 
         // DuckDB Cross-Validation
-        var duckDbSql = $@"
-            SELECT a.ca_state state,
-                   count(*) cnt
-            FROM read_parquet('{TpcdsData.CustomerAddressPath}') a ,
-                 read_parquet('{TpcdsData.CustomerPath}') c ,
-                 read_parquet('{TpcdsData.StoreSalesPath}') s ,
-                 read_parquet('{TpcdsData.DateDimPath}') d ,
-                 read_parquet('{TpcdsData.ItemPath}') i
-            WHERE a.ca_address_sk = c.c_current_addr_sk
-              AND c.c_customer_sk = s.ss_customer_sk
-              AND s.ss_sold_date_sk = d.d_date_sk
-              AND s.ss_item_sk = i.i_item_sk
-              AND d.d_month_seq =
-                (SELECT DISTINCT (d_month_seq)
-                 FROM read_parquet('{TpcdsData.DateDimPath}')
-                 WHERE d_year = 2001
-                   AND d_moy = 1 )
-              AND i.i_current_price > 1.2 *
-                (SELECT avg(j.i_current_price)
-                 FROM read_parquet('{TpcdsData.ItemPath}') j
-                 WHERE j.i_category = i.i_category)
-            GROUP BY a.ca_state
-            HAVING count(*) >= 10
-            ORDER BY cnt NULLS FIRST,
-                     a.ca_state NULLS FIRST
-            LIMIT 100;
-        ";
+        var duckDbSql = TpcdsSql.Q6();
 
         var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
         {

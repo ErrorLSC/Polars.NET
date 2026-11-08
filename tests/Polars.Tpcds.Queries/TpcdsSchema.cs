@@ -1,4 +1,4 @@
-namespace Polars.Tpcds.Tests;
+namespace Polars.Tpcds;
 
 #region TPC-DS Schema Records
 

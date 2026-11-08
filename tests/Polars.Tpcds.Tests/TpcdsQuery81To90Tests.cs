@@ -898,79 +898,13 @@ public class TpcdsQuery81To90Tests
     [Trait("TPCDS","Q86")]
     public void Test_Q86()
     {
-        var webSalesQuery = TpcdsData.WebSalesQuery();
-        var dateDimQuery = TpcdsData.DateDimQuery();
-        var itemQuery = TpcdsData.ItemQuery();
-
-        var filteredDates = dateDimQuery.Where(d => d.d_month_seq >= 1200 && d.d_month_seq <= 1211);
-
-        var baseSales = from ws in webSalesQuery
-                        join d in filteredDates on ws.ws_sold_date_sk equals d.d_date_sk
-                        join i in itemQuery on ws.ws_item_sk equals i.i_item_sk
-                        select new
-                        {
-                            i.i_category,
-                            i.i_class,
-                            ws.ws_net_paid
-                        };
-
-        var rollup = baseSales
-            .GroupBy(x => new { x.i_category, x.i_class })
-            .RollUp(
-                (key, g) => new
-                {
-                    total_sum = g.Sum(x => x.ws_net_paid),
-                    key.i_category,
-                    key.i_class,
-                    t_class = key.i_class.Grouping(),
-                    lochierarchy = key.i_category.Grouping() + key.i_class.Grouping()
-                }
-            );
-
-        var q86 = (from r in rollup
-                   select new
-                   {
-                       r.total_sum,
-                       r.i_category,
-                       r.i_class,
-                       r.lochierarchy,
-                       rank_within_parent = (long)r.total_sum.Rank(RankMethod.Min, true).Over(new { r.lochierarchy, parent = r.t_class == 0 ? r.i_category : null })
-                   } into res
-                   orderby res.lochierarchy descending,
-                           res.lochierarchy == 0 ? res.i_category : null,
-                           res.rank_within_parent,
-                           res.i_class // tie-breaker for equal ranks, as in the DuckDB SQL
-                   select res).Take(100);
+        var q86 = TpcdsQueries.Q86();
 
         AssertPlan(q86, NativePushdown);
 
         var polarsResult = q86.ToList();
 
-        var duckDbSql = $@"
-            SELECT sum(ws_net_paid) AS total_sum ,
-                   i_category ,
-                   i_class ,
-                   grouping(i_category)+grouping(i_class) AS lochierarchy ,
-                   rank() OVER ( PARTITION BY grouping(i_category)+grouping(i_class),
-                                              CASE
-                                                  WHEN grouping(i_class) = 0 THEN i_category
-                                              END
-                                ORDER BY sum(ws_net_paid) DESC) AS rank_within_parent
-            FROM read_parquet('{TpcdsData.WebSalesPath}') web_sales ,
-                 read_parquet('{TpcdsData.DateDimPath}') d1 ,
-                 read_parquet('{TpcdsData.ItemPath}') item
-            WHERE d1.d_month_seq BETWEEN 1200 AND 1200+11
-              AND d1.d_date_sk = ws_sold_date_sk
-              AND i_item_sk = ws_item_sk
-            GROUP BY rollup(i_category,i_class)
-            ORDER BY lochierarchy DESC NULLS FIRST,
-                     CASE
-                         WHEN grouping(i_category)+grouping(i_class) = 0 THEN i_category
-                     END NULLS FIRST,
-                     rank_within_parent NULLS FIRST,
-                     i_class NULLS FIRST
-            LIMIT 100;
-        ";
+        var duckDbSql = TpcdsSql.Q86();
 
         var duckDbResult = DuckDbFixture.Query(duckDbSql, r => new
         {
@@ -1030,67 +964,13 @@ public class TpcdsQuery81To90Tests
     [Trait("TPCDS","Q87")]
     public void Test_Q87()
     {
-        var storeSalesQuery = TpcdsData.StoreSalesQuery();
-        var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
-        var webSalesQuery = TpcdsData.WebSalesQuery();
-        var dateDimQuery = TpcdsData.DateDimQuery();
-        var customerQuery = TpcdsData.CustomerQuery();
-
-        var dates = dateDimQuery.Where(d => d.d_month_seq >= 1200 && d.d_month_seq <= 1211);
-
-        var storeStream = (from ss in storeSalesQuery
-                           join d in dates on ss.ss_sold_date_sk equals d.d_date_sk
-                           join c in customerQuery on ss.ss_customer_sk equals c.c_customer_sk
-                           select new { c.c_last_name, c.c_first_name, d.d_date }).Distinct();
-
-        var catalogStream = (from cs in catalogSalesQuery
-                             join d in dates on cs.cs_sold_date_sk equals d.d_date_sk
-                             join c in customerQuery on cs.cs_bill_customer_sk equals c.c_customer_sk
-                             select new { c.c_last_name, c.c_first_name, d.d_date }).Distinct();
-
-        var webStream = (from ws in webSalesQuery
-                         join d in dates on ws.ws_sold_date_sk equals d.d_date_sk
-                         join c in customerQuery on ws.ws_bill_customer_sk equals c.c_customer_sk
-                         select new { c.c_last_name, c.c_first_name, d.d_date }).Distinct();
-
-        var coolCust = storeStream.Except(catalogStream).Except(webStream);
+        var coolCust = TpcdsQueries.Q87();
 
         AssertPlan(coolCust, NativePushdown);
 
         var polarsCount = coolCust.LongCount();
 
-        var duckDbSql = $@"
-            SELECT count(*)
-            FROM ((SELECT DISTINCT c_last_name,
-                                     c_first_name,
-                                     d_date
-                     FROM read_parquet('{TpcdsData.StoreSalesPath}') store_sales,
-                          read_parquet('{TpcdsData.DateDimPath}') date_dim,
-                          read_parquet('{TpcdsData.CustomerPath}') customer
-                     WHERE store_sales.ss_sold_date_sk = date_dim.d_date_sk
-                       AND store_sales.ss_customer_sk = customer.c_customer_sk
-                       AND d_month_seq BETWEEN 1200 AND 1200+11)
-                  EXCEPT
-                    (SELECT DISTINCT c_last_name,
-                                     c_first_name,
-                                     d_date
-                     FROM read_parquet('{TpcdsData.CatalogSalesPath}') catalog_sales,
-                          read_parquet('{TpcdsData.DateDimPath}') date_dim,
-                          read_parquet('{TpcdsData.CustomerPath}') customer
-                     WHERE catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
-                       AND catalog_sales.cs_bill_customer_sk = customer.c_customer_sk
-                       AND d_month_seq BETWEEN 1200 AND 1200+11)
-                  EXCEPT
-                    (SELECT DISTINCT c_last_name,
-                                     c_first_name,
-                                     d_date
-                     FROM read_parquet('{TpcdsData.WebSalesPath}') web_sales,
-                          read_parquet('{TpcdsData.DateDimPath}') date_dim,
-                          read_parquet('{TpcdsData.CustomerPath}') customer
-                     WHERE web_sales.ws_sold_date_sk = date_dim.d_date_sk
-                       AND web_sales.ws_bill_customer_sk = customer.c_customer_sk
-                       AND d_month_seq BETWEEN 1200 AND 1200+11)) cool_cust ;
-        ";
+        var duckDbSql = TpcdsSql.Q87();
 
         var duckDbCount = DuckDbFixture.Query(duckDbSql, r => r.GetInt64(0))[0];
 

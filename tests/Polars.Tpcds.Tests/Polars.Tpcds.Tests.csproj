@@ -24,11 +24,13 @@
     <Using Include="Polars.CSharp" />
     <Using Include="Polars.CSharp.Linq" />
     <Using Include="Polars.CSharp.Polars" Alias="Pl" />
+    <Using Include="Polars.Tpcds" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\api\Polars.CSharp\Polars.CSharp.csproj" />
     <ProjectReference Include="..\..\kernel\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
+    <ProjectReference Include="..\Polars.Tpcds.Queries\Polars.Tpcds.Queries.csproj" />
   </ItemGroup>
 
   <ItemGroup>

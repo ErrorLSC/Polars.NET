@@ -1062,161 +1062,14 @@ public class TpcdsQuery31To40Tests
     [Trait("TPCDS", "Q36")]
     public void Test_Q36()
     {
-        var storeSalesQuery = TpcdsData.StoreSalesQuery();
-        var dateDimQuery = TpcdsData.DateDimQuery();
-        var itemQuery = TpcdsData.ItemQuery();
-        var storeQuery = TpcdsData.StoreQuery();
-
-        var filteredDates = dateDimQuery.Where(d => d.d_year == 2001);
-        var filteredStores = storeQuery.Where(s => s.s_state == "TN");
-
-        var baseSales = from ss in storeSalesQuery
-                        join d in filteredDates on ss.ss_sold_date_sk equals d.d_date_sk
-                        join i in itemQuery on ss.ss_item_sk equals i.i_item_sk
-                        join s in filteredStores on ss.ss_store_sk equals s.s_store_sk
-                        select new
-                        {
-                            i.i_category,
-                            i.i_class,
-                            ss.ss_net_profit,
-                            ss.ss_ext_sales_price
-                        };
-
-        var results = from x in baseSales
-                      group x by new { x.i_category, x.i_class } into g
-                      select new
-                      {
-                          g.Key.i_category,
-                          g.Key.i_class,
-                          ss_net_profit = g.Sum(x => x.ss_net_profit),
-                          ss_ext_sales_price = g.Sum(x => x.ss_ext_sales_price),
-                          gross_margin = (double)g.Sum(x => x.ss_net_profit)! / (double)g.Sum(x => x.ss_ext_sales_price)!
-                      };
-
-        var level0 = from r in results
-                     select new
-                     {
-                         r.gross_margin,
-                         r.i_category,
-                         r.i_class,
-                         t_category = 0,
-                         t_class = 0,
-                         lochierarchy = 0
-                     };
-
-        var level1 = from r in results
-                     group r by r.i_category into g
-                     select new
-                     {
-                         gross_margin = (double)g.Sum(x => x.ss_net_profit)! / (double)g.Sum(x => x.ss_ext_sales_price)!,
-                         i_category = g.Key,
-                         i_class = (string?)null,
-                         t_category = 0,
-                         t_class = 1,
-                         lochierarchy = 1
-                     };
-
-        var level2 = from r in results
-                     group r by 1 into g
-                     select new
-                     {
-                         gross_margin = (double)g.Sum(x => x.ss_net_profit)! / (double)g.Sum(x => x.ss_ext_sales_price)!,
-                         i_category = (string?)null,
-                         i_class = (string?)null,
-                         t_category = 1,
-                         t_class = 1,
-                         lochierarchy = 2
-                     };
-
-        var resultsRollup = level0.Concat(level1).Concat(level2);
-
-        var q36 = (from r in resultsRollup
-                   select new
-                   {
-                       r.gross_margin,
-                       r.i_category,
-                       r.i_class,
-                       r.lochierarchy,
-                       parent = r.t_class == 0 ? r.i_category : null,
-                       rank_within_parent = (long)r.gross_margin.Rank(RankMethod.Min).Over(new { r.lochierarchy, parent = r.t_class == 0 ? r.i_category : null })
-                   } into res
-                   orderby res.lochierarchy descending,
-                           res.lochierarchy == 0 ? res.i_category : null,
-                           res.rank_within_parent
-                   select new
-                   {
-                       res.gross_margin,
-                       res.i_category,
-                       res.i_class,
-                       res.lochierarchy,
-                       res.rank_within_parent
-                   }).Take(100);
+        var q36 = TpcdsQueries.Q36();
 
         AssertPlan(q36, NativePushdown);
 
         var polarsResult = q36.ToList();
 
         // DuckDB Cross Validation
-        var duckDbSql = $@"
-            WITH results AS
-              (SELECT sum(ss_net_profit) AS ss_net_profit,
-                      sum(ss_ext_sales_price) AS ss_ext_sales_price,
-                      (sum(ss_net_profit)*1.0000)/sum(ss_ext_sales_price) AS gross_margin,
-                      i_category,
-                      i_class,
-                      0 AS g_category,
-                      0 AS g_class
-               FROM read_parquet('{TpcdsData.StoreSalesPath}'),
-                    read_parquet('{TpcdsData.DateDimPath}') d1,
-                    read_parquet('{TpcdsData.ItemPath}'),
-                    read_parquet('{TpcdsData.StorePath}')
-               WHERE d1.d_year = 2001
-                 AND d1.d_date_sk = ss_sold_date_sk
-                 AND i_item_sk = ss_item_sk
-                 AND s_store_sk = ss_store_sk
-                 AND s_state = 'TN'
-               GROUP BY i_category,
-                        i_class),
-                 results_rollup AS
-              (SELECT gross_margin,
-                      i_category,
-                      i_class,
-                      0 AS t_category,
-                      0 AS t_class,
-                      0 AS lochierarchy
-               FROM results
-               UNION SELECT (sum(ss_net_profit)*1.0000)/sum(ss_ext_sales_price) AS gross_margin,
-                            i_category,
-                            NULL AS i_class,
-                            0 AS t_category,
-                            1 AS t_class,
-                            1 AS lochierarchy
-               FROM results
-               GROUP BY i_category
-               UNION SELECT (sum(ss_net_profit)*1.0000)/sum(ss_ext_sales_price) AS gross_margin,
-                            NULL AS i_category,
-                            NULL AS i_class,
-                            1 AS t_category,
-                            1 AS t_class,
-                            2 AS lochierarchy
-               FROM results)
-            SELECT gross_margin,
-                   i_category,
-                   i_class,
-                   lochierarchy,
-                   rank() OVER (PARTITION BY lochierarchy,
-                                             CASE
-                                                 WHEN t_class = 0 THEN i_category
-                                             END
-                                ORDER BY gross_margin ASC) AS rank_within_parent
-            FROM results_rollup
-            ORDER BY lochierarchy DESC NULLS FIRST,
-                     CASE
-                         WHEN lochierarchy = 0 THEN i_category
-                     END NULLS FIRST,
-                     rank_within_parent NULLS FIRST
-            LIMIT 100;
-        ";
+        var duckDbSql = TpcdsSql.Q36();
 
         var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
         {
@@ -1382,72 +1235,14 @@ public class TpcdsQuery31To40Tests
     [Trait("TPCDS", "Q38")]
     public void Test_Q38()
     {
-        var storeSalesQuery = TpcdsData.StoreSalesQuery();
-        var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
-        var webSalesQuery = TpcdsData.WebSalesQuery();
-        var dateDimQuery = TpcdsData.DateDimQuery();
-        var customerQuery = TpcdsData.CustomerQuery();
-
-        var dates = dateDimQuery.Where(d => d.d_month_seq >= 1200 && d.d_month_seq <= 1211);
-
-        var storeStream = (from ss in storeSalesQuery
-                           join d in dates on ss.ss_sold_date_sk equals d.d_date_sk
-                           join c in customerQuery on ss.ss_customer_sk equals c.c_customer_sk
-                           select new { c.c_last_name, c.c_first_name, d.d_date }).Distinct();
-
-        var catalogStream = (from cs in catalogSalesQuery
-                             join d in dates on cs.cs_sold_date_sk equals d.d_date_sk
-                             join c in customerQuery on cs.cs_bill_customer_sk equals c.c_customer_sk
-                             select new { c.c_last_name, c.c_first_name, d.d_date }).Distinct();
-
-        var webStream = (from ws in webSalesQuery
-                         join d in dates on ws.ws_sold_date_sk equals d.d_date_sk
-                         join c in customerQuery on ws.ws_bill_customer_sk equals c.c_customer_sk
-                         select new { c.c_last_name, c.c_first_name, d.d_date }).Distinct();
-
-        var hotCust = storeStream
-            .Intersect(catalogStream)
-            .Intersect(webStream);
+        var hotCust = TpcdsQueries.Q38();
 
         AssertPlan(hotCust, NativePushdown);
 
         var polarsCount = hotCust.LongCount();
 
         // DuckDB Cross Validation
-        var duckDbSql = $@"
-            SELECT count(*)
-            FROM
-              (SELECT DISTINCT c_last_name,
-                               c_first_name,
-                               d_date
-               FROM read_parquet('{TpcdsData.StoreSalesPath}') store_sales,
-                    read_parquet('{TpcdsData.DateDimPath}') date_dim,
-                    read_parquet('{TpcdsData.CustomerPath}') customer
-               WHERE store_sales.ss_sold_date_sk = date_dim.d_date_sk
-                 AND store_sales.ss_customer_sk = customer.c_customer_sk
-                 AND d_month_seq BETWEEN 1200 AND 1200 + 11
-               INTERSECT
-               SELECT DISTINCT c_last_name,
-                               c_first_name,
-                               d_date
-               FROM read_parquet('{TpcdsData.CatalogSalesPath}') catalog_sales,
-                    read_parquet('{TpcdsData.DateDimPath}') date_dim,
-                    read_parquet('{TpcdsData.CustomerPath}') customer
-               WHERE catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
-                 AND catalog_sales.cs_bill_customer_sk = customer.c_customer_sk
-                 AND d_month_seq BETWEEN 1200 AND 1200 + 11
-               INTERSECT
-               SELECT DISTINCT c_last_name,
-                               c_first_name,
-                               d_date
-               FROM read_parquet('{TpcdsData.WebSalesPath}') web_sales,
-                    read_parquet('{TpcdsData.DateDimPath}') date_dim,
-                    read_parquet('{TpcdsData.CustomerPath}') customer
-               WHERE web_sales.ws_sold_date_sk = date_dim.d_date_sk
-                 AND web_sales.ws_bill_customer_sk = customer.c_customer_sk
-                 AND d_month_seq BETWEEN 1200 AND 1200 + 11 ) hot_cust
-            LIMIT 100;
-        ";
+        var duckDbSql = TpcdsSql.Q38();
 
         var duckDbCount = DuckDbFixture.Query(duckDbSql, r => r.GetInt64(0))[0];
 

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- TPC-DS schema, data location and query definitions shared by Polars.Tpcds.Tests and Polars.Benchmarks. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\api\Polars.CSharp\Polars.CSharp.csproj" />
+    <ProjectReference Include="..\..\kernel\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
+  </ItemGroup>
+
+</Project>

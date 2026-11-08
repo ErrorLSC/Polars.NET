@@ -1,4 +1,5 @@
 using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Exporters.Json;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
 using BenchmarkDotNet.Toolchains.InProcess.Emit;
@@ -17,8 +18,23 @@ using BenchmarkDotNet.Toolchains.InProcess.Emit;
 //   CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 cargo build --release --target-dir target/bench
 //
 // then run the benchmarks with -p:RustTargetDir=bench/release. TPC-H data: Polars.Benchmarks/generate_tpch_data.sh.
+//
+// TPC-DS against DuckDB (Tpcds/): data from Polars.Benchmarks/generate_tpcds_data.sh (SF 2 by default), then
+//
+//   dotnet run -c Release --project Polars.Benchmarks -p:SkipRust=true -p:RustTargetDir=release -- --filter '*Tpcds*'
+//
+// POLARS_TPCDS_QUERIES=Q3,Q98 narrows the queries. Results (Markdown, CSV, full JSON) land in BenchmarkDotNet.Artifacts/results;
+// tools/bench_report.py turns the JSON into the report.
 var config = DefaultConfig.Instance
     .AddJob(Job.Default.WithToolchain(InProcessEmitToolchain.Instance))
+    .AddExporter(JsonExporter.Full)
     .WithOptions(ConfigOptions.JoinSummary);
+
+if (args is ["tpcds-validate", ..])
+{
+    // Checks that every implementation of every selected TPC-DS query returns the same rows, without timing.
+    Polars.Benchmarks.Tpcds.TpcdsBenchCatalog.ValidateAll();
+    return;
+}
 
 BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args, config);
