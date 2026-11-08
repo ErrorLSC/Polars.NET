@@ -6,7 +6,127 @@ open Polars.NET.Linq
 open Polars.NET.Linq.IR.GroupByPlanning
 
 /// Multi-dimensional grouping plans (ROLLUP, CUBE, GROUPING SETS).
+///
+/// The result selector becomes `Project(GroupingSets(..), members)`. The GroupingSets node outputs every key, the
+/// aggregates the members need, and one hidden per-level literal column per distinct `Grouping` / `GroupingId`
+/// call. Each member is then a key column, an aggregate column, or a post-grouping expression over those columns,
+/// so a `Grouping` call mixes freely with keys and aggregates (`k.B.Grouping() == 0 ? k.A : null`).
 module internal GroupingSetsPlanning =
+
+    /// The 0-based position a tuple-style member name (Item1, Fst, Snd) stands for.
+    let private itemIndex (name: string) : int option =
+        if name = "Fst" then Some 0
+        elif name = "Snd" then Some 1
+        elif name.StartsWith "Item" then
+            match Int32.TryParse(name.Substring 4) with
+            | true, i when i >= 1 -> Some(i - 1)
+            | _ -> None
+        else None
+
+    /// A `Grouping` / `GroupingId` marker call of the public API (Polars.CSharp.Linq.LinqExtensions).
+    let private isGroupingMarker (m: Reflection.MethodInfo) =
+        (m.Name = "Grouping" || m.Name = "GroupingId")
+        && not (isNull m.DeclaringType)
+        && m.DeclaringType.Name = "LinqExtensions"
+
+    /// `k => new { }`: the partial evaluator folds the parameter-free body into a constant of a member-less type.
+    let private (|EmptyObjectConstant|_|) (e: Expression) =
+        match e with
+        | :? ConstantExpression as c when
+            not (isNull c.Value) && isTupleOrAnonType c.Type && c.Type.GetProperties().Length = 0
+            ->
+            Some()
+        | _ -> None
+
+    /// The value of GROUPING_ID(keys) in a level grouping by `subset`: one bit per listed key, the first key
+    /// the most significant, set when the key is rolled up (outside the subset).
+    let groupingIdValue (subset: Set<int>) (keyIdxs: int list) : int =
+        let m = keyIdxs.Length
+        keyIdxs
+        |> List.mapi (fun j i -> if subset.Contains i then 0 else 1 <<< (m - 1 - j))
+        |> List.sum
+
+    /// The key subsets (by key index) of each level, in level order.
+    let private extractSubsets
+        (kind: GroupingKind)
+        (numKeys: int)
+        (keyIndexOfSetName: string -> int option)
+        : int list list =
+        match kind with
+        | GroupingKind.Rollup -> [ for len in numKeys .. -1 .. 0 -> [ 0 .. len - 1 ] ]
+        | GroupingKind.Cube ->
+            [ for mask in (1 <<< numKeys) - 1 .. -1 .. 0 ->
+                [ for i in 0 .. numKeys - 1 do
+                    if mask &&& (1 <<< numKeys - 1 - i) <> 0 then yield i ] ]
+        | GroupingKind.GroupingSets setsExpr ->
+            let extractColsFromLambda (lam: LambdaExpression) : string list option =
+                match ExpressionPatterns.unwrap lam.Body with
+                | :? NewExpression as ne ->
+                    if not (isNull ne.Members) && ne.Members.Count > 0 then
+                        Some(ne.Members |> Seq.map (fun m -> m.Name) |> Seq.toList)
+                    else
+                        ne.Arguments
+                        |> Seq.choose (fun arg ->
+                            match ExpressionPatterns.unwrap arg with
+                            | ExtractColumnName col -> Some col
+                            | MemberAccess(_, m) -> Some m.Name
+                            | _ -> None)
+                        |> Seq.toList
+                        |> Some
+                | MemberAccess(_, m) -> Some [ m.Name ]
+                | EmptyObjectConstant -> Some []
+                | _ -> None
+
+            let toIndices (names: string seq) = names |> Seq.choose keyIndexOfSetName |> Seq.toList
+
+            let extractedSetsOpt =
+                match ExpressionPatterns.unwrap setsExpr with
+                | :? ConstantExpression as c when
+                    not (isNull c.Value)
+                    && (c.Value :? Array)
+                    && (let elemType = c.Value.GetType().GetElementType()
+                        not (isNull elemType) && typeof<LambdaExpression>.IsAssignableFrom elemType)
+                    ->
+                    let arr = c.Value :?> Array
+                    Some
+                        [ for i in 0 .. arr.Length - 1 do
+                            match arr.GetValue i with
+                            | :? LambdaExpression as lam ->
+                                match extractColsFromLambda lam with
+                                | Some cNames -> yield toIndices cNames
+                                | None -> ()
+                            | _ -> () ]
+                | :? NewArrayExpression as nae when
+                    nae.Expressions |> Seq.exists (fun elem -> match ExpressionPatterns.unwrap elem with CleanLambda _ -> true | _ -> false)
+                    ->
+                    nae.Expressions
+                    |> Seq.choose (fun elem ->
+                        match ExpressionPatterns.unwrap elem with
+                        | CleanLambda lam -> extractColsFromLambda lam |> Option.map toIndices
+                        | _ -> None)
+                    |> Seq.toList
+                    |> Some
+                | :? ConstantExpression as c when not (isNull c.Value) && c.Type = typeof<string[][]> ->
+                    (c.Value :?> string[][]) |> Array.map toIndices |> Array.toList |> Some
+                | :? NewArrayExpression as nae ->
+                    nae.Expressions
+                    |> Seq.choose (fun elem ->
+                        match ExpressionPatterns.unwrap elem with
+                        | :? ConstantExpression as ce when not (isNull ce.Value) && ce.Type = typeof<string[]> ->
+                            Some(toIndices (ce.Value :?> string[]))
+                        | :? NewArrayExpression as innerNae ->
+                            innerNae.Expressions
+                            |> Seq.choose (fun sExpr ->
+                                match ExpressionPatterns.unwrap sExpr with
+                                | :? ConstantExpression as sc when sc.Type = typeof<string> -> Some(sc.Value :?> string)
+                                | _ -> None)
+                            |> toIndices
+                            |> Some
+                        | _ -> None)
+                    |> Seq.toList
+                    |> Some
+                | _ -> None
+            extractedSetsOpt |> Option.defaultValue [ [ 0 .. numKeys - 1 ] ]
 
     /// Pure symbolic compiler for multi-dimensional grouping sets (ROLLUP, CUBE, GROUPING SETS).
     let buildUnifiedGroupingSetsPlan
@@ -20,9 +140,8 @@ module internal GroupingSetsPlanning =
         let cols = (SchemaInference.inferPlanSchema basePlan).ColumnNames
         let keyParam = keyLambda.Parameters.[0]
         let keyCtx = PipelineStageParser.createContextWithScopeAndCols rowShape keyParam.Type cols keyParam.Name
-        let elemType = keyParam.Type
 
-        let wholeRowStructOpt = EntityPacking.tryWholeRowStruct elemType cols
+        let wholeRowStructOpt = EntityPacking.tryWholeRowStruct keyParam.Type cols
 
         let translateKeyPart (e: Expression) : ScalarExpr option =
             match ExprTranslator.tryTranslateToScalar keyCtx e with
@@ -32,6 +151,13 @@ module internal GroupingSetsPlanning =
                 | MemberAccess(:? ParameterExpression as p, mem) when p.Name = keyParam.Name ->
                     Some(ScalarExpr.Column mem.Name)
                 | _ -> None
+
+        // A composite key (anonymous object, tuple) is reached through its members; a scalar key is a value.
+        let keyIsComposite =
+            match ExpressionPatterns.unwrap keyLambda.Body with
+            | :? NewExpression
+            | :? MemberInitExpression -> true
+            | _ -> false
 
         let keyPairsOpt: (string * Expression) list option =
             match ExpressionPatterns.unwrap keyLambda.Body with
@@ -45,8 +171,7 @@ module internal GroupingSetsPlanning =
                         | MemberAccess(_, m) -> m.Name
                         | _ -> sprintf "Item%d" (i + 1))
                     |> Seq.toList
-                let args = ne.Arguments |> Seq.toList
-                Some(List.zip names args)
+                Some(List.zip names (ne.Arguments |> Seq.toList))
             | _ ->
                 match tryExtractMemberBindings keyLambda.Body with
                 | Some pairs -> Some pairs
@@ -61,12 +186,24 @@ module internal GroupingSetsPlanning =
             keyPairsOpt
             |> Option.bind (fun pairs ->
                 let translated =
-                    pairs
-                    |> List.choose (fun (name, expr) -> translateKeyPart expr |> Option.map (fun s -> name, s))
-                if translated.Length = pairs.Length then
-                    Some translated
+                    pairs |> List.choose (fun (name, expr) -> translateKeyPart expr |> Option.map (fun s -> name, s))
+                if translated.Length = pairs.Length then Some translated else None)
+
+        let memberBindingsOpt (isKeyRef: Expression -> bool) =
+            match tryExtractMemberBindings resLambda.Body with
+            | Some bindings -> Some bindings
+            | None ->
+                if isKeyRef resLambda.Body then
+                    let name =
+                        match ExpressionPatterns.unwrap resLambda.Body with
+                        | MemberAccess(_, m) when m.Name <> "Key" -> m.Name
+                        | _ ->
+                            match keyDefinitionsOpt with
+                            | Some [ (k, _) ] -> k
+                            | _ -> "Key"
+                    Some [ (name, resLambda.Body) ]
                 else
-                    None)
+                    None
 
         match keyDefinitionsOpt with
         | None -> None
@@ -76,284 +213,240 @@ module internal GroupingSetsPlanning =
             let groupParamName =
                 if isTwoParam then resLambda.Parameters.[1].Name else resLambda.Parameters.[0].Name
 
-            let isKeyArg (e: Expression) =
-                let cleanE = ExpressionPatterns.unwrap e
-                if isTwoParam then
-                    let keyParamName = resLambda.Parameters.[0].Name
-                    match cleanE with
-                    | :? ParameterExpression as p when p.Name = keyParamName -> true
-                    | MemberAccess(:? ParameterExpression as p, _) when p.Name = keyParamName -> true
-                    | _ -> false
-                else
-                    let gParamName = resLambda.Parameters.[0].Name
-                    match cleanE with
-                    | MemberAccess(:? ParameterExpression as p, m) when p.Name = gParamName && m.Name = "Key" -> true
-                    | MemberAccess(MemberAccess(:? ParameterExpression as p, k), _) when p.Name = gParamName && k.Name = "Key" -> true
-                    | _ -> false
+            let isParamNamed (name: string) (e: Expression) =
+                match e with
+                | :? ParameterExpression as p -> p.Name = name
+                | _ -> false
 
-            let isKeyExpression (e: Expression) : bool =
-                let cleanE = ExpressionPatterns.unwrap e
-                if isKeyArg cleanE then
-                    true
+            /// The whole key: `key` in a two-parameter selector, `g.Key` in a one-parameter one.
+            let isWholeKey (e: Expression) =
+                if isNull e then
+                    false
                 else
-                    match cleanE with
-                    | MemberAccess(target, _) when isKeyArg target -> true
-                    | MemberAccess(MemberAccess(p, keyProp), _) when
-                        not (isNull p) && p.NodeType = ExpressionType.Parameter && keyProp.Name = "Key" ->
-                        true
-                    | _ -> false
-
-            let memberBindingsOpt =
-                match tryExtractMemberBindings resLambda.Body with
-                | Some bindings -> Some bindings
-                | None ->
-                    let cleanProj = ExpressionPatterns.unwrap resLambda.Body
-                    if isKeyExpression cleanProj then
-                        let name =
-                            match cleanProj with
-                            | MemberAccess(_, m) when m.Name <> "Key" -> m.Name
-                            | _ -> if keyDefs.Length = 1 then fst keyDefs.[0] else "Key"
-                        Some [ (name, resLambda.Body) ]
+                    let e = ExpressionPatterns.unwrap e
+                    if isTwoParam then
+                        isParamNamed resLambda.Parameters.[0].Name e
                     else
-                        None
+                        match e with
+                        | MemberAccess(p, m) when m.Name = "Key" && not (isNull p) ->
+                            isParamNamed groupParamName (ExpressionPatterns.unwrap p)
+                        | _ -> false
 
-            match memberBindingsOpt with
+            /// The key a member of a composite key stands for: by key name, else by tuple position.
+            let keyIdxOfMember (name: string) =
+                if not keyIsComposite then
+                    None
+                else
+                    keyDefs
+                    |> List.tryFindIndex (fun (k, _) -> k = name)
+                    |> Option.orElse (itemIndex name |> Option.filter (fun i -> i < numKeys))
+
+            /// The key an expression reads: a scalar key itself, or one member of a composite key.
+            let tryResolveKeyIdx (e: Expression) : int option =
+                if isNull e then
+                    None
+                else
+                    let e = ExpressionPatterns.unwrap e
+                    if isWholeKey e then
+                        if keyIsComposite then None else Some 0
+                    else
+                        match e with
+                        | MemberAccess(target, m) when isWholeKey target -> keyIdxOfMember m.Name
+                        | _ -> None
+
+            /// The keys a `GroupingId` / `Grouping` selector lambda lists, in order.
+            let lambdaKeyIdxs (lam: LambdaExpression) : int list option =
+                let lamParam = lam.Parameters.[0]
+                let one (e: Expression) =
+                    match ExpressionPatterns.unwrap e with
+                    | :? ParameterExpression as p when p.Name = lamParam.Name -> if keyIsComposite then None else Some 0
+                    | MemberAccess(p, m) when isParamNamed lamParam.Name (ExpressionPatterns.unwrap p) -> keyIdxOfMember m.Name
+                    | _ -> None
+                match ExpressionPatterns.unwrap lam.Body with
+                | :? NewExpression as ne when keyIsComposite || ne.Arguments.Count = 0 ->
+                    let idxs = ne.Arguments |> Seq.map one |> Seq.toList
+                    if idxs |> List.forall Option.isSome then Some(idxs |> List.choose id) else None
+                | EmptyObjectConstant -> Some []
+                | body -> one body |> Option.map List.singleton
+
+            /// A `Grouping` / `GroupingId` call: Some(Some keys) when its keys resolve, Some None when they do not.
+            let tryGroupingCall (e: Expression) : int list option option =
+                match e with
+                | :? MethodCallExpression as mc when isGroupingMarker mc.Method ->
+                    let args = mc.Arguments |> Seq.toList
+                    let keys =
+                        match mc.Method.Name, args with
+                        | "Grouping", [ prop ] -> tryResolveKeyIdx prop |> Option.map List.singleton
+                        | "Grouping", [ key; CleanLambda lam ] when isWholeKey key ->
+                            lambdaKeyIdxs lam |> Option.filter (fun idxs -> idxs.Length = 1)
+                        | "GroupingId", [ key ] when isWholeKey key -> Some [ 0 .. numKeys - 1 ]
+                        | "GroupingId", [ key; CleanLambda lam ] when isWholeKey key -> lambdaKeyIdxs lam
+                        | _ -> None
+                    // An int holds the bits of at most 31 keys.
+                    Some(keys |> Option.filter (fun idxs -> idxs.Length <= 31))
+                | _ -> None
+
+            let memberNamesAndArgs = memberBindingsOpt (fun e -> (tryResolveKeyIdx e).IsSome)
+
+            match memberNamesAndArgs with
             | None -> None
             | Some memberBindings ->
                 let memberNames = memberBindings |> List.map fst
-                let args = memberBindings |> List.map snd
 
-                let keyNameToOutputAliasMap =
+                // Each key's output column: the first member holding exactly that key, else the key's own name
+                // (prefixed when a member of that name holds something else).
+                let keyAliasNames =
                     keyDefs
                     |> List.mapi (fun keyIdx (origKeyName, _) ->
-                        let outputColName =
-                            List.zip memberNames args
-                            |> List.tryPick (fun (memName, rawArg) ->
-                                let arg = ExpressionPatterns.unwrap rawArg
-                                match arg with
-                                | MemberAccess(MemberAccess(_, k), m) when k.Name = "Key" ->
-                                    if m.Name = origKeyName then Some memName
-                                    elif m.Name = sprintf "Item%d" (keyIdx + 1) || m.Name = "Fst" && keyIdx = 0 || m.Name = "Snd" && keyIdx = 1 then Some memName
-                                    else None
-                                | MemberAccess(p, m) when isKeyArg p ->
-                                    if m.Name = origKeyName then Some memName
-                                    elif m.Name = "Key" && keyDefs.Length = 1 then Some memName
-                                    elif m.Name = sprintf "Item%d" (keyIdx + 1) || m.Name = "Fst" && keyIdx = 0 || m.Name = "Snd" && keyIdx = 1 then Some memName
-                                    else None
-                                | _ when isKeyArg arg && keyDefs.Length = 1 -> Some memName
-                                | _ -> None)
-                            |> Option.defaultValue origKeyName
-                        origKeyName, outputColName)
-                    |> Map.ofList
+                        memberBindings
+                        |> List.tryPick (fun (memName, arg) -> if tryResolveKeyIdx arg = Some keyIdx then Some memName else None)
+                        |> Option.defaultWith (fun () ->
+                            if List.contains origKeyName memberNames then "__group_key_" + origKeyName else origKeyName))
 
-                let keyAliases =
+                let keyAliases = List.zip keyAliasNames (keyDefs |> List.map snd)
+
+                let keyIndexOfSetName (name: string) =
                     keyDefs
-                    |> List.map (fun (origKeyName, rawKeyExpr) ->
-                        let outputColName = keyNameToOutputAliasMap.[origKeyName]
-                        outputColName, rawKeyExpr)
-
-                let (|GroupingCall|_|) (expr: Expression) : (string * Type) option =
-                    match expr with
-                    | MethodCall(m, _, [ propExpr ]) when m.Name = "Grouping" ->
-                        let targetKeyNameOpt =
-                            match ExpressionPatterns.unwrap propExpr with
-                            | MemberAccess(_, mem) ->
-                                if mem.Name = "Key" && keyDefs.Length = 1 then Some (fst keyDefs.[0])
-                                else Some mem.Name
-                            | ExtractColumnName col -> Some col
-                            | p when isKeyArg p && keyDefs.Length = 1 -> Some (fst keyDefs.[0])
-                            | _ -> None
-                        targetKeyNameOpt |> Option.map (fun name -> name, m.ReturnType)
-                    | MethodCall(m, _, [ _; CleanLambda lam ]) when m.Name = "Grouping" ->
-                        let targetKeyNameOpt =
-                            match ExpressionPatterns.unwrap lam.Body with
-                            | MemberAccess(_, mem) -> Some mem.Name
-                            | ExtractColumnName col -> Some col
-                            | p when (ExpressionPatterns.unwrap p).NodeType = ExpressionType.Parameter && keyDefs.Length = 1 ->
-                                Some (fst keyDefs.[0])
-                            | _ -> None
-                        targetKeyNameOpt |> Option.map (fun name -> name, m.ReturnType)
-                    | _ -> None
-
-                let containsGroupingCall (e: Expression) : bool =
-                    let mutable found = false
-                    let visitor =
-                        { new ExpressionVisitor() with
-                            override _.Visit(node) =
-                                if found || isNull node then node
-                                else
-                                    match node with
-                                    | GroupingCall _ ->
-                                        found <- true
-                                        node
-                                    | _ -> base.Visit node }
-                    visitor.Visit e |> ignore
-                    found
-
-                let rewriteGrouping (subsetSet: Set<int>) (e: Expression) : Expression =
-                    let visitor =
-                        { new ExpressionVisitor() with
-                            override _.Visit(node) =
-                                match node with
-                                | GroupingCall(targetKeyName, retType) ->
-                                    let keyIdxOpt =
-                                        keyDefs
-                                        |> List.tryFindIndex (fun (k, _) -> k = targetKeyName || keyNameToOutputAliasMap.[k] = targetKeyName)
-                                    match keyIdxOpt with
-                                    | Some keyIdx ->
-                                        let isRolledUp = not (subsetSet.Contains keyIdx)
-                                        let valInt = if isRolledUp then 1 else 0
-                                        if retType = typeof<byte> then
-                                            Expression.Constant(byte valInt, typeof<byte>) :> Expression
-                                        elif retType = typeof<int64> then
-                                            Expression.Constant(int64 valInt, typeof<int64>) :> Expression
-                                        else
-                                            Expression.Constant(valInt, typeof<int>) :> Expression
-                                    | None -> base.Visit node
-                                | _ -> base.Visit node }
-                    visitor.Visit e
-
-                let groupingExprMap: Map<string, Expression> =
-                    List.zip memberNames args
-                    |> List.choose (fun (memName, rawArg) ->
-                        if containsGroupingCall rawArg then
-                            Some (memName, rawArg)
-                        else
-                            None)
-                    |> Map.ofList
-
-                let nonKeyArgs =
-                    List.zip memberNames args
-                    |> List.filter (fun (memName, argExpr) ->
-                        not (isKeyExpression argExpr) && not (groupingExprMap.ContainsKey memName))
+                    |> List.indexed
+                    |> List.tryPick (fun (i, (k, _)) -> if k = name || keyAliasNames.[i] = name then Some i else None)
 
                 let scalarColOpt = PipelineStageParser.tryGetScalarColumnNameFromCols keyParam.Type cols
                 let targetColExprOpt = scalarColOpt |> Option.map ScalarExpr.Column
 
-                let translatedAggOpts =
-                    nonKeyArgs
-                    |> List.map (fun (colName, argExpr) ->
-                        tryTranslateGroupByAggScalar
-                            groupParamName
-                            targetColExprOpt
-                            scalarColOpt
-                            wholeRowStructOpt
-                            rowShape
-                            cols
-                            argExpr
-                        |> Option.map (fun s -> colName, s))
+                let tryTranslateSingleAgg (argExpr: Expression) =
+                    tryTranslateGroupByAggScalar groupParamName targetColExprOpt scalarColOpt wholeRowStructOpt rowShape cols argExpr
 
-                if not (translatedAggOpts |> List.forall Option.isSome) then
+                let isGroupAggCall (node: MethodCallExpression) =
+                    let targetOpt =
+                        if not (isNull node.Object) then Some node.Object
+                        elif node.Arguments.Count > 0 then Some node.Arguments.[0]
+                        else None
+                    match targetOpt with
+                    | Some target ->
+                        let unwrapped = ExpressionPatterns.unwrap target
+                        isGroupingType unwrapped.Type || isParamNamed groupParamName unwrapped
+                    | None -> false
+
+                let mentionsKeyOrGrouping (e: Expression) =
+                    let mutable found = false
+                    { new ExpressionVisitor() with
+                        override _.Visit(node) =
+                            if found || isNull node then node
+                            elif (tryGroupingCall node).IsSome || isWholeKey node then
+                                found <- true
+                                node
+                            else base.Visit node }.Visit e
+                    |> ignore
+                    found
+
+                // Members that are a single aggregate become aggregate columns of their own name.
+                let pureAggs =
+                    memberBindings
+                    |> List.choose (fun (memName, arg) ->
+                        if (tryResolveKeyIdx arg).IsSome || mentionsKeyOrGrouping arg then None
+                        else tryTranslateSingleAgg arg |> Option.map (fun s -> memName, (ExpressionPatterns.unwrap arg, s)))
+                    |> Map.ofList
+
+                let hiddenAggs = ResizeArray<Expression * string * ScalarExpr>()
+                let groupingCols = ResizeArray<int list * string>()
+
+                let aggColFor (node: Expression) : string option =
+                    let unwrapped = ExpressionPatterns.unwrap node
+                    let sameExpr (e: Expression) = ExpressionEqualityComparer.Instance.Equals(e, unwrapped)
+                    match pureAggs |> Map.tryPick (fun name (e, _) -> if sameExpr e then Some name else None) with
+                    | Some name -> Some name
+                    | None ->
+                        match hiddenAggs |> Seq.tryPick (fun (e, c, _) -> if sameExpr e then Some c else None) with
+                        | Some c -> Some c
+                        | None ->
+                            tryTranslateSingleAgg node
+                            |> Option.map (fun s ->
+                                let c = sprintf "__gs_agg_%d" hiddenAggs.Count
+                                hiddenAggs.Add((unwrapped, c, s))
+                                c)
+
+                let groupingColFor (idxs: int list) : string =
+                    match groupingCols |> Seq.tryPick (fun (k, c) -> if k = idxs then Some c else None) with
+                    | Some c -> c
+                    | None ->
+                        let c = sprintf "__grouping_%d" groupingCols.Count
+                        groupingCols.Add((idxs, c))
+                        c
+
+                // A member mixing keys, aggregates and Grouping calls, as an expression over the GroupingSets
+                // output: each of those becomes a column placeholder.
+                let tryTranslateDerived (arg: Expression) : ScalarExpr option =
+                    let mutable ok = true
+                    let placeholder (t: Type) (col: string) = Expression.Parameter(t, "__key_col_" + col) :> Expression
+                    let rewritten =
+                        { new ExpressionVisitor() with
+                            override _.Visit(node) =
+                                if isNull node || not ok then
+                                    node
+                                else
+                                    match tryGroupingCall node with
+                                    | Some(Some idxs) -> placeholder node.Type (groupingColFor idxs)
+                                    | Some None ->
+                                        ok <- false
+                                        node
+                                    | None ->
+                                        // Only the key access itself: a Convert around it stays, as a cast.
+                                        let keyIdxOpt =
+                                            match node with
+                                            | :? MemberExpression
+                                            | :? ParameterExpression -> tryResolveKeyIdx node
+                                            | _ -> None
+                                        match keyIdxOpt with
+                                        | Some i -> placeholder node.Type keyAliasNames.[i]
+                                        | None when (node :? MemberExpression || node :? ParameterExpression) && isWholeKey node ->
+                                            ok <- false
+                                            node
+                                        | None ->
+                                            match node with
+                                            | :? MethodCallExpression as mc when isGroupAggCall mc ->
+                                                match aggColFor node with
+                                                | Some c -> placeholder node.Type c
+                                                | None -> base.Visit node
+                                            | _ -> base.Visit node }.Visit arg
+                    if ok then
+                        ExprTranslator.tryTranslateToScalar (TranslationContext.Entity groupParamName) rewritten
+                    else
+                        None
+
+                let projectionOpts =
+                    memberBindings
+                    |> List.map (fun (memName, arg) ->
+                        match tryResolveKeyIdx arg with
+                        | Some i -> Some(memName, ScalarExpr.Column keyAliasNames.[i])
+                        | None when pureAggs.ContainsKey memName -> Some(memName, ScalarExpr.Column memName)
+                        | None -> tryTranslateDerived arg |> Option.map (fun s -> memName, s))
+
+                if not (projectionOpts |> List.forall Option.isSome) then
                     None
                 else
-                    let aggs = translatedAggOpts |> List.choose id
+                    let projections = projectionOpts |> List.choose id
 
-                    let subsets: int list list =
-                        match kind with
-                        | GroupingKind.Rollup ->
-                            [ for len in numKeys .. -1 .. 0 -> [ 0 .. len - 1 ] ]
-                        | GroupingKind.Cube ->
-                            [ for mask in (1 <<< numKeys) - 1 .. -1 .. 0 ->
-                                [ for i in 0 .. numKeys - 1 do
-                                    if mask &&& (1 <<< numKeys - 1 - i) <> 0 then yield i ] ]
-                        | GroupingKind.GroupingSets setsExpr ->
-                            let extractColsFromLambda (lam: LambdaExpression) : string list option =
-                                match ExpressionPatterns.unwrap lam.Body with
-                                | :? NewExpression as ne ->
-                                    if not (isNull ne.Members) && ne.Members.Count > 0 then
-                                        Some (ne.Members |> Seq.map (fun m -> m.Name) |> Seq.toList)
-                                    else
-                                        let cols =
-                                            ne.Arguments
-                                            |> Seq.choose (fun arg ->
-                                                match ExpressionPatterns.unwrap arg with
-                                                | ExtractColumnName col -> Some col
-                                                | MemberAccess(_, m) -> Some m.Name
-                                                | _ -> None)
-                                            |> Seq.toList
-                                        Some cols
-                                | MemberAccess(_, m) ->
-                                    Some [ m.Name ]
-                                | _ ->
-                                    None
+                    let aggs =
+                        (memberBindings |> List.choose (fun (memName, _) -> pureAggs.TryFind memName |> Option.map (fun (_, s) -> memName, s)))
+                        @ (hiddenAggs |> Seq.map (fun (_, c, s) -> c, s) |> Seq.toList)
 
-                            let mapColNamesToIndices (cNames: string list) : int list =
-                                cNames
-                                |> List.choose (fun name ->
-                                    keyDefs |> List.tryFindIndex (fun (k, _) -> k = name || keyNameToOutputAliasMap.[k] = name))
+                    let groupingColList = groupingCols |> Seq.toList
 
-                            let extractedSetsOpt =
-                                match ExpressionPatterns.unwrap setsExpr with
-                                | :? ConstantExpression as c when not (isNull c.Value) && (c.Value :? System.Array) && (let elemType = c.Value.GetType().GetElementType() in not (isNull elemType) && typeof<LambdaExpression>.IsAssignableFrom elemType) ->
-                                    let arr = c.Value :?> System.Array
-                                    let sets =
-                                        [ for i in 0 .. arr.Length - 1 do
-                                            match arr.GetValue i with
-                                            | :? LambdaExpression as lam ->
-                                                match extractColsFromLambda lam with
-                                                | Some cNames -> yield mapColNamesToIndices cNames
-                                                | None -> ()
-                                            | _ -> () ]
-                                    Some sets
-                                | :? NewArrayExpression as nae when nae.Expressions |> Seq.exists (fun elem -> match ExpressionPatterns.unwrap elem with CleanLambda _ -> true | _ -> false) ->
-                                    let sets =
-                                        nae.Expressions
-                                        |> Seq.choose (fun elem ->
-                                            match ExpressionPatterns.unwrap elem with
-                                            | CleanLambda lam ->
-                                                extractColsFromLambda lam |> Option.map mapColNamesToIndices
-                                            | _ -> None)
-                                        |> Seq.toList
-                                    Some sets
-                                | :? ConstantExpression as c when not (isNull c.Value) && c.Type = typeof<string[][]> ->
-                                    let arr = c.Value :?> string[][]
-                                    Some (arr |> Array.map (fun set ->
-                                        set |> Array.choose (fun name ->
-                                            keyDefs |> List.tryFindIndex (fun (k, _) -> k = name || keyNameToOutputAliasMap.[k] = name)
-                                        ) |> Array.toList
-                                    ) |> Array.toList)
-                                | :? NewArrayExpression as nae ->
-                                    let sets =
-                                        nae.Expressions
-                                        |> Seq.choose (fun elem ->
-                                            match ExpressionPatterns.unwrap elem with
-                                            | :? ConstantExpression as ce when not (isNull ce.Value) && ce.Type = typeof<string[]> ->
-                                                Some(ce.Value :?> string[])
-                                            | :? NewArrayExpression as innerNae ->
-                                                let strs =
-                                                    innerNae.Expressions
-                                                    |> Seq.choose (fun sExpr ->
-                                                        match ExpressionPatterns.unwrap sExpr with
-                                                        | :? ConstantExpression as sc when sc.Type = typeof<string> ->
-                                                            Some(sc.Value :?> string)
-                                                        | _ -> None)
-                                                    |> Seq.toArray
-                                                Some strs
-                                            | _ -> None)
-                                        |> Seq.toArray
-                                    Some (sets |> Array.map (fun set ->
-                                        set |> Array.choose (fun name ->
-                                            keyDefs |> List.tryFindIndex (fun (k, _) -> k = name || keyNameToOutputAliasMap.[k] = name)
-                                        ) |> Array.toList
-                                    ) |> Array.toList)
-                                | _ -> None
-                            extractedSetsOpt |> Option.defaultValue [ [ 0 .. numKeys - 1 ] ]
-
-                    let evalGroupingLiterals (subsetIndices: int list) : Map<string, ScalarExpr> =
-                        let subsetSet = Set.ofList subsetIndices
-                        groupingExprMap
-                        |> Map.map (fun _ expr ->
-                            let levelExpr = rewriteGrouping subsetSet expr
-                            let evaluated = PartialEvaluator.evaluateSubtree levelExpr
-                            ScalarExprOps.toLiteral evaluated expr.Type)
-
-                    let levels = subsets |> List.map (fun idxs -> idxs, evalGroupingLiterals idxs)
+                    let levels =
+                        extractSubsets kind numKeys keyIndexOfSetName
+                        |> List.map (fun subset ->
+                            let subsetSet = Set.ofList subset
+                            let literals =
+                                groupingColList
+                                |> List.map (fun (idxs, c) -> c, ScalarExpr.Literal(LiteralValue.Int32(groupingIdValue subsetSet idxs)))
+                                |> Map.ofList
+                            subset, literals)
 
                     let spec: LogicalGroupingSetsSpec =
                         {
                             KeyAliases = keyAliases
                             Aggs = aggs
                             Levels = levels
-                            OutputColumns = memberNames
+                            OutputColumns = keyAliasNames @ (aggs |> List.map fst) @ (groupingColList |> List.map snd)
                         }
-                    Some(LogicalPlan.GroupingSets(basePlan, spec))
+                    Some(LogicalPlan.Project(LogicalPlan.GroupingSets(basePlan, spec), projections))

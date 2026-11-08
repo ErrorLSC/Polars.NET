@@ -348,7 +348,30 @@ var cleanQuery = df.AsQueryable<SensorReading>()
     });
 ```
 
+```csharp [C# (ROLLUP / CUBE & GROUPING_ID)]
+using Polars.CSharp.Linq;
+
+var report = df.AsQueryable<Sale>()
+    .GroupBy(s => new { s.Category, s.Class })
+    .RollUp((key, g) => new   // also .Cube(...) and .GroupingSets(...)
+    {
+        key.Category,
+        key.Class,
+        Total = g.Sum(s => s.Amount),
+        // GROUPING(col): 1 when the key is rolled up at this level, else 0
+        Level = key.Category.Grouping() + key.Class.Grouping(),
+        // GROUPING_ID(): one bit per key, the first key the most significant bit
+        Gid = key.GroupingId(),
+        ClassFirst = key.GroupingId(k => new { k.Class, k.Category }),
+        // Grouping calls mix freely with keys, aggregates and window functions
+        Parent = key.Class.Grouping() == 0 ? key.Category : null,
+        Share = g.Sum(s => s.Amount) * 100 / g.Sum(s => s.Amount).Sum().Over(key.GroupingId()),
+    });
+```
+
 :::
+
+`Grouping()` and `GroupingId()` tell a rolled-up key (a subtotal row) apart from a key whose value is null. Both work only inside the result selector of `RollUp`, `Cube` or `GroupingSets`.
 
 ---
 

@@ -322,4 +322,32 @@ public static partial class LinqExtensions
     /// <returns>1 if the column is collapsed in the current subtotal level; otherwise 0.</returns>
     public static int Grouping<TKey, TProp>(this TKey key, Expression<Func<TKey, TProp>> propertySelector)
         => throw MarkerExceptionHelper.Throw();
+
+    /// <summary>
+    /// Maps to the SQL GROUPING_ID() function over every grouping key, in key order.
+    /// Returns a bit vector with one bit per key, the first key being the most significant bit; a bit is 1 when
+    /// its key is aggregated/collapsed (subtotal/grand total row) at the current grouping level.
+    /// Can only be used inside the result/projection selector of GroupingSets, RollUp, or Cube, applied to the whole key
+    /// (<c>key</c> in a two-parameter selector, <c>g.Key</c> otherwise).
+    /// </summary>
+    /// <typeparam name="TKey">The type of the grouping key.</typeparam>
+    /// <param name="key">The grouping key.</param>
+    /// <returns>The grouping bit vector of the current subtotal level.</returns>
+    public static int GroupingId<TKey>(this TKey key)
+        => throw MarkerExceptionHelper.Throw();
+
+    /// <summary>
+    /// Maps to the SQL GROUPING_ID(col1, col2, ...) function over the key properties listed by the selector.
+    /// Use <c>k => new { k.A, k.B }</c> for several properties or <c>k => k.A</c> for one. The result has one bit per
+    /// listed property, the first being the most significant bit; a bit is 1 when its property is aggregated/collapsed
+    /// (subtotal/grand total row) at the current grouping level.
+    /// Can only be used inside the result/projection selector of GroupingSets, RollUp, or Cube, applied to the whole key
+    /// (<c>key</c> in a two-parameter selector, <c>g.Key</c> otherwise).
+    /// </summary>
+    /// <typeparam name="TKey">The type of the grouping key.</typeparam>
+    /// <param name="key">The grouping key.</param>
+    /// <param name="columns">A selector listing the key properties, in bit order.</param>
+    /// <returns>The grouping bit vector of the current subtotal level.</returns>
+    public static int GroupingId<TKey>(this TKey key, Expression<Func<TKey, object>> columns)
+        => throw MarkerExceptionHelper.Throw();
 }
