@@ -20,4 +20,4 @@ module internal LogicalOptimizer =
     let optimizeComplete (allowUnstableSort: bool) (sources: SourceBinding array) (plan: LogicalPlan) : LogicalPlan =
         let relaxed, unorderedJoins =
             plan |> optimize |> GroupOrderRelaxation.applyCollectingUnorderedJoins allowUnstableSort
-        JoinReordering.apply sources unorderedJoins relaxed
+        JoinReordering.apply sources unorderedJoins relaxed |> SemiJoinReduction.apply sources

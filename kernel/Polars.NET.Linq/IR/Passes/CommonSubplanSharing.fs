@@ -14,7 +14,7 @@ open Polars.NET.Linq.IR
 ///    copies of an already picked subplan, and worth computing once: they join, group, deduplicate or union.
 ///    A plain scan, filter or projection of a table is left to each consumer, where its own predicates and
 ///    projections reach it.
-///    A decorrelated EXISTS's row-indexed outer query is also left alone (see isRowIndexed).
+///    A subplan the backend declares it shares itself is also left alone, with everything inside it.
 /// 3. Replaces every occurrence with `Shared(id, subplan)`. When every consumer filters the subplan, the
 ///    subplan is filtered by the disjunction of their predicates (each consumer keeps its own), so the shared
 ///    computation covers only the rows some consumer reads.
@@ -61,14 +61,6 @@ module internal CommonSubplanSharing =
         | LogicalPlan.Empty _ -> false
         | other -> LogicalPlanOps.getInputs other |> List.exists isWorthSharing
 
-    /// A row-indexed query read twice is how a correlated EXISTS is decorrelated: one selective outer query, whose
-    /// filters do the work. It is left, with everything inside it, to the backend: Polars finds this repeat itself
-    /// and still pushes the filters into the scans, which it does not do beneath a cache that the plan declares.
-    let private isRowIndexed (plan: LogicalPlan) =
-        match plan with
-        | LogicalPlan.WithRowIndex _ -> true
-        | _ -> false
-
     /// Whether a consumer's predicate may also filter the shared subplan: it reads only the row it filters.
     let private isRowLocal (predicate: ScalarExpr) =
         not (
@@ -78,7 +70,7 @@ module internal CommonSubplanSharing =
             || ScalarExprOps.dependsOnOtherRows predicate
         )
 
-    let apply (sources: SourceBinding array) (plan: LogicalPlan) : LogicalPlan =
+    let apply (backend: IBackendCapabilities) (sources: SourceBinding array) (plan: LogicalPlan) : LogicalPlan =
         let slots = canonicalSlots sources
         let plan =
             if slots |> Array.forall2 (=) [| 0 .. slots.Length - 1 |] then
@@ -145,7 +137,7 @@ module internal CommonSubplanSharing =
 
         for members in candidates do
             let live = members |> Seq.filter (fun occurrence -> not occurrence.Dead) |> List.ofSeq
-            if isRowIndexed members.[0].Node then
+            if backend.SharesRepeatedSubplanItself members.[0].Node then
                 live |> List.iter markDead
             elif live.Length >= 2 then
                 let sharedId = nextId

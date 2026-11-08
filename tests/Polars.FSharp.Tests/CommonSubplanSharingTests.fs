@@ -18,6 +18,15 @@ module CommonSubplanSharingTests =
     let private facts = Table("facts", factSchema) :> ILogicalTableSource
     let private dims = Table("dims", dimSchema) :> ILogicalTableSource
 
+    /// A backend sharing the subplans that `sharesItself` selects by itself.
+    let private backendSharing (sharesItself: LogicalPlan -> bool) =
+        { new IBackendCapabilities with
+            member _.IsRegexPatternSupported _ = true
+            member _.SupportsAssertions = true
+            member _.SharesRepeatedSubplanItself subplan = sharesItself subplan }
+
+    let private backend = backendSharing (fun _ -> false)
+
     let private scan slot schema = LogicalPlan.Scan(LogicalPlanSource.Slot slot, schema)
     let private sum = ScalarExpr.Aggregation(AggKind.Sum, Some(col "v"), false)
 
@@ -43,7 +52,7 @@ module CommonSubplanSharingTests =
         let sources = [| SourceBinding.Table facts; SourceBinding.Table dims; SourceBinding.Table facts; SourceBinding.Table dims |]
         let plan = LogicalPlan.Union(aggregate 0 1, aggregate 2 3, true)
 
-        let result = CommonSubplanSharing.apply sources plan
+        let result = CommonSubplanSharing.apply backend sources plan
 
         match shared result with
         | [ (a, bodyA); (b, bodyB) ] ->
@@ -58,7 +67,7 @@ module CommonSubplanSharingTests =
         let sources = [| SourceBinding.Table facts; SourceBinding.Table dims; SourceBinding.Table otherFacts; SourceBinding.Table dims |]
         let plan = LogicalPlan.Union(aggregate 0 1, aggregate 2 3, true)
 
-        Assert.Empty(shared (CommonSubplanSharing.apply sources plan))
+        Assert.Empty(shared (CommonSubplanSharing.apply backend sources plan))
 
     [<Fact>]
     let ``A repeated scan or filter of a table is left to each consumer`` () =
@@ -66,7 +75,7 @@ module CommonSubplanSharingTests =
         let filtered slot = LogicalPlan.Filter(scan slot factSchema, gt "v" 1)
         let plan = LogicalPlan.Union(filtered 0, filtered 1, true)
 
-        Assert.Empty(shared (CommonSubplanSharing.apply sources plan))
+        Assert.Empty(shared (CommonSubplanSharing.apply backend sources plan))
 
     [<Fact>]
     let ``When every consumer filters the subplan, it is filtered by their disjunction`` () =
@@ -77,7 +86,7 @@ module CommonSubplanSharingTests =
                 LogicalPlan.Filter(aggregate 0 1, gt "total" 20),
                 true)
 
-        let result = CommonSubplanSharing.apply sources plan
+        let result = CommonSubplanSharing.apply backend sources plan
 
         let either = ScalarExpr.Binary(BinaryOp.Or, gt "total" 10, gt "total" 20)
         match result with
@@ -94,7 +103,7 @@ module CommonSubplanSharingTests =
         let sources = [| SourceBinding.Table facts; SourceBinding.Table dims |]
         let plan = LogicalPlan.Union(LogicalPlan.Filter(aggregate 0 1, gt "total" 10), aggregate 0 1, true)
 
-        match shared (CommonSubplanSharing.apply sources plan) with
+        match shared (CommonSubplanSharing.apply backend sources plan) with
         | [ (_, body); _ ] -> Assert.Equal(aggregate 0 1, body)
         | other -> failwithf "expected two occurrences, got %A" other
 
@@ -106,7 +115,7 @@ module CommonSubplanSharingTests =
         // outer twice, and inner once more on its own.
         let plan = LogicalPlan.Union(LogicalPlan.Union(outer, outer, true), inner, true)
 
-        let occurrences = shared (CommonSubplanSharing.apply sources plan)
+        let occurrences = shared (CommonSubplanSharing.apply backend sources plan)
         let byId = occurrences |> List.countBy fst |> Map.ofList
         // outer: 2 occurrences; inner: once inside each copy of outer and once on its own.
         Assert.Equal(2, byId.Count)
@@ -121,7 +130,7 @@ module CommonSubplanSharingTests =
         let consumer = LogicalPlan.Filter(LogicalPlan.Project(aggregate 0 1, [ "name", col "name"; "total", col "total" ]), gt "total" 10)
         let plan = LogicalPlan.Union(consumer, LogicalPlan.Project(aggregate 0 1, [ "name", col "name"; "total", col "total" ]), true)
 
-        let optimized = CommonSubplanSharing.apply sources plan |> PredicatePushdown.apply
+        let optimized = CommonSubplanSharing.apply backend sources plan |> PredicatePushdown.apply
 
         // Both copies keep an equal body: the filter of one consumer did not move into its copy.
         match shared optimized with
@@ -129,17 +138,29 @@ module CommonSubplanSharingTests =
         | other -> failwithf "expected two occurrences, got %A" other
 
     [<Fact>]
-    let ``A row-indexed query read twice is left to the backend, with everything inside it`` () =
+    let ``A subplan the backend shares itself is left to it, with everything inside it`` () =
         let sources = [| SourceBinding.Table facts; SourceBinding.Table dims |]
         let indexed = LogicalPlan.WithRowIndex(aggregate 0 1, "rid", None)
         let plan = LogicalPlan.Union(indexed, indexed, true)
+        let sharingIndexed =
+            backendSharing (function
+                | LogicalPlan.WithRowIndex _ -> true
+                | _ -> false)
 
-        Assert.Empty(shared (CommonSubplanSharing.apply sources plan))
+        Assert.Empty(shared (CommonSubplanSharing.apply sharingIndexed sources plan))
+        Assert.NotEmpty(shared (CommonSubplanSharing.apply backend sources plan))
+
+    [<Fact>]
+    let ``Polars shares a row-indexed query itself, and nothing else`` () =
+        let polars = Polars.NET.Linq.Backend.Polars.PolarsQueryBackend.Instance
+
+        Assert.True(polars.SharesRepeatedSubplanItself(LogicalPlan.WithRowIndex(aggregate 0 1, "rid", None)))
+        Assert.False(polars.SharesRepeatedSubplanItself(aggregate 0 1))
 
     [<Fact>]
     let ``Grafting a plan unwraps its shared subplans`` () =
         let sources = [| SourceBinding.Table facts; SourceBinding.Table dims |]
-        let plan = CommonSubplanSharing.apply sources (LogicalPlan.Union(aggregate 0 1, aggregate 0 1, true))
+        let plan = CommonSubplanSharing.apply backend sources (LogicalPlan.Union(aggregate 0 1, aggregate 0 1, true))
         Assert.NotEmpty(shared plan)
 
         let registry = SourceRegistry()

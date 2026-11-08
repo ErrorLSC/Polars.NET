@@ -785,6 +785,45 @@ public class QueryPlanCacheTests
     /// the plan cache key; the rows are the same either way.
     [Fact]
     [Trait("LINQ", "QueryPlanCache")]
+    public void A_Query_Used_Twice_Is_Shared_Whole_Even_When_Compiled_Alone_First()
+    {
+        var sales = Enumerable.Range(0, 200).Select(i => new SaleRow { ItemKey = i % 20, StoreKey = i % 10, Amount = i % 7 }).ToArray();
+        var items = Enumerable.Range(0, 20).Select(i => new ItemRow { Item = i, ItemTag = 0 }).ToArray();
+        using var salesDf = DataFrame.FromRows(sales);
+        using var itemsDf = DataFrame.FromRows(items);
+
+        var grouped = from s in salesDf.AsQueryable<SaleRow>()
+                      join i in itemsDf.AsQueryable<ItemRow>() on s.ItemKey equals i.Item
+                      group s by s.ItemKey into g
+                      select new { g.Key, Total = g.Sum(x => x.Amount) };
+
+        var query = from a in grouped.Where(x => x.Key > 2)
+                    join b in grouped.Where(x => x.Key < 10) on a.Key equals b.Key
+                    orderby a.Key
+                    select a.Key * 1000 + b.Total;
+
+        var groupedRows = (from s in sales
+                           join i in items on s.ItemKey equals i.Item
+                           group s by s.ItemKey into g
+                           select new { g.Key, Total = g.Sum(x => x.Amount) }).ToList();
+        var expected = (from a in groupedRows.Where(x => x.Key > 2)
+                        join b in groupedRows.Where(x => x.Key < 10) on a.Key equals b.Key
+                        orderby a.Key
+                        select a.Key * 1000 + b.Total).ToList();
+
+        QueryPlanCache.Clear();
+        // Compiled alone first, so a grafted reference must not reuse this complete, optimized plan.
+        _ = grouped.ToList();
+
+        var lines = query.ExplainLogicalPlan().Split('\n');
+        var shared = Enumerable.Range(0, lines.Length).Where(i => lines[i].Contains("Shared: id=")).ToList();
+        Assert.Equal(2, shared.Count);
+        // The grouping itself is shared, not only a prefix beneath it.
+        Assert.All(shared, i => Assert.Contains("GroupBy", lines[i + 1]));
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
     public void Unstable_Ordering_Reorders_Joins_And_Keys_The_Cache()
     {
         var sales = Enumerable.Range(0, 200).Select(i => new SaleRow { ItemKey = i % 20, StoreKey = i % 10, Amount = i % 7 }).ToArray();

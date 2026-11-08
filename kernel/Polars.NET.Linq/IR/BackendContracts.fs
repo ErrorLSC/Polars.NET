@@ -9,6 +9,9 @@ type internal IBackendCapabilities =
     abstract IsRegexPatternSupported: pattern: string -> bool
     /// Whether the backend can evaluate ScalarFunction.AssertCount (fail the query while it runs).
     abstract SupportsAssertions: bool
+    /// Whether the backend computes this repeated subplan once by itself, and better than beneath a shared
+    /// computation the plan declares. Common subplan sharing leaves such a subplan, with everything inside it, alone.
+    abstract SharesRepeatedSubplanItself: subplan: LogicalPlan -> bool
 
 /// Binds backend-native runtime objects (frames, compiled queryables) as opaque table sources.
 type internal ISourceBinder =

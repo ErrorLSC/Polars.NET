@@ -60,7 +60,7 @@ module internal PipelineCompilation =
         let probe =
             keyed
             |> Option.bind (fun (_, keyExtraction) ->
-                QueryPlanCache.TryCreateProbe(targetType, keyExtraction.NormalizedExpression, keyExtraction.Parameters))
+                QueryPlanCache.TryCreateProbe(targetType, keyExtraction.NormalizedExpression, keyExtraction.Parameters, mergeDiagnostics))
 
         let pipeline =
             match probe |> Option.bind QueryPlanCache.TryGetBound with
@@ -86,9 +86,15 @@ module internal PipelineCompilation =
                         Compiled =
                             { compiled with
                                 Plan =
-                                    EnumResolution.resolvePlan compiled.Plan
-                                    |> Passes.CommonSubplanSharing.apply compiled.Sources
-                                    |> (if mergeDiagnostics then LogicalOptimizer.optimize else LogicalOptimizer.optimizeComplete Polars.NET.Core.Config.CoreConfig.AllowUnstableOrdering compiled.Sources)
+                                    let resolved = EnumResolution.resolvePlan compiled.Plan
+                                    // A grafted plan is optimized with the query it joins: optimized on its own, it
+                                    // would no longer equal another reference to the same query in that query.
+                                    if mergeDiagnostics then
+                                        resolved
+                                    else
+                                        resolved
+                                        |> Passes.CommonSubplanSharing.apply scope.Backend compiled.Sources
+                                        |> LogicalOptimizer.optimizeComplete Polars.NET.Core.Config.CoreConfig.AllowUnstableOrdering compiled.Sources
                             }
                         Stages = stages
                         FallbackDiagnostic = scope.FallbackReason

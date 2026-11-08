@@ -50,7 +50,7 @@ module internal JoinReordering =
         | _ -> 0.5
 
     /// (estimated rows, rows of the table beneath before its filters).
-    let rec private estimate (sourceRows: int -> float) (plan: LogicalPlan) : float * float =
+    let rec estimate (sourceRows: int -> float) (plan: LogicalPlan) : float * float =
         let recurse = estimate sourceRows
         match plan with
         | LogicalPlan.Scan(LogicalPlanSource.Slot index, _) ->
@@ -114,9 +114,10 @@ module internal JoinReordering =
             KeyB: ScalarExpr
         }
 
-    let apply (sources: SourceBinding array) (unorderedJoins: HashSet<LogicalPlan>) (plan: LogicalPlan) : LogicalPlan =
+    /// The row count of a source slot, read from its statistics once.
+    let sourceRowCounts (sources: SourceBinding array) : int -> float =
         let knownRows = Dictionary<int, float>()
-        let sourceRows (slot: int) =
+        fun (slot: int) ->
             match knownRows.TryGetValue slot with
             | true, rows -> rows
             | _ ->
@@ -133,6 +134,9 @@ module internal JoinReordering =
                             | _ -> defaultSourceRows
                 knownRows.[slot] <- rows
                 rows
+
+    let apply (sources: SourceBinding array) (unorderedJoins: HashSet<LogicalPlan>) (plan: LogicalPlan) : LogicalPlan =
+        let sourceRows = sourceRowCounts sources
 
         let isFlattenableJoin (node: LogicalPlan) =
             match node with

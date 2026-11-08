@@ -46,6 +46,8 @@ type internal CompiledQueryKey =
         DisallowUdfPushdown: bool
         UseRelationalNulls: bool
         AllowUnstableOrdering: bool
+        /// Whether the pipeline is for grafting into another query, which leaves its plan unoptimized.
+        ForGraft: bool
     }
 
 [<NoEquality; NoComparison>]
@@ -328,6 +330,7 @@ type QueryPlanCache private () =
                         DisallowUdfPushdown = CoreConfig.DisallowUdfPushdown
                         UseRelationalNulls = CoreConfig.UseRelationalNulls
                         AllowUnstableOrdering = CoreConfig.AllowUnstableOrdering
+                        ForGraft = false
                     }
             else
                 None
@@ -339,7 +342,8 @@ type QueryPlanCache private () =
         (
             sourceType: Type,
             normalizedExpression: Expression,
-            parameters: IReadOnlyDictionary<string, ExtractedParameter>
+            parameters: IReadOnlyDictionary<string, ExtractedParameter>,
+            forGraft: bool
         ) : QueryCacheProbe option =
         if not QueryPlanCache.Enabled then
             None
@@ -356,7 +360,7 @@ type QueryPlanCache private () =
                 let rootTables = tables |> List.map Option.get |> Array.ofList
 
                 QueryPlanCache.TryCreateKey(sourceType, normalizedExpression, parameters, rootTables)
-                |> Option.map (fun key -> { Key = key; RootTables = rootTables; RootsInLambdas = rootsInLambdas })
+                |> Option.map (fun key -> { Key = { key with ForGraft = forGraft }; RootTables = rootTables; RootsInLambdas = rootsInLambdas })
             else
                 None
 
