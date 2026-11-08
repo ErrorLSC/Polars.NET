@@ -23,10 +23,16 @@ type internal SourceRegistry() =
         LogicalPlan.Scan(LogicalPlanSource.Slot(bindings.Count - 1), schema)
 
     /// Adopts a plan compiled against its own bindings, renumbering its slots into this registry.
+    /// Shared ids are only unique within the plan that declared them, so its Shared nodes are unwrapped; the
+    /// plan being built finds its common subplans again once it is complete.
     member _.Graft(plan: LogicalPlan, sources: SourceBinding array) : LogicalPlan =
         let offset = bindings.Count
         bindings.AddRange sources
-        SourceRegistry.OffsetSlots offset plan
+        plan
+        |> LogicalPlanOps.rewrite (function
+            | LogicalPlan.Shared(_, input) -> Some input
+            | _ -> None)
+        |> SourceRegistry.OffsetSlots offset
 
     /// The bindings registered so far, indexed by slot.
     member _.ToArray() : SourceBinding array = bindings.ToArray()

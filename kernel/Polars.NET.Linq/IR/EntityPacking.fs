@@ -65,6 +65,7 @@ module internal EntityPacking =
         | LogicalPlan.Distinct(input, _, _, _)
         | LogicalPlan.Reverse input
         | LogicalPlan.SkipLast(input, _)
+        | LogicalPlan.Shared(_, input)
         | LogicalPlan.WithRowIndex(input, _, _) -> nullExtendedColumns input
         | LogicalPlan.WithColumns(input, cols) ->
             Set.difference (nullExtendedColumns input) (cols |> List.map fst |> Set.ofList)

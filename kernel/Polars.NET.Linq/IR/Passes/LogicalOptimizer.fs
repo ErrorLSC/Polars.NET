@@ -14,3 +14,8 @@ module internal LogicalOptimizer =
         |> SortSliceFusion.apply
         |> GroupOrderRelaxation.apply
 
+    /// Optimizes the plan of a complete query, reading statistics of its sources. A plan that will be grafted into
+    /// another is left to `optimize`: join order is chosen once the whole query is known.
+    let optimizeComplete (sources: SourceBinding array) (plan: LogicalPlan) : LogicalPlan =
+        let relaxed, unorderedJoins = plan |> optimize |> GroupOrderRelaxation.applyCollectingUnorderedJoins
+        JoinReordering.apply sources unorderedJoins relaxed

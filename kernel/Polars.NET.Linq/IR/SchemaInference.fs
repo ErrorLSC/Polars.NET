@@ -214,6 +214,7 @@ module internal SchemaInference =
         | LogicalPlan.Distinct(input, _, _, _)
         | LogicalPlan.Reverse input
         | LogicalPlan.SkipLast(input, _)
+        | LogicalPlan.Shared(_, input)
         | LogicalPlan.Explode(input, _, _, _) -> inferPlanSchema input
 
         | LogicalPlan.Project(input, projs) ->

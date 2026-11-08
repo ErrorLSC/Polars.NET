@@ -14,6 +14,27 @@ public readonly partial struct PolarsWrapper
     public static SchemaHandle GetLazySchema(LazyFrameHandle lf)
         => ErrorHelper.Check(NativeBindings.pl_lazyframe_get_schema(lf));
 
+    /// <summary>
+    /// The row count of a frame that directly reads a file scan or a DataFrame, from their metadata (nothing is
+    /// executed); null when the frame is anything else or its metadata cannot be read.
+    /// </summary>
+    public static long? LazyEstimatedRows(LazyFrameHandle lf)
+    {
+        if (!NativeBindings.pl_lazyframe_estimated_rows(lf, out long rows))
+            ErrorHelper.CheckVoid();
+        return rows < 0 ? null : rows;
+    }
+
+    /// <summary>
+    /// Marks the frame's plan as computed once: every clone of the returned frame reads the same cached result.
+    /// </summary>
+    public static LazyFrameHandle LazyFrameCache(LazyFrameHandle lf)
+    {
+        var h = ErrorHelper.Check(NativeBindings.pl_lazyframe_cache(lf));
+        lf.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
     public static LazyFrameHandle LazyFrameReverse(LazyFrameHandle lf)
     {
         var h = ErrorHelper.Check(NativeBindings.pl_lazyframe_reverse(lf));

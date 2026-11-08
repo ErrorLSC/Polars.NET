@@ -83,7 +83,13 @@ module internal PipelineCompilation =
 
                 let pipeline =
                     {
-                        Compiled = { compiled with Plan = LogicalOptimizer.optimize (EnumResolution.resolvePlan compiled.Plan) }
+                        Compiled =
+                            { compiled with
+                                Plan =
+                                    EnumResolution.resolvePlan compiled.Plan
+                                    |> Passes.CommonSubplanSharing.apply compiled.Sources
+                                    |> (if mergeDiagnostics then LogicalOptimizer.optimize else LogicalOptimizer.optimizeComplete compiled.Sources)
+                            }
                         Stages = stages
                         FallbackDiagnostic = scope.FallbackReason
                         Udfs = scope.Udfs

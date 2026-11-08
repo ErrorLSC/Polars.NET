@@ -28,7 +28,8 @@ module internal LogicalPlanOps =
         | LogicalPlan.WithRowIndex(input, _, _)
         | LogicalPlan.Rename(input, _, _)
         | LogicalPlan.Reverse input
-        | LogicalPlan.SkipLast(input, _) -> [ input ]
+        | LogicalPlan.SkipLast(input, _)
+        | LogicalPlan.Shared(_, input) -> [ input ]
         | LogicalPlan.HorizontalConcat inputs -> inputs
         | LogicalPlan.Join(left, right, _, _, _, _, _, _)
         | LogicalPlan.JoinAsOf(left, right, _)
@@ -72,6 +73,7 @@ module internal LogicalPlanOps =
         | LogicalPlan.Rename(input, existing, newN) -> let i = f input in if same i input then plan else LogicalPlan.Rename(i, existing, newN)
         | LogicalPlan.Reverse input -> let i = f input in if same i input then plan else LogicalPlan.Reverse i
         | LogicalPlan.SkipLast(input, count) -> let i = f input in if same i input then plan else LogicalPlan.SkipLast(i, count)
+        | LogicalPlan.Shared(id, input) -> let i = f input in if same i input then plan else LogicalPlan.Shared(id, i)
         | LogicalPlan.HorizontalConcat inputs ->
             let mapped = inputs |> List.map f
             if List.forall2 same mapped inputs then plan else LogicalPlan.HorizontalConcat mapped
@@ -134,6 +136,7 @@ module internal LogicalPlanOps =
         | LogicalPlan.Rename _
         | LogicalPlan.Reverse _
         | LogicalPlan.SkipLast _
+        | LogicalPlan.Shared _
         | LogicalPlan.HorizontalConcat _ -> plan
 
     // =========================================================================
@@ -193,6 +196,7 @@ module internal LogicalPlanOps =
             | LogicalPlan.WithRowIndex _
             | LogicalPlan.Reverse _
             | LogicalPlan.SkipLast _
+            | LogicalPlan.Shared _
             | LogicalPlan.HorizontalConcat _ -> Set.empty
 
         let childCols =
@@ -441,6 +445,10 @@ module internal LogicalPlanOps =
 
             | LogicalPlan.SkipLast(input, count) ->
                 sb.AppendLine(sprintf "SkipLast: count=%u" count) |> ignore
+                formatNode nextIndent true input
+
+            | LogicalPlan.Shared(id, input) ->
+                sb.AppendLine(sprintf "Shared: id=%d" id) |> ignore
                 formatNode nextIndent true input
 
             | LogicalPlan.HorizontalConcat inputs ->

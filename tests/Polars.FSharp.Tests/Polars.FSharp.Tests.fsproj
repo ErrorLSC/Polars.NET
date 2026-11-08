@@ -35,6 +35,9 @@
     <Compile Include="TpchLinqTests.fs" />
     <Compile Include="LogicalPlanOptimizerTests.fs" />
     <Compile Include="GroupOrderRelaxationTests.fs" />
+    <Compile Include="CommonSubplanSharingTests.fs" />
+    <Compile Include="PredicatePushdownTests.fs" />
+    <Compile Include="JoinReorderingTests.fs" />
     <Compile Include="QueryNestedEntityTests.fs" />
     <Compile Include="EnumColumnTests.fs" />
     <Compile Include="SubqueryGraftingTests.fs" />

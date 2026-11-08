@@ -147,15 +147,21 @@ let e2eChart () =
 // 2. Translation, cold and warm plan cache, in microseconds.
 let translateChart () =
     use plt = new Plot()
-    let us meth cache q = trans meth q cache |> Option.map (fun (v, _) -> v / 1e3)
+    // Log scale: bars are drawn at log10(µs) and the axis labels map back to µs.
+    let us meth cache q = trans meth q cache |> Option.map (fun (v, _) -> log10 (v / 1e3))
     groupedBars plt
         [ "Polars.NET LINQ, cold", palette.polars, us "Polars_Translate" false
           "Polars.NET LINQ, plan cache", palette.light, us "Polars_Translate" true
           "Linq2DB, cold", palette.l2db, us "Linq2DB_Translate" false
           "Linq2DB, query cache", Color.FromHex "#EDB97E", us "Linq2DB_Translate" true ]
         (queries |> List.filter (fun q -> trans "Polars_Translate" q false |> Option.isSome))
-    plt.Title "Translation: LINQ expression -> native plan (Polars) / SQL text (Linq2DB)"
-    plt.YLabel "µs"
+    plt.Axes.Left.TickGenerator <-
+        TickGenerators.NumericAutomatic(
+            MinorTickGenerator = TickGenerators.LogMinorTickGenerator(),
+            IntegerTicksOnly = true,
+            LabelFormatter = fun y -> $"{10.0 ** y:N0}")
+    plt.Title "Translation: LINQ expression -> native plan (Polars) / SQL text (Linq2DB), log scale"
+    plt.YLabel "µs (log scale)"
     plt.SavePng(Path.Combine(outDir, "translate.png"), 1400, 560) |> ignore
 
 // 3. Where Polars.NET spends an end-to-end run: translate (plan cache on), collect, materialize, as shares.

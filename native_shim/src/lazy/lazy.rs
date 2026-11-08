@@ -84,6 +84,52 @@ pub extern "C" fn pl_lazyframe_reverse(
     })
 }
 
+// ==========================================
+// Statistics
+// ==========================================
+/// The row count of a frame that directly reads a file scan or an in-memory DataFrame, from their metadata
+/// (nothing is executed), or -1 when the frame is anything else or its metadata cannot be read.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazyframe_estimated_rows(
+    lf_ptr: *mut LazyFrameContext,
+    out_rows: *mut i64,
+) -> bool {
+    ffi_bool_try!({
+        let lf_ctx = unsafe { &*lf_ptr };
+        let rows = match lf_ctx.inner.clone().to_alp() {
+            Ok(plan) => match plan.lp_arena.get(plan.lp_top) {
+                polars_plan::plans::IR::Scan { file_info, .. }
+                    if file_info.row_estimation.1 != usize::MAX =>
+                {
+                    file_info.row_estimation.1 as i64
+                },
+                polars_plan::plans::IR::DataFrameScan { df, .. } => df.height() as i64,
+                _ => -1,
+            },
+            Err(_) => -1,
+        };
+        unsafe { *out_rows = rows };
+        Ok(())
+    })
+}
+
+// ==========================================
+// Cache
+// ==========================================
+/// Marks the plan as computed once: every clone of the returned frame reads the same cached result.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazyframe_cache(
+    lf_ptr: *mut LazyFrameContext
+) -> *mut LazyFrameContext {
+    ffi_try!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+
+        let lf = lf_ctx.inner.cache();
+
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: lf })))
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_lazyframe_rename(
     lf_ptr: *mut LazyFrameContext,

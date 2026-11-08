@@ -42,6 +42,35 @@ public abstract class TpcdsBenchQuery(string name)
     /// <summary>Prints the Polars query's IR and optimized native plan, and times one run of it.</summary>
     public abstract void Explain();
 
+    /// <summary>Prints DuckDB's JSON query profile as an indented operator tree, one line per operator.</summary>
+    internal static void PrintDuckDbProfile(string json)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        foreach (var child in doc.RootElement.GetProperty("children").EnumerateArray())
+            Print(child, 0);
+
+        static void Print(System.Text.Json.JsonElement node, int depth)
+        {
+            string name = node.TryGetProperty("operator_name", out var n) ? n.GetString()!.Trim() : "?";
+            long rows = node.TryGetProperty("operator_cardinality", out var c) ? c.GetInt64() : -1;
+            double secs = node.TryGetProperty("operator_timing", out var t) ? t.GetDouble() : 0;
+            var info = new List<string>();
+            if (node.TryGetProperty("extra_info", out var extra) && extra.ValueKind == System.Text.Json.JsonValueKind.Object)
+                foreach (var p in extra.EnumerateObject())
+                {
+                    if (p.Name is "Projections" or "Estimated Cardinality" or "Total Files Read") continue;
+                    var v = p.Value.ValueKind == System.Text.Json.JsonValueKind.Array
+                        ? string.Join("; ", p.Value.EnumerateArray().Select(e => e.ToString()))
+                        : p.Value.ToString();
+                    info.Add($"{p.Name}: {(v.Length > 160 ? v[..160] + "..." : v)}");
+                }
+            Console.WriteLine($"{new string(' ', depth * 2)}{name} rows={rows:N0} t={secs:F4}s  {string.Join(" | ", info).ReplaceLineEndings(" ")}");
+            if (node.TryGetProperty("children", out var kids))
+                foreach (var k in kids.EnumerateArray())
+                    Print(k, depth + 1);
+        }
+    }
+
     /// <summary>Row count of the Polars result and whether every implementation produced the same rows.</summary>
     public abstract string Validate(DbConnection connection, DataConnection? db);
 }
@@ -113,6 +142,26 @@ public sealed class TpcdsBenchQuery<TRow>(
             int rows = PolarsToList();
             Console.WriteLine($"run {run}: {rows} rows in {watch.Elapsed.TotalMilliseconds:F1} ms");
         }
+
+        // DuckDB's executed plan with actual cardinalities per operator, the reference for plan diagnosis.
+        using var duckDb = TpcdsBenchEnvironment.OpenDuckDb();
+        using (var command = duckDb.CreateCommand())
+        {
+            command.CommandText = "EXPLAIN (ANALYZE, FORMAT json) " + sql();
+            using var reader = command.ExecuteReader();
+            Console.WriteLine("=== DuckDB plan (EXPLAIN ANALYZE: operator, actual rows, seconds) ===");
+            while (reader.Read())
+                TpcdsBenchQuery.PrintDuckDbProfile(reader.GetString(reader.FieldCount - 1));
+        }
+
+        for (int run = 1; run <= 3; run++)
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            int rows = RunDuckDb(duckDb);
+            Console.WriteLine($"duckdb run {run}: {rows} rows in {watch.Elapsed.TotalMilliseconds:F1} ms");
+        }
+
+        int RunDuckDb(DbConnection connection) => connection.Query<TRow>(sql(), buffered: true, commandTimeout: 0).AsList().Count;
     }
 
     public override string Validate(DbConnection connection, DataConnection? db)

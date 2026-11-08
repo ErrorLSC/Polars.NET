@@ -919,6 +919,11 @@ and [<RequireQualifiedAccess>] LogicalPlan =
     | Reverse of input: LogicalPlan
     | SkipLast of input: LogicalPlan * count: uint32
     | HorizontalConcat of inputs: LogicalPlan list
+    /// A common subplan (a CTE): every Shared node with the same `id` in one plan has an equal input, whose
+    /// rows (in order) it yields. A backend may compute the input once and feed every such node from it.
+    /// Rewrites treat it as a barrier: nothing from a consumer moves into the input, so all occurrences stay
+    /// equal. Only a complete optimized plan holds Shared nodes; grafting a plan into another unwraps them.
+    | Shared of id: int * input: LogicalPlan
     | Empty of schema: LogicalSchema
 
 /// One managed row operation applied after the native plan, in pipeline order.
@@ -998,6 +1003,11 @@ type CompiledLogicalQuery =
         /// the plan reads the flat columns.
         RowShape: RowShape
     }
+
+/// Statistics a table source may offer the optimizer. They steer plan choices only, never results.
+type ISourceStatistics =
+    /// The source's row count, or None when it is not known cheaply.
+    abstract member EstimatedRows: int64 option
 
 /// Internal interface implemented by PolarsQueryable to expose IR compilation for testing, inspection, and subtree grafting.
 type internal IPolarsInternalExplainable =

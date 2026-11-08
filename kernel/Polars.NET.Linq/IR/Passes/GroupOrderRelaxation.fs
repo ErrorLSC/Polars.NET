@@ -1,5 +1,6 @@
 namespace Polars.NET.Linq.IR.Passes
 
+open System.Collections.Generic
 open Polars.NET.Linq.IR
 
 /// Drops order guarantees whose effect cannot be observed.
@@ -11,6 +12,9 @@ open Polars.NET.Linq.IR
 /// - Rows feeding order-free aggregations (Sum, Count, Min, Max, Mean, ...; not First, Last or List): a projection
 ///   made only of such aggregations, and a GroupBy whose order is relaxed and whose aggregations are all order-free.
 ///   Beneath them a GroupBy keeps no order and a Sort is dead and removed.
+/// - Windows read order only inside their partitions, so a sort that, with the partition columns, covers a GroupBy's
+///   keys leaves its groups' order unobserved.
+/// - The inputs of a join whose own order is not observed.
 /// - The right side of a semi or anti join (an EXISTS / IN subquery): only which keys it holds is observed.
 /// - A Distinct whose order is not observed. Its input is freed too when the kept row cannot depend on order
 ///   (whole-row distinct, or keep Any / None).
@@ -65,12 +69,42 @@ module internal GroupOrderRelaxation =
     let private readsOrder (expr: ScalarExpr) =
         ScalarExprOps.containsWindow expr || ScalarExprOps.containsAggregation expr
 
+    /// The partitions in which an expression reads its input's order: one column set per window whose value depends
+    /// on order inside its partition. None when it reads order some other way (a frame function, an aggregation over
+    /// the whole input, a partition by a computed value). A window of order-free aggregations reads no order.
+    let rec private orderReadingPartitions (expr: ScalarExpr) : Set<string> list option =
+        let all (exprs: ScalarExpr list) =
+            let parts = exprs |> List.map orderReadingPartitions
+            if parts |> List.forall Option.isSome then Some(parts |> List.collect Option.get) else None
+        match expr with
+        | ScalarExpr.Window(inner, partitionBy, _) ->
+            let columns =
+                partitionBy
+                |> List.choose (function
+                    | ScalarExpr.Column name -> Some name
+                    | _ -> None)
+            if partitionBy.IsEmpty || columns.Length <> partitionBy.Length then None
+            elif isOrderFreeAggregate false inner then Some []
+            else Some [ Set.ofList columns ]
+        | ScalarExpr.Column _
+        | ScalarExpr.Literal _ -> Some []
+        | ScalarExpr.Alias(inner, _)
+        | ScalarExpr.Unary(_, inner)
+        | ScalarExpr.Cast(inner, _, _)
+        | ScalarExpr.EnumConvert(_, inner, _) -> orderReadingPartitions inner
+        | ScalarExpr.Binary(_, left, right) -> all [ left; right ]
+        | ScalarExpr.Conditional(test, ifTrue, ifFalse) -> all [ test; ifTrue; ifFalse ]
+        | ScalarExpr.Coalesce exprs -> all exprs
+        | ScalarExpr.Function(_, args, _) when not (ScalarExprOps.dependsOnOtherRows expr) || ScalarExprOps.containsWindow expr ->
+            all args
+        | _ -> None
+
     /// The need below a projection-like node: sort columns are traced to the columns they copy; a column
-    /// computed by the node does not identify input rows, so it is dropped from the set.
+    /// computed by the node does not identify input rows, so it is dropped from the set. Windows read order only
+    /// among rows of one partition, which `SortedBy` expresses; several partitionings observe at least the rows
+    /// equal on their common columns.
     let private throughProjection (need: OrderNeed) (columns: (string * ScalarExpr) list) (passThrough: bool) =
-        if columns |> List.exists (snd >> readsOrder) then
-            OrderNeed.Ordered
-        else
+        let traced =
             match need with
             | OrderNeed.SortedBy sortColumns ->
                 let defined = columns |> Map.ofList
@@ -84,7 +118,24 @@ module internal GroupOrderRelaxation =
                 |> OrderNeed.SortedBy
             | other -> other
 
-    let rec private relax (need: OrderNeed) (plan: LogicalPlan) : LogicalPlan =
+        if columns |> List.exists (snd >> readsOrder) then
+            let partitions = columns |> List.map (snd >> orderReadingPartitions)
+            if partitions |> List.forall Option.isSome then
+                match partitions |> List.collect Option.get with
+                | [] -> traced
+                | first :: rest ->
+                    let common = rest |> List.fold Set.intersect first
+                    match traced with
+                    | OrderNeed.Ordered -> OrderNeed.Ordered
+                    | OrderNeed.Unordered -> OrderNeed.SortedBy common
+                    | OrderNeed.SortedBy observed -> OrderNeed.SortedBy(Set.intersect observed common)
+            else
+                OrderNeed.Ordered
+        else
+            traced
+
+    let rec private relax (unorderedJoins: HashSet<LogicalPlan>) (need: OrderNeed) (plan: LogicalPlan) : LogicalPlan =
+        let relax = relax unorderedJoins
         match plan with
         | LogicalPlan.GroupBy(input, keys, aggs, having, maintainOrder) ->
             let unobserved =
@@ -115,7 +166,12 @@ module internal GroupOrderRelaxation =
                     | ScalarExpr.Column name -> Some name
                     | _ -> None)
                 |> Set.ofList
-            LogicalPlan.Sort(relax (OrderNeed.SortedBy sortColumns) input, orderings)
+            // Rows the sort leaves tied keep their input order, observed among rows equal on the consumer's columns too.
+            let observed =
+                match need with
+                | OrderNeed.SortedBy consumerColumns -> Set.union consumerColumns sortColumns
+                | _ -> sortColumns
+            LogicalPlan.Sort(relax (OrderNeed.SortedBy observed) input, orderings)
 
         | LogicalPlan.Filter(input, predicate) ->
             let inputNeed = if readsOrder predicate then OrderNeed.Ordered else need
@@ -146,6 +202,13 @@ module internal GroupOrderRelaxation =
         | LogicalPlan.Join(left, right, leftOn, rightOn, (JoinKind.Semi | JoinKind.Anti as how), suffix, coalescing, nullsEqual) ->
             LogicalPlan.Join(relax need left, relax OrderNeed.Unordered right, leftOn, rightOn, how, suffix, coalescing, nullsEqual)
 
+        // Nothing observes the join's order, so neither its inputs' order.
+        | LogicalPlan.Join(left, right, leftOn, rightOn, how, suffix, coalescing, nullsEqual) when need = OrderNeed.Unordered ->
+            let join =
+                LogicalPlan.Join(relax OrderNeed.Unordered left, relax OrderNeed.Unordered right, leftOn, rightOn, how, suffix, coalescing, nullsEqual)
+            unorderedJoins.Add join |> ignore
+            join
+
         | LogicalPlan.Distinct(input, subset, keep, maintainOrder) when need = OrderNeed.Unordered ->
             let keptRowIgnoresOrder =
                 subset.IsNone
@@ -161,4 +224,10 @@ module internal GroupOrderRelaxation =
 
     /// Relaxes the order guarantees that the plan's consumers cannot observe. The plan's own rows are observed
     /// in order (a single row of order-free aggregates aside).
-    let apply (plan: LogicalPlan) : LogicalPlan = relax OrderNeed.Ordered plan
+    let apply (plan: LogicalPlan) : LogicalPlan =
+        relax (HashSet<LogicalPlan>(HashIdentity.Reference)) OrderNeed.Ordered plan
+
+    /// `apply`, and the join nodes of its result whose output order nothing observes.
+    let applyCollectingUnorderedJoins (plan: LogicalPlan) : LogicalPlan * HashSet<LogicalPlan> =
+        let unorderedJoins = HashSet<LogicalPlan>(HashIdentity.Reference)
+        relax unorderedJoins OrderNeed.Ordered plan, unorderedJoins
