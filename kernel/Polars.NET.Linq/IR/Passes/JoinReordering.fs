@@ -11,8 +11,10 @@ open Polars.NET.Linq.IR
 /// 1. Flattens a tree of such joins, through row-local filters and plain column projections, into relations, equality
 ///    edges between them and residual predicates. Anything else (outer, semi and anti joins, groupings, shared
 ///    subplans, ...) is one opaque relation, whose own inside is reordered separately.
-/// 2. Builds a left-deep order greedily: starting from the edge with the smallest estimated result, it adds the
-///    connected relation giving the smallest estimated result. Estimates come from source row counts
+/// 2. Builds a left-deep order greedily: from each starting relation it repeatedly adds the connected relation giving
+///    the smallest estimated result, and keeps the order whose intermediate results sum lowest. Starting from the
+///    single smallest join would pair two small dimensions and then have to meet the fact table with nothing to
+///    reduce it. Estimates come from source row counts
 ///    (ISourceStatistics) and fixed filter selectivities, treating the smaller side of an edge as its unique side.
 ///    With no statistics every source counts the same, leaving the filters to decide.
 /// 3. Places each residual predicate at the first join that has all its columns, and restores the original columns.
@@ -245,40 +247,46 @@ module internal JoinReordering =
                         | [] -> None
                         | _ -> Some(max 1.0 (current * rows i / max 1.0 (List.max denominators)))
 
-                    // The first pair: the edge with the smallest result, its larger relation on the left.
-                    let first, second =
-                        edges
-                        |> Seq.filter (fun e -> e.A <> e.B)
-                        |> Seq.map (fun e ->
-                            let result = rows e.A * rows e.B / max 1.0 (min (tableRows e.A) (tableRows e.B))
-                            let large, small =
-                                if rows e.A > rows e.B || (rows e.A = rows e.B && e.A < e.B) then e.A, e.B else e.B, e.A
-                            result, min (rows e.A) (rows e.B), large, small)
-                        |> Seq.min
-                        |> fun (_, _, large, small) -> large, small
+                    /// The greedy order from one starting relation with its cost, the sum of its intermediate
+                    /// results; None when some relation cannot be reached.
+                    let greedyFrom (start: int) =
+                        let joined = HashSet<int>([ start ])
+                        let order = ResizeArray [ start ]
+                        let mutable current = rows start
+                        let mutable cost = 0.0
+                        let mutable connected = true
+                        while connected && joined.Count < n do
+                            let candidates =
+                                [ for i in 0 .. n - 1 do
+                                      if not (joined.Contains i) then
+                                          match joinedRows current joined i with
+                                          | Some result -> yield result, rows i, i
+                                          | None -> () ]
+                            match candidates with
+                            | [] -> connected <- false
+                            | _ ->
+                                let result, _, next = List.min candidates
+                                order.Add next
+                                joined.Add next |> ignore
+                                current <- result
+                                cost <- cost + result
+                        if connected then Some(cost, start, List.ofSeq order) else None
 
-                    let order = ResizeArray [ first; second ]
-                    let joined = HashSet<int>(order)
-                    let mutable current = rows first * rows second / max 1.0 (min (tableRows first) (tableRows second))
-                    let mutable connected = true
-                    while connected && joined.Count < n do
-                        let candidates =
-                            [ for i in 0 .. n - 1 do
-                                  if not (joined.Contains i) then
-                                      match joinedRows current joined i with
-                                      | Some result -> yield result, rows i, i
-                                      | None -> () ]
-                        match candidates with
-                        | [] -> connected <- false
+                    let best = [ 0 .. n - 1 ] |> List.choose greedyFrom
+
+                    // The larger relation of the first pair goes on the left.
+                    let chosen =
+                        match best with
+                        | [] -> None
                         | _ ->
-                            let result, _, next = List.min candidates
-                            order.Add next
-                            joined.Add next |> ignore
-                            current <- result
+                            match List.min best with
+                            | _, _, a :: b :: rest when rows b > rows a -> Some(b :: a :: rest)
+                            | _, _, order -> Some order
 
-                    if not connected || Seq.forall2 (=) order [ 0 .. n - 1 ] then
-                        None
-                    else
+                    match chosen with
+                    | None -> None
+                    | Some order when order = [ 0 .. n - 1 ] -> None
+                    | Some order ->
                         // A column name used by several relations gets a name of its own, per relation.
                         let usage =
                             relations
@@ -309,9 +317,9 @@ module internal JoinReordering =
                                 pending.Remove p |> ignore
                             ready |> List.fold (fun acc p -> LogicalPlan.Filter(acc, finalize p)) input
 
-                        placed.Add first |> ignore
-                        let mutable built = applyResiduals (relationPlan first)
-                        for next in order |> Seq.skip 1 do
+                        placed.Add order.Head |> ignore
+                        let mutable built = applyResiduals (relationPlan order.Head)
+                        for next in order.Tail do
                             let leftKeys, rightKeys =
                                 edges
                                 |> Seq.choose (fun e ->

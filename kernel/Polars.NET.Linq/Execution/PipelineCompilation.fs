@@ -88,7 +88,7 @@ module internal PipelineCompilation =
                                 Plan =
                                     EnumResolution.resolvePlan compiled.Plan
                                     |> Passes.CommonSubplanSharing.apply compiled.Sources
-                                    |> (if mergeDiagnostics then LogicalOptimizer.optimize else LogicalOptimizer.optimizeComplete compiled.Sources)
+                                    |> (if mergeDiagnostics then LogicalOptimizer.optimize else LogicalOptimizer.optimizeComplete Polars.NET.Core.Config.CoreConfig.AllowUnstableOrdering compiled.Sources)
                             }
                         Stages = stages
                         FallbackDiagnostic = scope.FallbackReason

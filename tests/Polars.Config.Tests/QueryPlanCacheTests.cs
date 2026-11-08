@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using Microsoft.FSharp.Collections;
 using Polars.CSharp.Linq;
+using Polars.NET.Core.Config;
 using Polars.NET.Core.Enums;
 using Polars.NET.Linq;
 using Polars.NET.Linq.IR;
@@ -774,5 +775,59 @@ public class QueryPlanCacheTests
         }
 
         Assert.True(QueryPlanCache.Hits > 0);
+    }
+
+    private class SaleRow { public int ItemKey { get; set; } public int StoreKey { get; set; } public int Amount { get; set; } }
+    private class ItemRow { public int Item { get; set; } public int ItemTag { get; set; } }
+    private class StoreRow { public int Store { get; set; } public int StoreTag { get; set; } }
+
+    /// AllowUnstableOrdering changes the plan (joins beneath a sort that can tie may be reordered), so it is part of
+    /// the plan cache key; the rows are the same either way.
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void Unstable_Ordering_Reorders_Joins_And_Keys_The_Cache()
+    {
+        var sales = Enumerable.Range(0, 200).Select(i => new SaleRow { ItemKey = i % 20, StoreKey = i % 10, Amount = i % 7 }).ToArray();
+        var items = Enumerable.Range(0, 20).Select(i => new ItemRow { Item = i, ItemTag = 0 }).ToArray();
+        var stores = Enumerable.Range(0, 10).Select(i => new StoreRow { Store = i, StoreTag = i % 5 }).ToArray();
+        using var salesDf = DataFrame.FromRows(sales);
+        using var itemsDf = DataFrame.FromRows(items);
+        using var storesDf = DataFrame.FromRows(stores);
+
+        IQueryable<int> Query() =>
+            from s in salesDf.AsQueryable<SaleRow>()
+            join i in itemsDf.AsQueryable<ItemRow>() on s.ItemKey equals i.Item
+            join t in storesDf.AsQueryable<StoreRow>().Where(t => t.StoreTag == 1) on s.StoreKey equals t.Store
+            orderby s.Amount
+            select s.Amount;
+
+        var expected = (from s in sales
+                        join i in items on s.ItemKey equals i.Item
+                        join t in stores.Where(t => t.StoreTag == 1) on s.StoreKey equals t.Store
+                        orderby s.Amount
+                        select s.Amount).ToList();
+
+        var original = CoreConfig.AllowUnstableOrdering;
+        try
+        {
+            QueryPlanCache.Clear();
+            CoreConfig.AllowUnstableOrdering = false;
+            string stable = "";
+            for (int run = 0; run < 3; run++) stable = Query().ExplainLogicalPlan();
+            Assert.Equal(expected, Query().ToList());
+
+            CoreConfig.AllowUnstableOrdering = true;
+            string unstable = Query().ExplainLogicalPlan();
+            Assert.Equal(expected, Query().ToList());
+
+            // The printed tree lists the last join first. Written order joins the items first (deepest); the filtered
+            // stores go deepest once ties are unspecified.
+            Assert.True(stable.IndexOf("col(\"StoreKey\")", StringComparison.Ordinal) < stable.IndexOf("col(\"ItemKey\")", StringComparison.Ordinal), stable);
+            Assert.True(unstable.IndexOf("col(\"ItemKey\")", StringComparison.Ordinal) < unstable.IndexOf("col(\"StoreKey\")", StringComparison.Ordinal), unstable);
+        }
+        finally
+        {
+            CoreConfig.AllowUnstableOrdering = original;
+        }
     }
 }

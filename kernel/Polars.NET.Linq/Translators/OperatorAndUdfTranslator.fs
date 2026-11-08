@@ -78,7 +78,9 @@ module internal OperatorAndUdfTranslator =
     /// Combines the translated operands of a binary operator with C# semantics: C# null semantics for equality and
     /// lifted comparisons (NullSemantics), .NET NaN semantics (NaNSemantics), truncating integer division and
     /// decimal division. Shared by every translator that compiles a binary operator from its operands.
-    let internal combineBinary
+    /// `leftNaNType` and `rightNaNType` are the types that decide whether an operand can be NaN.
+    let internal combineBinaryWithNaNTypes
+        (leftNaNType: Type, rightNaNType: Type)
         (op: ExpressionType)
         (leftType: Type, leftS: ScalarExpr option)
         (rightType: Type, rightS: ScalarExpr option)
@@ -107,7 +109,7 @@ module internal OperatorAndUdfTranslator =
             // .NET floating semantics (see NaNSemantics): comparisons involving NaN are false, `!=` true.
             | Some l, Some r when (op = ExpressionType.Equal || op = ExpressionType.NotEqual) && resultType = typeof<bool> ->
                 NullSemantics.equality (op = ExpressionType.Equal) (leftType, l) (rightType, r)
-                |> NaNSemantics.comparison op (leftType, l) (rightType, r)
+                |> NaNSemantics.comparison op (leftNaNType, l) (rightNaNType, r)
                 |> Some
             | Some l, Some r when
                 op = ExpressionType.LessThan
@@ -116,7 +118,7 @@ module internal OperatorAndUdfTranslator =
                 || op = ExpressionType.GreaterThanOrEqual
                 ->
                 tryTranslateBinary op l r
-                |> Option.map (NaNSemantics.comparison op (leftType, l) (rightType, r))
+                |> Option.map (NaNSemantics.comparison op (leftNaNType, l) (rightNaNType, r))
                 |> Option.map (NullSemantics.liftedComparison resultType [ leftType, l; rightType, r ])
             // .NET integer division truncates toward zero.
             | Some l, Some r when op = ExpressionType.Divide && isIntegralClrType leftType && isIntegralClrType rightType ->
@@ -136,6 +138,27 @@ module internal OperatorAndUdfTranslator =
                 Some(ScalarExpr.Binary(BinaryOp.Divide, ScalarExpr.Cast(l, LogicalTypes.Decimal, false), divisor))
             | Some l, Some r -> tryTranslateBinary op l r
             | _ -> None
+
+    /// `combineBinaryWithNaNTypes` with the operands' own types deciding.
+    let internal combineBinary
+        (op: ExpressionType)
+        (leftType: Type, leftS: ScalarExpr option)
+        (rightType: Type, rightS: ScalarExpr option)
+        (resultType: Type)
+        : ScalarExpr option =
+        combineBinaryWithNaNTypes (leftType, rightType) op (leftType, leftS) (rightType, rightS) resultType
+
+    /// The type deciding whether an operand can be NaN: a floating value converted from a non-floating one (a
+    /// decimal or integer column cast to double) cannot be, so such an operand answers with its source type.
+    let rec private nanType (e: Expression) : Type =
+        match e with
+        | :? UnaryExpression as u when
+            (u.NodeType = ExpressionType.Convert || u.NodeType = ExpressionType.ConvertChecked)
+            && NaNSemantics.isFloatingClrType u.Type
+            ->
+            let source = nanType u.Operand
+            if NaNSemantics.isFloatingClrType source then e.Type else source
+        | _ -> e.Type
 
     let internal translateBinaryExpr
         (eval: ScalarExprEvaluator)
@@ -206,7 +229,7 @@ module internal OperatorAndUdfTranslator =
                 | ExpressionType.OrElse, Some l -> withUdfGuard ctx (ScalarExpr.Unary(UnaryOp.Not, l)) (fun () -> eval ctx right)
                 | ExpressionType.Coalesce, Some l -> withUdfGuard ctx (ScalarExpr.Unary(UnaryOp.IsNull, l)) (fun () -> eval ctx right)
                 | _ -> eval ctx right
-            combineBinary op (left.Type, leftS) (right.Type, rightS) resultType
+            combineBinaryWithNaNTypes (nanType left, nanType right) op (left.Type, leftS) (right.Type, rightS) resultType
 
     /// A conversion to or from an enum type. An enum operand becomes its underlying value and an enum target
     /// takes an underlying value, through EnumConvert nodes for enums stored as Polars Enums; EnumResolution later

@@ -1075,6 +1075,8 @@ internal static class CoreConfig
     /// input order. A stable sort also makes the native engine keep the order of the rows it sorts (joins and
     /// groupings beneath it), which can cost noticeably on join-heavy queries. When set to true, the order of
     /// rows with equal sort keys is unspecified, as with SQL ORDER BY.
+    /// The optimizer then also treats the order of a sort's input as unobserved, so it may reorder the joins and
+    /// groupings beneath the sort.
     /// </summary>
     public static bool AllowUnstableOrdering
     {

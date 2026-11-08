@@ -245,4 +245,46 @@ public class LinqBacklogRegressionTests
         Assert.Equal([5L], viaQuery.ToList());
         Assert.Contains("how=Semi", viaQuery.ExplainLogicalPlan());
     }
+
+    private sealed record PricedRow
+    {
+        public int Id { get; init; }
+        public decimal Price { get; init; }
+        public double Ratio { get; init; }
+    }
+
+    /// A value cast from decimal cannot be NaN, so no NaN guard is added for it; a double column still gets one.
+    [Fact]
+    public void Nan_Guard_Only_For_Values_That_Can_Be_NaN()
+    {
+        PricedRow[] rows = [new() { Id = 1, Price = 2m, Ratio = double.NaN }, new() { Id = 2, Price = 3m, Ratio = 3 }];
+        using var df = DataFrame.From(rows);
+        var q = df.AsQueryable<PricedRow>();
+
+        var cast = q.Where(r => (double)r.Price > 2.5);
+        Assert.DoesNotContain("<= inf", cast.ExplainLogicalPlan().ToLowerInvariant().Replace("infinity", "inf"));
+        Assert.Equal([2], cast.Select(r => r.Id).ToList());
+
+        var floating = q.Where(r => r.Ratio > 2.5);
+        Assert.Contains("<= inf", floating.ExplainLogicalPlan().ToLowerInvariant().Replace("infinity", "inf"));
+        Assert.Equal([2], floating.Select(r => r.Id).ToList());
+    }
+
+    /// A join key that is a whole anonymous object (`k => k`) compares member by member, like one written out.
+    [Fact]
+    public void Whole_Anonymous_Object_Works_As_Join_Key()
+    {
+        using var ldf = DataFrame.From(Lines);
+        using var rdf = DataFrame.From(Returns);
+        var keys = rdf.AsQueryable<Return>().Select(r => new { r.Order }).Distinct();
+        var expectedKeys = Returns.Select(r => new { r.Order }).Distinct();
+
+        var query = ldf.AsQueryable<Line>()
+                       .Join(keys, l => new { l.Order }, k => k, (l, k) => l.Order)
+                       .OrderBy(o => o);
+        var expected = Lines.Join(expectedKeys, l => new { l.Order }, k => k, (l, k) => l.Order).OrderBy(o => o);
+
+        Assert.Equal(expected.ToList(), query.ToList());
+        Assert.DoesNotContain("fallback", query.ExplainLogicalPlan(), StringComparison.OrdinalIgnoreCase);
+    }
 }

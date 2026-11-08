@@ -52,22 +52,43 @@ module JoinReorderingTests =
 
     [<Fact>]
     let ``The filtered dimension joins the fact table first`` () =
-        let result = LogicalOptimizer.optimizeComplete withStats (total "v" written)
+        let result = LogicalOptimizer.optimizeComplete false withStats (total "v" written)
         Assert.Equal<int list>([ 0; 2; 1; 3 ], slots result)
 
     [<Fact>]
     let ``Without statistics the filters still decide`` () =
-        let result = LogicalOptimizer.optimizeComplete (star [ None; None; None; None ]) (total "v" written)
+        let result = LogicalOptimizer.optimizeComplete false (star [ None; None; None; None ]) (total "v" written)
         Assert.Equal(2, (slots result).[1])
 
     [<Fact>]
     let ``A join whose order is observed keeps its written order`` () =
-        Assert.Equal(written, LogicalOptimizer.optimizeComplete withStats written)
+        Assert.Equal(written, LogicalOptimizer.optimizeComplete false withStats written)
+
+    [<Fact>]
+    let ``Beneath a sort that can tie, joins are reordered only when ties are unspecified`` () =
+        let sorted = LogicalPlan.Sort(written, [ { SortOrder.Expr = col "v"; Descending = false; NullsLast = false } ])
+        Assert.Equal<int list>([ 0; 1; 2; 3 ], slots (LogicalOptimizer.optimizeComplete false withStats sorted))
+        Assert.Equal<int list>([ 0; 2; 1; 3 ], slots (LogicalOptimizer.optimizeComplete true withStats sorted))
+
+    [<Fact>]
+    let ``Unspecified ties do not free a limit without a sort`` () =
+        let limited = LogicalPlan.Limit(written, 0L, 5u)
+        Assert.Equal<int list>([ 0; 1; 2; 3 ], slots (LogicalOptimizer.optimizeComplete true withStats limited))
+
+    [<Fact>]
+    let ``A shared subplan is freed only when every consumer leaves its order unobserved`` () =
+        let body = LogicalPlan.Shared(0, written)
+        let sorted = LogicalPlan.Sort(body, [ { SortOrder.Expr = col "v"; Descending = false; NullsLast = false } ])
+        let bothFree = LogicalPlan.Union(sorted, sorted, true)
+        Assert.Equal<int list>([ 0; 2; 1; 3; 0; 2; 1; 3 ], slots (LogicalOptimizer.optimizeComplete true withStats bothFree))
+
+        let oneLimited = LogicalPlan.Union(sorted, LogicalPlan.Limit(body, 0L, 5u), true)
+        Assert.Equal<int list>([ 0; 1; 2; 3; 0; 1; 2; 3 ], slots (LogicalOptimizer.optimizeComplete true withStats oneLimited))
 
     [<Fact>]
     let ``A filter above an unordered join keeps every column it reads`` () =
         let both = ScalarExpr.Binary(BinaryOp.Gt, col "b_v", col "c_v")
-        let result = LogicalOptimizer.optimizeComplete withStats (total "v" (LogicalPlan.Filter(written, both)))
+        let result = LogicalOptimizer.optimizeComplete false withStats (total "v" (LogicalPlan.Filter(written, both)))
         let rec filterAboveBothSides (plan: LogicalPlan) =
             match plan with
             | LogicalPlan.Filter(input, p) when p = both ->
@@ -86,7 +107,7 @@ module JoinReorderingTests =
         let plan = total "a_v_right" withC
         let schemas = sources [ Some 5_000_000L; Some 10_000L; Some 10_000L; Some 100L ] [ factSchema; aSchema; aSchema; cSchema ]
 
-        let result = LogicalOptimizer.optimizeComplete schemas plan
+        let result = LogicalOptimizer.optimizeComplete false schemas plan
 
         let rec reordered (node: LogicalPlan) =
             match node with
@@ -102,14 +123,14 @@ module JoinReorderingTests =
     let ``Outer joins are opaque, and two relations are left alone`` () =
         let leftJoin = LogicalPlan.Join(join fact a "a_key" "a", b, [ col "b_key" ], [ col "b" ], JoinKind.Left, None, JoinKeyCoalescing.Default, false)
         let plan = total "v" leftJoin
-        Assert.Equal<int list>([ 0; 1; 2 ], slots (LogicalOptimizer.optimizeComplete withStats plan))
+        Assert.Equal<int list>([ 0; 1; 2 ], slots (LogicalOptimizer.optimizeComplete false withStats plan))
 
     [<Fact>]
     let ``A disconnected join graph keeps its written order`` () =
         // The last join's key belongs to no relation joined before it through an edge between the first two groups.
         let cross = LogicalPlan.Join(join fact a "a_key" "a", b, [], [], JoinKind.Cross, None, JoinKeyCoalescing.Default, false)
         let plan = total "v" (join cross c "c_key" "c")
-        Assert.Equal<int list>([ 0; 1; 2; 3 ], slots (LogicalOptimizer.optimizeComplete withStats plan))
+        Assert.Equal<int list>([ 0; 1; 2; 3 ], slots (LogicalOptimizer.optimizeComplete false withStats plan))
 
     // --- the order analysis that frees joins beneath windows ---
 

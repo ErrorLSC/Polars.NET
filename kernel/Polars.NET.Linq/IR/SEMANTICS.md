@@ -156,7 +156,8 @@ skipped.
 
 **Order is kept unless a node says otherwise.**
 - `Filter`, `Project`, `WithColumns`, `Rename`, `WithRowIndex` and `Explode` keep input order.
-- `Sort` is stable. `NullsLast` places nulls.
+- `Sort` is stable. `NullsLast` places nulls. With `AllowUnstableOrdering`, the order of tied rows is unspecified, so the order of a sort's input is not
+  observed and the optimizer may reorder the joins and groupings beneath it.
 - `Union` lists the left rows, then the right. Its inputs have the same column names, which a backend matches by
   name; only single-column inputs are matched by position. When an object element's sides assign different
   members, the frontend completes each side with the other members at their type's default.

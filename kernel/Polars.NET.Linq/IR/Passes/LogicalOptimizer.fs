@@ -15,7 +15,9 @@ module internal LogicalOptimizer =
         |> GroupOrderRelaxation.apply
 
     /// Optimizes the plan of a complete query, reading statistics of its sources. A plan that will be grafted into
-    /// another is left to `optimize`: join order is chosen once the whole query is known.
-    let optimizeComplete (sources: SourceBinding array) (plan: LogicalPlan) : LogicalPlan =
-        let relaxed, unorderedJoins = plan |> optimize |> GroupOrderRelaxation.applyCollectingUnorderedJoins
+    /// another is left to `optimize`: join order is chosen once the whole query is known. With `allowUnstableSort`
+    /// ties of the plan's sorts are unspecified, which frees the order beneath them.
+    let optimizeComplete (allowUnstableSort: bool) (sources: SourceBinding array) (plan: LogicalPlan) : LogicalPlan =
+        let relaxed, unorderedJoins =
+            plan |> optimize |> GroupOrderRelaxation.applyCollectingUnorderedJoins allowUnstableSort
         JoinReordering.apply sources unorderedJoins relaxed

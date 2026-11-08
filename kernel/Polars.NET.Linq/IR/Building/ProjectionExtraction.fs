@@ -22,8 +22,17 @@ module internal ProjectionExtraction =
             else
                 None
         | None ->
-            ExprTranslator.tryTranslateToScalar ctx keyLambda.Body
-            |> Option.map (fun s -> [ s ])
+            match ExprTranslator.tryTranslateToScalar ctx keyLambda.Body with
+            | Some key -> Some [ key ]
+            // A whole anonymous object as the key (`sq => sq`): one key per member, in declaration order, as the
+            // anonymous object expression on the other side lists them.
+            | None when EntityPacking.isAnonymousType keyLambda.Body.Type ->
+                let members =
+                    keyLambda.Body.Type.GetProperties()
+                    |> Array.toList
+                    |> List.map (fun p -> ExprTranslator.tryTranslateToScalar ctx (Expression.Property(keyLambda.Body, p)))
+                if members |> List.forall Option.isSome then Some(members |> List.map Option.get) else None
+            | None -> None
 
     /// Extracts projection bindings (name * ScalarExpr) from a projection LambdaExpression.
     /// Whole entities among the members (a join scope, or the row parameter itself) become struct columns.

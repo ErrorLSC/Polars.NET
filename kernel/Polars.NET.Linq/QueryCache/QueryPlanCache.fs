@@ -45,6 +45,7 @@ type internal CompiledQueryKey =
         Roots: RootKey list
         DisallowUdfPushdown: bool
         UseRelationalNulls: bool
+        AllowUnstableOrdering: bool
     }
 
 [<NoEquality; NoComparison>]
@@ -326,6 +327,7 @@ type QueryPlanCache private () =
                         Roots = roots
                         DisallowUdfPushdown = CoreConfig.DisallowUdfPushdown
                         UseRelationalNulls = CoreConfig.UseRelationalNulls
+                        AllowUnstableOrdering = CoreConfig.AllowUnstableOrdering
                     }
             else
                 None
