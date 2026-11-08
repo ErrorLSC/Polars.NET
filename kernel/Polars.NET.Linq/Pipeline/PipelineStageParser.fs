@@ -92,7 +92,7 @@ module internal PipelineStageParser =
         (stage: string)
         (requiresClientFallback: bool)
         (clientPredsWithAst: (Func<obj, bool> * LambdaExpression) list)
-        (expressionText: string)
+        (expressionText: Lazy<string>)
         : unit =
         let policy = CoreConfig.ClientEvaluationPolicy
         match policy with
@@ -100,7 +100,7 @@ module internal PipelineStageParser =
         | ClientEvaluationPolicy.Warn ->
             if requiresClientFallback then
                 System.Diagnostics.Trace.TraceWarning
-                    $"[Polars.NET Warning] Query pipeline at stage '%s{stage}' fell back to full client-side in-memory LINQ: %s{expressionText}"
+                    $"[Polars.NET Warning] Query pipeline at stage '%s{stage}' fell back to full client-side in-memory LINQ: %s{expressionText.Value}"
             elif not clientPredsWithAst.IsEmpty then
                 let predTexts =
                     clientPredsWithAst
@@ -114,7 +114,7 @@ module internal PipelineStageParser =
                 raise (
                     PolarsPushdownException(
                         stage,
-                        expressionText,
+                        expressionText.Value,
                         "Full in-memory LINQ fallback was triggered due to unsupported query operations or transparent identifiers."
                     )
                 )

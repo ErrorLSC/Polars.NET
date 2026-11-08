@@ -6,6 +6,7 @@ using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Data;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Linq;
+using Polars.NET.Linq.Backend.Polars;
 
 namespace Polars.Benchmarks.Tpcds;
 
@@ -164,9 +165,20 @@ internal static class ZzCacheSteps
             Console.WriteLine($"  param {kv.Key}: declared {kv.Value.Type.Name}, value {kv.Value.Value?.GetType().Name ?? "null"}");
         var probe = QueryPlanCache.TryCreateProbe(elem, ex.NormalizedExpression, ex.Parameters);
         Console.WriteLine($"  top-level probe: {(probe is null ? "NONE (not cacheable)" : "ok")}");
-        if (probe is not null) Step("TryGetBound", () => QueryPlanCache.TryGetBound(probe.Value));
+        if (probe is not null)
+        {
+            Step("TryGetBound", () => QueryPlanCache.TryGetBound(probe.Value));
+            var pipeline = QueryPlanCache.TryGetBound(probe.Value)!.Value;
+            Polars.NET.Linq.IR.CompiledLogicalQuery packed = null!;
+            Step("forMaterialization", () => packed = RowMaterialization.forMaterialization(elem, pipeline.Stages, pipeline.Compiled));
+            Step("lowerPlan (LazyFrame/FFI)", () => PolarsPhysicalLowerer.lowerPlan(packed.Sources, packed.Plan).Dispose());
+            Console.WriteLine($"  plan nodes: {CountNodes(packed.Plan)}, sources: {packed.Sources.Length}");
+        }
         Step("full Prepare (translate)", () => Prep(make()));
     }
+
+    private static int CountNodes(Polars.NET.Linq.IR.LogicalPlan plan) =>
+        1 + Polars.NET.Linq.IR.LogicalPlanOps.getInputs(plan).Sum(CountNodes);
 
     private static void Prep(IQueryable q)
     {

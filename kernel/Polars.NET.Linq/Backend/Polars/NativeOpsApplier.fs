@@ -17,9 +17,13 @@ module internal NativeOpsApplier =
             PolarsWrapper.GetSchemaFieldAt(schema, uint64 i, &name, &dtHandle)
             name, dtHandle)
 
-    let alignSchema (baseLf: LazyFrameHandle) (targetLf: LazyFrameHandle) : LazyFrameHandle =
-        let baseFields = getLazySchemaFields baseLf
-        let targetFields = getLazySchemaFields targetLf
+    /// Aligns `targetLf` to the columns of `baseFields` (by name when the names match, else by position),
+    /// casting where the types differ; `targetFields` is the schema of `targetLf`.
+    let alignToFields
+        (baseFields: (string * DataTypeHandle) array)
+        (targetFields: (string * DataTypeHandle) array)
+        (targetLf: LazyFrameHandle)
+        : LazyFrameHandle =
 
         let baseNames = baseFields |> Array.map fst
         let targetNames = targetFields |> Array.map fst
@@ -56,3 +60,6 @@ module internal NativeOpsApplier =
         else
             targetLf
 
+    /// Aligns `targetLf` to the schema of `baseLf` (see alignToFields), resolving both schemas.
+    let alignSchema (baseLf: LazyFrameHandle) (targetLf: LazyFrameHandle) : LazyFrameHandle =
+        alignToFields (getLazySchemaFields baseLf) (getLazySchemaFields targetLf) targetLf

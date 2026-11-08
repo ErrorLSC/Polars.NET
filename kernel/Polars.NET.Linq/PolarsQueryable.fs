@@ -205,7 +205,8 @@ and PolarsQuery<'T>
             "QueryExecution"
             (compiled.Residual = ClientResidual.LinqToObjects)
             (ClientResidualOps.filters compiled.Residual)
-            (expression.ToString())
+            // The query's text only goes into a warning or an exception; rendering a large query costs.
+            (lazy (expression.ToString()))
 
         nativeLf, compiled.Residual, pipeline.Stages
 

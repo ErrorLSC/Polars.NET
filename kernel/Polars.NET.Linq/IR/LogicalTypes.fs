@@ -44,6 +44,11 @@ module internal ArrowTypeKey =
 /// statically known, an enumeration over a fixed, ordered set of string categories, or an unknown type
 /// left to the backend to infer.
 /// Equality and hashing are structural (see ArrowTypeKey).
+/// The structural keys of LogicalType values, computed once per value: equality and hashing read the key, and
+/// cache keys compare the types of every column of every root table on each lookup.
+module internal LogicalTypeDisplayCache =
+    let table = System.Runtime.CompilerServices.ConditionalWeakTable<obj, string>()
+
 [<CustomEquality; NoComparison; RequireQualifiedAccess; StructuredFormatDisplay("{Display}")>]
 type LogicalType =
     | Unknown
@@ -57,6 +62,9 @@ type LogicalType =
 
     /// Structural key used for equality, hashing and display.
     member this.Display: string =
+        LogicalTypeDisplayCache.table.GetValue(this, fun boxed -> (boxed :?> LogicalType).ComputeDisplay())
+
+    member private this.ComputeDisplay() : string =
         match this with
         | Unknown -> "Unknown"
         | Arrow t -> ArrowTypeKey.ofArrow t

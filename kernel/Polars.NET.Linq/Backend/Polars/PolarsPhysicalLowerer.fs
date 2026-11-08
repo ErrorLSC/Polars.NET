@@ -49,6 +49,38 @@ module internal PolarsPhysicalLowerer =
                 (String.concat ", " actual)
         lf
 
+    // Native schemas resolved while lowering (a union aligns its sides, a grouping-sets node types its null
+    // keys), by plan node. Resolving a schema makes Polars convert and type the node's whole input, which
+    // dominates lowering a large plan. A cached plan is lowered again on every hit, with the same nodes over
+    // tables whose schemas the cache key fixes, so the schemas resolved the first time hold; they are reused
+    // only when every source is a table whose schema the key pins exactly (no Unknown column type).
+    let private resolvedSchemas = Runtime.CompilerServices.ConditionalWeakTable<LogicalPlan, obj>()
+    let private schemasPinned = Runtime.CompilerServices.ConditionalWeakTable<SourceBinding array, obj>()
+
+    let rec private isPinnedType (t: LogicalType) =
+        match t with
+        | LogicalType.Unknown -> false
+        | LogicalType.ListOf element -> isPinnedType element
+        | LogicalType.StructOf fields -> fields |> List.forall (snd >> isPinnedType)
+        | LogicalType.Arrow _
+        | LogicalType.Enum _ -> true
+
+    let private sourcesPinned (sources: SourceBinding array) : bool =
+        schemasPinned.GetValue(sources, fun sources ->
+            sources
+            |> Array.forall (function
+                | SourceBinding.Table table -> table.Schema.Fields |> List.forall (fun f -> isPinnedType f.DataType)
+                | SourceBinding.InMemory _ -> false)
+            |> box)
+        |> unbox
+
+    /// The schemas `resolve` reads for `node`, resolved once per node when the sources pin them.
+    let private nodeSchemas<'T> (sources: SourceBinding array) (node: LogicalPlan) (resolve: unit -> 'T) : 'T =
+        if sourcesPinned sources then
+            resolvedSchemas.GetValue(node, fun _ -> box (resolve ())) |> unbox
+        else
+            resolve ()
+
     /// Recursively lowers a LogicalPlan into an optimized LazyFrameHandle, reading each Scan slot from `sources`.
     /// Whether a slice over this plan would reach an order-keeping GroupBy through nodes Polars pushes a slice
     /// through (projections, renames), i.e. whether the slice selects groups by their order.
@@ -207,17 +239,19 @@ module internal PolarsPhysicalLowerer =
                     | _ -> 0)
                 |> List.distinctBy fst
                 |> Map.ofList
-            let referenceKeys = keyAliasedHandles |> Array.map PolarsWrapper.CloneExpr
-            let referenceAggs = aggHandles |> Array.map PolarsWrapper.CloneExpr
-            let referenceGroupedLf = PolarsWrapper.LazyGroupByAgg(PolarsWrapper.LazyClone activeLf, referenceKeys, referenceAggs, null, true)
-            let referenceSelectExprs =
-                spec.OutputColumns
-                |> List.map (fun name ->
-                    match typeReferenceLiterals.TryFind name with
-                    | Some litExpr -> PolarsWrapper.Alias(PolarsScalarLowerer.lower litExpr, name)
-                    | None -> PolarsWrapper.Col name)
-                |> List.toArray
-            let colTypeMap = getLazySchemaFields (PolarsWrapper.LazySelect(referenceGroupedLf, referenceSelectExprs)) |> Map.ofArray
+            let colTypeMap =
+                nodeSchemas sources plan (fun () ->
+                    let referenceKeys = keyAliasedHandles |> Array.map PolarsWrapper.CloneExpr
+                    let referenceAggs = aggHandles |> Array.map PolarsWrapper.CloneExpr
+                    let referenceGroupedLf = PolarsWrapper.LazyGroupByAgg(PolarsWrapper.LazyClone activeLf, referenceKeys, referenceAggs, null, true)
+                    let referenceSelectExprs =
+                        spec.OutputColumns
+                        |> List.map (fun name ->
+                            match typeReferenceLiterals.TryFind name with
+                            | Some litExpr -> PolarsWrapper.Alias(PolarsScalarLowerer.lower litExpr, name)
+                            | None -> PolarsWrapper.Col name)
+                        |> List.toArray
+                    getLazySchemaFields (PolarsWrapper.LazySelect(referenceGroupedLf, referenceSelectExprs)) |> Map.ofArray)
 
             let compileLevel (subsetIndices: int list, levelLiterals: Map<string, ScalarExpr>) : LazyFrameHandle =
                 let groupedLf =
@@ -324,7 +358,9 @@ module internal PolarsPhysicalLowerer =
         | LogicalPlan.Union(left, right, isAll) ->
             let leftLf = lowerPlan sources left
             let rightLf = lowerPlan sources right
-            let alignedRightLf = alignSchema leftLf rightLf
+            let leftFields, rightFields =
+                nodeSchemas sources plan (fun () -> getLazySchemaFields leftLf, getLazySchemaFields rightLf)
+            let alignedRightLf = alignToFields leftFields rightFields rightLf
             PolarsWrapper.LazyConcat([| leftLf; alignedRightLf |], PlConcatType.Vertical, false, isAll)
 
         | LogicalPlan.WithRowIndex(input, name, offsetOpt) ->

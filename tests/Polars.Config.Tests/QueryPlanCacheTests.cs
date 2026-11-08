@@ -718,4 +718,61 @@ public class QueryPlanCacheTests
         Assert.Equal([3L], AboveSingle(facts, high));
         Assert.Equal([3L], InOtherKeys(facts, high));
     }
+
+    private class Sale
+    {
+        public string Region { get; set; } = "";
+        public string? Store { get; set; }
+        public decimal Amount { get; set; }
+    }
+
+    /// A cached union or rollup plan lowered over other frames of the same schema: the schemas resolved for
+    /// aligning the union's sides and typing the rollup's null keys are reused, the data is the hit's own.
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void Union_And_Rollup_Hits_Read_The_Frames_Of_The_Query_Being_Run()
+    {
+        QueryPlanCache.Clear();
+        Sale[][] datasets =
+        [
+            [new() { Region = "N", Store = "a", Amount = 1.5m }, new() { Region = "N", Store = "b", Amount = 2m }, new() { Region = "S", Store = null, Amount = 4m }],
+            [new() { Region = "E", Store = "c", Amount = 10m }, new() { Region = "W", Store = "d", Amount = 20.25m }],
+            [new() { Region = "N", Store = "a", Amount = 7m }],
+        ];
+
+        for (int round = 0; round < 3; round++)
+        {
+            foreach (var rows in datasets)
+            {
+                using var df = DataFrame.FromRows(rows);
+                var q = df.AsQueryable<Sale>();
+
+                // Union: the literal side is aligned to the column types of the first side.
+                var union = q.Select(s => new { s.Region, s.Amount })
+                             .Concat(q.Where(s => s.Store == null).Select(s => new { Region = "none", Amount = 0m }))
+                             .OrderBy(x => x.Region).ThenBy(x => x.Amount)
+                             .ToList();
+                var expectedUnion = rows.Select(s => new { s.Region, s.Amount })
+                                        .Concat(rows.Where(s => s.Store == null).Select(s => new { Region = "none", Amount = 0m }))
+                                        .OrderBy(x => x.Region, StringComparer.Ordinal).ThenBy(x => x.Amount)
+                                        .ToList();
+                Assert.Equal(expectedUnion, union);
+
+                // Rollup: the subtotal rows hold nulls of the keys' types.
+                var rollup = q.GroupBy(s => new { s.Region, s.Store })
+                              .RollUp((key, g) => new { key.Region, key.Store, Total = g.Sum(x => x.Amount) })
+                              .OrderBy(r => r.Region).ThenBy(r => r.Store).ThenBy(r => r.Total)
+                              .ToList();
+                var expectedRollup = rows.GroupBy(s => new { s.Region, s.Store }).Select(g => new { Region = (string?)g.Key.Region, g.Key.Store, Total = g.Sum(x => x.Amount) })
+                    .Concat(rows.GroupBy(s => s.Region).Select(g => new { Region = (string?)g.Key, Store = (string?)null, Total = g.Sum(x => x.Amount) }))
+                    .Append(new { Region = (string?)null, Store = (string?)null, Total = rows.Sum(x => x.Amount) })
+                    .OrderBy(r => r.Region, StringComparer.Ordinal).ThenBy(r => r.Store, StringComparer.Ordinal).ThenBy(r => r.Total)
+                    .Select(r => (r.Region, r.Store, r.Total))
+                    .ToList();
+                Assert.Equal(expectedRollup, rollup.Select(r => ((string?)r.Region, r.Store, r.Total)).ToList());
+            }
+        }
+
+        Assert.True(QueryPlanCache.Hits > 0);
+    }
 }
