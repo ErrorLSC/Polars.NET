@@ -13,8 +13,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Polars.CSharp\Polars.CSharp.csproj" />
-    <ProjectReference Include="..\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
+    <ProjectReference Include="..\api\Polars.CSharp\Polars.CSharp.csproj" />
+    <ProjectReference Include="..\kernel\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
   </ItemGroup>
 
 </Project>

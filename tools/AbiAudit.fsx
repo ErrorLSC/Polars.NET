@@ -16,7 +16,7 @@ let repoRoot = Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, ".."))
 
 let args = fsi.CommandLineArgs |> Array.skip 1
 let rustDir = if args.Length > 0 then args.[0] else Path.Combine(repoRoot, "native_shim", "src")
-let csDir = if args.Length > 1 then args.[1] else Path.Combine(repoRoot, "Polars.NET.Core")
+let csDir = if args.Length > 1 then args.[1] else Path.Combine(repoRoot, "kernel", "Polars.NET.Core")
 
 /// C# imports that intentionally have no export in the pinned native build.
 let knownUnexported =

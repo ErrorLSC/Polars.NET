@@ -1,6 +1,7 @@
 <Project>
   <PropertyGroup>
     <Version>1.1.0</Version>
+    <RepoRoot>$(MSBuildThisFileDirectory)</RepoRoot>
     <Authors>ErrorLSC</Authors>
     <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -17,7 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\THIRD_PARTY_LICENSES.html" Pack="true" PackagePath="\" />
-    <None Include="..\README.md" Pack="true" PackagePath="\" />
+    <None Include="$(RepoRoot)THIRD_PARTY_LICENSES.html" Pack="true" PackagePath="\" />
+    <None Include="$(RepoRoot)README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 </Project>

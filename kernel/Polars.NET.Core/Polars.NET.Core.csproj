@@ -1,0 +1,89 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>true</IsPackable>
+
+    <PackageId>Polars.NET.Core</PackageId>
+    <Authors>ErrorLSC</Authors>
+    <Description>Core infrastructure and native bindings for Polars.NET. Not intended for direct use.</Description>
+    <PackageTags>internal;native</PackageTags>
+    <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <RustProjectDir>$(RepoRoot)native_shim</RustProjectDir>
+    <BuildRustNative Condition="'$(BuildRustNative)' == ''">true</BuildRustNative>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <RustBuildProfile Condition="'$(Configuration)' == 'Debug'"></RustBuildProfile>
+    <RustBuildProfile Condition="'$(Configuration)' == 'Release'">--release</RustBuildProfile>
+
+    <RustTargetDir Condition="'$(Configuration)' == 'Debug'">debug</RustTargetDir>
+    <RustTargetDir Condition="'$(Configuration)' == 'Release'">release</RustTargetDir>
+
+    <RustOutputLib Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(RustProjectDir)\target\$(RustTargetDir)\native_shim.dll</RustOutputLib>
+    <RustOutputLib Condition="$([MSBuild]::IsOSPlatform('Linux'))">$(RustProjectDir)\target\$(RustTargetDir)\libnative_shim.so</RustOutputLib>
+    <RustOutputLib Condition="$([MSBuild]::IsOSPlatform('OSX'))">$(RustProjectDir)\target\$(RustTargetDir)\libnative_shim.dylib</RustOutputLib>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(BuildRustNative)' == 'true'">
+    <RustSourceFiles Include="$(RustProjectDir)\src\**\*.rs" />
+    <RustSourceFiles Include="$(RustProjectDir)\Cargo.toml" />
+    <RustSourceFiles Include="$(RustProjectDir)\Cargo.lock" />
+    <RustSourceFiles Include="$(RustProjectDir)\.cargo\**\*" />
+  </ItemGroup>
+
+  <Target Name="BuildRustShim" BeforeTargets="BeforeBuild" 
+          Inputs="@(RustSourceFiles)" 
+          Outputs="$(RustOutputLib)" 
+          Condition="'$(BuildRustNative)' == 'true' And '$(SkipRust)' != 'true'">
+    <Message Text="[Dev] Building Rust Native Shim (Profile: $(Configuration))..." Importance="high" />
+
+    <Exec Command="cargo build $(RustBuildProfile)" WorkingDirectory="$(RustProjectDir)" />
+  </Target>
+
+  <ItemGroup Condition="'$(BuildRustNative)' == 'true'">
+    <Content Include="$(RustProjectDir)\target\$(RustTargetDir)\native_shim.dll" Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+      <Link>native_shim.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+    <Content Include="$(RustProjectDir)\target\$(RustTargetDir)\libnative_shim.so" Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+      <Link>libnative_shim.so</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+    <Content Include="$(RustProjectDir)\target\$(RustTargetDir)\libnative_shim.dylib" Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+      <Link>libnative_shim.dylib</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Polars.CSharp" />
+    <InternalsVisibleTo Include="Polars.FSharp" />
+    <InternalsVisibleTo Include="Polars.NET.Linq" />
+    <InternalsVisibleTo Include="Polars.NET.ML" />
+    <InternalsVisibleTo Include="Polars.Config.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Apache.Arrow" Version="23.0.0" />
+    <PackageReference Include="Apache.Arrow.Adbc" Version="0.24.0" />
+    <PackageReference Include="FSharp.Core" Version="8.0.100" Condition="'$(TargetFramework)' == 'net8.0'" />
+    <PackageReference Include="FSharp.Core" Version="9.0.100" Condition="'$(TargetFramework)' == 'net9.0'" />
+    <PackageReference Include="FSharp.Core" Version="10.0.100" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <PackageReference Include="System.Numerics.Tensors" Version="10.0.5" />
+    <PackageReference Include="System.IO.Pipelines" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>

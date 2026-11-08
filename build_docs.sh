@@ -11,8 +11,8 @@ echo "=========================================================="
 
 echo "=== 1. Building .NET Projects (Debug configuration) ==="
 
-dotnet build Polars.CSharp/Polars.CSharp.csproj -c Debug
-dotnet build Polars.FSharp/Polars.FSharp.fsproj -c Debug
+dotnet build api/Polars.CSharp/Polars.CSharp.csproj -c Debug
+dotnet build api/Polars.FSharp/Polars.FSharp.fsproj -c Debug
 
 echo "=== 2. Extracting XML Docs & Generating API Markdown ==="
 dotnet fsi tools/GenerateCSharpDocs.fsx Debug

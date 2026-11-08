@@ -220,11 +220,11 @@ jobs:
 
       - name: Pack Managed Core and APIs
         run: |
-          dotnet pack Polars.NET.Core/Polars.NET.Core.csproj -c Release -p:BuildRustNative=false -o nupkgs
-          dotnet pack Polars.CSharp/Polars.CSharp.csproj -c Release -p:BuildRustNative=false -o nupkgs
-          dotnet pack Polars.FSharp/Polars.FSharp.fsproj -c Release -p:BuildRustNative=false -o nupkgs
-          dotnet pack Polars.NET.Linq/Polars.NET.Linq.fsproj -c Release -p:BuildRustNative=false -o nupkgs
-          dotnet pack Polars.NET.ML/Polars.NET.ML.csproj -c Release -p:BuildRustNative=false -o nupkgs
+          dotnet pack kernel/Polars.NET.Core/Polars.NET.Core.csproj -c Release -p:BuildRustNative=false -o nupkgs
+          dotnet pack api/Polars.CSharp/Polars.CSharp.csproj -c Release -p:BuildRustNative=false -o nupkgs
+          dotnet pack api/Polars.FSharp/Polars.FSharp.fsproj -c Release -p:BuildRustNative=false -o nupkgs
+          dotnet pack kernel/Polars.NET.Linq/Polars.NET.Linq.fsproj -c Release -p:BuildRustNative=false -o nupkgs
+          dotnet pack extension/Polars.NET.ML/Polars.NET.ML.csproj -c Release -p:BuildRustNative=false -o nupkgs
 
       - name: Upload NuGet Packages
         uses: actions/upload-artifact@v6
@@ -265,7 +265,7 @@ jobs:
         run: |
           VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' Directory.Build.props 2>/dev/null | head -n 1 | tr -d '\r')
           if [ -z "$VERSION" ]; then
-            VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' Polars.NET.Core/Polars.NET.Core.csproj | head -n 1 | tr -d '\r')
+            VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' kernel/kernel/Polars.NET.Core/Polars.NET.Core.csproj | head -n 1 | tr -d '\r')
           fi
 
           if [ -z "$VERSION" ]; then
