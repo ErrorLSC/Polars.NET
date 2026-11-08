@@ -30,6 +30,15 @@ var config = DefaultConfig.Instance
     .AddExporter(JsonExporter.Full)
     .WithOptions(ConfigOptions.JoinSummary);
 
+if (args is ["tpcds-explain", var explainQuery, ..])
+{
+    // Prints the IR and the optimized Polars plan of one TPC-DS query, then times one end-to-end run.
+    Polars.Benchmarks.Tpcds.TpcdsBenchCatalog.Explain(explainQuery);
+    return;
+}
+
+if (args is ["zz-materialize", ..]) { Polars.Benchmarks.Tpcds.ZzMaterializeProbe.Run(); return; }
+
 if (args is ["tpcds-validate", ..])
 {
     // Checks that every implementation of every selected TPC-DS query returns the same rows, without timing.

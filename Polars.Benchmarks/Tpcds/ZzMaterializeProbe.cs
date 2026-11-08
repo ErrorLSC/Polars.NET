@@ -1,0 +1,110 @@
+using System.Diagnostics;
+using Apache.Arrow;
+using Polars.NET.Core;
+using Polars.NET.Core.Arrow;
+using Polars.NET.Core.Data;
+using Polars.NET.Core.Wrappers;
+using Polars.NET.Linq;
+
+namespace Polars.Benchmarks.Tpcds;
+
+// Throwaway probe: where does materializing the Wide result spend its time? Delete after the analysis.
+public sealed class ZzLongRow
+{
+    public long ss_ticket_number { get; init; }
+    public long ss_item_sk { get; init; }
+    public long? ss_customer_sk { get; init; }
+    public long? ss_sold_date_sk { get; init; }
+    public long? ss_quantity { get; init; }
+}
+
+public sealed class ZzDecRow
+{
+    public decimal? ss_sales_price { get; init; }
+    public decimal? ss_ext_sales_price { get; init; }
+    public decimal? ss_net_profit { get; init; }
+}
+
+public sealed class ZzStrRow
+{
+    public string? i_item_id { get; init; }
+    public string? i_category { get; init; }
+}
+
+internal static class ZzMaterializeProbe
+{
+    public static void Run()
+    {
+        TpcdsBenchEnvironment.UseBenchmarkData();
+        var wide = Collect(WideResult.Polars());
+        var longs = Collect(WideResult.Polars().Select(r => new ZzLongRow { ss_ticket_number = r.ss_ticket_number, ss_item_sk = r.ss_item_sk, ss_customer_sk = r.ss_customer_sk, ss_sold_date_sk = r.ss_sold_date_sk, ss_quantity = r.ss_quantity }));
+        var decs = Collect(WideResult.Polars().Select(r => new ZzDecRow { ss_sales_price = r.ss_sales_price, ss_ext_sales_price = r.ss_ext_sales_price, ss_net_profit = r.ss_net_profit }));
+        var strs = Collect(WideResult.Polars().Select(r => new ZzStrRow { i_item_id = r.i_item_id, i_category = r.i_category }));
+        Console.WriteLine($"rows: {PolarsWrapper.DataFrameHeight(wide)}");
+        var uniq = Collect(Polars.Tpcds.TpcdsData.CustomerQuery().Select(c => new ZzStrRow { i_item_id = c.c_customer_id, i_category = c.c_email_address }));
+        Console.WriteLine($"customer rows: {PolarsWrapper.DataFrameHeight(uniq)}");
+
+        using (var b = ArrowFfiBridge.ExportDataFrame(PolarsWrapper.CloneDataFrame(wide)))
+        {
+            Console.WriteLine("schema: " + string.Join(", ", b.Schema.FieldsList.Select(f => $"{f.Name}:{f.DataType.Name}")));
+            Console.WriteLine("arrays: " + string.Join(", ", Enumerable.Range(0, b.ColumnCount).Select(i => b.Column(i).GetType().Name)));
+        }
+
+        Time("export only (wide)", () => { using var b = ArrowFfiBridge.ExportDataFrame(PolarsWrapper.CloneDataFrame(wide)); return b.Length; });
+        Time("WideRow  full (10 cols)", () => Hydrate<WideRow>(wide));
+        Time("LongRow  5 x long", () => Hydrate<ZzLongRow>(longs));
+        Time("DecRow   3 x decimal", () => Hydrate<ZzDecRow>(decs));
+        Time("StrRow   2 x string", () => Hydrate<ZzStrRow>(strs));
+        Time("raw Arrow loop -> WideRow", () => RawWide(wide));
+        Time("unique strings (customer)", () => Hydrate<ZzStrRow>(uniq), PolarsWrapper.DataFrameHeight(uniq));
+        Time("object alloc only", () => { var l = new List<WideRow>(1_099_596); for (int i = 0; i < 1_099_596; i++) l.Add(new WideRow()); return l.Count; });
+    }
+
+    private static DataFrameHandle Collect<T>(IQueryable<T> q)
+    {
+        using var p = ((PolarsQuery<T>)q).Prepare();
+        return p.Collect();
+    }
+
+    private static int Hydrate<T>(DataFrameHandle h)
+    {
+        using var cursor = ArrowRowMapper<T>.CreateCursor(PolarsWrapper.CloneDataFrame(h));
+        var list = new List<T>(cursor.Length);
+        for (int i = 0; i < cursor.Length; i++) list.Add(cursor.ReadRow(i));
+        return list.Count;
+    }
+
+    private static int RawWide(DataFrameHandle h)
+    {
+        using var b = ArrowFfiBridge.ExportDataFrame(PolarsWrapper.CloneDataFrame(h));
+        var c = Enumerable.Range(0, b.ColumnCount).Select(b.Column).ToArray();
+        var t = (Int64Array)c[0]; var it = (Int64Array)c[1]; var cu = (Int64Array)c[2]; var sd = (Int64Array)c[3]; var q = (Int64Array)c[4];
+        var sp = (Decimal128Array)c[5]; var esp = (Decimal128Array)c[6]; var np = (Decimal128Array)c[7];
+        var id = (StringViewArray)c[8]; var cat = (StringViewArray)c[9];
+        var list = new List<WideRow>(b.Length);
+        for (int i = 0; i < b.Length; i++)
+            list.Add(new WideRow
+            {
+                ss_ticket_number = t.GetValue(i)!.Value, ss_item_sk = it.GetValue(i)!.Value, ss_customer_sk = cu.GetValue(i),
+                ss_sold_date_sk = sd.GetValue(i), ss_quantity = q.GetValue(i),
+                ss_sales_price = sp.GetValue(i), ss_ext_sales_price = esp.GetValue(i), ss_net_profit = np.GetValue(i),
+                i_item_id = id.GetString(i), i_category = cat.GetString(i),
+            });
+        return list.Count;
+    }
+
+    private static void Time(string what, Func<int> f, long rows = 1_099_596)
+    {
+        f();
+        var best = double.MaxValue;
+        for (int r = 0; r < 5; r++)
+        {
+            GC.Collect();
+            var w = Stopwatch.StartNew();
+            f();
+            best = Math.Min(best, w.Elapsed.TotalMilliseconds);
+        }
+
+        Console.WriteLine($"{what,-28} {best,8:F1} ms  ({best * 1e6 / rows,6:F0} ns/row)");
+    }
+}

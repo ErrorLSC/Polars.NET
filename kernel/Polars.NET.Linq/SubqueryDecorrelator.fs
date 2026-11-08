@@ -1543,6 +1543,35 @@ module internal SubqueryDecorrelator =
                 Set.ofSeq (outerParam.Name :: (Set.toList rowShape.ScopeNames))
             let conjuncts = flattenAnd filterLambda.Body
 
+            // Conjuncts without a subquery filter the outer rows first, below the joins the subqueries
+            // decorrelate into: a correlated EXISTS then joins only the qualifying rows (and the row index it
+            // tags them with is no longer a barrier to pushing these filters down). Conjunction commutes, and
+            // translated predicates cannot throw, so the order does not change the result. A conjunct that
+            // does not translate natively stays in the residual.
+            let outerPlan, conjuncts =
+                if not (conjuncts |> List.exists containsSubquery) then
+                    outerPlan, conjuncts
+                else
+                    let ctx =
+                        let cols = (SchemaInference.inferPlanSchema outerPlan).ColumnNames
+                        if not rowShape.IsEmpty then
+                            TranslationContext.ScopedEntity([ outerParam.Name ], rowShape, cols)
+                        else
+                            createContextForTypeWithCols outerParam.Type cols outerParam.Name
+
+                    let early, rest =
+                        conjuncts
+                        |> List.map (fun cond ->
+                            if containsSubquery cond then cond, None
+                            else cond, ExprTranslator.tryTranslateToScalar ctx cond)
+                        |> List.partition (snd >> Option.isSome)
+
+                    match early |> List.choose snd with
+                    | [] -> outerPlan, conjuncts
+                    | first :: others ->
+                        let pred = others |> List.fold (fun acc p -> ScalarExpr.Binary(BinaryOp.And, acc, p)) first
+                        LogicalPlan.Filter(outerPlan, pred), List.map fst rest
+
             let (finalPlan, residualConjunctsRev, wasDecorrelated) =
                 conjuncts
                 |> List.fold

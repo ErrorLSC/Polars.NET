@@ -39,6 +39,9 @@ public abstract class TpcdsBenchQuery(string name)
     /// <summary>Materializes the frame collected by PreparePhases as a List.</summary>
     public abstract int PolarsMaterialize();
 
+    /// <summary>Prints the Polars query's IR and optimized native plan, and times one run of it.</summary>
+    public abstract void Explain();
+
     /// <summary>Row count of the Polars result and whether every implementation produced the same rows.</summary>
     public abstract string Validate(DbConnection connection, DataConnection? db);
 }
@@ -95,6 +98,21 @@ public sealed class TpcdsBenchQuery<TRow>(
         // The materializer takes ownership of the frame it is given; a clone shares the column buffers.
         var df = PolarsWrapper.CloneDataFrame(_collected ?? throw new InvalidOperationException("Call PreparePhases first."));
         return Prepared.Materialize(df).Count;
+    }
+
+    public override void Explain()
+    {
+        var query = (IPolarsExplainable)polars();
+        Console.WriteLine("=== Logical IR ===");
+        Console.WriteLine(query.ExplainLogicalPlan());
+        Console.WriteLine("=== Polars plan (optimized) ===");
+        Console.WriteLine(query.Explain(true));
+        for (int run = 1; run <= 3; run++)
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            int rows = PolarsToList();
+            Console.WriteLine($"run {run}: {rows} rows in {watch.Elapsed.TotalMilliseconds:F1} ms");
+        }
     }
 
     public override string Validate(DbConnection connection, DataConnection? db)
@@ -210,6 +228,8 @@ public sealed class TpcdsCountBenchQuery<TRow>(
     public override void ReleasePhases() => _rows.ReleasePhases();
     public override long PolarsCollect() => _rows.PolarsCollect();
     public override int PolarsMaterialize() => throw new NotSupportedException($"{Name} returns a count; nothing to materialize.");
+
+    public override void Explain() => _rows.Explain();
 
     public override string Validate(DbConnection connection, DataConnection? db)
     {

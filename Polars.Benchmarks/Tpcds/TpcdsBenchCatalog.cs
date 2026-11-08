@@ -71,6 +71,13 @@ internal static class TpcdsBenchCatalog
         Environment.ExitCode = failed == 0 ? 0 : 1;
     }
 
+    /// <summary>Prints the logical IR and the optimized Polars plan of a query, and the time of one run.</summary>
+    public static void Explain(string name)
+    {
+        TpcdsBenchEnvironment.UseBenchmarkData();
+        Get(name).Explain();
+    }
+
     /// <summary>All queries, or those named in <c>POLARS_TPCDS_QUERIES</c> (comma separated).</summary>
     public static IEnumerable<string> SelectedNames()
     {

@@ -161,4 +161,51 @@ public class LinqBacklogRegressionTests
         Assert.Throws<InvalidOperationException>(() => pairs.First(p => p.c.Name == "z"));
         Assert.Throws<ArgumentOutOfRangeException>(() => pairs.ElementAt(9));
     }
+
+    public class Line { public long Order { get; set; } public long? Warehouse { get; set; } public string State { get; set; } = ""; }
+    public class Return { public long Order { get; set; } }
+
+    static readonly Line[] Lines =
+    [
+        new() { Order = 1, Warehouse = 1, State = "IL" }, new() { Order = 1, Warehouse = 2, State = "IL" },
+        new() { Order = 2, Warehouse = 1, State = "IL" }, new() { Order = 2, Warehouse = 1, State = "GA" },
+        new() { Order = 3, Warehouse = 1, State = "GA" }, new() { Order = 3, Warehouse = 2, State = "GA" },
+        new() { Order = 4, Warehouse = 1, State = "IL" }, new() { Order = 4, Warehouse = null, State = "IL" },
+        new() { Order = 5, Warehouse = 3, State = "IL" }, new() { Order = 5, Warehouse = 4, State = "IL" },
+    ];
+
+    static readonly Return[] Returns = [new() { Order = 5 }];
+
+    /// TPC-DS Q94 shape: plain conjuncts in the same Where as correlated EXISTS / NOT EXISTS filter the outer rows
+    /// before the joins the subqueries decorrelate into (they used to filter on top, after a self join of the
+    /// whole table), with the same rows as LINQ to Objects.
+    [Fact]
+    public void Plain_Conjuncts_Filter_Before_Decorrelated_Exists()
+    {
+        using var ldf = DataFrame.From(Lines);
+        using var rdf = DataFrame.From(Returns);
+        var lines = ldf.AsQueryable<Line>();
+        var returns = rdf.AsQueryable<Return>();
+
+        var query = lines.Where(l1 => l1.State == "IL"
+                                      && lines.Any(l2 => l2.Order == l1.Order && l1.Warehouse != null && l2.Warehouse != null && l2.Warehouse != l1.Warehouse)
+                                      && !returns.Any(r => r.Order == l1.Order))
+                         .Select(l => new { l.Order, l.Warehouse })
+                         .OrderBy(x => x.Order).ThenBy(x => x.Warehouse);
+        var expected = Lines.Where(l1 => l1.State == "IL"
+                                         && Lines.Any(l2 => l2.Order == l1.Order && l1.Warehouse != null && l2.Warehouse != null && l2.Warehouse != l1.Warehouse)
+                                         && !Returns.Any(r => r.Order == l1.Order))
+                            .Select(l => new { l.Order, l.Warehouse })
+                            .OrderBy(x => x.Order).ThenBy(x => x.Warehouse);
+
+        Assert.Equal(expected.ToList(), query.ToList());
+
+        // The state filter sits below the semi join (deeper in the printed tree), not above the anti join.
+        var plan = query.ExplainLogicalPlan();
+        int semi = plan.IndexOf("how=Semi", StringComparison.Ordinal);
+        int anti = plan.IndexOf("how=Anti", StringComparison.Ordinal);
+        int state = plan.IndexOf("col(\"State\") == \"IL\"", StringComparison.Ordinal);
+        Assert.True(semi >= 0 && anti >= 0 && state >= 0, plan);
+        Assert.True(state > semi && state > anti, plan);
+    }
 }

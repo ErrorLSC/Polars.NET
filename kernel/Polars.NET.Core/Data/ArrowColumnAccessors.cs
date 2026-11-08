@@ -565,6 +565,20 @@ internal sealed unsafe class StringViewAccessor : TypedColumnAccessor<string>,
     private MemoryHandle[]? _dataBufferHandles;
     private nint[]? _dataBufferPtrs;
 
+    // Decoded strings by their 16-byte view, direct mapped. Within one array, equal views are equal strings: an
+    // inlined view holds the whole string, a referencing view its buffer and offset. Rows gathered from the same
+    // source row (a dimension's strings repeated by a join, a filtered or sorted column) share their views, so
+    // repeated values decode and allocate once. Cleared per array, since buffer indices are per array.
+    // A column whose values hardly repeat (ids, free text) stops using the cache after a probation of
+    // lookups with few hits, so it pays only for the probation.
+    private const int StringCacheBits = 10;
+    private const int CacheProbation = 4096;
+    private ulong[]? _cacheKeys;
+    private string?[]? _cacheValues;
+    private bool _cacheEnabled;
+    private int _cacheLookups;
+    private int _cacheHits;
+
     [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type TargetType => typeof(string);
     public override bool UsesFastNullBitmap => true;
@@ -575,6 +589,18 @@ internal sealed unsafe class StringViewAccessor : TypedColumnAccessor<string>,
         _array = array;
         if (array is StringViewArray viewArray)
         {
+            if (_cacheValues is null)
+            {
+                _cacheKeys = new ulong[2 << StringCacheBits];
+                _cacheValues = new string?[1 << StringCacheBits];
+            }
+            else
+            {
+                System.Array.Clear(_cacheValues);
+            }
+            _cacheEnabled = true;
+            _cacheLookups = 0;
+            _cacheHits = 0;
             _viewArray = viewArray;
             ArrowStringView* rawViews = BindPrimitiveBuffer<ArrowStringView>(viewArray, 1);
             _viewsPtr = (byte*)rawViews;
@@ -632,14 +658,42 @@ internal sealed unsafe class StringViewAccessor : TypedColumnAccessor<string>,
             byte* viewPtr = _viewsPtr + ((nint)index << 4);
             int length = *(int*)viewPtr;
             if (length == 0) return string.Empty;
-            if (length <= 12)
+            if (!_cacheEnabled) return DecodeView(viewPtr, length);
+
+            ulong k0 = *(ulong*)viewPtr;
+            ulong k1 = *(ulong*)(viewPtr + 8);
+            if (length < 12)
             {
-                return Encoding.UTF8.GetString(viewPtr + 4, length);
+                // Only the inlined string's own bytes identify it.
+                if (length < 4)
+                {
+                    k0 &= (1UL << (32 + length * 8)) - 1;
+                    k1 = 0;
+                }
+                else
+                {
+                    k1 &= (1UL << ((length - 4) * 8)) - 1;
+                }
             }
-            int bufIdx = *(int*)(viewPtr + 8);
-            int bufOffset = *(int*)(viewPtr + 12);
-            byte* dataPtr = (byte*)_dataBufferPtrs![bufIdx] + bufOffset;
-            return Encoding.UTF8.GetString(dataPtr, length);
+
+            int slot = (int)(((k0 ^ (k1 * 0x9E3779B97F4A7C15UL)) * 0xBF58476D1CE4E5B9UL) >> (64 - StringCacheBits));
+            string? cached = _cacheValues![slot];
+            if (cached is not null && _cacheKeys![2 * slot] == k0 && _cacheKeys[2 * slot + 1] == k1)
+            {
+                _cacheHits++;
+                return cached;
+            }
+
+            if (++_cacheLookups - _cacheHits >= CacheProbation && _cacheHits * 8 < _cacheLookups)
+            {
+                _cacheEnabled = false;
+            }
+
+            string value = DecodeView(viewPtr, length);
+            _cacheKeys![2 * slot] = k0;
+            _cacheKeys[2 * slot + 1] = k1;
+            _cacheValues[slot] = value;
+            return value;
         }
 
         if (_viewArray != null) return _viewArray.GetString(index);
@@ -648,6 +702,12 @@ internal sealed unsafe class StringViewAccessor : TypedColumnAccessor<string>,
 
         throw new InvalidCastException($"Expected String or StringView, got {_array?.GetType()}");
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private string DecodeView(byte* viewPtr, int length) =>
+        length <= 12
+            ? Encoding.UTF8.GetString(viewPtr + 4, length)
+            : Encoding.UTF8.GetString((byte*)_dataBufferPtrs![*(int*)(viewPtr + 8)] + *(int*)(viewPtr + 12), length);
 
     char ITypedAccessor<char>.GetTypedValue(int index)
     {
