@@ -1269,7 +1269,7 @@ public class LinqProviderTests
                            s.Ticker,
                            s.Date,
                            s.Price,
-                           PrevPrice = s.Price.Shift(1).Over(s.Ticker)
+                           PrevPrice = (double?)s.Price.Shift(1).Over(s.Ticker)
                        };
 
         var lagResult = lagQuery.ToList();
@@ -1724,7 +1724,7 @@ David,40,80000";
         var result = statsResult[0];
 
         // (ddof=1) = ((15^2) + (5^2) + (5^2) + (15^2)) / 3 = (225+25+25+225)/3 = 500/3 ≈ 166.666...
-        Assert.Equal(166.6666, result.Var, precision: 3);
+        Assert.Equal(166.6666, (double)result.Var!, precision: 3);
 
         // (20 + 30) / 2 = 25.0
         Assert.Equal(25.0, result.Q50_Cont);

@@ -1241,7 +1241,7 @@ public class TpcdsQuery41To50Tests
             Assert.Equal(d.s_company_name, p.s_company_name);
             Assert.Equal(d.d_year, p.d_year);
             Assert.Equal(d.d_moy, p.d_moy);
-            TpcdsAssert.Close((double)d.avg_monthly_sales, p.avg_monthly_sales);
+            TpcdsAssert.Close((double)d.avg_monthly_sales!, p.avg_monthly_sales);
             Assert.Equal(d.sum_sales, p.sum_sales);
             Assert.Equal(d.psum, p.psum);
             Assert.Equal(d.nsum, p.nsum);

@@ -1792,7 +1792,7 @@ public class TpcdsQuery71To80Tests
                          s.ss_customer_sk,
                          ratio = s.ss_qty == null
                              ? (double?)null
-                             : Math.Round((double)s.ss_qty / (double)((w.ws_qty ?? 0L) + (c.cs_qty ?? 0L)), 2, MidpointRounding.AwayFromZero),
+                             : Math.Round((double)s.ss_qty! / (double)((w.ws_qty ?? 0L) + (c.cs_qty ?? 0L)), 2, MidpointRounding.AwayFromZero),
                          store_qty = s.ss_qty,
                          store_wholesale_cost = s.ss_wc,
                          store_sales_price = s.ss_sp,
@@ -2216,7 +2216,7 @@ public class TpcdsQuery71To80Tests
                       id = "store" + g.Key,
                       // SQL sum() is NULL for a group without non-null values, while LINQ Sum() is 0.
                       sales = g.Count(x => x.ss.ss_ext_sales_price != null) > 0 ? g.Sum(x => x.ss.ss_ext_sales_price) : null,
-                      returns_ = g.Count(x => (decimal?)(x.sr.sr_return_amt ?? 0.00m) != null) > 0 ? g.Sum(x => (decimal?)(x.sr.sr_return_amt ?? 0.00m)) : null,
+                      returns_ = (decimal?)g.Sum(x => x.sr.sr_return_amt ?? 0.00m),
                       profit = g.Count(x => x.ss.ss_net_profit - (x.sr.sr_net_loss ?? 0.00m) != null) > 0 ? g.Sum(x => x.ss.ss_net_profit - (x.sr.sr_net_loss ?? 0.00m)) : null
                   };
 
@@ -2234,7 +2234,7 @@ public class TpcdsQuery71To80Tests
                       channel = "catalog channel",
                       id = "catalog_page" + g.Key,
                       sales = g.Count(x => x.cs.cs_ext_sales_price != null) > 0 ? g.Sum(x => x.cs.cs_ext_sales_price) : null,
-                      returns_ = g.Count(x => (decimal?)(x.cr.cr_return_amount ?? 0.00m) != null) > 0 ? g.Sum(x => (decimal?)(x.cr.cr_return_amount ?? 0.00m)) : null,
+                      returns_ = (decimal?)g.Sum(x => x.cr.cr_return_amount ?? 0.00m),
                       profit = g.Count(x => x.cs.cs_net_profit - (x.cr.cr_net_loss ?? 0.00m) != null) > 0 ? g.Sum(x => x.cs.cs_net_profit - (x.cr.cr_net_loss ?? 0.00m)) : null
                   };
 
@@ -2252,7 +2252,7 @@ public class TpcdsQuery71To80Tests
                       channel = "web channel",
                       id = "web_site" + g.Key,
                       sales = g.Count(x => x.ws.ws_ext_sales_price != null) > 0 ? g.Sum(x => x.ws.ws_ext_sales_price) : null,
-                      returns_ = g.Count(x => (decimal?)(x.wr.wr_return_amt ?? 0.00m) != null) > 0 ? g.Sum(x => (decimal?)(x.wr.wr_return_amt ?? 0.00m)) : null,
+                      returns_ = (decimal?)g.Sum(x => x.wr.wr_return_amt ?? 0.00m),
                       profit = g.Count(x => x.ws.ws_net_profit - (x.wr.wr_net_loss ?? 0.00m) != null) > 0 ? g.Sum(x => x.ws.ws_net_profit - (x.wr.wr_net_loss ?? 0.00m)) : null
                   };
 

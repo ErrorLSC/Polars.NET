@@ -1,3 +1,4 @@
+#pragma warning disable CS1591
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Polars.NET.Core.Wrappers;
@@ -339,7 +340,7 @@ public partial class Series : IDisposable
         valArray.SetValue(value, 0);
         return new Series(SeriesFactory.CreateFromBoxedEnumerable(name, valArray));
     }
-
+    
     public object? this[Series key]
     {
         get
