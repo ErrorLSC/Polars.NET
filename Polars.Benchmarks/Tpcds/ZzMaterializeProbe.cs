@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Linq.Expressions;
 using Apache.Arrow;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
@@ -106,5 +107,80 @@ internal static class ZzMaterializeProbe
         }
 
         Console.WriteLine($"{what,-28} {best,8:F1} ms  ({best * 1e6 / rows,6:F0} ns/row)");
+    }
+}
+
+// Throwaway probe: plan cache behaviour of repeated translations of one query (sources reused, as in the
+// translation benchmark). Delete after the analysis.
+internal static class ZzCacheProbe
+{
+    public static void Run(string name)
+    {
+        TpcdsBenchEnvironment.UseBenchmarkData();
+        Polars.Tpcds.TpcdsData.ReuseSources = true;
+        QueryPlanCache.Enabled = true;
+        QueryPlanCache.Clear();
+        var q = TpcdsBenchCatalog.Get(name);
+        for (int i = 1; i <= 6; i++)
+        {
+            long h = QueryPlanCache.Hits, m = QueryPlanCache.Misses;
+            var w = Stopwatch.StartNew();
+            q.PolarsTranslate();
+            Console.WriteLine($"run {i}: {w.Elapsed.TotalMicroseconds,9:F0} us  hits +{QueryPlanCache.Hits - h}  misses +{QueryPlanCache.Misses - m}  entries {QueryPlanCache.Count}");
+        }
+    }
+}
+
+internal static class ZzCacheSteps
+{
+    public static void Run(string name)
+    {
+        TpcdsBenchEnvironment.UseBenchmarkData();
+        Polars.Tpcds.TpcdsData.ReuseSources = true;
+        QueryPlanCache.Enabled = true;
+        QueryPlanCache.Clear();
+        Func<IQueryable> make = name switch
+        {
+            "Q3" => () => Polars.Tpcds.TpcdsQueries.Q3(),
+            "Q5" => () => Polars.Tpcds.TpcdsQueries.Q5(),
+            "Q14" => () => Polars.Tpcds.TpcdsQueries.Q14(),
+            "Q64" => () => Polars.Tpcds.TpcdsQueries.Q64(),
+            "Q98" => () => Polars.Tpcds.TpcdsQueries.Q98(),
+            _ => throw new ArgumentException(name),
+        };
+        for (int i = 0; i < 3; i++) Prep(make());
+
+        var q = make();
+        var expr = q.Expression;
+        var elem = q.ElementType;
+        Step("build query (factory)", () => make());
+        Step("expression.ToString()", () => expr.ToString());
+        Expression keyExpr = null!;
+        Step("InlineComposedQueries", () => keyExpr = QueryPlanCache.InlineComposedQueries(expr));
+        ExtractionResult ex = null!;
+        Step("PartialEvaluator.extract", () => ex = PartialEvaluator.extract(keyExpr));
+        Step("TryCreateProbe (key)", () => QueryPlanCache.TryCreateProbe(elem, ex.NormalizedExpression, ex.Parameters));
+        foreach (var kv in ex.Parameters)
+            Console.WriteLine($"  param {kv.Key}: declared {kv.Value.Type.Name}, value {kv.Value.Value?.GetType().Name ?? "null"}");
+        var probe = QueryPlanCache.TryCreateProbe(elem, ex.NormalizedExpression, ex.Parameters);
+        Console.WriteLine($"  top-level probe: {(probe is null ? "NONE (not cacheable)" : "ok")}");
+        if (probe is not null) Step("TryGetBound", () => QueryPlanCache.TryGetBound(probe.Value));
+        Step("full Prepare (translate)", () => Prep(make()));
+    }
+
+    private static void Prep(IQueryable q)
+    {
+        var m = q.GetType().GetMethod("Prepare", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public)!;
+        ((IDisposable)m.Invoke(q, null)!).Dispose();
+    }
+
+    private static void Step(string what, Action a)
+    {
+        a();
+        long h = QueryPlanCache.Hits;
+        var w = Stopwatch.StartNew();
+        const int n = 5;
+        for (int i = 0; i < n; i++) a();
+        Console.WriteLine($"{what,-28} {w.Elapsed.TotalMicroseconds / n,10:F0} us   cache hits/run {(QueryPlanCache.Hits - h) / (double)n:F0}");
     }
 }

@@ -137,9 +137,11 @@ module SubqueryGraftingTests =
                 assertAgrees (fun q _ -> query { for r in q do where (Set.contains r.A localSet); select r.Id })
                 assertAgrees (fun q _ -> query { for r in q do where (not (Seq.contains r.B [ 0; 2 ])); select r.Id })
             ]
+        // A local collection of scalars is a membership test (IN list), not a join with a snapshot of it.
         for plan in plans do
             Assert.DoesNotContain("UDF", plan)
-            Assert.Contains("Join: how=", plan)
+            Assert.DoesNotContain("Join: how=", plan)
+            Assert.Contains(" IN [...])", plan)
 
     // ---------------------------------------------------------------------------------------------
     // Differential: IN / NOT IN subqueries under outer orderings and paging

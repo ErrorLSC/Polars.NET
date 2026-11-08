@@ -98,6 +98,9 @@ type QueryPlanCache private () =
         with get () = CoreConfig.QueryCacheCapacity.GetValueOrDefault 1024
         and set (v: int) = CoreConfig.QueryCacheCapacity <- Nullable v
 
+    /// The most elements a captured collection (an IN list) may have for its query to be cached.
+    static member internal MaxCollectionKeyLength = 10_000
+
     /// Gets the total number of cached query plans.
     static member Count = cache.Count
 
@@ -198,6 +201,27 @@ type QueryPlanCache private () =
         | :? DateTime as dt -> keyed (box (struct (dt.Ticks, dt.Kind)))
         | :? DateTimeOffset as dto -> keyed (box (struct (dto.Ticks, dto.Offset)))
         | v when v.GetType().IsEnum -> keyed value
+        // A captured collection (an IN list: `ids.Contains(x.Id)`, an array or a collection expression) keys by
+        // its elements in order: the cached plan holds the values it was compiled with, so equal contents may
+        // reuse it. Not for queries (the inlined roots key those), nor for collections large enough that the key
+        // would cost more than it saves.
+        | :? System.Collections.IEnumerable as items when not (value :? System.Linq.IQueryable) ->
+            let elements = ResizeArray<obj>()
+            let mutable ok = true
+            let e = items.GetEnumerator()
+
+            while ok && e.MoveNext() do
+                if elements.Count >= QueryPlanCache.MaxCollectionKeyLength then
+                    ok <- false
+                else
+                    let item = e.Current
+                    let itemType = if isNull item then typeof<obj> else item.GetType()
+
+                    match QueryPlanCache.TryNormalizeValue(itemType, item) with
+                    | Some normalized -> elements.Add normalized
+                    | None -> ok <- false
+
+            if ok then keyed (box (List.ofSeq elements)) else None
         | _ -> None
 
     /// The expression with every composed Polars query constant (a query built on a root, e.g. the inner side of

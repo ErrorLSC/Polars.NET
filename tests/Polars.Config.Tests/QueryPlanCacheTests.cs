@@ -178,17 +178,46 @@ public class QueryPlanCacheTests
 
     [Fact]
     [Trait("LINQ", "QueryPlanCache")]
-    public void Collection_Parameters_Are_Not_Cached()
+    public void Collection_Parameters_Key_By_Their_Contents()
     {
         QueryPlanCache.Clear();
         using var df = DataFrame.FromRows(Customers);
-
         var ids = new List<int> { 1, 3 };
-        Assert.Equal([1, 3], df.AsQueryable<Customer>().Where(c => ids.Contains(c.Id)).Select(c => c.Id).ToList());
+        List<int> Run() => df.AsQueryable<Customer>().Where(c => ids.Contains(c.Id)).Select(c => c.Id).ToList();
 
-        // The list is mutable: a cached compilation would keep the old contents.
+        // Same contents: admitted on the second sighting, then hit.
+        Assert.Equal([1, 3], Run());
+        Assert.Equal([1, 3], Run());
+        Assert.Equal(1, QueryPlanCache.Count);
+        Assert.Equal([1, 3], Run());
+        Assert.Equal(1, QueryPlanCache.Hits);
+
+        // The list is mutable: new contents are a new key, never the plan compiled with the old ones.
         ids.Add(2);
-        Assert.Equal([1, 2, 3], df.AsQueryable<Customer>().Where(c => ids.Contains(c.Id)).Select(c => c.Id).ToList());
+        Assert.Equal([1, 2, 3], Run());
+        Assert.Equal(1, QueryPlanCache.Hits);
+
+        // An array or a collection expression keys the same way.
+        int[] array = [2, 3];
+        IReadOnlyList<int> readOnly = [2, 3];
+        for (int i = 0; i < 3; i++)
+        {
+            Assert.Equal([2, 3], df.AsQueryable<Customer>().Where(c => array.Contains(c.Id)).Select(c => c.Id).ToList());
+            Assert.Equal([2, 3], df.AsQueryable<Customer>().Where(c => readOnly.Contains(c.Id)).Select(c => c.Id).ToList());
+        }
+        Assert.Equal(3, QueryPlanCache.Count);
+    }
+
+    [Fact]
+    [Trait("LINQ", "QueryPlanCache")]
+    public void Collections_Larger_Than_The_Key_Limit_Are_Not_Cached()
+    {
+        QueryPlanCache.Clear();
+        using var df = DataFrame.FromRows(Customers);
+        var ids = Enumerable.Range(0, QueryPlanCache.MaxCollectionKeyLength + 1).ToList();
+
+        for (int i = 0; i < 3; i++)
+            Assert.Equal([1, 2, 3], df.AsQueryable<Customer>().Where(c => ids.Contains(c.Id)).Select(c => c.Id).ToList());
         Assert.Equal(0, QueryPlanCache.Count);
     }
 
@@ -474,7 +503,13 @@ public class QueryPlanCacheTests
         Assert.NotEqual(KeyOf(0.0), KeyOf(-0.0));
         Assert.NotEqual(KeyOf(1), KeyOf(1L));
         Assert.Equal(KeyOf("x"), KeyOf("x"));
-        Assert.Null(KeyOf(new List<int>()));
+        // Collections key by their elements in order, and by their runtime type; non-scalar elements are not keyable.
+        Assert.NotNull(KeyOf(new List<int> { 1, 2 }));
+        Assert.Equal(KeyOf(new List<int> { 1, 2 }), KeyOf(new List<int> { 1, 2 }));
+        Assert.NotEqual(KeyOf(new List<int> { 1, 2 }), KeyOf(new List<int> { 2, 1 }));
+        Assert.NotEqual(KeyOf(new List<int> { 1, 2 }), KeyOf(new[] { 1, 2 }));
+        Assert.NotEqual(KeyOf(new List<decimal> { 1.0m }), KeyOf(new List<decimal> { 1.00m }));
+        Assert.Null(KeyOf(new List<object> { new object() }));
     }
 
     [Fact]

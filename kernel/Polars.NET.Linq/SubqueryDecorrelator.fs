@@ -43,9 +43,47 @@ module internal SubqueryDecorrelator =
         | Lambda(_, body) -> containsParameter paramName body
         | _ -> false
 
+    /// Whether the expression reads a queryable anywhere: a queryable constant or an IQueryable-typed node.
+    let private readsQueryable (expr: Expression) : bool =
+        let mutable found = false
+        { new ExpressionVisitor() with
+            override this.Visit(node: Expression) =
+                if found || isNull node then
+                    node
+                elif typeof<IQueryable>.IsAssignableFrom node.Type then
+                    found <- true
+                    node
+                else
+                    match node with
+                    | :? ConstantExpression as c when (c.Value :? IQueryable) ->
+                        found <- true
+                        node
+                    | _ -> base.Visit node
+        }.Visit expr |> ignore
+        found
+
+    /// `Enumerable.Contains(values, x)` over an in-memory collection of scalars (an IN list held in a variable,
+    /// an array or a collection expression) and no query: a membership test the scalar translator turns into
+    /// `is_in` with the collection's values, not a subquery to decorrelate into a join with a snapshot table.
+    let isInMemoryScalarContains (expr: Expression) : bool =
+        let isScalarCollection (values: Expression) =
+            values.Type <> typeof<string>
+            && not (readsQueryable values)
+            && (let elemType = PolarsTypeHelper.TryGetEnumerableElementType values.Type
+                not (isNull elemType) && (PolarsTypeHelper.IsScalarType elemType || elemType = typeof<string>))
+
+        match expr with
+        | MethodCall(m, null, [ values; _ ]) when m.Name = "Contains" && m.DeclaringType = typeof<Enumerable> ->
+            isScalarCollection values
+        // The collection's own Contains (List<T>, HashSet<T>, ...).
+        | MethodCall(m, values, [ _ ]) when m.Name = "Contains" && not (isNull values) -> isScalarCollection values
+        | _ -> false
+
     /// Checks whether an expression contains a queryable source or LINQ reduction call.
     let rec containsSubquery (expr: Expression) : bool =
         match expr with
+        | MethodCall(_, null, [ _; item ])
+        | MethodCall(_, _, [ item ]) when isInMemoryScalarContains expr -> containsSubquery item
         | null -> false
         | :? ConstantExpression as c ->
             match c.Value with
@@ -340,6 +378,7 @@ module internal SubqueryDecorrelator =
             | otherSeq -> Some(otherSeq, None, keyExpr)
 
         match e with
+        | _ when isInMemoryScalarContains e -> None
         | MethodCall(m, null, [ innerSeq; keyExpr ]) when m.Name = "Contains" -> matchSeqAndKey innerSeq keyExpr
         | MethodCall(m, innerSeq, [ keyExpr ]) when m.Name = "Contains" -> matchSeqAndKey innerSeq keyExpr
         | _ -> None

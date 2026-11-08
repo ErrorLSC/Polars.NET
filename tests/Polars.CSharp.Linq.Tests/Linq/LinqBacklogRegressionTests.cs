@@ -208,4 +208,41 @@ public class LinqBacklogRegressionTests
         Assert.True(semi >= 0 && anti >= 0 && state >= 0, plan);
         Assert.True(state > semi && state > anti, plan);
     }
+
+    /// An IN list held in memory (List, IReadOnlyList collection expression, array) filters by membership
+    /// (is_in), not by a join with a snapshot of the list, with C# semantics for null (a null in the list matches
+    /// a null value) and next to a correlated subquery in the same Where. Contains over a query stays a semi join.
+    [Fact]
+    public void In_Memory_Contains_Filters_By_Membership()
+    {
+        Line[] lines = [.. Lines, new() { Order = 6, Warehouse = null, State = "TX" }];
+        using var ldf = DataFrame.From(lines);
+        using var rdf = DataFrame.From(Returns);
+        var q = ldf.AsQueryable<Line>();
+        var returns = rdf.AsQueryable<Return>();
+
+        List<long?> warehouses = [1, null];
+        IReadOnlyList<string> states = ["IL", "TX"];
+        long[] orders = [2, 4, 5, 6];
+
+        var query = q.Where(l => warehouses.Contains(l.Warehouse) && states.Contains(l.State) && orders.Contains(l.Order)
+                                 && !returns.Any(r => r.Order == l.Order))
+                     .Select(l => new { l.Order, l.Warehouse, l.State })
+                     .OrderBy(x => x.Order).ThenBy(x => x.Warehouse);
+        var expected = lines.Where(l => warehouses.Contains(l.Warehouse) && states.Contains(l.State) && orders.Contains(l.Order)
+                                        && !Returns.Any(r => r.Order == l.Order))
+                            .Select(l => new { l.Order, l.Warehouse, l.State })
+                            .OrderBy(x => x.Order).ThenBy(x => x.Warehouse);
+
+        Assert.Equal(expected.ToList(), query.ToList());
+        var plan = query.ExplainLogicalPlan();
+        Assert.DoesNotContain("how=Semi", plan);
+        Assert.Contains("how=Anti", plan);
+
+        // Contains over a query is still a semi join.
+        var returned = returns.Select(r => r.Order);
+        var viaQuery = q.Where(l => returned.Contains(l.Order)).Select(l => l.Order).Distinct().OrderBy(o => o);
+        Assert.Equal([5L], viaQuery.ToList());
+        Assert.Contains("how=Semi", viaQuery.ExplainLogicalPlan());
+    }
 }
