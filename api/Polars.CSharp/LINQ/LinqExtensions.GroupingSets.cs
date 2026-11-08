@@ -15,24 +15,25 @@ public static partial class LinqExtensions
 
     /// <summary>
     /// Modifies a grouped sequence to generate hierarchical subtotal and grand total groupings (ROLLUP) across key dimensions.
-    /// Follow with <c>.Select(...)</c> to specify projections and aggregations.
+    /// Follow with <c>.Select(...)</c>, the only operation available, to specify projections and aggregations.
     /// </summary>
-    public static IQueryable<IGrouping<TKey, TSource>> RollUp<TKey, TSource>(
+    public static GroupingSetsQuery<TKey, TSource> RollUp<TKey, TSource>(
         this IQueryable<IGrouping<TKey, TSource>> source)
     {
         ArgumentNullException.ThrowIfNull(source);
 
-        return source.Provider.CreateQuery<IGrouping<TKey, TSource>>(
+        return new GroupingSetsQuery<TKey, TSource>(
+            source.Provider,
             Expression.Call(
                 null,
-                new Func<IQueryable<IGrouping<TKey, TSource>>, IQueryable<IGrouping<TKey, TSource>>>(RollUp<TKey, TSource>).Method,
+                new Func<IQueryable<IGrouping<TKey, TSource>>, IQueryable<IGrouping<TKey, TSource>>>(GroupingSetsMarkers.RollUp<TKey, TSource>).Method,
                 source.Expression
             )
         );
     }
 
     /// <inheritdoc cref="RollUp{TKey, TSource}(IQueryable{IGrouping{TKey, TSource}})"/>
-    public static IQueryable<IGrouping<TKey, TSource>> Rollup<TKey, TSource>(
+    public static GroupingSetsQuery<TKey, TSource> Rollup<TKey, TSource>(
         this IQueryable<IGrouping<TKey, TSource>> source)
         => source.RollUp();
 
@@ -96,17 +97,18 @@ public static partial class LinqExtensions
 
     /// <summary>
     /// Modifies a grouped sequence to generate all 2^N dimensional cross-tabulation groupings (CUBE) across key dimensions.
-    /// Follow with <c>.Select(...)</c> to specify projections and aggregations.
+    /// Follow with <c>.Select(...)</c>, the only operation available, to specify projections and aggregations.
     /// </summary>
-    public static IQueryable<IGrouping<TKey, TSource>> Cube<TKey, TSource>(
+    public static GroupingSetsQuery<TKey, TSource> Cube<TKey, TSource>(
         this IQueryable<IGrouping<TKey, TSource>> source)
     {
         ArgumentNullException.ThrowIfNull(source);
 
-        return source.Provider.CreateQuery<IGrouping<TKey, TSource>>(
+        return new GroupingSetsQuery<TKey, TSource>(
+            source.Provider,
             Expression.Call(
                 null,
-                new Func<IQueryable<IGrouping<TKey, TSource>>, IQueryable<IGrouping<TKey, TSource>>>(Cube<TKey, TSource>).Method,
+                new Func<IQueryable<IGrouping<TKey, TSource>>, IQueryable<IGrouping<TKey, TSource>>>(GroupingSetsMarkers.Cube<TKey, TSource>).Method,
                 source.Expression
             )
         );
@@ -160,19 +162,20 @@ public static partial class LinqExtensions
 
     /// <summary>
     /// Modifies a grouped sequence to generate custom multidimensional groupings (GROUPING SETS) for specified subsets of keys.
-    /// Follow with <c>.Select(...)</c> to specify projections and aggregations.
+    /// Follow with <c>.Select(...)</c>, the only operation available, to specify projections and aggregations.
     /// </summary>
-    public static IQueryable<IGrouping<TKey, TSource>> GroupingSets<TKey, TSource>(
+    public static GroupingSetsQuery<TKey, TSource> GroupingSets<TKey, TSource>(
         this IQueryable<IGrouping<TKey, TSource>> source,
         string[][] sets)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(sets);
 
-        return source.Provider.CreateQuery<IGrouping<TKey, TSource>>(
+        return new GroupingSetsQuery<TKey, TSource>(
+            source.Provider,
             Expression.Call(
                 null,
-                new Func<IQueryable<IGrouping<TKey, TSource>>, string[][], IQueryable<IGrouping<TKey, TSource>>>(GroupingSets<TKey, TSource>).Method,
+                new Func<IQueryable<IGrouping<TKey, TSource>>, string[][], IQueryable<IGrouping<TKey, TSource>>>(GroupingSetsMarkers.GroupingSets<TKey, TSource>).Method,
                 source.Expression,
                 Expression.Constant(sets, typeof(string[][]))
             )
@@ -182,19 +185,20 @@ public static partial class LinqExtensions
     /// <summary>
     /// Modifies a grouped sequence to generate custom multidimensional groupings (GROUPING SETS) for specified subsets of keys using strongly-typed key selectors.
     /// Use <c>k => new { k.A, k.B }</c> for composite subsets, or <c>k => new { }</c> for the grand-total empty set ().
-    /// Follow with <c>.Select(...)</c> to specify projections and aggregations.
+    /// Follow with <c>.Select(...)</c>, the only operation available, to specify projections and aggregations.
     /// </summary>
-    public static IQueryable<IGrouping<TKey, TSource>> GroupingSets<TKey, TSource>(
+    public static GroupingSetsQuery<TKey, TSource> GroupingSets<TKey, TSource>(
         this IQueryable<IGrouping<TKey, TSource>> source,
         params Expression<Func<TKey, object>>[] setSelectors)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(setSelectors);
 
-        return source.Provider.CreateQuery<IGrouping<TKey, TSource>>(
+        return new GroupingSetsQuery<TKey, TSource>(
+            source.Provider,
             Expression.Call(
                 null,
-                new Func<IQueryable<IGrouping<TKey, TSource>>, Expression<Func<TKey, object>>[], IQueryable<IGrouping<TKey, TSource>>>(GroupingSets<TKey, TSource>).Method,
+                new Func<IQueryable<IGrouping<TKey, TSource>>, Expression<Func<TKey, object>>[], IQueryable<IGrouping<TKey, TSource>>>(GroupingSetsMarkers.GroupingSets<TKey, TSource>).Method,
                 source.Expression,
                 Expression.Constant(setSelectors, typeof(Expression<Func<TKey, object>>[]))
             )

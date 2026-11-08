@@ -786,14 +786,18 @@ module internal PipelineStageParser =
             Some(source, k)
         | _ -> None
 
-    let rec extractProject (stages: LinqStage list) =
+    /// The Select that must immediately follow a RollUp / Cube / GroupingSets without a result selector: it is
+    /// the operator's result selector. Any other continuation is rejected, never skipped or reordered (a marker
+    /// operator has no client-side meaning, so a fallback would silently drop the subtotal levels).
+    let private requireGroupingSetsSelect (operatorName: string) (stages: LinqStage list) =
         match stages with
-        | LinqStage.Project r :: rest -> Some(r, rest)
-        | other :: rest ->
-            match extractProject rest with
-            | Some(r, remaining) -> Some(r, other :: remaining)
-            | None -> None
-        | [] -> None
+        | LinqStage.Project r :: rest -> r, rest
+        | _ ->
+            raise (
+                InvalidOperationException(
+                    sprintf
+                        "'%s()' must be followed immediately by '.Select(...)', which projects each group of every grouping level (keys, aggregates, Grouping() / GroupingId()). Filter, sort or page after that Select, or use the '%s(resultSelector)' overload, e.g. '.GroupBy(x => new { x.A, x.B }).%s((key, g) => new { key.A, key.B, Total = g.Sum(x => x.V) })'."
+                        operatorName operatorName operatorName))
 
     /// The result selector a .NET 11 tuple join (`Join`/`LeftJoin`/`RightJoin`/`FullJoin` without a result
     /// selector, yielding `(TOuter Outer, TInner Inner)`) implies: `(o, i) => new ValueTuple<O, I>(o, i)`. Tuple
@@ -897,27 +901,18 @@ module internal PipelineStageParser =
         | MethodCall(m, _, [ GroupByCall(source, k); setsExpr; CleanLambda r ]) when m.Name = "GroupingSets" ->
             flattenStages source (LinqStage.GroupByGroupingSets(k, setsExpr, r) :: acc)
 
-        // Scheme B: RollUp / Cube / GroupingSets without result selector, followed by Select (Project)
+        // Scheme B: RollUp / Cube / GroupingSets without result selector, followed immediately by Select (Project)
         | MethodCall(m, _, [ GroupByCall(source, k) ]) when m.Name = "RollUp" || m.Name = "Rollup" ->
-            match extractProject acc with
-            | Some(r, remaining) ->
-                flattenStages source (LinqStage.GroupByRollup(k, r) :: remaining)
-            | None ->
-                flattenStages source acc
+            let r, remaining = requireGroupingSetsSelect m.Name acc
+            flattenStages source (LinqStage.GroupByRollup(k, r) :: remaining)
 
         | MethodCall(m, _, [ GroupByCall(source, k) ]) when m.Name = "Cube" ->
-            match extractProject acc with
-            | Some(r, remaining) ->
-                flattenStages source (LinqStage.GroupByCube(k, r) :: remaining)
-            | None ->
-                flattenStages source acc
+            let r, remaining = requireGroupingSetsSelect m.Name acc
+            flattenStages source (LinqStage.GroupByCube(k, r) :: remaining)
 
         | MethodCall(m, _, [ GroupByCall(source, k); setsExpr ]) when m.Name = "GroupingSets" ->
-            match extractProject acc with
-            | Some(r, remaining) ->
-                flattenStages source (LinqStage.GroupByGroupingSets(k, setsExpr, r) :: remaining)
-            | None ->
-                flattenStages source acc
+            let r, remaining = requireGroupingSetsSelect m.Name acc
+            flattenStages source (LinqStage.GroupByGroupingSets(k, setsExpr, r) :: remaining)
 
         // Single-argument (source-only) stages
         | MethodCall(m, null, [ source ]) ->

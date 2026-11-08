@@ -373,6 +373,8 @@ var report = df.AsQueryable<Sale>()
 
 `Grouping()` and `GroupingId()` tell a rolled-up key (a subtotal row) apart from a key whose value is null. Both work only inside the result selector of `RollUp`, `Cube` or `GroupingSets`.
 
+Each operator also has a form without a result selector, such as `.Cube().Select(g => new { g.Key.Category, Total = g.Sum(s => s.Amount) })` or `from g in q.Cube() select ...`. That form returns a `GroupingSetsQuery<TKey, TSource>`, whose only operation is `Select`, so the projection has to come right after the operator. Filter, sort or page after that `Select`.
+
 ---
 
 ## 6. The Bidirectional Escape Hatch

@@ -1,4 +1,5 @@
 #nullable enable
+using System.Linq.Expressions;
 using Polars.CSharp.Linq;
 using Polars.NET.Linq;
 
@@ -184,6 +185,58 @@ public class LinqGroupingIdTests
             Assert.Contains(NativePushdown, query.Explain());
             Assert.Equal(expected, query.ToList());
         }
+    }
+
+    /// <summary>
+    /// The parameterless operators type-check only before a Select; a hand-built tree that continues them with
+    /// anything else is rejected, never run with the operator dropped (the subtotal levels lost) or reordered.
+    /// </summary>
+    [Fact]
+    public void A_Grouping_Sets_Operator_Not_Followed_By_Select_Is_Rejected()
+    {
+        using var df = DataFrame.From(Rows);
+        var grouped = df.AsQueryable<GsRow>().GroupBy(x => new { x.Dept, x.Team });
+
+        // The operator's own node, as the typed API builds it (the argument of its Select).
+        static Expression OperatorNode<T>(IQueryable<T> selected) => ((MethodCallExpression)selected.Expression).Arguments[0];
+        var operators = new[]
+        {
+            ("RollUp", OperatorNode(grouped.RollUp().Select(g => g.Key))),
+            ("Cube", OperatorNode(grouped.Cube().Select(g => g.Key))),
+            ("GroupingSets", OperatorNode(grouped.GroupingSets(k => new { k.Dept }, k => new { }).Select(g => g.Key))),
+            ("GroupingSets", OperatorNode(grouped.GroupingSets([["Dept"], []]).Select(g => g.Key))),
+        };
+
+        foreach (var (name, node) in operators)
+        {
+            var elem = node.Type.GetGenericArguments()[0];
+
+            // A terminal straight after the operator.
+            var count = Assert.Throws<InvalidOperationException>(() => grouped.Provider.Execute<int>(
+                Expression.Call(typeof(Queryable), nameof(Queryable.Count), [elem], node)));
+            Assert.Contains($"'{name}()' must be followed immediately by '.Select(...)'", count.Message);
+
+            // A Where between the operator and its Select.
+            var g = Expression.Parameter(elem, "g");
+            var where = Expression.Call(typeof(Queryable), nameof(Queryable.Where), [elem], node,
+                Expression.Quote(Expression.Lambda(Expression.Constant(true), g)));
+            var select = Expression.Call(typeof(Queryable), nameof(Queryable.Select), [elem, typeof(int)], where,
+                Expression.Quote(Expression.Lambda(Expression.Constant(1), g)));
+            var reordered = Assert.Throws<InvalidOperationException>(() => grouped.Provider.CreateQuery<int>(select).ToList());
+            Assert.Contains($"'{name}()' must be followed immediately by '.Select(...)'", reordered.Message);
+        }
+    }
+
+    [Fact]
+    public void Query_Syntax_Selects_From_A_Grouping_Sets_Operator()
+    {
+        using var df = DataFrame.From(Rows);
+        var query = from g in df.AsQueryable<GsRow>().GroupBy(x => new { x.Dept, x.Team }).Cube()
+                    select new { g.Key.Dept, g.Key.Team, Total = g.Sum(x => x.Amount), Gid = g.Key.GroupingId() };
+
+        Assert.Contains(NativePushdown, query.Explain());
+        var expected = Reference(CubeLevels).Select(r => new { r.Dept, r.Team, Total = r.Sum, Gid = r.GDept * 2 + r.GTeam });
+        Assert.Equal(expected, query.ToList());
     }
 
     [Fact]
