@@ -89,6 +89,42 @@ module SemiJoinReductionTests =
 
         Assert.Equal(plan, SemiJoinReduction.apply sources plan)
 
+    let private compare op name (value: int) = ScalarExpr.Binary(op, col name, ScalarExpr.Literal(LiteralValue.Int32 value))
+
+    let private reducedBy (filter: LogicalPlan) =
+        let plan = inner (inner facts returns "f_t" "r_t") filter "f_k" "d_k"
+        let semiFacts = LogicalPlan.Join(facts, filter, [ col "f_k" ], [ col "d_k" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+        Assert.Equal(inner (inner semiFacts returns "f_t" "r_t") filter "f_k" "d_k", SemiJoinReduction.apply sources plan)
+
+    let private notReducedBy (filter: LogicalPlan) =
+        let plan = inner (inner facts returns "f_t" "r_t") filter "f_k" "d_k"
+        Assert.Equal(plan, SemiJoinReduction.apply sources plan)
+
+    [<Fact>]
+    let ``A range bounded on both sides reduces`` () =
+        reducedBy (LogicalPlan.Filter(LogicalPlan.Filter(dims, compare BinaryOp.GtEq "d_a" 1), compare BinaryOp.LtEq "d_a" 9))
+
+    [<Fact>]
+    let ``A range in one conjunction reduces`` () =
+        reducedBy (LogicalPlan.Filter(dims, ScalarExpr.Binary(BinaryOp.And, compare BinaryOp.Gt "d_a" 1, compare BinaryOp.Lt "d_a" 9)))
+
+    [<Fact>]
+    let ``A range written with the literal first reduces`` () =
+        let literalFirst op = ScalarExpr.Binary(op, ScalarExpr.Literal(LiteralValue.Int32 1), col "d_a")
+        reducedBy (LogicalPlan.Filter(LogicalPlan.Filter(dims, literalFirst BinaryOp.LtEq), compare BinaryOp.Lt "d_a" 9))
+
+    [<Fact>]
+    let ``A bound on one side only does not reduce`` () =
+        notReducedBy (LogicalPlan.Filter(dims, compare BinaryOp.GtEq "d_a" 1))
+
+    [<Fact>]
+    let ``Bounds on two columns do not reduce`` () =
+        notReducedBy (LogicalPlan.Filter(LogicalPlan.Filter(dims, compare BinaryOp.GtEq "d_a" 1), compare BinaryOp.LtEq "d_b" 9))
+
+    [<Fact>]
+    let ``Two lower bounds on one column do not reduce`` () =
+        notReducedBy (LogicalPlan.Filter(LogicalPlan.Filter(dims, compare BinaryOp.GtEq "d_a" 1), compare BinaryOp.Gt "d_a" 5))
+
     [<Fact>]
     let ``A filter reading other rows stops the reduction`` () =
         let ranked = ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Window(col "f_v", [ col "f_t" ], []), ScalarExpr.Literal(LiteralValue.Int32 1))

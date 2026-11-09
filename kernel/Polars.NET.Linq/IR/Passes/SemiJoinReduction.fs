@@ -16,7 +16,10 @@ open Polars.NET.Linq.IR
 /// table already joined first leaves nothing to reduce.
 ///
 /// A reduction is made only when it pays for reading the selective table again and for probing the whole table: the
-/// table keeps a small share of its rows, and the reduction passes a grouping or an inner join.
+/// table keeps a small share of its rows, and the reduction passes a grouping or an inner join. A column bounded from
+/// both sides counts as keeping a small share, whatever the fixed selectivities say: they treat the bounds as independent,
+/// when a range such as a month of dates is far narrower than either bound. A wide range makes the semi join a modest
+/// waste, as the probing costs little next to the joins it precedes.
 ///
 /// A join on several columns gets a reduction of its own. Matching a large table on composite keys costs far more per
 /// row than a semi join on one of those columns, so a table is first filtered by the values one key can take. They come
@@ -49,6 +52,31 @@ module internal SemiJoinReduction =
         reads plan
 
     let private isFilteredTable (plan: LogicalPlan) = tableRead plan = Some true
+
+    /// Whether the plan's filters give some column both a lower and an upper bound that are literals.
+    let private hasTwoSidedRange (plan: LogicalPlan) =
+        let isLiteral (expr: ScalarExpr) =
+            match expr with
+            | ScalarExpr.Literal _
+            | ScalarExpr.Cast(ScalarExpr.Literal _, _, _) -> true
+            | _ -> false
+        let rec conjuncts (predicate: ScalarExpr) =
+            match predicate with
+            | ScalarExpr.Binary(BinaryOp.And, left, right) -> conjuncts left @ conjuncts right
+            | other -> [ other ]
+        let rec predicates (node: LogicalPlan) =
+            match node with
+            | LogicalPlan.Filter(input, predicate) -> conjuncts predicate @ predicates input
+            | _ -> []
+        let bounds =
+            predicates plan
+            |> List.choose (function
+                | ScalarExpr.Binary((BinaryOp.Gt | BinaryOp.GtEq), ScalarExpr.Column name, bound)
+                | ScalarExpr.Binary((BinaryOp.Lt | BinaryOp.LtEq), bound, ScalarExpr.Column name) when isLiteral bound -> Some(name, true)
+                | ScalarExpr.Binary((BinaryOp.Lt | BinaryOp.LtEq), ScalarExpr.Column name, bound)
+                | ScalarExpr.Binary((BinaryOp.Gt | BinaryOp.GtEq), bound, ScalarExpr.Column name) when isLiteral bound -> Some(name, false)
+                | _ -> None)
+        bounds |> List.exists (fun (name, isLower) -> isLower && List.contains (name, false) bounds)
 
     let private columnsOf (plan: LogicalPlan) = Set.ofList (SchemaInference.inferPlanSchema plan).ColumnNames
 
@@ -194,7 +222,7 @@ module internal SemiJoinReduction =
                 let rows, tableRows = estimate right
                 let worthIt = ref false
                 match
-                    (if rows <= tableRows * maxSelectivity then reduce right rightKey worthIt leftKey left else None)
+                    (if rows <= tableRows * maxSelectivity || hasTwoSidedRange right then reduce right rightKey worthIt leftKey left else None)
                 with
                 | Some reduced when worthIt.Value ->
                     LogicalPlan.Join(reduced, right, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], how, suffix, coalescing, false)
