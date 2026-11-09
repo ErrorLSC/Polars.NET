@@ -51,7 +51,7 @@ module internal SemiJoinReduction =
             | _ -> None
         reads plan
 
-    let private isFilteredTable (plan: LogicalPlan) = tableRead plan = Some true
+    let isFilteredTable (plan: LogicalPlan) = tableRead plan = Some true
 
     /// Whether the plan's filters give some column both a lower and an upper bound that are literals.
     let private hasTwoSidedRange (plan: LogicalPlan) =

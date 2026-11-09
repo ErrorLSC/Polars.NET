@@ -132,6 +132,48 @@ module EagerAggregationTests =
         let plan = LogicalPlan.GroupBy(inner facts dims "f_k" "d_k", [ col "d_a" ], [ "total", agg AggKind.Sum "f_v" ], None, true)
         Assert.Equal(plan, EagerAggregation.apply [| sources.[0]; big; sources.[2] |] plan)
 
+    let private filteredDates = LogicalPlan.Filter(dates, ScalarExpr.Binary(BinaryOp.Gt, col "t_y", lit 2000))
+    let private keysFromTwo = [ col "d_a"; col "t_y" ]
+    let private totals = [ "total", agg AggKind.Sum "f_v" ]
+    let private grouped input = LogicalPlan.GroupBy(input, keysFromTwo, totals, None, true)
+    let private preAggregated =
+        LogicalPlan.GroupBy(inner facts filteredDates "f_d" "t_k", [ col "f_k"; col "t_y" ], [ partial 0, agg AggKind.Sum "f_v" ], None, true)
+    let private finalTotal = [ "total", agg AggKind.Sum (partial 0) ]
+
+    [<Fact>]
+    let ``Keys from two dimensions aggregate before the unfiltered one`` () =
+        let plan = grouped (inner (inner facts filteredDates "f_d" "t_k") dims "f_k" "d_k")
+
+        let expected = LogicalPlan.GroupBy(inner preAggregated dims "f_k" "d_k", keysFromTwo, finalTotal, None, true)
+        Assert.Equal(expected, apply plan)
+
+    [<Fact>]
+    let ``A star written with the dimension first keeps it on the left`` () =
+        let plan = grouped (inner (inner dims facts "d_k" "f_k") filteredDates "f_d" "t_k")
+
+        let expected = LogicalPlan.GroupBy(inner dims preAggregated "d_k" "f_k", keysFromTwo, finalTotal, None, true)
+        Assert.Equal(expected, apply plan)
+
+    [<Fact>]
+    let ``Two unfiltered dimensions are left alone`` () =
+        assertUnchanged (grouped (inner (inner facts dates "f_d" "t_k") dims "f_k" "d_k"))
+
+    [<Fact>]
+    let ``A key dimension holding only fixed-width keys is left alone`` () =
+        let numbers = LogicalSchema.OfFields [ ("d_k", LogicalTypes.Int32); ("d_a", LogicalTypes.Int32) ]
+        assertUnchanged (grouped (inner (inner facts filteredDates "f_d" "t_k") (LogicalPlan.Scan(LogicalPlanSource.Slot 1, numbers)) "f_k" "d_k"))
+
+    [<Fact>]
+    let ``A string carried through the pre-aggregation is left alone`` () =
+        let labels = LogicalSchema.OfFields [ ("t_k", LogicalTypes.Int32); ("t_y", LogicalTypes.String) ]
+        let filtered = LogicalPlan.Filter(LogicalPlan.Scan(LogicalPlanSource.Slot 2, labels), ScalarExpr.Binary(BinaryOp.Eq, col "t_y", lit "x"))
+        assertUnchanged (grouped (inner (inner facts filtered "f_d" "t_k") dims "f_k" "d_k"))
+
+    [<Fact>]
+    let ``A Distinct over two dimensions is left alone`` () =
+        let joined = inner (inner facts filteredDates "f_d" "t_k") dims "f_k" "d_k"
+        assertUnchanged (LogicalPlan.Distinct(LogicalPlan.Project(joined, [ "a", col "d_a"; "y", col "t_y" ]), None, DistinctKeep.First, true))
+
     [<Fact>]
     let ``A left join is left alone`` () =
         let joined = LogicalPlan.Join(facts, dims, [ col "f_k" ], [ col "d_k" ], JoinKind.Left, None, JoinKeyCoalescing.Default, false)

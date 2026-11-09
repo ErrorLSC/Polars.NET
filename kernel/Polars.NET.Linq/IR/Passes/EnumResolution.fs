@@ -116,6 +116,12 @@ module internal EnumResolution =
         | LogicalType.Arrow(:? Apache.Arrow.Types.UInt8Type) -> true
         | _ -> false
 
+    /// Whether the sum of a column of this type, widened to 64 bits, cannot overflow.
+    let private widensWithoutOverflow (t: LogicalType) =
+        match t with
+        | LogicalType.Arrow(:? Apache.Arrow.Types.BooleanType) -> true
+        | other -> isNarrowInteger other
+
     let private overflow = { Kind = QueryErrorKind.Overflow; Message = "" }
 
     /// Resolves the EnumConvert nodes of `expr`, whose columns are those of `schema`. With `grouped`, the expression's
@@ -244,10 +250,12 @@ module internal EnumResolution =
         // .NET sums integers in checked arithmetic: Sum of int / long, and the long sum behind Average of long,
         // throw OverflowException where the engine wraps. The sum is taken exactly in a wider type and checked
         // against the range of the summed type (a strict cast without assertions: the query still fails).
-        // A sum of narrower integers widened to 64 bits cannot overflow, which also leaves the rewritten sum alone.
+        // A sum of narrower integers or of booleans (a count) widened to 64 bits cannot overflow, which also leaves the
+        // rewritten sum alone.
         | ScalarExpr.Aggregation((AggKind.Sum | AggKind.Mean) as kind, Some inner, distinct) when
             (match inner with
-             | ScalarExpr.Cast(narrow, LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type), _) -> not (isNarrowInteger (typeOf narrow))
+             | ScalarExpr.Cast(narrow, LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type), _) ->
+                 not (widensWithoutOverflow (typeOf narrow))
              | _ -> true)
             && match kind, typeOf inner with
                | AggKind.Sum, t -> (checkedSumOf t).IsSome

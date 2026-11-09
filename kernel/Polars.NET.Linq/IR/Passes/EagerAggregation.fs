@@ -21,6 +21,12 @@ open Polars.NET.Linq.IR
 /// - Min, Max, Count and Len.
 /// - Not CheckedSum: a partial total can leave the type's range when the full total does not.
 ///
+/// When two dimensions supply the grouping columns, the fact table can still be aggregated before the unfiltered one, on
+/// its join key and the other dimension's column: `GROUP BY c.name, d.year` first groups on `(f.customer, d.year)`, which
+/// merges many rows when a customer buys often in a year. Nothing tells how many rows that merges; see
+/// `deferrableKeyDimension` for what keeps the extra grouping cheap when it merges few. The dimension may come first in
+/// the query, `(c JOIN f) JOIN d`, and then stays on the left.
+///
 /// There are no key statistics, so the rewrite needs the fact table to outnumber the dimension, whose size bounds the
 /// join key's values. The other joins' estimates are not used: they rest on fixed selectivities, and when they do
 /// remove rows the grouping is cheap either way.
@@ -79,8 +85,54 @@ module internal EagerAggregation =
 
     let private columnsOf (plan: LogicalPlan) = (SchemaInference.inferPlanSchema plan).ColumnNames
 
-    /// The plan without the dimension that holds `keyColumns`, that dimension's join and its columns.
-    let private isolateDimension (estimate: LogicalPlan -> float * float) (keyColumns: Set<string>) (plan: LogicalPlan) =
+    /// A join of the star: right input, fact key, right key, suffix and key coalescing.
+    type private StarJoin = LogicalPlan * string * string * string option * JoinKeyCoalescing
+
+    /// A whole table: nothing beneath the plan removes rows.
+    let rec private isWholeTable (plan: LogicalPlan) =
+        match plan with
+        | LogicalPlan.Scan _ -> true
+        | LogicalPlan.Shared(_, input) -> isWholeTable input
+        | LogicalPlan.Project(input, columns) ->
+            columns
+            |> List.forall (fun (_, expr) ->
+                match expr with
+                | ScalarExpr.Column _ -> true
+                | _ -> false)
+            && isWholeTable input
+        | _ -> false
+
+    let private isFixedWidth (plan: LogicalPlan) (column: string) =
+        match SchemaInference.inferScalarType (SchemaInference.inferPlanSchema plan) (ScalarExpr.Column column) with
+        | LogicalType.Arrow(:? FixedWidthType) -> true
+        | _ -> false
+
+    /// The one dimension that supplies every key column.
+    let private soleKeyDimension (keyColumns: Set<string>) (joins: StarJoin list) : StarJoin list =
+        joins |> List.filter (fun (right, _, _, _, _) -> Set.isSubset keyColumns (Set.ofList (columnsOf right)))
+
+    /// The dimension to join after pre-aggregating when two dimensions supply the key columns: the only one that is a
+    /// whole table, as a filtered one removes rows first. Empty when a key column belongs to the fact table. There are
+    /// no statistics to tell how many rows the pre-aggregation merges, so it must be cheap: it groups on the join key
+    /// and one fixed-width column, and the deferred dimension holds a key that is not fixed-width.
+    let private deferrableKeyDimension (keyColumns: Set<string>) (joins: StarJoin list) : StarJoin list =
+        let keysOf (right: LogicalPlan) = Set.intersect keyColumns (Set.ofList (columnsOf right))
+        match joins |> List.filter (fun (right, _, _, _, _) -> not (Set.isEmpty (keysOf right))) with
+        | [ (first, _, _, _, _) as a; (second, _, _, _, _) as b ] when Set.union (keysOf first) (keysOf second) = keyColumns ->
+            let deferredOver (deferred: LogicalPlan) (carrier: LogicalPlan) =
+                isWholeTable deferred
+                && not (isWholeTable carrier)
+                && keysOf deferred |> Set.exists (isFixedWidth deferred >> not)
+                && (match Set.toList (keysOf carrier) with
+                    | [ column ] -> isFixedWidth carrier column
+                    | _ -> false)
+            if deferredOver first second then [ a ]
+            elif deferredOver second first then [ b ]
+            else []
+        | _ -> []
+
+    /// The plan without the dimension `choose` picks among its joins: that dimension's join and its columns.
+    let private isolateDimension (estimate: LogicalPlan -> float * float) (choose: StarJoin list -> StarJoin list) (plan: LogicalPlan) =
         let fact, steps = flatten plan
         let factColumns = columnsOf fact |> Set.ofList
         let joins =
@@ -90,10 +142,10 @@ module internal EagerAggregation =
                 | FilterStep _ -> None)
         let everyColumn = columnsOf fact @ (joins |> List.collect (fun (right, _, _, _, _) -> columnsOf right))
         let isStar = joins |> List.forall (fun (_, leftKey, _, _, _) -> factColumns.Contains leftKey)
-        if keyColumns.IsEmpty || not isStar || (List.distinct everyColumn).Length <> everyColumn.Length then
+        if not isStar || (List.distinct everyColumn).Length <> everyColumn.Length then
             None
         else
-            match joins |> List.filter (fun (right, _, _, _, _) -> Set.isSubset keyColumns (Set.ofList (columnsOf right))) with
+            match choose joins with
             | [ (dimension, leftKey, rightKey, suffix, coalescing) ] ->
                 let dimensionColumns = Set.ofList (columnsOf dimension)
                 let filtersReadDimension =
@@ -112,6 +164,32 @@ module internal EagerAggregation =
                 else
                     Some(rest, dimension, leftKey, rightKey, suffix, coalescing)
             | _ -> None
+
+    /// As isolateDimension, for a star written with a dimension first: `(c JOIN f) JOIN d`, the dimension `c` being the
+    /// one that deferrableKeyDimension picks.
+    let private isolateLeadingDimension (estimate: LogicalPlan -> float * float) (keyColumns: Set<string>) (plan: LogicalPlan) =
+        match flatten plan with
+        | dimension, JoinStep(fact, dimensionKey, factKey, suffix, coalescing) :: steps when
+            isWholeTable dimension && steps |> List.forall (function JoinStep _ -> true | FilterStep _ -> false)
+            ->
+            let factColumns = columnsOf fact |> Set.ofList
+            let others =
+                steps
+                |> List.choose (function
+                    | JoinStep(right, leftKey, rightKey, joinSuffix, joinCoalescing) -> Some(right, leftKey, rightKey, joinSuffix, joinCoalescing)
+                    | FilterStep _ -> None)
+            let joins: StarJoin list = (dimension, factKey, dimensionKey, suffix, coalescing) :: others
+            let isStar = others |> List.forall (fun (_, leftKey, _, _, _) -> factColumns.Contains leftKey)
+            let everyColumn = columnsOf fact @ (joins |> List.collect (fun (right, _, _, _, _) -> columnsOf right))
+            let dimensionChosen =
+                match deferrableKeyDimension keyColumns joins with
+                | [ (chosen, _, _, _, _) ] -> obj.ReferenceEquals(chosen, dimension)
+                | _ -> false
+            if isStar && dimensionChosen && (List.distinct everyColumn).Length = everyColumn.Length && fst (estimate fact) >= minReduction * fst (estimate dimension) then
+                Some(rebuild fact steps, dimension, factKey, dimensionKey, suffix, coalescing)
+            else
+                None
+        | _ -> None
 
     /// Integers and decimals: their sums do not depend on the order of the additions.
     let isExactNumber (schema: LogicalSchema) (expr: ScalarExpr) =
@@ -170,8 +248,18 @@ module internal EagerAggregation =
             else
                 let namedKeys = namedKeys |> List.map Option.get
                 let keyColumns = namedKeys |> List.map snd |> Set.ofList
-                isolateDimension estimate keyColumns chain
-                |> Option.bind (fun (rest, dimension, leftKey, rightKey, suffix, coalescing) ->
+                let isolated =
+                    if keyColumns.IsEmpty then
+                        None
+                    else
+                        isolateDimension estimate (soleKeyDimension keyColumns) chain
+                        |> Option.map (fun parts -> parts, false)
+                        |> Option.orElseWith (fun () ->
+                            isolateDimension estimate (deferrableKeyDimension keyColumns) chain |> Option.map (fun parts -> parts, false))
+                        |> Option.orElseWith (fun () ->
+                            isolateLeadingDimension estimate keyColumns chain |> Option.map (fun parts -> parts, true))
+                isolated
+                |> Option.bind (fun ((rest, dimension, leftKey, rightKey, suffix, coalescing), dimensionFirst) ->
                     let toSource = ScalarExprOps.substitute (fun name -> mapping.TryFind name |> Option.map ScalarExpr.Column)
                     let partials = ResizeArray()
                     try
@@ -179,8 +267,14 @@ module internal EagerAggregation =
                         if partials.Count = 0 then
                             None
                         else
-                            let pre = LogicalPlan.GroupBy(rest, [ ScalarExpr.Column leftKey ], List.ofSeq partials, None, maintainOrder)
-                            let joined = LogicalPlan.Join(pre, dimension, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], JoinKind.Inner, suffix, coalescing, false)
+                            let carried = Set.difference keyColumns (Set.ofList (columnsOf dimension)) |> Set.toList
+                            let preKeys = leftKey :: carried |> List.map ScalarExpr.Column
+                            let pre = LogicalPlan.GroupBy(rest, preKeys, List.ofSeq partials, None, maintainOrder)
+                            let joined =
+                                if dimensionFirst then
+                                    LogicalPlan.Join(dimension, pre, [ ScalarExpr.Column rightKey ], [ ScalarExpr.Column leftKey ], JoinKind.Inner, suffix, coalescing, false)
+                                else
+                                    LogicalPlan.Join(pre, dimension, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], JoinKind.Inner, suffix, coalescing, false)
                             let finalKeys =
                                 namedKeys
                                 |> List.map (fun (name, column) ->
@@ -195,7 +289,7 @@ module internal EagerAggregation =
                 None
             else
                 let keyColumns = mapping |> Map.toList |> List.map snd |> Set.ofList
-                isolateDimension estimate keyColumns chain
+                (if keyColumns.IsEmpty then None else isolateDimension estimate (soleKeyDimension keyColumns) chain)
                 |> Option.map (fun (rest, dimension, leftKey, rightKey, suffix, coalescing) ->
                     let pre = LogicalPlan.Distinct(LogicalPlan.Project(rest, [ leftKey, ScalarExpr.Column leftKey ]), None, keep, maintainOrder)
                     let joined = LogicalPlan.Join(pre, dimension, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], JoinKind.Inner, suffix, coalescing, false)

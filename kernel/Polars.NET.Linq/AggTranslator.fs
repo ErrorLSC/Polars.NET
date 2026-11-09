@@ -418,6 +418,9 @@ module AggTranslator =
                 | Some resolved when resolved.Slice.IsSome ->
                     getFilteredTarget resolved
                     |> Option.map (fun t -> ScalarExpr.Aggregation(AggKind.Count, Some t, false) |> castCountExpr isLong)
+                // Counting the non-null values of an expression is the engine's own count.
+                | Some { Filter = Some(ScalarExpr.Unary(UnaryOp.IsNotNull, counted)); SortKeys = [] } ->
+                    Some(ScalarExpr.Aggregation(AggKind.Count, Some counted, false) |> castCountExpr isLong)
                 | Some resolved when resolved.Filter.IsSome ->
                     let castS = castCountExpr true resolved.Filter.Value
                     Some(ScalarExpr.Aggregation(AggKind.Sum, Some castS, false))
