@@ -64,6 +64,33 @@ public class LinqRelationalRewriteParityTests
         Assert.Equal(expected, query.ToList());
     }
 
+    public record ReasonedReturn(long ReturnedTicket, int Reason, long Refund);
+    public record ReturnReason(int ReasonId, string Label);
+
+    [Fact]
+    public void Inner_join_on_a_right_column_rejects_unmatched_rows_of_a_left_join()
+    {
+        ReasonedReturn[] returns = [new(1, 2, 10), new(1, 3, 20), new(4, 2, 30), new(9, 7, 40)];
+        ReturnReason[] reasons = [new(2, "wrong"), new(3, "late")];
+        using var dfS = DataFrame.FromRows(Sales);
+        using var dfR = DataFrame.FromRows(returns);
+        using var dfL = DataFrame.FromRows(reasons);
+
+        var query = from s in dfS.AsQueryable(Sales)
+                    join r in dfR.AsQueryable(returns) on s.Ticket equals r.ReturnedTicket into rs
+                    from r in rs.DefaultIfEmpty()
+                    join l in dfL.AsQueryable(reasons) on r.Reason equals l.ReasonId
+                    select new { s.Customer, s.Ticket, r.Refund, l.Label };
+        var expected = (from s in Sales
+                        join r in returns on s.Ticket equals r.ReturnedTicket into rs
+                        from r in rs.DefaultIfEmpty()
+                        join l in reasons on r == null ? -1 : r.Reason equals l.ReasonId
+                        select new { s.Customer, s.Ticket, r!.Refund, l.Label }).ToList();
+
+        Assert.DoesNotContain("LEFT JOIN", query.Explain());
+        Assert.Equal(expected, query.ToList());
+    }
+
     [Fact]
     public void Grouping_on_keys_of_two_dimensions_keeps_first_appearance_order()
     {
