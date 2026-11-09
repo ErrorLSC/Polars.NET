@@ -50,6 +50,11 @@ module ColumnStatisticsTests =
         close 45.0 (rowsOf (LogicalPlan.Filter(lower, ScalarExpr.Binary(BinaryOp.LtEq, col "year", lit 2010L))))
 
     [<Fact>]
+    let ``A range written with the literals first counts the same`` () =
+        let lower = LogicalPlan.Filter(table, ScalarExpr.Binary(BinaryOp.LtEq, lit 2000L, col "year"))
+        close 45.0 (rowsOf (LogicalPlan.Filter(lower, ScalarExpr.Binary(BinaryOp.GtEq, lit 2010L, col "year"))))
+
+    [<Fact>]
     let ``Null checks read the null fraction`` () = close 100.0 (rowsOf (LogicalPlan.Filter(table, ScalarExpr.Unary(UnaryOp.IsNull, col "year"))))
 
     [<Fact>]

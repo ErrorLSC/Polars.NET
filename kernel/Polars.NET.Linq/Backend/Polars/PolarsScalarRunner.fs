@@ -5,6 +5,7 @@ open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Enums
 open Polars.NET.Linq
 open Polars.NET.Linq.IR
+open Polars.NET.Linq.IR.Passes
 
 /// Polars interpreter for planned scalar terminals: lowers and collects LogicalPlans, then hands
 /// the collected DataFrames to the IDataFrameMaterializer.
@@ -16,7 +17,13 @@ module internal PolarsScalarRunner =
         // The terminal's expressions resolve against this backend's capabilities (a checked sum asserts).
         let prepared =
             use _scope = CompilationScope.Enter PolarsQueryBackend.Instance
-            plan |> EnumResolution.resolvePlan |> Polars.NET.Linq.IR.Passes.GroupOrderRelaxation.apply
+            let resolved = EnumResolution.resolvePlan plan
+            if Polars.NET.Core.Config.CoreConfig.CollectColumnStatistics then
+                // The freed joins can be reordered too, now that nothing observes their order.
+                let relaxed, unorderedJoins = GroupOrderRelaxation.applyCollectingUnorderedJoins false true resolved
+                JoinReordering.apply sources unorderedJoins relaxed
+            else
+                GroupOrderRelaxation.apply resolved
         PolarsWrapper.LazyCollect(PolarsPhysicalLowerer.lowerPlan sources prepared, PlEngine.Auto)
 
     let private runRowsOp (mat: IDataFrameMaterializer) (sources: SourceBinding array) (df: DataFrameHandle) (op: RowsOp) : ScalarOutcome =

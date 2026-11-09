@@ -115,15 +115,15 @@ module internal JoinReordering =
 
     /// A comparison of a column with a literal number, as (column, side, value).
     let private tryBound (predicate: ScalarExpr) =
-        let bound op column literal =
+        let bound side column literal =
             match columnOf column, literalOf literal |> Option.bind literalNumber with
-            | Some name, Some value -> Some(name, op, value)
+            | Some name, Some value -> Some(name, side, value)
             | _ -> None
         match predicate with
-        | ScalarExpr.Binary((BinaryOp.Gt | BinaryOp.GtEq), column, literal) -> bound Bound.Lower column literal
-        | ScalarExpr.Binary((BinaryOp.Lt | BinaryOp.LtEq), column, literal) -> bound Bound.Upper column literal
-        | ScalarExpr.Binary((BinaryOp.Lt | BinaryOp.LtEq), literal, column) -> bound Bound.Lower column literal
-        | ScalarExpr.Binary((BinaryOp.Gt | BinaryOp.GtEq), literal, column) -> bound Bound.Upper column literal
+        | ScalarExpr.Binary((BinaryOp.Gt | BinaryOp.GtEq), left, right) ->
+            bound Bound.Lower left right |> Option.orElseWith (fun () -> bound Bound.Upper right left)
+        | ScalarExpr.Binary((BinaryOp.Lt | BinaryOp.LtEq), left, right) ->
+            bound Bound.Upper left right |> Option.orElseWith (fun () -> bound Bound.Lower right left)
         | _ -> None
 
     /// The fraction of rows kept by a conjunction of predicates, reading a column's statistics where it has them.

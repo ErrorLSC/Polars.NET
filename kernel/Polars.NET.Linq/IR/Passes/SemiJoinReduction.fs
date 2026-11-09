@@ -314,7 +314,7 @@ module internal SemiJoinReduction =
                     match left with
                     | LogicalPlan.Shared _ -> left, None
                     | _ -> LogicalPlan.Shared(nextSharedId, left), Some nextSharedId
-                let keys = LogicalPlan.Project(shared, [ leftKey, ScalarExpr.Column leftKey ])
+                let keys = LogicalPlan.Project(shared, [ (leftKey, ScalarExpr.Column leftKey) ])
                 let worthIt = ref false
                 match reduce true false keys leftKey worthIt rightKey right with
                 | Some reduced when worthIt.Value ->
