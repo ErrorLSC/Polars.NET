@@ -1,6 +1,6 @@
 # LINQ Provider (`IQueryable`) & F# Query CE
 
-Polars.NET contains a production-grade LINQ expression-tree compiler (`Polars.NET.Linq`) that translates standard C# `IQueryable<T>` queries and F# `query { }` computation expressions directly into native Rust `LazyFrame` physical plans. 
+Polars.NET contains a production-grade LINQ expression-tree compiler (`Polars.NET.Linq`) that translates standard C# `IQueryable<T>` queries and F# `query { }` computation expressions into a logical plan, [optimizes it](#_10-how-queries-are-optimized), and runs it as a native Rust `LazyFrame`. All 22 TPC-H and 99 TPC-DS queries are written as LINQ in the test suite and run natively. Results follow .NET semantics, as defined by the [LINQ Semantics Contract](/articles/linq-semantics).
 
 When a query is fully pushed down, Polars executes multithreaded SIMD kernels in Rust and directly yields a `DataFrame` **without allocating a single intermediate .NET row object**.
 
@@ -251,58 +251,141 @@ The LINQ provider automatically translates standard .NET Base Class Library (BCL
   </div>
 </div>
 
-| Category | Supported .NET Operations | Compiled Native Polars Expression |
-| :--- | :--- | :--- |
-| **Strings** | `s.Contains(x)`, `s.StartsWith(x)`, `s.EndsWith(x)`, `s.ToUpper()`, `s.ToLower()`, `s.Trim()`, `s.Substring(start, len)`, `s.Replace(a, b)`, `s.Length`, `string.IsNullOrEmpty(s)` | `.Str.Contains()`, `.Str.StartsWith()`, `.Str.ToUppercase()`, `.Str.Slice()`, `.Str.ReplaceAll()`, `.Str.LenBytes()` |
-| **Mathematics** | `Math.Abs(x)`, `Math.Round(x, n)`, `Math.Floor(x)`, `Math.Ceiling(x)`, `Math.Sqrt(x)`, `Math.Pow(x, y)`, `Math.Log(x)`, `Math.Exp(x)`, `Math.Sin(x)`, `Math.Clamp(x, min, max)` | `.Abs()`, `.Round()`, `.Floor()`, `.Ceil()`, `.Sqrt()`, `.Pow()`, `.Log()`, `.Exp()`, `.Sin()`, `.Clip()` |
-| **Date & Time** | `dt.Year`, `dt.Month`, `dt.Day`, `dt.Hour`, `dt.Minute`, `dt.Second`, `dt.DayOfWeek`, `dt.DayOfYear`, `dt.Date`, `dt.AddDays(n)` | `.Dt.Year()`, `.Dt.Month()`, `.Dt.Day()`, `.Dt.Hour()`, `.Dt.Minute()`, `.Dt.Second()`, `.Dt.Weekday()`, `.Dt.OffsetBy()` |
-| **Regular Expressions** | `Regex.IsMatch(s, pattern)` | `.Str.Contains(pattern)` using native Rust high-performance regex engine |
-| **Collections & Lists** | `item.Tags.Contains("promo")`, `item.Tags.Length`, `items.SelectMany(x => x.Tags)` | `.List.Contains()`, `.List.Len()`, Native **`.Explode()`** |
-| **Conditionals** | `x ? a : b`, `a ?? b` | Native ternary `When.Then.Otherwise` and `Coalesce` kernels |
+| .NET member | Notes |
+| :--- | :--- |
+| `s.Length`, `s[i]` | `Length` counts characters |
+| `Contains`, `StartsWith`, `EndsWith` (`string` or `char`, optional `StringComparison`) | Only the `*IgnoreCase` comparisons change the result; the comparison must be a constant |
+| `IndexOf(value[, start[, count]][, StringComparison])`, `IndexOfAny(chars[, start[, count]])` | Returns -1 when absent |
+| `ToUpper()`, `ToLower()`, `ToUpperInvariant()`, `ToLowerInvariant()` | No culture overloads |
+| `Substring(start[, length])`, `Remove(start[, count])` | |
+| `Replace(old, new[, StringComparison])` | `string` or `char` operands |
+| `Trim`, `TrimStart`, `TrimEnd` (optional `char` or `char[]`), `PadLeft`, `PadRight` (optional constant pad) | |
+| `Split(sep[, count][, StringSplitOptions.None])`, `Split(sep)[i]`, `Normalize([form])`, `CompareTo(other)` | The separator must be a constant, and the count a constant up to 32. Other options or larger counts run as a managed UDF |
+| `Equals(other[, StringComparison])`, `string.Equals(a, b[, StringComparison])` | |
+| `string.IsNullOrEmpty`, `string.IsNullOrWhiteSpace` | |
+| `a + b`, `string.Concat(a, b, ...)`, interpolation, `string.Format(constantFormat, ...)`, `string.Join(constantSep, items)` | A null operand reads as `""`. A format with an alignment or specifier (`{0,8}`, `{0:F2}`) or escaped braces runs as a managed UDF, as does `string.Concat(x)` with one non-string argument |
+| `char.ToUpper(c)`, `char.ToLower(c)` and the invariant forms | |
+| `Encoding.UTF8.GetByteCount(s)` | Any other `Encoding` runs as a managed UDF |
+| `Math` / `MathF`: `Abs`, `Ceiling`, `Floor`, `Truncate`, `Sign`, `Round` (digits, `MidpointRounding`), `Min`, `Max`, `Clamp`, `Sqrt`, `Cbrt`, `Exp`, `Log`, `Log2`, `Log10`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Sinh`, `Cosh`, `Tanh`, `Pow`, `PI`, `E`, `Tau` | `MathF` results are `Float64` columns |
+| `BitOperations.PopCount`, `LeadingZeroCount`, `TrailingZeroCount` | |
+| `decimal.Round`, `Floor`, `Ceiling`, `Truncate`, `ToDouble` and the other `decimal.ToXxx` conversions; `d.ToString()`, `d.ToString("F2")` | Only `F` formats are native |
+| `int`, `long`, `short`, `byte`, `sbyte`, `uint`, `ulong`, `ushort`, `decimal`, `double`, `bool` `.Parse(s)` | A failed parse gives null |
+| `Convert.ToInt16/32/64`, `ToUInt16/32/64`, `ToByte`, `ToSByte`, `ToDecimal`, `ToDouble`, `ToSingle`, `ToBoolean` over a string; `Convert.ToInt32(s, base)`, `Convert.ToInt64(s, base)`; `ToHexString`, `FromHexString`, `ToBase64String`, `FromBase64String` | |
+| Numeric casts `(int)x`, `(double)x`, ... | Follow `Query Semantics` (wrap or saturate) |
+| `DateTime`, `DateOnly`, `TimeOnly`, `DateTimeOffset`: `Year`, `Month`, `Day`, `DayOfYear`, `DayOfWeek`, `Hour`, `Minute`, `Second`, `Millisecond`, `Microsecond`, `Nanosecond`, `Date`, `TimeOfDay` | |
+| `AddDays`, `AddHours`, `AddMinutes`, `AddSeconds` | The amount must be a constant |
+| `TimeSpan`: `TotalDays`, `TotalHours`, `TotalMinutes`, `TotalSeconds`, `TotalMilliseconds`, `TotalMicroseconds`, `TotalNanoseconds`, `Days`, `Hours`, `Minutes`, `Seconds`, `Milliseconds`, `Microseconds`, `Nanoseconds`, also on a date subtraction | |
+| `ToString(constantFormat)`, `DateTime.Parse`, `DateTime.ParseExact`, `DateOnly.Parse`, `DateOnly.ParseExact`, `TimeOnly.Parse`, `TimeOnly.ParseExact`, `DateTime.IsLeapYear` | |
+| `Regex.IsMatch`, `Regex.Count`, `Regex.Split`, `Regex.Replace`, `Regex.Match(...).Success`, `.Value`, `.Groups[i].Value`, `.Groups["name"].Value`, `Regex.Matches(...).Count`, `Regex.Matches(...).Select(m => m.Value)`, `Regex.Escape` | Static or instance form, with a constant pattern. Any other `Matches` selector runs as a managed UDF. `RegexOptions.IgnoreCase`, `Multiline`, `Singleline` and `IgnorePatternWhitespace` are honored. A pattern the Rust engine rejects, such as one with lookaround, runs as a managed UDF |
+| `JsonDocument.Parse(s).RootElement.GetProperty(k)...GetString()/GetInt32()/GetInt64()/GetDouble()/GetSingle()/GetDecimal()/GetBoolean()/GetInt16()/GetByte()`, `JsonNode.Parse(s)["k"]`, `(int)node`, `node.GetValue<T>()`, `JsonSerializer.Deserialize<T>(s).Member`, `JsonSerializer.Serialize(value)` | Paths must be constants; serializer options are not honored |
+| List columns: `arr[i]`, `Length`, `Count`, `Count()`, `Contains(x)`, `First()`, `Last()`, `ElementAt(i)`, `Sum()`, `Average()`, `Min()`, `Max()`, `Distinct()`, `Reverse()`, `Order()`, `OrderDescending()`, `OrderBy(x => x)`, `OrderByDescending(x => x)`, `Any()`, `Any(pred)`, `All(pred)`, `Select(selector)`, `Take(n)`, `TakeLast(n)`, `Skip(n)`, `string.Join(sep, list)` | `Union`, `Intersect` and `Except` are native between two list columns; with an in-memory operand they run on the client |
+| `collection.Contains(x.Id)` over an in-memory collection | Compiles to an `IN` predicate |
+| `SelectMany(x => x.Tags)` | Compiles to `Explode` |
+| Group aggregates: `Sum`, `Average`, `Min`, `Max`, `Count`, `LongCount`, `First`, `FirstOrDefault`, `Last`, `LastOrDefault`, `ElementAt`, `MinBy(...).Member`, `MaxBy(...).Member`, `ToList`, `ToArray`, `string.Join(sep, g.Select(...))`, composed with `Where`, `Select`, `OrderBy`, `ThenBy`, `Take`, `Skip`, `Distinct`, `DistinctBy` | |
+| `enum.ToString()`, `enum.Equals(other)`, `enum.HasFlag(flag)`, `(int)e`, `(Enum)i` | |
+| `Nullable<T>.Value`, `.HasValue`, `x == null`, `x != null`, `a ?? b`, `x ? a : b` | |
+| Operators `+ - * / % && \|\| ! & \| ^`, `<<` and `>>` with a constant count, comparisons | Follow `Query Semantics` |
+
+### Not Native: Managed UDF or Client Evaluation
+
+These members are not translated. Those that take row values run as managed UDFs by default, and the others follow the client evaluation policy:
+
+* **Managed UDF**: `AddMonths`, `AddYears`, `AddMilliseconds`, `AddDays(columnValue)`, `int.ToString()`, `double.ToString(format)`, `double.IsNaN`, `float.Parse`, `Guid.Parse`, `char.IsDigit` and the other `char.IsXxx`, `Count(predicate)` and `Sum(selector)` over a list column.
+* **Client evaluation**: a method that takes the whole row object, and any other expression with no translation and no column inputs. Under the Strict policy it throws `PolarsPushdownException` in `Where`, and runs on the client in a final `Select`.
 
 ---
 
 ## 4. The 3-Tier Execution Architecture
 
-When you call `query.Explain()`, Polars.NET reports one of three execution tiers:
+When you call `query.Explain()`, the first line of the report names one of three execution tiers:
 
-### Tier 1: `[100% Native Pushdown]`
-Every filtering, sorting, grouping, joining, and projection stage is translated into native Polars Rust expressions.
-* **Heap Impact**: Zero managed heap allocations during execution.
+| Report header | Meaning |
+| :--- | :--- |
+| `[Query Plan - 100% Native Pushdown]` | The whole query runs in Rust |
+| `[Query Plan - 100% Native Pushdown (with C# UDF Callback)]` | The whole query runs in the native plan, which calls back into managed UDFs |
+| `[Query Plan - Hybrid Execution (Partial Pushdown)]` | A native prefix runs in Rust, and the remaining predicates or the final projection run in .NET |
+| `[Query Plan - Full Fallback to In-Memory LINQ]` | The query runs with LINQ to Objects, from the point named in the report |
+
+### Tier 1: Native Pushdown
+Filtering, sorting, grouping, joining and projection are translated into native Polars expressions.
+* **Heap Impact**: `.ToDataFrame()` allocates no .NET row objects.
 * **Throughput**: Maximum SIMD vectorized throughput.
 
-### Tier 2: `[Hybrid Execution (Partial Pushdown)]`
-Filtering, sorting, and grouping run 100% in Rust. Only custom user code in the final `.Select(...)` (such as formatting or calling external helper functions) is evaluated on the client via a fast struct cursor:
+### Managed UDF Pushdown
+A custom .NET method or delegate stays inside the native plan when it reads one or more row values and returns one value. Polars calls it with Arrow batches, so the surrounding filters, joins and aggregations keep running in Rust. UDF pushdown is on by default:
 
 ```csharp
-var query = df.AsQueryable<Transaction>()
-    .Where(t => t.Amount > 100)                      // Native Pushdown (Rust)
-    .OrderByDescending(t => t.Amount)               // Native Pushdown (Rust)
-    .Select(t => new {                              // Client Evaluation on final row:
-        t.Id,
-        FormattedDisplay = FormatExternal(t.Amount) // Custom C# method
+public record Sale(string Sku, double Price, int Qty, string Region);
+
+public static class Scoring
+{
+    public static double Discounted(double price) => price * 0.9;                 // one column to one value
+    public static double Total(double price, int qty, double taxRate)             // several columns to one value
+        => price * qty * (1 + taxRate);
+    public static bool IsHot(string sku, int qty) => sku.StartsWith("H") && qty > 2;
+}
+
+var query = df.AsQueryable<Sale>()
+    .Where(s => Scoring.IsHot(s.Sku, s.Qty))
+    .Select(s => new
+    {
+        s.Sku,
+        Net = Scoring.Discounted(s.Price),
+        Total = Scoring.Total(s.Price, s.Qty, 0.2)   // constants are captured, only Price and Qty are inputs
     });
+
+Console.WriteLine(query.Explain());  // [Query Plan - 100% Native Pushdown (with C# UDF Callback)]
+```
+
+```fsharp
+let isHot (sku: string) (qty: int) = sku.StartsWith "H" && qty > 2
+let total (price: float) (qty: int) = price * float qty
+
+let q =
+    query {
+        for s in df.AsQueryable<Sale>() do
+        where (isHot s.Sku s.Qty)
+        select {| Sku = s.Sku; Total = total s.Price s.Qty |}
+    }
+```
+
+* An argument can be any translatable expression over the row, such as `Scoring.Discounted(s.Price * s.Qty)`. Delegates (`Func<double, double>`) work the same way as methods.
+* UDFs work in `Where`, `Select`, `OrderBy`, group keys and `Merge` conditions and setters. A UDF that takes a whole group's values (`Spread(g.Select(x => x.Price))`) runs once per group.
+* The return type must map to an Arrow type. A UDF that takes the whole row object (`Check(s)`) cannot be pushed down, because the row is not a column: it follows the client evaluation policy below.
+* Polars can invoke a UDF from several threads, so it must be thread safe. A short warning is printed once per UDF site, as a callback is slower than a native expression.
+* On the right of `&&`, `||` and `??`, and in a `?:` branch, a UDF runs only on the rows that reach it.
+
+To keep managed code out of the native plan, turn pushdown off with [`SetDisallowUdfPushdown`](#_9-query-settings). UDFs then follow the client evaluation policy.
+
+### Tier 2: Hybrid Execution
+Everything up to the client-only step runs in Rust. A projection that the provider cannot translate, such as one that passes the whole row to a method, runs on the client over a fast Arrow cursor:
+
+```csharp
+var query = df.AsQueryable<Sale>()
+    .Where(s => s.Qty > 1)                              // Native Pushdown (Rust)
+    .OrderByDescending(s => s.Price)                    // Native Pushdown (Rust)
+    .Select(s => new { s.Sku, Label = Describe(s) });   // Client Evaluation on the final row
 ```
 
 ### Tier 3: Client Evaluation Policy & `PolarsPushdownException`
-By default, Polars.NET adopts a **Strict Policy** (`ClientEvaluationPolicy.Strict`). If an unsupported custom method is used inside an *intermediate* stage (`Where`, `GroupBy`, `Join`), the provider throws `PolarsPushdownException` to prevent silent performance degradation:
+Polars.NET defaults to a **Strict Policy** (`ClientEvaluationPolicy.Strict`). When an intermediate stage (`Where`, `GroupBy`, `Join`, `OrderBy`) contains something that cannot be translated or pushed down as a UDF, the provider throws `PolarsPushdownException` rather than silently pulling rows into .NET:
 
 ```csharp
-// [Error] Throws PolarsPushdownException: CustomMethod cannot be evaluated inside Rust SIMD kernel!
-var query = df.AsQueryable<Item>().Where(x => MyCustomHelper(x.Score));
+// [Error] Throws PolarsPushdownException: the whole row cannot be passed to a native callback.
+var rows = df.AsQueryable<Sale>().Where(s => IsValid(s)).ToList();
 ```
 
 #### How to Address Pushdown Exceptions:
-1. **Best Practice**: Replace custom methods with supported BCL functions (`string`, `Math`, `Regex`).
-2. **Hybrid Projection**: Move custom formatting into the terminal `.Select(...)` clause.
-3. **Explicit Client Evaluation**: Call `.AsEnumerable()` (C#) or `.AsSeq()` (F#) to consciously switch to in-memory LINQ:
+1. **Best Practice**: Use a [mapped BCL member](#_3-supported-native-bcl-c-method-mappings), or pass the columns the method needs instead of the whole row.
+2. **Hybrid Projection**: Move client-only code into the terminal `.Select(...)` clause.
+3. **Explicit Client Evaluation**: Call `.AsEnumerable()` (C#) or `.AsSeq()` (F#) to switch to in-memory LINQ:
    ```csharp
-   // Explicitly offload to client:
-   var result = df.AsQueryable<Item>()
-       .Where(x => x.Active)               // Pushed down to Polars
-       .AsEnumerable()                     // Explicit client barrier
-       .Where(x => MyCustomHelper(x.Score)); // Evaluated on client
+   var result = df.AsQueryable<Sale>()
+       .Where(s => s.Qty > 1)                 // Pushed down to Polars
+       .AsEnumerable()                        // Explicit client barrier
+       .Where(s => IsValid(s));               // Evaluated on the client
    ```
+4. **Relax the Policy**: `Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow)` runs such queries on the client.
 
 ---
 
@@ -475,10 +558,10 @@ open Polars.FSharp
 // F# functional pipeline merge
 let mergedDf =
     targetDf.Merge(sourceDf, pl.col "Id")
-    |> Merge.whenMatched (pl.col "IsDiscontinued") Merge.delete
+    |> Merge.whenMatchedDelete (Some (fun ctx -> ctx.SourceCol "IsDiscontinued" .== pl.lit true))
     |> Merge.whenMatchedUpdateAll
     |> Merge.whenNotMatchedInsertAll
-    |> Merge.executeEager
+    |> Merge.executeEager Engine.Auto
 ```
 
 :::
@@ -549,7 +632,7 @@ a `Where`, so Parquet statistics and predicate pushdown keep working.
 Expression trees built by hand (or by VB) can contain comparisons lifted to null (`bool?` results); these are
 not translated to Polars and are evaluated in .NET.
 
-To use SQL null semantics instead (as EF Core's `UseRelationalNulls()`), enable the switch:
+To use SQL null semantics instead (as EF Core's `UseRelationalNulls()`), enable the switch (see [Query Settings](#_9-query-settings)):
 
 ```csharp
 using (Pl.Config.SetUseRelationalNulls(true).BeginScope())
@@ -643,8 +726,143 @@ A `DateTimeOffset` is stored as a UTC instant. Its members read the UTC value: `
 
 ---
 
+## 9. Query Settings
+
+The LINQ compiler reads these settings when it compiles a query. In C#, `Pl.Config.SetXxx(...)` applies a setting immediately, and `.BeginScope()` restores the previous values when the scope ends. In F#, `Config.withConfig [ ... ] (fun () -> ...)` applies settings around a function.
+
+| Setting | C# | F# | Environment variable | Default |
+| :--- | :--- | :--- | :--- | :--- |
+| Client evaluation policy | `SetClientEvaluationPolicy(policy)` | `Config.clientEvaluationPolicy policy` | `POLARS_CLIENT_EVAL` | `Strict` |
+| Disallow UDF pushdown | `SetDisallowUdfPushdown(bool)` | `Config.disallowUdfPushdown bool` | `POLARS_DISALLOW_UDF_PUSHDOWN` | `false` |
+| Relational (SQL) nulls | `SetUseRelationalNulls(bool)` | `Config.useRelationalNulls bool` | `POLARS_USE_RELATIONAL_NULLS` | `false` |
+| Unstable ordering | `SetAllowUnstableOrdering(bool)` | `Config.allowUnstableOrdering bool` | `POLARS_ALLOW_UNSTABLE_ORDERING` | `false` |
+| Query plan cache | `SetQueryCacheEnabled(bool?)`, `SetQueryCacheCapacity(int?)` | `Config.queryCacheEnabled`, `Config.queryCacheCapacity` | `POLARS_QUERY_CACHE_ENABLED`, `POLARS_QUERY_CACHE_CAPACITY` | Enabled |
+| Column statistics for join ordering | None | None | `POLARS_COLLECT_COLUMN_STATISTICS` | Enabled |
+
+### `UseRelationalNulls`
+
+By default, `==` follows C#: two nulls are equal. With relational nulls, as with EF Core's `UseRelationalNulls()`, a comparison with a null operand is null and the row is filtered out. The plan is also simpler, because no null compensation is needed.
+
+```csharp
+using Pl = Polars.CSharp.Polars;
+
+public class Reading
+{
+    public int Id { get; set; }
+    public string? A { get; set; }
+    public string? B { get; set; }
+    public int? V { get; set; }
+}
+
+Reading[] rows =
+[
+    new() { Id = 1, A = "x",  B = "x",  V = 10 },
+    new() { Id = 2, A = "x",  B = "y",  V = null },
+    new() { Id = 3, A = null, B = "y",  V = 30 },
+    new() { Id = 4, A = null, B = null, V = null },
+];
+using var df = DataFrame.FromRows(rows);
+
+var csharp = df.AsQueryable<Reading>().Where(x => x.A == x.B).Select(x => x.Id).ToList();   // [1, 4]
+var notTen = df.AsQueryable<Reading>().Where(x => x.V != 10).Select(x => x.Id).ToList();    // [2, 3, 4]
+
+using (Pl.Config.SetUseRelationalNulls(true).BeginScope())
+{
+    var sql = df.AsQueryable<Reading>().Where(x => x.A == x.B).Select(x => x.Id).ToList();         // [1]
+    var sqlNotTen = df.AsQueryable<Reading>().Where(x => x.V != 10).Select(x => x.Id).ToList();    // [3]
+}
+```
+
+```fsharp
+let ids () = query { for p in df.AsQueryable<Pair>() do where (p.A = p.B); select p.Id } |> Seq.toList
+
+let csharpStyle = ids ()                                                  // both None compares equal
+let sqlStyle = Config.withConfig [ Config.useRelationalNulls true ] ids   // None never matches
+```
+
+### `AllowUnstableOrdering`
+
+`OrderBy` is stable by default, as in LINQ to Objects, so the native plan sorts with `maintain_order: true`. If the order of tied rows does not matter, allow unstable sorts. As with SQL `ORDER BY`, tied rows may then come back in any order, and the optimizer may also reorder the joins and groupings beneath the sort. This can be noticeably faster on join-heavy queries, though a specific query can also get slower, so measure yours.
+
+```csharp
+public record Sale(string Sku, double Price, int Qty, string Region);
+
+var q = sales.AsQueryable<Sale>().OrderBy(s => s.Region).Select(s => s.Sku);
+Console.WriteLine(q.Explain());   // SORT BY [maintain_order: true] [col("Region")]
+
+using (Pl.Config.SetAllowUnstableOrdering().BeginScope())
+{
+    var fast = sales.AsQueryable<Sale>().OrderBy(s => s.Region).Select(s => s.Sku);
+    Console.WriteLine(fast.Explain());   // SORT BY [col("Region")]
+    var skus = fast.ToList();            // Sorted by Region; order within a Region is unspecified
+}
+```
+
+```fsharp
+let skus =
+    Config.withConfig [ Config.allowUnstableOrdering true ] (fun () ->
+        query { for s in df.AsQueryable<Sale>() do sortBy s.Qty; select s.Sku } |> Seq.toList)
+```
+
+### `DisallowUdfPushdown`
+
+UDF pushdown is allowed by default. With `DisallowUdfPushdown`, no managed callback enters the native plan, and each UDF follows the client evaluation policy instead:
+
+```csharp
+using (Pl.Config.SetDisallowUdfPushdown().BeginScope())
+{
+    var filter = df.AsQueryable<Sale>().Where(s => Scoring.IsHot(s.Sku, s.Qty));
+
+    // Strict policy: running a UDF in Where now throws PolarsPushdownException.
+    try { filter.ToList(); } catch (PolarsPushdownException e) { Console.WriteLine(e.Message); }
+
+    // A UDF in the final projection runs on the client: [Query Plan - Hybrid Execution (Partial Pushdown)]
+    var projection = df.AsQueryable<Sale>().Select(s => new { s.Sku, Total = Scoring.Total(s.Price, s.Qty, 0.2) }).ToList();
+
+    using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
+    {
+        var clientSide = filter.ToList();   // The filter runs on the client
+    }
+}
+```
+
+```fsharp
+Config.withConfig [ Config.disallowUdfPushdown true ] (fun () ->
+    query { for s in df.AsQueryable<Sale>() do select {| Sku = s.Sku; Total = total s.Price s.Qty |} }
+    |> Seq.toList)
+```
+
+---
+
+## 10. How Queries Are Optimized
+
+The provider compiles a query into a backend-neutral logical plan (IR), optimizes that plan, and only then lowers it to a Polars `LazyFrame`. All 22 TPC-H and 99 TPC-DS queries are written as LINQ in the test suite and run without client-side fallback. `query.ExplainLogicalPlan()` prints the IR plan, and `query.Explain()` prints the native plan Polars runs.
+
+Before the passes run, correlated subqueries (`Any`, `All`, `Count`, aggregates over another queryable) are decorrelated into joins. The compiled plan is kept in a query plan cache, so repeating a query shape skips compilation.
+
+| Pass | Effect |
+| :--- | :--- |
+| Common subplan sharing | A repeated sub-query, such as a shared `IQueryable` variable, runs once and is cached |
+| Filter null simplification | Removes null compensation where a filter already discards null |
+| Predicate pushdown | Moves filters beneath projections, sorts, groupings and joins, down to the scan |
+| Projection pruning | Reads only the columns the query uses |
+| Outer join simplification | Turns a left join into an inner join when an inner join above it rejects the rows the left join would add |
+| Anti join recognition | Compiles `left join ... where right == null` into an anti join |
+| Sort-slice fusion | Fuses a sort with the `Take` / `Skip` that follows it |
+| Group order relaxation | Drops first-appearance ordering of a `GroupBy` or `Distinct` when nothing observes it |
+| Eager aggregation | Groups a table on the join key before joining the table that holds the grouping columns |
+| Union aggregate flattening | Merges a grouping of a `Concat` of groupings on the same keys into one grouping |
+| Grouping sets cascade | Computes coarser `RollUp` / `Cube` levels from finer ones |
+| Join reordering | Picks a join order from estimated row counts, only where the query does not observe the join order |
+| Semi-join reduction | Filters a large join input by the keys of a highly selective one |
+
+Reordering and semi-join reduction use source statistics. Passes never change a query's result: the rules they rely on are the [LINQ Semantics Contract](/articles/linq-semantics).
+
+---
+
 ## Next Steps
 
+* [LINQ Semantics Contract](/articles/linq-semantics) - The normative rules behind every query plan.
 * [Ecosystem & Native Interop](/articles/interop) - Connect Polars to Apache Arrow C Data Interface, ADBC, ADO.NET, ML.NET, and Tensors.
 * [C# Idioms & Best Practices](/articles/csharp-idioms) - Dive deeper into memory management, collection expressions, and Fast-Path mappers.
 * [F# Idioms & Best Practices](/articles/fsharp-idioms) - Explore anonymous records, pipeline composition, and typed projections.

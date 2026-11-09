@@ -112,6 +112,32 @@ module internal RegexTranslator =
         | None -> None
 
     /// Unifies static Regex.Method(target, pat, options?, timeout?) and instance rx.Method(target) calls.
+    /// Whether an expression is a MatchCollection, or a method chain over one. Such a value is not a column.
+    let rec internal readsMatchCollection (e: Expression) : bool =
+        match e with
+        | null -> false
+        | _ when e.Type = typeof<MatchCollection> -> true
+        | :? MethodCallExpression as call ->
+            if isNull call.Object then
+                call.Arguments.Count > 0 && readsMatchCollection call.Arguments.[0]
+            else
+                readsMatchCollection call.Object
+        | _ -> false
+
+    /// Whether a `Matches(...).Select` selector is `m => m.Value`, the only one with a native form.
+    let private isMatchValueSelector (selector: Expression) : bool =
+        let lambda =
+            match selector with
+            | :? UnaryExpression as quote when quote.NodeType = ExpressionType.Quote -> quote.Operand
+            | other -> other
+
+        match lambda with
+        | :? LambdaExpression as l ->
+            match l.Body with
+            | :? MemberExpression as body -> body.Member.Name = "Value" && obj.ReferenceEquals(body.Expression, l.Parameters.[0])
+            | _ -> false
+        | _ -> false
+
     let private (|RegexCall|_|) (expr: Expression) : (string * Expression * string * Regex option) option =
         match expr with
         | MethodCall(m, null, target :: rest) when m.DeclaringType = typeof<Regex> && m.Name <> "Replace" ->
@@ -190,14 +216,16 @@ module internal RegexTranslator =
                 |> Option.map (fun idx -> MatchValue(target, pat, idx, rxOpt))
 
         // 5. Matches(...).Select(m => m.Value) (with or without .ToList() / .ToArray())
-        | MethodCall(collMethod, null, [ MethodCall(selMethod, null, [ RegexCall("Matches", target, pat, rxOpt); _ ]) ]) when
+        | MethodCall(collMethod, null, [ MethodCall(selMethod, null, [ RegexCall("Matches", target, pat, rxOpt); selector ]) ]) when
             (collMethod.Name = "ToList" || collMethod.Name = "ToArray")
             && selMethod.Name = "Select"
+            && isMatchValueSelector selector
             ->
             Some(MatchesAll(target, pat, rxOpt))
 
-        | MethodCall(selMethod, null, [ RegexCall("Matches", target, pat, rxOpt); _ ]) when
+        | MethodCall(selMethod, null, [ RegexCall("Matches", target, pat, rxOpt); selector ]) when
             selMethod.Name = "Select"
+            && isMatchValueSelector selector
             ->
             Some(MatchesAll(target, pat, rxOpt))
 

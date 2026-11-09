@@ -55,6 +55,59 @@ public class StreamingTests(ITestOutputHelper output)
         Assert.Equal((int)lastIndex, df.GetValue<int>(lastIndex, "Id"));
     }
 
+    [Fact]
+    public void Test_FromArrowStream_Reads_Its_Own_Export()
+    {
+        using var df = DataFrame.FromColumns(new { Id = new[] { 1, 2, 3 }, Name = new[] { "a", "b", "c" } });
+
+        using var stream = df.ToArrowStream();
+        using var back = DataFrame.FromArrowStream(stream);
+
+        Assert.True(df.Equals(back));
+    }
+
+    [Fact]
+    public void Test_FromArrowStream_Export_Is_Consumed_Once()
+    {
+        using var df = DataFrame.FromColumns(new { Id = new[] { 1, 2 } });
+
+        using var stream = df.ToArrowStream();
+        using var first = DataFrame.FromArrowStream(stream);
+
+        Assert.Throws<InvalidOperationException>(() => DataFrame.FromArrowStream(stream));
+    }
+
+    [Fact]
+    public void Test_FromArrowStream_Reads_A_Managed_Stream()
+    {
+        using var batch = new RecordBatch.Builder()
+            .Append("Id", false, column => column.Int32(ids => ids.AppendRange([1, 2, 3])))
+            .Append("Name", false, column => column.String(names => names.AppendRange(["a", "b", "c"])))
+            .Build();
+        using var stream = new SingleBatchStream(batch);
+
+        using var back = DataFrame.FromArrowStream(stream);
+
+        Assert.Equal(3, back.Height);
+        Assert.Equal("c", back.GetValue<string>(2, "Name"));
+    }
+
+    private sealed class SingleBatchStream(Apache.Arrow.RecordBatch batch) : Apache.Arrow.Ipc.IArrowArrayStream
+    {
+        private Apache.Arrow.RecordBatch? _next = batch;
+
+        public Apache.Arrow.Schema Schema { get; } = batch.Schema;
+
+        public ValueTask<Apache.Arrow.RecordBatch?> ReadNextRecordBatchAsync(CancellationToken cancellationToken = default)
+        {
+            var current = _next;
+            _next = null;
+            return new ValueTask<Apache.Arrow.RecordBatch?>(current);
+        }
+
+        public void Dispose() { }
+    }
+
     private class StreamPoco
     {
         public int Id { get; set; }

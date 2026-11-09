@@ -53,7 +53,7 @@ let expr =
     (pl.col "raw_ts")
         .Str.StripChars()
         .Str.ToDatetime("%Y-%m-%d %H:%M:%S", strict = false)
-        .Dt.Truncate("1h")
+        .Dt.Truncate(Dur.String "1h")
         .Alias("hour_bucket")
 ```
 
@@ -74,7 +74,7 @@ type UserRecord = {
 use df = DataFrame.ofRecords users
 
 // Convert DataFrame back to F# records:
-let rows: UserRecord list = df.ToRecords<UserRecord>()
+let rows: UserRecord seq = df.ToRecords<UserRecord>()
 
 // Create Series from F# list/seq/array (including option lists):
 use s1 = Series.create("scores", [Some 10.5; None; Some 20.0])

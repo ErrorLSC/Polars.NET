@@ -125,8 +125,8 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// <example>
     /// <code>
     /// df.MergeDeltaOrdered("s3://bucket/my_table", new[] { "Id" })
-    ///   .WhenMatchedDelete(Delta.Source("Status") == "Deleted")      // Evaluated 1st
-    ///   .WhenMatchedUpdate(Delta.Source("Stock") > Delta.Target("Stock")) // Evaluated 2nd
+    ///   .WhenMatchedDelete(m => m.Source("Status") == "Deleted") // Evaluated 1st
+    ///   .WhenMatchedUpdate(m => m.Source("Stock") > m.Target("Stock")) // Evaluated 2nd
     ///   .WhenNotMatchedInsert()                                      // Evaluated 3rd
     ///   .Execute();
     /// </code>

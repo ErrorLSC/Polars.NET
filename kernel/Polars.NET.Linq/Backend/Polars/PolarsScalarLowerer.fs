@@ -391,7 +391,9 @@ module internal PolarsScalarLowerer =
             | ScalarFunction.StrSplit, [ t; by ] ->
                 PolarsWrapper.StrSplit(lower t, lower by, inclusive = false, literal = true, strict = false)
             | ScalarFunction.StrSplitN, [ t; by; ScalarExpr.Literal(LiteralValue.Int32 n) ] ->
-                PolarsWrapper.StrSplitN(lower t, lower by, n)
+                // The native split pads a struct with nulls up to n fields; the IR's list holds only the pieces.
+                let fields = [| for i in 0 .. n - 1 -> PolarsWrapper.StructFieldByIndex(PolarsWrapper.StrSplitN(lower t, lower by, n), int64 i) |]
+                PolarsWrapper.ListDropNulls(PolarsWrapper.ConcatList fields)
             | ScalarFunction.StrExtract, [ t; pat; ScalarExpr.Literal(LiteralValue.Int32 idx) ] ->
                 PolarsWrapper.StrExtract(lower t, lower pat, idx)
             | ScalarFunction.StrExtractGroups, [ t; ScalarExpr.Literal(LiteralValue.String pat) ] ->

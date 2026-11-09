@@ -494,6 +494,7 @@ public readonly partial struct PolarsWrapper
             cloudLen,
             out LazyFrameHandle outLfPtr
         );
+        ErrorHelper.CheckVoid();
 
         return outLfPtr;
     }
@@ -528,6 +529,7 @@ public readonly partial struct PolarsWrapper
             cloudLen,
             out LazyFrameHandle outLfPtr
         );
+        ErrorHelper.CheckVoid();
 
         return outLfPtr;
     }

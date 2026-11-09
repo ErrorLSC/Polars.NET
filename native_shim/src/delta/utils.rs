@@ -20,6 +20,26 @@ use std::collections::HashMap;
 use url::Url;
 use serde_json::{json, Value};
 
+/// Whether a commit failed because of another writer or a transient store error, so a new attempt can succeed.
+/// Anything else (an unsupported table feature, an append-only table) fails the same way every time.
+pub(crate) fn is_retryable_commit_error(error: &deltalake::errors::DeltaTableError) -> bool {
+    use deltalake::errors::DeltaTableError;
+    use deltalake::kernel::transaction::TransactionError;
+
+    match error {
+        DeltaTableError::VersionAlreadyExists(_) => true,
+        DeltaTableError::Transaction { source } => matches!(
+            source,
+            TransactionError::VersionAlreadyExists(_)
+                | TransactionError::ObjectStore { .. }
+                | TransactionError::CommitConflict(_)
+                | TransactionError::MaxCommitAttempts(_)
+                | TransactionError::LogStoreError { .. }
+        ),
+        _ => false,
+    }
+}
+
 pub(crate) fn get_runtime() -> &'static RuntimeManager {
     &ASYNC
 }

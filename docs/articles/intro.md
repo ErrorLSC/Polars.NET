@@ -45,7 +45,7 @@ If your dataset is larger than your available RAM, standard execution might fail
 ```cs
 // This enables the streaming engine to process data in chunks
 // keeping memory usage low and stable.
-var result = lazyFrame.Collect(useStreaming:true);
+var result = lazyFrame.Collect(Engine.Streaming);
 ```
 
 ### 3. Native Expressions > UDFs
@@ -92,7 +92,7 @@ Polars.NET offers two distinct APIs tailored for each language's strengths:
 
 ```cs
 // Cast string column to Categorical for performance 
-df.WithColumns(Col("Country").Cast(DataType.Categorical));
+df.WithColumns(Col("Country").Cast(DataType.Categorical()));
 ```
 
 ### 7. Getting Help

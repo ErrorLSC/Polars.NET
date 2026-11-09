@@ -17,7 +17,8 @@ Welcome to the Polars.NET documentation and user guides. Here you will find quic
 ## Language Guides & Idioms
 - [C# Idioms & Best Practices](/articles/csharp-idioms) - Fluent method chaining, collection expressions, schema mapping, and memory safety.
 - [F# Idioms & Best Practices](/articles/fsharp-idioms) - Pipeline combinators, anonymous record queries, and typed projections.
-- [LINQ & Query Expressions](/articles/linq) - 3-tier fallback strategy, LINQ to Polars, and F# `query { ... }` computation expressions.
+- [LINQ & Query Expressions](/articles/linq) - Execution tiers, managed UDF pushdown, the BCL mapping tables, query settings, the IR optimizer, and F# `query { ... }` computation expressions.
+- [LINQ Semantics Contract](/articles/linq-semantics) - The normative rules for nulls, NaN, arithmetic, strings, ordering and joins that every query plan follows.
 
 ## Interoperability & Platform
 - [Ecosystem & Native Interop](/articles/interop) - Native runtime package distribution, Arrow C Data Interface, ADBC, ADO.NET, ML.NET DataView, and Tensors.

@@ -59,6 +59,10 @@ module internal StringTemporalTranslator =
         sprintf "(%s)" (String.concat "|" escaped)
 
 
+    /// The largest `Split` count compiled natively.
+    [<Literal>]
+    let private maxNativeSplitPieces = 32
+
     let internal translateStringMethod
         (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
@@ -83,7 +87,18 @@ module internal StringTemporalTranslator =
             if flatArgs.IsEmpty then
                 Some(ScalarExpr.Literal(LiteralValue.String ""))
             elif flatArgs.Length = 1 then
-                eval ctx flatArgs.Head
+                // string.Concat(x) reads a null string as "", and a character sequence (`s.Take(n)`) translates to a
+                // string. Other argument types take .NET's ToString, so they run as a UDF.
+                let argType = (unwrap flatArgs.Head).Type
+
+                if argType = typeof<string> then
+                    eval ctx flatArgs.Head
+                    |> Option.map (fun arg ->
+                        ScalarExpr.Function(ScalarFunction.FormatString, [ ScalarExpr.Literal(LiteralValue.String "{}"); arg ], LogicalTypes.String))
+                elif typeof<System.Collections.Generic.IEnumerable<char>>.IsAssignableFrom argType then
+                    eval ctx flatArgs.Head
+                else
+                    None
             else
                 let argExprs = flatArgs |> List.choose (eval ctx)
                 if argExprs.Length = flatArgs.Length then
@@ -141,8 +156,13 @@ module internal StringTemporalTranslator =
             match formatExprOpt with
             | Some formatExpr ->
                 match PartialEvaluator.tryEvaluate formatExpr with
+                // An alignment, a format specifier or an escaped brace has no native form: the call runs as a UDF.
+                | Some(:? string as netFormat) when
+                    netFormat.Contains "{{" || netFormat.Contains "}}" || Regex.IsMatch(netFormat, @"\{\d+\s*[,:]")
+                    ->
+                    None
                 | Some(:? string as netFormat) ->
-                    let matches = Regex.Matches(netFormat, @"\{(\d+)(?::[^}]+)?\}")
+                    let matches = Regex.Matches(netFormat, @"\{(\d+)\}")
                     let referencedIndices =
                         matches |> Seq.map (fun m -> Int32.Parse(m.Groups.[1].Value)) |> Seq.toList
 
@@ -152,7 +172,7 @@ module internal StringTemporalTranslator =
                         let orderedExprs = referencedIndices |> List.map (fun idx -> rawItems.[idx])
                         let argExprs = orderedExprs |> List.choose (eval ctx)
                         if argExprs.Length = orderedExprs.Length then
-                            let rustFmt = Regex.Replace(netFormat, @"\{(\d+)(?::[^}]+)?\}", "{}")
+                            let rustFmt = Regex.Replace(netFormat, @"\{(\d+)\}", "{}")
                             Some(ScalarExpr.Function(ScalarFunction.FormatString, ScalarExpr.Literal(LiteralValue.String rustFmt) :: argExprs, LogicalTypes.String))
                         else
                             None
@@ -193,6 +213,35 @@ module internal StringTemporalTranslator =
             | [] ->
                 match targetS (), eval ctx arg with
                 | Some t, Some p -> Some(applyOp t p)
+                | _ -> None
+            // IndexOf(value, start[, count][, comparison]) searches a slice and adds the start back.
+            | startExpr :: tail when opName = "IndexOf" && startExpr.Type = typeof<int> ->
+                let countExpr, compExpr =
+                    match tail with
+                    | [ c ] when c.Type = typeof<int> -> Some c, None
+                    | [ c ] -> None, Some c
+                    | c :: cmp :: _ -> Some c, Some cmp
+                    | [] -> None, None
+
+                let ignoreCase =
+                    match compExpr with
+                    | Some c -> tryEvaluateCaseInsensitive c
+                    | None -> Some false
+
+                let lengthOpt =
+                    match countExpr with
+                    | Some c -> eval ctx c
+                    | None -> Some(ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Int64))
+
+                match targetS (), eval ctx arg, eval ctx startExpr, lengthOpt, ignoreCase with
+                | Some t, Some p, Some start, Some length, Some folded ->
+                    let lower e = ScalarExpr.Function(ScalarFunction.ToLower, [ e ], LogicalTypes.String)
+                    let sliced = ScalarExpr.Function(ScalarFunction.Slice, [ t; start; length ], LogicalTypes.String)
+                    let target, pattern = if folded then lower sliced, lower p else sliced, p
+                    let findExpr = ScalarExpr.Function(ScalarFunction.StrFind, [ target; pattern; ScalarExpr.Literal(LiteralValue.Bool true) ], LogicalTypes.Int64)
+                    let casted = tryTranslateCast typeof<int> findExpr |> Option.defaultValue findExpr
+                    let fullIndex = ScalarExpr.Binary(BinaryOp.Add, start, casted)
+                    Some(ScalarExpr.Function(ScalarFunction.FillNull, [ fullIndex; ScalarExpr.Literal(LiteralValue.Int32 -1) ], LogicalTypes.Int32))
                 | _ -> None
             | compExpr :: _ ->
                 match targetS (), eval ctx arg, tryEvaluateCaseInsensitive compExpr with
@@ -325,38 +374,39 @@ module internal StringTemporalTranslator =
             | _ -> None
 
         // --- Split ---
-        | "Split", [ sepExpr ] ->
+        // Native for a constant separator with no options. Other options run as a UDF, as does a count beyond
+        // maxNativeSplitPieces, because the native form has one field per piece.
+        | "Split", sepExpr :: rest when rest.Length <= 2 ->
             let sepOpt =
                 match PartialEvaluator.tryEvaluate sepExpr with
                 | Some(:? char as c) -> Some(string c)
-                | Some(:? string as s) -> Some s
+                | Some(:? string as s) when s <> "" -> Some s
                 | Some(:? (char array) as ca) when ca.Length = 1 -> Some(string ca.[0])
-                | Some(:? (string array) as sa) when sa.Length = 1 -> Some sa.[0]
+                | Some(:? (string array) as sa) when sa.Length = 1 && sa.[0] <> "" -> Some sa.[0]
                 | _ -> None
 
-            match targetS (), sepOpt with
-            | Some t, Some s ->
-                Some(ScalarExpr.Function(ScalarFunction.StrSplit, [ t; ScalarExpr.Literal(LiteralValue.String s); ScalarExpr.Literal(LiteralValue.Bool true) ], LogicalTypes.ListOfUnknown))
-            | _ -> None
+            let hasNoOptions (e: Expression) =
+                match PartialEvaluator.tryEvaluate e with
+                | Some(:? StringSplitOptions as options) -> options = StringSplitOptions.None
+                | _ -> false
 
-        | "Split", [ sepExpr; countExpr ]
-        | "Split", sepExpr :: countExpr :: _ when args.Length <= 3 ->
-            let sepOpt =
-                match PartialEvaluator.tryEvaluate sepExpr with
-                | Some(:? char as c) -> Some(string c)
-                | Some(:? string as s) -> Some s
-                | Some(:? (char array) as ca) when ca.Length = 1 -> Some(string ca.[0])
-                | Some(:? (string array) as sa) when sa.Length = 1 -> Some sa.[0]
-                | _ -> None
-
+            // Some None: no count. Some(Some n): at most n pieces. None: not native.
             let countOpt =
-                match PartialEvaluator.tryEvaluate countExpr with
-                | Some(:? int as n) -> Some n
+                match rest with
+                | [] -> Some None
+                | [ options ] when options.Type = typeof<StringSplitOptions> -> if hasNoOptions options then Some None else None
+                | countExpr :: tail when countExpr.Type = typeof<int> && List.forall hasNoOptions tail ->
+                    match PartialEvaluator.tryEvaluate countExpr with
+                    | Some(:? int as n) when n >= 1 && n <= maxNativeSplitPieces -> Some(Some n)
+                    | _ -> None
                 | _ -> None
 
             match targetS (), sepOpt, countOpt with
-            | Some t, Some s, Some n ->
-                Some(ScalarExpr.Function(ScalarFunction.StrSplitN, [ t; ScalarExpr.Literal(LiteralValue.String s); ScalarExpr.Literal(LiteralValue.Int32 n) ], LogicalTypes.ListOfUnknown))
+            | Some t, Some s, Some None ->
+                Some(ScalarExpr.Function(ScalarFunction.StrSplit, [ t; ScalarExpr.Literal(LiteralValue.String s); ScalarExpr.Literal(LiteralValue.Bool true) ], LogicalTypes.ListOfUnknown))
+            | Some t, Some s, Some(Some n) ->
+                let split = ScalarExpr.Function(ScalarFunction.StrSplitN, [ t; ScalarExpr.Literal(LiteralValue.String s); ScalarExpr.Literal(LiteralValue.Int32 n) ], LogicalTypes.ListOfUnknown)
+                Some(ScalarExpr.Conditional(ScalarExpr.Unary(UnaryOp.IsNull, t), ScalarExpr.Literal(LiteralValue.Null(LogicalType.ListOf LogicalTypes.String)), split))
             | _ -> None
 
         // --- Trim / TrimStart / TrimEnd ---

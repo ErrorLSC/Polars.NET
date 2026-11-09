@@ -71,7 +71,7 @@ let df =
 // 1. Write partitioned Delta table
 df.WriteDelta(
     path = "./lake/devices",
-    partitionBy = pl.col "Device",
+    partitionBy = pl.cs.byName [ "Device" ],
     mode = DeltaSaveMode.Overwrite,
     mkdir = true
 )
@@ -142,7 +142,7 @@ ulong newVersion = Delta.Restore("./lake/devices", version: 1UL);
 let historyDf = Delta.History "./lake/devices"
 
 // 2. Roll back to Version 1
-let newVersion = Delta.Restore("./lake/devices", version: 1UL)
+let newVersion = Delta.Restore("./lake/devices", version = 1UL)
 ```
 
 :::
@@ -206,6 +206,9 @@ let deletedFiles =
 
 When `DeltaTableProperties.EnableChangeDataFeed` is enabled, row-level mutations are recorded in the Delta log. Consumers can subscribe to these mutations incrementally without scanning the full table:
 
+> [!WARNING] Writing to a CDF-Enabled Table
+> Polars.NET reads the change data feed but does not write to a table with `delta.enableChangeDataFeed` set. By design, the native library is built without DataFusion, which delta-rs requires to commit to such a table, so `WriteDelta` and the other writers fail with `Unsupported table features required`. Enable the property only on tables that another engine, such as Spark, writes to.
+
 ::: code-group
 
 ```csharp [C# (Fluent)]
@@ -227,6 +230,9 @@ var changes = cdcStream.Collect();
 ```
 
 ```fsharp [F# (Pipeline)]
+// Enable Change Data Feed on the table
+Delta.SetTableProperties("./lake/devices", [ DeltaTableProperties.EnableChangeDataFeed, "true" ])
+
 // Stream incremental CDC changes
 let cdcStream =
     Delta.ReadChangeDataFeed(
@@ -266,10 +272,10 @@ sourceBatch.MergeDeltaOrdered(
     canEvolve: true // Enable automatic schema evolution
 )
 // 1. Delete rows marked as deleted in the source
-.WhenMatchedDelete(Delta.Source("IsDeleted") == true)
+.WhenMatchedDelete(m => m.Source("IsDeleted"))
 
 // 2. Update matched rows when the incoming reading is newer
-.WhenMatchedUpdate(Delta.Source("Reading") > Delta.Target("Reading"))
+.WhenMatchedUpdate(m => m.Source("Reading") > m.Target("Reading"))
 
 // 3. Insert non-matching rows from the source
 .WhenNotMatchedInsert()

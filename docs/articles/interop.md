@@ -313,9 +313,15 @@ open Polars.FSharp
 
 task {
     use! reader = command.ExecuteReaderAsync()
-    for batch in reader.ReadDatabaseBatchesAsync(batchSize = 50_000) do
-        use b = batch
-        printfn $"Ingested %d{b.Height} rows."
+    let batches = reader.ReadDatabaseBatchesAsync(batchSize = 50_000).GetAsyncEnumerator()
+    let rec consume () = task {
+        let! more = batches.MoveNextAsync()
+        if more then
+            use b = batches.Current
+            printfn $"Ingested %d{b.Height} rows."
+            do! consume ()
+    }
+    do! consume ()
 }
 ```
 
@@ -419,8 +425,8 @@ var mlContext = new MLContext();
 IDataView dataView = df.AsDataView();
 
 // 2. Train an ML.NET pipeline directly on Polars data
-var pipeline = mlContext.Transforms.NormalizeMinMax("Features")
-    .Append(mlContext.Regression.Trainers.Sdca(labelColumnName: "Target", featureColumnName: "Features"));
+var pipeline = mlContext.Transforms.NormalizeMinMax("NormalizedFeatures", "Features")
+    .Append(mlContext.Regression.Trainers.Sdca(labelColumnName: "Target", featureColumnName: "NormalizedFeatures"));
 var model = pipeline.Fit(dataView);
 
 // 3. Transform predictions back to a Polars DataFrame
@@ -438,7 +444,7 @@ Modern .NET 8 / 9+ includes `System.Numerics.Tensors.Tensor<T>` and `ReadOnlyTen
 ```csharp
 using System.Numerics.Tensors;
 
-using var embSeries = df["embeddings"]; // e.g. Array[f32, 128] or flat Series
+using var embSeries = df["embeddings"]; // An Array[f32, 128] column; AsTransposedTensorSpan requires an Array column
 
 // 1. Zero-copy TensorSpan view
 ReadOnlyTensorSpan<float> tensorSpan = embSeries.AsTensorSpan<float>();
@@ -520,10 +526,16 @@ open Polars.FSharp
 let lf = LazyFrame.ScanParquet "huge_dataset/*.parquet"
 
 task {
-    for batch in lf.CollectBatchesAsync(chunkSize = 50_000L) do
-        use b = batch
-        printfn $"Received streaming batch of %d{b.Height} rows"
-        do! exportBatchToCloud b
+    let batches = lf.CollectBatchesAsync(chunkSize = 50_000L).GetAsyncEnumerator()
+    let rec consume () = task {
+        let! more = batches.MoveNextAsync()
+        if more then
+            use b = batches.Current
+            printfn $"Received streaming batch of %d{b.Height} rows"
+            do! exportBatchToCloud b
+            do! consume ()
+    }
+    do! consume ()
 }
 ```
 
@@ -557,4 +569,111 @@ let! totalTemp =
     |> RowsAsync.fold (fun acc s -> acc + s.Temperature) 0.0
 ```
 
+---
 
+## 9. Off-Heap Writes: `NativeMemory` and `PipeWriter`
+
+The `Write*Memory()` methods return a managed `byte[]`, which is a copy on the managed heap. For large payloads, or services that care about GC pauses, Polars.NET has two ways to serialize without that copy.
+
+### `*NativeMemory`: Rust-Owned Buffers
+
+Each method returns a `NativeBuffer` (`Polars.NET.Core`) that holds the serialized bytes in native memory, without touching the managed heap:
+
+| Format | `DataFrame` | `LazyFrame` |
+| :--- | :--- | :--- |
+| Arrow IPC stream | `WriteIpcStreamNativeMemory` | None |
+| Arrow IPC file | `WriteIpcNativeMemory` | `SinkIpcNativeMemory` |
+| Parquet | `WriteParquetNativeMemory` | `SinkParquetNativeMemory` |
+| CSV | `WriteCsvNativeMemory` | `SinkCsvNativeMemory` |
+| JSON / NDJSON | `WriteJsonNativeMemory` (C# only) | `SinkJsonNativeMemory` (NDJSON) |
+| Avro | `WriteAvroNativeMemory` | None |
+
+`NativeBuffer` is a `MemoryManager<byte>`, so it is also an `IMemoryOwner<byte>`:
+
+| Member | Description |
+| :--- | :--- |
+| `Length`, `IsDisposed` | Size in bytes, and whether the buffer was disposed |
+| `GetSpan()`, `Memory` | Direct view of the native bytes |
+| `Pin()` | A `MemoryHandle` for passing the pointer to native code |
+| `AsStream()` | A read-only `Stream` over the bytes |
+| `WriteTo(stream)`, `WriteToAsync(stream, token)` | Copy the bytes to a destination |
+| `ToArray()` | Copy to a managed `byte[]` |
+
+```csharp
+using Polars.CSharp;
+using Polars.NET.Core;
+
+using var df = DataFrame.FromColumns(new { id = new[] { 1, 2, 3 }, name = new[] { "a", "b", "c" } });
+
+using (NativeBuffer buffer = df.WriteIpcStreamNativeMemory())
+{
+    ReadOnlySpan<byte> bytes = buffer.GetSpan();
+    Console.WriteLine($"{bytes.Length} bytes, none of them on the managed heap");
+
+    await using var file = File.Create("out.arrows");
+    await buffer.WriteToAsync(file);
+
+    using var back = DataFrame.ReadIpcStream(buffer.GetSpan());
+}
+
+// LazyFrame: the query runs and its result is serialized in native memory.
+using NativeBuffer parquet = df.Lazy().Filter(Polars.CSharp.Polars.Col("id") > 1).SinkParquetNativeMemory();
+using var filtered = DataFrame.ReadParquet(parquet.AsStream());
+```
+
+```fsharp
+open Polars.FSharp
+
+let df = DataFrame.create [ pl.series "id" [ 1; 2; 3 ] ]
+
+let writeToFile () =
+    use buffer = df.WriteIpcStreamNativeMemory()   // Dispose is reached through `use`
+    printfn "%d bytes" buffer.Length
+
+    use file = System.IO.File.Create "out.arrows"
+    buffer.WriteTo file
+
+let parquetSize () =
+    use parquet = df.Lazy().SinkParquetNativeMemory()
+    parquet.Length
+```
+
+> [!WARNING] Lifetime
+> A span or `Memory<byte>` from a `NativeBuffer` must not be used after `Dispose`. A pin from `Pin()` or a stream from `AsStream()` keeps the memory alive past `Dispose` until it is released itself. These methods are synchronous; there are no async variants. An IPC stream is read back with `DataFrame.ReadIpcStream`, which accepts a path or a span, and not with `ReadIpc`.
+
+### `PipeWriter`: Streaming Without Buffering the Payload
+
+Every `Write*Async` on `DataFrame` and `Sink*Async` on `LazyFrame`, for Parquet, IPC, CSV, JSON and (on `DataFrame`) IPC stream and Avro, has an overload that takes a `System.IO.Pipelines.PipeWriter`. It streams each chunk to the writer as Rust produces it, and it honors the reader's backpressure, so the whole payload never sits in memory. This fits ASP.NET Core's `HttpResponse.BodyWriter` and `Socket` or Kestrel pipelines. Overloads that take a `Stream` also exist, in both sync and async forms.
+
+```csharp
+using System.IO.Pipelines;
+
+var pipe = new Pipe();
+using var collected = new MemoryStream();
+Task reading = pipe.Reader.CopyToAsync(collected);
+
+await df.WriteIpcStreamAsync(pipe.Writer);   // cancellationToken: is the last optional parameter
+
+await pipe.Writer.CompleteAsync();           // The caller completes the writer
+await reading;
+```
+
+```fsharp
+open System.IO
+open System.IO.Pipelines
+
+let pipe = Pipe()
+let collected = new MemoryStream()
+let reading = pipe.Reader.CopyToAsync collected
+
+df.WriteIpcStreamAsync(pipe.Writer).GetAwaiter().GetResult()
+pipe.Writer.Complete()
+reading.GetAwaiter().GetResult()
+```
+
+* The overloads flush the writer and never complete it, so you can append more data first. Completing it is the caller's job.
+* There is no synchronous `PipeWriter` overload.
+* `CancellationToken` cancels the write with `OperationCanceledException`, including during backpressure.
+* If the query fails, the exception propagates and the writer is left open. If the reader stops early, the write fails with `IOException`.
+
+---

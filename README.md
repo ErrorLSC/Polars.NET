@@ -121,7 +121,7 @@ using var summaryDf = lf
     .Agg(
         Pl.Col("revenue").Sum().Alias("total_revenue"),
         Pl.Col("customer_id").NUnique().Alias("unique_customers"),
-        Cs.Numeric().Mean().Name.Prefix("avg_")
+        Cs.Numeric().ToExpr().Mean().Name.Prefix("avg_")
     )
     .Sort("total_revenue", descending: true)
     .Collect();
@@ -134,6 +134,7 @@ summaryDf.Show();
 F# strong typing CE, anonymous records, and pipeline combinators over native queries:
 
 ```fsharp
+open System.Linq
 open Polars.FSharp
 open Polars.FSharp.Query
 

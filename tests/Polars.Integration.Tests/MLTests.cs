@@ -10,6 +10,25 @@ namespace Polars.Integration.Tests;
 
 public class DataViewConversionTests
 {
+    private sealed class HiddenColumnRow
+    {
+        public float X { get; set; }
+    }
+
+    [Fact]
+    [Trait("ML", "DataView")]
+    public void InPlace_Transform_Exports_Only_Its_Visible_Column()
+    {
+        var mlContext = new MLContext();
+        var input = mlContext.Data.LoadFromEnumerable(new[] { new HiddenColumnRow { X = 1 }, new HiddenColumnRow { X = 3 } });
+        var transformed = mlContext.Transforms.Concatenate("X", "X").Fit(input).Transform(input);
+
+        using var df = transformed.ToDataFrame();
+
+        Assert.Equal(["X"], df.ColumnNames);
+        Assert.Equal(2, df.Height);
+    }
+
     [Fact]
     [Trait("ML", "DataView")]
     public void PrimitiveTypes_RoundTrip_ShouldMaintainAbsoluteFidelity()

@@ -388,9 +388,7 @@ pub(crate) async fn phase_commit_and_cleanup(
         match commit_res {
             Ok(_) => break, 
             
-            Err(deltalake::errors::DeltaTableError::CommitValidation { .. }) 
-            | Err(deltalake::errors::DeltaTableError::VersionAlreadyExists(_)) 
-            | Err(deltalake::errors::DeltaTableError::Transaction { .. }) => {
+            Err(e) if crate::delta::utils::is_retryable_commit_error(&e) => {
                 if attempt < max_attempts {
                     let base_sleep = 50_u64.saturating_mul(2_u64.pow(attempt - 1));
                     let capped_sleep = std::cmp::min(base_sleep, 1000);

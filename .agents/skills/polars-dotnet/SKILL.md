@@ -52,13 +52,14 @@ Console.WriteLine(query.Explain());
 // Materialize back to Polars DataFrame/LazyFrame (zero object hydration!) or to .NET objects (.ToList() / .ToArray())
 using DataFrame resultDf = query.ToDataFrame();
 ```
-- **Standard BCL Mappings**: `string.*` (`Contains`, `StartsWith`, `ToUpper`, `Trim`, `Replace`, `Substring`, etc.), `Math.*`, `DateTime` / `DateOnly` / `TimeSpan` properties and arithmetic, `Regex.IsMatch`, window functions, subqueries (`Any`, `All`, `Count`, `Sum`), and multi-key `Join` / `GroupJoin` (`DefaultIfEmpty` Left Join) are natively translated.
+- **LINQ compiler**: queries compile to an optimized logical plan and run natively. All 22 TPC-H and 99 TPC-DS queries run as LINQ without client-side fallback. Results follow .NET semantics by default (null, NaN, integer division, ordinal strings): see the semantics cheat sheet and the mapped BCL table in [references/linq-and-query-ce.md](./references/linq-and-query-ce.md).
+- **Standard BCL Mappings**: `string.*` (`Contains`, `StartsWith`, `ToUpper`, `Trim`, `Replace`, `Substring`, etc.), `Math.*`, `DateTime` / `DateOnly` properties and date arithmetic with constant amounts, `Regex.*`, JSON, list-column operators, window functions, subqueries (`Any`, `All`, `Count`, `Sum`), and multi-key `Join` / `GroupJoin` (`DefaultIfEmpty` Left Join) are natively translated.
 - **Native Managed UDF Pushdown (Where, Select, GroupBy, Multidimensional Grouping & TypedMerge)**:
   - Custom C# static/instance methods, lambdas, and extension methods are natively pushed down to Rust Polars via zero-copy Arrow batch callbacks (`ArrowUdfBatchAdapter`).
-  - **Filter & Projection UDFs**: Supported in `.Where(...)` and `.Select(...)` for both single-column and multi-column signatures (e.g. `where CheckSecurity(e.Name, e.Salary)`).
+  - **Filter & Projection UDFs**: Supported in `.Where(...)`, `.Select(...)`, `.OrderBy(...)` and group keys, for one column or several columns to one value (e.g. `where CheckSecurity(e.Name, e.Salary)`). Pushdown is on by default. `Pl.Config.SetDisallowUdfPushdown(true)` turns it off.
   - **Group-Level Aggregation UDFs**: Supported inside `.GroupBy(...)`, `.RollUp(...)`, `.Cube(...)`, and `.GroupingSets(...)` over sequences, arrays, or lists (e.g. `Spread = g.Select(x => x.Salary).CustomSpread()`, `WeightedAvg = MyStats.WeightedAverage(g.Select(x => x.Salary), g.Select(x => x.Age))`, `AggSum = g.Select(x => x.Salary).Aggregate(...)`, or whole group `TotalPayroll(g)`).
   - **TypedMerge UDFs**: Fully supported in `WhenMatched` / `WhenNotMatchedByTarget` / `WhenNotMatchedBySource` conditions and `Update` / `Insert` value setters.
-  - **Diagnostic Report**: `query.Explain()` explicitly marks `[Polars.NET Query Plan - 100% Native Pushdown (with C# UDF Callback)]` and enumerates all pushed-down UDF signatures.
+  - **Diagnostic Report**: `query.Explain()` explicitly marks `[Query Plan - 100% Native Pushdown (with C# UDF Callback)]` and enumerates all pushed-down UDF signatures.
 - **Multidimensional Grouping Extensions (ROLLUP, CUBE, GROUPING SETS)**:
   - Natively compiles hierarchical subtotals and grand totals across key dimensions into unified Rust LazyFrame execution plans:
     - `.RollUp(...)` / `.Rollup(...)`: Hierarchical rollup across dimensions.
@@ -73,11 +74,11 @@ using DataFrame resultDf = query.ToDataFrame();
 - **Client Fallback & Policy (`PolarsPushdownException`)**:
   - By default, `ClientEvaluationPolicy.Strict` is active.
   - Custom C# methods in `Where`, `Select`, and `GroupBy` are pushed down via native Arrow UDF callbacks automatically.
-  - If an expression contains an untranslatable blackbox operation (e.g. opaque whole-entity client references) or if UDF pushdown is explicitly blocked via `PolarsConfig.SetDisallowUdfPushdown(true)`, Polars.NET throws `PolarsPushdownException` under Strict policy, or falls back to client evaluation (`Hybrid Execution`) under `ClientEvaluationPolicy.Allow`.
+  - If an expression contains an untranslatable operation (e.g. a method that takes the whole row object, as in `Where(x => IsValid(x))`) or if UDF pushdown is blocked via `Pl.Config.SetDisallowUdfPushdown(true)`, Polars.NET throws `PolarsPushdownException` under Strict policy, or falls back to client evaluation (`Hybrid Execution`) under `ClientEvaluationPolicy.Allow`.
 - **3-Tier Strategy for Operations Beyond Standard LINQ**:
   1. **Standard LINQ**: Use standard clauses (`Where`, `Select`, `GroupBy`, `Join`, `OrderBy`).
   2. **Polars LINQ Extensions**: For analytical operations not covered by standard LINQ syntax, use extensions inside `using Polars.CSharp.Linq;`:
-     - Multidimensional Grouping: `.RollUp()`, `.Cube()`, `.GroupingSets()`, and `.Grouping()`
+     - Multidimensional Grouping: `.RollUp()`, `.Cube()`, `.GroupingSets()`, `.Grouping()` and `.GroupingId()`
      - Window functions: `.Over(e => e.DeptId)` / `.Over(partitionBy, orderBy)`
      - Time-series lag/lead: `x.Close.Shift(1)`
      - Differencing: `x.Close.Diff(1)`
@@ -115,7 +116,7 @@ Choose one of two idiomatic import styles in C#:
 
    using var res = df.Select(
        Col("name"),
-       When(Col("score") >= 60).Then("Pass").Otherwise("Fail").Alias("grade")
+       When(Col("score") >= 60).Then(Lit("Pass")).Otherwise(Lit("Fail")).Alias("grade")
    );
    ```
 - Deep dive: [references/csharp-idioms.md](./references/csharp-idioms.md)
@@ -179,8 +180,8 @@ F# developers have three complementary styles that interoperate seamlessly:
 
    | Wrapper Type | Where Used | Implicitly Accepts |
    | :--- | :--- | :--- |
-   | `IntoExprColumn` | `Select`, `GroupBy`, `Sort`, `Filter` | `string` (parsed as **column name** `Pl.Col(s)`!), `Expr`, `Selector`, `Series`, `DataType`, `Type`, numbers/dates/arrays (as `Lit`) |
-   | `IntoExpr` | `When/Then/Otherwise`, `FillNull`, `Lit` | `string` (parsed as **string literal** `Pl.Lit(s)`!), `Expr`, `Series`, numbers, `bool`, `DateTime`, `DateOnly`, `TimeSpan` |
+   | `IntoExprColumn` | `Select`, `GroupBy`, `Sort`, `Filter`, `Then`, `Otherwise` | `string` (parsed as **column name** `Pl.Col(s)`!), `Expr`, `Selector`, `Series`, `DataType`, `Type`, numbers/dates/arrays (as `Lit`) |
+   | `IntoExpr` | `FillNull`, `Lit` | `string` (parsed as **string literal** `Pl.Lit(s)`!), `Expr`, `Series`, numbers, `bool`, `DateTime`, `DateOnly`, `TimeSpan` |
    | `IntoSelector` | `Drop`, `Unique`, `Unpivot`, `df[...]` | `Selector` (`Cs.*`), `string` (column name), `DataType`, `Type` (e.g. `typeof(int)`), column-selection `Expr` |
    | `StringOrExpr` | `Expr.Str.*` (`Contains`, `Replace`, etc.) | `string` pattern/literal OR `Expr` |
    | `IntOrExpr` | `Gather`, `Slice`, `Shift`, `Reshape` | `int` / `long` OR `Expr` |
@@ -191,7 +192,8 @@ F# developers have three complementary styles that interoperate seamlessly:
    > [!IMPORTANT]
    > **`IntoExprColumn` vs `IntoExpr` for `string`**:
    > In `df.Select("a", "b")`, `"a"` is an `IntoExprColumn` so it means `Pl.Col("a")`.
-   > In `expr.FillNull("unknown")` or `Pl.When(...).Then("yes").Otherwise("no")`, the parameter is `IntoExpr` so `"unknown"` means `Pl.Lit("unknown")`!
+   > In `expr.FillNull("unknown")`, the parameter is `IntoExpr` so `"unknown"` means `Pl.Lit("unknown")`!
+   > In `Pl.When(...).Then("yes").Otherwise("no")`, the parameters are `IntoExprColumn`, so `"yes"` means `Pl.Col("yes")`. Write `.Then(Pl.Lit("yes"))` for a text value.
    > In binary operators like `Pl.Col("a") == "foo"`, `"foo"` is compared as a literal value; to compare two columns, write `Pl.Col("a") == Pl.Col("b")`.
 4. **First-Class .NET Collection Protocols**:
    - **`DataFrame` implements `IEnumerable<Series>` (`seq<Series>`)**:
@@ -234,8 +236,8 @@ F# developers have three complementary styles that interoperate seamlessly:
     use df2 = baseLf |> LazyFrame.filter (pl.col "status" .== pl.lit "failed") |> LazyFrame.collect
     ```
 - **Fast-Path Typed Row Iteration (`df.Rows<T>()`) & Stack Enumerators**:
-  - While untyped `foreach (var row in df.Rows())` is an anti-pattern (untyped, boxing, GC pressure), when row-by-row iteration is genuinely required, use strongly-typed `df.Rows<T>()`.
-  - In C#, `df.Rows<T>()` returns `DataFrameRowEnumerator<T>`, a stack-allocated `ref struct` with pre-compiled fast-path accessors and zero GC heap allocations.
+  - When row-by-row iteration is genuinely required, use strongly-typed `df.Rows<T>()`. There is no untyped `df.Rows()`.
+  - In C#, `df.Rows<T>()` returns `DataFrameRowEnumerator<T>`, a stack-allocated `ref struct` with pre-compiled fast-path accessors and zero GC heap allocations. A `ref struct` cannot cross an `await`, so use `ToAsyncEnumerable<T>()` in async code.
   - In F#, `df.Rows<'T>()` returns a `[<Struct>] RowEnumerator<'T>`. Use the `Rows` module for inlined stack-based functional combinators: `Rows.fold`, `Rows.reduce`, `Rows.scan`, `Rows.iter`, and `Rows.mapToArray`. Also supported: `df.MapRows<'TIn, 'TOut>(mapping)` and `df.IterRows<'T>(action)`.
   - In F#, `series.As<'T>()` returns a `[<Struct>] SeriesEnumerator<'T>` for zero-allocation duck-typed `for item in series.As<int>() do ...`. Supported higher-order functions include `Series.map`, `Series.mapi`, `Series.mapOption`, `Series.iter`, `Series.iterOpt`, `Series.exists`, `Series.forall`, `Series.contains`.
 - **Asynchronous Streaming (`IAsyncEnumerable`)**:
@@ -243,6 +245,11 @@ F# developers have three complementary styles that interoperate seamlessly:
   - `LazyFrame.CollectBatchesAsync()` emits native DataFrame batches as soon as computed by Rust.
   - LINQ queries support `query.AsAsyncEnumerable()` and `IAsyncEnumerable<T>.ToDataFrameAsync()`.
   - F# supports `df.RowsAsync<'T>()`, `lf.RowsAsync<'T>()`, and `RowsAsync.*` pipeline operators (`toList`, `fold`, `filter`, `map`).
+- **Delta Change Data Feed is read-only**: `Delta.ReadChangeDataFeed` works, but writers fail on a table with `delta.enableChangeDataFeed` set (`Unsupported table features required`). This is by design: the native library is built without DataFusion.
+- **Off-Heap Serialization**:
+  - `df.WriteIpcStreamNativeMemory()` and its Parquet, IPC, CSV, JSON and Avro siblings return a `NativeBuffer` of Rust-owned bytes, without a managed `byte[]`. Dispose it, and do not use its spans afterwards.
+  - Every `Write*Async` / `Sink*Async` has a `PipeWriter` overload that streams with backpressure. It flushes the writer but never completes it, so complete it yourself.
+  - See [references/interop.md](./references/interop.md#9-off-heap-writes-nativememory-and-pipewriter).
 - **Polars.NET Exclusive: SQL MERGE / Upsert**:
   - Full ANSI SQL `MERGE` semantics natively integrated into query planning (exclusive to Polars.NET, not in Python).
   - C# Fluent: `targetDf.Merge(sourceDf, "Id").WhenMatchedUpdate(...).Execute()`.
@@ -253,10 +260,11 @@ F# developers have three complementary styles that interoperate seamlessly:
 
 ## 3. Detailed Reference Files
 Load these on demand depending on your task:
-- **Ecosystem Interoperability (Native Runtimes, Spans, Arrow, ADBC, ADO.NET, ML.NET DataView, Tensors)**: [references/interop.md](./references/interop.md)
+- **Ecosystem Interoperability (Native Runtimes, Spans, Arrow, ADBC, ADO.NET, ML.NET DataView, Tensors, NativeMemory, PipeWriter)**: [references/interop.md](./references/interop.md)
 - **C# DSL, Indexers, IO, Arrow, and UDFs**: [references/csharp-idioms.md](./references/csharp-idioms.md)
 - **F# Modules, Operators, and Hybrid OOP/FP Patterns**: [references/fsharp-idioms.md](./references/fsharp-idioms.md)
-- **LINQ Provider & F# Query CE Deep Dive**: [references/linq-and-query-ce.md](./references/linq-and-query-ce.md)
+- **LINQ Provider & F# Query CE Deep Dive (UDF rules, mapped BCL table, semantics, settings, optimizer)**: [references/linq-and-query-ce.md](./references/linq-and-query-ce.md)
+- **Normative LINQ semantics**: `kernel/Samidare/IR/SEMANTICS.md`
 - **Full Generated API Markdown Reference**:
   - C# API Pages: `docs/api/csharp_generated/` (index in [toc.yml](../../docs/api/csharp_generated/toc.yml))
   - F# API Pages: `docs/api/fsharp_generated/` (index in [toc.yml](../../docs/api/fsharp_generated/toc.yml))

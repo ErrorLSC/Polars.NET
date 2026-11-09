@@ -387,7 +387,7 @@ module internal OperatorAndUdfTranslator =
     let rec private udfInputs (ctx: TranslationContext) (a: Expression) : Expression list =
         if isNull a || not (exprDependsOnContext ctx a) then
             []
-        elif not (ListTranslator.isDictionary a.Type) then
+        elif not (ListTranslator.isDictionary a.Type || RegexTranslator.readsMatchCollection a) then
             [ a ]
         else
             let children: Expression list =
@@ -456,7 +456,9 @@ module internal OperatorAndUdfTranslator =
                         let isSupportedReturn =
                             match enumUnderlying with
                             | Some _ -> true
-                            | None -> ScalarExprOps.isUdfReturnTypeSupported expr.Type
+                            | None ->
+                                ScalarExprOps.isUdfReturnTypeSupported expr.Type
+                                && not (RegexTranslator.readsMatchCollection expr && (LogicalTypes.tryOfClrType expr.Type).IsNone)
 
                         if not isSupportedReturn then
                             None
@@ -473,6 +475,9 @@ module internal OperatorAndUdfTranslator =
                                         match ClrTypeHelper.UnwrapOptionalValue(v, optionalKind) with
                                         | null -> null
                                         | payload -> Convert.ChangeType(payload, underlying))
+                                // A char travels as a one-character string.
+                                | None when expr.Type = typeof<char> || expr.Type = typeof<Nullable<char>> ->
+                                    typeof<string>, (fun (v: obj) -> if isNull v then null else box (string (v :?> char)))
                                 | None -> expr.Type, id
 
                             let wrapResult (udf: ScalarExpr) =

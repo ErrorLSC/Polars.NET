@@ -221,3 +221,35 @@ let ``Scenario 4: Delta Lake Maintenance (Delete, Optimize, Vacuum)`` () =
     finally
         if Directory.Exists testPath then
             Directory.Delete(testPath, true)
+
+[<Fact>]
+let ``Delta commit reports an unsupported table feature without retrying`` () =
+    let testPath = Path.Combine(Path.GetTempPath(), $"delta_test_cdf_{Guid.NewGuid()}")
+
+    try
+        let df = DataFrame.create [ pl.series "Id" [ 1; 2 ] ]
+        df.WriteDelta(testPath, mode = DeltaSaveMode.Overwrite, mkdir = true)
+        Delta.SetTableProperties(testPath, [ DeltaTableProperties.EnableChangeDataFeed, "true" ])
+
+        let error =
+            Assert.ThrowsAny<Exception>(fun () ->
+                df.WriteDelta(testPath, mode = DeltaSaveMode.Append) |> ignore)
+
+        Assert.Contains("Unsupported table features", error.Message)
+        Assert.DoesNotContain("Max retry attempts", error.Message)
+    finally
+        if Directory.Exists testPath then Directory.Delete(testPath, true)
+
+[<Fact>]
+let ``Reading the change data feed of a table without one raises an exception`` () =
+    let testPath = Path.Combine(Path.GetTempPath(), $"delta_test_nocdf_{Guid.NewGuid()}")
+
+    try
+        let df = DataFrame.create [ pl.series "Id" [ 1; 2 ] ]
+        df.WriteDelta(testPath, mode = DeltaSaveMode.Overwrite, mkdir = true)
+
+        Assert.ThrowsAny<Exception>(fun () ->
+            Delta.ReadChangeDataFeed(path = testPath, startVersion = 0L, endVersion = 0L) |> ignore)
+        |> ignore
+    finally
+        if Directory.Exists testPath then Directory.Delete(testPath, true)

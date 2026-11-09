@@ -333,10 +333,16 @@ let lf =
 
 // Consume asynchronous stream without blocking the main thread
 task {
-    for batch in lf.CollectBatchesAsync(chunkSize = 50_000L) do
-        use b = batch
-        printfn $"Processed batch of %d{b.Height} error records."
-        do! postToAlertSystem b
+    let batches = lf.CollectBatchesAsync(chunkSize = 50_000L).GetAsyncEnumerator()
+    let rec consume () = task {
+        let! more = batches.MoveNextAsync()
+        if more then
+            use b = batches.Current
+            printfn $"Processed batch of %d{b.Height} error records."
+            do! postToAlertSystem b
+            do! consume ()
+    }
+    do! consume ()
 }
 ```
 

@@ -399,9 +399,7 @@ pub(crate) fn merge_delta_internal(
         match commit_result {
             Ok(_) => return Ok(()),
             
-            Err(deltalake::errors::DeltaTableError::CommitValidation { .. }) 
-            | Err(deltalake::errors::DeltaTableError::VersionAlreadyExists(_)) 
-            | Err(deltalake::errors::DeltaTableError::Transaction { .. }) => {
+            Err(e) if crate::delta::utils::is_retryable_commit_error(&e) => {
                 
                 if attempt < max_attempts {
                     rt.block_on(async {

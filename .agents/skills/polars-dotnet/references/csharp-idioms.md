@@ -38,7 +38,7 @@ using var df2 = new DataFrame(
 // 3. From strongly-typed POCOs / records / structs
 using var df3 = DataFrame.From(employees);
 // Convert back to strongly-typed records/classes:
-List<Employee> list = df3.ToRecords<Employee>().ToList();
+List<Employee> list = df3.AsEnumerable<Employee>().ToList().ToList();
 
 // 4. Zero-copy Apache Arrow Interop
 using var dfArrow = DataFrame.FromArrow(recordBatch);
@@ -98,10 +98,11 @@ DataFrame filtered = df[df["Age"] >= 18, ["Name", "Age"]]; // Boolean Series mas
 
 ### Conditionals (`When / Then / Otherwise`)
 ```csharp
-Pl.When(Pl.Col("score") >= 90).Then("A")
-  .When(Pl.Col("score") >= 60).Then("B")
-  .Otherwise("F")
-  .Alias("grade")
+// Then / Otherwise read a bare string as a column name, so wrap text values in Pl.Lit
+var grade = Pl.When(Pl.Col("score") >= 90).Then(Pl.Lit("A"))
+  .When(Pl.Col("score") >= 60).Then(Pl.Lit("B"))
+  .Otherwise(Pl.Lit("F"))
+  .Alias("grade");
 ```
 
 ### Sub-namespaces on `Expr` and `Series`
@@ -122,7 +123,7 @@ Selectors allow selecting columns by type, pattern, or set algebra (`|`, `&`, `-
 using Cs = Polars.CSharp.Polars.Selectors;
 
 // Select all numeric columns except "id", and fill nulls with 0
-df.WithColumns((Cs.Numeric() - Cs.ByName("id")).FillNull(0));
+df.WithColumns((Cs.Numeric() - Cs.ByName("id")).ToExpr().FillNull(0));
 
 // Select strings or columns matching regex
 df.Select(Cs.String() | Cs.Matches("^meta_.*"));

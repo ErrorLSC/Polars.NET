@@ -194,7 +194,19 @@ public static unsafe class ArrowStreamInterop
 
     public static DataFrameHandle ImportForeignStream(IArrowArrayStream stream)
     {
+        // A stream from ToArrowStream wraps an imported C stream.
+        if (stream is SafePolarsExportStream exported)
+        {
+            stream = exported.Inner;
+        }
+
+        // Only an imported C stream holds the struct that can be moved out directly. Any other stream is a managed
+        // implementation, and reading its object layout would read unrelated memory.
         var type = stream.GetType();
+        if (type.GetField("_cArrayStream", BindingFlags.NonPublic | BindingFlags.Instance) is null)
+        {
+            return ImportManagedStream(stream);
+        }
 
         // ==========================================
         // Step 1: Sniff
@@ -268,6 +280,25 @@ public static unsafe class ArrowStreamInterop
         finally
         {
             if (allocatedStream != null) Apache.Arrow.C.CArrowArrayStream.Free(allocatedStream);
+            GC.KeepAlive(stream);
+        }
+    }
+
+    /// <summary>
+    /// Imports a managed stream by exporting it through the Arrow C stream interface.
+    /// </summary>
+    private static DataFrameHandle ImportManagedStream(IArrowArrayStream stream)
+    {
+        var allocatedStream = Apache.Arrow.C.CArrowArrayStream.Create();
+
+        try
+        {
+            Apache.Arrow.C.CArrowArrayStreamExporter.ExportArrayStream(stream, allocatedStream);
+            return ErrorHelper.Check(NativeBindings.pl_dataframe_new_from_stream_strict_type((CArrowArrayStream*)allocatedStream));
+        }
+        finally
+        {
+            Apache.Arrow.C.CArrowArrayStream.Free(allocatedStream);
             GC.KeepAlive(stream);
         }
     }
@@ -488,6 +519,8 @@ public static unsafe class ArrowStreamInterop
 internal sealed class SafePolarsExportStream(IArrowArrayStream nativeStream, IntPtr cStream) : IArrowArrayStream
 {
     private int _isDisposed = 0;
+
+    internal IArrowArrayStream Inner => nativeStream;
 
     public Schema Schema => nativeStream.Schema;
 

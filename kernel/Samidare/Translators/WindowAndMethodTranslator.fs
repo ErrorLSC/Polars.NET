@@ -555,7 +555,10 @@ module internal WindowAndMethodTranslator =
             else
                 target, args
 
-        if (m.Name = "IsNull" || m.Name = "isNull") && args.Length = 1 then
+        // A chain over a MatchCollection that has no native form runs whole as a UDF.
+        if RegexTranslator.readsMatchCollection effectiveTarget then
+            None
+        elif (m.Name = "IsNull" || m.Name = "isNull") && args.Length = 1 then
             eval ctx args.Head
             |> Option.orElseWith (fun () -> tryResolveEntityNullTarget ctx args.Head)
             |> Option.map (fun s -> ScalarExpr.Unary(UnaryOp.IsNull, s))
@@ -624,8 +627,14 @@ module internal WindowAndMethodTranslator =
             | None -> None
 
         elif not (isNull m.DeclaringType) && typeof<Encoding>.IsAssignableFrom m.DeclaringType && m.Name = "GetByteCount" then
+            // Strings are stored as UTF-8, so only that encoding has a native byte count; any other runs as a UDF.
+            let isUtf8 =
+                match PartialEvaluator.tryEvaluate target with
+                | Some(:? Encoding as encoding) -> encoding.CodePage = Encoding.UTF8.CodePage
+                | _ -> false
+
             match args with
-            | [ strExpr ] when strExpr.Type = typeof<string> ->
+            | [ strExpr ] when strExpr.Type = typeof<string> && isUtf8 ->
                 eval ctx strExpr |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.LenBytes, [ s ], LogicalTypes.UInt32))
             | _ -> None
 

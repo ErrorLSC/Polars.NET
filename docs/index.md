@@ -41,7 +41,7 @@ var df = DataFrame.FromColumns(new
     City = new[] { "London", "Manchester", "London" },
     Temperature = new[] { 10.5, 9.0, 12.1 },
     Rain = new[] { true, true, false }
-}).WithColumn(Col("Date").Str.ToDate("%Y-%m-%d"));
+}).WithColumns(Col("Date").Str.ToDate("%Y-%m-%d"));
 
 // Filter, GroupBy & Aggregate with multi-threaded SIMD execution
 var result = df.Lazy()
@@ -97,6 +97,7 @@ var result = (from r in df.AsQueryable<WeatherRecord>()
 ```
 
 ```fsharp [F# (Query CE)]
+open System.Linq
 open Polars.FSharp
 open Polars.FSharp.Query
 

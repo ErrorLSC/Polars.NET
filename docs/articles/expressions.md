@@ -9,11 +9,8 @@ Expressions (`Expr`) are the computational heart of Polars.NET. Rather than mani
 In traditional .NET data processing, developers often iterate rows using `foreach`:
 
 ```csharp
-// Anti-pattern: Untyped row iteration causes boxing, GC pressure, and zero SIMD parallelism
-foreach (var row in df.Rows()) 
-{
-    row["Score"] = (double)row["Score"] * 1.1; 
-}
+// Anti-pattern: Materializing rows to compute a column causes GC pressure and gives up SIMD and parallelism
+var adjusted = df.Rows<ScoreRecord>().ToList().Select(r => r with { Score = r.Score * 1.1 }).ToList();
 
 // If row-level traversal is genuinely required (e.g., streaming to an external API or legacy service):
 // Prefer the strongly-typed `df.Rows<T>()`. It returns a stack-allocated `ref struct DataFrameRowEnumerator<T>`
@@ -96,7 +93,7 @@ Instead of hardcoding column name lists, Polars.NET provides type-aware **Column
 
 ```csharp [C# (Fluent API)]
 using Polars.CSharp;
-using Polars.CSharp.Selectors;
+using Cs = Polars.CSharp.Polars.Selectors;
 
 // Select all numeric columns except the "Id" column
 var numericCols = df.Select(Cs.Numeric() - Cs.ByName("Id"));
@@ -130,9 +127,9 @@ Polars.NET provides a declarative ternary expression builder (`When-Then-Otherwi
 using static Polars.CSharp.Polars;
 
 var gradedDf = df.WithColumns(
-    When(Col("Price") >= 500.0).Then("Premium")
-    .When(Col("Price") >= 100.0).Then("Mid-Range")
-    .Otherwise("Budget")
+    When(Col("Price") >= 500.0).Then(Lit("Premium"))
+    .When(Col("Price") >= 100.0).Then(Lit("Mid-Range"))
+    .Otherwise(Lit("Budget"))
     .Alias("Price_Tier")
 );
 ```
@@ -143,7 +140,7 @@ open Polars.FSharp
 let gradedDf =
     df
     |> DataFrame.withColumn (
-        (pl.when' (pl.col "Price" .>= pl.lit 500.0)
+        (pl.when'(pl.col "Price" .>= pl.lit 500.0)
             .Then(pl.lit "Premium")
             .When(pl.col "Price" .>= pl.lit 100.0)
             .Then(pl.lit "Mid-Range")

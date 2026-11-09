@@ -582,9 +582,7 @@ pub(crate) fn optimize_delta_internal(
                     rt.block_on(async { table.update_state().await })
                         .map_err(|e| PolarsError::ComputeError(format!("Reload table failed: {}", e).into()))?;
                 },
-                Err(deltalake::errors::DeltaTableError::CommitValidation { .. }) 
-                | Err(deltalake::errors::DeltaTableError::VersionAlreadyExists(_)) 
-                | Err(deltalake::errors::DeltaTableError::Transaction { .. }) => {
+                Err(e) if crate::delta::utils::is_retryable_commit_error(&e) => {
                     rt.block_on(async {
                         let os = table.object_store();
                         let _ = os.delete(&Path::from(staging_dir_fail_safe.as_str())).await;

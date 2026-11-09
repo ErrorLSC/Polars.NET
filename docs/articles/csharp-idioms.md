@@ -108,15 +108,16 @@ DataFrame filtered = df[df["Age"] >= 18, ["Name", "Age"]]; // Boolean Series mas
   - **Note**: `Pl.Col("a") == "foo"` compares column `"a"` to literal `"foo"`. To compare two columns, use `Pl.Col("a") == Pl.Col("b")`.
 - **Logical / Bitwise**: Use single `&`, `|`, `^`, `!`, `~` on `Expr` (C# `&&` and `||` cannot be overloaded to return `Expr` directly):
   ```csharp
-  df.Filter((Pl.Col("age") >= 18) & (Pl.Col("dept") == "IT"))
+  using var adultsInIt = df.Filter((Pl.Col("age") >= 18) & (Pl.Col("dept") == "IT"));
   ```
 
 ### Conditionals (`When / Then / Otherwise`)
 ```csharp
-Pl.When(Pl.Col("score") >= 90).Then("A")
-  .When(Pl.Col("score") >= 60).Then("B")
-  .Otherwise("F")
-  .Alias("grade")
+// Then / Otherwise read a bare string as a column name, so wrap text values in Pl.Lit
+var grade = Pl.When(Pl.Col("score") >= 90).Then(Pl.Lit("A"))
+  .When(Pl.Col("score") >= 60).Then(Pl.Lit("B"))
+  .Otherwise(Pl.Lit("F"))
+  .Alias("grade");
 ```
 
 ### Sub-namespaces on `Expr` and `Series`
@@ -137,7 +138,7 @@ Selectors allow selecting columns by type, pattern, or set algebra (`|`, `&`, `-
 using Cs = Polars.CSharp.Polars.Selectors;
 
 // Select all numeric columns except "id", and fill nulls with 0
-df.WithColumns((Cs.Numeric() - Cs.ByName("id")).FillNull(0));
+df.WithColumns((Cs.Numeric() - Cs.ByName("id")).ToExpr().FillNull(0));
 
 // Select strings or columns matching regex
 df.Select(Cs.String() | Cs.Matches("^meta_.*"));
@@ -215,7 +216,7 @@ using var resultDf = targetDf.Merge(sourceDf, "Id") // Or composite: new[] { "Te
 
 While procedural row-level loops should generally be avoided in favor of vectorized SIMD column expressions, certain workflows (such as sending individual records to legacy external services or gRPC streaming endpoints) genuinely require row iteration.
 
-Instead of untyped `df.Rows()` (which incurs boxing and GC allocations), use `df.Rows<T>()`:
+For row-level traversal, use `df.Rows<T>()`:
 
 ```csharp
 public record ScoreRecord(int Id, string Student, double Score);
@@ -224,7 +225,8 @@ public record ScoreRecord(int Id, string Student, double Score);
 // with pre-compiled IL fast-path field accessors:
 foreach (ScoreRecord record in df.Rows<ScoreRecord>())
 {
-    await SendRecordToExternalServiceAsync(record);
+    // The enumerator is a ref struct, so the loop body cannot await; use ToAsyncEnumerable for async work
+    SendRecordToExternalService(record);
 }
 
 // Or materialize directly into a typed List<T> without enumerator heap allocation:

@@ -64,7 +64,7 @@ var dfCols = DataFrame.FromColumns(new
 });
 
 // 2. Parse Date string to native Date32 type
-df = df.WithColumn(Col("Date").Str.ToDate("%Y-%m-%d"));
+df = df.WithColumns(Col("Date").Str.ToDate("%Y-%m-%d"));
 ```
 
 ```fsharp [F# (Pipeline API)]
@@ -132,7 +132,7 @@ let aggDf =
 
 ```csharp [C# (LINQ)]
 // Strongly-typed LINQ to Polars expression
-var aggDf = (from r in df.AsQueryable<>(data)
+var aggDf = (from r in df.AsQueryable(data)
              where r.Temperature > 9.5
              group r by r.City into g
              select new {
@@ -161,7 +161,7 @@ Window functions (`.Over()`) evaluate group-level metrics without reducing rows.
 var diffExpr = (Col("Temperature") - Col("Temperature").Mean().Over("City"))
     .Alias("Temp_Diff");
 
-var windowDf = df.WithColumn(diffExpr);
+var windowDf = df.WithColumns(diffExpr);
 ```
 
 ```fsharp [F# (Pipeline API)]

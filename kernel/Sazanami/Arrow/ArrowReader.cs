@@ -157,6 +157,12 @@ public static class ArrowReader
         // String
         if (type == typeof(string)) return array.GetStringValue;
 
+        // Char: the first character of a one-character string; an empty string has none
+        if (type == typeof(char))
+        {
+            return idx => array.GetStringValue(idx) is { } s ? (s.Length == 0 ? '\0' : s[0]) : null;
+        }
+
         // Boolean
         if (type == typeof(bool)) return idx => ((BooleanArray)array).GetValue(idx);
 

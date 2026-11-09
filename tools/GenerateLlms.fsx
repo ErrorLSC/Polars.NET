@@ -27,7 +27,7 @@ let llmsTxtContent =
 Polars.NET provides idiomatic, zero-copy bindings across multiple .NET programming paradigms:
 - **Polars.CSharp**: Object-oriented Fluent API, C# 12 collection expressions, and disposable lifetime management.
 - **Polars.FSharp**: Functional pipeline combinators (`pl.*`), sequence modules, and zero-allocation struct enumerators (`series.As<'T>()`, `df.Rows<'T>()`).
-- **Polars.NET.Linq**: Native LINQ Query Provider compiling C# LINQ syntax and F# `query {{ }}` computation expressions directly into native Rust Polars `LazyPlan` nodes.
+- **Polars.NET.Linq**: Native LINQ Query Provider compiling C# LINQ syntax and F# `query {{ }}` computation expressions into an optimized logical plan that runs as a native Rust Polars `LazyFrame`, with .NET null, NaN and arithmetic semantics. Runs all 22 TPC-H and 99 TPC-DS queries natively.
 - **Polars.NET.Core**: Low-level FFI bridges, Arrow C Data Interface interop, and native Lakehouse storage engines.
 
 ## Core Concepts & Getting Started
@@ -43,8 +43,9 @@ Polars.NET provides idiomatic, zero-copy bindings across multiple .NET programmi
 
 - [Idiomatic C# Guide]({baseUrl}/articles/csharp-idioms): Modern C# patterns, collection expressions (`[ Col("a"), Col("b") ]`), `using static Polars.CSharp.Polars`, pattern matching, and record ingestion.
 - [Idiomatic F# Guide]({baseUrl}/articles/fsharp-idioms): Functional pipelines (`|>`), `pl.*` expression combinators, zero-allocation struct enumerators (`SeriesEnumerator<'T>`, `RowEnumerator<'T>`), and higher-order mapping.
-- [LINQ & Query Computation Expressions]({baseUrl}/articles/linq): Standard C# LINQ and F# `query {{ }}` CE compiling into 100%% native Rust LazyPlans without managed loop overhead.
-- [Ecosystem & Native Interop]({baseUrl}/articles/interop): Zero-copy Apache Arrow C Data Interface, Arrow Flight, ADBC, ADO.NET DbDataReader ingestion, ML.NET `IDataView`, and TorchSharp / System.Numerics Tensor bridges.
+- [LINQ & Query Computation Expressions]({baseUrl}/articles/linq): C# LINQ and F# `query {{ }}` compiled to native plans, managed UDF pushdown, the mapped BCL table, query settings (`UseRelationalNulls`, `AllowUnstableOrdering`, `DisallowUdfPushdown`) and the IR optimizer.
+- [LINQ Semantics Contract]({baseUrl}/articles/linq-semantics): Normative rules for nulls, NaN, arithmetic, strings, ordering and joins that every query plan follows.
+- [Ecosystem & Native Interop]({baseUrl}/articles/interop): Zero-copy Apache Arrow C Data Interface, Arrow Flight, ADBC, ADO.NET DbDataReader ingestion, ML.NET `IDataView`, TorchSharp / System.Numerics Tensor bridges, off-heap `NativeBuffer` writes (`WriteIpcStreamNativeMemory` and siblings), and `PipeWriter` streaming.
 
 ## Complete Context & LLM Ingestion
 
@@ -59,9 +60,21 @@ printfn "Created: %s" llmsTxtPath
 // 2. Helper to clean VitePress markdown for LLM consumption
 // -------------------------------------------------------------
 
+// Inlines `<!--@include: path{start,end}-->` directives that pull in another Markdown file.
+// Line numbers are 1-based and inclusive, as in VitePress; a missing bound means the start or end of the file.
+let resolveMarkdownIncludes (sourceDir: string) (content: string) =
+    Regex.Replace(
+        content,
+        @"<!--@include:\s*([^>{]+\.md)(?:\{(\d*),(\d*)\})?\s*-->",
+        fun m ->
+            let lines = File.ReadAllLines(Path.GetFullPath(Path.Combine(sourceDir, m.Groups[1].Value.Trim())))
+            let first = if m.Groups[2].Value = "" then 1 else int m.Groups[2].Value
+            let last = if m.Groups[3].Value = "" then lines.Length else int m.Groups[3].Value
+            String.Join("\n", lines[first - 1 .. last - 1]))
+
 let cleanMarkdownContent (content: string) =
     let mutable text = content.Replace("\r\n", "\n")
-    
+
     // Strip YAML frontmatter (--- ... ---)
     if text.StartsWith("---") then
         let secondIndex = text.IndexOf("\n---", 3)
@@ -95,6 +108,7 @@ let orderedArticles = [
     "csharp-idioms.md", "Idiomatic C# Patterns & Practices"
     "fsharp-idioms.md", "Idiomatic F# Patterns & Zero-Allocation Struct Enumerators"
     "linq.md", "Native LINQ & F# Query Computation Expressions"
+    "linq-semantics.md", "LINQ Semantics Contract"
     "interop.md", "Ecosystem Interoperability & Zero-Copy Bridges"
 ]
 
@@ -144,13 +158,27 @@ sb.AppendLine("     * From In-Memory Collections: `collection.AsPolarsQueryable<
 sb.AppendLine("     * From Database Streams: `reader.AsPolarsQueryable<T>(batchSize = 50000)` streams ADO.NET readers straight into Polars LINQ.") |> ignore
 sb.AppendLine("   - Standard LINQ clauses (`where`, `select`, `group by`, `orderby`, `join`) compile directly to Rust `LazyPlan`.") |> ignore
 sb.AppendLine("   - F# Query CE: `query { for r in df.AsQueryable<T>() do ... } |> Query.toDataFrame`.") |> ignore
-sb.AppendLine("   - To retrieve the native Polars plan: `.Explain()`.") |> ignore
+sb.AppendLine("   - To retrieve the native Polars plan: `.Explain()` (headers: `[Query Plan - 100% Native Pushdown]`, `... (with C# UDF Callback)]`, `[Query Plan - Hybrid Execution (Partial Pushdown)]`, `[Query Plan - Full Fallback to In-Memory LINQ]`). The IR plan: `.ExplainLogicalPlan()`.") |> ignore
+sb.AppendLine("   - Managed UDFs that read one or more columns and return one value are pushed down by default. A method taking the whole row object is not: it throws `PolarsPushdownException` under the default `ClientEvaluationPolicy.Strict`.") |> ignore
+sb.AppendLine("   - Settings live on `Pl.Config` (C#, not static members of `PolarsConfig`) and `Config.withConfig [ ... ] (fun () -> ...)` (F#): `SetUseRelationalNulls`, `SetAllowUnstableOrdering`, `SetDisallowUdfPushdown`, `SetClientEvaluationPolicy`. Use `.BeginScope()` to restore the old values.") |> ignore
+sb.AppendLine("   - Results follow .NET semantics by default (null == null is true, NaN comparisons are false, integer division truncates, strings sort ordinally). See the LINQ Semantics Contract chapter.") |> ignore
+sb.AppendLine("   - `.SemiJoin` and `.AntiJoin` do not exist on `IQueryable`; use `Any` / `!Any`, or `JoinType.Semi` / `JoinType.Anti` on a `LazyFrame`.") |> ignore
 sb.AppendLine("   - To extract back to DataFrame: `.ToDataFrame()` or `.ToLazyFrame()`.") |> ignore
 sb.AppendLine() |> ignore
 sb.AppendLine("7. **Delta Lake Storage**:") |> ignore
 sb.AppendLine("   - Read: `DataFrame.ReadDelta(path, version = 2L)` or `DataFrame.ScanDelta(path)`.") |> ignore
 sb.AppendLine("   - Write: `df.WriteDelta(path, mode = SaveMode.Append)`.") |> ignore
 sb.AppendLine("   - Maintenance: `Delta.History(path)`, `Delta.Optimize(path)`, `Delta.Vacuum(path, retentionHours = 168.0)`.") |> ignore
+sb.AppendLine("   - Change Data Feed is read-only: `Delta.ReadChangeDataFeed` works, but Polars.NET does not write to a table with `delta.enableChangeDataFeed` set (`Unsupported table features required`). This is by design: the native library is built without DataFusion.") |> ignore
+sb.AppendLine() |> ignore
+sb.AppendLine("8. **Literal Strings in `When / Then / Otherwise`**:") |> ignore
+sb.AppendLine("   - In C#, `.Then(\"x\")` and `.Otherwise(\"x\")` take a bare string as a column name. Write `.Then(Lit(\"x\"))` for a text value.") |> ignore
+sb.AppendLine("   - `Selector` has no aggregate or `FillNull` methods. Call `.ToExpr()` first: `Cs.Numeric().ToExpr().Mean()`.") |> ignore
+sb.AppendLine() |> ignore
+sb.AppendLine("9. **Off-Heap Writes**:") |> ignore
+sb.AppendLine("   - `df.WriteIpcStreamNativeMemory()`, `WriteIpcNativeMemory`, `WriteParquetNativeMemory`, `WriteCsvNativeMemory`, `WriteJsonNativeMemory` (C#), `WriteAvroNativeMemory` and `lf.Sink*NativeMemory()` return a `NativeBuffer` (`Polars.NET.Core`). Dispose it; its spans are invalid afterwards. In F#, use `use`.") |> ignore
+sb.AppendLine("   - `Write*Async(PipeWriter)` and `Sink*Async(PipeWriter)` stream with backpressure. They flush but never complete the writer. There is no synchronous `PipeWriter` overload.") |> ignore
+sb.AppendLine("   - An IPC stream reads back with `DataFrame.ReadIpcStream(path or span)`, not `ReadIpc`.") |> ignore
 sb.AppendLine() |> ignore
 sb.AppendLine("---") |> ignore
 sb.AppendLine() |> ignore
@@ -161,7 +189,7 @@ for fileName, title in orderedArticles do
     if File.Exists filePath then
         printfn "Processing: %s (%s)" fileName title
         let rawContent = File.ReadAllText filePath
-        let cleaned = cleanMarkdownContent rawContent
+        let cleaned = rawContent |> resolveMarkdownIncludes articlesDir |> cleanMarkdownContent
         
         sb.AppendLine($"# Chapter: {title}") |> ignore
         sb.AppendLine($"*Source: articles/{fileName}*") |> ignore

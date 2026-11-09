@@ -82,11 +82,13 @@ public static class DataViewToArrow
     }
     private static Schema BuildArrowSchema(DataViewSchema schema)
     {
-        var fields = new Field[schema.Count];
+        // An in-place transform leaves its input as a hidden column of the same name.
+        var visible = schema.Where(c => !c.IsHidden).ToArray();
+        var fields = new Field[visible.Length];
 
-        for (int i = 0; i < schema.Count; i++)
+        for (int i = 0; i < visible.Length; i++)
         {
-            var col = schema[i];
+            var col = visible[i];
 
             IArrowType arrowType = ArrowDataViewMapper.GetArrowType(col.Type);
 
@@ -101,6 +103,8 @@ public static class DataViewToArrow
     {
         foreach (var col in schema)
         {
+            if (col.IsHidden) continue;
+
             Type rawType = col.Type.RawType;
 
             if (col.Type is VectorDataViewType vecType)

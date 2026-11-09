@@ -30,7 +30,7 @@ module internal MemberAccessTranslator =
                 // C# Length is an int (the engine counts in u32, which cannot be negated).
                 eval ctx target |> Option.map (fun t -> ScalarExpr.Cast(ScalarExpr.Function(ScalarFunction.LenChars, [ t ], LogicalTypes.UInt32), LogicalTypes.Int32, false))
 
-            | MemberAccess(target, m) when not (isNull target) && ClrTypeHelper.IsTemporalType target.Type ->
+            | MemberAccess(target, m) when not (isNull target) && ClrTypeHelper.IsTemporalType target.Type && target.Type <> typeof<TimeSpan> ->
                 let t () = eval ctx target
 
                 match m.Name with
@@ -57,6 +57,17 @@ module internal MemberAccessTranslator =
             | MemberAccess(target, m) when not (isNull target) && target.Type = typeof<TimeSpan> ->
                 let t () = eval ctx target
 
+                // A TimeSpan component is its whole count of the unit, truncated, with the carry into the next unit removed.
+                let part (total: ScalarFunction) (unitsPerNext: int64 option) =
+                    t ()
+                    |> Option.map (fun x ->
+                        let whole = ScalarExpr.Cast(ScalarExpr.Function(total, [ x ], LogicalTypes.Float64), LogicalTypes.Int64, false)
+                        let value =
+                            match unitsPerNext with
+                            | Some n -> ScalarExpr.Binary(BinaryOp.Modulo, whole, ScalarExpr.Literal(LiteralValue.Int64 n))
+                            | None -> whole
+                        ScalarExpr.Cast(value, LogicalTypes.Int32, false))
+
                 match m.Name with
                 | "TotalDays" -> t () |> Option.map (fun x -> ScalarExpr.Function(ScalarFunction.DtTotalDays, [ x ], LogicalTypes.Float64))
                 | "TotalHours" -> t () |> Option.map (fun x -> ScalarExpr.Function(ScalarFunction.DtTotalHours, [ x ], LogicalTypes.Float64))
@@ -68,13 +79,13 @@ module internal MemberAccessTranslator =
                     t () |> Option.map (fun x -> ScalarExpr.Function(ScalarFunction.DtTotalMicroseconds, [ x ], LogicalTypes.Float64))
                 | "TotalNanoseconds" ->
                     t () |> Option.map (fun x -> ScalarExpr.Function(ScalarFunction.DtTotalNanoseconds, [ x ], LogicalTypes.Float64))
-                | "Days" -> t () |> Option.map (fun x -> ScalarExpr.Function(ScalarFunction.DtDay, [ x ], LogicalTypes.Int32))
-                | "Hours" -> t () |> Option.map (fun x -> ScalarExpr.Function(ScalarFunction.DtHour, [ x ], LogicalTypes.Int32))
-                | "Minutes" -> t () |> Option.map (fun x -> ScalarExpr.Function(ScalarFunction.DtMinute, [ x ], LogicalTypes.Int32))
-                | "Seconds" -> t () |> Option.map (fun x -> ScalarExpr.Function(ScalarFunction.DtSecond, [ x ], LogicalTypes.Int32))
-                | "Milliseconds" -> t () |> Option.map (fun x -> ScalarExpr.Function(ScalarFunction.DtMillisecond, [ x ], LogicalTypes.Int32))
-                | "Microseconds" -> t () |> Option.map (fun x -> ScalarExpr.Function(ScalarFunction.DtMicrosecond, [ x ], LogicalTypes.Int32))
-                | "Nanoseconds" -> t () |> Option.map (fun x -> ScalarExpr.Function(ScalarFunction.DtNanosecond, [ x ], LogicalTypes.Int32))
+                | "Days" -> part ScalarFunction.DtTotalDays None
+                | "Hours" -> part ScalarFunction.DtTotalHours (Some 24L)
+                | "Minutes" -> part ScalarFunction.DtTotalMinutes (Some 60L)
+                | "Seconds" -> part ScalarFunction.DtTotalSeconds (Some 60L)
+                | "Milliseconds" -> part ScalarFunction.DtTotalMilliseconds (Some 1000L)
+                | "Microseconds" -> part ScalarFunction.DtTotalMicroseconds (Some 1000L)
+                | "Nanoseconds" -> part ScalarFunction.DtTotalNanoseconds (Some 1000L)
                 | _ -> None
 
             // Translate Nullable<T>.HasValue directly to is_not_null()

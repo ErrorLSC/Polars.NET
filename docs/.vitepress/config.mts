@@ -82,7 +82,8 @@ const articlesSidebar = [
     items: [
       { text: 'C# Idioms', link: '/articles/csharp-idioms' },
       { text: 'F# Idioms', link: '/articles/fsharp-idioms' },
-      { text: 'LINQ & Query CE', link: '/articles/linq' }
+      { text: 'LINQ & Query CE', link: '/articles/linq' },
+      { text: 'LINQ Semantics Contract', link: '/articles/linq-semantics' }
     ]
   },
   {

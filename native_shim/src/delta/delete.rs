@@ -837,9 +837,7 @@ pub(crate) fn delete_delta_internal(
 
         match commit_res {
             Ok(_) => return Ok(()), 
-            Err(deltalake::errors::DeltaTableError::CommitValidation { .. }) 
-            | Err(deltalake::errors::DeltaTableError::VersionAlreadyExists(_)) 
-            | Err(deltalake::errors::DeltaTableError::Transaction { .. }) => {
+            Err(e) if crate::delta::utils::is_retryable_commit_error(&e) => {
                 
                 if attempt < max_attempts {
                     let base_sleep = 50_u64.saturating_mul(2_u64.pow(attempt - 1));

@@ -49,7 +49,7 @@ let df =
 
 let parsed =
     df
-    |> pl.select [
+    |> DataFrame.select [
         pl.col("RawDate").Str.ToDate("%Y-%m-%d").Alias "Date"
         pl.col("RawTimestamp").Str.ToDatetime("%Y-%m-%d %H:%M:%S").Alias "Timestamp"
         pl.col "Metric"
@@ -104,7 +104,7 @@ var features = df.Select(
 ```fsharp [F# (Pipeline)]
 let features =
     df
-    |> pl.select [
+    |> DataFrame.select [
         pl.col("Timestamp").Dt.Year().Alias "Year"
         pl.col("Timestamp").Dt.Month().Alias "Month"
         pl.col("Timestamp").Dt.Weekday().Alias "Weekday"
@@ -161,7 +161,7 @@ var tzDf = df.Select(
 ```fsharp [F# (Pipeline)]
 let tzDf =
     df
-    |> pl.select [
+    |> DataFrame.select [
         pl.col("Timestamp").Dt.ReplaceTimeZone("UTC").Alias "UTC_Time"
         pl.col("Timestamp").Dt.ReplaceTimeZone("UTC")
             .Dt.ConvertTimeZone("Asia/Shanghai").Alias "Shanghai_Time"
@@ -196,7 +196,7 @@ Supported rolling aggregations include:
 // Compute 2-observation moving average and 1-hour rolling sum
 var rollingDf = df.WithColumns(
     Col("Reading").RollingMean("2i", minPeriods: 1).Alias("MA_2"),
-    Col("Reading").RollingSum("1h", minPeriods: 1).Alias("Sum_1h"),
+    Col("Reading").RollingSumBy("1h", Col("Timestamp"), minPeriods: 1).Alias("Sum_1h"),
     Col("Reading").RollingStd("2i", minPeriods: 2).Alias("Std_2")
 );
 ```
@@ -204,9 +204,9 @@ var rollingDf = df.WithColumns(
 ```fsharp [F# (Pipeline)]
 let rollingDf =
     df
-    |> pl.withColumns [
+    |> DataFrame.withColumns [
         (pl.col "Reading").RollingMean(Dur.Index 2, minPeriod = 1).Alias "MA_2"
-        (pl.col "Reading").RollingSum(Dur.String "1h", minPeriod = 1).Alias "Sum_1h"
+        (pl.col "Reading").RollingSumBy(Dur.String "1h", pl.col "Timestamp", minPeriod = 1).Alias "Sum_1h"
         (pl.col "Reading").RollingStd(Dur.Index 2, minPeriod = 2).Alias "Std_2"
     ]
 ```
@@ -238,7 +238,7 @@ var dynamicAgg = df.Lazy()
         indexColumn: "Timestamp",
         every: TimeSpan.FromHours(1),
         period: TimeSpan.FromHours(1),
-        groupBy: new[] { Col("DeviceId") }
+        groupBy: new IntoExprColumn[] { Col("DeviceId") }
     )
     .Agg(
         Col("Reading").Mean().Alias("Avg_Reading"),
@@ -295,7 +295,7 @@ var interpolated = df.WithColumns(
 ```fsharp [F# (Pipeline)]
 let interpolated =
     df
-    |> pl.withColumns [
+    |> DataFrame.withColumns [
         (pl.col "Reading").Interpolate(InterpolationMethod.Linear).Alias "LinearInterp"
         (pl.col "Reading").InterpolateBy(pl.col "Timestamp").Alias "TimeAwareInterp"
     ]
