@@ -47,6 +47,15 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial SchemaHandle pl_lazyframe_get_schema(LazyFrameHandle lf);
     [LibraryImport(LibName)] public static partial LazyFrameHandle pl_lazyframe_reverse(LazyFrameHandle lf);
     [LibraryImport(LibName)] public static partial LazyFrameHandle pl_lazyframe_cache(LazyFrameHandle lf);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static partial bool pl_lazyframe_parquet_int_range(
+        LazyFrameHandle lf,
+        string column,
+        [MarshalAs(UnmanagedType.I1)] out bool found,
+        out long min,
+        out long max);
+
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_lazyframe_estimated_rows(LazyFrameHandle lf, out long rows);

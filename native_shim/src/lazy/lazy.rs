@@ -113,6 +113,71 @@ pub extern "C" fn pl_lazyframe_estimated_rows(
     })
 }
 
+/// The smallest and largest value of an integer or date column over a Parquet file's row groups.
+fn parquet_integer_range(
+    metadata: &polars_io::parquet::read::FileMetadata,
+    column: &str,
+) -> Option<(i64, i64)> {
+    use polars_parquet::parquet::statistics::Statistics;
+
+    let mut range: Option<(i64, i64)> = None;
+    for row_group in &metadata.row_groups {
+        let mut chunks = row_group.columns_under_root_iter(column)?;
+        let chunk = chunks.next()?;
+        if chunks.next().is_some() {
+            return None;
+        }
+        let (low, high) = match chunk.statistics(&metadata.footer_buf)?.ok()? {
+            Statistics::Int32(s) => (i64::from(s.min_value?), i64::from(s.max_value?)),
+            Statistics::Int64(s) => (s.min_value?, s.max_value?),
+            _ => return None,
+        };
+        range = Some(match range {
+            Some((lowest, highest)) => (lowest.min(low), highest.max(high)),
+            None => (low, high),
+        });
+    }
+    range
+}
+
+/// The value range of an integer or date column of a frame that directly scans one Parquet file, from the file's
+/// footer (nothing is executed). `out_found` is false when the frame is anything else or a row group lacks statistics.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazyframe_parquet_int_range(
+    lf_ptr: *mut LazyFrameContext,
+    column: *const c_char,
+    out_found: *mut bool,
+    out_min: *mut i64,
+    out_max: *mut i64,
+) -> bool {
+    ffi_bool_try!({
+        let lf_ctx = unsafe { &*lf_ptr };
+        let column = unsafe { CStr::from_ptr(column) }.to_string_lossy();
+        let range = lf_ctx.inner.clone().to_alp().ok().and_then(|plan| {
+            match plan.lp_arena.get(plan.lp_top) {
+                polars_plan::plans::IR::Scan { sources, scan_type, .. } if sources.len() == 1 => {
+                    match scan_type.as_ref() {
+                        polars_plan::dsl::FileScanIR::Parquet {
+                            first_metadata: Some(metadata),
+                            ..
+                        } => parquet_integer_range(metadata, &column),
+                        _ => None,
+                    }
+                },
+                _ => None,
+            }
+        });
+        unsafe {
+            *out_found = range.is_some();
+            if let Some((low, high)) = range {
+                *out_min = low;
+                *out_max = high;
+            }
+        }
+        Ok(())
+    })
+}
+
 // ==========================================
 // Cache
 // ==========================================

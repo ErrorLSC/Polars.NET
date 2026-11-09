@@ -26,6 +26,17 @@ public readonly partial struct PolarsWrapper
     }
 
     /// <summary>
+    /// The value range of an integer or date column of a frame that directly scans one Parquet file, from the file's
+    /// footer (nothing is executed); null when the frame is anything else or a row group lacks statistics.
+    /// </summary>
+    public static (long Min, long Max)? LazyParquetIntRange(LazyFrameHandle lf, string column)
+    {
+        if (!NativeBindings.pl_lazyframe_parquet_int_range(lf, column, out bool found, out long min, out long max))
+            ErrorHelper.CheckVoid();
+        return found ? (min, max) : null;
+    }
+
+    /// <summary>
     /// Marks the frame's plan as computed once: every clone of the returned frame reads the same cached result.
     /// </summary>
     public static LazyFrameHandle LazyFrameCache(LazyFrameHandle lf)

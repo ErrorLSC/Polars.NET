@@ -131,8 +131,21 @@ module internal PolarsColumnStatistics =
         else
             Some(LiteralValue.Float64 lowest, LiteralValue.Float64 highest)
 
-    /// The lowest and highest values of a number or date column of a file table, reading that column once. Parquet
-    /// statistics would answer this without decoding it, and can replace the read behind the same interface.
+    /// The range from a Parquet footer, for the types whose stored minimum and maximum are their values: a decimal's are
+    /// unscaled, and a 64-bit unsigned value does not fit the signed statistics.
+    let private tryFooterRange (handle: LazyFrameHandle) (dataType: LogicalType) (column: string) =
+        match dataType with
+        | LogicalType.Arrow(:? Int8Type | :? Int16Type | :? Int32Type | :? Int64Type | :? UInt8Type | :? UInt16Type | :? UInt32Type | :? Date32Type) ->
+            let range = PolarsWrapper.LazyParquetIntRange(handle, column)
+            if range.HasValue then
+                let struct (low, high) = range.Value
+                Some(LiteralValue.Float64(float low), LiteralValue.Float64(float high))
+            else
+                None
+        | _ -> None
+
+    /// The lowest and highest values of a number or date column of a file table: from its footer when the file is a
+    /// Parquet file with statistics, otherwise by reading that column once.
     let tryGetRange (handle: LazyFrameHandle) (schema: LogicalSchema) (column: string) : (LiteralValue * LiteralValue) option =
         match schema.Fields |> List.tryFind (fun field -> field.Name = column) with
         | Some field when isNumberLike field.DataType ->
@@ -148,7 +161,8 @@ module internal PolarsColumnStatistics =
                         fun _ ->
                             lazy
                                 (try
-                                    readRange handle column
+                                    tryFooterRange handle field.DataType column
+                                    |> Option.orElseWith (fun () -> readRange handle column)
                                  with _ ->
                                      None)
                     )

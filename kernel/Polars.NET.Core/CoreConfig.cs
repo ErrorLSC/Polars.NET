@@ -434,7 +434,7 @@ internal static class CoreConfig
         ClientEvaluationPolicy = ClientEvaluationPolicy.Strict;
         DisallowUdfPushdown = false;
         AllowUnstableOrdering = false;
-        CollectColumnStatistics = false;
+        CollectColumnStatistics = true;
         UseRelationalNulls = false;
 
         PolarsWrapper.ReloadEnvVarAll();
@@ -1077,11 +1077,11 @@ internal static class CoreConfig
     }
 
     private const string CollectColumnStatisticsKey = "POLARS_COLLECT_COLUMN_STATISTICS";
-    private static bool _collectColumnStatistics = Environment.GetEnvironmentVariable(CollectColumnStatisticsKey) is "1" or "true" or "TRUE" or "True";
+    private static bool _collectColumnStatistics = Environment.GetEnvironmentVariable(CollectColumnStatisticsKey) is not ("0" or "false" or "FALSE" or "False");
 
     /// <summary>
     /// Whether the query optimizer may read the filtered columns of small file tables while translating a query, once
-    /// per column, to estimate how many rows a filter keeps. Off by default. It affects plan choices only, never results.
+    /// per column, to estimate how many rows a filter keeps. On by default. It affects plan choices only, never results.
     /// </summary>
     public static bool CollectColumnStatistics
     {

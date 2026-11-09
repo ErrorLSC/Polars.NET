@@ -5,6 +5,7 @@ open System.IO
 open Apache.Arrow.Types
 open Xunit
 open Polars.FSharp
+open Polars.NET.Core.Wrappers
 open Polars.NET.Linq.IR
 open Polars.NET.Linq.IR.ScalarExprOps
 open Polars.NET.Linq.IR.Passes
@@ -114,6 +115,46 @@ module ColumnStatisticsTests =
             Assert.Equal(None, range "empty")
         finally
             File.Delete path
+
+    [<Fact>]
+    let ``A Parquet column's range comes from the footer`` () =
+        let csv = Path.Combine(Path.GetTempPath(), $"column-statistics-{Guid.NewGuid():N}.csv")
+        let parquet = Path.ChangeExtension(csv, "parquet")
+        File.WriteAllLines(csv, [ "age,day,name"; "10,2020-01-01,a"; ",2020-01-02,b"; "30,2020-01-05,c" ])
+        try
+            LazyFrame.ScanCsv(csv, tryParseDates = true).Collect().WriteParquet(parquet, statistics = true) |> ignore
+            let lf = LazyFrame.ScanParquet(parquet)
+            let fields = LogicalSchema.OfFields [ ("age", LogicalTypes.Int64); ("day", LogicalType.Arrow Date32Type.Default); ("name", LogicalTypes.String) ]
+            let epochDays (year, month, day) = float (DateOnly(year, month, day).DayNumber - DateOnly(1970, 1, 1).DayNumber)
+
+            let struct (low, high) = PolarsWrapper.LazyParquetIntRange(lf.Handle, "age").Value
+            Assert.Equal((10L, 30L), (low, high))
+            Assert.False(PolarsWrapper.LazyParquetIntRange(lf.Handle, "name").HasValue)
+            Assert.False(PolarsWrapper.LazyParquetIntRange(lf.Handle, "missing").HasValue)
+            Assert.Equal(Some(LiteralValue.Float64 10.0, LiteralValue.Float64 30.0), PolarsColumnStatistics.tryGetRange lf.Handle fields "age")
+            Assert.Equal(
+                Some(LiteralValue.Float64(epochDays (2020, 1, 1)), LiteralValue.Float64(epochDays (2020, 1, 5))),
+                PolarsColumnStatistics.tryGetRange lf.Handle fields "day")
+            Assert.False(PolarsWrapper.LazyParquetIntRange(LazyFrame.ScanCsv(csv).Handle, "age").HasValue)
+        finally
+            File.Delete csv
+            File.Delete parquet
+
+    [<Fact>]
+    let ``A Parquet file without statistics falls back to reading the column`` () =
+        let csv = Path.Combine(Path.GetTempPath(), $"column-statistics-{Guid.NewGuid():N}.csv")
+        let parquet = Path.ChangeExtension(csv, "parquet")
+        File.WriteAllLines(csv, [ "age"; "10"; "30" ])
+        try
+            LazyFrame.ScanCsv(csv).Collect().WriteParquet(parquet, statistics = false) |> ignore
+            let lf = LazyFrame.ScanParquet(parquet)
+            let fields = LogicalSchema.OfFields [ ("age", LogicalTypes.Int64) ]
+
+            Assert.False(PolarsWrapper.LazyParquetIntRange(lf.Handle, "age").HasValue)
+            Assert.Equal(Some(LiteralValue.Float64 10.0, LiteralValue.Float64 30.0), PolarsColumnStatistics.tryGetRange lf.Handle fields "age")
+        finally
+            File.Delete csv
+            File.Delete parquet
 
     [<Fact>]
     let ``A table too large to read has no statistics`` () =
