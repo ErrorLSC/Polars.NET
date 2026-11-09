@@ -16,10 +16,17 @@ open Polars.NET.Linq.IR
 /// table already joined first leaves nothing to reduce.
 ///
 /// A reduction is made only when it pays for reading the selective table again and for probing the whole table: the
-/// table keeps a small share of its rows, and the reduction passes a grouping or an inner join. A column bounded from
+/// table keeps a small share of its rows, and the reduction passes a grouping, an inner join or a left join. A column bounded from
 /// both sides counts as keeping a small share, whatever the fixed selectivities say: they treat the bounds as independent,
 /// when a range such as a month of dates is far narrower than either bound. A wide range makes the semi join a modest
 /// waste, as the probing costs little next to the joins it precedes.
+///
+/// The reduction also runs the other way, when the left input is the small one: in `σ(f) ⋈ (s1 ⋈ s2)` an expensive right
+/// input is computed for every key though only the left's keys can match. The left input is then shared, to be computed
+/// once, and its keys filter the tables on the right. It needs a join on the key itself in the right input, whose two
+/// sides are both filtered: sharing the left input costs its filters their pushdown into the scans, which filtering one
+/// table does not repay. A shared table on the right is filtered above the shared node, which stays as it is for its
+/// other consumers.
 ///
 /// A join on several columns gets a reduction of its own. Matching a large table on composite keys costs far more per
 /// row than a semi join on one of those columns, so a table is first filtered by the values one key can take. They come
@@ -32,7 +39,8 @@ module internal SemiJoinReduction =
     /// at 10% and says little (TPC-DS Q36's `s_state = 'TN'` keeps every store), so it takes more evidence than that.
     let private maxSelectivity = 0.05
 
-    /// How many times more rows a table must have than the key set that filters it, for a join on several columns.
+    /// How many times more rows a table must have than the key set that filters it, for a join on several columns and
+    /// for filtering a join's right input by the keys of its left.
     let private minKeySetReduction = 100.0
 
     /// Whether the plan reads a table through row-local filters and plain renames, and if so whether it filters.
@@ -133,25 +141,37 @@ module internal SemiJoinReduction =
     let apply (sources: SourceBinding array) (plan: LogicalPlan) : LogicalPlan =
         let estimate = JoinReordering.estimate (JoinReordering.sourceRowCounts sources)
 
+        let mutable nextSharedId =
+            let rec maxId (node: LogicalPlan) =
+                let below = LogicalPlanOps.getInputs node |> List.fold (fun best input -> max best (maxId input)) -1
+                match node with
+                | LogicalPlan.Shared(id, _) -> max id below
+                | _ -> below
+            maxId plan + 1
+
         /// `node` with its tables filtered by the keys in `selective.[selectiveKey]`, following column `key`, or None
         /// if the column reaches no table.
-        let rec reduce (selective: LogicalPlan) (selectiveKey: string) (worthIt: bool ref) (key: string) (node: LogicalPlan) : LogicalPlan option =
-            let recurse = reduce selective selectiveKey worthIt
+        let rec reduce (fromLeft: bool) (selective: LogicalPlan) (selectiveKey: string) (worthIt: bool ref) (key: string) (node: LogicalPlan) : LogicalPlan option =
+            let recurse = reduce fromLeft selective selectiveKey worthIt
+            let filtered () =
+                LogicalPlan.Join(
+                    node,
+                    selective,
+                    [ ScalarExpr.Column key ],
+                    [ ScalarExpr.Column selectiveKey ],
+                    JoinKind.Semi,
+                    None,
+                    JoinKeyCoalescing.Default,
+                    false
+                )
             match node with
             | LogicalPlan.Scan _
-            | LogicalPlan.Filter(LogicalPlan.Scan _, _) ->
-                Some(
-                    LogicalPlan.Join(
-                        node,
-                        selective,
-                        [ ScalarExpr.Column key ],
-                        [ ScalarExpr.Column selectiveKey ],
-                        JoinKind.Semi,
-                        None,
-                        JoinKeyCoalescing.Default,
-                        false
-                    )
-                )
+            | LogicalPlan.Filter(LogicalPlan.Scan _, _) -> Some(filtered ())
+
+            | LogicalPlan.Shared _ when fromLeft -> Some(filtered ())
+
+            | LogicalPlan.Distinct(input, None, keep, maintainOrder) ->
+                recurse key input |> Option.map (fun reduced -> LogicalPlan.Distinct(reduced, None, keep, maintainOrder))
 
             | LogicalPlan.Filter(input, predicate) when not (ScalarExprOps.dependsOnOtherRows predicate) ->
                 recurse key input |> Option.map (fun reduced -> LogicalPlan.Filter(reduced, predicate))
@@ -180,7 +200,7 @@ module internal SemiJoinReduction =
                     | _ -> None)
                 |> Option.bind (fun source -> recurse source input)
                 |> Option.map (fun reduced ->
-                    worthIt.Value <- true
+                    if not fromLeft then worthIt.Value <- true
                     LogicalPlan.GroupBy(reduced, keys, aggregations, having, maintainOrder))
 
             | LogicalPlan.Join(left, right, leftOn, rightOn, how, suffix, coalescing, nullsEqual) ->
@@ -205,9 +225,13 @@ module internal SemiJoinReduction =
                     if reducedLeft.IsNone && reducedRight.IsNone then
                         None
                     else
-                        worthIt.Value <- true
+                        if not fromLeft || (reducedLeft.IsSome && reducedRight.IsSome) then worthIt.Value <- true
                         Some(rebuild (defaultArg reducedLeft left) (defaultArg reducedRight right))
-                | JoinKind.Left
+                | JoinKind.Left when leftHas ->
+                    recurse key left
+                    |> Option.map (fun reduced ->
+                        if not fromLeft then worthIt.Value <- true
+                        rebuild reduced right)
                 | JoinKind.Semi
                 | JoinKind.Anti when leftHas -> recurse key left |> Option.map (fun reduced -> rebuild reduced right)
                 | _ -> None
@@ -222,10 +246,24 @@ module internal SemiJoinReduction =
                 let rows, tableRows = estimate right
                 let worthIt = ref false
                 match
-                    (if rows <= tableRows * maxSelectivity || hasTwoSidedRange right then reduce right rightKey worthIt leftKey left else None)
+                    (if rows <= tableRows * maxSelectivity || hasTwoSidedRange right then reduce false right rightKey worthIt leftKey left else None)
                 with
                 | Some reduced when worthIt.Value ->
                     LogicalPlan.Join(reduced, right, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], how, suffix, coalescing, false)
+                | _ -> join
+            | LogicalPlan.Join(left, right, [ ScalarExpr.Column leftKey ], ([ ScalarExpr.Column rightKey ] as rightOn), JoinKind.Inner, suffix, coalescing, false) as join when
+                (tableRead right).IsNone && snd (estimate right) >= minKeySetReduction * fst (estimate left)
+                ->
+                let shared, reservedId =
+                    match left with
+                    | LogicalPlan.Shared _ -> left, None
+                    | _ -> LogicalPlan.Shared(nextSharedId, left), Some nextSharedId
+                let keys = LogicalPlan.Project(shared, [ leftKey, ScalarExpr.Column leftKey ])
+                let worthIt = ref false
+                match reduce true keys leftKey worthIt rightKey right with
+                | Some reduced when worthIt.Value ->
+                    reservedId |> Option.iter (fun id -> nextSharedId <- id + 1)
+                    LogicalPlan.Join(shared, reduced, [ ScalarExpr.Column leftKey ], rightOn, JoinKind.Inner, suffix, coalescing, false)
                 | _ -> join
             | LogicalPlan.Join(left, right, leftOn, rightOn, (JoinKind.Inner | JoinKind.Semi as how), suffix, coalescing, false) as join when
                 leftOn.Length >= 2 && (tableRead right).IsSome

@@ -139,6 +139,52 @@ module SemiJoinReductionTests =
         Assert.Equal(plan, SemiJoinReduction.apply sources plan)
 
     [<Fact>]
+    let ``A left join alone is worth reducing`` () =
+        let leftJoin input = LogicalPlan.Join(input, returns, [ col "f_k" ], [ col "r_k" ], JoinKind.Left, Some "_right", JoinKeyCoalescing.Default, false)
+
+        Assert.Equal(inner (leftJoin (semi facts "f_k")) selective "f_k" "d_k", SemiJoinReduction.apply sources (inner (leftJoin facts) selective "f_k" "d_k"))
+
+    let private distinctKeys input = LogicalPlan.Distinct(LogicalPlan.Project(input, [ "key", col "f_k" ]), None, DistinctKeep.First, false)
+    let private joinOnKey left right = inner left right "d_k" "key"
+
+    let private semiByKeys (keys: LogicalPlan) input key =
+        LogicalPlan.Join(input, keys, [ col key ], [ col "d_k" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+
+    [<Fact>]
+    let ``A small left input filters an expensive right input`` () =
+        let plan = joinOnKey selective (distinctKeys (inner facts returns "f_k" "r_k"))
+
+        let shared = LogicalPlan.Shared(0, selective)
+        let keys = LogicalPlan.Project(shared, [ "d_k", col "d_k" ])
+        let expected = joinOnKey shared (distinctKeys (inner (semiByKeys keys facts "f_k") (semiByKeys keys returns "r_k") "f_k" "r_k"))
+        Assert.Equal(expected, SemiJoinReduction.apply sources plan)
+
+    [<Fact>]
+    let ``A shared table on the right is filtered above the shared node`` () =
+        let sharedFacts = LogicalPlan.Shared(4, facts)
+        let plan = joinOnKey selective (distinctKeys (inner sharedFacts returns "f_k" "r_k"))
+
+        let shared = LogicalPlan.Shared(5, selective)
+        let keys = LogicalPlan.Project(shared, [ "d_k", col "d_k" ])
+        let expected = joinOnKey shared (distinctKeys (inner (semiByKeys keys sharedFacts "f_k") (semiByKeys keys returns "r_k") "f_k" "r_k"))
+        Assert.Equal(expected, SemiJoinReduction.apply sources plan)
+
+    [<Fact>]
+    let ``A right input with nothing expensive is left alone`` () =
+        let plan = joinOnKey selective (distinctKeys facts)
+        Assert.Equal(plan, SemiJoinReduction.apply sources plan)
+
+    [<Fact>]
+    let ``A left input not much smaller than the table is left alone`` () =
+        let plan = inner returns (distinctKeys (inner facts returns "f_k" "r_k")) "r_k" "key"
+        Assert.Equal(plan, SemiJoinReduction.apply sources plan)
+
+    [<Fact>]
+    let ``A right input with the key on one side of its join only is left alone`` () =
+        let plan = joinOnKey selective (distinctKeys (inner facts returns "f_t" "r_t"))
+        Assert.Equal(plan, SemiJoinReduction.apply sources plan)
+
+    [<Fact>]
     let ``A left join reduces its left side only`` () =
         let leftJoin = LogicalPlan.Join(inner facts returns "f_t" "r_t", returns, [ col "f_k" ], [ col "r_k" ], JoinKind.Left, Some "_right", JoinKeyCoalescing.Default, false)
         let plan = inner leftJoin selective "f_k" "d_k"
