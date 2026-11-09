@@ -17,14 +17,23 @@ open Polars.NET.Linq.IR
 ///
 /// A reduction is made only when it pays for reading the selective table again and for probing the whole table: the
 /// table keeps a small share of its rows, and the reduction passes a grouping or an inner join.
+///
+/// A join on several columns gets a reduction of its own. Matching a large table on composite keys costs far more per
+/// row than a semi join on one of those columns, so a table is first filtered by the values one key can take. They come
+/// from the dimensions on the other side, following that key through joins between dimensions: in
+/// `(f ⋈ σ(d1) ⋈ d2 ON d1.w = d2.w) ⋈ t ON (f.i, d2.k) = (t.i, t.k)` the column `d2.k` only takes the values of
+/// `σ(d1) ⋈ d2`. The semi join costs little even when it removes few rows, so only the relative sizes decide.
 module internal SemiJoinReduction =
 
     /// The largest estimated share of its table's rows that a selective table may keep. A single equality is estimated
     /// at 10% and says little (TPC-DS Q36's `s_state = 'TN'` keeps every store), so it takes more evidence than that.
     let private maxSelectivity = 0.05
 
-    /// A table read through row-local filters and plain renames, with at least one filter.
-    let private isFilteredTable (plan: LogicalPlan) =
+    /// How many times more rows a table must have than the key set that filters it, for a join on several columns.
+    let private minKeySetReduction = 100.0
+
+    /// Whether the plan reads a table through row-local filters and plain renames, and if so whether it filters.
+    let private tableRead (plan: LogicalPlan) =
         let isPlainColumn (expr: ScalarExpr) =
             match expr with
             | ScalarExpr.Column _ -> true
@@ -37,7 +46,61 @@ module internal SemiJoinReduction =
             | LogicalPlan.Rename(input, _, _) -> reads input
             | LogicalPlan.Project(input, columns) when columns |> List.forall (snd >> isPlainColumn) -> reads input
             | _ -> None
-        reads plan = Some true
+        reads plan
+
+    let private isFilteredTable (plan: LogicalPlan) = tableRead plan = Some true
+
+    let private columnsOf (plan: LogicalPlan) = Set.ofList (SchemaInference.inferPlanSchema plan).ColumnNames
+
+    /// A relation over dimensions holding every value `key` takes in the rows of `node`, and the column holding them.
+    /// A dimension without a filter of its own still narrows the key when it joins another dimension that has one.
+    let rec private keySource (key: string) (node: LogicalPlan) : (LogicalPlan * string) option =
+        match node with
+        | LogicalPlan.Filter(input, predicate) when not (ScalarExprOps.dependsOnOtherRows predicate) -> keySource key input
+        | LogicalPlan.Rename(input, existing, renamed) ->
+            let original =
+                List.zip renamed existing |> List.tryPick (fun (n, e) -> if n = key then Some e else None) |> Option.defaultValue key
+            keySource original input
+        | LogicalPlan.Project(input, columns) when columns |> List.forall (snd >> ScalarExprOps.dependsOnOtherRows >> not) ->
+            match columns |> List.tryFind (fst >> (=) key) with
+            | Some(_, ScalarExpr.Column source) -> keySource source input
+            | _ -> None
+        | LogicalPlan.WithColumns(input, columns) when
+            columns |> List.forall (fun (name, expr) -> name <> key && not (ScalarExprOps.dependsOnOtherRows expr))
+            ->
+            keySource key input
+        | LogicalPlan.Join(left, right, leftOn, rightOn, how, _, _, false) ->
+            let leftColumns, rightColumns = columnsOf left, columnsOf right
+            match how with
+            | JoinKind.Inner when rightColumns.Contains key && not (leftColumns.Contains key) && (tableRead right).IsSome ->
+                let throughLeft =
+                    List.zip leftOn rightOn
+                    |> List.tryPick (function
+                        | ScalarExpr.Column leftKey, ScalarExpr.Column rightKey ->
+                            keySource leftKey left |> Option.map (fun (relation, column) -> relation, column, rightKey)
+                        | _ -> None)
+                match throughLeft with
+                | Some(relation, column, rightKey) when rightKey = key -> Some(relation, column)
+                | Some(relation, column, rightKey) when Set.isEmpty (Set.intersect (columnsOf relation) rightColumns) ->
+                    let joined =
+                        LogicalPlan.Join(
+                            relation,
+                            right,
+                            [ ScalarExpr.Column column ],
+                            [ ScalarExpr.Column rightKey ],
+                            JoinKind.Inner,
+                            None,
+                            JoinKeyCoalescing.Default,
+                            false
+                        )
+                    Some(joined, key)
+                | _ -> if isFilteredTable right then Some(right, key) else None
+            | JoinKind.Inner
+            | JoinKind.Left
+            | JoinKind.Semi
+            | JoinKind.Anti when leftColumns.Contains key && not (rightColumns.Contains key) -> keySource key left
+            | _ -> None
+        | _ -> None
 
     let apply (sources: SourceBinding array) (plan: LogicalPlan) : LogicalPlan =
         let estimate = JoinReordering.estimate (JoinReordering.sourceRowCounts sources)
@@ -136,6 +199,34 @@ module internal SemiJoinReduction =
                 | Some reduced when worthIt.Value ->
                     LogicalPlan.Join(reduced, right, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], how, suffix, coalescing, false)
                 | _ -> join
+            | LogicalPlan.Join(left, right, leftOn, rightOn, (JoinKind.Inner | JoinKind.Semi as how), suffix, coalescing, false) as join when
+                leftOn.Length >= 2 && (tableRead right).IsSome
+                ->
+                let tableRows = fst (estimate right)
+                let candidates =
+                    List.zip leftOn rightOn
+                    |> List.choose (function
+                        | ScalarExpr.Column leftKey, ScalarExpr.Column rightKey ->
+                            keySource leftKey left
+                            |> Option.map (fun (relation, column) -> fst (estimate relation), relation, column, rightKey)
+                        | _ -> None)
+                    |> List.filter (fun (rows, _, _, _) -> tableRows >= minKeySetReduction * rows)
+                match candidates with
+                | [] -> join
+                | _ ->
+                    let _, relation, column, rightKey = candidates |> List.minBy (fun (rows, _, _, _) -> rows)
+                    let reduced =
+                        LogicalPlan.Join(
+                            right,
+                            relation,
+                            [ ScalarExpr.Column rightKey ],
+                            [ ScalarExpr.Column column ],
+                            JoinKind.Semi,
+                            None,
+                            JoinKeyCoalescing.Default,
+                            false
+                        )
+                    LogicalPlan.Join(left, reduced, leftOn, rightOn, how, suffix, coalescing, false)
             | other -> other
 
         rewrite plan

@@ -111,3 +111,97 @@ module SemiJoinReductionTests =
         let expected =
             inner (LogicalPlan.Join(reducedLeft, returns, [ col "f_k" ], [ col "r_k" ], JoinKind.Left, Some "_right", JoinKeyCoalescing.Default, false)) selective "f_k" "d_k"
         Assert.Equal(expected, SemiJoinReduction.apply sources plan)
+
+    // A join on two columns, against a large table.
+
+    let private salesSchema = LogicalSchema.OfFields [ ("s_i", LogicalTypes.Int32); ("s_d", LogicalTypes.Int32) ]
+    let private stockSchema = LogicalSchema.OfFields [ ("t_i", LogicalTypes.Int32); ("t_d", LogicalTypes.Int32) ]
+    let private yearsSchema = LogicalSchema.OfFields [ ("y_k", LogicalTypes.Int32); ("y_w", LogicalTypes.Int32); ("y_y", LogicalTypes.Int32) ]
+    let private weeksSchema = LogicalSchema.OfFields [ ("w_k", LogicalTypes.Int32); ("w_w", LogicalTypes.Int32) ]
+
+    let private compositeSources =
+        [|
+            SourceBinding.Table(Table("sales", salesSchema, 2_000_000L))
+            SourceBinding.Table(Table("stock", stockSchema, 17_000_000L))
+            SourceBinding.Table(Table("years", yearsSchema, 70_000L))
+            SourceBinding.Table(Table("weeks", weeksSchema, 70_000L))
+        |]
+
+    let private sales = LogicalPlan.Scan(LogicalPlanSource.Slot 0, salesSchema)
+    let private stock = LogicalPlan.Scan(LogicalPlanSource.Slot 1, stockSchema)
+    let private years = LogicalPlan.Scan(LogicalPlanSource.Slot 2, yearsSchema)
+    let private weeks = LogicalPlan.Scan(LogicalPlanSource.Slot 3, weeksSchema)
+    let private oneYear = LogicalPlan.Filter(years, eq "y_y" 1999)
+
+    let private composite left right leftKeys rightKeys =
+        LogicalPlan.Join(left, right, leftKeys |> List.map col, rightKeys |> List.map col, JoinKind.Inner, None, JoinKeyCoalescing.Default, false)
+
+    let private semiOn table key relation column =
+        LogicalPlan.Join(table, relation, [ col key ], [ col column ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+
+    let private applyComposite = SemiJoinReduction.apply compositeSources
+
+    [<Fact>]
+    let ``A composite join filters its table by a key that a joined dimension narrows`` () =
+        let chain = inner (inner sales oneYear "s_d" "y_k") weeks "y_w" "w_w"
+        let plan = composite chain stock [ "s_i"; "w_k" ] [ "t_i"; "t_d" ]
+
+        let keySet = inner oneYear weeks "y_w" "w_w"
+        let expected = composite chain (semiOn stock "t_d" keySet "w_k") [ "s_i"; "w_k" ] [ "t_i"; "t_d" ]
+        Assert.Equal(expected, applyComposite plan)
+
+    [<Fact>]
+    let ``A composite join filters by a key of a filtered dimension directly`` () =
+        let chain = inner sales oneYear "s_d" "y_k"
+        let plan = composite chain stock [ "s_i"; "y_k" ] [ "t_i"; "t_d" ]
+
+        let expected = composite chain (semiOn stock "t_d" oneYear "y_k") [ "s_i"; "y_k" ] [ "t_i"; "t_d" ]
+        Assert.Equal(expected, applyComposite plan)
+
+    [<Fact>]
+    let ``A composite join follows its key through a projection`` () =
+        let chain = LogicalPlan.Project(inner sales oneYear "s_d" "y_k", [ "item", col "s_i"; "day", col "y_k" ])
+        let plan = composite chain stock [ "item"; "day" ] [ "t_i"; "t_d" ]
+
+        let expected = composite chain (semiOn stock "t_d" oneYear "y_k") [ "item"; "day" ] [ "t_i"; "t_d" ]
+        Assert.Equal(expected, applyComposite plan)
+
+    [<Fact>]
+    let ``Keys that only come from the fact table do not reduce`` () =
+        let plan = composite sales stock [ "s_i"; "s_d" ] [ "t_i"; "t_d" ]
+
+        Assert.Equal(plan, applyComposite plan)
+
+    [<Fact>]
+    let ``A dimension without any filter does not reduce`` () =
+        let chain = inner (inner sales years "s_d" "y_k") weeks "y_w" "w_w"
+        let plan = composite chain stock [ "s_i"; "w_k" ] [ "t_i"; "t_d" ]
+
+        Assert.Equal(plan, applyComposite plan)
+
+    [<Fact>]
+    let ``A table not much larger than the key set does not reduce`` () =
+        let small =
+            [|
+                compositeSources.[0]
+                SourceBinding.Table(Table("stock", stockSchema, 100_000L))
+                compositeSources.[2]
+                compositeSources.[3]
+            |]
+        let plan = composite (inner sales oneYear "s_d" "y_k") stock [ "s_i"; "y_k" ] [ "t_i"; "t_d" ]
+
+        Assert.Equal(plan, SemiJoinReduction.apply small plan)
+
+    [<Fact>]
+    let ``A key on the outer side of a left join does not reduce`` () =
+        let outer = LogicalPlan.Join(sales, oneYear, [ col "s_d" ], [ col "y_k" ], JoinKind.Left, None, JoinKeyCoalescing.Default, false)
+        let plan = composite outer stock [ "s_i"; "y_y" ] [ "t_i"; "t_d" ]
+
+        Assert.Equal(plan, applyComposite plan)
+
+    [<Fact>]
+    let ``A joined side that is not a table does not reduce`` () =
+        let grouped = LogicalPlan.GroupBy(stock, [ col "t_i"; col "t_d" ], [], None, true)
+        let plan = composite (inner sales oneYear "s_d" "y_k") grouped [ "s_i"; "y_k" ] [ "t_i"; "t_d" ]
+
+        Assert.Equal(plan, applyComposite plan)
