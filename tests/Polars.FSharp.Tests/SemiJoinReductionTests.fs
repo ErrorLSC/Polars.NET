@@ -150,7 +150,7 @@ module SemiJoinReductionTests =
 
     let private measuredDims =
         let statistics: ColumnStatistics =
-            { NullFraction = Some 0.0; DistinctCount = Some 100.0; Min = None; Max = None; FrequentValues = []; Origin = StatisticsOrigin.Exact }
+            { NullFraction = Some 0.0; DistinctCount = Some 100.0; Min = None; Max = None; FrequentValues = []; Histogram = None; Origin = StatisticsOrigin.Exact }
         SourceBinding.Table(MeasuredTable("dims", dimSchema, 26_000L, "d_a", statistics, []))
 
     /// One equality, which only its statistics show to be selective.
@@ -168,14 +168,49 @@ module SemiJoinReductionTests =
 
     let private dimsWithKeyRange =
         let statistics: ColumnStatistics =
-            { NullFraction = Some 0.0; DistinctCount = Some 100.0; Min = None; Max = None; FrequentValues = []; Origin = StatisticsOrigin.Exact }
+            { NullFraction = Some 0.0; DistinctCount = Some 100.0; Min = None; Max = None; FrequentValues = []; Histogram = None; Origin = StatisticsOrigin.Exact }
         let keys = [ "d_k", (LiteralValue.Float64 0.0, LiteralValue.Float64 1000.0) ]
         SourceBinding.Table(MeasuredTable("dims", dimSchema, 26_000L, "d_a", statistics, keys))
 
     let private factsWithKeyRange (high: float) =
         let unused: ColumnStatistics =
-            { NullFraction = None; DistinctCount = None; Min = None; Max = None; FrequentValues = []; Origin = StatisticsOrigin.Exact }
+            { NullFraction = None; DistinctCount = None; Min = None; Max = None; FrequentValues = []; Histogram = None; Origin = StatisticsOrigin.Exact }
         SourceBinding.Table(MeasuredTable("facts", factSchema, 5_000_000L, "", unused, [ "f_k", (LiteralValue.Float64 0.0, LiteralValue.Float64 high) ]))
+
+    /// Keeps one row in 1000, which only its statistics show, on a table of its own.
+    let private strongFilter = LogicalPlan.Filter(returns, eq "r_t" 1)
+
+    let private measuredReturns (distinctValues: float) =
+        let statistics: ColumnStatistics =
+            { NullFraction = Some 0.0; DistinctCount = Some distinctValues; Min = None; Max = None; FrequentValues = []; Histogram = None; Origin = StatisticsOrigin.Exact }
+        SourceBinding.Table(MeasuredTable("returns", returnSchema, 500_000L, "r_t", statistics, []))
+
+    let private passingFilter = inner (inner facts strongFilter "f_t" "r_t") measured "f_k" "d_k"
+
+    [<Fact>]
+    let ``A reduction does not pass a join that keeps fewer rows`` () =
+        Assert.Equal(passingFilter, SemiJoinReduction.apply [| sources.[0]; measuredReturns 1000.0; measuredDims |] passingFilter)
+
+    [<Fact>]
+    let ``A reduction passes a join that keeps more rows`` () =
+        let expected = inner (inner (semiByMeasured facts "f_k") strongFilter "f_t" "r_t") measured "f_k" "d_k"
+        Assert.Equal(expected, SemiJoinReduction.apply [| sources.[0]; measuredReturns 10.0; measuredDims |] passingFilter)
+
+    let private semiByStrong =
+        LogicalPlan.Join(facts, strongFilter, [ col "f_t" ], [ col "r_t" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+
+    let private overExistingSemi = inner (inner semiByStrong returns "f_t" "r_t") measured "f_k" "d_k"
+
+    [<Fact>]
+    let ``A weaker reduction stays above a stronger one`` () =
+        let expected = inner (inner (semiByMeasured semiByStrong "f_k") returns "f_t" "r_t") measured "f_k" "d_k"
+        Assert.Equal(expected, SemiJoinReduction.apply [| sources.[0]; measuredReturns 1000.0; measuredDims |] overExistingSemi)
+
+    [<Fact>]
+    let ``A stronger reduction goes beneath a weaker one`` () =
+        let deeper = LogicalPlan.Join(semiByMeasured facts "f_k", strongFilter, [ col "f_t" ], [ col "r_t" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+        let expected = inner (inner deeper returns "f_t" "r_t") measured "f_k" "d_k"
+        Assert.Equal(expected, SemiJoinReduction.apply [| sources.[0]; measuredReturns 10.0; measuredDims |] overExistingSemi)
 
     [<Fact>]
     let ``A fact table using most of the dimension's keys is reduced`` () =

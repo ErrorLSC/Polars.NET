@@ -1034,6 +1034,9 @@ type ColumnStatistics =
         Max: LiteralValue option
         /// The most common values, each with its share of all the rows.
         FrequentValues: (LiteralValue * float) list
+        /// Ascending bucket boundaries of an equi-depth histogram over the non-null numbers and dates: each pair of
+        /// neighbours holds the same share of them. A range without one is taken as uniform between Min and Max.
+        Histogram: float[] option
         Origin: StatisticsOrigin
     }
 

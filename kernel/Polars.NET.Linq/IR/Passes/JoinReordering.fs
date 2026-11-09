@@ -126,6 +126,28 @@ module internal JoinReordering =
             bound Bound.Upper left right |> Option.orElseWith (fun () -> bound Bound.Lower right left)
         | _ -> None
 
+    /// The share of the histogram's values at or above the start of `value`'s position (`atStart`), or up to its end.
+    let private histogramPosition (boundaries: float[]) (atStart: bool) (value: float) =
+        let buckets = boundaries.Length - 1
+        if value <= boundaries.[0] && atStart then
+            0.0
+        elif value >= boundaries.[buckets] && not atStart then
+            1.0
+        elif value < boundaries.[0] then
+            0.0
+        elif value > boundaries.[buckets] then
+            1.0
+        else
+            let inBucket (i: int) = boundaries.[i] <= value && value <= boundaries.[i + 1]
+            let index =
+                if atStart then
+                    Seq.find inBucket (seq { 0 .. buckets - 1 })
+                else
+                    Seq.find inBucket (seq { buckets - 1 .. -1 .. 0 })
+            let width = boundaries.[index + 1] - boundaries.[index]
+            let within = if width > 0.0 then (value - boundaries.[index]) / width elif atStart then 0.0 else 1.0
+            (float index + within) / float buckets
+
     /// The fraction of rows kept by a conjunction of predicates, reading a column's statistics where it has them.
     let rec private conjunctionShare (column: string -> ColumnStatistics option) (predicates: ScalarExpr list) : float =
         let rec split (predicate: ScalarExpr) =
@@ -148,10 +170,12 @@ module internal JoinReordering =
                 let lowest = bounds |> List.choose (fun (_, side, v) -> if side = Bound.Lower then Some v else None) |> List.fold max low
                 let highest = bounds |> List.choose (fun (_, side, v) -> if side = Bound.Upper then Some v else None) |> List.fold min high
                 let nonNull = 1.0 - defaultArg statistics.NullFraction 0.0
-                if high <= low then
+                match statistics.Histogram with
+                | Some boundaries when boundaries.Length >= 2 ->
+                    nonNull * max 0.0 (histogramPosition boundaries false highest - histogramPosition boundaries true lowest)
+                | _ when high <= low ->
                     (if lowest <= highest then nonNull else 0.0)
-                else
-                    nonNull * max 0.0 (min 1.0 ((highest - lowest) / (high - low))))
+                | _ -> nonNull * max 0.0 (min 1.0 ((highest - lowest) / (high - low))))
         let rangedColumns = ranged |> List.map (fun (name, _, _) -> name) |> Set.ofList
         let others =
             conjuncts

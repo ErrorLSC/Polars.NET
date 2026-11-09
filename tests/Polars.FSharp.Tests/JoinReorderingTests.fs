@@ -67,7 +67,7 @@ module JoinReorderingTests =
                 ranges.TryFind column |> Option.map (fun (low, high) -> LiteralValue.Float64 low, LiteralValue.Float64 high)
 
     let private distinct count: ColumnStatistics =
-        { NullFraction = Some 0.0; DistinctCount = Some count; Min = None; Max = None; FrequentValues = []; Origin = StatisticsOrigin.Exact }
+        { NullFraction = Some 0.0; DistinctCount = Some count; Min = None; Max = None; FrequentValues = []; Histogram = None; Origin = StatisticsOrigin.Exact }
 
     /// fact ⋈ σ(a) ⋈ σ(b) ⋈ c: a's filter keeps 0.1% of a, b's keeps 5% of b.
     let private measuredSources (factKeyHigh: float option) =

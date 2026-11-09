@@ -21,6 +21,7 @@ module internal PolarsColumnStatistics =
     /// Above this many distinct values the frequent values are not worth reading back.
     let private maxValuesRead = 4096L
     let private maxRemembered = 20_000
+    let private histogramBuckets = 32
 
     let private cache = ConcurrentDictionary<struct (string * string), Lazy<ColumnStatistics option>>()
     let private ranges = ConcurrentDictionary<struct (string * string), Lazy<(LiteralValue * LiteralValue) option>>()
@@ -75,12 +76,30 @@ module internal PolarsColumnStatistics =
                 |> List.sortByDescending countOf
                 |> List.truncate maxListedValues
                 |> List.map (fun i -> valueOf i, share (countOf i))
-        let bounds =
+        let sortedCounts =
             if numeric && distinct > 0L then
-                let all = Seq.init (int distinct) (fun i -> PolarsWrapper.SeriesGetDoubleFast(values, int64 i)) |> Array.ofSeq
-                Some(LiteralValue.Float64(Array.min all)), Some(LiteralValue.Float64(Array.max all))
+                Array.init (int distinct) (fun i -> PolarsWrapper.SeriesGetDoubleFast(values, int64 i), countOf (int64 i)) |> Array.sortBy fst
+            else
+                [||]
+        let bounds =
+            if sortedCounts.Length > 0 then
+                Some(LiteralValue.Float64(fst sortedCounts.[0])), Some(LiteralValue.Float64(fst sortedCounts.[sortedCounts.Length - 1]))
             else
                 None, None
+        let histogram =
+            if sortedCounts.Length = 0 then
+                None
+            else
+                let boundaries = Array.create (histogramBuckets + 1) (fst sortedCounts.[0])
+                let mutable seen = 0.0
+                let mutable next = 1
+                for value, count in sortedCounts do
+                    seen <- seen + count
+                    while next < histogramBuckets && seen >= nonNullRows * float next / float histogramBuckets do
+                        boundaries.[next] <- value
+                        next <- next + 1
+                boundaries.[histogramBuckets] <- fst sortedCounts.[sortedCounts.Length - 1]
+                Some boundaries
         Some
             {
                 NullFraction = Some(max 0.0 (1.0 - share nonNullRows))
@@ -88,6 +107,7 @@ module internal PolarsColumnStatistics =
                 Min = fst bounds
                 Max = snd bounds
                 FrequentValues = frequent
+                Histogram = histogram
                 Origin = StatisticsOrigin.Exact
             }
 

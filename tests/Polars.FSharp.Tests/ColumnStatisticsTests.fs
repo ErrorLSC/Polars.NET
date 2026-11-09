@@ -13,7 +13,7 @@ open Polars.NET.Linq.Backend.Polars
 /// The estimator's use of column statistics, and the statistics read from a file.
 module ColumnStatisticsTests =
 
-    let private schema = LogicalSchema.OfFields [ ("country", LogicalTypes.String); ("year", LogicalTypes.Int64); ("note", LogicalTypes.String) ]
+    let private schema = LogicalSchema.OfFields [ ("country", LogicalTypes.String); ("year", LogicalTypes.Int64); ("note", LogicalTypes.String); ("price", LogicalTypes.Float64) ]
     let private table = LogicalPlan.Scan(LogicalPlanSource.Slot 0, schema)
 
     let private statistics frequent distinct low high nulls : ColumnStatistics =
@@ -23,6 +23,7 @@ module ColumnStatisticsTests =
             Min = low
             Max = high
             FrequentValues = frequent
+            Histogram = None
             Origin = StatisticsOrigin.Exact
         }
 
@@ -31,6 +32,9 @@ module ColumnStatisticsTests =
             [
                 "country", statistics [ LiteralValue.String "US", 0.97 ] (Some 2.0) None None None
                 "year", statistics [] (Some 200.0) (Some(LiteralValue.Float64 1900.0)) (Some(LiteralValue.Float64 2100.0)) (Some 0.1)
+                "price",
+                { statistics [] (Some 100.0) (Some(LiteralValue.Float64 0.0)) (Some(LiteralValue.Float64 100.0)) (Some 0.0) with
+                    Histogram = Some [| 0.0; 1.0; 2.0; 3.0; 100.0 |] }
             ]
 
     let private estimates: JoinReordering.SourceEstimates = { Rows = (fun _ -> 1000.0); Column = (fun _ column -> columns.TryFind column); KeyRange = (fun _ _ -> None) }
@@ -55,6 +59,15 @@ module ColumnStatisticsTests =
         close 45.0 (rowsOf (LogicalPlan.Filter(lower, ScalarExpr.Binary(BinaryOp.GtEq, lit 2010L, col "year"))))
 
     [<Fact>]
+    let ``A histogram follows a skewed column`` () =
+        let lower = LogicalPlan.Filter(table, ScalarExpr.Binary(BinaryOp.GtEq, col "price", lit 1.0))
+        close 250.0 (rowsOf (LogicalPlan.Filter(lower, ScalarExpr.Binary(BinaryOp.LtEq, col "price", lit 2.0))))
+
+    [<Fact>]
+    let ``A histogram interpolates inside a bucket`` () =
+        close 125.0 (rowsOf (LogicalPlan.Filter(table, ScalarExpr.Binary(BinaryOp.And, ScalarExpr.Binary(BinaryOp.GtEq, col "price", lit 1.0), ScalarExpr.Binary(BinaryOp.LtEq, col "price", lit 1.5)))))
+
+    [<Fact>]
     let ``Null checks read the null fraction`` () = close 100.0 (rowsOf (LogicalPlan.Filter(table, ScalarExpr.Unary(UnaryOp.IsNull, col "year"))))
 
     [<Fact>]
@@ -77,6 +90,10 @@ module ColumnStatisticsTests =
             Assert.Equal(Some 0.25, age.NullFraction)
             Assert.Equal(Some(LiteralValue.Float64 10.0), age.Min)
             Assert.Equal(Some(LiteralValue.Float64 30.0), age.Max)
+            let boundaries = age.Histogram.Value
+            Assert.Equal(10.0, boundaries.[0])
+            Assert.Equal(30.0, boundaries.[boundaries.Length - 1])
+            Assert.True(boundaries |> Array.pairwise |> Array.forall (fun (a, b) -> a <= b))
 
             let epochDays = float (DateOnly(2020, 1, 1).DayNumber - DateOnly(1970, 1, 1).DayNumber)
             Assert.Equal(Some(LiteralValue.Float64 epochDays), (read "day").Min)

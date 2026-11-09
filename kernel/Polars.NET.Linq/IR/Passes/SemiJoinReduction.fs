@@ -30,7 +30,8 @@ open Polars.NET.Linq.IR
 ///
 /// Column statistics can show a table to be selective when the fixed selectivities do not. Its share is then scaled by how
 /// much of its key range the other side uses, and the reduction must pass a large join: see `shareOfFacts` and
-/// `minLargeJoinRows`.
+/// `minLargeJoinRows`. They also order the work: the reduction that keeps fewest rows runs first, and none passes a join
+/// that keeps fewer rows than it does, which runs first anyway.
 ///
 /// A join on several columns gets a reduction of its own. Matching a large table on composite keys costs far more per
 /// row than a semi join on one of those columns, so a table is first filtered by the values one key can take. They come
@@ -194,6 +195,24 @@ module internal SemiJoinReduction =
                 | _ -> below
             maxId plan + 1
 
+        /// Whether statistics show `filter` to keep no more of the rows of `facts` than `selective` does. Without
+        /// statistics the answer is no, which leaves the order and the number of reductions as they were found.
+        let keepsNoMore (facts: LogicalPlan) (factKey: string) (filter: LogicalPlan) (filterKey: string) (key: string) (selective: LogicalPlan) (selectiveKey: string) =
+            if measured filter <> estimate filter || measured selective <> estimate selective then
+                let share plan factColumn planKey =
+                    let keptRows, allRows = measured plan
+                    shareOfFacts factColumn facts planKey plan (keptRows / allRows)
+                share filter factKey filterKey <= share selective key selectiveKey
+            else
+                false
+
+        /// Whether the semi join `existing` keeps fewer rows than `selective`, so that it should run first.
+        let keepsMoreThan (selective: LogicalPlan) (selectiveKey: string) (key: string) (existing: LogicalPlan) =
+            match existing with
+            | LogicalPlan.Join(facts, filter, [ ScalarExpr.Column factKey ], [ ScalarExpr.Column filterKey ], JoinKind.Semi, _, _, _) ->
+                keepsNoMore facts factKey filter filterKey key selective selectiveKey
+            | _ -> false
+
         /// `node` with its tables filtered by the keys in `selective.[selectiveKey]`, following column `key`, or None
         /// if the column reaches no table.
         let rec reduce (fromLeft: bool) (needsLargeJoin: bool) (selective: LogicalPlan) (selectiveKey: string) (worthIt: bool ref) (key: string) (node: LogicalPlan) : LogicalPlan option =
@@ -271,16 +290,25 @@ module internal SemiJoinReduction =
                         None
                     else
                         let bothSides = reducedLeft.IsSome && reducedRight.IsSome
+                        // A join that keeps fewer rows than this reduction runs first anyway.
+                        let passedJoinIsStronger =
+                            match leftOn, rightOn with
+                            | [ ScalarExpr.Column joinLeft ], [ ScalarExpr.Column joinRight ] when reducedLeft.IsSome && not bothSides && isFilteredTable right ->
+                                keepsNoMore left joinLeft right joinRight key selective selectiveKey
+                            | _ -> false
                         let otherSideIsLarge =
                             (reducedLeft.IsSome && snd (estimate right) >= minLargeJoinRows)
                             || (reducedRight.IsSome && snd (estimate left) >= minLargeJoinRows)
-                        if bothSides || (not fromLeft && (not needsLargeJoin || otherSideIsLarge)) then worthIt.Value <- true
+                        if bothSides || (not fromLeft && not passedJoinIsStronger && (not needsLargeJoin || otherSideIsLarge)) then
+                            worthIt.Value <- true
                         Some(rebuild (defaultArg reducedLeft left) (defaultArg reducedRight right))
                 | JoinKind.Left when leftHas ->
                     recurse key left
                     |> Option.map (fun reduced ->
                         if not fromLeft then worthIt.Value <- true
                         rebuild reduced right)
+                | JoinKind.Semi when leftHas && keepsMoreThan selective selectiveKey key node ->
+                    Some(filtered ())
                 | JoinKind.Semi
                 | JoinKind.Anti when leftHas -> recurse key left |> Option.map (fun reduced -> rebuild reduced right)
                 | _ -> None
