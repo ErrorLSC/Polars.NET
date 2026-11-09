@@ -248,7 +248,7 @@ jobs:
             native_rid: linux-x64
           - os: windows-latest
             native_rid: win-x64
-          - os: macos-14
+          - os: macos-15
             native_rid: osx-arm64
 
     steps:
