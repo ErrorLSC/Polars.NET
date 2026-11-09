@@ -71,6 +71,7 @@
     <Compile Include="IR/Passes/CommonSubplanSharing.fs" />
     <Compile Include="IR/Passes/SemiJoinReduction.fs" />
     <Compile Include="IR/Passes/EagerAggregation.fs" />
+    <Compile Include="IR/Passes/UnionAggregateFlattening.fs" />
     <Compile Include="IR/Passes/GroupingSetsCascade.fs" />
     <Compile Include="IR/Passes/LogicalOptimizer.fs" />
     <Compile Include="ScalarPlanner.fs" />

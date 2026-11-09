@@ -22,6 +22,7 @@ module internal LogicalOptimizer =
             plan
             |> optimize
             |> EagerAggregation.apply sources
+            |> UnionAggregateFlattening.apply
             |> GroupingSetsCascade.apply
             |> GroupOrderRelaxation.applyCollectingUnorderedJoins allowUnstableSort
         JoinReordering.apply sources unorderedJoins relaxed |> SemiJoinReduction.apply sources
