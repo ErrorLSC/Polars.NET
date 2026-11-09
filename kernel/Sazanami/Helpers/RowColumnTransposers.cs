@@ -1,4 +1,4 @@
-namespace Polars.NET.Core.Helpers;
+namespace Kaminari.Sazanami.Helpers;
 
 using System;
 using System.Collections.Concurrent;
@@ -7,21 +7,32 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using Polars.NET.Core.Wrappers;
-using Kaminari.Sazanami.Helpers;
 
 /// <summary>
-/// Internal columnar abstraction for buffering row values and exporting to a SeriesHandle.
+/// Where finished columns go. An engine implements this to receive columns in its own representation.
+/// </summary>
+/// <typeparam name="TColumn">The engine's column type.</typeparam>
+public interface IColumnSink<TColumn> where TColumn : class
+{
+    /// <summary>Builds a column from contiguous values, or returns null when this path does not support <typeparamref name="T"/>.</summary>
+    TColumn? CreateFromSpan<T>(string name, ReadOnlySpan<T> data);
+
+    /// <summary>Builds a column of any supported element type.</summary>
+    TColumn CreateGeneric<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(string name, IEnumerable<T> data);
+}
+
+/// <summary>
+/// Internal columnar abstraction for buffering row values and exporting them to a column sink.
 /// </summary>
 public interface IColumnBuffer
 {
     void AddObject(object? value);
-    SeriesHandle ToSeriesHandle(string name);
+    TColumn ToColumn<TColumn>(string name, IColumnSink<TColumn> sink) where TColumn : class;
 }
 
 /// <summary>
 /// Strongly-typed column buffer backed by a contiguous array.
-/// Dispatches to SeriesFactory.CreateSpan to avoid memory duplication.
+/// Hands the sink a span of the buffer to avoid memory duplication.
 /// </summary>
 /// <typeparam name="T">The scalar or nullable element type.</typeparam>
 internal sealed class ColumnBuffer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(int capacity) : IColumnBuffer
@@ -57,15 +68,10 @@ internal sealed class ColumnBuffer<[DynamicallyAccessedMembers(DynamicallyAccess
         Append((T?)Convert.ChangeType(value, underlying));
     }
 
-    public SeriesHandle ToSeriesHandle(string name)
+    public TColumn ToColumn<TColumn>(string name, IColumnSink<TColumn> sink) where TColumn : class
     {
         ReadOnlySpan<T?> span = _buffer.AsSpan(0, _count);
-        var handle = SeriesFactory.CreateSpan(name, span);
-        if (handle?.IsInvalid != false)
-        {
-            return SeriesFactory.CreateGenericType(name, _buffer.Take(_count));
-        }
-        return handle;
+        return sink.CreateFromSpan(name, span) ?? sink.CreateGeneric(name, _buffer.Take(_count));
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -77,7 +83,7 @@ internal sealed class ColumnBuffer<[DynamicallyAccessedMembers(DynamicallyAccess
 }
 
 /// <summary>
-/// Fallback buffer for complex nested or non-primitive types via Arrow engine.
+/// Fallback buffer for complex nested or non-primitive types.
 /// </summary>
 internal sealed class StructColumnBuffer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(int capacity) : IColumnBuffer
 {
@@ -88,14 +94,14 @@ internal sealed class StructColumnBuffer<[DynamicallyAccessedMembers(Dynamically
         _items.Add((T?)value);
     }
 
-    public SeriesHandle ToSeriesHandle(string name)
+    public TColumn ToColumn<TColumn>(string name, IColumnSink<TColumn> sink) where TColumn : class
     {
         if (_items.Count == 0)
         {
-            return SeriesFactory.CreateGenericType(name, Array.Empty<T>());
+            return sink.CreateGeneric(name, Array.Empty<T>());
         }
 
-        return SeriesFactory.CreateGenericType(name, _items);
+        return sink.CreateGeneric(name, _items);
     }
 }
 
@@ -135,10 +141,11 @@ internal static class ColumnBufferFactory
 /// High-performance compiled object-to-columnar transposer pipeline for POCO and F# Records.
 /// </summary>
 /// <typeparam name="T">The record or POCO row model type.</typeparam>
-public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
+/// <typeparam name="TColumn">The column type of the sink.</typeparam>
+public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T, TColumn> where TColumn : class
 {
-    private static readonly Func<T[], SeriesHandle[]>? BatchFastTransposer;
-    private static readonly Func<SeriesHandle[]>? EmptySeriesFactory;
+    private static readonly Func<T[], IColumnSink<TColumn>, TColumn[]>? BatchFastTransposer;
+    private static readonly Func<IColumnSink<TColumn>, TColumn[]>? EmptyColumnFactory;
     private static readonly Action<T, IColumnBuffer[]>? StreamingRowWriter;
 
     static ObjectSchemaTransposer()
@@ -156,7 +163,7 @@ public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(Dynamical
         if (IsBatchFastPathSupported)
         {
             BatchFastTransposer = CompileBatchTransposer(ModelProperties);
-            EmptySeriesFactory = CompileEmptySeriesFactory(ModelProperties);
+            EmptyColumnFactory = CompileEmptyColumnFactory(ModelProperties);
         }
 
         StreamingRowWriter = CompileStreamingWriter(ModelProperties);
@@ -165,7 +172,7 @@ public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(Dynamical
     public static PropertyInfo[] ModelProperties { get; }
     public static bool IsBatchFastPathSupported { get; }
 
-    public static SeriesHandle[] Transpose(IEnumerable<T> data)
+    public static TColumn[] Transpose(IEnumerable<T> data, IColumnSink<TColumn> sink)
     {
         ArgumentNullException.ThrowIfNull(data);
 
@@ -181,31 +188,31 @@ public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(Dynamical
             {
                 if (array.Length == 0)
                 {
-                    return EmptySeriesFactory!();
+                    return EmptyColumnFactory!(sink);
                 }
-                return BatchFastTransposer(array);
+                return BatchFastTransposer(array, sink);
             }
         }
 
         // 2. Fallback streaming path (single pass row consumption)
-        return TransposeStreaming(data);
+        return TransposeStreaming(data, sink);
     }
 
-    public static SeriesHandle[] CreateEmptySeriesHandles()
+    public static TColumn[] CreateEmptyColumns(IColumnSink<TColumn> sink)
     {
-        if (EmptySeriesFactory != null)
+        if (EmptyColumnFactory != null)
         {
-            return EmptySeriesFactory();
+            return EmptyColumnFactory(sink);
         }
 
-        var handles = new SeriesHandle[ModelProperties.Length];
+        var columns = new TColumn[ModelProperties.Length];
         for (int i = 0; i < ModelProperties.Length; i++)
         {
             var p = ModelProperties[i];
             var buffer = ColumnBufferFactory.Create(p.PropertyType, 0);
-            handles[i] = buffer.ToSeriesHandle(p.Name);
+            columns[i] = buffer.ToColumn(p.Name, sink);
         }
-        return handles;
+        return columns;
     }
 
     public static IColumnBuffer[] CreateBuffers(int capacity)
@@ -220,7 +227,7 @@ public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(Dynamical
 
     public static Action<T, IColumnBuffer[]> RowWriter => StreamingRowWriter!;
 
-    private static SeriesHandle[] TransposeStreaming(IEnumerable<T> data)
+    private static TColumn[] TransposeStreaming(IEnumerable<T> data, IColumnSink<TColumn> sink)
     {
         int capacity = data is ICollection<T> col ? col.Count : 16;
         var buffers = new IColumnBuffer[ModelProperties.Length];
@@ -236,13 +243,13 @@ public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(Dynamical
             writer(item, buffers);
         }
 
-        var handles = new SeriesHandle[ModelProperties.Length];
+        var columns = new TColumn[ModelProperties.Length];
         for (int i = 0; i < ModelProperties.Length; i++)
         {
-            handles[i] = buffers[i].ToSeriesHandle(ModelProperties[i].Name);
+            columns[i] = buffers[i].ToColumn(ModelProperties[i].Name, sink);
         }
 
-        return handles;
+        return columns;
     }
 
     #region Expression Compilers
@@ -251,13 +258,14 @@ public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(Dynamical
     /// Compiles an unrolled batch transposer.
     /// Eliminates all reflection and delegate overhead by compiling the projection loop directly into IL.
     /// </summary>
-    private static Func<T[], SeriesHandle[]> CompileBatchTransposer(PropertyInfo[] props)
+    private static Func<T[], IColumnSink<TColumn>, TColumn[]> CompileBatchTransposer(PropertyInfo[] props)
     {
         var recordsParam = Expression.Parameter(typeof(T[]), "records");
+        var sinkParam = Expression.Parameter(typeof(IColumnSink<TColumn>), "sink");
         var seriesExpressions = new Expression[props.Length];
 
-        var createColMethodDef = typeof(ObjectSchemaTransposer<T>)
-            .GetMethod(nameof(CreateColumnHandleFromExtracted), BindingFlags.NonPublic | BindingFlags.Static)!;
+        var createColMethodDef = typeof(ObjectSchemaTransposer<T, TColumn>)
+            .GetMethod(nameof(CreateColumnFromExtracted), BindingFlags.NonPublic | BindingFlags.Static)!;
 
         for (int i = 0; i < props.Length; i++)
         {
@@ -273,14 +281,15 @@ public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(Dynamical
                 specificMethod,
                 recordsParam,
                 Expression.Constant(prop.Name, typeof(string)),
-                Expression.Constant(compiledExtractor)
+                Expression.Constant(compiledExtractor),
+                sinkParam
             );
 
             seriesExpressions[i] = callExpr;
         }
 
-        var newArrayExpr = Expression.NewArrayInit(typeof(SeriesHandle), seriesExpressions);
-        return Expression.Lambda<Func<T[], SeriesHandle[]>>(newArrayExpr, recordsParam).Compile();
+        var newArrayExpr = Expression.NewArrayInit(typeof(TColumn), seriesExpressions);
+        return Expression.Lambda<Func<T[], IColumnSink<TColumn>, TColumn[]>>(newArrayExpr, recordsParam, sinkParam).Compile();
     }
 
     /// <summary>
@@ -329,29 +338,25 @@ public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(Dynamical
         return Expression.Lambda(delegateType, body, recordsParam).Compile();
     }
 
-    private static SeriesHandle CreateColumnHandleFromExtracted<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TField>(
+    private static TColumn CreateColumnFromExtracted<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TField>(
         T[] records,
         string name,
-        Func<T[], TField[]> extractor)
+        Func<T[], TField[]> extractor,
+        IColumnSink<TColumn> sink)
     {
         TField[] colData = extractor(records);
-        var handle = SeriesFactory.CreateSpan<TField>(name, colData.AsSpan());
 
-        // Fallback for types not handled by CreateSpan SIMD/Unsafe paths
-        if (handle?.IsInvalid is not false)
-        {
-            return SeriesFactory.CreateGenericType(name, colData);
-        }
-
-        return handle;
+        // Types the span path does not handle fall back to the generic path.
+        return sink.CreateFromSpan<TField>(name, colData.AsSpan()) ?? sink.CreateGeneric(name, colData);
     }
 
-    private static Func<SeriesHandle[]> CompileEmptySeriesFactory(PropertyInfo[] props)
+    private static Func<IColumnSink<TColumn>, TColumn[]> CompileEmptyColumnFactory(PropertyInfo[] props)
     {
         var seriesExpressions = new Expression[props.Length];
+        var sinkParam = Expression.Parameter(typeof(IColumnSink<TColumn>), "sink");
 
-        var createEmptyColMethodDef = typeof(ObjectSchemaTransposer<T>)
-            .GetMethod(nameof(CreateEmptyColumnHandle), BindingFlags.NonPublic | BindingFlags.Static)!;
+        var createEmptyColMethodDef = typeof(ObjectSchemaTransposer<T, TColumn>)
+            .GetMethod(nameof(CreateEmptyColumn), BindingFlags.NonPublic | BindingFlags.Static)!;
 
         for (int i = 0; i < props.Length; i++)
         {
@@ -362,25 +367,19 @@ public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(Dynamical
             var callExpr = Expression.Call(
                 null,
                 specificMethod,
-                Expression.Constant(prop.Name, typeof(string))
+                Expression.Constant(prop.Name, typeof(string)),
+                sinkParam
             );
 
             seriesExpressions[i] = callExpr;
         }
 
-        var newArrayExpr = Expression.NewArrayInit(typeof(SeriesHandle), seriesExpressions);
-        return Expression.Lambda<Func<SeriesHandle[]>>(newArrayExpr).Compile();
+        var newArrayExpr = Expression.NewArrayInit(typeof(TColumn), seriesExpressions);
+        return Expression.Lambda<Func<IColumnSink<TColumn>, TColumn[]>>(newArrayExpr, sinkParam).Compile();
     }
 
-    private static SeriesHandle CreateEmptyColumnHandle<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TField>(string colName)
-    {
-        var handle = SeriesFactory.CreateSpan(colName, ReadOnlySpan<TField>.Empty);
-        if (handle?.IsInvalid != false)
-        {
-            return SeriesFactory.CreateGenericType(colName, Array.Empty<TField>());
-        }
-        return handle;
-    }
+    private static TColumn CreateEmptyColumn<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] TField>(string colName, IColumnSink<TColumn> sink) =>
+        sink.CreateFromSpan(colName, ReadOnlySpan<TField>.Empty) ?? sink.CreateGeneric(colName, Array.Empty<TField>());
 
     private static Action<T, IColumnBuffer[]> CompileStreamingWriter(PropertyInfo[] props)
     {
@@ -437,26 +436,24 @@ public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(Dynamical
 
 /// <summary>
 /// Pre-compiled extractor for Structure-of-Arrays (SoA) object containers.
-/// Caches property extractors using Expression Trees to directly generate SeriesHandles without boxing.
+/// Caches property extractors using Expression Trees to directly generate columns without boxing.
 /// </summary>
 /// <typeparam name="T">The container type (e.g. anonymous type or SoA DTO).</typeparam>
-public static class SoAColumnExtractor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
+/// <typeparam name="TColumn">The column type of the sink.</typeparam>
+public static class SoAColumnExtractor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T, TColumn> where TColumn : class
 {
-    private static readonly (string Name, Func<T, string, SeriesHandle> CreateSeriesHandle)[] ColumnFactories;
+    private static readonly (string Name, Func<T, string, IColumnSink<TColumn>, TColumn> CreateColumn)[] ColumnFactories;
 
     static SoAColumnExtractor()
     {
         var properties = ClrTypeHelper.GetModelProperties(typeof(T));
-        var factories = new List<(string Name, Func<T, string, SeriesHandle> CreateSeriesHandle)>();
+        var factories = new List<(string Name, Func<T, string, IColumnSink<TColumn>, TColumn> CreateColumn)>();
 
         var containerParam = Expression.Parameter(typeof(T), "container");
         var nameParam = Expression.Parameter(typeof(string), "colName");
+        var sinkParam = Expression.Parameter(typeof(IColumnSink<TColumn>), "sink");
 
-        // MethodInfo for SeriesFactory.CreateGenericType<TElement>(string, IEnumerable<TElement>)
-        var createGenericMethod = typeof(SeriesFactory).GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .First(m => m.Name == nameof(SeriesFactory.CreateGenericType) &&
-                        m.IsGenericMethodDefinition &&
-                        m.GetParameters().Length == 2);
+        var createGenericMethod = typeof(IColumnSink<TColumn>).GetMethod(nameof(IColumnSink<TColumn>.CreateGeneric))!;
 
         foreach (var prop in properties)
         {
@@ -476,7 +473,7 @@ public static class SoAColumnExtractor<[DynamicallyAccessedMembers(DynamicallyAc
                     ? propAccess
                     : Expression.Convert(propAccess, targetEnumerableType);
 
-                createHandleExpr = Expression.Call(specializedMethod, nameParam, typedProp);
+                createHandleExpr = Expression.Call(sinkParam, specializedMethod, nameParam, typedProp);
             }
             else
             {
@@ -487,17 +484,17 @@ public static class SoAColumnExtractor<[DynamicallyAccessedMembers(DynamicallyAc
                 var specializedMethod = createGenericMethod.MakeGenericMethod(typeof(object));
                 var castCall = Expression.Call(castMethod, Expression.Convert(propAccess, typeof(System.Collections.IEnumerable)));
 
-                createHandleExpr = Expression.Call(specializedMethod, nameParam, castCall);
+                createHandleExpr = Expression.Call(sinkParam, specializedMethod, nameParam, castCall);
             }
 
-            var lambda = Expression.Lambda<Func<T, string, SeriesHandle>>(createHandleExpr, containerParam, nameParam);
+            var lambda = Expression.Lambda<Func<T, string, IColumnSink<TColumn>, TColumn>>(createHandleExpr, containerParam, nameParam, sinkParam);
             factories.Add((prop.Name, lambda.Compile()));
         }
 
         ColumnFactories = factories.ToArray();
     }
 
-    public static (string Name, Func<T, string, SeriesHandle> CreateSeriesHandle)[] GetFactories() => ColumnFactories;
+    public static (string Name, Func<T, string, IColumnSink<TColumn>, TColumn> CreateColumn)[] GetFactories() => ColumnFactories;
 }
 
 internal static class DictBufferAppenderFactory
@@ -599,18 +596,20 @@ internal static class DictBufferAppenderFactory
 public static class DictSchemaTransposer
 {
     /// <summary>
-    /// Transposes row-oriented dictionaries into columnar SeriesHandles.
+    /// Transposes row-oriented dictionaries into columns.
     /// </summary>
     /// <param name="records">The materialized dictionary row records.</param>
+    /// <param name="sink">Receives the finished columns.</param>
     /// <param name="targetKeys">Optional fixed column keys to extract (e.g. from an explicit schema).</param>
     /// <param name="strict">Whether to throw on type mismatches or coerce to null.</param>
     /// <param name="inferSchemaLength">Maximum number of rows to sample for schema inference.</param>
-    /// <returns>An array of column names and corresponding SeriesHandles.</returns>
-    public static (string Name, SeriesHandle Handle)[] Transpose(
+    /// <returns>An array of column names and corresponding columns.</returns>
+    public static (string Name, TColumn Column)[] Transpose<TColumn>(
         IReadOnlyList<IDictionary<string, object?>> records,
+        IColumnSink<TColumn> sink,
         IReadOnlyList<string>? targetKeys = null,
         bool strict = true,
-        int? inferSchemaLength = 100)
+        int? inferSchemaLength = 100) where TColumn : class
     {
         int recordCount = records.Count;
         if (recordCount == 0) return [];
@@ -727,196 +726,12 @@ public static class DictSchemaTransposer
         // ==========================================
         // 4. Materialize to Column Tuples
         // ==========================================
-        var results = new (string Name, SeriesHandle Handle)[numCols];
+        var results = new (string Name, TColumn Column)[numCols];
         for (int i = 0; i < numCols; i++)
         {
-            results[i] = (orderedKeys[i], buffers[i].ToSeriesHandle(orderedKeys[i]));
+            results[i] = (orderedKeys[i], buffers[i].ToColumn(orderedKeys[i], sink));
         }
 
         return results;
     }
-}
-
-/// <summary>
-/// High-performance Core factory that ingests row entities or maps directly into a native DataFrameHandle.
-/// </summary>
-public static class DataFrameBuilder
-{
-    /// <summary>
-    /// Transposes row entities (POCOs, DTOs, Structs, or F# records) into a native DataFrameHandle.
-    /// Employs compiled batch straight-line loops for simple scalar arrays, and fallback streaming buffers for complex types.
-    /// </summary>
-    /// <typeparam name="T">The entity row model type.</typeparam>
-    /// <param name="rows">The sequence of row models.</param>
-    /// <returns>A native <see cref="DataFrameHandle"/> wrapping the ingested columnar DataFrame.</returns>
-    public static DataFrameHandle FromRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IEnumerable<T> rows)
-    {
-        ArgumentNullException.ThrowIfNull(rows);
-
-        // 1. Primitive / Single-Column Fast Path
-        Type type = typeof(T);
-        if (ClrTypeHelper.IsSupportedSimpleType(type))
-        {
-            var seriesHandle = SeriesFactory.CreateGenericType("value", rows);
-            return PolarsWrapper.DataFrameNew([seriesHandle]);
-        }
-
-        // 2. Delegate to pre-compiled ObjectSchemaTransposer<T>
-        SeriesHandle[] seriesHandles = ObjectSchemaTransposer<T>.Transpose(rows);
-        if (seriesHandles.Length == 0)
-        {
-            return PolarsWrapper.DataFrameNew([]);
-        }
-
-        // 3. Assemble SeriesHandles directly into DataFrameHandle
-        return PolarsWrapper.DataFrameNew(seriesHandles);
-    }
-
-    /// <summary>
-    /// Transposes dictionary rows into a native DataFrameHandle with automatic schema inference and type promotion.
-    /// </summary>
-    /// <param name="records">The materialized dictionary row records.</param>
-    /// <param name="targetKeys">Optional fixed column names to extract.</param>
-    /// <param name="strict">Whether to throw on invalid type casting or coerce into nulls.</param>
-    /// <param name="inferSchemaLength">The sampling rows limit for dynamic schema inference.</param>
-    /// <returns>A native <see cref="DataFrameHandle"/> wrapping the ingested columnar DataFrame.</returns>
-    public static DataFrameHandle FromDicts(
-        IReadOnlyList<IDictionary<string, object?>> records,
-        IReadOnlyList<string>? targetKeys = null,
-        bool strict = true,
-        int? inferSchemaLength = 100)
-    {
-        ArgumentNullException.ThrowIfNull(records);
-
-        var colTuples = DictSchemaTransposer.Transpose(records, targetKeys, strict, inferSchemaLength);
-        if (colTuples.Length == 0)
-        {
-            return PolarsWrapper.DataFrameNew([]);
-        }
-
-        var handles = new SeriesHandle[colTuples.Length];
-        for (int i = 0; i < colTuples.Length; i++)
-        {
-            handles[i] = colTuples[i].Handle;
-        }
-
-        return PolarsWrapper.DataFrameNew(handles);
-    }
-    /// <summary>
-    /// Ingests a generic sequence of dictionary/map rows into a native DataFrameHandle.
-    /// Handles dynamic schema inference, type promotion, and columnar transposition entirely in Core.
-    /// </summary>
-    /// <param name="data">The row dictionaries (supports F# Map, Dictionary, etc.).</param>
-    /// <param name="targetKeys">Optional target column keys to project.</param>
-    /// <param name="strict">Whether to throw on type conversion errors or coerce to null.</param>
-    /// <param name="inferSchemaLength">Max number of rows to sample for schema inference.</param>
-    /// <returns>A native <see cref="DataFrameHandle"/> containing transposed columns.</returns>
-    public static DataFrameHandle FromDicts(
-        IEnumerable<IDictionary<string, object?>> data,
-        IReadOnlyList<string>? targetKeys = null,
-        bool strict = true,
-        int? inferSchemaLength = 100)
-    {
-        ArgumentNullException.ThrowIfNull(data);
-
-        var records = data as IReadOnlyList<IDictionary<string, object?>> ?? [.. data];
-        if (records.Count == 0)
-        {
-            return PolarsWrapper.DataFrameNew([]);
-        }
-
-        var colTuples = DictSchemaTransposer.Transpose(records, targetKeys, strict, inferSchemaLength);
-        if (colTuples.Length == 0)
-        {
-            return PolarsWrapper.DataFrameNew([]);
-        }
-
-        var handles = new SeriesHandle[colTuples.Length];
-        for (int i = 0; i < colTuples.Length; i++)
-        {
-            handles[i] = colTuples[i].Handle;
-        }
-
-        return PolarsWrapper.DataFrameNew(handles);
-    }
-    /// <summary>
-    /// Creates a native DataFrameHandle from an object where properties represent column data collections (Structure-of-Arrays).
-    /// Leverages compiled expression trees in SoAColumnExtractor to eliminate reflection overhead on repeated container types.
-    /// Compatible with C# anonymous objects and F# anonymous records.
-    /// </summary>
-    /// <typeparam name="T">The container model type.</typeparam>
-    /// <param name="columns">The column container instance.</param>
-    /// <returns>A native <see cref="DataFrameHandle"/>.</returns>
-    public static DataFrameHandle FromColumns<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(T columns) where T : class
-    {
-        ArgumentNullException.ThrowIfNull(columns);
-
-        var factories = SoAColumnExtractor<T>.GetFactories();
-        if (factories.Length == 0)
-        {
-            return PolarsWrapper.DataFrameNew(ReadOnlySpan<SeriesHandle>.Empty);
-        }
-
-        var handles = new SeriesHandle[factories.Length];
-        for (int i = 0; i < factories.Length; i++)
-        {
-            var (name, createSeriesHandle) = factories[i];
-            handles[i] = createSeriesHandle(columns, name);
-        }
-
-        return PolarsWrapper.DataFrameNew(handles);
-    }
-
-    /// <summary>
-    /// Non-generic reflection-based fallback for column container objects.
-    /// </summary>
-    [RequiresUnreferencedCode("Uses reflection to extract properties from unconstrained objects.")]
-    public static DataFrameHandle FromColumns(object columns)
-    {
-        ArgumentNullException.ThrowIfNull(columns);
-
-        var properties = ClrTypeHelper.GetModelProperties(columns.GetType());
-        if (properties.Length == 0)
-        {
-            return PolarsWrapper.DataFrameNew(ReadOnlySpan<SeriesHandle>.Empty);
-        }
-
-        var handles = new List<SeriesHandle>(properties.Length);
-
-        for (int i = 0; i < properties.Length; i++)
-        {
-            var p = properties[i];
-            var val = p.GetValue(columns)
-                ?? throw new ArgumentNullException(nameof(columns), $"Column property '{p.Name}' cannot be null.");
-
-            var elemType = ClrTypeHelper.TryGetEnumerableElementType(val.GetType()) ?? typeof(object);
-            var method = typeof(SeriesFactory).GetMethod(
-                nameof(SeriesFactory.CreateGenericType),
-                BindingFlags.Public | BindingFlags.Static
-            )!.MakeGenericMethod(elemType);
-
-            var handle = (SeriesHandle)method.Invoke(null, [p.Name, val])!;
-            handles.Add(handle);
-        }
-
-        return PolarsWrapper.DataFrameNew(handles.ToArray());
-    }
-
-    /// <summary>
-    /// Ingests an explicit sequence of named column enumerables into a native DataFrameHandle.
-    /// </summary>
-    public static DataFrameHandle FromColumns(IEnumerable<(string Name, Array Data)> columns)
-    {
-        ArgumentNullException.ThrowIfNull(columns);
-
-        var handles = new List<SeriesHandle>();
-        foreach (var (name, data) in columns)
-        {
-            var handle = SeriesFactory.Create(name, data);
-            handles.Add(handle);
-        }
-
-        return PolarsWrapper.DataFrameNew(handles.ToArray());
-    }
-
 }

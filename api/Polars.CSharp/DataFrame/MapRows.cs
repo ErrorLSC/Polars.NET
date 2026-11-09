@@ -1,4 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
+using Kaminari.Sazanami.Helpers;
+using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 
 namespace Polars.CSharp;
@@ -27,7 +29,7 @@ public partial class DataFrame
             throw new OverflowException($"DataFrame height ({height}) exceeds Int32.MaxValue.");
 
         int count = (int)height;
-        var outProps = ObjectSchemaTransposer<TOut>.ModelProperties;
+        var outProps = ObjectSchemaTransposer<TOut, SeriesHandle>.ModelProperties;
 
         if (outProps.Length == 0)
             return [];
@@ -35,7 +37,7 @@ public partial class DataFrame
         // 1. Handle empty DataFrame edge-case (preserves column schema)
         if (count == 0)
         {
-            var emptyHandles = ObjectSchemaTransposer<TOut>.CreateEmptySeriesHandles();
+            var emptyHandles = ObjectSchemaTransposer<TOut, SeriesHandle>.CreateEmptyColumns(SeriesHandleSink.Instance);
             var emptySeries = new Series[emptyHandles.Length];
             for (int i = 0; i < emptyHandles.Length; i++)
             {
@@ -45,10 +47,10 @@ public partial class DataFrame
         }
 
         // 2. Pre-allocate exact capacity buffers for each output column
-        var buffers = ObjectSchemaTransposer<TOut>.CreateBuffers(count);
+        var buffers = ObjectSchemaTransposer<TOut, SeriesHandle>.CreateBuffers(count);
 
         // 3. Obtain pre-compiled non-boxing row writer for TOut
-        var writer = ObjectSchemaTransposer<TOut>.RowWriter;
+        var writer = ObjectSchemaTransposer<TOut, SeriesHandle>.RowWriter;
 
         // 4. Stream rows using zero-heap ref struct enumerator
         var enumerator = Rows<TIn>();
@@ -62,7 +64,7 @@ public partial class DataFrame
         var seriesList = new Series[outProps.Length];
         for (int i = 0; i < outProps.Length; i++)
         {
-            var handle = buffers[i].ToSeriesHandle(outProps[i].Name);
+            var handle = buffers[i].ToColumn(outProps[i].Name, SeriesHandleSink.Instance);
             seriesList[i] = new Series(handle);
         }
 
