@@ -159,6 +159,28 @@ public class LinqRelationalRewriteParityTests
     }
 
     [Fact]
+    public void Sum_of_small_long_literals_needs_no_overflow_check()
+    {
+        using var df = DataFrame.FromRows(Sales);
+
+        var query = df.AsQueryable(Sales).GroupBy(s => s.Customer).Select(g => new { g.Key, N = g.Sum(s => s.Date < 4 ? 1L : 0L) });
+        var expected = Sales.GroupBy(s => s.Customer).Select(g => new { g.Key, N = g.Sum(s => s.Date < 4 ? 1L : 0L) }).ToList();
+
+        Assert.DoesNotContain("4294967296", query.Explain());
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
+    public void Sum_of_large_long_literals_still_overflows()
+    {
+        using var df = DataFrame.FromRows(Sales);
+
+        var query = df.AsQueryable(Sales).GroupBy(s => s.Customer).Select(g => new { g.Key, N = g.Sum(s => s.Date < 40 ? long.MaxValue : 0L) });
+
+        Assert.Throws<OverflowException>(() => query.ToList());
+    }
+
+    [Fact]
     public void Grouping_on_keys_of_two_dimensions_keeps_first_appearance_order()
     {
         using var dfS = DataFrame.FromRows(Sales);

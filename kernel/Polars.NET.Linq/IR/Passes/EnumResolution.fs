@@ -116,6 +116,14 @@ module internal EnumResolution =
         | LogicalType.Arrow(:? Apache.Arrow.Types.UInt8Type) -> true
         | _ -> false
 
+    /// Whether a long expression only takes the values of literals below 2^31 in magnitude (`test ? 1L : 0L`).
+    let rec private isSmallLongLiterals (expr: ScalarExpr) =
+        match expr with
+        | ScalarExpr.Literal(LiteralValue.Int64 value) -> abs value < (1L <<< 31)
+        | ScalarExpr.Conditional(_, whenTrue, whenFalse) -> isSmallLongLiterals whenTrue && isSmallLongLiterals whenFalse
+        | ScalarExpr.Alias(inner, _) -> isSmallLongLiterals inner
+        | _ -> false
+
     /// Whether the sum of a column of this type, widened to 64 bits, cannot overflow.
     let private widensWithoutOverflow (t: LogicalType) =
         match t with
@@ -251,12 +259,13 @@ module internal EnumResolution =
         // throw OverflowException where the engine wraps. The sum is taken exactly in a wider type and checked
         // against the range of the summed type (a strict cast without assertions: the query still fails).
         // A sum of narrower integers or of booleans (a count) widened to 64 bits cannot overflow, which also leaves the
-        // rewritten sum alone.
+        // rewritten sum alone. Neither can a long sum whose values are all small literals, below 2^32 rows.
         | ScalarExpr.Aggregation((AggKind.Sum | AggKind.Mean) as kind, Some inner, distinct) when
             (match inner with
              | ScalarExpr.Cast(narrow, LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type), _) ->
                  not (widensWithoutOverflow (typeOf narrow))
              | _ -> true)
+            && not (kind = AggKind.Sum && isSmallLongLiterals inner)
             && match kind, typeOf inner with
                | AggKind.Sum, t -> (checkedSumOf t).IsSome
                | _, LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) -> true
