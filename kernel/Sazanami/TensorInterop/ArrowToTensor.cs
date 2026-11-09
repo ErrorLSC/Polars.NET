@@ -10,9 +10,7 @@ namespace Kaminari.Sazanami.TensorInterop;
 public static partial class ArrowTensorInterop
 {
     public static ReadOnlySpan<T> AsReadOnlySpan<T>(this IArrowArray array) where T : unmanaged
-    {
-        return ExtractFlatPhysicalSpan<T>(array, out _);
-    }
+        => ExtractFlatPhysicalSpan<T>(array, out _);
 
     public static ReadOnlyTensorSpan<T> AsTensorSpan<T>(this IArrowArray array) where T : unmanaged
     {
