@@ -52,43 +52,84 @@ module JoinReorderingTests =
 
     [<Fact>]
     let ``The filtered dimension joins the fact table first`` () =
-        let result = LogicalOptimizer.optimizeComplete false withStats (total "v" written)
+        let result = LogicalOptimizer.optimizeComplete false false withStats (total "v" written)
+        Assert.Equal<int list>([ 0; 2; 1; 3 ], slots result)
+
+    type private MeasuredTable(rows: int64, schema: LogicalSchema, columns: Map<string, ColumnStatistics>, ranges: Map<string, float * float>) =
+        interface ILogicalTableSource with
+            member _.Name = "t"
+            member _.Schema = schema
+        interface ISourceStatistics with
+            member _.EstimatedRows = Some rows
+        interface IColumnStatisticsSource with
+            member _.TryGetColumnStatistics column = columns.TryFind column
+            member _.TryGetColumnRange column =
+                ranges.TryFind column |> Option.map (fun (low, high) -> LiteralValue.Float64 low, LiteralValue.Float64 high)
+
+    let private distinct count: ColumnStatistics =
+        { NullFraction = Some 0.0; DistinctCount = Some count; Min = None; Max = None; FrequentValues = []; Origin = StatisticsOrigin.Exact }
+
+    /// fact ⋈ σ(a) ⋈ σ(b) ⋈ c: a's filter keeps 0.1% of a, b's keeps 5% of b.
+    let private measuredSources (factKeyHigh: float option) =
+        let wide = Map.ofList [ "a", (0.0, 1000.0) ]
+        let factRanges =
+            match factKeyHigh with
+            | Some high -> Map.ofList [ "a_key", (0.0, high) ]
+            | None -> Map.empty
+        [|
+            SourceBinding.Table(MeasuredTable(5_000_000L, factSchema, Map.empty, factRanges))
+            SourceBinding.Table(MeasuredTable(10_000L, aSchema, Map.ofList [ "a_v", distinct 1000.0 ], wide))
+            SourceBinding.Table(MeasuredTable(10_000L, bSchema, Map.ofList [ "b_v", distinct 20.0 ], Map.empty))
+            SourceBinding.Table(Table(Some 10_000L, cSchema))
+        |]
+
+    let private measuredStar =
+        join (join (join fact (LogicalPlan.Filter(a, eq "a_v" 1)) "a_key" "a") (LogicalPlan.Filter(b, eq "b_v" 1)) "b_key" "b") c "c_key" "c"
+
+    [<Fact>]
+    let ``Column statistics decide which filtered dimension joins first`` () =
+        let result = LogicalOptimizer.optimizeComplete false false (measuredSources None) (total "v" measuredStar)
+        Assert.Equal<int list>([ 0; 1; 2; 3 ], slots result)
+
+    [<Fact>]
+    let ``A dimension the fact table barely uses keeps more of the fact table than its filter suggests`` () =
+        let result = LogicalOptimizer.optimizeComplete false false (measuredSources (Some 10.0)) (total "v" measuredStar)
         Assert.Equal<int list>([ 0; 2; 1; 3 ], slots result)
 
     [<Fact>]
     let ``Without statistics the filters still decide`` () =
-        let result = LogicalOptimizer.optimizeComplete false (star [ None; None; None; None ]) (total "v" written)
+        let result = LogicalOptimizer.optimizeComplete false false (star [ None; None; None; None ]) (total "v" written)
         Assert.Equal(2, (slots result).[1])
 
     [<Fact>]
     let ``A join whose order is observed keeps its written order`` () =
-        Assert.Equal(written, LogicalOptimizer.optimizeComplete false withStats written)
+        Assert.Equal(written, LogicalOptimizer.optimizeComplete false false withStats written)
 
     [<Fact>]
     let ``Beneath a sort that can tie, joins are reordered only when ties are unspecified`` () =
         let sorted = LogicalPlan.Sort(written, [ { SortOrder.Expr = col "v"; Descending = false; NullsLast = false } ])
-        Assert.Equal<int list>([ 0; 1; 2; 3 ], slots (LogicalOptimizer.optimizeComplete false withStats sorted))
-        Assert.Equal<int list>([ 0; 2; 1; 3 ], slots (LogicalOptimizer.optimizeComplete true withStats sorted))
+        Assert.Equal<int list>([ 0; 1; 2; 3 ], slots (LogicalOptimizer.optimizeComplete false false withStats sorted))
+        Assert.Equal<int list>([ 0; 2; 1; 3 ], slots (LogicalOptimizer.optimizeComplete true false withStats sorted))
 
     [<Fact>]
     let ``Unspecified ties do not free a limit without a sort`` () =
         let limited = LogicalPlan.Limit(written, 0L, 5u)
-        Assert.Equal<int list>([ 0; 1; 2; 3 ], slots (LogicalOptimizer.optimizeComplete true withStats limited))
+        Assert.Equal<int list>([ 0; 1; 2; 3 ], slots (LogicalOptimizer.optimizeComplete true false withStats limited))
 
     [<Fact>]
     let ``A shared subplan is freed only when every consumer leaves its order unobserved`` () =
         let body = LogicalPlan.Shared(0, written)
         let sorted = LogicalPlan.Sort(body, [ { SortOrder.Expr = col "v"; Descending = false; NullsLast = false } ])
         let bothFree = LogicalPlan.Union(sorted, sorted, true)
-        Assert.Equal<int list>([ 0; 2; 1; 3; 0; 2; 1; 3 ], slots (LogicalOptimizer.optimizeComplete true withStats bothFree))
+        Assert.Equal<int list>([ 0; 2; 1; 3; 0; 2; 1; 3 ], slots (LogicalOptimizer.optimizeComplete true false withStats bothFree))
 
         let oneLimited = LogicalPlan.Union(sorted, LogicalPlan.Limit(body, 0L, 5u), true)
-        Assert.Equal<int list>([ 0; 1; 2; 3; 0; 1; 2; 3 ], slots (LogicalOptimizer.optimizeComplete true withStats oneLimited))
+        Assert.Equal<int list>([ 0; 1; 2; 3; 0; 1; 2; 3 ], slots (LogicalOptimizer.optimizeComplete true false withStats oneLimited))
 
     [<Fact>]
     let ``A filter above an unordered join keeps every column it reads`` () =
         let both = ScalarExpr.Binary(BinaryOp.Gt, col "b_v", col "c_v")
-        let result = LogicalOptimizer.optimizeComplete false withStats (total "v" (LogicalPlan.Filter(written, both)))
+        let result = LogicalOptimizer.optimizeComplete false false withStats (total "v" (LogicalPlan.Filter(written, both)))
         let rec filterAboveBothSides (plan: LogicalPlan) =
             match plan with
             | LogicalPlan.Filter(input, p) when p = both ->
@@ -107,7 +148,7 @@ module JoinReorderingTests =
         let plan = total "a_v_right" withC
         let schemas = sources [ Some 5_000_000L; Some 10_000L; Some 10_000L; Some 100L ] [ factSchema; aSchema; aSchema; cSchema ]
 
-        let result = LogicalOptimizer.optimizeComplete false schemas plan
+        let result = LogicalOptimizer.optimizeComplete false false schemas plan
 
         let rec reordered (node: LogicalPlan) =
             match node with
@@ -123,14 +164,14 @@ module JoinReorderingTests =
     let ``Outer joins are opaque, and two relations are left alone`` () =
         let leftJoin = LogicalPlan.Join(join fact a "a_key" "a", b, [ col "b_key" ], [ col "b" ], JoinKind.Left, None, JoinKeyCoalescing.Default, false)
         let plan = total "v" leftJoin
-        Assert.Equal<int list>([ 0; 1; 2 ], slots (LogicalOptimizer.optimizeComplete false withStats plan))
+        Assert.Equal<int list>([ 0; 1; 2 ], slots (LogicalOptimizer.optimizeComplete false false withStats plan))
 
     [<Fact>]
     let ``A disconnected join graph keeps its written order`` () =
         // The last join's key belongs to no relation joined before it through an edge between the first two groups.
         let cross = LogicalPlan.Join(join fact a "a_key" "a", b, [], [], JoinKind.Cross, None, JoinKeyCoalescing.Default, false)
         let plan = total "v" (join cross c "c_key" "c")
-        Assert.Equal<int list>([ 0; 1; 2; 3 ], slots (LogicalOptimizer.optimizeComplete false withStats plan))
+        Assert.Equal<int list>([ 0; 1; 2; 3 ], slots (LogicalOptimizer.optimizeComplete false false withStats plan))
 
     // --- the order analysis that frees joins beneath windows ---
 

@@ -15,7 +15,7 @@ open Polars.NET.Linq.IR
 /// 2. Builds a left-deep order greedily: from each starting relation it repeatedly adds the connected relation giving
 ///    the smallest estimated result, and keeps the order whose intermediate results sum lowest. Starting from the
 ///    single smallest join would pair two small dimensions and then have to meet the fact table with nothing to
-///    reduce it. Estimates come from source row counts
+///    reduce it. Estimates come from source row counts, column statistics when a source has them
 ///    (ISourceStatistics) and fixed filter selectivities, treating the smaller side of an edge as its unique side.
 ///    With no statistics every source counts the same, leaving the filters to decide.
 /// 3. Places each residual predicate at the first join that has all its columns, and restores the original columns.
@@ -333,7 +333,7 @@ module internal JoinReordering =
         { sourceEstimates sources with Column = (fun _ _ -> None); KeyRange = (fun _ _ -> None) }
 
     let apply (sources: SourceBinding array) (unorderedJoins: HashSet<LogicalPlan>) (plan: LogicalPlan) : LogicalPlan =
-        let estimates = tableEstimates sources
+        let estimates = sourceEstimates sources
 
         let isFlattenableJoin (node: LogicalPlan) =
             match node with
@@ -435,14 +435,39 @@ module internal JoinReordering =
                     let rows i = fst measures.[i]
                     let tableRows i = snd measures.[i]
 
+                    let knownRanges = Dictionary<struct (int * string), (float * float) option>()
+
+                    /// The range of a join key, when the relation reads it straight from a table.
+                    let keyRange (relation: int) (key: ScalarExpr) =
+                        match columnOf key with
+                        | None -> None
+                        | Some token ->
+                            let cacheKey = struct (relation, token)
+                            match knownRanges.TryGetValue cacheKey with
+                            | true, range -> range
+                            | _ ->
+                                let range =
+                                    sourceSlot relations.[relation]
+                                    |> Option.bind (fun slot -> estimates.KeyRange slot (tokenColumn token))
+                                knownRanges.[cacheKey] <- range
+                                range
+
+                    /// The rows of relation `x` whose key can match relation `y`: a dimension can span far more values
+                    /// than the fact table uses (200 years of dates for 5 years of sales).
+                    let matchingDomain (x: int) (keyX: ScalarExpr) (y: int) (keyY: ScalarExpr) =
+                        match keyRange x keyX, keyRange y keyY with
+                        | Some(lowX, highX), Some(lowY, highY) when highX > lowX ->
+                            tableRows x * max 1e-6 (min 1.0 ((min highX highY - max lowX lowY) / (highX - lowX)))
+                        | _ -> tableRows x
+
+                    let edgeDomain (e: Edge) = min (matchingDomain e.A e.KeyA e.B e.KeyB) (matchingDomain e.B e.KeyB e.A e.KeyA)
+
                     /// The estimated rows of joining `current` rows with relation `i` through its edges to `joined`.
                     let joinedRows (current: float) (joined: HashSet<int>) (i: int) =
                         let denominators =
                             edges
                             |> Seq.choose (fun e ->
-                                if e.A = i && joined.Contains e.B then Some(min (tableRows i) (tableRows e.B))
-                                elif e.B = i && joined.Contains e.A then Some(min (tableRows i) (tableRows e.A))
-                                else None)
+                                if (e.A = i && joined.Contains e.B) || (e.B = i && joined.Contains e.A) then Some(edgeDomain e) else None)
                             |> List.ofSeq
                         match denominators with
                         | [] -> None

@@ -72,3 +72,13 @@ module GroupOrderRelaxationTests =
         let kept = GroupOrderRelaxation.apply (LogicalPlan.Project(withFirst, [ "len", len ]))
         Assert.Equal<bool list>([ false ], groupFlags kept)
         Assert.True(hasSort kept)
+
+    [<Fact>]
+    let ``A grouping on a constant frees its input only with column statistics`` () =
+        let schema = LogicalSchema.OfFields [ ("v", LogicalTypes.Int64) ]
+        let table = LogicalPlan.Scan(LogicalPlanSource.Slot 0, schema)
+        let sum = ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Column "v"), false)
+        let plan = LogicalPlan.GroupBy(table, [ ScalarExpr.Alias(ScalarExpr.Literal(LiteralValue.Int32 1), "k") ], [ "total", sum ], None, true)
+
+        Assert.Equal<bool list>([ true ], groupFlags (GroupOrderRelaxation.applyCollectingUnorderedJoins false false plan |> fst))
+        Assert.Equal<bool list>([ false ], groupFlags (GroupOrderRelaxation.applyCollectingUnorderedJoins false true plan |> fst))

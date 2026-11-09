@@ -94,7 +94,10 @@ module internal PipelineCompilation =
                                     else
                                         resolved
                                         |> Passes.CommonSubplanSharing.apply scope.Backend compiled.Sources
-                                        |> LogicalOptimizer.optimizeComplete Polars.NET.Core.Config.CoreConfig.AllowUnstableOrdering compiled.Sources
+                                        |> LogicalOptimizer.optimizeComplete
+                                            Polars.NET.Core.Config.CoreConfig.AllowUnstableOrdering
+                                            Polars.NET.Core.Config.CoreConfig.CollectColumnStatistics
+                                            compiled.Sources
                             }
                         Stages = stages
                         FallbackDiagnostic = scope.FallbackReason

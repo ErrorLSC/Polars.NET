@@ -142,6 +142,9 @@ module internal GroupOrderRelaxation =
             UnorderedJoins: HashSet<LogicalPlan>
             /// Ties of a sort are unspecified, so nothing observes the order of a sort's input.
             AllowUnstableSort: bool
+            /// A grouping on constants has one group, so its order is not observed. Only with column statistics: it
+            /// frees the join order beneath, and with fixed selectivities reordering such a query can make it slower.
+            RelaxConstantGroups: bool
             /// Shared subplans known to have no consumer observing their order.
             FreeShared: Set<int>
             /// For each Shared id met, whether every occurrence so far left its order unobserved.
@@ -152,8 +155,14 @@ module internal GroupOrderRelaxation =
         let relax = relax run
         match plan with
         | LogicalPlan.GroupBy(input, keys, aggs, having, maintainOrder) ->
+            let isConstant key =
+                match key with
+                | ScalarExpr.Literal _
+                | ScalarExpr.Alias(ScalarExpr.Literal _, _) -> true
+                | _ -> false
             let unobserved =
                 match need with
+                | _ when run.RelaxConstantGroups && not keys.IsEmpty && keys |> List.forall isConstant -> true
                 | OrderNeed.Ordered -> false
                 | OrderNeed.Unordered -> true
                 | OrderNeed.SortedBy sortColumns ->
@@ -257,12 +266,13 @@ module internal GroupOrderRelaxation =
     /// Relaxes the order guarantees that the plan's consumers cannot observe. The plan's own rows are observed
     /// in order (a single row of order-free aggregates aside).
     /// Runs until the shared subplans known to be free stop growing: freeing one can free another nested in it.
-    let private relaxToFixpoint (allowUnstableSort: bool) (plan: LogicalPlan) =
+    let private relaxToFixpoint (allowUnstableSort: bool) (relaxConstantGroups: bool) (plan: LogicalPlan) =
         let rec loop (free: Set<int>) =
             let run =
                 {
                     UnorderedJoins = HashSet<LogicalPlan>(HashIdentity.Reference)
                     AllowUnstableSort = allowUnstableSort
+                    RelaxConstantGroups = relaxConstantGroups
                     FreeShared = free
                     SharedUnobserved = Dictionary<int, bool>()
                 }
@@ -272,9 +282,9 @@ module internal GroupOrderRelaxation =
             if nowFree = free then result, run.UnorderedJoins else loop nowFree
         loop Set.empty
 
-    let apply (plan: LogicalPlan) : LogicalPlan = relaxToFixpoint false plan |> fst
+    let apply (plan: LogicalPlan) : LogicalPlan = relaxToFixpoint false false plan |> fst
 
     /// `apply`, and the join nodes of its result whose output order nothing observes. With `allowUnstableSort` the
     /// plan's sorts leave ties unspecified, so their inputs' order is not observed.
-    let applyCollectingUnorderedJoins (allowUnstableSort: bool) (plan: LogicalPlan) : LogicalPlan * HashSet<LogicalPlan> =
-        relaxToFixpoint allowUnstableSort plan
+    let applyCollectingUnorderedJoins (allowUnstableSort: bool) (relaxConstantGroups: bool) (plan: LogicalPlan) : LogicalPlan * HashSet<LogicalPlan> =
+        relaxToFixpoint allowUnstableSort relaxConstantGroups plan
