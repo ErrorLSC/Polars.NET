@@ -5,7 +5,7 @@
 Polars.NET provides idiomatic, zero-copy bindings across multiple .NET programming paradigms:
 - **Polars.CSharp**: Object-oriented Fluent API, C# 12 collection expressions, and disposable lifetime management.
 - **Polars.FSharp**: Functional pipeline combinators (`pl.*`), sequence modules, and zero-allocation struct enumerators (`series.As<'T>()`, `df.Rows<'T>()`).
-- **Polars.NET.Linq**: Native LINQ Query Provider compiling C# LINQ syntax and F# `query { }` computation expressions directly into native Rust Polars `LazyPlan` nodes.
+- **Polars.NET.Linq**: Native LINQ Query Provider compiling C# LINQ syntax and F# `query { }` computation expressions into an optimized logical plan that runs as a native Rust Polars `LazyFrame`, with .NET null, NaN and arithmetic semantics. Runs all 22 TPC-H and 99 TPC-DS queries natively.
 - **Polars.NET.Core**: Low-level FFI bridges, Arrow C Data Interface interop, and native Lakehouse storage engines.
 
 ## Core Concepts & Getting Started
@@ -21,8 +21,9 @@ Polars.NET provides idiomatic, zero-copy bindings across multiple .NET programmi
 
 - [Idiomatic C# Guide](https://errorlsc.github.io/Polars.NET/articles/csharp-idioms): Modern C# patterns, collection expressions (`[ Col("a"), Col("b") ]`), `using static Polars.CSharp.Polars`, pattern matching, and record ingestion.
 - [Idiomatic F# Guide](https://errorlsc.github.io/Polars.NET/articles/fsharp-idioms): Functional pipelines (`|>`), `pl.*` expression combinators, zero-allocation struct enumerators (`SeriesEnumerator<'T>`, `RowEnumerator<'T>`), and higher-order mapping.
-- [LINQ & Query Computation Expressions](https://errorlsc.github.io/Polars.NET/articles/linq): Standard C# LINQ and F# `query { }` CE compiling into 100% native Rust LazyPlans without managed loop overhead.
-- [Ecosystem & Native Interop](https://errorlsc.github.io/Polars.NET/articles/interop): Zero-copy Apache Arrow C Data Interface, Arrow Flight, ADBC, ADO.NET DbDataReader ingestion, ML.NET `IDataView`, and TorchSharp / System.Numerics Tensor bridges.
+- [LINQ & Query Computation Expressions](https://errorlsc.github.io/Polars.NET/articles/linq): C# LINQ and F# `query { }` compiled to native plans, managed UDF pushdown, the mapped BCL table, query settings (`UseRelationalNulls`, `AllowUnstableOrdering`, `DisallowUdfPushdown`) and the IR optimizer.
+- [LINQ Semantics Contract](https://errorlsc.github.io/Polars.NET/articles/linq-semantics): Normative rules for nulls, NaN, arithmetic, strings, ordering and joins that every query plan follows.
+- [Ecosystem & Native Interop](https://errorlsc.github.io/Polars.NET/articles/interop): Zero-copy Apache Arrow C Data Interface, Arrow Flight, ADBC, ADO.NET DbDataReader ingestion, ML.NET `IDataView`, TorchSharp / System.Numerics Tensor bridges, off-heap `NativeBuffer` writes (`WriteIpcStreamNativeMemory` and siblings), and `PipeWriter` streaming.
 
 ## Complete Context & LLM Ingestion
 
