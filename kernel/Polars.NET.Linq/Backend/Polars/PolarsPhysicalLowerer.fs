@@ -278,16 +278,52 @@ module internal PolarsPhysicalLowerer =
                         |> List.toArray
                     getLazySchemaFields (PolarsWrapper.LazySelect(referenceGroupedLf, referenceSelectExprs)) |> Map.ofArray)
 
-            let compileLevel (subsetIndices: int list, levelLiterals: Map<string, ScalarExpr>) : LazyFrameHandle =
-                let groupedLf =
-                    if subsetIndices.IsEmpty then
-                        let dummyKey = PolarsWrapper.Alias(PolarsWrapper.Lit 1, "__dummy_rollup_key__")
-                        let levelAggs = aggHandles |> Array.map PolarsWrapper.CloneExpr
-                        PolarsWrapper.LazyGroupByAgg(PolarsWrapper.LazyClone activeLf, [| dummyKey |], levelAggs, null, false)
+            // With merges a level is computed from the smallest finer level, which is cached when it feeds another.
+            let subsets = spec.Levels |> List.map (fst >> Set.ofList) |> List.toArray
+            let parents =
+                subsets
+                |> Array.mapi (fun level subset ->
+                    if spec.LevelMerges.IsNone then
+                        None
                     else
-                        let levelKeys = [| for i in subsetIndices -> PolarsWrapper.CloneExpr keyAliasedHandles.[i] |]
-                        let levelAggs = aggHandles |> Array.map PolarsWrapper.CloneExpr
-                        PolarsWrapper.LazyGroupByAgg(PolarsWrapper.LazyClone activeLf, levelKeys, levelAggs, null, true)
+                        subsets
+                        |> Array.indexed
+                        |> Array.filter (fun (_, other) -> Set.isProperSuperset other subset)
+                        |> Array.sortBy (fun (index, other) -> other.Count, index)
+                        |> Array.tryHead
+                        |> Option.map fst)
+            let cachedLevels = Collections.Generic.Dictionary<int, LazyFrameHandle>()
+
+            let rec groupLevel (level: int) (subsetIndices: int list) : LazyFrameHandle =
+                match cachedLevels.TryGetValue level with
+                | true, cached -> PolarsWrapper.LazyClone cached
+                | _ ->
+                    let input, keyHandles, aggregates =
+                        match parents.[level], spec.LevelMerges with
+                        | Some parent, Some merges ->
+                            let parentSubset = spec.Levels.[parent] |> fst
+                            groupLevel parent parentSubset,
+                            [| for i in subsetIndices -> PolarsWrapper.Col (fst spec.KeyAliases.[i]) |],
+                            merges |> List.map (fun (alias, expr) -> PolarsWrapper.Alias(PolarsScalarLowerer.lower expr, alias)) |> List.toArray
+                        | _ ->
+                            PolarsWrapper.LazyClone activeLf,
+                            [| for i in subsetIndices -> PolarsWrapper.CloneExpr keyAliasedHandles.[i] |],
+                            aggHandles |> Array.map PolarsWrapper.CloneExpr
+                    let grouped =
+                        if subsetIndices.IsEmpty then
+                            let dummyKey = PolarsWrapper.Alias(PolarsWrapper.Lit 1, "__dummy_rollup_key__")
+                            PolarsWrapper.LazyGroupByAgg(input, [| dummyKey |], aggregates, null, false)
+                        else
+                            PolarsWrapper.LazyGroupByAgg(input, keyHandles, aggregates, null, true)
+                    if parents |> Array.contains (Some level) then
+                        let cached = PolarsWrapper.LazyFrameCache grouped
+                        cachedLevels.[level] <- cached
+                        PolarsWrapper.LazyClone cached
+                    else
+                        grouped
+
+            let compileLevel (level: int) (subsetIndices: int list, levelLiterals: Map<string, ScalarExpr>) : LazyFrameHandle =
+                let groupedLf = groupLevel level subsetIndices
 
                 let subsetSet = Set.ofList subsetIndices
                 let projectedExprs =
@@ -317,8 +353,12 @@ module internal PolarsPhysicalLowerer =
 
                 PolarsWrapper.LazySelect(groupedLf, projectedExprs)
 
-            let levelLfs = spec.Levels |> List.map compileLevel |> List.toArray
-            PolarsWrapper.LazyConcat(levelLfs, PlConcatType.Vertical, false, true)
+            try
+                let levelLfs = spec.Levels |> List.mapi compileLevel |> List.toArray
+                PolarsWrapper.LazyConcat(levelLfs, PlConcatType.Vertical, false, true)
+            finally
+                for lf in cachedLevels.Values do
+                    lf.Dispose()
 
         | LogicalPlan.Sort(input, orderings) ->
             let lf = lowerNode sources shared input

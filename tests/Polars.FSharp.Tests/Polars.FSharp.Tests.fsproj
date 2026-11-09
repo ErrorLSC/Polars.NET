@@ -39,6 +39,8 @@
     <Compile Include="PredicatePushdownTests.fs" />
     <Compile Include="JoinReorderingTests.fs" />
     <Compile Include="SemiJoinReductionTests.fs" />
+    <Compile Include="EagerAggregationTests.fs" />
+    <Compile Include="GroupingSetsCascadeTests.fs" />
     <Compile Include="QueryNestedEntityTests.fs" />
     <Compile Include="EnumColumnTests.fs" />
     <Compile Include="SubqueryGraftingTests.fs" />

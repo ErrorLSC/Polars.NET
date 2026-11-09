@@ -86,6 +86,7 @@ let private groupingSets (t: Tables) levels =
             Aggs = [ "total", agg AggKind.Sum (col "Amount") ]
             Levels = levels
             OutputColumns = [ "R"; "C"; "total"; "level" ]
+            LevelMerges = None
         }
     LogicalPlan.GroupingSets(t.Scan sales, spec)
 
@@ -150,5 +151,6 @@ let ``Over no rows a grouping has no groups, and a grand-total level still has i
             Aggs = [ "n", len; "total", agg AggKind.Sum (col "Amount") ]
             Levels = [ [ 0 ], Map.empty; [], Map.empty ]
             OutputColumns = [ "R"; "n"; "total" ]
+            LevelMerges = None
         }
     Conformance.rowsInOrder t (LogicalPlan.GroupingSets(none, spec)) [ [ null; 0L; 0L ] ]

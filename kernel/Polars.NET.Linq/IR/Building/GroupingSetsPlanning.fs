@@ -447,6 +447,7 @@ module internal GroupingSetsPlanning =
                             KeyAliases = keyAliases
                             Aggs = aggs
                             Levels = levels
+                            LevelMerges = None
                             OutputColumns = keyAliasNames @ (aggs |> List.map fst) @ (groupingColList |> List.map snd)
                         }
                     Some(LogicalPlan.Project(LogicalPlan.GroupingSets(basePlan, spec), projections))

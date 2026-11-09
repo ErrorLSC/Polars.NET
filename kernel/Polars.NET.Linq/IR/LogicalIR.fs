@@ -844,6 +844,9 @@ and LogicalGroupingSetsSpec =
         Aggs: (string * ScalarExpr) list
         Levels: (int list * Map<string, ScalarExpr>) list
         OutputColumns: string list
+        /// How to compute each aggregate of a level from the same aggregates of a level with more keys, reading the
+        /// finer level's columns by alias, when every aggregate allows it. None computes every level from the input.
+        LevelMerges: (string * ScalarExpr) list option
     }
 
 /// Specification for Logical AsOf join operations. A null `on` or `by` key never matches (on either side).

@@ -19,5 +19,9 @@ module internal LogicalOptimizer =
     /// ties of the plan's sorts are unspecified, which frees the order beneath them.
     let optimizeComplete (allowUnstableSort: bool) (sources: SourceBinding array) (plan: LogicalPlan) : LogicalPlan =
         let relaxed, unorderedJoins =
-            plan |> optimize |> GroupOrderRelaxation.applyCollectingUnorderedJoins allowUnstableSort
+            plan
+            |> optimize
+            |> EagerAggregation.apply sources
+            |> GroupingSetsCascade.apply
+            |> GroupOrderRelaxation.applyCollectingUnorderedJoins allowUnstableSort
         JoinReordering.apply sources unorderedJoins relaxed |> SemiJoinReduction.apply sources
