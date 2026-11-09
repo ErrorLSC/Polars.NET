@@ -1,9 +1,9 @@
 namespace Polars.FSharp.Tests
 
 open Xunit
-open Polars.NET.Linq.IR
-open Polars.NET.Linq.IR.ScalarExprOps
-open Polars.NET.Linq.IR.Passes
+open Kaminari.Samidare.IR
+open Kaminari.Samidare.IR.ScalarExprOps
+open Kaminari.Samidare.IR.Passes
 
 /// SemiJoinReduction over hand-built plans: which tables get a semi join with the selective table.
 module SemiJoinReductionTests =

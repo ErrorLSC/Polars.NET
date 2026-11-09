@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text;
 using static Polars.CSharp.Polars;
+using Kaminari.Sazanami.Arrow;
 
 namespace Polars.CSharp.Tests;
 

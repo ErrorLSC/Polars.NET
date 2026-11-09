@@ -4,6 +4,7 @@ using Polars.CSharp;
 using Polars.CSharp.Linq;
 using Polars.NET.Core.Data;
 using Xunit.Abstractions;
+using Kaminari.Sazanami.Data;
 
 namespace Polars.Integration.Tests;
 

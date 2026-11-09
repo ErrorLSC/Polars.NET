@@ -2,7 +2,7 @@ using System.Data;
 using System.Data.Common;
 using System.Runtime.CompilerServices;
 using Apache.Arrow;
-using Polars.NET.Core.Arrow;
+using Kaminari.Sazanami.Arrow;
 
 namespace Polars.NET.Core.Data;
 

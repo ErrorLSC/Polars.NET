@@ -2,6 +2,8 @@ using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Data;
+using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Data;
 
 namespace Polars.CSharp;
 

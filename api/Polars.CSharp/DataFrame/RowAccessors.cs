@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Collections;
 using System.Runtime.CompilerServices;
 using Polars.NET.Core.Data;
+using Kaminari.Sazanami.Data;
 
 namespace Polars.CSharp;
 
@@ -10,12 +11,12 @@ internal static class RowMapper<[DynamicallyAccessedMembers(DynamicallyAccessedM
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ArrowBatchCursor<T> CreateCursor(DataFrame df)
-        => ArrowRowMapper<T>.CreateCursor(df.Handle);
+        => DataFrameRowMapper<T>.CreateCursor(df.Handle);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static T ReadRow(DataFrame df, long index)
     {
-        using var cursor = ArrowRowMapper<T>.CreateCursor(df.Handle);
+        using var cursor = DataFrameRowMapper<T>.CreateCursor(df.Handle);
         return cursor.ReadRow(checked((int)index));
     }
 }
@@ -33,7 +34,7 @@ public ref struct DataFrameRowEnumerator<[DynamicallyAccessedMembers(Dynamically
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal DataFrameRowEnumerator(DataFrame df)
     {
-        _cursor = ArrowRowMapper<T>.CreateCursor(df.Handle);
+        _cursor = DataFrameRowMapper<T>.CreateCursor(df.Handle);
         Length = _cursor.Length;
         _index = -1L;
         _current = default;
@@ -276,7 +277,7 @@ public sealed class PolarsRowEnumerable<[DynamicallyAccessedMembers(DynamicallyA
     public void CopyTo(T[] array, int arrayIndex)
     {
         ArgumentNullException.ThrowIfNull(array);
-        using var cursor = ArrowRowMapper<T>.CreateCursor(_df.Handle);
+        using var cursor = DataFrameRowMapper<T>.CreateCursor(_df.Handle);
         int len = cursor.Length;
         if (arrayIndex < 0 || arrayIndex + len > array.Length)
             throw new ArgumentOutOfRangeException(nameof(arrayIndex));
@@ -310,7 +311,7 @@ public sealed class PolarsRowEnumerable<[DynamicallyAccessedMembers(DynamicallyA
 
         internal Enumerator(DataFrame df)
         {
-            _cursor = ArrowRowMapper<T>.CreateCursor(df.Handle);
+            _cursor = DataFrameRowMapper<T>.CreateCursor(df.Handle);
             _height = _cursor.Length;
             _index = -1L;
             _current = default;

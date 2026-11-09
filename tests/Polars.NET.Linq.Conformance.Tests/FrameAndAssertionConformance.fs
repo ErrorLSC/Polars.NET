@@ -5,7 +5,7 @@ module Polars.NET.Linq.Conformance.Tests.FrameAndAssertionConformance
 
 open System
 open Xunit
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
 
 type GV = { Id: int64; G: int64; V: int64 }
 

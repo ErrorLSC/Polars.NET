@@ -2,6 +2,7 @@ using BenchmarkDotNet.Attributes;
 using DuckDB.NET.Data;
 using LinqToDB.Data;
 using Polars.NET.Linq;
+using Kaminari.Samidare;
 using Polars.Tpcds;
 
 namespace Polars.Benchmarks.Tpcds;

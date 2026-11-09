@@ -1,5 +1,6 @@
 using Polars.CSharp.Linq;
 using Polars.NET.Linq;
+using Kaminari.Samidare;
 using Polars.NET.Core.Exceptions;
 
 namespace Polars.CSharp.Tests.Linq;

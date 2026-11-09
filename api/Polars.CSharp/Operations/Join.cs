@@ -10,22 +10,31 @@ namespace Polars.CSharp;
 /// Smart tolerance type for AsOf joins. 
 /// Implicitly converts from string ("2h"), TimeSpan, int, long, or double.
 /// </summary>
-public readonly struct AsOfTolerance
+public readonly struct AsOfTolerance : Kaminari.Samidare.IAsOfToleranceValue
 {
-    internal readonly string? StringVal;
+    private readonly string? _text;
+    private readonly TimeSpan? _duration;
     internal readonly long? IntVal;
     internal readonly double? FloatVal;
 
-    private AsOfTolerance(string? s, long? i, double? d)
+    private AsOfTolerance(string? text, TimeSpan? duration, long? i, double? d)
     {
-        StringVal = s; IntVal = i; FloatVal = d;
+        _text = text; _duration = duration; IntVal = i; FloatVal = d;
     }
 
-    public static implicit operator AsOfTolerance(string val) => new(val, null, null);
-    public static implicit operator AsOfTolerance(TimeSpan val) => new(DurationFormatter.ToPolarsString(val), null, null);
-    public static implicit operator AsOfTolerance(long val) => new(null, val, null);
-    public static implicit operator AsOfTolerance(int val) => new(null, val, null);
-    public static implicit operator AsOfTolerance(double val) => new(null, null, val);
+    /// <summary>The tolerance in Polars duration syntax, when it is a duration.</summary>
+    internal string? StringVal => _duration is { } duration ? DurationFormatter.ToPolarsString(duration) : _text;
+
+    TimeSpan? Kaminari.Samidare.IAsOfToleranceValue.Duration => _duration;
+    string? Kaminari.Samidare.IAsOfToleranceValue.Text => _text;
+    long? Kaminari.Samidare.IAsOfToleranceValue.Integer => IntVal;
+    double? Kaminari.Samidare.IAsOfToleranceValue.Float => FloatVal;
+
+    public static implicit operator AsOfTolerance(string val) => new(val, null, null, null);
+    public static implicit operator AsOfTolerance(TimeSpan val) => new(null, val, null, null);
+    public static implicit operator AsOfTolerance(long val) => new(null, null, val, null);
+    public static implicit operator AsOfTolerance(int val) => new(null, null, val, null);
+    public static implicit operator AsOfTolerance(double val) => new(null, null, null, val);
 }
 
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame

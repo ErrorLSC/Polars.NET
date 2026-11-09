@@ -6,6 +6,7 @@ using Apache.Arrow.Types;
 using Polars.NET.Core.Native;
 using Polars.NET.Core.Exceptions;
 using Polars.NET.Core.Wrappers;
+using Kaminari.Sazanami.Arrow;
 
 namespace Polars.NET.Core.Arrow;
 

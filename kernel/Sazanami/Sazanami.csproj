@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>true</IsPackable>
+
+    <PackageId>Kaminari.Sazanami</PackageId>
+    <AssemblyName>Kaminari.Sazanami</AssemblyName>
+    <RootNamespace>Kaminari.Sazanami</RootNamespace>
+    <Authors>ErrorLSC</Authors>
+    <Description>Shared infrastructure for the Kaminari projects.</Description>
+    <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Polars.NET.Core" />
+    <InternalsVisibleTo Include="Kaminari.Samidare" />
+    <InternalsVisibleTo Include="Polars.NET.Linq" />
+    <InternalsVisibleTo Include="Polars.CSharp" />
+    <InternalsVisibleTo Include="Polars.FSharp" />
+    <InternalsVisibleTo Include="Polars.NET.ML" />
+    <InternalsVisibleTo Include="Polars.Config.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Apache.Arrow" Version="23.0.0" />
+    <PackageReference Include="FSharp.Core" Version="8.0.100" Condition="'$(TargetFramework)' == 'net8.0'" />
+    <PackageReference Include="FSharp.Core" Version="9.0.100" Condition="'$(TargetFramework)' == 'net9.0'" />
+    <PackageReference Include="FSharp.Core" Version="10.0.100" Condition="'$(TargetFramework)' == 'net10.0'" />
+  </ItemGroup>
+
+</Project>

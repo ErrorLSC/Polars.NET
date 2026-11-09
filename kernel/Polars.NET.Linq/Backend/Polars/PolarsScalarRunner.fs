@@ -3,9 +3,9 @@ namespace Polars.NET.Linq.Backend.Polars
 open Polars.NET.Core
 open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Enums
-open Polars.NET.Linq
-open Polars.NET.Linq.IR
-open Polars.NET.Linq.IR.Passes
+open Kaminari.Samidare.IR
+open Kaminari.Samidare.IR.Passes
+open Kaminari.Samidare
 
 /// Polars interpreter for planned scalar terminals: lowers and collects LogicalPlans, then hands
 /// the collected DataFrames to the IDataFrameMaterializer.
@@ -18,7 +18,7 @@ module internal PolarsScalarRunner =
         let prepared =
             use _scope = CompilationScope.Enter PolarsQueryBackend.Instance
             let resolved = EnumResolution.resolvePlan plan
-            if Polars.NET.Core.Config.CoreConfig.CollectColumnStatistics then
+            if Kaminari.Samidare.Config.SamidareConfig.CollectColumnStatistics then
                 // The freed joins can be reordered too, now that nothing observes their order.
                 let relaxed, unorderedJoins = GroupOrderRelaxation.applyCollectingUnorderedJoins false true resolved
                 JoinReordering.apply sources unorderedJoins relaxed

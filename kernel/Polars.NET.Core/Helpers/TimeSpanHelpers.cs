@@ -153,28 +153,32 @@ public static class DurationFormatter
 
         var sb = new StringBuilder();
 
+        // A negative duration is one leading minus sign over the whole string. Every component of a negative
+        // TimeSpan is zero or negative.
+        if (ts < TimeSpan.Zero) sb.Append('-');
+
         // Polars suffixs: ns, us, ms, s, m, h, d, w
 
         // 1. Days (d)
-        if (ts.Days > 0) sb.Append($"{ts.Days}d");
+        if (ts.Days != 0) sb.Append($"{Math.Abs(ts.Days)}d");
 
         // 2. Hours (h)
-        if (ts.Hours > 0) sb.Append($"{ts.Hours}h");
+        if (ts.Hours != 0) sb.Append($"{Math.Abs(ts.Hours)}h");
 
         // 3. Minutes (m)
-        if (ts.Minutes > 0) sb.Append($"{ts.Minutes}m");
+        if (ts.Minutes != 0) sb.Append($"{Math.Abs(ts.Minutes)}m");
 
         // 4. Seconds (s)
-        if (ts.Seconds > 0) sb.Append($"{ts.Seconds}s");
+        if (ts.Seconds != 0) sb.Append($"{Math.Abs(ts.Seconds)}s");
 
         // 5. Milliseconds (ms)
-        if (ts.Milliseconds > 0) sb.Append($"{ts.Milliseconds}ms");
+        if (ts.Milliseconds != 0) sb.Append($"{Math.Abs(ts.Milliseconds)}ms");
 
         // 6. Microseconds (us)
-        if (ts.Microseconds > 0) sb.Append($"{ts.Microseconds}us");
+        if (ts.Microseconds != 0) sb.Append($"{Math.Abs(ts.Microseconds)}us");
 
         // 7. Nanoseconds (ns)
-        if (ts.Nanoseconds > 0) sb.Append($"{ts.Nanoseconds}ns");
+        if (ts.Nanoseconds != 0) sb.Append($"{Math.Abs(ts.Nanoseconds)}ns");
 
         return sb.ToString();
     }

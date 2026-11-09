@@ -4,8 +4,10 @@ using Microsoft.FSharp.Core;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Linq;
+using Kaminari.Samidare;
 using Polars.NET.Linq.Backend.Polars;
-using Polars.NET.Linq.IR;
+using Kaminari.Samidare.IR;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.CSharp.Linq;
 
@@ -43,7 +45,7 @@ public static partial class LinqExtensions
         var df = source.ToDataFrame();
 
         // 2. Resolve whether TSource is a scalar column or composite entity
-        bool isScalarSource = PolarsTypeHelper.IsScalarType(typeof(TSource)) || typeof(TSource) == typeof(string);
+        bool isScalarSource = ClrTypeHelper.IsScalarType(typeof(TSource)) || typeof(TSource) == typeof(string);
         string? scalarCol = isScalarSource && df.Columns.Length == 1 ? df.Columns[0] : null;
 
         LogicalSchema schema;

@@ -6,7 +6,7 @@ open Apache.Arrow.Types
 open Polars.NET.Core
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Wrappers
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
 
 /// Column statistics read from the file behind a LazyFrame while a query is translated.
 ///

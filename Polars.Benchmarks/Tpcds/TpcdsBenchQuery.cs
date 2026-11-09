@@ -6,6 +6,7 @@ using LinqToDB.Data;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Linq;
+using Kaminari.Samidare;
 
 namespace Polars.Benchmarks.Tpcds;
 

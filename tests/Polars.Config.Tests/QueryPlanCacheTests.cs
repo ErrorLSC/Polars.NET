@@ -4,7 +4,8 @@ using Polars.CSharp.Linq;
 using Polars.NET.Core.Config;
 using Polars.NET.Core.Enums;
 using Polars.NET.Linq;
-using Polars.NET.Linq.IR;
+using Kaminari.Samidare;
+using Kaminari.Samidare.IR;
 
 using Pl = Polars.CSharp.Polars;
 

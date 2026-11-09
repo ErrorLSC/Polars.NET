@@ -6,7 +6,7 @@ module Polars.NET.Linq.Conformance.Tests.AggregationConformance
 
 open System
 open Xunit
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
 
 type KV = { K: int64; V: Nullable<int64> }
 

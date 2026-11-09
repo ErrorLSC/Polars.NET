@@ -1,9 +1,9 @@
 namespace Polars.FSharp.Tests
 
 open Xunit
-open Polars.NET.Linq.IR
-open Polars.NET.Linq.IR.ScalarExprOps
-open Polars.NET.Linq.IR.Passes
+open Kaminari.Samidare.IR
+open Kaminari.Samidare.IR.ScalarExprOps
+open Kaminari.Samidare.IR.Passes
 
 /// EagerAggregation over hand-built plans: which groupings aggregate beneath the join of their dimension.
 module EagerAggregationTests =

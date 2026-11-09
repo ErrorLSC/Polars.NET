@@ -5,7 +5,7 @@ module Polars.NET.Linq.Conformance.Tests.NullLogicConformance
 
 open System
 open Xunit
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
 
 type NV = { Id: int64; V: Nullable<int64> }
 type AB = { Id: int64; A: Nullable<bool>; B: Nullable<bool> }

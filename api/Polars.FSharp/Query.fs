@@ -3,6 +3,7 @@ namespace Polars.FSharp.Query
 open Polars.FSharp
 open System.Linq
 open Polars.NET.Linq
+open Kaminari.Samidare
 open Polars.NET.Linq.Backend.Polars
 open System
 open System.Diagnostics.CodeAnalysis

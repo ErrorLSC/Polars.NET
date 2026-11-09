@@ -1,5 +1,5 @@
 using Polars.CSharp.Linq;
-using Polars.NET.Linq.IR;
+using Kaminari.Samidare.IR;
 
 namespace Polars.CSharp.Tests;
 

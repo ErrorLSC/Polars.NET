@@ -1047,3 +1047,40 @@ internal static class EnumExtensions
         _ => throw new ArgumentOutOfRangeException(nameof(fmt), fmt, null)
     };
 }
+
+/// <summary>
+/// Defines the policy for handling operations or expressions that cannot be pushed down to the native Polars
+/// engine and would otherwise require client-side (.NET managed) evaluation.
+/// </summary>
+public enum ClientEvaluationPolicy
+{
+    /// <summary>
+    /// Strict mode (default): terminal projections (.Select) may evaluate on the client; a
+    /// <c>PolarsPushdownException</c> is thrown if intermediate operations (e.g. Where, GroupBy, Join) or full
+    /// pipeline fallbacks cannot be pushed down.
+    /// </summary>
+    Strict = 0,
+    /// <summary>Emits a diagnostic warning when pushdown fails, but allows falling back to client-side evaluation.</summary>
+    Warn = 1,
+    /// <summary>Silently allows client-side evaluation fallback without warnings or exceptions.</summary>
+    Allow = 2
+}
+
+internal static class ClientEvaluationPolicyMapping
+{
+    internal static Kaminari.Samidare.Config.ClientEvaluationPolicy ToNative(this ClientEvaluationPolicy policy) => policy switch
+    {
+        ClientEvaluationPolicy.Strict => Kaminari.Samidare.Config.ClientEvaluationPolicy.Strict,
+        ClientEvaluationPolicy.Warn => Kaminari.Samidare.Config.ClientEvaluationPolicy.Warn,
+        ClientEvaluationPolicy.Allow => Kaminari.Samidare.Config.ClientEvaluationPolicy.Allow,
+        _ => throw new ArgumentOutOfRangeException(nameof(policy), policy, null)
+    };
+
+    internal static ClientEvaluationPolicy ToApi(this Kaminari.Samidare.Config.ClientEvaluationPolicy policy) => policy switch
+    {
+        Kaminari.Samidare.Config.ClientEvaluationPolicy.Strict => ClientEvaluationPolicy.Strict,
+        Kaminari.Samidare.Config.ClientEvaluationPolicy.Warn => ClientEvaluationPolicy.Warn,
+        Kaminari.Samidare.Config.ClientEvaluationPolicy.Allow => ClientEvaluationPolicy.Allow,
+        _ => throw new ArgumentOutOfRangeException(nameof(policy), policy, null)
+    };
+}

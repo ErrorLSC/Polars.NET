@@ -5,7 +5,7 @@ module Polars.NET.Linq.Conformance.Tests.StringAndMembershipConformance
 open System
 open System.Collections.Generic
 open Xunit
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
 
 type SR = { Id: int64; A: string; B: string; Tags: List<string> }
 

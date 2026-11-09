@@ -3,6 +3,7 @@ using Apache.Arrow;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Data;
+using Kaminari.Sazanami.Arrow;
 
 namespace Polars.CSharp;
 

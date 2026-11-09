@@ -6,6 +6,7 @@ using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Polars.NET.Core.Data;
 using Polars.NET.Core.Wrappers;
+using Kaminari.Sazanami.Data;
 
 namespace Polars.CSharp;
 
@@ -41,7 +42,7 @@ public static class AsyncExtensions
             yield break;
         }
 
-        using var cursor = ArrowRowMapper<T>.CreateCursor(df.Handle);
+        using var cursor = DataFrameRowMapper<T>.CreateCursor(df.Handle);
         int offset = 0;
         int length = cursor.Length;
 
@@ -140,7 +141,7 @@ public static class AsyncExtensions
                     continue;
                 }
 
-                using var cursor = ArrowRowMapper<T>.CreateCursor(chunkDf.Handle);
+                using var cursor = DataFrameRowMapper<T>.CreateCursor(chunkDf.Handle);
                 int height = cursor.Length;
 
                 for (int i = 0; i < height; i++)

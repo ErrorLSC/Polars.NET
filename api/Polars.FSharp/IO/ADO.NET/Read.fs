@@ -1,4 +1,5 @@
 namespace Polars.FSharp
+open Kaminari.Sazanami.Arrow
 
 [<AutoOpen>]
 module DataReaderRead =

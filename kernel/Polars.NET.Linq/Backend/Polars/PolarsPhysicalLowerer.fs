@@ -5,9 +5,8 @@ open Polars.NET.Core
 open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Helpers
-open Polars.NET.Core.Config
-open Polars.NET.Linq
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
+open Kaminari.Samidare.Config
 
 /// Physical Polars LazyFrame implementation of ILogicalTableSource.
 type internal PolarsTableSource(handle: LazyFrameHandle, schema: LogicalSchema) =
@@ -31,12 +30,12 @@ type internal PolarsTableSource(handle: LazyFrameHandle, schema: LogicalSchema) 
         member _.SourceIdentity = identity.Value
     interface IColumnStatisticsSource with
         member _.TryGetColumnStatistics column =
-            if CoreConfig.CollectColumnStatistics then
+            if SamidareConfig.CollectColumnStatistics then
                 PolarsColumnStatistics.tryGet handle schema estimatedRows.Value column
             else
                 None
         member _.TryGetColumnRange column =
-            if CoreConfig.CollectColumnStatistics then
+            if SamidareConfig.CollectColumnStatistics then
                 PolarsColumnStatistics.tryGetRange handle schema column
             else
                 None
@@ -223,9 +222,12 @@ module internal PolarsPhysicalLowerer =
                 leftByHs,
                 rightByHs,
                 PolarsVocabulary.asofStrategy spec.Strategy,
-                Option.toObj spec.ToleranceStr,
-                Option.toNullable spec.ToleranceInt,
-                Option.toNullable spec.ToleranceFloat,
+                (match spec.Tolerance with
+                 | Some(AsofTolerance.Duration span) -> DurationFormatter.ToPolarsString span
+                 | Some(AsofTolerance.BackendText text) -> text
+                 | _ -> null),
+                (match spec.Tolerance with Some(AsofTolerance.Integer value) -> Nullable value | _ -> Nullable()),
+                (match spec.Tolerance with Some(AsofTolerance.Float value) -> Nullable value | _ -> Nullable()),
                 spec.AllowEq,
                 spec.CheckSorted,
                 Option.toObj spec.Suffix,
@@ -391,7 +393,7 @@ module internal PolarsPhysicalLowerer =
             let nullsLast = orderings |> List.map (fun o -> o.NullsLast) |> List.toArray
             // LINQ ordering is stable: rows with equal keys keep their input order, unless the configuration lets
             // ties come out in any order.
-            PolarsWrapper.LazyFrameSort(lf, exprs, desc, nullsLast, maintainOrder = not CoreConfig.AllowUnstableOrdering)
+            PolarsWrapper.LazyFrameSort(lf, exprs, desc, nullsLast, maintainOrder = not SamidareConfig.AllowUnstableOrdering)
 
         | LogicalPlan.Limit(input, offset, count) when slicesOrderedGroups input ->
             // Polars (0.55) pushes a slice into a group_by and then, when nothing downstream observes the

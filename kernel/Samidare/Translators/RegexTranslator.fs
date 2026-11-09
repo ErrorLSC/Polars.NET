@@ -1,0 +1,435 @@
+namespace Kaminari.Samidare
+
+open Kaminari.Samidare
+open Kaminari.Samidare.IR
+open System
+open System.Linq.Expressions
+open System.Text.RegularExpressions
+open Kaminari.Samidare.Config
+
+[<AutoOpen>]
+module internal RegexTranslator =
+
+    /// Represents extracted components of a Regex method invocation (Static or Instance/SG)
+    type internal RegexInvocation =
+        | IsMatch of target: Expression * pattern: string * instanceOpt: Regex option
+        | ReplaceLiteral of target: Expression * pattern: string * replacement: string * instanceOpt: Regex option
+        | ReplaceLiteralN of
+            target: Expression *
+            pattern: string *
+            replacement: string *
+            count: int *
+            instanceOpt: Regex option
+        | ReplaceEvaluator of
+            target: Expression *
+            pattern: string *
+            evaluator: MatchEvaluator *
+            instanceOpt: Regex option
+        | MatchValue of target: Expression * pattern: string * groupIndex: int * instanceOpt: Regex option
+        | MatchGroupNamed of target: Expression * pattern: string * groupName: string * instanceOpt: Regex option
+        | MatchesAll of target: Expression * pattern: string * instanceOpt: Regex option
+        | MatchesCount of target: Expression * pattern: string * instanceOpt: Regex option
+        | Split of target: Expression * pattern: string * instanceOpt: Regex option
+
+    /// Evaluates RegexOptions from an expression node.
+    let private tryEvaluateRegexOptions (expr: Expression) : RegexOptions option =
+        match PartialEvaluator.tryEvaluate expr with
+        | Some(:? RegexOptions as opt) -> Some opt
+        | Some other ->
+            try
+                let intVal = Convert.ToInt32 other
+                Some(LanguagePrimitives.EnumOfValue<int, RegexOptions> intVal)
+            with ConversionFailure ->
+                None
+        | None -> None
+
+    /// Evaluates TimeSpan timeout from an expression node.
+    let private tryEvaluateTimeout (expr: Expression) : TimeSpan option =
+        match PartialEvaluator.tryEvaluate expr with
+        | Some(:? TimeSpan as ts) -> Some ts
+        | _ -> None
+
+    /// Constructs a Regex instance for static invocations containing options or timeout specifications.
+    let private createRegexInstance
+        (pattern: string)
+        (optionsOpt: RegexOptions option)
+        (timeoutOpt: TimeSpan option)
+        : Regex option =
+        try
+            match optionsOpt, timeoutOpt with
+            | Some opt, Some timeout -> Some(Regex(pattern, opt, timeout))
+            | Some opt, None -> Some(Regex(pattern, opt))
+            | None, Some timeout -> Some(Regex(pattern, RegexOptions.None, timeout))
+            | None, None -> None
+        with :? ArgumentException ->
+            // Invalid pattern, options or timeout: untranslatable; client evaluation reports the same error.
+            None
+
+    /// Extracts literal pattern and optional configured Regex instance from static method arguments.
+    let private tryExtractStaticPatternAndRegex (args: Expression list) : (string * Regex option) option =
+        match args with
+        | [ patternExpr ] ->
+            match PartialEvaluator.tryEvaluate patternExpr with
+            | Some(:? string as pat) -> Some(pat, None)
+            | _ -> None
+
+        | [ patternExpr; optionsExpr ] ->
+            match PartialEvaluator.tryEvaluate patternExpr, tryEvaluateRegexOptions optionsExpr with
+            | Some(:? string as pat), Some opt -> Some(pat, createRegexInstance pat (Some opt) None)
+            | _ -> None
+
+        | [ patternExpr; optionsExpr; timeoutExpr ] ->
+            match PartialEvaluator.tryEvaluate patternExpr, tryEvaluateRegexOptions optionsExpr, tryEvaluateTimeout timeoutExpr with
+            | Some(:? string as pat), Some opt, timeoutOpt -> Some(pat, createRegexInstance pat (Some opt) timeoutOpt)
+            | _ -> None
+
+        | _ -> None
+
+    /// Resolves group index from expression, supporting both numeric indices and group names.
+    let private tryResolveGroupIndex (groupArgExpr: Expression) (pattern: string) (rxOpt: Regex option) : int option =
+        match PartialEvaluator.tryEvaluate groupArgExpr with
+        | Some(:? int as idx) -> Some idx
+        | Some(:? string as groupName) ->
+            let rx =
+                match rxOpt with
+                | Some r -> r
+                | None ->
+                    try
+                        Regex(pattern)
+                    with :? ArgumentException ->
+                        null
+
+            if isNull rx then
+                None
+            else
+                let num = rx.GroupNumberFromName groupName
+                if num >= 0 then Some num else None
+        | Some other ->
+            try
+                Some(Convert.ToInt32 other)
+            with ConversionFailure ->
+                None
+        | None -> None
+
+    /// Unifies static Regex.Method(target, pat, options?, timeout?) and instance rx.Method(target) calls.
+    let private (|RegexCall|_|) (expr: Expression) : (string * Expression * string * Regex option) option =
+        match expr with
+        | MethodCall(m, null, target :: rest) when m.DeclaringType = typeof<Regex> && m.Name <> "Replace" ->
+            tryExtractStaticPatternAndRegex rest
+            |> Option.map (fun (pat, rxOpt) -> m.Name, target, pat, rxOpt)
+        | MethodCall(m, rxExpr, [ target ]) when
+            not (isNull rxExpr) && typeof<Regex>.IsAssignableFrom rxExpr.Type
+            ->
+            match PartialEvaluator.tryEvaluate rxExpr with
+            | Some(:? Regex as rx) -> Some(m.Name, target, rx.ToString(), Some rx)
+            | _ -> None
+        | _ -> None
+
+    let private tryBuildReplace (target: Expression) (pat: string) (repExpr: Expression) (rxOpt: Regex option) =
+        match PartialEvaluator.tryEvaluate repExpr with
+        | Some(:? string as rep) -> Some(ReplaceLiteral(target, pat, rep, rxOpt))
+        | Some(:? MatchEvaluator as eval) -> Some(ReplaceEvaluator(target, pat, eval, rxOpt))
+        | _ -> None
+
+    let internal (|RegexInvocation|_|) (expr: Expression) : RegexInvocation option =
+        match expr with
+        // 1. Direct Static or Instance Regex calls: IsMatch, Match, Count, Split
+        | RegexCall("IsMatch", target, pat, rxOpt) -> Some(IsMatch(target, pat, rxOpt))
+        | RegexCall("Match", target, pat, rxOpt) -> Some(MatchValue(target, pat, 0, rxOpt))
+        | RegexCall("Count", target, pat, rxOpt) -> Some(MatchesCount(target, pat, rxOpt))
+        | RegexCall("Split", target, pat, rxOpt) -> Some(Split(target, pat, rxOpt))
+
+        // 2. Replace (Static & Instance)
+        | MethodCall(m, null, target :: patternExpr :: repExpr :: rest) when
+            m.DeclaringType = typeof<Regex> && m.Name = "Replace"
+            ->
+            tryExtractStaticPatternAndRegex (patternExpr :: rest)
+            |> Option.bind (fun (pat, rxOpt) -> tryBuildReplace target pat repExpr rxOpt)
+
+        | MethodCall(m, rxExpr, [ target; repExpr ]) when
+            not (isNull rxExpr)
+            && typeof<Regex>.IsAssignableFrom rxExpr.Type
+            && m.Name = "Replace"
+            ->
+            match PartialEvaluator.tryEvaluate rxExpr with
+            | Some(:? Regex as rx) -> tryBuildReplace target (rx.ToString()) repExpr (Some rx)
+            | _ -> None
+
+        | MethodCall(m, rxExpr, [ target; repExpr; countExpr ]) when
+            not (isNull rxExpr)
+            && typeof<Regex>.IsAssignableFrom rxExpr.Type
+            && m.Name = "Replace"
+            ->
+            match PartialEvaluator.tryEvaluate rxExpr, PartialEvaluator.tryEvaluate repExpr, PartialEvaluator.tryEvaluate countExpr with
+            | Some(:? Regex as rx), Some(:? string as rep), Some(:? int as count) ->
+                Some(ReplaceLiteralN(target, rx.ToString(), rep, count, Some rx))
+            | _ -> None
+
+        // 3. Match(...).Success / Match(...).Value / Matches(...).Count property chaining
+        | MemberAccess(RegexCall(methodName, target, pat, rxOpt), memberInfo) ->
+            match methodName, memberInfo.Name with
+            | "Match", "Success" -> Some(IsMatch(target, pat, rxOpt))
+            | "Match", "Value" -> Some(MatchValue(target, pat, 0, rxOpt))
+            | "Matches", "Count" -> Some(MatchesCount(target, pat, rxOpt))
+            | _ -> None
+
+        // 4. Match(...).Groups[n].Value
+        | MemberAccess(MethodCall(indexer,
+                                  MemberAccess(RegexCall("Match", target, pat, rxOpt), groupsProp),
+                                  [ groupIdxExpr ]),
+                        valueProp) when
+            groupsProp.Name = "Groups"
+            && valueProp.Name = "Value"
+            && indexer.Name = "get_Item"
+            ->
+            match PartialEvaluator.tryEvaluate groupIdxExpr with
+            | Some(:? string as groupName) ->
+                Some(MatchGroupNamed(target, pat, groupName, rxOpt))
+            | _ ->
+                tryResolveGroupIndex groupIdxExpr pat rxOpt
+                |> Option.map (fun idx -> MatchValue(target, pat, idx, rxOpt))
+
+        // 5. Matches(...).Select(m => m.Value) (with or without .ToList() / .ToArray())
+        | MethodCall(collMethod, null, [ MethodCall(selMethod, null, [ RegexCall("Matches", target, pat, rxOpt); _ ]) ]) when
+            (collMethod.Name = "ToList" || collMethod.Name = "ToArray")
+            && selMethod.Name = "Select"
+            ->
+            Some(MatchesAll(target, pat, rxOpt))
+
+        | MethodCall(selMethod, null, [ RegexCall("Matches", target, pat, rxOpt); _ ]) when
+            selMethod.Name = "Select"
+            ->
+            Some(MatchesAll(target, pat, rxOpt))
+
+        | _ -> None
+
+    /// Synthesizes Rust-compatible inline flag expressions from .NET RegexOptions.
+    /// Returns Some(validPattern) if compatible with Rust regex engine, otherwise None.
+    let private tryBuildRustRegexPattern (pat: string) (options: RegexOptions) : string option =
+        // Options that alter regex execution semantics unsupported natively by Rust regex
+        let unsupported =
+            RegexOptions.RightToLeft
+            ||| RegexOptions.ECMAScript
+            ||| RegexOptions.ExplicitCapture
+
+        if options.HasFlag unsupported then
+            None
+        else
+            let mutable flags = ""
+
+            if options.HasFlag RegexOptions.IgnoreCase then
+                flags <- flags + "i"
+
+            if options.HasFlag RegexOptions.Multiline then
+                flags <- flags + "m"
+
+            if options.HasFlag RegexOptions.Singleline then
+                flags <- flags + "s"
+
+            if options.HasFlag RegexOptions.IgnorePatternWhitespace then
+                flags <- flags + "x"
+
+            let candidate =
+                if String.IsNullOrEmpty flags then
+                    pat
+                else
+                    sprintf "(?%s:%s)" flags pat
+
+            // Ask the backend whether its native regex engine accepts the candidate (e.g. Rust regex rejects lookaround)
+            if CompilationScope.Current.Backend.IsRegexPatternSupported candidate then
+                Some candidate
+            else
+                None
+
+    let internal translateRegexInvocation
+        (eval: ScalarExprEvaluator)
+        (ctx: TranslationContext)
+        (invocation: RegexInvocation)
+        : ScalarExpr option =
+
+        let getRegex rxOpt pat =
+            match rxOpt with
+            | Some(rx: Regex) -> rx
+            | None -> Regex pat
+
+        let getOptions rxOpt =
+            match rxOpt with
+            | Some(rx: Regex) -> rx.Options
+            | None -> RegexOptions.None
+
+        match invocation with
+        // --- 1. IsMatch ---
+        | IsMatch(target, pat, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    Some(ScalarExpr.Function(ScalarFunction.StrContains, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.Boolean))
+                | None ->
+                    if SamidareConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        let rx = getRegex rxOpt pat
+                        let invoker = UdfInvoker.StringPredicate(Func<string, bool>(rx.IsMatch))
+                        Some(ScalarExpr.Udf("Regex.IsMatch", [ t ], LogicalTypes.Boolean, invoker)))
+
+        // --- 2. ReplaceLiteral ---
+        | ReplaceLiteral(target, pat, rep, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    Some(ScalarExpr.Function(ScalarFunction.ReplaceAll, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.String rep); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.String))
+                | None ->
+                    if SamidareConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        let rx = getRegex rxOpt pat
+                        let invoker = UdfInvoker.StringTransform(Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep)))
+                        Some(ScalarExpr.Udf("Regex.Replace", [ t ], LogicalTypes.String, invoker)))
+
+        // --- 2b. ReplaceLiteralN ---
+        | ReplaceLiteralN(target, pat, rep, count, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    Some(ScalarExpr.Function(ScalarFunction.Replace, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.String rep); ScalarExpr.Literal(LiteralValue.Int64 (int64 count)) ], LogicalTypes.String))
+                | None ->
+                    if SamidareConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        let rx = getRegex rxOpt pat
+                        let invoker = UdfInvoker.StringTransform(Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, rep, count)))
+                        Some(ScalarExpr.Udf("Regex.ReplaceN", [ t ], LogicalTypes.String, invoker)))
+
+        // --- 3. ReplaceEvaluator ---
+        | ReplaceEvaluator(target, pat, evaluator, rxOpt) ->
+            if SamidareConfig.DisallowUdfPushdown then
+                None
+            else
+                eval ctx target
+                |> Option.map (fun t ->
+                    let rx = getRegex rxOpt pat
+                    let invoker = UdfInvoker.StringTransform(Func<string, string>(fun s -> if isNull s then null else rx.Replace(s, evaluator)))
+                    ScalarExpr.Udf("Regex.ReplaceEvaluator", [ t ], LogicalTypes.String, invoker))
+
+        // --- 4. MatchValue & Groups[i].Value ---
+        | MatchValue(target, pat, groupIndex, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    let extracted = ScalarExpr.Function(ScalarFunction.StrExtract, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Int32 groupIndex) ], LogicalTypes.String)
+                    let nonNullExtracted = ScalarExpr.Coalesce [ extracted; ScalarExpr.Literal(LiteralValue.String "") ]
+                    let isTargetNull = ScalarExpr.Unary(UnaryOp.IsNull, t)
+                    Some(ScalarExpr.Conditional(isTargetNull, ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String), nonNullExtracted))
+                | None ->
+                    if SamidareConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        let rx = getRegex rxOpt pat
+                        let invoker =
+                            UdfInvoker.StringTransform(
+                                Func<string, string>(fun s ->
+                                    if isNull s then null
+                                    else
+                                        let m = rx.Match(s)
+                                        if m.Success && groupIndex < m.Groups.Count then m.Groups.[groupIndex].Value else "")
+                            )
+                        Some(ScalarExpr.Udf("Regex.MatchValue", [ t ], LogicalTypes.String, invoker)))
+
+        // --- 4b. MatchGroupNamed ---
+        | MatchGroupNamed(target, pat, groupName, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    let structExpr = ScalarExpr.Function(ScalarFunction.StrExtractGroups, [ t; ScalarExpr.Literal(LiteralValue.String validPat) ], LogicalType.Unknown)
+                    let fieldExpr = ScalarExpr.Function(ScalarFunction.StructFieldByName, [ structExpr; ScalarExpr.Literal(LiteralValue.String groupName) ], LogicalTypes.String)
+                    let nonNullExtracted = ScalarExpr.Coalesce [ fieldExpr; ScalarExpr.Literal(LiteralValue.String "") ]
+                    let isTargetNull = ScalarExpr.Unary(UnaryOp.IsNull, t)
+                    Some(ScalarExpr.Conditional(isTargetNull, ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String), nonNullExtracted))
+                | None ->
+                    if SamidareConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        let rx = getRegex rxOpt pat
+                        let invoker =
+                            UdfInvoker.StringTransform(
+                                Func<string, string>(fun s ->
+                                    if isNull s then null
+                                    else
+                                        let m = rx.Match(s)
+                                        if m.Success && m.Groups.[groupName].Success then m.Groups.[groupName].Value else "")
+                            )
+                        Some(ScalarExpr.Udf("Regex.MatchGroupNamed", [ t ], LogicalTypes.String, invoker)))
+
+        // --- 5. MatchesAll ---
+        | MatchesAll(target, pat, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    Some(ScalarExpr.Function(ScalarFunction.StrExtractAll, [ t; ScalarExpr.Literal(LiteralValue.String validPat) ], LogicalTypes.ListOfUnknown))
+                | None ->
+                    if SamidareConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        let rx = getRegex rxOpt pat
+                        let invoker =
+                            UdfInvoker.StringToList(
+                                Func<string, seq<string>>(fun s -> if isNull s then null else rx.Matches(s) |> Seq.map (fun m -> m.Value))
+                            )
+                        Some(ScalarExpr.Udf("Regex.MatchesAll", [ t ], LogicalTypes.ListOfUnknown, invoker)))
+
+        // --- 6. MatchesCount ---
+        | MatchesCount(target, pat, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    Some(ScalarExpr.Function(ScalarFunction.StrCountMatches, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.UInt32))
+                | None ->
+                    if SamidareConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        let rx = getRegex rxOpt pat
+                        let cb =
+                            Func<Apache.Arrow.IArrowArray, Apache.Arrow.IArrowArray>(fun arr ->
+                                let strViewArr = arr :?> Apache.Arrow.StringViewArray
+                                let builder = Apache.Arrow.Int32Array.Builder()
+                                for i in 0 .. strViewArr.Length - 1 do
+                                    if strViewArr.IsNull(i) then
+                                        builder.AppendNull() |> ignore
+                                    else
+                                        builder.Append(rx.Matches(strViewArr.GetString(i)).Count) |> ignore
+                                builder.Build() :> Apache.Arrow.IArrowArray)
+                        let invoker = UdfInvoker.SingleBatch(box cb, typeof<int>)
+                        Some(ScalarExpr.Udf("Regex.MatchesCount", [ t ], LogicalTypes.Int32, invoker)))
+
+        // --- 7. Split ---
+        | Split(target, pat, rxOpt) ->
+            eval ctx target
+            |> Option.bind (fun t ->
+                let options = getOptions rxOpt
+                match tryBuildRustRegexPattern pat options with
+                | Some validPat ->
+                    Some(ScalarExpr.Function(ScalarFunction.StrSplit, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.ListOfUnknown))
+                | None ->
+                    if SamidareConfig.DisallowUdfPushdown then
+                        None
+                    else
+                        let rx = getRegex rxOpt pat
+                        let invoker =
+                            UdfInvoker.StringToList(
+                                Func<string, seq<string>>(fun s -> if isNull s then null else rx.Split(s) :> seq<string>)
+                            )
+                        Some(ScalarExpr.Udf("Regex.Split", [ t ], LogicalTypes.ListOfUnknown, invoker)))

@@ -311,4 +311,71 @@ public class LinqIrVocabularyTests
         AssertStableFirstAppearance(q =>
             q.Where(r => r.Seq <= 3).Select(r => r.Key)
                 .Union(q.Where(r => r.Seq > 3).Select(r => r.Key)));
+
+    private static void AssertDecodedByMemberName<TEnum>(Func<object, object> decode) where TEnum : struct, Enum
+    {
+        foreach (var member in Enum.GetValues<TEnum>())
+            Assert.Equal(member.ToString(), decode(member).ToString());
+    }
+
+    [Fact]
+    [Trait("LINQ", "IrVocabulary")]
+    public void Method_Enum_Arguments_Decode_To_The_Member_Of_The_Same_Name()
+    {
+        AssertDecodedByMemberName<RankMethod>(v => global::Kaminari.Samidare.WindowAndMethodTranslator.rankMethodOf(v));
+        AssertDecodedByMemberName<QuantileMethod>(v => global::Kaminari.Samidare.WindowAndMethodTranslator.quantileMethodOf(v));
+        AssertDecodedByMemberName<NullBehavior>(v => global::Kaminari.Samidare.WindowAndMethodTranslator.nullBehaviorOf(v));
+        AssertDecodedByMemberName<InterpolationMethod>(v => global::Kaminari.Samidare.WindowAndMethodTranslator.interpolationMethodOf(v));
+
+        AssertDecodedByMemberName<global::Polars.NET.Core.Enums.PlRankMethod>(v => global::Kaminari.Samidare.WindowAndMethodTranslator.rankMethodOf(v));
+        AssertDecodedByMemberName<global::Polars.NET.Core.Enums.PlQuantileMethod>(v => global::Kaminari.Samidare.WindowAndMethodTranslator.quantileMethodOf(v));
+        AssertDecodedByMemberName<global::Polars.NET.Core.Enums.PlNullBehavior>(v => global::Kaminari.Samidare.WindowAndMethodTranslator.nullBehaviorOf(v));
+        AssertDecodedByMemberName<global::Polars.NET.Core.Enums.PlInterpolationMethod>(v => global::Kaminari.Samidare.WindowAndMethodTranslator.interpolationMethodOf(v));
+    }
+
+    private record StampQuote(DateTime Ts, int? Price);
+
+    private static int? AsOfPriceWithin(AsOfTolerance tolerance)
+    {
+        var at = new DateTime(2024, 1, 1, 12, 0, 0);
+        using var left = DataFrame.FromRows([new StampQuote(at, 0)]);
+        using var right = DataFrame.FromRows([new StampQuote(at.AddHours(-1), 7)]);
+
+        return left.AsQueryable<StampQuote>()
+            .JoinAsOf(right.AsQueryable<StampQuote>(), l => l.Ts, r => r.Ts, (l, r) => r.Price, tolerance, AsofStrategy.Backward)
+            .ToArray()[0];
+    }
+
+    [Fact]
+    [Trait("LINQ", "IrVocabulary")]
+    public void JoinAsOf_Tolerance_As_TimeSpan_And_As_Engine_Text()
+    {
+        Assert.Equal(7, AsOfPriceWithin(TimeSpan.FromHours(2)));
+        Assert.Null(AsOfPriceWithin(TimeSpan.FromMinutes(30)));
+        Assert.Equal(7, AsOfPriceWithin("2h"));
+        Assert.Null(AsOfPriceWithin("30m"));
+    }
+
+    [Fact]
+    [Trait("LINQ", "IrVocabulary")]
+    public void DateTime_Add_Methods_Follow_DotNet_For_Negative_Fractional_And_Large_Offsets()
+    {
+        var ts = new DateTime(2024, 3, 1, 6, 0, 0);
+        using var df = DataFrame.FromRows([new StampRow(2024, ts)]);
+
+        var row = df.AsQueryable<StampRow>()
+            .Select(r => new
+            {
+                Negative = r.Ts.AddDays(-30),
+                Fractional = r.Ts.AddHours(1.5),
+                Large = r.Ts.AddSeconds(1000000),
+                Leap = DateTime.IsLeapYear(r.Id)
+            })
+            .ToArray()[0];
+
+        Assert.Equal(ts.AddDays(-30), row.Negative);
+        Assert.Equal(ts.AddHours(1.5), row.Fractional);
+        Assert.Equal(ts.AddSeconds(1000000), row.Large);
+        Assert.True(row.Leap);
+    }
 }

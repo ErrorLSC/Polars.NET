@@ -3,6 +3,7 @@ using System.Data.Common;
 using System.Runtime.CompilerServices;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Data;
+using Kaminari.Sazanami.Data;
 
 namespace Polars.CSharp;
 

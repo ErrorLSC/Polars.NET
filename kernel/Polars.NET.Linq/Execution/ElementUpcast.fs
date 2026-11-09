@@ -3,7 +3,8 @@ namespace Polars.NET.Linq
 open System
 open System.Linq
 open System.Linq.Expressions
-open Polars.NET.Core.Helpers
+open Kaminari.Sazanami.Helpers
+open Kaminari.Samidare
 
 /// Upcasts of a query's elements: `Select(x => (object)x)`, `Select(x => (IFoo)x)`, `Cast<object>()`.
 ///
@@ -15,7 +16,7 @@ open Polars.NET.Core.Helpers
 module internal ElementUpcast =
 
     let private elementTypeOf (expr: Expression) =
-        PolarsTypeHelper.TryGetEnumerableElementType expr.Type |> Option.ofObj
+        ClrTypeHelper.TryGetEnumerableElementType expr.Type |> Option.ofObj
 
     /// Whether `target` is a reference supertype of `source` (a reference upcast or a boxing conversion), not an
     /// identity, a lift to Nullable or a value-changing conversion.

@@ -5,6 +5,7 @@ using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Native;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
+using Kaminari.Sazanami.Arrow;
 
 namespace Polars.NET.Core.Wrappers;
 

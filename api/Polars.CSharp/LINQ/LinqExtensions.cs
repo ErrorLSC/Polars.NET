@@ -2,6 +2,7 @@ using System.Data;
 using System.Diagnostics.CodeAnalysis;
 using Polars.NET.Core;
 using Polars.NET.Linq;
+using Kaminari.Samidare;
 
 namespace Polars.CSharp.Linq;
 

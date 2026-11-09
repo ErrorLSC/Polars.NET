@@ -2,8 +2,9 @@ namespace Polars.NET.Linq
 
 open System
 open System.Linq.Expressions
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
 open Polars.NET.Linq.Backend.Polars
+open Kaminari.Samidare
 
 /// Compiling a query's expression into an optimized, possibly cached, pipeline.
 module internal PipelineCompilation =
@@ -95,8 +96,8 @@ module internal PipelineCompilation =
                                         resolved
                                         |> Passes.CommonSubplanSharing.apply scope.Backend compiled.Sources
                                         |> LogicalOptimizer.optimizeComplete
-                                            Polars.NET.Core.Config.CoreConfig.AllowUnstableOrdering
-                                            Polars.NET.Core.Config.CoreConfig.CollectColumnStatistics
+                                            Kaminari.Samidare.Config.SamidareConfig.AllowUnstableOrdering
+                                            Kaminari.Samidare.Config.SamidareConfig.CollectColumnStatistics
                                             compiled.Sources
                             }
                         Stages = stages

@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.CSharp;
 

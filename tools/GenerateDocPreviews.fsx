@@ -1,5 +1,7 @@
 #r "../tests/Polars.FSharp.Tests/bin/Debug/net10.0/Apache.Arrow.dll"
 #r "../tests/Polars.FSharp.Tests/bin/Debug/net10.0/Apache.Arrow.Adbc.dll"
+#r "../tests/Polars.FSharp.Tests/bin/Debug/net10.0/Kaminari.Sazanami.dll"
+#r "../tests/Polars.FSharp.Tests/bin/Debug/net10.0/Kaminari.Samidare.dll"
 #r "../tests/Polars.FSharp.Tests/bin/Debug/net10.0/Polars.NET.Core.dll"
 #r "../tests/Polars.CSharp.Tests/bin/Debug/net10.0/Polars.NET.Linq.dll"
 #r "../tests/Polars.FSharp.Tests/bin/Debug/net10.0/Polars.FSharp.dll"

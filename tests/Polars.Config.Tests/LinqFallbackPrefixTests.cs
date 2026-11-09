@@ -2,6 +2,7 @@ using System.Collections;
 using Polars.CSharp.Linq;
 using Polars.NET.Core.Enums;
 using Polars.NET.Linq;
+using Kaminari.Samidare;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.Config.Tests;

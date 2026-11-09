@@ -320,7 +320,7 @@ module Config =
     /// Sets the client-side evaluation policy for operations or expressions that cannot be pushed down to the native Polars engine.
     /// </summary>
     let clientEvaluationPolicy (policy: ClientEvaluationPolicy) =
-        fun () -> CoreConfig.ClientEvaluationPolicy <- policy
+        fun () -> CoreConfig.ClientEvaluationPolicy <- policy.ToNative()
 
     /// <summary>
     /// Sets whether to disallow pushing down managed UDF callbacks to the native Polars engine.

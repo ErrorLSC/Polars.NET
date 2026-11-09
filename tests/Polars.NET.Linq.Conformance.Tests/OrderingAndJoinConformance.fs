@@ -6,7 +6,7 @@ module Polars.NET.Linq.Conformance.Tests.OrderingAndJoinConformance
 
 open System
 open Xunit
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
 
 type KI = { Id: int64; K: Nullable<int64> }
 type RK = { RK: Nullable<int64>; RV: string }

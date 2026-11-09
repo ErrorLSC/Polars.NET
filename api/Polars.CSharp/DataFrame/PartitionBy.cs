@@ -3,6 +3,7 @@ using Polars.NET.Core.Wrappers;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 using Cs = Polars.CSharp.Polars.Selectors;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.CSharp;
 
@@ -129,7 +130,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             return dict;
         }
 
-        bool isSingleScalar = resolvedCols.Length == 1 && PolarsTypeHelper.IsScalarType(typeof(TKey));
+        bool isSingleScalar = resolvedCols.Length == 1 && ClrTypeHelper.IsScalarType(typeof(TKey));
 
         if (includeKey)
         {

@@ -3,6 +3,7 @@ using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Core.Exceptions;
+using Kaminari.Sazanami.Arrow;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp.Tests;
@@ -393,6 +394,18 @@ TooShort,1990-05-20,1.60";
                       + TimeSpan.FromTicks(2); // 200ns
 
         Assert.Equal("1s500ms30us200ns", DurationFormatter.ToPolarsString(complex));
+    }
+    [Fact]
+    [Trait("Expr", "DtOps")]
+    public void Test_Duration_Formatter_Negative()
+    {
+        Assert.Equal("-30d", DurationFormatter.ToPolarsString(TimeSpan.FromDays(-30)));
+        Assert.Equal("-1d2h", DurationFormatter.ToPolarsString(-new TimeSpan(1, 2, 0, 0)));
+        Assert.Equal("-1s500ms30us200ns", DurationFormatter.ToPolarsString(
+            -(new TimeSpan(0, 0, 0, 1, 500) + TimeSpan.FromMicroseconds(30) + TimeSpan.FromTicks(2))));
+
+        // The most negative TimeSpan has no positive counterpart: it must not overflow.
+        Assert.StartsWith("-10675199d2h48m5s477ms", DurationFormatter.ToPolarsString(TimeSpan.MinValue));
     }
     // ==========================================
     // Cast Ops: Int to Float, String to Int

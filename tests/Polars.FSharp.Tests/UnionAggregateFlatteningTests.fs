@@ -1,9 +1,9 @@
 namespace Polars.FSharp.Tests
 
 open Xunit
-open Polars.NET.Linq.IR
-open Polars.NET.Linq.IR.ScalarExprOps
-open Polars.NET.Linq.IR.Passes
+open Kaminari.Samidare.IR
+open Kaminari.Samidare.IR.ScalarExprOps
+open Kaminari.Samidare.IR.Passes
 
 /// UnionAggregateFlattening over hand-built plans: which groupings of unions of groupings merge into one grouping.
 module UnionAggregateFlatteningTests =

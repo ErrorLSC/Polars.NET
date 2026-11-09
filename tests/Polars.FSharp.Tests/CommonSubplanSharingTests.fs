@@ -1,9 +1,9 @@
 namespace Polars.FSharp.Tests
 
 open Xunit
-open Polars.NET.Linq.IR
-open Polars.NET.Linq.IR.ScalarExprOps
-open Polars.NET.Linq.IR.Passes
+open Kaminari.Samidare.IR
+open Kaminari.Samidare.IR.ScalarExprOps
+open Kaminari.Samidare.IR.Passes
 
 /// CommonSubplanSharing over hand-built plans: which repeated subplans become Shared, with what body.
 module CommonSubplanSharingTests =
@@ -23,7 +23,8 @@ module CommonSubplanSharingTests =
         { new IBackendCapabilities with
             member _.IsRegexPatternSupported _ = true
             member _.SupportsAssertions = true
-            member _.SharesRepeatedSubplanItself subplan = sharesItself subplan }
+            member _.SharesRepeatedSubplanItself subplan = sharesItself subplan
+            member _.IsEngineAssembly _ = false }
 
     let private backend = backendSharing (fun _ -> false)
 

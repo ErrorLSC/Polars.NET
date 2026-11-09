@@ -155,9 +155,9 @@ public sealed class PolarsConfig
                             break;
                         case "client_evaluation_policy":
                             if (string.IsNullOrEmpty(value))
-                                CoreConfig.ClientEvaluationPolicy = ClientEvaluationPolicy.Strict;
+                                CoreConfig.ClientEvaluationPolicy = ClientEvaluationPolicy.Strict.ToNative();
                             else if (Enum.TryParse<ClientEvaluationPolicy>(value, ignoreCase: true, out var pol))
-                                CoreConfig.ClientEvaluationPolicy = pol;
+                                CoreConfig.ClientEvaluationPolicy = pol.ToNative();
                             break;
                         case "disallow_udf_pushdown":
                             CoreConfig.DisallowUdfPushdown = value is "1" or "true" or "TRUE" or "True";
@@ -199,7 +199,7 @@ public sealed class PolarsConfig
     /// <summary>
     /// Gets the current client-side evaluation policy.
     /// </summary>
-    public ClientEvaluationPolicy ClientEvaluationPolicy => CoreConfig.ClientEvaluationPolicy;
+    public ClientEvaluationPolicy ClientEvaluationPolicy => CoreConfig.ClientEvaluationPolicy.ToApi();
     /// <summary>
     /// Inject Environment var to Rust
     /// </summary>
@@ -501,7 +501,7 @@ public sealed class PolarsConfig
     /// <param name="policy">Policy mode: Strict (default), Warn, or Allow.</param>
     public PolarsConfig SetClientEvaluationPolicy(ClientEvaluationPolicy policy = ClientEvaluationPolicy.Strict)
     {
-        Apply(() => CoreConfig.ClientEvaluationPolicy = policy);
+        Apply(() => CoreConfig.ClientEvaluationPolicy = policy.ToNative());
         return this;
     }
 

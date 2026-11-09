@@ -1,9 +1,9 @@
 namespace Polars.FSharp.Tests
 
 open Xunit
-open Polars.NET.Linq.IR
-open Polars.NET.Linq.IR.ScalarExprOps
-open Polars.NET.Linq.IR.Passes
+open Kaminari.Samidare.IR
+open Kaminari.Samidare.IR.ScalarExprOps
+open Kaminari.Samidare.IR.Passes
 
 /// GroupOrderRelaxation over hand-built plans: which order guarantees it drops, and which it must keep.
 module GroupOrderRelaxationTests =

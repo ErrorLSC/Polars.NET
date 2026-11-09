@@ -4,6 +4,7 @@ using Apache.Arrow;
 using Microsoft.ML;
 using Microsoft.ML.Data;
 using Polars.NET.Core.Data;
+using Kaminari.Sazanami.Data;
 
 namespace Polars.NET.ML.DataView;
 

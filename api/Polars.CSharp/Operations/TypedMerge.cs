@@ -4,8 +4,9 @@ using Microsoft.FSharp.Core;
 using Polars.CSharp.Linq;
 using Polars.NET.Core;
 using Polars.NET.Linq;
+using Kaminari.Samidare;
 using Polars.NET.Linq.Backend.Polars;
-using Polars.NET.Linq.IR;
+using Kaminari.Samidare.IR;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;

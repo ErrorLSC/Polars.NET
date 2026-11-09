@@ -415,6 +415,18 @@ public class SeriesDtOpsTests
         ], offsetExpr.ToArray<DateTime?>());
     }
     [Fact]
+    [Trait("Series", "DateTimeOffsetBy")]
+    public void Test_Series_Dt_OffsetBy_Negative_TimeSpan()
+    {
+        DateTime?[] data = [new DateTime(2024, 1, 31, 12, 0, 0), null];
+        using Series s = Pl.CreateSeries("datetimes", data);
+
+        // The minus sign applies to every component of the duration, as in TimeSpan.
+        using Series offset = s.Dt.OffsetBy(-new TimeSpan(1, 2, 30, 0));
+
+        Assert.Equal([new DateTime(2024, 1, 30, 9, 30, 0), null], offset.ToArray<DateTime?>());
+    }
+    [Fact]
     [Trait("Series", "DateTimeCombine")]
     public void Test_Series_Dt_Combine()
     {

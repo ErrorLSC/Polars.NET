@@ -2214,7 +2214,7 @@ module QueryTests =
         let outerLambda = Linq.Expressions.Expression.Lambda<Func<int, int>>(outerBody, outerParam)
 
         let invokeOuter = Linq.Expressions.Expression.Invoke(outerLambda, Linq.Expressions.Expression.Constant(100))
-        let rewritten = Polars.NET.Linq.FSharpAst.betaReduce invokeOuter
+        let rewritten = Kaminari.Samidare.FSharpAst.betaReduce invokeOuter
 
         // Result should be (10 + 1) + 100 = 111
         let compiled = Linq.Expressions.Expression.Lambda<Func<int>>(rewritten).Compile()
@@ -2246,7 +2246,7 @@ module QueryTests =
         let item8Access = Linq.Expressions.Expression.Property(restAccess, "Item1")
 
         // Inlining member access on NewExpression
-        let inlined = Polars.NET.Linq.FSharpAst.rewrite item8Access
+        let inlined = Kaminari.Samidare.FSharpAst.rewrite item8Access
         Assert.True(inlined :? Linq.Expressions.ConstantExpression)
         Assert.Equal(800, unbox<int> (inlined :?> Linq.Expressions.ConstantExpression).Value)
 

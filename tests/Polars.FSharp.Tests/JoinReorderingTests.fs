@@ -1,8 +1,8 @@
 namespace Polars.FSharp.Tests
 
 open Xunit
-open Polars.NET.Linq.IR
-open Polars.NET.Linq.IR.ScalarExprOps
+open Kaminari.Samidare.IR
+open Kaminari.Samidare.IR.ScalarExprOps
 
 /// Join reordering over hand-built plans, through the complete optimizer (it reorders only what the order analysis frees).
 module JoinReorderingTests =
@@ -197,11 +197,11 @@ module JoinReorderingTests =
         let shift = ScalarExpr.Window(col "s", [ col "p" ], [])
         let plan = LogicalPlan.WithColumns(LogicalPlan.Sort(groups, [ asc "y" ]), [ "prev", shift ])
         let outer = LogicalPlan.Sort(plan, [ asc "p"; asc "y" ])
-        Assert.Equal<bool list>([ false ], groupFlags (Polars.NET.Linq.IR.Passes.GroupOrderRelaxation.apply outer))
+        Assert.Equal<bool list>([ false ], groupFlags (Kaminari.Samidare.IR.Passes.GroupOrderRelaxation.apply outer))
 
     [<Fact>]
     let ``A partition that does not cover the keys keeps the group order`` () =
         let shift = ScalarExpr.Window(col "s", [ col "y" ], [])
         let plan = LogicalPlan.WithColumns(LogicalPlan.Sort(groups, [ asc "y" ]), [ "prev", shift ])
         let outer = LogicalPlan.Sort(plan, [ asc "y" ])
-        Assert.Equal<bool list>([ true ], groupFlags (Polars.NET.Linq.IR.Passes.GroupOrderRelaxation.apply outer))
+        Assert.Equal<bool list>([ true ], groupFlags (Kaminari.Samidare.IR.Passes.GroupOrderRelaxation.apply outer))

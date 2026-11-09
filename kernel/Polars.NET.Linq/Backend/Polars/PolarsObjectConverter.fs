@@ -2,14 +2,12 @@ namespace Polars.NET.Linq.Backend.Polars
 
 open Polars.NET.Core
 open Polars.NET.Core.Wrappers
-open Polars.NET.Core.Helpers
-open Polars.NET.Linq
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
 open System
-open System.Collections
-open System.Linq
 open System.Linq.Expressions
 open System.Reflection
+open Kaminari.Sazanami.Helpers
+open Kaminari.Samidare
 
 /// Dedicated converter for translating in-memory .NET collections, arrays, and objects
 /// into native Polars Series, DataFrame, and LazyFrame handles.
@@ -29,7 +27,7 @@ module internal PolarsObjectConverter =
                 | :? DataFrameHandle as df -> Some df
                 | _ -> None
             elif valueType <> typeof<string> then
-                match PolarsTypeHelper.TryGetEnumerableElementType valueType with
+                match ClrTypeHelper.TryGetEnumerableElementType valueType with
                 | null -> None
                 | elemType ->
                     try

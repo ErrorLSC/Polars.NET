@@ -1,5 +1,5 @@
 using Polars.NET.Linq.Backend.Polars;
-using Polars.NET.Linq.IR;
+using Kaminari.Samidare.IR;
 #pragma warning disable CS1591
 using System.Collections.Frozen;
 using System.Text;

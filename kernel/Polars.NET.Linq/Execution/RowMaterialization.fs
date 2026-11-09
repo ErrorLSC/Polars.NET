@@ -8,8 +8,9 @@ open System.Runtime.CompilerServices
 open Polars.NET.Core
 open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Enums
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
 open Polars.NET.Linq.Backend.Polars
+open Kaminari.Samidare
 
 /// Turning a collected native plan into the query's elements: packing join scopes before lowering, then
 /// materializing rows, groups, chunks or AggregateBy pairs and applying the client residual.

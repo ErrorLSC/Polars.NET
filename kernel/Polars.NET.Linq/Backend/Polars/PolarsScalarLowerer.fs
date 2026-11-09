@@ -8,7 +8,8 @@ open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Helpers
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
+open Kaminari.Sazanami.Helpers
 
 /// Lowers pure symbolic ScalarExpr AST nodes to unmanaged Polars ExprHandle pointers.
 module internal PolarsScalarLowerer =
@@ -25,7 +26,7 @@ module internal PolarsScalarLowerer =
         | :? Array as arr -> SeriesFactory.Create(name, arr) |> checkedHandle
         | :? IEnumerable as seq when not (seq :? string) ->
             let elemType =
-                match PolarsTypeHelper.TryGetEnumerableElementType(seq.GetType()) with
+                match ClrTypeHelper.TryGetEnumerableElementType(seq.GetType()) with
                 | null -> typeof<obj>
                 | t -> t
 
@@ -422,24 +423,24 @@ module internal PolarsScalarLowerer =
             | ScalarFunction.DtTotalMicroseconds, [ a ] -> PolarsWrapper.DtTotalMicroseconds(lower a, fractional = true)
             | ScalarFunction.DtTotalNanoseconds, [ a ] -> PolarsWrapper.DtTotalNanoseconds(lower a, fractional = true)
             | ScalarFunction.StrToDatetime, [ e; ScalarExpr.Literal(LiteralValue.String fmt); ScalarExpr.Literal(LiteralValue.Bool exact) ] ->
-                let formatStr = if String.IsNullOrEmpty fmt then null else fmt
+                let formatStr = if String.IsNullOrEmpty fmt then null else DateTimeFormatHelper.ToChronoFormat fmt
                 PolarsWrapper.StrToDatetime(e = lower e, unit = PlTimeUnit.Microseconds, timeZone = null, format = formatStr, strict = false, exact = exact, cache = true, ambiguous = PolarsWrapper.Lit "raise")
             | ScalarFunction.StrToDatetime, [ e; ScalarExpr.Literal(LiteralValue.Null _); ScalarExpr.Literal(LiteralValue.Bool exact) ] ->
                 PolarsWrapper.StrToDatetime(e = lower e, unit = PlTimeUnit.Microseconds, timeZone = null, format = null, strict = false, exact = exact, cache = true, ambiguous = PolarsWrapper.Lit "raise")
             | ScalarFunction.StrToDate, [ e; ScalarExpr.Literal(LiteralValue.String fmt); ScalarExpr.Literal(LiteralValue.Bool exact) ] ->
-                PolarsWrapper.StrToDate(lower e, fmt, strict = false, exact = exact, cache = true)
+                PolarsWrapper.StrToDate(lower e, DateTimeFormatHelper.ToChronoFormat fmt, strict = false, exact = exact, cache = true)
             | ScalarFunction.StrToDate, [ e; ScalarExpr.Literal(LiteralValue.Null _); ScalarExpr.Literal(LiteralValue.Bool exact) ] ->
                 PolarsWrapper.StrToDate(lower e, format = null, strict = false, exact = exact, cache = true)
             | ScalarFunction.StrToTime, [ e; ScalarExpr.Literal(LiteralValue.String fmt); ScalarExpr.Literal(LiteralValue.Bool exact) ] ->
-                PolarsWrapper.StrToTime(lower e, fmt, strict = false, exact = exact, cache = true)
+                PolarsWrapper.StrToTime(lower e, DateTimeFormatHelper.ToChronoFormat fmt, strict = false, exact = exact, cache = true)
             | ScalarFunction.StrToTime, [ e; ScalarExpr.Literal(LiteralValue.Null _); ScalarExpr.Literal(LiteralValue.Bool exact) ] ->
                 PolarsWrapper.StrToTime(lower e, format = null, strict = false, exact = exact, cache = true)
             | ScalarFunction.DtIsLeapYear, [ e ] ->
                 PolarsWrapper.DtIsLeapYear(lower e)
             | ScalarFunction.DtToString, [ e; ScalarExpr.Literal(LiteralValue.String fmt) ] ->
-                PolarsWrapper.DtToString(lower e, fmt)
-            | ScalarFunction.DtOffsetBy, [ e; ScalarExpr.Literal(LiteralValue.String offset) ] ->
-                PolarsWrapper.DtOffsetBy(lower e, PolarsWrapper.Lit offset)
+                PolarsWrapper.DtToString(lower e, DateTimeFormatHelper.ToChronoFormat fmt)
+            | ScalarFunction.DtOffsetBy, [ e; ScalarExpr.Literal(LiteralValue.TimeSpan offset) ] ->
+                PolarsWrapper.DtOffsetBy(lower e, PolarsWrapper.Lit(DurationFormatter.ToPolarsString offset))
 
             // Struct & List
             | ScalarFunction.StructFieldByIndex, [ a; ScalarExpr.Literal(LiteralValue.Int64 idx) ] ->
@@ -567,7 +568,7 @@ module internal PolarsScalarLowerer =
                     // Values beyond Int64 (a UInt64 enum): the engine's own unmapped-value error remains.
                     lower value
             | ScalarFunction.AssertCount check, [ count; value ] ->
-                let okH = PolarsWrapper.Map(lower count, countChecker check, ArrowUdfBatchAdapter.GetDataTypeHandle typeof<bool>)
+                let okH = PolarsWrapper.Map(lower count, countChecker check, NativeDataTypeResolver.GetDataTypeHandle typeof<bool>)
                 PolarsWrapper.IfElse(okH, lower value, PolarsWrapper.LitNull())
 
             | other, _ -> failwithf "Unsupported function in PolarsScalarLowerer: %s" other.Name
@@ -576,21 +577,21 @@ module internal PolarsScalarLowerer =
             let argHs = args |> List.map lower |> List.toArray
             match invoker with
             | UdfInvoker.SingleBatch(cbObj, clrReturnType) ->
-                let outDataType = ArrowUdfBatchAdapter.GetDataTypeHandle clrReturnType
+                let outDataType = NativeDataTypeResolver.GetDataTypeHandle clrReturnType
                 let func = cbObj :?> Func<Apache.Arrow.IArrowArray, Apache.Arrow.IArrowArray>
                 PolarsWrapper.Map(argHs.[0], func, outDataType)
             | UdfInvoker.MultiBatch(cbObj, clrReturnType) ->
-                let outDataType = ArrowUdfBatchAdapter.GetDataTypeHandle clrReturnType
+                let outDataType = NativeDataTypeResolver.GetDataTypeHandle clrReturnType
                 let func = cbObj :?> Func<System.Collections.Generic.IReadOnlyList<Apache.Arrow.IArrowArray>, Apache.Arrow.IArrowArray>
                 let mainH = argHs.[0]
                 let otherHs = argHs.[1..]
                 PolarsWrapper.MapMany(mainH, otherHs, func, outDataType)
             | UdfInvoker.GroupSingleBatch(cbObj, clrReturnType, returnsScalar) ->
-                let outDataType = ArrowUdfBatchAdapter.GetDataTypeHandle clrReturnType
+                let outDataType = NativeDataTypeResolver.GetDataTypeHandle clrReturnType
                 let func = cbObj :?> Func<Apache.Arrow.IArrowArray, Apache.Arrow.IArrowArray>
                 PolarsWrapper.Apply(argHs.[0], func, outDataType, returnsScalar = returnsScalar)
             | UdfInvoker.GroupMultiBatch(cbObj, clrReturnType, returnsScalar) ->
-                let outDataType = ArrowUdfBatchAdapter.GetDataTypeHandle clrReturnType
+                let outDataType = NativeDataTypeResolver.GetDataTypeHandle clrReturnType
                 let func = cbObj :?> Func<System.Collections.Generic.IReadOnlyList<Apache.Arrow.IArrowArray>, Apache.Arrow.IArrowArray>
                 let mainH = argHs.[0]
                 let otherHs = argHs.[1..]

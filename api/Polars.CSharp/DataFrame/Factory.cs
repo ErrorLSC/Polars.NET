@@ -7,6 +7,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Buffers;
 using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
+using Kaminari.Sazanami.Arrow;
 
 namespace Polars.CSharp;
 

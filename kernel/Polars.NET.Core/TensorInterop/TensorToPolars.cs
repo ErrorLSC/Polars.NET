@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Polars.NET.Core.Arrow;
+using Kaminari.Sazanami.Arrow;
 
 namespace Polars.NET.Core.TensorInterop;
 

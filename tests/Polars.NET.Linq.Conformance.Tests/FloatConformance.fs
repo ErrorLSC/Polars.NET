@@ -6,7 +6,7 @@ module Polars.NET.Linq.Conformance.Tests.FloatConformance
 
 open System
 open Xunit
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
 
 type FX = { Id: int64; X: Nullable<float>; Y: Nullable<float> }
 

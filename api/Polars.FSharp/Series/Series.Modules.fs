@@ -4,6 +4,7 @@ open Apache.Arrow
 open System
 open System.Collections.Generic
 open Polars.NET.Core.Wrappers
+open Kaminari.Sazanami.Arrow
 
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]

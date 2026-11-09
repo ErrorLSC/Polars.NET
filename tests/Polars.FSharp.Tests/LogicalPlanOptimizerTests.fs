@@ -7,9 +7,10 @@ open Polars.FSharp
 open Polars.FSharp.Query
 open Polars.NET.Core
 open Polars.NET.Linq
-open Polars.NET.Linq.IR
-open Polars.NET.Linq.IR.ScalarExprOps
-open Polars.NET.Linq.IR.Passes
+open Kaminari.Samidare
+open Kaminari.Samidare.IR
+open Kaminari.Samidare.IR.ScalarExprOps
+open Kaminari.Samidare.IR.Passes
 
 type TestRow = { Id: int; Val: int }
 

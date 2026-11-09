@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.CSharp.Linq;
 
@@ -481,7 +482,7 @@ internal sealed class CSharpRowCursorMaterializer : IDataFrameMaterializer
     }
     private static TSource HandleEmptySequence<TSource>()
     {
-        if (PolarsTypeHelper.AcceptsNull(typeof(TSource)))
+        if (ClrTypeHelper.AcceptsNull(typeof(TSource)))
             return default!;
 
         throw new InvalidOperationException("Sequence contains no elements.");

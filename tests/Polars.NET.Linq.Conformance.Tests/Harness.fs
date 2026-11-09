@@ -4,7 +4,7 @@ open System
 open Xunit
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Wrappers
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
 open Polars.NET.Linq.Backend.Polars
 
 /// A result relation: column names and rows of boxed values (null for a null).

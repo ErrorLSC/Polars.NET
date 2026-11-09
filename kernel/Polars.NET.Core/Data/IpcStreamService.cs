@@ -82,14 +82,14 @@ public static class IpcStreamService
 
     private static void WriteDataToFile<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(string filePath, IEnumerable<T> data, int batchSize)
     {
-        var originalSchema = Arrow.ArrowConverter.GetSchemaFromType<T>();
+        var originalSchema = Kaminari.Sazanami.Arrow.ArrowConverter.GetSchemaFromType<T>();
         var ipcSchema = DowngradeSchemaForIpc(originalSchema);
 
         using var stream = File.OpenWrite(filePath);
         using var writer = new ArrowFileWriter(stream, ipcSchema);
 
         long rowsWritten = 0;
-        foreach (var batch in Arrow.ArrowConverter.ToArrowBatches(data, batchSize).Prefetch())
+        foreach (var batch in Kaminari.Sazanami.Arrow.ArrowConverter.ToArrowBatches(data, batchSize).Prefetch())
         {
             using var downgradedBatch = DowngradeBatchForIpc(batch, ipcSchema);
             writer.WriteRecordBatch(downgradedBatch);

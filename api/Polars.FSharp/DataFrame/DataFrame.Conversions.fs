@@ -9,6 +9,8 @@ open Polars.NET.Core.Wrappers
 open System
 open System.Runtime.CompilerServices
 open Polars.NET.Core.Helpers
+open Kaminari.Sazanami.Data
+open Kaminari.Sazanami.Helpers
 
 type internal FSharpRowMapper<'T>() =
 
@@ -16,11 +18,11 @@ type internal FSharpRowMapper<'T>() =
 
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     static member CreateCursor(df: DataFrame) : ArrowBatchCursor<'T> =
-        ArrowRowMapper<'T>.CreateCursor df.Handle
+        DataFrameRowMapper<'T>.CreateCursor df.Handle
 
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     static member ReadRow(df: DataFrame, rowIdx: int64) : 'T =
-        use cursor = ArrowRowMapper<'T>.CreateCursor df.Handle
+        use cursor = DataFrameRowMapper<'T>.CreateCursor df.Handle
         cursor.ReadRow(int rowIdx)
 
 /// <summary>
@@ -37,7 +39,7 @@ type RowEnumerator<'T> =
 
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     internal new(df: DataFrame) =
-        let cursor = ArrowRowMapper<'T>.CreateCursor df.Handle
+        let cursor = DataFrameRowMapper<'T>.CreateCursor df.Handle
 
         {
             _df = df
@@ -722,7 +724,7 @@ module DataFrameConversions =
                 raise (ArgumentException $"Type '{typeof<'T>.FullName}' is not an F# Record type.")
 
             seq {
-                use cursor = ArrowRowMapper<'T>.CreateCursor this.Handle
+                use cursor = DataFrameRowMapper<'T>.CreateCursor this.Handle
                 let len = cursor.Length
 
                 for r = 0 to len - 1 do
@@ -744,7 +746,7 @@ type FSharpRowCursorMaterializer() =
     static member handleEmptySequence<'TSource>() : 'TSource =
         let t = typeof<'TSource>
 
-        if PolarsTypeHelper.AcceptsNull t then
+        if ClrTypeHelper.AcceptsNull t then
             Unchecked.defaultof<'TSource>
         else
             invalidOp "Sequence contains no elements."
@@ -752,7 +754,7 @@ type FSharpRowCursorMaterializer() =
     interface IDataFrameMaterializer with
         member _.Materialize<'T>(handle: DataFrameHandle) : IEnumerable<'T> =
             seq {
-                use cursor = ArrowRowMapper<'T>.CreateCursor handle
+                use cursor = DataFrameRowMapper<'T>.CreateCursor handle
                 let len = cursor.Length
 
                 for rowIdx = 0 to len - 1 do

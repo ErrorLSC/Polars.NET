@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.NET.Core.Helpers;
 

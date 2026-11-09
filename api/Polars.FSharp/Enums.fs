@@ -746,3 +746,19 @@ type FloatFormat =
         | Mixed -> Nullable PlFloatFormat.Mixed
         | Full -> Nullable PlFloatFormat.Full
         | ResetToDefault -> Nullable()
+
+/// <summary>
+/// The policy for operations or expressions that cannot be pushed down to the native Polars engine and would
+/// otherwise require client-side (.NET managed) evaluation.
+/// </summary>
+[<RequireQualifiedAccess>]
+type ClientEvaluationPolicy =
+    | Strict
+    | Warn
+    | Allow
+
+    member internal this.ToNative() =
+        match this with
+        | Strict -> Kaminari.Samidare.Config.ClientEvaluationPolicy.Strict
+        | Warn -> Kaminari.Samidare.Config.ClientEvaluationPolicy.Warn
+        | Allow -> Kaminari.Samidare.Config.ClientEvaluationPolicy.Allow

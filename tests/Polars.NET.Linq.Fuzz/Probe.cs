@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using Polars.CSharp;
 using Polars.CSharp.Linq;
 using Polars.NET.Linq;
+using Kaminari.Samidare;
 
 namespace Polars.NET.Linq.Fuzz;
 

@@ -13,8 +13,10 @@ open System.Runtime.CompilerServices
 open System.Diagnostics.CodeAnalysis
 open System.Threading
 open System.Threading.Tasks
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
 open Polars.NET.Linq.Backend.Polars
+open Kaminari.Sazanami.Helpers
+open Kaminari.Samidare
 
 /// The language whose compiler built a query's expression trees. F# query expressions are rewritten
 /// (quotations, curried closures, AnonymousObject tuples, nested SelectMany chains) before translation;
@@ -55,7 +57,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
     interface IQueryProvider with
         member this.CreateQuery(expression: Expression) : IQueryable =
             let elemType =
-                match PolarsTypeHelper.TryGetEnumerableElementType expression.Type with
+                match ClrTypeHelper.TryGetEnumerableElementType expression.Type with
                 | null -> typedefof<obj>
                 | t -> t
 
@@ -88,7 +90,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
             | MethodCall(m, _, _) when ScalarPlanner.isScalarReductionMethod m ->
                 ScalarPlanner.plan<'TResult> PolarsQueryBackend.Instance (this :> IQueryProvider) expression
                 |> PolarsScalarRunner.execute materializer
-            | _ when PolarsTypeHelper.IsScalarType targetType ->
+            | _ when ClrTypeHelper.IsScalarType targetType ->
                 ScalarPlanner.plan<'TResult> PolarsQueryBackend.Instance (this :> IQueryProvider) expression
                 |> PolarsScalarRunner.execute materializer
             | _ ->
@@ -98,7 +100,7 @@ type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materialize
                 | :? 'TResult as matched -> matched
                 | _ ->
                     let elemType =
-                        match PolarsTypeHelper.TryGetEnumerableElementType targetType with
+                        match ClrTypeHelper.TryGetEnumerableElementType targetType with
                         | null -> typeof<obj>
                         | t -> t
 
@@ -122,7 +124,7 @@ and PolarsQuery<'T>
     =
     let materializer = provider.Materializer
     let targetType = typeof<'T>
-    let isScalar = PolarsTypeHelper.IsScalarType targetType
+    let isScalar = ClrTypeHelper.IsScalarType targetType
     let isGrouping = isGroupingType targetType
 
     let expression =
@@ -145,7 +147,7 @@ and PolarsQuery<'T>
             | Some e ->
                 ElementUpcast.tryStrip e
                 |> Option.bind (fun inner ->
-                    match PolarsTypeHelper.TryGetEnumerableElementType inner.Type with
+                    match ClrTypeHelper.TryGetEnumerableElementType inner.Type with
                     | null -> None
                     | rowType when targetType.IsAssignableFrom rowType ->
                         Some((provider :> IQueryProvider).CreateQuery inner)
@@ -202,6 +204,7 @@ and PolarsQuery<'T>
         let nativeLf = PolarsPhysicalLowerer.lowerPlan compiled.Sources compiled.Plan
 
         enforcePipelinePolicy
+            PolarsQueryBackend.Instance
             "QueryExecution"
             (compiled.Residual = ClientResidual.LinqToObjects)
             (ClientResidualOps.filters compiled.Residual)

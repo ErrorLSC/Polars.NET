@@ -8,6 +8,8 @@
   <Project Path="api/Polars.FSharp/Polars.FSharp.fsproj" />
   <Project Path="tests/Polars.Integration.Tests/Polars.Integration.Tests.csproj" />
   <Project Path="kernel/Polars.NET.Core/Polars.NET.Core.csproj" />
+  <Project Path="kernel/Sazanami/Sazanami.csproj" />
+    <Project Path="kernel/Samidare/Samidare.fsproj" />
   <Project Path="kernel/Polars.NET.Linq/Polars.NET.Linq.fsproj" />
   <Project Path="tests/Polars.NET.Linq.Conformance.Tests/Polars.NET.Linq.Conformance.Tests.fsproj" />
   <Project Path="tests/Polars.NET.Linq.Fuzz/Polars.NET.Linq.Fuzz.csproj" />

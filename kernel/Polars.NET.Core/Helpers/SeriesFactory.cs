@@ -6,6 +6,8 @@ using System.Runtime.CompilerServices;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using Polars.NET.Core.Wrappers;
+using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.NET.Core.Helpers;
 
@@ -25,7 +27,7 @@ public static class SeriesFactory
     /// </summary>
     internal static SeriesHandle CreateFromBoxedEnumerable(string name, object data)
     {
-        Type elemType = PolarsTypeHelper.TryGetEnumerableElementType(data.GetType())
+        Type elemType = ClrTypeHelper.TryGetEnumerableElementType(data.GetType())
             ?? throw new NotSupportedException($"Type '{data.GetType()}' does not implement IEnumerable<T>.");
         return InvokeCreateGenericType(elemType, name, data);
     }
@@ -75,7 +77,7 @@ public static class SeriesFactory
         }
 
         // 2. CreateSpan
-        if (PolarsTypeHelper.IsSupportedSimpleType(typeof(T)))
+        if (ClrTypeHelper.IsSupportedSimpleType(typeof(T)))
         {
             var materialized = data as T[] ?? [.. data];
             var spanHandle = CreateSpan<T>(name, materialized.AsSpan());
@@ -609,7 +611,7 @@ public static class SeriesFactory
         // ==========================================
         // 6. Enums (plain, Nullable, F# option)
         // ==========================================
-        var (coreType, optionalKind) = PolarsTypeHelper.GetOptionalInfo(t);
+        var (coreType, optionalKind) = ClrTypeHelper.GetOptionalInfo(t);
         if (coreType.IsEnum)
         {
             return CreateEnum(name, data, coreType, optionalKind);
@@ -627,7 +629,7 @@ public static class SeriesFactory
         var values = new object?[data.Length];
         for (int i = 0; i < data.Length; i++)
         {
-            values[i] = PolarsTypeHelper.UnwrapOptionalValue(data[i], optionalKind);
+            values[i] = ClrTypeHelper.UnwrapOptionalValue(data[i], optionalKind);
         }
 
         if (!EnumCategories.UsesEnumDataType(enumType))
@@ -698,7 +700,7 @@ public static class SeriesFactory
         Type elemType = array.GetType().GetElementType() ?? typeof(object);
 
         // Enums (plain, Nullable, F# option) become Enum or [Flags] integer columns through CreateSpan.
-        if (array.Rank == 1 && PolarsTypeHelper.UnwrapCoreType(elemType).IsEnum)
+        if (array.Rank == 1 && ClrTypeHelper.UnwrapCoreType(elemType).IsEnum)
         {
             return InvokeCreateGenericType(elemType, name, array);
         }

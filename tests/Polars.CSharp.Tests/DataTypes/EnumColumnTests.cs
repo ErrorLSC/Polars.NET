@@ -2,9 +2,10 @@ using Pl = Polars.CSharp.Polars;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Linq.Backend.Polars;
-using Polars.NET.Linq.IR;
+using Kaminari.Samidare.IR;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.CSharp.Tests;
 

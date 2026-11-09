@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Wrappers;
+using Kaminari.Samidare.Config;
 
 namespace Polars.NET.Core.Config;
 
@@ -90,14 +91,7 @@ internal static class CoreConfig
         // Polars.NET specified
         PrefetchBufferSizeKey,
         PolarsDeltaMaxRetryKey,
-        QueryCacheCapacityKey,
-        QueryCacheEnabledKey,
-        ClientEvaluationPolicyKey,
-        NetClientEvaluationPolicyKey,
-        DisallowUdfPushdownKey,
-        AllowUnstableOrderingKey,
-        CollectColumnStatisticsKey,
-        UseRelationalNullsKey
+        .. SamidareConfig.EnvKeys
     ];
 
     private static readonly (string DirectKey, Func<string?> ValueGetter)[] DirectVarRules =
@@ -969,192 +963,54 @@ internal static class CoreConfig
         set => PolarsWrapper.SetEnvVar(PolarsDeltaMaxRetryKey, value?.ToString());
     }
 
-    private const string QueryCacheCapacityKey = "POLARS_QUERY_CACHE_CAPACITY";
+    // Settings of the query compiler: Samidare owns them.
 
-    /// <summary>
-    /// Maximum number of compiled query plans to retain in the Query Plan Cache.
-    /// Default is 1024 if unset. Can change this by SetEnvironmentVariable("POLARS_QUERY_CACHE_CAPACITY")
-    /// </summary>
+    /// <inheritdoc cref="SamidareConfig.QueryCacheCapacity"/>
     public static int? QueryCacheCapacity
     {
-        get
-        {
-            var envValue = Environment.GetEnvironmentVariable(QueryCacheCapacityKey);
-            if (int.TryParse(envValue, out int cap) && cap > 0)
-            {
-                return cap;
-            }
-            return null;
-        }
-        set
-        {
-            if (value.HasValue && value.Value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), "Must be greater than 0");
-            PolarsWrapper.SetEnvVar(QueryCacheCapacityKey, value?.ToString());
-        }
+        get => SamidareConfig.QueryCacheCapacity;
+        set => SamidareConfig.QueryCacheCapacity = value;
     }
 
-    private const string QueryCacheEnabledKey = "POLARS_QUERY_CACHE_ENABLED";
-
-    /// <summary>
-    /// Whether Query Plan Cache is globally enabled.
-    /// Default is true if unset. Can change this by SetEnvironmentVariable("POLARS_QUERY_CACHE_ENABLED")
-    /// </summary>
+    /// <inheritdoc cref="SamidareConfig.QueryCacheEnabled"/>
     public static bool? QueryCacheEnabled
     {
-        get
-        {
-            var envValue = Environment.GetEnvironmentVariable(QueryCacheEnabledKey);
-            if (string.IsNullOrEmpty(envValue)) return null;
-            return envValue is "1" or "true" or "TRUE" or "True";
-        }
-        set => PolarsWrapper.SetEnvVar(QueryCacheEnabledKey, value.ToFmtString());
+        get => SamidareConfig.QueryCacheEnabled;
+        set => SamidareConfig.QueryCacheEnabled = value;
     }
 
-    private const string ClientEvaluationPolicyKey = "POLARS_CLIENT_EVAL";
-    private const string NetClientEvaluationPolicyKey = "POLARS_NET_CLIENT_EVAL";
-
-    private static ClientEvaluationPolicy _defaultClientEvaluationPolicy = GetDefaultClientEvaluationPolicyFromEnv();
-
-    /// <summary>
-    /// Gets or sets the policy for handling operations or expressions that cannot be pushed down
-    /// to the native Polars engine and would otherwise require client-side evaluation.
-    /// Default is ClientEvaluationPolicy.Strict.
-    /// Can also be configured via environment variable POLARS_CLIENT_EVAL or POLARS_NET_CLIENT_EVAL.
-    /// </summary>
+    /// <inheritdoc cref="SamidareConfig.ClientEvaluationPolicy"/>
     public static ClientEvaluationPolicy ClientEvaluationPolicy
     {
-        get => _defaultClientEvaluationPolicy;
-        set
-        {
-            _defaultClientEvaluationPolicy = value;
-            string valStr = value.ToString().ToLowerInvariant();
-            Environment.SetEnvironmentVariable(ClientEvaluationPolicyKey, valStr);
-            PolarsWrapper.SetEnvVar(ClientEvaluationPolicyKey, valStr);
-        }
+        get => SamidareConfig.ClientEvaluationPolicy;
+        set => SamidareConfig.ClientEvaluationPolicy = value;
     }
 
-    private static ClientEvaluationPolicy GetDefaultClientEvaluationPolicyFromEnv()
-    {
-        var envValue = Environment.GetEnvironmentVariable(ClientEvaluationPolicyKey)
-            ?? Environment.GetEnvironmentVariable(NetClientEvaluationPolicyKey);
-
-        if (!string.IsNullOrEmpty(envValue) &&
-            Enum.TryParse<ClientEvaluationPolicy>(envValue, ignoreCase: true, out var parsed))
-        {
-            return parsed;
-        }
-
-        return ClientEvaluationPolicy.Strict;
-    }
-
-    private const string DisallowUdfPushdownKey = "POLARS_DISALLOW_UDF_PUSHDOWN";
-    private static bool _disallowUdfPushdown = GetDefaultDisallowUdfPushdownFromEnv();
-
-    /// <summary>
-    /// Gets or sets whether to disallow pushing down managed UDF callbacks (single/multi-column and regex UDFs)
-    /// to the native Polars engine.
-    /// Default is false (UDF pushdown is allowed).
-    /// When set to true, any expression that would otherwise require a managed UDF callback
-    /// is treated as untranslatable, triggering client evaluation policy (e.g. throwing PolarsPushdownException in Strict mode).
-    /// </summary>
+    /// <inheritdoc cref="SamidareConfig.DisallowUdfPushdown"/>
     public static bool DisallowUdfPushdown
     {
-        get => _disallowUdfPushdown;
-        set
-        {
-            _disallowUdfPushdown = value;
-            string valStr = value ? "1" : "0";
-            Environment.SetEnvironmentVariable(DisallowUdfPushdownKey, valStr);
-            PolarsWrapper.SetEnvVar(DisallowUdfPushdownKey, valStr);
-        }
+        get => SamidareConfig.DisallowUdfPushdown;
+        set => SamidareConfig.DisallowUdfPushdown = value;
     }
 
-    private static bool GetDefaultDisallowUdfPushdownFromEnv()
-    {
-        var envValue = Environment.GetEnvironmentVariable(DisallowUdfPushdownKey);
-        return envValue is "1" or "true" or "TRUE" or "True";
-    }
-
-    private const string CollectColumnStatisticsKey = "POLARS_COLLECT_COLUMN_STATISTICS";
-    private static bool _collectColumnStatistics = Environment.GetEnvironmentVariable(CollectColumnStatisticsKey) is not ("0" or "false" or "FALSE" or "False");
-
-    /// <summary>
-    /// Whether the query optimizer may read the filtered columns of small file tables while translating a query, once
-    /// per column, to estimate how many rows a filter keeps. On by default. It affects plan choices only, never results.
-    /// </summary>
+    /// <inheritdoc cref="SamidareConfig.CollectColumnStatistics"/>
     public static bool CollectColumnStatistics
     {
-        get => _collectColumnStatistics;
-        set
-        {
-            _collectColumnStatistics = value;
-            string valStr = value ? "1" : "0";
-            Environment.SetEnvironmentVariable(CollectColumnStatisticsKey, valStr);
-            PolarsWrapper.SetEnvVar(CollectColumnStatisticsKey, valStr);
-        }
+        get => SamidareConfig.CollectColumnStatistics;
+        set => SamidareConfig.CollectColumnStatistics = value;
     }
 
-    private const string AllowUnstableOrderingKey = "POLARS_ALLOW_UNSTABLE_ORDERING";
-    private static bool _allowUnstableOrdering = GetDefaultAllowUnstableOrderingFromEnv();
-
-    /// <summary>
-    /// Gets or sets whether LINQ orderings (OrderBy / ThenBy) may be executed as unstable sorts.
-    /// Default is false: orderings are stable, as in LINQ to Objects, so rows with equal sort keys keep their
-    /// input order. A stable sort also makes the native engine keep the order of the rows it sorts (joins and
-    /// groupings beneath it), which can cost noticeably on join-heavy queries. When set to true, the order of
-    /// rows with equal sort keys is unspecified, as with SQL ORDER BY.
-    /// The optimizer then also treats the order of a sort's input as unobserved, so it may reorder the joins and
-    /// groupings beneath the sort.
-    /// </summary>
+    /// <inheritdoc cref="SamidareConfig.AllowUnstableOrdering"/>
     public static bool AllowUnstableOrdering
     {
-        get => _allowUnstableOrdering;
-        set
-        {
-            _allowUnstableOrdering = value;
-            string valStr = value ? "1" : "0";
-            Environment.SetEnvironmentVariable(AllowUnstableOrderingKey, valStr);
-            PolarsWrapper.SetEnvVar(AllowUnstableOrderingKey, valStr);
-        }
+        get => SamidareConfig.AllowUnstableOrdering;
+        set => SamidareConfig.AllowUnstableOrdering = value;
     }
 
-    private static bool GetDefaultAllowUnstableOrderingFromEnv()
-    {
-        var envValue = Environment.GetEnvironmentVariable(AllowUnstableOrderingKey);
-        return envValue is "1" or "true" or "TRUE" or "True";
-    }
-
-    private const string UseRelationalNullsKey = "POLARS_USE_RELATIONAL_NULLS";
-    private static bool _useRelationalNulls = GetDefaultUseRelationalNullsFromEnv();
-
-    /// <summary>
-    /// Gets or sets whether LINQ queries compare nulls with relational (SQL) three-valued semantics, as EF Core's
-    /// <c>UseRelationalNulls()</c>.
-    /// Default is false: comparisons follow C# semantics. <c>a == b</c> is true when both sides are null, a lifted
-    /// <c>a &lt; b</c> is false when either side is null, and a correlated subquery (<c>Any</c>, <c>Contains</c>
-    /// over a query, a correlated aggregate) matches a null key to a null key.
-    /// When set to true, a comparison with a null operand is null (a filter drops the row), and correlated
-    /// subqueries never match null keys. Translations are simpler and can be cheaper, but results may differ from
-    /// LINQ to Objects. Comparing with a null constant or a null captured value is still an IS NULL test, and
-    /// <c>Contains</c> over an in-memory collection keeps .NET semantics. Explicit joins never match null keys
-    /// under either setting, as <c>Enumerable.Join</c>.
-    /// </summary>
+    /// <inheritdoc cref="SamidareConfig.UseRelationalNulls"/>
     public static bool UseRelationalNulls
     {
-        get => _useRelationalNulls;
-        set
-        {
-            _useRelationalNulls = value;
-            string valStr = value ? "1" : "0";
-            Environment.SetEnvironmentVariable(UseRelationalNullsKey, valStr);
-            PolarsWrapper.SetEnvVar(UseRelationalNullsKey, valStr);
-        }
-    }
-
-    private static bool GetDefaultUseRelationalNullsFromEnv()
-    {
-        var envValue = Environment.GetEnvironmentVariable(UseRelationalNullsKey);
-        return envValue is "1" or "true" or "TRUE" or "True";
+        get => SamidareConfig.UseRelationalNulls;
+        set => SamidareConfig.UseRelationalNulls = value;
     }
 }

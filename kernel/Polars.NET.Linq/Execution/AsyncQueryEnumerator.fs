@@ -6,6 +6,7 @@ open System.Threading.Tasks
 open Polars.NET.Core
 open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Enums
+open Kaminari.Samidare
 
 /// Asynchronous enumeration of a query's elements.
 module internal AsyncQueryEnumerator =

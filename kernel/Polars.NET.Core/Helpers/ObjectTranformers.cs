@@ -8,6 +8,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Polars.NET.Core.Wrappers;
+using Kaminari.Sazanami.Helpers;
 
 /// <summary>
 /// Internal columnar abstraction for buffering row values and exporting to a SeriesHandle.
@@ -52,7 +53,7 @@ internal sealed class ColumnBuffer<[DynamicallyAccessedMembers(DynamicallyAccess
             return;
         }
 
-        var underlying = PolarsTypeHelper.GetUnderlyingOrSelf(typeof(T));
+        var underlying = ClrTypeHelper.GetUnderlyingOrSelf(typeof(T));
         Append((T?)Convert.ChangeType(value, underlying));
     }
 
@@ -108,9 +109,9 @@ internal static class ColumnBufferFactory
 
     public static IColumnBuffer Create(Type propType, int capacity)
     {
-        if (PolarsTypeHelper.IsSupportedSimpleType(propType))
+        if (ClrTypeHelper.IsSupportedSimpleType(propType))
         {
-            Type targetType = PolarsTypeHelper.EnsureNullable(propType);
+            Type targetType = ClrTypeHelper.EnsureNullable(propType);
             return SimpleFactories.GetOrAdd(targetType, static ([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] Type t) =>
             {
                 var constructed = typeof(ColumnBuffer<>).MakeGenericType(t);
@@ -143,14 +144,14 @@ public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(Dynamical
     static ObjectSchemaTransposer()
     {
         Type rowType = typeof(T);
-        ModelProperties = PolarsTypeHelper.GetModelProperties(rowType);
+        ModelProperties = ClrTypeHelper.GetModelProperties(rowType);
 
         if (ModelProperties.Length == 0)
         {
             return;
         }
 
-        IsBatchFastPathSupported = Array.TrueForAll(ModelProperties, static p => PolarsTypeHelper.IsSupportedSimpleType(p.PropertyType));
+        IsBatchFastPathSupported = Array.TrueForAll(ModelProperties, static p => ClrTypeHelper.IsSupportedSimpleType(p.PropertyType));
 
         if (IsBatchFastPathSupported)
         {
@@ -396,9 +397,9 @@ public static class ObjectSchemaTransposer<[DynamicallyAccessedMembers(Dynamical
             var propAccess = Expression.Property(itemParam, prop);
             var bufferElement = Expression.ArrayIndex(buffersParam, Expression.Constant(i));
 
-            if (PolarsTypeHelper.IsSupportedSimpleType(propType))
+            if (ClrTypeHelper.IsSupportedSimpleType(propType))
             {
-                var targetType = PolarsTypeHelper.EnsureNullable(propType);
+                var targetType = ClrTypeHelper.EnsureNullable(propType);
                 var concreteBufferType = typeof(ColumnBuffer<>).MakeGenericType(targetType);
                 var appendMethod = concreteBufferType.GetMethod(nameof(ColumnBuffer<int>.Append), [targetType])!;
 
@@ -445,7 +446,7 @@ public static class SoAColumnExtractor<[DynamicallyAccessedMembers(DynamicallyAc
 
     static SoAColumnExtractor()
     {
-        var properties = PolarsTypeHelper.GetModelProperties(typeof(T));
+        var properties = ClrTypeHelper.GetModelProperties(typeof(T));
         var factories = new List<(string Name, Func<T, string, SeriesHandle> CreateSeriesHandle)>();
 
         var containerParam = Expression.Parameter(typeof(T), "container");
@@ -463,7 +464,7 @@ public static class SoAColumnExtractor<[DynamicallyAccessedMembers(DynamicallyAc
 
             var propType = prop.PropertyType;
             var propAccess = Expression.Property(containerParam, prop);
-            var elementType = PolarsTypeHelper.TryGetEnumerableElementType(propType);
+            var elementType = ClrTypeHelper.TryGetEnumerableElementType(propType);
 
             Expression createHandleExpr;
 
@@ -513,7 +514,7 @@ internal static class DictBufferAppenderFactory
 
     private static Action<IColumnBuffer, object?, bool> CreateAppender(Type type)
     {
-        Type underlying = PolarsTypeHelper.GetUnderlyingOrSelf(type);
+        Type underlying = ClrTypeHelper.GetUnderlyingOrSelf(type);
 
         // 1. String fast-path (Reference Type)
         if (underlying == typeof(string))
@@ -532,7 +533,7 @@ internal static class DictBufferAppenderFactory
         }
 
         // 2. All supported primitive / scalar struct types (Value Types)
-        if (PolarsTypeHelper.IsSupportedSimpleType(underlying) && underlying.IsValueType)
+        if (ClrTypeHelper.IsSupportedSimpleType(underlying) && underlying.IsValueType)
         {
             var specializedMethod = AppendValGenericMethodDef.MakeGenericMethod(underlying);
             return (Action<IColumnBuffer, object?, bool>)specializedMethod.CreateDelegate(
@@ -640,7 +641,7 @@ public static class DictSchemaTransposer
 
                         columnTypeMap[colName] = existingType == null
                             ? newType
-                            : (existingType != newType ? PolarsTypeHelper.PromoteType(existingType, newType) : existingType);
+                            : (existingType != newType ? ClrTypeHelper.PromoteType(existingType, newType) : existingType);
                     }
                 }
             }
@@ -673,7 +674,7 @@ public static class DictSchemaTransposer
 
                         columnTypeMap[kv.Key] = existingType == null
                             ? newType
-                            : (existingType != newType ? PolarsTypeHelper.PromoteType(existingType, newType) : existingType);
+                            : (existingType != newType ? ClrTypeHelper.PromoteType(existingType, newType) : existingType);
                     }
                 }
             }
@@ -754,7 +755,7 @@ public static class DataFrameBuilder
 
         // 1. Primitive / Single-Column Fast Path
         Type type = typeof(T);
-        if (PolarsTypeHelper.IsSupportedSimpleType(type))
+        if (ClrTypeHelper.IsSupportedSimpleType(type))
         {
             var seriesHandle = SeriesFactory.CreateGenericType("value", rows);
             return PolarsWrapper.DataFrameNew([seriesHandle]);
@@ -874,7 +875,7 @@ public static class DataFrameBuilder
     {
         ArgumentNullException.ThrowIfNull(columns);
 
-        var properties = PolarsTypeHelper.GetModelProperties(columns.GetType());
+        var properties = ClrTypeHelper.GetModelProperties(columns.GetType());
         if (properties.Length == 0)
         {
             return PolarsWrapper.DataFrameNew(ReadOnlySpan<SeriesHandle>.Empty);
@@ -888,7 +889,7 @@ public static class DataFrameBuilder
             var val = p.GetValue(columns)
                 ?? throw new ArgumentNullException(nameof(columns), $"Column property '{p.Name}' cannot be null.");
 
-            var elemType = PolarsTypeHelper.TryGetEnumerableElementType(val.GetType()) ?? typeof(object);
+            var elemType = ClrTypeHelper.TryGetEnumerableElementType(val.GetType()) ?? typeof(object);
             var method = typeof(SeriesFactory).GetMethod(
                 nameof(SeriesFactory.CreateGenericType),
                 BindingFlags.Public | BindingFlags.Static

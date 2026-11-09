@@ -1,6 +1,7 @@
 namespace Polars.NET.Linq
 
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
+open Kaminari.Samidare
 
 /// Assembling the PlanInspection report of a compiled query.
 module internal PlanInspectionReport =

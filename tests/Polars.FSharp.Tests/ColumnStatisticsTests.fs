@@ -6,9 +6,9 @@ open Apache.Arrow.Types
 open Xunit
 open Polars.FSharp
 open Polars.NET.Core.Wrappers
-open Polars.NET.Linq.IR
-open Polars.NET.Linq.IR.ScalarExprOps
-open Polars.NET.Linq.IR.Passes
+open Kaminari.Samidare.IR
+open Kaminari.Samidare.IR.ScalarExprOps
+open Kaminari.Samidare.IR.Passes
 open Polars.NET.Linq.Backend.Polars
 
 /// The estimator's use of column statistics, and the statistics read from a file.

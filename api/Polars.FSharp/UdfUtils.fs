@@ -4,6 +4,8 @@ open System
 open Apache.Arrow
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Data
+open Kaminari.Sazanami.Arrow
+open Kaminari.Sazanami.Data
 
 module internal Udf =
     // ==========================================

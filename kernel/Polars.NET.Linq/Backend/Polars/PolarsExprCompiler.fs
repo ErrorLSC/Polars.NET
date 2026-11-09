@@ -2,8 +2,8 @@ namespace Polars.NET.Linq.Backend.Polars
 
 open System.Linq.Expressions
 open Polars.NET.Core
-open Polars.NET.Linq
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
+open Kaminari.Samidare
 
 /// Compiles standalone LINQ expressions (outside a query pipeline) into native Polars expressions,
 /// e.g. for TypedMerge conditions/setters and DataFrame-level key selectors.

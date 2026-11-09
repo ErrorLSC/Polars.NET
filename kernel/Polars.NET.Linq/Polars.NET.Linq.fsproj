@@ -14,71 +14,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="PartialEvaluator.fs" />
-    <Compile Include="IR/Vocabulary.fs" />
-    <Compile Include="OpsSpecs.fs" />
-    <Compile Include="IR/LogicalTypes.fs" />
-    <Compile Include="IR/JsonDataType.fs" />
-    <Compile Include="IR/RowShape.fs" />
-    <Compile Include="IR/LogicalIR.fs" />
-    <Compile Include="IR/ScalarExpr.fs" />
-    <Compile Include="IR/BackendContracts.fs" />
-    <Compile Include="IR/LogicalPlan.fs" />
-    <Compile Include="IR/CardinalityFeedback.fs" />
-    <Compile Include="IR/SourceRegistry.fs" />
-    <Compile Include="IR/SchemaInference.fs" />
-    <Compile Include="QueryCache/QueryCacheKey.fs" />
-    <Compile Include="ExpressionPatterns.fs" />
-    <Compile Include="LinqReflectionCache.fs" />
-    <Compile Include="ScopeNavigation.fs" />
-    <Compile Include="Translators/TranslationContext.fs" />
-    <Compile Include="Translators/NullSemantics.fs" />
-    <Compile Include="Translators/ColumnResolver.fs" />
-    <Compile Include="Translators/MemberAccessTranslator.fs" />
-    <Compile Include="Translators/StringTemporalTranslator.fs" />
-    <Compile Include="Translators/NumericTranslator.fs" />
-    <Compile Include="Translators/RegexTranslator.fs" />
-    <Compile Include="Translators/WindowAndMethodTranslator.fs" />
-    <Compile Include="Translators/ListTranslator.fs" />
-    <Compile Include="Translators/JsonTranslator.fs" />
-    <Compile Include="Translators/OperatorAndUdfTranslator.fs" />
-    <Compile Include="ExprTranslator.fs" />
-    <Compile Include="AggTranslator.fs" />
-    <Compile Include="FSharpAstRewriter.fs" />
-    <Compile Include="SourceResolver.fs" />
-    <Compile Include="SubqueryDecorrelator.fs" />
-    <Compile Include="QueryCache/QueryPlanCache.fs" />
-    <Compile Include="Pipeline/PipelineTypes.fs" />
-    <Compile Include="Pipeline/PipelineStageParser.fs" />
-    <Compile Include="IR/EntityPacking.fs" />
-    <Compile Include="IR/Building/TransparentScopes.fs" />
-    <Compile Include="IR/Building/ProjectionExtraction.fs" />
-    <Compile Include="IR/Building/GroupByPlanning.fs" />
-    <Compile Include="IR/Building/GroupingSetsPlanning.fs" />
-    <Compile Include="IR/Building/GroupJoinAndZipPlanning.fs" />
-    <Compile Include="IR/Building/StageContext.fs" />
-    <Compile Include="IR/Building/RowStages.fs" />
-    <Compile Include="IR/Building/GroupStages.fs" />
-    <Compile Include="IR/Building/JoinStages.fs" />
-    <Compile Include="IR/Building/SetStages.fs" />
-    <Compile Include="IR/TreeBuilder.fs" />
-    <Compile Include="IR/Passes/EnumResolution.fs" />
-    <Compile Include="IR/Passes/SortSliceFusion.fs" />
-    <Compile Include="IR/Passes/FilterNullSimplification.fs" />
-    <Compile Include="IR/Passes/PredicatePushdown.fs" />
-    <Compile Include="IR/Passes/ProjectionPruning.fs" />
-    <Compile Include="IR/Passes/GroupOrderRelaxation.fs" />
-    <Compile Include="IR/Passes/JoinReordering.fs" />
-    <Compile Include="IR/Passes/CommonSubplanSharing.fs" />
-    <Compile Include="IR/Passes/SemiJoinReduction.fs" />
-    <Compile Include="IR/Passes/AntiJoinRecognition.fs" />
-    <Compile Include="IR/Passes/OuterJoinSimplification.fs" />
-    <Compile Include="IR/Passes/EagerAggregation.fs" />
-    <Compile Include="IR/Passes/UnionAggregateFlattening.fs" />
-    <Compile Include="IR/Passes/GroupingSetsCascade.fs" />
-    <Compile Include="IR/Passes/LogicalOptimizer.fs" />
-    <Compile Include="ScalarPlanner.fs" />
-    <!-- Polars execution backend: must stay after the frontend and IR so the compiler enforces the dependency direction -->
     <Compile Include="Backend/Polars/MaterializerInvokers.fs" />
     <Compile Include="Backend/Polars/PolarsPlanSource.fs" />
     <Compile Include="Backend/Polars/NativeOpsApplier.fs" />
@@ -100,6 +35,7 @@
   </ItemGroup>
 
   <ItemGroup>
+      <ProjectReference Include="..\Samidare\Samidare.fsproj" />
       <ProjectReference Include="..\Polars.NET.Core\Polars.NET.Core.csproj" />
   </ItemGroup>
 

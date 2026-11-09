@@ -1,6 +1,7 @@
 using Polars.NET.Core.Helpers;
 using Polars.NET.Linq;
-using Polars.NET.Linq.IR;
+using Kaminari.Samidare;
+using Kaminari.Samidare.IR;
 
 namespace Polars.CSharp.Linq;
 

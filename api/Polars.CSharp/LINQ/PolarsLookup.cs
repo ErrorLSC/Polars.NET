@@ -2,6 +2,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Collections;
 using Polars.NET.Core.Data;
+using Kaminari.Sazanami.Data;
 
 namespace Polars.CSharp.Linq;
 
@@ -62,7 +63,7 @@ public sealed class PolarsGrouping<TKey, [DynamicallyAccessedMembers(Dynamically
     public int Count => checked((int)DataFrame.Height);
 
     private ArrowBatchCursor<TElement> EnsureCursor()
-        => _cursor ??= ArrowRowMapper<TElement>.CreateCursor(DataFrame.Handle);
+        => _cursor ??= DataFrameRowMapper<TElement>.CreateCursor(DataFrame.Handle);
 
     public TElement this[int index]
     {

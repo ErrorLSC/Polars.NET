@@ -4,9 +4,10 @@ open System
 open System.Collections.Generic
 open System.Linq
 open System.Linq.Expressions
-open Polars.NET.Core.Helpers
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
 open Polars.NET.Linq.Backend.Polars
+open Kaminari.Sazanami.Helpers
+open Kaminari.Samidare
 
 /// Executing a pipeline that needs the full LINQ-to-Objects fallback: the longest natively compilable prefix
 /// runs in Polars, and the rest of the pipeline runs via EnumerableQuery over its materialized rows.
@@ -54,7 +55,7 @@ module internal InMemoryExecution =
             let rootQueryable = rootConst.Value :?> IQueryable
 
             let rootElemType =
-                match PolarsTypeHelper.TryGetEnumerableElementType rootType with
+                match ClrTypeHelper.TryGetEnumerableElementType rootType with
                 | null -> rootQueryable.ElementType
                 | t -> t
 
@@ -102,7 +103,7 @@ module internal InMemoryExecution =
         let split =
             tryFindNativePrefix provider effectiveExpr
             |> Option.bind (fun (_, prefix) ->
-                match PolarsTypeHelper.TryGetEnumerableElementType prefix.Type with
+                match ClrTypeHelper.TryGetEnumerableElementType prefix.Type with
                 | null -> None
                 | rowType -> Some(prefix, rowType))
 

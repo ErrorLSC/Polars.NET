@@ -15,7 +15,7 @@ module Polars.NET.Linq.Conformance.Tests.ReshapeConformance
 open System
 open System.Collections.Generic
 open Xunit
-open Polars.NET.Linq.IR
+open Kaminari.Samidare.IR
 
 type LR = { Id: int64; Xs: List<Nullable<int64>> }
 
@@ -51,9 +51,7 @@ let private asOf strategy allowEq (by: bool) (t: Tables) =
             LeftBy = (if by then [ col "G" ] else [])
             RightBy = (if by then [ col "RG" ] else [])
             Strategy = strategy
-            ToleranceStr = None
-            ToleranceInt = None
-            ToleranceFloat = None
+            Tolerance = None
             AllowEq = allowEq
             CheckSorted = false
             Suffix = None
@@ -118,7 +116,7 @@ let ``AsOf join never matches a null on or by key`` () =
             {
                 LeftOn = col "T"; RightOn = col "RT"
                 LeftBy = (if by then [ col "G" ] else []); RightBy = (if by then [ col "RG" ] else [])
-                Strategy = AsofStrategy.Backward; ToleranceStr = None; ToleranceInt = None; ToleranceFloat = None
+                Strategy = AsofStrategy.Backward; Tolerance = None
                 AllowEq = true; CheckSorted = false; Suffix = None; Coalesce = JoinKeyCoalescing.Default
             }
         project (LogicalPlan.JoinAsOf(t.Scan left, t.Scan right, spec)) [ "Id", col "Id"; "RV", col "RV" ]
