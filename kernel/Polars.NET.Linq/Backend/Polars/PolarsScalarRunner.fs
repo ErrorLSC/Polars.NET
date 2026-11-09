@@ -6,6 +6,7 @@ open Polars.NET.Core.Enums
 open Kaminari.Samidare.IR
 open Kaminari.Samidare.IR.Passes
 open Kaminari.Samidare
+open Polars.NET.Linq
 
 /// Polars interpreter for planned scalar terminals: lowers and collects LogicalPlans, then hands
 /// the collected DataFrames to the IDataFrameMaterializer.
@@ -15,6 +16,7 @@ module internal PolarsScalarRunner =
         // A scalar plan wraps an optimized pipeline plan in its terminal (a row count, an aggregate), which may free
         // the pipeline's rows from their order.
         // The terminal's expressions resolve against this backend's capabilities (a checked sum asserts).
+        PolarsRuntimeConfig.EnsureImported()
         let prepared =
             use _scope = CompilationScope.Enter PolarsQueryBackend.Instance
             let resolved = EnumResolution.resolvePlan plan

@@ -12,7 +12,7 @@ public class StringViewMaterializationTests
     public class Row
     {
         public long Id { get; set; }
-        public string? S { get; set; }
+        public string S { get; set; }
     }
 
     private static void AssertRoundTrip(Row[] rows)

@@ -4,12 +4,14 @@ open System.Linq.Expressions
 open Polars.NET.Core
 open Kaminari.Samidare.IR
 open Kaminari.Samidare
+open Polars.NET.Linq
 
 /// Compiles standalone LINQ expressions (outside a query pipeline) into native Polars expressions,
 /// e.g. for TypedMerge conditions/setters and DataFrame-level key selectors.
 module internal PolarsExprCompiler =
 
     let private compileWith (ctx: TranslationContext) (resolve: ScalarExpr -> ScalarExpr) (expr: Expression) =
+        PolarsRuntimeConfig.EnsureImported()
         use _scope = CompilationScope.Enter PolarsQueryBackend.Instance
         tryTranslateToScalar ctx expr |> Option.map (resolve >> PolarsScalarLowerer.lower)
 

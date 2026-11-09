@@ -847,16 +847,16 @@ public class QueryPlanCacheTests
                         orderby s.Amount
                         select s.Amount).ToList();
 
-        var original = CoreConfig.AllowUnstableOrdering;
+        var original = PolarsRuntimeConfig.AllowUnstableOrdering;
         try
         {
             QueryPlanCache.Clear();
-            CoreConfig.AllowUnstableOrdering = false;
+            PolarsRuntimeConfig.AllowUnstableOrdering = false;
             string stable = "";
             for (int run = 0; run < 3; run++) stable = Query().ExplainLogicalPlan();
             Assert.Equal(expected, Query().ToList());
 
-            CoreConfig.AllowUnstableOrdering = true;
+            PolarsRuntimeConfig.AllowUnstableOrdering = true;
             string unstable = Query().ExplainLogicalPlan();
             Assert.Equal(expected, Query().ToList());
 
@@ -867,7 +867,7 @@ public class QueryPlanCacheTests
         }
         finally
         {
-            CoreConfig.AllowUnstableOrdering = original;
+            PolarsRuntimeConfig.AllowUnstableOrdering = original;
         }
     }
 }

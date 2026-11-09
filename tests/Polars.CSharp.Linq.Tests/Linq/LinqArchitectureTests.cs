@@ -66,6 +66,7 @@ public class LinqArchitectureTests
     {
         Assert.Empty(ProjectReferences("kernel", "Sazanami", "Sazanami.csproj"));
         Assert.Equal(["Sazanami"], ProjectReferences("kernel", "Samidare", "Samidare.fsproj"));
+        Assert.Equal(["Sazanami"], ProjectReferences("kernel", "Polars.NET.Core", "Polars.NET.Core.csproj"));
     }
 
     [Theory]

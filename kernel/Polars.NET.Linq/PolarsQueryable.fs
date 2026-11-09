@@ -42,6 +42,8 @@ type internal PreparedQuery<'T>
 
 /// Strongly-typed IQueryProvider backed by Polars.NET.Core
 type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer, language: QueryLanguage) =
+    do PolarsRuntimeConfig.EnsureImported()
+
     // The root frame's schema is read once per provider. Lowering clones the handle, so the binding never hands it out.
     let rootSource = lazy (PolarsPhysicalLowerer.tableSourceOfLazyFrame initialLazyFrame)
 

@@ -582,6 +582,7 @@ public class ConfigTests
             Environment.SetEnvironmentVariable("POLARS_NET_PREFETCH_SIZE", "7");
 
             global::Polars.NET.Core.Config.CoreConfig.ImportLegacyEnvironment();
+            global::Polars.NET.Linq.PolarsRuntimeConfig.ImportLegacyEnvironment();
 
             Assert.True(global::Kaminari.Samidare.Config.SamidareConfig.UseRelationalNulls);
             Assert.Equal(7, global::Kaminari.Sazanami.Data.PrefetchOptions.DefaultBufferSize);

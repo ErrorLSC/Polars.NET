@@ -1,6 +1,7 @@
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Config;
 using Polars.NET.Core.Enums;
+using Polars.NET.Linq;
 
 namespace Polars.CSharp;
 
@@ -20,7 +21,7 @@ public sealed class PolarsConfigScope(string backupPayload) : IDisposable
     {
         if (_backupPayload != null)
         {
-            CoreConfig.Load(_backupPayload);
+            PolarsRuntimeConfig.Load(_backupPayload);
 
             _backupPayload = null;
         }
@@ -38,7 +39,7 @@ public sealed class PolarsConfig
     /// </summary>
     public PolarsConfig()
     {
-        _snapshotBeforeChain = CoreConfig.Save(ifSet: false);
+        _snapshotBeforeChain = PolarsRuntimeConfig.Save(ifSet: false);
     }
     private PolarsConfig Apply(Action applyAction)
     {
@@ -55,27 +56,27 @@ public sealed class PolarsConfig
     /// </summary>
     /// <param name="ifSet">By default this will save the state of all configuration options;
     ///  set to False to save only those that have been set to a non-default value.</param>
-    public string Save(bool ifSet = false) => CoreConfig.Save(ifSet);
+    public string Save(bool ifSet = false) => PolarsRuntimeConfig.Save(ifSet);
 
     /// <summary>
     /// Save the current set of Config options as a JSON file.
     /// </summary>
-    public void SaveToFile(string path, bool ifSet = false) => CoreConfig.SaveToFile(path, ifSet);
+    public void SaveToFile(string path, bool ifSet = false) => PolarsRuntimeConfig.SaveToFile(path, ifSet);
 
     /// <summary>
     /// Load (and set) previously saved Config options from a JSON string.
     /// </summary>
-    public void Load(string cfgJson) => CoreConfig.Load(cfgJson);
+    public void Load(string cfgJson) => PolarsRuntimeConfig.Load(cfgJson);
 
     /// <summary>
     /// Load (and set) previously saved Config options from file.
     /// </summary>
-    public void LoadFromFile(string path) => CoreConfig.LoadFromFile(path);
+    public void LoadFromFile(string path) => PolarsRuntimeConfig.LoadFromFile(path);
 
     /// <summary>
     /// Reset all polars Config settings to their default state.
     /// </summary>
-    public void RestoreDefaults() => CoreConfig.RestoreDefaults();
+    public void RestoreDefaults() => PolarsRuntimeConfig.RestoreDefaults();
 
     /// <summary>
     /// Show the current state of all Config variables in the environment as a dict.
@@ -84,7 +85,7 @@ public sealed class PolarsConfig
     /// change this to True to restrict the returned dictionary to include only those that have been set to a specific value.</param>
     /// <param name="envOnly">Include only Config environment variables in the output; some options (such as “set_fmt_float”) are set directly, not via an environment variable.</param>
     public Dictionary<string, string?> Status(bool ifSet = false, bool envOnly = false)
-        => CoreConfig.GetState(ifSet, envOnly);
+        => PolarsRuntimeConfig.GetState(ifSet, envOnly);
 
     // ========================================================
     // Indexer
@@ -155,18 +156,18 @@ public sealed class PolarsConfig
                             break;
                         case "client_evaluation_policy":
                             if (string.IsNullOrEmpty(value))
-                                CoreConfig.ClientEvaluationPolicy = ClientEvaluationPolicy.Strict.ToNative();
+                                PolarsRuntimeConfig.ClientEvaluationPolicy = ClientEvaluationPolicy.Strict.ToNative();
                             else if (Enum.TryParse<ClientEvaluationPolicy>(value, ignoreCase: true, out var pol))
-                                CoreConfig.ClientEvaluationPolicy = pol.ToNative();
+                                PolarsRuntimeConfig.ClientEvaluationPolicy = pol.ToNative();
                             break;
                         case "disallow_udf_pushdown":
-                            CoreConfig.DisallowUdfPushdown = value is "1" or "true" or "TRUE" or "True";
+                            PolarsRuntimeConfig.DisallowUdfPushdown = value is "1" or "true" or "TRUE" or "True";
                             break;
                         case "allow_unstable_ordering":
-                            CoreConfig.AllowUnstableOrdering = value is "1" or "true" or "TRUE" or "True";
+                            PolarsRuntimeConfig.AllowUnstableOrdering = value is "1" or "true" or "TRUE" or "True";
                             break;
                         case "use_relational_nulls":
-                            CoreConfig.UseRelationalNulls = value is "1" or "true" or "TRUE" or "True";
+                            PolarsRuntimeConfig.UseRelationalNulls = value is "1" or "true" or "TRUE" or "True";
                             break;
                     }
                 }
@@ -182,24 +183,24 @@ public sealed class PolarsConfig
     /// Gets whether pushing down managed UDF callbacks is disallowed.
     /// Default is false (UDF pushdown is allowed).
     /// </summary>
-    public bool DisallowUdfPushdown => CoreConfig.DisallowUdfPushdown;
+    public bool DisallowUdfPushdown => PolarsRuntimeConfig.DisallowUdfPushdown;
 
     /// <summary>
     /// Gets whether LINQ orderings may be executed as unstable sorts.
     /// Default is false (orderings are stable, as in LINQ to Objects).
     /// </summary>
-    public bool AllowUnstableOrdering => CoreConfig.AllowUnstableOrdering;
+    public bool AllowUnstableOrdering => PolarsRuntimeConfig.AllowUnstableOrdering;
 
     /// <summary>
     /// Gets whether LINQ comparisons use relational (SQL) null semantics.
     /// Default is false (C# null semantics, as in LINQ to Objects).
     /// </summary>
-    public bool UseRelationalNulls => CoreConfig.UseRelationalNulls;
+    public bool UseRelationalNulls => PolarsRuntimeConfig.UseRelationalNulls;
 
     /// <summary>
     /// Gets the current client-side evaluation policy.
     /// </summary>
-    public ClientEvaluationPolicy ClientEvaluationPolicy => CoreConfig.ClientEvaluationPolicy.ToApi();
+    public ClientEvaluationPolicy ClientEvaluationPolicy => PolarsRuntimeConfig.ClientEvaluationPolicy.ToApi();
     /// <summary>
     /// Inject Environment var to Rust
     /// </summary>
@@ -481,7 +482,7 @@ public sealed class PolarsConfig
     /// <param name="capacity">Maximum number of query plan templates to retain. Pass null to reset to default.</param>
     public PolarsConfig SetQueryCacheCapacity(int? capacity = 1024)
     {
-        Apply(() => CoreConfig.QueryCacheCapacity = capacity);
+        Apply(() => PolarsRuntimeConfig.QueryCacheCapacity = capacity);
         return this;
     }
 
@@ -491,7 +492,7 @@ public sealed class PolarsConfig
     /// <param name="enabled">True to enable caching, false to disable, null to reset to default.</param>
     public PolarsConfig SetQueryCacheEnabled(bool? enabled = true)
     {
-        Apply(() => CoreConfig.QueryCacheEnabled = enabled);
+        Apply(() => PolarsRuntimeConfig.QueryCacheEnabled = enabled);
         return this;
     }
 
@@ -501,7 +502,7 @@ public sealed class PolarsConfig
     /// <param name="policy">Policy mode: Strict (default), Warn, or Allow.</param>
     public PolarsConfig SetClientEvaluationPolicy(ClientEvaluationPolicy policy = ClientEvaluationPolicy.Strict)
     {
-        Apply(() => CoreConfig.ClientEvaluationPolicy = policy.ToNative());
+        Apply(() => PolarsRuntimeConfig.ClientEvaluationPolicy = policy.ToNative());
         return this;
     }
 
@@ -512,7 +513,7 @@ public sealed class PolarsConfig
     /// </summary>
     public PolarsConfig SetDisallowUdfPushdown(bool disallow = true)
     {
-        Apply(() => CoreConfig.DisallowUdfPushdown = disallow);
+        Apply(() => PolarsRuntimeConfig.DisallowUdfPushdown = disallow);
         return this;
     }
 
@@ -524,7 +525,7 @@ public sealed class PolarsConfig
     /// </summary>
     public PolarsConfig SetAllowUnstableOrdering(bool allow = true)
     {
-        Apply(() => CoreConfig.AllowUnstableOrdering = allow);
+        Apply(() => PolarsRuntimeConfig.AllowUnstableOrdering = allow);
         return this;
     }
 
@@ -538,7 +539,7 @@ public sealed class PolarsConfig
     /// </summary>
     public PolarsConfig SetUseRelationalNulls(bool use = true)
     {
-        Apply(() => CoreConfig.UseRelationalNulls = use);
+        Apply(() => PolarsRuntimeConfig.UseRelationalNulls = use);
         return this;
     }
 }

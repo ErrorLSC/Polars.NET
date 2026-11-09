@@ -78,7 +78,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sazanami\Sazanami.csproj" />
-    <ProjectReference Include="..\Samidare\Samidare.fsproj" />
   </ItemGroup>
 
   <ItemGroup>

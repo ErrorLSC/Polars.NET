@@ -5,6 +5,7 @@ open System.Collections.Generic
 open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Config
+open Polars.NET.Linq
 
 [<RequireQualifiedAccess>]
 type Active =
@@ -80,35 +81,35 @@ module Config =
     /// </summary>
     let save (scope: ConfigScope) =
         match scope with
-        | ConfigScope.SetOnly -> CoreConfig.Save(ifSet = true)
-        | ConfigScope.All -> CoreConfig.Save(ifSet = false)
+        | ConfigScope.SetOnly -> PolarsRuntimeConfig.Save(ifSet = true)
+        | ConfigScope.All -> PolarsRuntimeConfig.Save(ifSet = false)
 
     /// <summary>
     /// Save the current set of Config options as a JSON file.
     /// </summary>
     let saveToFile path =
-        CoreConfig.SaveToFile(path = path, ifSet = false)
+        PolarsRuntimeConfig.SaveToFile(path = path, ifSet = false)
 
     /// <summary>
     /// Load (and set) previously saved Config options from a JSON string.Only already set parameter will be recorded.
     /// </summary>
-    let load cfgJson = CoreConfig.Load cfgJson
+    let load cfgJson = PolarsRuntimeConfig.Load cfgJson
     /// <summary>
     /// Load (and set) previously saved Config options from file.
     /// </summary>
-    let loadFromFile path = CoreConfig.LoadFromFile path
+    let loadFromFile path = PolarsRuntimeConfig.LoadFromFile path
     /// <summary>
     /// Reset all polars Config settings to their default state.
     /// </summary>
-    let restoreDefaults () = CoreConfig.RestoreDefaults()
+    let restoreDefaults () = PolarsRuntimeConfig.RestoreDefaults()
 
     /// <summary>
     /// Show the current state of all Config variables in the environment as a dict.
     /// </summary>
     let status (scope: ConfigScope) =
         match scope with
-        | ConfigScope.SetOnly -> CoreConfig.GetState(ifSet = true, envOnly = false)
-        | ConfigScope.All -> CoreConfig.GetState(ifSet = false, envOnly = false)
+        | ConfigScope.SetOnly -> PolarsRuntimeConfig.GetState(ifSet = true, envOnly = false)
+        | ConfigScope.All -> PolarsRuntimeConfig.GetState(ifSet = false, envOnly = false)
 
     /// <summary>
     /// Safely retrieves the current configuration value for the specified key.
@@ -146,14 +147,14 @@ module Config =
     /// <param name="f">The operation to execute within this configuration scope.</param>
     let withConfig (actions: list<unit -> unit>) (f: unit -> 'T) : 'T =
         ArgumentNullException.ThrowIfNull actions
-        let backupPayload = CoreConfig.Save(ifSet = false)
+        let backupPayload = PolarsRuntimeConfig.Save(ifSet = false)
 
         try
             actions |> List.iter (fun f -> f ())
             PolarsWrapper.ReloadEnvVarAll()
             f ()
         finally
-            CoreConfig.Load backupPayload
+            PolarsRuntimeConfig.Load backupPayload
 
     // =========================================================================
     // Individual Configuration Actions (Returning unit -> unit)
@@ -308,26 +309,26 @@ module Config =
     /// Set the maximum capacity for the LINQ Query Plan Cache.
     /// </summary>
     let queryCacheCapacity (capacity: NumSet) =
-        fun () -> CoreConfig.QueryCacheCapacity <- capacity.ToNative()
+        fun () -> PolarsRuntimeConfig.QueryCacheCapacity <- capacity.ToNative()
 
     /// <summary>
     /// Enable or disable the LINQ Query Plan Cache globally.
     /// </summary>
     let queryCacheEnabled (active: Active) =
-        fun () -> CoreConfig.QueryCacheEnabled <- active.ToNative()
+        fun () -> PolarsRuntimeConfig.QueryCacheEnabled <- active.ToNative()
 
     /// <summary>
     /// Sets the client-side evaluation policy for operations or expressions that cannot be pushed down to the native Polars engine.
     /// </summary>
     let clientEvaluationPolicy (policy: ClientEvaluationPolicy) =
-        fun () -> CoreConfig.ClientEvaluationPolicy <- policy.ToNative()
+        fun () -> PolarsRuntimeConfig.ClientEvaluationPolicy <- policy.ToNative()
 
     /// <summary>
     /// Sets whether to disallow pushing down managed UDF callbacks to the native Polars engine.
     /// Default is false.
     /// </summary>
     let disallowUdfPushdown (disallow: bool) =
-        fun () -> CoreConfig.DisallowUdfPushdown <- disallow
+        fun () -> PolarsRuntimeConfig.DisallowUdfPushdown <- disallow
 
     /// <summary>
     /// Sets whether LINQ / query orderings may be executed as unstable sorts.
@@ -336,7 +337,7 @@ module Config =
     /// join-heavy queries.
     /// </summary>
     let allowUnstableOrdering (allow: bool) =
-        fun () -> CoreConfig.AllowUnstableOrdering <- allow
+        fun () -> PolarsRuntimeConfig.AllowUnstableOrdering <- allow
 
     /// <summary>
     /// Sets whether LINQ / query comparisons use relational (SQL) three-valued null semantics, as EF Core's
@@ -344,4 +345,4 @@ module Config =
     /// ordering comparison with a null operand is false).
     /// </summary>
     let useRelationalNulls (useRelational: bool) =
-        fun () -> CoreConfig.UseRelationalNulls <- useRelational
+        fun () -> PolarsRuntimeConfig.UseRelationalNulls <- useRelational

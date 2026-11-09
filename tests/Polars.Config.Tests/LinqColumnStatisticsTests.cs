@@ -1,6 +1,7 @@
 using Polars.CSharp;
 using Polars.CSharp.Linq;
 using Polars.NET.Core.Config;
+using Polars.NET.Linq;
 
 namespace Polars.Config.Tests;
 
@@ -67,10 +68,10 @@ public class LinqColumnStatisticsTests
                         join d in Days.Where(d => d.Year == 2001) on s.DayKey equals d.DayId
                         select s.Amount).ToList();
 
-        var original = CoreConfig.CollectColumnStatistics;
+        var original = PolarsRuntimeConfig.CollectColumnStatistics;
         try
         {
-            CoreConfig.CollectColumnStatistics = true;
+            PolarsRuntimeConfig.CollectColumnStatistics = true;
             Assert.Equal(expected.Sum(), Native().Sum());
             Assert.Equal(expected.Count, Native().Count());
             Assert.Equal(expected.Min(), Native().Min());
@@ -78,7 +79,7 @@ public class LinqColumnStatisticsTests
         }
         finally
         {
-            CoreConfig.CollectColumnStatistics = original;
+            PolarsRuntimeConfig.CollectColumnStatistics = original;
         }
     }
 }
