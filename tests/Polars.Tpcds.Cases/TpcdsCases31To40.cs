@@ -1,15 +1,7 @@
-namespace Polars.Tpcds.Tests;
+namespace Polars.Tpcds;
 
-public class TpcdsQuery31To40Tests
+public static partial class TpcdsCases
 {
-    private const string NativePushdown = "100% Native Pushdown";
-
-    private static void AssertPlan<T>(IQueryable<T> query, string expectedPlan)
-    {
-        var actualPlan = query.Explain();
-        Assert.Contains(expectedPlan, actualPlan);
-    }
-
     /*
      * TPC-DS Query 31
      *
@@ -84,9 +76,7 @@ public class TpcdsQuery31To40Tests
      *             END
      * ORDER BY ss1.ca_county;
      */
-    [Fact]
-    [Trait("TPCDS", "Q31")]
-    public void Test_Q31()
+    public static IQueryable<object> Q31()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
         var webSalesQuery = TpcdsData.WebSalesQuery();
@@ -148,12 +138,11 @@ public class TpcdsQuery31To40Tests
                       store_q2_q3_increase = (double)s3.store_sales! / (double)s2.store_sales!
                   };
 
-        AssertPlan(q31, NativePushdown);
+        return q31;
+    }
 
-        var polarsResult = q31.ToList();
-
-        // DuckDB Cross Validation
-        var duckDbSql = $@"
+    public static string Q31Sql() =>
+        $@"
             WITH ss AS
               (SELECT ca_county,
                       d_qoy,
@@ -226,38 +215,6 @@ public class TpcdsQuery31To40Tests
             ORDER BY ss1.ca_county;
         ";
 
-        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
-        {
-            ca_county = r.IsDBNull(0) ? null : r.GetString(0),
-            d_year = r.IsDBNull(1) ? null : (long?)r.GetInt64(1),
-            web_q1_q2_increase = r.IsDBNull(2) ? (double?)null : r.GetDouble(2),
-            store_q1_q2_increase = r.IsDBNull(3) ? (double?)null : r.GetDouble(3),
-            web_q2_q3_increase = r.IsDBNull(4) ? (double?)null : r.GetDouble(4),
-            store_q2_q3_increase = r.IsDBNull(5) ? (double?)null : r.GetDouble(5),
-        });
-
-        Assert.Equal(duckDbResults.Count, polarsResult.Count);
-        for (int i = 0; i < duckDbResults.Count; i++)
-        {
-            var d = duckDbResults[i];
-            var p = polarsResult[i];
-
-            Assert.Equal(d.ca_county, p.ca_county);
-            Assert.Equal(d.d_year, p.d_year);
-            Assert.NotNull(d.web_q1_q2_increase);
-            TpcdsAssert.Close(d.web_q1_q2_increase, p.web_q1_q2_increase);
-
-            Assert.NotNull(d.store_q1_q2_increase);
-            TpcdsAssert.Close(d.store_q1_q2_increase, p.store_q1_q2_increase);
-
-            Assert.NotNull(d.web_q2_q3_increase);
-            TpcdsAssert.Close(d.web_q2_q3_increase, p.web_q2_q3_increase);
-
-            Assert.NotNull(d.store_q2_q3_increase);
-            TpcdsAssert.Close(d.store_q2_q3_increase, p.store_q2_q3_increase);
-        }
-    }
-
     /*
      * TPC-DS Query 32
      *
@@ -278,9 +235,7 @@ public class TpcdsQuery31To40Tests
      *         AND d_date_sk = cs_sold_date_sk )
      * LIMIT 100;
      */
-    [Fact]
-    [Trait("TPCDS", "Q32")]
-    public void Test_Q32()
+    public static IQueryable<object> Q32()
     {
         var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
         var itemQuery = TpcdsData.ItemQuery();
@@ -312,12 +267,11 @@ public class TpcdsQuery31To40Tests
                        excess_discount_amount = g.Sum(x => x.cs_ext_discount_amt)
                    }).Take(100);
 
-        AssertPlan(q32, NativePushdown);
+        return q32;
+    }
 
-        var polarsResult = q32.ToList();
-
-        // DuckDB Cross Validation
-        var duckDbSql = $@"
+    public static string Q32Sql() =>
+        $@"
             SELECT sum(cs_ext_discount_amt) AS ""excess discount amount""
             FROM read_parquet('{TpcdsData.CatalogSalesPath}'),
                  read_parquet('{TpcdsData.ItemPath}'),
@@ -335,18 +289,6 @@ public class TpcdsQuery31To40Tests
                     AND d_date_sk = cs_sold_date_sk )
             LIMIT 100;
         ";
-
-        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
-        {
-            excess_discount_amount = r.IsDBNull(0) ? null : (decimal?)r.GetDecimal(0),
-        });
-
-        Assert.Equal(duckDbResults.Count, polarsResult.Count);
-        for (int i = 0; i < duckDbResults.Count; i++)
-        {
-            Assert.Equal(duckDbResults[i].excess_discount_amount, polarsResult[i].excess_discount_amount);
-        }
-    }
 
     /*
      * TPC-DS Query 33
@@ -417,9 +359,7 @@ public class TpcdsQuery31To40Tests
      * ORDER BY total_sales
      * LIMIT 100;
      */
-    [Fact]
-    [Trait("TPCDS", "Q33")]
-    public void Test_Q33()
+    public static IQueryable<object> Q33()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
         var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
@@ -485,12 +425,11 @@ public class TpcdsQuery31To40Tests
                    orderby res.total_sales
                    select res).Take(100);
 
-        AssertPlan(q33, NativePushdown);
+        return q33;
+    }
 
-        var polarsResult = q33.ToList();
-
-        // DuckDB Cross Validation
-        var duckDbSql = $@"
+    public static string Q33Sql() =>
+        $@"
             WITH ss AS
               ( SELECT i_manufact_id,
                        sum(ss_ext_sales_price) total_sales
@@ -558,23 +497,6 @@ public class TpcdsQuery31To40Tests
             LIMIT 100;
         ";
 
-        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
-        {
-            i_manufact_id = r.IsDBNull(0) ? null : (long?)r.GetInt64(0),
-            total_sales = r.IsDBNull(1) ? null : (decimal?)r.GetDecimal(1),
-        });
-
-        Assert.Equal(duckDbResults.Count, polarsResult.Count);
-        for (int i = 0; i < duckDbResults.Count; i++)
-        {
-            var d = duckDbResults[i];
-            var p = polarsResult[i];
-
-            Assert.Equal(d.i_manufact_id, p.i_manufact_id);
-            Assert.Equal(d.total_sales, p.total_sales);
-        }
-    }
-
     /*
      * TPC-DS Query 34
      *
@@ -620,9 +542,7 @@ public class TpcdsQuery31To40Tests
      *          c_preferred_cust_flag DESC NULLS FIRST,
      *          ss_ticket_number NULLS FIRST;
      */
-    [Fact]
-    [Trait("TPCDS", "Q34")]
-    public void Test_Q34()
+    public static IQueryable<object> Q34()
     {
         var storeSalesQuery = TpcdsData.StoreSalesQuery();
         var dateDimQuery = TpcdsData.DateDimQuery();
@@ -670,12 +590,11 @@ public class TpcdsQuery31To40Tests
                       x.cnt
                   };
 
-        AssertPlan(q34, NativePushdown);
+        return q34;
+    }
 
-        var polarsResult = q34.ToList();
-
-        // DuckDB Cross Validation
-        var duckDbSql = $@"
+    public static string Q34Sql() =>
+        $@"
             SELECT c_last_name,
                    c_first_name,
                    c_salutation,
@@ -718,31 +637,6 @@ public class TpcdsQuery31To40Tests
                      c_preferred_cust_flag DESC NULLS FIRST,
                      ss_ticket_number NULLS FIRST;
         ";
-
-        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
-        {
-            c_last_name = r.IsDBNull(0) ? null : r.GetString(0),
-            c_first_name = r.IsDBNull(1) ? null : r.GetString(1),
-            c_salutation = r.IsDBNull(2) ? null : r.GetString(2),
-            c_preferred_cust_flag = r.IsDBNull(3) ? null : r.GetString(3),
-            ss_ticket_number = r.GetInt64(4),
-            cnt = r.GetInt64(5),
-        });
-
-        Assert.Equal(duckDbResults.Count, polarsResult.Count);
-        for (int i = 0; i < duckDbResults.Count; i++)
-        {
-            var d = duckDbResults[i];
-            var p = polarsResult[i];
-
-            Assert.Equal(d.c_last_name, p.c_last_name);
-            Assert.Equal(d.c_first_name, p.c_first_name);
-            Assert.Equal(d.c_salutation, p.c_salutation);
-            Assert.Equal(d.c_preferred_cust_flag, p.c_preferred_cust_flag);
-            Assert.Equal(d.ss_ticket_number, p.ss_ticket_number);
-            Assert.Equal(d.cnt, p.cnt);
-        }
-    }
 
     /*
      * TPC-DS Query 35
@@ -808,9 +702,7 @@ public class TpcdsQuery31To40Tests
      *          cd_dep_college_count NULLS FIRST
      * LIMIT 100;
      */
-    [Fact]
-    [Trait("TPCDS", "Q35")]
-    public void Test_Q35()
+    public static IQueryable<object> Q35()
     {
         var customerQuery = TpcdsData.CustomerQuery();
         var customerAddressQuery = TpcdsData.CustomerAddressQuery();
@@ -877,12 +769,11 @@ public class TpcdsQuery31To40Tests
                        avg3 = g.Average(x => (double?)x.cd_dep_college_count)
                    }).Take(100);
 
-        AssertPlan(q35, NativePushdown);
+        return q35;
+    }
 
-        var polarsResult = q35.ToList();
-
-        // DuckDB Cross Validation
-        var duckDbSql = $@"
+    public static string Q35Sql() =>
+        $@"
             SELECT ca_state,
                    cd_gender,
                    cd_marital_status,
@@ -945,155 +836,6 @@ public class TpcdsQuery31To40Tests
             LIMIT 100;
         ";
 
-        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
-        {
-            ca_state = r.IsDBNull(0) ? null : r.GetString(0),
-            cd_gender = r.IsDBNull(1) ? null : r.GetString(1),
-            cd_marital_status = r.IsDBNull(2) ? null : r.GetString(2),
-            cd_dep_count = r.IsDBNull(3) ? null : (long?)r.GetInt64(3),
-            cnt1 = r.GetInt64(4),
-            min1 = r.IsDBNull(5) ? null : (long?)r.GetInt64(5),
-            max1 = r.IsDBNull(6) ? null : (long?)r.GetInt64(6),
-            avg1 = r.IsDBNull(7) ? (double?)null : r.GetDouble(7),
-            cd_dep_employed_count = r.IsDBNull(8) ? null : (long?)r.GetInt64(8),
-            cnt2 = r.GetInt64(9),
-            min2 = r.IsDBNull(10) ? null : (long?)r.GetInt64(10),
-            max2 = r.IsDBNull(11) ? null : (long?)r.GetInt64(11),
-            avg2 = r.IsDBNull(12) ? (double?)null : r.GetDouble(12),
-            cd_dep_college_count = r.IsDBNull(13) ? null : (int?)r.GetInt32(13),
-            cnt3 = r.GetInt64(14),
-            min3 = r.IsDBNull(15) ? null : (int?)r.GetInt32(15),
-            max3 = r.IsDBNull(16) ? null : (int?)r.GetInt32(16),
-            avg3 = r.IsDBNull(17) ? (double?)null : r.GetDouble(17),
-        });
-
-        Assert.Equal(duckDbResults.Count, polarsResult.Count);
-        for (int i = 0; i < duckDbResults.Count; i++)
-        {
-            var d = duckDbResults[i];
-            var p = polarsResult[i];
-
-            Assert.Equal(d.ca_state, p.ca_state);
-            Assert.Equal(d.cd_gender, p.cd_gender);
-            Assert.Equal(d.cd_marital_status, p.cd_marital_status);
-            Assert.Equal(d.cd_dep_count, p.cd_dep_count);
-            Assert.Equal(d.cnt1, p.cnt1);
-            Assert.Equal(d.min1, p.min1);
-            Assert.Equal(d.max1, p.max1);
-            if (d.avg1 == null) Assert.Null(p.avg1); else Assert.Equal(d.avg1.Value, p.avg1!.Value, 4);
-
-            Assert.Equal(d.cd_dep_employed_count, p.cd_dep_employed_count);
-            Assert.Equal(d.cnt2, p.cnt2);
-            Assert.Equal(d.min2, p.min2);
-            Assert.Equal(d.max2, p.max2);
-            if (d.avg2 == null) Assert.Null(p.avg2); else Assert.Equal(d.avg2.Value, p.avg2!.Value, 4);
-
-            Assert.Equal(d.cd_dep_college_count, p.cd_dep_college_count);
-            Assert.Equal(d.cnt3, p.cnt3);
-            Assert.Equal(d.min3, p.min3);
-            Assert.Equal(d.max3, p.max3);
-            if (d.avg3 == null) Assert.Null(p.avg3); else Assert.Equal(d.avg3.Value, p.avg3!.Value, 4);
-        }
-    }
-
-    /*
-     * TPC-DS Query 36
-     *
-     * WITH results AS
-     *   (SELECT sum(ss_net_profit) AS ss_net_profit,
-     *           sum(ss_ext_sales_price) AS ss_ext_sales_price,
-     *           (sum(ss_net_profit)*1.0000)/sum(ss_ext_sales_price) AS gross_margin,
-     *           i_category,
-     *           i_class,
-     *           0 AS g_category,
-     *           0 AS g_class
-     *    FROM store_sales,
-     *         date_dim d1,
-     *         item,
-     *         store
-     *    WHERE d1.d_year = 2001
-     *      AND d1.d_date_sk = ss_sold_date_sk
-     *      AND i_item_sk = ss_item_sk
-     *      AND s_store_sk = ss_store_sk
-     *      AND s_state = 'TN'
-     *    GROUP BY i_category,
-     *             i_class),
-     *      results_rollup AS
-     *   (SELECT gross_margin,
-     *           i_category,
-     *           i_class,
-     *           0 AS t_category,
-     *           0 AS t_class,
-     *           0 AS lochierarchy
-     *    FROM results
-     *    UNION SELECT (sum(ss_net_profit)*1.0000)/sum(ss_ext_sales_price) AS gross_margin,
-     *                 i_category,
-     *                 NULL AS i_class,
-     *                 0 AS t_category,
-     *                 1 AS t_class,
-     *                 1 AS lochierarchy
-     *    FROM results
-     *    GROUP BY i_category
-     *    UNION SELECT (sum(ss_net_profit)*1.0000)/sum(ss_ext_sales_price) AS gross_margin,
-     *                 NULL AS i_category,
-     *                 NULL AS i_class,
-     *                 1 AS t_category,
-     *                 1 AS t_class,
-     *                 2 AS lochierarchy
-     *    FROM results)
-     * SELECT gross_margin,
-     *        i_category,
-     *        i_class,
-     *        lochierarchy,
-     *        rank() OVER (PARTITION BY lochierarchy,
-     *                                  CASE
-     *                                      WHEN t_class = 0 THEN i_category
-     *                                  END
-     *                     ORDER BY gross_margin ASC) AS rank_within_parent
-     * FROM results_rollup
-     * ORDER BY lochierarchy DESC NULLS FIRST,
-     *          CASE
-     *              WHEN lochierarchy = 0 THEN i_category
-     *          END NULLS FIRST,
-     *          rank_within_parent NULLS FIRST
-     * LIMIT 100;
-     */
-    [Fact]
-    [Trait("TPCDS", "Q36")]
-    public void Test_Q36()
-    {
-        var q36 = TpcdsQueries.Q36();
-
-        AssertPlan(q36, NativePushdown);
-
-        var polarsResult = q36.ToList();
-
-        // DuckDB Cross Validation
-        var duckDbSql = TpcdsSql.Q36();
-
-        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
-        {
-            gross_margin = r.GetDouble(0),
-            i_category = r.IsDBNull(1) ? null : r.GetString(1),
-            i_class = r.IsDBNull(2) ? null : r.GetString(2),
-            lochierarchy = r.GetInt32(3),
-            rank_within_parent = r.GetInt64(4),
-        });
-
-        Assert.Equal(duckDbResults.Count, polarsResult.Count);
-        for (int i = 0; i < duckDbResults.Count; i++)
-        {
-            var d = duckDbResults[i];
-            var p = polarsResult[i];
-
-            TpcdsAssert.Close(d.gross_margin, p.gross_margin);
-            Assert.Equal(d.i_category, p.i_category);
-            Assert.Equal(d.i_class, p.i_class);
-            Assert.Equal(d.lochierarchy, p.lochierarchy);
-            Assert.Equal(d.rank_within_parent, p.rank_within_parent);
-        }
-    }
-
     /*
      * TPC-DS Query 37
      *
@@ -1117,9 +859,7 @@ public class TpcdsQuery31To40Tests
      * ORDER BY i_item_id
      * LIMIT 100;
      */
-    [Fact]
-    [Trait("TPCDS", "Q37")]
-    public void Test_Q37()
+    public static IQueryable<object> Q37()
     {
         var itemQuery = TpcdsData.ItemQuery();
         var inventoryQuery = TpcdsData.InventoryQuery();
@@ -1149,12 +889,11 @@ public class TpcdsQuery31To40Tests
                        g.Key.i_current_price
                    }).Take(100);
 
-        AssertPlan(q37, NativePushdown);
+        return q37;
+    }
 
-        var polarsResult = q37.ToList();
-
-        // DuckDB Cross Validation
-        var duckDbSql = $@"
+    public static string Q37Sql() =>
+        $@"
             SELECT i_item_id,
                    i_item_desc,
                    i_current_price
@@ -1175,79 +914,6 @@ public class TpcdsQuery31To40Tests
             ORDER BY i_item_id
             LIMIT 100;
         ";
-
-        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
-        {
-            i_item_id = r.GetString(0),
-            i_item_desc = r.IsDBNull(1) ? null : r.GetString(1),
-            i_current_price = r.IsDBNull(2) ? null : (decimal?)r.GetDecimal(2),
-        });
-
-        Assert.Equal(duckDbResults.Count, polarsResult.Count);
-        for (int i = 0; i < duckDbResults.Count; i++)
-        {
-            var d = duckDbResults[i];
-            var p = polarsResult[i];
-
-            Assert.Equal(d.i_item_id, p.i_item_id);
-            Assert.Equal(d.i_item_desc, p.i_item_desc);
-            Assert.Equal(d.i_current_price, p.i_current_price);
-        }
-    }
-
-    /*
-     * TPC-DS Query 38
-     *
-     * SELECT count(*)
-     * FROM
-     *   (SELECT DISTINCT c_last_name,
-     *                    c_first_name,
-     *                    d_date
-     *    FROM store_sales,
-     *         date_dim,
-     *         customer
-     *    WHERE store_sales.ss_sold_date_sk = date_dim.d_date_sk
-     *      AND store_sales.ss_customer_sk = customer.c_customer_sk
-     *      AND d_month_seq BETWEEN 1200 AND 1200 + 11
-     *    INTERSECT
-     *    SELECT DISTINCT c_last_name,
-     *                    c_first_name,
-     *                    d_date
-     *    FROM catalog_sales,
-     *         date_dim,
-     *         customer
-     *    WHERE catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
-     *      AND catalog_sales.cs_bill_customer_sk = customer.c_customer_sk
-     *      AND d_month_seq BETWEEN 1200 AND 1200 + 11
-     *    INTERSECT
-     *    SELECT DISTINCT c_last_name,
-     *                    c_first_name,
-     *                    d_date
-     *    FROM web_sales,
-     *         date_dim,
-     *         customer
-     *    WHERE web_sales.ws_sold_date_sk = date_dim.d_date_sk
-     *      AND web_sales.ws_bill_customer_sk = customer.c_customer_sk
-     *      AND d_month_seq BETWEEN 1200 AND 1200 + 11 ) hot_cust
-     * LIMIT 100;
-     */
-    [Fact]
-    [Trait("TPCDS", "Q38")]
-    public void Test_Q38()
-    {
-        var hotCust = TpcdsQueries.Q38();
-
-        AssertPlan(hotCust, NativePushdown);
-
-        var polarsCount = hotCust.LongCount();
-
-        // DuckDB Cross Validation
-        var duckDbSql = TpcdsSql.Q38();
-
-        var duckDbCount = DuckDbFixture.Query(duckDbSql, r => r.GetInt64(0))[0];
-
-        Assert.Equal(duckDbCount, polarsCount);
-    }
 
     /*
      * TPC-DS Query 39
@@ -1311,9 +977,7 @@ public class TpcdsQuery31To40Tests
      *          inv2.mean NULLS FIRST,
      *          inv2.cov NULLS FIRST;
      */
-    [Fact]
-    [Trait("TPCDS", "Q39")]
-    public void Test_Q39()
+    public static IQueryable<object> Q39()
     {
         var inventoryQuery = TpcdsData.InventoryQuery();
         var itemQuery = TpcdsData.ItemQuery();
@@ -1375,12 +1039,11 @@ public class TpcdsQuery31To40Tests
                       cov = i2.cov
                   };
 
-        AssertPlan(q39, NativePushdown);
+        return q39;
+    }
 
-        var polarsResult = q39.ToList();
-
-        // DuckDB Cross Validation
-        var duckDbSql = $@"
+    public static string Q39Sql() =>
+        $@"
             WITH inv AS
               (SELECT w_warehouse_name,
                       w_warehouse_sk,
@@ -1441,40 +1104,6 @@ public class TpcdsQuery31To40Tests
                      inv2.cov NULLS FIRST;
         ";
 
-        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
-        {
-            wsk1 = r.GetInt64(0),
-            isk1 = r.GetInt64(1),
-            dmoy1 = r.GetInt64(2),
-            mean1 = r.IsDBNull(3) ? (double?)null : r.GetDouble(3),
-            cov1 = r.IsDBNull(4) ? (double?)null : r.GetDouble(4),
-            w_warehouse_sk = r.GetInt64(5),
-            i_item_sk = r.GetInt64(6),
-            d_moy = r.GetInt64(7),
-            mean = r.IsDBNull(8) ? (double?)null : r.GetDouble(8),
-            cov = r.IsDBNull(9) ? (double?)null : r.GetDouble(9),
-        });
-
-        Assert.Equal(duckDbResults.Count, polarsResult.Count);
-        for (int i = 0; i < duckDbResults.Count; i++)
-        {
-            var d = duckDbResults[i];
-            var p = polarsResult[i];
-
-            Assert.Equal(d.wsk1, p.wsk1);
-            Assert.Equal(d.isk1, p.isk1);
-            Assert.Equal(d.dmoy1, p.dmoy1);
-            if (d.mean1 == null) Assert.Null(p.mean1); else Assert.Equal(d.mean1.Value, p.mean1!.Value, 4);
-            if (d.cov1 == null) Assert.Null(p.cov1); else Assert.Equal(d.cov1.Value, p.cov1!.Value, 4);
-
-            Assert.Equal(d.w_warehouse_sk, p.w_warehouse_sk);
-            Assert.Equal(d.i_item_sk, p.i_item_sk);
-            Assert.Equal(d.d_moy, p.d_moy);
-            if (d.mean == null) Assert.Null(p.mean); else Assert.Equal(d.mean.Value, p.mean!.Value, 4);
-            if (d.cov == null) Assert.Null(p.cov); else Assert.Equal(d.cov.Value, p.cov!.Value, 4);
-        }
-    }
-
     /*
      * TPC-DS Query 40
      *
@@ -1505,9 +1134,7 @@ public class TpcdsQuery31To40Tests
      *          i_item_id
      * LIMIT 100;
      */
-    [Fact]
-    [Trait("TPCDS", "Q40")]
-    public void Test_Q40()
+    public static IQueryable<object> Q40()
     {
         var catalogSalesQuery = TpcdsData.CatalogSalesQuery();
         var catalogReturnsQuery = TpcdsData.CatalogReturnsQuery();
@@ -1539,12 +1166,11 @@ public class TpcdsQuery31To40Tests
                        sales_after = g.Sum(x => x.d.d_date >= pivotDate ? x.cs.cs_sales_price - (x.cr.cr_refunded_cash ?? 0m) : 0m)
                    }).Take(100);
 
-        AssertPlan(q40, NativePushdown);
+        return q40;
+    }
 
-        var polarsResult = q40.ToList();
-
-        // DuckDB Cross Validation
-        var duckDbSql = $@"
+    public static string Q40Sql() =>
+        $@"
             SELECT w_state,
                    i_item_id,
                    sum(CASE
@@ -1572,26 +1198,4 @@ public class TpcdsQuery31To40Tests
                      i_item_id
             LIMIT 100;
         ";
-
-        var duckDbResults = DuckDbFixture.Query(duckDbSql, r => new
-        {
-            w_state = r.IsDBNull(0) ? null : r.GetString(0),
-            i_item_id = r.GetString(1),
-            sales_before = r.IsDBNull(2) ? null : (decimal?)r.GetDecimal(2),
-            sales_after = r.IsDBNull(3) ? null : (decimal?)r.GetDecimal(3),
-        });
-
-        Assert.Equal(duckDbResults.Count, polarsResult.Count);
-        for (int i = 0; i < duckDbResults.Count; i++)
-        {
-            var d = duckDbResults[i];
-            var p = polarsResult[i];
-
-            Assert.Equal(d.w_state, p.w_state);
-            Assert.Equal(d.i_item_id, p.i_item_id);
-            Assert.Equal(d.sales_before, p.sales_before);
-            Assert.Equal(d.sales_after, p.sales_after);
-        }
-    }
 }
-

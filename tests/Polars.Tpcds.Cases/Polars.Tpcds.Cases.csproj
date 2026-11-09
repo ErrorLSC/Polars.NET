@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- All 99 TPC-DS queries with their DuckDB reference SQL, for Polars.Tpcds.Tests and Polars.Tpcds.Sweep.
+       .NET 11 for FullJoin. Needs the .NET 11 SDK; the benchmark queries stay in Polars.Tpcds.Queries (.NET 10). -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="Polars.CSharp" />
+    <Using Include="Polars.CSharp.Linq" />
+    <Using Include="Polars.CSharp.Polars" Alias="Pl" />
+    <Using Include="System.Numerics" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DuckDB.NET.Data.Full" Version="1.5.6.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Polars.Tpcds.Queries\Polars.Tpcds.Queries.csproj" />
+  </ItemGroup>
+
+</Project>

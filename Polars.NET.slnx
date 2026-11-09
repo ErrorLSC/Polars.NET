@@ -14,5 +14,4 @@
   <Project Path="extension/Polars.NET.ML/Polars.NET.ML.csproj" />
   <Project Path="tests/Polars.TPCH.Tests/Polars.TPCH.Tests.csproj" />
   <Project Path="tests/Polars.Tpcds.Queries/Polars.Tpcds.Queries.csproj" />
-  <Project Path="tests/Polars.Tpcds.Tests/Polars.Tpcds.Tests.csproj" />
 </Solution>
