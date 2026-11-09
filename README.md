@@ -32,7 +32,7 @@ I really dreamed that we can play with DataFrames in .NET just like python, now 
 
 ## Highlights
 
-* **Native Pushdown LINQ**: Compiles C# LINQ and F# query { } directly into Rust Polars physical plans then be optimized & executed natively. Verified with all 22 TPC-H benchmark queries implemented in native LINQ without client-side fallback. Includes .Explain(), .ToDataFrame(), and joins between in-memory collections and DataFrames.
+* **Native Pushdown LINQ**: Compiles C# LINQ and F# query { } directly into Rust Polars physical plans then be optimized & executed natively. Verified with all 22 TPC-H benchmark and 99 TPCDS queries implemented in native LINQ without client-side fallback. Includes .Explain(), .ToDataFrame(), and joins between in-memory collections and DataFrames.
 * **High Performance**: Built on the Rust Polars engine and Apache Arrow columnar memory format. Delivers vectorized SIMD execution, query optimization (predicate and projection pushdown, common subplan elimination), and out-of-core streaming execution for larger-than-memory datasets.
 * **Deep .NET Ecosystem Integration**: First-class bridges to standard .NET abstractions, including `IAsyncEnumerable<T>` streaming, ADO.NET `IDataReader` / `DbDataReader` ingestion, ML.NET `IDataView` pipelines, and direct extraction into `System.Numerics.Tensors` (`ReadOnlyTensorSpan`) for numerical computing and model inference.
 * **Universal I/O & Storage**: Reads and writes Parquet, CSV, JSON/NDJSON, Arrow IPC, Excel, and Avro. Native integration with Arrow Database Connectivity (ADBC) and Delta Lake (ACID transactions, time travel, and SQL MERGE), targeting both local filesystems and cloud object storage (Amazon S3, Azure Blob, Google Cloud Storage).
@@ -196,31 +196,39 @@ Comprehensive documentation, architecture references, and API catalogs are avail
 
 ## Project Architecture
 
-Polars.NET uses a modular three-tier architecture to prevent upstream breaking changes:
+Polars.NET uses a modular layered architecture that keeps the query compiler independent of the execution engine and isolates upstream breaking changes:
 
-```
+```text
 
-+-------------------------------------------------------------------+
-|               Polars.NET User API Layer                           |
-|   - Polars.CSharp                                                 |
-|   - Polars.FSharp                                                 |
-+-------------------------------------------------------------------+
-                                  |
-                                  v
-+-------------------------------------------------------------------+
-|              Polars.NET.Core & Polars.NET.Linq                    |
-|   - Common Infrastructure, LINQ Provider written in F#            |
-|   - Apache Arrow C Data Interface                                 |
-|   - P/Invoke bindings and unsafe wrappers                         |
-+-------------------------------------------------------------------+
-                                  |
-                                  v
-+-------------------------------------------------------------------+
-|                 Rust polars & delta-rs Engine                     |
-|   - Execution engine                                              |
-|   - Physical query planner, optimizer                             |
-|   - delta-rs integration                                          |
-+-------------------------------------------------------------------+
++-----------------------------------------------------------------+
+| Polars.NET User API Layer                                       |
+|   - Polars.CSharp                                               |
+|   - Polars.FSharp                                               |
++-----------------------------------------------------------------+
+                                 |
+                                 v
++-----------------------------------------------------------------+
+| Polars.NET.Linq                                                 |
+|   - LINQ provider entry points and query execution              |
+|   - Polars backend of the query compiler                        |
++-----------------------------------------------------------------+
+               |                                  |
+               v                                  v
++------------------------------+   +------------------------------+
+| Kaminari.Samidare            |   | Polars.NET.Core              |
+|   - LINQ query compiler (F#) |   |   - P/Invoke bindings        |
+|   - Logical IR and optimizer |   |   - Arrow C Data Interface   |
+|   - Query plan cache         |   |   - Native Series and config |
+|                              |   |   - Uses Kaminari.Sazanami   |
++------------------------------+   +------------------------------+
+               |                                  |
+               v                                  v
++------------------------------+   +------------------------------+
+| Kaminari.Sazanami            |   | Rust polars & delta-rs       |
+|   - Arrow conversion         |   |   - Execution engine         |
+|   - Row/column transposition |   |   - Physical query planner   |
+|   - Type and tensor interop  |   |   - delta-rs integration     |
++------------------------------+   +------------------------------+
 ```
 
 ---
@@ -268,6 +276,7 @@ to buy me a cup of black tea. Sláinte!
 ## Acknowledgements
 
 Polars.NET is built on:
+
 * [Polars (pola.rs)](https://pola.rs/) - The lightning-fast DataFrame library developed by Ritchie Vink and the Polars team.
 * [Apache Arrow](https://arrow.apache.org/) - The columnar in-memory data standard powering zero-copy interop.
 

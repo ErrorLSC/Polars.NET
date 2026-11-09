@@ -1,25 +1,24 @@
-# Polars.NET 1.0.1 Release Note
+# Polars.NET 1.1.0 Release Note
 
 ![icon](assets/icon_lite.png)
 
-Polars.NET 1.0.1
+Polars.NET 1.1.0
 
 For full architectural guides, API references, and benchmarks, please visit documentation site:
 **[Polars.NET Documentation Site](https://errorlsc.github.io/Polars.NET)**
 
 ---
 
-## Upgrades & Dependencies
+## New API
 
-* Bumped rust xlsxwriter to 0.101.0
-* Bumped calamine to 0.37.0
+* All IO method(except Excel) now have an option to write to native memory.
 
-## API
+## LINQ Provider
 
-* Added DataFrame, LazyFrame dropMany API
+* All TPCDS benchmark passed.
 
-## BugFix
+## Bug Fix
 
-* C# DataFrame.ToHtml() will generate every cell as 1-length Series fixed .
-* LINQPad examples fixed.
-
+* CSV writer default quote mark parameter enums fixed.
+* Negative polars tolerance strhing now will be handled correctly.
+* Old object hydrator is too slow, so it is replaced by a much faster one.
