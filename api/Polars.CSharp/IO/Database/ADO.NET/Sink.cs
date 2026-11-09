@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Data;
 using Apache.Arrow;
 using Polars.NET.Core.Data;
+using Kaminari.Sazanami.Data;
 
 namespace Polars.CSharp;
 

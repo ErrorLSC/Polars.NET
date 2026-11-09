@@ -1,4 +1,5 @@
 namespace Polars.FSharp
+open Kaminari.Sazanami.Data
 
 [<AutoOpen>]
 module DataReaderWrite =
@@ -129,4 +130,4 @@ module DataReaderWrite =
             
             let innerReader = new ArrowToDbStream(stream, overrides)
 
-            new PolarsDataReader(innerReader, cts, producerTask) :> DbDataReader
+            new ArrowDataReader(innerReader, cts, producerTask) :> DbDataReader

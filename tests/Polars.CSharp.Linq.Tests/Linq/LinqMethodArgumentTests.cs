@@ -22,7 +22,7 @@ public class LinqMethodArgumentTests
     ];
 
     private static bool IsNative<T>(IQueryable<T> query) =>
-        !((IPolarsExplainable)query).InspectPlan(true).IsFullFallback;
+        !((IQueryExplainable)query).InspectPlan(true).IsFullFallback;
 
     [Fact]
     public void Diff_With_Public_NullBehavior_Pushes_Down()

@@ -6,6 +6,7 @@ using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
 using Pl = Polars.CSharp.Polars;
 using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.CSharp;
 

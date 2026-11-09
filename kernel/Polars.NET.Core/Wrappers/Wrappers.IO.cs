@@ -1772,7 +1772,7 @@ public readonly partial struct PolarsWrapper
     }
     public static unsafe LazyFrameHandle LazyFrameScanStream(
         CArrowSchema* schema,
-        delegate* unmanaged[Cdecl]<void*, Arrow.CArrowArrayStream*> callback,
+        delegate* unmanaged[Cdecl]<void*, Kaminari.Sazanami.Arrow.CArrowArrayStream*> callback,
         delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
         void* userData)
     {

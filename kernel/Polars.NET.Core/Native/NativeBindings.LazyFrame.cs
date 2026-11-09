@@ -11,7 +11,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_lazy_frame_scan_stream(
         CArrowSchema* schema,
-        delegate* unmanaged[Cdecl]<void*, Arrow.CArrowArrayStream*> callback,
+        delegate* unmanaged[Cdecl]<void*, Kaminari.Sazanami.Arrow.CArrowArrayStream*> callback,
         delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
         void* userData
     );

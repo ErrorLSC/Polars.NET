@@ -2,7 +2,7 @@ using Microsoft.FSharp.Core;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Polars.NET.Core.Helpers;
+namespace Kaminari.Sazanami.Helpers;
 
 public static unsafe class FSharpHelper
 {

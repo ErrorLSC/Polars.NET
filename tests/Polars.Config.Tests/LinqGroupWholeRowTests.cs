@@ -20,7 +20,7 @@ public class LinqGroupWholeRowTests
 
     private static List<string> Sorted<T>(IEnumerable<T> rows) => rows.Select(r => r!.ToString()!).Order().ToList();
 
-    private static bool IsNative<T>(IQueryable<T> q) => !((IPolarsExplainable)q).InspectPlan(true).IsFullFallback;
+    private static bool IsNative<T>(IQueryable<T> q) => !((IQueryExplainable)q).InspectPlan(true).IsFullFallback;
 
     [Fact]
     [Trait("LINQ", "GroupWholeRow")]

@@ -4,7 +4,7 @@ using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 
-namespace Polars.NET.Core.Data;
+namespace Kaminari.Sazanami.Data;
 
 public static class IpcStreamService
 {

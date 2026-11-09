@@ -76,7 +76,7 @@ module EnumColumnTests =
     let private assertUdfMatches (query: IQueryable<EcRow> -> IQueryable<'T>) =
         use df = DataFrame.ofRecords rows
         let native = query (df.AsQueryable<EcRow>())
-        let inspection = (native :?> Kaminari.Samidare.IPolarsExplainable).InspectPlan(true)
+        let inspection = (native :?> Kaminari.Samidare.IQueryExplainable).InspectPlan(true)
         Assert.True(inspection.HasUdf, inspection.FormatReport())
         Assert.False(inspection.HasClientProjection, inspection.FormatReport())
         let expected = query (rows.AsQueryable()) |> Seq.map (sprintf "%A") |> List.ofSeq

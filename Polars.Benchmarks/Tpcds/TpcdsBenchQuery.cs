@@ -132,7 +132,7 @@ public sealed class TpcdsBenchQuery<TRow>(
 
     public override void Explain()
     {
-        var query = (IPolarsExplainable)polars();
+        var query = (IQueryExplainable)polars();
         Console.WriteLine("=== Logical IR ===");
         Console.WriteLine(query.ExplainLogicalPlan());
         Console.WriteLine("=== Polars plan (optimized) ===");

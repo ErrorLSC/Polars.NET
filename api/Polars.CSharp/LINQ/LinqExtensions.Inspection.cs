@@ -2,6 +2,7 @@ using Polars.NET.Core.Helpers;
 using Polars.NET.Linq;
 using Kaminari.Samidare;
 using Kaminari.Samidare.IR;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.CSharp.Linq;
 
@@ -17,7 +18,7 @@ public static partial class LinqExtensions
     {
         ArgumentNullException.ThrowIfNull(source);
 
-        if (source is IPolarsExplainable explainable)
+        if (source is IQueryExplainable explainable)
         {
             return explainable.Explain(optimized);
         }
@@ -33,7 +34,7 @@ public static partial class LinqExtensions
     {
         ArgumentNullException.ThrowIfNull(source);
 
-        if (source is IPolarsExplainable explainable)
+        if (source is IQueryExplainable explainable)
         {
             return explainable.ExplainLogicalPlan();
         }
@@ -49,7 +50,7 @@ public static partial class LinqExtensions
     {
         ArgumentNullException.ThrowIfNull(source);
 
-        if (source is IPolarsInternalExplainable explainable)
+        if (source is IInternalQueryExplainable explainable)
         {
             return explainable.CompileLogicalQuery();
         }

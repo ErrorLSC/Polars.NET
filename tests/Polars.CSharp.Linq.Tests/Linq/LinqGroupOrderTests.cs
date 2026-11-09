@@ -25,7 +25,7 @@ public class LinqGroupOrderTests
         using var df = DataFrame.FromRows(Rows);
         var native = query(df.AsQueryable<GoRow>());
 
-        var plan = ((IPolarsExplainable)native).InspectPlan(true).LogicalPlan!.Value;
+        var plan = ((IQueryExplainable)native).InspectPlan(true).LogicalPlan!.Value;
         Assert.Contains($"maintainOrder={(expectMaintained ? "true" : "false")}", plan);
         Assert.DoesNotContain($"maintainOrder={(expectMaintained ? "false" : "true")}", plan);
         Assert.Equal(query(Rows.AsQueryable()).ToList(), native.ToList());

@@ -122,7 +122,7 @@ public static class ArrowConverter
         var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
         Type checkType = underlyingType ?? type;
 
-        // Enums: a Polars Enum (a dictionary of the member names; the field carrying it needs
+        // Enums: an engine Enum (a dictionary of the member names; the field carrying it needs
         // EnumCategories.TryGetArrowFieldMetadata), or the underlying integers of a [Flags] enum.
         if (checkType.IsEnum) return BuildEnum(data, checkType);
 
@@ -309,7 +309,7 @@ public static class ArrowConverter
     }
 
     /// <summary>
-    /// Builds enum values: for an enum stored as a Polars Enum, a dictionary array whose keys are category
+    /// Builds enum values: for an enum stored as an engine Enum, a dictionary array whose keys are category
     /// positions and whose dictionary is the categories; for a [Flags] enum, an array of underlying values.
     /// </summary>
     /// <exception cref="ArgumentException">A value of a non-[Flags] enum is not a defined member.</exception>

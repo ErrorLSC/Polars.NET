@@ -336,10 +336,10 @@ and PolarsQuery<'T>
 
         PlanInspectionReport.build pipeline compiled (PolarsWrapper.Explain(nativeLf, optimized)) isGrouping fallbackBoundary
 
-    interface IPolarsExplainable with
+    interface IQueryExplainable with
         member this.InspectPlan(optimized: bool) =
             match upcastSource.Value with
-            | Some rows -> (rows :?> IPolarsExplainable).InspectPlan optimized
+            | Some rows -> (rows :?> IQueryExplainable).InspectPlan optimized
             | None -> this.GetPlanInspection optimized
 
         member this.Explain(optimized: bool) =
@@ -349,7 +349,7 @@ and PolarsQuery<'T>
 
         member this.GetLogicalPlan() = this.GetLogicalPlan()
 
-    interface IPolarsInternalExplainable with
+    interface IInternalQueryExplainable with
         member this.CompileLogicalQuery() = this.CompileLogicalQuery()
         member this.TryGetPureLogicalPlan() = this.TryGetPureLogicalPlan()
 

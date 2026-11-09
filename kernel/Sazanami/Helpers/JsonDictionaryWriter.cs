@@ -2,9 +2,9 @@ using System.Buffers;
 using System.Text;
 using System.Text.Json;
 
-namespace Polars.NET.Core.Helpers;
+namespace Kaminari.Sazanami.Helpers;
 
-internal static class PolarsJsonHelper
+internal static class JsonDictionaryWriter
 {
     public static string SerializeDictionary<TValue>(IEnumerable<KeyValuePair<string, TValue>> dict)
     {

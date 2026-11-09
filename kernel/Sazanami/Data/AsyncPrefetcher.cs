@@ -1,8 +1,35 @@
 using System.Threading.Channels;
 using Apache.Arrow;
-using Polars.NET.Core.Config;
 
-namespace Polars.NET.Core.Data;
+namespace Kaminari.Sazanami.Data;
+
+/// <summary>
+/// Process-wide settings of background async prefetch.
+/// </summary>
+public static class PrefetchOptions
+{
+    /// <summary>The environment variable that holds the default buffer size.</summary>
+    public const string EnvKey = "SAZANAMI_PREFETCH_SIZE";
+
+    private static int _defaultBufferSize = ReadDefaultFromEnv();
+
+    /// <summary>
+    /// Background async prefetch batch count. Default is 2. Can be set by the environment variable <see cref="EnvKey"/>.
+    /// </summary>
+    public static int DefaultBufferSize
+    {
+        get => _defaultBufferSize;
+        set
+        {
+            if (value <= 0) throw new ArgumentOutOfRangeException(nameof(value), "Must be greater than 0");
+            _defaultBufferSize = value;
+            Environment.SetEnvironmentVariable(EnvKey, value.ToString());
+        }
+    }
+
+    private static int ReadDefaultFromEnv() =>
+        int.TryParse(Environment.GetEnvironmentVariable(EnvKey), out int size) && size > 0 ? size : 2;
+}
 
 /// <summary>
 /// For RecordBatch DataFlow, enable background async prefetch
@@ -11,7 +38,7 @@ public static class PrefetchExtensions
 {
     public static IEnumerable<RecordBatch> Prefetch(this IEnumerable<RecordBatch> source, int? bufferSize = null)
     {
-        int actualSize = bufferSize ?? CoreConfig.DefaultPrefetchBufferSize;
+        int actualSize = bufferSize ?? PrefetchOptions.DefaultBufferSize;
 
         return new PrefetchingEnumerable(source, actualSize);
     }

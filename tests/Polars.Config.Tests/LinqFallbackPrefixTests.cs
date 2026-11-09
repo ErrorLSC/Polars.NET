@@ -164,7 +164,7 @@ public class LinqFallbackPrefixTests
         using (ClientEvaluationScope())
         {
             var query = pipeline(employees.AsQueryable<UdfEmployee>(), depts.AsQueryable<FallbackDept>());
-            Assert.True(((IPolarsExplainable)query).InspectPlan(true).IsFullFallback, $"{name} is expected to need full fallback.");
+            Assert.True(((IQueryExplainable)query).InspectPlan(true).IsFullFallback, $"{name} is expected to need full fallback.");
             Assert.Equal(expected, RenderAll(query));
         }
     }
@@ -179,7 +179,7 @@ public class LinqFallbackPrefixTests
         using (ClientEvaluationScope())
         {
             var query = Pipelines[name](employees.AsQueryable<UdfEmployee>(), depts.AsQueryable<FallbackDept>());
-            var inspection = ((IPolarsExplainable)query).InspectPlan(true);
+            var inspection = ((IQueryExplainable)query).InspectPlan(true);
             Assert.Equal(ExpectedBoundary[name], inspection.FallbackBoundary?.Value);
         }
     }
@@ -249,7 +249,7 @@ public class LinqFallbackPrefixTests
         using (ClientEvaluationScope())
         {
             var query = Shape(df.AsQueryable<UdfEmployee>());
-            Assert.Equal("OrderBy", ((IPolarsExplainable)query).InspectPlan(true).FallbackBoundary?.Value);
+            Assert.Equal("OrderBy", ((IQueryExplainable)query).InspectPlan(true).FallbackBoundary?.Value);
             Assert.Equal(["Alice", "Charlie"], query.ToList());
             Assert.Equal(2, query.Count());
         }

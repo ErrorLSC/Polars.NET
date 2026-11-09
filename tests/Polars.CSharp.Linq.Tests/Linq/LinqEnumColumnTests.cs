@@ -41,7 +41,7 @@ public class LinqEnumColumnTests
         using var df = Frame(integerColumns);
         var native = query(df.AsQueryable<LeRow>());
 
-        var inspection = ((IPolarsExplainable)native).InspectPlan(true);
+        var inspection = ((IQueryExplainable)native).InspectPlan(true);
         Assert.False(inspection.HasUdf, inspection.FormatReport());
         Assert.False(inspection.HasClientPredicates, inspection.FormatReport());
         Assert.False(inspection.IsFullFallback, inspection.FormatReport());
@@ -143,7 +143,7 @@ public class LinqEnumColumnTests
             using var df = Frame(integerColumns);
             var query = df.AsQueryable<LeRow>().Select(r => Weight(r.Shade));
 
-            Assert.True(((IPolarsExplainable)query).InspectPlan(true).HasUdf);
+            Assert.True(((IQueryExplainable)query).InspectPlan(true).HasUdf);
             Assert.Equal(Rows.Select(r => Weight(r.Shade)), query.ToList());
         }
     }
@@ -158,7 +158,7 @@ public class LinqEnumColumnTests
         using var df = DataFrame.FromRows(FlagRows);
         var native = query(df.AsQueryable<LeFlagRow>());
 
-        var inspection = ((IPolarsExplainable)native).InspectPlan(true);
+        var inspection = ((IQueryExplainable)native).InspectPlan(true);
         Assert.Equal(expectUdf, inspection.HasUdf);
         Assert.False(inspection.IsFullFallback, inspection.FormatReport());
         Assert.Equal(query(FlagRows.AsQueryable()).ToList(), native.ToList());

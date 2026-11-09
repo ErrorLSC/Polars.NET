@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Kaminari.Sazanami.Helpers;
 
-namespace Polars.NET.Core.Helpers;
+namespace Kaminari.Sazanami.Helpers;
 
 internal static class JsonNormalizeHelper
 {

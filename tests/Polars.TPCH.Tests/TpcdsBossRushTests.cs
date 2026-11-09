@@ -9,7 +9,7 @@ namespace Polars.TPCH.Tests;
 /// </summary>
 public class TpcdsBossRushTests
 {
-    private const string NativePushdown = "[Polars.NET Query Plan - 100% Native Pushdown]";
+    private const string NativePushdown = "[Query Plan - 100% Native Pushdown]";
 
     private static void AssertPlan<T>(IQueryable<T> query, string expectedPlan)
     {

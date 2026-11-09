@@ -37,13 +37,13 @@ module internal SourceResolver =
             | _ -> None
         | _ -> None
 
-    /// Locates a Polars queryable for the expression: a constant queryable, a subtree re-rooted on its
+    /// Locates a compiled queryable for the expression: a constant queryable, a subtree re-rooted on its
     /// root provider, or an evaluated value.
-    let private tryResolvePolarsQueryable (expr: Expression) : IPolarsInternalExplainable option =
+    let private tryResolveCompiledQueryable (expr: Expression) : IInternalQueryExplainable option =
         match expr with
         | :? ConstantExpression as c when not (isNull c.Value) ->
             match c.Value with
-            | :? IPolarsInternalExplainable as q -> Some q
+            | :? IInternalQueryExplainable as q -> Some q
             | _ -> None
         | _ ->
             match tryRootChain expr with
@@ -51,18 +51,18 @@ module internal SourceResolver =
                 match rerooted with
                 | :? ConstantExpression as c ->
                     match c.Value with
-                    | :? IPolarsInternalExplainable as q -> Some q
+                    | :? IInternalQueryExplainable as q -> Some q
                     | _ -> None
                 | _ ->
                     try
                         match rootQuery.Provider.CreateQuery rerooted with
-                        | :? IPolarsInternalExplainable as q -> Some q
+                        | :? IInternalQueryExplainable as q -> Some q
                         | _ -> None
                     with _ ->
                         None
             | None ->
                 match PartialEvaluator.tryEvaluate expr with
-                | Some(:? IPolarsInternalExplainable as q) -> Some q
+                | Some(:? IInternalQueryExplainable as q) -> Some q
                 | _ -> None
 
     /// Evaluates an arbitrary sequence expression to its runtime value.
@@ -133,11 +133,11 @@ module internal SourceResolver =
             Some(inMemoryPlan sources rows elemType)
 
     /// Resolves a sequence expression into a LogicalPlan:
-    /// 1. Polars queryables with a pure plan are grafted as IR subtrees (their sources join the registry).
-    /// 2. Other Polars queryables and backend-native objects are bound as opaque table sources by the backend.
+    /// 1. Compiled queryables with a pure plan are grafted as IR subtrees (their sources join the registry).
+    /// 2. Other compiled queryables and backend-native objects are bound as opaque table sources by the backend.
     /// 3. In-memory collections become deferred InMemory snapshots.
     let resolveSequencePlan (binder: ISourceBinder) (sources: SourceRegistry) (expr: Expression) : LogicalPlan option =
-        let queryableOpt = tryResolvePolarsQueryable expr
+        let queryableOpt = tryResolveCompiledQueryable expr
 
         let purePlanOpt =
             queryableOpt

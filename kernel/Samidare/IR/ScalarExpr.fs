@@ -46,7 +46,7 @@ module ScalarExprOps =
     let inline lit (v: ^T) : ScalarExpr =
         ((^T or ScalarLitMechanism): (static member ($): ScalarLitMechanism * ^T -> ScalarExpr) (ScalarLitMechanism, v))
 
-    /// The mapping of a .NET enum (or Nullable / F# option of one) stored as a Polars Enum, or None for a non-enum
+    /// The mapping of a .NET enum (or Nullable / F# option of one) stored as an engine Enum, or None for a non-enum
     /// type or a [Flags] enum, which is stored as its underlying integer.
     let tryEnumMapping (t: Type) : EnumMapping option =
         if isNull t then

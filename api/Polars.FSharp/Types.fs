@@ -19,6 +19,7 @@ open Apache.Arrow.Ipc
 open System.ComponentModel
 open System.Runtime.CompilerServices
 open Kaminari.Sazanami.Arrow
+open Kaminari.Sazanami.Helpers
 
 // --- Series ---
 /// <summary>

@@ -23,7 +23,7 @@ public class LinqTupleRowTests
         var native = query(e.AsQueryable<NeEmp>(), d.AsQueryable<NeDept>(), l.AsQueryable<NeLoc>());
         var expected = query(Emps.AsQueryable(), Depts.AsQueryable(), Locs.AsQueryable()).Select(r => r!.ToString()).ToList();
 
-        Assert.False(((IPolarsExplainable)native).InspectPlan(true).IsFullFallback);
+        Assert.False(((IQueryExplainable)native).InspectPlan(true).IsFullFallback);
         Assert.Equal(expected, native.ToList().Select(r => r!.ToString()));
     }
 

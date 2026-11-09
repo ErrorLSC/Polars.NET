@@ -5,14 +5,13 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Polars.NET.Core.Arrow;
 using Kaminari.Sazanami.Arrow;
 
-namespace Polars.NET.Core.TensorInterop;
+namespace Kaminari.Sazanami.TensorInterop;
 
 public static partial class ArrowTensorInterop
 {
-    public static SeriesHandle ImportTensor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string name, ReadOnlyTensorSpan<T> tensor) where T : unmanaged
+    public static IArrowArray ToArrowArray<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(ReadOnlyTensorSpan<T> tensor) where T : unmanaged
     {
         int totalElements = (int)tensor.FlattenedLength;
         int byteLength = totalElements * Unsafe.SizeOf<T>();
@@ -69,8 +68,7 @@ public static partial class ArrowTensorInterop
             );
         }
 
-        IArrowArray finalArray = ArrowArrayFactory.BuildArray(currentData);
-        return ArrowFfiBridge.ImportSeries(name, finalArray);
+        return ArrowArrayFactory.BuildArray(currentData);
     }
 
     public static IArrowArray BuildRawPrimitiveArray<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(ReadOnlySpan<T> span) where T : unmanaged

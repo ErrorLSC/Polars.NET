@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 
-namespace Polars.NET.Core.Helpers;
+namespace Kaminari.Sazanami.Helpers;
 
 public static partial class ArrayHelper
 {

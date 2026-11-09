@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text.Unicode;
 
-namespace Polars.NET.Core.Helpers;
+namespace Kaminari.Sazanami.Helpers;
 
 [StructLayout(LayoutKind.Explicit, Size = 16)]
 public unsafe struct ArrowStringView
@@ -19,7 +19,7 @@ public static unsafe class StringPacker
 {
     /// <summary>
     /// Packs a span of nullable .NET strings into the Arrow StringView memory layout.
-    /// This enables zero‑copy transfer to Rust/Polars with optimal cache behaviour.
+    /// This enables zero‑copy transfer to native code with optimal cache behaviour.
     /// </summary>
     /// <param name="data">Input strings (may contain nulls)</param>
     /// <returns>

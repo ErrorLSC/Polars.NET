@@ -23,7 +23,7 @@ module internal PipelineCompilation =
         match e with
         | :? ConstantExpression as c ->
             match c.Value with
-            | :? IPolarsInternalExplainable as q ->
+            | :? IInternalQueryExplainable as q ->
                 match (q :?> System.Linq.IQueryable).Expression with
                 | :? ConstantExpression as own when obj.ReferenceEquals(own.Value, q) -> e
                 | composed when c.Type.IsAssignableFrom composed.Type -> inlineComposedRoot composed

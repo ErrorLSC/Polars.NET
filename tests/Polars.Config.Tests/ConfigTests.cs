@@ -1,6 +1,7 @@
 using Pl = Polars.CSharp.Polars;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.Config.Tests;
 
@@ -572,6 +573,42 @@ public class ConfigTests
     }
 
     [Fact]
+    [Trait("Config", "LegacyEnvironment")]
+    public void Test_Config_Polars_Environment_Names_Reach_Owning_Projects()
+    {
+        using (Pl.Config.SetUseRelationalNulls(false).BeginScope())
+        {
+            Environment.SetEnvironmentVariable("POLARS_USE_RELATIONAL_NULLS", "1");
+            Environment.SetEnvironmentVariable("POLARS_NET_PREFETCH_SIZE", "7");
+
+            global::Polars.NET.Core.Config.CoreConfig.ImportLegacyEnvironment();
+
+            Assert.True(global::Kaminari.Samidare.Config.SamidareConfig.UseRelationalNulls);
+            Assert.Equal(7, global::Kaminari.Sazanami.Data.PrefetchOptions.DefaultBufferSize);
+        }
+
+        Assert.False(global::Kaminari.Samidare.Config.SamidareConfig.UseRelationalNulls);
+    }
+
+    [Fact]
+    [Trait("Config", "Scope")]
+    public void Test_Config_Scope_Restores_Settings_Saved_Only_As_Environment()
+    {
+        int prefetchBefore = global::Kaminari.Sazanami.Data.PrefetchOptions.DefaultBufferSize;
+        var cacheBefore = global::Kaminari.Samidare.Config.SamidareConfig.QueryCacheCapacity;
+
+        using (var config = Pl.Config.SetQueryCacheCapacity(77).BeginScope())
+        {
+            Pl.Config["prefetch_buffer_size"] = "9";
+            Assert.Equal(9, global::Kaminari.Sazanami.Data.PrefetchOptions.DefaultBufferSize);
+            Assert.Equal(77, global::Kaminari.Samidare.Config.SamidareConfig.QueryCacheCapacity);
+        }
+
+        Assert.Equal(prefetchBefore, global::Kaminari.Sazanami.Data.PrefetchOptions.DefaultBufferSize);
+        Assert.Equal(cacheBefore, global::Kaminari.Samidare.Config.SamidareConfig.QueryCacheCapacity);
+    }
+
+    [Fact]
     [Trait("Config", "ClientEvaluationPolicy")]
     public void Test_Config_ClientEvaluationPolicy()
     {
@@ -645,15 +682,15 @@ public class ConfigTests
     }
 
     [Fact]
-    [Trait("Config", "PolarsJsonHelper")]
-    public void Test_PolarsJsonHelper_SerializeDictionary()
+    [Trait("Config", "JsonDictionaryWriter")]
+    public void Test_JsonDictionaryWriter_SerializeDictionary()
     {
         var dict = new Dictionary<string, string>
         {
             ["key1"] = "val1",
             ["key2"] = "val2"
         };
-        string json = Polars.NET.Core.Helpers.PolarsJsonHelper.SerializeDictionary(dict);
+        string json = Kaminari.Sazanami.Helpers.JsonDictionaryWriter.SerializeDictionary(dict);
         Assert.Equal("{\"key1\":\"val1\",\"key2\":\"val2\"}", json);
     }
 }

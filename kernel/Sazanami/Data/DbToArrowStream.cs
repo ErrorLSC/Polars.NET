@@ -7,11 +7,10 @@ using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Apache.Arrow.Arrays;
 using Apache.Arrow.Types;
-using Polars.NET.Core.Arrow;
 using Kaminari.Sazanami.Arrow;
 using Kaminari.Sazanami.Data;
 
-namespace Polars.NET.Core.Data;
+namespace Kaminari.Sazanami.Data;
 public static class DbToArrowStream
 {
     /// <summary>

@@ -129,7 +129,7 @@ module LogicalTypes =
             None
 
     /// Maps a CLR type to its IR logical type, using the same Arrow mapping as DataFrame ingestion.
-    /// Returns None for types without a Polars logical counterpart: dictionaries / maps, and types (or nested
+    /// Returns None for types without a logical counterpart: dictionaries / maps, and types (or nested
     /// element / member types) without an Arrow representation, such as object, enums or member-less classes.
     let tryOfClrType (t: Type) : LogicalType option =
         if isNull t then

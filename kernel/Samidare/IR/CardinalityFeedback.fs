@@ -12,7 +12,7 @@ open System.Threading
 /// which covers joins nested inside a relation; the intermediate results of the orders it compares are still estimated.
 /// It only exists from the second run on, and a plan with a different literal is a different subplan.
 ///
-/// The Polars backend reports nothing: Polars does not expose per-node row counts for the in-memory engine.
+/// A backend that cannot observe per-node row counts reports nothing.
 module CardinalityFeedback =
 
     /// The key of a subplan of a query with these source bindings, or None when one of its scans has no lasting identity.

@@ -7,6 +7,7 @@ using Xunit.Abstractions;
 using Apache.Arrow.Ipc;
 using System.Data;
 using Polars.CSharp.Linq;
+using Kaminari.Sazanami.Data;
 
 namespace Polars.CSharp.Tests;
 public class StreamingTests(ITestOutputHelper output)

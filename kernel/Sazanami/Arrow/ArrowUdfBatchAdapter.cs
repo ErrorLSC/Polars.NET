@@ -12,7 +12,7 @@ using Kaminari.Sazanami.Data;
 using Kaminari.Sazanami.Helpers;
 
 /// <summary>
-/// Vectorized Arrow batch adapter for managed UDF callbacks invoked from Polars native engine.
+/// Vectorized Arrow batch adapter for managed UDF callbacks invoked from the native engine.
 /// Amortizes FFI call overhead by processing chunk arrays in-memory within .NET.
 /// </summary>
 public static class ArrowUdfBatchAdapter
@@ -33,9 +33,9 @@ public static class ArrowUdfBatchAdapter
             {
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine(
-                    $"[Polars.NET Warning] .NET UDF callback detected: ('{methodName}': {expressionText})" +
-                    "Pushdown into native LazyFrame remains active, but row-by-row managed callback may be slower than native Polars expressions." +
-                    "Please make sure the UDF is thread safe or limit number of threads to 1 in PolarsConfig");
+                    $"[Kaminari Warning] .NET UDF callback detected: ('{methodName}': {expressionText})" +
+                    "Pushdown into the engine remains active, but a row-by-row managed callback may be slower than native expressions." +
+                    "Please make sure the UDF is thread safe or limit the engine to one thread");
             }
             finally
             {
@@ -43,7 +43,7 @@ public static class ArrowUdfBatchAdapter
             }
 
             System.Diagnostics.Trace.TraceWarning(
-                $"[Polars.NET Warning] .NET UDF callback detected: ('{methodName}': {expressionText}),Pushdown into native LazyFrame remains active but performance is affected.");
+                $"[Kaminari Warning] .NET UDF callback detected: ('{methodName}': {expressionText}),Pushdown into the engine remains active but performance is affected.");
         }
     }
 

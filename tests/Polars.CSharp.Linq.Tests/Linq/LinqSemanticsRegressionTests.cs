@@ -27,7 +27,7 @@ public class LinqSemanticsRegressionTests
     private static readonly Kv[] Right = [new() { K = 1, V = 100 }, new() { K = 1, V = 5 }, new() { K = 2, V = 1 }];
 
     private static bool IsFullFallback<T>(IQueryable<T> query) =>
-        ((IPolarsExplainable)query).InspectPlan(true).IsFullFallback;
+        ((IQueryExplainable)query).InspectPlan(true).IsFullFallback;
 
     // ---------------------------------------------------------------------------------------------
     // GroupJoin + SelectMany(g.<ops>.DefaultIfEmpty()): the group's operators used to be dropped.
@@ -1331,7 +1331,7 @@ public class LinqSemanticsRegressionTests
         using var i = DataFrame.From(GjInner);
         var expected = query(GjOuter.AsQueryable(), GjInner.AsQueryable()).ToList();
         var actual = query(o.AsQueryable<Gj>(), i.AsQueryable<Gj>());
-        if (native) Assert.False(IsFullFallback(actual), ((IPolarsExplainable)actual).InspectPlan(true).FormatReport());
+        if (native) Assert.False(IsFullFallback(actual), ((IQueryExplainable)actual).InspectPlan(true).FormatReport());
         Assert.Equal(expected, actual.ToList());
     }
 
@@ -1402,7 +1402,7 @@ public class LinqSemanticsRegressionTests
         using var i = DataFrame.From(GjInner);
         var expected = query(GjOuter.AsQueryable(), GjInner.AsQueryable()).ToList();
         var actual = query(o.AsQueryable<Gj>(), i.AsQueryable<Gj>());
-        Assert.False(IsFullFallback(actual), ((IPolarsExplainable)actual).InspectPlan(true).FormatReport());
+        Assert.False(IsFullFallback(actual), ((IQueryExplainable)actual).InspectPlan(true).FormatReport());
         Assert.Equal(expected, actual.ToList());
     }
 
@@ -1564,7 +1564,7 @@ public class LinqSemanticsRegressionTests
         var expected = SLeft.LeftJoin(SRight, a => a.K, b => b.K, (a, b) => new { a.K, b.V, InnerK = b.K }).OrderBy(x => x.K).ThenBy(x => x.V).ToList();
         var actual = l.AsQueryable(SLeft).LeftJoin(r.AsQueryable(SRight), a => a.K, b => b.K, (a, b) => new { a.K, b.V, InnerK = b.K }).OrderBy(x => x.K).ThenBy(x => x.V);
         Assert.Equal(expected, actual.ToList());
-        Assert.False(IsFullFallback(actual), ((IPolarsExplainable)actual).InspectPlan(true).FormatReport());
+        Assert.False(IsFullFallback(actual), ((IQueryExplainable)actual).InspectPlan(true).FormatReport());
     }
 
     [Fact]
@@ -1627,7 +1627,7 @@ public class LinqSemanticsRegressionTests
             Sum = g.Select(b => b.V).DefaultIfEmpty().Sum(),
         }).OrderBy(x => x.K);
         Assert.Equal(expected, actual.ToList());
-        Assert.False(IsFullFallback(actual), ((IPolarsExplainable)actual).InspectPlan(true).FormatReport());
+        Assert.False(IsFullFallback(actual), ((IQueryExplainable)actual).InspectPlan(true).FormatReport());
     }
 
     [Fact]

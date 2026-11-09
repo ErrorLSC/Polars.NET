@@ -233,7 +233,7 @@ module internal OperatorAndUdfTranslator =
             combineBinaryWithNaNTypes (nanType left, nanType right) op (left.Type, leftS) (right.Type, rightS) resultType
 
     /// A conversion to or from an enum type. An enum operand becomes its underlying value and an enum target
-    /// takes an underlying value, through EnumConvert nodes for enums stored as Polars Enums; EnumResolution later
+    /// takes an underlying value, through EnumConvert nodes for enums stored as engine Enums; EnumResolution later
     /// fits them to the column representation. Boxing keeps the enum itself.
     let private translateEnumConvert (operandExpr: ScalarExpr) (operandType: Type) (targetType: Type) : ScalarExpr option =
         if targetType = typeof<obj> then
@@ -342,8 +342,8 @@ module internal OperatorAndUdfTranslator =
                     | None -> base.Visit(node) }
         visitor.Visit(root)
 
-    /// Checks whether a method belongs to the internal Polars.NET engine or framework SDKs
-    let internal isPolarsEngineMethod (m: MethodInfo) : bool =
+    /// Checks whether a method belongs to the engine's own library or framework SDKs
+    let internal isEngineMethod (m: MethodInfo) : bool =
         if isNull m || isNull m.DeclaringType then false
         else
             let asm = m.DeclaringType.Assembly
@@ -351,12 +351,12 @@ module internal OperatorAndUdfTranslator =
             || asm = typeof<TranslationContext>.Assembly
             || CompilationScope.Current.Backend.IsEngineAssembly asm
 
-    /// Checks whether a method is an internal LINQ query operator or Polars engine method
+    /// Checks whether a method is an internal LINQ query operator or engine method
     let internal isInternalOrLinqMethod (m: MethodInfo) : bool =
         if isNull m || isNull m.DeclaringType then false
         else
             m.DeclaringType = typeof<System.Linq.Queryable>
-            || isPolarsEngineMethod m
+            || isEngineMethod m
 
     /// Synthesizes and compiles a Func<obj, obj> delegate by replacing a single argument expression with a parameter.
     let internal compileSingleArgUdfDelegate (argExpr: Expression) (expr: Expression) : Func<obj, obj> =
@@ -449,7 +449,7 @@ module internal OperatorAndUdfTranslator =
                         None
                     else
                         // An enum result (plain, Nullable or F# option) leaves the UDF as its underlying value;
-                        // one stored as a Polars Enum then takes its category (EnumConvert.FromValue), so an
+                        // one stored as an engine Enum then takes its category (EnumConvert.FromValue), so an
                         // undefined value is an error.
                         let enumUnderlying = ScalarExprOps.tryEnumUnderlyingType expr.Type
 

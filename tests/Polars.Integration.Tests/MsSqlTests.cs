@@ -3,6 +3,7 @@ using Microsoft.Data.SqlClient;
 using Polars.CSharp;
 using Polars.Integration.Tests.Fixtures;
 using Polars.NET.Core.Data;
+using Kaminari.Sazanami.Data;
 
 namespace Polars.Integration.Tests;
 
@@ -158,7 +159,7 @@ public class MsSqlTests : IClassFixture<MsSqlFixture>
         {
             { "OrderDate", typeof(DateTime) }
         };
-        using (var testReader = df.AsDataReader(bufferSize: 10, typeOverrides: overrides) as PolarsDataReader)
+        using (var testReader = df.AsDataReader(bufferSize: 10, typeOverrides: overrides) as ArrowDataReader)
         {
             Assert.NotNull(testReader);
 

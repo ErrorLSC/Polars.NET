@@ -32,7 +32,7 @@ public class LinqUdfReturnTypeTests
         using var df = DataFrame.FromRows(Rows);
         var native = query(df.AsQueryable<UrRow>());
 
-        var inspection = ((IPolarsExplainable)native).InspectPlan(true);
+        var inspection = ((IQueryExplainable)native).InspectPlan(true);
         Assert.False(inspection.HasUdf, inspection.FormatReport());
         Assert.Equal(
             query(Rows.AsQueryable()).Select(r => r!.ToString()),
@@ -45,7 +45,7 @@ public class LinqUdfReturnTypeTests
         using var df = DataFrame.FromRows(Rows);
         var query = df.AsQueryable<UrRow>().Select(r => new { r.Id, C = ToColor(r.Id) });
 
-        Assert.True(((IPolarsExplainable)query).InspectPlan(true).HasUdf);
+        Assert.True(((IQueryExplainable)query).InspectPlan(true).HasUdf);
         Assert.Equal(Rows.Select(r => new { r.Id, C = ToColor(r.Id) }), query.ToList());
 
         using var result = query.ToDataFrame();
@@ -71,7 +71,7 @@ public class LinqUdfReturnTypeTests
         using var df = DataFrame.FromRows(Rows);
         var query = df.AsQueryable<UrRow>().Select(r => new { r.Id, C = (UrColor)(r.Id % 2) });
 
-        var inspection = ((IPolarsExplainable)query).InspectPlan(true);
+        var inspection = ((IQueryExplainable)query).InspectPlan(true);
         Assert.False(inspection.HasUdf, inspection.FormatReport());
         Assert.False(inspection.HasClientProjection, inspection.FormatReport());
         Assert.False(inspection.IsFullFallback, inspection.FormatReport());
@@ -95,7 +95,7 @@ public class LinqUdfReturnTypeTests
         using var df = DataFrame.FromRows(Rows);
         var query = df.AsQueryable<UrRow>().Where(r => ToColor(r.Id) == UrColor.Green).Select(r => r.Id);
 
-        var inspection = ((IPolarsExplainable)query).InspectPlan(true);
+        var inspection = ((IQueryExplainable)query).InspectPlan(true);
         Assert.True(inspection.HasUdf, inspection.FormatReport());
         Assert.False(inspection.HasClientPredicates, inspection.FormatReport());
         Assert.Equal(Rows.Where(r => ToColor(r.Id) == UrColor.Green).Select(r => r.Id), query.ToList());

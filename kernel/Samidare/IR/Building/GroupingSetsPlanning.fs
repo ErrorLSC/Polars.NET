@@ -23,7 +23,7 @@ module internal GroupingSetsPlanning =
             | _ -> None
         else None
 
-    /// A `Grouping` / `GroupingId` marker call of the public API (Polars.CSharp.Linq.LinqExtensions).
+    /// A `Grouping` / `GroupingId` marker call of the public API.
     let private isGroupingMarker (m: Reflection.MethodInfo) =
         (m.Name = "Grouping" || m.Name = "GroupingId")
         && not (isNull m.DeclaringType)

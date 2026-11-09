@@ -2,9 +2,11 @@ using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using Polars.NET.Core.Data;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Wrappers;
 using Kaminari.Samidare.Config;
+using Kaminari.Sazanami.Data;
 
 namespace Polars.NET.Core.Config;
 
@@ -20,33 +22,16 @@ internal static class CoreConfig
     public static string ToFmtString(this bool value) => value ? "1" : "0";
 
     private const string PrefetchBufferSizeKey = "POLARS_NET_PREFETCH_SIZE";
-    private static int _defaultPrefetchBufferSize = GetDefaultPrefetchSizeFromEnv();
-    /// <summary>
-    /// Background Async Prefetch batch size
-    /// Default is 2. Can change this by SetEnvironmentVariable("POLARS_NET_PREFETCH_SIZE")
-    /// </summary>
+
+    /// <inheritdoc cref="PrefetchOptions.DefaultBufferSize"/>
     public static int DefaultPrefetchBufferSize
     {
-        get => _defaultPrefetchBufferSize;
+        get => PrefetchOptions.DefaultBufferSize;
         set
         {
-            if (value <= 0) throw new ArgumentOutOfRangeException(nameof(value), "Must be greater than 0");
-            _defaultPrefetchBufferSize = value;
-
+            PrefetchOptions.DefaultBufferSize = value;
             Environment.SetEnvironmentVariable(PrefetchBufferSizeKey, value.ToString());
         }
-    }
-
-    private static int GetDefaultPrefetchSizeFromEnv()
-    {
-        var envValue = Environment.GetEnvironmentVariable(PrefetchBufferSizeKey);
-
-        if (int.TryParse(envValue, out int size) && size > 0)
-        {
-            return size;
-        }
-
-        return 2;
     }
 
     private static readonly string[] KnownEnvVars =
@@ -91,7 +76,14 @@ internal static class CoreConfig
         // Polars.NET specified
         PrefetchBufferSizeKey,
         PolarsDeltaMaxRetryKey,
-        .. SamidareConfig.EnvKeys
+        QueryCacheCapacityKey,
+        QueryCacheEnabledKey,
+        ClientEvaluationPolicyKey,
+        NetClientEvaluationPolicyKey,
+        DisallowUdfPushdownKey,
+        AllowUnstableOrderingKey,
+        CollectColumnStatisticsKey,
+        UseRelationalNullsKey
     ];
 
     private static readonly (string DirectKey, Func<string?> ValueGetter)[] DirectVarRules =
@@ -284,6 +276,8 @@ internal static class CoreConfig
                 }
             }
 
+            SyncEnvironmentReadSettings();
+
             if (root.TryGetProperty("direct", out var directProp) && directProp.ValueKind == JsonValueKind.Object)
             {
                 foreach (var prop in directProp.EnumerateObject())
@@ -430,6 +424,8 @@ internal static class CoreConfig
         AllowUnstableOrdering = false;
         CollectColumnStatistics = true;
         UseRelationalNulls = false;
+        QueryCacheCapacity = null;
+        QueryCacheEnabled = null;
 
         PolarsWrapper.ReloadEnvVarAll();
     }
@@ -963,54 +959,146 @@ internal static class CoreConfig
         set => PolarsWrapper.SetEnvVar(PolarsDeltaMaxRetryKey, value?.ToString());
     }
 
-    // Settings of the query compiler: Samidare owns them.
+    // Settings owned by Samidare and Sazanami. Their POLARS_* environment names predate those projects and are
+    // supported here: the properties mirror them, and they are imported when this assembly loads.
+    private const string QueryCacheCapacityKey = "POLARS_QUERY_CACHE_CAPACITY";
+    private const string QueryCacheEnabledKey = "POLARS_QUERY_CACHE_ENABLED";
+    private const string ClientEvaluationPolicyKey = "POLARS_CLIENT_EVAL";
+    private const string NetClientEvaluationPolicyKey = "POLARS_NET_CLIENT_EVAL";
+    private const string DisallowUdfPushdownKey = "POLARS_DISALLOW_UDF_PUSHDOWN";
+    private const string AllowUnstableOrderingKey = "POLARS_ALLOW_UNSTABLE_ORDERING";
+    private const string CollectColumnStatisticsKey = "POLARS_COLLECT_COLUMN_STATISTICS";
+    private const string UseRelationalNullsKey = "POLARS_USE_RELATIONAL_NULLS";
+
+    private static bool IsTrue(string? value) => value is "1" or "true" or "TRUE" or "True";
+
+    private static int? PositiveIntFromEnv(string key) =>
+        int.TryParse(Environment.GetEnvironmentVariable(key), out int value) && value > 0 ? value : null;
+
+    private static bool AnyLegacyEnvironmentSet() =>
+        Array.Exists(
+            [PrefetchBufferSizeKey, QueryCacheCapacityKey, QueryCacheEnabledKey, ClientEvaluationPolicyKey,
+             NetClientEvaluationPolicyKey, DisallowUdfPushdownKey, AllowUnstableOrderingKey,
+             CollectColumnStatisticsKey, UseRelationalNullsKey],
+            key => Environment.GetEnvironmentVariable(key) is not null);
+
+#pragma warning disable CA2255 // The compiler settings must see these variables before the first query compiles.
+    [ModuleInitializer]
+    internal static void ImportLegacyEnvironment()
+#pragma warning restore CA2255
+    {
+        if (AnyLegacyEnvironmentSet()) ApplyLegacyEnvironment();
+    }
+
+    private static void ApplyLegacyEnvironment()
+    {
+        if (PositiveIntFromEnv(PrefetchBufferSizeKey) is { } prefetch) PrefetchOptions.DefaultBufferSize = prefetch;
+        if (PositiveIntFromEnv(QueryCacheCapacityKey) is { } capacity) SamidareConfig.QueryCacheCapacity = capacity;
+
+        string? enabled = Environment.GetEnvironmentVariable(QueryCacheEnabledKey);
+        if (!string.IsNullOrEmpty(enabled)) SamidareConfig.QueryCacheEnabled = IsTrue(enabled);
+
+        string? policy = Environment.GetEnvironmentVariable(ClientEvaluationPolicyKey)
+            ?? Environment.GetEnvironmentVariable(NetClientEvaluationPolicyKey);
+        if (!string.IsNullOrEmpty(policy) && Enum.TryParse<ClientEvaluationPolicy>(policy, ignoreCase: true, out var parsed))
+            SamidareConfig.ClientEvaluationPolicy = parsed;
+
+        if (Environment.GetEnvironmentVariable(DisallowUdfPushdownKey) is { } disallow)
+            SamidareConfig.DisallowUdfPushdown = IsTrue(disallow);
+        if (Environment.GetEnvironmentVariable(AllowUnstableOrderingKey) is { } unstable)
+            SamidareConfig.AllowUnstableOrdering = IsTrue(unstable);
+        if (Environment.GetEnvironmentVariable(UseRelationalNullsKey) is { } relational)
+            SamidareConfig.UseRelationalNulls = IsTrue(relational);
+        if (Environment.GetEnvironmentVariable(CollectColumnStatisticsKey) is { } statistics)
+            SamidareConfig.CollectColumnStatistics = statistics is not ("0" or "false" or "FALSE" or "False");
+    }
+
+    /// <summary>
+    /// Applies the settings a saved state carries only as environment variables, after they were restored.
+    /// </summary>
+    private static void SyncEnvironmentReadSettings()
+    {
+        PrefetchOptions.DefaultBufferSize = PositiveIntFromEnv(PrefetchBufferSizeKey) ?? 2;
+        SamidareConfig.QueryCacheCapacity = PositiveIntFromEnv(QueryCacheCapacityKey);
+
+        string? enabled = Environment.GetEnvironmentVariable(QueryCacheEnabledKey);
+        SamidareConfig.QueryCacheEnabled = string.IsNullOrEmpty(enabled) ? null : IsTrue(enabled);
+    }
 
     /// <inheritdoc cref="SamidareConfig.QueryCacheCapacity"/>
     public static int? QueryCacheCapacity
     {
         get => SamidareConfig.QueryCacheCapacity;
-        set => SamidareConfig.QueryCacheCapacity = value;
+        set
+        {
+            SamidareConfig.QueryCacheCapacity = value;
+            Environment.SetEnvironmentVariable(QueryCacheCapacityKey, value?.ToString());
+        }
     }
 
     /// <inheritdoc cref="SamidareConfig.QueryCacheEnabled"/>
     public static bool? QueryCacheEnabled
     {
         get => SamidareConfig.QueryCacheEnabled;
-        set => SamidareConfig.QueryCacheEnabled = value;
+        set
+        {
+            SamidareConfig.QueryCacheEnabled = value;
+            Environment.SetEnvironmentVariable(QueryCacheEnabledKey, value.ToFmtString());
+        }
     }
 
     /// <inheritdoc cref="SamidareConfig.ClientEvaluationPolicy"/>
     public static ClientEvaluationPolicy ClientEvaluationPolicy
     {
         get => SamidareConfig.ClientEvaluationPolicy;
-        set => SamidareConfig.ClientEvaluationPolicy = value;
+        set
+        {
+            SamidareConfig.ClientEvaluationPolicy = value;
+            Environment.SetEnvironmentVariable(ClientEvaluationPolicyKey, value.ToString().ToLowerInvariant());
+        }
     }
 
     /// <inheritdoc cref="SamidareConfig.DisallowUdfPushdown"/>
     public static bool DisallowUdfPushdown
     {
         get => SamidareConfig.DisallowUdfPushdown;
-        set => SamidareConfig.DisallowUdfPushdown = value;
+        set
+        {
+            SamidareConfig.DisallowUdfPushdown = value;
+            Environment.SetEnvironmentVariable(DisallowUdfPushdownKey, value.ToFmtString());
+        }
     }
 
     /// <inheritdoc cref="SamidareConfig.CollectColumnStatistics"/>
     public static bool CollectColumnStatistics
     {
         get => SamidareConfig.CollectColumnStatistics;
-        set => SamidareConfig.CollectColumnStatistics = value;
+        set
+        {
+            SamidareConfig.CollectColumnStatistics = value;
+            Environment.SetEnvironmentVariable(CollectColumnStatisticsKey, value.ToFmtString());
+        }
     }
 
     /// <inheritdoc cref="SamidareConfig.AllowUnstableOrdering"/>
     public static bool AllowUnstableOrdering
     {
         get => SamidareConfig.AllowUnstableOrdering;
-        set => SamidareConfig.AllowUnstableOrdering = value;
+        set
+        {
+            SamidareConfig.AllowUnstableOrdering = value;
+            Environment.SetEnvironmentVariable(AllowUnstableOrderingKey, value.ToFmtString());
+        }
     }
 
     /// <inheritdoc cref="SamidareConfig.UseRelationalNulls"/>
     public static bool UseRelationalNulls
     {
         get => SamidareConfig.UseRelationalNulls;
-        set => SamidareConfig.UseRelationalNulls = value;
+        set
+        {
+            SamidareConfig.UseRelationalNulls = value;
+            Environment.SetEnvironmentVariable(UseRelationalNullsKey, value.ToFmtString());
+        }
     }
 }

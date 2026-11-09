@@ -3,24 +3,20 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Polars.NET.Core.Arrow;
-using Polars.NET.Core.Wrappers;
 using Kaminari.Sazanami.Arrow;
 
-namespace Polars.NET.Core.TensorInterop;
+namespace Kaminari.Sazanami.TensorInterop;
 
 public static partial class ArrowTensorInterop
 {
-    public static ReadOnlySpan<T> AsReadOnlySpan<T>(this SeriesHandle handle) where T : unmanaged
+    public static ReadOnlySpan<T> AsReadOnlySpan<T>(this IArrowArray array) where T : unmanaged
     {
-        IArrowArray arrowArray = PolarsWrapper.SeriesToArrow(handle);
-        return ExtractFlatPhysicalSpan<T>(arrowArray, out _);
+        return ExtractFlatPhysicalSpan<T>(array, out _);
     }
 
-    public static ReadOnlyTensorSpan<T> AsTensorSpan<T>(this SeriesHandle handle) where T : unmanaged
+    public static ReadOnlyTensorSpan<T> AsTensorSpan<T>(this IArrowArray array) where T : unmanaged
     {
-        IArrowArray arrowArray = PolarsWrapper.SeriesToArrow(handle);
-        ReadOnlySpan<T> flatSpan = ExtractFlatPhysicalSpan<T>(arrowArray, out int rows);
+        ReadOnlySpan<T> flatSpan = ExtractFlatPhysicalSpan<T>(array, out int rows);
 
         if (rows == 0) return new ReadOnlyTensorSpan<T>(flatSpan, [0, 0]);
 
@@ -31,10 +27,9 @@ public static partial class ArrowTensorInterop
         return new ReadOnlyTensorSpan<T>(flatSpan, [rows, cols]);
     }
 
-    public static ReadOnlyTensorSpan<T> AsTransposedTensorSpan<T>(this SeriesHandle handle) where T : unmanaged
+    public static ReadOnlyTensorSpan<T> AsTransposedTensorSpan<T>(this IArrowArray array) where T : unmanaged
     {
-        IArrowArray arrowArray = PolarsWrapper.SeriesToArrow(handle);
-        ReadOnlySpan<T> flatSpan = ExtractFlatPhysicalSpan<T>(arrowArray, out int rows);
+        ReadOnlySpan<T> flatSpan = ExtractFlatPhysicalSpan<T>(array, out int rows);
 
         if (rows == 0) return new ReadOnlyTensorSpan<T>(flatSpan, [0, 0], [1, 1]);
 
@@ -42,9 +37,9 @@ public static partial class ArrowTensorInterop
         return new ReadOnlyTensorSpan<T>(flatSpan, [cols, rows], [1, cols]);
     }
 
-    public static ReadOnlyTensorSpan<T> AsTensorSpan<T>(this SeriesHandle handle, ReadOnlySpan<nint> shape) where T : unmanaged
+    public static ReadOnlyTensorSpan<T> AsTensorSpan<T>(this IArrowArray array, ReadOnlySpan<nint> shape) where T : unmanaged
     {
-        ReadOnlySpan<T> flatSpan = handle.AsReadOnlySpan<T>();
+        ReadOnlySpan<T> flatSpan = array.AsReadOnlySpan<T>();
 
         nint requiredElements = 1;
         foreach (nint dim in shape) requiredElements *= dim;
@@ -54,9 +49,9 @@ public static partial class ArrowTensorInterop
 
         return new ReadOnlyTensorSpan<T>(flatSpan, shape);
     }
-    public static Tensor<T> AsTensor<T>(this SeriesHandle handle) where T : unmanaged
+    public static Tensor<T> AsTensor<T>(this IArrowArray array) where T : unmanaged
     {
-        var tensorSpan = handle.AsTensorSpan<T>();
+        var tensorSpan = array.AsTensorSpan<T>();
 
         int totalElements = (int)tensorSpan.FlattenedLength;
         T[] uninitArray = GC.AllocateUninitializedArray<T>(totalElements);
@@ -67,9 +62,9 @@ public static partial class ArrowTensorInterop
 
         return heapTensor;
     }
-    public static Tensor<T> AsTensor<T>(this SeriesHandle handle, ReadOnlySpan<nint> shape) where T : unmanaged
+    public static Tensor<T> AsTensor<T>(this IArrowArray array, ReadOnlySpan<nint> shape) where T : unmanaged
     {
-        var tensorSpan = handle.AsTensorSpan<T>(shape);
+        var tensorSpan = array.AsTensorSpan<T>(shape);
 
         int totalElements = (int)tensorSpan.FlattenedLength;
         T[] uninitArray = GC.AllocateUninitializedArray<T>(totalElements);
@@ -80,14 +75,14 @@ public static partial class ArrowTensorInterop
 
         return heapTensor;
     }
-    public static unsafe (nint Pointer, long[] Shape) GetNativePointers<T>(this SeriesHandle handle) where T : unmanaged
+    public static unsafe (nint Pointer, long[] Shape) GetNativePointers<T>(this IArrowArray array) where T : unmanaged
     {
-        ReadOnlySpan<T> flatSpan = handle.AsReadOnlySpan<T>();
+        ReadOnlySpan<T> flatSpan = array.AsReadOnlySpan<T>();
 
         ref T refData = ref MemoryMarshal.GetReference(flatSpan);
         nint ptr = (nint)Unsafe.AsPointer(ref refData);
 
-        var metadataSpan = handle.AsTensorSpan<T>();
+        var metadataSpan = array.AsTensorSpan<T>();
         long[] shape = new long[metadataSpan.Rank];
         for (int i = 0; i < metadataSpan.Rank; i++)
         {
@@ -96,9 +91,9 @@ public static partial class ArrowTensorInterop
 
         return (ptr, shape);
     }
-    public static unsafe (nint Pointer, long[] Shape) GetNativePointers<T>(this SeriesHandle handle, ReadOnlySpan<nint> shape) where T : unmanaged
+    public static unsafe (nint Pointer, long[] Shape) GetNativePointers<T>(this IArrowArray array, ReadOnlySpan<nint> shape) where T : unmanaged
     {
-        ReadOnlySpan<T> flatSpan = handle.AsReadOnlySpan<T>();
+        ReadOnlySpan<T> flatSpan = array.AsReadOnlySpan<T>();
         ref T refData = ref MemoryMarshal.GetReference(flatSpan);
         nint ptr = (nint)Unsafe.AsPointer(ref refData);
 

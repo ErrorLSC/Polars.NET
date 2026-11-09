@@ -28,7 +28,7 @@ public class LinqClientRowPackingTests
 
     private static void AssertRowStep<T>(IQueryable<T> query, IEnumerable<T> expected)
     {
-        var inspection = ((IPolarsExplainable)query).InspectPlan(true);
+        var inspection = ((IQueryExplainable)query).InspectPlan(true);
         Assert.False(inspection.IsFullFallback, inspection.FormatReport());
         Assert.Equal(expected.Select(r => r!.ToString()).Order(), query.ToList().Select(r => r!.ToString()).Order());
     }

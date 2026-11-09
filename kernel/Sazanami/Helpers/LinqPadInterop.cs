@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
-namespace Polars.NET.Core.Helpers;
+namespace Kaminari.Sazanami.Helpers;
 
 /// <summary>
 /// Late-bound bridge to LINQPad's <c>LINQPad.Util.RawHtml</c>, used by the <c>ToDump()</c> rendering hooks

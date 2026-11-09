@@ -4,6 +4,7 @@ using System.Text.Json;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Helpers;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.CSharp;
 
@@ -373,7 +374,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         string? filterJson = null;
         if (partitionFilters?.Count > 0)
         {
-            filterJson = PolarsJsonHelper.SerializeDictionary(partitionFilters);
+            filterJson = JsonDictionaryWriter.SerializeDictionary(partitionFilters);
         }
 
         // Convert Z-Order columns to array (Rust FFI expects string[] or null)

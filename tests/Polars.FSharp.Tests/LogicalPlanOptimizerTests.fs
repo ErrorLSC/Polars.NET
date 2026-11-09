@@ -168,7 +168,7 @@ type LogicalPlanOptimizerTests() =
         Assert.Contains("Project", logicalPlanAscii)
         Assert.False(logicalPlanAscii.Contains("Opaque"))
 
-        let inspection = (q :?> IPolarsExplainable).InspectPlan(optimized = true)
+        let inspection = (q :?> IQueryExplainable).InspectPlan(optimized = true)
         Assert.True(inspection.LogicalPlan.IsSome)
         let lpStr = inspection.LogicalPlan.Value
         Assert.Contains("Filter", lpStr)

@@ -28,7 +28,7 @@ type LiteralValue =
     | TimeSpan of TimeSpan
     | TimeOnly of TimeOnly
     with
-        /// Returns the exact Polars data type for this literal value.
+        /// Returns the exact engine data type for this literal value.
         member this.DataType: LogicalType =
             match this with
             | Null dt -> dt
@@ -114,9 +114,9 @@ type BinaryOp =
     // Comparison
     | Eq
     | NotEq
-    /// C# equality: null equals null (Polars eq_missing). Used where both operands may be null.
+    /// C# equality: null equals null (as eq_missing). Used where both operands may be null.
     | EqMissing
-    /// C# inequality: null equals null (Polars ne_missing).
+    /// C# inequality: null equals null (as ne_missing).
     | NotEqMissing
     | Lt
     | LtEq
@@ -761,7 +761,7 @@ type InListSource =
     | Literals of LiteralValue list
     | Collection of values: System.Collections.IEnumerable * elementType: Type
 
-/// How a .NET enum maps to a Polars Enum: its categories (member names) and their underlying values, both in
+/// How a .NET enum maps to an engine Enum: its categories (member names) and their underlying values, both in
 /// category order, and the underlying integer type.
 type EnumMapping =
     {
@@ -871,7 +871,7 @@ and LogicalAsOfJoinSpec =
     }
 
 /// Pure relational algebra logical plan tree. Every backend implements the semantics stated here and in
-/// IR/SEMANTICS.md; Polars.NET.Linq.Conformance.Tests checks them on each backend.
+/// IR/SEMANTICS.md; the conformance tests check them on each backend.
 /// Rows are ordered: a node keeps its input's order unless stated otherwise.
 and [<RequireQualifiedAccess>] LogicalPlan =
     | Scan of source: LogicalPlanSource * schema: LogicalSchema
@@ -905,7 +905,7 @@ and [<RequireQualifiedAccess>] LogicalPlan =
         maintainOrder: bool
     | GroupingSets of input: LogicalPlan * spec: LogicalGroupingSetsSpec
     /// A stable sort: rows with equal keys keep their input order. Nulls go first or last by NullsLast.
-    /// (SamidareConfig.AllowUnstableOrdering lets the Polars backend drop the stability, by user choice.)
+    /// (SamidareConfig.AllowUnstableOrdering lets a backend drop the stability, by user choice.)
     | Sort of input: LogicalPlan * orderings: SortOrder list
     /// `count` rows after skipping `offset`.
     | Limit of input: LogicalPlan * offset: int64 * count: uint32
@@ -1145,8 +1145,8 @@ type QueryStatistics private () =
             | :? IColumnStatisticsSource as statistics -> statistics.TryGetColumnStatistics column
             | _ -> None)
 
-/// Internal interface implemented by PolarsQueryable to expose IR compilation for testing, inspection, and subtree grafting.
-type internal IPolarsInternalExplainable =
+/// Internal interface implemented by queryables to expose IR compilation for testing, inspection, and subtree grafting.
+type internal IInternalQueryExplainable =
     abstract member CompileLogicalQuery: unit -> CompiledLogicalQuery
     abstract member TryGetPureLogicalPlan: unit -> (LogicalPlan * SourceBinding array) option
     /// Whether the query's rows can be produced by a native plan, without full LINQ-to-Objects fallback.

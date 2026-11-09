@@ -80,11 +80,11 @@ module internal PipelineStageParser =
         | ClientEvaluationPolicy.Warn ->
             let text = match predLambdaOpt with Some p -> p.ToString() | None -> "Predicate"
             System.Diagnostics.Trace.TraceWarning
-                $"[Polars.NET Warning] Predicate in '%s{stage}' (%s{text}) could not be pushed down and is evaluated on client."
+                $"[Kaminari Warning] Predicate in '%s{stage}' (%s{text}) could not be pushed down and is evaluated on client."
         | ClientEvaluationPolicy.Strict
         | _ ->
             let text = match predLambdaOpt with Some p -> p.ToString() | None -> "Predicate"
-            raise (CompilationScope.Current.Backend.CreatePushdownFailure(stage, text, $"Predicate in '%s{stage}' could not be pushed down to native Polars engine."))
+            raise (CompilationScope.Current.Backend.CreatePushdownFailure(stage, text, $"Predicate in '%s{stage}' could not be pushed down to the execution engine."))
 
     /// Enforces the ClientEvaluationPolicy against client predicates and full fallbacks
     let enforcePipelinePolicy
@@ -100,14 +100,14 @@ module internal PipelineStageParser =
         | ClientEvaluationPolicy.Warn ->
             if requiresClientFallback then
                 System.Diagnostics.Trace.TraceWarning
-                    $"[Polars.NET Warning] Query pipeline at stage '%s{stage}' fell back to full client-side in-memory LINQ: %s{expressionText.Value}"
+                    $"[Kaminari Warning] Query pipeline at stage '%s{stage}' fell back to full client-side in-memory LINQ: %s{expressionText.Value}"
             elif not clientPredsWithAst.IsEmpty then
                 let predTexts =
                     clientPredsWithAst
                     |> List.map (fun (_, l) -> l.ToString())
                     |> String.concat "; "
                 System.Diagnostics.Trace.TraceWarning
-                    $"[Polars.NET Warning] Query predicate at stage '%s{stage}' fell back to client-side evaluation: %s{predTexts}"
+                    $"[Kaminari Warning] Query predicate at stage '%s{stage}' fell back to client-side evaluation: %s{predTexts}"
         | ClientEvaluationPolicy.Strict
         | _ ->
             if requiresClientFallback then
@@ -124,7 +124,7 @@ module internal PipelineStageParser =
                     backend.CreatePushdownFailure(
                         stage,
                         firstPred.ToString(),
-                        sprintf "Method, member, or operator in predicate '%s' cannot be pushed down to native Polars engine." (firstPred.ToString())
+                        sprintf "Method, member, or operator in predicate '%s' cannot be pushed down to the execution engine." (firstPred.ToString())
                     )
                 )
 
@@ -266,13 +266,13 @@ module internal PipelineStageParser =
         | MethodCall(_, null, args) -> args |> List.tryPick tryExtractSortSelector
         | _ -> None
 
-    /// Recursively locates the root IQueryable / IPolarsInternalExplainable ConstantExpression in a LINQ pipeline.
+    /// Recursively locates the root IQueryable / IInternalQueryExplainable ConstantExpression in a LINQ pipeline.
     let rec tryFindRootQueryable (e: Expression) : (Expression * Type) option =
         match e with
         | null -> None
         | :? ConstantExpression as ce when
             typeof<IQueryable>.IsAssignableFrom(ce.Type)
-            || typeof<IPolarsInternalExplainable>.IsAssignableFrom(ce.Type)
+            || typeof<IInternalQueryExplainable>.IsAssignableFrom(ce.Type)
             ->
             Some(ce :> Expression, ce.Type)
         | :? MethodCallExpression as mc when mc.Arguments.Count > 0 -> tryFindRootQueryable mc.Arguments.[0]
@@ -696,7 +696,7 @@ module internal PipelineStageParser =
         analyze expr
 
     /// Attempts to fuse an adjacent pair of sort stages (e.g. OrderBy(x => x.Score == null).ThenBy(x => x.Score))
-    /// into a single Sort stage with the appropriate native Polars NullsLast setting.
+    /// into a single Sort stage with the appropriate NullsLast setting.
     let internal tryFuseNullSortPair
         (l1: LambdaExpression)
         (isDesc1: bool)

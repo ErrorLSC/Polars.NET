@@ -77,7 +77,7 @@ type internal QueryCacheProbe =
         RootsInLambdas: bool
     }
 
-/// Global thread-safe Query Plan Cache for Polars.NET LINQ queries.
+/// Global thread-safe Query Plan Cache for LINQ queries.
 /// Caches compiled pipelines keyed by CompiledQueryKey: alpha-equivalent expression shape, parameter values,
 /// the schemas of the tables the query's roots read (and which roots share a table), and the
 /// translation-relevant configuration. A hit binds every source slot to the corresponding root of the query
@@ -230,7 +230,7 @@ type QueryPlanCache private () =
             if ok then keyed (box (List.ofSeq elements)) else None
         | _ -> None
 
-    /// The expression with every composed Polars query constant (a query built on a root, e.g. the inner side of
+    /// The expression with every composed query constant (a query built on a root, e.g. the inner side of
     /// a Join or Concat, or a subquery captured as a value or read from a closure) replaced by that query's own
     /// expression, recursively.
     /// The shape key identifies a query constant by its element type only, so without this two different
@@ -241,7 +241,7 @@ type QueryPlanCache private () =
             { new ExpressionVisitor() with
                 override this.VisitConstant(node: ConstantExpression) =
                     match node.Value with
-                    | :? System.Linq.IQueryable as q when (q :? IPolarsInternalExplainable) ->
+                    | :? System.Linq.IQueryable as q when (q :? IInternalQueryExplainable) ->
                         match q.Expression with
                         | :? ConstantExpression as c when obj.ReferenceEquals(c.Value, q) -> node :> Expression
                         | composed ->
@@ -259,7 +259,7 @@ type QueryPlanCache private () =
                         && node.Type <> typeof<string>
                     then
                         match PartialEvaluator.tryFastEvaluate node with
-                        | Some(:? IPolarsInternalExplainable as q) ->
+                        | Some(:? IInternalQueryExplainable as q) ->
                             this.VisitConstant(Expression.Constant(q, node.Type))
                         | _ -> base.VisitMember node
                     else
@@ -341,7 +341,7 @@ type QueryPlanCache private () =
                 None
 
     /// The cache key of a normalized expression and the tables of its roots, or None when the expression is
-    /// not cacheable: caching is disabled, a parameter value is not cacheable, or a root is not a Polars query
+    /// not cacheable: caching is disabled, a parameter value is not cacheable, or a root is not a compiled query
     /// (an in-memory sequence is snapshotted into the plan's bindings, not read from a table).
     static member internal TryCreateProbe
         (
@@ -358,7 +358,7 @@ type QueryPlanCache private () =
             let tables =
                 roots
                 |> List.map (function
-                    | :? IPolarsInternalExplainable as q -> Some q.RootTable
+                    | :? IInternalQueryExplainable as q -> Some q.RootTable
                     | _ -> None)
 
             if tables |> List.forall Option.isSome then

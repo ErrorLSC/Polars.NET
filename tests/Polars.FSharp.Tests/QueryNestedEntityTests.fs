@@ -60,7 +60,7 @@ module QueryNestedEntityTests =
             fields (iterator.GetType()) |> Array.tryPick (fun f -> match f.GetValue iterator with :? IQueryable as q -> Some q | _ -> None)
         let inner = providerQuery ((q.Expression :?> System.Linq.Expressions.ConstantExpression).Value)
         Assert.True(inner.IsSome)
-        Assert.False((inner.Value :?> Kaminari.Samidare.IPolarsExplainable).InspectPlan(true).IsFullFallback)
+        Assert.False((inner.Value :?> Kaminari.Samidare.IQueryExplainable).InspectPlan(true).IsFullFallback)
 
     [<Fact>]
     let ``Join select tuple of records`` () =

@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Apache.Arrow.C;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Core.Enums;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.NET.Core.Native;
 

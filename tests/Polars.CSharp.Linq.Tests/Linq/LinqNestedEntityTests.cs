@@ -22,7 +22,7 @@ public class LinqNestedEntityTests
     private static readonly NeLoc[] Locs = [new("1", "P"), new("2", "Q")];
 
     private static bool IsNative<T>(IQueryable<T> query) =>
-        !((IPolarsExplainable)query).InspectPlan(true).IsFullFallback;
+        !((IQueryExplainable)query).InspectPlan(true).IsFullFallback;
 
     /// <summary>Compares results, in order, by their deep string form.</summary>
     private static void AssertSameRows<T>(IEnumerable<T> expected, IEnumerable<T> actual) =>
@@ -67,7 +67,7 @@ public class LinqNestedEntityTests
         using var s = new Sources();
         var query = s.E.AsQueryable<NeEmp>().Join(s.D.AsQueryable<NeDept>(), x => x.Dept, y => y.Dept, (x, y) => new { x, y });
 
-        var plan = ((IPolarsExplainable)query).InspectPlan(true).LogicalPlan!.Value;
+        var plan = ((IQueryExplainable)query).InspectPlan(true).LogicalPlan!.Value;
         Assert.Contains("as_struct", plan);
 
         using var frame = query.ToDataFrame();
@@ -210,7 +210,7 @@ public class LinqNestedEntityTests
             .Join(s.D.AsQueryable<NeDept>(), x => x.Dept, y => y.Dept, (x, y) => new { x, y })
             .Where(t => IsEven(t.x));
 
-        var inspection = ((IPolarsExplainable)query).InspectPlan(true);
+        var inspection = ((IQueryExplainable)query).InspectPlan(true);
         Assert.False(inspection.IsFullFallback, inspection.FormatReport());
         Assert.True(inspection.HasClientPredicates);
     }
@@ -228,7 +228,7 @@ public class LinqNestedEntityTests
         var expected = Emps.Join(Depts, x => x.Dept, y => y.Dept, (x, y) => new { x, Where = Describe(y) });
 
         Assert.True(IsNative(query));
-        Assert.True(((IPolarsExplainable)query).InspectPlan(true).HasClientProjection);
+        Assert.True(((IQueryExplainable)query).InspectPlan(true).HasClientProjection);
         AssertSameRows(expected, query.ToList());
     }
 

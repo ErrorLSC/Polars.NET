@@ -11,7 +11,7 @@ open System.ComponentModel
 module internal LinqPadHtmlHelper =
     /// Wraps HTML in LINQPad's RawHtml via the shared Core bridge (None outside LINQPad).
     let tryWrapRawHtml (html: string) : obj option =
-        Option.ofObj (Polars.NET.Core.Helpers.LinqPadInterop.TryWrapRawHtml html)
+        Option.ofObj (Kaminari.Sazanami.Helpers.LinqPadInterop.TryWrapRawHtml html)
 
 /// <summary>
 /// Interface for types that can be converted to one or more Polars Expressions.

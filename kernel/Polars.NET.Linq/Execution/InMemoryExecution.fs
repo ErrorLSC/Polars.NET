@@ -32,7 +32,7 @@ module internal InMemoryExecution =
         let compilesNatively (prefix: Expression) =
             try
                 match provider.CreateQuery prefix with
-                | :? IPolarsInternalExplainable as q -> q.IsNativelyExecutable()
+                | :? IInternalQueryExplainable as q -> q.IsNativelyExecutable()
                 | _ -> false
             with _ ->
                 false

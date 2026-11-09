@@ -25,7 +25,7 @@ module SubqueryGraftingTests =
         let expected = query (rows.AsQueryable()) (rows.AsQueryable()) |> List.ofSeq
         let native = query (d1.AsQueryable<SqRow>()) (d2.AsQueryable<SqRow>())
         Assert.Equal<int list>(expected, native |> List.ofSeq)
-        (native :> obj :?> IPolarsExplainable).InspectPlan(true).LogicalPlan.Value
+        (native :> obj :?> IQueryExplainable).InspectPlan(true).LogicalPlan.Value
 
     let private assertContainsAll (plan: string) (fragments: string list) =
         for fragment in fragments do

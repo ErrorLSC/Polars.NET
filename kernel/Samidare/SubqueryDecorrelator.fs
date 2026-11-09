@@ -9,7 +9,7 @@ open System.Collections.Generic
 open Kaminari.Sazanami.Helpers
 
 /// Dedicated engine for decorrelating subqueries (EXISTS, NOT EXISTS, IN, NOT IN, scalar aggregates,
-/// and embedded projection subqueries) into native Polars pushdown operations.
+/// and embedded projection subqueries) into native pushdown operations.
 module internal SubqueryDecorrelator =
 
     // =========================================================================
@@ -88,7 +88,7 @@ module internal SubqueryDecorrelator =
         | :? ConstantExpression as c ->
             match c.Value with
             | :? IQueryable
-            | :? IPolarsInternalExplainable -> true
+            | :? IInternalQueryExplainable -> true
             | _ -> false
         | :? NewExpression as ne -> ne.Arguments |> Seq.exists containsSubquery
         | :? MemberInitExpression as mie ->

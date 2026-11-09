@@ -3,6 +3,7 @@ using System.Text;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Helpers;
 using Pl = Polars.CSharp.Polars;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.CSharp;
 

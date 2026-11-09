@@ -1,6 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Numerics.Tensors;
-using Polars.NET.Core.TensorInterop;
+using Kaminari.Sazanami.TensorInterop;
+using Polars.NET.Core.Arrow;
+using Polars.NET.Core.Wrappers;
 
 namespace Polars.CSharp;
 
@@ -24,7 +26,7 @@ public partial class Series : IDisposable
             );
         }
 
-        return ArrowTensorInterop.AsReadOnlySpan<T>(Handle);
+        return ArrowTensorInterop.AsReadOnlySpan<T>(PolarsWrapper.SeriesToArrow(Handle));
     }
     /// <summary>
     /// Generates a zero-copy Tensor representation from the Series.
@@ -36,7 +38,7 @@ public partial class Series : IDisposable
     /// <returns>A ReadOnlyTensorSpan representing the underlying Arrow memory.</returns>
     /// <exception cref="InvalidOperationException">Thrown if the Series contains nulls or is not numeric.</exception>
     public ReadOnlyTensorSpan<T> AsTensorSpan<T>() where T : unmanaged
-        => ArrowTensorInterop.AsTensorSpan<T>(Handle);
+        => ArrowTensorInterop.AsTensorSpan<T>(PolarsWrapper.SeriesToArrow(Handle));
 
     /// <summary>
     /// Generates a zero-copy N-Dimensional Tensor representation from the Series.
@@ -47,7 +49,7 @@ public partial class Series : IDisposable
     /// <returns>A reshaped ReadOnlyTensorSpan representing the underlying Arrow memory.</returns>
     /// <exception cref="ArgumentException">Thrown if the shape's total elements do not match the Series data.</exception>
     public ReadOnlyTensorSpan<T> AsTensorSpan<T>(ReadOnlySpan<nint> shape) where T : unmanaged
-        => ArrowTensorInterop.AsTensorSpan<T>(Handle, shape);
+        => ArrowTensorInterop.AsTensorSpan<T>(PolarsWrapper.SeriesToArrow(Handle), shape);
 
     /// <summary>
     /// Generates a zero-copy, transposed 2D Tensor representation from a List or Array Series.
@@ -64,7 +66,7 @@ public partial class Series : IDisposable
     /// does not match the underlying physical Arrow memory type.
     /// </exception>
     public ReadOnlyTensorSpan<T> AsTransposedTensorSpan<T>() where T : unmanaged
-        => ArrowTensorInterop.AsTransposedTensorSpan<T>(Handle);
+        => ArrowTensorInterop.AsTransposedTensorSpan<T>(PolarsWrapper.SeriesToArrow(Handle));
 
     /// <summary>
     /// Deep copies the underlying Arrow memory into a managed .NET <see cref="Tensor{T}"/> on the garbage-collected heap.
@@ -79,7 +81,7 @@ public partial class Series : IDisposable
     /// <typeparam name="T">The unmanaged primitive type of the tensor (e.g., float, int).</typeparam>
     /// <returns>A new managed <see cref="Tensor{T}"/> containing the copied data.</returns>
     public Tensor<T> AsTensor<T>() where T : unmanaged
-        => ArrowTensorInterop.AsTensor<T>(Handle);
+        => ArrowTensorInterop.AsTensor<T>(PolarsWrapper.SeriesToArrow(Handle));
 
     /// <summary>
     /// Deep copies the underlying Arrow memory into a managed .NET <see cref="Tensor{T}"/> with an explicit N-dimensional shape.
@@ -94,7 +96,7 @@ public partial class Series : IDisposable
     /// <returns>A new managed <see cref="Tensor{T}"/> reshaped to the specified dimensions.</returns>
     /// <exception cref="ArgumentException">Thrown if the total elements required by the shape do not match the data length.</exception>
     public Tensor<T> AsTensor<T>(ReadOnlySpan<nint> shape) where T : unmanaged
-        => ArrowTensorInterop.AsTensor<T>(Handle, shape);
+        => ArrowTensorInterop.AsTensor<T>(PolarsWrapper.SeriesToArrow(Handle), shape);
 
     /// <summary>
     /// Extracts the raw unmanaged pointer and shape metadata of the underlying physical Arrow memory.
@@ -117,7 +119,7 @@ public partial class Series : IDisposable
                 "You MUST call .Rechunk() on this Series to merge the memory before exporting it to an unmanaged Tensor."
             );
         }
-        return ArrowTensorInterop.GetNativePointers<T>(Handle);
+        return ArrowTensorInterop.GetNativePointers<T>(PolarsWrapper.SeriesToArrow(Handle));
     }
     /// <summary>
     /// Extracts the raw unmanaged pointer and reshapes the metadata for native ML backends.
@@ -133,7 +135,7 @@ public partial class Series : IDisposable
                 "You MUST call .Rechunk() on this Series to merge the memory before exporting it to an unmanaged Tensor."
             );
         }
-        return ArrowTensorInterop.GetNativePointers<T>(Handle, shape);
+        return ArrowTensorInterop.GetNativePointers<T>(PolarsWrapper.SeriesToArrow(Handle), shape);
     }
 
     /// <summary>
@@ -152,7 +154,7 @@ public partial class Series : IDisposable
     /// </remarks>
     public static Series FromTensor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string name, ReadOnlyTensorSpan<T> tensor) where T : unmanaged
     {
-        var handle = ArrowTensorInterop.ImportTensor(name, tensor);
+        var handle = ArrowFfiBridge.ImportSeries(name, ArrowTensorInterop.ToArrowArray(tensor));
         return new Series(handle);
     }
 }

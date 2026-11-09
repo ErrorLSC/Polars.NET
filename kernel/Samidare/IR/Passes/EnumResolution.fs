@@ -7,7 +7,7 @@ open Kaminari.Sazanami.Helpers
 /// the mean of decimals (a decimal Sum / Count, as .NET's Average of decimals), and the checked sums of integers
 /// (OverflowException, as .NET's Sum of int / long and Average of long).
 ///
-/// A .NET enum is stored either as a Polars Enum column (categories in underlying-value order) or as an integer
+/// A .NET enum is stored either as an engine Enum column (categories in underlying-value order) or as an integer
 /// column of its underlying values (data written elsewhere, or a [Flags] enum). The translator does not know which,
 /// so it emits EnumConvert nodes; this pass picks the form from the inferred type of each converted expression:
 /// - ToValue of an Enum maps categories to values; of anything else it is the expression itself.
@@ -33,7 +33,7 @@ module internal EnumResolution =
         ScalarExpr.Function(
             ScalarFunction.RequireListed(
                 mapping.Values,
-                $"Value '{{}}' is not a defined member of enum {mapping.Name}; a Polars Enum column holds only defined members."
+                $"Value '{{}}' is not a defined member of enum {mapping.Name}; an Enum column holds only defined members."
             ),
             [ value ],
             mapping.Underlying

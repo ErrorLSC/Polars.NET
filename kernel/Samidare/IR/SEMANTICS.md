@@ -1,11 +1,11 @@
 # LINQ IR semantics
 
 The LINQ IR (`LogicalPlan`, `ScalarExpr`) is the contract between the LINQ frontend and every execution
-backend: the Polars backend today, and any later one, such as a managed engine. The frontend translates
+backend, today and later, such as a managed engine. The frontend translates
 LINQ into IR that means what the query means. A backend must evaluate each node exactly as this document
 says. The optimizer passes may rely only on these rules.
 
-The rules are executable. `Polars.NET.Linq.Conformance.Tests` builds plans by hand and runs each one on
+The rules are executable. The conformance test project builds plans by hand and runs each one on
 every engine in `Engines.all`, both as written and after `LogicalOptimizer.optimize`. A new backend joins
 the suite by implementing `IIrEngine`. When a rule changes, change this file, the doc comments in
 `LogicalIR.fs` and the conformance tests together.
@@ -72,7 +72,7 @@ the result carries the dividend's sign (-7 % 2 = -1, -7.5 % 2 = -1.5). `Truncate
 division, which truncates toward zero (-7 / 2 = -3). `Divide` over integers is the engine's own division, so the
 frontend emits `TruncatedDivide` for integer `/`.
 
-The Polars backend computes both in one pass, with shim kernels.
+A backend may compute both in one pass.
 
 **Decimals.** Decimals are fixed-point. The frontend widens a decimal dividend to scale 18, so a quotient keeps
 18 fractional digits (.NET keeps up to 28 significant digits). A decimal value has its column's scale, so its
@@ -84,7 +84,7 @@ raises). The frontend guards a decimal divisor, because the engine raises. Integ
 
 **Checked sums.** .NET's `Sum` of `int` / `long`, and the `long` sum behind `Average` of `long`, are checked.
 Over all the rows, the frontend emits `AggKind.CheckedSum`: the exact total in the summed type, failing with
-`QueryErrorKind.Overflow` (the Polars backend computes it in one pass with a shim kernel). Per group (a GroupBy's
+`QueryErrorKind.Overflow` (a backend may compute it in one pass). Per group (a GroupBy's
 aggregations, a window), it composes plain aggregations, which the engine computes for every group at once, and
 asserts the range with an `AssertCount` over an overflow flag. An `int` sum is taken in `Int64`. A `long` total is
 checked from the sums of each value's 32-bit halves (`hi = x // 2^32`, `lo = x - hi * 2^32`, neither sum can

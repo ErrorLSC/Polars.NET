@@ -3,7 +3,9 @@ namespace Polars.FSharp
 [<AutoOpen>]
 module TensorInterops =
     open System
-    open Polars.NET.Core.TensorInterop
+    open Kaminari.Sazanami.TensorInterop
+    open Polars.NET.Core.Arrow
+    open Polars.NET.Core.Wrappers
     open System.Numerics.Tensors
     open System.Runtime.InteropServices
     open System.Runtime.CompilerServices
@@ -34,7 +36,7 @@ module TensorInterops =
 
             checkDataType ()
 
-            ArrowTensorInterop.AsReadOnlySpan<'T> this.Handle
+            ArrowTensorInterop.AsReadOnlySpan<'T>(PolarsWrapper.SeriesToArrow this.Handle)
 
         /// <summary>
         /// Generates a zero-copy Tensor representation from the Series.
@@ -46,7 +48,7 @@ module TensorInterops =
         /// <returns>A ReadOnlyTensorSpan representing the underlying Arrow memory.</returns>
         /// <exception cref="InvalidOperationException">Thrown if the Series contains nulls or is not numeric.</exception>
         member this.AsTensorSpan<'T when 'T: unmanaged and 'T: struct and 'T :> ValueType and 'T: (new: unit -> 'T)>() =
-            ArrowTensorInterop.AsTensorSpan<'T> this.Handle
+            ArrowTensorInterop.AsTensorSpan<'T>(PolarsWrapper.SeriesToArrow this.Handle)
 
         /// <summary>
         /// Generates a zero-copy N-Dimensional Tensor representation from the Series.
@@ -59,7 +61,7 @@ module TensorInterops =
         member this.AsTensorSpan<'T when 'T: unmanaged and 'T: struct and 'T :> ValueType and 'T: (new: unit -> 'T)>
             (shape: ReadOnlySpan<nativeint>)
             =
-            ArrowTensorInterop.AsTensorSpan<'T>(this.Handle, shape)
+            ArrowTensorInterop.AsTensorSpan<'T>(PolarsWrapper.SeriesToArrow this.Handle, shape)
 
         /// <summary>
         /// Generates a zero-copy, transposed 2D Tensor representation from a List or Array Series.
@@ -79,7 +81,7 @@ module TensorInterops =
             when 'T: unmanaged and 'T: struct and 'T :> ValueType and 'T: (new: unit -> 'T)>
             ()
             =
-            ArrowTensorInterop.AsTransposedTensorSpan<'T> this.Handle
+            ArrowTensorInterop.AsTransposedTensorSpan<'T>(PolarsWrapper.SeriesToArrow this.Handle)
 
         /// <summary>
         /// Deep copies the underlying Arrow memory into a managed .NET <see cref="Tensor{T}"/> on the garbage-collected heap.
@@ -94,7 +96,7 @@ module TensorInterops =
         /// <typeparam name="T">The unmanaged primitive type of the tensor (e.g., float, int).</typeparam>
         /// <returns>A new managed <see cref="Tensor{T}"/> containing the copied data.</returns>
         member this.AsTensor<'T when 'T: unmanaged and 'T: struct and 'T :> ValueType and 'T: (new: unit -> 'T)>() =
-            ArrowTensorInterop.AsTensor<'T> this.Handle
+            ArrowTensorInterop.AsTensor<'T>(PolarsWrapper.SeriesToArrow this.Handle)
 
         /// <summary>
         /// Deep copies the underlying Arrow memory into a managed .NET <see cref="Tensor{T}"/> with an explicit N-dimensional shape.
@@ -111,7 +113,7 @@ module TensorInterops =
         member this.AsTensor<'T when 'T: unmanaged and 'T: struct and 'T :> ValueType and 'T: (new: unit -> 'T)>
             (shape: ReadOnlySpan<nativeint>)
             =
-            ArrowTensorInterop.AsTensor<'T>(this.Handle, shape)
+            ArrowTensorInterop.AsTensor<'T>(PolarsWrapper.SeriesToArrow this.Handle, shape)
 
         /// <summary>
         /// Extracts the raw unmanaged pointer and shape metadata of the underlying physical Arrow memory.
@@ -137,7 +139,7 @@ module TensorInterops =
                     )
                 )
 
-            ArrowTensorInterop.GetNativePointers<'T> this.Handle
+            ArrowTensorInterop.GetNativePointers<'T>(PolarsWrapper.SeriesToArrow this.Handle)
 
         /// <summary>
         /// Extracts the raw unmanaged pointer and shape metadata of the underlying physical Arrow memory.
@@ -163,7 +165,7 @@ module TensorInterops =
                     )
                 )
 
-            ArrowTensorInterop.GetNativePointers<'T>(this.Handle, shape)
+            ArrowTensorInterop.GetNativePointers<'T>(PolarsWrapper.SeriesToArrow this.Handle, shape)
 
         /// <summary>
         /// Converts an N-Dimensional .NET Tensor into a Polars Series.
@@ -182,7 +184,7 @@ module TensorInterops =
         static member ofTensor<'T when 'T: unmanaged and 'T: struct and 'T :> ValueType and 'T: (new: unit -> 'T)>
             (name: string, tensor: ReadOnlyTensorSpan<'T>)
             =
-            new Series(ArrowTensorInterop.ImportTensor(name, tensor))
+            new Series(ArrowFfiBridge.ImportSeries(name, ArrowTensorInterop.ToArrowArray tensor))
 
     type DataFrame with
         /// <summary>

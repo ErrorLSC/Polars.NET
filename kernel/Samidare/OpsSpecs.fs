@@ -5,7 +5,7 @@ open System.Linq.Expressions
 open System.Reflection
 open System
 
-/// Canonical constants used across Polars LINQ engine
+/// Canonical constants used across the LINQ engine
 [<RequireQualifiedAccess>]
 module internal LinqConstants =
     [<Literal>]

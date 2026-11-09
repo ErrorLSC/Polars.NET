@@ -7,13 +7,12 @@ using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow;
-using Kaminari.Sazanami.Data;
 
-namespace Polars.NET.Core.Data;
+namespace Kaminari.Sazanami.Data;
 
 /// <summary>
 /// Convert Arrow RecordBatch Stream to DataReader
-/// For Polars/Arrow Sink to Database streamingly (With SqlBulkCopy, etc.)
+/// For streaming Arrow sinks to a database (With SqlBulkCopy, etc.)
 /// Zero-Allocation on Hot Paths.
 /// </summary>
 /// <remarks>
@@ -241,7 +240,7 @@ public sealed class ArrowToDbStream : DbDataReader
     // NotSupported
     // =========================================================
     public override long GetBytes(int ordinal, long dataOffset, byte[]? buffer, int bufferOffset, int length)
-        => throw new NotSupportedException("Polars.NET uses zero-copy memory. Byte streaming is not supported. Use GetFieldValue<byte[]>() instead.");
+        => throw new NotSupportedException("This reader uses zero-copy memory. Byte streaming is not supported. Use GetFieldValue<byte[]>() instead.");
 
     public override long GetChars(int ordinal, long dataOffset, char[]? buffer, int bufferOffset, int length)
         => throw new NotSupportedException();

@@ -1,7 +1,6 @@
 namespace Kaminari.Samidare.Config
 
 open System
-open System.Collections.Generic
 
 /// <summary>
 /// Defines the policy for handling operations or expressions that cannot be pushed down to the execution engine
@@ -23,24 +22,13 @@ type ClientEvaluationPolicy =
 /// </summary>
 [<Sealed>]
 type SamidareConfig private () =
-    static let [<Literal>] QueryCacheCapacityKey = "POLARS_QUERY_CACHE_CAPACITY"
-    static let [<Literal>] QueryCacheEnabledKey = "POLARS_QUERY_CACHE_ENABLED"
-    static let [<Literal>] ClientEvaluationPolicyKey = "POLARS_CLIENT_EVAL"
-    static let [<Literal>] NetClientEvaluationPolicyKey = "POLARS_NET_CLIENT_EVAL"
-    static let [<Literal>] DisallowUdfPushdownKey = "POLARS_DISALLOW_UDF_PUSHDOWN"
-    static let [<Literal>] AllowUnstableOrderingKey = "POLARS_ALLOW_UNSTABLE_ORDERING"
-    static let [<Literal>] CollectColumnStatisticsKey = "POLARS_COLLECT_COLUMN_STATISTICS"
-    static let [<Literal>] UseRelationalNullsKey = "POLARS_USE_RELATIONAL_NULLS"
-
-    static let envKeys: IReadOnlyList<string> =
-        [| QueryCacheCapacityKey
-           QueryCacheEnabledKey
-           ClientEvaluationPolicyKey
-           NetClientEvaluationPolicyKey
-           DisallowUdfPushdownKey
-           AllowUnstableOrderingKey
-           CollectColumnStatisticsKey
-           UseRelationalNullsKey |]
+    static let [<Literal>] QueryCacheCapacityKey = "SAMIDARE_QUERY_CACHE_CAPACITY"
+    static let [<Literal>] QueryCacheEnabledKey = "SAMIDARE_QUERY_CACHE_ENABLED"
+    static let [<Literal>] ClientEvaluationPolicyKey = "SAMIDARE_CLIENT_EVAL"
+    static let [<Literal>] DisallowUdfPushdownKey = "SAMIDARE_DISALLOW_UDF_PUSHDOWN"
+    static let [<Literal>] AllowUnstableOrderingKey = "SAMIDARE_ALLOW_UNSTABLE_ORDERING"
+    static let [<Literal>] CollectColumnStatisticsKey = "SAMIDARE_COLLECT_COLUMN_STATISTICS"
+    static let [<Literal>] UseRelationalNullsKey = "SAMIDARE_USE_RELATIONAL_NULLS"
 
     static let env (key: string) = Environment.GetEnvironmentVariable key
     static let setEnv (key: string) (value: string) = Environment.SetEnvironmentVariable(key, value)
@@ -53,10 +41,7 @@ type SamidareConfig private () =
         | _ -> Nullable()
 
     static let policyFromEnv () =
-        let value =
-            match env ClientEvaluationPolicyKey with
-            | null -> env NetClientEvaluationPolicyKey
-            | value -> value
+        let value = env ClientEvaluationPolicyKey
 
         if String.IsNullOrEmpty value then
             ClientEvaluationPolicy.Strict
@@ -74,9 +59,6 @@ type SamidareConfig private () =
         match env CollectColumnStatisticsKey with
         | "0" | "false" | "FALSE" | "False" -> false
         | _ -> true
-
-    /// <summary>The environment variables that back these settings.</summary>
-    static member EnvKeys = envKeys
 
     /// <summary>
     /// Maximum number of compiled query plans to retain in the Query Plan Cache. Default is 1024 if unset.

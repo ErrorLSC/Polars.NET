@@ -18,7 +18,7 @@ public enum OptionalKind
 }
 
 /// <summary>
-/// Unified runtime type metadata and unwrapping helper for Polars.NET.
+/// Unified runtime type metadata and unwrapping helper.
 /// Directly integrates FSharp.Core to recognize records, unions, and optional wrappers without string-based reflection.
 /// </summary>
 public static class ClrTypeHelper

@@ -33,7 +33,7 @@ public static class ArrowColumnBufferFactory
     }
 
     // =============================================================================
-    // Enum values: their member names (a Polars Enum declared as the output type takes them as its
+    // Enum values: their member names (an engine Enum declared as the output type takes them as its
     // categories), or the underlying integers of a [Flags] enum.
     // =============================================================================
     private sealed class EnumBuffer(Type type, int length) : IArrowColumnBuffer

@@ -267,7 +267,7 @@ jobs:
         run: |
           VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' Directory.Build.props 2>/dev/null | head -n 1 | tr -d '\r')
           if [ -z "$VERSION" ]; then
-            VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' kernel/kernel/Polars.NET.Core/Polars.NET.Core.csproj | head -n 1 | tr -d '\r')
+            VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' kernel/Polars.NET.Core/Polars.NET.Core.csproj | head -n 1 | tr -d '\r')
           fi
 
           if [ -z "$VERSION" ]; then

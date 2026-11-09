@@ -1,9 +1,8 @@
-using Polars.NET.Core;
 using Polars.NET.Core.Config;
-using Polars.NET.Core.Helpers;
 using System.Text;
 using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.CSharp;
 

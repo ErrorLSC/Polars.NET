@@ -3,9 +3,9 @@ using System.Collections.Concurrent;
 namespace Kaminari.Sazanami.Helpers;
 
 /// <summary>
-/// How .NET enum types map to Polars Enum categories.
+/// How .NET enum types map to engine Enum categories.
 /// <para>
-/// An enum is stored as a Polars Enum column whose categories are its member names, ordered by underlying value,
+/// An enum is stored as an engine Enum column whose categories are its member names, ordered by underlying value,
 /// so the Enum ordering (sorting, comparisons, min / max) agrees with .NET enum comparison. Members sharing a value
 /// contribute the single name <see cref="Enum.GetName(Type, object)"/> returns for it.
 /// </para>
@@ -33,14 +33,14 @@ public static class EnumCategories
     private static readonly ConcurrentDictionary<Type, Layout> Layouts = new();
 
     /// <summary>
-    /// The Arrow field metadata key under which Polars stores an Enum's categories.
+    /// The Arrow field metadata key under which an Enum's categories are stored.
     /// </summary>
-    public const string PolarsEnumMetadataKey = "_PL_ENUM_VALUES2";
+    public const string EnumMetadataKey = "_PL_ENUM_VALUES2";
 
     /// <summary>
-    /// The Arrow field metadata that makes Polars import a dictionary field as the Enum of an enum type (or
+    /// The Arrow field metadata that makes the engine import a dictionary field as the Enum of an enum type (or
     /// Nullable / F# option of one), or null for a non-enum type or a [Flags] enum.
-    /// The categories are encoded as Polars encodes them: each one prefixed with its UTF-8 byte length and ';'.
+    /// The categories are encoded as the engine expects them: each one prefixed with its UTF-8 byte length and ';'.
     /// </summary>
     public static Dictionary<string, string>? TryGetArrowFieldMetadata(Type type)
     {
@@ -56,7 +56,7 @@ public static class EnumCategories
             encoded.Append(System.Text.Encoding.UTF8.GetByteCount(category)).Append(';').Append(category);
         }
 
-        return new Dictionary<string, string> { [PolarsEnumMetadataKey] = encoded.ToString() };
+        return new Dictionary<string, string> { [EnumMetadataKey] = encoded.ToString() };
     }
 
     /// <summary>
@@ -77,13 +77,13 @@ public static class EnumCategories
     }
 
     /// <summary>
-    /// Whether values of <paramref name="enumType"/> are stored as a Polars Enum column (false for a
+    /// Whether values of <paramref name="enumType"/> are stored as an engine Enum column (false for a
     /// <see cref="FlagsAttribute"/> enum, which is stored as its underlying integer).
     /// </summary>
     public static bool UsesEnumDataType(Type enumType) => GetLayout(enumType).UsesEnumDataType;
 
     /// <summary>
-    /// The Polars Enum categories of <paramref name="enumType"/>: its member names ordered by underlying value,
+    /// The engine Enum categories of <paramref name="enumType"/>: its member names ordered by underlying value,
     /// one name per distinct value.
     /// </summary>
     public static string[] GetCategories(Type enumType) => [.. GetLayout(enumType).Categories];
@@ -106,7 +106,7 @@ public static class EnumCategories
         }
 
         throw new ArgumentException(
-            $"Value '{value}' is not a defined member of enum {enumType.FullName}; a Polars Enum column holds only defined members.",
+            $"Value '{value}' is not a defined member of enum {enumType.FullName}; an Enum column holds only defined members.",
             nameof(value));
     }
 

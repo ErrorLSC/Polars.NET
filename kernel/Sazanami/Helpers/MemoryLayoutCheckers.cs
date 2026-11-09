@@ -1,4 +1,4 @@
-namespace Polars.NET.Core.Helpers;
+namespace Kaminari.Sazanami.Helpers;
 
 public static partial class ArrayHelper
 {

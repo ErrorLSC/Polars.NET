@@ -82,7 +82,7 @@ type internal CompilationScope private (backend: IQueryBackend, enclosing: Compi
         match CompilationScope.current with
         | null ->
             invalidOp
-                "[Polars.NET.Linq Bug] Expression translation ran outside a compilation scope. The translation entry point must call CompilationScope.Enter."
+                "[Samidare Bug] Expression translation ran outside a compilation scope. The translation entry point must call CompilationScope.Enter."
         | scope -> scope
 
     /// The innermost open scope, if any.

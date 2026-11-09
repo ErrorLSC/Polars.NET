@@ -54,7 +54,7 @@ type internal MaterializedGrouping<'TKey, 'TElement>(key: 'TKey, elements: 'TEle
         member _.SyncRoot = elements.SyncRoot
         member _.CopyTo(array, index) = elements.CopyTo(array, index)
 
-/// Represents the diagnostic inspection result of a Polars LINQ query pipeline.
+/// Represents the diagnostic inspection result of a LINQ query pipeline.
 type PlanInspection =
     {
         NativePlan: string
@@ -76,7 +76,7 @@ type PlanInspection =
         let sb = System.Text.StringBuilder()
 
         if this.IsFullFallback then
-            sb.AppendLine "[Polars.NET Query Plan - Full Fallback to In-Memory LINQ]"
+            sb.AppendLine "[Query Plan - Full Fallback to In-Memory LINQ]"
             |> ignore
 
             sb.AppendLine "---------------------------------------------------------"
@@ -99,7 +99,7 @@ type PlanInspection =
                 |> ignore
         elif not this.HasClientPredicates && not this.HasClientProjection then
             if this.HasUdf then
-                sb.AppendLine "[Polars.NET Query Plan - 100% Native Pushdown (with C# UDF Callback)]"
+                sb.AppendLine "[Query Plan - 100% Native Pushdown (with C# UDF Callback)]"
                 |> ignore
 
                 sb.AppendLine "---------------------------------------------------------------------"
@@ -115,21 +115,21 @@ type PlanInspection =
 
                 sb.AppendLine this.NativePlan |> ignore
             else
-                sb.AppendLine "[Polars.NET Query Plan - 100% Native Pushdown]" |> ignore
+                sb.AppendLine "[Query Plan - 100% Native Pushdown]" |> ignore
                 sb.AppendLine "---------------------------------------------" |> ignore
                 sb.AppendLine this.NativePlan |> ignore
         else
-            sb.AppendLine "[Polars.NET Query Plan - Hybrid Execution (Partial Pushdown)]"
+            sb.AppendLine "[Query Plan - Hybrid Execution (Partial Pushdown)]"
             |> ignore
 
             sb.AppendLine "------------------------------------------------------------"
             |> ignore
 
-            sb.AppendLine "Phase 1: Native Polars Pushdown Plan:" |> ignore
+            sb.AppendLine "Phase 1: Native Pushdown Plan:" |> ignore
             sb.AppendLine this.NativePlan |> ignore
 
             if this.HasUdf then
-                sb.AppendLine " Native C# UDF Callbacks (Executed inside Polars):" |> ignore
+                sb.AppendLine " Native C# UDF Callbacks (Executed inside the engine):" |> ignore
                 for udf in this.UdfExpressions do
                     sb.AppendFormat("     • {0}\n", udf) |> ignore
 
@@ -150,8 +150,8 @@ type PlanInspection =
 
         sb.ToString().TrimEnd()
 
-/// Public interface implemented by PolarsQueryable to expose query plan inspection.
-type IPolarsExplainable =
+/// Public interface implemented by queryables to expose query plan inspection.
+type IQueryExplainable =
     abstract member InspectPlan: optimized: bool -> PlanInspection
     abstract member Explain: optimized: bool -> string
     abstract member ExplainLogicalPlan: unit -> string

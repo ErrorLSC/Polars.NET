@@ -66,9 +66,9 @@ public class LinqCompilationScopeTests
         var withUdf = df.AsQueryable<ScopeRow>().Select(r => Shout(r.Name));
         var plain = df.AsQueryable<ScopeRow>().Select(r => r.Name.ToUpper());
 
-        Assert.True(((IPolarsExplainable)withUdf).InspectPlan(true).HasUdf);
-        Assert.False(((IPolarsExplainable)plain).InspectPlan(true).HasUdf);
-        Assert.True(((IPolarsExplainable)withUdf).InspectPlan(true).HasUdf);
+        Assert.True(((IQueryExplainable)withUdf).InspectPlan(true).HasUdf);
+        Assert.False(((IQueryExplainable)plain).InspectPlan(true).HasUdf);
+        Assert.True(((IQueryExplainable)withUdf).InspectPlan(true).HasUdf);
         Assert.Equal(["A!", "B!"], withUdf.ToList());
     }
 }

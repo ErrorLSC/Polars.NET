@@ -131,20 +131,20 @@ public class QueryPlanCacheTests
         using var df = DataFrame.FromRows(Customers);
         IQueryable<Customer> Shape() => df.AsQueryable<Customer>().Where(c => Mask(c.City).StartsWith('S'));
 
-        var pushed = (IPolarsExplainable)Shape();
+        var pushed = (IQueryExplainable)Shape();
         Assert.True(pushed.InspectPlan(true).HasUdf);
 
         using (Pl.Config.SetDisallowUdfPushdown(true).BeginScope())
         using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
         {
-            var inspection = ((IPolarsExplainable)Shape()).InspectPlan(true);
+            var inspection = ((IQueryExplainable)Shape()).InspectPlan(true);
             Assert.False(inspection.HasUdf);
             Assert.True(inspection.HasClientPredicates);
             Assert.Equal(["Shanghai"], Shape().Select(c => c.City).ToList());
         }
 
         // Back to the default: the cached pushed-down compilation is reused, UDF diagnostics included.
-        Assert.True(((IPolarsExplainable)Shape()).InspectPlan(true).HasUdf);
+        Assert.True(((IQueryExplainable)Shape()).InspectPlan(true).HasUdf);
         Assert.Equal(["Shanghai"], Shape().Select(c => c.City).ToList());
     }
 
@@ -165,10 +165,10 @@ public class QueryPlanCacheTests
         using (Pl.Config.SetDisallowUdfPushdown(true).BeginScope())
         using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
         {
-            var first = ((IPolarsExplainable)Shape()).InspectPlan(true);
-            _ = ((IPolarsExplainable)Shape()).InspectPlan(true);
+            var first = ((IQueryExplainable)Shape()).InspectPlan(true);
+            _ = ((IQueryExplainable)Shape()).InspectPlan(true);
             var hitsBefore = QueryPlanCache.Hits;
-            var second = ((IPolarsExplainable)Shape()).InspectPlan(true);
+            var second = ((IQueryExplainable)Shape()).InspectPlan(true);
 
             Assert.True(QueryPlanCache.Hits > hitsBefore);
             Assert.True(second.IsFullFallback);

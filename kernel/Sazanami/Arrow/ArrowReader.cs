@@ -233,7 +233,7 @@ public static class ArrowReader
                 if (array is FixedSizeBinaryArray fba) return idx => fba.GetBytes(idx).ToArray();
         }
 
-        // Enum: member names (the values of a Polars Enum) or underlying integers
+        // Enum: member names (the values of an engine Enum) or underlying integers
         if (type.IsEnum)
         {
             if (array is StringViewArray or StringArray or LargeStringArray)
@@ -504,7 +504,7 @@ public static class ArrowReader
     }
 
     /// <summary>
-    /// Lightweight wrapper to satisfy IOrderedEnumerable&lt;T&gt; when data is already sorted by Polars.
+    /// Lightweight wrapper to satisfy IOrderedEnumerable&lt;T&gt; when data is already sorted by the engine.
     /// </summary>
     private sealed class PresortedOrderedEnumerable<TElement>(IList<TElement> source) : IOrderedEnumerable<TElement>
     {

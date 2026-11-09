@@ -24,7 +24,7 @@ public class LinqSubqueryGraftingTests
         var native = query(df.AsQueryable<GoRow>(), dfInner.AsQueryable<GoRow>());
 
         Assert.Equal(query(Rows.AsQueryable(), Rows.AsQueryable()).ToList(), native.ToList());
-        return ((IPolarsExplainable)native).InspectPlan(true).LogicalPlan!.Value;
+        return ((IQueryExplainable)native).InspectPlan(true).LogicalPlan!.Value;
     }
 
     [Fact]

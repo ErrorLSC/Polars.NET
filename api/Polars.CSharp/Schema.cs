@@ -7,6 +7,7 @@ using System.Text;
 using Apache.Arrow.Types;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.CSharp;
 

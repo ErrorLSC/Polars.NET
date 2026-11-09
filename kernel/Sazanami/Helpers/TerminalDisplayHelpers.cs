@@ -1,9 +1,9 @@
 using System.Runtime.CompilerServices;
 
-namespace Polars.NET.Core.Helpers;
+namespace Kaminari.Sazanami.Helpers;
 
 /// <summary>
-/// Provides terminal-friendly display sanitization helpers for Polars.NET outputs.
+/// Provides terminal-friendly display sanitization helpers for engine outputs.
 /// </summary>
 public static class TerminalDisplayHelpers
 {

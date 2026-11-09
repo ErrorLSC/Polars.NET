@@ -1,5 +1,4 @@
 using System.Diagnostics.CodeAnalysis;
-using Polars.NET.Core.Helpers;
 using Polars.NET.Core.Wrappers;
 using Kaminari.Sazanami.Arrow;
 using Kaminari.Sazanami.Helpers;

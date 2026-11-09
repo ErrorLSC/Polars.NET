@@ -1,9 +1,8 @@
-namespace Polars.NET.Core.Helpers;
+namespace Kaminari.Sazanami.Helpers;
 
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Polars.NET.Core.Native;
 
 public static partial class ArrayHelper
 {
@@ -65,29 +64,5 @@ public static partial class ArrayHelper
         }
 
         return (values, validity);
-    }
-
-    /// <summary>
-    /// Creates a SeriesHandle from a nullable Guid span using the unzipped FixedSizeBinary pipeline.
-    /// </summary>
-    public static SeriesHandle CreateFromNullableGuidSpan(string name, ReadOnlySpan<Guid?> data)
-    {
-        if (data.IsEmpty)
-        {
-            return NativeBindings.pl_series_new_guid_fixed_binary(name, ref Unsafe.NullRef<byte>(), ref Unsafe.NullRef<byte>(), 0);
-        }
-
-        var (values, validity) = UnzipGuid(data);
-        ref byte valuesRef = ref MemoryMarshal.GetArrayDataReference(values);
-        ref byte validRef = ref (validity != null
-            ? ref MemoryMarshal.GetArrayDataReference(validity)
-            : ref Unsafe.NullRef<byte>());
-
-        return NativeBindings.pl_series_new_guid_fixed_binary(
-            name,
-            ref valuesRef,
-            ref validRef,
-            (nuint)data.Length
-        );
     }
 }

@@ -3,11 +3,11 @@ using System.Collections;
 using System.Data;
 using System.Data.Common;
 
-namespace Polars.NET.Core.Data;
+namespace Kaminari.Sazanami.Data;
 /// <summary>
-/// Convert Polars DataFrame to DataReader with CancellationToken Control
+/// Exposes Arrow record batches as a DataReader with CancellationToken control
 /// </summary>
-public sealed class PolarsDataReader(
+public sealed class ArrowDataReader(
     ArrowToDbStream innerReader,
     CancellationTokenSource cts,
     Task producerTask) : DbDataReader

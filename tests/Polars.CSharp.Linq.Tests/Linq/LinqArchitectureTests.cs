@@ -68,6 +68,25 @@ public class LinqArchitectureTests
         Assert.Equal(["Sazanami"], ProjectReferences("kernel", "Samidare", "Samidare.fsproj"));
     }
 
+    [Theory]
+    [Trait("Architecture", "LinqLayering")]
+    [InlineData("Samidare")]
+    [InlineData("Sazanami")]
+    public void Backend_Neutral_Projects_Do_Not_Mention_The_Backend(string project)
+    {
+        var root = Path.Combine(FindRepoRoot(), "kernel", project);
+        var mentions = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+            .Where(path => path.EndsWith(".cs", StringComparison.Ordinal) || path.EndsWith(".fs", StringComparison.Ordinal))
+            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                        && !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .SelectMany(path => File.ReadLines(path).Select((line, i) => (path, line, number: i + 1)))
+            .Where(x => x.line.Contains("polars", StringComparison.OrdinalIgnoreCase))
+            .Select(x => $"{Path.GetRelativePath(root, x.path)}:{x.number}: {x.line.Trim()}")
+            .ToList();
+
+        Assert.True(mentions.Count == 0, $"{project} must stay backend-neutral:\n" + string.Join('\n', mentions));
+    }
+
     [Fact]
     [Trait("Architecture", "LinqLayering")]
     public void Samidare_Does_Not_Reference_Polars_Or_Native_Handles()

@@ -3,6 +3,7 @@ using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Wrappers;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.CSharp;
 
@@ -346,7 +347,7 @@ public static class Delta
         string? filterJson = null;
         if (partitionFilters != null && partitionFilters.Count > 0)
         {
-            filterJson = PolarsJsonHelper.SerializeDictionary(partitionFilters);
+            filterJson = JsonDictionaryWriter.SerializeDictionary(partitionFilters);
         }
 
         // Convert Z-Order columns to array (Rust FFI expects string[] or null)

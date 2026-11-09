@@ -7,6 +7,7 @@ open System.Threading.Tasks
 open Apache.Arrow
 open Polars.NET.Core.Data
 open Polars.NET.Core.Arrow
+open Kaminari.Sazanami.Data
 
 /// <summary>
 /// Streams native DataFrame batches directly from DbDataReader cursor via Arrow FFI.

@@ -31,7 +31,7 @@ module internal PolarsVocabulary =
         match field.Metadata with
         | null -> None
         | metadata ->
-            match metadata.TryGetValue EnumCategories.PolarsEnumMetadataKey with
+            match metadata.TryGetValue EnumCategories.EnumMetadataKey with
             | true, encoded ->
                 let bytes = Text.Encoding.UTF8.GetBytes(encoded: string)
                 let rec read pos acc =

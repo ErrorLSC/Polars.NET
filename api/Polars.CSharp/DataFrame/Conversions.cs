@@ -7,9 +7,9 @@ using System.Threading.Channels;
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Polars.NET.Core.Arrow;
-using Polars.NET.Core.Data;
 using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
+using Kaminari.Sazanami.Data;
 
 namespace Polars.CSharp;
 
@@ -119,7 +119,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
 
         var innerReader = new ArrowToDbStream(stream, typeOverrides);
 
-        return new PolarsDataReader(innerReader, cts, producerTask);
+        return new ArrowDataReader(innerReader, cts, producerTask);
     }
 
     /// <summary>

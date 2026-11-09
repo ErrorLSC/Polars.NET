@@ -48,7 +48,7 @@ module internal ExpressionEquality =
                     hc.Add 0
                 elif
                     typeof<IQueryable>.IsAssignableFrom ce.Type
-                    || typeof<IPolarsInternalExplainable>.IsAssignableFrom ce.Type
+                    || typeof<IInternalQueryExplainable>.IsAssignableFrom ce.Type
                 then
                     // Treat queryable root sources by their element type rather than object identity
                     let elemType =
@@ -192,9 +192,9 @@ module internal ExpressionEquality =
                     false
                 elif
                     (typeof<IQueryable>.IsAssignableFrom ca.Type
-                     || typeof<IPolarsInternalExplainable>.IsAssignableFrom ca.Type)
+                     || typeof<IInternalQueryExplainable>.IsAssignableFrom ca.Type)
                     && (typeof<IQueryable>.IsAssignableFrom cb.Type
-                        || typeof<IPolarsInternalExplainable>.IsAssignableFrom cb.Type)
+                        || typeof<IInternalQueryExplainable>.IsAssignableFrom cb.Type)
                 then
                     let elemA =
                         match ClrTypeHelper.TryGetEnumerableElementType ca.Type with

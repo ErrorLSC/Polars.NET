@@ -84,7 +84,7 @@ public static partial class ArrowExtensions
         return array switch
         {
             // Signed Integes
-            Int8Array i8 => i8.GetValue(index),   // Polars Month/Day/Weekday is Int8
+            Int8Array i8 => i8.GetValue(index),   // Month/Day/Weekday can be Int8
             Int16Array i16 => i16.GetValue(index),
             Int32Array i32 => i32.GetValue(index),
             Int64Array i64 => i64.GetValue(index),

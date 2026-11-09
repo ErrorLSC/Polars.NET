@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Kaminari.Sazanami.Arrow;
 
-namespace Polars.NET.Core.Data;
+namespace Kaminari.Sazanami.Data;
 
 public static class DataReaderExtensions
 {

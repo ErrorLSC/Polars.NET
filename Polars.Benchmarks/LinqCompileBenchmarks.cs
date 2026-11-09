@@ -96,12 +96,12 @@ public class LinqCompileBenchmarks
 
     /// Compiling a prebuilt query to IR; a cache hit after the first iteration when the cache is enabled.
     [Benchmark]
-    public object Compile() => ((IPolarsExplainable)_query).GetLogicalPlan();
+    public object Compile() => ((IQueryExplainable)_query).GetLogicalPlan();
 
     /// Compiling with a parameter value never seen before: always a cache miss, including the insertion
     /// (and, once MaxCapacity is reached, eviction) cost when the cache is enabled.
     [Benchmark]
-    public object Compile_FreshParameterValue() => ((IPolarsExplainable)_make(++_freshValue)).GetLogicalPlan();
+    public object Compile_FreshParameterValue() => ((IQueryExplainable)_make(++_freshValue)).GetLogicalPlan();
 
     /// End to end: compile, lower, collect and materialize.
     [Benchmark]

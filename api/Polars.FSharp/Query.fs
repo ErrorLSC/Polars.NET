@@ -14,6 +14,7 @@ open System.Collections.Generic
 open Polars.NET.Core.Helpers
 open System.Runtime.ExceptionServices
 open System.Reflection
+open Kaminari.Sazanami.Helpers
 
 [<AutoOpen>]
 module LinqExtension =
@@ -31,12 +32,12 @@ module LinqExtension =
             else
                 getFieldAnywhere t.BaseType name
 
-    /// Inspects an object or IQueryable and safely extracts its underlying Polars IPolarsExplainable
+    /// Inspects an object or IQueryable and safely extracts its underlying Polars IQueryExplainable
     [<TailCall>]
-    let rec private tryExtractExplainable (obj: obj) : IPolarsExplainable option =
+    let rec private tryExtractExplainable (obj: obj) : IQueryExplainable option =
         match obj with
         | null -> None
-        | :? IPolarsExplainable as exp -> Some exp
+        | :? IQueryExplainable as exp -> Some exp
         | _ ->
             let t = obj.GetType()
             let fSource = getFieldAnywhere t "_source"
@@ -62,7 +63,7 @@ module LinqExtension =
                                     let polarsQ = q.Provider.CreateQuery q.Expression
 
                                     match polarsQ with
-                                    | :? IPolarsExplainable as exp -> Some exp
+                                    | :? IQueryExplainable as exp -> Some exp
                                     | _ -> None
                                 with ex ->
                                     printfn "[DEBUG tryExtractExplainable] CreateQuery EXCEPTION: %A" ex

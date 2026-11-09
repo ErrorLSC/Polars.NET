@@ -95,7 +95,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Polars.NET.Core pins this version and references this project: a newer one here is a package downgrade there. -->
+    <!-- The projects that reference this one pin this version: a newer one here is a package downgrade there. -->
     <PackageReference Update="FSharp.Core" Version="8.0.100" />
   </ItemGroup>
 

@@ -6,6 +6,7 @@ using System.Text;
 using Polars.NET.Core.Helpers;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
+using Kaminari.Sazanami.Helpers;
 
 namespace Polars.CSharp;
 

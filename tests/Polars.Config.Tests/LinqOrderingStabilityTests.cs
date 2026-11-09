@@ -24,7 +24,7 @@ public class LinqOrderingStabilityTests
         q.GroupBy(r => new { r.A, r.B }).Select(g => new { g.Key.A, g.Key.B, C = g.Count() }).OrderBy(x => x.A)
             .Select(x => ValueTuple.Create(x.A, x.B, x.C));
 
-    private static string NativePlan<T>(IQueryable<T> query) => ((IPolarsExplainable)query).InspectPlan(true).NativePlan;
+    private static string NativePlan<T>(IQueryable<T> query) => ((IQueryExplainable)query).InspectPlan(true).NativePlan;
 
     [Fact]
     public void Orderings_Are_Stable_By_Default()
