@@ -1,5 +1,6 @@
 namespace Polars.NET.Linq.IR.Passes
 
+open System
 open System.Collections.Generic
 open Polars.NET.Linq
 open Polars.NET.Linq.IR
@@ -49,18 +50,183 @@ module internal JoinReordering =
         | ScalarExpr.Unary(UnaryOp.Not, inner) -> 1.0 - selectivity inner
         | _ -> 0.5
 
+    /// What the estimator reads about the plan's source slots.
+    type SourceEstimates =
+        {
+            Rows: int -> float
+            Column: int -> string -> ColumnStatistics option
+            /// The (lowest, highest) values of a column, numbers and dates as doubles.
+            KeyRange: int -> string -> (float * float) option
+        }
+
+    let private unixEpochDayNumber = DateOnly(1970, 1, 1).DayNumber
+
+    /// A number or date as the double that statistics compare it by.
+    let private literalNumber (value: LiteralValue) =
+        match value with
+        | LiteralValue.Int8 v -> Some(float v)
+        | LiteralValue.Int16 v -> Some(float v)
+        | LiteralValue.Int32 v -> Some(float v)
+        | LiteralValue.Int64 v -> Some(float v)
+        | LiteralValue.UInt8 v -> Some(float v)
+        | LiteralValue.UInt16 v -> Some(float v)
+        | LiteralValue.UInt32 v -> Some(float v)
+        | LiteralValue.UInt64 v -> Some(float v)
+        | LiteralValue.Float32 v -> Some(float v)
+        | LiteralValue.Float64 v -> Some v
+        | LiteralValue.Decimal v -> Some(float v)
+        | LiteralValue.Date v -> Some(float (v.DayNumber - unixEpochDayNumber))
+        | _ -> None
+
+    let rec private literalOf (expr: ScalarExpr) =
+        match expr with
+        | ScalarExpr.Literal(LiteralValue.Null _) -> None
+        | ScalarExpr.Literal value -> Some value
+        | ScalarExpr.Cast(inner, _, _) -> literalOf inner
+        | _ -> None
+
+    let rec private columnOf (expr: ScalarExpr) =
+        match expr with
+        | ScalarExpr.Column name -> Some name
+        | ScalarExpr.Cast(inner, _, _) -> columnOf inner
+        | _ -> None
+
+    let private sameValue (a: LiteralValue) (b: LiteralValue) =
+        match literalNumber a, literalNumber b, a, b with
+        | Some x, Some y, _, _ -> x = y
+        | _, _, LiteralValue.String x, LiteralValue.String y -> x = y
+        | _ -> false
+
+    /// The share of rows equal to `value`, from the column's frequent values and its distinct count.
+    let private equalityShare (statistics: ColumnStatistics) (value: LiteralValue) =
+        match statistics.FrequentValues |> List.tryFind (fun (frequent, _) -> sameValue frequent value) with
+        | Some(_, share) -> Some share
+        | None ->
+            statistics.DistinctCount
+            |> Option.map (fun distinct ->
+                let nonNull = 1.0 - defaultArg statistics.NullFraction 0.0
+                let listed = statistics.FrequentValues |> List.sumBy snd
+                max 0.0 (nonNull - listed) / max 1.0 (distinct - float statistics.FrequentValues.Length))
+
+    [<RequireQualifiedAccess>]
+    type private Bound =
+        | Lower
+        | Upper
+
+    /// A comparison of a column with a literal number, as (column, side, value).
+    let private tryBound (predicate: ScalarExpr) =
+        let bound op column literal =
+            match columnOf column, literalOf literal |> Option.bind literalNumber with
+            | Some name, Some value -> Some(name, op, value)
+            | _ -> None
+        match predicate with
+        | ScalarExpr.Binary((BinaryOp.Gt | BinaryOp.GtEq), column, literal) -> bound Bound.Lower column literal
+        | ScalarExpr.Binary((BinaryOp.Lt | BinaryOp.LtEq), column, literal) -> bound Bound.Upper column literal
+        | ScalarExpr.Binary((BinaryOp.Lt | BinaryOp.LtEq), literal, column) -> bound Bound.Lower column literal
+        | ScalarExpr.Binary((BinaryOp.Gt | BinaryOp.GtEq), literal, column) -> bound Bound.Upper column literal
+        | _ -> None
+
+    /// The fraction of rows kept by a conjunction of predicates, reading a column's statistics where it has them.
+    let rec private conjunctionShare (column: string -> ColumnStatistics option) (predicates: ScalarExpr list) : float =
+        let rec split (predicate: ScalarExpr) =
+            match predicate with
+            | ScalarExpr.Binary(BinaryOp.And, left, right) -> split left @ split right
+            | other -> [ other ]
+        let conjuncts = predicates |> List.collect split
+        let spans (name: string) =
+            column name
+            |> Option.bind (fun statistics ->
+                match statistics.Min |> Option.bind literalNumber, statistics.Max |> Option.bind literalNumber with
+                | Some low, Some high -> Some(statistics, low, high)
+                | _ -> None)
+        let ranged = conjuncts |> List.choose tryBound |> List.filter (fun (name, _, _) -> (spans name).IsSome)
+        let rangeShares =
+            ranged
+            |> List.groupBy (fun (name, _, _) -> name)
+            |> List.map (fun (name, bounds) ->
+                let statistics, low, high = (spans name).Value
+                let lowest = bounds |> List.choose (fun (_, side, v) -> if side = Bound.Lower then Some v else None) |> List.fold max low
+                let highest = bounds |> List.choose (fun (_, side, v) -> if side = Bound.Upper then Some v else None) |> List.fold min high
+                let nonNull = 1.0 - defaultArg statistics.NullFraction 0.0
+                if high <= low then
+                    (if lowest <= highest then nonNull else 0.0)
+                else
+                    nonNull * max 0.0 (min 1.0 ((highest - lowest) / (high - low))))
+        let rangedColumns = ranged |> List.map (fun (name, _, _) -> name) |> Set.ofList
+        let others =
+            conjuncts
+            |> List.filter (fun predicate ->
+                match tryBound predicate with
+                | Some(name, _, _) -> not (rangedColumns.Contains name)
+                | None -> true)
+        (rangeShares @ (others |> List.map (leafShare column))) |> List.fold (*) 1.0
+
+    and private leafShare (column: string -> ColumnStatistics option) (predicate: ScalarExpr) : float =
+        let equality target literal =
+            match columnOf target, literalOf literal with
+            | Some name, Some value -> column name |> Option.bind (fun statistics -> equalityShare statistics value)
+            | _ -> None
+        let known =
+            match predicate with
+            | ScalarExpr.Binary((BinaryOp.Eq | BinaryOp.EqMissing), left, right) ->
+                equality left right |> Option.orElseWith (fun () -> equality right left)
+            | ScalarExpr.Binary(BinaryOp.Or, left, right) ->
+                let a, b = leafShare column left, leafShare column right
+                Some(min 1.0 (a + b - a * b))
+            | ScalarExpr.Binary(BinaryOp.And, _, _) -> Some(conjunctionShare column [ predicate ])
+            | ScalarExpr.Unary(UnaryOp.Not, inner) -> Some(1.0 - leafShare column inner)
+            | ScalarExpr.Unary(UnaryOp.IsNull, target) ->
+                columnOf target |> Option.bind column |> Option.bind (fun statistics -> statistics.NullFraction)
+            | ScalarExpr.Unary(UnaryOp.IsNotNull, target) ->
+                columnOf target |> Option.bind column |> Option.bind (fun statistics -> statistics.NullFraction |> Option.map (fun nulls -> 1.0 - nulls))
+            | ScalarExpr.InList(target, source, false, _) ->
+                let values =
+                    match source with
+                    | InListSource.Literals literals -> literals
+                    | InListSource.Collection(values, _) -> values |> Seq.cast<obj> |> Seq.choose LiteralValue.TryOfObject |> List.ofSeq
+                columnOf target
+                |> Option.bind column
+                |> Option.bind (fun statistics ->
+                    let shares = values |> List.map (equalityShare statistics)
+                    if shares |> List.forall Option.isSome then Some(min 1.0 (shares |> List.sumBy Option.get)) else None)
+            | _ -> None
+        known |> Option.defaultWith (fun () -> selectivity predicate)
+
+    /// The source slot a plan reads through filters and shared subplans.
+    let rec private sourceSlot (plan: LogicalPlan) =
+        match plan with
+        | LogicalPlan.Scan(LogicalPlanSource.Slot index, _) -> Some index
+        | LogicalPlan.Filter(input, _)
+        | LogicalPlan.Shared(_, input) -> sourceSlot input
+        | _ -> None
+
     /// (estimated rows, rows of the table beneath before its filters).
-    let rec estimate (sourceRows: int -> float) (plan: LogicalPlan) : float * float =
-        let recurse = estimate sourceRows
+    let rec estimate (sources: SourceEstimates) (plan: LogicalPlan) : float * float =
+        let recurse = estimate sources
         match plan with
         | LogicalPlan.Scan(LogicalPlanSource.Slot index, _) ->
-            let rows = sourceRows index
+            let rows = sources.Rows index
             rows, rows
         | LogicalPlan.Scan _ -> defaultSourceRows, defaultSourceRows
         | LogicalPlan.Empty _ -> 1.0, 1.0
-        | LogicalPlan.Filter(input, predicate) ->
+        | LogicalPlan.Filter _ ->
+            let rec gather (node: LogicalPlan) (predicates: ScalarExpr list) =
+                match node with
+                | LogicalPlan.Filter(input, predicate) -> gather input (predicate :: predicates)
+                | other -> other, predicates
+            let input, predicates = gather plan []
             let rows, tableRows = recurse input
-            max 1.0 (rows * selectivity predicate), tableRows
+            let measuredColumn =
+                match sourceSlot input with
+                | Some slot when
+                    predicates
+                    |> List.exists (fun predicate -> ScalarExprOps.collectColumns predicate |> Seq.exists (fun column -> (sources.Column slot column).IsSome))
+                    ->
+                    Some(sources.Column slot)
+                | _ -> None
+            match measuredColumn with
+            | Some column -> max 1.0 (rows * conjunctionShare column predicates), tableRows
+            | None -> (predicates |> List.fold (fun kept predicate -> max 1.0 (kept * selectivity predicate)) rows), tableRows
         | LogicalPlan.Limit(input, _, count) ->
             let rows, tableRows = recurse input
             min rows (max 1.0 (float count)), tableRows
@@ -115,28 +281,59 @@ module internal JoinReordering =
         }
 
     /// The row count of a source slot, read from its statistics once.
-    let sourceRowCounts (sources: SourceBinding array) : int -> float =
+    let sourceEstimates (sources: SourceBinding array) : SourceEstimates =
         let knownRows = Dictionary<int, float>()
-        fun (slot: int) ->
-            match knownRows.TryGetValue slot with
-            | true, rows -> rows
-            | _ ->
-                let rows =
-                    if slot < 0 || slot >= sources.Length then
-                        defaultSourceRows
-                    else
-                        match sources.[slot] with
-                        | SourceBinding.InMemory(rows, _) -> float rows.Length
-                        | SourceBinding.Table table ->
-                            match table with
-                            | :? ISourceStatistics as statistics ->
-                                statistics.EstimatedRows |> Option.map float |> Option.defaultValue defaultSourceRows
-                            | _ -> defaultSourceRows
-                knownRows.[slot] <- rows
-                rows
+        let knownColumns = Dictionary<struct (int * string), ColumnStatistics option>()
+        let table slot =
+            if slot < 0 || slot >= sources.Length then
+                None
+            else
+                match sources.[slot] with
+                | SourceBinding.Table table -> Some table
+                | SourceBinding.InMemory _ -> None
+        {
+            Rows =
+                fun slot ->
+                    match knownRows.TryGetValue slot with
+                    | true, rows -> rows
+                    | _ ->
+                        let rows =
+                            match table slot with
+                            | Some source -> QueryStatistics.RowCount source |> Option.map float |> Option.defaultValue defaultSourceRows
+                            | None ->
+                                if slot >= 0 && slot < sources.Length then
+                                    match sources.[slot] with
+                                    | SourceBinding.InMemory(rows, _) -> float rows.Length
+                                    | SourceBinding.Table _ -> defaultSourceRows
+                                else
+                                    defaultSourceRows
+                        knownRows.[slot] <- rows
+                        rows
+            KeyRange =
+                fun slot column ->
+                    table slot
+                    |> Option.bind (fun source -> QueryStatistics.ColumnRange(source, column))
+                    |> Option.bind (fun (low, high) ->
+                        match literalNumber low, literalNumber high with
+                        | Some lowest, Some highest -> Some(lowest, highest)
+                        | _ -> None)
+            Column =
+                fun slot column ->
+                    let key = struct (slot, column)
+                    match knownColumns.TryGetValue key with
+                    | true, statistics -> statistics
+                    | _ ->
+                        let statistics = table slot |> Option.bind (fun source -> QueryStatistics.Column(source, column))
+                        knownColumns.[key] <- statistics
+                        statistics
+        }
+
+    /// The estimates of `sourceEstimates` without column statistics, so that the fixed selectivities decide.
+    let tableEstimates (sources: SourceBinding array) : SourceEstimates =
+        { sourceEstimates sources with Column = (fun _ _ -> None); KeyRange = (fun _ _ -> None) }
 
     let apply (sources: SourceBinding array) (unorderedJoins: HashSet<LogicalPlan>) (plan: LogicalPlan) : LogicalPlan =
-        let sourceRows = sourceRowCounts sources
+        let estimates = tableEstimates sources
 
         let isFlattenableJoin (node: LogicalPlan) =
             match node with
@@ -234,7 +431,7 @@ module internal JoinReordering =
                 if n < 3 then
                     None
                 else
-                    let measures = relations |> Seq.map (estimate sourceRows) |> Array.ofSeq
+                    let measures = relations |> Seq.map (estimate estimates) |> Array.ofSeq
                     let rows i = fst measures.[i]
                     let tableRows i = snd measures.[i]
 

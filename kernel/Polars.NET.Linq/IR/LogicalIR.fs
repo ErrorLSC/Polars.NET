@@ -1012,6 +1012,85 @@ type ISourceStatistics =
     /// The source's row count, or None when it is not known cheaply.
     abstract member EstimatedRows: int64 option
 
+/// How a statistic was obtained.
+[<RequireQualifiedAccess>]
+type StatisticsOrigin =
+    /// Computed from every row or read from file metadata.
+    | Exact
+    /// Computed from a sample of the rows.
+    | Sampled
+    /// Observed while a query ran.
+    | Observed
+
+/// What is known about one column. Every field may be missing; the optimizer falls back to fixed selectivities.
+/// Numbers and dates are compared as doubles, dates as days since 1970-01-01.
+type ColumnStatistics =
+    {
+        /// The share of rows that are null, from 0 to 1.
+        NullFraction: float option
+        /// The number of distinct non-null values.
+        DistinctCount: float option
+        Min: LiteralValue option
+        Max: LiteralValue option
+        /// The most common values, each with its share of all the rows.
+        FrequentValues: (LiteralValue * float) list
+        Origin: StatisticsOrigin
+    }
+
+/// A table source that knows about its columns. It answers from what it has at hand or can obtain cheaply.
+type IColumnStatisticsSource =
+    abstract member TryGetColumnStatistics: column: string -> ColumnStatistics option
+    /// The column's smallest and largest values, which a source can usually afford even for a table too large to summarize.
+    abstract member TryGetColumnRange: column: string -> (LiteralValue * LiteralValue) option
+
+/// Statistics supplied from outside a source, for example by the component that reads the data or by an engine.
+/// They are consulted before the source's own, and steer plan choices only, never results.
+type IStatisticsProvider =
+    abstract member TryGetRowCount: source: ILogicalTableSource -> int64 option
+    abstract member TryGetColumnStatistics: source: ILogicalTableSource * column: string -> ColumnStatistics option
+    abstract member TryGetColumnRange: source: ILogicalTableSource * column: string -> (LiteralValue * LiteralValue) option
+    /// Changes when the statistics change enough for cached plans to be replanned.
+    abstract member Generation: int64
+
+/// The statistics providers of this process.
+[<AbstractClass; Sealed>]
+type QueryStatistics private () =
+    static let mutable providers: IStatisticsProvider list = []
+    static let gate = obj ()
+
+    /// Adds a provider, consulted before those added earlier, until the result is disposed.
+    static member Register(provider: IStatisticsProvider) : IDisposable =
+        lock gate (fun () -> providers <- provider :: providers)
+        { new IDisposable with
+            member _.Dispose() =
+                lock gate (fun () -> providers <- providers |> List.filter (fun p -> not (obj.ReferenceEquals(p, provider)))) }
+
+    static member internal Generation = providers |> List.sumBy (fun p -> p.Generation)
+
+    static member internal RowCount(source: ILogicalTableSource) : int64 option =
+        providers
+        |> List.tryPick (fun p -> p.TryGetRowCount source)
+        |> Option.orElseWith (fun () ->
+            match box source with
+            | :? ISourceStatistics as statistics -> statistics.EstimatedRows
+            | _ -> None)
+
+    static member internal ColumnRange(source: ILogicalTableSource, column: string) : (LiteralValue * LiteralValue) option =
+        providers
+        |> List.tryPick (fun p -> p.TryGetColumnRange(source, column))
+        |> Option.orElseWith (fun () ->
+            match box source with
+            | :? IColumnStatisticsSource as statistics -> statistics.TryGetColumnRange column
+            | _ -> None)
+
+    static member internal Column(source: ILogicalTableSource, column: string) : ColumnStatistics option =
+        providers
+        |> List.tryPick (fun p -> p.TryGetColumnStatistics(source, column))
+        |> Option.orElseWith (fun () ->
+            match box source with
+            | :? IColumnStatisticsSource as statistics -> statistics.TryGetColumnStatistics column
+            | _ -> None)
+
 /// Internal interface implemented by PolarsQueryable to expose IR compilation for testing, inspection, and subtree grafting.
 type internal IPolarsInternalExplainable =
     abstract member CompileLogicalQuery: unit -> CompiledLogicalQuery

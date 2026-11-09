@@ -28,6 +28,10 @@ open Polars.NET.Linq.IR
 /// table does not repay. A shared table on the right is filtered above the shared node, which stays as it is for its
 /// other consumers.
 ///
+/// Column statistics can show a table to be selective when the fixed selectivities do not. Its share is then scaled by how
+/// much of its key range the other side uses, and the reduction must pass a large join: see `shareOfFacts` and
+/// `minLargeJoinRows`.
+///
 /// A join on several columns gets a reduction of its own. Matching a large table on composite keys costs far more per
 /// row than a semi join on one of those columns, so a table is first filtered by the values one key can take. They come
 /// from the dimensions on the other side, following that key through joins between dimensions: in
@@ -38,6 +42,11 @@ module internal SemiJoinReduction =
     /// The largest estimated share of its table's rows that a selective table may keep. A single equality is estimated
     /// at 10% and says little (TPC-DS Q36's `s_state = 'TN'` keeps every store), so it takes more evidence than that.
     let private maxSelectivity = 0.05
+
+    /// A selective table known only from column statistics is one the fixed estimates do not rate as selective, often a
+    /// wide dimension of which the facts use little (a date dimension of 200 years), so its share says less about the rows
+    /// it removes. Its reduction must also pass a join with at least this many rows, where it can repay the probing.
+    let private minLargeJoinRows = 100_000.0
 
     /// How many times more rows a table must have than the key set that filters it, for a join on several columns and
     /// for filtering a join's right input by the keys of its left.
@@ -87,6 +96,27 @@ module internal SemiJoinReduction =
         bounds |> List.exists (fun (name, isLower) -> isLower && List.contains (name, false) bounds)
 
     let private columnsOf (plan: LogicalPlan) = Set.ofList (SchemaInference.inferPlanSchema plan).ColumnNames
+
+    /// The source slot and source column behind a column of a plan, when it is read directly from a table.
+    let rec private sourceOfColumn (column: string) (node: LogicalPlan) : (int * string) option =
+        match node with
+        | LogicalPlan.Scan(LogicalPlanSource.Slot slot, schema) when List.contains column schema.ColumnNames -> Some(slot, column)
+        | LogicalPlan.Filter(input, _)
+        | LogicalPlan.Shared(_, input) -> sourceOfColumn column input
+        | LogicalPlan.Project(input, columns) ->
+            match columns |> List.tryFind (fst >> (=) column) with
+            | Some(_, ScalarExpr.Column source) -> sourceOfColumn source input
+            | _ -> None
+        | LogicalPlan.Join(left, right, _, _, (JoinKind.Inner | JoinKind.Left | JoinKind.Semi | JoinKind.Anti), _, _, _) ->
+            if (columnsOf left).Contains column then sourceOfColumn column left else sourceOfColumn column right
+        | LogicalPlan.GroupBy(input, keys, _, _, _) ->
+            keys
+            |> List.tryPick (function
+                | ScalarExpr.Column name when name = column -> Some name
+                | ScalarExpr.Alias(ScalarExpr.Column name, alias) when alias = column -> Some name
+                | _ -> None)
+            |> Option.bind (fun source -> sourceOfColumn source input)
+        | _ -> None
 
     /// A relation over dimensions holding every value `key` takes in the rows of `node`, and the column holding them.
     /// A dimension without a filter of its own still narrows the key when it joins another dimension that has one.
@@ -139,7 +169,22 @@ module internal SemiJoinReduction =
         | _ -> None
 
     let apply (sources: SourceBinding array) (plan: LogicalPlan) : LogicalPlan =
-        let estimate = JoinReordering.estimate (JoinReordering.sourceRowCounts sources)
+        let estimate = JoinReordering.estimate (JoinReordering.tableEstimates sources)
+        let measurements = JoinReordering.sourceEstimates sources
+        let measured = JoinReordering.estimate measurements
+
+        /// The share of the rows on the other side that a key set keeps. A dimension can be far wider than the keys its
+        /// fact table uses (200 years of dates for 5 years of sales), so its own share is scaled by how much of its key
+        /// range the fact table covers.
+        let shareOfFacts (factKey: string) (facts: LogicalPlan) (dimensionKey: string) (dimension: LogicalPlan) (dimensionShare: float) =
+            match sourceOfColumn factKey facts, sourceOfColumn dimensionKey dimension with
+            | Some(factSlot, factColumn), Some(dimensionSlot, dimensionColumn) ->
+                match measurements.KeyRange factSlot factColumn, measurements.KeyRange dimensionSlot dimensionColumn with
+                | Some(factLow, factHigh), Some(low, high) when high > low ->
+                    let covered = (min factHigh high - max factLow low) / (high - low)
+                    if covered > 0.0 then min 1.0 (dimensionShare / covered) else dimensionShare
+                | _ -> dimensionShare
+            | _ -> dimensionShare
 
         let mutable nextSharedId =
             let rec maxId (node: LogicalPlan) =
@@ -151,8 +196,8 @@ module internal SemiJoinReduction =
 
         /// `node` with its tables filtered by the keys in `selective.[selectiveKey]`, following column `key`, or None
         /// if the column reaches no table.
-        let rec reduce (fromLeft: bool) (selective: LogicalPlan) (selectiveKey: string) (worthIt: bool ref) (key: string) (node: LogicalPlan) : LogicalPlan option =
-            let recurse = reduce fromLeft selective selectiveKey worthIt
+        let rec reduce (fromLeft: bool) (needsLargeJoin: bool) (selective: LogicalPlan) (selectiveKey: string) (worthIt: bool ref) (key: string) (node: LogicalPlan) : LogicalPlan option =
+            let recurse = reduce fromLeft needsLargeJoin selective selectiveKey worthIt
             let filtered () =
                 LogicalPlan.Join(
                     node,
@@ -225,7 +270,11 @@ module internal SemiJoinReduction =
                     if reducedLeft.IsNone && reducedRight.IsNone then
                         None
                     else
-                        if not fromLeft || (reducedLeft.IsSome && reducedRight.IsSome) then worthIt.Value <- true
+                        let bothSides = reducedLeft.IsSome && reducedRight.IsSome
+                        let otherSideIsLarge =
+                            (reducedLeft.IsSome && snd (estimate right) >= minLargeJoinRows)
+                            || (reducedRight.IsSome && snd (estimate left) >= minLargeJoinRows)
+                        if bothSides || (not fromLeft && (not needsLargeJoin || otherSideIsLarge)) then worthIt.Value <- true
                         Some(rebuild (defaultArg reducedLeft left) (defaultArg reducedRight right))
                 | JoinKind.Left when leftHas ->
                     recurse key left
@@ -245,8 +294,15 @@ module internal SemiJoinReduction =
                 ->
                 let rows, tableRows = estimate right
                 let worthIt = ref false
+                let selectiveByFixedEstimates = rows <= tableRows * maxSelectivity || hasTwoSidedRange right
+                let selectiveByStatistics =
+                    let keptRows, allRows = measured right
+                    shareOfFacts leftKey left rightKey right (keptRows / allRows) <= maxSelectivity
                 match
-                    (if rows <= tableRows * maxSelectivity || hasTwoSidedRange right then reduce false right rightKey worthIt leftKey left else None)
+                    (if selectiveByFixedEstimates || selectiveByStatistics then
+                         reduce false (not selectiveByFixedEstimates) right rightKey worthIt leftKey left
+                     else
+                         None)
                 with
                 | Some reduced when worthIt.Value ->
                     LogicalPlan.Join(reduced, right, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], how, suffix, coalescing, false)
@@ -260,7 +316,7 @@ module internal SemiJoinReduction =
                     | _ -> LogicalPlan.Shared(nextSharedId, left), Some nextSharedId
                 let keys = LogicalPlan.Project(shared, [ leftKey, ScalarExpr.Column leftKey ])
                 let worthIt = ref false
-                match reduce true keys leftKey worthIt rightKey right with
+                match reduce true false keys leftKey worthIt rightKey right with
                 | Some reduced when worthIt.Value ->
                     reservedId |> Option.iter (fun id -> nextSharedId <- id + 1)
                     LogicalPlan.Join(shared, reduced, [ ScalarExpr.Column leftKey ], rightOn, JoinKind.Inner, suffix, coalescing, false)

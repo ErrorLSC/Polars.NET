@@ -46,6 +46,8 @@ type internal CompiledQueryKey =
         DisallowUdfPushdown: bool
         UseRelationalNulls: bool
         AllowUnstableOrdering: bool
+        CollectColumnStatistics: bool
+        StatisticsGeneration: int64
         /// Whether the pipeline is for grafting into another query, which leaves its plan unoptimized.
         ForGraft: bool
     }
@@ -330,6 +332,8 @@ type QueryPlanCache private () =
                         DisallowUdfPushdown = CoreConfig.DisallowUdfPushdown
                         UseRelationalNulls = CoreConfig.UseRelationalNulls
                         AllowUnstableOrdering = CoreConfig.AllowUnstableOrdering
+                        CollectColumnStatistics = CoreConfig.CollectColumnStatistics
+                        StatisticsGeneration = Polars.NET.Linq.IR.QueryStatistics.Generation
                         ForGraft = false
                     }
             else

@@ -41,6 +41,7 @@
     <Compile Include="SemiJoinReductionTests.fs" />
     <Compile Include="AntiJoinRecognitionTests.fs" />
     <Compile Include="OuterJoinSimplificationTests.fs" />
+    <Compile Include="ColumnStatisticsTests.fs" />
     <Compile Include="EagerAggregationTests.fs" />
     <Compile Include="GroupingSetsCascadeTests.fs" />
     <Compile Include="UnionAggregateFlatteningTests.fs" />

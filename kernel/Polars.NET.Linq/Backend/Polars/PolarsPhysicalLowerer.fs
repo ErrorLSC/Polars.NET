@@ -22,6 +22,17 @@ type internal PolarsTableSource(handle: LazyFrameHandle, schema: LogicalSchema) 
         member _.Schema = schema
     interface ISourceStatistics with
         member _.EstimatedRows = estimatedRows.Value
+    interface IColumnStatisticsSource with
+        member _.TryGetColumnStatistics column =
+            if CoreConfig.CollectColumnStatistics then
+                PolarsColumnStatistics.tryGet handle schema estimatedRows.Value column
+            else
+                None
+        member _.TryGetColumnRange column =
+            if CoreConfig.CollectColumnStatistics then
+                PolarsColumnStatistics.tryGetRange handle schema column
+            else
+                None
 
 /// Physical lowerer that translates LogicalPlan trees into native Polars operations.
 module internal PolarsPhysicalLowerer =

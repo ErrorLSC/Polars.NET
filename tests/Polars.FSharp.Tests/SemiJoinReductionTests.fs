@@ -138,6 +138,63 @@ module SemiJoinReductionTests =
 
         Assert.Equal(plan, SemiJoinReduction.apply sources plan)
 
+    type private MeasuredTable(name: string, schema: LogicalSchema, rows: int64, column: string, statistics: ColumnStatistics, ranges: (string * (LiteralValue * LiteralValue)) list) =
+        interface ILogicalTableSource with
+            member _.Name = name
+            member _.Schema = schema
+        interface ISourceStatistics with
+            member _.EstimatedRows = Some rows
+        interface IColumnStatisticsSource with
+            member _.TryGetColumnStatistics requested = if requested = column then Some statistics else None
+            member _.TryGetColumnRange requested = ranges |> List.tryFind (fst >> (=) requested) |> Option.map snd
+
+    let private measuredDims =
+        let statistics: ColumnStatistics =
+            { NullFraction = Some 0.0; DistinctCount = Some 100.0; Min = None; Max = None; FrequentValues = []; Origin = StatisticsOrigin.Exact }
+        SourceBinding.Table(MeasuredTable("dims", dimSchema, 26_000L, "d_a", statistics, []))
+
+    /// One equality, which only its statistics show to be selective.
+    let private measured = LogicalPlan.Filter(dims, eq "d_a" 1)
+
+    let private semiByMeasured input key =
+        LogicalPlan.Join(input, measured, [ col key ], [ col "d_k" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+
+    [<Fact>]
+    let ``A table selective by its statistics reduces past a large join`` () =
+        let plan = inner (inner facts returns "f_t" "r_t") measured "f_k" "d_k"
+
+        let expected = inner (inner (semiByMeasured facts "f_k") returns "f_t" "r_t") measured "f_k" "d_k"
+        Assert.Equal(expected, SemiJoinReduction.apply [| sources.[0]; sources.[1]; measuredDims |] plan)
+
+    let private dimsWithKeyRange =
+        let statistics: ColumnStatistics =
+            { NullFraction = Some 0.0; DistinctCount = Some 100.0; Min = None; Max = None; FrequentValues = []; Origin = StatisticsOrigin.Exact }
+        let keys = [ "d_k", (LiteralValue.Float64 0.0, LiteralValue.Float64 1000.0) ]
+        SourceBinding.Table(MeasuredTable("dims", dimSchema, 26_000L, "d_a", statistics, keys))
+
+    let private factsWithKeyRange (high: float) =
+        let unused: ColumnStatistics =
+            { NullFraction = None; DistinctCount = None; Min = None; Max = None; FrequentValues = []; Origin = StatisticsOrigin.Exact }
+        SourceBinding.Table(MeasuredTable("facts", factSchema, 5_000_000L, "", unused, [ "f_k", (LiteralValue.Float64 0.0, LiteralValue.Float64 high) ]))
+
+    [<Fact>]
+    let ``A fact table using most of the dimension's keys is reduced`` () =
+        let plan = inner (inner facts returns "f_t" "r_t") measured "f_k" "d_k"
+
+        let expected = inner (inner (semiByMeasured facts "f_k") returns "f_t" "r_t") measured "f_k" "d_k"
+        Assert.Equal(expected, SemiJoinReduction.apply [| factsWithKeyRange 1000.0; sources.[1]; dimsWithKeyRange |] plan)
+
+    [<Fact>]
+    let ``A fact table using few of the dimension's keys is not reduced`` () =
+        let plan = inner (inner facts returns "f_t" "r_t") measured "f_k" "d_k"
+        Assert.Equal(plan, SemiJoinReduction.apply [| factsWithKeyRange 10.0; sources.[1]; dimsWithKeyRange |] plan)
+
+    [<Fact>]
+    let ``A table selective by its statistics does not reduce past a small join`` () =
+        let small = SourceBinding.Table(Table("returns", returnSchema, 5_000L))
+        let plan = inner (inner facts returns "f_t" "r_t") measured "f_k" "d_k"
+        Assert.Equal(plan, SemiJoinReduction.apply [| sources.[0]; small; measuredDims |] plan)
+
     [<Fact>]
     let ``A left join alone is worth reducing`` () =
         let leftJoin input = LogicalPlan.Join(input, returns, [ col "f_k" ], [ col "r_k" ], JoinKind.Left, Some "_right", JoinKeyCoalescing.Default, false)

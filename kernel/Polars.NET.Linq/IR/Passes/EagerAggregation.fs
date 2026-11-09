@@ -304,7 +304,7 @@ module internal EagerAggregation =
         final expr
 
     let apply (sources: SourceBinding array) (plan: LogicalPlan) : LogicalPlan =
-        let estimate = JoinReordering.estimate (JoinReordering.sourceRowCounts sources)
+        let estimate = JoinReordering.estimate (JoinReordering.tableEstimates sources)
         let source (mapping: Map<string, string>) name = mapping.TryFind name |> Option.defaultValue name
 
         /// The join of the pre-aggregated rows with the dimension, the aggregates over them, and the keys by source

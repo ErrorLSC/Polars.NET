@@ -96,6 +96,7 @@ internal static class CoreConfig
         NetClientEvaluationPolicyKey,
         DisallowUdfPushdownKey,
         AllowUnstableOrderingKey,
+        CollectColumnStatisticsKey,
         UseRelationalNullsKey
     ];
 
@@ -132,6 +133,10 @@ internal static class CoreConfig
         (
             "allow_unstable_ordering",
             () => AllowUnstableOrdering.ToFmtString()
+        ),
+        (
+            "collect_column_statistics",
+            () => CollectColumnStatistics.ToFmtString()
         ),
         (
             "use_relational_nulls",
@@ -359,6 +364,10 @@ internal static class CoreConfig
                             AllowUnstableOrdering = strValue is "1" or "true" or "TRUE" or "True";
                             break;
 
+                        case "collect_column_statistics":
+                            CollectColumnStatistics = strValue is "1" or "true" or "TRUE" or "True";
+                            break;
+
                         case "use_relational_nulls":
                             UseRelationalNulls = strValue is "1" or "true" or "TRUE" or "True";
                             break;
@@ -425,6 +434,7 @@ internal static class CoreConfig
         ClientEvaluationPolicy = ClientEvaluationPolicy.Strict;
         DisallowUdfPushdown = false;
         AllowUnstableOrdering = false;
+        CollectColumnStatistics = false;
         UseRelationalNulls = false;
 
         PolarsWrapper.ReloadEnvVarAll();
@@ -1064,6 +1074,25 @@ internal static class CoreConfig
     {
         var envValue = Environment.GetEnvironmentVariable(DisallowUdfPushdownKey);
         return envValue is "1" or "true" or "TRUE" or "True";
+    }
+
+    private const string CollectColumnStatisticsKey = "POLARS_COLLECT_COLUMN_STATISTICS";
+    private static bool _collectColumnStatistics = Environment.GetEnvironmentVariable(CollectColumnStatisticsKey) is "1" or "true" or "TRUE" or "True";
+
+    /// <summary>
+    /// Whether the query optimizer may read the filtered columns of small file tables while translating a query, once
+    /// per column, to estimate how many rows a filter keeps. Off by default. It affects plan choices only, never results.
+    /// </summary>
+    public static bool CollectColumnStatistics
+    {
+        get => _collectColumnStatistics;
+        set
+        {
+            _collectColumnStatistics = value;
+            string valStr = value ? "1" : "0";
+            Environment.SetEnvironmentVariable(CollectColumnStatisticsKey, valStr);
+            PolarsWrapper.SetEnvVar(CollectColumnStatisticsKey, valStr);
+        }
     }
 
     private const string AllowUnstableOrderingKey = "POLARS_ALLOW_UNSTABLE_ORDERING";
