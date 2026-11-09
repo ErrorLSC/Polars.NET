@@ -38,7 +38,7 @@ module ColumnStatisticsTests =
                     Histogram = Some [| 0.0; 1.0; 2.0; 3.0; 100.0 |] }
             ]
 
-    let private estimates: JoinReordering.SourceEstimates = { Rows = (fun _ -> 1000.0); Column = (fun _ column -> columns.TryFind column); KeyRange = (fun _ _ -> None) }
+    let private estimates: JoinReordering.SourceEstimates = { Rows = (fun _ -> 1000.0); Column = (fun _ column -> columns.TryFind column); KeyRange = (fun _ _ -> None); Observed = (fun _ -> None) }
     let private rowsOf plan = fst (JoinReordering.estimate estimates plan)
     let private equals column value = ScalarExpr.Binary(BinaryOp.Eq, col column, value)
     let private close (expected: float) (actual: float) = Assert.Equal(expected, actual, 6)

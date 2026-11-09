@@ -1055,11 +1055,57 @@ type IStatisticsProvider =
     /// Changes when the statistics change enough for cached plans to be replanned.
     abstract member Generation: int64
 
-/// The statistics providers of this process.
+/// A table source that can be recognized from one query to the next. A source without an identity, such as an in-memory
+/// frame, has nothing to attach an observation to.
+type ISourceIdentity =
+    /// Equal for sources reading the same data, or None when the source has no lasting identity.
+    abstract member SourceIdentity: string option
+
+/// What runtime feedback is keyed by: a subplan with its scans numbered by first appearance, and the identities of the
+/// sources they read in that order. The same subplan compares equal whichever query it appears in.
+type ObservedPlan =
+    {
+        Plan: LogicalPlan
+        Sources: string list
+    }
+
+/// The rows a subplan produced when it ran.
+type ObservedCardinality =
+    {
+        Rows: float
+        /// How many runs the value reflects.
+        Runs: int
+    }
+
+/// Cardinalities reported by the engines that run the plans. Like statistics, they steer plan choices only, never results.
+type ICardinalityFeedback =
+    abstract member TryGetObserved: plan: ObservedPlan -> ObservedCardinality option
+    abstract member Record: plan: ObservedPlan * rows: int64 -> unit
+    /// Changes when the observations change enough for cached plans to be replanned.
+    abstract member Generation: int64
+
+/// The statistics providers and cardinality feedback of this process.
 [<AbstractClass; Sealed>]
 type QueryStatistics private () =
     static let mutable providers: IStatisticsProvider list = []
+    static let mutable feedback: ICardinalityFeedback list = []
     static let gate = obj ()
+
+    /// Adds a feedback store, consulted before those added earlier and told of every report, until the result is disposed.
+    static member RegisterFeedback(store: ICardinalityFeedback) : IDisposable =
+        lock gate (fun () -> feedback <- store :: feedback)
+        { new IDisposable with
+            member _.Dispose() =
+                lock gate (fun () -> feedback <- feedback |> List.filter (fun f -> not (obj.ReferenceEquals(f, store)))) }
+
+    static member internal HasFeedback = not feedback.IsEmpty
+
+    static member internal Observed(plan: ObservedPlan) : ObservedCardinality option =
+        feedback |> List.tryPick (fun store -> store.TryGetObserved plan)
+
+    static member internal Report(plan: ObservedPlan, rows: int64) : unit =
+        for store in feedback do
+            store.Record(plan, rows)
 
     /// Adds a provider, consulted before those added earlier, until the result is disposed.
     static member Register(provider: IStatisticsProvider) : IDisposable =
@@ -1068,7 +1114,8 @@ type QueryStatistics private () =
             member _.Dispose() =
                 lock gate (fun () -> providers <- providers |> List.filter (fun p -> not (obj.ReferenceEquals(p, provider)))) }
 
-    static member internal Generation = providers |> List.sumBy (fun p -> p.Generation)
+    static member internal Generation =
+        (providers |> List.sumBy (fun p -> p.Generation)) + (feedback |> List.sumBy (fun store -> store.Generation))
 
     static member internal RowCount(source: ILogicalTableSource) : int64 option =
         providers

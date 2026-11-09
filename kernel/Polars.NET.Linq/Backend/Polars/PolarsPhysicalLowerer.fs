@@ -16,12 +16,19 @@ type internal PolarsTableSource(handle: LazyFrameHandle, schema: LogicalSchema) 
             let rows = PolarsWrapper.LazyEstimatedRows handle
             if rows.HasValue then Some rows.Value else None
         )
+    let identity =
+        lazy (
+            let plan = PolarsWrapper.Explain(handle, false)
+            if plan.Contains "SCAN [" then Some plan else None
+        )
     member _.Handle = handle
     interface ILogicalTableSource with
         member _.Name = "PolarsLazyFrame"
         member _.Schema = schema
     interface ISourceStatistics with
         member _.EstimatedRows = estimatedRows.Value
+    interface ISourceIdentity with
+        member _.SourceIdentity = identity.Value
     interface IColumnStatisticsSource with
         member _.TryGetColumnStatistics column =
             if CoreConfig.CollectColumnStatistics then

@@ -57,6 +57,8 @@ module internal JoinReordering =
             Column: int -> string -> ColumnStatistics option
             /// The (lowest, highest) values of a column, numbers and dates as doubles.
             KeyRange: int -> string -> (float * float) option
+            /// The rows a subplan was seen to produce, when an engine has reported them.
+            Observed: LogicalPlan -> float option
         }
 
     let private unixEpochDayNumber = DateOnly(1970, 1, 1).DayNumber
@@ -226,6 +228,12 @@ module internal JoinReordering =
 
     /// (estimated rows, rows of the table beneath before its filters).
     let rec estimate (sources: SourceEstimates) (plan: LogicalPlan) : float * float =
+        let rows, tableRows = estimateFromInputs sources plan
+        match sources.Observed plan with
+        | Some observed -> max 1.0 observed, tableRows
+        | None -> rows, tableRows
+
+    and private estimateFromInputs (sources: SourceEstimates) (plan: LogicalPlan) : float * float =
         let recurse = estimate sources
         match plan with
         | LogicalPlan.Scan(LogicalPlanSource.Slot index, _) ->
@@ -333,6 +341,14 @@ module internal JoinReordering =
                                     defaultSourceRows
                         knownRows.[slot] <- rows
                         rows
+            Observed =
+                fun plan ->
+                    if QueryStatistics.HasFeedback then
+                        CardinalityFeedback.tryKey sources plan
+                        |> Option.bind QueryStatistics.Observed
+                        |> Option.map (fun observed -> observed.Rows)
+                    else
+                        None
             KeyRange =
                 fun slot column ->
                     table slot
@@ -354,7 +370,7 @@ module internal JoinReordering =
 
     /// The estimates of `sourceEstimates` without column statistics, so that the fixed selectivities decide.
     let tableEstimates (sources: SourceBinding array) : SourceEstimates =
-        { sourceEstimates sources with Column = (fun _ _ -> None); KeyRange = (fun _ _ -> None) }
+        { sourceEstimates sources with Column = (fun _ _ -> None); KeyRange = (fun _ _ -> None); Observed = (fun _ -> None) }
 
     let apply (sources: SourceBinding array) (unorderedJoins: HashSet<LogicalPlan>) (plan: LogicalPlan) : LogicalPlan =
         let estimates = sourceEstimates sources

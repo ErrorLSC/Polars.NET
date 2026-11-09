@@ -18,6 +18,35 @@ public class LinqColumnStatisticsTests
     private static readonly Day[] Days = [.. Enumerable.Range(0, 30).Select(i => new Day(i, 2000 + i % 3))];
 
     [Fact]
+    public void A_registered_feedback_store_receives_reports_until_disposed()
+    {
+        var schema = Polars.NET.Linq.IR.LogicalSchema.OfFields(
+            Microsoft.FSharp.Collections.ListModule.OfArray(new[] { Tuple.Create("k", Polars.NET.Linq.IR.LogicalTypes.Int32) }));
+        var plan = Polars.NET.Linq.IR.LogicalPlan.NewScan(Polars.NET.Linq.IR.LogicalPlanSource.NewSlot(0), schema);
+        var sources = new[] { Polars.NET.Linq.IR.SourceBinding.NewTable(new IdentifiedSource(schema)) };
+        var key = Polars.NET.Linq.IR.CardinalityFeedback.TryKey(sources, plan).Value;
+        var store = new Polars.NET.Linq.IR.InMemoryCardinalityFeedback();
+        var feedback = (Polars.NET.Linq.IR.ICardinalityFeedback)store;
+
+        using (Polars.NET.Linq.IR.QueryStatistics.RegisterFeedback(store))
+        {
+            Polars.NET.Linq.IR.CardinalityFeedback.Report(sources, plan, 42);
+            Assert.Equal(42.0, feedback.TryGetObserved(key).Value.Rows);
+        }
+
+        Polars.NET.Linq.IR.CardinalityFeedback.Report(sources, plan, 7);
+        Assert.Equal(42.0, feedback.TryGetObserved(key).Value.Rows);
+    }
+
+    private sealed class IdentifiedSource(Polars.NET.Linq.IR.LogicalSchema schema)
+        : Polars.NET.Linq.IR.ILogicalTableSource, Polars.NET.Linq.IR.ISourceIdentity
+    {
+        public string Name => "file";
+        public Polars.NET.Linq.IR.LogicalSchema Schema => schema;
+        public Microsoft.FSharp.Core.FSharpOption<string> SourceIdentity => Microsoft.FSharp.Core.FSharpOption<string>.Some("file-a");
+    }
+
+    [Fact]
     public void Scalar_terminals_over_joins_match_LINQ_to_Objects()
     {
         using var sales = DataFrame.FromRows(Sales);
