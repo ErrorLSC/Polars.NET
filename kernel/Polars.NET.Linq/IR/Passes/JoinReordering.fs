@@ -488,14 +488,20 @@ module internal JoinReordering =
 
                     /// The estimated rows of joining `current` rows with relation `i` through its edges to `joined`.
                     let joinedRows (current: float) (joined: HashSet<int>) (i: int) =
-                        let denominators =
+                        let matches =
                             edges
                             |> Seq.choose (fun e ->
-                                if (e.A = i && joined.Contains e.B) || (e.B = i && joined.Contains e.A) then Some(edgeDomain e) else None)
+                                if e.A = i && joined.Contains e.B then Some(edgeDomain e, matchingDomain e.A e.KeyA e.B e.KeyB)
+                                elif e.B = i && joined.Contains e.A then Some(edgeDomain e, matchingDomain e.B e.KeyB e.A e.KeyA)
+                                else None)
                             |> List.ofSeq
-                        match denominators with
+                        match matches with
                         | [] -> None
-                        | _ -> Some(max 1.0 (current * rows i / max 1.0 (List.max denominators)))
+                        | _ ->
+                            let denominator = matches |> List.map fst |> List.max
+                            // Only the rows whose key can match take part: an unfiltered wide dimension does not fan out.
+                            let taking = min (rows i) (matches |> List.map snd |> List.min)
+                            Some(max 1.0 (current * taking / max 1.0 denominator))
 
                     /// The greedy order from one starting relation with its cost, the sum of its intermediate
                     /// results; None when some relation cannot be reached.

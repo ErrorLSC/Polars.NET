@@ -97,6 +97,12 @@ module JoinReorderingTests =
         Assert.Equal<int list>([ 0; 2; 1; 3 ], slots result)
 
     [<Fact>]
+    let ``An unfiltered dimension wider than the fact table's keys does not count as fanning out`` () =
+        let plan = join (join (join fact a "a_key" "a") (LogicalPlan.Filter(b, eq "b_v" 1)) "b_key" "b") c "c_key" "c"
+        let result = LogicalOptimizer.optimizeComplete false false (measuredSources (Some 10.0)) (total "v" plan)
+        Assert.Equal<int list>([ 0; 2; 1; 3 ], slots result)
+
+    [<Fact>]
     let ``Without statistics the filters still decide`` () =
         let result = LogicalOptimizer.optimizeComplete false false (star [ None; None; None; None ]) (total "v" written)
         Assert.Equal(2, (slots result).[1])
