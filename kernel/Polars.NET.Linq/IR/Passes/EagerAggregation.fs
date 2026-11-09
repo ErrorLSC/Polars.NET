@@ -1,5 +1,6 @@
 namespace Polars.NET.Linq.IR.Passes
 
+open System.Collections.Generic
 open Apache.Arrow.Types
 open Polars.NET.Linq.IR
 
@@ -19,6 +20,8 @@ open Polars.NET.Linq.IR
 /// times, as the original rows would be. Only aggregates that split exactly are rewritten:
 /// - Sum over integers and decimals. Floating sums round differently in another order.
 /// - Min, Max, Count and Len.
+/// - The mean of integers read as doubles, from a partial sum and count.
+/// - A sum guarded by a test on dimension columns (see `decompose`).
 /// - Not CheckedSum: a partial total can leave the type's range when the full total does not.
 ///
 /// When two dimensions supply the grouping columns, the fact table can still be aggregated before the unfiltered one, on
@@ -26,6 +29,8 @@ open Polars.NET.Linq.IR
 /// merges many rows when a customer buys often in a year. Nothing tells how many rows that merges; see
 /// `deferrableKeyDimension` for what keeps the extra grouping cheap when it merges few. The dimension may come first in
 /// the query, `(c JOIN f) JOIN d`, and then stays on the left.
+///
+/// A ROLLUP or other grouping sets are rewritten the same way, each level reading the pre-aggregated rows.
 ///
 /// There are no key statistics, so the rewrite needs the fact table to outnumber the dimension, whose size bounds the
 /// join key's values. The other joins' estimates are not used: they rest on fixed selectivities, and when they do
@@ -162,7 +167,7 @@ module internal EagerAggregation =
                 if filtersReadDimension || fst (estimate fact) < minReduction * fst (estimate dimension) then
                     None
                 else
-                    Some(rest, dimension, leftKey, rightKey, suffix, coalescing)
+                    Some(rest, dimension, leftKey, rightKey, suffix, coalescing, factColumns)
             | _ -> None
 
     /// As isolateDimension, for a star written with a dimension first: `(c JOIN f) JOIN d`, the dimension `c` being the
@@ -186,9 +191,44 @@ module internal EagerAggregation =
                 | [ (chosen, _, _, _, _) ] -> obj.ReferenceEquals(chosen, dimension)
                 | _ -> false
             if isStar && dimensionChosen && (List.distinct everyColumn).Length = everyColumn.Length && fst (estimate fact) >= minReduction * fst (estimate dimension) then
-                Some(rebuild fact steps, dimension, factKey, dimensionKey, suffix, coalescing)
+                Some(rebuild fact steps, dimension, factKey, dimensionKey, suffix, coalescing, factColumns)
             else
                 None
+        | _ -> None
+
+    /// As isolateDimension, for the dimension that holds every key, when another dimension comes first in the query:
+    /// `((d JOIN f) JOIN s)` with the keys in `s`. The first join stays beneath the aggregation.
+    let private isolateBehindLeadingDimension (estimate: LogicalPlan -> float * float) (keyColumns: Set<string>) (plan: LogicalPlan) =
+        let table, allSteps = flatten plan
+        let isFilterStep step =
+            match step with
+            | FilterStep _ -> true
+            | JoinStep _ -> false
+        // The leading dimension's own filters are part of it.
+        let leading = rebuild table (List.takeWhile isFilterStep allSteps)
+        match List.skipWhile isFilterStep allSteps with
+        | (JoinStep(fact, _, _, _, _) as first) :: steps when not (List.exists isFilterStep steps) ->
+            let factColumns = columnsOf fact |> Set.ofList
+            let joins: StarJoin list =
+                steps
+                |> List.choose (function
+                    | JoinStep(right, leftKey, rightKey, suffix, coalescing) -> Some(right, leftKey, rightKey, suffix, coalescing)
+                    | FilterStep _ -> None)
+            let everyColumn = columnsOf leading @ columnsOf fact @ (joins |> List.collect (fun (right, _, _, _, _) -> columnsOf right))
+            let isStar = joins |> List.forall (fun (_, leftKey, _, _, _) -> factColumns.Contains leftKey)
+            match soleKeyDimension keyColumns joins with
+            | [ (dimension, leftKey, rightKey, suffix, coalescing) ] when
+                isStar
+                && (List.distinct everyColumn).Length = everyColumn.Length
+                && fst (estimate fact) >= minReduction * fst (estimate dimension)
+                ->
+                let remaining =
+                    steps
+                    |> List.filter (function
+                        | JoinStep(right, _, _, _, _) -> not (obj.ReferenceEquals(right, dimension))
+                        | FilterStep _ -> true)
+                Some(rebuild leading (first :: remaining), dimension, leftKey, rightKey, suffix, coalescing, factColumns)
+            | _ -> None
         | _ -> None
 
     /// Integers and decimals: their sums do not depend on the order of the additions.
@@ -198,8 +238,16 @@ module internal EagerAggregation =
             true
         | _ -> false
 
+    let private isInteger (schema: LogicalSchema) (expr: ScalarExpr) =
+        match SchemaInference.inferScalarType schema expr with
+        | LogicalType.Arrow(:? Int8Type | :? Int16Type | :? Int32Type | :? Int64Type | :? UInt8Type | :? UInt16Type | :? UInt32Type | :? UInt64Type) -> true
+        | _ -> false
+
     /// The expression over partial results, adding the partial aggregates it needs to `partials`.
-    let private decompose (input: LogicalPlan) (partials: ResizeArray<string * ScalarExpr>) (expr: ScalarExpr) : ScalarExpr =
+    /// A sum guarded by a test on dimension columns is summed unguarded, and the test applied to the partial sums after
+    /// the join: `SUM(CASE WHEN d.day = 'Sun' THEN f.v END)` needs the test once per partial sum rather than once per fact
+    /// row. A tested column that is present beneath the aggregation is added to `testColumns`, to group on as well.
+    let private decompose (input: LogicalPlan) (factColumns: Set<string>) (partials: ResizeArray<string * ScalarExpr>) (testColumns: HashSet<string>) (guarded: bool ref) (expr: ScalarExpr) : ScalarExpr =
         let schema = SchemaInference.inferPlanSchema input
         let columns = Set.ofList schema.ColumnNames
         let partialOf (aggregate: ScalarExpr) =
@@ -220,8 +268,32 @@ module internal EagerAggregation =
             | ScalarExpr.Binary(op, left, right) -> ScalarExpr.Binary(op, final left, final right)
             | ScalarExpr.Conditional(test, ifTrue, ifFalse) -> ScalarExpr.Conditional(final test, final ifTrue, final ifFalse)
             | ScalarExpr.Coalesce items -> ScalarExpr.Coalesce(items |> List.map final)
+            | ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Conditional(test, value, (ScalarExpr.Literal(LiteralValue.Null _) as none))), false) when
+                readable value
+                && isExactNumber schema value
+                && not (ScalarExprOps.dependsOnOtherRows test)
+                && not (ScalarExprOps.containsAggregation test)
+                && Set.isEmpty (Set.intersect (ScalarExprOps.collectColumns test) factColumns)
+                ->
+                guarded.Value <- true
+                for column in ScalarExprOps.collectColumns test do
+                    if columns.Contains column then testColumns.Add column |> ignore
+                let partial = partialOf (ScalarExpr.Aggregation(AggKind.Sum, Some value, false))
+                ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Conditional(test, ScalarExpr.Column partial, none)), false)
             | ScalarExpr.Aggregation(AggKind.Sum, Some argument, false) when readable argument && isExactNumber schema argument ->
                 ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Column(partialOf node)), false)
+            // The mean of integers as doubles: the total of the partial sums over the total count, null without values.
+            | ScalarExpr.Aggregation(AggKind.Mean, Some(ScalarExpr.Cast(argument, (LogicalType.Arrow(:? DoubleType) as double), _) as asDouble), false) when
+                readable argument && isInteger schema argument
+                ->
+                let sumOf name = ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Column name), false)
+                let total = sumOf (partialOf (ScalarExpr.Aggregation(AggKind.Sum, Some asDouble, false)))
+                let count = sumOf (partialOf (ScalarExpr.Aggregation(AggKind.Count, Some argument, false)))
+                ScalarExpr.Conditional(
+                    ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Cast(count, LogicalTypes.Int64, false), ScalarExpr.Literal(LiteralValue.Int64 0L)),
+                    ScalarExpr.Literal(LiteralValue.Null double),
+                    ScalarExpr.Binary(BinaryOp.Divide, total, ScalarExpr.Cast(count, double, false))
+                )
             | ScalarExpr.Aggregation((AggKind.Min | AggKind.Max as kind), Some argument, false) when readable argument ->
                 ScalarExpr.Aggregation(kind, Some(ScalarExpr.Column(partialOf node)), false)
             | ScalarExpr.Aggregation(AggKind.Len, None, false) ->
@@ -235,53 +307,77 @@ module internal EagerAggregation =
         let estimate = JoinReordering.estimate (JoinReordering.sourceRowCounts sources)
         let source (mapping: Map<string, string>) name = mapping.TryFind name |> Option.defaultValue name
 
-        let tryGroupBy input keys aggs maintainOrder =
+        /// The join of the pre-aggregated rows with the dimension, the aggregates over them, and the keys by source
+        /// column, for a grouping of `input` on `keys` (output name, expression read from `input`).
+        let tryPreAggregate input (keys: (string * string) list option) aggs maintainOrder =
             let mapping, chain = peelProjects Map.empty input
-            let namedKeys =
-                keys
-                |> List.map (function
-                    | ScalarExpr.Column name -> Some(name, source mapping name)
-                    | ScalarExpr.Alias(ScalarExpr.Column name, alias) -> Some(alias, source mapping name)
-                    | _ -> None)
-            if namedKeys |> List.exists Option.isNone then
-                None
-            else
-                let namedKeys = namedKeys |> List.map Option.get
+            keys
+            |> Option.bind (fun keys ->
+                let namedKeys = keys |> List.map (fun (name, column) -> name, source mapping column)
                 let keyColumns = namedKeys |> List.map snd |> Set.ofList
                 let isolated =
                     if keyColumns.IsEmpty then
                         None
                     else
                         isolateDimension estimate (soleKeyDimension keyColumns) chain
-                        |> Option.map (fun parts -> parts, false)
+                        |> Option.map (fun parts -> parts, false, false)
                         |> Option.orElseWith (fun () ->
-                            isolateDimension estimate (deferrableKeyDimension keyColumns) chain |> Option.map (fun parts -> parts, false))
+                            isolateDimension estimate (deferrableKeyDimension keyColumns) chain |> Option.map (fun parts -> parts, false, false))
                         |> Option.orElseWith (fun () ->
-                            isolateLeadingDimension estimate keyColumns chain |> Option.map (fun parts -> parts, true))
+                            isolateLeadingDimension estimate keyColumns chain |> Option.map (fun parts -> parts, true, false))
+                        |> Option.orElseWith (fun () ->
+                            isolateBehindLeadingDimension estimate keyColumns chain |> Option.map (fun parts -> parts, false, true))
                 isolated
-                |> Option.bind (fun ((rest, dimension, leftKey, rightKey, suffix, coalescing), dimensionFirst) ->
+                |> Option.bind (fun ((rest, dimension, leftKey, rightKey, suffix, coalescing, factColumns), dimensionFirst, needsGuardedSum) ->
                     let toSource = ScalarExprOps.substitute (fun name -> mapping.TryFind name |> Option.map ScalarExpr.Column)
                     let partials = ResizeArray()
+                    let testColumns = HashSet<string>()
+                    let guarded = ref false
                     try
-                        let finalAggs = aggs |> List.map (fun (name, expr) -> name, decompose rest partials (toSource expr))
-                        if partials.Count = 0 then
+                        let finalAggs = aggs |> List.map (fun (name, expr) -> name, decompose rest factColumns partials testColumns guarded (toSource expr))
+                        if partials.Count = 0 || (needsGuardedSum && not guarded.Value) then
                             None
                         else
-                            let carried = Set.difference keyColumns (Set.ofList (columnsOf dimension)) |> Set.toList
-                            let preKeys = leftKey :: carried |> List.map ScalarExpr.Column
+                            let carried = Set.difference keyColumns (Set.ofList (columnsOf dimension)) |> Set.union (Set.ofSeq testColumns) |> Set.toList
+                            let preKeys = leftKey :: List.filter ((<>) leftKey) carried |> List.map ScalarExpr.Column
                             let pre = LogicalPlan.GroupBy(rest, preKeys, List.ofSeq partials, None, maintainOrder)
                             let joined =
                                 if dimensionFirst then
                                     LogicalPlan.Join(dimension, pre, [ ScalarExpr.Column rightKey ], [ ScalarExpr.Column leftKey ], JoinKind.Inner, suffix, coalescing, false)
                                 else
                                     LogicalPlan.Join(pre, dimension, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], JoinKind.Inner, suffix, coalescing, false)
-                            let finalKeys =
-                                namedKeys
-                                |> List.map (fun (name, column) ->
-                                    if name = column then ScalarExpr.Column column else ScalarExpr.Alias(ScalarExpr.Column column, name))
-                            Some(LogicalPlan.GroupBy(joined, finalKeys, finalAggs, None, maintainOrder))
+                            Some(namedKeys, joined, finalAggs)
                     with NotDecomposable ->
-                        None)
+                        None))
+
+        let plainKeys (keys: (string * ScalarExpr) list) =
+            let named =
+                keys
+                |> List.map (function
+                    | name, ScalarExpr.Column column -> Some(name, column)
+                    | _ -> None)
+            if named |> List.forall Option.isSome then Some(List.map Option.get named) else None
+
+        let tryGroupBy input keys aggs maintainOrder =
+            let named =
+                keys
+                |> List.map (function
+                    | ScalarExpr.Column name -> name, ScalarExpr.Column name
+                    | ScalarExpr.Alias(ScalarExpr.Column name, alias) -> alias, ScalarExpr.Column name
+                    | other -> "", other)
+            tryPreAggregate input (plainKeys named) aggs maintainOrder
+            |> Option.map (fun (namedKeys, joined, finalAggs) ->
+                let finalKeys =
+                    namedKeys
+                    |> List.map (fun (name, column) ->
+                        if name = column then ScalarExpr.Column column else ScalarExpr.Alias(ScalarExpr.Column column, name))
+                LogicalPlan.GroupBy(joined, finalKeys, finalAggs, None, maintainOrder))
+
+        let tryGroupingSets input (spec: LogicalGroupingSetsSpec) =
+            tryPreAggregate input (plainKeys spec.KeyAliases) spec.Aggs true
+            |> Option.map (fun (namedKeys, joined, finalAggs) ->
+                let keys = namedKeys |> List.map (fun (name, column) -> name, ScalarExpr.Column column)
+                LogicalPlan.GroupingSets(joined, { spec with KeyAliases = keys; Aggs = finalAggs }))
 
         let tryDistinct input keep maintainOrder =
             let mapping, chain = peelProjects Map.empty input
@@ -290,7 +386,7 @@ module internal EagerAggregation =
             else
                 let keyColumns = mapping |> Map.toList |> List.map snd |> Set.ofList
                 (if keyColumns.IsEmpty then None else isolateDimension estimate (soleKeyDimension keyColumns) chain)
-                |> Option.map (fun (rest, dimension, leftKey, rightKey, suffix, coalescing) ->
+                |> Option.map (fun (rest, dimension, leftKey, rightKey, suffix, coalescing, _) ->
                     let pre = LogicalPlan.Distinct(LogicalPlan.Project(rest, [ leftKey, ScalarExpr.Column leftKey ]), None, keep, maintainOrder)
                     let joined = LogicalPlan.Join(pre, dimension, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], JoinKind.Inner, suffix, coalescing, false)
                     let names = columnsOf input
@@ -303,6 +399,8 @@ module internal EagerAggregation =
                 tryGroupBy input keys aggs maintainOrder |> Option.defaultValue grouped
             | LogicalPlan.Distinct(input, None, keep, maintainOrder) as distinct ->
                 tryDistinct input keep maintainOrder |> Option.defaultValue distinct
+            | LogicalPlan.GroupingSets(input, spec) as grouping when spec.LevelMerges.IsNone ->
+                tryGroupingSets input spec |> Option.defaultValue grouping
             | other -> other
 
         rewrite plan

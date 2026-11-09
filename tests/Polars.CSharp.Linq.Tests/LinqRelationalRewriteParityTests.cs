@@ -92,6 +92,73 @@ public class LinqRelationalRewriteParityTests
     }
 
     [Fact]
+    public void Guarded_sum_is_tested_after_the_join()
+    {
+        using var dfS = DataFrame.FromRows(Sales);
+        using var dfD = DataFrame.FromRows(Days);
+
+        var query = from s in dfS.AsQueryable(Sales)
+                    join d in dfD.AsQueryable(Days) on s.Date equals d.DayId
+                    group new { s, d } by d.Year into g
+                    select new { g.Key, Early = g.Sum(x => x.d.DayId < 4 ? (decimal?)x.s.Amount : null) };
+        var expected = (from s in Sales
+                        join d in Days on s.Date equals d.DayId
+                        group new { s, d } by d.Year into g
+                        select new { g.Key, Early = g.Sum(x => x.d.DayId < 4 ? (decimal?)x.s.Amount : null) }).ToList();
+
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Count(query.Explain(), "AGGREGATE"));
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
+    public void Guarded_sum_behind_a_leading_dimension_carries_the_tested_column()
+    {
+        using var dfS = DataFrame.FromRows(Sales);
+        using var dfC = DataFrame.FromRows(Customers);
+        using var dfD = DataFrame.FromRows(Days);
+
+        var query = from d in dfD.AsQueryable(Days).Where(d => d.Year >= 2001)
+                    join s in dfS.AsQueryable(Sales) on d.DayId equals s.Date
+                    join c in dfC.AsQueryable(Customers) on s.Customer equals c.CustomerId
+                    group new { s, d } by c.Name into g
+                    select new { g.Key, Y1 = g.Sum(x => x.d.Year == 2001 ? (decimal?)x.s.Amount : null), Y2 = g.Sum(x => x.d.Year == 2002 ? (decimal?)x.s.Amount : null) };
+        var expected = (from d in Days.Where(d => d.Year >= 2001)
+                        join s in Sales on d.DayId equals s.Date
+                        join c in Customers on s.Customer equals c.CustomerId
+                        group new { s, d } by c.Name into g
+                        select new { g.Key, Y1 = g.Sum(x => x.d.Year == 2001 ? (decimal?)x.s.Amount : null), Y2 = g.Sum(x => x.d.Year == 2002 ? (decimal?)x.s.Amount : null) }).ToList();
+
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Count(query.Explain(), "AGGREGATE"));
+        Assert.Equal(expected, query.ToList());
+    }
+
+    [Fact]
+    public void Mean_of_integers_is_null_for_a_group_without_values()
+    {
+        Sale[] rows = [.. Sales, new Sale(99, 0, 0, null, 0m), new Sale(99, 1, 0, null, 0m)];
+        Customer[] customers = [.. Customers, new(99, "zed")];
+        using var dfS = DataFrame.FromRows(rows);
+        using var dfC = DataFrame.FromRows(customers);
+
+        var query = from s in dfS.AsQueryable(rows)
+                    join c in dfC.AsQueryable(customers) on s.Customer equals c.CustomerId
+                    group s by c.Name into g
+                    select new { g.Key, Mean = g.Average(x => (double?)x.Quantity) };
+        var expected = (from s in rows
+                        join c in customers on s.Customer equals c.CustomerId
+                        group s by c.Name into g
+                        select new { g.Key, Mean = g.Average(x => (double?)x.Quantity) }).ToList();
+
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Count(query.Explain(), "AGGREGATE"));
+        var actual = query.ToList();
+        Assert.Equal(expected.Select(x => x.Key), actual.Select(x => x.Key));
+        Assert.Equal(expected.Select(x => x.Mean is null), actual.Select(x => x.Mean is null));
+        foreach (var (e, a) in expected.Zip(actual))
+            if (e.Mean is { } mean) Assert.Equal(mean, a.Mean!.Value, 1e-9);
+        Assert.Contains(actual, x => x.Key == "zed" && x.Mean == null);
+    }
+
+    [Fact]
     public void Grouping_on_keys_of_two_dimensions_keeps_first_appearance_order()
     {
         using var dfS = DataFrame.FromRows(Sales);

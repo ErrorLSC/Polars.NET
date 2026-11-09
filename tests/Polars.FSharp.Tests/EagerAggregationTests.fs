@@ -174,6 +174,61 @@ module EagerAggregationTests =
         let joined = inner (inner facts filteredDates "f_d" "t_k") dims "f_k" "d_k"
         assertUnchanged (LogicalPlan.Distinct(LogicalPlan.Project(joined, [ "a", col "d_a"; "y", col "t_y" ]), None, DistinctKeep.First, true))
 
+    let private overYears = ScalarExpr.Binary(BinaryOp.Gt, col "t_y", lit 2000)
+    let private noValue = ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Int64)
+    let private guardedSum value = ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Conditional(overYears, value, noValue)), false)
+
+    [<Fact>]
+    let ``A sum guarded by the dimension is tested after the join`` () =
+        let plan = LogicalPlan.GroupBy(inner facts dates "f_d" "t_k", [ col "t_y" ], [ "total", guardedSum (col "f_v") ], None, true)
+
+        let pre = LogicalPlan.GroupBy(facts, [ col "f_d" ], [ partial 0, agg AggKind.Sum "f_v" ], None, true)
+        let expected = LogicalPlan.GroupBy(inner pre dates "f_d" "t_k", [ col "t_y" ], [ "total", guardedSum (col (partial 0)) ], None, true)
+        Assert.Equal(expected, apply plan)
+
+    [<Fact>]
+    let ``A dimension behind a leading one carries the tested column`` () =
+        let plan = LogicalPlan.GroupBy(inner (inner filteredDates facts "t_k" "f_d") dims "f_k" "d_k", [ col "d_a" ], [ "total", guardedSum (col "f_v") ], None, true)
+
+        let pre = LogicalPlan.GroupBy(inner filteredDates facts "t_k" "f_d", [ col "f_k"; col "t_y" ], [ partial 0, agg AggKind.Sum "f_v" ], None, true)
+        let expected = LogicalPlan.GroupBy(inner pre dims "f_k" "d_k", [ col "d_a" ], [ "total", guardedSum (col (partial 0)) ], None, true)
+        Assert.Equal(expected, apply plan)
+
+    [<Fact>]
+    let ``A plain sum behind a leading dimension is left alone`` () =
+        assertUnchanged (LogicalPlan.GroupBy(inner (inner filteredDates facts "t_k" "f_d") dims "f_k" "d_k", [ col "d_a" ], totals, None, true))
+
+    let private meanOfInteger = ScalarExpr.Cast(col "f_d", LogicalTypes.Float64, false)
+
+    let private finalMean =
+        let sumOf name = ScalarExpr.Aggregation(AggKind.Sum, Some(col name), false)
+        ScalarExpr.Conditional(
+            ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Cast(sumOf (partial 1), LogicalTypes.Int64, false), ScalarExpr.Literal(LiteralValue.Int64 0L)),
+            ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Float64),
+            ScalarExpr.Binary(BinaryOp.Divide, sumOf (partial 0), ScalarExpr.Cast(sumOf (partial 1), LogicalTypes.Float64, false)))
+
+    let private meanPartials = [ partial 0, ScalarExpr.Aggregation(AggKind.Sum, Some meanOfInteger, false); partial 1, agg AggKind.Count "f_d" ]
+
+    [<Fact>]
+    let ``A mean of integers is computed from a partial sum and count`` () =
+        let plan = LogicalPlan.GroupBy(inner facts dims "f_k" "d_k", [ col "d_a" ], [ "m", ScalarExpr.Aggregation(AggKind.Mean, Some meanOfInteger, false) ], None, true)
+
+        let pre = LogicalPlan.GroupBy(facts, [ col "f_k" ], meanPartials, None, true)
+        Assert.Equal(LogicalPlan.GroupBy(inner pre dims "f_k" "d_k", [ col "d_a" ], [ "m", finalMean ], None, true), apply plan)
+
+    [<Fact>]
+    let ``A mean of floats is left alone`` () =
+        assertUnchanged (LogicalPlan.GroupBy(inner facts dims "f_k" "d_k", [ col "d_a" ], [ "m", agg AggKind.Mean "f_x" ], None, true))
+
+    [<Fact>]
+    let ``Grouping sets read the pre-aggregated rows`` () =
+        let spec aggs : LogicalGroupingSetsSpec =
+            { KeyAliases = [ "a", col "d_a" ]; Aggs = aggs; Levels = [ [ 0 ], Map.empty; [], Map.empty ]; OutputColumns = [ "a"; "m" ]; LevelMerges = None }
+        let plan = LogicalPlan.GroupingSets(inner facts dims "f_k" "d_k", spec [ "m", ScalarExpr.Aggregation(AggKind.Mean, Some meanOfInteger, false) ])
+
+        let pre = LogicalPlan.GroupBy(facts, [ col "f_k" ], meanPartials, None, true)
+        Assert.Equal(LogicalPlan.GroupingSets(inner pre dims "f_k" "d_k", spec [ "m", finalMean ]), apply plan)
+
     [<Fact>]
     let ``A left join is left alone`` () =
         let joined = LogicalPlan.Join(facts, dims, [ col "f_k" ], [ col "d_k" ], JoinKind.Left, None, JoinKeyCoalescing.Default, false)
